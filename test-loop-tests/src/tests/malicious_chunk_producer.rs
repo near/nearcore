@@ -3,7 +3,6 @@
 
 use crate::setup::builder::TestLoopBuilder;
 use crate::setup::env::TestLoopEnv;
-use crate::utils::ONE_NEAR;
 use crate::utils::client_queries::ClientQueries;
 use crate::utils::transactions::get_anchor_hash;
 use near_async::messaging::CanSend as _;

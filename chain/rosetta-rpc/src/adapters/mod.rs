@@ -633,7 +633,9 @@ impl TryFrom<Vec<crate::models::Operation>> for NearActions {
                     }
                     actions.push(
                         near_primitives::transaction::TransferAction {
-                            deposit: Balance::from_yoctonear(receiver_transfer_operation.amount.value.absolute_difference()),
+                            deposit: Balance::from_yoctonear(
+                                receiver_transfer_operation.amount.value.absolute_difference(),
+                            ),
                         }
                         .into(),
                     )
@@ -696,8 +698,9 @@ impl TryFrom<Vec<crate::models::Operation>> for NearActions {
                                 operations.next(),
                             )?;
                         if transfer_operation.amount.value.is_positive()
-                            || Balance::from_yoctonear(transfer_operation.amount.value.absolute_difference())
-                                != function_call_operation.attached_amount
+                            || Balance::from_yoctonear(
+                                transfer_operation.amount.value.absolute_difference(),
+                            ) != function_call_operation.attached_amount
                         {
                             return Err(crate::errors::ErrorKind::InvalidInput(
                                 "The sum of amounts of Sender TRANSFER and Receiver FUNCTION_CALL operations must be zero"
@@ -863,12 +866,8 @@ mod tests {
             }
             .into(),
         ];
-        let transfer_actions = vec![
-            near_primitives::transaction::TransferAction {
-                deposit: Balance::MAX,
-            }
-            .into(),
-        ];
+        let transfer_actions =
+            vec![near_primitives::transaction::TransferAction { deposit: Balance::MAX }.into()];
         let stake_actions = vec![
             near_primitives::transaction::StakeAction {
                 stake: Balance::from_yoctonear(456),
@@ -988,7 +987,9 @@ mod tests {
                     sender_id: "account.near".parse().unwrap(),
                     receiver_id: "receiver.near".parse().unwrap(),
                     actions: vec![
-                        Action::Transfer(TransferAction { deposit: Balance::from_yoctonear(1) }).try_into().unwrap(),
+                        Action::Transfer(TransferAction { deposit: Balance::from_yoctonear(1) })
+                            .try_into()
+                            .unwrap(),
                     ],
                     nonce: 0,
                     max_block_height: 0,

@@ -1613,7 +1613,7 @@ mod tests {
     use crate::transaction::SignedTransaction;
     use near_crypto::{KeyType, PublicKey};
     use near_primitives_core::hash::CryptoHash;
-    use near_primitives_core::types::{ShardId, Balance};
+    use near_primitives_core::types::{Balance, ShardId};
 
     fn get_receipt() -> Receipt {
         let receipt_v0 = Receipt::V0(ReceiptV0 {

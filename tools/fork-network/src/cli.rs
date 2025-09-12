@@ -1408,7 +1408,12 @@ impl ForkNetworkCommand {
                 storage_mutator.set_account(
                     shard_idx,
                     account_id.clone(),
-                    Account::new(liquid_balance, Balance::ZERO, AccountContract::None, storage_bytes),
+                    Account::new(
+                        liquid_balance,
+                        Balance::ZERO,
+                        AccountContract::None,
+                        storage_bytes,
+                    ),
                 )?;
                 storage_mutator.set_access_key(
                     shard_idx,

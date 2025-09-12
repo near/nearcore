@@ -794,7 +794,11 @@ impl<'a> VMLogic<'a> {
         self.result_state.gas_counter.pay_base(base)?;
         self.result_state.gas_counter.pay_base(validator_total_stake_base)?;
         let total_stake = self.ext.validator_total_stake()?;
-        self.memory.set_u128(&mut self.result_state.gas_counter, stake_ptr, total_stake.as_yoctonear())
+        self.memory.set_u128(
+            &mut self.result_state.gas_counter,
+            stake_ptr,
+            total_stake.as_yoctonear(),
+        )
     }
 
     /// Returns the number of bytes used by the contract if it was saved to the trie as of the
@@ -2478,7 +2482,9 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
             }
             .into());
         }
-        let amount = Balance::from_yoctonear(self.memory.get_u128(&mut self.result_state.gas_counter, amount_ptr)?);
+        let amount = Balance::from_yoctonear(
+            self.memory.get_u128(&mut self.result_state.gas_counter, amount_ptr)?,
+        );
         let gas = Gas::from_gas(gas);
         let method_name = get_memory_or_register!(self, method_name_ptr, method_name_len)?;
         if method_name.is_empty() {
@@ -2535,7 +2541,9 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
             }
             .into());
         }
-        let amount = Balance::from_yoctonear(self.memory.get_u128(&mut self.result_state.gas_counter, amount_ptr)?);
+        let amount = Balance::from_yoctonear(
+            self.memory.get_u128(&mut self.result_state.gas_counter, amount_ptr)?,
+        );
 
         let (receipt_idx, sir) = self.promise_idx_to_receipt_idx_with_sir(promise_idx)?;
         let receiver_id = self.ext.get_receipt_receiver(receipt_idx);
@@ -2595,7 +2603,9 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
             }
             .into());
         }
-        let amount = Balance::from_yoctonear(self.memory.get_u128(&mut self.result_state.gas_counter, amount_ptr)?);
+        let amount = Balance::from_yoctonear(
+            self.memory.get_u128(&mut self.result_state.gas_counter, amount_ptr)?,
+        );
         let public_key = self.get_public_key(public_key_ptr, public_key_len)?;
         let (receipt_idx, sir) = self.promise_idx_to_receipt_idx_with_sir(promise_idx)?;
         self.pay_action_base(ActionCosts::stake, sir)?;
@@ -2680,7 +2690,9 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
             .into());
         }
         let public_key = self.get_public_key(public_key_ptr, public_key_len)?;
-        let allowance = Balance::from_yoctonear(self.memory.get_u128(&mut self.result_state.gas_counter, allowance_ptr)?);
+        let allowance = Balance::from_yoctonear(
+            self.memory.get_u128(&mut self.result_state.gas_counter, allowance_ptr)?,
+        );
         let allowance = if allowance > Balance::ZERO { Some(allowance) } else { None };
         let receiver_id = self.read_and_parse_account_id(receiver_id_ptr, receiver_id_len)?;
         let raw_method_names = get_memory_or_register!(self, method_names_ptr, method_names_len)?;

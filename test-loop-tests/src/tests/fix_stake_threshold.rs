@@ -81,7 +81,10 @@ fn slow_test_fix_validator_stake_threshold() {
     // threshold = min_stake_ratio * total_stake / (1 - min_stake_ratio)
     //           = (1 / 62_500) * total_stake / (62_499 / 62_500)
     //           = total_stake / 62_499
-    assert_eq!(epoch_info.seat_price().checked_div(ONE_NEAR).unwrap(), total_stake.checked_div(62_499).unwrap().checked_div(ONE_NEAR).unwrap());
+    assert_eq!(
+        epoch_info.seat_price().checked_div(ONE_NEAR).unwrap(),
+        total_stake.checked_div(62_499).unwrap().checked_div(ONE_NEAR).unwrap()
+    );
 
     TestLoopEnv { test_loop, node_datas, shared_state }
         .shutdown_and_drain_remaining_events(Duration::seconds(20));

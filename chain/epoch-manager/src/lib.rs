@@ -97,7 +97,10 @@ impl EpochInfoProvider for EpochManagerHandle {
     fn validator_total_stake(&self, epoch_id: &EpochId) -> Result<Balance, EpochError> {
         let epoch_manager = self.read();
         let epoch_info = epoch_manager.get_epoch_info(epoch_id)?;
-        Ok(epoch_info.validators_iter().map(|info| info.stake()).fold(Balance::ZERO, |sum, item| { sum.checked_add(item).unwrap() }))
+        Ok(epoch_info
+            .validators_iter()
+            .map(|info| info.stake())
+            .fold(Balance::ZERO, |sum, item| sum.checked_add(item).unwrap()))
     }
 
     fn minimum_stake(&self, prev_block_hash: &CryptoHash) -> Result<Balance, EpochError> {
@@ -306,18 +309,24 @@ impl EpochManager {
         // Later when we perform the check to kick out validators, we don't kick out validators in
         // exempted_validators.
         let mut exempted_validators = HashSet::new();
-        let min_keep_stake = Balance::from_yoctonear((U256::from(total_stake) * U256::from(exempt_perc as u128)
-            / U256::from(100u128))
-        .as_u128());
+        let min_keep_stake = Balance::from_yoctonear(
+            (U256::from(total_stake) * U256::from(exempt_perc as u128) / U256::from(100u128))
+                .as_u128(),
+        );
         let mut exempted_stake = Balance::ZERO;
         for account_id in accounts_sorted_by_online_ratio.into_iter().rev() {
             if exempted_stake >= min_keep_stake {
                 break;
             }
             if !prev_validator_kickout.contains_key(account_id) {
-                exempted_stake = exempted_stake.checked_add(epoch_info.get_validator_by_account(account_id)
-                .map(|v| v.stake())
-                .unwrap_or_default()).unwrap();
+                exempted_stake = exempted_stake
+                    .checked_add(
+                        epoch_info
+                            .get_validator_by_account(account_id)
+                            .map(|v| v.stake())
+                            .unwrap_or_default(),
+                    )
+                    .unwrap();
                 exempted_validators.insert(account_id.clone());
             }
         }
@@ -505,7 +514,7 @@ impl EpochManager {
             .collect::<HashSet<_>>()
             .iter()
             .map(|&id| epoch_info.validator_stake(id))
-            .fold(Balance::ZERO, |sum, item| { sum.checked_add(item).unwrap() });
+            .fold(Balance::ZERO, |sum, item| sum.checked_add(item).unwrap());
 
         // Next protocol version calculation.
         // Implements https://github.com/near/NEPs/blob/master/specs/ChainSpec/Upgradability.md
@@ -535,9 +544,10 @@ impl EpochManager {
         {
             let numer = *config.protocol_upgrade_stake_threshold.numer() as u128;
             let denom = *config.protocol_upgrade_stake_threshold.denom() as u128;
-            let threshold = Balance::from_yoctonear((U256::from(total_block_producer_stake) * U256::from(numer)
-                / U256::from(denom))
-            .as_u128());
+            let threshold = Balance::from_yoctonear(
+                (U256::from(total_block_producer_stake) * U256::from(numer) / U256::from(denom))
+                    .as_u128(),
+            );
             if stake > threshold { version } else { protocol_version }
         } else {
             protocol_version
@@ -566,7 +576,8 @@ impl EpochManager {
         // Kickout unstaked validators.
         for (account_id, proposal) in all_proposals {
             if proposal.stake() == Balance::ZERO
-                && *next_epoch_info.stake_change().get(&account_id).unwrap_or(&Balance::ZERO) != Balance::ZERO
+                && *next_epoch_info.stake_change().get(&account_id).unwrap_or(&Balance::ZERO)
+                    != Balance::ZERO
             {
                 validator_kickout.insert(account_id.clone(), ValidatorKickoutReason::Unstaked);
             }

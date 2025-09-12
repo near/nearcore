@@ -1,6 +1,5 @@
 use crate::setup::builder::TestLoopBuilder;
 use crate::setup::env::TestLoopEnv;
-use crate::utils::ONE_NEAR;
 use itertools::Itertools;
 use near_async::time::Duration;
 use near_chain::{Block, Error, Provenance};

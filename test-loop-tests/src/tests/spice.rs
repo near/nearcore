@@ -147,7 +147,9 @@ fn test_spice_chain() {
     assert!(!balance_changes.is_empty());
     for (account, balance_change) in &balance_changes {
         let got_balance = get_balance(&mut test_loop.data, account, epoch_id);
-        let want_balance = Balance::from_yoctonear((INITIAL_BALANCE.as_yoctonear() as i128 + balance_change) as u128);
+        let want_balance = Balance::from_yoctonear(
+            (INITIAL_BALANCE.as_yoctonear() as i128 + balance_change) as u128,
+        );
         assert_eq!(got_balance, want_balance);
         assert_ne!(*balance_change, 0);
     }

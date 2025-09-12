@@ -1591,7 +1591,8 @@ fn test_gc_tail_update() {
 fn test_gas_price_change() {
     init_test_logger();
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
-    let target_num_tokens_left = NEAR_BASE.checked_div(10).unwrap().saturating_add(Balance::from_yoctonear(1));
+    let target_num_tokens_left =
+        NEAR_BASE.checked_div(10).unwrap().saturating_add(Balance::from_yoctonear(1));
     let transaction_costs = RuntimeConfig::test().fees;
 
     let send_money_total_gas = transaction_costs
@@ -1603,7 +1604,8 @@ fn test_gas_price_change() {
         .unwrap()
         .checked_add(transaction_costs.fee(ActionCosts::new_action_receipt).exec_fee())
         .unwrap();
-    let min_gas_price = target_num_tokens_left.checked_div(u128::from(send_money_total_gas.as_gas())).unwrap();
+    let min_gas_price =
+        target_num_tokens_left.checked_div(u128::from(send_money_total_gas.as_gas())).unwrap();
     let gas_limit = 1000000000000;
     let gas_price_adjustment_rate = Ratio::new(1, 10);
 
@@ -1621,8 +1623,12 @@ fn test_gas_price_change() {
         "test0".parse().unwrap(),
         &signer,
         TESTING_INIT_BALANCE
-            .checked_sub(target_num_tokens_left).unwrap()
-            .checked_sub(Balance::from_yoctonear(u128::from(send_money_total_gas.as_gas()) * min_gas_price.as_yoctonear())).unwrap(),
+            .checked_sub(target_num_tokens_left)
+            .unwrap()
+            .checked_sub(Balance::from_yoctonear(
+                u128::from(send_money_total_gas.as_gas()) * min_gas_price.as_yoctonear(),
+            ))
+            .unwrap(),
         genesis_hash,
     );
     assert_eq!(env.rpc_handlers[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);

@@ -55,7 +55,11 @@ impl Genesis {
             account_infos.push(AccountInfo {
                 account_id: account.clone(),
                 public_key: signer.public_key(),
-                amount: if i < num_validator_seats as usize { TESTING_INIT_STAKE } else { Balance::ZERO },
+                amount: if i < num_validator_seats as usize {
+                    TESTING_INIT_STAKE
+                } else {
+                    Balance::ZERO
+                },
             });
         }
         let genesis_time = from_timestamp(clock.now_utc().unix_timestamp_nanos() as u64);
@@ -213,7 +217,9 @@ pub fn get_initial_supply(records: &[StateRecord]) -> Balance {
     let mut total_supply = Balance::ZERO;
     for record in records {
         if let StateRecord::Account { account, .. } = record {
-            total_supply = total_supply.checked_add(account.amount().checked_add(account.locked()).unwrap()).unwrap();
+            total_supply = total_supply
+                .checked_add(account.amount().checked_add(account.locked()).unwrap())
+                .unwrap();
         }
     }
     total_supply

@@ -383,7 +383,8 @@ fn action_transfer(ctx: &mut EstimatorContext) -> GasCost {
         let mut make_transaction = |tb: &mut TransactionBuilder| -> SignedTransaction {
             let (sender, receiver) = tb.random_account_pair();
 
-            let actions = vec![Action::Transfer(TransferAction { deposit: Balance::from_yoctonear(1) })];
+            let actions =
+                vec![Action::Transfer(TransferAction { deposit: Balance::from_yoctonear(1) })];
             tb.transaction_from_actions(sender, receiver, actions)
         };
         let block_size = 100;

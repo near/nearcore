@@ -372,7 +372,6 @@ impl SubtreeSize {
 
 #[cfg(test)]
 mod trie_recording_tests {
-    use near_primitives::types::Balance;
     use crate::adapter::trie_store::TrieStoreAdapter;
     use crate::adapter::{StoreAdapter, StoreUpdateAdapter};
     use crate::db::refcount::decode_value_with_rc;
@@ -390,6 +389,7 @@ mod trie_recording_tests {
     use near_primitives::shard_layout::{ShardUId, get_block_shard_uid};
     use near_primitives::state::PartialState;
     use near_primitives::state::ValueRef;
+    use near_primitives::types::Balance;
     use near_primitives::types::chunk_extra::ChunkExtra;
     use near_primitives::types::{Gas, StateRoot};
     use rand::prelude::SliceRandom;

@@ -22,7 +22,6 @@ use crate::setup::builder::{NodeStateBuilder, TestLoopBuilder};
 use crate::setup::drop_condition::DropCondition;
 use crate::setup::env::TestLoopEnv;
 use crate::setup::state::NodeExecutionData;
-use crate::utils::ONE_NEAR;
 use crate::utils::transactions::{get_anchor_hash, get_smallest_height_head};
 
 use itertools::Itertools;
@@ -148,8 +147,8 @@ fn setup_initial_blockchain(
     if let Some(accounts) = accounts.as_ref() {
         for accounts in accounts {
             for (account, _nonce) in accounts {
-                genesis_builder =
-                    genesis_builder.add_user_account_simple(account.clone(), Balance::from_near(10000));
+                genesis_builder = genesis_builder
+                    .add_user_account_simple(account.clone(), Balance::from_near(10000));
             }
         }
     }

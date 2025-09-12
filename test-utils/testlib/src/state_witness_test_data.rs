@@ -115,7 +115,8 @@ pub fn generate_realistic_state_witness(target_size_bytes: usize) -> ChunkStateW
             let from_idx = ((batch_num * batch_size + i) % (initial_accounts.len() - 1)) + 1;
             let to_idx = (from_idx % (initial_accounts.len() - 1)) + 1;
 
-            let amount = TRANSFER_AMOUNT.checked_add(Balance::from_millinear(i as u128 * 100)).unwrap(); // Slightly different amounts
+            let amount =
+                TRANSFER_AMOUNT.checked_add(Balance::from_millinear(i as u128 * 100)).unwrap(); // Slightly different amounts
 
             let tx = SignedTransaction::send_money(
                 1 + batch_num as u64,

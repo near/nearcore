@@ -182,8 +182,12 @@ fn setup_runtime_for_shard(
 
 #[test]
 fn test_apply_no_op() {
-    let (runtime, tries, root, apply_state, _, epoch_info_provider) =
-        setup_runtime(vec![alice_account()], to_yocto(Balance::from_near(1_000_000)), Balance::ZERO, Gas::from_teragas(1000));
+    let (runtime, tries, root, apply_state, _, epoch_info_provider) = setup_runtime(
+        vec![alice_account()],
+        to_yocto(Balance::from_near(1_000_000)),
+        Balance::ZERO,
+        Gas::from_teragas(1000),
+    );
     runtime
         .apply(
             tries.get_trie_for_shard(ShardUId::single_shard(), root),
@@ -271,8 +275,10 @@ fn test_apply_refund_receipts() {
         assert_eq!(
             account.amount(),
             initial_balance
-                .checked_add(small_transfer.checked_mul(capped_i.into()).unwrap()).unwrap()
-                .checked_add(Balance::from_yoctonear((capped_i * (capped_i - 1) / 2).into())).unwrap()
+                .checked_add(small_transfer.checked_mul(capped_i.into()).unwrap())
+                .unwrap()
+                .checked_add(Balance::from_yoctonear((capped_i * (capped_i - 1) / 2).into()))
+                .unwrap()
         );
     }
 }
@@ -316,8 +322,10 @@ fn test_apply_delayed_receipts_feed_all_at_once() {
         assert_eq!(
             account.amount(),
             initial_balance
-                .checked_add(small_transfer.checked_mul(capped_i.into()).unwrap()).unwrap()
-                .checked_add(Balance::from_yoctonear((capped_i * (capped_i - 1) / 2).into())).unwrap()
+                .checked_add(small_transfer.checked_mul(capped_i.into()).unwrap())
+                .unwrap()
+                .checked_add(Balance::from_yoctonear((capped_i * (capped_i - 1) / 2).into()))
+                .unwrap()
         );
     }
 }
@@ -369,8 +377,10 @@ fn test_apply_delayed_receipts_add_more_using_chunks() {
         assert_eq!(
             account.amount(),
             initial_balance
-                .checked_add(small_transfer.checked_mul(capped_i.into()).unwrap()).unwrap()
-                .checked_add(Balance::from_yoctonear((capped_i * (capped_i - 1) / 2).into())).unwrap()
+                .checked_add(small_transfer.checked_mul(capped_i.into()).unwrap())
+                .unwrap()
+                .checked_add(Balance::from_yoctonear((capped_i * (capped_i - 1) / 2).into()))
+                .unwrap()
         );
     }
 }
@@ -431,8 +441,12 @@ fn test_apply_delayed_receipts_adjustable_gas_limit() {
         assert_eq!(
             account.amount(),
             initial_balance
-                .checked_add(small_transfer.checked_mul(num_receipts_processed as u128).unwrap()).unwrap()
-                .checked_add(Balance::from_yoctonear((num_receipts_processed * (num_receipts_processed - 1) / 2) as u128)).unwrap()
+                .checked_add(small_transfer.checked_mul(num_receipts_processed as u128).unwrap())
+                .unwrap()
+                .checked_add(Balance::from_yoctonear(
+                    (num_receipts_processed * (num_receipts_processed - 1) / 2) as u128
+                ))
+                .unwrap()
         );
         let expected_queue_length = num_receipts_given - num_receipts_processed;
         println!(
@@ -780,7 +794,10 @@ fn test_apply_deficit_gas_for_transfer() {
             Default::default(),
         )
         .unwrap();
-    assert_eq!(result.stats.balance.gas_deficit_amount, result.stats.balance.tx_burnt_amount.checked_mul(9).unwrap())
+    assert_eq!(
+        result.stats.balance.gas_deficit_amount,
+        result.stats.balance.tx_burnt_amount.checked_mul(9).unwrap()
+    )
 }
 
 /// Apply a transfer receipt that was purchased at a higher gas price than
@@ -884,20 +901,29 @@ fn test_apply_deficit_gas_for_function_call_covered() {
             actions,
         }),
     })];
-    let total_receipt_cost =
-        gas_price.checked_mul(Gas::from_gas(gas).checked_add(expected_gas_burnt).unwrap().as_gas().into()).unwrap();
+    let total_receipt_cost = gas_price
+        .checked_mul(Gas::from_gas(gas).checked_add(expected_gas_burnt).unwrap().as_gas().into())
+        .unwrap();
     let expected_gas_burnt_amount = if apply_state.config.fees.refund_gas_price_changes {
         GAS_PRICE.checked_mul(expected_gas_burnt.as_gas().into()).unwrap()
     } else {
         gas_price.checked_mul(expected_gas_burnt.as_gas().into()).unwrap()
     };
     // With gas refund penalties enabled, we should see a reduced refund value
-    let unspent_gas = total_receipt_cost.checked_sub(expected_gas_burnt_amount).unwrap().checked_div(gas_price.as_yoctonear()).unwrap();
-    let refund_penalty =
-        apply_state.config.fees.gas_penalty_for_gas_refund(Gas::from_gas(unspent_gas.as_yoctonear().try_into().unwrap()));
+    let unspent_gas = total_receipt_cost
+        .checked_sub(expected_gas_burnt_amount)
+        .unwrap()
+        .checked_div(gas_price.as_yoctonear())
+        .unwrap();
+    let refund_penalty = apply_state
+        .config
+        .fees
+        .gas_penalty_for_gas_refund(Gas::from_gas(unspent_gas.as_yoctonear().try_into().unwrap()));
     let expected_refund = total_receipt_cost
-        .checked_sub(expected_gas_burnt_amount).unwrap()
-        .checked_sub(gas_price.checked_mul(refund_penalty.as_gas().into()).unwrap()).unwrap();
+        .checked_sub(expected_gas_burnt_amount)
+        .unwrap()
+        .checked_sub(gas_price.checked_mul(refund_penalty.as_gas().into()).unwrap())
+        .unwrap();
 
     let result = runtime
         .apply(
@@ -916,7 +942,11 @@ fn test_apply_deficit_gas_for_function_call_covered() {
     } else {
         assert_eq!(
             result.stats.balance.gas_deficit_amount,
-            GAS_PRICE.checked_sub(gas_price).unwrap().checked_mul(expected_gas_burnt.as_gas().into()).unwrap()
+            GAS_PRICE
+                .checked_sub(gas_price)
+                .unwrap()
+                .checked_mul(expected_gas_burnt.as_gas().into())
+                .unwrap()
         );
     }
     // The refund is less than the received amount.
@@ -973,15 +1003,21 @@ fn test_apply_deficit_gas_for_function_call_partial() {
             actions,
         }),
     })];
-    let total_receipt_cost =
-        gas_price.checked_mul(Gas::from_gas(gas).checked_add(expected_gas_burnt).unwrap().as_gas().into()).unwrap();
+    let total_receipt_cost = gas_price
+        .checked_mul(Gas::from_gas(gas).checked_add(expected_gas_burnt).unwrap().as_gas().into())
+        .unwrap();
     let expected_deficit = if apply_state.config.fees.refund_gas_price_changes {
         // Used full prepaid gas, but it still not enough to cover deficit.
-        let expected_gas_burnt_amount = GAS_PRICE.checked_mul(expected_gas_burnt.as_gas().into()).unwrap();
+        let expected_gas_burnt_amount =
+            GAS_PRICE.checked_mul(expected_gas_burnt.as_gas().into()).unwrap();
         expected_gas_burnt_amount.checked_sub(total_receipt_cost).unwrap()
     } else {
         // The "deficit" is simply the value change due to gas price changes
-        GAS_PRICE.checked_sub(gas_price).unwrap().checked_mul(expected_gas_burnt.as_gas().into()).unwrap()
+        GAS_PRICE
+            .checked_sub(gas_price)
+            .unwrap()
+            .checked_mul(expected_gas_burnt.as_gas().into())
+            .unwrap()
     };
 
     let result = runtime
@@ -1054,8 +1090,9 @@ fn test_apply_surplus_gas_for_function_call() {
             actions,
         }),
     })];
-    let total_receipt_cost =
-        gas_price.checked_mul(Gas::from_gas(gas).checked_add(expected_gas_burnt).unwrap().as_gas().into()).unwrap();
+    let total_receipt_cost = gas_price
+        .checked_mul(Gas::from_gas(gas).checked_add(expected_gas_burnt).unwrap().as_gas().into())
+        .unwrap();
     let expected_gas_burnt_amount = if apply_state.config.fees.refund_gas_price_changes {
         GAS_PRICE.checked_mul(expected_gas_burnt.as_gas().into()).unwrap()
     } else {
@@ -1063,12 +1100,20 @@ fn test_apply_surplus_gas_for_function_call() {
     };
 
     // With gas refund penalties enabled, we should see a reduced refund value
-    let unspent_gas = total_receipt_cost.checked_sub(expected_gas_burnt_amount).unwrap().checked_div(gas_price.as_yoctonear()).unwrap();
-    let refund_penalty =
-        apply_state.config.fees.gas_penalty_for_gas_refund(Gas::from_gas(unspent_gas.as_yoctonear().try_into().unwrap()));
+    let unspent_gas = total_receipt_cost
+        .checked_sub(expected_gas_burnt_amount)
+        .unwrap()
+        .checked_div(gas_price.as_yoctonear())
+        .unwrap();
+    let refund_penalty = apply_state
+        .config
+        .fees
+        .gas_penalty_for_gas_refund(Gas::from_gas(unspent_gas.as_yoctonear().try_into().unwrap()));
     let expected_refund = total_receipt_cost
-        .checked_sub(expected_gas_burnt_amount).unwrap()
-        .checked_sub(gas_price.checked_mul(refund_penalty.as_gas().into()).unwrap()).unwrap();
+        .checked_sub(expected_gas_burnt_amount)
+        .unwrap()
+        .checked_sub(gas_price.checked_mul(refund_penalty.as_gas().into()).unwrap())
+        .unwrap();
 
     let result = runtime
         .apply(

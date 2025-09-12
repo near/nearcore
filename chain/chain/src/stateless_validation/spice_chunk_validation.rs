@@ -223,8 +223,8 @@ fn validate_source_receipts_proofs(
 
 #[cfg(test)]
 mod tests {
-    use std::str::FromStr as _;
     use near_primitives::types::Balance;
+    use std::str::FromStr as _;
 
     use near_async::time::Clock;
     use near_chain_configs::test_genesis::{TestGenesisBuilder, ValidatorsSpec};
@@ -669,7 +669,11 @@ mod tests {
             )
         };
 
-        vec![send_money(Balance::from_yoctonear(100)), send_money(Balance::from_yoctonear(200)), send_money(Balance::from_yoctonear(300))]
+        vec![
+            send_money(Balance::from_yoctonear(100)),
+            send_money(Balance::from_yoctonear(200)),
+            send_money(Balance::from_yoctonear(300)),
+        ]
     }
 
     struct TestWitnessBuilder {

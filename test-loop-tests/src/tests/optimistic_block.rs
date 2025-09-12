@@ -18,7 +18,6 @@ use near_primitives::validator_signer::ValidatorSigner;
 use crate::setup::builder::TestLoopBuilder;
 use crate::setup::drop_condition::DropCondition;
 use crate::setup::env::TestLoopEnv;
-use crate::utils::ONE_NEAR;
 
 fn get_builder(num_shards: usize) -> TestLoopBuilder {
     init_test_logger();

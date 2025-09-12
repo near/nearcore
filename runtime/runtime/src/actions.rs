@@ -1288,7 +1288,12 @@ mod tests {
             tries.new_trie_update(ShardUId::single_shard(), CryptoHash::default());
         let account_id = "alice".parse::<AccountId>().unwrap();
         let deploy_action = DeployContractAction { code: [0; 10_000].to_vec() };
-        let mut account = Account::new(Balance::from_yoctonear(100), Balance::ZERO, AccountContract::None, storage_usage);
+        let mut account = Account::new(
+            Balance::from_yoctonear(100),
+            Balance::ZERO,
+            AccountContract::None,
+            storage_usage,
+        );
         let apply_state = create_apply_state(0);
         let res = action_deploy_contract(
             &mut state_update,
@@ -1396,7 +1401,8 @@ mod tests {
         let tries = TestTriesBuilder::new().build();
         let mut state_update =
             tries.new_trie_update(ShardUId::single_shard(), CryptoHash::default());
-        let account = Account::new(Balance::from_yoctonear(100), Balance::ZERO, AccountContract::None, 100);
+        let account =
+            Account::new(Balance::from_yoctonear(100), Balance::ZERO, AccountContract::None, 100);
         set_account(&mut state_update, account_id.clone(), &account);
         set_access_key(&mut state_update, account_id.clone(), public_key.clone(), access_key);
 

@@ -365,7 +365,10 @@ fn select_validators(
         let p = proposals.pop().unwrap().0;
         let p_stake = p.stake();
         let total_stake_with_p = total_stake.checked_add(p_stake).unwrap();
-        if total_stake_with_p > Balance::ZERO && Ratio::new(p_stake.as_yoctonear(), total_stake_with_p.as_yoctonear()) > min_stake_ratio {
+        if total_stake_with_p > Balance::ZERO
+            && Ratio::new(p_stake.as_yoctonear(), total_stake_with_p.as_yoctonear())
+                > min_stake_ratio
+        {
             validators.push(p);
             total_stake = total_stake_with_p;
         } else {
@@ -382,10 +385,12 @@ fn select_validators(
         // the stake ratio condition prevented all slots from being filled,
         // or there were fewer proposals than available slots,
         // so the threshold stake is whatever amount pass the stake ratio condition
-        Balance::from_yoctonear((min_stake_ratio * Ratio::from_integer(total_stake.as_yoctonear())
-            / (Ratio::from_integer(1u128) - min_stake_ratio))
-            .ceil()
-            .to_integer())
+        Balance::from_yoctonear(
+            (min_stake_ratio * Ratio::from_integer(total_stake.as_yoctonear())
+                / (Ratio::from_integer(1u128) - min_stake_ratio))
+                .ceil()
+                .to_integer(),
+        )
     };
     (validators, proposals, threshold)
 }
@@ -431,7 +436,11 @@ mod tests {
         let epoch_config = create_epoch_config(2, 100, None, None, None);
         let prev_epoch_height = 7;
         let prev_epoch_info = create_prev_epoch_info(prev_epoch_height, &["test1", "test2"], &[]);
-        let proposals = create_proposals(&[("test1", Balance::from_yoctonear(1000)), ("test2", Balance::from_yoctonear(2000)), ("test3", Balance::from_yoctonear(300))]);
+        let proposals = create_proposals(&[
+            ("test1", Balance::from_yoctonear(1000)),
+            ("test2", Balance::from_yoctonear(2000)),
+            ("test3", Balance::from_yoctonear(300)),
+        ]);
         let epoch_info = proposals_to_epoch_info(
             &epoch_config,
             [0; 32],
@@ -547,11 +556,17 @@ mod tests {
         assert_eq!(kickout.len(), 2);
         assert_eq!(
             kickout.get(AccountIdRef::new_or_panic("test1")).unwrap(),
-            &ValidatorKickoutReason::NotEnoughStake { stake: test1_stake, threshold: Balance::from_yoctonear(2011) },
+            &ValidatorKickoutReason::NotEnoughStake {
+                stake: test1_stake,
+                threshold: Balance::from_yoctonear(2011)
+            },
         );
         assert_eq!(
             kickout.get(AccountIdRef::new_or_panic("test2")).unwrap(),
-            &ValidatorKickoutReason::NotEnoughStake { stake: Balance::from_yoctonear(2002), threshold: Balance::from_yoctonear(2011) },
+            &ValidatorKickoutReason::NotEnoughStake {
+                stake: Balance::from_yoctonear(2002),
+                threshold: Balance::from_yoctonear(2011)
+            },
         );
     }
 
@@ -673,7 +688,10 @@ mod tests {
         let epoch_config = create_epoch_config(num_shards, 2, Some(2), Some(2), None);
         let prev_epoch_height = 7;
         let prev_epoch_info = create_prev_epoch_info(prev_epoch_height, &["test1", "test2"], &[]);
-        let proposals = create_proposals(&[("test1", Balance::from_yoctonear(1000)), ("test2", Balance::from_yoctonear(2000))]);
+        let proposals = create_proposals(&[
+            ("test1", Balance::from_yoctonear(1000)),
+            ("test2", Balance::from_yoctonear(2000)),
+        ]);
 
         let epoch_info = proposals_to_epoch_info(
             &epoch_config,
@@ -712,8 +730,12 @@ mod tests {
         );
         let prev_epoch_height = 7;
         let prev_epoch_info = create_prev_epoch_info(prev_epoch_height, &["test1", "test2"], &[]);
-        let proposals =
-            create_proposals(&[("test1", Balance::from_yoctonear(1000)), ("test2", Balance::from_yoctonear(1000)), ("test3", Balance::from_yoctonear(1000)), ("test4", Balance::from_yoctonear(1000))]);
+        let proposals = create_proposals(&[
+            ("test1", Balance::from_yoctonear(1000)),
+            ("test2", Balance::from_yoctonear(1000)),
+            ("test3", Balance::from_yoctonear(1000)),
+            ("test4", Balance::from_yoctonear(1000)),
+        ]);
 
         let epoch_info = proposals_to_epoch_info(
             &epoch_config,
@@ -745,7 +767,11 @@ mod tests {
         let proposals = create_proposals((1..=num_shards).flat_map(|i| {
             // Each shard gets a pair of validators, one with twice as
             // much stake as the other.
-            vec![(format!("test{}", i), Balance::from_yoctonear(1000)), (format!("test{}", 100 * i), Balance::from_yoctonear(2000))].into_iter()
+            vec![
+                (format!("test{}", i), Balance::from_yoctonear(1000)),
+                (format!("test{}", 100 * i), Balance::from_yoctonear(2000)),
+            ]
+            .into_iter()
         }));
         let epoch_info = proposals_to_epoch_info(
             &epoch_config,
@@ -828,10 +854,26 @@ mod tests {
         // Given `epoch_info` and `proposals` above, the sample at a given height is deterministic.
         let height = 42;
         let expected_assignments = vec![
-            vec![(2, Balance::from_yoctonear(192)), (0, Balance::from_yoctonear(396)), (1, Balance::from_yoctonear(280))],
-            vec![(1, Balance::from_yoctonear(216)), (2, Balance::from_yoctonear(264)), (0, Balance::from_yoctonear(396))],
-            vec![(0, Balance::from_yoctonear(396)), (2, Balance::from_yoctonear(288)), (1, Balance::from_yoctonear(192))],
-            vec![(2, Balance::from_yoctonear(256)), (1, Balance::from_yoctonear(312)), (0, Balance::from_yoctonear(312))],
+            vec![
+                (2, Balance::from_yoctonear(192)),
+                (0, Balance::from_yoctonear(396)),
+                (1, Balance::from_yoctonear(280)),
+            ],
+            vec![
+                (1, Balance::from_yoctonear(216)),
+                (2, Balance::from_yoctonear(264)),
+                (0, Balance::from_yoctonear(396)),
+            ],
+            vec![
+                (0, Balance::from_yoctonear(396)),
+                (2, Balance::from_yoctonear(288)),
+                (1, Balance::from_yoctonear(192)),
+            ],
+            vec![
+                (2, Balance::from_yoctonear(256)),
+                (1, Balance::from_yoctonear(312)),
+                (0, Balance::from_yoctonear(312)),
+            ],
         ];
         assert_eq!(epoch_info.sample_chunk_validators(height), expected_assignments);
     }
@@ -861,8 +903,8 @@ mod tests {
             ("test1", Balance::from_yoctonear(1000)),
             ("test2", Balance::from_yoctonear(1000)),
             ("test3", Balance::from_yoctonear(1000)), // the total up to this point is 3000
-            ("test4", Balance::from_yoctonear(200)),  // 200 is < 1/10 of 3000, so not validator, but can be fisherman
-            ("test5", Balance::from_yoctonear(100)),  // 100 is even too small to be a fisherman, cannot get any role
+            ("test4", Balance::from_yoctonear(200)), // 200 is < 1/10 of 3000, so not validator, but can be fisherman
+            ("test5", Balance::from_yoctonear(100)), // 100 is even too small to be a fisherman, cannot get any role
             ("test6", Balance::from_yoctonear(50)),
         ]);
         let epoch_info = proposals_to_epoch_info(
@@ -888,11 +930,17 @@ mod tests {
         let expected_threshold = Balance::from_yoctonear(334);
         assert_eq!(
             kickout.get(AccountIdRef::new_or_panic("test5")).unwrap(),
-            &ValidatorKickoutReason::NotEnoughStake { stake: Balance::from_yoctonear(100), threshold: expected_threshold },
+            &ValidatorKickoutReason::NotEnoughStake {
+                stake: Balance::from_yoctonear(100),
+                threshold: expected_threshold
+            },
         );
         assert_eq!(
             kickout.get(AccountIdRef::new_or_panic("test6")).unwrap(),
-            &ValidatorKickoutReason::NotEnoughStake { stake: Balance::from_yoctonear(50), threshold: expected_threshold },
+            &ValidatorKickoutReason::NotEnoughStake {
+                stake: Balance::from_yoctonear(50),
+                threshold: expected_threshold
+            },
         );
 
         let bp_threshold = epoch_info.seat_price();
@@ -901,8 +949,8 @@ mod tests {
             ("test1", Balance::from_yoctonear(1000)),
             ("test2", Balance::from_yoctonear(1000)),
             ("test3", Balance::from_yoctonear(1000)), // the total up to this point is 3000
-            ("test4", Balance::from_yoctonear(200)),  // 200 is < 1/10 of 3000, so not validator, but can be fisherman
-            ("test5", Balance::from_yoctonear(100)),  // 100 is even too small to be a fisherman, cannot get any role
+            ("test4", Balance::from_yoctonear(200)), // 200 is < 1/10 of 3000, so not validator, but can be fisherman
+            ("test5", Balance::from_yoctonear(100)), // 100 is even too small to be a fisherman, cannot get any role
             ("test6", Balance::from_yoctonear(50)),
             ("test7", bp_threshold),
         ]);
@@ -925,8 +973,8 @@ mod tests {
             ("test1", Balance::from_yoctonear(1000)),
             ("test2", Balance::from_yoctonear(1000)),
             ("test3", Balance::from_yoctonear(1000)), // the total up to this point is 3000
-            ("test4", Balance::from_yoctonear(200)),  // 200 is < 1/10 of 3000, so not validator, but can be fisherman
-            ("test5", Balance::from_yoctonear(100)),  // 100 is even too small to be a fisherman, cannot get any role
+            ("test4", Balance::from_yoctonear(200)), // 200 is < 1/10 of 3000, so not validator, but can be fisherman
+            ("test5", Balance::from_yoctonear(100)), // 100 is even too small to be a fisherman, cannot get any role
             ("test6", Balance::from_yoctonear(50)),
             ("test7", bp_threshold.checked_sub(Balance::from_yoctonear(1)).unwrap()),
         ]);
@@ -953,7 +1001,11 @@ mod tests {
         let prev_epoch_height = 7;
         let prev_epoch_info = create_prev_epoch_info(
             prev_epoch_height,
-            &[("test1", Balance::from_yoctonear(10_000)), ("test2", Balance::from_yoctonear(2000)), ("test3", Balance::from_yoctonear(3000))],
+            &[
+                ("test1", Balance::from_yoctonear(10_000)),
+                ("test2", Balance::from_yoctonear(2000)),
+                ("test3", Balance::from_yoctonear(3000)),
+            ],
             &[],
         );
         let mut kick_out = HashMap::new();
@@ -980,8 +1032,13 @@ mod tests {
     #[test]
     fn test_validator_assignment_with_rewards() {
         // validator balances are updated based on their rewards
-        let validators = [("test1", Balance::from_yoctonear(3000)), ("test2", Balance::from_yoctonear(2000)), ("test3", Balance::from_yoctonear(1000))];
-        let rewards: [Balance; 3] = [Balance::from_yoctonear(7), Balance::from_yoctonear(8), Balance::from_yoctonear(9)];
+        let validators = [
+            ("test1", Balance::from_yoctonear(3000)),
+            ("test2", Balance::from_yoctonear(2000)),
+            ("test3", Balance::from_yoctonear(1000)),
+        ];
+        let rewards: [Balance; 3] =
+            [Balance::from_yoctonear(7), Balance::from_yoctonear(8), Balance::from_yoctonear(9)];
         let epoch_config = create_epoch_config(1, 100, None, None, None);
         let prev_epoch_height = 7;
         let prev_epoch_info = create_prev_epoch_info(prev_epoch_height, &validators, &[]);
@@ -1083,7 +1140,11 @@ mod tests {
 
     impl IntoValidatorStake for &str {
         fn into_validator_stake(self) -> ValidatorStake {
-            ValidatorStake::new(self.parse().unwrap(), PublicKey::empty(KeyType::ED25519), Balance::from_yoctonear(100))
+            ValidatorStake::new(
+                self.parse().unwrap(),
+                PublicKey::empty(KeyType::ED25519),
+                Balance::from_yoctonear(100),
+            )
         }
     }
 

@@ -338,7 +338,9 @@ impl Block {
         let next_gas_price =
             U256::from(gas_price) * U256::from(numerator) / U256::from(denominator);
 
-        Balance::from_yoctonear(next_gas_price.clamp(U256::from(min_gas_price), U256::from(max_gas_price)).as_u128())
+        Balance::from_yoctonear(
+            next_gas_price.clamp(U256::from(min_gas_price), U256::from(max_gas_price)).as_u128(),
+        )
     }
 
     pub fn validate_chunk_header_proof(

@@ -605,7 +605,9 @@ fn derive_validator_setup(specs: ValidatorsSpec) -> DerivedValidatorSetup {
                 let account_info = AccountInfo {
                     public_key: create_test_signer(account_id.as_str()).public_key(),
                     account_id,
-                    amount: Balance::from_near(10000 - i as u128 - num_block_and_chunk_producer_seats as u128),
+                    amount: Balance::from_near(
+                        10000 - i as u128 - num_block_and_chunk_producer_seats as u128,
+                    ),
                 };
                 validators.push(account_info);
             }

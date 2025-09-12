@@ -206,7 +206,10 @@ async fn test_query_account() {
         } else {
             panic!("queried account, but received something else: {:?}", query_response.kind);
         };
-        assert_eq!(account_info.amount.checked_add(account_info.locked).unwrap(), TESTING_INIT_BALANCE);
+        assert_eq!(
+            account_info.amount.checked_add(account_info.locked).unwrap(),
+            TESTING_INIT_BALANCE
+        );
         assert_eq!(account_info.code_hash, CryptoHash::default());
         assert_ne!(account_info.locked, Balance::ZERO);
         assert_eq!(account_info.storage_paid_at, 0);

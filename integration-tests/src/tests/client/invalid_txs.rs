@@ -9,8 +9,6 @@ use near_primitives::test_utils::create_user_test_signer;
 use near_primitives::transaction::{SignedTransaction, ValidatedTransaction};
 use near_primitives::types::{AccountId, Balance, ShardId};
 
-const ONE_NEAR: u128 = 1_000_000_000_000_000_000_000_000;
-
 /// Test that processing chunks with invalid transactions does not lead to panics
 #[test]
 fn test_invalid_transactions_no_panic() {

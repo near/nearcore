@@ -7,7 +7,6 @@ use near_primitives::types::{AccountId, Balance};
 
 use crate::setup::builder::TestLoopBuilder;
 use crate::setup::env::TestLoopEnv;
-use crate::utils::ONE_NEAR;
 use crate::utils::client_queries::ClientQueries;
 use crate::utils::transactions::execute_money_transfers;
 

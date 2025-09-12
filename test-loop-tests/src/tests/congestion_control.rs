@@ -6,7 +6,7 @@ use crate::utils::transactions::{
     TransactionRunner, call_contract, check_txs, deploy_contract, execute_tx, make_accounts,
     prepare_transfer_tx,
 };
-use crate::utils::{ONE_NEAR, TGAS, run_for_number_of_blocks};
+use crate::utils::{TGAS, run_for_number_of_blocks};
 use assert_matches::assert_matches;
 use core::panic;
 use itertools::Itertools;

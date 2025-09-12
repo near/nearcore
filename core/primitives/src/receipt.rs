@@ -1,7 +1,6 @@
 use crate::action::{GlobalContractIdentifier, base64};
 use crate::errors::EpochError;
 use crate::hash::CryptoHash;
-use crate::serialize::dec_format;
 use crate::shard_layout::ShardLayout;
 use crate::transaction::{Action, TransferAction};
 use crate::types::{AccountId, Balance, BlockHeight, ShardId};
@@ -643,8 +642,6 @@ pub struct ActionReceipt {
     /// An access key which was used to sign the original transaction
     pub signer_public_key: PublicKey,
     /// A gas_price which has been used to buy gas in the original transaction
-    #[serde(with = "dec_format")]
-    #[cfg_attr(feature = "schemars", schemars(with = "String"))]
     pub gas_price: Balance,
     /// If present, where to route the output data
     pub output_data_receivers: Vec<DataReceiver>,

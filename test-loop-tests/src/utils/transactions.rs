@@ -32,7 +32,7 @@ use crate::setup::env::TestLoopEnv;
 use crate::setup::state::NodeExecutionData;
 
 use super::client_queries::ClientQueries;
-use super::{ONE_NEAR, get_node_data};
+use super::get_node_data;
 
 /// See `execute_money_transfers`. Debug is implemented so .unwrap() can print
 /// the error.
@@ -114,7 +114,7 @@ pub(crate) fn execute_money_transfers(
     let node_data = Arc::new(node_datas.to_vec());
 
     for i in 0..accounts.len() {
-        let amount = Balance::from_near((i as u128 + 1));
+        let amount = Balance::from_near(i as u128 + 1);
         let sender = accounts[i].clone();
         let receiver = accounts[(i + 1) % accounts.len()].clone();
         let node_data = node_data.clone();

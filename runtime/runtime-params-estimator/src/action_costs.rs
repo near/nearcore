@@ -682,7 +682,9 @@ fn create_account_action() -> Action {
 }
 
 fn create_transfer_action() -> Action {
-    Action::Transfer(near_primitives::transaction::TransferAction { deposit: Balance::from_near(1) })
+    Action::Transfer(near_primitives::transaction::TransferAction {
+        deposit: Balance::from_near(1),
+    })
 }
 
 fn stake_action() -> Action {
@@ -736,7 +738,9 @@ fn delete_key_action() -> Action {
 }
 
 fn transfer_action() -> Action {
-    Action::Transfer(near_primitives::transaction::TransferAction { deposit: Balance::from_yoctonear(77) })
+    Action::Transfer(near_primitives::transaction::TransferAction {
+        deposit: Balance::from_yoctonear(77),
+    })
 }
 
 fn function_call_action(size: ActionSize) -> Action {

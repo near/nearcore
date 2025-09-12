@@ -16,8 +16,8 @@ use near_primitives::receipt::{DataReceipt, PromiseYieldTimeout, Receipt, Receip
 use near_primitives::shard_layout::{ShardLayout, ShardUId, get_block_shard_uid};
 use near_primitives::state::FlatStateValue;
 use near_primitives::trie_key::TrieKey;
-use near_primitives::types::{Balance, StateRoot};
 use near_primitives::types::chunk_extra::ChunkExtra;
+use near_primitives::types::{Balance, StateRoot};
 use rand::Rng;
 use rand::seq::SliceRandom;
 use std::collections::HashMap;

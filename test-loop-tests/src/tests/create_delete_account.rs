@@ -8,7 +8,6 @@ use near_primitives::types::{AccountId, Balance};
 
 use crate::setup::builder::TestLoopBuilder;
 use crate::setup::env::TestLoopEnv;
-use crate::utils::ONE_NEAR;
 use crate::utils::transactions::{
     call_contract, check_txs, do_create_account, do_delete_account, do_deploy_contract,
     get_next_nonce,

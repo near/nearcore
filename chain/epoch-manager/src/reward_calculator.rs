@@ -88,13 +88,18 @@ impl RewardCalculator {
             * U256::from(*protocol_reward_rate.numer() as u64)
             / U256::from(*protocol_reward_rate.denom() as u64))
         .as_u128();
-        res.insert(self.protocol_treasury_account.clone(), Balance::from_yoctonear(epoch_protocol_treasury));
+        res.insert(
+            self.protocol_treasury_account.clone(),
+            Balance::from_yoctonear(epoch_protocol_treasury),
+        );
         if num_validators == 0 {
             return (res, Balance::ZERO);
         }
         let epoch_validator_reward = epoch_total_reward - epoch_protocol_treasury;
         let mut epoch_actual_reward = Balance::from_yoctonear(epoch_protocol_treasury);
-        let total_stake: Balance = validator_stake.values().fold(Balance::ZERO, |sum, stake| sum.checked_add(*stake).unwrap());
+        let total_stake: Balance = validator_stake
+            .values()
+            .fold(Balance::ZERO, |sum, stake| sum.checked_add(*stake).unwrap());
         for (account_id, stats) in validator_block_chunk_stats {
             let production_ratio =
                 get_validator_online_ratio(&stats, online_thresholds.endorsement_cutoff_threshold);
@@ -134,10 +139,14 @@ impl RewardCalculator {
                 // Apply min between 1. and computed uptime.
                 uptime_numer =
                     if uptime_numer > uptime_denum { uptime_denum } else { uptime_numer };
-                Balance::from_yoctonear((U512::from(epoch_validator_reward) * U512::from(uptime_numer) * U512::from(stake.as_yoctonear())
-                    / U512::from(uptime_denum)
-                    / U512::from(total_stake.as_yoctonear()))
-                .as_u128())
+                Balance::from_yoctonear(
+                    (U512::from(epoch_validator_reward)
+                        * U512::from(uptime_numer)
+                        * U512::from(stake.as_yoctonear())
+                        / U512::from(uptime_denum)
+                        / U512::from(total_stake.as_yoctonear()))
+                    .as_u128(),
+                )
             };
             res.insert(account_id, reward);
             epoch_actual_reward = epoch_actual_reward.checked_add(reward).unwrap();
@@ -182,8 +191,10 @@ mod tests {
                 },
             ),
         ]);
-        let validator_stake =
-            HashMap::from([("test1".parse().unwrap(), Balance::from_yoctonear(100)), ("test2".parse().unwrap(), Balance::from_yoctonear(100))]);
+        let validator_stake = HashMap::from([
+            ("test1".parse().unwrap(), Balance::from_yoctonear(100)),
+            ("test2".parse().unwrap(), Balance::from_yoctonear(100)),
+        ]);
         let total_supply = Balance::from_yoctonear(1_000_000_000_000);
         let result = reward_calculator.calculate_reward(
             validator_block_chunk_stats,
@@ -560,7 +571,8 @@ mod tests {
                 },
             },
         )]);
-        let validator_stake = HashMap::from([("test".parse().unwrap(), Balance::from_near(500_000))]);
+        let validator_stake =
+            HashMap::from([("test".parse().unwrap(), Balance::from_near(500_000))]);
         // some hypothetical large total supply (100b)
         let total_supply = Balance::from_near(100_000_000_000);
         reward_calculator.calculate_reward(

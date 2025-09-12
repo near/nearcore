@@ -12,8 +12,8 @@ use crate::utils::contract_distribution::{
     assert_all_chunk_endorsements_received, clear_compiled_contract_caches,
     run_until_caches_contain_contract,
 };
+use crate::utils::get_node_head_height;
 use crate::utils::transactions::{call_contract, check_txs, deploy_contract, make_accounts};
-use crate::utils::{ONE_NEAR, get_node_head_height};
 
 const EPOCH_LENGTH: u64 = 10;
 const GENESIS_HEIGHT: u64 = 1000;

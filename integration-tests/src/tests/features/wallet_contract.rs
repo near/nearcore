@@ -328,13 +328,18 @@ fn test_wallet_contract_interaction() {
     let runtime_config = env.get_runtime_config(0, tip.epoch_id);
     let gas_price = env.clients[0].chain.block_economics_config.min_gas_price();
     let refund_penalty = gas_price
-        .checked_mul(u128::from(runtime_config.fees.gas_penalty_for_gas_refund(prepaid_gas).as_gas()))
+        .checked_mul(u128::from(
+            runtime_config.fees.gas_penalty_for_gas_refund(prepaid_gas).as_gas(),
+        ))
         .unwrap();
 
     assert_eq!(final_receiver_balance.checked_sub(init_receiver_balance).unwrap(), transfer_amount);
     let wallet_balance_diff = init_wallet_balance.checked_sub(final_wallet_balance).unwrap();
     // Wallet balance is a little lower due to gas fees.
-    assert!(wallet_balance_diff.checked_sub(transfer_amount).unwrap() < NEAR_BASE.checked_div(500).unwrap().checked_add(refund_penalty).unwrap());
+    assert!(
+        wallet_balance_diff.checked_sub(transfer_amount).unwrap()
+            < NEAR_BASE.checked_div(500).unwrap().checked_add(refund_penalty).unwrap()
+    );
 }
 
 pub fn create_rlp_execute_tx(
@@ -426,7 +431,9 @@ fn abi_encode(target: String, action: Action) -> Vec<u8> {
             let nonce = add_key.access_key.nonce;
             let (is_full_access, is_limited_allowance, allowance, receiver_id, method_names) =
                 match add_key.access_key.permission {
-                    AccessKeyPermission::FullAccess => (true, false, Balance::ZERO, String::new(), Vec::new()),
+                    AccessKeyPermission::FullAccess => {
+                        (true, false, Balance::ZERO, String::new(), Vec::new())
+                    }
                     AccessKeyPermission::FunctionCall(permission) => (
                         false,
                         permission.allowance.is_some(),
@@ -450,7 +457,10 @@ fn abi_encode(target: String, action: Action) -> Vec<u8> {
         }
         Action::Transfer(tx) => {
             buf.extend_from_slice(TRANSFER_SELECTOR);
-            let tokens = &[ethabi::Token::String(target), ethabi::Token::Uint(tx.deposit.as_yoctonear().into())];
+            let tokens = &[
+                ethabi::Token::String(target),
+                ethabi::Token::Uint(tx.deposit.as_yoctonear().into()),
+            ];
             buf.extend_from_slice(&ethabi::encode(tokens));
         }
         _ => unimplemented!(),

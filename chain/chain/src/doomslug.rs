@@ -185,8 +185,14 @@ impl DoomslugApprovalsTracker {
         account_id_to_stakes: HashMap<AccountId, (Balance, Balance)>,
         threshold_mode: DoomslugThresholdMode,
     ) -> Self {
-        let total_stake_this_epoch = account_id_to_stakes.values().map(|(x, _)| x).fold(Balance::ZERO, |sum, item| sum.checked_add(*item).unwrap());
-        let total_stake_next_epoch = account_id_to_stakes.values().map(|(_, x)| x).fold(Balance::ZERO, |sum, item| sum.checked_add(*item).unwrap());
+        let total_stake_this_epoch = account_id_to_stakes
+            .values()
+            .map(|(x, _)| x)
+            .fold(Balance::ZERO, |sum, item| sum.checked_add(*item).unwrap());
+        let total_stake_next_epoch = account_id_to_stakes
+            .values()
+            .map(|(_, x)| x)
+            .fold(Balance::ZERO, |sum, item| sum.checked_add(*item).unwrap());
 
         DoomslugApprovalsTracker {
             clock,
@@ -218,9 +224,14 @@ impl DoomslugApprovalsTracker {
         });
 
         if increment_approved_stake {
-            let stakes = self.account_id_to_stakes.get(&approval.account_id).map_or((Balance::ZERO, Balance::ZERO), |x| *x);
-            self.approved_stake_this_epoch = self.approved_stake_this_epoch.checked_add(stakes.0).unwrap();
-            self.approved_stake_next_epoch = self.approved_stake_next_epoch.checked_add(stakes.1).unwrap();
+            let stakes = self
+                .account_id_to_stakes
+                .get(&approval.account_id)
+                .map_or((Balance::ZERO, Balance::ZERO), |x| *x);
+            self.approved_stake_this_epoch =
+                self.approved_stake_this_epoch.checked_add(stakes.0).unwrap();
+            self.approved_stake_next_epoch =
+                self.approved_stake_next_epoch.checked_add(stakes.1).unwrap();
         }
 
         // We call to `get_block_production_readiness` here so that if the number of approvals crossed
@@ -237,9 +248,14 @@ impl DoomslugApprovalsTracker {
             Some(approval) => approval.0,
         };
 
-        let stakes = self.account_id_to_stakes.get(&approval.account_id).map_or((Balance::ZERO, Balance::ZERO), |x| *x);
-        self.approved_stake_this_epoch = self.approved_stake_this_epoch.checked_sub(stakes.0).unwrap();
-        self.approved_stake_next_epoch = self.approved_stake_next_epoch.checked_sub(stakes.1).unwrap();
+        let stakes = self
+            .account_id_to_stakes
+            .get(&approval.account_id)
+            .map_or((Balance::ZERO, Balance::ZERO), |x| *x);
+        self.approved_stake_this_epoch =
+            self.approved_stake_this_epoch.checked_sub(stakes.0).unwrap();
+        self.approved_stake_next_epoch =
+            self.approved_stake_next_epoch.checked_sub(stakes.1).unwrap();
     }
 
     /// Returns whether the block has enough approvals, and if yes, since what moment it does.
@@ -249,8 +265,10 @@ impl DoomslugApprovalsTracker {
     /// `ReadySince` if the block has enough approvals to pass the threshold, and since when it
     ///     does
     fn get_block_production_readiness(&mut self) -> DoomslugBlockProductionReadiness {
-        if (self.approved_stake_this_epoch > self.total_stake_this_epoch.checked_mul(2).unwrap().checked_div(3).unwrap()
-            && (self.approved_stake_next_epoch > self.total_stake_next_epoch.checked_mul(2).unwrap().checked_div(3).unwrap()
+        if (self.approved_stake_this_epoch
+            > self.total_stake_this_epoch.checked_mul(2).unwrap().checked_div(3).unwrap()
+            && (self.approved_stake_next_epoch
+                > self.total_stake_next_epoch.checked_mul(2).unwrap().checked_div(3).unwrap()
                 || self.total_stake_next_epoch == Balance::ZERO))
             || self.threshold_mode == DoomslugThresholdMode::NoApprovals
         {
@@ -572,8 +590,22 @@ impl Doomslug {
             return true;
         }
 
-        let threshold1 = stakes.iter().map(|(x, _)| x).fold(Balance::ZERO, |sum, item| sum.checked_add(*item).unwrap()).checked_mul(2).unwrap().checked_div(3).unwrap();
-        let threshold2 = stakes.iter().map(|(_, x)| x).fold(Balance::ZERO, |sum, item| sum.checked_add(*item).unwrap()).checked_mul(2).unwrap().checked_div(3).unwrap();
+        let threshold1 = stakes
+            .iter()
+            .map(|(x, _)| x)
+            .fold(Balance::ZERO, |sum, item| sum.checked_add(*item).unwrap())
+            .checked_mul(2)
+            .unwrap()
+            .checked_div(3)
+            .unwrap();
+        let threshold2 = stakes
+            .iter()
+            .map(|(_, x)| x)
+            .fold(Balance::ZERO, |sum, item| sum.checked_add(*item).unwrap())
+            .checked_mul(2)
+            .unwrap()
+            .checked_div(3)
+            .unwrap();
 
         let approved_stake1 = approvals
             .iter()
@@ -775,7 +807,6 @@ impl Doomslug {
 
 #[cfg(test)]
 mod tests {
-    use near_primitives::types::Balance;
     use crate::Doomslug;
     use crate::doomslug::{
         DoomslugApprovalsTrackersAtHeight, DoomslugBlockProductionReadiness, DoomslugThresholdMode,
@@ -786,6 +817,7 @@ mod tests {
     use near_primitives::hash::hash;
     use near_primitives::test_utils::create_test_signer;
     use near_primitives::types::ApprovalStake;
+    use near_primitives::types::Balance;
     use num_rational::Rational32;
     use std::sync::Arc;
 
@@ -931,8 +963,12 @@ mod tests {
 
     #[test]
     fn test_doomslug_approvals() {
-        let accounts: Vec<(&str, Balance, Balance)> =
-            vec![("test1", Balance::from_yoctonear(2), Balance::ZERO), ("test2", Balance::from_yoctonear(1), Balance::ZERO), ("test3", Balance::from_yoctonear(3), Balance::ZERO), ("test4", Balance::from_yoctonear(1), Balance::ZERO)];
+        let accounts: Vec<(&str, Balance, Balance)> = vec![
+            ("test1", Balance::from_yoctonear(2), Balance::ZERO),
+            ("test2", Balance::from_yoctonear(1), Balance::ZERO),
+            ("test3", Balance::from_yoctonear(3), Balance::ZERO),
+            ("test4", Balance::from_yoctonear(1), Balance::ZERO),
+        ];
         let stakes = accounts
             .iter()
             .map(|(account_id, stake_this_epoch, stake_next_epoch)| ApprovalStake {
@@ -1051,7 +1087,12 @@ mod tests {
 
     #[test]
     fn test_doomslug_one_approval_per_target_height() {
-        let accounts = vec![("test1", Balance::from_yoctonear(2), Balance::ZERO), ("test2", Balance::from_yoctonear(1), Balance::from_yoctonear(2)), ("test3", Balance::from_yoctonear(3), Balance::from_yoctonear(3)), ("test4", Balance::from_yoctonear(2), Balance::from_yoctonear(2))];
+        let accounts = vec![
+            ("test1", Balance::from_yoctonear(2), Balance::ZERO),
+            ("test2", Balance::from_yoctonear(1), Balance::from_yoctonear(2)),
+            ("test3", Balance::from_yoctonear(3), Balance::from_yoctonear(3)),
+            ("test4", Balance::from_yoctonear(2), Balance::from_yoctonear(2)),
+        ];
         let signers = accounts
             .iter()
             .map(|(account_id, _, _)| create_test_signer(account_id))

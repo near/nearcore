@@ -18,7 +18,6 @@ use primitive_types::U256;
     Hash,
     Debug,
 )]
-#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[repr(transparent)]
 pub struct Balance(NearToken);
 
@@ -40,7 +39,7 @@ impl Balance {
         Self(NearToken::from_yoctonear(inner))
     }
 
-    /// `from_millinear` is a function that takes value by a number of mili-near and converts it to an equivalent to the yocto-near.
+    /// `from_millinear` is a function that takes value by a number of milli-near and converts it to an equivalent to the yocto-near.
     /// # Examples
     /// ```
     /// use near_token::NearToken;
@@ -70,7 +69,7 @@ impl Balance {
         self.0.as_near()
     }
 
-    /// `as_millinear` is a function that converts number of yocto-near to an equivalent to the mili-near.
+    /// `as_millinear` is a function that converts number of yocto-near to an equivalent to the milli-near.
     /// # Examples
     /// ```
     /// use near_token::NearToken;
@@ -253,5 +252,16 @@ impl From<NearToken> for Balance {
 impl From<Balance> for U256 {
     fn from(value: Balance) -> U256 {
         value.as_yoctonear().into()
+    }
+}
+
+#[cfg(feature = "schemars")]
+impl schemars::JsonSchema for Balance {
+    fn schema_name() -> std::borrow::Cow<'static, str> {
+        "NearToken".to_string().into()
+    }
+
+    fn json_schema(generator: &mut schemars::SchemaGenerator) -> schemars::Schema {
+        NearToken::json_schema(generator)
     }
 }

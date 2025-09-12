@@ -15,7 +15,6 @@ use std::path::Path;
 
 use crate::setup::builder::TestLoopBuilder;
 use crate::setup::env::TestLoopEnv;
-use crate::utils::ONE_NEAR;
 
 const NUM_SHARDS: usize = 4;
 

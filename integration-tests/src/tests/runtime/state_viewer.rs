@@ -382,7 +382,12 @@ fn test_view_state_with_large_contract() {
     set_account(
         &mut state_update,
         alice_account(),
-        &Account::new(Balance::ZERO, Balance::ZERO, AccountContract::from_local_code_hash(sha256(&contract_code)), 50_001),
+        &Account::new(
+            Balance::ZERO,
+            Balance::ZERO,
+            AccountContract::from_local_code_hash(sha256(&contract_code)),
+            50_001,
+        ),
     );
     state_update.set(TrieKey::ContractCode { account_id: alice_account() }, contract_code);
     let trie_viewer = TrieViewer::new(Some(50_000), None);

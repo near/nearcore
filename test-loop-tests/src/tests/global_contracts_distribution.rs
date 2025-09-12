@@ -16,7 +16,6 @@ use near_vm_runner::ContractCode;
 
 use crate::setup::builder::TestLoopBuilder;
 use crate::setup::env::TestLoopEnv;
-use crate::utils::ONE_NEAR;
 use crate::utils::account::{
     create_account_id, create_account_ids, create_validators_spec, validators_spec_clients,
 };

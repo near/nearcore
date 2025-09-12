@@ -225,7 +225,8 @@ impl InfoHelper {
                 if stake == Balance::ZERO {
                     0
                 } else {
-                    (((stake.as_yoctonear() as f64) / (stake_sum.as_yoctonear() as f64)) * (blocks_in_epoch as f64)) as i64
+                    (((stake.as_yoctonear() as f64) / (stake_sum.as_yoctonear() as f64))
+                        * (blocks_in_epoch as f64)) as i64
                 }
             };
 

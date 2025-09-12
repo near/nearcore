@@ -1182,7 +1182,8 @@ pub(crate) fn print_epoch_analysis(
                     validator_num.values().max().unwrap() - validator_num.values().min().unwrap(),
                     min_stake,
                     max_stake.checked_sub(*min_stake).unwrap(),
-                    ((max_stake.checked_sub(*min_stake).unwrap()).as_yoctonear() as f64) / (max_stake.as_yoctonear() as f64)
+                    ((max_stake.checked_sub(*min_stake).unwrap()).as_yoctonear() as f64)
+                        / (max_stake.as_yoctonear() as f64)
                 );
                 // Use the generated epoch info for the next iteration.
                 next_epoch_info = next_next_epoch_info;

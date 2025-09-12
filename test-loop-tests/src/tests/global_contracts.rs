@@ -23,7 +23,6 @@ use near_vm_runner::ContractCode;
 
 use crate::setup::builder::TestLoopBuilder;
 use crate::setup::env::TestLoopEnv;
-use crate::utils::ONE_NEAR;
 use crate::utils::account::{
     create_account_ids, create_validators_spec, rpc_account_id, validators_spec_clients_with_rpc,
 };
@@ -131,7 +130,9 @@ fn test_deploy_and_call_global_contract(deploy_mode: GlobalContractDeployMode) {
     let mut env = GlobalContractsTestEnv::setup(INITIAL_BALANCE);
 
     env.deploy_global_contract(deploy_mode.clone());
-    let deploy_cost = INITIAL_BALANCE.checked_sub(env.get_account_state(env.deploy_account.clone()).amount).unwrap();
+    let deploy_cost = INITIAL_BALANCE
+        .checked_sub(env.get_account_state(env.deploy_account.clone()).amount)
+        .unwrap();
     assert_eq!(deploy_cost, env.deploy_global_contract_cost());
 
     for account in [env.account_shard_0.clone(), env.account_shard_1.clone()] {
@@ -412,9 +413,12 @@ impl GlobalContractsTestEnv {
                     * contract_size as u64,
             ))
             .unwrap();
-        let storage_cost =
-            runtime_config.fees.storage_usage_config.global_contract_storage_amount_per_byte
-                .checked_mul(contract_size as u128).unwrap();
+        let storage_cost = runtime_config
+            .fees
+            .storage_usage_config
+            .global_contract_storage_amount_per_byte
+            .checked_mul(contract_size as u128)
+            .unwrap();
         GAS_PRICE.checked_mul(gas_fees.as_gas().into()).unwrap().checked_add(storage_cost).unwrap()
     }
 

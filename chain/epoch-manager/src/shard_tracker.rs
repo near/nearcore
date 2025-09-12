@@ -542,7 +542,9 @@ mod tests {
     use near_primitives::hash::CryptoHash;
     use near_primitives::shard_layout::ShardLayout;
     use near_primitives::types::validator_stake::ValidatorStake;
-    use near_primitives::types::{AccountInfo, Balance, BlockHeight, EpochId, ProtocolVersion, ShardId};
+    use near_primitives::types::{
+        AccountInfo, Balance, BlockHeight, EpochId, ProtocolVersion, ShardId,
+    };
     use near_primitives::version::PROTOCOL_VERSION;
     use near_store::ShardUId;
     use near_store::test_utils::create_test_store;

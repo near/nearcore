@@ -23,7 +23,6 @@ use std::sync::Arc;
 use crate::setup::builder::TestLoopBuilder;
 use crate::setup::drop_condition::DropCondition;
 use crate::setup::env::TestLoopEnv;
-use crate::utils::ONE_NEAR;
 use crate::utils::transactions::{TransactionRunner, execute_tx, get_shared_block_hash};
 
 /// Check that when some shard misses 5 chunks in a row, we reject txs where

@@ -71,7 +71,14 @@ fn test1() -> AccountId {
 }
 
 fn create_tx_send_money(nonce: u64, signer: &Signer, block_hash: CryptoHash) -> SignedTransaction {
-    SignedTransaction::send_money(nonce, test0(), test1(), signer, Balance::from_yoctonear(1), block_hash)
+    SignedTransaction::send_money(
+        nonce,
+        test0(),
+        test1(),
+        signer,
+        Balance::from_yoctonear(1),
+        block_hash,
+    )
 }
 
 fn create_tx_deploy_contract(

@@ -118,7 +118,8 @@ fn run_chunk_validation_test(
             access_key: AccessKey::full_access(),
         });
         // The total supply must be correct to pass validation.
-        genesis_config.total_supply = genesis_config.total_supply.saturating_add(initial_balance).saturating_add(staked);
+        genesis_config.total_supply =
+            genesis_config.total_supply.saturating_add(initial_balance).saturating_add(staked);
     }
     let genesis = Genesis::new(genesis_config, GenesisRecords(records)).unwrap();
     let mut env = TestEnv::builder(&genesis.config)
@@ -507,11 +508,17 @@ fn test_eth_implicit_accounts() {
     // The only tokens lost in the transaction are due to gas and refund penalty
     let max_gas_cost = ONE_NEAR.checked_div(500).unwrap();
     let max_refund_cost = gas_price
-        .checked_mul(u128::from(runtime_config.fees.gas_penalty_for_gas_refund(prepaid_gas).as_gas()))
+        .checked_mul(u128::from(
+            runtime_config.fees.gas_penalty_for_gas_refund(prepaid_gas).as_gas(),
+        ))
         .unwrap();
-    let tx_cost =
-        (alice_init_balance.checked_add(bob_init_balance).unwrap()).checked_sub(alice_final_balance.checked_add(bob_final_balance).unwrap()).unwrap();
-    assert_eq!(alice_final_balance, alice_init_balance.checked_sub(transfer_amount).unwrap().checked_sub(tx_cost).unwrap());
+    let tx_cost = (alice_init_balance.checked_add(bob_init_balance).unwrap())
+        .checked_sub(alice_final_balance.checked_add(bob_final_balance).unwrap())
+        .unwrap();
+    assert_eq!(
+        alice_final_balance,
+        alice_init_balance.checked_sub(transfer_amount).unwrap().checked_sub(tx_cost).unwrap()
+    );
     assert!(
         tx_cost < max_refund_cost.checked_add(max_gas_cost).unwrap(),
         "{tx_cost} < {max_refund_cost} + {max_gas_cost}"

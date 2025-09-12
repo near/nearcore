@@ -26,7 +26,8 @@ pub fn set_no_chunk_in_block(block: &mut Block, prev_block: &Block) {
             header.inner_lite.prev_outcome_root = chunks.compute_outcome_root();
             header.inner_rest.chunk_mask = vec![false];
             header.inner_rest.next_gas_price = prev_block.header().next_gas_price();
-            header.inner_rest.total_supply = header.inner_rest.total_supply.checked_add(balance_burnt).unwrap();
+            header.inner_rest.total_supply =
+                header.inner_rest.total_supply.checked_add(balance_burnt).unwrap();
         }
         BlockHeader::BlockHeaderV2(header) => {
             header.inner_rest.chunk_headers_root = chunks.compute_chunk_headers_root().0;
@@ -37,7 +38,8 @@ pub fn set_no_chunk_in_block(block: &mut Block, prev_block: &Block) {
             header.inner_lite.prev_outcome_root = chunks.compute_outcome_root();
             header.inner_rest.chunk_mask = vec![false];
             header.inner_rest.next_gas_price = prev_block.header().next_gas_price();
-            header.inner_rest.total_supply = header.inner_rest.total_supply.checked_add(balance_burnt).unwrap();
+            header.inner_rest.total_supply =
+                header.inner_rest.total_supply.checked_add(balance_burnt).unwrap();
         }
         BlockHeader::BlockHeaderV3(header) => {
             header.inner_rest.chunk_headers_root = chunks.compute_chunk_headers_root().0;
@@ -48,7 +50,8 @@ pub fn set_no_chunk_in_block(block: &mut Block, prev_block: &Block) {
             header.inner_lite.prev_outcome_root = chunks.compute_outcome_root();
             header.inner_rest.chunk_mask = vec![false];
             header.inner_rest.next_gas_price = prev_block.header().next_gas_price();
-            header.inner_rest.total_supply = header.inner_rest.total_supply.checked_add(balance_burnt).unwrap();
+            header.inner_rest.total_supply =
+                header.inner_rest.total_supply.checked_add(balance_burnt).unwrap();
         }
         BlockHeader::BlockHeaderV4(header) => {
             header.inner_rest.chunk_headers_root = chunks.compute_chunk_headers_root().0;
@@ -59,7 +62,8 @@ pub fn set_no_chunk_in_block(block: &mut Block, prev_block: &Block) {
             header.inner_lite.prev_outcome_root = chunks.compute_outcome_root();
             header.inner_rest.chunk_mask = vec![false];
             header.inner_rest.next_gas_price = prev_block.header().next_gas_price();
-            header.inner_rest.total_supply = header.inner_rest.total_supply.checked_add(balance_burnt).unwrap();
+            header.inner_rest.total_supply =
+                header.inner_rest.total_supply.checked_add(balance_burnt).unwrap();
             header.inner_rest.block_body_hash = block_body_hash.unwrap();
         }
         // Same as BlockHeader::BlockHeaderV4 branch but with inner_rest.chunk_endorsements field set.
@@ -72,7 +76,8 @@ pub fn set_no_chunk_in_block(block: &mut Block, prev_block: &Block) {
             header.inner_lite.prev_outcome_root = chunks.compute_outcome_root();
             header.inner_rest.chunk_mask = vec![false];
             header.inner_rest.next_gas_price = prev_block.header().next_gas_price();
-            header.inner_rest.total_supply = header.inner_rest.total_supply.checked_add(balance_burnt).unwrap();
+            header.inner_rest.total_supply =
+                header.inner_rest.total_supply.checked_add(balance_burnt).unwrap();
             header.inner_rest.block_body_hash = block_body_hash.unwrap();
             header.inner_rest.chunk_endorsements =
                 ChunkEndorsementsBitmap::new(chunk_headers.len());

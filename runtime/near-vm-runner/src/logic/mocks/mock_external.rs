@@ -186,7 +186,10 @@ impl External for MockedExternal {
     }
 
     fn validator_total_stake(&self) -> Result<Balance> {
-        Ok(self.validators.values().fold(Balance::ZERO, |sum, item| sum.checked_add(*item).unwrap()))
+        Ok(self
+            .validators
+            .values()
+            .fold(Balance::ZERO, |sum, item| sum.checked_add(*item).unwrap()))
     }
 
     fn create_action_receipt(

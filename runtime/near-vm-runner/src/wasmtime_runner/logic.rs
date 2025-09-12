@@ -822,7 +822,12 @@ pub fn attached_deposit(caller: &mut Caller<'_, Ctx>, balance_ptr: u64) -> Resul
     };
     let (memory, ctx) = memory.data_and_store_mut(caller);
     ctx.result_state.gas_counter.pay_base(base)?;
-    set_u128(&mut ctx.result_state.gas_counter, memory, balance_ptr, ctx.context.attached_deposit.as_yoctonear())
+    set_u128(
+        &mut ctx.result_state.gas_counter,
+        memory,
+        balance_ptr,
+        ctx.context.attached_deposit.as_yoctonear(),
+    )
 }
 
 /// The amount of gas attached to the call that can be used to pay for the gas fees.
@@ -2695,7 +2700,8 @@ pub fn promise_batch_action_function_call_weight(
         }
         .into());
     }
-    let amount = Balance::from_yoctonear(get_u128(&mut ctx.result_state.gas_counter, memory, amount_ptr)?);
+    let amount =
+        Balance::from_yoctonear(get_u128(&mut ctx.result_state.gas_counter, memory, amount_ptr)?);
     let method_name = get_memory_or_register(
         &mut ctx.result_state.gas_counter,
         memory,
@@ -2781,7 +2787,8 @@ pub fn promise_batch_action_transfer(
         }
         .into());
     }
-    let amount = Balance::from_yoctonear(get_u128(&mut ctx.result_state.gas_counter, memory, amount_ptr)?);
+    let amount =
+        Balance::from_yoctonear(get_u128(&mut ctx.result_state.gas_counter, memory, amount_ptr)?);
 
     let (receipt_idx, sir) = promise_idx_to_receipt_idx_with_sir(ctx, promise_idx)?;
     let receiver_id = ctx.ext.get_receipt_receiver(receipt_idx);
@@ -2846,7 +2853,8 @@ pub fn promise_batch_action_stake(
         }
         .into());
     }
-    let amount = Balance::from_yoctonear(get_u128(&mut ctx.result_state.gas_counter, memory, amount_ptr)?);
+    let amount =
+        Balance::from_yoctonear(get_u128(&mut ctx.result_state.gas_counter, memory, amount_ptr)?);
     let public_key = get_public_key(
         &mut ctx.result_state.gas_counter,
         memory,
@@ -2965,7 +2973,11 @@ pub fn promise_batch_action_add_key_with_function_call(
         public_key_ptr,
         public_key_len,
     )?;
-    let allowance = Balance::from_yoctonear(get_u128(&mut ctx.result_state.gas_counter, memory, allowance_ptr)?);
+    let allowance = Balance::from_yoctonear(get_u128(
+        &mut ctx.result_state.gas_counter,
+        memory,
+        allowance_ptr,
+    )?);
     let allowance = if allowance > Balance::ZERO { Some(allowance) } else { None };
     let receiver_id = read_and_parse_account_id(
         &mut ctx.result_state.gas_counter,

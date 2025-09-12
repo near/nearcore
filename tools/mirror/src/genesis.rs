@@ -1,6 +1,5 @@
 use near_crypto::PublicKey;
 use near_primitives::action::delegate::{DelegateAction, SignedDelegateAction};
-use near_primitives::types::Balance;
 use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum};
 use near_primitives::state_record::StateRecord;
 use near_primitives::transaction::{Action, AddKeyAction, DeleteAccountAction, DeleteKeyAction};
@@ -295,12 +294,12 @@ pub(crate) fn map_records<P: AsRef<Path>>(
 #[cfg(test)]
 mod test {
     use near_crypto::{KeyType, SecretKey};
-    use near_primitives::types::Balance;
     use near_primitives::account::{AccessKeyPermission, FunctionCallPermission};
     use near_primitives::action::delegate::{DelegateAction, SignedDelegateAction};
     use near_primitives::hash::CryptoHash;
     use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum, ReceiptV0};
     use near_primitives::transaction::{Action, AddKeyAction, CreateAccountAction};
+    use near_primitives::types::Balance;
     use near_primitives_core::account::AccessKey;
 
     #[test]

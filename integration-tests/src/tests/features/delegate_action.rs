@@ -20,11 +20,11 @@ use near_primitives::transaction::{
     DeployContractAction, FunctionCallAction, StakeAction, TransferAction,
 };
 use near_primitives::types::{AccountId, Gas};
-use near_primitives_core::balance::Balance;
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolVersion};
 use near_primitives::views::{
     AccessKeyPermissionView, ExecutionStatusView, FinalExecutionOutcomeView, FinalExecutionStatus,
 };
+use near_primitives_core::balance::Balance;
 use near_test_contracts::{ft_contract, smallest_rs_contract};
 use node_runtime::config::total_prepaid_gas;
 use testlib::runtime_utils::{
@@ -135,7 +135,8 @@ fn check_meta_tx_execution(
 
     let sender_diff = sender_after.as_yoctonear() as i128 - sender_before.as_yoctonear() as i128;
     let relayer_diff = relayer_after.as_yoctonear() as i128 - relayer_before.as_yoctonear() as i128;
-    let receiver_diff = receiver_after.as_yoctonear() as i128 - receiver_before.as_yoctonear() as i128;
+    let receiver_diff =
+        receiver_after.as_yoctonear() as i128 - receiver_before.as_yoctonear() as i128;
     (tx_result, sender_diff, relayer_diff, receiver_diff)
 }
 
@@ -152,16 +153,26 @@ fn check_meta_tx_no_fn_call(
     receiver: AccountId,
 ) -> FinalExecutionOutcomeView {
     let fee_helper = fee_helper(node);
-    let gas_cost = Balance::from_yoctonear(normal_tx_cost.as_yoctonear().checked_add(fee_helper.meta_tx_overhead_cost(&actions, &receiver).as_yoctonear()).unwrap());
+    let gas_cost = Balance::from_yoctonear(
+        normal_tx_cost
+            .as_yoctonear()
+            .checked_add(fee_helper.meta_tx_overhead_cost(&actions, &receiver).as_yoctonear())
+            .unwrap(),
+    );
 
     let (tx_result, sender_diff, relayer_diff, receiver_diff) =
         check_meta_tx_execution(node, actions, sender, relayer, receiver);
 
     assert_eq!(sender_diff, 0, "sender should not pay for anything");
-    assert_eq!(receiver_diff, tokens_transferred.as_yoctonear() as i128, "unexpected receiver balance");
+    assert_eq!(
+        receiver_diff,
+        tokens_transferred.as_yoctonear() as i128,
+        "unexpected receiver balance"
+    );
     assert_eq!(
         relayer_diff,
-        -((gas_cost.as_yoctonear().checked_add(tokens_transferred.as_yoctonear()).unwrap()) as i128),
+        -((gas_cost.as_yoctonear().checked_add(tokens_transferred.as_yoctonear()).unwrap())
+            as i128),
         "unexpected relayer balance"
     );
 
@@ -256,16 +267,30 @@ fn check_meta_tx_fn_call(
     let refund_penalty = fee_helper.gas_refund_cost(gross_gas_refund);
 
     // the relayer pays all gas and tokens
-    let gas_cost = Balance::from_yoctonear(meta_tx_overhead_cost.as_yoctonear()
-        .checked_add(refund_penalty.as_yoctonear())
+    let gas_cost = Balance::from_yoctonear(
+        meta_tx_overhead_cost
+            .as_yoctonear()
+            .checked_add(refund_penalty.as_yoctonear())
+            .unwrap()
+            .checked_add(
+                fee_helper
+                    .gas_to_balance(static_exec_gas.checked_add(static_send_gas).unwrap())
+                    .as_yoctonear(),
+            )
+            .unwrap(),
+    );
+    let expected_relayer_cost = (gas_cost
+        .as_yoctonear()
+        .checked_add(tokens_transferred.as_yoctonear())
         .unwrap()
-        .checked_add(fee_helper.gas_to_balance(static_exec_gas.checked_add(static_send_gas).unwrap()).as_yoctonear())
-        .unwrap());
-    let expected_relayer_cost = (gas_cost.as_yoctonear().checked_add(tokens_transferred.as_yoctonear()).unwrap().checked_add(dyn_cost.as_yoctonear()).unwrap()) as i128;
+        .checked_add(dyn_cost.as_yoctonear())
+        .unwrap()) as i128;
     assert_eq!(relayer_diff, -expected_relayer_cost, "unexpected relayer balance");
 
     // the receiver gains transferred tokens and the contract reward
-    let expected_receiver_gain = (tokens_transferred.as_yoctonear().checked_add(contract_reward.as_yoctonear()).unwrap()) as i128;
+    let expected_receiver_gain =
+        (tokens_transferred.as_yoctonear().checked_add(contract_reward.as_yoctonear()).unwrap())
+            as i128;
     assert_eq!(receiver_diff, expected_receiver_gain, "unexpected receiver balance");
 
     tx_result
@@ -298,8 +323,15 @@ fn meta_tx_fn_call() {
     let node = RuntimeNode::new(&relayer);
 
     let actions = vec![log_something_fn_call()];
-    let outcome =
-        check_meta_tx_fn_call(&node, actions, TEST_METHOD_LEN, Balance::ZERO, sender, relayer, receiver);
+    let outcome = check_meta_tx_fn_call(
+        &node,
+        actions,
+        TEST_METHOD_LEN,
+        Balance::ZERO,
+        sender,
+        relayer,
+        receiver,
+    );
 
     // Check that the function call was executed as expected
     let fn_call_logs = &outcome.receipts_outcome[1].outcome.logs;
@@ -386,8 +418,15 @@ fn meta_tx_fn_call_access_key_insufficient_allowance() {
 
     let actions = vec![log_something_fn_call()];
     // this should still succeed because we use the gas of the relayer, not of the access key
-    let outcome =
-        check_meta_tx_fn_call(&node, actions, TEST_METHOD_LEN, Balance::ZERO, sender, relayer, receiver);
+    let outcome = check_meta_tx_fn_call(
+        &node,
+        actions,
+        TEST_METHOD_LEN,
+        Balance::ZERO,
+        sender,
+        relayer,
+        receiver,
+    );
 
     // Check that the function call was executed as expected
     let fn_call_logs = &outcome.receipts_outcome[1].outcome.logs;
@@ -484,7 +523,15 @@ fn meta_tx_add_key() {
         public_key: public_key.clone(),
         access_key: AccessKey::full_access(),
     }))];
-    check_meta_tx_no_fn_call(&node, actions, tx_cost, Balance::ZERO, sender, relayer, receiver.clone());
+    check_meta_tx_no_fn_call(
+        &node,
+        actions,
+        tx_cost,
+        Balance::ZERO,
+        sender,
+        relayer,
+        receiver.clone(),
+    );
 
     let key_view = node
         .user()
@@ -510,7 +557,15 @@ fn meta_tx_delete_key() {
     let public_key = PublicKey::from_seed(KeyType::ED25519, receiver.as_ref());
     let actions =
         vec![Action::DeleteKey(Box::new(DeleteKeyAction { public_key: public_key.clone() }))];
-    check_meta_tx_no_fn_call(&node, actions, tx_cost, Balance::ZERO, sender, relayer, receiver.clone());
+    check_meta_tx_no_fn_call(
+        &node,
+        actions,
+        tx_cost,
+        Balance::ZERO,
+        sender,
+        relayer,
+        receiver.clone(),
+    );
 
     let err = node
         .user()
@@ -547,9 +602,13 @@ fn meta_tx_delete_account() {
         vec![Action::DeleteAccount(DeleteAccountAction { beneficiary_id: relayer.clone() })];
 
     // special case balance check for deleting account
-    let gas_cost = Balance::from_yoctonear(fee_helper.prepaid_delete_account_cost().as_yoctonear()
-        .checked_add(fee_helper.meta_tx_overhead_cost(&actions, &receiver).as_yoctonear())
-        .unwrap());
+    let gas_cost = Balance::from_yoctonear(
+        fee_helper
+            .prepaid_delete_account_cost()
+            .as_yoctonear()
+            .checked_add(fee_helper.meta_tx_overhead_cost(&actions, &receiver).as_yoctonear())
+            .unwrap(),
+    );
     let (_tx_result, sender_diff, relayer_diff, receiver_diff) =
         check_meta_tx_execution(&node, actions, sender, relayer, receiver.clone());
 
@@ -559,7 +618,11 @@ fn meta_tx_delete_account() {
         "sender should be deleted and thus have zero balance"
     );
     assert_eq!(sender_diff, receiver_diff);
-    assert_eq!(relayer_diff, balance.as_yoctonear() as i128 - (gas_cost.as_yoctonear() as i128), "unexpected relayer balance");
+    assert_eq!(
+        relayer_diff,
+        balance.as_yoctonear() as i128 - (gas_cost.as_yoctonear() as i128),
+        "unexpected relayer balance"
+    );
     let err = node.view_account(&receiver).expect_err("account should have been deleted");
     assert_eq!(err, "Account ID #eve.alice.near does not exist");
 }
@@ -641,8 +704,18 @@ fn meta_tx_ft_transfer() {
 
     // Also check FT balances
     assert_ft_balance(&node, &ft_contract, &receiver, Balance::from_yoctonear(1000));
-    assert_ft_balance(&node, &ft_contract, sender.as_ref(), Balance::from_yoctonear(10_000 - 1000 - 10));
-    assert_ft_balance(&node, &ft_contract, relayer.as_ref(), Balance::from_yoctonear(1_000_000 - 10_000 + 10));
+    assert_ft_balance(
+        &node,
+        &ft_contract,
+        sender.as_ref(),
+        Balance::from_yoctonear(10_000 - 1000 - 10),
+    );
+    assert_ft_balance(
+        &node,
+        &ft_contract,
+        relayer.as_ref(),
+        Balance::from_yoctonear(1_000_000 - 10_000 + 10),
+    );
 }
 
 /// Call the function "log_something" in the test contract.
@@ -743,7 +816,13 @@ fn setup_with_access_key(
     let access_key = fn_access_key(allowance, receiver.to_string(), vec![method.to_owned()]);
     let mut genesis = Genesis::test(vec![user.clone(), receiver.clone()], 3);
     add_test_contract(&mut genesis, &receiver);
-    add_account_with_access_key(&mut genesis, sender.clone(), Balance::from_near(1), public_key, access_key);
+    add_account_with_access_key(
+        &mut genesis,
+        sender.clone(),
+        Balance::from_near(1),
+        public_key,
+        access_key,
+    );
     RuntimeNode::new_from_genesis(user, genesis)
 }
 

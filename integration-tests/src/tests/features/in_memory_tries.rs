@@ -266,8 +266,16 @@ fn run_chain_for_some_blocks_while_sending_money_around(
                         _ => {}
                     }
                 }
-                *balances.get_mut(&sender).unwrap() = balances.get_mut(&sender).unwrap().checked_sub(Balance::from_yoctonear(ONE_NEAR)).unwrap();
-                *balances.get_mut(&receiver).unwrap() = balances.get_mut(&receiver).unwrap().checked_add(Balance::from_yoctonear(ONE_NEAR)).unwrap();
+                *balances.get_mut(&sender).unwrap() = balances
+                    .get_mut(&sender)
+                    .unwrap()
+                    .checked_sub(Balance::from_yoctonear(ONE_NEAR))
+                    .unwrap();
+                *balances.get_mut(&receiver).unwrap() = balances
+                    .get_mut(&receiver)
+                    .unwrap()
+                    .checked_add(Balance::from_yoctonear(ONE_NEAR))
+                    .unwrap();
             }
         }
 

@@ -17,13 +17,13 @@ use near_primitives::errors::{
 };
 use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::types::{AccountId, Gas};
-use near_primitives_core::balance::Balance;
 use near_primitives::utils::{derive_eth_implicit_account_id, derive_near_implicit_account_id};
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_primitives::views::{
     AccessKeyView, AccountView, ExecutionMetadataView, FinalExecutionOutcomeView,
     FinalExecutionStatus,
 };
+use near_primitives_core::balance::Balance;
 use near_store::trie::TrieNodesCount;
 use std::sync::Arc;
 
@@ -178,7 +178,14 @@ pub fn test_smart_contract_empty_method_name_with_no_tokens(node: impl Node) {
     let node_user = node.user();
     let root = node_user.get_state_root();
     let transaction_result = node_user
-        .function_call(account_id.clone(), bob_account(), "", vec![], Gas::from_teragas(100), Balance::ZERO)
+        .function_call(
+            account_id.clone(),
+            bob_account(),
+            "",
+            vec![],
+            Gas::from_teragas(100),
+            Balance::ZERO,
+        )
         .unwrap();
     assert_eq!(
         transaction_result.status,
@@ -203,7 +210,14 @@ pub fn test_smart_contract_empty_method_name_with_tokens(node: impl Node) {
     let node_user = node.user();
     let root = node_user.get_state_root();
     let transaction_result = node_user
-        .function_call(account_id.clone(), bob_account(), "", vec![], Gas::from_teragas(100), Balance::from_yoctonear(10))
+        .function_call(
+            account_id.clone(),
+            bob_account(),
+            "",
+            vec![],
+            Gas::from_teragas(100),
+            Balance::from_yoctonear(10),
+        )
         .unwrap();
     assert_eq!(
         transaction_result.status,
@@ -284,7 +298,13 @@ pub fn test_nonce_update_when_deploying_contract(node: impl Node) {
 pub fn test_nonce_updated_when_tx_failed(node: impl Node) {
     let account_id = &node.account_id().unwrap();
     let node_user = node.user();
-    node_user.send_money(account_id.clone(), bob_account(), TESTING_INIT_BALANCE.saturating_add(Balance::from_yoctonear(1))).unwrap_err();
+    node_user
+        .send_money(
+            account_id.clone(),
+            bob_account(),
+            TESTING_INIT_BALANCE.saturating_add(Balance::from_yoctonear(1)),
+        )
+        .unwrap_err();
     assert_eq!(node_user.get_access_key_nonce_for_signer(account_id).unwrap(), 0);
 }
 
@@ -316,7 +336,12 @@ pub fn test_regression_nonce_update_with_mixed_transactions(node: impl Node) {
         receiver_id,
         &node_user.signer(),
         vec![Action::Transfer(TransferAction {
-            deposit: Balance::from_yoctonear(TESTING_INIT_BALANCE.as_yoctonear() - TESTING_INIT_STAKE.as_yoctonear() - transfer_cost.as_yoctonear() - 199),
+            deposit: Balance::from_yoctonear(
+                TESTING_INIT_BALANCE.as_yoctonear()
+                    - TESTING_INIT_STAKE.as_yoctonear()
+                    - transfer_cost.as_yoctonear()
+                    - 199,
+            ),
         })],
         block_hash,
         0,
@@ -395,14 +420,25 @@ pub fn test_send_money(node: impl Node) {
     assert_eq!(
         (amount, locked),
         (
-            Balance::from_yoctonear(TESTING_INIT_BALANCE.as_yoctonear() - money_used.as_yoctonear() - TESTING_INIT_STAKE.as_yoctonear() - transfer_cost.as_yoctonear()),
+            Balance::from_yoctonear(
+                TESTING_INIT_BALANCE.as_yoctonear()
+                    - money_used.as_yoctonear()
+                    - TESTING_INIT_STAKE.as_yoctonear()
+                    - transfer_cost.as_yoctonear()
+            ),
             TESTING_INIT_STAKE
         )
     );
     let AccountView { amount, locked, .. } = node_user.view_account(&bob_account()).unwrap();
     assert_eq!(
         (amount, locked),
-        (Balance::from_yoctonear(TESTING_INIT_BALANCE.as_yoctonear() + money_used.as_yoctonear() - TESTING_INIT_STAKE.as_yoctonear()), TESTING_INIT_STAKE,)
+        (
+            Balance::from_yoctonear(
+                TESTING_INIT_BALANCE.as_yoctonear() + money_used.as_yoctonear()
+                    - TESTING_INIT_STAKE.as_yoctonear()
+            ),
+            TESTING_INIT_STAKE,
+        )
     );
 }
 
@@ -438,7 +474,13 @@ pub fn transfer_tokens_to_implicit_account(node: impl Node, public_key: PublicKe
     assert_eq!(
         (amount, locked),
         (
-            TESTING_INIT_BALANCE.checked_sub(tokens_used).unwrap().checked_sub(TESTING_INIT_STAKE).unwrap().checked_sub(transfer_cost).unwrap(),
+            TESTING_INIT_BALANCE
+                .checked_sub(tokens_used)
+                .unwrap()
+                .checked_sub(TESTING_INIT_STAKE)
+                .unwrap()
+                .checked_sub(transfer_cost)
+                .unwrap(),
             TESTING_INIT_STAKE
         )
     );
@@ -473,7 +515,13 @@ pub fn transfer_tokens_to_implicit_account(node: impl Node, public_key: PublicKe
     assert_eq!(
         (amount, locked),
         (
-            TESTING_INIT_BALANCE.checked_sub(tokens_used.checked_mul(2).unwrap()).unwrap().checked_sub(TESTING_INIT_STAKE).unwrap().checked_sub(transfer_cost.checked_mul(2).unwrap()).unwrap(),
+            TESTING_INIT_BALANCE
+                .checked_sub(tokens_used.checked_mul(2).unwrap())
+                .unwrap()
+                .checked_sub(TESTING_INIT_STAKE)
+                .unwrap()
+                .checked_sub(transfer_cost.checked_mul(2).unwrap())
+                .unwrap(),
             TESTING_INIT_STAKE
         )
     );
@@ -512,20 +560,26 @@ pub fn trying_to_create_implicit_account(node: impl Node, public_key: PublicKey)
         .unwrap();
     let refund_cost = fee_helper.gas_refund_cost(gas_refund);
 
-    let cost = refund_cost.checked_add(match receiver_id.get_account_type() {
-            AccountType::NearImplicitAccount => {
-                fee_helper.create_account_transfer_full_key_cost_fail_on_create_account()
-                    .checked_add(fee_helper
-                        .gas_to_balance(create_account_fee.checked_add(add_access_key_fee).unwrap())).unwrap()
-            }
-            AccountType::EthImplicitAccount => {
-                // This test uses `node_user.create_account` method that is normally used for NamedAccounts and should fail here.
-                fee_helper.create_account_transfer_full_key_cost_fail_on_create_account()
-                // We add this fee analogously to the NEAR-implicit match arm above (without `add_access_key_fee`).
-                .checked_add(fee_helper.gas_to_balance(create_account_fee)).unwrap()
-            }
-            AccountType::NamedAccount => std::panic!("must be implicit"),
-        }).unwrap();
+    let cost =
+        refund_cost
+            .checked_add(match receiver_id.get_account_type() {
+                AccountType::NearImplicitAccount => fee_helper
+                    .create_account_transfer_full_key_cost_fail_on_create_account()
+                    .checked_add(fee_helper.gas_to_balance(
+                        create_account_fee.checked_add(add_access_key_fee).unwrap(),
+                    ))
+                    .unwrap(),
+                AccountType::EthImplicitAccount => {
+                    // This test uses `node_user.create_account` method that is normally used for NamedAccounts and should fail here.
+                    fee_helper
+                        .create_account_transfer_full_key_cost_fail_on_create_account()
+                        // We add this fee analogously to the NEAR-implicit match arm above (without `add_access_key_fee`).
+                        .checked_add(fee_helper.gas_to_balance(create_account_fee))
+                        .unwrap()
+                }
+                AccountType::NamedAccount => std::panic!("must be implicit"),
+            })
+            .unwrap();
 
     assert_eq!(
         transaction_result.status,
@@ -547,7 +601,14 @@ pub fn trying_to_create_implicit_account(node: impl Node, public_key: PublicKey)
     let result1 = node_user.view_account(account_id).unwrap();
     assert_eq!(
         (result1.amount, result1.locked),
-        (TESTING_INIT_BALANCE.checked_sub(TESTING_INIT_STAKE).unwrap().checked_sub(cost).unwrap(), TESTING_INIT_STAKE)
+        (
+            TESTING_INIT_BALANCE
+                .checked_sub(TESTING_INIT_STAKE)
+                .unwrap()
+                .checked_sub(cost)
+                .unwrap(),
+            TESTING_INIT_STAKE
+        )
     );
 
     let result2 = node_user.view_account(&receiver_id);
@@ -585,7 +646,10 @@ pub fn test_smart_contract_reward(node: impl Node) {
         .checked_sub(fee_helper.function_call_exec_gas(b"run_test".len() as u64))
         .unwrap();
     let reward = fee_helper.gas_burnt_to_reward(gas_burnt_for_function_call);
-    assert_eq!(bob.amount, TESTING_INIT_BALANCE.checked_sub(TESTING_INIT_STAKE).unwrap().checked_add(reward).unwrap());
+    assert_eq!(
+        bob.amount,
+        TESTING_INIT_BALANCE.checked_sub(TESTING_INIT_STAKE).unwrap().checked_add(reward).unwrap()
+    );
 }
 
 pub fn test_transaction_invalid_signature(node: impl Node) {
@@ -653,7 +717,14 @@ pub fn test_refund_on_send_money_to_non_existent_account(node: impl Node) {
     let result1 = node_user.view_account(account_id).unwrap();
     assert_eq!(
         (result1.amount, result1.locked),
-        (TESTING_INIT_BALANCE.checked_sub(TESTING_INIT_STAKE).unwrap().checked_sub(transfer_cost).unwrap(), TESTING_INIT_STAKE)
+        (
+            TESTING_INIT_BALANCE
+                .checked_sub(TESTING_INIT_STAKE)
+                .unwrap()
+                .checked_sub(transfer_cost)
+                .unwrap(),
+            TESTING_INIT_STAKE
+        )
     );
     assert_eq!(node_user.get_access_key_nonce_for_signer(account_id).unwrap(), 1);
     let result2 = node_user.view_account(&eve_dot_alice_account());
@@ -688,7 +759,13 @@ pub fn test_create_account(node: impl Node) {
     assert_eq!(
         (result1.amount, result1.locked),
         (
-            TESTING_INIT_BALANCE.checked_sub(money_used).unwrap().checked_sub(TESTING_INIT_STAKE).unwrap().checked_sub(create_account_cost).unwrap(),
+            TESTING_INIT_BALANCE
+                .checked_sub(money_used)
+                .unwrap()
+                .checked_sub(TESTING_INIT_STAKE)
+                .unwrap()
+                .checked_sub(create_account_cost)
+                .unwrap(),
             TESTING_INIT_STAKE
         )
     );
@@ -718,8 +795,13 @@ pub fn test_create_account_again(node: impl Node) {
     let create_account_cost = fee_helper.create_account_transfer_full_key_cost();
 
     let result1 = node_user.view_account(account_id).unwrap();
-    let new_expected_balance =
-        TESTING_INIT_BALANCE.checked_sub(money_used).unwrap().checked_sub(TESTING_INIT_STAKE).unwrap().checked_sub(create_account_cost).unwrap();
+    let new_expected_balance = TESTING_INIT_BALANCE
+        .checked_sub(money_used)
+        .unwrap()
+        .checked_sub(TESTING_INIT_STAKE)
+        .unwrap()
+        .checked_sub(create_account_cost)
+        .unwrap();
     assert_eq!((result1.amount, result1.locked), (new_expected_balance, TESTING_INIT_STAKE));
     assert_eq!(node_user.get_access_key_nonce_for_signer(account_id).unwrap(), 1);
 
@@ -767,7 +849,14 @@ pub fn test_create_account_again(node: impl Node) {
     let result1 = node_user.view_account(account_id).unwrap();
     assert_eq!(
         (result1.amount, result1.locked),
-        (new_expected_balance.checked_sub(additional_cost).unwrap().checked_sub(refund_cost).unwrap(), TESTING_INIT_STAKE)
+        (
+            new_expected_balance
+                .checked_sub(additional_cost)
+                .unwrap()
+                .checked_sub(refund_cost)
+                .unwrap(),
+            TESTING_INIT_STAKE
+        )
     );
 }
 
@@ -775,7 +864,12 @@ pub fn test_create_account_failure_no_funds(node: impl Node) {
     let account_id = &node.account_id().unwrap();
     let node_user = node.user();
     let transaction_result = node_user
-        .create_account(account_id.clone(), eve_dot_alice_account(), node.signer().public_key(), Balance::ZERO)
+        .create_account(
+            account_id.clone(),
+            eve_dot_alice_account(),
+            node.signer().public_key(),
+            Balance::ZERO,
+        )
         .unwrap();
     assert_matches!(transaction_result.status, FinalExecutionStatus::SuccessValue(_));
 }
@@ -822,7 +916,13 @@ pub fn test_create_account_failure_already_exists(node: impl Node) {
     assert_eq!(
         (result1.amount, result1.locked),
         (
-            TESTING_INIT_BALANCE.checked_sub(TESTING_INIT_STAKE).unwrap().checked_sub(create_account_cost).unwrap().checked_sub(refund_cost).unwrap(),
+            TESTING_INIT_BALANCE
+                .checked_sub(TESTING_INIT_STAKE)
+                .unwrap()
+                .checked_sub(create_account_cost)
+                .unwrap()
+                .checked_sub(refund_cost)
+                .unwrap(),
             TESTING_INIT_STAKE
         )
     );
@@ -1120,7 +1220,14 @@ pub fn test_delete_access_key_with_allowance(node: impl Node) {
     assert_ne!(new_root, root);
 
     let account = node_user.view_account(account_id).unwrap();
-    assert_eq!(account.amount, initial_balance.checked_sub(add_access_key_cost).unwrap().checked_sub(delete_access_key_cost).unwrap());
+    assert_eq!(
+        account.amount,
+        initial_balance
+            .checked_sub(add_access_key_cost)
+            .unwrap()
+            .checked_sub(delete_access_key_cost)
+            .unwrap()
+    );
 
     assert!(node_user.get_access_key(account_id, &node.signer().public_key()).is_ok());
     assert!(node_user.get_access_key(account_id, &signer2.public_key()).is_err());
@@ -1183,7 +1290,13 @@ pub fn test_access_key_smart_contract(node: impl Node) {
         AccessKey {
             nonce: view_access_key.nonce,
             permission: AccessKeyPermission::FunctionCall(FunctionCallPermission {
-                allowance: Some(FUNCTION_CALL_AMOUNT.checked_sub(function_call_cost).unwrap().checked_add(gas_refund).unwrap()),
+                allowance: Some(
+                    FUNCTION_CALL_AMOUNT
+                        .checked_sub(function_call_cost)
+                        .unwrap()
+                        .checked_add(gas_refund)
+                        .unwrap()
+                ),
                 receiver_id: bob_account().into(),
                 method_names: vec![],
             }),
@@ -1285,7 +1398,16 @@ pub fn test_increase_stake(node: impl Node) {
     assert_ne!(root, new_root);
 
     let account = node_user.view_account(account_id).unwrap();
-    assert_eq!(account.amount, TESTING_INIT_BALANCE.checked_sub(TESTING_INIT_STAKE).unwrap().checked_sub(Balance::from_yoctonear(1)).unwrap().checked_sub(stake_cost).unwrap());
+    assert_eq!(
+        account.amount,
+        TESTING_INIT_BALANCE
+            .checked_sub(TESTING_INIT_STAKE)
+            .unwrap()
+            .checked_sub(Balance::from_yoctonear(1))
+            .unwrap()
+            .checked_sub(stake_cost)
+            .unwrap()
+    );
     assert_eq!(account.locked, amount_staked)
 }
 
@@ -1305,7 +1427,14 @@ pub fn test_decrease_stake(node: impl Node) {
     assert_ne!(root, new_root);
 
     let account = node_user.view_account(account_id).unwrap();
-    assert_eq!(account.amount, TESTING_INIT_BALANCE.checked_sub(TESTING_INIT_STAKE).unwrap().checked_sub(stake_cost).unwrap());
+    assert_eq!(
+        account.amount,
+        TESTING_INIT_BALANCE
+            .checked_sub(TESTING_INIT_STAKE)
+            .unwrap()
+            .checked_sub(stake_cost)
+            .unwrap()
+    );
     assert_eq!(account.locked, TESTING_INIT_STAKE);
 }
 
@@ -1323,8 +1452,9 @@ pub fn test_unstake_while_not_staked(node: impl Node) {
     let num_expected_receipts =
         if ProtocolFeature::ReducedGasRefunds.enabled(PROTOCOL_VERSION) { 1 } else { 2 };
     assert_eq!(transaction_result.receipts_outcome.len(), num_expected_receipts);
-    let transaction_result =
-        node_user.stake(eve_dot_alice_account(), node.block_signer().public_key(), Balance::ZERO).unwrap();
+    let transaction_result = node_user
+        .stake(eve_dot_alice_account(), node.block_signer().public_key(), Balance::ZERO)
+        .unwrap();
     assert_eq!(
         transaction_result.status,
         FinalExecutionStatus::Failure(
@@ -1486,7 +1616,14 @@ pub fn test_smart_contract_free(node: impl Node) {
     let node_user = node.user();
     let root = node_user.get_state_root();
     let transaction_result = node_user
-        .function_call(alice_account(), bob_account(), "run_test", vec![], Gas::from_teragas(10), Balance::ZERO)
+        .function_call(
+            alice_account(),
+            bob_account(),
+            "run_test",
+            vec![],
+            Gas::from_teragas(10),
+            Balance::ZERO,
+        )
         .unwrap();
     assert_eq!(
         transaction_result.status,

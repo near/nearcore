@@ -887,7 +887,8 @@ impl ClientActorInner {
                 chunk_validator_assignments.compute_endorsement_state(endorsed_chunk_validators);
             chunk_endorsements.insert(
                 chunk_header.chunk_hash().clone(),
-                endorsement_state.endorsed_stake.as_yoctonear() as f64 / endorsement_state.total_stake.as_yoctonear() as f64,
+                endorsement_state.endorsed_stake.as_yoctonear() as f64
+                    / endorsement_state.total_stake.as_yoctonear() as f64,
             );
         }
         Some(chunk_endorsements)

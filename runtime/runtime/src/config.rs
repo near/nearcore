@@ -420,10 +420,26 @@ mod tests {
 
     #[test]
     fn test_safe_gas_price_inflated() {
-        assert_eq!(safe_gas_price_inflated(Balance::from_yoctonear(10000), Rational32::new(101, 100), 1).unwrap(), Balance::from_yoctonear(10100));
-        assert_eq!(safe_gas_price_inflated(Balance::from_yoctonear(10000), Rational32::new(101, 100), 2).unwrap(), Balance::from_yoctonear(10201));
+        assert_eq!(
+            safe_gas_price_inflated(Balance::from_yoctonear(10000), Rational32::new(101, 100), 1)
+                .unwrap(),
+            Balance::from_yoctonear(10100)
+        );
+        assert_eq!(
+            safe_gas_price_inflated(Balance::from_yoctonear(10000), Rational32::new(101, 100), 2)
+                .unwrap(),
+            Balance::from_yoctonear(10201)
+        );
         // Rounded up
-        assert_eq!(safe_gas_price_inflated(Balance::from_yoctonear(10000), Rational32::new(101, 100), 3).unwrap(), Balance::from_yoctonear(10304));
-        assert_eq!(safe_gas_price_inflated(Balance::from_yoctonear(10000), Rational32::new(101, 100), 32).unwrap(), Balance::from_yoctonear(13750));
+        assert_eq!(
+            safe_gas_price_inflated(Balance::from_yoctonear(10000), Rational32::new(101, 100), 3)
+                .unwrap(),
+            Balance::from_yoctonear(10304)
+        );
+        assert_eq!(
+            safe_gas_price_inflated(Balance::from_yoctonear(10000), Rational32::new(101, 100), 32)
+                .unwrap(),
+            Balance::from_yoctonear(13750)
+        );
     }
 }

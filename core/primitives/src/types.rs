@@ -1,7 +1,6 @@
 use crate::account::{AccessKey, Account};
 use crate::errors::EpochError;
 use crate::hash::CryptoHash;
-use crate::serialize::dec_format;
 use crate::shard_layout::ShardLayout;
 use crate::sharding::ChunkHash;
 use crate::stateless_validation::ChunkProductionKey;
@@ -64,8 +63,6 @@ pub struct AccountWithPublicKey {
 pub struct AccountInfo {
     pub account_id: AccountId,
     pub public_key: PublicKey,
-    #[serde(with = "dec_format")]
-    #[cfg_attr(feature = "schemars", schemars(with = "String"))]
     pub amount: Balance,
 }
 
@@ -1221,11 +1218,9 @@ pub enum ValidatorKickoutReason {
     Unstaked = 3,
     /// Validator stake is now below threshold
     NotEnoughStake {
-        #[serde(with = "dec_format", rename = "stake_u128")]
-        #[cfg_attr(feature = "schemars", schemars(with = "String"))]
+        #[serde(rename = "stake_u128")]
         stake: Balance,
-        #[serde(with = "dec_format", rename = "threshold_u128")]
-        #[cfg_attr(feature = "schemars", schemars(with = "String"))]
+        #[serde(rename = "threshold_u128")]
         threshold: Balance,
     } = 4,
     /// Enough stake but is not chosen because of seat limits.
@@ -1334,14 +1329,33 @@ mod tests {
     #[test]
     fn test_validator_stake_num_mandates() {
         assert_eq!(new_validator_stake(Balance::ZERO).num_mandates(Balance::from_yoctonear(5)), 0);
-        assert_eq!(new_validator_stake(Balance::from_yoctonear(10)).num_mandates(Balance::from_yoctonear(5)), 2);
-        assert_eq!(new_validator_stake(Balance::from_yoctonear(12)).num_mandates(Balance::from_yoctonear(5)), 2);
+        assert_eq!(
+            new_validator_stake(Balance::from_yoctonear(10))
+                .num_mandates(Balance::from_yoctonear(5)),
+            2
+        );
+        assert_eq!(
+            new_validator_stake(Balance::from_yoctonear(12))
+                .num_mandates(Balance::from_yoctonear(5)),
+            2
+        );
     }
 
     #[test]
     fn test_validator_partial_mandate_weight() {
-        assert_eq!(new_validator_stake(Balance::ZERO).partial_mandate_weight(Balance::from_yoctonear(5)), Balance::ZERO);
-        assert_eq!(new_validator_stake(Balance::from_yoctonear(10)).partial_mandate_weight(Balance::from_yoctonear(5)), Balance::ZERO);
-        assert_eq!(new_validator_stake(Balance::from_yoctonear(12)).partial_mandate_weight(Balance::from_yoctonear(5)), Balance::from_yoctonear(2));
+        assert_eq!(
+            new_validator_stake(Balance::ZERO).partial_mandate_weight(Balance::from_yoctonear(5)),
+            Balance::ZERO
+        );
+        assert_eq!(
+            new_validator_stake(Balance::from_yoctonear(10))
+                .partial_mandate_weight(Balance::from_yoctonear(5)),
+            Balance::ZERO
+        );
+        assert_eq!(
+            new_validator_stake(Balance::from_yoctonear(12))
+                .partial_mandate_weight(Balance::from_yoctonear(5)),
+            Balance::from_yoctonear(2)
+        );
     }
 }

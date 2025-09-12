@@ -10,9 +10,6 @@ use assert_matches::assert_matches;
 /// Initial balance used in tests.
 pub const TESTING_INIT_BALANCE: Balance = Balance::from_near(1_000_000_000);
 
-/// One NEAR, divisible by 10^24.
-pub const NEAR_BASE: Balance = Balance::from_near(1);
-
 /// Max prepaid amount of gas.
 const MAX_GAS: Gas = Gas::from_teragas(300);
 

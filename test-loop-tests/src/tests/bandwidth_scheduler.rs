@@ -53,12 +53,12 @@ use testlib::bandwidth_scheduler::{
     TestScenario, TestScenarioBuilder, TestSummary,
 };
 
-use near_primitives::types::Balance;
 use crate::setup::builder::TestLoopBuilder;
 use crate::setup::drop_condition::DropCondition;
 use crate::setup::env::TestLoopEnv;
 use crate::setup::state::NodeExecutionData;
 use crate::utils::transactions::{TransactionRunner, run_txs_parallel};
+use near_primitives::types::Balance;
 
 /// 3 shards, random receipt sizes
 #[test]

@@ -302,11 +302,7 @@ impl Account {
 #[derive(serde::Serialize, serde::Deserialize, PartialEq, Eq, Debug, Clone, ProtocolSchema)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 struct SerdeAccount {
-    #[serde(with = "dec_format")]
-    #[cfg_attr(feature = "schemars", schemars(with = "String"))]
     amount: Balance,
-    #[serde(with = "dec_format")]
-    #[cfg_attr(feature = "schemars", schemars(with = "String"))]
     locked: Balance,
     code_hash: CryptoHash,
     storage_usage: StorageUsage,

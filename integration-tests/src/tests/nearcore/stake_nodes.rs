@@ -198,7 +198,8 @@ fn slow_test_validator_kickout() {
                 false,
             );
             let mut rng = rand::thread_rng();
-            let stakes = (0..num_nodes / 2).map(|_| NEAR_BASE.saturating_add(Balance::from_yoctonear(rng.gen_range(1..100))));
+            let stakes = (0..num_nodes / 2)
+                .map(|_| NEAR_BASE.saturating_add(Balance::from_yoctonear(rng.gen_range(1..100))));
             let stake_transactions = stakes.enumerate().map(|(i, stake)| {
                 let test_node = &test_nodes[i];
                 let signer = Arc::new(InMemorySigner::test_signer(&test_node.account_id));
@@ -286,7 +287,9 @@ fn slow_test_validator_kickout() {
                                             assert_eq!(result.locked, TESTING_INIT_STAKE);
                                             assert_eq!(
                                                 result.amount,
-                                                TESTING_INIT_BALANCE.checked_sub(TESTING_INIT_STAKE).unwrap()
+                                                TESTING_INIT_BALANCE
+                                                    .checked_sub(TESTING_INIT_STAKE)
+                                                    .unwrap()
                                             );
                                             mark.store(true, Ordering::SeqCst);
                                             future::ready(())

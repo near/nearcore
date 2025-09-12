@@ -664,8 +664,9 @@ impl Runtime {
         let gas_burnt: Gas =
             if receipt.predecessor_id().is_system() { Gas::ZERO } else { result.gas_burnt };
         // `price_deficit` is strictly less than `gas_price * gas_burnt`.
-        let mut tx_burnt_amount = safe_gas_to_balance(apply_state.gas_price, gas_burnt)?.checked_sub(
-            gas_refund_result.price_deficit).unwrap();
+        let mut tx_burnt_amount = safe_gas_to_balance(apply_state.gas_price, gas_burnt)?
+            .checked_sub(gas_refund_result.price_deficit)
+            .unwrap();
         tx_burnt_amount = safe_add_balance(tx_burnt_amount, gas_refund_result.price_surplus)?;
         tx_burnt_amount = safe_add_balance(tx_burnt_amount, gas_refund_result.refund_penalty)?;
         // The amount of tokens burnt for the execution of this receipt. It's used in the execution
@@ -833,7 +834,11 @@ impl Runtime {
                 result,
                 config,
             )?;
-            Ok(GasRefundResult { price_deficit, price_surplus: Balance::ZERO, refund_penalty: Balance::ZERO })
+            Ok(GasRefundResult {
+                price_deficit,
+                price_surplus: Balance::ZERO,
+                refund_penalty: Balance::ZERO,
+            })
         } else {
             self.refund_unspent_gas_and_deposits(
                 current_gas_price,
@@ -1279,8 +1284,10 @@ impl Runtime {
                         account.locked(),
                         max_of_stakes)).into());
                 }
-                let last_proposal =
-                    *validator_accounts_update.last_proposals.get(account_id).unwrap_or(&Balance::ZERO);
+                let last_proposal = *validator_accounts_update
+                    .last_proposals
+                    .get(account_id)
+                    .unwrap_or(&Balance::ZERO);
                 let return_stake = account
                     .locked()
                     .checked_sub(max(*max_of_stakes, last_proposal))

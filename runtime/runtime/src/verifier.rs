@@ -78,7 +78,9 @@ pub fn check_storage_stake(
         if is_zero_balance_account(account) {
             return Ok(());
         }
-        Err(StorageStakingError::LackBalanceForStorageStaking(required_amount.checked_sub(available_amount).unwrap()))
+        Err(StorageStakingError::LackBalanceForStorageStaking(
+            required_amount.checked_sub(available_amount).unwrap(),
+        ))
     }
 }
 
@@ -623,9 +625,6 @@ mod tests {
     /// Initial balance used in tests.
     const TESTING_INIT_BALANCE: Balance = Balance::from_near(1_000_000_000);
 
-    /// One NEAR, divisible by 10^24.
-    const NEAR_BASE: Balance = Balance::from_near(1);
-
     fn test_limit_config() -> LimitConfig {
         let store = near_parameters::RuntimeConfigStore::test();
         store.get_config(PROTOCOL_VERSION).wasm_config.limit_config.clone()
@@ -724,7 +723,11 @@ mod tests {
         let root = tries.apply_all(&trie_changes, ShardUId::single_shard(), &mut store_update);
         store_update.commit().unwrap();
 
-        (signer, tries.new_trie_update(ShardUId::single_shard(), root), Balance::from_yoctonear(100))
+        (
+            signer,
+            tries.new_trie_update(ShardUId::single_shard(), root),
+            Balance::from_yoctonear(100),
+        )
     }
 
     fn assert_err_both_validations(
@@ -938,9 +941,17 @@ mod tests {
         assert_eq!(
             account.amount(),
             TESTING_INIT_BALANCE
-                .checked_sub(verification_result.receipt_gas_price.checked_mul(verification_result.gas_remaining.as_gas().into()).unwrap()).unwrap()
-                .checked_sub(verification_result.burnt_amount).unwrap()
-                .checked_sub(deposit).unwrap()
+                .checked_sub(
+                    verification_result
+                        .receipt_gas_price
+                        .checked_mul(verification_result.gas_remaining.as_gas().into())
+                        .unwrap()
+                )
+                .unwrap()
+                .checked_sub(verification_result.burnt_amount)
+                .unwrap()
+                .checked_sub(deposit)
+                .unwrap()
         );
 
         let access_key =
@@ -976,7 +987,8 @@ mod tests {
     #[test]
     fn test_validate_transaction_invalid_access_key_not_found() {
         let config = RuntimeConfig::test();
-        let (bad_signer, mut state_update, gas_price) = setup_common(TESTING_INIT_BALANCE, Balance::ZERO, None);
+        let (bad_signer, mut state_update, gas_price) =
+            setup_common(TESTING_INIT_BALANCE, Balance::ZERO, None);
 
         let transaction = SignedTransaction::send_money(
             1,
@@ -1305,8 +1317,12 @@ mod tests {
             err,
             InvalidTxError::LackBalanceForState {
                 signer_id: account_id,
-                amount: config.storage_amount_per_byte().checked_mul(account.storage_usage().into()).unwrap()
-                    .checked_sub(initial_balance.checked_sub(transfer_amount).unwrap()).unwrap()
+                amount: config
+                    .storage_amount_per_byte()
+                    .checked_mul(account.storage_usage().into())
+                    .unwrap()
+                    .checked_sub(initial_balance.checked_sub(transfer_amount).unwrap())
+                    .unwrap()
             }
         );
     }
@@ -1595,7 +1611,11 @@ mod tests {
         let limit_config = test_limit_config();
         validate_receipt(
             &limit_config,
-            &Receipt::new_balance_refund(&alice_account(), Balance::from_yoctonear(10), ReceiptPriority::NoPriority),
+            &Receipt::new_balance_refund(
+                &alice_account(),
+                Balance::from_yoctonear(10),
+                ReceiptPriority::NoPriority,
+            ),
             PROTOCOL_VERSION,
             ValidateReceiptMode::NewReceipt,
         )

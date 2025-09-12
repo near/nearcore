@@ -406,7 +406,11 @@ fn convert_account_update_to_operations(
                 amount: Some(crate::models::Amount::from_yoctonear_diff(
                     crate::utils::SignedDiff::cmp(
                         // this operation is guaranteed to not underflow. Otherwise the transaction is invalid
-                        previous_account_balances.liquid.checked_sub(deposit).unwrap().as_yoctonear(),
+                        previous_account_balances
+                            .liquid
+                            .checked_sub(deposit)
+                            .unwrap()
+                            .as_yoctonear(),
                         new_account_balances.liquid.as_yoctonear(),
                     ),
                 )),

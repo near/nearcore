@@ -102,7 +102,8 @@ pub fn epoch_info_with_num_seats(
         let total_stake =
             all_validators.iter().fold(Balance::ZERO, |acc, v| acc.saturating_add(v.stake()));
         // For tests we estimate the target number of seats based on the seat price of the old algorithm.
-        let target_mandates_per_shard = total_stake.checked_div(seat_price.as_yoctonear()).unwrap().as_yoctonear() as usize;
+        let target_mandates_per_shard =
+            total_stake.checked_div(seat_price.as_yoctonear()).unwrap().as_yoctonear() as usize;
         let config = ValidatorMandatesConfig::new(target_mandates_per_shard, num_shards);
         ValidatorMandates::new(config, &all_validators)
     };
@@ -261,8 +262,15 @@ pub fn setup_epoch_manager_with_block_and_chunk_producers(
         total_stake = total_stake.checked_add(block_producer_stake).unwrap();
     }
     for chunk_only_producer in &chunk_only_producers {
-        let minimum_stake_to_ensure_election =
-            total_stake.checked_mul(160).unwrap().checked_div(1_000_000).unwrap().checked_div(num_shards.into()).unwrap().checked_add(Balance::from_yoctonear(1)).unwrap();
+        let minimum_stake_to_ensure_election = total_stake
+            .checked_mul(160)
+            .unwrap()
+            .checked_div(1_000_000)
+            .unwrap()
+            .checked_div(num_shards.into())
+            .unwrap()
+            .checked_add(Balance::from_yoctonear(1))
+            .unwrap();
         let stake = block_producer_stake.checked_sub(Balance::from_yoctonear(1)).unwrap();
         assert!(
             stake >= minimum_stake_to_ensure_election,

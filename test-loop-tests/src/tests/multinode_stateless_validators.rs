@@ -12,7 +12,6 @@ use near_primitives::views::{CurrentEpochValidatorInfo, EpochValidatorInfo};
 
 use crate::setup::builder::TestLoopBuilder;
 use crate::setup::env::TestLoopEnv;
-use crate::utils::ONE_NEAR;
 use crate::utils::transactions::execute_money_transfers;
 
 const NUM_ACCOUNTS: usize = 20;

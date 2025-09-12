@@ -18,7 +18,6 @@ use near_primitives::types::{AccountId, Balance, BlockReference, NumSeats, Shard
 use near_primitives::views::{QueryRequest, QueryResponseKind};
 
 use crate::setup::builder::TestLoopBuilder;
-use crate::utils::ONE_NEAR;
 use crate::utils::rotating_validators_runner::RotatingValidatorsRunner;
 use crate::utils::transactions::get_anchor_hash;
 
@@ -171,11 +170,7 @@ fn test_catchup_random_single_part_sync_common(
     for (i, sender) in test_accounts.iter().enumerate() {
         for (j, receiver) in test_accounts.iter().enumerate() {
             let amount = if change_balances {
-                if i > j {
-                    Balance::from_yoctonear(2)
-                } else {
-                    Balance::from_yoctonear(1)
-                }
+                if i > j { Balance::from_yoctonear(2) } else { Balance::from_yoctonear(1) }
             } else {
                 Balance::from_yoctonear((((i + j + 17) * 701) % 42 + 1) as u128)
             };

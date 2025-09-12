@@ -106,7 +106,7 @@ impl RuntimeConfigStore {
                 )
             });
             let fees = Arc::make_mut(&mut initial_config.fees);
-            fees.storage_usage_config.storage_amount_per_byte = 0;
+            fees.storage_usage_config.storage_amount_per_byte = Balance::ZERO;
             store.insert(0, Arc::new(initial_config));
         }
 
@@ -142,7 +142,7 @@ impl RuntimeConfigStore {
                     )
                 });
                 let fees = Arc::make_mut(&mut runtime_config.fees);
-                fees.storage_usage_config.storage_amount_per_byte = 0;
+                fees.storage_usage_config.storage_amount_per_byte = Balance::ZERO;
                 store.insert(*protocol_version, Arc::new(runtime_config));
             }
         }
@@ -427,7 +427,7 @@ mod tests {
     fn test_calimero_storage_costs_zero() {
         let store = RuntimeConfigStore::new(None);
         for (_, config) in &store.store {
-            assert_eq!(config.storage_amount_per_byte(), 0u128);
+            assert_eq!(config.storage_amount_per_byte(), Balance::ZERO);
         }
     }
 

@@ -18,7 +18,6 @@ use std::sync::Arc;
 use crate::setup::builder::TestLoopBuilder;
 use crate::setup::drop_condition::DropCondition;
 use crate::setup::env::TestLoopEnv;
-use crate::utils::ONE_NEAR;
 use crate::utils::loop_action::{LoopAction, LoopActionStatus};
 use crate::utils::receipts::{
     ReceiptKind, check_receipts_presence_after_resharding_block,

@@ -74,7 +74,9 @@ impl WeightedIndex {
         let usize_seed = Self::copy_8_bytes(&seed[0..8]);
         let balance_seed = Self::copy_16_bytes(&seed[8..24]);
         let uniform_index = usize::from_le_bytes(usize_seed) % self.aliases.len();
-        let uniform_weight = Balance::from_yoctonear(u128::from_le_bytes(balance_seed) % self.weight_sum.as_yoctonear());
+        let uniform_weight = Balance::from_yoctonear(
+            u128::from_le_bytes(balance_seed) % self.weight_sum.as_yoctonear(),
+        );
 
         if uniform_weight < self.no_alias_odds[uniform_index] {
             uniform_index
@@ -160,17 +162,40 @@ mod test {
     #[test]
     fn test_should_correctly_compute_odds_and_aliases() {
         // Example taken from https://www.keithschwarz.com/darts-dice-coins/
-        let weights = vec![Balance::from_yoctonear(5), Balance::from_yoctonear(8), Balance::from_yoctonear(4), Balance::from_yoctonear(10), Balance::from_yoctonear(4), Balance::from_yoctonear(4), Balance::from_yoctonear(5)];
+        let weights = vec![
+            Balance::from_yoctonear(5),
+            Balance::from_yoctonear(8),
+            Balance::from_yoctonear(4),
+            Balance::from_yoctonear(10),
+            Balance::from_yoctonear(4),
+            Balance::from_yoctonear(4),
+            Balance::from_yoctonear(5),
+        ];
         let weighted_index = WeightedIndex::new(weights);
 
         assert_eq!(weighted_index.get_aliases(), &[1, 0, 3, 1, 3, 3, 3]);
 
-        assert_eq!(weighted_index.get_no_alias_odds(), &[Balance::from_yoctonear(35), Balance::from_yoctonear(40), Balance::from_yoctonear(28), Balance::from_yoctonear(29), Balance::from_yoctonear(28), Balance::from_yoctonear(28), Balance::from_yoctonear(35)]);
+        assert_eq!(
+            weighted_index.get_no_alias_odds(),
+            &[
+                Balance::from_yoctonear(35),
+                Balance::from_yoctonear(40),
+                Balance::from_yoctonear(28),
+                Balance::from_yoctonear(29),
+                Balance::from_yoctonear(28),
+                Balance::from_yoctonear(28),
+                Balance::from_yoctonear(35)
+            ]
+        );
     }
 
     #[test]
     fn test_sample_should_produce_correct_distribution() {
-        let weights = vec![Balance::from_yoctonear(5), Balance::from_yoctonear(1), Balance::from_yoctonear(1)];
+        let weights = vec![
+            Balance::from_yoctonear(5),
+            Balance::from_yoctonear(1),
+            Balance::from_yoctonear(1),
+        ];
         let weighted_index = WeightedIndex::new(weights);
 
         let n_samples = 1_000_000;

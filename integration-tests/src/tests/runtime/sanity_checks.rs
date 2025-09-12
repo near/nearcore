@@ -14,9 +14,6 @@ use testlib::runtime_utils::{add_test_contract, alice_account, bob_account};
 /// Initial balance used in tests.
 const TESTING_INIT_BALANCE: Balance = Balance::from_near(1_000_000_000);
 
-/// One NEAR, divisible by 10^24.
-const NEAR_BASE: Balance = Balance::from_near(1);
-
 /// Max prepaid amount of gas.
 const MAX_GAS: Gas = Gas::from_teragas(300);
 
@@ -177,7 +174,14 @@ fn test_cost_sanity_nondeterministic() {
     let node = setup_runtime_node_with_contract(&contract);
     let res = node
         .user()
-        .function_call(alice_account(), test_contract_account(), "main", vec![], MAX_GAS, Balance::ZERO)
+        .function_call(
+            alice_account(),
+            test_contract_account(),
+            "main",
+            vec![],
+            MAX_GAS,
+            Balance::ZERO,
+        )
         .unwrap();
     assert_eq!(res.status, FinalExecutionStatus::SuccessValue(Vec::new()));
     assert_eq!(res.transaction_outcome.outcome.metadata.gas_profile, None);
@@ -232,7 +236,14 @@ fn test_sanity_used_gas() {
     let node = setup_runtime_node_with_contract(&contract_sanity_check_used_gas());
     let res = node
         .user()
-        .function_call(alice_account(), test_contract_account(), "main", vec![], MAX_GAS, Balance::ZERO)
+        .function_call(
+            alice_account(),
+            test_contract_account(),
+            "main",
+            vec![],
+            MAX_GAS,
+            Balance::ZERO,
+        )
         .unwrap();
 
     let num_return_values = 4;

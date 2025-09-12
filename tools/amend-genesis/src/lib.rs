@@ -120,7 +120,11 @@ impl AccountRecords {
                 if self.amount_needed {
                     account.set_amount(Balance::from_near(10_000));
                 }
-                *total_supply = (*total_supply).checked_add(account.amount()).unwrap().checked_add(account.locked()).unwrap();
+                *total_supply = (*total_supply)
+                    .checked_add(account.amount())
+                    .unwrap()
+                    .checked_add(account.locked())
+                    .unwrap();
                 seq.serialize_element(&StateRecord::Account { account_id, account })?;
                 for record in &self.extra_records {
                     seq.serialize_element(record)?;
@@ -321,7 +325,9 @@ pub fn amend_genesis(
                         account.set_amount(account.amount().checked_add(account.locked()).unwrap());
                         account.set_locked(Balance::ZERO);
                     }
-                    total_supply = total_supply.checked_add(account.amount().checked_add(account.locked()).unwrap()).unwrap();
+                    total_supply = total_supply
+                        .checked_add(account.amount().checked_add(account.locked()).unwrap())
+                        .unwrap();
                     records_seq.serialize_element(&r).unwrap();
                 }
             }
