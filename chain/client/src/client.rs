@@ -2153,9 +2153,6 @@ impl Client {
 
             debug!(target: "catchup", ?sync_hash, progress_per_shard = ?status.sync_status, "Catchup");
 
-            // Initialize the new shard sync to contain the shards to split at
-            // first. It will get updated with the shard sync download status
-            // for other shards later.
             match state_sync.run(sync_hash, status, state_sync_info.shards())? {
                 StateSyncResult::InProgress => {}
                 StateSyncResult::Completed => {
