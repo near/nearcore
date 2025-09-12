@@ -10,8 +10,8 @@ pub mod test_utils;
 mod updatable_config;
 
 pub use client_config::{
-    ChunkDistributionNetworkConfig, ChunkDistributionUris, ClientConfig,
-    DEFAULT_GC_NUM_EPOCHS_TO_KEEP, DEFAULT_STATE_PARTS_COMPRESSION_LEVEL,
+    ChunkDistributionNetworkConfig, ChunkDistributionUris, ClientConfig, CloudArchivalConfig,
+    CloudStorageConfig, DEFAULT_GC_NUM_EPOCHS_TO_KEEP, DEFAULT_STATE_PARTS_COMPRESSION_LEVEL,
     DEFAULT_STATE_SYNC_NUM_CONCURRENT_REQUESTS_EXTERNAL,
     DEFAULT_STATE_SYNC_NUM_CONCURRENT_REQUESTS_ON_CATCHUP_EXTERNAL, DumpConfig, EpochSyncConfig,
     ExternalStorageConfig, ExternalStorageLocation, GCConfig, LogSummaryStyle,

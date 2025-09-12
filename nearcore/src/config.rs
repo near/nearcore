@@ -11,26 +11,26 @@ use near_chain_configs::test_utils::{
 use near_chain_configs::{
     BLOCK_PRODUCER_KICKOUT_THRESHOLD, CHUNK_PRODUCER_KICKOUT_THRESHOLD,
     CHUNK_VALIDATOR_ONLY_KICKOUT_THRESHOLD, ChunkDistributionNetworkConfig, ClientConfig,
-    EXPECTED_EPOCH_LENGTH, EpochSyncConfig, FAST_EPOCH_LENGTH, FISHERMEN_THRESHOLD,
-    GAS_PRICE_ADJUSTMENT_RATE, GCConfig, GENESIS_CONFIG_FILENAME, Genesis, GenesisConfig,
-    GenesisValidationMode, INITIAL_GAS_LIMIT, LogSummaryStyle, MAX_INFLATION_RATE,
-    MIN_BLOCK_PRODUCTION_DELAY, MIN_GAS_PRICE, MutableConfigValue, MutableValidatorSigner,
-    NEAR_BASE, NUM_BLOCK_PRODUCER_SEATS, NUM_BLOCKS_PER_YEAR, PROTOCOL_REWARD_RATE,
-    PROTOCOL_UPGRADE_STAKE_THRESHOLD, ProtocolVersionCheckConfig, ReshardingConfig,
-    StateSyncConfig, TRANSACTION_VALIDITY_PERIOD, TrackedShardsConfig,
-    default_chunk_validation_threads, default_chunk_wait_mult, default_enable_multiline_logging,
-    default_epoch_sync, default_header_sync_expected_height_per_second,
-    default_header_sync_initial_timeout, default_header_sync_progress_timeout,
-    default_header_sync_stall_ban_timeout, default_log_summary_period,
-    default_orphan_state_witness_max_size, default_orphan_state_witness_pool_size,
-    default_produce_chunk_add_transactions_time_limit, default_state_request_server_threads,
-    default_state_request_throttle_period, default_state_requests_per_throttle_period,
-    default_state_sync_enabled, default_state_sync_external_backoff,
-    default_state_sync_external_timeout, default_state_sync_p2p_timeout,
-    default_state_sync_retry_backoff, default_sync_check_period, default_sync_height_threshold,
-    default_sync_max_block_requests, default_sync_step_period, default_transaction_pool_size_limit,
-    default_trie_viewer_state_size_limit, default_tx_routing_height_horizon,
-    default_view_client_threads, get_initial_supply,
+    CloudArchivalConfig, CloudStorageConfig, EXPECTED_EPOCH_LENGTH, EpochSyncConfig,
+    FAST_EPOCH_LENGTH, FISHERMEN_THRESHOLD, GAS_PRICE_ADJUSTMENT_RATE, GCConfig,
+    GENESIS_CONFIG_FILENAME, Genesis, GenesisConfig, GenesisValidationMode, INITIAL_GAS_LIMIT,
+    LogSummaryStyle, MAX_INFLATION_RATE, MIN_BLOCK_PRODUCTION_DELAY, MIN_GAS_PRICE,
+    MutableConfigValue, MutableValidatorSigner, NEAR_BASE, NUM_BLOCK_PRODUCER_SEATS,
+    NUM_BLOCKS_PER_YEAR, PROTOCOL_REWARD_RATE, PROTOCOL_UPGRADE_STAKE_THRESHOLD,
+    ProtocolVersionCheckConfig, ReshardingConfig, StateSyncConfig, TRANSACTION_VALIDITY_PERIOD,
+    TrackedShardsConfig, default_chunk_validation_threads, default_chunk_wait_mult,
+    default_enable_multiline_logging, default_epoch_sync,
+    default_header_sync_expected_height_per_second, default_header_sync_initial_timeout,
+    default_header_sync_progress_timeout, default_header_sync_stall_ban_timeout,
+    default_log_summary_period, default_orphan_state_witness_max_size,
+    default_orphan_state_witness_pool_size, default_produce_chunk_add_transactions_time_limit,
+    default_state_request_server_threads, default_state_request_throttle_period,
+    default_state_requests_per_throttle_period, default_state_sync_enabled,
+    default_state_sync_external_backoff, default_state_sync_external_timeout,
+    default_state_sync_p2p_timeout, default_state_sync_retry_backoff, default_sync_check_period,
+    default_sync_height_threshold, default_sync_max_block_requests, default_sync_step_period,
+    default_transaction_pool_size_limit, default_trie_viewer_state_size_limit,
+    default_tx_routing_height_horizon, default_view_client_threads, get_initial_supply,
 };
 use near_config_utils::{DownloadConfigType, ValidationError, ValidationErrors};
 use near_crypto::{InMemorySigner, KeyFile, KeyType, PublicKey, Signer};
@@ -54,7 +54,7 @@ use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner
 use near_primitives::version::PROTOCOL_VERSION;
 #[cfg(feature = "rosetta_rpc")]
 use near_rosetta_rpc::RosettaRpcConfig;
-use near_store::config::{CloudStorageConfig, SplitStorageConfig, StateSnapshotType};
+use near_store::config::{SplitStorageConfig, StateSnapshotType};
 use near_store::{StateSnapshotConfig, Store, TrieConfig};
 use near_telemetry::TelemetryConfig;
 use near_vm_runner::{ContractRuntimeCache, FilesystemContractRuntimeCache};
@@ -324,8 +324,6 @@ pub struct Config {
     /// Configuration for the split storage.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub split_storage: Option<SplitStorageConfig>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub cloud_storage: Option<CloudStorageConfig>,
     /// The node will stop after the head exceeds this height.
     /// The node usually stops within several seconds after reaching the target height.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -335,6 +333,9 @@ pub struct Config {
     /// Options for syncing state.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub state_sync: Option<StateSyncConfig>,
+    /// Configuration for cloud-based archival node.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cloud_archival: Option<CloudArchivalConfig>,
     /// Options for epoch sync
     pub epoch_sync: Option<EpochSyncConfig>,
     /// Limit of the size of per-shard transaction pool measured in bytes. If not set, the size
@@ -447,9 +448,9 @@ impl Default for Config {
             store,
             cold_store: None,
             split_storage: None,
-            cloud_storage: None,
             expected_shutdown: None,
             state_sync: None,
+            cloud_archival: None,
             epoch_sync: default_epoch_sync(),
             state_sync_enabled: default_state_sync_enabled(),
             transaction_pool_size_limit: default_transaction_pool_size_limit(),
@@ -598,6 +599,13 @@ impl Config {
         )
     }
 
+    pub fn cloud_storage_config(&self) -> Option<&CloudStorageConfig> {
+        if let Some(cloud_archival_config) = &self.cloud_archival {
+            return Some(&cloud_archival_config.cloud_storage);
+        }
+        None
+    }
+
     pub fn contract_cache_path(&self) -> PathBuf {
         if let Some(explicit) = &self.contract_cache_path {
             explicit.clone()
@@ -696,6 +704,7 @@ impl NearConfig {
                 client_background_migration_threads: 8,
                 state_sync_enabled: config.state_sync_enabled,
                 state_sync: config.state_sync.unwrap_or_default(),
+                cloud_archival: config.cloud_archival,
                 epoch_sync: config.epoch_sync.unwrap_or_default(),
                 transaction_pool_size_limit: config.transaction_pool_size_limit,
                 enable_multiline_logging: config.enable_multiline_logging.unwrap_or(true),

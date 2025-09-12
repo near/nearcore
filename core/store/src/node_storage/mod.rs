@@ -1,9 +1,9 @@
 pub(super) mod opener;
 
 use crate::archive::cloud_storage::CloudStorage;
-use crate::config::CloudStorageConfig;
 use crate::db::{Database, SplitDB, metadata};
 use crate::{Store, StoreConfig};
+use near_chain_configs::CloudStorageConfig;
 use opener::StoreOpener;
 use std::io;
 use std::str::FromStr;
