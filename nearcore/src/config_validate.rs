@@ -247,7 +247,8 @@ impl<'a> ConfigValidator<'a> {
         let tracked_shards = self.config.tracked_shards_config();
         if cloud_archival.is_archival_reader && !tracked_shards.tracks_all_shards() {
             let error_message =
-                "`cloud_archival` is configured in reader mode, but it does not track all shards.".to_string();
+                "`cloud_archival` is configured in reader mode, but it does not track all shards."
+                    .to_string();
             self.validation_errors.push_config_semantics_error(error_message);
         }
 
