@@ -542,6 +542,7 @@ impl ChunkProducer {
         state: TrieUpdate,
         prev_block_context: PrepareTransactionsBlockContext,
         prev_chunk_tx_hashes: HashSet<CryptoHash>,
+        tx_validity_period_check: impl Fn(&SignedTransaction) -> bool + Send + 'static,
     ) {
         if cfg!(feature = "protocol_feature_spice") {
             return;
@@ -564,6 +565,7 @@ impl ChunkProducer {
 
         self.prepare_transactions_spawner.spawn("prepare_transactions", move || {
             let mut pool_guard = tx_pool.lock();
+
             let (prepared_transactions, skipped_transactions) =
                 if let Some(mut iter) = pool_guard.get_pool_iterator(shard_uid) {
                     runtime_adapter
@@ -572,7 +574,7 @@ impl ChunkProducer {
                             shard_id,
                             prev_block_context,
                             &mut iter,
-                            &(|_tx: &SignedTransaction| true), // todo - use self.chain to create chain_validate?
+                            &tx_validity_period_check,
                             prev_chunk_tx_hashes,
                             time_limit,
                         )

@@ -1318,6 +1318,13 @@ impl ClientActorInner {
             if let Some(val) = self.client.validator_signer.get() {
                 if v.account_id() == val.validator_id() {
                     tracing::warn!(target: "client", "start_prepare_transactions_job {:?}", msg);
+
+                    let tx_validity_period_check =
+                        self.client.chain.early_prepare_transaction_validity_check(
+                            msg.prev_block_context.height,
+                            msg.prev_prev_block_header,
+                        );
+
                     self.client.chunk_producer.start_prepare_transactions_job(
                         msg.key,
                         msg.shard_id,
@@ -1325,6 +1332,7 @@ impl ClientActorInner {
                         msg.post_state.trie_update,
                         msg.prev_block_context,
                         msg.prev_chunk_tx_hashes,
+                        tx_validity_period_check,
                     );
                 }
             }

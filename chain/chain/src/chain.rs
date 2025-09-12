@@ -25,7 +25,10 @@ use crate::stateless_validation::chunk_endorsement::{
     validate_chunk_endorsements_in_block, validate_chunk_endorsements_in_header,
 };
 use crate::stateless_validation::processing_tracker::ProcessingDoneTracker;
-use crate::store::utils::{get_chunk_clone_from_header, get_incoming_receipts_for_shard};
+use crate::store::utils::{
+    early_prepare_txs_check_validity_period, get_chunk_clone_from_header,
+    get_incoming_receipts_for_shard,
+};
 use crate::store::{
     ChainStore, ChainStoreAccess, ChainStoreUpdate, MerkleProofAccess, ReceiptFilter,
 };
@@ -146,6 +149,7 @@ pub struct PostStateReadyMessage {
     pub post_state: PostState,
     pub shard_id: ShardId,
     pub shard_uid: ShardUId,
+    pub prev_prev_block_header: BlockHeader,
     pub prev_block_context: PrepareTransactionsBlockContext,
     pub key: CachedShardUpdateKey,
     pub prev_chunk_tx_hashes: HashSet<CryptoHash>,
@@ -2642,6 +2646,25 @@ impl Chain {
         }
     }
 
+    pub fn early_prepare_transaction_validity_check(
+        &self,
+        prev_block_height: BlockHeight,
+        prev_prev_block_header: BlockHeader,
+    ) -> impl Fn(&SignedTransaction) -> bool + Send + 'static {
+        let chain_store = self.chain_store.clone();
+        let validity_period = self.transaction_validity_period();
+        move |tx: &SignedTransaction| -> bool {
+            early_prepare_txs_check_validity_period(
+                &chain_store,
+                prev_block_height,
+                &prev_prev_block_header,
+                tx.transaction.block_hash(),
+                validity_period,
+            )
+            .is_ok()
+        }
+    }
+
     /// For a given previous block header and current block, return information
     /// about block necessary for processing shard update.
     /// TODO(#10584): implement the same method for OptimisticBlock.
@@ -3270,6 +3293,7 @@ impl Chain {
         let callback = match self.on_post_state_ready_sender {
             Some(ref sender) => {
                 let sender = sender.clone();
+                let prev_block_header: BlockHeader = prev_block.header().clone();
                 let closure = move |state: PostState| {
                     sender.send(
                         PostStateReadyMessage {
@@ -3277,6 +3301,7 @@ impl Chain {
                             shard_id,
                             shard_uid,
                             prev_block_context: next_chunk_prepare_context.clone(),
+                            prev_prev_block_header: prev_block_header.clone(),
                             key: cached_shard_update_key,
                             prev_chunk_tx_hashes: tx_hashes.clone(),
                         }
