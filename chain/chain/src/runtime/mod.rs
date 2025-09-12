@@ -1325,7 +1325,7 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
         epoch_info_provider: &dyn EpochInfoProvider,
         current_protocol_version: ProtocolVersion,
     ) -> Result<Vec<u8>, node_runtime::state_viewer::errors::CallFunctionError> {
-        let state_update = self.tries.new_trie_update_view(*shard_uid, state_root);
+        let trie = self.tries.get_view_trie_for_shard(*shard_uid, state_root);
         let view_state = ViewApplyState {
             shard_id: shard_uid.shard_id(),
             block_height: height,
