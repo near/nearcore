@@ -577,27 +577,17 @@ impl RuntimeAdapter for NightshadeRuntime {
         let shard_uid = shard_layout
             .account_id_to_shard_uid(validated_tx.to_signed_tx().transaction.signer_id());
         let state_update = self.tries.get_trie_for_shard(shard_uid, state_root);
-        // FIXME: maybe rayonize these two storage accesses?
         let signer_id = validated_tx.signer_id();
-        let mut signer = match get_account(&state_update, signer_id)? {
-            Some(signer) => signer,
-            None => {
-                return Err(InvalidTxError::SignerDoesNotExist { signer_id: signer_id.clone() });
-            }
-        };
+        let mut signer = get_account(&state_update, signer_id)?
+            .ok_or_else(|| InvalidTxError::SignerDoesNotExist { signer_id: signer_id.clone() })?;
         let public_key = validated_tx.public_key();
-        let mut access_key = match get_access_key(&state_update, signer_id, public_key)? {
-            Some(access_key) => access_key,
-            None => {
-                return Err(InvalidTxError::InvalidAccessKeyError(
-                    InvalidAccessKeyError::AccessKeyNotFound {
-                        account_id: signer_id.clone(),
-                        public_key: public_key.clone().into(),
-                    },
-                )
-                .into());
-            }
-        };
+        let mut access_key =
+            get_access_key(&state_update, signer_id, public_key)?.ok_or_else(|| {
+                InvalidTxError::InvalidAccessKeyError(InvalidAccessKeyError::AccessKeyNotFound {
+                    account_id: signer_id.clone(),
+                    public_key: public_key.clone().into(),
+                })
+            })?;
         verify_and_charge_tx_ephemeral(
             runtime_config,
             &mut signer,
@@ -748,27 +738,20 @@ impl RuntimeAdapter for NightshadeRuntime {
                     continue;
                 }
 
+                let signer_id = validated_tx.signer_id();
                 let (signer, access_key) = if let Some((id, signer, key)) = &mut signer_access_key {
-                    // TODO: make this a debug assert
-                    assert_eq!(validated_tx.signer_id(), id);
+                    debug_assert_eq!(signer_id, id);
                     (signer, key)
                 } else {
-                    let signer_result = get_account(&state_update, validated_tx.signer_id())
-                        .transpose()
-                        .and_then(|v| v.ok())
-                        .ok_or(Error::InvalidTransactions);
-                    let access_key_result = get_access_key(
-                        &state_update,
-                        validated_tx.signer_id(),
-                        validated_tx.public_key(),
-                    )
-                    .transpose()
-                    .and_then(|v| v.ok())
-                    .ok_or(Error::InvalidTransactions);
+                    let signer = get_account(&state_update, signer_id);
+                    let signer = signer.transpose().and_then(|v| v.ok());
+                    let access_key =
+                        get_access_key(&state_update, signer_id, validated_tx.public_key());
+                    let access_key = access_key.transpose().and_then(|v| v.ok());
                     let inserted = signer_access_key.insert((
                         validated_tx.signer_id().clone(),
-                        signer_result?,
-                        access_key_result?,
+                        signer.ok_or(Error::InvalidTransactions)?,
+                        access_key.ok_or(Error::InvalidTransactions)?,
                     ));
                     (&mut inserted.1, &mut inserted.2)
                 };
@@ -808,14 +791,15 @@ impl RuntimeAdapter for NightshadeRuntime {
             }
 
             if let Some((signer_id, account, _)) = signer_access_key {
-                // NOTE: we don't need to remember the access key between groups, but only because
-                // pool guarantees that iteration is grouped by account_id and its public keys. It
-                // does however also mean that we must remember the account state as it might
-                // operate over multiple access keys.
+                // NOTE: we don't need to remember the intermediate state of the access key between
+                // groups, but only because pool guarantees that iteration is grouped by account_id
+                // and its public keys. It does however also mean that we must remember the account
+                // state as this code might operate over multiple access keys for the account.
                 set_account(&mut state_update, signer_id, &account);
-                state_update.commit(StateChangeCause::NotWritableToDisk);
             }
         }
+        // NOTE: this state update must not be committed or finalized!
+        drop(state_update);
         debug!(target: "runtime", limited_by=?result.limited_by, "Transaction filtering results {} valid out of {} pulled from the pool", result.transactions.len(), num_checked_transactions);
         let shard_label = shard_id.to_string();
         metrics::PREPARE_TX_SIZE.with_label_values(&[&shard_label]).observe(total_size as f64);
