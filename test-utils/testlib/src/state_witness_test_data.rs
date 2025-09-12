@@ -27,9 +27,9 @@ use std::collections::HashMap;
 /// Generates a realistic ChunkStateWitness from native token transfers.
 #[allow(unused)]
 pub fn generate_realistic_state_witness(target_size_bytes: usize) -> ChunkStateWitness {
-    const GAS_PRICE: Balance = 5000;
-    const INITIAL_BALANCE: Balance = 10_000_000_000_000_000_000_000_000_000; // 10k NEAR per account
-    const TRANSFER_AMOUNT: Balance = 1_000_000_000_000_000_000_000_000; // 1 NEAR
+    const GAS_PRICE: Balance = Balance::from_yoctonear(5000);
+    const INITIAL_BALANCE: Balance = Balance::from_near(10_000); // 10k NEAR per account
+    const TRANSFER_AMOUNT: Balance = Balance::from_near(1); // 1 NEAR
 
     // Create many test accounts for realistic transaction load
     let num_accounts = 10000;
@@ -115,7 +115,8 @@ pub fn generate_realistic_state_witness(target_size_bytes: usize) -> ChunkStateW
             let from_idx = ((batch_num * batch_size + i) % (initial_accounts.len() - 1)) + 1;
             let to_idx = (from_idx % (initial_accounts.len() - 1)) + 1;
 
-            let amount = TRANSFER_AMOUNT + (i as u128 * 100_000_000_000_000_000_000_000); // Slightly different amounts
+            let amount =
+                TRANSFER_AMOUNT.checked_add(Balance::from_millinear(i as u128 * 100)).unwrap(); // Slightly different amounts
 
             let tx = SignedTransaction::send_money(
                 1 + batch_num as u64,

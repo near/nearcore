@@ -7,8 +7,7 @@ use crate::parameter::{FeeParameter, Parameter};
 use crate::vm::VMKind;
 use crate::vm::{Config, StorageGetMode};
 use near_primitives_core::account::id::ParseAccountError;
-use near_primitives_core::types::AccountId;
-use near_primitives_core::types::Gas;
+use near_primitives_core::types::{AccountId, Balance, Gas};
 use num_rational::Rational32;
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -141,6 +140,26 @@ impl TryFrom<&ParameterValue> for Gas {
         match value {
             ParameterValue::U64(v) => Ok(Gas::from_gas(u64::from(*v))),
             _ => Err(ValueConversionError::ParseType(std::any::type_name::<Gas>(), value.clone())),
+        }
+    }
+}
+
+impl TryFrom<&ParameterValue> for Balance {
+    type Error = ValueConversionError;
+
+    fn try_from(value: &ParameterValue) -> Result<Self, Self::Error> {
+        match value {
+            ParameterValue::U64(v) => Ok(Balance::from_yoctonear(u128::from(*v))),
+            ParameterValue::String(s) => s
+                .parse::<u128>()
+                .map_err(|_err| {
+                    ValueConversionError::ParseType(std::any::type_name::<Balance>(), value.clone())
+                })
+                .map(Balance::from_yoctonear),
+            _ => Err(ValueConversionError::ParseType(
+                std::any::type_name::<Balance>(),
+                value.clone(),
+            )),
         }
     }
 }

@@ -299,6 +299,7 @@ mod test {
     use near_primitives::hash::CryptoHash;
     use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum, ReceiptV0};
     use near_primitives::transaction::{Action, AddKeyAction, CreateAccountAction};
+    use near_primitives::types::Balance;
     use near_primitives_core::account::AccessKey;
 
     #[test]
@@ -314,7 +315,7 @@ mod test {
                 signer_public_key: "ed25519:He7QeRuwizNEhBioYG3u4DZ8jWXyETiyNzFD3MkTjDMf"
                     .parse()
                     .unwrap(),
-                gas_price: 100,
+                gas_price: Balance::from_yoctonear(100),
                 output_data_receivers: vec![],
                 input_data_ids: vec![],
                 actions: vec![
@@ -344,7 +345,7 @@ mod test {
                 signer_public_key: "ed25519:6rL9HcTfinxxcVURLeQ3Y3nkietL4LQ3WxhPn51bCo4V"
                     .parse()
                     .unwrap(),
-                gas_price: 100,
+                gas_price: Balance::from_yoctonear(100),
                 output_data_receivers: vec![],
                 input_data_ids: vec![],
                 actions: vec![
@@ -408,7 +409,7 @@ mod test {
                 signer_public_key: "ed25519:He7QeRuwizNEhBioYG3u4DZ8jWXyETiyNzFD3MkTjDMf"
                     .parse()
                     .unwrap(),
-                gas_price: 100,
+                gas_price: Balance::from_yoctonear(100),
                 output_data_receivers: vec![],
                 input_data_ids: vec![],
                 actions: vec![Action::Delegate(Box::new(SignedDelegateAction {
@@ -455,7 +456,7 @@ mod test {
                 signer_public_key: "ed25519:6rL9HcTfinxxcVURLeQ3Y3nkietL4LQ3WxhPn51bCo4V"
                     .parse()
                     .unwrap(),
-                gas_price: 100,
+                gas_price: Balance::from_yoctonear(100),
                 output_data_receivers: vec![],
                 input_data_ids: vec![],
                 actions: vec![Action::Delegate(Box::new(SignedDelegateAction {

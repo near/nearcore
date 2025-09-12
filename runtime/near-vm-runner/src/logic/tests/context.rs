@@ -1,5 +1,6 @@
 use crate::{logic::tests::vm_logic_builder::VMLogicBuilder, tests::test_vm_config};
 use near_primitives_core::config::ViewConfig;
+use near_primitives_core::types::Balance;
 
 macro_rules! decl_test_bytes {
     ($testname:ident, $method:ident, $ctx:ident, $want:expr) => {
@@ -74,16 +75,16 @@ decl_test_u128!(
     test_account_balance,
     account_balance,
     ctx,
-    ctx.account_balance + ctx.attached_deposit
+    ctx.account_balance.checked_add(ctx.attached_deposit).unwrap().as_yoctonear()
 );
 decl_test_u128!(
     test_account_locked_balance,
     account_locked_balance,
     ctx,
-    ctx.account_locked_balance
+    ctx.account_locked_balance.as_yoctonear()
 );
 
-decl_test_u128!(test_attached_deposit, attached_deposit, ctx, ctx.attached_deposit);
+decl_test_u128!(test_attached_deposit, attached_deposit, ctx, ctx.attached_deposit.as_yoctonear());
 
 #[test]
 fn test_attached_deposit_view() {
@@ -93,8 +94,8 @@ fn test_attached_deposit_view() {
         let context = &mut logic_builder.context;
         context.view_config =
             Some(ViewConfig { max_gas_burnt: test_vm_config(None).limit_config.max_gas_burnt });
-        context.account_balance = 0;
-        context.attached_deposit = amount;
+        context.account_balance = Balance::ZERO;
+        context.attached_deposit = Balance::from_yoctonear(amount);
         let mut logic = logic_builder.build();
 
         logic.attached_deposit(0).expect("read from context should be ok");

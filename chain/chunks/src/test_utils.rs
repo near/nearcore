@@ -22,7 +22,7 @@ use near_primitives::sharding::{
 use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::types::MerkleHash;
-use near_primitives::types::{AccountId, EpochId, Gas};
+use near_primitives::types::{AccountId, Balance, EpochId, Gas};
 use near_store::adapter::StoreAdapter;
 use near_store::adapter::chunk_store::ChunkStoreAdapter;
 use near_store::set_genesis_height;
@@ -156,7 +156,7 @@ impl ChunkTestFixture {
             mock_shard_id,
             Gas::ZERO,
             Gas::from_gas(1000),
-            0,
+            Balance::ZERO,
             Vec::new(),
             Vec::new(),
             vec![],

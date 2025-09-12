@@ -78,6 +78,18 @@ pub mod dec_format {
         }
     }
 
+    impl DecType for crate::types::Balance {
+        fn serialize(&self) -> Option<String> {
+            Some(self.to_string())
+        }
+        fn try_from_str(value: &str) -> Result<Self, std::num::ParseIntError> {
+            u128::try_from_str(value).map(crate::types::Balance::from_yoctonear)
+        }
+        fn from_u64(value: u64) -> Self {
+            crate::types::Balance::from_yoctonear(value.into())
+        }
+    }
+
     impl DecType for u128 {
         fn serialize(&self) -> Option<String> {
             Some(self.to_string())

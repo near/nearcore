@@ -65,11 +65,7 @@ use validator_stake_view::ValidatorStakeView;
 #[derive(serde::Serialize, serde::Deserialize, Debug, Eq, PartialEq, Clone)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct AccountView {
-    #[serde(with = "dec_format")]
-    #[cfg_attr(feature = "schemars", schemars(with = "String"))]
     pub amount: Balance,
-    #[serde(with = "dec_format")]
-    #[cfg_attr(feature = "schemars", schemars(with = "String"))]
     pub locked: Balance,
     pub code_hash: CryptoHash,
     pub storage_usage: StorageUsage,
@@ -903,20 +899,12 @@ pub struct BlockHeaderView {
     pub random_value: CryptoHash,
     pub validator_proposals: Vec<ValidatorStakeView>,
     pub chunk_mask: Vec<bool>,
-    #[serde(with = "dec_format")]
-    #[cfg_attr(feature = "schemars", schemars(with = "String"))]
     pub gas_price: Balance,
     pub block_ordinal: Option<NumBlocks>,
     /// TODO(2271): deprecated.
-    #[serde(with = "dec_format")]
-    #[cfg_attr(feature = "schemars", schemars(with = "String"))]
     pub rent_paid: Balance,
     /// TODO(2271): deprecated.
-    #[serde(with = "dec_format")]
-    #[cfg_attr(feature = "schemars", schemars(with = "String"))]
     pub validator_reward: Balance,
-    #[serde(with = "dec_format")]
-    #[cfg_attr(feature = "schemars", schemars(with = "String"))]
     pub total_supply: Balance,
     // Deprecated
     pub challenges_result: Vec<SlashedValidator>,
@@ -960,8 +948,8 @@ impl From<&BlockHeader> for BlockHeaderView {
                 None
             },
             gas_price: header.next_gas_price(),
-            rent_paid: 0,
-            validator_reward: 0,
+            rent_paid: Balance::ZERO,
+            validator_reward: Balance::ZERO,
             total_supply: header.total_supply(),
             challenges_result: vec![],
             last_final_block: *header.last_final_block(),
@@ -1091,15 +1079,9 @@ pub struct ChunkHeaderView {
     pub gas_used: Gas,
     pub gas_limit: Gas,
     /// TODO(2271): deprecated.
-    #[serde(with = "dec_format")]
-    #[cfg_attr(feature = "schemars", schemars(with = "String"))]
     pub rent_paid: Balance,
     /// TODO(2271): deprecated.
-    #[serde(with = "dec_format")]
-    #[cfg_attr(feature = "schemars", schemars(with = "String"))]
     pub validator_reward: Balance,
-    #[serde(with = "dec_format")]
-    #[cfg_attr(feature = "schemars", schemars(with = "String"))]
     pub balance_burnt: Balance,
     pub outgoing_receipts_root: CryptoHash,
     pub tx_root: CryptoHash,
@@ -1133,8 +1115,8 @@ impl From<ShardChunkHeader> for ChunkHeaderView {
             shard_id: inner.shard_id(),
             gas_used: inner.prev_gas_used(),
             gas_limit: inner.gas_limit(),
-            rent_paid: 0,
-            validator_reward: 0,
+            rent_paid: Balance::ZERO,
+            validator_reward: Balance::ZERO,
             balance_burnt: inner.prev_balance_burnt(),
             outgoing_receipts_root: *inner.prev_outgoing_receipts_root(),
             tx_root: *inner.tx_root(),
@@ -1315,18 +1297,12 @@ pub enum ActionView {
         method_name: String,
         args: FunctionArgs,
         gas: Gas,
-        #[serde(with = "dec_format")]
-        #[cfg_attr(feature = "schemars", schemars(with = "String"))]
         deposit: Balance,
     } = 2,
     Transfer {
-        #[serde(with = "dec_format")]
-        #[cfg_attr(feature = "schemars", schemars(with = "String"))]
         deposit: Balance,
     } = 3,
     Stake {
-        #[serde(with = "dec_format")]
-        #[cfg_attr(feature = "schemars", schemars(with = "String"))]
         stake: Balance,
         public_key: PublicKey,
     } = 4,
@@ -1801,8 +1777,6 @@ pub struct ExecutionOutcomeView {
     /// the prepaid gas price might be lower than the actual gas price and it creates a deficit.
     /// `tokens_burnt` also contains the penalty subtracted from refunds, while
     /// `gas_burnt` only contains the gas that we actually burn for the execution.
-    #[serde(with = "dec_format")]
-    #[cfg_attr(feature = "schemars", schemars(with = "String"))]
     pub tokens_burnt: Balance,
     /// The id of the account on which the execution happens. For transaction this is signer_id,
     /// for receipt this is receiver_id.
@@ -2093,8 +2067,6 @@ pub mod validator_stake_view {
 pub struct ValidatorStakeViewV1 {
     pub account_id: AccountId,
     pub public_key: PublicKey,
-    #[serde(with = "dec_format")]
-    #[cfg_attr(feature = "schemars", schemars(with = "String"))]
     pub stake: Balance,
 }
 
@@ -2156,8 +2128,6 @@ pub enum ReceiptEnumView {
     Action {
         signer_id: AccountId,
         signer_public_key: PublicKey,
-        #[serde(with = "dec_format")]
-        #[cfg_attr(feature = "schemars", schemars(with = "String"))]
         gas_price: Balance,
         output_data_receivers: Vec<DataReceiverView>,
         input_data_ids: Vec<CryptoHash>,
@@ -2360,8 +2330,6 @@ pub struct CurrentEpochValidatorInfo {
     pub account_id: AccountId,
     pub public_key: PublicKey,
     pub is_slashed: bool,
-    #[serde(with = "dec_format")]
-    #[cfg_attr(feature = "schemars", schemars(with = "String"))]
     pub stake: Balance,
     /// Shards this validator is assigned to as chunk producer in the current epoch.
     #[serde(rename = "shards")]
@@ -2409,8 +2377,6 @@ pub struct CurrentEpochValidatorInfo {
 pub struct NextEpochValidatorInfo {
     pub account_id: AccountId,
     pub public_key: PublicKey,
-    #[serde(with = "dec_format")]
-    #[cfg_attr(feature = "schemars", schemars(with = "String"))]
     pub stake: Balance,
     pub shards: Vec<ShardId>,
 }
@@ -2471,8 +2437,6 @@ impl LightClientBlockLiteView {
 #[derive(serde::Serialize, serde::Deserialize, Debug)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct GasPriceView {
-    #[serde(with = "dec_format")]
-    #[cfg_attr(feature = "schemars", schemars(with = "String"))]
     pub gas_price: Balance,
 }
 

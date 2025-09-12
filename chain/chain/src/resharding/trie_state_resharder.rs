@@ -518,7 +518,7 @@ mod tests {
     use near_epoch_manager::EpochManager;
     use near_primitives::shard_layout::{ShardLayout, get_block_shard_uid};
     use near_primitives::trie_key::TrieKey;
-    use near_primitives::types::Gas;
+    use near_primitives::types::{Balance, Gas};
     use near_store::Trie;
     use near_store::test_utils::{
         TestTriesBuilder, create_test_store, simplify_changes, test_populate_trie,
@@ -685,7 +685,7 @@ mod tests {
                 Vec::new(),
                 Gas::ZERO,
                 Gas::ZERO,
-                0,
+                Balance::ZERO,
                 Some(CongestionInfo::default()),
                 BandwidthRequests::empty(),
             );

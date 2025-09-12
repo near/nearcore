@@ -348,14 +348,14 @@ pub(crate) fn action_stake(
     let increment = stake.stake.saturating_sub(account.locked());
 
     if account.amount() >= increment {
-        if account.locked() == 0 && stake.stake == 0 {
+        if account.locked() == Balance::ZERO && stake.stake == Balance::ZERO {
             // if the account hasn't staked, it cannot unstake
             result.result =
                 Err(ActionErrorKind::TriesToUnstake { account_id: account_id.clone() }.into());
             return Ok(());
         }
 
-        if stake.stake > 0 {
+        if stake.stake > Balance::ZERO {
             let minimum_stake = epoch_info_provider.minimum_stake(last_block_hash)?;
             if stake.stake < minimum_stake {
                 result.result = Err(ActionErrorKind::InsufficientStake {
@@ -375,7 +375,7 @@ pub(crate) fn action_stake(
         ));
         if stake.stake > account.locked() {
             // We've checked above `account.amount >= increment`
-            account.set_amount(account.amount() - increment);
+            account.set_amount(account.amount().checked_sub(increment).unwrap());
             account.set_locked(stake.stake);
         }
     } else {
@@ -462,8 +462,8 @@ pub(crate) fn action_create_account(
 
     *actor_id = account_id.clone();
     *account = Some(Account::new(
-        0,
-        0,
+        Balance::ZERO,
+        Balance::ZERO,
         AccountContract::None,
         fee_config.storage_usage_config.num_bytes_account,
     ));
@@ -495,7 +495,7 @@ pub(crate) fn action_implicit_account_creation_transfer(
 
             *account = Some(Account::new(
                 deposit,
-                0,
+                Balance::ZERO,
                 AccountContract::None,
                 fee_config.storage_usage_config.num_bytes_account
                     + public_key.len() as u64
@@ -522,7 +522,7 @@ pub(crate) fn action_implicit_account_creation_transfer(
             let contract_hash = *magic_bytes.hash();
             *account = Some(Account::new(
                 deposit,
-                0,
+                Balance::ZERO,
                 AccountContract::from_local_code_hash(contract_hash),
                 storage_usage,
             ));
@@ -621,7 +621,7 @@ pub(crate) fn action_delete_account(
     }
     // We use current amount as a pay out to beneficiary.
     let account_balance = account_ref.amount();
-    if account_balance > 0 {
+    if account_balance > Balance::ZERO {
         result.new_receipts.push(Receipt::new_balance_refund(
             &delete_account.beneficiary_id,
             account_balance,
@@ -916,7 +916,7 @@ fn validate_delegate_action_key(
             return Ok(());
         }
         if let Some(Action::FunctionCall(function_call)) = actions.get(0) {
-            if function_call.deposit > 0 {
+            if function_call.deposit > Balance::ZERO {
                 result.result = Err(ActionErrorKind::DelegateActionAccessKeyError(
                     InvalidAccessKeyError::DepositWithFunctionCall,
                 )
@@ -996,7 +996,7 @@ pub(crate) fn check_actor_permissions(
                 .into());
             }
             let account = account.as_ref().unwrap();
-            if account.locked() != 0 {
+            if account.locked() != Balance::ZERO {
                 return Err(ActionErrorKind::DeleteAccountStaking {
                     account_id: account_id.clone(),
                 }
@@ -1234,8 +1234,8 @@ mod tests {
         state_update: &mut TrieUpdate,
     ) -> ActionResult {
         let mut account = Some(Account::new(
-            100,
-            0,
+            Balance::from_yoctonear(100),
+            Balance::ZERO,
             AccountContract::from_local_code_hash(*code_hash),
             storage_usage,
         ));
@@ -1243,7 +1243,7 @@ mod tests {
         let mut action_result = ActionResult::default();
         let receipt = Receipt::new_balance_refund(
             &"alice.near".parse().unwrap(),
-            0,
+            Balance::ZERO,
             ReceiptPriority::NoPriority,
         );
         let res = action_delete_account(
@@ -1288,7 +1288,12 @@ mod tests {
             tries.new_trie_update(ShardUId::single_shard(), CryptoHash::default());
         let account_id = "alice".parse::<AccountId>().unwrap();
         let deploy_action = DeployContractAction { code: [0; 10_000].to_vec() };
-        let mut account = Account::new(100, 0, AccountContract::None, storage_usage);
+        let mut account = Account::new(
+            Balance::from_yoctonear(100),
+            Balance::ZERO,
+            AccountContract::None,
+            storage_usage,
+        );
         let apply_state = create_apply_state(0);
         let res = action_deploy_contract(
             &mut state_update,
@@ -1342,7 +1347,7 @@ mod tests {
                                  method_name: "ft_transfer".parse().unwrap(),
                                  args: vec![123, 34, 114, 101, 99, 101, 105, 118, 101, 114, 95, 105, 100, 34, 58, 34, 106, 97, 110, 101, 46, 116, 101, 115, 116, 46, 110, 101, 97, 114, 34, 44, 34, 97, 109, 111, 117, 110, 116, 34, 58, 34, 52, 34, 125],
                                  gas: Gas::from_teragas(30),
-                                 deposit: 1,
+                                 deposit: Balance::from_yoctonear(1),
                             })
                         )
                     )
@@ -1357,7 +1362,7 @@ mod tests {
         let action_receipt = ActionReceipt {
             signer_id: "alice.test.near".parse().unwrap(),
             signer_public_key: PublicKey::empty(near_crypto::KeyType::ED25519),
-            gas_price: 1,
+            gas_price: Balance::from_yoctonear(1),
             output_data_receivers: Vec::new(),
             input_data_ids: Vec::new(),
             actions: vec![Action::Delegate(Box::new(signed_delegate_action.clone()))],
@@ -1374,7 +1379,7 @@ mod tests {
             shard_id: ShardUId::single_shard().shard_id(),
             epoch_id: EpochId::default(),
             epoch_height: 3,
-            gas_price: 2,
+            gas_price: Balance::from_yoctonear(2),
             block_timestamp: 1,
             gas_limit: None,
             random_seed: CryptoHash::default(),
@@ -1396,7 +1401,8 @@ mod tests {
         let tries = TestTriesBuilder::new().build();
         let mut state_update =
             tries.new_trie_update(ShardUId::single_shard(), CryptoHash::default());
-        let account = Account::new(100, 0, AccountContract::None, 100);
+        let account =
+            Account::new(Balance::from_yoctonear(100), Balance::ZERO, AccountContract::None, 100);
         set_account(&mut state_update, account_id.clone(), &account);
         set_access_key(&mut state_update, account_id.clone(), public_key.clone(), access_key);
 
@@ -1744,7 +1750,7 @@ mod tests {
         delegate_action.actions =
             vec![non_delegate_action(Action::FunctionCall(Box::new(FunctionCallAction {
                 args: Vec::new(),
-                deposit: 0,
+                deposit: Balance::ZERO,
                 gas: Gas::from_gas(300),
                 method_name: "test_method".parse().unwrap(),
             })))];
@@ -1795,13 +1801,13 @@ mod tests {
         delegate_action.actions = vec![
             non_delegate_action(Action::FunctionCall(Box::new(FunctionCallAction {
                 args: Vec::new(),
-                deposit: 0,
+                deposit: Balance::ZERO,
                 gas: Gas::from_gas(300),
                 method_name: "test_method".parse().unwrap(),
             }))),
             non_delegate_action(Action::FunctionCall(Box::new(FunctionCallAction {
                 args: Vec::new(),
-                deposit: 0,
+                deposit: Balance::ZERO,
                 method_name: "test_method".parse().unwrap(),
                 gas: Gas::from_gas(300),
             }))),
@@ -1834,7 +1840,7 @@ mod tests {
         delegate_action.actions =
             vec![non_delegate_action(Action::FunctionCall(Box::new(FunctionCallAction {
                 args: Vec::new(),
-                deposit: 1,
+                deposit: Balance::from_yoctonear(1),
                 gas: Gas::from_gas(300),
                 method_name: "test_method".parse().unwrap(),
             })))];
@@ -1866,7 +1872,7 @@ mod tests {
         delegate_action.actions =
             vec![non_delegate_action(Action::FunctionCall(Box::new(FunctionCallAction {
                 args: Vec::new(),
-                deposit: 0,
+                deposit: Balance::ZERO,
                 gas: Gas::from_gas(300),
                 method_name: "test_method".parse().unwrap(),
             })))];
@@ -1901,7 +1907,7 @@ mod tests {
         delegate_action.actions =
             vec![non_delegate_action(Action::FunctionCall(Box::new(FunctionCallAction {
                 args: Vec::new(),
-                deposit: 0,
+                deposit: Balance::ZERO,
                 gas: Gas::from_gas(300),
                 method_name: "test_method".parse().unwrap(),
             })))];

@@ -389,6 +389,7 @@ mod trie_recording_tests {
     use near_primitives::shard_layout::{ShardUId, get_block_shard_uid};
     use near_primitives::state::PartialState;
     use near_primitives::state::ValueRef;
+    use near_primitives::types::Balance;
     use near_primitives::types::chunk_extra::ChunkExtra;
     use near_primitives::types::{Gas, StateRoot};
     use rand::prelude::SliceRandom;
@@ -454,7 +455,7 @@ mod trie_recording_tests {
             Vec::new(),
             Gas::ZERO,
             Gas::ZERO,
-            0,
+            Balance::ZERO,
             Some(CongestionInfo::default()),
             BandwidthRequests::empty(),
         );

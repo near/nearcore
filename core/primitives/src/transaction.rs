@@ -657,12 +657,12 @@ mod tests {
                     method_name: "qqq".to_string(),
                     args: vec![1, 2, 3],
                     gas: Gas::from_gas(1_000),
-                    deposit: 1_000_000,
+                    deposit: Balance::from_yoctonear(1_000_000),
                 })),
-                Action::Transfer(TransferAction { deposit: 123 }),
+                Action::Transfer(TransferAction { deposit: Balance::from_yoctonear(123) }),
                 Action::Stake(Box::new(StakeAction {
                     public_key: public_key.clone(),
-                    stake: 1_000_000,
+                    stake: Balance::from_yoctonear(1_000_000),
                 })),
                 Action::AddKey(Box::new(AddKeyAction {
                     public_key: public_key.clone(),
@@ -698,12 +698,12 @@ mod tests {
                     method_name: "qqq".to_string(),
                     args: vec![1, 2, 3],
                     gas: Gas::from_gas(1_000),
-                    deposit: 1_000_000,
+                    deposit: Balance::from_yoctonear(1_000_000),
                 })),
-                Action::Transfer(TransferAction { deposit: 123 }),
+                Action::Transfer(TransferAction { deposit: Balance::from_yoctonear(123) }),
                 Action::Stake(Box::new(StakeAction {
                     public_key: public_key.clone(),
-                    stake: 1_000_000,
+                    stake: Balance::from_yoctonear(1_000_000),
                 })),
                 Action::AddKey(Box::new(AddKeyAction {
                     public_key: public_key.clone(),
@@ -761,7 +761,7 @@ mod tests {
             receipt_ids: vec![],
             gas_burnt: Gas::from_gas(123),
             compute_usage: Some(456),
-            tokens_burnt: 1234000,
+            tokens_burnt: Balance::from_yoctonear(1234000),
             executor_id: "alice".parse().unwrap(),
             metadata: ExecutionMetadata::V1,
         };

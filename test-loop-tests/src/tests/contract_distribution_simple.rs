@@ -3,7 +3,7 @@ use near_async::time::Duration;
 use near_chain_configs::test_genesis::{TestEpochConfigBuilder, ValidatorsSpec};
 use near_o11y::testonly::init_test_logger;
 use near_primitives::shard_layout::ShardLayout;
-use near_primitives::types::AccountId;
+use near_primitives::types::{AccountId, Balance};
 use near_vm_runner::ContractCode;
 
 use crate::setup::builder::TestLoopBuilder;
@@ -12,10 +12,10 @@ use crate::utils::contract_distribution::{
     assert_all_chunk_endorsements_received, clear_compiled_contract_caches,
     run_until_caches_contain_contract,
 };
+use crate::utils::get_node_head_height;
 use crate::utils::transactions::{
     do_call_contract, do_delete_account, do_deploy_contract, make_account, make_accounts,
 };
-use crate::utils::{ONE_NEAR, get_node_head_height};
 
 const EPOCH_LENGTH: u64 = 10;
 const GENESIS_HEIGHT: u64 = 1000;
@@ -230,7 +230,7 @@ fn setup(accounts: &Vec<AccountId>) -> TestLoopEnv {
         .epoch_length(EPOCH_LENGTH)
         .shard_layout(shard_layout)
         .validators_spec(validators_spec)
-        .add_user_accounts_simple(&accounts, 1_000_000 * ONE_NEAR)
+        .add_user_accounts_simple(&accounts, Balance::from_near(1_000_000))
         .genesis_height(GENESIS_HEIGHT)
         .transaction_validity_period(1000)
         .build();

@@ -4935,7 +4935,9 @@ dependencies = [
  "near-account-id",
  "near-gas",
  "near-schema-checker-lib",
+ "near-token",
  "num-rational 0.3.2",
+ "primitive-types 0.10.1",
  "schemars 1.0.3",
  "serde",
  "serde_json",
@@ -5161,6 +5163,16 @@ dependencies = [
  "serde_json",
  "time",
  "tokio",
+]
+
+[[package]]
+name = "near-token"
+version = "0.3.0"
+source = "git+https://github.com/polyprogrammist/near-token-rs.git?branch=update-schemars#25744ca31a306b052473e6b6508912c371d1829b"
+dependencies = [
+ "borsh",
+ "schemars 1.0.3",
+ "serde",
 ]
 
 [[package]]

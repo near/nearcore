@@ -19,7 +19,7 @@ use near_primitives::shard_layout::ShardUId;
 use near_primitives::state_part::{PartId, StatePart};
 use near_primitives::state_sync::StatePartKey;
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{BlockId, BlockReference, EpochId, EpochReference, ShardId};
+use near_primitives::types::{Balance, BlockId, BlockReference, EpochId, EpochReference, ShardId};
 use near_primitives::utils::MaybeValidated;
 use near_store::DBCol;
 use near_store::adapter::StoreUpdateAdapter;
@@ -530,7 +530,7 @@ fn ultra_slow_test_dump_epoch_missing_chunk_in_last_block() {
                     "test0".parse().unwrap(),
                     "test1".parse().unwrap(),
                     &signer,
-                    1,
+                    Balance::from_yoctonear(1),
                     *genesis_block.hash(),
                 );
                 assert_eq!(
