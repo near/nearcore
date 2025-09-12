@@ -1,3 +1,4 @@
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 
@@ -158,5 +159,11 @@ impl From<&NodeExecutionData> for Sender<ExecutorIncomingReceipts> {
 impl From<&NodeExecutionData> for Sender<SpanWrapped<ChunkStateWitnessMessage>> {
     fn from(data: &NodeExecutionData) -> Sender<SpanWrapped<ChunkStateWitnessMessage>> {
         data.spice_chunk_validator_sender.clone().with_delay(NETWORK_DELAY).into_sender()
+    }
+}
+
+impl NodeExecutionData {
+    pub(crate) fn homedir(tempdir: &TempDir, identifier: &str) -> PathBuf {
+        tempdir.path().join(identifier)
     }
 }

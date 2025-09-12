@@ -1,11 +1,10 @@
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
-use std::time::Duration;
 
+use near_async::time::{Clock, Duration};
 use parking_lot::RwLock;
 use rocksdb::DB;
 use tokio::sync::mpsc;
-use tokio::time;
 use tracing::{debug, error, info};
 
 use near_indexer_primitives::{
@@ -34,7 +33,7 @@ static DELAYED_LOCAL_RECEIPTS_CACHE: std::sync::LazyLock<
     Arc<RwLock<HashMap<CryptoHash, views::ReceiptView>>>,
 > = std::sync::LazyLock::new(|| Arc::new(RwLock::new(HashMap::new())));
 
-const INTERVAL: Duration = Duration::from_millis(250);
+const INTERVAL: Duration = Duration::milliseconds(250);
 
 /// This function supposed to return the entire `StreamerMessage`.
 /// It fetches the block and all related parts (chunks, outcomes, state changes etc.)
@@ -301,13 +300,14 @@ async fn find_local_receipt_by_id_in_block(
 
 /// Function that starts Streamer's busy loop. Every half a seconds it fetches the status
 /// compares to already fetched block height and in case it differs fetches new block of given height.
-pub(crate) async fn start(
+pub async fn start(
     view_client: IndexerViewClientFetcher,
     client: IndexerClientFetcher,
     shard_tracker: ShardTracker,
     indexer_config: IndexerConfig,
     store_config: near_store::StoreConfig,
     blocks_sink: mpsc::Sender<StreamerMessage>,
+    clock: Clock,
 ) {
     info!(target: INDEXER, "Starting Streamer...");
     let indexer_db_path =
@@ -323,7 +323,7 @@ pub(crate) async fn start(
     let mut last_synced_block_height: Option<near_primitives::types::BlockHeight> = None;
 
     'main: loop {
-        time::sleep(INTERVAL).await;
+        clock.sleep(INTERVAL).await;
         match indexer_config.await_for_node_synced {
             AwaitForNodeSyncedEnum::WaitForFullSync => {
                 let status = client.fetch_status().await;

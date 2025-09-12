@@ -1,7 +1,7 @@
 #![doc = include_str!("../README.md")]
 
 use anyhow::Context;
-use near_async::messaging::IntoMultiSender;
+use near_async::time::Clock;
 use near_config_utils::DownloadConfigType;
 use nearcore::NearNode;
 use tokio::sync::mpsc;
@@ -19,9 +19,8 @@ pub use near_indexer_primitives::{
 
 use near_async::ActorSystem;
 use near_epoch_manager::shard_tracker::ShardTracker;
-pub use streamer::build_streamer_message;
-
-use crate::streamer::{IndexerClientFetcher, IndexerViewClientFetcher};
+use streamer::{IndexerClientFetcher, IndexerViewClientFetcher};
+pub use streamer::{build_streamer_message, start};
 
 mod streamer;
 
@@ -138,8 +137,8 @@ impl Indexer {
             Self::start_near_node(&indexer_config, near_config.clone())
                 .context("failed to start near node as part of indexer")?;
         Ok(Self {
-            view_client: IndexerViewClientFetcher::new(view_client.into_multi_sender()),
-            client: IndexerClientFetcher::new(client.into_multi_sender()),
+            view_client: IndexerViewClientFetcher::from(view_client),
+            client: IndexerClientFetcher::from(client),
             near_config,
             indexer_config,
             shard_tracker,
@@ -159,10 +158,8 @@ impl Indexer {
         near_node: &NearNode,
     ) -> Self {
         Self {
-            view_client: IndexerViewClientFetcher::new(
-                near_node.view_client.clone().into_multi_sender(),
-            ),
-            client: IndexerClientFetcher::new(near_node.client.clone().into_multi_sender()),
+            view_client: IndexerViewClientFetcher::from(near_node.view_client.clone()),
+            client: IndexerClientFetcher::from(near_node.client.clone()),
             near_config,
             indexer_config,
             shard_tracker: near_node.shard_tracker.clone(),
@@ -179,6 +176,7 @@ impl Indexer {
             self.indexer_config.clone(),
             self.near_config.config.store.clone(),
             sender,
+            Clock::real(),
         ));
         receiver
     }
