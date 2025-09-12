@@ -82,6 +82,29 @@ pub fn check_transaction_validity_period(
     validity_period_validate_is_ancestor(&base_header, prev_block_header, chain_store)
 }
 
+pub fn early_prepare_txs_check_validity_period(
+    chain_store: &ChainStoreAdapter,
+    prev_block_height: BlockHeight,
+    prev_prev_block_header: &BlockHeader,
+    base_block_hash: &CryptoHash,
+    transaction_validity_period: BlockHeightDelta,
+) -> Result<(), InvalidTxError> {
+    let base_header =
+        chain_store.get_block_header(base_block_hash).map_err(|_| InvalidTxError::Expired)?;
+
+    metrics::CHAIN_VALIDITY_PERIOD_CHECK_DELAY
+        .observe(prev_block_height.saturating_sub(base_header.height()) as f64);
+
+    // First check the distance between blocks
+    if prev_block_height > base_header.height() + transaction_validity_period {
+        return Err(InvalidTxError::Expired);
+    }
+
+    // Then check if there is a path between the blocks (`base` is ancestor of `prev_prev`)
+    // todo - comment
+    validity_period_validate_is_ancestor(&base_header, prev_prev_block_header, chain_store)
+}
+
 /// Check if base_header is an ancestor of prev_block_header
 /// Used in chunk_transaction_validity_period
 fn validity_period_validate_is_ancestor(
