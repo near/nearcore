@@ -343,7 +343,7 @@ pub struct ApplyChunkShardContext<'a> {
 
 /// Contains transactions that were fetched from the transaction pool
 /// and prepared for adding them to a new chunk that is being produced.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct PreparedTransactions {
     /// Prepared transactions
     pub transactions: Vec<ValidatedTransaction>,

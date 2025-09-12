@@ -35,7 +35,7 @@ use rand::{Rng, SeedableRng};
 use reed_solomon_erasure::galois_8::ReedSolomon;
 use std::collections::HashSet;
 use std::num::NonZeroUsize;
-use std::sync::{Arc, Condvar};
+use std::sync::Arc;
 use time::ext::InstantExt as _;
 use tracing::{debug, instrument};
 
@@ -94,7 +94,7 @@ pub struct ChunkProducer {
     pub chunk_production_info: lru::LruCache<(BlockHeight, ShardId), ChunkProduction>,
 
     /// previous chunk update id -> prepared transactions for the next chunk
-    prepare_txs_jobs: lru::LruCache<PrepareTransactionsJobKey, PrepareTransactionsJobHandle>,
+    prepare_txs_jobs: lru::LruCache<PrepareTransactionsJobKey, Arc<Mutex<PrepareTransactionsJob>>>,
     prepare_transactions_spawner: Arc<dyn AsyncComputationSpawner>,
 }
 
@@ -308,7 +308,7 @@ impl ChunkProducer {
             };
 
             match self.prepare_txs_jobs.get(&prepare_job_key) {
-                Some(job) => match &*job.get_results() {
+                Some(job) => match &*job.lock().take_result_or_run() {
                     Ok(txs) => {
                         let is_resharding = self
                             .epoch_manager
@@ -548,49 +548,30 @@ impl ChunkProducer {
             return;
         }
 
-        let tx_pool = self.sharded_tx_pool.clone();
-        let runtime_adapter = self.runtime_adapter.clone();
-        let time_limit = self.chunk_transactions_time_limit.get();
-
-        let res_sender = Arc::new((std::sync::Mutex::new(None), Condvar::new()));
-
-        let job_handle = PrepareTransactionsJobHandle { result: res_sender.clone() };
         let prepare_job_key = PrepareTransactionsJobKey {
             shard_id,
             shard_uid,
             shard_update_key,
             prev_block_context: prev_block_context.clone(),
         };
-        self.prepare_txs_jobs.push(prepare_job_key, job_handle);
 
+        let prepare_job = Arc::new(Mutex::new(PrepareTransactionsJob::NotStarted {
+            runtime_adapter: self.runtime_adapter.clone(),
+            state,
+            shard_id,
+            shard_uid,
+            prev_block_context,
+            tx_pool: self.sharded_tx_pool.clone(),
+            tx_validity_period_check: Box::new(tx_validity_period_check),
+            prev_chunk_tx_hashes,
+            time_limit: self.chunk_transactions_time_limit.get(),
+        }));
+
+        self.prepare_txs_jobs.push(prepare_job_key, prepare_job.clone());
+
+        // Run the preparation job on a separate thread
         self.prepare_transactions_spawner.spawn("prepare_transactions", move || {
-            let mut pool_guard = tx_pool.lock();
-
-            let (prepared_transactions, skipped_transactions) =
-                if let Some(mut iter) = pool_guard.get_pool_iterator(shard_uid) {
-                    runtime_adapter
-                        .prepare_transactions(
-                            Either::Right(state),
-                            shard_id,
-                            prev_block_context,
-                            &mut iter,
-                            &tx_validity_period_check,
-                            prev_chunk_tx_hashes,
-                            time_limit,
-                        )
-                        .expect("TODO - handle error")
-                } else {
-                    (
-                        PreparedTransactions { transactions: Vec::new(), limited_by: None },
-                        SkippedTransactions(Vec::new()),
-                    )
-                };
-            pool_guard
-                .reintroduce_transactions(shard_uid, prepared_transactions.transactions.clone());
-            pool_guard.reintroduce_transactions(shard_uid, skipped_transactions.0);
-
-            *res_sender.0.lock().unwrap() = Some(Arc::new(Ok(prepared_transactions)));
-            res_sender.1.notify_all();
+            prepare_job.lock().take_result_or_run();
         });
     }
 
@@ -677,19 +658,74 @@ pub struct PrepareTransactionsJobKey {
     pub prev_block_context: PrepareTransactionsBlockContext,
 }
 
-pub struct PrepareTransactionsJobHandle {
-    // The job has a lock and frees it after setting the result.
-    // Todo - find a better primitive for this
-    result: Arc<(std::sync::Mutex<Option<Arc<Result<PreparedTransactions, Error>>>>, Condvar)>,
+pub enum PrepareTransactionsJob {
+    NotStarted {
+        runtime_adapter: Arc<dyn RuntimeAdapter>,
+        state: TrieUpdate,
+        shard_id: ShardId,
+        shard_uid: ShardUId,
+        prev_block_context: PrepareTransactionsBlockContext,
+        tx_pool: Arc<Mutex<ShardedTransactionPool>>,
+        tx_validity_period_check: Box<dyn Fn(&SignedTransaction) -> bool + Send + 'static>,
+        prev_chunk_tx_hashes: HashSet<CryptoHash>,
+        time_limit: Option<Duration>,
+    },
+    Finished(Arc<Result<PreparedTransactions, Error>>),
 }
 
-impl PrepareTransactionsJobHandle {
-    /// Wait for the job to finish and get the results
-    pub fn get_results(&self) -> Arc<Result<PreparedTransactions, Error>> {
-        let mut res = self.result.0.lock().unwrap();
-        while res.is_none() {
-            res = self.result.1.wait(res).unwrap();
+impl PrepareTransactionsJob {
+    /// Take the result if available, otherwise run the job and return the result.
+    /// Usually the job is run before the result is needed, but sometimes it might not start in time.
+    pub fn take_result_or_run(&mut self) -> Arc<Result<PreparedTransactions, Error>> {
+        match self {
+            Self::NotStarted { .. } => {
+                // Move out of self (replacing with dummy value), run the job, set *self to Finished.
+                let dummy = Self::Finished(Arc::new(Ok(PreparedTransactions::default())));
+                let moved = std::mem::replace(self, dummy);
+                let res = Arc::new(moved.run_not_started());
+                *self = Self::Finished(res.clone());
+                res
+            }
+            Self::Finished(res) => res.clone(),
         }
-        res.as_ref().unwrap().clone()
+    }
+
+    fn run_not_started(self) -> Result<PreparedTransactions, Error> {
+        let Self::NotStarted {
+            runtime_adapter,
+            state,
+            shard_id,
+            shard_uid,
+            prev_block_context,
+            tx_pool,
+            tx_validity_period_check,
+            prev_chunk_tx_hashes,
+            time_limit,
+        } = self
+        else {
+            panic!("run_not_started should only be called on Self::NotStarted!");
+        };
+
+        let mut pool_guard = tx_pool.lock();
+
+        let (prepared, skipped) = if let Some(mut iter) = pool_guard.get_pool_iterator(shard_uid) {
+            runtime_adapter.prepare_transactions(
+                Either::Right(state),
+                shard_id,
+                prev_block_context,
+                &mut iter,
+                &*tx_validity_period_check,
+                prev_chunk_tx_hashes,
+                time_limit,
+            )?
+        } else {
+            (
+                PreparedTransactions { transactions: Vec::new(), limited_by: None },
+                SkippedTransactions(Vec::new()),
+            )
+        };
+        pool_guard.reintroduce_transactions(shard_uid, prepared.transactions.clone());
+        pool_guard.reintroduce_transactions(shard_uid, skipped.0);
+        Ok(prepared)
     }
 }
