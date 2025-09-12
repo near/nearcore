@@ -37,7 +37,9 @@ use near_async::{ActorSystem, MultiSend, MultiSenderFrom};
 use near_chain::ApplyChunksSpawner;
 #[cfg(feature = "test_features")]
 use near_chain::ChainStoreAccess;
-use near_chain::chain::{ApplyChunksDoneMessage, BlockCatchUpRequest, BlockCatchUpResponse};
+use near_chain::chain::{
+    ApplyChunksDoneMessage, BlockCatchUpRequest, BlockCatchUpResponse, PostStateReadyMessage,
+};
 use near_chain::resharding::types::ReshardingSender;
 use near_chain::spice_core::CoreStatementsProcessor;
 use near_chain::state_snapshot_actor::SnapshotCallbacks;
@@ -72,6 +74,7 @@ use near_primitives::block_header::ApprovalType;
 use near_primitives::epoch_info::RngSeed;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
+use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::types::{AccountId, BlockHeight};
 use near_primitives::unwrap_or_return;
 use near_primitives::utils::MaybeValidated;
@@ -259,6 +262,7 @@ pub fn start_client(
 #[derive(Clone, MultiSend, MultiSenderFrom)]
 pub struct ClientSenderForClient {
     pub apply_chunks_done: Sender<SpanWrapped<ApplyChunksDoneMessage>>,
+    pub on_post_state_ready: Sender<SpanWrapped<PostStateReadyMessage>>,
 }
 
 #[derive(Clone, MultiSend, MultiSenderFrom)]
@@ -886,6 +890,12 @@ impl Handler<SpanWrapped<ApplyChunksDoneMessage>> for ClientActorInner {
     }
 }
 
+impl Handler<SpanWrapped<PostStateReadyMessage>> for ClientActorInner {
+    fn handle(&mut self, msg: SpanWrapped<PostStateReadyMessage>) {
+        self.handle_on_post_state_ready(msg.span_unwrap());
+    }
+}
+
 #[derive(Debug)]
 enum SyncRequirement {
     SyncNeeded { peer_id: PeerId, highest_height: BlockHeight, head: Tip },
@@ -1293,6 +1303,40 @@ impl ClientActorInner {
         delay = core::cmp::min(delay, self.log_summary_timer_next_attempt - now);
         timer.observe_duration();
         delay
+    }
+
+    fn handle_on_post_state_ready(&mut self, msg: PostStateReadyMessage) {
+        tracing::debug!(target: "client", "Received {:?}", msg);
+
+        // todo - check if is chunk producer for next height
+        let cpk = ChunkProductionKey {
+            shard_id: msg.shard_id,
+            epoch_id: msg.prev_block_context.next_epoch_id,
+            height_created: msg.prev_block_context.height + 1,
+        };
+        if let Ok(v) = self.client.epoch_manager.get_chunk_producer_info(&cpk) {
+            if let Some(val) = self.client.validator_signer.get() {
+                if v.account_id() == val.validator_id() {
+                    tracing::warn!(target: "client", "start_prepare_transactions_job {:?}", msg);
+
+                    let tx_validity_period_check =
+                        self.client.chain.early_prepare_transaction_validity_check(
+                            msg.prev_block_context.height,
+                            msg.prev_prev_block_header,
+                        );
+
+                    self.client.chunk_producer.start_prepare_transactions_job(
+                        msg.key,
+                        msg.shard_id,
+                        msg.shard_uid,
+                        msg.post_state.trie_update,
+                        msg.prev_block_context,
+                        msg.prev_chunk_tx_hashes,
+                        tx_validity_period_check,
+                    );
+                }
+            }
+        }
     }
 
     /// "Unfinished" blocks means that blocks that client has started the processing and haven't

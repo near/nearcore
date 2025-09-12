@@ -236,13 +236,15 @@ fn test_max_receipt_size_value_return() {
     let account_signer = &create_user_test_signer(&account).into();
     let rpc_id = "account4".parse().unwrap();
 
+    let tx_base_block = get_shared_block_hash(&node_datas, &test_loop.data);
+
     // Deploy the test contract
     let deploy_contract_tx = SignedTransaction::deploy_contract(
         101,
         &account,
         near_test_contracts::rs_contract().into(),
         &account_signer,
-        get_shared_block_hash(&node_datas, &test_loop.data),
+        tx_base_block,
     );
     run_tx(&mut test_loop, &rpc_id, deploy_contract_tx, &node_datas, Duration::seconds(5));
 
@@ -258,7 +260,7 @@ fn test_max_receipt_size_value_return() {
         "max_receipt_size_value_return_method".into(),
         format!("{{\"value_size\": {}}}", max_receipt_size).into(),
         Gas::from_teragas(300),
-        get_shared_block_hash(&node_datas, &test_loop.data),
+        tx_base_block,
     );
     run_tx(&mut test_loop, &rpc_id, large_receipt_tx, &node_datas, Duration::seconds(5));
 
@@ -272,7 +274,7 @@ fn test_max_receipt_size_value_return() {
         "assert_test_completed".into(),
         "".into(),
         Gas::from_teragas(300),
-        get_shared_block_hash(&node_datas, &test_loop.data),
+        tx_base_block,
     );
     run_tx(&mut test_loop, &rpc_id, assert_test_completed, &node_datas, Duration::seconds(5));
 

@@ -100,6 +100,16 @@ pub(crate) fn execute_money_transfers(
     node_datas: &[NodeExecutionData],
     accounts: &[AccountId],
 ) -> Result<(), BalanceMismatchError> {
+    let default_delay = Duration::milliseconds(300);
+    execute_money_transfers_with_delay(test_loop, node_datas, accounts, default_delay)
+}
+
+pub(crate) fn execute_money_transfers_with_delay(
+    test_loop: &mut TestLoopV2,
+    node_datas: &[NodeExecutionData],
+    accounts: &[AccountId],
+    delay: Duration,
+) -> Result<(), BalanceMismatchError> {
     let clients = node_datas
         .iter()
         .map(|data| &test_loop.data.get(&data.client_sender.actor_handle()).client)
@@ -122,7 +132,7 @@ pub(crate) fn execute_money_transfers(
         *balances.get_mut(&receiver).unwrap() += amount;
         test_loop.send_adhoc_event_with_delay(
             format!("transaction {}", i),
-            Duration::milliseconds(300 * i as i64),
+            delay.saturating_mul(i as i32),
             move |data| {
                 let clients = node_data
                     .iter()
@@ -201,7 +211,7 @@ pub fn do_deploy_contract(
     tracing::info!(target: "test", "Deploying contract.");
     let nonce = get_next_nonce(&env.test_loop.data, &env.node_datas, contract_id);
     let tx = deploy_contract(&mut env.test_loop, &env.node_datas, rpc_id, contract_id, code, nonce);
-    env.test_loop.run_for(Duration::seconds(2));
+    env.test_loop.run_for(Duration::seconds(3));
     check_txs(&env.test_loop.data, &env.node_datas, rpc_id, &[tx]);
 }
 
@@ -225,7 +235,7 @@ pub fn do_call_contract(
         args,
         nonce,
     );
-    env.test_loop.run_for(Duration::seconds(2));
+    env.test_loop.run_for(Duration::seconds(3));
     check_txs(&env.test_loop.data, &env.node_datas, rpc_id, &[tx]);
 }
 
@@ -471,6 +481,8 @@ fn rpc_client<'a>(
 }
 
 /// Finds a block that all clients have on their chain and return its hash.
+/// Uses prev_block to make sure that transaction_validity_period check always passes.
+/// todo - rename function?
 pub fn get_shared_block_hash(
     node_datas: &[NodeExecutionData],
     test_loop_data: &TestLoopData,
@@ -484,7 +496,9 @@ pub fn get_shared_block_hash(
         .iter()
         .map(|client| {
             let head = client.chain.head().unwrap();
-            (head.height, head.last_block_hash)
+            let prev_block_height =
+                client.chain.get_block_header(&head.prev_block_hash).unwrap().height();
+            (prev_block_height, head.prev_block_hash)
         })
         .min_by_key(|&(height, _)| height)
         .unwrap();

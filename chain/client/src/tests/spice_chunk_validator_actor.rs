@@ -469,6 +469,7 @@ fn test_chunk_state_transition(
                 last_validator_proposals: chunk_header.prev_validator_proposals(),
                 gas_limit: chunk_header.gas_limit(),
                 is_new_chunk: true,
+                on_post_state_ready: None,
             },
             {
                 let is_new_chunk = true;

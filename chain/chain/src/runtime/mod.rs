@@ -2,9 +2,10 @@ use crate::Error;
 use crate::types::{
     ApplyChunkBlockContext, ApplyChunkResult, ApplyChunkShardContext,
     PrepareTransactionsBlockContext, PrepareTransactionsLimit, PreparedTransactions,
-    RuntimeAdapter, RuntimeStorageConfig, StorageDataSource, Tip,
+    RuntimeAdapter, RuntimeStorageConfig, SkippedTransactions, StorageDataSource, Tip,
 };
 use errors::FromStateViewerErrors;
+use itertools::Either;
 use near_async::time::{Duration, Instant};
 use near_chain_configs::{GenesisConfig, MIN_GC_NUM_EPOCHS_TO_KEEP, ProtocolConfig};
 use near_crypto::PublicKey;
@@ -51,7 +52,7 @@ use node_runtime::{
     get_signer_and_access_key, set_tx_state_changes, validate_transaction,
     verify_and_charge_tx_ephemeral,
 };
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -174,8 +175,13 @@ impl NightshadeRuntime {
             congestion_info,
             bandwidth_requests,
         } = block;
-        let ApplyChunkShardContext { shard_id, last_validator_proposals, gas_limit, is_new_chunk } =
-            chunk;
+        let ApplyChunkShardContext {
+            shard_id,
+            last_validator_proposals,
+            gas_limit,
+            is_new_chunk,
+            on_post_state_ready,
+        } = chunk;
         let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(prev_block_hash)?;
         let validator_accounts_update = {
             let epoch_manager = self.epoch_manager.read();
@@ -237,6 +243,8 @@ impl NightshadeRuntime {
             is_first_block_of_version
         );
 
+        // XXX
+        // eprintln!("on_post_state_ready.is_some() = {}", on_post_state_ready.is_some());
         let apply_state = ApplyState {
             apply_reason,
             block_height,
@@ -255,6 +263,7 @@ impl NightshadeRuntime {
             congestion_info,
             bandwidth_requests,
             trie_access_tracker_state: Default::default(),
+            on_post_state_ready: on_post_state_ready.map(|callback| callback.into()),
         };
 
         let instant = Instant::now();
@@ -605,16 +614,17 @@ impl RuntimeAdapter for NightshadeRuntime {
     )]
     fn prepare_transactions(
         &self,
-        storage_config: RuntimeStorageConfig,
+        storage_config: Either<RuntimeStorageConfig, TrieUpdate>,
         shard_id: ShardId,
         prev_block: PrepareTransactionsBlockContext,
         transaction_groups: &mut dyn TransactionGroupIterator,
         chain_validate: &dyn Fn(&SignedTransaction) -> bool,
+        skip_tx_hashes: HashSet<CryptoHash>,
         time_limit: Option<Duration>,
-    ) -> Result<PreparedTransactions, Error> {
+    ) -> Result<(PreparedTransactions, SkippedTransactions), Error> {
         let start_time = std::time::Instant::now();
 
-        let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(&prev_block.block_hash)?;
+        let epoch_id = prev_block.next_epoch_id;
         let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
         let runtime_config = self.runtime_config_store.get_config(protocol_version);
 
@@ -624,32 +634,38 @@ impl RuntimeAdapter for NightshadeRuntime {
         // invalid transactions to be included.
         let next_block_height = prev_block.height + 1;
 
-        let mut trie = match storage_config.source {
-            StorageDataSource::Db => {
-                self.tries.get_trie_for_shard(shard_uid, storage_config.state_root)
-            }
-            StorageDataSource::DbTrieOnly => {
-                // If there is no flat storage on disk, use trie but simulate costs with enabled
-                // flat storage by not charging gas for trie nodes.
-                // WARNING: should never be used in production! Consider this option only for debugging or replaying blocks.
-                let mut trie = self.tries.get_trie_for_shard(shard_uid, storage_config.state_root);
-                trie.set_use_trie_accounting_cache(false);
-                trie
-            }
-            StorageDataSource::Recorded(storage) => Trie::from_recorded_storage(
-                storage,
-                storage_config.state_root,
-                storage_config.use_flat_storage,
-            ),
-        };
-        // StateWitnessSizeLimit: We need to start recording reads if the stateless validation is
-        // enabled in the next epoch. We need to save the state transition data in the current epoch
-        // to be able to produce the state witness in the next epoch.
-        let proof_size_limit =
-            runtime_config.witness_config.new_transactions_validation_state_size_soft_limit;
-        trie = trie.recording_reads_with_proof_size_limit(proof_size_limit);
+        let mut state_update = match storage_config {
+            Either::Left(storage_config) => {
+                let mut trie = match storage_config.source {
+                    StorageDataSource::Db => {
+                        self.tries.get_trie_for_shard(shard_uid, storage_config.state_root)
+                    }
+                    StorageDataSource::DbTrieOnly => {
+                        // If there is no flat storage on disk, use trie but simulate costs with enabled
+                        // flat storage by not charging gas for trie nodes.
+                        // WARNING: should never be used in production! Consider this option only for debugging or replaying blocks.
+                        let mut trie =
+                            self.tries.get_trie_for_shard(shard_uid, storage_config.state_root);
+                        trie.set_use_trie_accounting_cache(false);
+                        trie
+                    }
+                    StorageDataSource::Recorded(storage) => Trie::from_recorded_storage(
+                        storage,
+                        storage_config.state_root,
+                        storage_config.use_flat_storage,
+                    ),
+                };
+                // StateWitnessSizeLimit: We need to start recording reads if the stateless validation is
+                // enabled in the next epoch. We need to save the state transition data in the current epoch
+                // to be able to produce the state witness in the next epoch.
+                let proof_size_limit =
+                    runtime_config.witness_config.new_transactions_validation_state_size_soft_limit;
+                trie = trie.recording_reads_with_proof_size_limit(proof_size_limit);
 
-        let mut state_update = TrieUpdate::new(trie);
+                TrieUpdate::new(trie)
+            }
+            Either::Right(trie_update) => trie_update,
+        };
 
         // Total amount of gas burnt for converting transactions towards receipts.
         let mut total_gas_burnt = Gas::ZERO;
@@ -665,6 +681,8 @@ impl RuntimeAdapter for NightshadeRuntime {
         let mut rejected_due_to_congestion = 0;
         let mut rejected_invalid_tx = 0;
         let mut rejected_invalid_for_chain = 0;
+
+        let mut skipped_txs = Vec::new();
 
         // Add new transactions to the result until some limit is hit or the transactions run out.
         'add_txs_loop: while let Some(transaction_group_iter) = transaction_groups.next() {
@@ -707,6 +725,11 @@ impl RuntimeAdapter for NightshadeRuntime {
                 let validated_tx = transaction_group_iter
                     .next()
                     .expect("peek_next() returned Some, so next() should return Some as well");
+                if skip_tx_hashes.contains(&validated_tx.get_hash()) {
+                    skipped_txs.push(validated_tx);
+                    continue;
+                }
+
                 num_checked_transactions += 1;
 
                 if !congestion_control_accepts_transaction(
@@ -789,7 +812,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         metrics::CONGESTION_PREPARE_TX_GAS_LIMIT
             .with_label_values(&[&shard_label])
             .set(i64::try_from(transactions_gas_limit.as_gas()).unwrap_or(i64::MAX));
-        Ok(result)
+        Ok((result, SkippedTransactions(skipped_txs)))
     }
 
     fn get_gc_stop_height(&self, block_hash: &CryptoHash) -> BlockHeight {

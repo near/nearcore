@@ -445,6 +445,7 @@ mod tests {
                 runtime.store().chain_store(),
                 epoch_manager.clone(),
             ),
+            None,
         )
         .unwrap();
         (

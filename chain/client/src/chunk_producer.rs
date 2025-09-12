@@ -1,8 +1,12 @@
 use crate::debug::PRODUCTION_TIMES_CACHE_SIZE;
 use crate::metrics;
-use itertools::Itertools;
+use itertools::{Either, Itertools};
+use near_async::futures::{AsyncComputationSpawner, AsyncComputationSpawnerExt};
 use near_async::time::{Clock, Duration, Instant};
-use near_chain::types::{PreparedTransactions, RuntimeAdapter, RuntimeStorageConfig};
+use near_chain::types::{
+    ApplyChunkBlockContext, BlockType, PrepareTransactionsBlockContext, PreparedTransactions,
+    RuntimeAdapter, RuntimeStorageConfig, SkippedTransactions,
+};
 use near_chain::{Block, Chain, ChainStore};
 use near_chain_configs::MutableConfigValue;
 use near_chunks::client::ShardedTransactionPool;
@@ -11,10 +15,11 @@ use near_client_primitives::types::Error;
 use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_assignment::shard_id_to_uid;
 use near_pool::types::TransactionGroupIterator;
-use near_primitives::bandwidth_scheduler::BandwidthRequests;
+use near_primitives::bandwidth_scheduler::{BandwidthRequests, BlockBandwidthRequests};
 use near_primitives::epoch_info::RngSeed;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{MerklePath, merklize};
+use near_primitives::optimistic_block::CachedShardUpdateKey;
 use near_primitives::receipt::Receipt;
 use near_primitives::sharding::{ShardChunkHeader, ShardChunkWithEncoding};
 use near_primitives::stateless_validation::ChunkProductionKey;
@@ -22,12 +27,13 @@ use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{BlockHeight, EpochId, ShardId};
 use near_primitives::validator_signer::ValidatorSigner;
-use near_store::ShardUId;
 use near_store::adapter::chain_store::ChainStoreAdapter;
+use near_store::{ShardUId, TrieUpdate};
 use parking_lot::Mutex;
 #[cfg(feature = "test_features")]
 use rand::{Rng, SeedableRng};
 use reed_solomon_erasure::galois_8::ReedSolomon;
+use std::collections::HashSet;
 use std::num::NonZeroUsize;
 use std::sync::Arc;
 use time::ext::InstantExt as _;
@@ -86,6 +92,10 @@ pub struct ChunkProducer {
     reed_solomon_encoder: ReedSolomon,
     /// Chunk production timing information. Used only for debug purposes.
     pub chunk_production_info: lru::LruCache<(BlockHeight, ShardId), ChunkProduction>,
+
+    /// previous chunk update id -> prepared transactions for the next chunk
+    prepare_txs_jobs: lru::LruCache<PrepareTransactionsJobKey, Arc<Mutex<PrepareTransactionsJob>>>,
+    prepare_transactions_spawner: Arc<dyn AsyncComputationSpawner>,
 }
 
 impl ChunkProducer {
@@ -97,6 +107,7 @@ impl ChunkProducer {
         runtime_adapter: Arc<dyn RuntimeAdapter>,
         rng_seed: RngSeed,
         transaction_pool_size_limit: Option<u64>,
+        prepare_transactions_spawner: Arc<dyn AsyncComputationSpawner>,
     ) -> Self {
         let data_parts = epoch_manager.num_data_parts();
         let parity_parts = epoch_manager.num_total_parts() - data_parts;
@@ -121,6 +132,8 @@ impl ChunkProducer {
             chunk_production_info: lru::LruCache::new(
                 NonZeroUsize::new(PRODUCTION_TIMES_CACHE_SIZE).unwrap(),
             ),
+            prepare_txs_jobs: lru::LruCache::new(NonZeroUsize::new(64).unwrap()),
+            prepare_transactions_spawner,
         }
     }
 
@@ -268,22 +281,95 @@ impl ChunkProducer {
                 .map_err(|err| Error::ChunkProducer(format!("No chunk extra available: {}", err)))?
         };
 
+        // Try to get prepared transactions from the cache
+        let cached_txs: Option<PreparedTransactions> = {
+            let chunks = prev_block.chunks();
+            let prev_block_context = ApplyChunkBlockContext {
+                block_type: BlockType::Optimistic, // ignored
+                height: prev_block.header().height(),
+                prev_block_hash: *prev_block.header().prev_hash(),
+                block_timestamp: prev_block.header().raw_timestamp(),
+                gas_price: Default::default(), // ignored, why?
+                random_seed: *prev_block.header().random_value(),
+                congestion_info: Default::default(), // ignored, taken from chunk headers
+                bandwidth_requests: BlockBandwidthRequests::empty(), // ignored, taken from chunk headers
+            };
+            let prev_chunk_shard_update_key: CachedShardUpdateKey =
+                Chain::get_cached_shard_update_key(&prev_block_context, &chunks, shard_id).unwrap();
+
+            let prepare_job_key = PrepareTransactionsJobKey {
+                shard_id,
+                shard_uid,
+                shard_update_key: prev_chunk_shard_update_key,
+                prev_block_context: PrepareTransactionsBlockContext::new(
+                    prev_block,
+                    &*self.epoch_manager,
+                )?,
+            };
+
+            match self.prepare_txs_jobs.get(&prepare_job_key) {
+                Some(job) => match &*job.lock().take_result_or_run() {
+                    Ok(txs) => {
+                        let is_resharding = self
+                            .epoch_manager
+                            .is_resharding_boundary(prev_block.header().hash())?;
+
+                        tracing::warn!(
+                            target: "client",
+                            %next_height,
+                            %shard_id,
+                            ?prev_chunk_shard_update_key,
+                            %is_resharding,
+                            num_txs = txs.transactions.len(),
+                            "Using cached prepared transactions",
+                        );
+                        if is_resharding { None } else { Some(txs.clone()) }
+                    }
+                    Err(err) => {
+                        tracing::error!("Error preparing txs! {:?}", err);
+                        None
+                    }
+                },
+                None => None,
+            }
+        };
+
         let prepared_transactions = {
             #[cfg(feature = "test_features")]
             match self.adversarial.produce_mode {
                 Some(AdvProduceChunksMode::ProduceWithoutTx) => {
                     PreparedTransactions { transactions: Vec::new(), limited_by: None }
                 }
-                _ => self.prepare_transactions(
+                _ => match cached_txs {
+                    Some(txs) => txs,
+                    None => self.prepare_transactions(
+                        shard_uid,
+                        prev_block,
+                        chunk_extra.as_ref(),
+                        chain_validate,
+                    )?,
+                },
+            }
+
+            #[cfg(not(feature = "test_features"))]
+            match cached_txs {
+                Some(txs) => txs,
+                None => self.prepare_transactions(
                     shard_uid,
                     prev_block,
                     chunk_extra.as_ref(),
                     chain_validate,
                 )?,
             }
-            #[cfg(not(feature = "test_features"))]
-            self.prepare_transactions(shard_uid, prev_block, chunk_extra.as_ref(), chain_validate)?
         };
+
+        tracing::warn!(
+            target: "client",
+            %next_height,
+            %shard_id,
+            num_txs = prepared_transactions.transactions.len(),
+            "Prepared transactions",
+        );
 
         #[cfg(feature = "test_features")]
         let prepared_transactions = Self::maybe_insert_invalid_transaction(
@@ -416,14 +502,19 @@ impl ChunkProducer {
                 source: near_chain::types::StorageDataSource::Db,
                 state_patch: Default::default(),
             };
-            self.runtime_adapter.prepare_transactions(
-                storage_config,
-                shard_id,
-                prev_block.into(),
-                &mut iter,
-                chain_validate,
-                self.chunk_transactions_time_limit.get(),
-            )?
+            let prepare_block_context =
+                PrepareTransactionsBlockContext::new(prev_block, &*self.epoch_manager)?;
+            self.runtime_adapter
+                .prepare_transactions(
+                    Either::Left(storage_config),
+                    shard_id,
+                    prepare_block_context,
+                    &mut iter,
+                    chain_validate,
+                    HashSet::new(),
+                    self.chunk_transactions_time_limit.get(),
+                )?
+                .0
         } else {
             PreparedTransactions { transactions: Vec::new(), limited_by: None }
         };
@@ -441,6 +532,47 @@ impl ChunkProducer {
             );
         }
         Ok(prepared_transactions)
+    }
+
+    pub fn start_prepare_transactions_job(
+        &mut self,
+        shard_update_key: CachedShardUpdateKey,
+        shard_id: ShardId,
+        shard_uid: ShardUId,
+        state: TrieUpdate,
+        prev_block_context: PrepareTransactionsBlockContext,
+        prev_chunk_tx_hashes: HashSet<CryptoHash>,
+        tx_validity_period_check: impl Fn(&SignedTransaction) -> bool + Send + 'static,
+    ) {
+        if cfg!(feature = "protocol_feature_spice") {
+            return;
+        }
+
+        let prepare_job_key = PrepareTransactionsJobKey {
+            shard_id,
+            shard_uid,
+            shard_update_key,
+            prev_block_context: prev_block_context.clone(),
+        };
+
+        let prepare_job = Arc::new(Mutex::new(PrepareTransactionsJob::NotStarted {
+            runtime_adapter: self.runtime_adapter.clone(),
+            state,
+            shard_id,
+            shard_uid,
+            prev_block_context,
+            tx_pool: self.sharded_tx_pool.clone(),
+            tx_validity_period_check: Box::new(tx_validity_period_check),
+            prev_chunk_tx_hashes,
+            time_limit: self.chunk_transactions_time_limit.get(),
+        }));
+
+        self.prepare_txs_jobs.push(prepare_job_key, prepare_job.clone());
+
+        // Run the preparation job on a separate thread
+        self.prepare_transactions_spawner.spawn("prepare_transactions", move || {
+            prepare_job.lock().take_result_or_run();
+        });
     }
 
     #[cfg(feature = "test_features")]
@@ -515,5 +647,85 @@ impl ChunkProducer {
             );
         }
         should_skip
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct PrepareTransactionsJobKey {
+    pub shard_id: ShardId,
+    pub shard_uid: ShardUId,
+    pub shard_update_key: CachedShardUpdateKey,
+    pub prev_block_context: PrepareTransactionsBlockContext,
+}
+
+pub enum PrepareTransactionsJob {
+    NotStarted {
+        runtime_adapter: Arc<dyn RuntimeAdapter>,
+        state: TrieUpdate,
+        shard_id: ShardId,
+        shard_uid: ShardUId,
+        prev_block_context: PrepareTransactionsBlockContext,
+        tx_pool: Arc<Mutex<ShardedTransactionPool>>,
+        tx_validity_period_check: Box<dyn Fn(&SignedTransaction) -> bool + Send + 'static>,
+        prev_chunk_tx_hashes: HashSet<CryptoHash>,
+        time_limit: Option<Duration>,
+    },
+    Finished(Arc<Result<PreparedTransactions, Error>>),
+}
+
+impl PrepareTransactionsJob {
+    /// Take the result if available, otherwise run the job and return the result.
+    /// Usually the job is run before the result is needed, but sometimes it might not start in time.
+    pub fn take_result_or_run(&mut self) -> Arc<Result<PreparedTransactions, Error>> {
+        match self {
+            Self::NotStarted { .. } => {
+                // Move out of self (replacing with dummy value), run the job, set *self to Finished.
+                let dummy = Self::Finished(Arc::new(Ok(PreparedTransactions::default())));
+                let moved = std::mem::replace(self, dummy);
+                let res = Arc::new(moved.run_not_started());
+                *self = Self::Finished(res.clone());
+                res
+            }
+            Self::Finished(res) => res.clone(),
+        }
+    }
+
+    fn run_not_started(self) -> Result<PreparedTransactions, Error> {
+        let Self::NotStarted {
+            runtime_adapter,
+            state,
+            shard_id,
+            shard_uid,
+            prev_block_context,
+            tx_pool,
+            tx_validity_period_check,
+            prev_chunk_tx_hashes,
+            time_limit,
+        } = self
+        else {
+            panic!("run_not_started should only be called on Self::NotStarted!");
+        };
+
+        let mut pool_guard = tx_pool.lock();
+
+        let (prepared, skipped) = if let Some(mut iter) = pool_guard.get_pool_iterator(shard_uid) {
+            runtime_adapter.prepare_transactions(
+                Either::Right(state),
+                shard_id,
+                prev_block_context,
+                &mut iter,
+                &*tx_validity_period_check,
+                prev_chunk_tx_hashes,
+                time_limit,
+            )?
+        } else {
+            (
+                PreparedTransactions { transactions: Vec::new(), limited_by: None },
+                SkippedTransactions(Vec::new()),
+            )
+        };
+        pool_guard.reintroduce_transactions(shard_uid, prepared.transactions.clone());
+        pool_guard.reintroduce_transactions(shard_uid, skipped.0);
+        Ok(prepared)
     }
 }

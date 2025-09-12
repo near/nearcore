@@ -263,7 +263,7 @@ pub(crate) fn call_burn_gas_contract(
     const CALLS_PER_BLOCK_HEIGHT: usize = 5;
     // Set to a value large enough, so that transactions from the past epoch are settled.
     // Must be less than epoch length, otherwise won't be triggered before the test is finished.
-    let tx_check_blocks_after_resharding = epoch_length - 2;
+    let tx_check_blocks_after_resharding = epoch_length - 1;
 
     let resharding_height = Cell::new(None);
     let nonce = Cell::new(102);
@@ -328,7 +328,7 @@ pub(crate) fn call_burn_gas_contract(
                         method_name,
                         args,
                         gas_burnt_per_call.checked_add(Gas::from_teragas(10)).unwrap(),
-                        tip.last_block_hash,
+                        tip.prev_block_hash,
                     );
                     store_and_submit_tx(
                         &node_datas,
@@ -445,7 +445,7 @@ pub(crate) fn send_large_cross_shard_receipts(
                                 receiver_id
                             ).into(),
                             Gas::from_teragas(300),
-                            tip.last_block_hash,
+                            tip.prev_block_hash,
                         );
                         tracing::info!(
                             target: "test",
@@ -537,7 +537,7 @@ pub(crate) fn call_promise_yield(
                             "call_yield_resume_read_data_id_from_storage".to_string(),
                             yield_payload.clone(),
                             Gas::from_teragas(300),
-                            tip.last_block_hash,
+                            tip.prev_block_hash,
                         );
                         store_and_submit_tx(
                             &node_datas,
@@ -606,7 +606,7 @@ pub(crate) fn call_promise_yield(
                             "call_yield_create_return_promise".to_string(),
                             yield_payload.clone(),
                             Gas::from_teragas(300),
-                            tip.last_block_hash,
+                            tip.prev_block_hash,
                         );
                         store_and_submit_tx(
                             &node_datas,
@@ -961,7 +961,7 @@ pub(crate) fn promise_yield_repro_missing_trie_value(
                         "call_yield_create_return_promise".to_string(),
                         yield_payload.clone(),
                         Gas::from_teragas(300),
-                        tip.last_block_hash,
+                        tip.prev_block_hash,
                     );
                     store_and_submit_tx(
                         &node_datas,
@@ -1038,7 +1038,7 @@ pub(crate) fn promise_yield_repro_missing_trie_value(
                         "call_yield_resume_read_data_id_from_storage".to_string(),
                         yield_payload.clone(),
                         Gas::from_teragas(300),
-                        tip.last_block_hash,
+                        tip.prev_block_hash,
                     );
                     store_and_submit_tx(
                         &node_datas,
@@ -1171,7 +1171,7 @@ pub(crate) fn delayed_receipts_repro_missing_trie_value(
                         Gas::from_gas(GAS_BURNT_PER_CALL)
                             .checked_add(Gas::from_teragas(10))
                             .unwrap(),
-                        tip.last_block_hash,
+                        tip.prev_block_hash,
                     );
                     store_and_submit_tx(
                         &node_datas,
