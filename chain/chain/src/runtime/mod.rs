@@ -18,7 +18,7 @@ use near_primitives::apply::ApplyChunkReason;
 use near_primitives::congestion_info::{
     CongestionControl, ExtendedCongestionInfo, RejectTransactionReason, ShardAcceptsTransactions,
 };
-use near_primitives::errors::{InvalidAccessKeyError, InvalidTxError, RuntimeError, StorageError};
+use near_primitives::errors::{InvalidTxError, RuntimeError, StorageError};
 use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::receipt::Receipt;
 use near_primitives::sandbox::state_patch::SandboxStatePatch;
@@ -27,7 +27,7 @@ use near_primitives::state_part::{PartId, StatePart};
 use near_primitives::transaction::{SignedTransaction, ValidatedTransaction};
 use near_primitives::types::{
     AccountId, Balance, BlockHeight, EpochHeight, EpochId, EpochInfoProvider, Gas, MerkleHash,
-    ShardId, StateChangeCause, StateRoot, StateRootNode,
+    ShardId, StateRoot, StateRootNode,
 };
 use near_primitives::version::ProtocolVersion;
 use near_primitives::views::{
@@ -47,8 +47,7 @@ use node_runtime::adapter::ViewRuntimeAdapter;
 use node_runtime::config::tx_cost;
 use node_runtime::state_viewer::{TrieViewer, ViewApplyState};
 use node_runtime::{
-    ApplyState, Runtime, SignedValidPeriodTransactions, ValidatorAccountsUpdate,
-    validate_transaction, verify_and_charge_tx_ephemeral,
+    get_signer_and_access_key, validate_transaction, verify_and_charge_tx_ephemeral, ApplyState, Runtime, SignedValidPeriodTransactions, ValidatorAccountsUpdate
 };
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -576,18 +575,8 @@ impl RuntimeAdapter for NightshadeRuntime {
             tx_cost(runtime_config, &validated_tx.to_tx(), gas_price, current_protocol_version)?;
         let shard_uid = shard_layout
             .account_id_to_shard_uid(validated_tx.to_signed_tx().transaction.signer_id());
-        let state_update = self.tries.get_trie_for_shard(shard_uid, state_root);
-        let signer_id = validated_tx.signer_id();
-        let mut signer = get_account(&state_update, signer_id)?
-            .ok_or_else(|| InvalidTxError::SignerDoesNotExist { signer_id: signer_id.clone() })?;
-        let public_key = validated_tx.public_key();
-        let mut access_key =
-            get_access_key(&state_update, signer_id, public_key)?.ok_or_else(|| {
-                InvalidTxError::InvalidAccessKeyError(InvalidAccessKeyError::AccessKeyNotFound {
-                    account_id: signer_id.clone(),
-                    public_key: public_key.clone().into(),
-                })
-            })?;
+        let trie = self.tries.get_trie_for_shard(shard_uid, state_root);
+        let (mut signer, mut access_key) = get_signer_and_access_key(&trie, &validated_tx)?;
         verify_and_charge_tx_ephemeral(
             runtime_config,
             &mut signer,
@@ -749,7 +738,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                         get_access_key(&state_update, signer_id, validated_tx.public_key());
                     let access_key = access_key.transpose().and_then(|v| v.ok());
                     let inserted = signer_access_key.insert((
-                        validated_tx.signer_id().clone(),
+                        signer_id.clone(),
                         signer.ok_or(Error::InvalidTransactions)?,
                         access_key.ok_or(Error::InvalidTransactions)?,
                     ));
