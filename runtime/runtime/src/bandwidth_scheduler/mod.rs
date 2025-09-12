@@ -10,7 +10,7 @@ use near_primitives::errors::RuntimeError;
 use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{EpochInfoProvider, ShardId, ShardIndex, StateChangeCause};
-use near_store::state_update::{StateUpdate, StateUpdateOperation};
+use near_store::state_update::{StateUpdate, StateOperations};
 use scheduler::{BandwidthScheduler, GrantedBandwidth, ShardStatus};
 
 use crate::ApplyState;
@@ -46,7 +46,7 @@ impl BandwidthSchedulerOutput {
 /// of outgoing receipts can be sent between shards at the current height.
 pub fn run_bandwidth_scheduler(
     apply_state: &ApplyState,
-    state_update: &mut StateUpdateOperation,
+    state_update: &mut StateOperations,
     epoch_info_provider: &dyn EpochInfoProvider,
     stats: &mut BandwidthSchedulerStats,
 ) -> Result<BandwidthSchedulerOutput, RuntimeError> {

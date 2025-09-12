@@ -9,7 +9,7 @@ use near_primitives::types::{AccountId, Balance, BlockHeight, EpochId, EpochInfo
 use near_primitives::utils::create_receipt_id_from_action_hash;
 use near_primitives::version::ProtocolVersion;
 use near_store::contract::ContractStorage;
-use near_store::state_update::StateUpdateOperation;
+use near_store::state_update::StateOperations;
 use near_store::trie::{AccessOptions, AccessTracker};
 use near_store::{KeyLookupMode, TrieUpdateValuePtr};
 use near_vm_runner::logic::errors::{AnyError, InconsistentStateError, VMLogicError};
@@ -26,7 +26,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 pub struct RuntimeExt<'a, 'su> {
-    pub(crate) update_op: &'a mut StateUpdateOperation<'su>,
+    pub(crate) update_op: &'a mut StateOperations<'su>,
     pub(crate) receipt_manager: &'a mut ReceiptManager,
     account_id: AccountId,
     account: Account,
@@ -82,7 +82,7 @@ impl<'a, 'b> ValuePtr for RuntimeExtValuePtr<'a, 'b> {
 
 impl<'a, 'su> RuntimeExt<'a, 'su> {
     pub fn new(
-        update_op: &'a mut StateUpdateOperation<'su>,
+        update_op: &'a mut StateOperations<'su>,
         receipt_manager: &'a mut ReceiptManager,
         account_id: AccountId,
         account: Account,

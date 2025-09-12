@@ -1,4 +1,4 @@
-use crate::state_update::StateUpdateOperation;
+use crate::state_update::StateOperations;
 use crate::state_update::state_value::StateValue;
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_primitives::errors::{IntegerOverflowError, StorageError};
@@ -15,7 +15,7 @@ where
 {
     indices: std::ops::Range<u64>,
     trie_queue: &'a Queue,
-    trie: StateUpdateOperation<'su>,
+    trie: StateOperations<'su>,
     side_effects: bool,
 }
 
@@ -68,7 +68,7 @@ pub trait TrieQueue {
     /// Read queue indices of the queue from the trie, depending on impl.
     fn load_indices(
         &self,
-        trie: &mut StateUpdateOperation,
+        trie: &mut StateOperations,
     ) -> Result<TrieQueueIndices, StorageError>;
 
     /// Read indices from a cached field.
@@ -79,14 +79,14 @@ pub trait TrieQueue {
 
     /// Write changed indices back to the trie, using the correct trie key
     /// depending on impl.
-    fn write_indices(&self, state_update: &mut StateUpdateOperation);
+    fn write_indices(&self, state_update: &mut StateOperations);
 
     /// Construct the trie key for a queue item depending on impl.
     fn trie_key(&self, queue_index: u64) -> TrieKey;
 
     fn push_back(
         &mut self,
-        state_update: &mut StateUpdateOperation,
+        state_update: &mut StateOperations,
         item: Self::Item,
     ) -> Result<(), IntegerOverflowError> {
         self.debug_check_unchanged(state_update);
@@ -103,7 +103,7 @@ pub trait TrieQueue {
 
     fn pop_front(
         &mut self,
-        state_update: &mut StateUpdateOperation,
+        state_update: &mut StateOperations,
     ) -> Result<Option<Self::Item>, StorageError> {
         self.debug_check_unchanged(state_update);
 
@@ -126,7 +126,7 @@ pub trait TrieQueue {
 
     fn pop_back(
         &mut self,
-        state_update: &mut StateUpdateOperation,
+        state_update: &mut StateOperations,
     ) -> Result<Option<Self::Item>, StorageError> {
         self.debug_check_unchanged(state_update);
 
@@ -157,7 +157,7 @@ pub trait TrieQueue {
     /// Indices could be converted to i64, serialization is the same as u64 for non-negative values.
     fn modify_first(
         &mut self,
-        state_update: &mut StateUpdateOperation,
+        state_update: &mut StateOperations,
         modify_fn: impl Fn(Self::Item) -> Option<Self::Item>,
     ) -> Result<(), StorageError> {
         let indices = self.indices();
@@ -192,7 +192,7 @@ pub trait TrieQueue {
     /// check if they existed in state.
     fn pop_n(
         &mut self,
-        state_update: &mut StateUpdateOperation,
+        state_update: &mut StateOperations,
         n: u64,
     ) -> Result<u64, StorageError> {
         self.debug_check_unchanged(state_update);
@@ -224,7 +224,7 @@ pub trait TrieQueue {
 
     fn iter<'a>(
         &'a self,
-        mut trie: StateUpdateOperation<'a>,
+        mut trie: StateOperations<'a>,
         side_effects: bool,
     ) -> impl DoubleEndedIterator<Item = Result<Self::Item, StorageError>> + 'a
     where
@@ -247,20 +247,20 @@ pub trait TrieQueue {
     /// memory in at least one layer. But we still want to avoid it in
     /// production.
     #[cfg(debug_assertions)]
-    fn debug_check_unchanged(&self, trie: &mut StateUpdateOperation) {
+    fn debug_check_unchanged(&self, trie: &mut StateOperations) {
         // FIXME: this should only use pure operations, otherwise using debug vs non-debug can
         // affect the state witness
         debug_assert_eq!(self.indices(), self.load_indices(trie).unwrap());
     }
 
     #[cfg(not(debug_assertions))]
-    fn debug_check_unchanged(&self, _trie: &mut StateUpdateOperation) {
+    fn debug_check_unchanged(&self, _trie: &mut StateOperations) {
         // nop in release build
     }
 }
 
 impl DelayedReceiptQueue {
-    pub fn load(trie: &mut StateUpdateOperation) -> Result<Self, StorageError> {
+    pub fn load(trie: &mut StateOperations) -> Result<Self, StorageError> {
         let indices: TrieQueueIndices =
             trie.get(TrieKey::DelayedReceiptIndices)?.cloned().unwrap_or_default();
         Ok(Self { indices: indices.into() })
@@ -272,7 +272,7 @@ impl TrieQueue for DelayedReceiptQueue {
 
     fn load_indices(
         &self,
-        trie: &mut StateUpdateOperation,
+        trie: &mut StateOperations,
     ) -> Result<TrieQueueIndices, StorageError> {
         Ok(TrieQueueIndices::from(
             trie.get::<DelayedReceiptIndices>(TrieKey::DelayedReceiptIndices)?
@@ -289,7 +289,7 @@ impl TrieQueue for DelayedReceiptQueue {
         &mut self.indices
     }
 
-    fn write_indices(&self, state_update: &mut StateUpdateOperation) {
+    fn write_indices(&self, state_update: &mut StateOperations) {
         state_update.set(TrieKey::DelayedReceiptIndices, self.indices.clone());
     }
 
@@ -299,7 +299,7 @@ impl TrieQueue for DelayedReceiptQueue {
 }
 
 impl ShardsOutgoingReceiptBuffer {
-    pub fn load(trie: &mut StateUpdateOperation) -> Result<Self, StorageError> {
+    pub fn load(trie: &mut StateOperations) -> Result<Self, StorageError> {
         let shards_indices =
             trie.get(TrieKey::BufferedReceiptIndices)?.cloned().unwrap_or_default();
         Ok(Self { shards_indices })
@@ -318,7 +318,7 @@ impl ShardsOutgoingReceiptBuffer {
         self.shards_indices.shard_buffers.get(&shard_id).map(TrieQueueIndices::len)
     }
 
-    fn write_indices(&self, state_update: &mut StateUpdateOperation) {
+    fn write_indices(&self, state_update: &mut StateOperations) {
         state_update.set(TrieKey::BufferedReceiptIndices, self.shards_indices.clone());
     }
 }
@@ -328,7 +328,7 @@ impl TrieQueue for OutgoingReceiptBuffer<'_> {
 
     fn load_indices(
         &self,
-        update_op: &mut StateUpdateOperation,
+        update_op: &mut StateOperations,
     ) -> Result<TrieQueueIndices, StorageError> {
         let all_indices: BufferedReceiptIndices =
             update_op.get(TrieKey::BufferedReceiptIndices)?.cloned().unwrap_or_default();
@@ -344,7 +344,7 @@ impl TrieQueue for OutgoingReceiptBuffer<'_> {
         self.parent.shards_indices.shard_buffers.entry(self.shard_id).or_default()
     }
 
-    fn write_indices(&self, state_update: &mut StateUpdateOperation) {
+    fn write_indices(&self, state_update: &mut StateOperations) {
         self.parent.write_indices(state_update);
     }
 
@@ -521,7 +521,7 @@ mod tests {
     #[track_caller]
     fn check_push_to_receipt_queue(
         input_receipts: &[Receipt],
-        trie: &mut StateUpdateOperation,
+        trie: &mut StateOperations,
         queue: &mut impl for<'a> TrieQueue<Item<'a> = ReceiptOrStateStoredReceipt<'a>>,
     ) {
         for receipt in input_receipts {
@@ -542,7 +542,7 @@ mod tests {
     #[track_caller]
     fn check_receipt_queue_contains_receipts(
         input_receipts: &[Receipt],
-        trie: &mut StateUpdateOperation,
+        trie: &mut StateOperations,
         queue: &mut impl for<'a> TrieQueue<Item<'a> = ReceiptOrStateStoredReceipt<'a>>,
     ) {
         // check 2: assert newly loaded queue still contains the receipts
@@ -619,7 +619,7 @@ mod tests {
             &mut self.indices
         }
 
-        fn write_indices(&self, state_update: &mut StateUpdateOperation) {
+        fn write_indices(&self, state_update: &mut StateOperations) {
             set(
                 state_update,
                 TrieKey::BufferedReceiptGroupsQueueData { receiving_shard: Self::fake_shard_id() },

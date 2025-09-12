@@ -1,5 +1,6 @@
 #![allow(unused)]
 //! Next generation replacement for [`TrieUpdate`](crate::trie::update::TrieUpdate).
+use crate::trie::update::TrieUpdateResult;
 use crate::Trie;
 use crate::trie::OptimizedValueRef;
 use crate::{KeyLookupMode, trie::AccessOptions};
@@ -131,6 +132,10 @@ impl StateUpdate {
 
     pub fn trie(&self) -> &crate::Trie {
         &self.trie
+    }
+
+    pub fn finalize(self) -> Result<TrieUpdateResult, StorageError> {
+        todo!()
     }
 }
 
@@ -407,7 +412,7 @@ impl<'su> StateOperations<'su> {
     /// Commit the changes to the [`StateUpdate`].
     ///
     /// If you'd like to discard the changes accumulated in this type, see [`Self::discard`].
-    pub fn commit(&mut self) -> Result<(), StorageError> {
+    pub fn in_place_commit(&mut self) -> Result<(), StorageError> {
         let Self { clock_created, state_update, operations } = self;
         let mut state_update_state = state_update.state.lock();
         let clock_at_create = *clock_created;
@@ -454,12 +459,22 @@ impl<'su> StateOperations<'su> {
         Ok(())
     }
 
-    pub fn discard(&mut self) {
+    pub fn commit(mut self) -> Result<(), StorageError> {
+        self.in_place_commit()
+    }
+
+    /// Remove all pending operations from this instance and reset the transaction information.
+    ///
+    /// This is roughly equivalent to `discard`ing the current instance and creating a new one,
+    /// only that it occurs in-place.
+    pub fn reset(&mut self) {
         let Self { clock_created, state_update, operations } = self;
         let state_update_state = state_update.state.lock();
         operations.clear();
         *clock_created = state_update_state.max_clock;
     }
+
+    pub fn discard(self) { drop(self) }
 
     /// Start another, parallel update operation.
     pub fn state_update(&self) -> &'su StateUpdate {

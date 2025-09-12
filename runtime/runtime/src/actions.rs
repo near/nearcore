@@ -30,7 +30,7 @@ use near_primitives_core::account::id::AccountType;
 use near_primitives_core::version::ProtocolFeature;
 use near_store::trie::AccessOptions;
 use near_store::StorageError;
-use near_store::state_update::StateUpdateOperation;
+use near_store::state_update::StateOperations;
 use near_vm_runner::logic::errors::{
     CompilationError, FunctionCallError, InconsistentStateError, VMRunnerError,
 };
@@ -142,7 +142,7 @@ pub(crate) fn execute_function_call(
 }
 
 pub(crate) fn action_function_call(
-    state_update: &mut StateUpdateOperation,
+    state_update: &mut StateOperations,
     apply_state: &ApplyState,
     account: &mut Account,
     receipt: &Receipt,
@@ -396,7 +396,7 @@ pub(crate) fn action_stake(
 
 /// Tries to refunds the allowance of the access key for a gas refund action.
 pub(crate) fn try_refund_allowance(
-    state_update: &mut StateUpdateOperation,
+    state_update: &mut StateOperations,
     account_id: &AccountId,
     public_key: &PublicKey,
     deposit: Balance,
@@ -476,7 +476,7 @@ pub(crate) fn action_create_account(
 
 /// Can only be used for implicit accounts.
 pub(crate) fn action_implicit_account_creation_transfer(
-    state_update: &mut StateUpdateOperation,
+    state_update: &mut StateOperations,
     apply_state: &ApplyState,
     fee_config: &RuntimeFeesConfig,
     account: &mut Option<Account>,
@@ -553,7 +553,7 @@ pub(crate) fn action_implicit_account_creation_transfer(
 }
 
 pub(crate) fn action_deploy_contract(
-    state_update: &mut StateUpdateOperation,
+    state_update: &mut StateOperations,
     account: &mut Account,
     account_id: &AccountId,
     deploy_contract: &DeployContractAction,
@@ -598,7 +598,7 @@ pub(crate) fn action_deploy_contract(
 }
 
 pub(crate) fn action_delete_account(
-    state_update: &mut StateUpdateOperation,
+    state_update: &mut StateOperations,
     account: &mut Option<Account>,
     actor_id: &mut AccountId,
     receipt: &Receipt,
@@ -657,7 +657,7 @@ pub(crate) fn action_delete_account(
 /// If `ExcludeExistingCodeFromWitnessForCodeLen` is enabled then the code-length is obtained without reading
 /// the code but from the value-ref in the trie leaf node, otherwise it reads the code and returns its size.
 fn get_code_len_or_default(
-    state_update: &mut StateUpdateOperation,
+    state_update: &mut StateOperations,
     account_id: AccountId,
     code_hash: CryptoHash,
     protocol_version: ProtocolVersion,
@@ -686,7 +686,7 @@ fn get_code_len_or_default(
 
 /// Clears the contract storage usage based on type for an account.
 pub(crate) fn clear_account_contract_storage_usage(
-    state_update: &mut StateUpdateOperation,
+    state_update: &mut StateOperations,
     account_id: &AccountId,
     account: &mut Account,
     current_protocol_version: ProtocolVersion,
@@ -715,7 +715,7 @@ pub(crate) fn clear_account_contract_storage_usage(
 
 pub(crate) fn action_delete_key(
     fee_config: &RuntimeFeesConfig,
-    state_update: &mut StateUpdateOperation,
+    state_update: &mut StateOperations,
     account: &mut Account,
     result: &mut ActionResult,
     account_id: &AccountId,
@@ -745,7 +745,7 @@ pub(crate) fn action_delete_key(
 
 pub(crate) fn action_add_key(
     apply_state: &ApplyState,
-    state_update: &mut StateUpdateOperation,
+    state_update: &mut StateOperations,
     account: &mut Account,
     result: &mut ActionResult,
     account_id: &AccountId,
@@ -788,7 +788,7 @@ pub(crate) fn action_add_key(
 }
 
 pub(crate) fn apply_delegate_action(
-    state_update: &mut StateUpdateOperation,
+    state_update: &mut StateOperations,
     apply_state: &ApplyState,
     action_receipt: &ActionReceipt,
     sender_id: &AccountId,
@@ -887,7 +887,7 @@ fn receipt_required_gas(apply_state: &ApplyState, receipt: &Receipt) -> Result<G
 /// - Validates nonce and updates it if it's ok.
 /// - Validates access key permissions.
 fn validate_delegate_action_key(
-    state_update: &mut StateUpdateOperation,
+    state_update: &mut StateOperations,
     apply_state: &ApplyState,
     delegate_action: &DelegateAction,
     result: &mut ActionResult,
@@ -1123,7 +1123,7 @@ fn check_transfer_to_nonexisting_account(
 #[cfg(feature = "test_features")]
 fn apply_recorded_storage_garbage(
     function_call: &FunctionCallAction,
-    state_update: &StateUpdateOperation,
+    state_update: &StateOperations,
 ) {
     if let Some(garbage_size_mbs) = function_call
         .method_name

@@ -15,7 +15,7 @@ use near_primitives::trie_key::{GlobalContractCodeIdentifier, TrieKey};
 use near_primitives::types::{AccountId, Gas};
 use near_store::KeyLookupMode;
 use near_store::contract::ContractStorage;
-use near_store::state_update::StateUpdateOperation;
+use near_store::state_update::StateOperations;
 use near_store::trie::AccessOptions;
 use near_vm_runner::logic::GasCounter;
 use near_vm_runner::{ContractRuntimeCache, PreparedContract};
@@ -116,7 +116,7 @@ impl ReceiptPreparationPipeline {
     pub(crate) fn submit(
         &mut self,
         receipt: &Receipt,
-        state_update: &mut StateUpdateOperation,
+        state_update: &mut StateOperations,
         view_config: Option<ViewConfig>,
     ) -> bool {
         let account_id = receipt.receiver_id();

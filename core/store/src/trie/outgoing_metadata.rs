@@ -1,5 +1,5 @@
 use super::receipts_column_helper::TrieQueue;
-use crate::state_update::StateUpdateOperation;
+use crate::state_update::StateOperations;
 use borsh::{BorshDeserialize, BorshSerialize};
 use bytesize::ByteSize;
 use near_primitives::errors::StorageError;
@@ -29,7 +29,7 @@ impl OutgoingMetadatas {
     /// Make sure to pass shard ids for every shard that has receipts in the outgoing buffer,
     /// otherwise the metadata for it will be overwritten with empty metadata.
     pub fn load(
-        trie: &mut StateUpdateOperation,
+        trie: &mut StateOperations,
         shard_ids: impl IntoIterator<Item = ShardId>,
         groups_config: ReceiptGroupsConfig,
     ) -> Result<Self, StorageError> {
@@ -50,7 +50,7 @@ impl OutgoingMetadatas {
         shard_id: ShardId,
         receipt_size: ByteSize,
         receipt_gas: Gas,
-        state_update: &mut StateUpdateOperation,
+        state_update: &mut StateOperations,
     ) -> Result<(), StorageError> {
         let metadata =
             self.metadatas.entry(shard_id).or_insert_with(|| ReceiptGroupsQueue::new(shard_id));
@@ -69,7 +69,7 @@ impl OutgoingMetadatas {
         shard_id: ShardId,
         receipt_size: ByteSize,
         receipt_gas: Gas,
-        state_update: &mut StateUpdateOperation,
+        state_update: &mut StateOperations,
     ) -> Result<(), StorageError> {
         let metadata = self
             .metadatas
@@ -240,7 +240,7 @@ impl ReceiptGroupsQueue {
     /// Load a queue from the trie.
     /// Returns None if the queue doesn't exist.
     pub fn load(
-        trie: &mut StateUpdateOperation,
+        trie: &mut StateOperations,
         receiver_shard: ShardId,
     ) -> Result<Option<Self>, StorageError> {
         let data_opt = Self::load_data(trie, receiver_shard)?.cloned();
@@ -249,7 +249,7 @@ impl ReceiptGroupsQueue {
     }
 
     fn load_data<'a>(
-        trie: &'a mut StateUpdateOperation,
+        trie: &'a mut StateOperations,
         receiver_shard: ShardId,
     ) -> Result<Option<&'a ReceiptGroupsQueueDataV0>, StorageError> {
         let data_opt: Option<&ReceiptGroupsQueueData> =
@@ -260,7 +260,7 @@ impl ReceiptGroupsQueue {
         Ok(data_v0_opt)
     }
 
-    fn save_data(&self, state_update: &mut StateUpdateOperation) {
+    fn save_data(&self, state_update: &mut StateOperations) {
         let data_enum = ReceiptGroupsQueueData::V0(self.data.clone());
         state_update.set(
             TrieKey::BufferedReceiptGroupsQueueData { receiving_shard: self.receiver_shard },
@@ -272,7 +272,7 @@ impl ReceiptGroupsQueue {
         &mut self,
         receipt_size: ByteSize,
         receipt_gas: Gas,
-        state_update: &mut StateUpdateOperation,
+        state_update: &mut StateOperations,
         groups_config: &ReceiptGroupsConfig,
     ) -> Result<(), StorageError> {
         add_size_checked(&mut self.data.total_size, receipt_size);
@@ -313,7 +313,7 @@ impl ReceiptGroupsQueue {
         &mut self,
         receipt_size: ByteSize,
         receipt_gas: Gas,
-        state_update: &mut StateUpdateOperation,
+        state_update: &mut StateOperations,
     ) -> Result<(), StorageError> {
         subtract_size_checked(&mut self.data.total_size, receipt_size);
         subtract_gas_checked(&mut self.data.total_gas, receipt_gas);
@@ -342,7 +342,7 @@ impl ReceiptGroupsQueue {
     /// Iterate over the sizes of receipt groups stored in the queue.
     pub fn iter_receipt_group_sizes<'a>(
         &'a self,
-        update_op: StateUpdateOperation<'a>,
+        update_op: StateOperations<'a>,
         side_effects: bool,
     ) -> impl Iterator<Item = Result<u64, StorageError>> + 'a {
         self.iter(update_op, side_effects).map(|group_res| group_res.map(|group| group.size()))
@@ -369,7 +369,7 @@ impl TrieQueue for ReceiptGroupsQueue {
 
     fn load_indices(
         &self,
-        trie: &mut StateUpdateOperation,
+        trie: &mut StateOperations,
     ) -> Result<TrieQueueIndices, StorageError> {
         Ok(Self::load_data(trie, self.receiver_shard)?
             .map(|i| i.indices.clone())
@@ -384,7 +384,7 @@ impl TrieQueue for ReceiptGroupsQueue {
         &mut self.data.indices
     }
 
-    fn write_indices(&self, state_update: &mut StateUpdateOperation) {
+    fn write_indices(&self, state_update: &mut StateOperations) {
         self.save_data(state_update);
     }
 
