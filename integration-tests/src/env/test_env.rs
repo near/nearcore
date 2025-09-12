@@ -31,7 +31,7 @@ use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::stateless_validation::state_witness::ChunkStateWitness;
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::transaction::{Action, FunctionCallAction, SignedTransaction};
-use near_primitives::types::{AccountId, Balance, BlockHeight, EpochId, NumSeats, ShardId};
+use near_primitives::types::{AccountId, Balance, BlockHeight, EpochId, Gas, NumSeats, ShardId};
 use near_primitives::utils::MaybeValidated;
 use near_primitives::views::{
     AccountView, FinalExecutionOutcomeView, QueryRequest, QueryResponse, QueryResponseKind,
@@ -52,6 +52,7 @@ use near_client::ChunkValidationActorInner;
 
 use super::setup::{TEST_SEED, setup_client_with_runtime};
 use super::test_env_builder::TestEnvBuilder;
+use near_async::ActorSystem;
 
 /// Timeout used in tests that wait for a specific chunk endorsement to appear
 const CHUNK_ENDORSEMENTS_TIMEOUT: Duration = Duration::seconds(10);
@@ -60,6 +61,7 @@ const CHUNK_ENDORSEMENTS_TIMEOUT: Duration = Duration::seconds(10);
 /// This environment can simulate near nodes without network and it can be configured to use different runtimes.
 pub struct TestEnv {
     pub clock: Clock,
+    pub actor_system: ActorSystem,
     pub chain_genesis: ChainGenesis,
     pub validators: Vec<AccountId>,
     pub network_adapters: Vec<Arc<MockPeerManagerAdapter>>,
@@ -678,6 +680,7 @@ impl TestEnv {
         let num_validator_seats = self.validators.len() as NumSeats;
         let (client, chunk_validation_inner) = setup_client_with_runtime(
             self.clock.clone(),
+            self.actor_system.clone(),
             num_validator_seats,
             false,
             self.network_adapters[idx].clone().as_multi_sender(),
@@ -846,7 +849,7 @@ impl TestEnv {
         let actions = vec![Action::FunctionCall(Box::new(FunctionCallAction {
             method_name: "main".to_string(),
             args: vec![],
-            gas: 3 * 10u64.pow(14),
+            gas: Gas::from_teragas(300),
             deposit: 0,
         }))];
         let tx = self.tx_from_actions(actions, &signer, signer.get_account_id());

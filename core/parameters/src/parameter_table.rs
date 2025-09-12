@@ -8,6 +8,7 @@ use crate::vm::VMKind;
 use crate::vm::{Config, StorageGetMode};
 use near_primitives_core::account::id::ParseAccountError;
 use near_primitives_core::types::AccountId;
+use near_primitives_core::types::Gas;
 use num_rational::Rational32;
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -19,7 +20,7 @@ pub(crate) enum ParameterValue {
     U64(u64),
     Rational { numerator: i32, denominator: i32 },
     ParameterCost { gas: u64, compute: u64 },
-    Fee { send_sir: u64, send_not_sir: u64, execution: u64 },
+    Fee { send_sir: Gas, send_not_sir: Gas, execution: Gas },
     // Can be used to store either a string or u128. Ideally, we would use a dedicated enum member
     // for u128, but this is currently impossible to express in YAML (see
     // `canonicalize_yaml_string`).
@@ -121,14 +122,25 @@ impl TryFrom<&ParameterValue> for ParameterCost {
     fn try_from(value: &ParameterValue) -> Result<Self, Self::Error> {
         match value {
             ParameterValue::ParameterCost { gas, compute } => {
-                Ok(ParameterCost { gas: *gas, compute: *compute })
+                Ok(ParameterCost { gas: Gas::from_gas(*gas), compute: *compute })
             }
             // If not specified, compute costs default to gas costs.
-            &ParameterValue::U64(v) => Ok(ParameterCost { gas: v, compute: v }),
+            &ParameterValue::U64(v) => Ok(ParameterCost { gas: Gas::from_gas(v), compute: v }),
             _ => Err(ValueConversionError::ParseType(
                 std::any::type_name::<ParameterCost>(),
                 value.clone(),
             )),
+        }
+    }
+}
+
+impl TryFrom<&ParameterValue> for Gas {
+    type Error = ValueConversionError;
+
+    fn try_from(value: &ParameterValue) -> Result<Self, Self::Error> {
+        match value {
+            ParameterValue::U64(v) => Ok(Gas::from_gas(u64::from(*v))),
+            _ => Err(ValueConversionError::ParseType(std::any::type_name::<Gas>(), value.clone())),
         }
     }
 }
@@ -139,7 +151,7 @@ impl TryFrom<&ParameterValue> for Fee {
     fn try_from(value: &ParameterValue) -> Result<Self, Self::Error> {
         match value {
             &ParameterValue::Fee { send_sir, send_not_sir, execution } => {
-                Ok(Fee { send_sir, send_not_sir, execution })
+                Ok(Fee { send_sir: send_sir, send_not_sir: send_not_sir, execution: execution })
             }
             _ => Err(ValueConversionError::ParseType(std::any::type_name::<Fee>(), value.clone())),
         }
@@ -212,9 +224,9 @@ impl core::fmt::Display for ParameterValue {
 - send_sir:     {:>20}
 - send_not_sir: {:>20}
 - execution:    {:>20}"#,
-                    format_number(*send_sir),
-                    format_number(*send_not_sir),
-                    format_number(*execution)
+                    format_number((*send_sir).as_gas()),
+                    format_number((*send_not_sir).as_gas()),
+                    format_number((*execution).as_gas())
                 )
             }
             ParameterValue::String(v) => write!(f, "{v}"),

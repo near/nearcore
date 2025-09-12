@@ -68,7 +68,7 @@ decl_test_bytes!(test_input, input, ctx, ctx.input);
 decl_test_u64!(test_block_index, block_index, ctx, ctx.block_height);
 decl_test_u64!(test_block_timestamp, block_timestamp, ctx, ctx.block_timestamp);
 decl_test_u64!(test_storage_usage, storage_usage, ctx, ctx.storage_usage);
-decl_test_u64!(test_prepaid_gas, prepaid_gas, ctx, ctx.prepaid_gas);
+decl_test_u64!(test_prepaid_gas, prepaid_gas, ctx, ctx.prepaid_gas.as_gas());
 
 decl_test_u128!(
     test_account_balance,

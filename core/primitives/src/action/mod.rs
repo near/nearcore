@@ -1,9 +1,10 @@
 pub mod delegate;
 
+use crate::trie_key::GlobalContractCodeIdentifier;
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::PublicKey;
 use near_primitives_core::{
-    account::AccessKey,
+    account::{AccessKey, AccountContract},
     hash::CryptoHash,
     serialize::dec_format,
     types::{AccountId, Balance, Gas},
@@ -13,8 +14,6 @@ use serde_with::base64::Base64;
 use serde_with::serde_as;
 use std::fmt;
 use std::sync::Arc;
-
-use crate::trie_key::GlobalContractCodeIdentifier;
 
 pub fn base64(s: &[u8]) -> String {
     use base64::Engine;
@@ -117,7 +116,6 @@ impl fmt::Debug for DeployContractAction {
     }
 }
 
-#[serde_as]
 #[derive(
     BorshSerialize,
     BorshDeserialize,
@@ -173,7 +171,6 @@ impl fmt::Debug for DeployGlobalContractAction {
     }
 }
 
-#[serde_as]
 #[derive(
     BorshSerialize,
     BorshDeserialize,
@@ -216,8 +213,41 @@ impl GlobalContractIdentifier {
     }
 }
 
+#[derive(Debug)]
+pub enum ContractIsLocalError {
+    NotDeployed,
+    Deployed(CryptoHash),
+}
+
+impl std::error::Error for ContractIsLocalError {}
+
+impl fmt::Display for ContractIsLocalError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            ContractIsLocalError::NotDeployed => "contract is not deployed",
+            ContractIsLocalError::Deployed(_) => "a locally deployed contract is deployed",
+        })
+    }
+}
+
+/// Extract [`GlobalContractIdentifier`] out of [`AccountContract`] if it represents a global
+/// contract.
+///
+/// If conversion is not possible, the conversion error can be inspected to obtain information
+/// about the local error.
+impl TryFrom<AccountContract> for GlobalContractIdentifier {
+    type Error = ContractIsLocalError;
+    fn try_from(value: AccountContract) -> Result<Self, Self::Error> {
+        match value {
+            AccountContract::None => Err(ContractIsLocalError::NotDeployed),
+            AccountContract::Local(h) => Err(ContractIsLocalError::Deployed(h)),
+            AccountContract::Global(h) => Ok(GlobalContractIdentifier::CodeHash(h)),
+            AccountContract::GlobalByAccount(a) => Ok(GlobalContractIdentifier::AccountId(a)),
+        }
+    }
+}
+
 /// Use global contract action
-#[serde_as]
 #[derive(
     BorshSerialize,
     BorshDeserialize,
@@ -353,7 +383,7 @@ impl Action {
     pub fn get_prepaid_gas(&self) -> Gas {
         match self {
             Action::FunctionCall(a) => a.gas,
-            _ => 0,
+            _ => Gas::ZERO,
         }
     }
     pub fn get_deposit_balance(&self) -> Balance {

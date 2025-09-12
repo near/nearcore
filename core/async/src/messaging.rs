@@ -207,6 +207,8 @@ pub enum AsyncSendError {
     Dropped,
 }
 
+impl std::error::Error for AsyncSendError {}
+
 impl Display for AsyncSendError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         Debug::fmt(self, f)

@@ -3,17 +3,17 @@ use std::sync::Arc;
 
 use near_primitives::account::{Account, AccountContract};
 use near_primitives::action::{
-    DeployGlobalContractAction, GlobalContractDeployMode, GlobalContractIdentifier,
-    UseGlobalContractAction,
+    ContractIsLocalError, DeployGlobalContractAction, GlobalContractDeployMode,
+    GlobalContractIdentifier, UseGlobalContractAction,
 };
 use near_primitives::chunk_apply_stats::ChunkApplyStatsV0;
 use near_primitives::errors::{ActionErrorKind, RuntimeError};
-use near_primitives::hash::hash;
+use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::receipt::{GlobalContractDistributionReceipt, Receipt, ReceiptEnum};
 use near_primitives::trie_key::{GlobalContractCodeIdentifier, TrieKey};
 use near_primitives::types::{AccountId, EpochInfoProvider, ShardId, StateChangeCause};
 use near_store::trie::AccessOptions;
-use near_store::{StorageError, TrieUpdate};
+use near_store::{KeyLookupMode, StorageError, TrieAccess as _, TrieUpdate};
 use near_vm_runner::logic::ProtocolVersion;
 use near_vm_runner::{ContractCode, precompile_contract};
 
@@ -226,4 +226,72 @@ fn forward_distribution_next_shard(
         receipt_sink.forward_or_buffer_receipt(next_receipt, apply_state, state_update)?;
     }
     Ok(())
+}
+
+pub(crate) trait AccountContractAccessExt {
+    fn hash(self, store: &TrieUpdate) -> Result<CryptoHash, StorageError>;
+    fn code(
+        self,
+        local_account_id: &AccountId,
+        store: &TrieUpdate,
+    ) -> Result<Option<ContractCode>, StorageError>;
+}
+
+impl AccountContractAccessExt for AccountContract {
+    fn code(
+        self,
+        local_account_id: &AccountId,
+        store: &TrieUpdate,
+    ) -> Result<Option<ContractCode>, StorageError> {
+        let local_hash = match GlobalContractIdentifier::try_from(self) {
+            Ok(identifier) => return identifier.code(store),
+            Err(ContractIsLocalError::NotDeployed) => return Ok(None),
+            Err(ContractIsLocalError::Deployed(local_hash)) => local_hash,
+        };
+        let key = TrieKey::ContractCode { account_id: local_account_id.clone() };
+        let code = store.get(&key, AccessOptions::DEFAULT)?;
+        Ok(code.map(|code| ContractCode::new(code, Some(local_hash))))
+    }
+
+    fn hash(self, store: &TrieUpdate) -> Result<CryptoHash, StorageError> {
+        match GlobalContractIdentifier::try_from(self) {
+            Ok(gci) => return gci.hash(store),
+            Err(ContractIsLocalError::NotDeployed) => return Ok(CryptoHash::default()),
+            Err(ContractIsLocalError::Deployed(local_hash)) => Ok(local_hash),
+        }
+    }
+}
+
+pub(crate) trait GlobalContractAccessExt {
+    fn hash(self, store: &TrieUpdate) -> Result<CryptoHash, StorageError>;
+    fn code(self, store: &TrieUpdate) -> Result<Option<ContractCode>, StorageError>;
+}
+
+impl GlobalContractAccessExt for GlobalContractIdentifier {
+    fn hash(self, store: &TrieUpdate) -> Result<CryptoHash, StorageError> {
+        if let GlobalContractIdentifier::CodeHash(crypto_hash) = self {
+            return Ok(crypto_hash);
+        }
+        let key = TrieKey::GlobalContractCode { identifier: self.into() };
+        let value_ref = store
+            .get_ref(&key, KeyLookupMode::MemOrFlatOrTrie, AccessOptions::DEFAULT)?
+            .ok_or_else(|| {
+                let TrieKey::GlobalContractCode { identifier } = key else { unreachable!() };
+                StorageError::StorageInconsistentState(format!(
+                    "Global contract identifier not found {:?}",
+                    identifier
+                ))
+            })?;
+        Ok(value_ref.value_hash())
+    }
+
+    fn code(self, store: &TrieUpdate) -> Result<Option<ContractCode>, StorageError> {
+        let key = TrieKey::GlobalContractCode { identifier: self.clone().into() };
+        let code_hash = match self {
+            GlobalContractIdentifier::AccountId(_) => None,
+            GlobalContractIdentifier::CodeHash(hash) => Some(hash),
+        };
+        let code = store.get(&key, AccessOptions::DEFAULT)?;
+        Ok(code.map(|code| ContractCode::new(code, code_hash)))
+    }
 }

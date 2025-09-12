@@ -15,7 +15,7 @@ use near_primitives::transaction::{
     Transaction,
 };
 use near_primitives::transaction::{DeleteAccountAction, ValidatedTransaction};
-use near_primitives::types::{AccountId, Balance};
+use near_primitives::types::{AccountId, Balance, Gas};
 use near_primitives::types::{BlockHeight, StorageUsage};
 use near_primitives::version::ProtocolFeature;
 use near_primitives::version::ProtocolVersion;
@@ -88,6 +88,19 @@ fn is_zero_balance_account(account: &Account) -> bool {
     account.storage_usage() <= ZERO_BALANCE_ACCOUNT_STORAGE_LIMIT
 }
 
+fn validate_transaction_actions(
+    config: &RuntimeConfig,
+    signed_tx: &SignedTransaction,
+    current_protocol_version: ProtocolVersion,
+) -> Result<(), InvalidTxError> {
+    validate_actions(
+        &config.wasm_config.limit_config,
+        signed_tx.transaction.actions(),
+        current_protocol_version,
+    )
+    .map_err(InvalidTxError::ActionsValidation)
+}
+
 /// Validates the transaction without using the state. It allows any node to validate a
 /// transaction before forwarding it to the node that tracks the `signer_id` account.
 #[allow(clippy::result_large_err)]
@@ -96,14 +109,22 @@ pub fn validate_transaction(
     signed_tx: SignedTransaction,
     current_protocol_version: ProtocolVersion,
 ) -> Result<ValidatedTransaction, (InvalidTxError, SignedTransaction)> {
-    if let Err(err) = validate_actions(
-        &config.wasm_config.limit_config,
-        signed_tx.transaction.actions(),
-        current_protocol_version,
-    ) {
-        return Err((InvalidTxError::ActionsValidation(err), signed_tx));
+    if let Err(err) = validate_transaction_actions(&config, &signed_tx, current_protocol_version) {
+        return Err((err, signed_tx));
     }
     ValidatedTransaction::new(config, signed_tx)
+}
+
+/// Validates a transaction contains well-formed actions and is valid for the given runtime config.
+///
+/// This function is similar to `validate_transaction` but does NOT verify the signature.
+pub(crate) fn validate_transaction_well_formed<'a>(
+    config: &RuntimeConfig,
+    signed_tx: &SignedTransaction,
+    current_protocol_version: ProtocolVersion,
+) -> Result<(), InvalidTxError> {
+    validate_transaction_actions(config, signed_tx, current_protocol_version)?;
+    ValidatedTransaction::check_valid_for_config(config, signed_tx)
 }
 
 /// Set new `signer` and `access_key` in `state_update`.
@@ -465,7 +486,7 @@ fn validate_function_call_action(
     limit_config: &LimitConfig,
     action: &FunctionCallAction,
 ) -> Result<(), ActionsValidationError> {
-    if action.gas == 0 {
+    if action.gas == Gas::ZERO {
         return Err(ActionsValidationError::FunctionCallZeroAttachedGas);
     }
 
@@ -904,11 +925,11 @@ mod tests {
         )
         .expect("valid transaction");
         // Should not be free. Burning for sending
-        assert!(verification_result.gas_burnt > 0);
+        assert!(verification_result.gas_burnt > Gas::ZERO);
         // All burned gas goes to the validators at current gas price
         assert_eq!(
             verification_result.burnt_amount,
-            Balance::from(verification_result.gas_burnt) * gas_price
+            Balance::from(verification_result.gas_burnt.as_gas()) * gas_price
         );
 
         let account = get_account(&state_update, &alice_account()).unwrap().unwrap();
@@ -916,7 +937,7 @@ mod tests {
         assert_eq!(
             account.amount(),
             TESTING_INIT_BALANCE
-                - Balance::from(verification_result.gas_remaining)
+                - Balance::from(verification_result.gas_remaining.as_gas())
                     * verification_result.receipt_gas_price
                 - verification_result.burnt_amount
                 - deposit
@@ -991,7 +1012,7 @@ mod tests {
             setup_common(TESTING_INIT_BALANCE, 0, Some(AccessKey::full_access()));
 
         let wasm_config = Arc::make_mut(&mut config.wasm_config);
-        wasm_config.limit_config.max_total_prepaid_gas = 100;
+        wasm_config.limit_config.max_total_prepaid_gas = Gas::from_gas(100);
 
         assert_err_both_validations(
             &config,
@@ -1005,15 +1026,15 @@ mod tests {
                 vec![Action::FunctionCall(Box::new(FunctionCallAction {
                     method_name: "hello".to_string(),
                     args: b"abc".to_vec(),
-                    gas: 200,
+                    gas: Gas::from_gas(200),
                     deposit: 0,
                 }))],
                 CryptoHash::default(),
                 0,
             ),
             InvalidTxError::ActionsValidation(ActionsValidationError::TotalPrepaidGasExceeded {
-                total_prepaid_gas: 200,
-                limit: 100,
+                total_prepaid_gas: Gas::from_gas(200),
+                limit: Gas::from_gas(100),
             }),
         );
     }
@@ -1177,7 +1198,7 @@ mod tests {
             vec![Action::FunctionCall(Box::new(FunctionCallAction {
                 method_name: "hello".to_string(),
                 args: b"abc".to_vec(),
-                gas: 300,
+                gas: Gas::from_gas(300),
                 deposit: 0,
             }))],
             CryptoHash::default(),
@@ -1237,8 +1258,8 @@ mod tests {
             PROTOCOL_VERSION,
         )
         .unwrap();
-        assert_eq!(verification_result.gas_burnt, 0);
-        assert_eq!(verification_result.gas_remaining, 0);
+        assert_eq!(verification_result.gas_burnt, Gas::ZERO);
+        assert_eq!(verification_result.gas_remaining, Gas::ZERO);
         assert_eq!(verification_result.burnt_amount, 0);
     }
 
@@ -1316,7 +1337,7 @@ mod tests {
                 Action::FunctionCall(Box::new(FunctionCallAction {
                     method_name: "hello".to_string(),
                     args: b"abc".to_vec(),
-                    gas: 100,
+                    gas: Gas::from_gas(100),
                     deposit: 0,
                 })),
                 Action::CreateAccount(CreateAccountAction {}),
@@ -1399,7 +1420,7 @@ mod tests {
             vec![Action::FunctionCall(Box::new(FunctionCallAction {
                 method_name: "hello".to_string(),
                 args: b"abc".to_vec(),
-                gas: 100,
+                gas: Gas::from_gas(100),
                 deposit: 0,
             }))],
             CryptoHash::default(),
@@ -1448,7 +1469,7 @@ mod tests {
             vec![Action::FunctionCall(Box::new(FunctionCallAction {
                 method_name: "hello".to_string(),
                 args: b"abc".to_vec(),
-                gas: 100,
+                gas: Gas::from_gas(100),
                 deposit: 0,
             }))],
             CryptoHash::default(),
@@ -1496,7 +1517,7 @@ mod tests {
             vec![Action::FunctionCall(Box::new(FunctionCallAction {
                 method_name: "hello".to_string(),
                 args: b"abc".to_vec(),
-                gas: 100,
+                gas: Gas::from_gas(100),
                 deposit: 100,
             }))],
             CryptoHash::default(),
@@ -1658,7 +1679,7 @@ mod tests {
             &[Action::FunctionCall(Box::new(FunctionCallAction {
                 method_name: "hello".to_string(),
                 args: b"abc".to_vec(),
-                gas: 100,
+                gas: Gas::from_gas(100),
                 deposit: 0,
             }))],
             PROTOCOL_VERSION,
@@ -1669,7 +1690,7 @@ mod tests {
     #[test]
     fn test_validate_actions_too_much_gas() {
         let mut limit_config = test_limit_config();
-        limit_config.max_total_prepaid_gas = 220;
+        limit_config.max_total_prepaid_gas = Gas::from_gas(220);
         assert_eq!(
             validate_actions(
                 &limit_config,
@@ -1677,27 +1698,30 @@ mod tests {
                     Action::FunctionCall(Box::new(FunctionCallAction {
                         method_name: "hello".to_string(),
                         args: b"abc".to_vec(),
-                        gas: 100,
+                        gas: Gas::from_gas(100),
                         deposit: 0,
                     })),
                     Action::FunctionCall(Box::new(FunctionCallAction {
                         method_name: "hello".to_string(),
                         args: b"abc".to_vec(),
-                        gas: 150,
+                        gas: Gas::from_gas(150),
                         deposit: 0,
                     }))
                 ],
                 PROTOCOL_VERSION,
             )
             .expect_err("expected an error"),
-            ActionsValidationError::TotalPrepaidGasExceeded { total_prepaid_gas: 250, limit: 220 }
+            ActionsValidationError::TotalPrepaidGasExceeded {
+                total_prepaid_gas: Gas::from_gas(250),
+                limit: Gas::from_gas(220)
+            }
         );
     }
 
     #[test]
     fn test_validate_actions_gas_overflow() {
         let mut limit_config = test_limit_config();
-        limit_config.max_total_prepaid_gas = 220;
+        limit_config.max_total_prepaid_gas = Gas::from_gas(220);
         assert_eq!(
             validate_actions(
                 &limit_config,
@@ -1705,13 +1729,13 @@ mod tests {
                     Action::FunctionCall(Box::new(FunctionCallAction {
                         method_name: "hello".to_string(),
                         args: b"abc".to_vec(),
-                        gas: u64::max_value() / 2 + 1,
+                        gas: Gas::from_gas(u64::max_value() / 2 + 1),
                         deposit: 0,
                     })),
                     Action::FunctionCall(Box::new(FunctionCallAction {
                         method_name: "hello".to_string(),
                         args: b"abc".to_vec(),
-                        gas: u64::max_value() / 2 + 1,
+                        gas: Gas::from_gas(u64::max_value() / 2 + 1),
                         deposit: 0,
                     }))
                 ],
@@ -1801,7 +1825,7 @@ mod tests {
             &Action::FunctionCall(Box::new(FunctionCallAction {
                 method_name: "hello".to_string(),
                 args: b"abc".to_vec(),
-                gas: 100,
+                gas: Gas::from_gas(100),
                 deposit: 0,
             })),
             PROTOCOL_VERSION,
@@ -1817,7 +1841,7 @@ mod tests {
                 &Action::FunctionCall(Box::new(FunctionCallAction {
                     method_name: "new".to_string(),
                     args: vec![],
-                    gas: 0,
+                    gas: Gas::ZERO,
                     deposit: 0,
                 })),
                 PROTOCOL_VERSION,

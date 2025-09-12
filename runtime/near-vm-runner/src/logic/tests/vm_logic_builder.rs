@@ -3,6 +3,7 @@ use crate::logic::mocks::mock_memory::MockedMemory;
 use crate::logic::{Config, ExecutionResultState, MemSlice, VMContext, VMLogic};
 use crate::tests::test_vm_config;
 use near_parameters::RuntimeFeesConfig;
+use near_primitives_core::types::Gas;
 use std::sync::Arc;
 
 pub(super) struct VMLogicBuilder {
@@ -30,7 +31,7 @@ impl VMLogicBuilder {
         let mut builder = Self::default();
         let max_gas_burnt = builder.config.limit_config.max_gas_burnt;
         builder.context.view_config =
-            Some(near_primitives_core::config::ViewConfig { max_gas_burnt });
+            Some(near_primitives_core::config::ViewConfig { max_gas_burnt: max_gas_burnt });
         builder
     }
 
@@ -79,7 +80,7 @@ fn get_context() -> VMContext {
         storage_usage: 0,
         account_locked_balance: 50,
         attached_deposit: 10,
-        prepaid_gas: 10u64.pow(14),
+        prepaid_gas: Gas::from_teragas(100),
         random_seed: vec![0, 1, 2],
         view_config: None,
         output_data_receivers: vec![],

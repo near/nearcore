@@ -5,8 +5,6 @@ use crate::{
     GetChunk, GetExecutionOutcomeResponse, GetNextLightClientBlock, GetShardChunk, GetStateChanges,
     GetStateChangesInBlock, GetValidatorInfo, GetValidatorOrdered, metrics, sync,
 };
-use actix::{Addr, SyncArbiter};
-use near_async::actix::wrapper::SyncActixWrapper;
 use near_async::messaging::{Actor, CanSend, Handler};
 use near_async::time::{Clock, Duration, Instant};
 use near_chain::types::{RuntimeAdapter, Tip};
@@ -80,8 +78,6 @@ pub struct ViewClientRequestManager {
     pub tx_status_response: lru::LruCache<CryptoHash, FinalExecutionOutcomeView>,
 }
 
-pub type ViewClientActor = SyncActixWrapper<ViewClientActorInner>;
-
 /// View client provides currently committed (to the storage) view of the current chain and state.
 pub struct ViewClientActorInner {
     clock: Clock,
@@ -107,8 +103,9 @@ impl ViewClientRequestManager {
 impl Actor for ViewClientActorInner {}
 
 impl ViewClientActorInner {
-    pub fn spawn_actix_actor(
+    pub fn spawn_multithread_actor(
         clock: Clock,
+        actor_system: ActorSystem,
         chain_genesis: ChainGenesis,
         epoch_manager: Arc<dyn EpochManagerAdapter>,
         shard_tracker: ShardTracker,
@@ -117,9 +114,9 @@ impl ViewClientActorInner {
         config: ClientConfig,
         adv: crate::adversarial::Controls,
         validator_signer: MutableValidatorSigner,
-    ) -> Addr<ViewClientActor> {
-        SyncArbiter::start(config.view_client_threads, move || {
-            let view_client_actor = ViewClientActorInner::new(
+    ) -> MultithreadRuntimeHandle<ViewClientActorInner> {
+        actor_system.spawn_multithread_actor(config.view_client_threads, move || {
+            ViewClientActorInner::new(
                 clock.clone(),
                 chain_genesis.clone(),
                 epoch_manager.clone(),
@@ -130,8 +127,7 @@ impl ViewClientActorInner {
                 adv.clone(),
                 validator_signer.clone(),
             )
-            .unwrap();
-            SyncActixWrapper::new(view_client_actor)
+            .unwrap()
         })
     }
 
@@ -1252,6 +1248,8 @@ impl Handler<GetProtocolConfig, Result<ProtocolConfigView, GetProtocolConfigErro
 
 #[cfg(feature = "test_features")]
 use crate::NetworkAdversarialMessage;
+use near_async::ActorSystem;
+use near_async::multithread::MultithreadRuntimeHandle;
 
 #[cfg(feature = "test_features")]
 impl Handler<NetworkAdversarialMessage> for ViewClientActorInner {

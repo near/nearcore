@@ -20,7 +20,6 @@ use std::time::Duration;
 use tokio::task::{self, JoinSet};
 
 pub mod account;
-#[cfg(feature = "with_actix")]
 pub mod actix_actor;
 
 // Number of tasks to run producing and sending transactions

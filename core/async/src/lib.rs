@@ -9,6 +9,8 @@ pub mod multithread;
 pub mod test_loop;
 pub mod tokio;
 
+use crate::futures::FutureSpawner;
+use crate::messaging::Actor;
 use crate::multithread::runtime_handle::{MultithreadRuntimeHandle, spawn_multithread_actor};
 use crate::tokio::TokioRuntimeHandle;
 use crate::tokio::runtime_handle::{TokioRuntimeBuilder, spawn_tokio_actor};
@@ -32,6 +34,11 @@ pub(crate) fn next_message_sequence_num() -> u64 {
 fn pretty_type_name<T>() -> &'static str {
     type_name::<T>().split("::").last().unwrap()
 }
+
+/// Actor that doesn't handle any messages and does nothing. It's used to host a runtime that can
+/// run futures only.
+struct EmptyActor;
+impl Actor for EmptyActor {}
 
 /// Represents a collection of actors, so that they can be shutdown together.
 #[derive(Clone)]
@@ -118,6 +125,17 @@ impl ActorSystem {
             self.multithread_cancellation_receiver.clone(),
         )
     }
+
+    /// Returns a future spawner for the actor system on an independent Tokio runtime.
+    /// Note: For typical actors, it is recommended we use the future spawner of the
+    /// actor instead.
+    ///
+    /// This is useful for keeping track of spawned futures and their lifetimes.
+    /// Behind the scenes, this builds a new EmptyActor each time.
+    pub fn new_future_spawner(&self) -> Box<dyn FutureSpawner> {
+        let handle = self.spawn_tokio_actor(EmptyActor);
+        handle.future_spawner()
+    }
 }
 
 /// Used to determine whether shutdown_all_actors is being used properly. If there are multiple
@@ -129,7 +147,7 @@ static ACTOR_SYSTEMS: Mutex<Vec<ActorSystem>> = Mutex::new(Vec::new());
 /// and only up to one ActorSystem.
 /// TODO(#14005): Ideally, shutting down actors should not be done by calling a global function.
 pub fn shutdown_all_actors() {
-    ::actix::System::current().stop();
+    ::actix::System::try_current().map(|system| system.stop());
     {
         let systems = ACTOR_SYSTEMS.lock();
         if systems.len() > 1 {

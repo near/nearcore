@@ -643,7 +643,7 @@ impl ClientActorInner {
                                     })
                                     .map(|info| info.take_account_id())
                                     .ok(),
-                                gas_used: chunk.prev_gas_used(),
+                                gas_used: chunk.prev_gas_used().as_gas(),
                                 processing_time_ms: CryptoHashTimer::get_timer_value(
                                     chunk.chunk_hash().0,
                                 )

@@ -86,7 +86,7 @@ pub fn run(
         e @ Err(_) => return e,
     };
 
-    span.record("burnt_gas", outcome.burnt_gas);
+    span.record("burnt_gas", outcome.burnt_gas.as_gas());
     span.record("compute_usage", outcome.compute_usage);
     Ok(outcome)
 }

@@ -1303,6 +1303,16 @@ impl Client {
     }
 
     /// Called asynchronously when the ShardsManager finishes processing a chunk.
+    #[instrument(
+        level = "debug",
+        skip_all,
+        target = "client",
+        fields(
+            hash = ?partial_chunk.chunk_hash(),
+            height = ?partial_chunk.height_created(),
+            tag_block_production = true
+        )
+    )]
     pub fn on_chunk_completed(
         &mut self,
         partial_chunk: PartialEncodedChunk,
@@ -1771,7 +1781,8 @@ impl Client {
             if chunk_distribution.enabled() {
                 let partial_chunk_arc = Arc::clone(&partial_chunk_arc);
                 let mut thread_local_client = chunk_distribution.clone();
-                near_performance_metrics::actix::spawn("ChunkDistributionNetwork", async move {
+                // TODO(#14005): Use a TokioRuntimeHandle to spawn this future.
+                tokio::spawn(async move {
                     if let Err(err) = thread_local_client.publish_chunk(&partial_chunk_arc).await {
                         error!(target: "client", ?err, "Failed to distribute chunk via Chunk Distribution Network");
                     }

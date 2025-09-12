@@ -2,7 +2,8 @@ use crate::config::{CongestionControlConfig, WitnessConfig};
 use crate::{ActionCosts, ExtCosts, Fee, ParameterCost};
 use near_account_id::AccountId;
 use near_primitives_core::serialize::dec_format;
-use near_primitives_core::types::{Balance, Gas};
+use near_primitives_core::types::Balance;
+use near_primitives_core::types::Gas;
 use num_rational::Rational32;
 
 /// View that preserves JSON format of the runtime config.
@@ -310,6 +311,7 @@ pub struct ExtCostsConfigView {
 
     /// Base cost for guest memory write
     pub write_memory_base: Gas,
+
     /// Cost for guest memory write per byte
     pub write_memory_byte: Gas,
 
@@ -589,8 +591,8 @@ impl From<crate::ExtCostsConfig> for ExtCostsConfigView {
             bls12381_p2_decompress_element: config
                 .gas_cost(ExtCosts::bls12381_p2_decompress_element),
             // removed parameters
-            contract_compile_base: 0,
-            contract_compile_bytes: 0,
+            contract_compile_base: Gas::ZERO,
+            contract_compile_bytes: Gas::ZERO,
         }
     }
 }
@@ -684,7 +686,7 @@ impl From<ExtCostsConfigView> for crate::ExtCostsConfig {
                 ExtCosts::bls12381_p2_decompress_base => view.bls12381_p2_decompress_base,
                 ExtCosts::bls12381_p2_decompress_element => view.bls12381_p2_decompress_element,
         }
-        .map(|_, value| ParameterCost { gas: value, compute: value });
+        .map(|_, value| ParameterCost { gas: value, compute: value.as_gas() });
         Self { costs }
     }
 }

@@ -5,6 +5,7 @@ use crate::logic::types::PromiseResult;
 
 use near_crypto::PublicKey;
 use near_primitives_core::hash::CryptoHash;
+use near_primitives_core::types::Gas;
 use serde_json;
 
 fn vm_receipts<'a>(ext: &'a MockedExternal) -> Vec<impl serde::Serialize + 'a> {
@@ -39,14 +40,14 @@ fn test_promise_batch_action_function_call() {
     let index = promise_create(&mut logic, b"rick.test", 0, 0).expect("should create a promise");
     let index_ptr = logic.internal_mem_write(&index.to_le_bytes()).ptr;
 
-    promise_batch_action_function_call(&mut logic, 123, 0, 0)
+    promise_batch_action_function_call(&mut logic, 123, 0, Gas::ZERO)
         .expect_err("shouldn't accept not existent promise index");
     let non_receipt =
         logic.promise_and(index_ptr, 1u64).expect("should create a non-receipt promise");
-    promise_batch_action_function_call(&mut logic, non_receipt, 0, 0)
+    promise_batch_action_function_call(&mut logic, non_receipt, 0, Gas::ZERO)
         .expect_err("shouldn't accept non-receipt promise index");
 
-    promise_batch_action_function_call(&mut logic, index, 0, 0)
+    promise_batch_action_function_call(&mut logic, index, 0, Gas::ZERO)
         .expect("should add an action to receipt");
     expect_test::expect![[r#"
         [
