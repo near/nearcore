@@ -3,6 +3,7 @@ use super::task_tracker::TaskTracker;
 use crate::metrics;
 use crate::sync::state::chain_requests::ChainFinalizationRequest;
 use futures::{StreamExt, TryStreamExt};
+use itertools::any;
 use near_async::futures::{FutureSpawner, respawn_for_parallelism};
 use near_async::messaging::AsyncSender;
 use near_chain::BlockHeader;
@@ -133,11 +134,24 @@ pub(super) async fn run_state_sync_for_shard(
     return_if_cancelled!(cancel);
     *status.lock() = ShardSyncStatus::StateApplyInProgress;
     runtime.get_tries().unload_memtrie(&shard_uid);
-    let mut store_update = store.store_update();
-    runtime
-        .get_flat_storage_manager()
-        .remove_flat_storage_for_shard(shard_uid, &mut store_update.flat_store_update())?;
-    store_update.commit()?;
+
+    // Clear flat storage, but only if we haven't started applying parts yet.
+    // (Otherwise we will delete the parts we already applied)
+    let apply_parts_started = any(0..num_parts, |part_id| {
+        let key = StatePartKey(sync_hash, shard_id, part_id);
+        let key_bytes = borsh::to_vec(&key).unwrap();
+        store.exists(DBCol::StatePartsApplied, &key_bytes).unwrap_or(false)
+    });
+    if apply_parts_started {
+        tracing::debug!(target: "sync", ?shard_id, ?sync_hash, "Not clearing flat storage before applying state parts because some parts were already applied");
+    } else {
+        tracing::debug!(target: "sync", ?shard_id, ?sync_hash, "Clearing flat storage before applying state parts");
+        let mut store_update = store.store_update();
+        runtime
+            .get_flat_storage_manager()
+            .remove_flat_storage_for_shard(shard_uid, &mut store_update.flat_store_update())?;
+        store_update.commit()?;
+    }
 
     return_if_cancelled!(cancel);
     let _results = tokio_stream::iter(0..num_parts)
@@ -166,8 +180,10 @@ pub(super) async fn run_state_sync_for_shard(
         .await?;
 
     return_if_cancelled!(cancel);
-    // Create flat storage.
-    {
+    // Create flat storage, but only if we haven't done it already.
+    // (Otherwise we will try to create flat storage second time and fail)
+    let flat_storage_manager = runtime.get_flat_storage_manager();
+    if flat_storage_manager.get_flat_storage_for_shard(shard_uid).is_none() {
         let chunk = header.cloned_chunk();
         let block_hash = chunk.prev_block();
 
@@ -271,6 +287,9 @@ async fn apply_state_part(
     let already_applied = store.exists(DBCol::StatePartsApplied, &key_bytes)?;
     if already_applied {
         tracing::debug!(target: "sync", ?key, "State part already applied, skipping");
+        if key.1 == ShardId::new(3) && key.2 == 0 {
+            tracing::debug!(target: "sync", ?key, "Applied state part xxx");
+        }
         return Ok(StatePartApplyResult::Skipped);
     }
     return_if_cancelled!(cancel);
@@ -296,6 +315,10 @@ async fn apply_state_part(
         &state_part,
         &epoch_id,
     )?;
+    if key.1 == ShardId::new(3) && key.2 == 0 {
+        tracing::debug!(target: "sync", ?key, "Applied state part xxx");
+    }
+    tracing::debug!(target: "sync", ?key, "Applied state part");
 
     // Mark part as applied.
     let mut store_update = store.store_update();
