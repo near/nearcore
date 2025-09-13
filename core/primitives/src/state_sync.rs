@@ -23,6 +23,52 @@ pub struct StateHeaderKey(pub ShardId, pub CryptoHash);
 #[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize, ProtocolSchema)]
 pub struct StatePartKey(pub CryptoHash, pub ShardId, pub u64 /* PartId */);
 
+#[derive(
+    Copy, PartialEq, Eq, Clone, Debug, Hash, BorshSerialize, BorshDeserialize, ProtocolSchema,
+)]
+pub enum PartIdOrHeader {
+    Part { part_id: u64 },
+    Header,
+}
+
+impl Into<&'static str> for PartIdOrHeader {
+    fn into(self) -> &'static str {
+        match self {
+            PartIdOrHeader::Part { .. } => "part",
+            PartIdOrHeader::Header => "header",
+        }
+    }
+}
+
+#[derive(Copy, PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize, ProtocolSchema)]
+pub enum StateRequestAckBody {
+    WillRespond,
+    Busy,
+    Error,
+}
+
+impl Into<&'static str> for StateRequestAckBody {
+    fn into(self) -> &'static str {
+        match self {
+            StateRequestAckBody::WillRespond => "will_respond",
+            StateRequestAckBody::Busy => "busy",
+            StateRequestAckBody::Error => "error",
+        }
+    }
+}
+
+#[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize, ProtocolSchema)]
+pub struct StateRequestAck {
+    /// Requested shard id
+    pub shard_id: ShardId,
+    /// Sync block hash
+    pub sync_hash: CryptoHash,
+    /// Requested header or part id
+    pub part_id_or_header: PartIdOrHeader,
+    /// Ack contents
+    pub body: StateRequestAckBody,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
 pub struct ShardStateSyncResponseHeaderV1 {
     pub chunk: ShardChunkV1,
@@ -201,6 +247,16 @@ impl ShardStateSyncResponseHeader {
 pub struct ShardStateSyncResponseV1 {
     pub header: Option<ShardStateSyncResponseHeaderV1>,
     pub part: Option<(u64, Vec<u8>)>,
+}
+
+impl ShardStateSyncResponseV1 {
+    pub fn part_id(&self) -> Option<u64> {
+        self.part.as_ref().map(|(part_id, _)| *part_id)
+    }
+
+    pub fn payload_length(&self) -> Option<usize> {
+        self.part.as_ref().map(|(_, part)| part.len())
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
