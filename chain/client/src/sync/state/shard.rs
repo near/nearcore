@@ -266,7 +266,7 @@ fn create_flat_storage_for_shard(
 #[derive(Debug, PartialEq, Eq)]
 pub enum StatePartApplyResult {
     Applied,
-    Skipped,
+    AlreadyApplied,
 }
 
 async fn apply_state_part(
@@ -287,10 +287,7 @@ async fn apply_state_part(
     let already_applied = store.exists(DBCol::StatePartsApplied, &key_bytes)?;
     if already_applied {
         tracing::debug!(target: "sync", ?key, "State part already applied, skipping");
-        if key.1 == ShardId::new(3) && key.2 == 0 {
-            tracing::debug!(target: "sync", ?key, "Applied state part xxx");
-        }
-        return Ok(StatePartApplyResult::Skipped);
+        return Ok(StatePartApplyResult::AlreadyApplied);
     }
     return_if_cancelled!(cancel);
     let handle =
@@ -315,9 +312,6 @@ async fn apply_state_part(
         &state_part,
         &epoch_id,
     )?;
-    if key.1 == ShardId::new(3) && key.2 == 0 {
-        tracing::debug!(target: "sync", ?key, "Applied state part xxx");
-    }
     tracing::debug!(target: "sync", ?key, "Applied state part");
 
     // Mark part as applied.
@@ -432,6 +426,6 @@ mod tests {
         .unwrap();
 
         // Should be skipped
-        assert_eq!(result, StatePartApplyResult::Skipped);
+        assert_eq!(result, StatePartApplyResult::AlreadyApplied);
     }
 }

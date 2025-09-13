@@ -1017,6 +1017,7 @@ impl<'a> ChainStoreUpdate<'a> {
         for part_id in 0..num_parts {
             let key = borsh::to_vec(&StatePartKey(sync_hash, shard_id, part_id))?;
             self.gc_col(DBCol::StateParts, &key);
+            self.gc_col(DBCol::StatePartsApplied, &key);
         }
         Ok(())
     }
