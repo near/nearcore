@@ -15,7 +15,7 @@ use near_primitives::types::{
     StateRoot,
 };
 use near_vm_runner::ContractCode;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 
 mod iterator;
 
@@ -35,6 +35,8 @@ pub struct TrieUpdate {
     contract_storage: ContractStorage,
     committed: RawStateChanges,
     prospective: TrieUpdates,
+
+    cached: HashMap<Vec<u8>, Option<Vec<u8>>>,
 }
 
 static_assertions::assert_impl_all!(TrieUpdate: Send, Sync);
@@ -86,6 +88,7 @@ impl TrieUpdate {
             contract_storage: ContractStorage::new(trie_storage),
             committed: Default::default(),
             prospective: Default::default(),
+            cached: Default::default(),
         }
     }
 
@@ -127,6 +130,15 @@ impl TrieUpdate {
         None
     }
 
+    pub fn set_cached(&mut self) {
+        let locked = self.trie.lock_for_iter();
+        locked.iter().unwrap().for_each(|result| {
+            if let Ok(result) = result {
+                self.cached.insert(result.0, Some(result.1));
+            }
+        });
+    }
+
     pub fn contains_key(&self, key: &TrieKey, opts: AccessOptions) -> Result<bool, StorageError> {
         let key = key.to_vec();
         if self.prospective.contains_key(&key) {
@@ -135,6 +147,8 @@ impl TrieUpdate {
             if let Some(RawStateChange { data, .. }) = changes_with_trie_key.changes.last() {
                 return Ok(data.is_some());
             }
+        } else if let Some(cached) = self.cached.get(&key) {
+            return Ok(cached.is_some());
         }
         self.trie.contains_key(&key, opts)
     }
@@ -271,6 +285,8 @@ impl TrieUpdate {
             if let Some(RawStateChange { data, .. }) = changes_with_trie_key.changes.last() {
                 return Ok(data.as_ref().map(<Vec<u8>>::clone));
             }
+        } else if let Some(cached) = self.cached.get(&key) {
+            return Ok(cached.clone());
         }
         fallback(&key)
     }
