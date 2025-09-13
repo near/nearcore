@@ -333,10 +333,8 @@ impl FindBoundaryAccountCommand {
         let chunk_extra = runtime.store().chain_store().get_chunk_extra(&block_hash, &shard_uid)?;
         let state_root = chunk_extra.state_root();
         let trie = shard_tries.get_trie_for_shard(shard_uid, *state_root);
-        let memtries = trie.lock_memtries().context("memtries not found")?;
-        let root_ptr = memtries.get_root(state_root)?;
         tracing::info!("Searching for boundary account...");
-        let trie_split = find_trie_split(root_ptr);
+        let trie_split = find_trie_split(&trie);
 
         let boundary_account =
             AccountId::from_str(std::str::from_utf8(&trie_split.split_path_bytes())?)?;
