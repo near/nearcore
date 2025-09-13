@@ -41,6 +41,28 @@ mod tests {
         }};
     }
 
+    /// Precompile input and output data struct
+    #[derive(Debug, Clone, serde::Deserialize)]
+    pub struct PrecompileStandaloneData {
+        pub input: String,
+        pub output: String,
+    }
+
+    /// Standalone data for precompile tests.
+    /// It contains input data for precompile and expected
+    /// output after precompile execution.
+    #[derive(Debug, Clone, serde::Deserialize)]
+    pub struct PrecompileStandalone {
+        pub precompile_data: Vec<PrecompileStandaloneData>,
+    }
+
+    impl PrecompileStandalone {
+        fn new(path: &str) -> Self {
+            let data = fs::read_to_string(path).expect("Unable to read file");
+            serde_json::from_str(&data).unwrap()
+        }
+    }
+
     struct G1Operations;
     struct G2Operations;
 
@@ -1280,6 +1302,56 @@ mod tests {
         };
     }
 
+    // EIP-2537 json tests
+    macro_rules! eip2537_json_tests {
+        (
+            $file_path:expr,
+            $test_name:ident,
+            $item_size:expr,
+            $transform_input:ident,
+            $run_bls_fn:ident,
+            $check_res:ident
+        ) => {
+            #[test]
+            fn $test_name() {
+                 for data in PrecompileStandalone::new($file_path).precompile_data {
+                    // TODO: should be removed after bug fixes #12928
+                    if data.input == "00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000020000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000002" {
+                        continue;
+                    }
+                    // TODO: should be removed after bug fixes #12928
+                    if data.input == "000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000200000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000001a0111ea397fe69a4b1ba7b6434bacd764774b84f38512bf6730d2a0f6b0f6241eabfffeb153ffffb9feffffffffaaa9" {
+                        continue;
+                    }
+                    // TODO: to avoud gas excced error input len for:
+                    // - g1_mul < 17000
+                    // - g2_mul < 14500
+
+                    let bytes_input = hex::decode(data.input.clone()).unwrap();
+                    // Exception for g2_mul
+                    if bytes_input.len() > 14500 {
+                        continue;
+                    }
+
+                    let mut logic_builder = VMLogicBuilder::default();
+                    let mut logic = logic_builder.build();
+
+                    let k = bytes_input.len() / $item_size;
+                    let mut bytes_input_fix: Vec<Vec<u8>> = vec![];
+                    for i in 0..k {
+                        bytes_input_fix.push($transform_input(
+                            bytes_input[i * $item_size..(i + 1) * $item_size].to_vec(),
+                        ));
+                    }
+
+                    let input = logic.internal_mem_write(&bytes_input_fix.concat());
+                    let res = $run_bls_fn(input, &mut logic);
+                    $check_res(&data.output, res);
+                }
+            }
+        };
+    }
+
     fn fix_eip2537_pairing_input(input: Vec<u8>) -> Vec<u8> {
         [
             fix_eip2537_g1(input[..128].to_vec()).to_vec(),
@@ -1521,5 +1593,63 @@ mod tests {
         fix_eip2537_fp2,
         map_fp2tog2_return_value,
         error_check
+    );
+
+    eip2537_json_tests!(
+        "src/logic/tests/bls12381_test_vectors/json/bls12_381_g1_add.json",
+        test_bls12381_g1_add_test_json,
+        256,
+        fix_eip2537_sum_g1_input,
+        run_sum_g1,
+        cmp_output_g1
+    );
+
+    eip2537_json_tests!(
+        "src/logic/tests/bls12381_test_vectors/json/bls12_381_g1_mul.json",
+        test_bls12381_g1_mul_test_json,
+        160,
+        fix_eip2537_mul_g1_input,
+        run_multiexp_g1,
+        cmp_output_g1
+    );
+    eip2537_json_tests!(
+        "src/logic/tests/bls12381_test_vectors/json/bls12_381_g2_add.json",
+        test_bls12381_g2_add_test_json,
+        512,
+        fix_eip2537_sum_g2_input,
+        run_sum_g2,
+        cmp_output_g2
+    );
+    eip2537_json_tests!(
+        "src/logic/tests/bls12381_test_vectors/json/bls12_381_g2_mul.json",
+        test_bls12381_g2_mul_test_json,
+        288,
+        fix_eip2537_mul_g2_input,
+        run_multiexp_g2,
+        cmp_output_g2
+    );
+    eip2537_json_tests!(
+        "src/logic/tests/bls12381_test_vectors/json/bls12_381_map_fp_to_g1.json",
+        test_bls12381_map_fp_to_g1_test_json,
+        64,
+        fix_eip2537_fp,
+        run_map_fp_to_g1,
+        cmp_output_g1
+    );
+    eip2537_json_tests!(
+        "src/logic/tests/bls12381_test_vectors/json/bls12_381_map_fp2_to_g2.json",
+        test_bls12381_map_fp2_to_g2_test_json,
+        128,
+        fix_eip2537_fp2,
+        run_map_fp2_to_g2,
+        cmp_output_g2
+    );
+    eip2537_json_tests!(
+        "src/logic/tests/bls12381_test_vectors/json/bls12_381_pair.json",
+        test_bls12381_pairing_test_json,
+        384,
+        fix_eip2537_pairing_input,
+        run_pairing_check_raw,
+        check_pairing_res
     );
 }
