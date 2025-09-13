@@ -227,8 +227,11 @@ impl ApplyChunksDoneWaiter {
     }
 
     pub fn wait(&self) {
+        // TODO(#14005): This is not good programming pattern. It's used in Chain::drop as well as tests.
+        // but in both cases, we would be doing this in a tokio runtime, which is disallowed.
+        // To get around a tokio panic, for now we cheat and use futures::executor::block_on, but we should fix this.
         // This would only go through if the guard has been dropped.
-        drop(self.0.blocking_lock());
+        let _ = futures::executor::block_on(self.0.lock());
     }
 }
 

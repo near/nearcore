@@ -2,13 +2,19 @@
 
 use crate::actions::*;
 use crate::config::{
-    exec_fee, safe_add_balance, safe_add_compute, safe_add_gas, safe_gas_to_balance, total_deposit,
+    exec_fee, safe_add_balance, safe_add_compute, safe_gas_to_balance, total_deposit,
     total_prepaid_exec_fees, total_prepaid_gas,
 };
 use crate::congestion_control::DelayedReceiptQueueWrapper;
+use crate::metrics::{
+    TRANSACTION_BATCH_SIGNATURE_VERIFY_FAILURE_TOTAL,
+    TRANSACTION_BATCH_SIGNATURE_VERIFY_SUCCESS_TOTAL,
+};
 use crate::prefetch::TriePrefetcher;
 pub use crate::types::SignedValidPeriodTransactions;
-use crate::verifier::{StorageStakingError, check_storage_stake, validate_receipt};
+use crate::verifier::{
+    StorageStakingError, check_storage_stake, validate_receipt, validate_transaction_well_formed,
+};
 pub use crate::verifier::{
     ZERO_BALANCE_ACCOUNT_STORAGE_LIMIT, get_signer_and_access_key, set_tx_state_changes,
     validate_transaction, verify_and_charge_tx_ephemeral,
@@ -18,13 +24,13 @@ use config::{total_prepaid_send_fees, tx_cost};
 use congestion_control::ReceiptSink;
 pub use congestion_control::bootstrap_congestion_info;
 use global_contracts::{
-    AccountContractStoreExt, action_deploy_global_contract, action_use_global_contract,
+    AccountContractAccessExt, action_deploy_global_contract, action_use_global_contract,
     apply_global_contract_distribution_receipt,
 };
 use itertools::Itertools;
 use metrics::ApplyMetrics;
 pub use near_crypto;
-use near_crypto::PublicKey;
+use near_crypto::{PublicKey, Signature};
 use near_parameters::{ActionCosts, RuntimeConfig};
 pub use near_primitives;
 use near_primitives::account::{AccessKey, Account};
@@ -44,7 +50,7 @@ use near_primitives::state_record::StateRecord;
 use near_primitives::stateless_validation::contract_distribution::ContractUpdates;
 use near_primitives::transaction::{
     Action, ExecutionMetadata, ExecutionOutcome, ExecutionOutcomeWithId, ExecutionStatus, LogEntry,
-    TransferAction,
+    SignedTransaction, TransferAction,
 };
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{
@@ -75,6 +81,7 @@ use near_vm_runner::logic::types::PromiseResult;
 pub use near_vm_runner::with_ext_cost_counter;
 use pipelining::ReceiptPreparationPipeline;
 use rayon::prelude::*;
+use smallvec::SmallVec;
 use std::cmp::max;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::Arc;
@@ -226,12 +233,12 @@ impl ActionResult {
             next_result.gas_burnt,
             next_result.gas_used
         );
-        self.gas_burnt = safe_add_gas(self.gas_burnt, next_result.gas_burnt)?;
-        self.gas_burnt_for_function_call = safe_add_gas(
-            self.gas_burnt_for_function_call,
-            next_result.gas_burnt_for_function_call,
-        )?;
-        self.gas_used = safe_add_gas(self.gas_used, next_result.gas_used)?;
+        self.gas_burnt = self.gas_burnt.checked_add_result(next_result.gas_burnt)?;
+        self.gas_burnt_for_function_call = self
+            .gas_burnt_for_function_call
+            .checked_add(next_result.gas_burnt_for_function_call)
+            .ok_or(IntegerOverflowError)?;
+        self.gas_used = self.gas_used.checked_add_result(next_result.gas_used)?;
         self.compute_usage = safe_add_compute(self.compute_usage, next_result.compute_usage)?;
         self.profile.merge(&next_result.profile);
         self.result = next_result.result;
@@ -254,9 +261,9 @@ impl ActionResult {
 impl Default for ActionResult {
     fn default() -> Self {
         Self {
-            gas_burnt: 0,
-            gas_burnt_for_function_call: 0,
-            gas_used: 0,
+            gas_burnt: Gas::ZERO,
+            gas_burnt_for_function_call: Gas::ZERO,
+            gas_used: Gas::ZERO,
             compute_usage: 0,
             result: Ok(ReturnData::None),
             logs: vec![],
@@ -322,7 +329,7 @@ impl Runtime {
         result.gas_used = exec_fees;
         result.gas_burnt = exec_fees;
         // TODO(#8806): Support compute costs for actions. For now they match burnt gas.
-        result.compute_usage = exec_fees;
+        result.compute_usage = exec_fees.as_gas();
         let account_id = receipt.receiver_id();
         let is_refund = receipt.predecessor_id().is_system();
         let is_the_only_action = actions.len() == 1;
@@ -393,7 +400,7 @@ impl Runtime {
             Action::FunctionCall(function_call) => {
                 let account = account.as_mut().expect(EXPECT_ACCOUNT_EXISTS);
                 let account_contract = account.contract();
-                let code_hash = account_contract.hash(&state_update)?;
+                let code_hash = account_contract.into_owned().hash(&state_update)?;
                 let contract =
                     preparation_pipeline.get_contract(receipt, code_hash, action_index, None);
                 let is_last_action = action_index + 1 == actions.len();
@@ -544,7 +551,7 @@ impl Runtime {
         result.gas_used = exec_fees;
         result.gas_burnt = exec_fees;
         // TODO(#8806): Support compute costs for actions. For now they match burnt gas.
-        result.compute_usage = exec_fees;
+        result.compute_usage = exec_fees.as_gas();
 
         // Executing actions one by one
         for (action_index, action) in action_receipt.actions.iter().enumerate() {
@@ -655,7 +662,7 @@ impl Runtime {
         };
         // If the receipt is a refund, then we consider it free without burnt gas.
         let gas_burnt: Gas =
-            if receipt.predecessor_id().is_system() { 0 } else { result.gas_burnt };
+            if receipt.predecessor_id().is_system() { Gas::ZERO } else { result.gas_burnt };
         // `price_deficit` is strictly less than `gas_price * gas_burnt`.
         let mut tx_burnt_amount = safe_gas_to_balance(apply_state.gas_price, gas_burnt)?
             - gas_refund_result.price_deficit;
@@ -666,9 +673,12 @@ impl Runtime {
         let tokens_burnt = tx_burnt_amount;
 
         // Adding burnt gas reward for function calls if the account exists.
-        let receiver_gas_reward = result.gas_burnt_for_function_call
-            * *apply_state.config.fees.burnt_gas_reward.numer() as u64
-            / *apply_state.config.fees.burnt_gas_reward.denom() as u64;
+        let receiver_gas_reward = result
+            .gas_burnt_for_function_call
+            .checked_mul(*apply_state.config.fees.burnt_gas_reward.numer() as u64)
+            .unwrap()
+            .checked_div(*apply_state.config.fees.burnt_gas_reward.denom() as u64)
+            .unwrap();
         // The balance that the current account should receive as a reward for function call
         // execution.
         let receiver_reward = if apply_state.config.fees.refund_gas_price_changes {
@@ -863,19 +873,26 @@ impl Runtime {
         config: &RuntimeConfig,
     ) -> Result<Balance, RuntimeError> {
         let total_deposit = total_deposit(&action_receipt.actions)?;
-        let prepaid_gas = safe_add_gas(
-            total_prepaid_gas(&action_receipt.actions)?,
-            total_prepaid_send_fees(config, &action_receipt.actions)?,
-        )?;
-        let prepaid_exec_gas = safe_add_gas(
-            total_prepaid_exec_fees(config, &action_receipt.actions, receipt.receiver_id())?,
-            config.fees.fee(ActionCosts::new_action_receipt).exec_fee(),
-        )?;
+        let prepaid_gas = total_prepaid_gas(&action_receipt.actions)?
+            .checked_add(total_prepaid_send_fees(config, &action_receipt.actions)?)
+            .ok_or(IntegerOverflowError)?;
+        let prepaid_exec_gas =
+            total_prepaid_exec_fees(config, &action_receipt.actions, receipt.receiver_id())?
+                .checked_add(config.fees.fee(ActionCosts::new_action_receipt).exec_fee())
+                .ok_or(IntegerOverflowError)?;
         let deposit_refund = if result.result.is_err() { total_deposit } else { 0 };
         let gas_refund = if result.result.is_err() {
-            safe_add_gas(prepaid_gas, prepaid_exec_gas)? - result.gas_burnt
+            prepaid_gas
+                .checked_add(prepaid_exec_gas)
+                .ok_or(IntegerOverflowError)?
+                .checked_sub(result.gas_burnt)
+                .unwrap()
         } else {
-            safe_add_gas(prepaid_gas, prepaid_exec_gas)? - result.gas_used
+            prepaid_gas
+                .checked_add(prepaid_exec_gas)
+                .ok_or(IntegerOverflowError)?
+                .checked_sub(result.gas_used)
+                .unwrap()
         };
 
         // Refund for the unused portion of the gas at the price at which this gas was purchased.
@@ -945,19 +962,26 @@ impl Runtime {
         config: &RuntimeConfig,
     ) -> Result<GasRefundResult, RuntimeError> {
         let total_deposit = total_deposit(&action_receipt.actions)?;
-        let prepaid_gas = safe_add_gas(
-            total_prepaid_gas(&action_receipt.actions)?,
-            total_prepaid_send_fees(config, &action_receipt.actions)?,
-        )?;
-        let prepaid_exec_gas = safe_add_gas(
-            total_prepaid_exec_fees(config, &action_receipt.actions, receipt.receiver_id())?,
-            config.fees.fee(ActionCosts::new_action_receipt).exec_fee(),
-        )?;
+        let prepaid_gas = total_prepaid_gas(&action_receipt.actions)?
+            .checked_add(total_prepaid_send_fees(config, &action_receipt.actions)?)
+            .ok_or(IntegerOverflowError)?;
+        let prepaid_exec_gas =
+            total_prepaid_exec_fees(config, &action_receipt.actions, receipt.receiver_id())?
+                .checked_add(config.fees.fee(ActionCosts::new_action_receipt).exec_fee())
+                .ok_or(IntegerOverflowError)?;
         let deposit_refund = if result.result.is_err() { total_deposit } else { 0 };
         let gross_gas_refund = if result.result.is_err() {
-            safe_add_gas(prepaid_gas, prepaid_exec_gas)? - result.gas_burnt
+            prepaid_gas
+                .checked_add(prepaid_exec_gas)
+                .ok_or(IntegerOverflowError)?
+                .checked_sub(result.gas_burnt)
+                .unwrap()
         } else {
-            safe_add_gas(prepaid_gas, prepaid_exec_gas)? - result.gas_used
+            prepaid_gas
+                .checked_add(prepaid_exec_gas)
+                .ok_or(IntegerOverflowError)?
+                .checked_sub(result.gas_used)
+                .unwrap()
         };
 
         // NEP-536 also adds a penalty to gas refund.
@@ -1344,6 +1368,7 @@ impl Runtime {
         num_transactions = signed_txs.len(),
         gas_burnt = tracing::field::Empty,
         compute_usage = tracing::field::Empty,
+        tag_block_production = true
     ))]
     pub fn apply(
         &self,
@@ -1489,6 +1514,13 @@ impl Runtime {
     ///
     /// Any transactions that fail to validate (e.g. invalid nonces, unknown signing keys,
     /// insufficient NEAR balance, etc.) will be skipped, producing no receipts.
+    #[instrument(
+        target = "runtime",
+        level = "debug",
+        "process_transactions",
+        skip_all,
+        fields(tag_block_production = true)
+    )]
     fn process_transactions(
         &self,
         processing_state: &mut ApplyProcessingReceiptState,
@@ -1497,7 +1529,8 @@ impl Runtime {
     ) -> Result<(), RuntimeError> {
         /// We track the transaction validity in a bit vector of this size. This type informs the
         /// maximum size of the transactions' chunk processed with each rayon job.
-        type ValidBitmask = u32;
+        type ValidBitmask = u128;
+        const MAX_BATCH_SIZE: usize = ValidBitmask::BITS as usize;
         /// Avoid the overhead of inter-thread scheduling by processing at least this many
         /// transactions for each instance of this overhead. This can reduce the number of
         /// transaction chunks for smaller lists of transactions, however.
@@ -1522,21 +1555,69 @@ impl Runtime {
                 tx_vec
                     .par_chunks(chunk_size)
                     .map(|txs| {
-                        let mut valid_mask: ValidBitmask = 0;
+                        // Prepare signatures, public keys and messages (tx hash) for batch verification.
+                        let mut batched_tx_mask: ValidBitmask = 0;
+                        let mut signatures =
+                            SmallVec::<[_; MAX_BATCH_SIZE]>::with_capacity(txs.len());
+                        let mut verifying_keys =
+                            SmallVec::<[_; MAX_BATCH_SIZE]>::with_capacity(txs.len());
+                        let mut messages =
+                            SmallVec::<[_; MAX_BATCH_SIZE]>::with_capacity(txs.len());
+
+                        for (idx, tx) in txs.iter().enumerate() {
+                            if let Some((signature, public_key)) =
+                                get_batchable_signature_and_public_key(tx)
+                            {
+                                signatures.push(*signature);
+                                verifying_keys.push(public_key);
+                                messages.push(tx.hash().as_ref());
+                                batched_tx_mask |= 1 << idx;
+                            }
+                        }
+
+                        let valid_signatures = if near_crypto_ed25519_batch::safe_verify_batch(
+                            &messages,
+                            &signatures,
+                            &verifying_keys,
+                        )
+                        .is_ok()
+                        {
+                            TRANSACTION_BATCH_SIGNATURE_VERIFY_SUCCESS_TOTAL.inc();
+                            batched_tx_mask
+                        } else {
+                            TRANSACTION_BATCH_SIGNATURE_VERIFY_FAILURE_TOTAL.inc();
+                            0
+                        };
+
+                        let mut result: ValidBitmask = 0;
                         for (idx, tx) in txs.iter().enumerate() {
                             let tx_hash = tx.hash();
-                            let v = validate_transaction(
-                                &apply_state.config,
-                                tx.clone(),
-                                protocol_version,
-                            );
-                            if let Err((err, _)) = v {
+                            let signature_already_verified = (valid_signatures >> idx) & 1 == 1;
+
+                            let v = if signature_already_verified {
+                                validate_transaction_well_formed(
+                                    &apply_state.config,
+                                    tx,
+                                    protocol_version,
+                                )
+                            } else {
+                                // TODO(perf): Can we use the VerifyingKey constructed for batch verification
+                                // to avoid re-parsing the public key here if batch verification fails?
+                                validate_transaction(
+                                    &apply_state.config,
+                                    tx.clone(),
+                                    protocol_version,
+                                )
+                                .map_err(|(err, _)| err)
+                                .map(|_| ())
+                            };
+                            if let Err(err) = v {
                                 tracing::debug!(?tx_hash, ?err, "transaction invalid");
                                 continue;
                             }
-                            valid_mask |= 1 << idx;
+                            result |= 1 << idx;
                         }
-                        valid_mask
+                        result
                     })
                     .collect::<Vec<_>>()
             },
@@ -1650,7 +1731,7 @@ impl Runtime {
                     }),
                 });
                 let gas_burnt = verification_result.gas_burnt;
-                let compute_usage = gas_burnt;
+                let compute_usage = gas_burnt.as_gas();
                 let outcome = ExecutionOutcomeWithId {
                     id: tx.get_hash(),
                     outcome: ExecutionOutcome {
@@ -1696,7 +1777,7 @@ impl Runtime {
             }
             let compute = outcome.outcome.compute_usage;
             let compute = compute.expect("`process_transaction` must populate compute usage");
-            total.add(outcome.outcome.gas_burnt, compute)?;
+            total.add(outcome.outcome.gas_burnt.as_gas(), compute)?;
             processing_state.outcomes.push(outcome);
             metrics::TRANSACTION_PROCESSED_SUCCESSFULLY_TOTAL.inc();
         }
@@ -1781,8 +1862,8 @@ impl Runtime {
                 .compute_usage
                 .expect("`process_receipt` must populate compute usage");
             let total = &mut processing_state.total;
-            total.add(gas_burnt, compute_usage)?;
-            span.record("gas_burnt", gas_burnt);
+            total.add(gas_burnt.as_gas(), compute_usage)?;
+            span.record("gas_burnt", gas_burnt.as_gas());
             span.record("compute_usage", compute_usage);
 
             processing_state.outcomes.push(outcome_with_id);
@@ -2051,6 +2132,13 @@ impl Runtime {
 
     /// Processes all receipts (local, delayed and incoming).
     /// Returns a structure containing the result of the processing.
+    #[instrument(
+        target = "runtime",
+        level = "debug",
+        "process_receipts",
+        skip_all,
+        fields(tag_block_production = true)
+    )]
     fn process_receipts(
         &self,
         processing_state: &mut ApplyProcessingReceiptState,
@@ -2061,7 +2149,7 @@ impl Runtime {
 
         // TODO(#8859): Introduce a dedicated `compute_limit` for the chunk.
         // For now compute limit always matches the gas limit.
-        let compute_limit = apply_state.gas_limit.unwrap_or(Gas::max_value());
+        let compute_limit = apply_state.gas_limit.map(|g| g.as_gas()).unwrap_or(u64::MAX);
 
         // We first process local receipts. They contain staking, local contract calls, etc.
         self.process_local_receipts(
@@ -2113,6 +2201,13 @@ impl Runtime {
         })
     }
 
+    #[instrument(
+        target = "runtime",
+        level = "debug",
+        "validate_apply_state_update",
+        skip_all,
+        fields(tag_block_production = true)
+    )]
     fn validate_apply_state_update(
         &self,
         processing_state: ApplyProcessingReceiptState,
@@ -2120,7 +2215,6 @@ impl Runtime {
         receipt_sink: ReceiptSink,
         state_patch: SandboxStatePatch,
     ) -> Result<ApplyResult, RuntimeError> {
-        let _span = tracing::debug_span!(target: "runtime", "apply_commit").entered();
         let apply_state = processing_state.apply_state;
         let epoch_info_provider = processing_state.epoch_info_provider;
         let mut stats = processing_state.stats;
@@ -2240,6 +2334,24 @@ impl Runtime {
             contract_updates,
         })
     }
+}
+
+/// Returns the signature and public key if they are of ED25519 type.
+///
+/// Used for batch signature verification, which only supports ED25519 signatures.
+/// Returns `None` if the signature or public key are not ED25519.
+fn get_batchable_signature_and_public_key(
+    signed_tx: &SignedTransaction,
+) -> Option<(&ed25519_dalek::Signature, ed25519_dalek::VerifyingKey)> {
+    let (Signature::ED25519(sig), PublicKey::ED25519(key)) =
+        (&signed_tx.signature, signed_tx.transaction.public_key())
+    else {
+        return None;
+    };
+    let Ok(key) = ed25519_dalek::VerifyingKey::from_bytes(&key.0) else {
+        return None;
+    };
+    Some((sig, key))
 }
 
 impl ApplyState {
@@ -2452,7 +2564,7 @@ impl Drop for TotalResourceGuard {
 
 impl TotalResourceGuard {
     fn add(&mut self, gas: u64, compute: u64) -> Result<(), IntegerOverflowError> {
-        self.gas = safe_add_gas(self.gas, gas)?;
+        self.gas = self.gas.checked_add(gas).ok_or(IntegerOverflowError)?;
         self.compute = safe_add_compute(self.compute, compute)?;
         Ok(())
     }

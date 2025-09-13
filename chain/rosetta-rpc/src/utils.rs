@@ -3,9 +3,11 @@ use crate::{
     models::{self, AccountBalanceResponseMetadata},
     types::AccountId,
 };
-use actix::Addr;
+use futures::StreamExt;
+use near_async::messaging::CanSendAsync;
+use near_async::multithread::MultithreadRuntimeHandle;
 use near_chain_configs::ProtocolConfigView;
-use near_client::ViewClientActor;
+use near_client::ViewClientActorInner;
 use near_primitives::borsh::{self, BorshDeserialize, BorshSerialize};
 
 #[derive(Debug, Clone, PartialEq, derive_more::AsRef, derive_more::From)]
@@ -292,7 +294,7 @@ impl RosettaAccountBalances {
 pub(crate) async fn query_account(
     block_id: near_primitives::types::BlockReference,
     account_id: near_primitives::types::AccountId,
-    view_client_addr: &Addr<ViewClientActor>,
+    view_client_addr: MultithreadRuntimeHandle<ViewClientActorInner>,
 ) -> Result<
     (
         near_primitives::hash::CryptoHash,
@@ -305,7 +307,7 @@ pub(crate) async fn query_account(
         block_id,
         near_primitives::views::QueryRequest::ViewAccount { account_id },
     );
-    let account_info_response = match view_client_addr.send(query).await? {
+    let account_info_response = match view_client_addr.send_async(query).await? {
         Ok(query_response) => query_response,
         Err(err) => match err {
             near_client_primitives::types::QueryError::UnknownAccount { .. } => {
@@ -327,9 +329,9 @@ pub(crate) async fn query_account(
 }
 
 pub(crate) async fn query_accounts<R>(
-    block_id: &near_primitives::types::BlockReference,
-    account_ids: impl Iterator<Item = &near_primitives::types::AccountId>,
-    view_client_addr: &Addr<ViewClientActor>,
+    block_id: near_primitives::types::BlockReference,
+    account_ids: impl Iterator<Item = near_primitives::types::AccountId>,
+    view_client_addr: MultithreadRuntimeHandle<ViewClientActorInner>,
 ) -> Result<R, crate::errors::ErrorKind>
 where
     R: std::iter::FromIterator<(
@@ -337,12 +339,24 @@ where
             near_primitives::views::AccountView,
         )>,
 {
-    let query_futures = account_ids.map(|account_id| async {
-        let (_, _, account_info) =
-            query_account(block_id.clone(), account_id.clone(), view_client_addr).await?;
-        Ok((account_id.clone(), account_info))
-    });
-    futures::future::join_all(query_futures)
+    futures::stream::iter(account_ids)
+        .map(move |account_id| {
+            let value = block_id.clone();
+            let view_client_addr = view_client_addr.clone();
+            async move {
+                let (_, _, account_info) =
+                    query_account(value.clone(), account_id.clone(), view_client_addr.clone())
+                        .await?;
+                Ok((account_id, account_info))
+            }
+        })
+        .buffer_unordered(10)
+        .collect::<Vec<
+            Result<
+                (near_primitives::types::AccountId, near_primitives::views::AccountView),
+                crate::errors::ErrorKind,
+            >,
+        >>()
         .await
         .into_iter()
         .filter(|account_info| !matches!(account_info, Err(crate::errors::ErrorKind::NotFound(_))))
@@ -353,7 +367,7 @@ pub(crate) async fn query_access_key(
     block_id: near_primitives::types::BlockReference,
     account_id: near_primitives::types::AccountId,
     public_key: near_crypto::PublicKey,
-    view_client_addr: &Addr<ViewClientActor>,
+    view_client_addr: &MultithreadRuntimeHandle<ViewClientActorInner>,
 ) -> Result<
     (
         near_primitives::hash::CryptoHash,
@@ -366,7 +380,7 @@ pub(crate) async fn query_access_key(
         block_id,
         near_primitives::views::QueryRequest::ViewAccessKey { account_id, public_key },
     );
-    let access_key_query_response = match view_client_addr.send(access_key_query).await? {
+    let access_key_query_response = match view_client_addr.send_async(access_key_query).await? {
         Ok(query_response) => query_response,
         Err(err) => {
             return match err {
@@ -393,10 +407,10 @@ pub(crate) async fn query_access_key(
 
 pub(crate) async fn query_protocol_config(
     block_hash: near_primitives::hash::CryptoHash,
-    view_client_addr: &Addr<ViewClientActor>,
+    view_client_addr: &MultithreadRuntimeHandle<ViewClientActorInner>,
 ) -> crate::errors::Result<ProtocolConfigView> {
     view_client_addr
-        .send(near_client::GetProtocolConfig(near_primitives::types::BlockReference::from(
+        .send_async(near_client::GetProtocolConfig(near_primitives::types::BlockReference::from(
             near_primitives::types::BlockId::Hash(block_hash),
         )))
         .await?
@@ -457,7 +471,7 @@ where
 /// Returns `Ok(None)` if the block does not exist or is not final.
 pub(crate) async fn get_block_if_final(
     block_id: &near_primitives::types::BlockReference,
-    view_client_addr: &Addr<ViewClientActor>,
+    view_client_addr: &MultithreadRuntimeHandle<ViewClientActorInner>,
 ) -> Result<Option<near_primitives::views::BlockView>, models::Error> {
     let final_block = get_final_block(view_client_addr).await?;
     let is_query_by_height = match block_id {
@@ -477,7 +491,7 @@ pub(crate) async fn get_block_if_final(
         }
         _ => false,
     };
-    let block = match view_client_addr.send(near_client::GetBlock(block_id.clone())).await? {
+    let block = match view_client_addr.send_async(near_client::GetBlock(block_id.clone())).await? {
         Ok(block) => block,
         Err(near_client_primitives::types::GetBlockError::UnknownBlock { .. }) => return Ok(None),
         Err(err) => return Err(errors::ErrorKind::InternalError(err.to_string()).into()),
@@ -491,7 +505,7 @@ pub(crate) async fn get_block_if_final(
         return Ok(Some(block));
     }
     let block_on_canonical_chain = view_client_addr
-        .send(near_client::GetBlock(
+        .send_async(near_client::GetBlock(
             near_primitives::types::BlockId::Height(block.header.height).into(),
         ))
         .await?
@@ -504,10 +518,10 @@ pub(crate) async fn get_block_if_final(
 }
 
 pub(crate) async fn get_final_block(
-    view_client_addr: &Addr<ViewClientActor>,
+    view_client_addr: &MultithreadRuntimeHandle<ViewClientActorInner>,
 ) -> Result<near_primitives::views::BlockView, errors::ErrorKind> {
     view_client_addr
-        .send(near_client::GetBlock(near_primitives::types::BlockReference::Finality(
+        .send_async(near_client::GetBlock(near_primitives::types::BlockReference::Finality(
             near_primitives::types::Finality::Final,
         )))
         .await?
@@ -515,7 +529,7 @@ pub(crate) async fn get_final_block(
 }
 
 pub(crate) async fn get_nonces(
-    view_client_addr: &Addr<ViewClientActor>,
+    view_client_addr: &MultithreadRuntimeHandle<ViewClientActorInner>,
     account_id: AccountId,
     public_keys: Vec<models::PublicKey>,
 ) -> Result<AccountBalanceResponseMetadata, models::Error> {

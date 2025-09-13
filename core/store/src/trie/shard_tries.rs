@@ -25,6 +25,7 @@ use rayon::prelude::{IntoParallelRefIterator, ParallelIterator};
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::sync::Arc;
+use tracing::instrument;
 
 struct ShardTriesInner {
     store: TrieStoreAdapter,
@@ -388,6 +389,17 @@ impl ShardTries {
         self.apply_all_inner(trie_changes, shard_uid, true, store_update)
     }
 
+    #[instrument(
+        target = "memtrie",
+        level = "debug",
+        "apply_memtrie_changes",
+        skip_all,
+        fields(
+            height = block_height,
+            shard_id = %shard_uid.shard_id(),
+            tag_block_production = true
+        )
+    )]
     pub fn apply_memtrie_changes(
         &self,
         trie_changes: &TrieChanges,

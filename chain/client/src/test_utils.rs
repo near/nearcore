@@ -5,7 +5,6 @@
 use crate::Client;
 use crate::chunk_producer::ProduceChunkResult;
 use crate::client::CatchupState;
-use actix_rt::System;
 use itertools::Itertools;
 use near_async::messaging::Sender;
 use near_chain::chain::{BlockCatchUpRequest, do_apply_chunks};
@@ -267,7 +266,6 @@ pub fn run_catchup(client: &mut Client) -> Result<(), Error> {
     let block_catch_up = Sender::from_fn(move |msg: BlockCatchUpRequest| {
         block_inside_messages.write().push(msg);
     });
-    let _ = System::new();
     loop {
         client.run_catchup(&block_catch_up, None)?;
         let mut catchup_done = true;

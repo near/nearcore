@@ -3,7 +3,6 @@ use std::sync::Arc;
 use axum::Router;
 use axum_test::TestServer;
 use near_async::ActorSystem;
-use near_async::actix::futures::ActixFutureSpawner;
 use near_async::messaging::{IntoMultiSender, IntoSender, noop};
 use near_chain::ChainGenesis;
 use near_chain_configs::{ClientConfig, Genesis, MutableConfigValue, TrackedShardsConfig};
@@ -122,8 +121,9 @@ pub fn create_test_setup_with_accounts_and_validity(
 
     // 6. Create ViewClientActor
     let adv = Controls::default();
-    let view_client_actor = ViewClientActorInner::spawn_actix_actor(
+    let view_client_actor = ViewClientActorInner::spawn_multithread_actor(
         Clock::real(),
+        actor_system.clone(),
         chain_genesis.clone(),
         epoch_manager.clone(),
         shard_tracker.clone(),
@@ -144,7 +144,7 @@ pub fn create_test_setup_with_accounts_and_validity(
         shard_tracker.clone(),
         runtime.clone(),
         PeerId::new(PublicKey::empty(KeyType::ED25519)),
-        Arc::new(ActixFutureSpawner),
+        actor_system.new_future_spawner().into(),
         noop().into_multi_sender(),
         noop().into_sender(),
         signer.clone(),
@@ -168,6 +168,7 @@ pub fn create_test_setup_with_accounts_and_validity(
     };
 
     let rpc_handler_actor = spawn_rpc_handler_actor(
+        actor_system.clone(),
         rpc_handler_config,
         client_result.tx_pool,
         client_result.chunk_endorsement_tracker,

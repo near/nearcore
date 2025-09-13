@@ -1,7 +1,7 @@
 use crate::ApplyState;
 use crate::actions::execute_function_call;
 use crate::ext::RuntimeExt;
-use crate::global_contracts::AccountContractStoreExt as _;
+use crate::global_contracts::{AccountContractAccessExt, GlobalContractAccessExt};
 use crate::pipelining::ReceiptPreparationPipeline;
 use crate::receipt_manager::ReceiptManager;
 use near_crypto::{KeyType, PublicKey};
@@ -91,7 +91,7 @@ impl TrieViewer {
         account_id: &AccountId,
     ) -> Result<ContractCode, errors::ViewContractCodeError> {
         let account = self.view_account(state_update, account_id)?;
-        account.contract().code(account_id, &state_update)?.ok_or_else(|| {
+        account.contract().into_owned().code(account_id, &state_update)?.ok_or_else(|| {
             errors::ViewContractCodeError::NoContractCode {
                 contract_account_id: account_id.clone(),
             }
@@ -103,8 +103,9 @@ impl TrieViewer {
         state_update: &TrieUpdate,
         identifier: GlobalContractIdentifier,
     ) -> Result<ContractCode, errors::ViewContractCodeError> {
-        state_update
-            .get_global_contract_code(identifier.clone().into())?
+        identifier
+            .clone()
+            .code(state_update)?
             .ok_or(errors::ViewContractCodeError::NoGlobalContractCode { identifier })
     }
 
@@ -264,7 +265,7 @@ impl TrieViewer {
             state_update.contract_storage(),
         );
         let view_config = Some(ViewConfig { max_gas_burnt: self.max_gas_burnt_view });
-        let code_hash = account.contract().hash(&state_update)?;
+        let code_hash = account.contract().into_owned().hash(&state_update)?;
         let contract = pipeline.get_contract(&receipt, code_hash, 0, view_config.clone());
 
         let mut runtime_ext = RuntimeExt::new(

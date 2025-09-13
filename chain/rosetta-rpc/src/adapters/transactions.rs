@@ -1,6 +1,8 @@
 use crate::models::{AccountIdentifier, Currency, FungibleTokenEvent};
-use actix::Addr;
 use near_account_id::AccountId;
+use near_async::messaging::CanSendAsync;
+use near_async::multithread::MultithreadRuntimeHandle;
+use near_client::ViewClientActorInner;
 use near_primitives::hash::CryptoHash;
 use near_primitives::views::{ExecutionOutcomeWithIdView, SignedTransactionView};
 use std::collections::HashMap;
@@ -26,12 +28,14 @@ impl ExecutionToReceipts {
     /// transaction or receipt causing the execution to list of created
     /// receipts’ hashes.
     pub(crate) async fn for_block(
-        view_client_addr: &Addr<near_client::ViewClientActor>,
+        view_client_addr: &MultithreadRuntimeHandle<ViewClientActorInner>,
         block_hash: CryptoHash,
         currencies: &Option<Vec<Currency>>,
     ) -> crate::errors::Result<Self> {
         let block = view_client_addr
-            .send(near_client::GetBlock(near_primitives::types::BlockId::Hash(block_hash).into()))
+            .send_async(near_client::GetBlock(
+                near_primitives::types::BlockId::Hash(block_hash).into(),
+            ))
             .await?
             .map_err(|e| crate::errors::ErrorKind::InternalError(e.to_string()))?;
         let mut transactions = HashMap::new();
@@ -39,9 +43,9 @@ impl ExecutionToReceipts {
         for (shard_id, contained) in block.header.chunk_mask.iter().enumerate() {
             if *contained {
                 let chunk = view_client_addr
-                    .send(near_client::GetChunk::ChunkHash(near_primitives::sharding::ChunkHash(
-                        block.chunks[shard_id].chunk_hash,
-                    )))
+                    .send_async(near_client::GetChunk::ChunkHash(
+                        near_primitives::sharding::ChunkHash(block.chunks[shard_id].chunk_hash),
+                    ))
                     .await?
                     .map_err(|e| crate::errors::ErrorKind::InternalInvariantError(e.to_string()))?;
                 transactions.extend(chunk.transactions.into_iter().map(|t| (t.hash, t)));
@@ -49,8 +53,9 @@ impl ExecutionToReceipts {
                     .extend(chunk.receipts.into_iter().map(|t| (t.receipt_id, t.predecessor_id)));
             }
         }
-        let map =
-            view_client_addr.send(near_client::GetExecutionOutcomesForBlock { block_hash }).await?;
+        let map = view_client_addr
+            .send_async(near_client::GetExecutionOutcomesForBlock { block_hash })
+            .await?;
 
         let map_hash_to_receipts = map
             .clone()
@@ -155,7 +160,7 @@ fn convert_cause_to_transaction_id(
 }
 
 async fn get_predecessor_id_from_receipt_or_transaction(
-    view_client: &Addr<near_client::ViewClientActor>,
+    view_client: &MultithreadRuntimeHandle<ViewClientActorInner>,
     cause: &near_primitives::views::StateChangeCauseView,
     transactions_in_block: &HashMap<CryptoHash, SignedTransactionView>,
     receipts_in_block: &HashMap<CryptoHash, AccountId>,
@@ -194,10 +199,11 @@ async fn get_predecessor_id_from_receipt_or_transaction(
 }
 
 async fn get_predecessor_id_from_receipt_hash(
-    view_client: &Addr<near_client::ViewClientActor>,
+    view_client: &MultithreadRuntimeHandle<ViewClientActorInner>,
     receipt_id: CryptoHash,
 ) -> Option<AccountId> {
-    let receipt_view = view_client.send(near_client::GetReceipt { receipt_id }).await.ok()?.ok()?;
+    let receipt_view =
+        view_client.send_async(near_client::GetReceipt { receipt_id }).await.ok()?.ok()?;
     Some(receipt_view?.predecessor_id)
 }
 
@@ -269,7 +275,7 @@ impl<'a> RosettaTransactions<'a> {
 
 /// Returns Rosetta transactions which map to given account changes.
 pub(crate) async fn convert_block_changes_to_transactions(
-    view_client_addr: &Addr<near_client::ViewClientActor>,
+    view_client_addr: &MultithreadRuntimeHandle<ViewClientActorInner>,
     runtime_config: &near_parameters::RuntimeConfigView,
     block_hash: &CryptoHash,
     accounts_changes: near_primitives::views::StateChangesView,
