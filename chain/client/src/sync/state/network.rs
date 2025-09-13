@@ -66,24 +66,19 @@ impl StateSyncDownloadSourcePeerSharedState {
         let shard_id = msg.shard_id();
         let part_id_or_header = msg.part_id_or_header();
 
-        let typ = match &part_id_or_header {
-            PartIdOrHeader::Part { .. } => "part",
-            PartIdOrHeader::Header => "header",
-        };
         match msg {
             StateResponse::Ack(ref ack) => {
-                let label = match ack.body {
-                    StateRequestAckBody::Busy => "busy",
-                    StateRequestAckBody::Error => "error",
-                    StateRequestAckBody::WillRespond => "will_respond",
-                };
                 metrics::STATE_SYNC_PEER_MSGS
-                    .with_label_values(&[&shard_id.to_string(), typ, label])
+                    .with_label_values(&[
+                        &shard_id.to_string(),
+                        part_id_or_header.into(),
+                        ack.body.into(),
+                    ])
                     .inc();
             }
             StateResponse::State(_) => {
                 metrics::STATE_SYNC_PEER_MSGS
-                    .with_label_values(&[&shard_id.to_string(), typ, "state"])
+                    .with_label_values(&[&shard_id.to_string(), part_id_or_header.into(), "state"])
                     .inc();
             }
         };

@@ -31,11 +31,30 @@ pub enum PartIdOrHeader {
     Header,
 }
 
+impl Into<&'static str> for PartIdOrHeader {
+    fn into(self) -> &'static str {
+        match self {
+            PartIdOrHeader::Part { .. } => "part",
+            PartIdOrHeader::Header => "header",
+        }
+    }
+}
+
 #[derive(Copy, PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize, ProtocolSchema)]
 pub enum StateRequestAckBody {
     WillRespond,
     Busy,
     Error,
+}
+
+impl Into<&'static str> for StateRequestAckBody {
+    fn into(self) -> &'static str {
+        match self {
+            StateRequestAckBody::WillRespond => "will_respond",
+            StateRequestAckBody::Busy => "busy",
+            StateRequestAckBody::Error => "error",
+        }
+    }
 }
 
 #[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize, ProtocolSchema)]
