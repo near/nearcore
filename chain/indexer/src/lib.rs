@@ -1,6 +1,7 @@
 #![doc = include_str!("../README.md")]
 
 use anyhow::Context;
+use near_async::messaging::IntoMultiSender;
 use near_config_utils::DownloadConfigType;
 use nearcore::NearNode;
 use tokio::sync::mpsc;
@@ -17,10 +18,10 @@ pub use near_indexer_primitives::{
 };
 
 use near_async::ActorSystem;
-use near_async::tokio::TokioRuntimeHandle;
-use near_client::client_actor::ClientActorInner;
 use near_epoch_manager::shard_tracker::ShardTracker;
 pub use streamer::build_streamer_message;
+
+use crate::streamer::{IndexerClientFetcher, IndexerViewClientFetcher};
 
 mod streamer;
 
@@ -94,14 +95,13 @@ pub struct IndexerConfig {
 }
 
 impl IndexerConfig {
-    pub fn derive_near_config(&self) -> NearConfig {
+    pub fn load_near_config(&self) -> anyhow::Result<NearConfig> {
         let genesis_validation_mode = if self.validate_genesis {
             GenesisValidationMode::Full
         } else {
             GenesisValidationMode::UnsafeFast
         };
-        let near_config = nearcore::config::load_config(&self.home_dir, genesis_validation_mode)
-            .expect("failed to load config");
+        let near_config = nearcore::config::load_config(&self.home_dir, genesis_validation_mode)?;
 
         // TODO(cloud_archival): When`TrackedShardsConfig::Shards` is added, ensure it is supported by indexer nodes and update the check below accordingly.
         assert!(
@@ -111,7 +111,7 @@ impl IndexerConfig {
             or `\"tracked_shards_config\": {{\"tracked_accounts\": [\"some_account.near\"]}}` (which tracks whatever shard the account is on)",
             self.home_dir.join("config.json").display()
         );
-        near_config
+        Ok(near_config)
     }
 }
 
@@ -119,30 +119,37 @@ impl IndexerConfig {
 pub struct Indexer {
     indexer_config: IndexerConfig,
     near_config: nearcore::NearConfig,
-    view_client: actix::Addr<near_client::ViewClientActor>,
-    client: TokioRuntimeHandle<ClientActorInner>,
+    view_client: IndexerViewClientFetcher,
+    client: IndexerClientFetcher,
     shard_tracker: ShardTracker,
 }
 
 impl Indexer {
     /// Initialize Indexer by configuring `nearcore`
-    pub fn new(indexer_config: IndexerConfig) -> Result<Self, anyhow::Error> {
+    pub fn new(indexer_config: IndexerConfig) -> anyhow::Result<Self> {
         tracing::info!(
             target: INDEXER,
             home_dir = ?indexer_config.home_dir,
             "new indexer",
         );
-        let near_config = indexer_config.derive_near_config();
+        let near_config =
+            indexer_config.load_near_config().context("failed to load near config")?;
         let nearcore::NearNode { client, view_client, shard_tracker, .. } =
             Self::start_near_node(&indexer_config, near_config.clone())
-                .with_context(|| "failed to start near node as part of indexer")?;
-        Ok(Self { view_client, client, near_config, indexer_config, shard_tracker })
+                .context("failed to start near node as part of indexer")?;
+        Ok(Self {
+            view_client: IndexerViewClientFetcher::new(view_client.into_multi_sender()),
+            client: IndexerClientFetcher::new(client.into_multi_sender()),
+            near_config,
+            indexer_config,
+            shard_tracker,
+        })
     }
 
     pub fn start_near_node(
         indexer_config: &IndexerConfig,
         near_config: NearConfig,
-    ) -> Result<NearNode, anyhow::Error> {
+    ) -> anyhow::Result<NearNode> {
         nearcore::start_with_config(&indexer_config.home_dir, near_config, ActorSystem::new())
     }
 
@@ -152,8 +159,10 @@ impl Indexer {
         near_node: &NearNode,
     ) -> Self {
         Self {
-            view_client: near_node.view_client.clone(),
-            client: near_node.client.clone(),
+            view_client: IndexerViewClientFetcher::new(
+                near_node.view_client.clone().into_multi_sender(),
+            ),
+            client: IndexerClientFetcher::new(near_node.client.clone().into_multi_sender()),
             near_config,
             indexer_config,
             shard_tracker: near_node.shard_tracker.clone(),
@@ -163,7 +172,7 @@ impl Indexer {
     /// Boots up `near_indexer::streamer`, so it monitors the new blocks with chunks, transactions, receipts, and execution outcomes inside. The returned stream handler should be drained and handled on the user side.
     pub fn streamer(&self) -> mpsc::Receiver<StreamerMessage> {
         let (sender, receiver) = mpsc::channel(100);
-        actix::spawn(streamer::start(
+        tokio::spawn(streamer::start(
             self.view_client.clone(),
             self.client.clone(),
             self.shard_tracker.clone(),
@@ -180,7 +189,7 @@ impl Indexer {
 pub fn indexer_init_configs(
     dir: &std::path::PathBuf,
     params: InitConfigArgs,
-) -> Result<(), anyhow::Error> {
+) -> anyhow::Result<()> {
     init_configs(
         dir,
         params.chain_id,

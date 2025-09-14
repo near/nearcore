@@ -1,4 +1,3 @@
-use actix_rt::System;
 use itertools::{Itertools, multizip};
 use near_async::messaging::{IntoMultiSender, IntoSender, noop};
 use near_async::time::Clock;
@@ -34,6 +33,7 @@ use super::setup::{
     setup_tx_request_handler,
 };
 use super::test_env::{AccountIndices, TestEnv};
+use near_async::ActorSystem;
 
 /// A builder for the TestEnv structure.
 pub struct TestEnvBuilder {
@@ -64,9 +64,6 @@ pub struct TestEnvBuilder {
 impl TestEnvBuilder {
     /// Constructs a new builder.
     pub(crate) fn new(genesis_config: GenesisConfig) -> Self {
-        if let None = System::try_current() {
-            let _ = System::new();
-        }
         let clients = Self::make_accounts(1);
         let validators = clients.clone();
         let seeds: HashMap<AccountId, RngSeed> = HashMap::with_capacity(1);
@@ -521,6 +518,7 @@ impl TestEnvBuilder {
                 )
             })
             .collect_vec();
+        let actor_system = ActorSystem::new();
         let (clients, chunk_validation_actors): (Vec<Client>, Vec<ChunkValidationActorInner>) =
             (0..num_clients)
                 .map(|i| {
@@ -558,6 +556,7 @@ impl TestEnvBuilder {
                     };
                     setup_client_with_runtime(
                         clock.clone(),
+                        actor_system.clone(),
                         u64::try_from(num_validators).unwrap(),
                         false,
                         network_adapter.as_multi_sender(),
@@ -594,6 +593,7 @@ impl TestEnvBuilder {
 
         TestEnv {
             clock,
+            actor_system,
             chain_genesis,
             validators,
             network_adapters,

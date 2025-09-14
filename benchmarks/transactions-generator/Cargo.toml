@@ -17,15 +17,12 @@ nightly = [
     "near-primitives/nightly",
     "node-runtime/nightly",
 ]
-default = ["with_actix"]
-with_actix = ["near-async", "near-network", "actix"]
 
 [dependencies]
-actix = { workspace = true, optional = true }
 anyhow.workspace = true
-near-async = { workspace = true, optional = true }
+near-async = { workspace = true }
 near-crypto = { workspace = true }
-near-network = { workspace = true, optional = true }
+near-network = { workspace = true }
 near-primitives = { workspace = true, features = ["clock", "test_utils"] }
 near-client.workspace = true
 near-client-primitives.workspace = true

@@ -66,6 +66,18 @@ pub mod dec_format {
         }
     }
 
+    impl DecType for crate::types::Gas {
+        fn serialize(&self) -> Option<String> {
+            Some(self.as_gas().to_string())
+        }
+        fn try_from_str(value: &str) -> Result<Self, std::num::ParseIntError> {
+            u64::try_from_str(value).map(crate::types::Gas::from_gas)
+        }
+        fn from_u64(value: u64) -> Self {
+            crate::types::Gas::from_gas(value)
+        }
+    }
+
     impl DecType for u128 {
         fn serialize(&self) -> Option<String> {
             Some(self.to_string())

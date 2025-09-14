@@ -7,6 +7,7 @@ use near_parameters::vm::{Config as VMConfig, VMKind};
 use near_primitives::transaction::{
     Action, DeployContractAction, FunctionCallAction, SignedTransaction,
 };
+use near_primitives::types::Gas;
 use rand::Rng;
 use rand::distributions::Alphanumeric;
 use rand_xorshift::XorShiftRng;
@@ -307,7 +308,7 @@ fn function_call_action(method_name: String) -> Action {
     Action::FunctionCall(Box::new(FunctionCallAction {
         method_name,
         args: Vec::new(),
-        gas: 10u64.pow(15),
+        gas: Gas::from_teragas(1000),
         deposit: 0,
     }))
 }
@@ -334,7 +335,7 @@ pub(crate) fn aggregate_per_block_measurements(
     let mut total = GasCost::zero();
     let num_blocks = block_measurements.len() as u64;
     for (block_cost, block_ext_cost) in block_measurements {
-        block_costs.push(block_cost.to_gas() as f64);
+        block_costs.push(block_cost.to_gas().as_gas() as f64);
         total += block_cost;
         for (c, v) in block_ext_cost {
             *total_ext_costs.entry(c).or_default() += v;
@@ -362,7 +363,8 @@ pub(crate) fn aggregate_per_block_measurements(
 }
 
 pub(crate) fn average_cost(measurements: Vec<GasCost>) -> GasCost {
-    let scalar_costs = measurements.iter().map(|cost| cost.to_gas() as f64).collect::<Vec<_>>();
+    let scalar_costs =
+        measurements.iter().map(|cost| cost.to_gas().as_gas() as f64).collect::<Vec<_>>();
     let total: GasCost = measurements.into_iter().sum();
     let mut avg = total / scalar_costs.len() as u64;
     if is_high_variance(&scalar_costs) {
@@ -454,7 +456,8 @@ mod test {
         let costs =
             gas_values.iter().map(|n| GasCost::from_gas((*n).into(), GasMetric::Time)).collect();
 
-        let results = percentiles(costs, p_values).map(|cost| cost.to_gas()).collect::<Vec<_>>();
+        let results =
+            percentiles(costs, p_values).map(|cost| cost.to_gas().as_gas()).collect::<Vec<_>>();
 
         assert_eq!(results, expected_gas_results,)
     }

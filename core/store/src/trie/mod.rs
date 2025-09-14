@@ -11,7 +11,7 @@ pub use crate::trie::nibble_slice::NibbleSlice;
 pub use crate::trie::prefetching_trie_storage::{PrefetchApi, PrefetchError};
 pub use crate::trie::shard_tries::{KeyForStateChanges, ShardTries, WrappedTrieChanges};
 pub use crate::trie::state_snapshot::{
-    STATE_SNAPSHOT_COLUMNS, SnapshotError, StateSnapshot, StateSnapshotConfig, state_snapshots_dir,
+    STATE_SNAPSHOT_COLUMNS, SnapshotError, StateSnapshot, StateSnapshotConfig,
 };
 pub use crate::trie::trie_storage::{TrieCache, TrieCachingStorage, TrieDBStorage, TrieStorage};
 use borsh::{BorshDeserialize, BorshSerialize};
@@ -1687,8 +1687,7 @@ impl Trie {
         self.disk_iter_with_prune_condition(None)
     }
 
-    #[cfg(test)]
-    pub(crate) fn disk_iter_with_max_depth(
+    pub fn disk_iter_with_max_depth(
         &self,
         max_depth: usize,
     ) -> Result<DiskTrieIterator, StorageError> {

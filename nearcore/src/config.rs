@@ -54,9 +54,7 @@ use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner
 use near_primitives::version::PROTOCOL_VERSION;
 #[cfg(feature = "rosetta_rpc")]
 use near_rosetta_rpc::RosettaRpcConfig;
-use near_store::config::{
-    CloudStorageConfig, STATE_SNAPSHOT_DIR, SplitStorageConfig, StateSnapshotType,
-};
+use near_store::config::{CloudStorageConfig, SplitStorageConfig, StateSnapshotType};
 use near_store::{StateSnapshotConfig, Store, TrieConfig};
 use near_telemetry::TelemetryConfig;
 use near_vm_runner::{ContractRuntimeCache, FilesystemContractRuntimeCache};
@@ -117,7 +115,6 @@ pub const CONFIG_FILENAME: &str = "config.json";
 pub const NODE_KEY_FILE: &str = "node_key.json";
 pub const VALIDATOR_KEY_FILE: &str = "validator_key.json";
 
-pub const NETWORK_LEGACY_TELEMETRY_URL: &str = "https://explorer.{}.near.org/api/nodes";
 pub const NETWORK_TELEMETRY_URL: &str = "https://telemetry.nearone.org/nodes";
 
 fn default_doomslug_step_period() -> Duration {
@@ -382,11 +379,6 @@ pub struct Config {
     ///
     /// Each loaded contract will increase the baseline memory use of the node appreciably.
     pub max_loaded_contracts: usize,
-    /// Location (within `home_dir`) where to store a cache of compiled contracts.
-    ///
-    /// This cache can be manually emptied occasionally to keep storage usage down and does not
-    /// need to be included into snapshots or dumps.
-    pub contract_cache_path: PathBuf,
     /// Save observed instances of ChunkStateWitness to the database in DBCol::LatestChunkStateWitnesses.
     /// Saving the latest witnesses is useful for analysis and debugging.
     /// This option can cause extra load on the database and is not recommended for production use.
@@ -402,6 +394,16 @@ pub struct Config {
     /// If set to Next, node will exit only if the next epoch's protocol version is not supported.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub protocol_version_check_config_override: Option<ProtocolVersionCheckConfig>,
+
+    /// Location where to store a cache of compiled contracts.
+    ///
+    /// This cache can be manually emptied occasionally to keep storage usage down and does not
+    /// need to be included into snapshots or dumps.
+    ///
+    /// Path is interpreted relative to `home_dir`.
+    ///
+    /// Use [`Self::contract_cache_path()`] to access this field.
+    pub(crate) contract_cache_path: Option<PathBuf>,
 }
 
 fn is_false(value: &bool) -> bool {
@@ -410,10 +412,6 @@ fn is_false(value: &bool) -> bool {
 impl Default for Config {
     fn default() -> Self {
         let store = near_store::StoreConfig::default();
-        let contract_cache_path =
-            [store.path.as_deref().unwrap_or_else(|| "data".as_ref()), "contract.cache".as_ref()]
-                .into_iter()
-                .collect();
         Config {
             genesis_file: GENESIS_CONFIG_FILENAME.to_string(),
             genesis_records_file: None,
@@ -464,7 +462,7 @@ impl Default for Config {
             orphan_state_witness_pool_size: default_orphan_state_witness_pool_size(),
             orphan_state_witness_max_size: default_orphan_state_witness_max_size(),
             max_loaded_contracts: 256,
-            contract_cache_path,
+            contract_cache_path: None,
             save_latest_witnesses: false,
             save_invalid_witnesses: false,
             transaction_request_handler_threads: 4,
@@ -598,6 +596,15 @@ impl Config {
             &self.tracked_shadow_validator,
             &self.tracked_accounts,
         )
+    }
+
+    pub fn contract_cache_path(&self) -> PathBuf {
+        if let Some(explicit) = &self.contract_cache_path {
+            explicit.clone()
+        } else {
+            let store_path = self.store.path.as_deref().unwrap_or_else(|| "data".as_ref());
+            [store_path, "contract.cache".as_ref()].into_iter().collect()
+        }
     }
 }
 
@@ -776,9 +783,7 @@ impl NightshadeRuntime {
         let state_snapshot_config =
             match config.config.store.state_snapshot_config.state_snapshot_type {
                 StateSnapshotType::Enabled => StateSnapshotConfig::enabled(
-                    home_dir,
-                    config.config.store.path.as_ref().unwrap_or(&"data".into()),
-                    STATE_SNAPSHOT_DIR,
+                    home_dir.join(config.config.store.path.as_ref().unwrap_or(&"data".into())),
                 ),
                 StateSnapshotType::Disabled => StateSnapshotConfig::Disabled,
             };
@@ -788,9 +793,10 @@ impl NightshadeRuntime {
         let contract_cache = FilesystemContractRuntimeCache::with_memory_cache(
             home_dir,
             config.config.store.path.as_ref(),
-            &config.config.contract_cache_path,
+            &config.config.contract_cache_path(),
             config.config.max_loaded_contracts,
         )?;
+        let state_parts_compression_lvl = config.client_config.state_sync.parts_compression_lvl;
         Ok(NightshadeRuntime::new(
             store,
             ContractRuntimeCache::handle(&contract_cache),
@@ -802,6 +808,7 @@ impl NightshadeRuntime {
             config.config.gc.gc_num_epochs_to_keep(),
             TrieConfig::from_store_config(&config.config.store),
             state_snapshot_config,
+            state_parts_compression_lvl,
         ))
     }
 }
@@ -981,7 +988,6 @@ pub fn init_configs(
             if test_seed.is_some() {
                 bail!("Test seed is not supported for {chain_id}");
             }
-            config.telemetry.endpoints.push(NETWORK_LEGACY_TELEMETRY_URL.replace("{}", &chain_id));
             config.telemetry.endpoints.push(NETWORK_TELEMETRY_URL.to_string());
             config.state_sync = Some(StateSyncConfig::gcs_default());
         }

@@ -2,7 +2,7 @@ use crate::node::{Node, RuntimeNode};
 use near_chain_configs::Genesis;
 use near_parameters::{ExtCosts, RuntimeConfig, RuntimeConfigStore};
 use near_primitives::serialize::to_base64;
-use near_primitives::types::AccountId;
+use near_primitives::types::{AccountId, Gas};
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_primitives::views::{
     CostGasUsed, ExecutionOutcomeWithIdView, ExecutionStatusView, FinalExecutionStatus,
@@ -18,7 +18,7 @@ const TESTING_INIT_BALANCE: u128 = 1_000_000_000 * NEAR_BASE;
 const NEAR_BASE: u128 = 1_000_000_000_000_000_000_000_000;
 
 /// Max prepaid amount of gas.
-const MAX_GAS: u64 = 300_000_000_000_000;
+const MAX_GAS: Gas = Gas::from_teragas(300);
 
 /// Costs whose amount of `gas_used` may depend on environmental factors.
 ///
@@ -145,7 +145,7 @@ fn test_cost_sanity() {
                 .map(|cost| {
                     if is_nondeterministic_cost(&cost.cost) {
                         // Ignore `gas_used` of nondeterministic costs.
-                        CostGasUsed { gas_used: 0, ..cost }
+                        CostGasUsed { gas_used: Gas::ZERO, ..cost }
                     } else {
                         cost
                     }
@@ -245,7 +245,7 @@ fn test_sanity_used_gas() {
     let used_gas = stdx::as_chunks_exact::<{ size_of::<u64>() }, _>(&returned_bytes)
         .unwrap()
         .iter()
-        .map(|bytes| u64::from_le_bytes(*bytes))
+        .map(|bytes| Gas::from_gas(u64::from_le_bytes(*bytes)))
         .collect::<Vec<_>>();
 
     let runtime_config = node.client.read().runtime_config.clone();
@@ -255,10 +255,16 @@ fn test_sanity_used_gas() {
     // Executing `used_gas` costs `base_cost` plus an instruction to execute the `call` itself.
     // When executing `used_gas` twice within a metered block, the returned values should differ by
     // that amount.
-    assert_eq!(used_gas[1] - used_gas[0], base_cost + op_cost);
+    assert_eq!(
+        used_gas[1].checked_sub(used_gas[0]).unwrap(),
+        base_cost.checked_add(Gas::from_gas(op_cost)).unwrap()
+    );
     // Between these two observations additional arithmetics have been executed.
-    assert_eq!(used_gas[2] - used_gas[1], base_cost + 8 * op_cost);
-    assert!(used_gas[3] - used_gas[2] > base_cost);
+    assert_eq!(
+        used_gas[2].checked_sub(used_gas[1]).unwrap(),
+        base_cost.checked_add(Gas::from_gas(op_cost * 8)).unwrap()
+    );
+    assert!(used_gas[3].checked_sub(used_gas[2]).unwrap() > base_cost);
 }
 
 /// Returns a contract which calls host function `used_gas` multiple times, both

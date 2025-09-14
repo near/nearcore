@@ -26,7 +26,6 @@ use near_store::test_utils::create_test_store;
 use num_rational::Ratio;
 use std::collections::{BTreeMap, HashMap};
 
-pub const DEFAULT_GAS_PRICE: u128 = 100;
 pub const DEFAULT_TOTAL_SUPPLY: u128 = 1_000_000_000_000;
 pub const TEST_SEED: RngSeed = [3; 32];
 

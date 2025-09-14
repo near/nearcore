@@ -577,10 +577,9 @@ where
     }
 }
 
-impl actix_web::ResponseError for Error {
-    fn error_response(&self) -> actix_web::HttpResponse {
-        let data = actix_web::web::Json(self);
-        actix_web::HttpResponse::InternalServerError().json(data)
+impl axum::response::IntoResponse for Error {
+    fn into_response(self) -> axum::response::Response {
+        (axum::http::StatusCode::INTERNAL_SERVER_ERROR, axum::Json(self)).into_response()
     }
 }
 
@@ -807,7 +806,7 @@ pub(crate) struct OperationMetadata {
     /// Has to be specified for FUNCTION_CALL operation
     #[serde(skip_serializing_if = "Option::is_none")]
     #[schema(value_type = Option<String>)]
-    pub attached_gas: Option<crate::utils::SignedDiff<near_primitives::types::Gas>>,
+    pub attached_gas: Option<crate::utils::SignedDiff<u64>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub predecessor_id: Option<AccountIdentifier>,
     #[serde(skip_serializing_if = "Option::is_none")]
