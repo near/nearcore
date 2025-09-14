@@ -1,6 +1,6 @@
 use crate::bandwidth_scheduler::BlockBandwidthRequests;
 use crate::block::BlockValidityError::{
-    InvalidChunkHeaderRoot, InvalidChunkMask, InvalidReceiptRoot, InvalidStateRoot,
+    InvalidChunkHeaderRoot, InvalidChunkMask, InvalidOutcomeRoot, InvalidReceiptRoot, InvalidStateRoot,
     InvalidTransactionRoot,
 };
 use crate::block_body::SpiceCoreStatement;
@@ -35,6 +35,7 @@ pub enum BlockValidityError {
     InvalidReceiptRoot,
     InvalidChunkHeaderRoot,
     InvalidTransactionRoot,
+    InvalidOutcomeRoot,
     InvalidChunkMask,
 }
 
@@ -456,7 +457,7 @@ impl Block {
 
         let outcome_root = self.chunks().compute_outcome_root();
         if self.header().outcome_root() != &outcome_root {
-            return Err(InvalidReceiptRoot);
+            return Err(InvalidOutcomeRoot);
         }
 
         // Check that chunk included root stored in the header matches the chunk included root of the chunks
