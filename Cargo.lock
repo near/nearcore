@@ -2356,8 +2356,7 @@ dependencies = [
 [[package]]
 name = "finite-wasm"
 version = "0.6.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4dce601f45d7bbc875827d3c35fa00f7dfc00ec63cdf327ff34b54ab1f2ac1ad"
+source = "git+https://github.com/near/finite-wasm?rev=144ce2996ea8b03d788ead38dc3ef087018ebdcf#144ce2996ea8b03d788ead38dc3ef087018ebdcf"
 dependencies = [
  "bitvec",
  "dissimilar",

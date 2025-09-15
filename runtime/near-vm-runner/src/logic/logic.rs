@@ -166,9 +166,6 @@ pub struct VMLogic<'a> {
     /// The DAG of promises, indexed by promise id.
     promises: Vec<Promise>,
 
-    /// Stores the amount of stack space remaining
-    remaining_stack: u64,
-
     /// Tracks size of the recorded trie storage proof.
     recorded_storage_counter: RecordedStorageCounter,
 
@@ -244,7 +241,6 @@ impl<'a> VMLogic<'a> {
             ext.get_recorded_storage_size(),
             config.limit_config.per_receipt_storage_proof_size_limit,
         );
-        let remaining_stack = u64::from(config.limit_config.max_stack_height);
         Self {
             ext,
             context,
@@ -255,7 +251,6 @@ impl<'a> VMLogic<'a> {
             recorded_storage_counter,
             registers: Default::default(),
             promises: vec![],
-            remaining_stack,
             result_state,
         }
     }
@@ -287,83 +282,16 @@ impl<'a> VMLogic<'a> {
         self.gas(Gas::from_gas(gas))
     }
 
-    fn linear_gas(&mut self, count: u32, linear: u64, constant: u64) -> Result<u32> {
-        let linear = u64::from(count).checked_mul(linear).ok_or(HostError::IntegerOverflow)?;
-        let gas = constant.checked_add(linear).ok_or(HostError::IntegerOverflow)?;
-        self.gas(Gas::from_gas(gas))?;
-        Ok(count)
+    pub fn finite_wasm_gas_exhausted(&mut self) -> Result<()> {
+        // Burn all remaining gas
+        self.gas(self.result_state.gas_counter.remaining_gas())?;
+        // This function will only ever be called by instrumentation on overflow, otherwise
+        // `finite_wasm_gas` will be called with the out-of-budget charge
+        Err(VMLogicError::HostError(HostError::IntegerOverflow))
     }
 
-    pub fn finite_wasm_memory_copy(
-        &mut self,
-        count: u32,
-        linear: u64,
-        constant: u64,
-    ) -> Result<u32> {
-        self.linear_gas(count, linear, constant)
-    }
-
-    pub fn finite_wasm_memory_fill(
-        &mut self,
-        count: u32,
-        linear: u64,
-        constant: u64,
-    ) -> Result<u32> {
-        self.linear_gas(count, linear, constant)
-    }
-
-    pub fn finite_wasm_memory_init(
-        &mut self,
-        count: u32,
-        linear: u64,
-        constant: u64,
-    ) -> Result<u32> {
-        self.linear_gas(count, linear, constant)
-    }
-
-    pub fn finite_wasm_table_copy(
-        &mut self,
-        count: u32,
-        linear: u64,
-        constant: u64,
-    ) -> Result<u32> {
-        self.linear_gas(count, linear, constant)
-    }
-
-    pub fn finite_wasm_table_fill(
-        &mut self,
-        count: u32,
-        linear: u64,
-        constant: u64,
-    ) -> Result<u32> {
-        self.linear_gas(count, linear, constant)
-    }
-
-    pub fn finite_wasm_table_init(
-        &mut self,
-        count: u32,
-        linear: u64,
-        constant: u64,
-    ) -> Result<u32> {
-        self.linear_gas(count, linear, constant)
-    }
-
-    pub fn finite_wasm_stack(&mut self, operand_size: u64, frame_size: u64) -> Result<()> {
-        self.remaining_stack =
-            match self.remaining_stack.checked_sub(operand_size.saturating_add(frame_size)) {
-                Some(s) => s,
-                None => return Err(VMLogicError::HostError(HostError::MemoryAccessViolation)),
-            };
-        self.gas(Gas::from_gas(((frame_size + 7) / 8) * u64::from(self.config.regular_op_cost)))?;
-        Ok(())
-    }
-
-    pub fn finite_wasm_unstack(&mut self, operand_size: u64, frame_size: u64) -> Result<()> {
-        self.remaining_stack = self
-            .remaining_stack
-            .checked_add(operand_size.saturating_add(frame_size))
-            .expect("remaining stack integer overflow");
-        Ok(())
+    pub fn finite_wasm_stack_exhausted(&mut self) -> Result<()> {
+        Err(VMLogicError::HostError(HostError::MemoryAccessViolation))
     }
 
     // #################

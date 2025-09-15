@@ -191,6 +191,61 @@ fn memory_export_clash() {
 }
 
 #[test]
+fn gas_export_clash() {
+    test_builder()
+        .wat(
+            r#"
+            (module
+              (global (export "\00finite_wasm_remaining_gas") (mut i64) i64.const 0)
+              (func (export "main"))
+            )"#,
+        )
+        .expects(&[
+            expect![[r#"
+                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 112785908 used gas 112785908
+                Err: PrepareError: Error happened during instantiation.
+            "#]],
+        ]);
+}
+
+#[test]
+fn start_export_clash() {
+    test_builder()
+        .wat(
+            r#"
+            (module
+              (func (export "\00finite_wasm_start"))
+              (func (export "main"))
+            )"#,
+        )
+        .expects(&[
+            expect![[r#"
+                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 99714368 used gas 99714368
+                Err: PrepareError: Error happened during instantiation.
+            "#]],
+        ]);
+}
+
+#[test]
+fn start_export_clash_duplicate() {
+    test_builder()
+        .wat(
+            r#"
+            (module
+              (func (export "\00finite_wasm_start") call 1)
+              (func (export "main"))
+              (start 1)
+            )"#,
+        )
+        .expects(&[
+            expect![[r#"
+                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 105160843 used gas 105160843
+                Err: PrepareError: Error happened during instantiation.
+            "#]],
+        ]);
+}
+
+#[test]
 fn memory_export_internal() {
     test_builder()
         .wat(

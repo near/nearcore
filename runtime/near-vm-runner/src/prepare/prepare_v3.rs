@@ -1,6 +1,6 @@
 use crate::MEMORY_EXPORT;
 use crate::logic::errors::PrepareError;
-use finite_wasm_6::{Fee, wasmparser as wp};
+use finite_wasm_6::{Fee, REMAINING_GAS_EXPORT, START_EXPORT, wasmparser as wp};
 use near_parameters::vm::{Config, VMKind};
 use wasm_encoder::{Encode, Section, SectionId};
 
@@ -145,6 +145,10 @@ impl<'a> PrepareContext<'a> {
                     for res in reader {
                         let wp::Export { name, kind, index } =
                             res.map_err(|_| PrepareError::Deserialization)?;
+                        if matches!(name, REMAINING_GAS_EXPORT | START_EXPORT) {
+                            // One of the `finite-wasm` instrumentation export names is used
+                            return Err(PrepareError::Instantiate);
+                        }
                         match kind {
                             wp::ExternalKind::Func => {
                                 new_section.export(name, wasm_encoder::ExportKind::Func, index);
@@ -383,7 +387,12 @@ pub(crate) fn prepare_contract(
             PrepareError::Deserialization
         })?
         // Make sure contracts can’t call the instrumentation functions via `env`.
-        .instrument("internal", &lightly_steamed)
+        .instrument(
+            "internal",
+            &lightly_steamed,
+            config.regular_op_cost,
+            config.limit_config.max_stack_height,
+        )
         .map_err(|err| {
             tracing::error!(?err, ?kind, "Instrumentation failed");
             PrepareError::Serialization

@@ -213,7 +213,7 @@ enumset = "1.0"
 ethabi = "18"
 expect-test = "1.3.0"
 finite-wasm = "0.5.0"
-finite-wasm-6 = { package = "finite-wasm", version = "0.6.0" }
+finite-wasm-6 = { git = "https://github.com/near/finite-wasm", rev = "144ce2996ea8b03d788ead38dc3ef087018ebdcf", package = "finite-wasm", version = "0.6.0" }
 futures = "0.3.5"
 futures-util = "0.3"
 genesis-populate = { path = "genesis-tools/genesis-populate" }
