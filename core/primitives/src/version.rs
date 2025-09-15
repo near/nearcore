@@ -56,7 +56,7 @@ pub fn get_protocol_upgrade_schedule(chain_id: &str) -> ProtocolUpgradeVotingSch
     // let schedule = vec![(v1_datetime, v1_protocol_version), (v2_datetime, v2_protocol_version)];
     let schedule = match chain_id {
         MAINNET => {
-            // Voting starts Monday 21:00 UTC.
+            // Voting starts Tuesday 01:00 UTC.
             let v1_protocol_version = 80;
             let v1_datetime =
                 ProtocolUpgradeVotingSchedule::parse_datetime("2025-09-23 01:00:00").unwrap();
