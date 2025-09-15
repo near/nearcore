@@ -2,7 +2,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use itertools::Itertools;
 use reed_solomon_erasure::Field;
 use reed_solomon_erasure::galois_8::ReedSolomon;
-use reed_solomon_simd::encode;
+use reed_solomon_simd::{decode, encode};
 use std::collections::HashMap;
 use std::io::Error;
 use std::sync::Arc;
@@ -51,16 +51,29 @@ pub fn reed_solomon_decode<T: BorshDeserialize>(
     parts: &mut [ReedSolomonPart],
     encoded_length: usize,
 ) -> Result<T, Error> {
-    if let Err(err) = rs.reconstruct(parts) {
-        return Err(Error::other(err));
-    }
+    let data_parts = rs.data_shard_count();
+    let recovery_count = rs.parity_shard_count();
 
-    let encoded_data = parts
+    // Separate original and recovery parts with their indexes
+    let original_parts: Vec<(usize, &[u8])> = parts
         .iter()
-        .flat_map(|option| option.as_ref().expect("Missing shard").iter())
-        .cloned()
-        .take(encoded_length)
-        .collect_vec();
+        .enumerate()
+        .filter(|(i, _)| *i < data_parts)
+        .filter_map(|(i, part)| part.as_ref().map(|data| (i, data.as_ref())))
+        .collect();
+
+    let recovery_parts: Vec<(usize, &[u8])> = parts
+        .iter()
+        .enumerate()
+        .filter(|(i, _)| *i >= data_parts)
+        .filter_map(|(i, part)| part.as_ref().map(|data| (i - data_parts, data.as_ref())))
+        .collect();
+
+    let decoded_parts = decode(data_parts, recovery_count, original_parts, recovery_parts)
+        .map_err(|e| Error::other(e))?;
+
+    let encoded_data =
+        decoded_parts.into_iter().flat_map(|(_, data)| data).take(encoded_length).collect_vec();
 
     T::try_from_slice(&encoded_data)
 }
