@@ -257,7 +257,7 @@ impl schemars::transform::Transform for InterchangeOneOfsAndAllOfs {
 }
 
 /// Adds a title to the `allOf` object based on the first property of the first object and the enum value of the second object.
-/// For example, for the following object, the title will be `view_code_by_finality`:
+/// For example, for the following object, the title would be `view_code_by_finality`:
 ///            "allOf": [
 ///              {
 ///                "properties": {
@@ -549,7 +549,7 @@ fn whole_spec(all_schemas: SchemasMap, all_paths: PathsMap) -> OpenApi {
         openapi: "3.0.0".to_string(),
         info: okapi::openapi3::Info {
             title: "NEAR Protocol JSON RPC API".to_string(),
-            version: "1.1.1".to_string(),
+            version: "1.1.2".to_string(),
             ..Default::default()
         },
         paths: all_paths,

@@ -213,13 +213,13 @@ pub(crate) fn execute_storage_operations(
             let read_action = Action::FunctionCall(Box::new(FunctionCallAction {
                 args: near_primitives::test_utils::encode(&[salt]),
                 method_name: "read_value".to_string(),
-                gas,
+                gas: Gas::from_gas(gas),
                 deposit: 0,
             }));
             let write_action = Action::FunctionCall(Box::new(FunctionCallAction {
                 args: near_primitives::test_utils::encode(&[salt + 1, salt * 10]),
                 method_name: "write_key_value".to_string(),
-                gas,
+                gas: Gas::from_gas(gas),
                 deposit: 0,
             }));
             let tx = SignedTransaction::from_actions(
@@ -317,7 +317,7 @@ pub(crate) fn call_burn_gas_contract(
                     let signer: Signer = create_user_test_signer(signer_id).into();
                     nonce.set(nonce.get() + 1);
                     let method_name = "burn_gas_raw".to_owned();
-                    let burn_gas: u64 = gas_burnt_per_call;
+                    let burn_gas: u64 = gas_burnt_per_call.as_gas();
                     let args = burn_gas.to_le_bytes().to_vec();
                     let tx = SignedTransaction::call(
                         nonce.get(),
@@ -327,7 +327,7 @@ pub(crate) fn call_burn_gas_contract(
                         1,
                         method_name,
                         args,
-                        gas_burnt_per_call + 10 * TGAS,
+                        gas_burnt_per_call.checked_add(Gas::from_teragas(10)).unwrap(),
                         tip.last_block_hash,
                     );
                     store_and_submit_tx(
@@ -444,7 +444,7 @@ pub(crate) fn send_large_cross_shard_receipts(
                                 "{{\"account_id\": \"{}\", \"method_name\": \"noop\", \"total_args_size\": 3000000}}",
                                 receiver_id
                             ).into(),
-                            300 * TGAS,
+                            Gas::from_teragas(300),
                             tip.last_block_hash,
                         );
                         tracing::info!(
@@ -536,7 +536,7 @@ pub(crate) fn call_promise_yield(
                             1,
                             "call_yield_resume_read_data_id_from_storage".to_string(),
                             yield_payload.clone(),
-                            300 * TGAS,
+                            Gas::from_teragas(300),
                             tip.last_block_hash,
                         );
                         store_and_submit_tx(
@@ -605,7 +605,7 @@ pub(crate) fn call_promise_yield(
                             0,
                             "call_yield_create_return_promise".to_string(),
                             yield_payload.clone(),
-                            300 * TGAS,
+                            Gas::from_teragas(300),
                             tip.last_block_hash,
                         );
                         store_and_submit_tx(
@@ -960,7 +960,7 @@ pub(crate) fn promise_yield_repro_missing_trie_value(
                         0,
                         "call_yield_create_return_promise".to_string(),
                         yield_payload.clone(),
-                        300 * TGAS,
+                        Gas::from_teragas(300),
                         tip.last_block_hash,
                     );
                     store_and_submit_tx(
@@ -1037,7 +1037,7 @@ pub(crate) fn promise_yield_repro_missing_trie_value(
                         1,
                         "call_yield_resume_read_data_id_from_storage".to_string(),
                         yield_payload.clone(),
-                        300 * TGAS,
+                        Gas::from_teragas(300),
                         tip.last_block_hash,
                     );
                     store_and_submit_tx(
@@ -1168,7 +1168,9 @@ pub(crate) fn delayed_receipts_repro_missing_trie_value(
                         1,
                         method_name,
                         args,
-                        GAS_BURNT_PER_CALL + 10 * TGAS,
+                        Gas::from_gas(GAS_BURNT_PER_CALL)
+                            .checked_add(Gas::from_teragas(10))
+                            .unwrap(),
                         tip.last_block_hash,
                     );
                     store_and_submit_tx(

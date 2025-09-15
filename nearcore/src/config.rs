@@ -16,20 +16,21 @@ use near_chain_configs::{
     GenesisValidationMode, INITIAL_GAS_LIMIT, LogSummaryStyle, MAX_INFLATION_RATE,
     MIN_BLOCK_PRODUCTION_DELAY, MIN_GAS_PRICE, MutableConfigValue, MutableValidatorSigner,
     NEAR_BASE, NUM_BLOCK_PRODUCER_SEATS, NUM_BLOCKS_PER_YEAR, PROTOCOL_REWARD_RATE,
-    PROTOCOL_UPGRADE_STAKE_THRESHOLD, ReshardingConfig, StateSyncConfig,
-    TRANSACTION_VALIDITY_PERIOD, TrackedShardsConfig, default_chunk_validation_threads,
-    default_chunk_wait_mult, default_enable_multiline_logging, default_epoch_sync,
-    default_header_sync_expected_height_per_second, default_header_sync_initial_timeout,
-    default_header_sync_progress_timeout, default_header_sync_stall_ban_timeout,
-    default_log_summary_period, default_orphan_state_witness_max_size,
-    default_orphan_state_witness_pool_size, default_produce_chunk_add_transactions_time_limit,
-    default_state_request_server_threads, default_state_request_throttle_period,
-    default_state_requests_per_throttle_period, default_state_sync_enabled,
-    default_state_sync_external_backoff, default_state_sync_external_timeout,
-    default_state_sync_p2p_timeout, default_state_sync_retry_backoff, default_sync_check_period,
-    default_sync_height_threshold, default_sync_max_block_requests, default_sync_step_period,
-    default_transaction_pool_size_limit, default_trie_viewer_state_size_limit,
-    default_tx_routing_height_horizon, default_view_client_threads, get_initial_supply,
+    PROTOCOL_UPGRADE_STAKE_THRESHOLD, ProtocolVersionCheckConfig, ReshardingConfig,
+    StateSyncConfig, TRANSACTION_VALIDITY_PERIOD, TrackedShardsConfig,
+    default_chunk_validation_threads, default_chunk_wait_mult, default_enable_multiline_logging,
+    default_epoch_sync, default_header_sync_expected_height_per_second,
+    default_header_sync_initial_timeout, default_header_sync_progress_timeout,
+    default_header_sync_stall_ban_timeout, default_log_summary_period,
+    default_orphan_state_witness_max_size, default_orphan_state_witness_pool_size,
+    default_produce_chunk_add_transactions_time_limit, default_state_request_server_threads,
+    default_state_request_throttle_period, default_state_requests_per_throttle_period,
+    default_state_sync_enabled, default_state_sync_external_backoff,
+    default_state_sync_external_timeout, default_state_sync_p2p_timeout,
+    default_state_sync_retry_backoff, default_sync_check_period, default_sync_height_threshold,
+    default_sync_max_block_requests, default_sync_step_period, default_transaction_pool_size_limit,
+    default_trie_viewer_state_size_limit, default_tx_routing_height_horizon,
+    default_view_client_threads, get_initial_supply,
 };
 use near_config_utils::{DownloadConfigType, ValidationError, ValidationErrors};
 use near_crypto::{InMemorySigner, KeyFile, KeyType, PublicKey, Signer};
@@ -53,9 +54,7 @@ use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner
 use near_primitives::version::PROTOCOL_VERSION;
 #[cfg(feature = "rosetta_rpc")]
 use near_rosetta_rpc::RosettaRpcConfig;
-use near_store::config::{
-    CloudStorageConfig, STATE_SNAPSHOT_DIR, SplitStorageConfig, StateSnapshotType,
-};
+use near_store::config::{CloudStorageConfig, SplitStorageConfig, StateSnapshotType};
 use near_store::{StateSnapshotConfig, Store, TrieConfig};
 use near_telemetry::TelemetryConfig;
 use near_vm_runner::{ContractRuntimeCache, FilesystemContractRuntimeCache};
@@ -116,7 +115,6 @@ pub const CONFIG_FILENAME: &str = "config.json";
 pub const NODE_KEY_FILE: &str = "node_key.json";
 pub const VALIDATOR_KEY_FILE: &str = "validator_key.json";
 
-pub const NETWORK_LEGACY_TELEMETRY_URL: &str = "https://explorer.{}.near.org/api/nodes";
 pub const NETWORK_TELEMETRY_URL: &str = "https://telemetry.nearone.org/nodes";
 
 fn default_doomslug_step_period() -> Duration {
@@ -381,11 +379,6 @@ pub struct Config {
     ///
     /// Each loaded contract will increase the baseline memory use of the node appreciably.
     pub max_loaded_contracts: usize,
-    /// Location (within `home_dir`) where to store a cache of compiled contracts.
-    ///
-    /// This cache can be manually emptied occasionally to keep storage usage down and does not
-    /// need to be included into snapshots or dumps.
-    pub contract_cache_path: PathBuf,
     /// Save observed instances of ChunkStateWitness to the database in DBCol::LatestChunkStateWitnesses.
     /// Saving the latest witnesses is useful for analysis and debugging.
     /// This option can cause extra load on the database and is not recommended for production use.
@@ -395,6 +388,22 @@ pub struct Config {
     /// This option can cause extra load on the database and is not recommended for production use.
     pub save_invalid_witnesses: bool,
     pub transaction_request_handler_threads: usize,
+    /// If set to NextNext, node will exit if the next next epoch's protocol version is not supported.
+    /// This is the default and is a stricter check, which avoids persisting a potentially incorrect
+    /// EpochInfo, which can complicate node recovery if the node misses the protocol upgrade.
+    /// If set to Next, node will exit only if the next epoch's protocol version is not supported.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub protocol_version_check_config_override: Option<ProtocolVersionCheckConfig>,
+
+    /// Location where to store a cache of compiled contracts.
+    ///
+    /// This cache can be manually emptied occasionally to keep storage usage down and does not
+    /// need to be included into snapshots or dumps.
+    ///
+    /// Path is interpreted relative to `home_dir`.
+    ///
+    /// Use [`Self::contract_cache_path()`] to access this field.
+    pub(crate) contract_cache_path: Option<PathBuf>,
 }
 
 fn is_false(value: &bool) -> bool {
@@ -403,10 +412,6 @@ fn is_false(value: &bool) -> bool {
 impl Default for Config {
     fn default() -> Self {
         let store = near_store::StoreConfig::default();
-        let contract_cache_path =
-            [store.path.as_deref().unwrap_or_else(|| "data".as_ref()), "contract.cache".as_ref()]
-                .into_iter()
-                .collect();
         Config {
             genesis_file: GENESIS_CONFIG_FILENAME.to_string(),
             genesis_records_file: None,
@@ -457,10 +462,11 @@ impl Default for Config {
             orphan_state_witness_pool_size: default_orphan_state_witness_pool_size(),
             orphan_state_witness_max_size: default_orphan_state_witness_max_size(),
             max_loaded_contracts: 256,
-            contract_cache_path,
+            contract_cache_path: None,
             save_latest_witnesses: false,
             save_invalid_witnesses: false,
             transaction_request_handler_threads: 4,
+            protocol_version_check_config_override: None,
         }
     }
 }
@@ -591,6 +597,15 @@ impl Config {
             &self.tracked_accounts,
         )
     }
+
+    pub fn contract_cache_path(&self) -> PathBuf {
+        if let Some(explicit) = &self.contract_cache_path {
+            explicit.clone()
+        } else {
+            let store_path = self.store.path.as_deref().unwrap_or_else(|| "data".as_ref());
+            [store_path, "contract.cache".as_ref()].into_iter().collect()
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -619,6 +634,7 @@ impl NearConfig {
         network_key_pair: KeyFile,
         validator_signer: MutableValidatorSigner,
     ) -> anyhow::Result<Self> {
+        let is_archive_or_rpc = config.archive || config.tracked_shards_config().is_rpc();
         Ok(NearConfig {
             config: config.clone(),
             client_config: ClientConfig {
@@ -664,10 +680,7 @@ impl NearConfig {
                 tracked_shards_config: config.tracked_shards_config(),
                 archive: config.archive,
                 save_trie_changes: config.save_trie_changes.unwrap_or(!config.archive),
-                save_tx_outcomes: config.save_tx_outcomes.unwrap_or_else(|| {
-                    config.archive
-                        || config.tracked_shards_config() == TrackedShardsConfig::AllShards
-                }),
+                save_tx_outcomes: config.save_tx_outcomes.unwrap_or(is_archive_or_rpc),
                 log_summary_style: config.log_summary_style,
                 gc: config.gc,
                 view_client_threads: config.view_client_threads,
@@ -701,6 +714,9 @@ impl NearConfig {
                 save_latest_witnesses: config.save_latest_witnesses,
                 save_invalid_witnesses: config.save_invalid_witnesses,
                 transaction_request_handler_threads: config.transaction_request_handler_threads,
+                protocol_version_check: config
+                    .protocol_version_check_config_override
+                    .unwrap_or(ProtocolVersionCheckConfig::NextNext),
             },
             #[cfg(feature = "tx_generator")]
             tx_generator: config.tx_generator,
@@ -767,9 +783,7 @@ impl NightshadeRuntime {
         let state_snapshot_config =
             match config.config.store.state_snapshot_config.state_snapshot_type {
                 StateSnapshotType::Enabled => StateSnapshotConfig::enabled(
-                    home_dir,
-                    config.config.store.path.as_ref().unwrap_or(&"data".into()),
-                    STATE_SNAPSHOT_DIR,
+                    home_dir.join(config.config.store.path.as_ref().unwrap_or(&"data".into())),
                 ),
                 StateSnapshotType::Disabled => StateSnapshotConfig::Disabled,
             };
@@ -779,9 +793,10 @@ impl NightshadeRuntime {
         let contract_cache = FilesystemContractRuntimeCache::with_memory_cache(
             home_dir,
             config.config.store.path.as_ref(),
-            &config.config.contract_cache_path,
+            &config.config.contract_cache_path(),
             config.config.max_loaded_contracts,
         )?;
+        let state_parts_compression_lvl = config.client_config.state_sync.parts_compression_lvl;
         Ok(NightshadeRuntime::new(
             store,
             ContractRuntimeCache::handle(&contract_cache),
@@ -793,6 +808,7 @@ impl NightshadeRuntime {
             config.config.gc.gc_num_epochs_to_keep(),
             TrieConfig::from_store_config(&config.config.store),
             state_snapshot_config,
+            state_parts_compression_lvl,
         ))
     }
 }
@@ -972,7 +988,6 @@ pub fn init_configs(
             if test_seed.is_some() {
                 bail!("Test seed is not supported for {chain_id}");
             }
-            config.telemetry.endpoints.push(NETWORK_LEGACY_TELEMETRY_URL.replace("{}", &chain_id));
             config.telemetry.endpoints.push(NETWORK_TELEMETRY_URL.to_string());
             config.state_sync = Some(StateSyncConfig::gcs_default());
         }

@@ -1,11 +1,12 @@
-use actix_rt::System;
 use itertools::{Itertools, multizip};
 use near_async::messaging::{IntoMultiSender, IntoSender, noop};
 use near_async::time::Clock;
 use near_chain::state_snapshot_actor::SnapshotCallbacks;
 use near_chain::types::RuntimeAdapter;
 use near_chain::{Block, ChainGenesis};
-use near_chain_configs::{Genesis, GenesisConfig, MutableConfigValue, TrackedShardsConfig};
+use near_chain_configs::{
+    Genesis, GenesisConfig, MutableConfigValue, ProtocolVersionCheckConfig, TrackedShardsConfig,
+};
 use near_chunks::test_utils::MockClientAdapterForShardsManager;
 use near_client::{ChunkValidationActorInner, Client};
 use near_epoch_manager::shard_tracker::ShardTracker;
@@ -32,6 +33,7 @@ use super::setup::{
     setup_tx_request_handler,
 };
 use super::test_env::{AccountIndices, TestEnv};
+use near_async::ActorSystem;
 
 /// A builder for the TestEnv structure.
 pub struct TestEnvBuilder {
@@ -55,15 +57,13 @@ pub struct TestEnvBuilder {
     save_tx_outcomes: bool,
     state_snapshot_enabled: bool,
     track_all_shards: bool,
+    protocol_version_check: ProtocolVersionCheckConfig,
 }
 
 /// Builder for the [`TestEnv`] structure.
 impl TestEnvBuilder {
     /// Constructs a new builder.
     pub(crate) fn new(genesis_config: GenesisConfig) -> Self {
-        if let None = System::try_current() {
-            let _ = System::new();
-        }
         let clients = Self::make_accounts(1);
         let validators = clients.clone();
         let seeds: HashMap<AccountId, RngSeed> = HashMap::with_capacity(1);
@@ -86,6 +86,7 @@ impl TestEnvBuilder {
             save_tx_outcomes: true,
             state_snapshot_enabled: false,
             track_all_shards: false,
+            protocol_version_check: Default::default(),
         }
     }
 
@@ -436,6 +437,14 @@ impl TestEnvBuilder {
         self
     }
 
+    pub fn protocol_version_check(
+        mut self,
+        protocol_version_check: ProtocolVersionCheckConfig,
+    ) -> Self {
+        self.protocol_version_check = protocol_version_check;
+        self
+    }
+
     /// Constructs new `TestEnv` structure.
     ///
     /// If no clients were configured (either through count or vector) one
@@ -509,6 +518,7 @@ impl TestEnvBuilder {
                 )
             })
             .collect_vec();
+        let actor_system = ActorSystem::new();
         let (clients, chunk_validation_actors): (Vec<Client>, Vec<ChunkValidationActorInner>) =
             (0..num_clients)
                 .map(|i| {
@@ -546,6 +556,7 @@ impl TestEnvBuilder {
                     };
                     setup_client_with_runtime(
                         clock.clone(),
+                        actor_system.clone(),
                         u64::try_from(num_validators).unwrap(),
                         false,
                         network_adapter.as_multi_sender(),
@@ -558,6 +569,7 @@ impl TestEnvBuilder {
                         self.archive,
                         self.save_trie_changes,
                         self.save_tx_outcomes,
+                        self.protocol_version_check,
                         Some(snapshot_callbacks),
                         partial_witness_adapter.into_multi_sender(),
                         validator_signers[i].clone(),
@@ -581,6 +593,7 @@ impl TestEnvBuilder {
 
         TestEnv {
             clock,
+            actor_system,
             chain_genesis,
             validators,
             network_adapters,
@@ -602,6 +615,7 @@ impl TestEnvBuilder {
             archive: self.archive,
             save_trie_changes: self.save_trie_changes,
             save_tx_outcomes: self.save_tx_outcomes,
+            protocol_version_check: self.protocol_version_check,
         }
     }
 

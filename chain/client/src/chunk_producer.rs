@@ -222,7 +222,9 @@ impl ChunkProducer {
         ?epoch_id,
         prev_block_hash = ?prev_block.header().hash(),
         chunk_hash = tracing::field::Empty,
-        tag_block_production = true
+        transactions_num = tracing::field::Empty,
+        tag_block_production = true,
+        tag_chunk_distribution = true,
     ))]
     fn produce_chunk_internal(
         &mut self,
@@ -304,8 +306,11 @@ impl ChunkProducer {
         let outgoing_receipts_root = self.calculate_receipts_root(epoch_id, &outgoing_receipts)?;
         let gas_used = chunk_extra.gas_used();
         #[cfg(feature = "test_features")]
-        let gas_used =
-            if self.adversarial.produce_invalid_chunks { gas_used + 1 } else { gas_used };
+        let gas_used = if self.adversarial.produce_invalid_chunks {
+            gas_used.checked_add(near_primitives::types::Gas::from_gas(1)).unwrap()
+        } else {
+            gas_used
+        };
 
         let congestion_info = chunk_extra.congestion_info();
         let bandwidth_requests = chunk_extra.bandwidth_requests();
@@ -335,6 +340,7 @@ impl ChunkProducer {
 
         let encoded_chunk = chunk.to_encoded_shard_chunk();
         span.record("chunk_hash", tracing::field::debug(encoded_chunk.chunk_hash()));
+        span.record("transactions_num", tracing::field::display(num_filtered_transactions));
         debug!(
             target: "client",
             num_filtered_transactions,
@@ -373,6 +379,17 @@ impl ChunkProducer {
     }
 
     /// Prepares an ordered list of valid transactions from the pool up the limits.
+    #[instrument(
+        target = "client",
+        level = "debug",
+        "producer_prepare_transactions",
+        skip_all,
+        fields(
+            height = prev_block.header().height() + 1,
+            shard_id = %shard_uid.shard_id(),
+            tag_block_production = true
+        )
+    )]
     fn prepare_transactions(
         &self,
         shard_uid: ShardUId,

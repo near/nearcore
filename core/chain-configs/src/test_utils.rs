@@ -4,7 +4,7 @@ use near_primitives::account::{AccessKey, Account, AccountContract};
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::state_record::StateRecord;
-use near_primitives::types::{AccountId, AccountInfo, Balance, NumSeats, NumShards};
+use near_primitives::types::{AccountId, AccountInfo, Balance, Gas, NumSeats, NumShards};
 use near_primitives::utils::{from_timestamp, generate_random_string};
 use near_primitives::version::PROTOCOL_VERSION;
 use near_time::Clock;
@@ -27,7 +27,7 @@ impl GenesisConfig {
         GenesisConfig {
             genesis_time: from_timestamp(clock.now_utc().unix_timestamp_nanos() as u64),
             genesis_height: 0,
-            gas_limit: 10u64.pow(15),
+            gas_limit: Gas::from_teragas(1000),
             min_gas_price: 0,
             max_gas_price: 1_000_000_000,
             total_supply: 1_000_000_000,

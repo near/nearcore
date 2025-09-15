@@ -7,15 +7,59 @@ import pathlib
 import sys
 import tempfile
 import time
+from datetime import datetime, timedelta, timezone
+from dataclasses import dataclass
 
 from mirror import (CommandContext, amend_binaries_cmd, clear_scheduled_cmds,
                     get_nodes_status, hard_reset_cmd, new_test_cmd,
                     run_remote_cmd, run_remote_download_file,
                     run_remote_upload_file, start_nodes_cmd, start_traffic_cmd,
                     stop_nodes_cmd, update_config_cmd)
+from utils import ScheduleMode
 
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 from configured_logger import logger
+
+
+class NodeHardware:
+    """
+    Hardware configuration for validators.
+    """
+
+    @dataclass
+    class Config:
+        # The number of chunk producers.
+        num_chunk_producer_seats: int
+        # The number of chunk validators.
+        num_chunk_validator_seats: int
+
+        def chunk_producers_hosts(self) -> int:
+            pass
+
+        def only_chunk_validators_hosts(self) -> int:
+            pass
+
+    class SameConfig(Config):
+        """
+        All validators have the same hardware.
+        """
+
+        def chunk_producers_hosts(self) -> int:
+            return self.num_chunk_validator_seats
+
+        def only_chunk_validators_hosts(self) -> int:
+            return 0
+
+    class SmallChunkValidatorsConfig(Config):
+        """
+        Separate chunk producers and validators hardware.
+        """
+
+        def chunk_producers_hosts(self) -> int:
+            return self.num_chunk_producer_seats
+
+        def only_chunk_validators_hosts(self) -> int:
+            return self.num_chunk_validator_seats - self.num_chunk_producer_seats
 
 
 class TestSetup:
@@ -38,15 +82,20 @@ class TestSetup:
         self.tracing_server = False
         # The GCP regions to be used for the nodes.
         self.regions = None
-        # The number of validators.
-        self.validators = None
-        # The number of block producers. The rest will be chunk validators.
-        self.block_producers = None
+        # Hardware configuration for validators
+        self.node_hardware_config = NodeHardware.SameConfig(
+            num_chunk_producer_seats=0, num_chunk_validator_seats=0)
         # The base binary url to be used for the nodes.
         self.neard_binary_url = None
         # The new binary url to be used for the nodes.
         self.neard_upgrade_binary_url = getattr(args,
                                                 'neard_upgrade_binary_url', '')
+
+    def _needs_upgrade(self):
+        """
+        Check if the test needs to go through the upgrade process.
+        """
+        return self.neard_upgrade_binary_url is not None and self.neard_upgrade_binary_url != ''
 
     def init_env(self):
         """
@@ -56,21 +105,13 @@ class TestSetup:
             f"Initializing environment for test case {self.args.test_case}")
         # Load test state orchestrator
         init_args = copy.deepcopy(self.args)
-        init_args.neard_upgrade_binary_url = ''
+        init_args.neard_binary_url = self.neard_binary_url
+        init_args.neard_upgrade_binary_url = self.neard_upgrade_binary_url
+        # We are using schedule to start the nodes, so we don't need to upgrade by epoch.
+        init_args.upgrade_by_epoch = False
         init_args.yes = True
+        init_args.gcs_state_sync = self.has_state_dumper
         hard_reset_cmd(CommandContext(init_args))
-
-        # Traffic node should always run the latest binary to avoid restarting it.
-        if self.neard_upgrade_binary_url is not None and self.neard_upgrade_binary_url != '':
-            logger.info(
-                f"Amending binaries on traffic node with url: {self.neard_upgrade_binary_url}"
-            )
-            amend_binaries_args = copy.deepcopy(self.args)
-            amend_binaries_args.binary_idx = 0
-            amend_binaries_args.epoch_height = None
-            amend_binaries_args.neard_binary_url = self.neard_upgrade_binary_url
-            amend_binaries_args.host_type = 'traffic'
-            amend_binaries_cmd(CommandContext(amend_binaries_args))
 
         # Clear scheduled commands.
         logger.info(f"Clearing scheduled commands.")
@@ -94,7 +135,8 @@ class TestSetup:
         cfg_args.set = ';'.join([
             'archive=true', 'gc_num_epochs_to_keep=3', 'save_trie_changes=true',
             'split_storage.enable_split_storage_view_client=true',
-            'cold_store.path="/home/ubuntu/.near/cold"', 'tracked_shards=[0]',
+            'cold_store.path="/home/ubuntu/.near/cold"',
+            'tracked_shards_config="AllShards"',
             'store.load_mem_tries_for_tracked_shards=false'
         ])
         update_config_cmd(CommandContext(cfg_args))
@@ -112,8 +154,9 @@ class TestSetup:
         new_test_args = copy.deepcopy(self.args)
         new_test_args.epoch_length = self.epoch_len
         new_test_args.genesis_protocol_version = self.genesis_protocol_version
-        new_test_args.num_validators = self.validators
-        new_test_args.num_seats = self.block_producers
+        new_test_args.num_validators = self.node_hardware_config.num_chunk_validator_seats
+        # Set all seats to the lower value. This will be increased later in epoch config.
+        new_test_args.num_seats = self.node_hardware_config.num_chunk_producer_seats
         new_test_args.stateless_setup = True
         new_test_args.new_chain_id = self.unique_id
         new_test_args.yes = True
@@ -122,9 +165,6 @@ class TestSetup:
         new_test_args.patches_path = None
 
         new_test_cmd(CommandContext(new_test_args))
-
-        if self.has_archival:
-            self._setup_archival()
 
     def wait_for_network_to_be_ready(self):
         """
@@ -136,8 +176,11 @@ class TestSetup:
             not_ready_nodes = get_nodes_status(nodes)
             if len(not_ready_nodes) == 0:
                 break
+
+            not_ready_nodes_msg = f"{not_ready_nodes[:5]}..." if len(
+                not_ready_nodes) > 5 else not_ready_nodes
             logger.info(
-                f"Waiting for network to be ready. {len(not_ready_nodes)} nodes not ready."
+                f"Waiting for network to be ready. {len(not_ready_nodes)} nodes not ready: {not_ready_nodes_msg}"
             )
             time.sleep(1)
         logger.info("Network is ready.")
@@ -178,25 +221,21 @@ class TestSetup:
         run_cmd_args.cmd = cmd_traffic
         run_remote_cmd(CommandContext(run_cmd_args))
 
-    def _reduce_chunk_validators_stake(self):
-        """
-        Reduce the stake of the chunk validators to avoid accidentally becoming the block producers.
-        """
-        # TODO: install the near validator tools and setup the environment.
-        # TODO: run the validator tools to reduce the stake of the chunk validators.
-        pass
-
     def amend_epoch_config(self):
-        self._share_epoch_configs()
+        if self._needs_upgrade():
+            # We need to share the epoch configs before the upgrade.
+            # TODO: use the binary on the host to generate the new epoch configs.
+            self._share_epoch_configs()
         self._amend_epoch_config(
-            f".num_chunk_validator_seats = {self.validators}")
-        self._reduce_chunk_validators_stake()
+            f".num_chunk_validator_seats = {self.node_hardware_config.num_chunk_validator_seats}"
+        )
 
     def amend_configs_before_test_start(self):
         """
         Amend the configs for the test.
         """
-        pass
+        if self.has_archival:
+            self._setup_archival()
 
     def start_network(self):
         """
@@ -209,33 +248,24 @@ class TestSetup:
     def _schedule_upgrade_nodes_every_n_minutes(self, minutes):
         """
         Make 4 batches of upgrades.
-        Stop the nodes, amend the binaries, and start the nodes.
+        The nodes should already have the upgrade binary on index 1.
         """
         if self.neard_upgrade_binary_url == '':
             return
 
+        def time_to_str(time):
+            return time.astimezone(
+                timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')
+
+        now = datetime.now()
         for i in range(1, 5):
-            stop_nodes_args = copy.deepcopy(self.args)
-            stop_nodes_args.host_type = 'nodes'
-            stop_nodes_args.select_partition = (i, 4)
-            stop_nodes_args.schedule_in = f"{(i * minutes)}m"
-            stop_nodes_args.schedule_id = f"up-stop-{i}"
-            stop_nodes_cmd(CommandContext(stop_nodes_args))
-
-            amend_binaries_args = copy.deepcopy(self.args)
-            amend_binaries_args.binary_idx = 0
-            amend_binaries_args.epoch_height = None
-            amend_binaries_args.neard_binary_url = self.neard_upgrade_binary_url
-            amend_binaries_args.host_type = 'nodes'
-            amend_binaries_args.select_partition = (i, 4)
-            amend_binaries_args.schedule_in = f"{(i * minutes * 60 + 20)}"
-            amend_binaries_args.schedule_id = f"up-change-{i}"
-            amend_binaries_cmd(CommandContext(amend_binaries_args))
-
+            restart_time = now + timedelta(minutes=i * minutes)
             start_nodes_args = copy.deepcopy(self.args)
             start_nodes_args.host_type = 'nodes'
             start_nodes_args.select_partition = (i, 4)
-            start_nodes_args.schedule_in = f"{(i*minutes + 1)}m"
+            start_nodes_args.binary_idx = 1
+            start_nodes_args.on = ScheduleMode(mode="calendar",
+                                               value=time_to_str(restart_time))
             start_nodes_args.schedule_id = f"up-start-{i}"
             start_nodes_cmd(CommandContext(start_nodes_args))
 

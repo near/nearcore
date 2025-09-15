@@ -171,7 +171,7 @@ impl Chain {
             state_root,
             CryptoHash::default(),
             vec![],
-            0,
+            Gas::ZERO,
             gas_limit,
             0,
             congestion_info,
@@ -184,7 +184,7 @@ impl Chain {
             state_root: *state_root,
             outcome_root: CryptoHash::default(),
             validator_proposals: vec![],
-            gas_used: 0,
+            gas_used: Gas::ZERO,
             gas_limit,
             balance_burnt: 0,
         })

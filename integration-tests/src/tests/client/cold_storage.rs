@@ -1,7 +1,9 @@
 use borsh::BorshDeserialize;
+use near_async::ActorSystem;
 use near_chain::Provenance;
 use near_chain_configs::{Genesis, MutableConfigValue};
 use near_client::ProcessTxResponse;
+use near_client::archive::cold_store_actor::create_cold_store_actor;
 use near_crypto::{InMemorySigner, KeyType, Signer};
 use near_epoch_manager::EpochManager;
 use near_o11y::testonly::init_test_logger;
@@ -10,6 +12,7 @@ use near_primitives::sharding::ShardChunk;
 use near_primitives::transaction::{
     Action, DeployContractAction, FunctionCallAction, SignedTransaction,
 };
+use near_primitives::types::Gas;
 use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::types::AccountId;
 use near_store::archive::cold_storage::{
@@ -18,8 +21,8 @@ use near_store::archive::cold_storage::{
 };
 use near_store::db::metadata::{DB_VERSION, DbKind};
 use near_store::test_utils::create_test_node_storage_with_cold;
-use near_store::{COLD_HEAD_KEY, DBCol, HEAD_KEY, Store};
-use nearcore::{NearConfig, cold_storage::spawn_cold_store_loop};
+use near_store::{COLD_HEAD_KEY, DBCol, HEAD_KEY, Store, set_genesis_height};
+use nearcore::NearConfig;
 use std::collections::HashSet;
 use std::str::FromStr;
 use strum::IntoEnumIterator;
@@ -90,7 +93,7 @@ fn create_tx_function_call(
     let action = Action::FunctionCall(Box::new(FunctionCallAction {
         method_name: "write_random_value".to_string(),
         args: vec![],
-        gas: 100_000_000_000_000,
+        gas: Gas::from_teragas(100),
         deposit: 0,
     }));
     SignedTransaction::from_actions(nonce, test0(), test0(), signer, vec![action], block_hash, 0)
@@ -489,6 +492,10 @@ fn test_cold_loop_on_gc_boundary() {
     let keep_going = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true));
 
     let cold_db = storage.cold_db().unwrap();
+    let mut store_update = cold_db.as_store().store_update();
+    set_genesis_height(&mut store_update, &0);
+    store_update.commit().unwrap();
+
     copy_all_data_to_cold(cold_db.clone(), &hot_store, 1000000, &keep_going).unwrap();
 
     update_cold_head(cold_db, &hot_store, &(height_delta - 1)).unwrap();
@@ -531,7 +538,18 @@ fn test_cold_loop_on_gc_boundary() {
     let epoch_manager =
         EpochManager::new_arc_handle(storage.get_hot_store(), &genesis.config, None);
     let shard_tracker = env.clients[0].shard_tracker.clone();
-    spawn_cold_store_loop(&near_config, &storage, epoch_manager, shard_tracker).unwrap();
+    let (actor, _keep_going) = create_cold_store_actor(
+        near_config.config.save_trie_changes,
+        &near_config.config.split_storage.clone().unwrap_or_default(),
+        near_config.genesis.config.genesis_height,
+        &storage,
+        epoch_manager,
+        shard_tracker,
+    )
+    .unwrap()
+    .unwrap();
+    let actor_system = ActorSystem::new();
+    let _cold_store_addr = actor_system.spawn_tokio_actor(actor);
     std::thread::sleep(std::time::Duration::from_secs(1));
 
     let end_cold_head =

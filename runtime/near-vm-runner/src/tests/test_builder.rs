@@ -24,7 +24,7 @@ pub(crate) fn test_builder() -> TestBuilder {
         account_locked_balance: 0,
         storage_usage: 12,
         attached_deposit: 2u128,
-        prepaid_gas: 10_u64.pow(14),
+        prepaid_gas: Gas::from_teragas(100),
         random_seed: vec![0, 1, 2],
         view_config: None,
         output_data_receivers: vec![],
@@ -101,6 +101,7 @@ impl TestBuilder {
 
     pub(crate) fn skip_near_vm(mut self) -> Self {
         self.skip.insert(VMKind::NearVm);
+        self.skip.insert(VMKind::NearVm2);
         self
     }
 
@@ -182,8 +183,9 @@ impl TestBuilder {
 
         for (want, &protocol_version) in wants.zip(&self.protocol_versions) {
             let mut results = vec![];
-            for vm_kind in [VMKind::NearVm, VMKind::Wasmtime] {
+            for vm_kind in [VMKind::NearVm, VMKind::NearVm2, VMKind::Wasmtime] {
                 if self.skip.contains(&vm_kind) {
+                    println!("Skipping {:?}", vm_kind);
                     continue;
                 }
 
@@ -259,8 +261,8 @@ fn fmt_outcome_without_abort(
         outcome.balance,
         outcome.storage_usage,
         return_data_str,
-        outcome.burnt_gas,
-        outcome.used_gas
+        outcome.burnt_gas.as_gas(),
+        outcome.used_gas.as_gas()
     )?;
     Ok(())
 }

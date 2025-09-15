@@ -13,7 +13,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::sharding::{ShardChunk, ShardChunkHeader};
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::ShardId;
+use near_primitives::types::{Gas, ShardId};
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_primitives::views::FinalExecutionStatus;
 use near_vm_runner::logic::ProtocolVersion;
@@ -184,7 +184,7 @@ fn new_fn_call_100tgas(
     signer: &Signer,
     block_hash: CryptoHash,
 ) -> SignedTransaction {
-    let hundred_tgas = 100 * 10u64.pow(12);
+    let hundred_tgas = Gas::from_teragas(100);
     let deposit = 0;
     let nonce = *nonce_source;
     *nonce_source += 1;
@@ -210,7 +210,7 @@ fn new_cheap_fn_call(
     receiver: AccountId,
     block_hash: CryptoHash,
 ) -> SignedTransaction {
-    let one_tgas = 1 * 10u64.pow(12);
+    let one_tgas = Gas::from_teragas(1);
     let deposit = 0;
     let nonce = *nonce_source;
     *nonce_source += 1;
@@ -449,7 +449,7 @@ fn measure_tx_limit(
         UpperLimitCongestion::AboveRejectThreshold => config.reject_tx_congestion_threshold * 2.0,
     };
 
-    let num_full_congestion = config.max_congestion_incoming_gas / (100 * 10u64.pow(12));
+    let num_full_congestion = config.max_congestion_incoming_gas.as_teragas() / 100;
     let n = num_full_congestion as f64 * upper_limit_congestion;
     // Key of new account starts at block_height * 1_000_000
     let tip = env.clients[0].chain.head().unwrap();

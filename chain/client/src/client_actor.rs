@@ -16,7 +16,7 @@ use crate::debug::new_network_info_view;
 use crate::info::{InfoHelper, display_sync_status};
 use crate::stateless_validation::chunk_endorsement::ChunkEndorsementTracker;
 use crate::stateless_validation::chunk_validation_actor::{
-    ChunkValidationActorInner, ChunkValidationSender, ChunkValidationSyncActor,
+    ChunkValidationActorInner, ChunkValidationSender,
 };
 use crate::stateless_validation::partial_witness::partial_witness_actor::PartialWitnessSenderForClient;
 use crate::sync::handler::SyncHandlerRequest;
@@ -25,11 +25,11 @@ use crate::sync::state::chain_requests::{
 };
 use crate::sync_jobs_actor::{ClientSenderForSyncJobs, SyncJobsActor};
 use crate::{AsyncComputationMultiSpawner, StatusResponse, metrics};
-use near_async::actix::wrapper::ActixWrapper;
 use near_async::futures::{DelayedActionRunner, DelayedActionRunnerExt, FutureSpawner};
 use near_async::messaging::{
     self, CanSend, Handler, IntoMultiSender, IntoSender as _, LateBoundSender, Sender, noop,
 };
+use near_async::multithread::MultithreadRuntimeHandle;
 use near_async::time::{Clock, Utc};
 use near_async::time::{Duration, Instant};
 use near_async::tokio::TokioRuntimeHandle;
@@ -95,8 +95,6 @@ const STATUS_WAIT_TIME_MULTIPLIER: i32 = 10;
 /// the current `head`
 const HEAD_STALL_MULTIPLIER: u32 = 4;
 
-pub type ClientActor = ActixWrapper<ClientActorInner>;
-
 /// Returns random seed sampled from the current thread
 fn random_seed_from_thread() -> RngSeed {
     let mut rng_seed: RngSeed = [0; 32];
@@ -125,10 +123,10 @@ pub struct StartClientResult {
     pub client_actor: TokioRuntimeHandle<ClientActorInner>,
     pub tx_pool: Arc<Mutex<ShardedTransactionPool>>,
     pub chunk_endorsement_tracker: Arc<ChunkEndorsementTracker>,
-    pub chunk_validation_actor: actix::Addr<ChunkValidationSyncActor>,
+    pub chunk_validation_actor: MultithreadRuntimeHandle<ChunkValidationActorInner>,
 }
 
-/// Starts client in a separate Arbiter (thread).
+/// Starts client in a separate tokio runtime (thread).
 pub fn start_client(
     clock: Clock,
     actor_system: ActorSystem,
@@ -201,7 +199,8 @@ pub fn start_client(
     let genesis_block = client.chain.genesis_block();
     let num_chunk_validation_threads = client.config.chunk_validation_threads;
 
-    let chunk_validation_actor_addr = ChunkValidationActorInner::spawn_actix_actors(
+    let chunk_validation_actor_addr = ChunkValidationActorInner::spawn_multithread_actor(
+        actor_system.clone(),
         client.chain.chain_store().clone(),
         genesis_block,
         epoch_manager.clone(),
@@ -635,7 +634,7 @@ impl Handler<SpanWrapped<StateResponseReceived>> for ClientActorInner {
         trace!(target: "sync", "Received state response shard_id: {} sync_hash: {:?} part(id/size): {:?}",
                shard_id,
                hash,
-               state_response.part().as_ref().map(|(part_id, data)| (part_id, data.len()))
+               state_response.part_id().zip(state_response.payload_length()),
         );
         // Get the download that matches the shard_id and hash
 
@@ -1931,6 +1930,15 @@ impl Handler<SpanWrapped<ShardsManagerResponse>> for ClientActorInner {
         let msg = msg.span_unwrap();
         match msg {
             ShardsManagerResponse::ChunkCompleted { partial_chunk, shard_chunk } => {
+                let _span = tracing::debug_span!(
+                    target: "client",
+                    "chunk_completed",
+                    height = partial_chunk.height_created(),
+                    shard_id = %partial_chunk.shard_id(),
+                    chunk_hash = ?partial_chunk.chunk_hash(),
+                    tag_chunk_distribution = true,
+                )
+                .entered();
                 self.client.on_chunk_completed(
                     partial_chunk,
                     shard_chunk,
@@ -1944,6 +1952,15 @@ impl Handler<SpanWrapped<ShardsManagerResponse>> for ClientActorInner {
                 chunk_header,
                 chunk_producer,
             } => {
+                let _span = tracing::debug_span!(
+                    target: "client",
+                    "chunk_header_ready_for_inclusion",
+                    height = chunk_header.height_created(),
+                    shard_id = %chunk_header.shard_id(),
+                    chunk_hash = ?chunk_header.chunk_hash(),
+                    tag_chunk_distribution = true,
+                )
+                .entered();
                 self.client
                     .chunk_inclusion_tracker
                     .mark_chunk_header_ready_for_inclusion(chunk_header, chunk_producer);

@@ -12,6 +12,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::state_part::PartId;
 use near_primitives::state_sync::{ShardStateSyncResponseHeader, StatePartKey};
 use near_primitives::types::ShardId;
+use near_primitives::version::ProtocolVersion;
 use near_store::{DBCol, Store};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -144,6 +145,7 @@ impl StateSyncDownloader {
         part_id: u64,
         num_prior_attempts: usize,
         cancel: CancellationToken,
+        protocol_version: ProtocolVersion,
     ) -> BoxFuture<'static, Result<(), near_chain::Error>> {
         let store = self.store.clone();
         let runtime_adapter = self.runtime.clone();
@@ -194,7 +196,8 @@ impl StateSyncDownloader {
                 ) {
                     let mut store_update = store.store_update();
                     let key = borsh::to_vec(&StatePartKey(sync_hash, shard_id, part_id)).unwrap();
-                    store_update.set(DBCol::StateParts, &key, &part);
+                    let bytes = part.to_bytes(protocol_version);
+                    store_update.set(DBCol::StateParts, &key, &bytes);
                     store_update.commit().map_err(|e| {
                         near_chain::Error::Other(format!("Failed to store part: {}", e))
                     })?;

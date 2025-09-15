@@ -2,7 +2,6 @@ use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 use std::time::Duration;
 
-use actix::Addr;
 use parking_lot::RwLock;
 use rocksdb::DB;
 use tokio::sync::mpsc;
@@ -19,17 +18,12 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::views;
 
 use self::errors::FailedToFetchData;
-use self::fetchers::{
-    fetch_block, fetch_block_by_height, fetch_block_new_chunks, fetch_latest_block, fetch_outcomes,
-    fetch_state_changes, fetch_status,
-};
 use self::utils::convert_transactions_sir_into_local_receipts;
 use crate::INDEXER;
-use crate::streamer::fetchers::fetch_protocol_config;
 use crate::{AwaitForNodeSyncedEnum, IndexerConfig};
-use near_async::tokio::TokioRuntimeHandle;
-use near_client::client_actor::ClientActorInner;
 use near_epoch_manager::shard_tracker::ShardTracker;
+
+pub use fetchers::{IndexerClientFetcher, IndexerViewClientFetcher};
 
 mod errors;
 mod fetchers;
@@ -42,60 +36,30 @@ static DELAYED_LOCAL_RECEIPTS_CACHE: std::sync::LazyLock<
 
 const INTERVAL: Duration = Duration::from_millis(250);
 
-/// Blocks #47317863 and #47317864 with restored receipts.
-const PROBLEMATIC_BLOCKS: [CryptoHash; 2] = [
-    CryptoHash(
-        *b"\xcd\xde\x9a\x3f\x5d\xdf\xb4\x2c\xb9\x9b\xf4\x8c\x04\x95\x6f\x5b\
-           \xa0\xb7\x29\xe2\xa5\x04\xf8\xbd\x9c\x86\x92\xd6\x16\x8c\xcf\x14",
-    ),
-    CryptoHash(
-        *b"\x12\xa9\x5a\x1a\x3d\x14\xa7\x36\xb3\xce\xe6\xea\x07\x20\x8e\x75\
-           \x4e\xb5\xc2\xd7\xf9\x11\xca\x29\x09\xe0\xb8\x85\xb5\x2b\x95\x6a",
-    ),
-];
-
-/// Tests whether raw hashes in [`PROBLEMATIC_BLOCKS`] match expected
-/// user-readable hashes.  Ideally we would compute the hashes at compile time
-/// but there’s no const function for base58→bytes conversion so instead we’re
-/// hard-coding the raw base in [`PROBLEMATIC_BLOCKS`] and have this test to
-/// confirm the raw values are correct.
-#[test]
-fn test_problematic_blocks_hash() {
-    let got: Vec<String> =
-        PROBLEMATIC_BLOCKS.iter().map(std::string::ToString::to_string).collect();
-    assert_eq!(
-        vec![
-            "ErdT2vLmiMjkRoSUfgowFYXvhGaLJZUWrgimHRkousrK",
-            "2Fr7dVAZGoPYgpwj6dfASSde6Za34GNUJb4CkZ8NSQqw"
-        ],
-        got
-    );
-}
-
 /// This function supposed to return the entire `StreamerMessage`.
 /// It fetches the block and all related parts (chunks, outcomes, state changes etc.)
 /// and returns everything together in one struct
 pub async fn build_streamer_message(
-    client: &Addr<near_client::ViewClientActor>,
+    client: &IndexerViewClientFetcher,
     block: views::BlockView,
     shard_tracker: &ShardTracker,
 ) -> Result<StreamerMessage, FailedToFetchData> {
     let _timer = metrics::BUILD_STREAMER_MESSAGE_TIME.start_timer();
-    let chunks = fetch_block_new_chunks(&client, &block, shard_tracker).await?;
+    let chunks = client.fetch_block_new_chunks(&block, shard_tracker).await?;
 
-    let protocol_config_view = fetch_protocol_config(&client, block.header.hash).await?;
+    let protocol_config_view = client.fetch_protocol_config(block.header.hash).await?;
     let shard_ids = protocol_config_view.shard_layout.shard_ids();
 
     let runtime_config_store = near_parameters::RuntimeConfigStore::new(None);
     let runtime_config = runtime_config_store.get_config(protocol_config_view.protocol_version);
 
-    let mut shards_outcomes = fetch_outcomes(&client, block.header.hash).await?;
-    let mut state_changes = fetch_state_changes(
-        &client,
-        block.header.hash,
-        near_primitives::types::EpochId(block.header.epoch_id),
-    )
-    .await?;
+    let mut shards_outcomes = client.fetch_outcomes(block.header.hash).await?;
+    let mut state_changes = client
+        .fetch_state_changes(
+            block.header.hash,
+            near_primitives::types::EpochId(block.header.epoch_id),
+        )
+        .await?;
     let mut indexer_shards = shard_ids
         .map(|shard_id| IndexerShard {
             shard_id,
@@ -189,29 +153,6 @@ pub async fn build_streamer_message(
                 .push(IndexerExecutionOutcomeWithReceipt { execution_outcome, receipt });
         }
 
-        // Blocks #47317863 and #47317864
-        // (ErdT2vLmiMjkRoSUfgowFYXvhGaLJZUWrgimHRkousrK, 2Fr7dVAZGoPYgpwj6dfASSde6Za34GNUJb4CkZ8NSQqw)
-        // are the first blocks of an upgraded protocol version on mainnet.
-        // In this block ExecutionOutcomes for restored Receipts appear.
-        // However the Receipts are not included in any Chunk. Indexer Framework needs to include them,
-        // so it was decided to artificially include the Receipts into the Chunk of the Block where
-        // ExecutionOutcomes appear.
-        // ref: https://github.com/near/nearcore/pull/4248
-        if PROBLEMATIC_BLOCKS.contains(&block.header.hash)
-            && &protocol_config_view.chain_id == near_primitives::chains::MAINNET
-        {
-            let mut restored_receipts: Vec<views::ReceiptView> = vec![];
-            let receipt_ids_included: std::collections::HashSet<CryptoHash> =
-                chunk_non_local_receipts.iter().map(|receipt| receipt.receipt_id).collect();
-            for outcome in &receipt_execution_outcomes {
-                if !receipt_ids_included.contains(&outcome.receipt.receipt_id) {
-                    restored_receipts.push(outcome.receipt.clone());
-                }
-            }
-
-            chunk_receipts.extend(restored_receipts);
-        }
-
         chunk_receipts.extend(chunk_non_local_receipts);
 
         // Find the shard index for the chunk by shard_id
@@ -259,7 +200,7 @@ pub async fn build_streamer_message(
 // we will be iterating over previous blocks until we found the receipt
 // or panic if we didn't find it in 1000 blocks
 async fn lookup_delayed_local_receipt_in_previous_blocks(
-    client: &Addr<near_client::ViewClientActor>,
+    client: &IndexerViewClientFetcher,
     runtime_config: &RuntimeConfig,
     block: views::BlockView,
     receipt_id: CryptoHash,
@@ -280,7 +221,7 @@ async fn lookup_delayed_local_receipt_in_previous_blocks(
                 prev_block_tried,
             );
         }
-        let prev_block = match fetch_block(&client, prev_block_hash).await {
+        let prev_block = match client.fetch_block(prev_block_hash).await {
             Ok(block) => block,
             Err(err) => panic!("Unable to get previous block: {:?}", err),
         };
@@ -313,16 +254,16 @@ async fn lookup_delayed_local_receipt_in_previous_blocks(
 /// Function that tries to find specific local receipt by it's ID and returns it
 /// otherwise returns None
 async fn find_local_receipt_by_id_in_block(
-    client: &Addr<near_client::ViewClientActor>,
+    client: &IndexerViewClientFetcher,
     runtime_config: &RuntimeConfig,
     block: views::BlockView,
     receipt_id: near_primitives::hash::CryptoHash,
     shard_tracker: &ShardTracker,
 ) -> Result<Option<views::ReceiptView>, FailedToFetchData> {
-    let chunks = fetch_block_new_chunks(&client, &block, shard_tracker).await?;
+    let chunks = client.fetch_block_new_chunks(&block, shard_tracker).await?;
 
-    let protocol_config_view = fetch_protocol_config(&client, block.header.hash).await?;
-    let mut shards_outcomes = fetch_outcomes(&client, block.header.hash).await?;
+    let protocol_config_view = client.fetch_protocol_config(block.header.hash).await?;
+    let mut shards_outcomes = client.fetch_outcomes(block.header.hash).await?;
 
     for chunk in chunks {
         let views::ChunkView { header, transactions, .. } = chunk;
@@ -360,11 +301,9 @@ async fn find_local_receipt_by_id_in_block(
 
 /// Function that starts Streamer's busy loop. Every half a seconds it fetches the status
 /// compares to already fetched block height and in case it differs fetches new block of given height.
-///
-/// We have to pass `client: Addr<near_client::ClientActor>` and `view_client: Addr<near_client::ViewClientActor>`.
 pub(crate) async fn start(
-    view_client: Addr<near_client::ViewClientActor>,
-    client: TokioRuntimeHandle<ClientActorInner>,
+    view_client: IndexerViewClientFetcher,
+    client: IndexerClientFetcher,
     shard_tracker: ShardTracker,
     indexer_config: IndexerConfig,
     store_config: near_store::StoreConfig,
@@ -387,7 +326,7 @@ pub(crate) async fn start(
         time::sleep(INTERVAL).await;
         match indexer_config.await_for_node_synced {
             AwaitForNodeSyncedEnum::WaitForFullSync => {
-                let status = fetch_status(&client).await;
+                let status = client.fetch_status().await;
                 let Ok(status) = status else {
                     tracing::error!(target: INDEXER, ?status, "Failed to fetch node status. Retrying.");
                     continue;
@@ -401,7 +340,7 @@ pub(crate) async fn start(
         };
 
         tracing::debug!(target: INDEXER, "Starting streaming the next block range.");
-        let block = fetch_latest_block(&view_client, &indexer_config.finality).await;
+        let block = view_client.fetch_latest_block(indexer_config.finality.clone()).await;
         let Ok(block) = block else {
             tracing::error!(target: INDEXER, ?block, "Failed to fetch latest block. Retrying.");
             continue;
@@ -429,7 +368,7 @@ pub(crate) async fn start(
             // This error handling is sketchy. It conflates two cases:
             // 1. The block is missing - totally fine and expected.
             // 2. Real error occurred while fetching the block.
-            let block = fetch_block_by_height(&view_client, block_height).await;
+            let block = view_client.fetch_block_by_height(block_height).await;
             let Ok(block) = block else {
                 tracing::debug!(target: INDEXER, ?block_height, ?block, "Failed to fetch block. Skipping.");
                 continue;

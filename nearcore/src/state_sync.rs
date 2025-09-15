@@ -23,6 +23,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::state_part::PartId;
 use near_primitives::state_sync::StateSyncDumpProgress;
 use near_primitives::types::{EpochHeight, EpochId, ShardId, StateRoot};
+use near_primitives::version::ProtocolVersion;
 use parking_lot::{Condvar, Mutex, RwLock};
 use rand::seq::SliceRandom;
 use rand::thread_rng;
@@ -381,6 +382,7 @@ struct PartUploader {
     parts_missing: Arc<RwLock<HashSet<u64>>>,
     obtain_parts: Arc<Semaphore>,
     canceled: Arc<AtomicBool>,
+    protocol_version: ProtocolVersion,
 }
 
 impl PartUploader {
@@ -454,10 +456,8 @@ impl PartUploader {
             if self.canceled.load(Ordering::Relaxed) {
                 return Ok(());
             }
-            match self
-                .external
-                .put_file(file_type.clone(), &state_part, self.shard_id, &location)
-                .await
+            let bytes = state_part.to_bytes(self.protocol_version);
+            match self.external.put_file(file_type.clone(), &bytes, self.shard_id, &location).await
             {
                 Ok(()) => {
                     self.inc_parts_dumped();
@@ -466,7 +466,7 @@ impl PartUploader {
                             &self.epoch_height.to_string(),
                             &self.shard_id.to_string(),
                         ])
-                        .inc_by(state_part.len() as u64);
+                        .inc_by(bytes.len() as u64);
                     tracing::debug!(target: "state_sync_dump", shard_id = %self.shard_id, epoch_height=%self.epoch_height, epoch_id=?&self.epoch_id, ?part_id, "Uploaded state part.");
                     return Ok(());
                 }
@@ -811,6 +811,8 @@ impl StateDumper {
             senders.keys().collect::<HashSet<_>>(),
             dump.dump_state.keys().collect::<HashSet<_>>()
         );
+        let protocol_version =
+            self.epoch_manager.get_epoch_protocol_version(&dump.epoch_id).unwrap();
 
         // cspell:words uploaders
         let mut uploaders = dump
@@ -841,6 +843,7 @@ impl StateDumper {
                     parts_missing: shard_dump.parts_missing.clone(),
                     obtain_parts: self.obtain_parts.clone(),
                     canceled: dump.canceled.clone(),
+                    protocol_version,
                 });
                 let dump_shard = uploader.dump_shard_state(sender, self.future_spawner.clone());
                 Some(dump_shard.boxed())

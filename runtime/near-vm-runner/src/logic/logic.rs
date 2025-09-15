@@ -35,18 +35,18 @@ pub struct ExecutionResultState {
     /// All gas and economic parameters required during contract execution.
     pub(crate) config: Arc<Config>,
     /// Gas tracking for the current contract execution.
-    gas_counter: GasCounter,
+    pub(crate) gas_counter: GasCounter,
     /// Logs written by the runtime.
-    logs: Vec<String>,
+    pub(crate) logs: Vec<String>,
     /// Tracks the total log length. The sum of length of all logs.
-    total_log_length: u64,
+    pub(crate) total_log_length: u64,
     /// What method returns.
-    return_data: ReturnData,
+    pub(crate) return_data: ReturnData,
     /// Keeping track of the current account balance, which can decrease when we create promises
     /// and attach balance to them.
-    current_account_balance: Balance,
+    pub(crate) current_account_balance: Balance,
     /// Storage usage of the current account at the moment
-    current_storage_usage: StorageUsage,
+    pub(crate) current_storage_usage: StorageUsage,
 }
 
 impl ExecutionResultState {
@@ -78,14 +78,14 @@ impl ExecutionResultState {
     /// ### Args
     ///
     /// * `amount`: the amount to deduct from the current account balance.
-    fn deduct_balance(&mut self, amount: Balance) -> Result<()> {
+    pub(crate) fn deduct_balance(&mut self, amount: Balance) -> Result<()> {
         self.current_account_balance =
             self.current_account_balance.checked_sub(amount).ok_or(HostError::BalanceExceeded)?;
         Ok(())
     }
 
     /// Checks that the current log number didn't reach the limit yet, so we can add a new message.
-    fn check_can_add_a_log_message(&self) -> Result<()> {
+    pub(crate) fn check_can_add_a_log_message(&self) -> Result<()> {
         if self.logs.len() as u64 >= self.config.limit_config.max_number_logs {
             Err(HostError::NumberOfLogsExceeded { limit: self.config.limit_config.max_number_logs }
                 .into())
@@ -94,7 +94,7 @@ impl ExecutionResultState {
         }
     }
 
-    fn checked_push_log(&mut self, message: String) -> Result<()> {
+    pub(crate) fn checked_push_log(&mut self, message: String) -> Result<()> {
         let len = u64::try_from(message.len()).unwrap_or(u64::MAX);
         let Some(total_log_length) = self.total_log_length.checked_add(len) else {
             return self.total_log_length_exceeded(len);
@@ -107,7 +107,7 @@ impl ExecutionResultState {
         Ok(())
     }
 
-    fn total_log_length_exceeded<T>(&self, add_len: u64) -> Result<T> {
+    pub(crate) fn total_log_length_exceeded<T>(&self, add_len: u64) -> Result<T> {
         Err(HostError::TotalLogLengthExceeded {
             length: self.total_log_length.saturating_add(add_len),
             limit: self.config.limit_config.max_total_log_length,
@@ -182,7 +182,7 @@ pub struct VMLogic<'a> {
 /// * If a promise was created by merging several promises (using `promise_and`) then
 ///   it's a `NotReceipt`, but has receipts of all promises it depends on.
 #[derive(Debug)]
-enum Promise {
+pub(crate) enum Promise {
     Receipt(ReceiptIndex),
     NotReceipt(Vec<ReceiptIndex>),
 }
@@ -218,14 +218,14 @@ macro_rules! get_memory_or_register {
 /// Why not just keep the old ways without this noise? By doing deserialization
 /// immediately we’re copying the data onto the stack without having to allocate
 /// a temporary vector.
-struct PublicKeyBuffer(Result<near_crypto::PublicKey, ()>);
+pub(crate) struct PublicKeyBuffer(Result<near_crypto::PublicKey, ()>);
 
 impl PublicKeyBuffer {
-    fn new(data: &[u8]) -> Self {
+    pub(crate) fn new(data: &[u8]) -> Self {
         Self(borsh::BorshDeserialize::try_from_slice(data).map_err(|_| ()))
     }
 
-    fn decode(self) -> Result<near_crypto::PublicKey> {
+    pub(crate) fn decode(self) -> Result<near_crypto::PublicKey> {
         self.0.map_err(|_| HostError::InvalidPublicKey.into())
     }
 }
@@ -284,13 +284,13 @@ impl<'a> VMLogic<'a> {
     // # Finite-wasm internals #
     // #########################
     pub fn finite_wasm_gas(&mut self, gas: u64) -> Result<()> {
-        self.gas(gas)
+        self.gas(Gas::from_gas(gas))
     }
 
     fn linear_gas(&mut self, count: u32, linear: u64, constant: u64) -> Result<u32> {
         let linear = u64::from(count).checked_mul(linear).ok_or(HostError::IntegerOverflow)?;
         let gas = constant.checked_add(linear).ok_or(HostError::IntegerOverflow)?;
-        self.gas(gas)?;
+        self.gas(Gas::from_gas(gas))?;
         Ok(count)
     }
 
@@ -354,7 +354,7 @@ impl<'a> VMLogic<'a> {
                 Some(s) => s,
                 None => return Err(VMLogicError::HostError(HostError::MemoryAccessViolation)),
             };
-        self.gas(((frame_size + 7) / 8) * u64::from(self.config.regular_op_cost))?;
+        self.gas(Gas::from_gas(((frame_size + 7) / 8) * u64::from(self.config.regular_op_cost)))?;
         Ok(())
     }
 
@@ -874,14 +874,14 @@ impl<'a> VMLogic<'a> {
     /// # Cost
     ///
     /// `base`
-    pub fn prepaid_gas(&mut self) -> Result<Gas> {
+    pub fn prepaid_gas(&mut self) -> Result<u64> {
         self.result_state.gas_counter.pay_base(base)?;
         if self.context.is_view() {
             return Err(
                 HostError::ProhibitedInView { method_name: "prepaid_gas".to_string() }.into()
             );
         }
-        Ok(self.context.prepaid_gas)
+        Ok(self.context.prepaid_gas.as_gas())
     }
 
     /// The gas that was already burnt during the contract execution (cannot exceed `prepaid_gas`)
@@ -893,12 +893,12 @@ impl<'a> VMLogic<'a> {
     /// # Cost
     ///
     /// `base`
-    pub fn used_gas(&mut self) -> Result<Gas> {
+    pub fn used_gas(&mut self) -> Result<u64> {
         self.result_state.gas_counter.pay_base(base)?;
         if self.context.is_view() {
             return Err(HostError::ProhibitedInView { method_name: "used_gas".to_string() }.into());
         }
-        Ok(self.result_state.gas_counter.used_gas())
+        Ok(self.result_state.gas_counter.used_gas().as_gas())
     }
 
     // ############
@@ -1765,16 +1765,16 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
     /// * If we exceed usage limit imposed on burnt gas returns `GasLimitExceeded`;
     /// * If we exceed the `prepaid_gas` then returns `GasExceeded`.
     pub fn gas(&mut self, gas: Gas) -> Result<()> {
-        self.result_state.gas_counter.burn_gas(Gas::from(gas))
+        self.result_state.gas_counter.burn_gas(gas)
     }
 
     pub fn gas_opcodes(&mut self, opcodes: u32) -> Result<()> {
-        self.gas(opcodes as u64 * self.config.regular_op_cost as u64)
+        self.gas(Gas::from_gas(opcodes as u64 * self.config.regular_op_cost as u64))
     }
 
     /// An alias for [`VMLogic::gas`].
-    pub fn burn_gas(&mut self, gas: Gas) -> Result<()> {
-        self.gas(gas)
+    pub fn burn_gas(&mut self, gas: u64) -> Result<()> {
+        self.gas(Gas::from_gas(gas))
     }
 
     /// This is the function that is exposed to WASM contracts under the name `gas`.
@@ -1862,7 +1862,7 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
         arguments_len: u64,
         arguments_ptr: u64,
         amount_ptr: u64,
-        gas: Gas,
+        gas: u64,
     ) -> Result<u64> {
         let new_promise_idx = self.promise_batch_create(account_id_len, account_id_ptr)?;
         self.promise_batch_action_function_call(
@@ -2410,7 +2410,7 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
         arguments_len: u64,
         arguments_ptr: u64,
         amount_ptr: u64,
-        gas: Gas,
+        gas: u64,
     ) -> Result<()> {
         self.promise_batch_action_function_call_weight(
             promise_idx,
@@ -2468,7 +2468,7 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
         arguments_len: u64,
         arguments_ptr: u64,
         amount_ptr: u64,
-        gas: Gas,
+        gas: u64,
         gas_weight: u64,
     ) -> Result<()> {
         self.result_state.gas_counter.pay_base(base)?;
@@ -2479,6 +2479,7 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
             .into());
         }
         let amount = self.memory.get_u128(&mut self.result_state.gas_counter, amount_ptr)?;
+        let gas = Gas::from_gas(gas);
         let method_name = get_memory_or_register!(self, method_name_ptr, method_name_len)?;
         if method_name.is_empty() {
             return Err(HostError::EmptyMethodName.into());
@@ -2824,7 +2825,7 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
         method_name_ptr: u64,
         arguments_len: u64,
         arguments_ptr: u64,
-        gas: Gas,
+        gas: u64,
         gas_weight: u64,
         register_id: u64,
     ) -> Result<u64> {
@@ -2849,7 +2850,7 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
         let num_bytes = method_name.len() as u64 + arguments.len() as u64;
         self.result_state.gas_counter.pay_per(yield_create_byte, num_bytes)?;
         // Prepay gas for the callback so that it cannot be used for this execution any longer.
-        self.result_state.gas_counter.prepay_gas(gas)?;
+        self.result_state.gas_counter.prepay_gas(Gas::from_gas(gas))?;
 
         // Here we are creating a receipt with a single data dependency which will then be
         // resolved by the resume call.
@@ -2865,7 +2866,7 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
             method_name,
             arguments,
             0,
-            gas,
+            Gas::from_gas(gas),
             GasWeight(gas_weight),
         )?;
 
@@ -3062,7 +3063,7 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
     pub fn value_return(&mut self, value_len: u64, value_ptr: u64) -> Result<()> {
         self.result_state.gas_counter.pay_base(base)?;
         let return_val = get_memory_or_register!(self, value_ptr, value_len)?;
-        let mut burn_gas: Gas = 0;
+        let mut burn_gas = Gas::ZERO;
         let num_bytes = return_val.len() as u64;
         if num_bytes > self.config.limit_config.max_length_returned_data {
             return Err(HostError::ReturnedValueLengthExceeded {
@@ -3642,10 +3643,10 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
     ) -> Result<()> {
         let per_byte_fee = self.fees_config.fee(action);
         let burn_gas =
-            num_bytes.checked_mul(per_byte_fee.send_fee(sir)).ok_or(HostError::IntegerOverflow)?;
+            per_byte_fee.send_fee(sir).checked_mul(num_bytes).ok_or(HostError::IntegerOverflow)?;
         let use_gas = burn_gas
             .checked_add(
-                num_bytes.checked_mul(per_byte_fee.exec_fee()).ok_or(HostError::IntegerOverflow)?,
+                per_byte_fee.exec_fee().checked_mul(num_bytes).ok_or(HostError::IntegerOverflow)?,
             )
             .ok_or(HostError::IntegerOverflow)?;
         self.result_state.gas_counter.pay_action_accumulated(burn_gas, use_gas, action)
@@ -3690,8 +3691,8 @@ impl VMOutcome {
             // Note: Fields below are added or merged when processing the
             // outcome. With 0 or the empty set, those are no-ops.
             return_data: ReturnData::None,
-            burnt_gas: 0,
-            used_gas: 0,
+            burnt_gas: Gas::ZERO,
+            used_gas: Gas::ZERO,
             compute_usage: 0,
             logs: Vec::new(),
             profile: ProfileDataV3::default(),
@@ -3732,7 +3733,7 @@ impl std::fmt::Debug for VMOutcome {
     }
 }
 
-enum GlobalContractIdentifierPtrData {
+pub(crate) enum GlobalContractIdentifierPtrData {
     CodeHash { code_hash_len: u64, code_hash_ptr: u64 },
     AccountId { account_id_len: u64, account_id_ptr: u64 },
 }

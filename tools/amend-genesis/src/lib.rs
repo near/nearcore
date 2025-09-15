@@ -5,7 +5,7 @@ use near_crypto::PublicKey;
 use near_primitives::account::AccountContract;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::state_record::StateRecord;
-use near_primitives::types::{AccountId, AccountInfo};
+use near_primitives::types::{AccountId, AccountInfo, Gas};
 use near_primitives::utils;
 use near_primitives::version::ProtocolVersion;
 use near_primitives_core::account::{AccessKey, Account};
@@ -392,7 +392,7 @@ pub fn amend_genesis(
         genesis.config.chunk_validator_only_kickout_threshold = t;
     }
     if let Some(l) = genesis_changes.gas_limit {
-        genesis.config.gas_limit = l;
+        genesis.config.gas_limit = Gas::from_gas(l);
     }
     if let Some(p) = genesis_changes.min_gas_price {
         genesis.config.min_gas_price = p;

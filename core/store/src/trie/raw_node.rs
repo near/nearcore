@@ -1,5 +1,6 @@
 use borsh::{BorshDeserialize, BorshSerialize};
 
+use crate::trie::{ChildrenMask, NUM_CHILDREN};
 use near_primitives::hash::CryptoHash;
 use near_primitives::state::ValueRef;
 use near_schema_checker_lib::ProtocolSchema;
@@ -47,7 +48,7 @@ impl RawTrieNode {
 
 /// Children of a branch node.
 #[derive(Clone, PartialEq, Eq, Hash)]
-pub struct Children<T = CryptoHash>(pub [Option<T>; 16]);
+pub struct Children<T = CryptoHash>(pub [Option<T>; NUM_CHILDREN]);
 
 impl<T> Children<T> {
     /// Iterates over existing children; `None` entries are omitted.
@@ -78,8 +79,8 @@ impl<T> std::ops::IndexMut<u8> for Children<T> {
 
 impl<T: BorshSerialize> BorshSerialize for Children<T> {
     fn serialize<W: std::io::Write>(&self, wr: &mut W) -> std::io::Result<()> {
-        let mut bitmap: u16 = 0;
-        let mut pos: u16 = 1;
+        let mut bitmap: ChildrenMask = 0;
+        let mut pos: ChildrenMask = 1;
         for child in &self.0 {
             if child.is_some() {
                 bitmap |= pos
@@ -93,7 +94,7 @@ impl<T: BorshSerialize> BorshSerialize for Children<T> {
 
 impl<T: BorshDeserialize> BorshDeserialize for Children<T> {
     fn deserialize_reader<R: std::io::Read>(rd: &mut R) -> std::io::Result<Self> {
-        let mut bitmap = u16::deserialize_reader(rd)?;
+        let mut bitmap = ChildrenMask::deserialize_reader(rd)?;
         let mut children = Self::default();
         while bitmap != 0 {
             let idx = bitmap.trailing_zeros() as u8;

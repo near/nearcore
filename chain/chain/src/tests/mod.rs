@@ -1,6 +1,7 @@
 mod doomslug;
 mod garbage_collection;
 mod simple_chain;
+mod spice_core;
 mod sync_chain;
 
 use crate::block_processing_utils::BlockProcessingArtifact;

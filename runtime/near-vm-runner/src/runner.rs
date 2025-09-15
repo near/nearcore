@@ -86,7 +86,7 @@ pub fn run(
         e @ Err(_) => return e,
     };
 
-    span.record("burnt_gas", outcome.burnt_gas);
+    span.record("burnt_gas", outcome.burnt_gas.as_gas());
     span.record("compute_usage", outcome.compute_usage);
     Ok(outcome)
 }
@@ -167,7 +167,7 @@ impl VMKindExt for VMKind {
             Self::Wasmer2 => false,
             Self::Wasmtime => cfg!(feature = "wasmtime_vm"),
             Self::NearVm => cfg!(all(feature = "near_vm", target_arch = "x86_64")),
-            Self::NearVm2 => cfg!(all(feature = "near_vm_2", target_arch = "x86_64")),
+            Self::NearVm2 => cfg!(all(feature = "near_vm", target_arch = "x86_64")),
         }
     }
     fn runtime(&self, config: std::sync::Arc<Config>) -> Option<Box<dyn VM>> {

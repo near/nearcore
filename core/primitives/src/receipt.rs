@@ -939,7 +939,8 @@ mod tests {
     }
 
     fn test_state_stored_receipt_serialization_impl(receipt: Receipt) {
-        let metadata = StateStoredReceiptMetadata { congestion_gas: 42, congestion_size: 43 };
+        let metadata =
+            StateStoredReceiptMetadata { congestion_gas: Gas::from_gas(42), congestion_size: 43 };
         let receipt = StateStoredReceipt::new_owned(receipt, metadata);
 
         let serialized_receipt = borsh::to_vec(&receipt).unwrap();
@@ -992,7 +993,10 @@ mod tests {
         // StateStoredReceipt can be deserialized as ReceiptOrStateStoredReceipt
         {
             let receipt = get_receipt_v0();
-            let metadata = StateStoredReceiptMetadata { congestion_gas: 42, congestion_size: 43 };
+            let metadata = StateStoredReceiptMetadata {
+                congestion_gas: Gas::from_gas(42),
+                congestion_size: 43,
+            };
             let state_stored_receipt = StateStoredReceipt::new_owned(receipt, metadata);
 
             let serialized_receipt = borsh::to_vec(&state_stored_receipt).unwrap();
@@ -1024,7 +1028,10 @@ mod tests {
         // ReceiptOrStateStoredReceipt::StateStoredReceipt
         {
             let receipt = get_receipt_v0();
-            let metadata = StateStoredReceiptMetadata { congestion_gas: 42, congestion_size: 43 };
+            let metadata = StateStoredReceiptMetadata {
+                congestion_gas: Gas::from_gas(42),
+                congestion_size: 43,
+            };
             let state_stored_receipt = StateStoredReceipt::new_owned(receipt, metadata);
             let receipt_or_state_stored_receipt =
                 ReceiptOrStateStoredReceipt::StateStoredReceipt(state_stored_receipt);

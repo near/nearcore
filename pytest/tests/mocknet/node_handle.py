@@ -11,7 +11,7 @@ from typing import Optional, Self
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
 from configured_logger import logger
-from cmd_utils import ScheduleContext
+from utils import ScheduleContext
 
 
 class NodeHandle:
@@ -77,15 +77,14 @@ class NodeHandle:
     def download_file(self, src, dst):
         return self.node.download_file(src, dst)
 
+    # TODO: send `config` as JSON RPC parameters and do all the work below via
+    # a script uploaded to the node. Using `ssh` to send every command is
+    # too slow.
     def init_neard_runner(self, config, remove_home_dir=False):
         self.node.stop_neard_runner()
         self.node.init()
         self.node.mk_neard_runner_home(remove_home_dir)
         self.node.upload_neard_runner()
-        # TODO: this config file should just be replaced by parameters to the new-test
-        # rpc method. This was originally made a config file instead because the rpc port
-        # was open to the internet, but now that we call it via ssh instead (which we should
-        # have done from the beginning), it's not really necessary and just an arbitrary difference
         self.node.upload_neard_runner_config(config)
         self.node.init_python()
         self.node.start_neard_runner()
@@ -133,18 +132,26 @@ class NodeHandle:
             )
         return response.get('result', None)
 
-    def neard_runner_start(self, batch_interval_millis=None):
-        if batch_interval_millis is None:
-            params = []
-        else:
-            params = {'batch_interval_millis': batch_interval_millis}
+    def neard_runner_start(self, batch_interval_millis=None, binary_idx=None):
+        params = []
+        if batch_interval_millis is not None:
+            params.append(('batch_interval_millis', batch_interval_millis))
+        if binary_idx is not None:
+            params.append(('binary_idx', binary_idx))
+        if len(params) != 0:
+            params = dict(params)
         return self.neard_runner_jsonrpc('start', params=params)
 
     def neard_runner_stop(self):
         return self.neard_runner_jsonrpc('stop')
 
-    def neard_runner_new_test(self):
+    def neard_runner_new_test(self, mocknet_id, rpc_ip):
         params = self.node.new_test_params()
+        params['mocknet_id'] = mocknet_id
+        params['role'] = self.role()
+        params['rpc_ip'] = rpc_ip
+        params['can_validate'] = self.can_validate
+        params['want_state_dump'] = self.want_state_dump
         return self.neard_runner_jsonrpc('new_test', params)
 
     def neard_runner_network_init(self,
@@ -156,7 +163,8 @@ class NodeHandle:
                                   num_seats,
                                   new_chain_id,
                                   protocol_version,
-                                  genesis_time=None):
+                                  genesis_time=None,
+                                  state_sync_location=None):
         params = {
             'validators': validators,
             'boot_nodes': boot_nodes,
@@ -169,6 +177,8 @@ class NodeHandle:
         }
         if genesis_time is not None:
             params['genesis_time'] = genesis_time
+        if state_sync_location is not None:
+            params['state_sync_location'] = state_sync_location
         return self.neard_runner_jsonrpc('network_init', params=params)
 
     def neard_runner_ready(self):

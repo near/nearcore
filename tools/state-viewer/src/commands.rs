@@ -14,7 +14,7 @@ use crate::util::{
 use crate::{apply_chunk, epoch_info};
 use anyhow::Context;
 use bytesize::ByteSize;
-use itertools::GroupBy;
+use itertools::ChunkBy;
 use itertools::Itertools;
 use near_chain::chain::collect_receipts_from_response;
 use near_chain::types::{
@@ -699,10 +699,10 @@ pub(crate) fn print_chain(
                             let chunk_hash = chunks[shard_index].chunk_hash();
                             if let Ok(chunk) = chain_store.get_chunk(chunk_hash) {
                                 chunk_debug_str.push(format!(
-                                    "{}: {} {: >3} Tgas {: >10}",
+                                    "{}: {} {: >3} {: >10}",
                                     shard_id,
                                     format_hash(chunk_hash.0, show_full_hashes),
-                                    chunk.cloned_header().prev_gas_used() / (1_000_000_000_000),
+                                    chunk.cloned_header().prev_gas_used(),
                                     chunk_producer
                                 ));
                             } else {
@@ -1424,7 +1424,7 @@ fn print_state_stats_for_shard_uid(
 fn get_state_stats_group_by<'a>(
     chunk_view: &'a FlatStorageChunkView,
     trie_storage: &'a TrieDBStorage,
-) -> GroupBy<
+) -> ChunkBy<
     AccountId,
     impl Iterator<Item = StateStatsStateRecord> + 'a,
     impl FnMut(&StateStatsStateRecord) -> AccountId,
@@ -1464,13 +1464,13 @@ fn get_state_stats_group_by<'a>(
     let iter = type_iters.kmerge().into_iter();
 
     // Finally, group by the account id.
-    iter.group_by(|state_record| state_record.account_id.clone())
+    iter.chunk_by(|state_record| state_record.account_id.clone())
 }
 
 /// Given the StateStatsStateRecords grouped by the account id returns an
 /// iterator of StateStatsAccount.
 fn get_state_stats_account_iter<'a>(
-    group_by: &'a GroupBy<
+    group_by: &'a ChunkBy<
         AccountId,
         impl Iterator<Item = StateStatsStateRecord> + 'a,
         impl FnMut(&StateStatsStateRecord) -> AccountId,

@@ -10,6 +10,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::types::ShardId;
 
 use crate::tests::nearcore::node_cluster::NodeCluster;
+use near_async::messaging::CanSendAsync;
 
 #[test]
 fn slow_test_track_shards() {
@@ -30,7 +31,7 @@ fn slow_test_track_shards() {
             let bh = *last_block_hash.read();
             if let Some(block_hash) = bh {
                 let msg = GetChunk::BlockHash(block_hash, ShardId::new(3));
-                let res = view_client.send(msg).await;
+                let res = view_client.send_async(msg).await;
                 match &res {
                     Ok(Ok(_)) => {
                         return ControlFlow::Break(());
@@ -41,7 +42,7 @@ fn slow_test_track_shards() {
                 }
             } else {
                 let last_block_hash1 = last_block_hash.clone();
-                let res = view_client.send(GetBlock::latest()).await;
+                let res = view_client.send_async(GetBlock::latest()).await;
                 match &res {
                     Ok(Ok(b)) if b.header.height > 10 => {
                         *last_block_hash1.write() = Some(b.header.hash);

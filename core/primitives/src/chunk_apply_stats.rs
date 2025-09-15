@@ -194,7 +194,7 @@ impl ReceiptsStats {
     pub fn add_receipt(&mut self, size: u64, gas: Gas) {
         self.num += 1;
         self.total_size += size;
-        let gas_u128: u128 = gas.into();
+        let gas_u128: u128 = gas.as_gas().into();
         self.total_gas += gas_u128;
     }
 }

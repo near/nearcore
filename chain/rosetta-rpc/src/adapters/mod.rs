@@ -1,6 +1,7 @@
-use actix::Addr;
+use near_async::messaging::CanSendAsync;
+use near_async::multithread::MultithreadRuntimeHandle;
 use near_chain_configs::Genesis;
-use near_client::ViewClientActor;
+use near_client::ViewClientActorInner;
 use validated_operations::ValidatedOperation;
 
 pub(crate) mod nep141;
@@ -18,7 +19,7 @@ mod validated_operations;
 /// We choose to do a proper implementation for the genesis block later.
 async fn convert_genesis_records_to_transaction(
     genesis: &Genesis,
-    view_client_addr: &Addr<ViewClientActor>,
+    view_client_addr: &MultithreadRuntimeHandle<ViewClientActorInner>,
     block: &near_primitives::views::BlockView,
 ) -> crate::errors::Result<crate::models::Transaction> {
     let mut genesis_account_ids = std::collections::HashSet::new();
@@ -32,9 +33,9 @@ async fn convert_genesis_records_to_transaction(
     // operations to be created in deterministic order (so that their indexes
     // stay the same).
     let genesis_accounts: std::collections::BTreeMap<_, _> = crate::utils::query_accounts(
-        &near_primitives::types::BlockId::Hash(block.header.hash).into(),
-        genesis_account_ids.iter(),
-        view_client_addr,
+        near_primitives::types::BlockId::Hash(block.header.hash).into(),
+        genesis_account_ids.iter().cloned(),
+        view_client_addr.clone(),
     )
     .await?;
     let runtime_config = crate::utils::query_protocol_config(block.header.hash, view_client_addr)
@@ -112,12 +113,12 @@ async fn convert_genesis_records_to_transaction(
 }
 
 pub(crate) async fn convert_block_to_transactions(
-    view_client_addr: &Addr<ViewClientActor>,
+    view_client_addr: &MultithreadRuntimeHandle<ViewClientActorInner>,
     block: &near_primitives::views::BlockView,
     currencies: &Option<Vec<crate::models::Currency>>,
 ) -> crate::errors::Result<Vec<crate::models::Transaction>> {
     let state_changes = view_client_addr
-        .send(near_client::GetStateChangesInBlock { block_hash: block.header.hash })
+        .send_async(near_client::GetStateChangesInBlock { block_hash: block.header.hash })
         .await?
         .unwrap();
 
@@ -144,12 +145,15 @@ pub(crate) async fn convert_block_to_transactions(
     let prev_block_id = near_primitives::types::BlockReference::from(
         near_primitives::types::BlockId::Hash(block.header.prev_hash),
     );
-    let accounts_previous_state =
-        crate::utils::query_accounts(&prev_block_id, touched_account_ids.iter(), view_client_addr)
-            .await?;
+    let accounts_previous_state = crate::utils::query_accounts(
+        prev_block_id,
+        touched_account_ids.iter().cloned(),
+        view_client_addr.clone(),
+    )
+    .await?;
 
     let accounts_changes = view_client_addr
-        .send(near_client::GetStateChanges {
+        .send_async(near_client::GetStateChanges {
             block_hash: block.header.hash,
             state_changes_request:
                 near_primitives::views::StateChangesRequestView::AccountChanges {
@@ -181,7 +185,7 @@ pub(crate) async fn convert_block_to_transactions(
 
 pub(crate) async fn collect_transactions(
     genesis: &Genesis,
-    view_client_addr: &Addr<ViewClientActor>,
+    view_client_addr: &MultithreadRuntimeHandle<ViewClientActorInner>,
     block: &near_primitives::views::BlockView,
     currencies: &Option<Vec<crate::models::Currency>>,
 ) -> crate::errors::Result<Vec<crate::models::Transaction>> {
@@ -831,6 +835,7 @@ mod tests {
     use near_crypto::{KeyType, SecretKey};
     use near_primitives::action::delegate::{DelegateAction, SignedDelegateAction};
     use near_primitives::transaction::{Action, TransferAction};
+    use near_primitives::types::Gas;
 
     #[test]
     fn test_near_actions_bijection() {
@@ -879,7 +884,7 @@ mod tests {
             near_primitives::transaction::FunctionCallAction {
                 method_name: "method-name".parse().unwrap(),
                 args: b"args".to_vec(),
-                gas: 100500,
+                gas: Gas::from_gas(100500),
                 deposit: 0,
             }
             .into(),
@@ -888,7 +893,7 @@ mod tests {
             near_primitives::transaction::FunctionCallAction {
                 method_name: "method-name".parse().unwrap(),
                 args: b"args".to_vec(),
-                gas: 100500,
+                gas: Gas::from_gas(100500),
                 deposit: near_primitives::types::Balance::MAX,
             }
             .into(),
