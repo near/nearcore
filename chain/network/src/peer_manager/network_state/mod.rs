@@ -4,7 +4,7 @@ use crate::client::{
     BlockApproval, ChunkEndorsementMessage, ClientSenderForNetwork, ProcessTxRequest,
     TxStatusRequest, TxStatusResponse,
 };
-use crate::concurrency::demux;
+use crate::batch_processor::{BatchProcessor, RateLimit};
 use crate::concurrency::runtime::Runtime;
 use crate::config;
 use crate::network_protocol::{
@@ -166,12 +166,11 @@ pub(crate) struct NetworkState {
 
     /// Mutex which prevents overlapping calls to tier1_advertise_proxies.
     tier1_advertise_proxies_mutex: tokio::sync::Mutex<()>,
-    /// Demultiplexer aggregating calls to add_edges(), for V1 routing protocol
-    add_edges_demux: demux::Demux<Vec<Edge>, Result<(), ReasonForBan>>,
-    /// Demultiplexer aggregating calls to update_routes(), for V2 routing protocol
+    /// Batch processor aggregating calls to add_edges(), for V1 routing protocol
+    add_edges_processor: BatchProcessor<Vec<Edge>, Result<(), ReasonForBan>>,
+    /// Batch processor aggregating calls to update_routes(), for V2 routing protocol
     #[cfg(feature = "distance_vector_routing")]
-    update_routes_demux:
-        demux::Demux<crate::routing::NetworkTopologyChange, Result<(), ReasonForBan>>,
+    update_routes_processor: BatchProcessor<crate::routing::NetworkTopologyChange, Result<(), ReasonForBan>>,
 
     /// Mutex serializing calls to set_chain_info(), which mutates a bunch of stuff non-atomically.
     /// TODO(gprusak): make it use synchronization primitives in some more canonical way.
@@ -229,9 +228,15 @@ impl NetworkState {
             )),
             txns_since_last_block: AtomicUsize::new(0),
             whitelist_nodes,
-            add_edges_demux: demux::Demux::new(config.routing_table_update_rate_limit),
+            add_edges_processor: BatchProcessor::new(RateLimit { 
+                qps: config.routing_table_update_rate_limit.qps, 
+                burst: config.routing_table_update_rate_limit.burst 
+            }),
             #[cfg(feature = "distance_vector_routing")]
-            update_routes_demux: demux::Demux::new(config.routing_table_update_rate_limit),
+            update_routes_processor: BatchProcessor::new(RateLimit { 
+                qps: config.routing_table_update_rate_limit.qps, 
+                burst: config.routing_table_update_rate_limit.burst 
+            }),
             set_chain_info_mutex: Mutex::new(()),
             config,
             created_at: clock.now(),

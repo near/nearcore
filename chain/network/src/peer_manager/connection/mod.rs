@@ -1,6 +1,6 @@
 use crate::concurrency::arc_mutex::ArcMutex;
 use crate::concurrency::atomic_cell::AtomicCell;
-use crate::concurrency::demux;
+use crate::batch_processor::BatchProcessor;
 use crate::network_protocol::{
     PeerInfo, PeerMessage, SignedAccountData, SignedOwnedAccount, SnapshotHostInfo,
     SyncAccountsData, SyncSnapshotHosts, TieredMessageBody,
@@ -123,10 +123,10 @@ pub(crate) struct Connection {
     /// prometheus gauge point guard.
     pub _peer_connections_metric: metrics::GaugePoint,
 
-    /// Demultiplexer for the calls to send_accounts_data().
-    pub send_accounts_data_demux: demux::Demux<Vec<Arc<SignedAccountData>>, ()>,
-    /// Demultiplexer for the calls to send_snapshot_hosts().
-    pub send_snapshot_hosts_demux: demux::Demux<Vec<Arc<SnapshotHostInfo>>, ()>,
+    /// Batch processor for the calls to send_accounts_data().
+    pub send_accounts_data_processor: BatchProcessor<Vec<Arc<SignedAccountData>>, ()>,
+    /// Batch processor for the calls to send_snapshot_hosts().
+    pub send_snapshot_hosts_processor: BatchProcessor<Vec<Arc<SnapshotHostInfo>>, ()>,
 }
 
 impl fmt::Debug for Connection {
@@ -169,7 +169,7 @@ impl Connection {
         let this = self.clone();
         async move {
             let res = this
-                .send_accounts_data_demux
+                .send_accounts_data_processor
                 .call(data, {
                     let this = this.clone();
                     |ds: Vec<Vec<Arc<SignedAccountData>>>| async move {
@@ -218,7 +218,7 @@ impl Connection {
             // Pass the data through the snapshot_hosts_demux to
             // rate-limit the production of network messages.
             let res = this
-                .send_snapshot_hosts_demux
+                .send_snapshot_hosts_processor
                 .call(data, {
                     let this = this.clone();
                     // This function describes how to combine multiple vectors of

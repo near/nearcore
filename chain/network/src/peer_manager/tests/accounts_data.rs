@@ -1,4 +1,4 @@
-use crate::concurrency::rate;
+use crate::batch_processor::RateLimit;
 use crate::network_protocol::SyncAccountsData;
 use crate::network_protocol::testonly as data;
 use crate::peer;
@@ -186,7 +186,7 @@ async fn slow_test_rate_limiting() {
     let mut pms = vec![];
     for _ in 0..n * m {
         let mut cfg = chain.make_config(rng);
-        cfg.accounts_data_broadcast_rate_limit = rate::Limit { qps: 0.5, burst: 1 };
+        cfg.accounts_data_broadcast_rate_limit = RateLimit { qps: 0.5, burst: 1 };
         pms.push(
             peer_manager::testonly::start(
                 clock.clock(),

@@ -1,5 +1,5 @@
 use crate::blacklist;
-use crate::concurrency::rate;
+use crate::batch_processor::RateLimit;
 use crate::config_json::Tier1Config;
 use crate::network_protocol::PeerAddr;
 use crate::network_protocol::PeerInfo;
@@ -191,11 +191,11 @@ pub struct NetworkConfig {
     /// Whether this is an archival node.
     pub archive: bool,
     /// Maximal rate at which SyncAccountsData can be broadcasted.
-    pub accounts_data_broadcast_rate_limit: rate::Limit,
+    pub accounts_data_broadcast_rate_limit: RateLimit,
     /// Maximal rate at which SyncSnapshotHosts can be broadcasted.
-    pub snapshot_hosts_broadcast_rate_limit: rate::Limit,
+    pub snapshot_hosts_broadcast_rate_limit: RateLimit,
     /// Maximal rate at which RoutingTable can be recomputed.
-    pub routing_table_update_rate_limit: rate::Limit,
+    pub routing_table_update_rate_limit: RateLimit,
     /// Config of the TIER1 network.
     pub tier1: Tier1,
 
@@ -246,13 +246,13 @@ impl NetworkConfig {
             overrides.accounts_data_broadcast_rate_limit_qps,
             overrides.accounts_data_broadcast_rate_limit_burst,
         ) {
-            self.accounts_data_broadcast_rate_limit = rate::Limit { qps, burst }
+            self.accounts_data_broadcast_rate_limit = RateLimit { qps, burst }
         }
         if let (Some(qps), Some(burst)) = (
             overrides.routing_table_update_rate_limit_qps,
             overrides.routing_table_update_rate_limit_burst,
         ) {
-            self.routing_table_update_rate_limit = rate::Limit { qps, burst }
+            self.routing_table_update_rate_limit = RateLimit { qps, burst }
         }
         if let Some(rate_limits) = overrides.received_messages_rate_limits {
             self.received_messages_rate_limits.apply_overrides(rate_limits);
@@ -393,9 +393,9 @@ impl NetworkConfig {
             push_info_period: time::Duration::milliseconds(100),
             outbound_disabled: false,
             archive,
-            accounts_data_broadcast_rate_limit: rate::Limit { qps: 0.1, burst: 1 },
-            snapshot_hosts_broadcast_rate_limit: rate::Limit { qps: 0.1, burst: 1 },
-            routing_table_update_rate_limit: rate::Limit { qps: 1., burst: 1 },
+            accounts_data_broadcast_rate_limit: RateLimit { qps: 0.1, burst: 1 },
+            snapshot_hosts_broadcast_rate_limit: RateLimit { qps: 0.1, burst: 1 },
+            routing_table_update_rate_limit: RateLimit { qps: 1., burst: 1 },
             tier1,
             inbound_disabled: cfg.experimental.inbound_disabled,
             skip_tombstones: if cfg.experimental.skip_sending_tombstones_seconds > 0 {
@@ -469,9 +469,9 @@ impl NetworkConfig {
             outbound_disabled: false,
             inbound_disabled: false,
             archive: false,
-            accounts_data_broadcast_rate_limit: rate::Limit { qps: 100., burst: 1000000 },
-            snapshot_hosts_broadcast_rate_limit: rate::Limit { qps: 100., burst: 1000000 },
-            routing_table_update_rate_limit: rate::Limit { qps: 10., burst: 1 },
+            accounts_data_broadcast_rate_limit: RateLimit { qps: 100., burst: 1000000 },
+            snapshot_hosts_broadcast_rate_limit: RateLimit { qps: 100., burst: 1000000 },
+            routing_table_update_rate_limit: RateLimit { qps: 10., burst: 1 },
             tier1: Tier1 {
                 // Interval is very large, so that it doesn't happen spontaneously in tests.
                 // It should rather be triggered manually in tests.

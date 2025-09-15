@@ -5,7 +5,7 @@ use crate::client::{
     StateRequestHeader, StateRequestPart, StateResponseReceived,
 };
 use crate::concurrency::atomic_cell::AtomicCell;
-use crate::concurrency::demux;
+use crate::batch_processor::{BatchProcessor, RateLimit};
 use crate::config::PEERS_RESPONSE_MAX_PEERS;
 #[cfg(feature = "distance_vector_routing")]
 use crate::network_protocol::DistanceVector;
@@ -680,12 +680,14 @@ impl PeerActor {
             last_time_peer_requested: AtomicCell::new(None),
             last_time_received_message: AtomicCell::new(now),
             established_time: now,
-            send_accounts_data_demux: demux::Demux::new(
-                self.network_state.config.accounts_data_broadcast_rate_limit,
-            ),
-            send_snapshot_hosts_demux: demux::Demux::new(
-                self.network_state.config.snapshot_hosts_broadcast_rate_limit,
-            ),
+            send_accounts_data_processor: BatchProcessor::new(RateLimit {
+                qps: self.network_state.config.accounts_data_broadcast_rate_limit.qps,
+                burst: self.network_state.config.accounts_data_broadcast_rate_limit.burst,
+            }),
+            send_snapshot_hosts_processor: BatchProcessor::new(RateLimit {
+                qps: self.network_state.config.snapshot_hosts_broadcast_rate_limit.qps,
+                burst: self.network_state.config.snapshot_hosts_broadcast_rate_limit.burst,
+            }),
         });
 
         let tracker = self.tracker.clone();

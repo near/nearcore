@@ -5,6 +5,7 @@ pub use crate::rate_limits::messages_limits::OverrideConfig as MessagesLimitsOve
 
 mod accounts_data;
 mod announce_accounts;
+mod batch_processor;
 mod network_protocol;
 mod peer;
 mod peer_manager;

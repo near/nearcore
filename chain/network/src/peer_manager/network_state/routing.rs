@@ -120,7 +120,7 @@ impl NetworkState {
         }
         let this = self.clone();
         let clock = clock.clone();
-        self.add_edges_demux
+        self.add_edges_processor
             .call(edges, |edges: Vec<Vec<Edge>>| async move {
                 let (mut edges, oks) = this.graph.update(&clock, edges).await;
                 // Don't send tombstones during the initial time.
@@ -236,7 +236,7 @@ impl NetworkState {
     }
 
     /// Accepts NetworkTopologyChange events.
-    /// Changes are batched via the `update_routes_demux`, then passed to the V2 routing table.
+    /// Changes are batched via the `update_routes_processor`, then passed to the V2 routing table.
     /// If an updated DistanceVector is returned by the routing table, broadcasts it to peers.
     /// If an error occurs while processing a DistanceVector advertised by a peer, bans the peer.
     #[cfg(feature = "distance_vector_routing")]
@@ -247,7 +247,7 @@ impl NetworkState {
     ) -> Result<(), ReasonForBan> {
         let this = self.clone();
         let clock = clock.clone();
-        self.update_routes_demux
+        self.update_routes_processor
             .call(event, |events: Vec<NetworkTopologyChange>| async move {
                 let (to_broadcast, oks) =
                     this.graph_v2.batch_process_network_changes(&clock, events).await;
