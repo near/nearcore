@@ -702,6 +702,8 @@ impl RuntimeAdapter for NightshadeRuntime {
             }
 
             // FIXME(nagisa): why is this not using `check_proof_size_limit_exceed`? Comment.
+            // TODO: should incorporate this into the "recorded_storage_size" using some estimate.
+            let (_new_keys, _new_value_lens) = state_update.get_new_keys_and_value_lens();
             if state_update.trie.recorded_storage_size() as u64
                 > runtime_config.witness_config.new_transactions_validation_state_size_soft_limit
             {
@@ -812,8 +814,11 @@ impl RuntimeAdapter for NightshadeRuntime {
                 set_account(&mut state_update, signer_id, &account);
             }
         }
+        // XXX: Remove
+        let (new_keys, new_value_lens) = state_update.get_new_keys_and_value_lens();
         // NOTE: this state update must not be committed or finalized!
         drop(state_update);
+        tracing::warn!(target: "runtime", %new_keys, %new_value_lens, "prepare_transactions state_update");
         debug!(target: "runtime", limited_by=?result.limited_by, "Transaction filtering results {} valid out of {} pulled from the pool", result.transactions.len(), num_checked_transactions);
         let shard_label = shard_id.to_string();
         metrics::PREPARE_TX_SIZE.with_label_values(&[&shard_label]).observe(total_size as f64);
