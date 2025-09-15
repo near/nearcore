@@ -81,7 +81,11 @@ impl TrackedShardsConfig {
         match self {
             TrackedShardsConfig::AllShards => true,
             TrackedShardsConfig::Shards(shards) => !shards.is_empty(),
-            _ => false,
+            TrackedShardsConfig::NoShards
+            // The variants below do not guarantee that at least one shard will be continuously tracked.
+            | TrackedShardsConfig::Accounts(_)
+            | TrackedShardsConfig::Schedule(_)
+            | TrackedShardsConfig::ShadowValidator(_) => false,
         }
     }
 
@@ -230,32 +234,32 @@ fn default_state_parts_compression_level() -> i32 {
 pub struct CloudStorageConfig {
     /// The storage to persist the archival data.
     pub storage: ExternalStorageLocation,
-    /// Location of a json file with credentials allowing write access to the bucket.
+    /// Location of a json file with credentials allowing access to the bucket.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub credentials_file: Option<PathBuf>,
 }
 
-/// Configures cloud-based archival node.
+/// Configuration for a cloud-based archival reader.
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-pub struct CloudArchivalConfig {
+pub struct CloudArchivalReaderConfig {
     /// Configures the external storage used by the archival node.
     pub cloud_storage: CloudStorageConfig,
-    /// Indicates whether the node acts as a cloud archival data reader.
-    pub is_archival_reader: bool,
-    /// Indicates whether the node is expected to write data to the cloud archival storage.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub archival_writer: Option<CloudArchivalWriterConfig>,
 }
 
-fn default_archival_writer_pooling_interval() -> Duration {
+fn default_archival_writer_polling_interval() -> Duration {
     Duration::seconds(1)
 }
 
-/// Configuration for a cloud-based archival writer.
+/// Configuration for a cloud-based archival writer. If this config is present, the writer is enabled and
+/// writes chunk-related data based on the tracked shards. This config also controls additional archival
+/// behavior such as block data and polling interval.
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct CloudArchivalWriterConfig {
+    /// Configures the external storage used by the archival node.
+    pub cloud_storage: CloudStorageConfig,
+
     /// Determines whether block-related data should be written to cloud storage.
     #[serde(default)]
     pub archive_block_data: bool,
@@ -263,8 +267,8 @@ pub struct CloudArchivalWriterConfig {
     /// Interval at which the system checks for new blocks or chunks to archive.
     #[serde(with = "near_time::serde_duration_as_std")]
     #[cfg_attr(feature = "schemars", schemars(with = "DurationAsStdSchemaProvider"))]
-    #[serde(default = "default_archival_writer_pooling_interval")]
-    pub pooling_interval: Duration,
+    #[serde(default = "default_archival_writer_polling_interval")]
+    pub polling_interval: Duration,
 }
 
 /// Configures how to dump state to external storage.
@@ -284,7 +288,7 @@ pub struct DumpConfig {
     #[serde(with = "near_time::serde_opt_duration_as_std")]
     #[cfg_attr(feature = "schemars", schemars(with = "Option<DurationAsStdSchemaProvider>"))]
     pub iteration_delay: Option<Duration>,
-    /// Location of a json file with credentials allowing write access to the bucket.
+    /// Location of a json file with credentials allowing access to the bucket.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub credentials_file: Option<PathBuf>,
 }
@@ -775,6 +779,11 @@ pub struct ClientConfig {
     pub tracked_shards_config: TrackedShardsConfig,
     /// Not clear old data, set `true` for archive nodes.
     pub archive: bool,
+    /// Configuration for a cloud-based archival reader.
+    pub cloud_archival_reader: Option<CloudArchivalReaderConfig>,
+    /// Configuration for a cloud-based archival writer. If this config is present, the writer is enabled and
+    /// writes chunk-related data based on the tracked shards.
+    pub cloud_archival_writer: Option<CloudArchivalWriterConfig>,
     /// save_trie_changes should be set to true iff
     /// - archive if false - non-archival nodes need trie changes to perform garbage collection
     /// - archive is true, cold_store is configured and migration to split_storage is finished - node
@@ -811,8 +820,6 @@ pub struct ClientConfig {
     pub state_sync_enabled: bool,
     /// Options for syncing state.
     pub state_sync: StateSyncConfig,
-    /// Configuration for a cloud-based archival node.
-    pub cloud_archival: Option<CloudArchivalConfig>,
     /// Options for epoch sync.
     pub epoch_sync: EpochSyncConfig,
     /// Limit of the size of per-shard transaction pool measured in bytes. If not set, the size
@@ -919,6 +926,8 @@ impl ClientConfig {
             gc: GCConfig { gc_blocks_limit: 100, ..GCConfig::default() },
             tracked_shards_config: TrackedShardsConfig::NoShards,
             archive,
+            cloud_archival_reader: None,
+            cloud_archival_writer: None,
             save_trie_changes,
             save_tx_outcomes: true,
             log_summary_style: LogSummaryStyle::Colored,
@@ -933,7 +942,6 @@ impl ClientConfig {
             client_background_migration_threads: 1,
             state_sync_enabled,
             state_sync: StateSyncConfig::default(),
-            cloud_archival: None,
             epoch_sync: EpochSyncConfig::default(),
             transaction_pool_size_limit: None,
             enable_multiline_logging: false,
