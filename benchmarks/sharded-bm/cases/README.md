@@ -54,7 +54,7 @@ Create a directory named `epoch_configs` with a file called `template.json`: a t
 
 ### `config_patch.json`
 
-Optional file to specify `neard` configuration overrides valid for this scenario.
+File to place optional `neard` configuration overrides valid for this scenario.
 
 ### `tx-generator-settings.json`
 
