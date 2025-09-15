@@ -6,6 +6,7 @@ export type EntityKeyType =
     | 'block_ordinal'
     | 'chunk_hash'
     | 'epoch_id'
+    | 'outcome_id'
     | 'receipt_id'
     | 'shard_id'
     | 'shard_uid'
@@ -108,7 +109,9 @@ export type CustomFieldDisplay =
     /// Displays the value as a trie path (shard_uid/state_root/nibble_hex).
     | 'trie_path'
     /// Displays the value as a nibbles hex string.
-    | 'nibbles';
+    | 'nibbles'
+    /// Displays the value as an outcome ID (can be transaction hash or receipt ID).
+    | 'outcome_id';
 
 /// Represents a value node in the entity data tree.
 export class EntityDataValueNode {
