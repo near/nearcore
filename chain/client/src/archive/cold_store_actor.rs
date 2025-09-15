@@ -9,7 +9,6 @@ use near_epoch_manager::{EpochManagerAdapter, EpochManagerHandle};
 use near_primitives::errors::EpochError;
 use near_primitives::types::BlockHeight;
 use near_store::adapter::StoreAdapter;
-use near_store::archive::cloud_storage::{CloudStorage, update_cloud_storage};
 use near_store::archive::cold_storage::{
     CopyAllDataToColdStatus, copy_all_data_to_cold, get_cold_head, update_cold_db, update_cold_head,
 };
@@ -107,7 +106,6 @@ pub struct ColdStoreActor {
     genesis_height: BlockHeight,
     hot_store: Store,
     cold_db: Arc<ColdDB>,
-    cloud_storage: Option<Arc<CloudStorage>>,
     epoch_manager: Arc<dyn EpochManagerAdapter>,
     shard_tracker: ShardTracker,
     keep_going: Arc<AtomicBool>,
@@ -127,7 +125,6 @@ impl ColdStoreActor {
         genesis_height: BlockHeight,
         hot_store: Store,
         cold_db: Arc<ColdDB>,
-        cloud_storage: Option<Arc<CloudStorage>>,
         epoch_manager: Arc<dyn EpochManagerAdapter>,
         shard_tracker: ShardTracker,
         keep_going: Arc<AtomicBool>,
@@ -138,7 +135,6 @@ impl ColdStoreActor {
             genesis_height,
             hot_store,
             cold_db,
-            cloud_storage,
             epoch_manager,
             shard_tracker,
             keep_going,
@@ -375,10 +371,6 @@ impl ColdStoreActor {
             self.split_storage_config.num_cold_store_read_threads,
         )?;
 
-        if let Some(cloud_storage) = &self.cloud_storage {
-            update_cloud_storage(cloud_storage, &self.hot_store, &next_height)?;
-        }
-
         update_cold_head(&self.cold_db, &self.hot_store, &next_height)?;
 
         let result = if next_height >= hot_final_head_height {
@@ -416,9 +408,6 @@ pub fn create_cold_store_actor(
         }
     };
 
-    // TODO(cloud_archival) Move this to a separate cloud storage loop.
-    let cloud_storage = storage.get_cloud_storage().cloned();
-
     let keep_going = Arc::new(AtomicBool::new(true));
     let keep_going_clone = keep_going.clone();
 
@@ -446,7 +435,6 @@ pub fn create_cold_store_actor(
         genesis_height,
         hot_store,
         cold_db,
-        cloud_storage,
         epoch_manager,
         shard_tracker,
         keep_going_clone,
