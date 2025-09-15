@@ -2,6 +2,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use itertools::Itertools;
 use reed_solomon_erasure::Field;
 use reed_solomon_erasure::galois_8::ReedSolomon;
+use reed_solomon_simd::encode;
 use std::collections::HashMap;
 use std::io::Error;
 use std::sync::Arc;
@@ -24,20 +25,20 @@ pub fn reed_solomon_encode<T: BorshSerialize>(
     let data_parts = rs.data_shard_count();
     let part_length = reed_solomon_part_length(encoded_length, data_parts);
 
-    // cspell:ignore b'aaabbbcccd'
-    // Pad the bytes to be a multiple of `part_length`
-    // Convert encoded data into `data_shard_count` number of parts and pad with `parity_shard_count` None values
-    // with 4 data_parts and 2 parity_parts
-    // b'aaabbbcccd' -> [Some(b'aaa'), Some(b'bbb'), Some(b'ccc'), Some(b'd00'), None, None]
-    bytes.resize(data_parts * part_length, 0);
-    let mut parts = bytes
-        .chunks_exact(part_length)
-        .map(|chunk| Some(chunk.to_vec().into_boxed_slice()))
-        .chain(itertools::repeat_n(None, rs.parity_shard_count()))
-        .collect_vec();
+    let recovery_count = rs.parity_shard_count();
 
-    // Fine to unwrap here as we just constructed the parts
-    rs.reconstruct(&mut parts).unwrap();
+    // Pad the bytes to be a multiple of `part_length`
+    bytes.resize(data_parts * part_length, 0);
+
+    let mut parts: Vec<Vec<u8>> =
+        bytes.chunks_exact(part_length).map(|chunk| chunk.to_vec()).collect();
+    let recovery_parts =
+        encode(data_parts, recovery_count, parts.iter().map(|p| p.as_slice())).unwrap();
+
+    parts.extend(recovery_parts);
+
+    // Convert to the expected format: Vec<Option<Box<[u8]>>>
+    let parts = parts.into_iter().map(|part| Some(part.into_boxed_slice())).collect_vec();
 
     (parts, encoded_length)
 }
@@ -70,6 +71,19 @@ pub fn reed_solomon_part_length(encoded_length: usize, data_parts: usize) -> usi
 
 pub fn reed_solomon_num_data_parts(total_parts: usize, ratio_data_parts: f64) -> usize {
     std::cmp::max((total_parts as f64 * ratio_data_parts) as usize, 1)
+}
+
+/// Determines if a part ordinal corresponds to a data part or parity part.
+/// Returns true if it's a data part, false if it's a parity part.
+pub fn reed_solomon_is_data_part(part_ord: usize, data_parts: usize) -> bool {
+    part_ord < data_parts
+}
+
+/// Gets the index of a part within its type (data or parity).
+/// For data parts: returns 0, 1, 2, ..., (data_parts - 1)
+/// For parity parts: returns 0, 1, 2, ..., (parity_parts - 1)
+pub fn reed_solomon_part_index(part_ord: usize, data_parts: usize) -> usize {
+    if reed_solomon_is_data_part(part_ord, data_parts) { part_ord } else { part_ord - data_parts }
 }
 
 pub struct ReedSolomonEncoder {
