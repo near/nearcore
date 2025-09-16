@@ -11,7 +11,7 @@ from enum import Enum
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 from configured_logger import logger
 
-from release_scenarios import get_test_case, get_available_test_cases
+from forknet_scenarios import get_test_case, get_available_test_cases
 
 CHAIN_ID = "mainnet"
 MOCKNET_STORE_PATH = "gs://near-mocknet-artefact-store"
