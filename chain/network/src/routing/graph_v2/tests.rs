@@ -17,7 +17,11 @@ fn verify_calculate_tree_distances(
     root: PeerId,
     edges: Vec<Edge>,
 ) {
-    let graph = GraphV2::new(GraphConfigV2 { node_id: random_peer_id(), prune_edges_after: None });
+    let clock = time::FakeClock::default();
+    let graph = GraphV2::new(
+        clock.clock(),
+        GraphConfigV2 { node_id: random_peer_id(), prune_edges_after: None },
+    );
     let mut inner = graph.inner.lock();
 
     let calculated = inner.calculate_tree_distances(&root, &edges);
@@ -113,7 +117,11 @@ fn calculate_tree_distances() {
 #[test]
 fn compute_next_hops() {
     let node0 = random_peer_id();
-    let graph = GraphV2::new(GraphConfigV2 { node_id: node0.clone(), prune_edges_after: None });
+    let clock = time::FakeClock::default();
+    let graph = GraphV2::new(
+        clock.clock(),
+        GraphConfigV2 { node_id: node0.clone(), prune_edges_after: None },
+    );
 
     // Test behavior on a node with no peers
     assert_eq!((HashMap::new(), HashMap::from([(node0.clone(), 0)])), graph.compute_next_hops());
@@ -224,7 +232,11 @@ fn compute_next_hops() {
 #[test]
 fn compute_next_hops_discard_loop() {
     let node0 = random_peer_id();
-    let graph = GraphV2::new(GraphConfigV2 { node_id: node0.clone(), prune_edges_after: None });
+    let clock = time::FakeClock::default();
+    let graph = GraphV2::new(
+        clock.clock(),
+        GraphConfigV2 { node_id: node0.clone(), prune_edges_after: None },
+    );
 
     // Add a peer node1 which advertises node2 via node0; 2--0--1
     let node1 = random_peer_id();
@@ -253,8 +265,11 @@ async fn test_process_network_event() {
     let node1 = random_peer_id();
     let node2 = random_peer_id();
 
-    let graph =
-        Arc::new(GraphV2::new(GraphConfigV2 { node_id: node0.clone(), prune_edges_after: None }));
+    let clock = time::FakeClock::default();
+    let graph = Arc::new(GraphV2::new(
+        clock.clock(),
+        GraphConfigV2 { node_id: node0.clone(), prune_edges_after: None },
+    ));
 
     let edge0 = Edge::make_fake_edge(node0.clone(), node1.clone(), 123);
     let edge1 = Edge::make_fake_edge(node1.clone(), node2.clone(), 456);
@@ -316,8 +331,11 @@ async fn test_process_network_event_idempotent() {
     let node0 = random_peer_id();
     let node1 = random_peer_id();
 
-    let graph =
-        Arc::new(GraphV2::new(GraphConfigV2 { node_id: node0.clone(), prune_edges_after: None }));
+    let clock = time::FakeClock::default();
+    let graph = Arc::new(GraphV2::new(
+        clock.clock(),
+        GraphConfigV2 { node_id: node0.clone(), prune_edges_after: None },
+    ));
 
     let edge0 = Edge::make_fake_edge(node0.clone(), node1.clone(), 123);
 
@@ -356,8 +374,11 @@ async fn test_receive_distance_vector_before_processing_local_connection() {
     let node1 = random_peer_id();
     let node2 = random_peer_id();
 
-    let graph =
-        Arc::new(GraphV2::new(GraphConfigV2 { node_id: node0.clone(), prune_edges_after: None }));
+    let clock = time::FakeClock::default();
+    let graph = Arc::new(GraphV2::new(
+        clock.clock(),
+        GraphConfigV2 { node_id: node0.clone(), prune_edges_after: None },
+    ));
 
     let edge0 = Edge::make_fake_edge(node0.clone(), node1.clone(), 123);
     let edge1 = Edge::make_fake_edge(node1.clone(), node2.clone(), 456);
@@ -391,8 +412,11 @@ async fn test_receive_invalid_distance_vector() {
     let node1 = random_peer_id();
     let node2 = random_peer_id();
 
-    let graph =
-        Arc::new(GraphV2::new(GraphConfigV2 { node_id: node0.clone(), prune_edges_after: None }));
+    let clock = time::FakeClock::default();
+    let graph = Arc::new(GraphV2::new(
+        clock.clock(),
+        GraphConfigV2 { node_id: node0.clone(), prune_edges_after: None },
+    ));
 
     let edge0 = Edge::make_fake_edge(node0.clone(), node1.clone(), 123);
     let edge1 = Edge::make_fake_edge(node1.clone(), node2.clone(), 456);
@@ -448,8 +472,11 @@ async fn receive_distance_vector_without_route_to_local_node() {
     let node1 = random_peer_id();
     let node2 = random_peer_id();
 
-    let graph =
-        Arc::new(GraphV2::new(GraphConfigV2 { node_id: node0.clone(), prune_edges_after: None }));
+    let clock = time::FakeClock::default();
+    let graph = Arc::new(GraphV2::new(
+        clock.clock(),
+        GraphConfigV2 { node_id: node0.clone(), prune_edges_after: None },
+    ));
 
     let edge0 = Edge::make_fake_edge(node0.clone(), node1.clone(), 123);
     let edge1 = Edge::make_fake_edge(node1.clone(), node2.clone(), 456);
@@ -549,8 +576,11 @@ async fn inconsistent_peers() {
     let node3 = random_peer_id();
     let node4 = random_peer_id();
 
-    let graph =
-        Arc::new(GraphV2::new(GraphConfigV2 { node_id: node0.clone(), prune_edges_after: None }));
+    let clock = time::FakeClock::default();
+    let graph = GraphV2::new(
+        clock.clock(),
+        GraphConfigV2 { node_id: node0.clone(), prune_edges_after: None },
+    );
 
     let edge01 = Edge::make_fake_edge(node0.clone(), node1.clone(), 123);
     let edge02 = Edge::make_fake_edge(node0.clone(), node2.clone(), 123);
@@ -619,10 +649,10 @@ async fn test_distance_vector_nonce_expiration() {
     let clock = time::FakeClock::default();
 
     let node0 = random_peer_id();
-    let graph = Arc::new(GraphV2::new(GraphConfigV2 {
-        node_id: node0.clone(),
-        prune_edges_after: Some(PRUNE_EDGES_AFTER),
-    }));
+    let graph = GraphV2::new(
+        clock.clock(),
+        GraphConfigV2 { node_id: node0.clone(), prune_edges_after: Some(PRUNE_EDGES_AFTER) },
+    );
 
     let initial_nonce = Edge::create_fresh_nonce(&clock.clock());
 
@@ -647,7 +677,7 @@ async fn test_distance_vector_nonce_expiration() {
     clock.advance(PRUNE_EDGES_AFTER + time::Duration::seconds(1));
 
     // Recompute routes
-    graph.recompute_routes(&clock.clock()).await;
+    graph.recompute_routes().await;
 
     // Check that the expired distance vector was removed
     assert!(!graph.has_distance_vector(&node1));
@@ -658,10 +688,10 @@ async fn test_distance_vector_nonce_refresh() {
     let clock = time::FakeClock::default();
 
     let node0 = random_peer_id();
-    let graph = Arc::new(GraphV2::new(GraphConfigV2 {
-        node_id: node0.clone(),
-        prune_edges_after: Some(PRUNE_EDGES_AFTER),
-    }));
+    let graph = Arc::new(GraphV2::new(
+        clock.clock(),
+        GraphConfigV2 { node_id: node0.clone(), prune_edges_after: Some(PRUNE_EDGES_AFTER) },
+    ));
 
     let initial_nonce = Edge::create_fresh_nonce(&clock.clock());
 
@@ -699,7 +729,7 @@ async fn test_distance_vector_nonce_refresh() {
     clock.advance(PRUNE_EDGES_AFTER / 2 + time::Duration::seconds(1));
 
     // Recompute routes and check that the distance vector did not expire
-    graph.recompute_routes(&clock.clock()).await;
+    graph.recompute_routes().await;
     assert!(graph.has_distance_vector(&node1));
 
     // Advance the clock again, then refresh only edge01
@@ -715,6 +745,6 @@ async fn test_distance_vector_nonce_refresh() {
     clock.advance(PRUNE_EDGES_AFTER / 2 + time::Duration::seconds(1));
 
     // Recompute routes and check that the distance vector expires
-    graph.recompute_routes(&clock.clock()).await;
+    graph.recompute_routes().await;
     assert!(!graph.has_distance_vector(&node1));
 }
