@@ -1337,7 +1337,7 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
             cache: Some(self.compiled_contract_cache.handle()),
         };
         self.trie_viewer.call_function(
-            state_update,
+            trie,
             view_state,
             contract_id,
             method_name,

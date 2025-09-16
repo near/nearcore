@@ -1392,7 +1392,7 @@ impl Runtime {
         // Bandwidth scheduler should be run for every chunk, including the missing ones.
         let bandwidth_scheduler_output = run_bandwidth_scheduler(
             apply_state,
-            &mut update_ops,
+            &processing_state.state_update,
             epoch_info_provider,
             &mut processing_state.stats.bandwidth_scheduler,
         )?;
@@ -2705,14 +2705,15 @@ pub mod estimator {
     use near_primitives::transaction::ExecutionOutcomeWithId;
     use near_primitives::types::EpochInfoProvider;
     use near_primitives::types::validator_stake::ValidatorStake;
+    use near_store::ShardUId;
+    use near_store::state_update::StateOperations;
     use near_store::trie::outgoing_metadata::{OutgoingMetadatas, ReceiptGroupsConfig};
     use near_store::trie::receipts_column_helper::ShardsOutgoingReceiptBuffer;
-    use near_store::{ShardUId, TrieUpdate};
     use std::collections::HashMap;
     use std::num::NonZeroU64;
 
     pub fn apply_action_receipt(
-        state_update: &mut TrieUpdate,
+        state_update: StateOperations,
         apply_state: &ApplyState,
         receipt: &Receipt,
         outgoing_receipts: &mut Vec<Receipt>,
@@ -2729,7 +2730,7 @@ pub mod estimator {
         // ShardId used in EstimatorContext::testbed
         let shard_uid: ShardUId = ShardUId::single_shard();
         let outgoing_metadatas = OutgoingMetadatas::load(
-            state_update,
+            &mut state_update,
             std::iter::once(shard_uid.shard_id()),
             ReceiptGroupsConfig::default_config(),
         )?;
@@ -2742,7 +2743,7 @@ pub mod estimator {
         let sink = ReceiptSinkV2 {
             own_congestion_info: congestion_info,
             outgoing_limit,
-            outgoing_buffers: ShardsOutgoingReceiptBuffer::load(&state_update.trie)?,
+            outgoing_buffers: ShardsOutgoingReceiptBuffer::load(&mut state_update)?,
             outgoing_receipts: Vec::new(),
             outgoing_metadatas,
             bandwidth_scheduler_output: BandwidthSchedulerOutput::no_granted_bandwidth(params),

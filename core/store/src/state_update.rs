@@ -105,8 +105,15 @@ struct OperationValue {
 }
 
 impl OperationValue {
-    const READ: u8 = 1;
-    const WRITTEN: u8 = 2;
+    const READ: u8 = 1 << 0;
+    const WRITTEN: u8 = 1 << 1;
+
+    // Value is known to not exist in the underlying store.
+    const ABSENT_IN_TRIE: u8 = 1 << 2;
+    // Remove the value. No-op if the value is already known to be absent.
+    const REMOVE: u8 = 1 << 3;
+
+
     const UPDATES_CLOCK: u8 = Self::READ | Self::WRITTEN;
 }
 
@@ -142,8 +149,7 @@ impl StateUpdate {
 impl<'su> StateOperations<'su> {
     /// Checks the key for presence.
     ///
-    /// Does not read out the value or cache it. Unlike `get` this is also more relaxed with
-    /// regards to the conflict detection.
+    /// Does not decode the value or cache it.
     pub fn contains_key(&mut self, key: &TrieKey) -> Result<bool, StorageError> {
         self.contains_key_or(key, |t, k| t.contains_key(&k.to_vec(), AccessOptions::DEFAULT))
     }
@@ -154,7 +160,7 @@ impl<'su> StateOperations<'su> {
         _key: &TrieKey,
         fallback: impl FnOnce(&Trie, &TrieKey) -> Result<bool, StorageError>,
     ) -> Result<bool, StorageError> {
-        todo!()
+
     }
 
     /// Obtain a [`Trie`] value reference (if it hasn't been dereferenced already.)
@@ -339,9 +345,8 @@ impl<'su> StateOperations<'su> {
                 if let Some(value) = committed_value {
                     e.insert(OperationValue { operations: 0, value })
                 } else {
-                    // FIXME(nagisa): maybe we could avoid a heap allocation here? Maybe use a
-                    // smallvec or something?
-                    let key = e.key().to_vec();
+                    let key = smallvec::SmallVec::<[u8; 64]>::new_const();
+                    let key = e.key().append_into(&mut key);
                     let trie_ref = self
                         .state_update
                         .trie
@@ -523,6 +528,8 @@ pub mod state_value {
     use std::any::Any;
     use std::sync::Arc;
 
+    use near_primitives::state::ValueRef;
+
     use crate::trie::OptimizedValueRef;
 
     /// A value that can be eventually written out to the database.
@@ -534,12 +541,36 @@ pub mod state_value {
 
     /// Value that does not exist. If written to storage – removes any existing value at the key.
     pub(super) struct ValueAbsent;
-
     impl StateValue for ValueAbsent {
         fn arc(&self) -> Arc<dyn StateValue> {
             Arc::new(ValueAbsent)
         }
     }
+
+    /// Value exists, but hasn't been yet retrieved from the backing store.
+    pub(super) struct TrieRefValue(ValueRef);
+    impl StateValue for TrieRefValue {
+        fn arc(&self) -> Arc<dyn StateValue> {
+            Arc::new(Self(self.0))
+        }
+    }
+
+    /// Value that is serialized to the representation held by the backing storage.
+    ///
+    /// Value can end up being of this kind if its deserialization isn't forced.
+    pub(super) struct SerializedValue(Vec<u8>);
+    impl StateValue for SerializedValue {
+        fn arc(&self) -> Arc<dyn StateValue> {
+            // FIXME: ew!
+            Arc::new(Self(self.0.clone()))
+        }
+    }
+
+
+
+
+
+
 
     /// Value exists at the key.
     ///

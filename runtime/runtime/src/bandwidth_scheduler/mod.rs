@@ -46,7 +46,7 @@ impl BandwidthSchedulerOutput {
 /// of outgoing receipts can be sent between shards at the current height.
 pub fn run_bandwidth_scheduler(
     apply_state: &ApplyState,
-    state_update: &mut StateOperations,
+    state_update: &StateUpdate,
     epoch_info_provider: &dyn EpochInfoProvider,
     stats: &mut BandwidthSchedulerStats,
 ) -> Result<BandwidthSchedulerOutput, RuntimeError> {
@@ -57,10 +57,10 @@ pub fn run_bandwidth_scheduler(
         height = apply_state.block_height,
         shard_id = %apply_state.shard_id)
     .entered();
-
+    let mut update_ops = state_update.start_update();
     // Read the current scheduler state from the Trie
     let scheduler_state =
-        state_update.get::<BandwidthSchedulerState>(TrieKey::BandwidthSchedulerState)?;
+        update_ops.get::<BandwidthSchedulerState>(TrieKey::BandwidthSchedulerState)?;
     let mut scheduler_state = match scheduler_state {
         Some(prev_state) => prev_state.clone(),
         None => {
@@ -139,8 +139,8 @@ pub fn run_bandwidth_scheduler(
     // FIXME: this serializes the entire thing into memory before hashing it up. Serializer could
     // feed into the hasher directly.
     let scheduler_state_hash: CryptoHash = hash(&borsh::to_vec(&scheduler_state).unwrap());
-    state_update.set(TrieKey::BandwidthSchedulerState, scheduler_state);
-    state_update.commit(/*StateChangeCause::BandwidthSchedulerStateUpdate*/);
+    update_ops.set(TrieKey::BandwidthSchedulerState, scheduler_state);
+    update_ops.commit(/*StateChangeCause::BandwidthSchedulerStateUpdate*/);
 
     stats.time_to_run_ms = start_time.elapsed().as_millis();
     Ok(BandwidthSchedulerOutput { granted_bandwidth, params, scheduler_state_hash })
