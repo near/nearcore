@@ -4145,6 +4145,7 @@ dependencies = [
  "crossbeam-channel",
  "easy-ext",
  "enum-map",
+ "futures",
  "insta",
  "itertools 0.14.0",
  "lru 0.12.3",
@@ -4265,7 +4266,6 @@ name = "near-client"
 version = "0.0.0"
 dependencies = [
  "actix",
- "actix-rt",
  "anyhow",
  "assert_matches",
  "borsh",
@@ -4274,7 +4274,6 @@ dependencies = [
  "futures",
  "itertools 0.14.0",
  "lru 0.12.3",
- "near-actix-test-utils",
  "near-async",
  "near-cache",
  "near-chain",
@@ -4494,7 +4493,6 @@ dependencies = [
 name = "near-fork-network"
 version = "0.0.0"
 dependencies = [
- "actix",
  "anyhow",
  "chrono",
  "clap",
@@ -4515,6 +4513,7 @@ dependencies = [
  "serde",
  "serde_json",
  "strum",
+ "tokio",
  "tracing",
 ]
 
@@ -4647,7 +4646,6 @@ dependencies = [
  "axum",
  "axum-test",
  "borsh",
- "near-actix-test-utils",
  "near-async",
  "near-chain",
  "near-chain-configs",
@@ -4979,7 +4977,6 @@ dependencies = [
 name = "near-rosetta-rpc"
 version = "0.0.0"
 dependencies = [
- "actix",
  "axum",
  "derive_more 2.0.1",
  "futures",
@@ -5057,7 +5054,6 @@ dependencies = [
 name = "near-state-parts-dump-check"
 version = "0.0.0"
 dependencies = [
- "actix",
  "anyhow",
  "axum",
  "borsh",
@@ -5085,7 +5081,6 @@ name = "near-store"
 version = "0.0.0"
 dependencies = [
  "actix",
- "actix-rt",
  "anyhow",
  "assert_matches",
  "bencher",
@@ -5571,7 +5566,6 @@ dependencies = [
 name = "nearcore"
 version = "0.0.0"
 dependencies = [
- "actix-rt",
  "anyhow",
  "bencher",
  "borsh",
@@ -5582,7 +5576,6 @@ dependencies = [
  "hex",
  "indicatif",
  "itertools 0.14.0",
- "near-actix-test-utils",
  "near-async",
  "near-chain",
  "near-chain-configs",
@@ -8014,7 +8007,6 @@ checksum = "a8f112729512f8e442d81f95a8a7ddf2b7c6b8a1a6f509a95864142b30cab2d3"
 name = "state-viewer"
 version = "0.0.0"
 dependencies = [
- "actix",
  "anyhow",
  "borsh",
  "bytesize 1.1.0",
@@ -8052,6 +8044,7 @@ dependencies = [
  "strum",
  "testlib",
  "thiserror 2.0.16",
+ "tokio",
  "tracing",
  "yansi",
 ]

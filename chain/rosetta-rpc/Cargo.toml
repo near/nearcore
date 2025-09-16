@@ -12,7 +12,6 @@ publish = false
 workspace = true
 
 [dependencies]
-actix.workspace = true
 axum.workspace = true
 derive_more = { workspace = true, features = ["as_ref", "from", "from_str"] }
 futures.workspace = true

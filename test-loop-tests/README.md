@@ -91,7 +91,7 @@ env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 For historical context, there are multiple existing ways for writing such
 tests. The following list presents these methods in order of their development:
 
-* `run_actix(... setup_mock_all_validators(...))` - very powerful, spawns all
+* `setup_mock_all_validators(...)` - very powerful, spawns all
 actors required for multi-node chain to operate and supports network
 communication among them. However, very hard to understand, uses a lot of
 resources and almost not maintained.

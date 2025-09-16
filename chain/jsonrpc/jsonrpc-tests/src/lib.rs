@@ -3,7 +3,6 @@ use std::sync::Arc;
 use axum::Router;
 use axum_test::TestServer;
 use near_async::ActorSystem;
-use near_async::actix::futures::ActixFutureSpawner;
 use near_async::messaging::{IntoMultiSender, IntoSender, noop};
 use near_chain::ChainGenesis;
 use near_chain_configs::{ClientConfig, Genesis, MutableConfigValue, TrackedShardsConfig};
@@ -145,7 +144,7 @@ pub fn create_test_setup_with_accounts_and_validity(
         shard_tracker.clone(),
         runtime.clone(),
         PeerId::new(PublicKey::empty(KeyType::ED25519)),
-        Arc::new(ActixFutureSpawner),
+        actor_system.new_future_spawner().into(),
         noop().into_multi_sender(),
         noop().into_sender(),
         signer.clone(),

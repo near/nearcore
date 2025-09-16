@@ -1,7 +1,9 @@
 {
 	"tx_generator": {
 		"schedule": [
-			{ "tps": 1000, "duration_s": 180 }
+			{ "tps": 1000, "duration_s": 180 },
+			{ "tps": 2000, "duration_s": 180 },
+			{ "tps": 4000, "duration_s": 60 }
 		],
 		"controller": {
 			"target_block_production_time_s": 1.5,

@@ -12,7 +12,6 @@ publish = false
 workspace = true
 
 [dependencies]
-actix-rt.workspace = true
 actix.workspace = true
 anyhow.workspace = true
 borsh.workspace = true
@@ -68,7 +67,6 @@ node-runtime.workspace = true
 [dev-dependencies]
 assert_matches.workspace = true
 near-primitives = { workspace = true, features = ["clock", "solomon", "rand"] }
-near-actix-test-utils.workspace = true
 criterion.workspace = true
 testlib.workspace = true
 
@@ -93,7 +91,6 @@ test_features = [
     "near-vm-runner/test_features",
 ]
 nightly = [
-    "near-actix-test-utils/nightly",
     "near-async/nightly",
     "near-chain-configs/nightly",
     "near-chain/nightly",

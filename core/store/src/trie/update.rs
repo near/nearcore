@@ -129,8 +129,8 @@ impl TrieUpdate {
 
     pub fn contains_key(&self, key: &TrieKey, opts: AccessOptions) -> Result<bool, StorageError> {
         let key = key.to_vec();
-        if self.prospective.contains_key(&key) {
-            return Ok(true);
+        if let Some(data) = self.prospective.get(&key) {
+            return Ok(data.value.is_some());
         } else if let Some(changes_with_trie_key) = self.committed.get(&key) {
             if let Some(RawStateChange { data, .. }) = changes_with_trie_key.changes.last() {
                 return Ok(data.is_some());
@@ -409,6 +409,12 @@ mod tests {
         let mut trie_update = tries.new_trie_update(shard_uid, Trie::EMPTY_ROOT);
         trie_update.set(test_key(b"dog".to_vec()), b"puppy".to_vec());
         trie_update.remove(test_key(b"dog".to_vec()));
+        assert!(
+            trie_update.get(&test_key(b"dog".to_vec()), AccessOptions::DEFAULT).unwrap().is_none()
+        );
+        assert!(
+            !trie_update.contains_key(&test_key(b"dog".to_vec()), AccessOptions::DEFAULT).unwrap()
+        );
         trie_update
             .commit(StateChangeCause::TransactionProcessing { tx_hash: CryptoHash::default() });
         let trie_changes = trie_update.finalize().unwrap().trie_changes;
