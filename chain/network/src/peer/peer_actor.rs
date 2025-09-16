@@ -1,11 +1,11 @@
 use crate::accounts_data::AccountDataError;
+use crate::batch_processor::{BatchProcessor, RateLimit};
 use crate::client::{
     AnnounceAccountRequest, BlockHeadersRequest, BlockHeadersResponse, BlockRequest, BlockResponse,
     EpochSyncRequestMessage, EpochSyncResponseMessage, OptimisticBlockMessage, ProcessTxRequest,
     StateRequestHeader, StateRequestPart, StateResponseReceived,
 };
 use crate::concurrency::atomic_cell::AtomicCell;
-use crate::batch_processor::{BatchProcessor, RateLimit};
 use crate::config::PEERS_RESPONSE_MAX_PEERS;
 #[cfg(feature = "distance_vector_routing")]
 use crate::network_protocol::DistanceVector;
@@ -1298,11 +1298,10 @@ impl PeerActor {
             PeerMessage::DistanceVector(_) => {}
             #[cfg(feature = "distance_vector_routing")]
             PeerMessage::DistanceVector(dv) => {
-                let clock = self.clock.clone();
                 let conn = conn.clone();
                 let network_state = self.network_state.clone();
                 ctx.spawn(wrap_future(async move {
-                    Self::handle_distance_vector(&clock, &network_state, conn.clone(), dv).await;
+                    Self::handle_distance_vector(&network_state, conn.clone(), dv).await;
                     #[cfg(test)]
                     message_processed_event();
                 }));
@@ -1507,9 +1506,8 @@ impl PeerActor {
 
         // Also pass the edges to the V2 routing table
         #[cfg(feature = "distance_vector_routing")]
-        if let Err(ban_reason) = network_state
-            .update_routes(&clock, NetworkTopologyChange::EdgeNonceRefresh(rtu.edges))
-            .await
+        if let Err(ban_reason) =
+            network_state.update_routes(NetworkTopologyChange::EdgeNonceRefresh(rtu.edges)).await
         {
             conn.stop(Some(ban_reason));
         }
@@ -1539,7 +1537,6 @@ impl PeerActor {
     #[tracing::instrument(level = "trace", target = "network", "handle_distance_vector", skip_all)]
     #[cfg(feature = "distance_vector_routing")]
     async fn handle_distance_vector(
-        clock: &time::Clock,
         network_state: &Arc<NetworkState>,
         conn: Arc<connection::Connection>,
         distance_vector: DistanceVector,
@@ -1550,7 +1547,7 @@ impl PeerActor {
         }
 
         if let Err(ban_reason) = network_state
-            .update_routes(&clock, NetworkTopologyChange::PeerAdvertisedDistances(distance_vector))
+            .update_routes(NetworkTopologyChange::PeerAdvertisedDistances(distance_vector))
             .await
         {
             conn.stop(Some(ban_reason));

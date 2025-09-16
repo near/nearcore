@@ -1,6 +1,6 @@
+use crate::batch_processor::BatchProcessor;
 use crate::concurrency::arc_mutex::ArcMutex;
 use crate::concurrency::atomic_cell::AtomicCell;
-use crate::batch_processor::BatchProcessor;
 use crate::network_protocol::{
     PeerInfo, PeerMessage, SignedAccountData, SignedOwnedAccount, SnapshotHostInfo,
     SyncAccountsData, SyncSnapshotHosts, TieredMessageBody,
