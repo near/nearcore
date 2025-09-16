@@ -53,6 +53,7 @@ pub fn reed_solomon_decode<T: BorshDeserialize>(
 ) -> Result<T, Error> {
     let data_parts = rs.data_shard_count();
     let recovery_count = rs.parity_shard_count();
+    let part_length = reed_solomon_part_length(encoded_length, data_parts);
 
     // Separate original and recovery parts with their indexes
     let original_parts: Vec<(usize, &[u8])> = parts
@@ -72,17 +73,18 @@ pub fn reed_solomon_decode<T: BorshDeserialize>(
     let decoded_parts = decode(data_parts, recovery_count, original_parts, recovery_parts)
         .map_err(|e| Error::other(e))?;
 
-    let mut full_data = Vec::new();
+    let mut full_data = Vec::with_capacity(data_parts * part_length);
+
     for i in 0..data_parts {
         if let Some(data) = decoded_parts.get(&i) {
-            full_data.extend(data);
+            full_data.extend_from_slice(data);
         } else if let Some(part) = &parts[i] {
-            full_data.extend(part.iter());
+            full_data.extend_from_slice(part);
         }
     }
-    let encoded_data = full_data.into_iter().take(encoded_length).collect_vec();
+    full_data.truncate(encoded_length);
 
-    T::try_from_slice(&encoded_data)
+    T::try_from_slice(&full_data)
 }
 
 pub fn reed_solomon_part_length(encoded_length: usize, data_parts: usize) -> usize {
