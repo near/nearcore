@@ -72,27 +72,18 @@ pub fn reed_solomon_decode<T: BorshDeserialize>(
     let mut decoded_parts = decode(data_parts, recovery_count, original_parts, recovery_parts)
         .map_err(|e| Error::other(e))?;
 
-    // Populate missing data parts and collect data for reconstruction
-    let mut data_parts_vec: Vec<Vec<u8>> = Vec::with_capacity(data_parts);
-
+    // Populate missing data parts
     for i in 0..data_parts {
         if let Some(data) = decoded_parts.remove(&i) {
-            if parts[i].is_none() {
-                data_parts_vec.push(data.clone());
-                parts[i] = Some(data.into_boxed_slice());
-            } else {
-                data_parts_vec.push(data);
+            if parts[i].is_some() {
+                return Err(Error::other("Decoded existing data part"));
             }
-        } else if let Some(part) = &parts[i] {
-            data_parts_vec.push(part.to_vec());
-        } else {
+            parts[i] = Some(data.into_boxed_slice());
+        } else if parts[i].is_none() {
             // This shouldn't happen if we have enough parts to decode
             return Err(Error::other("Missing required data part"));
         }
     }
-
-    let mut full_data = data_parts_vec.into_iter().flatten().collect::<Vec<u8>>();
-    full_data.truncate(encoded_length);
 
     // Generate only the missing parity parts
     let data_slices: Vec<&[u8]> =
@@ -107,6 +98,13 @@ pub fn reed_solomon_decode<T: BorshDeserialize>(
         }
     }
 
+    // Extract the first encoded_length bytes from data parts for deserialization
+    let full_data: Vec<u8> = parts[..data_parts]
+        .iter()
+        .flat_map(|part| part.as_ref().unwrap().as_ref())
+        .take(encoded_length)
+        .cloned()
+        .collect();
     T::try_from_slice(&full_data)
 }
 
