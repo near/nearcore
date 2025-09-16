@@ -76,6 +76,7 @@ pub fn reed_solomon_decode<T: BorshDeserialize>(
     for i in 0..data_parts {
         if let Some(data) = decoded_parts.remove(&i) {
             if parts[i].is_some() {
+                // The crate only returns missing data parts
                 return Err(Error::other("Decoded existing data part"));
             }
             parts[i] = Some(data.into_boxed_slice());
@@ -85,7 +86,6 @@ pub fn reed_solomon_decode<T: BorshDeserialize>(
         }
     }
 
-    // Generate only the missing parity parts
     let data_slices: Vec<&[u8]> =
         parts[..data_parts].iter().map(|part| part.as_ref().unwrap().as_ref()).collect();
     let parity_parts = encode(data_parts, recovery_count, data_slices).unwrap();
