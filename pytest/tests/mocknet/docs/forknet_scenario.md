@@ -1,6 +1,6 @@
-# Release Forknet Tool
+# Forknet Scenario Tool
 
-The `release_forknet.py` script is used to run release test scenarios.
+The `forknet_scenario.py` script is used to run test scenarios.
 
 ## Prerequisites
 * GCP access (SRE)
@@ -36,27 +36,29 @@ To add a new test scenario:
 2. Define required parameters in `__init__`:
    ```python
    def __init__(self, args):
-       super().__init__(args)
+      super().__init__(args)
 
-       # Required parameters:
-       self.start_height = 123456789  # Forknet image height
-       self.args.start_height = self.start_height
-       self.validators = 21  # Total validator count
-       self.block_producers = 18  # Number of block producers
-       self.epoch_len = 18000  # Epoch length in blocks
-       self.genesis_protocol_version = 77  # Protocol version
+      # Required parameters:
+      self.start_height = 123456789  # Forknet image height
+      self.args.start_height = self.start_height
 
-       # Optional parameters:
-       self.has_archival = True  # Enable archival nodes
-       self.has_state_dumper = False  # Enable state dumper
-       self.regions = None  # List of GCP regions, None for default
-       # Set base binary URL for initial network state
-       self.neard_binary_url = 'https://...'
+      self.node_hardware_config = NodeHardware.SameConfig(
+         num_chunk_producer_seats=19, # Number of block producers and chunk producers
+         num_chunk_validator_seats=24, # Total number of validator nodes in the network.
+      )
+
+      self.epoch_len = 18000  # Epoch length in blocks
+      self.genesis_protocol_version = 77  # Protocol version
+
+      # Optional parameters:
+      self.has_archival = True  # Enable archival nodes
+      self.has_state_dumper = False  # Enable state dumper
+      self.regions = None  # List of GCP regions, None for default
+      # Set base binary URL for initial network state
+      self.neard_binary_url = 'https://...'
    ```
 
 3. Override methods to customize behavior:
    - `before_test_setup()` - Run commands before test creation
    - `amend_configs_before_test_start()` - Modify node configs before start
    - `after_test_start()` - Run commands after test starts
-
-4. Add your class to the list of testcases under [TEST_CASES](../forknet_scenarios/__init__.py).
