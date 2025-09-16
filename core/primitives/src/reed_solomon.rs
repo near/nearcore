@@ -72,8 +72,15 @@ pub fn reed_solomon_decode<T: BorshDeserialize>(
     let decoded_parts = decode(data_parts, recovery_count, original_parts, recovery_parts)
         .map_err(|e| Error::other(e))?;
 
-    let encoded_data =
-        decoded_parts.into_iter().flat_map(|(_, data)| data).take(encoded_length).collect_vec();
+    let mut full_data = Vec::new();
+    for i in 0..data_parts {
+        if let Some(data) = decoded_parts.get(&i) {
+            full_data.extend(data);
+        } else if let Some(part) = &parts[i] {
+            full_data.extend(part.iter());
+        }
+    }
+    let encoded_data = full_data.into_iter().take(encoded_length).collect_vec();
 
     T::try_from_slice(&encoded_data)
 }
