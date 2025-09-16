@@ -53,7 +53,6 @@ pub fn reed_solomon_decode<T: BorshDeserialize>(
 ) -> Result<T, Error> {
     let data_parts = rs.data_shard_count();
     let recovery_count = rs.parity_shard_count();
-    let part_length = reed_solomon_part_length(encoded_length, data_parts);
 
     // Separate original and recovery parts with their indexes
     let original_parts: Vec<(usize, &[u8])> = parts
@@ -70,18 +69,22 @@ pub fn reed_solomon_decode<T: BorshDeserialize>(
         .filter_map(|(i, part)| part.as_ref().map(|data| (i - data_parts, data.as_ref())))
         .collect();
 
-    let decoded_parts = decode(data_parts, recovery_count, original_parts, recovery_parts)
+    let mut decoded_parts = decode(data_parts, recovery_count, original_parts, recovery_parts)
         .map_err(|e| Error::other(e))?;
 
-    let mut full_data = Vec::with_capacity(data_parts * part_length);
+    let mut data_parts_vec: Vec<Vec<u8>> = Vec::with_capacity(data_parts);
 
     for i in 0..data_parts {
-        if let Some(data) = decoded_parts.get(&i) {
-            full_data.extend_from_slice(data);
-        } else if let Some(part) = &parts[i] {
-            full_data.extend_from_slice(part);
+        if let Some(data) = decoded_parts.remove(&i) {
+            data_parts_vec.push(data);
+        } else if let Some(part) = parts[i].take() {
+            data_parts_vec.push(part.into_vec());
+        } else {
+            // This shouldn't happen if we have enough parts to decode
+            return Err(Error::other("Missing required data part"));
         }
     }
+    let mut full_data = data_parts_vec.into_iter().flatten().collect::<Vec<u8>>();
     full_data.truncate(encoded_length);
 
     T::try_from_slice(&full_data)
