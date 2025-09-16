@@ -118,19 +118,6 @@ pub fn reed_solomon_num_data_parts(total_parts: usize, ratio_data_parts: f64) ->
     std::cmp::max((total_parts as f64 * ratio_data_parts) as usize, 1)
 }
 
-/// Determines if a part ordinal corresponds to a data part or parity part.
-/// Returns true if it's a data part, false if it's a parity part.
-pub fn reed_solomon_is_data_part(part_ord: usize, data_parts: usize) -> bool {
-    part_ord < data_parts
-}
-
-/// Gets the index of a part within its type (data or parity).
-/// For data parts: returns 0, 1, 2, ..., (data_parts - 1)
-/// For parity parts: returns 0, 1, 2, ..., (parity_parts - 1)
-pub fn reed_solomon_part_index(part_ord: usize, data_parts: usize) -> usize {
-    if reed_solomon_is_data_part(part_ord, data_parts) { part_ord } else { part_ord - data_parts }
-}
-
 pub struct ReedSolomonEncoder {
     /// ReedSolomon does not support having exactly 1 total part count and
     /// no parity parts, so we use None for that
