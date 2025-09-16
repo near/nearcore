@@ -14,30 +14,28 @@ The `release_forknet.py` script is used to run release test scenarios.
 2. Create the nodes:
 
 ```bash
-python tests/mocknet/release_forknet.py --unique-id UNIQUE-ID --test-case test2.7 create
+python tests/mocknet/forknet_scenario.py --unique-id UNIQUE-ID --test-case Example create
 ```
 
 3. Start the test
 ```bash
-python python tests/mocknet/release_forknet.py --unique-id token --test-case test2.7 start_test --neard-upgrade-binary-url $NEARD_UPGRADE_BINARY_URL
+python tests/mocknet/forknet_scenario.py --unique-id token --test-case Example start --neard-upgrade-binary-url $NEARD_UPGRADE_BINARY_URL
 ```
 
 4. Stop the test and free the nodes
 ```bash
-python python tests/mocknet/release_forknet.py --unique-id token --test-case test2.7 destroy
+python tests/mocknet/forknet_scenario.py --unique-id token --test-case Example destroy
 ```
 
 ## Adding testcase
-The test case functions will be executed sequentially in the order defined in [release_forknet.py](../release_forknet.py).
+The test case functions will be executed sequentially in the order defined in [forknet_scenario.py](../forknet_scenario.py).
 To add a new test scenario:
 
-1. Create a new class in `tests/mocknet/release_scenarios/` that inherits from `TestSetup` base class
+1. Create a new class in `tests/mocknet/forknet_scenarios/` that inherits from `TestSetup` base class
 
 2. Define required parameters in `__init__`:
    ```python
    def __init__(self, args):
-       # Set base binary URL for initial network state
-       args.neard_binary_url = 'https://...'
        super().__init__(args)
 
        # Required parameters:
@@ -52,6 +50,8 @@ To add a new test scenario:
        self.has_archival = True  # Enable archival nodes
        self.has_state_dumper = False  # Enable state dumper
        self.regions = None  # List of GCP regions, None for default
+       # Set base binary URL for initial network state
+       self.neard_binary_url = 'https://...'
    ```
 
 3. Override methods to customize behavior:
@@ -59,4 +59,4 @@ To add a new test scenario:
    - `amend_configs_before_test_start()` - Modify node configs before start
    - `after_test_start()` - Run commands after test starts
 
-4. Add your class to the list of testcases under [TEST_CASES](../release_scenarios/__init__.py).
+4. Add your class to the list of testcases under [TEST_CASES](../forknet_scenarios/__init__.py).

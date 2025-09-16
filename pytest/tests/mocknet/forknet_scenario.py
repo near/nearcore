@@ -1,5 +1,5 @@
 """
-This script is used to run a release tests on a forknet.
+This script is used to run a forknet scenario.
 """
 
 from argparse import ArgumentParser
@@ -151,8 +151,8 @@ def main():
     destroy_parser = subparsers.add_parser('destroy',
                                            help='Destroy the infrastructure')
 
-    start_parser = subparsers.add_parser('start_test',
-                                         help='Start the release test')
+    start_parser = subparsers.add_parser('start',
+                                         help='Start the selected scenario')
     start_parser.add_argument(
         '--neard-binary-url',
         help=
@@ -172,7 +172,7 @@ def main():
         handle_create(args)
     elif args.command == 'destroy':
         handle_destroy(args)
-    elif args.command == 'start_test':
+    elif args.command == 'start':
         handle_start_test(args)
     else:
         parser.print_help()
