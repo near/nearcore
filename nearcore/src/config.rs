@@ -11,6 +11,7 @@ use near_chain_configs::test_utils::{
 use near_chain_configs::{
     BLOCK_PRODUCER_KICKOUT_THRESHOLD, CHUNK_PRODUCER_KICKOUT_THRESHOLD,
     CHUNK_VALIDATOR_ONLY_KICKOUT_THRESHOLD, ChunkDistributionNetworkConfig, ClientConfig,
+    CloudArchivalReaderConfig, CloudArchivalWriterConfig, CloudStorageConfig,
     EXPECTED_EPOCH_LENGTH, EpochSyncConfig, FAST_EPOCH_LENGTH, FISHERMEN_THRESHOLD,
     GAS_PRICE_ADJUSTMENT_RATE, GCConfig, GENESIS_CONFIG_FILENAME, Genesis, GenesisConfig,
     GenesisValidationMode, INITIAL_GAS_LIMIT, LogSummaryStyle, MAX_INFLATION_RATE,
@@ -54,7 +55,7 @@ use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner
 use near_primitives::version::PROTOCOL_VERSION;
 #[cfg(feature = "rosetta_rpc")]
 use near_rosetta_rpc::RosettaRpcConfig;
-use near_store::config::{CloudStorageConfig, SplitStorageConfig, StateSnapshotType};
+use near_store::config::{SplitStorageConfig, StateSnapshotType};
 use near_store::{StateSnapshotConfig, Store, TrieConfig};
 use near_telemetry::TelemetryConfig;
 use near_vm_runner::{ContractRuntimeCache, FilesystemContractRuntimeCache};
@@ -274,6 +275,14 @@ pub struct Config {
 
     #[serde(skip_serializing_if = "is_false")]
     pub archive: bool,
+    /// Configuration for a cloud-based archival reader.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cloud_archival_reader: Option<CloudArchivalReaderConfig>,
+    /// Configuration for a cloud-based archival writer. If this config is present, the writer is enabled and
+    /// writes chunk-related data based on the tracked shards.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cloud_archival_writer: Option<CloudArchivalWriterConfig>,
+
     /// If save_trie_changes is not set it will get inferred from the `archive` field as follows:
     /// save_trie_changes = !archive
     /// save_trie_changes should be set to true iff
@@ -324,8 +333,6 @@ pub struct Config {
     /// Configuration for the split storage.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub split_storage: Option<SplitStorageConfig>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub cloud_storage: Option<CloudStorageConfig>,
     /// The node will stop after the head exceeds this height.
     /// The node usually stops within several seconds after reaching the target height.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -432,6 +439,8 @@ impl Default for Config {
             tracked_shards: None,
             tracked_shard_schedule: None,
             archive: false,
+            cloud_archival_reader: None,
+            cloud_archival_writer: None,
             save_trie_changes: None,
             save_tx_outcomes: None,
             log_summary_style: LogSummaryStyle::Colored,
@@ -447,7 +456,6 @@ impl Default for Config {
             store,
             cold_store: None,
             split_storage: None,
-            cloud_storage: None,
             expected_shutdown: None,
             state_sync: None,
             epoch_sync: default_epoch_sync(),
@@ -598,6 +606,26 @@ impl Config {
         )
     }
 
+    /// Returns the cloud storage config. Checks if configs are equal if both cloud archival reader and
+    /// writers are enabled.
+    pub fn cloud_storage_config(&self) -> Option<&CloudStorageConfig> {
+        if let (Some(reader), Some(writer)) =
+            (&self.cloud_archival_reader, &self.cloud_archival_writer)
+        {
+            assert_eq!(
+                reader.cloud_storage, writer.cloud_storage,
+                "Cloud archival reader and writer storage configs are not equal."
+            );
+        }
+        if let Some(reader) = &self.cloud_archival_reader {
+            return Some(&reader.cloud_storage);
+        }
+        if let Some(writer) = &self.cloud_archival_writer {
+            return Some(&writer.cloud_storage);
+        }
+        None
+    }
+
     pub fn contract_cache_path(&self) -> PathBuf {
         if let Some(explicit) = &self.contract_cache_path {
             explicit.clone()
@@ -679,6 +707,8 @@ impl NearConfig {
                 doomslug_step_period: config.consensus.doomslug_step_period,
                 tracked_shards_config: config.tracked_shards_config(),
                 archive: config.archive,
+                cloud_archival_reader: config.cloud_archival_reader,
+                cloud_archival_writer: config.cloud_archival_writer,
                 save_trie_changes: config.save_trie_changes.unwrap_or(!config.archive),
                 save_tx_outcomes: config.save_tx_outcomes.unwrap_or(is_archive_or_rpc),
                 log_summary_style: config.log_summary_style,
