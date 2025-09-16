@@ -136,7 +136,7 @@ pub struct ProcessedBlock {
     pub block_hash: CryptoHash,
 }
 
-#[derive(actix::Message, Debug, Clone)]
+#[derive(actix::Message, Debug)]
 #[rtype(result = "()")]
 pub struct ExecutorApplyChunksDone {
     pub block_hash: CryptoHash,
