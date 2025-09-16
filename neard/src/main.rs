@@ -43,7 +43,7 @@ static DEFAULT_HOME: LazyLock<PathBuf> = LazyLock::new(get_default_home);
 
 // cspell:words tikv jemallocator Jemalloc
 #[global_allocator]
-static ALLOC: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
+static ALLOC: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
 fn main() -> anyhow::Result<()> {
     if env::var("RUST_BACKTRACE").is_err() {
