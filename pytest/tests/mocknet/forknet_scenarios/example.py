@@ -29,8 +29,8 @@ class Example(TestSetup):
 
     def amend_epoch_config(self):
         super().amend_epoch_config()
-        #self._amend_epoch_config(
-        #    ".shuffle_shard_assignment_for_chunk_producers = true")
+        # self._amend_epoch_config(
+        #     ".shuffle_shard_assignment_for_chunk_producers = true")
 
     def amend_configs_before_test_start(self):
         super().amend_configs_before_test_start()
