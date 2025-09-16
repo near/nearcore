@@ -3,6 +3,7 @@ use crate::{
     models::{self, AccountBalanceResponseMetadata},
     types::AccountId,
 };
+use futures::StreamExt;
 use near_async::messaging::CanSendAsync;
 use near_async::multithread::MultithreadRuntimeHandle;
 use near_chain_configs::ProtocolConfigView;
@@ -293,7 +294,7 @@ impl RosettaAccountBalances {
 pub(crate) async fn query_account(
     block_id: near_primitives::types::BlockReference,
     account_id: near_primitives::types::AccountId,
-    view_client_addr: &MultithreadRuntimeHandle<ViewClientActorInner>,
+    view_client_addr: MultithreadRuntimeHandle<ViewClientActorInner>,
 ) -> Result<
     (
         near_primitives::hash::CryptoHash,
@@ -328,9 +329,9 @@ pub(crate) async fn query_account(
 }
 
 pub(crate) async fn query_accounts<R>(
-    block_id: &near_primitives::types::BlockReference,
-    account_ids: impl Iterator<Item = &near_primitives::types::AccountId>,
-    view_client_addr: &MultithreadRuntimeHandle<ViewClientActorInner>,
+    block_id: near_primitives::types::BlockReference,
+    account_ids: impl Iterator<Item = near_primitives::types::AccountId>,
+    view_client_addr: MultithreadRuntimeHandle<ViewClientActorInner>,
 ) -> Result<R, crate::errors::ErrorKind>
 where
     R: std::iter::FromIterator<(
@@ -338,12 +339,24 @@ where
             near_primitives::views::AccountView,
         )>,
 {
-    let query_futures = account_ids.map(|account_id| async {
-        let (_, _, account_info) =
-            query_account(block_id.clone(), account_id.clone(), view_client_addr).await?;
-        Ok((account_id.clone(), account_info))
-    });
-    futures::future::join_all(query_futures)
+    futures::stream::iter(account_ids)
+        .map(move |account_id| {
+            let value = block_id.clone();
+            let view_client_addr = view_client_addr.clone();
+            async move {
+                let (_, _, account_info) =
+                    query_account(value.clone(), account_id.clone(), view_client_addr.clone())
+                        .await?;
+                Ok((account_id, account_info))
+            }
+        })
+        .buffer_unordered(10)
+        .collect::<Vec<
+            Result<
+                (near_primitives::types::AccountId, near_primitives::views::AccountView),
+                crate::errors::ErrorKind,
+            >,
+        >>()
         .await
         .into_iter()
         .filter(|account_info| !matches!(account_info, Err(crate::errors::ErrorKind::NotFound(_))))

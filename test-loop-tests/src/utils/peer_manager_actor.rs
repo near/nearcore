@@ -2,7 +2,6 @@ use std::collections::{HashMap, HashSet, hash_map};
 use std::sync::Arc;
 
 use itertools::Itertools;
-use near_async::actix::ActixResult;
 use near_async::futures::{DelayedActionRunnerExt as _, FutureSpawner, FutureSpawnerExt};
 use near_async::messaging::{
     Actor, AsyncSender, CanSend, Handler, IntoMultiSender as _, IntoSender as _, Message,
@@ -11,8 +10,8 @@ use near_async::messaging::{
 use near_async::test_loop::sender::TestLoopSender;
 use near_async::time::{Clock, Duration};
 use near_async::{MultiSend, MultiSenderFrom};
-use near_chain::BlockHeader;
 use near_chain::chain::ChunkStateWitnessMessage;
+use near_chain::{Block, BlockHeader};
 use near_client::chunk_executor_actor::ExecutorIncomingReceipts;
 use near_client::{BlockApproval, BlockResponse, SetNetworkInfo};
 use near_network::client::{
@@ -29,8 +28,8 @@ use near_network::state_witness::{
 };
 use near_network::types::{
     HighestHeightPeerInfo, NetworkInfo, NetworkRequests, NetworkResponses, PeerInfo,
-    PeerManagerMessageRequest, PeerManagerMessageResponse, SetChainInfo, StateSyncEvent,
-    Tier3Request,
+    PeerManagerMessageRequest, PeerManagerMessageResponse, ReasonForBan, SetChainInfo,
+    StateSyncEvent, Tier3Request,
 };
 use near_o11y::span_wrapped_msg::{SpanWrapped, SpanWrappedMessageExt};
 use near_primitives::genesis::GenesisId;
@@ -44,8 +43,7 @@ use parking_lot::{Mutex, MutexGuard};
 #[derive(Clone, MultiSend, MultiSenderFrom)]
 pub struct ClientSenderForTestLoopNetwork {
     pub block: AsyncSender<SpanWrapped<BlockResponse>, ()>,
-    pub block_headers:
-        AsyncSender<SpanWrapped<BlockHeadersResponse>, ActixResult<BlockHeadersResponse>>,
+    pub block_headers: AsyncSender<SpanWrapped<BlockHeadersResponse>, Result<(), ReasonForBan>>,
     pub block_approval: AsyncSender<SpanWrapped<BlockApproval>, ()>,
     pub epoch_sync_request: Sender<EpochSyncRequestMessage>,
     pub epoch_sync_response: Sender<EpochSyncResponseMessage>,
@@ -61,8 +59,8 @@ pub struct TxRequestHandleSenderForTestLoopNetwork {
 
 #[derive(Clone, MultiSend, MultiSenderFrom)]
 pub struct ViewClientSenderForTestLoopNetwork {
-    pub block_headers_request: AsyncSender<BlockHeadersRequest, ActixResult<BlockHeadersRequest>>,
-    pub block_request: AsyncSender<BlockRequest, ActixResult<BlockRequest>>,
+    pub block_headers_request: AsyncSender<BlockHeadersRequest, Option<Vec<Arc<BlockHeader>>>>,
+    pub block_request: AsyncSender<BlockRequest, Option<Arc<Block>>>,
 }
 
 /// This message is used to allow TestLoopPeerManagerActor to construct NetworkInfo for each

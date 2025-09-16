@@ -258,6 +258,7 @@ near-cold-store-tool = { path = "tools/cold-store", package = "cold-store-tool" 
 near-config-utils = { path = "utils/config" }
 nearcore = { path = "nearcore" }
 near-crypto = { path = "core/crypto", default-features = false }
+near-crypto-ed25519-batch = { path = "core/crypto/ed25519-batch" }
 near-dyn-configs = { path = "core/dyn-configs" }
 near-epoch-manager = { path = "chain/epoch-manager" }
 near-flat-storage = { path = "tools/flat-storage" }

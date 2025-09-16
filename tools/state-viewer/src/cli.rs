@@ -492,7 +492,11 @@ impl DebugUICmd {
         if let Some(port) = self.port {
             rpc_config.addr = ListenerAddr::new(SocketAddr::new(rpc_config.addr.ip(), port));
         }
-        actix::System::new()
+        let tokio_runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("Failed to create Tokio runtime");
+        tokio_runtime
             .block_on(start_http_for_readonly_debug_querying(
                 rpc_config.addr,
                 Arc::new(debug_handler),

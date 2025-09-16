@@ -118,6 +118,10 @@ pub enum DBCol {
     /// - *Rows*: StatePartKey (BlockHash || ShardId || PartId (u64))
     /// - *Content type*: state part (bytes)
     StateParts,
+    /// Contains information about which state parts we've applied.
+    /// - *Rows*: StatePartKey (BlockHash || ShardId || PartId (u64))
+    /// - *Content type*: bool (just a marker that we've applied this part)
+    StatePartsApplied,
     /// Contains mapping from epoch_id to epoch start (first block height of the epoch)
     /// - *Rows*: EpochId (CryptoHash)  -- TODO: where does the epoch_id come from? it looks like blockHash..
     /// - *Content type*: BlockHeight (int)
@@ -528,8 +532,8 @@ impl DBCol {
             DBCol::BlockRefCount => false,
             // InvalidChunks is only needed at head when accepting new chunks.
             DBCol::InvalidChunks => false,
-            // StateParts is only needed while syncing.
-            DBCol::StateParts => false,
+            // StateParts, StatePartsApplied is only needed while syncing.
+            DBCol::StateParts | DBCol::StatePartsApplied => false,
             // TrieChanges is only needed for GC.
             DBCol::TrieChanges => false,
             // StateDlInfos is only needed when syncing and it is not immutable.
@@ -616,7 +620,9 @@ impl DBCol {
             DBCol::InvalidChunks => &[DBKeyType::ChunkHash],
             DBCol::_BlockExtra => &[DBKeyType::BlockHash],
             DBCol::BlockPerHeight => &[DBKeyType::BlockHeight],
-            DBCol::StateParts => &[DBKeyType::BlockHash, DBKeyType::ShardId, DBKeyType::PartId],
+            DBCol::StateParts | DBCol::StatePartsApplied => {
+                &[DBKeyType::BlockHash, DBKeyType::ShardId, DBKeyType::PartId]
+            }
             DBCol::EpochStart => &[DBKeyType::EpochId],
             DBCol::AccountAnnouncements => &[DBKeyType::AccountId],
             DBCol::NextBlockHashes => &[DBKeyType::PreviousBlockHash],

@@ -337,7 +337,8 @@ impl ShardTracker {
     /// Return all shards that whose states need to be caught up
     /// That has two cases:
     /// 1) Shard layout will change in the next epoch. In this case, the method returns all shards
-    ///    in the current epoch that will be split into a future shard that `me` will track.
+    ///    in the current epoch that will be split into a future shard that `me` will track in the
+    ///    next epoch but not this epoch.
     /// 2) Shard layout will be the same. In this case, the method returns all shards that `me` will
     ///    track in the next epoch but not this epoch
     fn get_shards_to_state_sync(&self, parent_hash: &CryptoHash) -> Result<Vec<ShardId>, Error> {
