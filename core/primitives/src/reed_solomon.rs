@@ -302,10 +302,6 @@ impl<T: ReedSolomonEncoderDeserialize> ReedSolomonPartsTracker<T> {
 mod tests {
     use super::*;
 
-    pub fn reed_solomon_part_length_old(encoded_length: usize, data_parts: usize) -> usize {
-        (encoded_length + data_parts - 1) / data_parts
-    }
-
     // Encode function takes a serializable object and returns a tuple of parts and length of encoded data
     pub fn reed_solomon_encode_old<T: BorshSerialize>(
         rs: &ReedSolomon,
@@ -315,7 +311,7 @@ mod tests {
         let encoded_length = bytes.len();
 
         let data_parts = rs.data_shard_count();
-        let part_length = reed_solomon_part_length_old(encoded_length, data_parts);
+        let part_length = reed_solomon_part_length(encoded_length, data_parts);
 
         // cspell:ignore b'aaabbbcccd'
         // Pad the bytes to be a multiple of `part_length`
