@@ -75,5 +75,38 @@ fn bench_reed_solomon_encoding_only(c: &mut Criterion) {
     });
 }
 
-criterion_group!(benches, bench_generate_state_witness_parts, bench_reed_solomon_encoding_only);
+/// Benchmark Reed Solomon decoding performance separately
+fn bench_reed_solomon_decoding_only(c: &mut Criterion) {
+    let witness_bytes = generate_test_witness_bytes(15_000_000);
+    let encoder = ReedSolomonEncoderCache::new(WITNESS_RATIO_DATA_PARTS).entry(VALIDATOR_COUNT);
+
+    // Pre-encode the data to get parts for decoding
+    let (encoded_parts, encoded_length) = encoder.encode(&witness_bytes);
+
+    // Calculate minimum data parts needed for decoding (60% of total parts)
+    let lost_parts =
+        (VALIDATOR_COUNT as f64 - VALIDATOR_COUNT as f64 * WITNESS_RATIO_DATA_PARTS) as usize;
+
+    // Simulate loss by setting data parts to None (lose data parts, keep repair parts)
+    let mut parts_with_loss = encoded_parts.clone();
+    for i in 0..lost_parts {
+        parts_with_loss[i] = None;
+    }
+
+    c.bench_function("reed_solomon_decoding_only", |b| {
+        b.iter(|| {
+            let mut parts = parts_with_loss.clone();
+            black_box(
+                encoder.decode::<EncodedChunkStateWitness>(&mut parts, encoded_length).unwrap(),
+            );
+        });
+    });
+}
+
+criterion_group!(
+    benches,
+    bench_generate_state_witness_parts,
+    bench_reed_solomon_encoding_only,
+    bench_reed_solomon_decoding_only
+);
 criterion_main!(benches);
