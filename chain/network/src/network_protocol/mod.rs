@@ -38,6 +38,7 @@ pub use _proto::network as proto;
 use crate::network_protocol::proto_conv::trace_context::{
     extract_span_context, inject_trace_context,
 };
+use crate::spice_data_distribution::SpicePartialData;
 use near_async::time;
 use near_crypto::PublicKey;
 use near_crypto::Signature;
@@ -626,6 +627,9 @@ impl TieredMessageBody {
             RoutedMessageBody::ContractCodeResponse(contract_code_response) => {
                 T1MessageBody::ContractCodeResponse(contract_code_response).into()
             }
+            RoutedMessageBody::SpicePartialData(spice_partial_data) => {
+                T1MessageBody::SpicePartialData(spice_partial_data).into()
+            }
             RoutedMessageBody::PartialEncodedContractDeploys(partial_encoded_contract_deploys) => {
                 T2MessageBody::PartialEncodedContractDeploys(partial_encoded_contract_deploys)
                     .into()
@@ -683,6 +687,7 @@ pub enum T1MessageBody {
     ChunkContractAccesses(ChunkContractAccesses),
     ContractCodeRequest(ContractCodeRequest),
     ContractCodeResponse(ContractCodeResponse),
+    SpicePartialData(SpicePartialData),
 }
 
 impl T1MessageBody {
@@ -789,6 +794,7 @@ pub enum RoutedMessageBody {
     ContractCodeResponse(ContractCodeResponse),
     PartialEncodedContractDeploys(PartialEncodedContractDeploys),
     StateHeaderRequest(StateHeaderRequest),
+    SpicePartialData(SpicePartialData),
 }
 
 impl RoutedMessageBody {
@@ -916,6 +922,11 @@ impl fmt::Debug for RoutedMessageBody {
                 "StateHeaderRequest(sync_hash={:?}, shard_id={:?})",
                 request.sync_hash, request.shard_id,
             ),
+            RoutedMessageBody::SpicePartialData(spice_partial_data) => write!(
+                f,
+                "SpicePartialData(id={:?}, commitment={:?})",
+                spice_partial_data.id, spice_partial_data.commitment,
+            ),
         }
     }
 }
@@ -952,6 +963,9 @@ impl From<TieredMessageBody> for RoutedMessageBody {
                 }
                 T1MessageBody::ContractCodeResponse(contract_code_response) => {
                     RoutedMessageBody::ContractCodeResponse(contract_code_response)
+                }
+                T1MessageBody::SpicePartialData(spice_partial_data) => {
+                    RoutedMessageBody::SpicePartialData(spice_partial_data)
                 }
             },
             TieredMessageBody::T2(body) => match *body {

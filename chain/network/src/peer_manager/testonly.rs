@@ -33,6 +33,7 @@ use crate::types::{
 };
 use futures::FutureExt;
 use near_async::messaging::IntoMultiSender;
+use near_async::messaging::IntoSender as _;
 use near_async::messaging::Sender;
 use near_async::time;
 use near_primitives::network::{AnnounceAccount, PeerId};
@@ -665,6 +666,8 @@ pub(crate) async fn start(
                 peer_manager_sender.break_apart().into_multi_sender(),
                 shards_manager_sender,
                 state_witness_sender.break_apart().into_multi_sender(),
+                // FIXME: Figure out if can test it and test it if can.
+                near_async::messaging::noop().into_sender(),
                 genesis_id,
             )
             .unwrap()

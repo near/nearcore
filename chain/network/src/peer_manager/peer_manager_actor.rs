@@ -12,6 +12,7 @@ use crate::peer_manager::connection;
 use crate::peer_manager::network_state::{NetworkState, WhitelistNode};
 use crate::peer_manager::peer_store;
 use crate::shards_manager::ShardsManagerRequestFromNetwork;
+use crate::spice_data_distribution::SpiceIncomingPartialData;
 use crate::state_witness::PartialWitnessSenderForNetwork;
 use crate::stats::metrics;
 use crate::store;
@@ -219,6 +220,7 @@ impl PeerManagerActor {
         peer_manager_adapter: PeerManagerSenderForNetwork,
         shards_manager_adapter: Sender<ShardsManagerRequestFromNetwork>,
         partial_witness_adapter: PartialWitnessSenderForNetwork,
+        spice_data_distributor_adapter: Sender<SpiceIncomingPartialData>,
         genesis_id: GenesisId,
     ) -> anyhow::Result<actix::Addr<Self>> {
         let config = config.verify().context("config")?;
@@ -253,6 +255,7 @@ impl PeerManagerActor {
             shards_manager_adapter,
             partial_witness_adapter,
             whitelist_nodes,
+            spice_data_distributor_adapter,
         ));
         arbiter.spawn({
             let arbiter = arbiter.clone();
@@ -1238,9 +1241,21 @@ impl PeerManagerActor {
                 );
                 NetworkResponses::NoResponse
             }
-            NetworkRequests::SpicePartialData { .. } => {
-                // TODO(spice): Implement propagation of spice partial data
-                debug_assert!(false);
+            NetworkRequests::SpicePartialData { partial_data, recipients } => {
+                for (partial_data, account) in
+                    std::iter::repeat_n(partial_data, recipients.len()).zip(recipients)
+                {
+                    self.state.send_message_to_account(
+                        &self.clock,
+                        &account,
+                        // FIXME: Should this be T1 or T2?
+                        // Make a todo to figure out?
+                        // Based on descriptions, T2 may be more appropriate since it isn't
+                        // critical for chain progress, however if execution was to lag behind
+                        // chain would slow down.
+                        T1MessageBody::SpicePartialData(partial_data).into(),
+                    );
+                }
                 NetworkResponses::NoResponse
             }
         }

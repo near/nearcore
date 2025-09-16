@@ -3,8 +3,9 @@ set -xeo pipefail
 
 release="${1:-release}"
 
+# TODO(spice): Remove feature-spice-release once spice is a protocol feature and not compilation flag.
 case "$release" in
-  release|nightly-release|perf-release|assertions-release|test-features-release)
+  release|nightly-release|perf-release|assertions-release|test-features-release|feature-spice-release)
     ;;
   *)  
     echo "Unsupported release type '$release'. Please provide no argument for normal release or provide nightly-release for nightly."

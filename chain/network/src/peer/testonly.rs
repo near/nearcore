@@ -21,7 +21,7 @@ use crate::types::{
     PeerManagerSenderForNetworkInput, PeerManagerSenderForNetworkMessage,
     StateRequestSenderForNetworkInput, StateRequestSenderForNetworkMessage,
 };
-use near_async::messaging::{IntoMultiSender, Sender};
+use near_async::messaging::{IntoMultiSender, IntoSender as _, Sender};
 use near_async::time;
 use near_o11y::span_wrapped_msg::SpanWrappedMessageExt;
 use near_primitives::network::PeerId;
@@ -154,6 +154,8 @@ impl PeerHandle {
             shards_manager_sender,
             state_witness_sender.break_apart().into_multi_sender(),
             vec![],
+            // FIXME: Figure out if can test this and test it if can.
+            near_async::messaging::noop().into_sender(),
         ));
         let actix = ActixSystem::spawn({
             let clock = clock.clone();

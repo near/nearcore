@@ -33,6 +33,8 @@ fn make_peer_manager(
         noop().into_multi_sender(),
         noop().into_sender(),
         noop().into_multi_sender(),
+        // FIXME: Think if can use in tests
+        noop().into_sender(),
         GenesisId::default(),
     )
     .unwrap()

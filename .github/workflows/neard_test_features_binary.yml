@@ -1,4 +1,6 @@
-name: Neard test features binary release
+# FIXME: DO NOT MERGE
+# FIXME: Would need to create a separarte workflow if merging to master.
+name: Neard spice feature binary release
 
 on:
   workflow_dispatch:
@@ -31,4 +33,4 @@ jobs:
           ref: ${{ github.event.inputs.branch }}
 
       - name: Neard binary build and upload to S3
-        run: ./scripts/binary_release.sh test-features-release
+        run: ./scripts/binary_release.sh feature-spice-release

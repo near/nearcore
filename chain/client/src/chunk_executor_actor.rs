@@ -78,9 +78,6 @@ pub struct ChunkExecutorActor {
     blocks_in_execution: HashSet<CryptoHash>,
     pending_unverified_receipts: HashMap<CryptoHash, Vec<ExecutorIncomingUnverifiedReceipts>>,
 
-    // Hash of the genesis block.
-    genesis_hash: CryptoHash,
-
     pub(crate) validator_signer: MutableValidatorSigner,
     pub(crate) core_processor: CoreStatementsProcessor,
     chunk_endorsement_tracker: Arc<ChunkEndorsementTracker>,
@@ -92,7 +89,6 @@ impl ChunkExecutorActor {
     pub fn new(
         store: Store,
         genesis: &ChainGenesis,
-        genesis_hash: CryptoHash,
         runtime_adapter: Arc<dyn RuntimeAdapter>,
         epoch_manager: Arc<dyn EpochManagerAdapter>,
         shard_tracker: ShardTracker,
@@ -114,7 +110,6 @@ impl ChunkExecutorActor {
             apply_chunks_spawner,
             myself_sender,
             blocks_in_execution: HashSet::new(),
-            genesis_hash,
             validator_signer,
             core_processor,
             chunk_endorsement_tracker,
@@ -209,6 +204,15 @@ impl Handler<ExecutorIncomingUnverifiedReceipts> for ChunkExecutorActor {
     }
 }
 
+// FIXME: Need to implement spice changeover at some point.
+// When starting up with chain already running, ProcessedBlock call would be with the block
+// in the future.
+// However, with future block and no execution results for the past blocks; there is no way to
+// proceed; only possible to start immediately.'
+// On start-up can find a latest block from before spice (if either there are no core statements or
+// use some other indication), save in executor and have a special case if executing that.
+// Or, better, can check if prev block isn't spice block we don't need execution results and would
+// need to collect receipts in a different way.
 impl Handler<ProcessedBlock> for ChunkExecutorActor {
     fn handle(&mut self, ProcessedBlock { block_hash }: ProcessedBlock) {
         match self.try_apply_chunks(&block_hash) {
@@ -276,8 +280,8 @@ impl ChunkExecutorActor {
         let block = self.chain_store.get_block(block_hash)?;
         let header = block.header();
         let prev_block_hash = header.prev_hash();
+        let prev_block = self.chain_store.get_block(prev_block_hash)?;
         let store = self.chain_store.store();
-        let prev_block_is_genesis = *prev_block_hash == self.genesis_hash;
 
         if let Err(err) = self.try_process_pending_unverified_receipts(prev_block_hash) {
             tracing::error!(target: "chunk_executor", ?err, ?block_hash, "failure when processing pending unverified receipts");
@@ -302,7 +306,7 @@ impl ChunkExecutorActor {
                 }
 
                 // Genesis block has no outgoing receipts.
-                if prev_block_is_genesis {
+                if prev_block.header().is_genesis() {
                     all_receipts.insert(prev_block_shard_id, vec![]);
                     continue;
                 }
@@ -446,6 +450,8 @@ impl ChunkExecutorActor {
     }
 
     fn send_outgoing_receipts(&self, block: &Block, receipt_proofs: Vec<ReceiptProof>) {
+        // FIXME: Filter so that we are in chunk producers for from_shard since node can decide to
+        // track whichever shards it wants.
         let block_hash = *block.hash();
         tracing::debug!(target: "chunk_executor", %block_hash, ?receipt_proofs, "sending outgoing receipts");
         self.data_distributor_adapter
@@ -458,6 +464,13 @@ impl ChunkExecutorActor {
         results: Vec<ShardUpdateResult>,
     ) -> Result<(), Error> {
         let block = self.chain_store.get_block(&block_hash).unwrap();
+        // FIXME: remove
+        // FIXME: Make a metric for certified head to allow easier tracking of execution speed.
+        {
+            let head = self.chain_store.head()?;
+            let final_head = self.chain_store.final_head()?;
+            tracing::info!(target: "chunk_executor", %block_hash, block_height=?block.header().height(), head_height=?head.height, final_head_height=?final_head.height, "finished applying block");
+        }
         let epoch_id = self.epoch_manager.get_epoch_id(&block_hash)?;
         let shard_layout = self.epoch_manager.get_shard_layout(&epoch_id)?;
         for result in &results {

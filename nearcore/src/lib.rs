@@ -8,23 +8,28 @@ use crate::state_sync::StateSyncDumper;
 use actix_rt::ArbiterHandle;
 use anyhow::Context;
 use near_async::futures::TokioRuntimeFutureSpawner;
-use near_async::messaging::{IntoMultiSender, IntoSender, LateBoundSender};
+use near_async::messaging::{IntoMultiSender, IntoSender, LateBoundSender, noop};
 use near_async::time::{self, Clock};
 use near_chain::rayon_spawner::RayonAsyncComputationSpawner;
 use near_chain::resharding::resharding_actor::ReshardingActor;
 pub use near_chain::runtime::NightshadeRuntime;
+use near_chain::spice_core::CoreStatementsProcessor;
 use near_chain::state_snapshot_actor::{
     SnapshotCallbacks, StateSnapshotActor, get_delete_snapshot_callback, get_make_snapshot_callback,
 };
 use near_chain::types::RuntimeAdapter;
 use near_chain::{
-    Chain, ChainGenesis, PartialWitnessValidationThreadPool, WitnessCreationThreadPool,
+    ApplyChunksSpawner, Chain, ChainGenesis, PartialWitnessValidationThreadPool,
+    WitnessCreationThreadPool,
 };
 use near_chain_configs::ReshardingHandle;
 use near_chunks::shards_manager_actor::start_shards_manager;
 use near_client::adapter::client_sender_for_network;
 use near_client::archive::cold_store_actor::create_cold_store_actor;
+use near_client::chunk_executor_actor::ChunkExecutorActor;
 use near_client::gc_actor::GCActor;
+use near_client::spice_chunk_validator_actor::SpiceChunkValidatorActor;
+use near_client::spice_data_distributor_actor::SpiceDataDistributorActor;
 use near_client::{
     ChunkValidationSenderForPartialWitness, ConfigUpdater, PartialWitnessActor, RpcHandler,
     RpcHandlerConfig, StartClientResult, StateRequestActor, ViewClientActorInner,
@@ -36,6 +41,8 @@ use near_epoch_manager::shard_tracker::ShardTracker;
 use near_network::PeerManagerActor;
 use near_primitives::genesis::GenesisId;
 use near_primitives::types::EpochId;
+use near_primitives::version::PROTOCOL_VERSION;
+use near_store::adapter::StoreAdapter as _;
 use near_store::db::metadata::DbKind;
 use near_store::genesis::initialize_sharded_genesis_state;
 use near_store::metrics::spawn_db_metrics_loop;
@@ -62,7 +69,7 @@ pub mod state_sync;
 use near_async::ActorSystem;
 use near_async::multithread::MultithreadRuntimeHandle;
 use near_async::tokio::TokioRuntimeHandle;
-use near_client::client_actor::ClientActorInner;
+use near_client::client_actor::{ClientActorInner, SpiceClientConfig};
 #[cfg(feature = "tx_generator")]
 use near_transactions_generator::actix_actor::GeneratorActorImpl;
 
@@ -449,6 +456,39 @@ pub fn start_with_config_and_synchronization(
         Arc::new(tokio::runtime::Builder::new_multi_thread().enable_all().build().unwrap());
 
     let state_sync_spawner = Arc::new(TokioRuntimeFutureSpawner(state_sync_runtime.clone()));
+
+    // FIXME: Make a helper;
+    // FIXME: Move up senders?
+    let chunk_executor_adapter = LateBoundSender::new();
+    let spice_chunk_validator_adapter = LateBoundSender::new();
+    let spice_data_distributor_adapter = LateBoundSender::new();
+
+    let spice_client_config = if cfg!(feature = "protocol_feature_spice") {
+        let core_processor = CoreStatementsProcessor::new(
+            runtime.store().chain_store(),
+            epoch_manager.clone(),
+            chunk_executor_adapter.as_sender(),
+            spice_chunk_validator_adapter.as_sender(),
+        );
+        SpiceClientConfig {
+            core_processor,
+            chunk_executor_sender: chunk_executor_adapter.as_sender(),
+            spice_chunk_validator_sender: spice_chunk_validator_adapter.as_sender(),
+            spice_data_distributor_sender: spice_data_distributor_adapter.as_sender(),
+        }
+    } else {
+        let core_processor = CoreStatementsProcessor::new_with_noop_senders(
+            runtime.store().chain_store(),
+            epoch_manager.clone(),
+        );
+        SpiceClientConfig {
+            core_processor,
+            chunk_executor_sender: noop().into_sender(),
+            spice_chunk_validator_sender: noop().into_sender(),
+            spice_data_distributor_sender: noop().into_sender(),
+        }
+    };
+    let core_processor = spice_client_config.core_processor.clone();
     let StartClientResult {
         client_actor,
         tx_pool,
@@ -476,11 +516,67 @@ pub fn start_with_config_and_synchronization(
         true,
         None,
         resharding_sender.into_multi_sender(),
+        spice_client_config,
     );
     client_adapter_for_shards_manager.bind(client_actor.clone());
     client_adapter_for_partial_witness_actor.bind(ChunkValidationSenderForPartialWitness {
         chunk_state_witness: chunk_validation_actor.into_sender(),
     });
+    // FIXME: Make a helper
+    if cfg!(feature = "protocol_feature_spice") {
+        // FIXME: remove
+        tracing::info!(target: "fixme", "starting up with spice");
+        let spice_data_distributor_actor = SpiceDataDistributorActor::new(
+            epoch_manager.clone(),
+            runtime.store().chain_store(),
+            core_processor.clone(),
+            config.validator_signer.clone(),
+            network_adapter.as_multi_sender(),
+            chunk_executor_adapter.as_sender(),
+            spice_chunk_validator_adapter.as_sender(),
+        );
+
+        let chunk_executor_actor = ChunkExecutorActor::new(
+            runtime.store().clone(),
+            &chain_genesis,
+            runtime.clone(),
+            epoch_manager.clone(),
+            shard_tracker.clone(),
+            network_adapter.as_multi_sender(),
+            config.validator_signer.clone(),
+            core_processor.clone(),
+            chunk_endorsement_tracker.clone(),
+            {
+                let thread_limit = runtime.get_shard_layout(PROTOCOL_VERSION).num_shards() as usize;
+                ApplyChunksSpawner::default().into_spawner(thread_limit)
+            },
+            chunk_executor_adapter.as_sender(),
+            spice_data_distributor_adapter.as_multi_sender(),
+            config.client_config.save_latest_witnesses,
+        );
+        let spice_chunk_validator_actor = SpiceChunkValidatorActor::new(
+            runtime.store().clone(),
+            &chain_genesis,
+            runtime.clone(),
+            epoch_manager.clone(),
+            network_adapter.as_multi_sender(),
+            config.validator_signer.clone(),
+            core_processor,
+            chunk_endorsement_tracker.clone(),
+            ApplyChunksSpawner::default(),
+            config.client_config.save_latest_witnesses,
+            config.client_config.save_invalid_witnesses,
+        );
+        let chunk_executor_addr = actor_system.spawn_tokio_actor(chunk_executor_actor);
+        let spice_chunk_validator_addr =
+            actor_system.spawn_tokio_actor(spice_chunk_validator_actor);
+        let spice_data_distributor_addr =
+            actor_system.spawn_tokio_actor(spice_data_distributor_actor);
+        chunk_executor_adapter.bind(chunk_executor_addr);
+        spice_chunk_validator_adapter.bind(spice_chunk_validator_addr);
+        spice_data_distributor_adapter.bind(spice_data_distributor_addr);
+    }
+
     let shards_manager_actor = start_shards_manager(
         actor_system.clone(),
         epoch_manager.clone(),
@@ -541,6 +637,11 @@ pub fn start_with_config_and_synchronization(
         network_adapter.as_multi_sender(),
         shards_manager_adapter.as_sender(),
         partial_witness_actor.into_multi_sender(),
+        if cfg!(feature = "protocol_feature_spice") {
+            spice_data_distributor_adapter.as_sender()
+        } else {
+            noop().into_sender()
+        },
         genesis_id,
     )
     .context("PeerManager::spawn()")?;
