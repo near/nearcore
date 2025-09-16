@@ -608,7 +608,7 @@ impl DBCol {
             DBCol::EpochInfo => &[DBKeyType::EpochId],
             DBCol::BlockInfo => &[DBKeyType::BlockHash],
             DBCol::Chunks => &[DBKeyType::ChunkHash],
-            DBCol::PartialChunks => &[DBKeyType::ChunkHash],
+            DBCol::PartialChunks => &[DBKeyType::BlockHeight, DBKeyType::ChunkHash],
             DBCol::BlocksToCatchup => &[DBKeyType::BlockHash],
             DBCol::StateDlInfos => &[DBKeyType::BlockHash],
             DBCol::ChallengedBlocks => &[DBKeyType::BlockHash],

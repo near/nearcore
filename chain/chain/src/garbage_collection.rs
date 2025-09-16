@@ -583,7 +583,7 @@ impl<'a> ChainStoreUpdate<'a> {
                     self.gc_col(DBCol::Transactions, transaction.get_hash().as_bytes());
                 }
 
-                let partial_chunk = self.get_partial_chunk(&chunk_hash);
+                let partial_chunk = self.get_partial_chunk(height, &chunk_hash);
                 if let Ok(partial_chunk) = partial_chunk {
                     for receipts in partial_chunk.prev_outgoing_receipts() {
                         for receipt in &receipts.0 {
@@ -595,9 +595,17 @@ impl<'a> ChainStoreUpdate<'a> {
                 // 2. Delete chunk_hash-indexed data
                 let chunk_hash = chunk_hash.as_bytes();
                 self.gc_col(DBCol::Chunks, chunk_hash);
-                self.gc_col(DBCol::PartialChunks, chunk_hash);
+                // PartialChunks is now handled by range deletion below
                 self.gc_col(DBCol::InvalidChunks, chunk_hash);
             }
+
+            // Range delete all PartialChunks for this height
+            let lower_bound: Vec<u8> = height.to_be_bytes().to_vec();
+            let mut upper_bound: Vec<u8> = (height + 1).to_be_bytes().to_vec();
+            upper_bound.extend_from_slice(&[0u8; 32]);
+            let mut store_update = self.store().store_update();
+            store_update.delete_range(DBCol::PartialChunks, &lower_bound, &upper_bound);
+            self.merge(store_update);
 
             let header_hashes = self.chain_store().get_all_header_hashes_by_height(height)?;
             for _header_hash in header_hashes {
@@ -642,9 +650,16 @@ impl<'a> ChainStoreUpdate<'a> {
             height += 1;
             if !chunk_hashes.is_empty() {
                 remaining -= 1;
+                // Use range deletion for PartialChunks
+                let lower_bound: Vec<u8> = height.to_be_bytes().to_vec();
+                let mut upper_bound: Vec<u8> = (height + 1).to_be_bytes().to_vec();
+                upper_bound.extend_from_slice(&[0u8; 32]);
+                let mut store_update = self.store().store_update();
+                store_update.delete_range(DBCol::PartialChunks, &lower_bound, &upper_bound);
+                self.merge(store_update);
+
                 for chunk_hash in chunk_hashes {
                     let chunk_hash = chunk_hash.as_bytes();
-                    self.gc_col(DBCol::PartialChunks, chunk_hash);
                     // Data in DBCol::InvalidChunks isn't technically redundant (it
                     // cannot be calculated from other data) but it is data we
                     // don't need for anything so it can be deleted as well.
@@ -956,7 +971,9 @@ impl<'a> ChainStoreUpdate<'a> {
                 self.gc_col(DBCol::Transactions, transaction.get_hash().as_bytes());
             }
 
-            let partial_chunk = self.get_partial_chunk(&chunk_hash);
+            let chunk = self.get_chunk(&chunk_hash)?;
+            let height_created = chunk.height_created();
+            let partial_chunk = self.get_partial_chunk(height_created, &chunk_hash);
             if let Ok(partial_chunk) = partial_chunk {
                 for receipts in partial_chunk.prev_outgoing_receipts() {
                     for receipt in &receipts.0 {
@@ -968,9 +985,17 @@ impl<'a> ChainStoreUpdate<'a> {
             // 2. Delete chunk_hash-indexed data
             let chunk_hash = chunk_hash.as_bytes();
             self.gc_col(DBCol::Chunks, chunk_hash);
-            self.gc_col(DBCol::PartialChunks, chunk_hash);
+            // PartialChunks handled by range deletion
             self.gc_col(DBCol::InvalidChunks, chunk_hash);
         }
+
+        // Range delete all PartialChunks for this height
+        let lower_bound: Vec<u8> = height.to_be_bytes().to_vec();
+        let mut upper_bound: Vec<u8> = (height + 1).to_be_bytes().to_vec();
+        upper_bound.extend_from_slice(&[0u8; 32]);
+        let mut store_update = self.store().store_update();
+        store_update.delete_range(DBCol::PartialChunks, &lower_bound, &upper_bound);
+        self.merge(store_update);
 
         // 4. Delete chunk hashes per height
         let key = index_to_bytes(height);
@@ -1100,7 +1125,7 @@ impl<'a> ChainStoreUpdate<'a> {
                 store_update.delete(col, key);
             }
             DBCol::PartialChunks => {
-                store_update.delete(col, key);
+                panic!("PartialChunks should use range deletion by height, not individual chunk deletion");
             }
             DBCol::InvalidChunks => {
                 store_update.delete(col, key);

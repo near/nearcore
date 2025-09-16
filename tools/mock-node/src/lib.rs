@@ -539,7 +539,8 @@ fn retrieve_partial_encoded_chunk(
     request: &PartialEncodedChunkRequestMsg,
 ) -> Result<PartialEncodedChunkResponseMsg, Error> {
     let num_total_parts = epoch_manager.num_total_parts();
-    let partial_chunk = chain.get_partial_chunk(&request.chunk_hash)?;
+    // TODO(PartialChunksKey): mock node must provide the partial chunk height
+    let partial_chunk = chain.get_partial_chunk(0, &request.chunk_hash)?;
     let present_parts: HashMap<u64, _> =
         partial_chunk.parts().iter().map(|part| (part.part_ord, part)).collect();
     assert_eq!(

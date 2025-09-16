@@ -967,18 +967,22 @@ impl ShardsManagerActor {
         }
 
         // Try fetching partial encoded chunk from storage.
-        if let Ok(partial_chunk) = self.store.get_partial_chunk(&chunk_hash) {
-            Self::lookup_partial_encoded_chunk_from_partial_chunk_storage(
-                part_ords,
-                tracking_shards,
-                &mut response,
-                &partial_chunk,
-            );
-            // If we have found the partial chunk, then the shard chunk would not have
-            // anything extra (since we populate the shard chunk iff we track the shard
-            // but if that's the case we would've populated all parts and receipts to
-            // the partial chunk as well).
-            return (PartialEncodedChunkResponseSource::PartialChunkOnDisk, response);
+        // TODO(PartialChunksKey): avoid getting height from chunk
+        if let Ok(chunk) = self.store.get_chunk(&chunk_hash) {
+            let height_created = chunk.height_created();
+            if let Ok(partial_chunk) = self.store.get_partial_chunk(height_created, &chunk_hash) {
+                Self::lookup_partial_encoded_chunk_from_partial_chunk_storage(
+                    part_ords,
+                    tracking_shards,
+                    &mut response,
+                    &partial_chunk,
+                );
+                // If we have found the partial chunk, then the shard chunk would not have
+                // anything extra (since we populate the shard chunk iff we track the shard
+                // but if that's the case we would've populated all parts and receipts to
+                // the partial chunk as well).
+                return (PartialEncodedChunkResponseSource::PartialChunkOnDisk, response);
+            }
         }
 
         // If we are an archival node we might have garbage collected the

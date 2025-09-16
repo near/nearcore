@@ -602,7 +602,8 @@ pub(crate) fn get_partial_chunk(
         near_config.client_config.save_trie_changes,
         near_config.genesis.config.transaction_validity_period,
     );
-    let partial_chunk = chain_store.get_partial_chunk(&partial_chunk_hash);
+    // TODO(PartialChunksKey): update the tool to provide height
+    let partial_chunk = chain_store.get_partial_chunk(0, &partial_chunk_hash);
     println!("Partial chunk: {:#?}", partial_chunk);
 }
 

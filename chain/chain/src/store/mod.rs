@@ -94,13 +94,21 @@ pub trait ChainStoreAccess {
     /// Get full block.
     fn get_block(&self, h: &CryptoHash) -> Result<Arc<Block>, Error>;
     /// Get partial chunk.
-    fn get_partial_chunk(&self, chunk_hash: &ChunkHash) -> Result<Arc<PartialEncodedChunk>, Error>;
+    fn get_partial_chunk(
+        &self,
+        height_created: BlockHeight,
+        chunk_hash: &ChunkHash,
+    ) -> Result<Arc<PartialEncodedChunk>, Error>;
     /// Does this full block exist?
     fn block_exists(&self, h: &CryptoHash) -> Result<bool, Error>;
     /// Does this chunk exist?
     fn chunk_exists(&self, h: &ChunkHash) -> Result<bool, Error>;
     /// Does this partial chunk exist?
-    fn partial_chunk_exists(&self, h: &ChunkHash) -> Result<bool, Error>;
+    fn partial_chunk_exists(
+        &self,
+        height_created: BlockHeight,
+        h: &ChunkHash,
+    ) -> Result<bool, Error>;
     /// Get previous header.
     fn get_previous_header(&self, header: &BlockHeader) -> Result<Arc<BlockHeader>, Error>;
     /// Get chunk extra info for given block hash + shard id.
@@ -878,8 +886,12 @@ impl ChainStoreAccess for ChainStore {
     }
 
     /// Get partial chunk.
-    fn get_partial_chunk(&self, chunk_hash: &ChunkHash) -> Result<Arc<PartialEncodedChunk>, Error> {
-        ChainStoreAdapter::get_partial_chunk(self, chunk_hash)
+    fn get_partial_chunk(
+        &self,
+        height_created: BlockHeight,
+        chunk_hash: &ChunkHash,
+    ) -> Result<Arc<PartialEncodedChunk>, Error> {
+        ChainStoreAdapter::get_partial_chunk(self, height_created, chunk_hash)
     }
 
     /// Does this full block exist?
@@ -891,8 +903,12 @@ impl ChainStoreAccess for ChainStore {
         ChainStoreAdapter::chunk_exists(self, h)
     }
 
-    fn partial_chunk_exists(&self, h: &ChunkHash) -> Result<bool, Error> {
-        ChainStoreAdapter::partial_chunk_exists(self, h)
+    fn partial_chunk_exists(
+        &self,
+        height_created: BlockHeight,
+        h: &ChunkHash,
+    ) -> Result<bool, Error> {
+        ChainStoreAdapter::partial_chunk_exists(self, height_created, h)
     }
 
     /// Get previous header.
@@ -1194,9 +1210,13 @@ impl<'a> ChainStoreAccess for ChainStoreUpdate<'a> {
             || self.chain_store.chunk_exists(h)?)
     }
 
-    fn partial_chunk_exists(&self, h: &ChunkHash) -> Result<bool, Error> {
+    fn partial_chunk_exists(
+        &self,
+        height_created: BlockHeight,
+        h: &ChunkHash,
+    ) -> Result<bool, Error> {
         Ok(self.chain_store_cache_update.partial_chunks.contains_key(h)
-            || self.chain_store.partial_chunk_exists(h)?)
+            || self.chain_store.partial_chunk_exists(height_created, h)?)
     }
 
     /// Get previous header.
@@ -1315,11 +1335,15 @@ impl<'a> ChainStoreAccess for ChainStoreUpdate<'a> {
         }
     }
 
-    fn get_partial_chunk(&self, chunk_hash: &ChunkHash) -> Result<Arc<PartialEncodedChunk>, Error> {
+    fn get_partial_chunk(
+        &self,
+        height_created: BlockHeight,
+        chunk_hash: &ChunkHash,
+    ) -> Result<Arc<PartialEncodedChunk>, Error> {
         if let Some(partial_chunk) = self.chain_store_cache_update.partial_chunks.get(chunk_hash) {
             Ok(Arc::clone(partial_chunk))
         } else {
-            self.chain_store.get_partial_chunk(chunk_hash)
+            self.chain_store.get_partial_chunk(height_created, chunk_hash)
         }
     }
 
@@ -1904,11 +1928,11 @@ impl<'a> ChainStoreUpdate<'a> {
                 )?;
             }
             for (chunk_hash, partial_chunk) in &self.chain_store_cache_update.partial_chunks {
-                store_update.insert_ser(
-                    DBCol::PartialChunks,
-                    chunk_hash.as_ref(),
-                    partial_chunk,
-                )?;
+                let height_created = partial_chunk.height_created();
+                let mut key = Vec::with_capacity(40);
+                key.extend_from_slice(&height_created.to_be_bytes());
+                key.extend_from_slice(chunk_hash.as_ref());
+                store_update.insert_ser(DBCol::PartialChunks, &key, partial_chunk)?;
 
                 // We'd like the Receipts column to be exactly the same collection of receipts as
                 // the partial encoded chunks. This way, if we only track a subset of shards, we

@@ -235,9 +235,13 @@ impl ChainStoreAdapter {
     /// Get partial chunk.
     pub fn get_partial_chunk(
         &self,
+        height_created: BlockHeight,
         chunk_hash: &ChunkHash,
     ) -> Result<Arc<PartialEncodedChunk>, Error> {
-        match self.store.caching_get_ser(DBCol::PartialChunks, chunk_hash.as_ref()) {
+        let mut key = Vec::with_capacity(40);
+        key.extend_from_slice(&height_created.to_be_bytes());
+        key.extend_from_slice(chunk_hash.as_ref());
+        match self.store.caching_get_ser(DBCol::PartialChunks, &key) {
             Ok(Some(shard_chunk)) => Ok(shard_chunk),
             _ => Err(Error::ChunkMissing(chunk_hash.clone())),
         }
@@ -249,8 +253,15 @@ impl ChainStoreAdapter {
     }
 
     /// Does this partial chunk exist?
-    pub fn partial_chunk_exists(&self, h: &ChunkHash) -> Result<bool, Error> {
-        self.store.exists(DBCol::PartialChunks, h.as_ref()).map_err(|e| e.into())
+    pub fn partial_chunk_exists(
+        &self,
+        height_created: BlockHeight,
+        h: &ChunkHash,
+    ) -> Result<bool, Error> {
+        let mut key = Vec::with_capacity(40);
+        key.extend_from_slice(&height_created.to_be_bytes());
+        key.extend_from_slice(h.as_ref());
+        self.store.exists(DBCol::PartialChunks, &key).map_err(|e| e.into())
     }
 
     /// Returns encoded chunk if it's invalid otherwise None.
