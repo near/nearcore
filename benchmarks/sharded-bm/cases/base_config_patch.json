@@ -13,6 +13,30 @@
         "col_flat_state_cache_size": 32000000,
         "state_snapshot_config": {
             "state_snapshot_type": "Disabled"
+        },
+        "max_open_files": 20000,
+        "rocksdb": {
+            "bytes_per_sync": 4194304,
+            "wal_bytes_per_sync": 8388608,
+            "write_buffer_size": 268435456,
+            "max_bytes_for_level_base": 1073741824,
+            "max_total_wal_size": 8589934592,
+            "cf_high_load_overrides": {
+                "level_zero_file_num_compaction_trigger": 16,
+                "level_zero_slowdown_writes_trigger": 48,
+                "level_zero_stop_writes_trigger": 96,
+                "max_subcompactions": 3,
+                "target_file_size_base": 268435456,
+                "compaction_readahead_size": 8388608
+            },
+            "cf_medium_load_overrides": {
+                "level_zero_file_num_compaction_trigger": 12,
+                "level_zero_slowdown_writes_trigger": 36,
+                "level_zero_stop_writes_trigger": 72,
+                "max_subcompactions": 2,
+                "target_file_size_base": 268435456,
+                "compaction_readahead_size": 4194304
+            }
         }
     },
     "view_client_threads": 4,
