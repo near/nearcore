@@ -606,16 +606,22 @@ impl Config {
         )
     }
 
-    /// Returns the cloud storage config.
-    ///
-    /// Writer bucket access is at least as strong as reader access, so if the node is configured as both a
-    /// writer and a reader, the writer's config is returned.
+    /// Returns the cloud storage config. Checks if configs are equal if both cloud archival reader and
+    /// writers are enabled.
     pub fn cloud_storage_config(&self) -> Option<&CloudStorageConfig> {
-        if let Some(cloud_archival_writer) = &self.cloud_archival_writer {
-            return Some(&cloud_archival_writer.cloud_storage);
+        if let (Some(reader), Some(writer)) =
+            (&self.cloud_archival_reader, &self.cloud_archival_writer)
+        {
+            assert_eq!(
+                reader.cloud_storage, writer.cloud_storage,
+                "Cloud archival reader and writer storage configs are not equal."
+            );
         }
-        if let Some(cloud_archival_reader) = &self.cloud_archival_reader {
-            return Some(&cloud_archival_reader.cloud_storage);
+        if let Some(reader) = &self.cloud_archival_reader {
+            return Some(&reader.cloud_storage);
+        }
+        if let Some(writer) = &self.cloud_archival_writer {
+            return Some(&writer.cloud_storage);
         }
         None
     }

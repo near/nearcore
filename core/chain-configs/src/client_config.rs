@@ -207,7 +207,7 @@ pub struct ExternalStorageConfig {
     pub external_storage_fallback_threshold: u64,
 }
 
-#[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, PartialEq)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub enum ExternalStorageLocation {
     S3 {
@@ -229,7 +229,7 @@ fn default_state_parts_compression_level() -> i32 {
 }
 
 /// Configures the external storage used by the archival node.
-#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct CloudStorageConfig {
     /// The storage to persist the archival data.

@@ -242,17 +242,32 @@ impl<'a> ConfigValidator<'a> {
         if self.config.cloud_archival_reader.is_none() && self.config.rpc.is_some() {
             assert!(self.config.cloud_archival_writer.is_some());
             let error_message =
-                "`cloud_archival_writer` is configured, but `cloud_archival_reader` is not, yet `rpc` is enabled."
+                "Cloud archival is enabled, but since it is not running in `cloud_archival_reader` mode, `rpc` must be disabled."
                     .to_string();
             self.validation_errors.push_config_semantics_error(error_message);
         }
-        if let Some(writer) = &self.config.cloud_archival_writer {
-            let tracked_shards = self.config.tracked_shards_config();
-            if !tracked_shards.tracks_non_empty_subset_of_shards() && !writer.archive_block_data {
-                let error_message =
-                    "`cloud_archival_writer` must track at least one shard unless it is configured to `archive_block_data` only.".to_string();
-                self.validation_errors.push_config_semantics_error(error_message);
-            }
+
+        let Some(writer) = &self.config.cloud_archival_writer else {
+            return;
+        };
+        // Writer is enabled
+
+        let tracked_shards = self.config.tracked_shards_config();
+        if !tracked_shards.tracks_non_empty_subset_of_shards() && !writer.archive_block_data {
+            let error_message =
+                "`cloud_archival_writer` must track at least one shard unless it is configured to `archive_block_data` only.".to_string();
+            self.validation_errors.push_config_semantics_error(error_message);
+        }
+
+        let Some(reader) = &self.config.cloud_archival_reader else {
+            return;
+        };
+        // Both reader and writer are enabled
+
+        if reader.cloud_storage != writer.cloud_storage {
+            let error_message =
+                "`cloud_archival_reader` and `cloud_archival_writer` storage configs must be equal.".to_string();
+            self.validation_errors.push_config_semantics_error(error_message);
         }
     }
 
