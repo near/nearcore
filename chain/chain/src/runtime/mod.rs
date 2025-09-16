@@ -1,4 +1,5 @@
 use crate::Error;
+use crate::runtime::metrics::PREPARE_TX_TIME;
 use crate::types::{
     ApplyChunkBlockContext, ApplyChunkResult, ApplyChunkShardContext,
     PrepareTransactionsBlockContext, PrepareTransactionsLimit, PreparedTransactions,
@@ -621,6 +622,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         skip_tx_hashes: HashSet<CryptoHash>,
         time_limit: Option<Duration>,
     ) -> Result<(PreparedTransactions, SkippedTransactions), Error> {
+        let timer = PREPARE_TX_TIME.with_label_values(&[&shard_id.to_string()]).start_timer();
         let start_time = std::time::Instant::now();
 
         let epoch_id = prev_block.next_epoch_id;
@@ -837,6 +839,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         metrics::CONGESTION_PREPARE_TX_GAS_LIMIT
             .with_label_values(&[&shard_label])
             .set(i64::try_from(transactions_gas_limit.as_gas()).unwrap_or(i64::MAX));
+        timer.observe_duration();
         Ok((result, SkippedTransactions(skipped_txs)))
     }
 

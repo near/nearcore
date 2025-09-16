@@ -1,6 +1,7 @@
 use super::{ReceiptFilter, filter_incoming_receipts_for_shard};
 use crate::byzantine_assert;
 use crate::metrics;
+use crate::metrics::EARLY_PREPARE_TRANSACTION_VALIDITY_CHECK_BLOCK_NOT_FOUND;
 use near_chain_primitives::Error;
 use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::block::BlockHeader;
@@ -89,8 +90,29 @@ pub fn early_prepare_txs_check_validity_period(
     base_block_hash: &CryptoHash,
     transaction_validity_period: BlockHeightDelta,
 ) -> Result<(), InvalidTxError> {
-    let base_header =
-        chain_store.get_block_header(base_block_hash).map_err(|_| InvalidTxError::Expired)?;
+    let timer = metrics::EARLY_PREPARE_TRANSACTION_VALIDITY_CHECK_TIME.start_timer();
+    let res = early_prepare_txs_check_validity_period_impl(
+        chain_store,
+        prev_block_height,
+        prev_prev_block_header,
+        base_block_hash,
+        transaction_validity_period,
+    );
+    timer.observe_duration();
+    res
+}
+
+pub fn early_prepare_txs_check_validity_period_impl(
+    chain_store: &ChainStoreAdapter,
+    prev_block_height: BlockHeight,
+    prev_prev_block_header: &BlockHeader,
+    base_block_hash: &CryptoHash,
+    transaction_validity_period: BlockHeightDelta,
+) -> Result<(), InvalidTxError> {
+    let base_header = chain_store.get_block_header(base_block_hash).map_err(|_| {
+        EARLY_PREPARE_TRANSACTION_VALIDITY_CHECK_BLOCK_NOT_FOUND.inc();
+        InvalidTxError::Expired
+    })?;
 
     metrics::CHAIN_VALIDITY_PERIOD_CHECK_DELAY
         .observe(prev_block_height.saturating_sub(base_header.height()) as f64);

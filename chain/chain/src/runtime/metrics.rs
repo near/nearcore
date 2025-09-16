@@ -36,6 +36,16 @@ pub(crate) static PREPARE_TX_SIZE: LazyLock<HistogramVec> = LazyLock::new(|| {
     .unwrap()
 });
 
+pub(crate) static PREPARE_TX_TIME: LazyLock<HistogramVec> = LazyLock::new(|| {
+    try_create_histogram_vec(
+        "near_prepare_tx_time",
+        "Time taken to prepare transactions per shard",
+        &["shard_id"],
+        Some(exponential_buckets(0.001, 1.6, 20).unwrap()),
+    )
+    .unwrap()
+});
+
 pub(crate) static PREPARE_TX_GAS: LazyLock<HistogramVec> = LazyLock::new(|| {
     try_create_histogram_vec(
         "near_prepare_tx_gas",

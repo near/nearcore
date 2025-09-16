@@ -17,6 +17,25 @@ fn two_sided_exponential_buckets(start: f64, factor: f64, count: usize) -> Vec<f
     buckets
 }
 
+pub static EARLY_PREPARE_TRANSACTION_VALIDITY_CHECK_TIME: LazyLock<Histogram> =
+    LazyLock::new(|| {
+        try_create_histogram_with_buckets(
+            "near_early_prepare_transaction_validity_check_time",
+            "Time taken to do early validity checks of transactions in the prepare phase",
+            exponential_buckets(0.0001, 2.0, 15).unwrap(),
+        )
+        .unwrap()
+    });
+
+pub static EARLY_PREPARE_TRANSACTION_VALIDITY_CHECK_BLOCK_NOT_FOUND: LazyLock<IntCounter> =
+    LazyLock::new(|| {
+        try_create_int_counter(
+            "near_early_prepare_transaction_validity_check_block_not_found_total",
+            "Total number of transactions that failed early validity checks in the prepare phase because the block was not found",
+        )
+        .unwrap()
+    });
+
 pub static BLOCK_PROCESSING_ATTEMPTS_TOTAL: LazyLock<IntCounter> = LazyLock::new(|| {
     try_create_int_counter(
         "near_block_processing_attempts_total",
