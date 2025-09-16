@@ -87,7 +87,7 @@ fn bench_reed_solomon_decoding_only(c: &mut Criterion) {
         (VALIDATOR_COUNT as f64 - VALIDATOR_COUNT as f64 * WITNESS_RATIO_DATA_PARTS) as usize;
 
     // Simulate loss by setting data parts to None
-    let mut parts_with_loss = encoded_parts.clone();
+    let mut parts_with_loss = encoded_parts;
     for i in 0..lost_parts {
         parts_with_loss[i] = None;
     }
