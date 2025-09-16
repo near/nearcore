@@ -1026,8 +1026,9 @@ pub fn init_configs(
             if test_seed.is_some() {
                 bail!("Test seed is not supported for {chain_id}");
             }
-            config.telemetry.endpoints.push(NETWORK_TELEMETRY_URL.to_string());
-            config.state_sync = Some(StateSyncConfig::gcs_default());
+            if !config.telemetry.endpoints.contains(&NETWORK_TELEMETRY_URL.to_string()) {
+                config.telemetry.endpoints.push(NETWORK_TELEMETRY_URL.to_string());
+            }
         }
         _ => {
             // Create new configuration, key files and genesis for one validator.
