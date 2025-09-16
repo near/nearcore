@@ -1,5 +1,5 @@
 use crate::state_update::StateOperations;
-use crate::state_update::state_value::StateValue;
+use crate::state_update::state_value::Deserialized;
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_primitives::errors::{IntegerOverflowError, StorageError};
 use near_primitives::receipt::{
@@ -63,7 +63,7 @@ pub struct OutgoingReceiptBuffer<'parent> {
 /// implementation is provided as trait default implementation.
 pub trait TrieQueue {
     // TODO - remove the lifetime once we get rid of Cow in StateStoredReceipt.
-    type Item: BorshDeserialize + BorshSerialize + StateValue + Clone;
+    type Item: BorshDeserialize + BorshSerialize + Deserialized + Clone;
 
     /// Read queue indices of the queue from the trie, depending on impl.
     fn load_indices(
