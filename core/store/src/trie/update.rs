@@ -9,7 +9,7 @@ use near_primitives::action::{ContractIsLocalError, GlobalContractIdentifier};
 use near_primitives::apply::ApplyChunkReason;
 use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::stateless_validation::contract_distribution::ContractUpdates;
-use near_primitives::trie_key::TrieKey;
+use near_primitives::trie_key::{SmallKeyVec, TrieKey};
 use near_primitives::types::{
     AccountId, RawStateChange, RawStateChanges, RawStateChangesWithTrieKey, StateChangeCause,
     StateRoot,
@@ -104,14 +104,14 @@ impl TrieUpdate {
         mode: KeyLookupMode,
         opts: AccessOptions,
     ) -> Result<Option<TrieUpdateValuePtr<'_>>, StorageError> {
-        let key = key.to_vec();
-        if let Some(value_ref) = self.get_ref_from_updates(&key) {
+        let mut key_buf = SmallKeyVec::new_const();
+        key.append_into(&mut key_buf);
+        if let Some(value_ref) = self.get_ref_from_updates(&key_buf) {
             return Ok(value_ref);
         }
-
         let result = self
             .trie
-            .get_optimized_ref(&key, mode, opts)?
+            .get_optimized_ref(&key_buf, mode, opts)?
             .map(|optimized_value_ref| TrieUpdateValuePtr::Ref(&self.trie, optimized_value_ref));
         Ok(result)
     }
@@ -128,15 +128,16 @@ impl TrieUpdate {
     }
 
     pub fn contains_key(&self, key: &TrieKey, opts: AccessOptions) -> Result<bool, StorageError> {
-        let key = key.to_vec();
-        if let Some(data) = self.prospective.get(&key) {
+        let mut key_buf = SmallKeyVec::new_const();
+        key.append_into(&mut key_buf);
+        if let Some(data) = self.prospective.get(&*key_buf) {
             return Ok(data.value.is_some());
-        } else if let Some(changes_with_trie_key) = self.committed.get(&key) {
+        } else if let Some(changes_with_trie_key) = self.committed.get(&*key_buf) {
             if let Some(RawStateChange { data, .. }) = changes_with_trie_key.changes.last() {
                 return Ok(data.is_some());
             }
         }
-        self.trie.contains_key(&key, opts)
+        self.trie.contains_key(&*key_buf, opts)
     }
 
     pub fn set(&mut self, trie_key: TrieKey, value: Vec<u8>) {
@@ -264,15 +265,16 @@ impl TrieUpdate {
         key: &TrieKey,
         fallback: impl FnOnce(&[u8]) -> Result<Option<Vec<u8>>, StorageError>,
     ) -> Result<Option<Vec<u8>>, StorageError> {
-        let key = key.to_vec();
-        if let Some(key_value) = self.prospective.get(&key) {
+        let mut key_buf = SmallKeyVec::new_const();
+        key.append_into(&mut key_buf);
+        if let Some(key_value) = self.prospective.get(&*key_buf) {
             return Ok(key_value.value.as_ref().map(<Vec<u8>>::clone));
-        } else if let Some(changes_with_trie_key) = self.committed.get(&key) {
+        } else if let Some(changes_with_trie_key) = self.committed.get(&*key_buf) {
             if let Some(RawStateChange { data, .. }) = changes_with_trie_key.changes.last() {
                 return Ok(data.as_ref().map(<Vec<u8>>::clone));
             }
         }
-        fallback(&key)
+        fallback(&*key_buf)
     }
 
     /// Records deployment of a contract due to a deploy-contract action.
@@ -311,13 +313,11 @@ impl TrieUpdate {
             Err(ContractIsLocalError::Deployed(_)) => TrieKey::ContractCode { account_id },
             Ok(identifier) => TrieKey::GlobalContractCode { identifier: identifier.into() },
         };
+        let mut key = SmallKeyVec::new_const();
+        trie_key.append_into(&mut key);
         let contract_ref = self
             .trie
-            .get_optimized_ref(
-                &trie_key.to_vec(),
-                KeyLookupMode::MemOrFlatOrTrie,
-                AccessOptions::NO_SIDE_EFFECTS,
-            )
+            .get_optimized_ref(&key, KeyLookupMode::MemOrFlatOrTrie, AccessOptions::NO_SIDE_EFFECTS)
             .or_else(|err| {
                 // If the value for the trie key is not found, we treat it as if the contract does not exist.
                 // In this case, we ignore the error and skip recording the contract call below.
