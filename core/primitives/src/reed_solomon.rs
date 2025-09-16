@@ -72,41 +72,38 @@ pub fn reed_solomon_decode<T: BorshDeserialize>(
     let mut decoded_parts = decode(data_parts, recovery_count, original_parts, recovery_parts)
         .map_err(|e| Error::other(e))?;
 
+    // Populate missing data parts and collect data for reconstruction
     let mut data_parts_vec: Vec<Vec<u8>> = Vec::with_capacity(data_parts);
 
     for i in 0..data_parts {
         if let Some(data) = decoded_parts.remove(&i) {
-            data_parts_vec.push(data);
-        } else if let Some(part) = parts[i].take() {
-            data_parts_vec.push(part.into_vec());
+            if parts[i].is_none() {
+                data_parts_vec.push(data.clone());
+                parts[i] = Some(data.into_boxed_slice());
+            } else {
+                data_parts_vec.push(data);
+            }
+        } else if let Some(part) = &parts[i] {
+            data_parts_vec.push(part.to_vec());
         } else {
             // This shouldn't happen if we have enough parts to decode
             return Err(Error::other("Missing required data part"));
         }
     }
+
     let mut full_data = data_parts_vec.into_iter().flatten().collect::<Vec<u8>>();
     full_data.truncate(encoded_length);
 
-    // Re-encode the data to get a complete parts array for Merkle validation
-    let part_length = reed_solomon_part_length(encoded_length, data_parts);
-
-    let mut padded_data = full_data.clone();
-    padded_data.resize(data_parts * part_length, 0);
-
-    let mut all_parts: Vec<ReedSolomonPart> = padded_data
-        .chunks_exact(part_length)
-        .map(|chunk| Some(chunk.to_vec().into_boxed_slice()))
-        .collect();
-
+    // Generate only the missing parity parts
     let data_slices: Vec<&[u8]> =
-        all_parts.iter().map(|part| part.as_ref().unwrap().as_ref()).collect();
+        parts[..data_parts].iter().map(|part| part.as_ref().unwrap().as_ref()).collect();
     let parity_parts = encode(data_parts, recovery_count, data_slices).unwrap();
 
-    all_parts.extend(parity_parts.into_iter().map(|part| Some(part.into_boxed_slice())));
-
-    for (i, part) in all_parts.into_iter().enumerate() {
-        if i < parts.len() {
-            parts[i] = part;
+    // Populate missing parity parts
+    for (i, parity_part) in parity_parts.into_iter().enumerate() {
+        let part_index = data_parts + i;
+        if part_index < parts.len() && parts[part_index].is_none() {
+            parts[part_index] = Some(parity_part.into_boxed_slice());
         }
     }
 
