@@ -440,12 +440,12 @@ macro_rules! gas_cost {
     (@@$self:ident visit_block) => { Fee::ZERO };
     (@@$self:ident visit_end) => { Fee::ZERO };
     (@@$self:ident visit_else) => { Fee::ZERO };
-    (@@$self:ident visit_memory_init) => { Fee { linear: $self.0, constant: $self.0 } };
-    (@@$self:ident visit_memory_copy) => { Fee { linear: $self.0, constant: $self.0 } };
-    (@@$self:ident visit_memory_fill) => { Fee { linear: $self.0, constant: $self.0 } };
-    (@@$self:ident visit_table_init) => { Fee { linear: $self.0, constant: $self.0 } };
-    (@@$self:ident visit_table_copy) => { Fee { linear: $self.0, constant: $self.0 } };
-    (@@$self:ident visit_table_fill) => { Fee { linear: $self.0, constant: $self.0 } };
+    (@@$self:ident visit_memory_init) => { Fee { linear: $self.0, constant: 32 * $self.0 } };
+    (@@$self:ident visit_memory_copy) => { Fee { linear: $self.0, constant: 32 * $self.0 } };
+    (@@$self:ident visit_memory_fill) => { Fee { linear: $self.0, constant: 32 * $self.0 } };
+    (@@$self:ident visit_table_init) => { Fee { linear: $self.0, constant: 32 * $self.0 } };
+    (@@$self:ident visit_table_copy) => { Fee { linear: $self.0, constant: 32 * $self.0 } };
+    (@@$self:ident visit_table_fill) => { Fee { linear: $self.0, constant: 32 * $self.0 } };
     (@@$self:ident $visit:ident) => { Fee::constant($self.0) };
 }
 
