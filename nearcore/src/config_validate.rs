@@ -423,7 +423,7 @@ mod tests {
     )]
     fn test_cloud_archival_reader_set_archive_is_false() {
         let mut config = Config::default();
-        let (reader_config, _) = test_cloud_archival_configs("".into());
+        let (reader_config, _) = test_cloud_archival_configs("");
         config.cloud_archival_reader = Some(reader_config);
         config.archive = false;
         validate_config(&config).unwrap();
@@ -435,7 +435,7 @@ mod tests {
     )]
     fn test_cloud_archival_writer_set_archive_is_false() {
         let mut config = Config::default();
-        let (_, writer_config) = test_cloud_archival_configs("".into());
+        let (_, writer_config) = test_cloud_archival_configs("");
         config.cloud_archival_writer = Some(writer_config);
         config.archive = false;
         validate_config(&config).unwrap();
@@ -447,7 +447,7 @@ mod tests {
     )]
     fn test_cloud_archival_reader_without_cold_store() {
         let mut config = Config::default();
-        let (reader_config, _) = test_cloud_archival_configs("".into());
+        let (reader_config, _) = test_cloud_archival_configs("");
         config.cloud_archival_reader = Some(reader_config);
         validate_config(&config).unwrap();
     }
@@ -458,7 +458,7 @@ mod tests {
     )]
     fn test_cloud_archival_not_reader_yet_rpc() {
         let mut config = Config::default();
-        let (_, writer_config) = test_cloud_archival_configs("".into());
+        let (_, writer_config) = test_cloud_archival_configs("");
         config.cloud_archival_writer = Some(writer_config);
         config.rpc = Some(RpcConfig::default());
         validate_config(&config).unwrap();
@@ -470,7 +470,7 @@ mod tests {
     )]
     fn test_cloud_archival_writer_tracks_no_shards() {
         let mut config = Config::default();
-        let (_, mut writer_config) = test_cloud_archival_configs("".into());
+        let (_, mut writer_config) = test_cloud_archival_configs("");
         writer_config.archive_block_data = false;
         config.cloud_archival_writer = Some(writer_config);
         validate_config(&config).unwrap();
@@ -482,7 +482,7 @@ mod tests {
     )]
     fn test_cloud_archival_storage_configs_mismatch() {
         let mut config = Config::default();
-        let (mut reader_config, writer_config) = test_cloud_archival_configs("".into());
+        let (mut reader_config, writer_config) = test_cloud_archival_configs("");
         reader_config.cloud_storage.storage =
             ExternalStorageLocation::Filesystem { root_dir: "x".into() };
         config.cloud_archival_reader = Some(reader_config);

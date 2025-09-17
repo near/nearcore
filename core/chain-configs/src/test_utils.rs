@@ -224,10 +224,10 @@ pub fn get_initial_supply(records: &[StateRecord]) -> Balance {
 }
 
 pub fn test_cloud_archival_configs(
-    cloud_archival_dir: PathBuf,
+    cloud_archival_dir: impl Into<PathBuf>,
 ) -> (CloudArchivalReaderConfig, CloudArchivalWriterConfig) {
     let cloud_storage = CloudStorageConfig {
-        storage: ExternalStorageLocation::Filesystem { root_dir: cloud_archival_dir },
+        storage: ExternalStorageLocation::Filesystem { root_dir: cloud_archival_dir.into() },
         credentials_file: None,
     };
     let reader_config = CloudArchivalReaderConfig { cloud_storage: cloud_storage.clone() };
