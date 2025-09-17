@@ -1,5 +1,6 @@
 use crate::bandwidth_scheduler::BandwidthRequests;
 use crate::congestion_info::CongestionInfo;
+use crate::sharding::ShardChunkHeader;
 use crate::types::StateRoot;
 use crate::types::validator_stake::{ValidatorStake, ValidatorStakeIter, ValidatorStakeV1};
 use borsh::{BorshDeserialize, BorshSerialize};
@@ -20,7 +21,7 @@ pub enum ShardChunkHeaderInner {
     V3(ShardChunkHeaderInnerV3) = 2,
     V4(ShardChunkHeaderInnerV4) = 3,
     V5(ShardChunkHeaderInnerV5SpiceTxOnly) = 4,
-    V6(ShardChunkApplyHeaderInner) = 5,
+    V6(ShardChunkApplyHeader) = 5,
 }
 
 impl ShardChunkHeaderInner {
@@ -401,7 +402,7 @@ pub struct ShardChunkHeaderInnerV4 {
 /// doc me
 /// Whatever field named `previous` here actually corresponds to the level of associated chunk
 #[derive(BorshSerialize, BorshDeserialize, Clone, PartialEq, Eq, Debug, ProtocolSchema)]
-pub struct ShardChunkApplyHeaderInner {
+pub struct ShardChunkApplyHeader {
     pub prev_block_hash: CryptoHash,
     pub prev_state_root: StateRoot,
     pub height_created: BlockHeight,
@@ -431,15 +432,15 @@ pub struct ShardChunkHeaderInnerV5SpiceTxOnly {
     pub tx_root: CryptoHash,
 }
 
-impl From<ShardChunkHeaderInnerV4> for ShardChunkApplyHeaderInner {
-    fn from(v4: ShardChunkHeaderInnerV4) -> Self {
+impl From<ShardChunkHeader> for ShardChunkApplyHeader {
+    fn from(chunk: ShardChunkHeader) -> Self {
         Self {
-            prev_block_hash: v4.prev_block_hash,
-            prev_state_root: v4.prev_state_root,
-            height_created: v4.height_created,
-            shard_id: v4.shard_id,
-            gas_limit: v4.gas_limit,
-            prev_validator_proposals: v4.prev_validator_proposals,
+            prev_block_hash: *chunk.prev_block_hash(),
+            prev_state_root: chunk.prev_state_root(),
+            height_created: chunk.height_created(),
+            shard_id: chunk.shard_id(),
+            gas_limit: chunk.gas_limit(),
+            prev_validator_proposals: chunk.prev_validator_proposals().collect(),
         }
     }
 }

@@ -4,6 +4,7 @@ use {crate::state::PartialState, std::collections::HashMap};
 use super::ChunkProductionKey;
 #[cfg(feature = "solomon")]
 use crate::reed_solomon::{ReedSolomonEncoderDeserialize, ReedSolomonEncoderSerialize};
+use crate::sharding::shard_chunk_header_inner::ShardChunkApplyHeader;
 use crate::transaction::SignedTransaction;
 use crate::types::{EpochId, SignatureDifferentiator};
 use crate::utils::compression::CompressedData;
@@ -209,7 +210,7 @@ pub struct ChunkApplyWitness {
     pub epoch_id: EpochId,
 
     /// header of the chunk being applied, same heigh. Only V6 fields are included.
-    pub chunk_header: ShardChunkHeader,
+    pub chunk_header: ShardChunkApplyHeader,
 
     /// The base state and post-state-root of the main transition where we
     /// apply transactions and receipts. Corresponds to the state transition
@@ -391,7 +392,13 @@ impl ChunkStateWitness {
         match self {
             ChunkStateWitness::V1(witness) => &witness.chunk_header,
             ChunkStateWitness::V2(witness) => &witness.chunk_header,
-            ChunkStateWitness::V3(witness) => &witness.chunk_apply_witness.chunk_header,
+            ChunkStateWitness::V3(witness) => {
+                if let Some(chunk_validate_witness) = &witness.chunk_validate_witness {
+                    &chunk_validate_witness.chunk_header
+                } else {
+                    panic!("ChunkValidateWitness is not given");
+                }
+            }
         }
     }
 
@@ -485,9 +492,9 @@ impl ChunkStateWitnessV2 {
 impl ChunkStateWitnessV3 {
     pub fn chunk_production_key(&self) -> ChunkProductionKey {
         ChunkProductionKey {
-            shard_id: self.chunk_apply_witness.chunk_header.shard_id(),
+            shard_id: self.chunk_apply_witness.chunk_header.shard_id,
             epoch_id: self.chunk_apply_witness.epoch_id,
-            height_created: self.chunk_apply_witness.chunk_header.height_created(),
+            height_created: self.chunk_apply_witness.chunk_header.height_created,
         }
     }
 }

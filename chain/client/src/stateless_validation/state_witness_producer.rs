@@ -123,7 +123,7 @@ impl Client {
             state_witness: ChunkStateWitness::V3(ChunkStateWitnessV3 {
                 chunk_apply_witness: ChunkApplyWitness {
                     epoch_id,
-                    chunk_header: context.chunk_header,
+                    chunk_header: context.chunk_header.into(),
                     main_state_transition,
                     receipts: context.receipts,
                     applied_receipts_hash: new_chunk.apply_result.applied_receipts_hash,
