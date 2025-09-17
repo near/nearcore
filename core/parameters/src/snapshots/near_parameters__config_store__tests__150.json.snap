@@ -18,7 +18,7 @@ expression: config_view
       },
       "cost_per_byte": {
         "send_sir": 17212011,
-        "send_not_sir": 17212011,
+        "send_not_sir": 47683715,
         "execution": 17212011
       }
     },
@@ -35,7 +35,7 @@ expression: config_view
       },
       "deploy_contract_cost_per_byte": {
         "send_sir": 6812999,
-        "send_not_sir": 6812999,
+        "send_not_sir": 47683715,
         "execution": 64572944
       },
       "function_call_cost": {
@@ -45,7 +45,7 @@ expression: config_view
       },
       "function_call_cost_per_byte": {
         "send_sir": 2235934,
-        "send_not_sir": 2235934,
+        "send_not_sir": 47683715,
         "execution": 2235934
       },
       "transfer_cost": {
@@ -71,7 +71,7 @@ expression: config_view
         },
         "function_call_cost_per_byte": {
           "send_sir": 1925331,
-          "send_not_sir": 1925331,
+          "send_not_sir": 47683715,
           "execution": 1925331
         }
       },
@@ -100,8 +100,8 @@ expression: config_view
       10
     ],
     "pessimistic_gas_price_inflation_ratio": [
-      103,
-      100
+      1,
+      1
     ]
   },
   "wasm_config": {
@@ -138,11 +138,11 @@ expression: config_view
       "storage_write_key_byte": 70482867,
       "storage_write_value_byte": 31018539,
       "storage_write_evicted_byte": 32117307,
-      "storage_read_base": 56356845750,
+      "storage_read_base": 56356845749,
       "storage_read_key_byte": 30952533,
-      "storage_read_value_byte": 5611005,
-      "storage_large_read_overhead_base": 0,
-      "storage_large_read_overhead_byte": 0,
+      "storage_read_value_byte": 5611004,
+      "storage_large_read_overhead_base": 1,
+      "storage_large_read_overhead_byte": 1,
       "storage_remove_base": 53473030500,
       "storage_remove_key_byte": 38220384,
       "storage_remove_ret_value_byte": 11531556,
@@ -156,7 +156,7 @@ expression: config_view
       "storage_iter_next_base": 0,
       "storage_iter_next_key_byte": 0,
       "storage_iter_next_value_byte": 0,
-      "touching_trie_node": 16101955926,
+      "touching_trie_node": 2280000000,
       "read_cached_trie_node": 2280000000,
       "promise_and_base": 1465013400,
       "promise_and_per_promise": 5452176,
@@ -174,38 +174,38 @@ expression: config_view
       "yield_create_base": 153411779276,
       "yield_create_byte": 15643988,
       "yield_resume_base": 1195627285210,
-      "yield_resume_byte": 1195627285210,
-      "bls12381_p1_sum_base": 300000000000000,
-      "bls12381_p1_sum_element": 300000000000000,
-      "bls12381_p2_sum_base": 300000000000000,
-      "bls12381_p2_sum_element": 300000000000000,
-      "bls12381_g1_multiexp_base": 300000000000000,
-      "bls12381_g1_multiexp_element": 300000000000000,
-      "bls12381_g2_multiexp_base": 300000000000000,
-      "bls12381_g2_multiexp_element": 300000000000000,
-      "bls12381_map_fp_to_g1_base": 300000000000000,
-      "bls12381_map_fp_to_g1_element": 300000000000000,
-      "bls12381_map_fp2_to_g2_base": 300000000000000,
-      "bls12381_map_fp2_to_g2_element": 300000000000000,
-      "bls12381_pairing_base": 300000000000000,
-      "bls12381_pairing_element": 300000000000000,
-      "bls12381_p1_decompress_base": 300000000000000,
-      "bls12381_p1_decompress_element": 300000000000000,
-      "bls12381_p2_decompress_base": 300000000000000,
-      "bls12381_p2_decompress_element": 300000000000000
+      "yield_resume_byte": 47683715,
+      "bls12381_p1_sum_base": 16500000000,
+      "bls12381_p1_sum_element": 6000000000,
+      "bls12381_p2_sum_base": 18600000000,
+      "bls12381_p2_sum_element": 15000000000,
+      "bls12381_g1_multiexp_base": 16500000000,
+      "bls12381_g1_multiexp_element": 930000000000,
+      "bls12381_g2_multiexp_base": 18600000000,
+      "bls12381_g2_multiexp_element": 1995000000000,
+      "bls12381_map_fp_to_g1_base": 1500000000,
+      "bls12381_map_fp_to_g1_element": 252000000000,
+      "bls12381_map_fp2_to_g2_base": 1500000000,
+      "bls12381_map_fp2_to_g2_element": 900000000000,
+      "bls12381_pairing_base": 2130000000000,
+      "bls12381_pairing_element": 2130000000000,
+      "bls12381_p1_decompress_base": 15000000000,
+      "bls12381_p1_decompress_element": 81000000000,
+      "bls12381_p2_decompress_base": 15000000000,
+      "bls12381_p2_decompress_element": 165000000000
     },
     "grow_mem_cost": 1,
     "regular_op_cost": 822756,
     "vm_kind": "<REDACTED>",
-    "discard_custom_sections": false,
-    "saturating_float_to_int": false,
-    "global_contract_host_fns": false,
-    "reftypes_bulk_memory": false,
-    "deterministic_account_ids": false,
+    "discard_custom_sections": true,
+    "saturating_float_to_int": true,
+    "global_contract_host_fns": true,
+    "reftypes_bulk_memory": true,
+    "deterministic_account_ids": true,
     "storage_get_mode": "FlatStorage",
-    "fix_contract_loading_cost": false,
+    "fix_contract_loading_cost": true,
     "implicit_account_creation": true,
-    "eth_implicit_accounts": false,
+    "eth_implicit_accounts": true,
     "limit_config": {
       "max_gas_burnt": 300000000000000,
       "max_stack_height": 262144,
@@ -223,18 +223,20 @@ expression: config_view
       "max_arguments_length": 4194304,
       "max_length_returned_data": 4194304,
       "max_contract_size": 4194304,
-      "max_transaction_size": 4194304,
-      "max_receipt_size": 4294967295,
+      "max_transaction_size": 1572864,
+      "max_receipt_size": 4194304,
       "max_length_storage_key": 2048,
       "max_length_storage_value": 4194304,
       "max_promises_per_function_call_action": 1024,
       "max_number_input_data_dependencies": 128,
       "max_functions_number_per_contract": 10000,
       "max_locals_per_contract": 1000000,
+      "max_tables_per_contract": 1,
+      "max_elements_per_contract_table": 10000,
       "account_id_validity_rules_version": 1,
       "yield_timeout_length_in_blocks": 200,
       "max_yield_payload_size": 1024,
-      "per_receipt_storage_proof_size_limit": 4294967295
+      "per_receipt_storage_proof_size_limit": 4000000
     }
   },
   "account_creation_config": {
@@ -242,22 +244,22 @@ expression: config_view
     "registrar_account_id": "registrar"
   },
   "congestion_control_config": {
-    "max_congestion_incoming_gas": 20000000000000000,
+    "max_congestion_incoming_gas": 400000000000000000,
     "max_congestion_outgoing_gas": 10000000000000000,
     "max_congestion_memory_consumption": 1000000000,
-    "max_congestion_missed_chunks": 5,
+    "max_congestion_missed_chunks": 125,
     "max_outgoing_gas": 300000000000000000,
     "min_outgoing_gas": 1000000000000000,
     "allowed_shard_outgoing_gas": 1000000000000000,
     "max_tx_gas": 500000000000000,
     "min_tx_gas": 20000000000000,
-    "reject_tx_congestion_threshold": 0.5,
-    "outgoing_receipts_usual_size_limit": 4294967295,
-    "outgoing_receipts_big_size_limit": 4294967295
+    "reject_tx_congestion_threshold": 0.8,
+    "outgoing_receipts_usual_size_limit": 102400,
+    "outgoing_receipts_big_size_limit": 4718592
   },
   "witness_config": {
-    "main_storage_proof_size_soft_limit": 4294967295,
-    "combined_transactions_size_limit": 4294967295,
-    "new_transactions_validation_state_size_soft_limit": 4294967295
+    "main_storage_proof_size_soft_limit": 4000000,
+    "combined_transactions_size_limit": 4194304,
+    "new_transactions_validation_state_size_soft_limit": 572864
   }
 }

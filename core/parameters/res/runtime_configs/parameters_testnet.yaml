@@ -243,6 +243,7 @@ discard_custom_sections: false
 saturating_float_to_int: false
 global_contract_host_fns: false
 reftypes_bulk_memory: false
+deterministic_account_ids: false
 
 # TODO What should be the config for testnet?
 
