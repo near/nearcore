@@ -69,6 +69,7 @@ pub struct ReceiptV0 {
 /// DO NOT USE
 ///
 /// `ReceiptV1` is not used, yet. It is only preparation for a possible future receipt priority.
+/// Therefore, most if not all code should keep using ReceiptV0, without the priority field.
 #[derive(
     BorshSerialize,
     BorshDeserialize,
