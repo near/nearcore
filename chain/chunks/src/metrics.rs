@@ -1,5 +1,6 @@
 use near_o11y::metrics::{
-    Counter, Histogram, exponential_buckets, try_create_histogram, try_create_histogram_vec,
+    Counter, Histogram, IntCounter, exponential_buckets, try_create_histogram,
+    try_create_histogram_vec, try_create_int_counter,
 };
 use std::sync::LazyLock;
 
@@ -126,6 +127,23 @@ pub static PARTIAL_ENCODED_CHUNK_OUTSIDE_HORIZON: LazyLock<Counter> = LazyLock::
     near_o11y::metrics::try_create_counter(
         "near_partial_encoded_chunk_outside_horizon",
         "Count of partial encoded chunks rejected because height is outside horizon",
+    )
+    .unwrap()
+});
+
+pub static PARTIAL_CHUNK_PERSISTED_WITHOUT_FULL_CHUNK_TOTAL: LazyLock<IntCounter> =
+    LazyLock::new(|| {
+        try_create_int_counter(
+            "near_partial_chunk_persisted_without_full_chunk_total",
+            "Number of PartialChunks persisted when no full Chunk existed (orphan candidates)",
+        )
+        .unwrap()
+    });
+
+pub static PARTIAL_CHUNK_ORPHAN_RESOLVED_TOTAL: LazyLock<IntCounter> = LazyLock::new(|| {
+    try_create_int_counter(
+        "near_partial_chunk_orphan_resolved_total",
+        "Number of times a PartialChunk previously persisted without a full Chunk later got its full Chunk persisted",
     )
     .unwrap()
 });

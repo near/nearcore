@@ -1,3 +1,6 @@
+use crate::metrics::{
+    PARTIAL_CHUNK_ORPHAN_RESOLVED_TOTAL, PARTIAL_CHUNK_PERSISTED_WITHOUT_FULL_CHUNK_TOTAL,
+};
 use near_chain::ChainStoreAccess;
 use near_chain::{BlockHeader, Chain, ChainStore, types::EpochManagerAdapter};
 use near_chunks_primitives::Error;
@@ -192,13 +195,21 @@ pub fn persist_chunk(
     store: &mut ChainStore,
 ) -> Result<(), Error> {
     let mut update = store.store_update();
-    if !update.partial_chunk_exists(&partial_chunk.chunk_hash())? {
+    let chunk_hash = partial_chunk.chunk_hash();
+    let partial_existed = update.partial_chunk_exists(&chunk_hash)?;
+    if !partial_existed {
         update.save_partial_chunk(partial_chunk);
     }
     if let Some(shard_chunk) = shard_chunk {
-        if !update.chunk_exists(&shard_chunk.chunk_hash())? {
+        let chunk_was_missing = !update.chunk_exists(&shard_chunk.chunk_hash())?;
+        if chunk_was_missing {
             update.save_chunk(shard_chunk);
+            if partial_existed {
+                PARTIAL_CHUNK_ORPHAN_RESOLVED_TOTAL.inc();
+            }
         }
+    } else if !partial_existed {
+        PARTIAL_CHUNK_PERSISTED_WITHOUT_FULL_CHUNK_TOTAL.inc();
     }
     update.commit().map_err(Error::from)
 }
