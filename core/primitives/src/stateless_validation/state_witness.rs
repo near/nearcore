@@ -209,7 +209,7 @@ pub struct ChunkApplyWitness {
     /// with chunk_header.prev_block_hash().
     pub epoch_id: EpochId,
 
-    /// header of the chunk being applied, same heigh. Only V6 fields are included.
+    /// header of the chunk being applied, same height.
     pub chunk_header: ShardChunkApplyHeader,
 
     /// The base state and post-state-root of the main transition where we

@@ -399,18 +399,6 @@ pub struct ShardChunkHeaderInnerV4 {
     pub bandwidth_requests: BandwidthRequests,
 }
 
-/// doc me
-/// Whatever field named `previous` here actually corresponds to the level of associated chunk
-#[derive(BorshSerialize, BorshDeserialize, Clone, PartialEq, Eq, Debug, ProtocolSchema)]
-pub struct ShardChunkApplyHeader {
-    pub prev_block_hash: CryptoHash,
-    pub prev_state_root: StateRoot,
-    pub height_created: BlockHeight,
-    pub shard_id: ShardId,
-    pub gas_limit: Gas,
-    pub prev_validator_proposals: Vec<ValidatorStake>,
-}
-
 // V4 -> V5: a version for spice of a chunk header including only transactions (no previous
 // execution results).
 #[derive(BorshSerialize, BorshDeserialize, Clone, PartialEq, Eq, Debug, ProtocolSchema)]
@@ -430,6 +418,17 @@ pub struct ShardChunkHeaderInnerV5SpiceTxOnly {
     pub prev_outgoing_receipts_root: CryptoHash,
     /// Tx merkle root.
     pub tx_root: CryptoHash,
+}
+/// Info enough to apply state witness.
+/// Whatever field named `previous` here actually corresponds to the level of associated chunk
+#[derive(BorshSerialize, BorshDeserialize, Clone, PartialEq, Eq, Debug, ProtocolSchema)]
+pub struct ShardChunkApplyHeader {
+    pub prev_block_hash: CryptoHash,
+    pub prev_state_root: StateRoot,
+    pub height_created: BlockHeight,
+    pub shard_id: ShardId,
+    pub gas_limit: Gas,
+    pub prev_validator_proposals: Vec<ValidatorStake>,
 }
 
 impl From<ShardChunkHeader> for ShardChunkApplyHeader {
