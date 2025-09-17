@@ -1,5 +1,5 @@
-use crate::blacklist;
 use crate::batch_processor::RateLimit;
+use crate::blacklist;
 use crate::config_json::Tier1Config;
 use crate::network_protocol::PeerAddr;
 use crate::network_protocol::PeerInfo;

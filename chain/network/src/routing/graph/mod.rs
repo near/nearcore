@@ -1,4 +1,3 @@
-use crate::concurrency;
 use crate::network_protocol::{Edge, EdgeState};
 use crate::routing::bfs;
 use crate::routing::routing_table_view::RoutingTableView;
@@ -10,7 +9,6 @@ use near_async::multithread::MultithreadRuntimeHandle;
 use near_async::time::Clock;
 use near_async::{new_owned_multithread_actor, time};
 use near_primitives::network::PeerId;
-use rayon::iter::ParallelBridge;
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Weak};
 
@@ -164,17 +162,25 @@ impl Inner {
             return true;
         });
 
-        // Verify the edges in parallel on rayon.
         // Stop at first invalid edge.
-        let (mut edges, ok) = concurrency::rayon::run_blocking(move || {
-            concurrency::rayon::try_map(edges.into_iter().par_bridge(), |e| {
-                if e.verify() { Some(e) } else { None }
-            })
-        });
+        let mut valid_edges = Vec::<Edge>::new();
+        let mut ok = true;
+        for edge in edges {
+            if !edge.verify() {
+                ok = false;
+                break;
+            }
+            if edge.key().0 == edge.key().1 {
+                // Skip self-loops. We don't reject them outright, because in T1 self-discovery we do
+                // create self-loop edges; we just don't want to add them to the graph.
+                continue;
+            }
+            valid_edges.push(edge);
+        }
 
         // Add the verified edges to the graph.
-        edges.retain(|e| self.update_edge(e.clone()));
-        (edges, ok)
+        valid_edges.retain(|e| self.update_edge(e.clone()));
+        (valid_edges, ok)
     }
 
     /// 1. Prunes expired edges.

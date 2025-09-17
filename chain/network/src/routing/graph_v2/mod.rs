@@ -12,13 +12,9 @@ use std::collections::VecDeque;
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Weak};
 
-#[cfg(not(test))]
-use crate::concurrency;
 use near_async::messaging::{Actor, CanSendAsync, Handler, Message};
 use near_async::multithread::MultithreadRuntimeHandle;
 use near_async::new_owned_multithread_actor;
-#[cfg(not(test))]
-use rayon::iter::ParallelBridge;
 
 #[cfg(test)]
 mod testonly;
@@ -101,16 +97,19 @@ impl Inner {
             }
         }
 
-        // Verify the new edges in parallel on rayon.
         // Stop at first invalid edge.
-        let (verified_edges, ok) = concurrency::rayon::run_blocking(move || {
-            concurrency::rayon::try_map(unverified_edges.into_iter().par_bridge(), |e| {
-                if e.verify() { Some(e) } else { None }
-            })
-        });
+        let mut valid_edges = Vec::<Edge>::new();
+        let mut ok = true;
+        for edge in &edges {
+            if !edge.verify() {
+                ok = false;
+                break;
+            }
+            valid_edges.push(edge.clone());
+        }
 
         // Store the verified nonces in the cache
-        verified_edges.iter().for_each(|e| self.edge_cache.write_verified_nonce(e));
+        valid_edges.iter().for_each(|e| self.edge_cache.write_verified_nonce(e));
 
         ok
     }
