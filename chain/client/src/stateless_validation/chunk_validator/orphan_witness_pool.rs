@@ -47,7 +47,8 @@ impl OrphanStateWitnessPool {
     /// `witness_size` is only used for metrics, it's okay to pass 0 if you don't care about the metrics.
     pub fn add_orphan_state_witness(&mut self, witness: ChunkStateWitness, witness_size: usize) {
         // Insert the new ChunkStateWitness into the cache
-        let cache_key = witness.chunk_production_key();
+        // FIXFIXFIX
+        let cache_key = witness.production_key().chunk;
         let metrics_tracker = OrphanWitnessMetricsTracker::new(&witness, witness_size);
         let cache_entry = CacheEntry { witness, _metrics_tracker: metrics_tracker };
         if let Some((_, ejected_entry)) = self.witness_cache.push(cache_key, cache_entry) {

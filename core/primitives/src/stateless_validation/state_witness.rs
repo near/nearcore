@@ -5,6 +5,7 @@ use super::ChunkProductionKey;
 #[cfg(feature = "solomon")]
 use crate::reed_solomon::{ReedSolomonEncoderDeserialize, ReedSolomonEncoderSerialize};
 use crate::sharding::shard_chunk_header_inner::ShardChunkApplyHeader;
+use crate::stateless_validation::WitnessProductionKey;
 use crate::transaction::SignedTransaction;
 use crate::types::{EpochId, SignatureDifferentiator};
 use crate::utils::compression::CompressedData;
@@ -210,7 +211,7 @@ pub struct ChunkApplyWitness {
     pub epoch_id: EpochId,
 
     /// header of the chunk being applied, same height.
-    pub chunk_header: ShardChunkApplyHeader,
+    pub chunk_header: ShardChunkHeader, // ShardChunkApplyHeader,
 
     /// The base state and post-state-root of the main transition where we
     /// apply transactions and receipts. Corresponds to the state transition
@@ -268,6 +269,7 @@ pub struct ChunkApplyWitness {
 /// doc me
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
 pub struct ChunkValidateWitness {
+    pub epoch_id: EpochId,
     /// The chunk header that this witness is for. While this is not needed
     /// to apply the state transition, it is needed for a chunk validator to
     /// produce a chunk endorsement while knowing what they are endorsing.
@@ -372,11 +374,11 @@ impl ChunkStateWitness {
         )
     }
 
-    pub fn chunk_production_key(&self) -> ChunkProductionKey {
+    pub fn production_key(&self) -> WitnessProductionKey {
         match self {
-            ChunkStateWitness::V1(witness) => witness.chunk_production_key(),
-            ChunkStateWitness::V2(witness) => witness.chunk_production_key(),
-            ChunkStateWitness::V3(witness) => witness.chunk_production_key(),
+            ChunkStateWitness::V1(witness) => witness.production_key(),
+            ChunkStateWitness::V2(witness) => witness.production_key(),
+            ChunkStateWitness::V3(witness) => witness.production_key(),
         }
     }
 
@@ -388,6 +390,7 @@ impl ChunkStateWitness {
         }
     }
 
+    // This is chunk header to be signed. Not always available.
     pub fn chunk_header(&self) -> &ShardChunkHeader {
         match self {
             ChunkStateWitness::V1(witness) => &witness.chunk_header,
@@ -399,6 +402,21 @@ impl ChunkStateWitness {
                     panic!("ChunkValidateWitness is not given");
                 }
             }
+        }
+    }
+
+    // This is latest available chunk header in the witness. Used for logging!!!
+    // Consider using production key instead.
+    // But then we lose navigation by chunk hash.
+    pub fn latest_chunk_header(&self) -> &ShardChunkHeader {
+        if let ChunkStateWitness::V3(witness) = self {
+            if let Some(chunk_validate_witness) = &witness.chunk_validate_witness {
+                &chunk_validate_witness.chunk_header
+            } else {
+                &witness.chunk_apply_witness.chunk_header
+            }
+        } else {
+            self.chunk_header()
         }
     }
 
@@ -470,31 +488,51 @@ impl ChunkStateWitness {
 }
 
 impl ChunkStateWitnessV1 {
-    pub fn chunk_production_key(&self) -> ChunkProductionKey {
-        ChunkProductionKey {
-            shard_id: self.chunk_header.shard_id(),
-            epoch_id: self.epoch_id,
-            height_created: self.chunk_header.height_created(),
-        }
+    pub fn production_key(&self) -> WitnessProductionKey {
+        panic!("V1 state witness is deprecated since protocol version 78");
     }
 }
 
 impl ChunkStateWitnessV2 {
-    pub fn chunk_production_key(&self) -> ChunkProductionKey {
-        ChunkProductionKey {
-            shard_id: self.chunk_header.shard_id(),
-            epoch_id: self.epoch_id,
-            height_created: self.chunk_header.height_created(),
+    pub fn production_key(&self) -> WitnessProductionKey {
+        WitnessProductionKey {
+            chunk: ChunkProductionKey {
+                shard_id: self.chunk_header.shard_id(),
+                epoch_id: self.epoch_id,
+                height_created: self.chunk_header.height_created(),
+            },
+            is_optimistic: false,
         }
     }
 }
 
 impl ChunkStateWitnessV3 {
-    pub fn chunk_production_key(&self) -> ChunkProductionKey {
-        ChunkProductionKey {
-            shard_id: self.chunk_apply_witness.chunk_header.shard_id,
-            epoch_id: self.chunk_apply_witness.epoch_id,
-            height_created: self.chunk_apply_witness.chunk_header.height_created,
+    pub fn production_key(&self) -> WitnessProductionKey {
+        if let Some(chunk_validate_witness) = &self.chunk_validate_witness {
+            // If validate witness is provided, we can perform full validation
+            // and have unique identifier.
+            WitnessProductionKey {
+                chunk: ChunkProductionKey {
+                    shard_id: chunk_validate_witness.chunk_header.shard_id(),
+                    epoch_id: chunk_validate_witness.epoch_id,
+                    height_created: chunk_validate_witness.chunk_header.height_created(),
+                },
+                is_optimistic: false,
+            }
+        } else {
+            // Otherwise we just do optimistic execution and speculate on chunk
+            // production key!
+            WitnessProductionKey {
+                chunk: ChunkProductionKey {
+                    shard_id: self.chunk_apply_witness.chunk_header.shard_id(),
+                    epoch_id: self.chunk_apply_witness.epoch_id,
+                    // speculative! the witness will verify the NEXT chunk!
+                    // if there is a fork, it won't work, but optimism
+                    // doesn't work too.
+                    height_created: self.chunk_apply_witness.chunk_header.height_created() + 1,
+                },
+                is_optimistic: true,
+            }
         }
     }
 }

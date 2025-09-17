@@ -1724,7 +1724,7 @@ impl Chain {
             );
             drop(apply_chunks_still_applying);
             if let Some(sender) = apply_chunks_done_sender {
-                for (_, _, shard_update_result) in res.iter() {
+                for (_, _, shard_update_result) in &res {
                     if let Ok(ShardUpdateResult::NewChunk(res_new_chunk)) = shard_update_result {
                         sender
                             .new_chunk_apply

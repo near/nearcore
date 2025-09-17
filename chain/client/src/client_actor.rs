@@ -1911,7 +1911,7 @@ impl ClientActorInner {
             let _ = self.client.start_process_block(
                 block.into(),
                 Provenance::PRODUCED,
-                Some(self.client.myself_sender.apply_chunks_done.clone()),
+                Some(self.client.myself_sender.clone().into_multi_sender()),
             );
             blocks_produced += 1;
             if blocks_produced == num_blocks {

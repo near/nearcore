@@ -421,6 +421,7 @@ pub struct ShardChunkHeaderInnerV5SpiceTxOnly {
 }
 /// Info enough to apply state witness.
 /// Whatever field named `previous` here actually corresponds to the level of associated chunk
+/// Currently unused.
 #[derive(BorshSerialize, BorshDeserialize, Clone, PartialEq, Eq, Debug, ProtocolSchema)]
 pub struct ShardChunkApplyHeader {
     pub prev_block_hash: CryptoHash,

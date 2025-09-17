@@ -185,7 +185,7 @@ fn setup_orphan_witness_test() -> OrphanWitnessTestEnv {
 
     // Process the manually created witness on all validators except for `excluded_validator`
     let raw_witness_size = borsh::object_length(&witness).unwrap();
-    let key = witness.chunk_production_key();
+    let key = witness.production_key().chunk;
     let chunk_validators = env
         .client(&block2_chunk_producer)
         .epoch_manager

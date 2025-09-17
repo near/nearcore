@@ -487,10 +487,11 @@ impl PartialEncodedStateWitnessTracker {
                 .entered();
                 self.decode_state_witness(&encoded_witness, protocol_version)?
             };
-            if witness.chunk_production_key() != key {
+            // FIXFIXFIX
+            if witness.production_key().chunk != key {
                 return Err(Error::InvalidPartialChunkStateWitness(format!(
                     "Decoded witness key {:?} doesn't match partial witness {:?}",
-                    witness.chunk_production_key(),
+                    witness.production_key().chunk,
                     key,
                 )));
             }
