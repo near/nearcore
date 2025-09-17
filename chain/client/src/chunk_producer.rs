@@ -112,6 +112,12 @@ impl PrepareTransactionsManager {
         Self { jobs: lru::LruCache::new(NonZeroUsize::new(64).unwrap()) }
     }
 
+    #[instrument(
+        target = "client",
+        "cancel_and_wait",
+        skip_all,
+        fields(tag_block_production = true, tag_prepare_txs = true)
+    )]
     fn cancel_and_wait(
         &mut self,
         height: BlockHeight,
@@ -128,6 +134,12 @@ impl PrepareTransactionsManager {
         Some(job)
     }
 
+    #[instrument(
+        target = "client",
+        "push",
+        skip_all,
+        fields(tag_block_production = true, tag_prepare_txs = true)
+    )]
     pub fn push(
         &mut self,
         key: PrepareTransactionsJobKey,
@@ -140,6 +152,12 @@ impl PrepareTransactionsManager {
         self.jobs.put((key.prev_block_context.height, key.shard_id), (key, job, cancel));
     }
 
+    #[instrument(
+        target = "client",
+        "pop",
+        skip_all,
+        fields(tag_block_production = true, tag_prepare_txs = true)
+    )]
     pub fn pop(
         &mut self,
         key: &PrepareTransactionsJobKey,
@@ -378,6 +396,7 @@ impl ChunkProducer {
                             .epoch_manager
                             .is_resharding_boundary(prev_block.header().hash())?;
 
+                        let _span = tracing::debug_span!(target: "client", "use_job_result", num_txs = txs.transactions.len(), tag_block_production = true, tag_prepare_txs = true).entered();
                         tracing::warn!(
                             target: "client",
                             %next_height,
@@ -390,11 +409,15 @@ impl ChunkProducer {
                         if is_resharding { None } else { Some(txs.clone()) }
                     }
                     Err(err) => {
+                        let _span = tracing::debug_span!(target: "client", "job_error", err = ?err, tag_block_production = true, tag_prepare_txs = true).entered();
                         tracing::error!("Error preparing txs! {:?}", err);
                         None
                     }
                 },
-                None => None,
+                None => {
+                    let _span = tracing::debug_span!(target: "client", "no_job", tag_block_production = true, tag_prepare_txs = true).entered();
+                    None
+                }
             }
         };
 
@@ -537,7 +560,8 @@ impl ChunkProducer {
         fields(
             height = prev_block.header().height() + 1,
             shard_id = %shard_uid.shard_id(),
-            tag_block_production = true
+            tag_block_production = true,
+            tag_prepare_txs = true
         )
     )]
     fn prepare_transactions(
@@ -599,6 +623,12 @@ impl ChunkProducer {
         Ok(prepared_transactions)
     }
 
+    #[instrument(target = "client", level = "debug", "start_prepare_transactions_job", skip_all, fields(
+        height=prev_block_context.height + 1,
+        %shard_id,
+        tag_block_production = true,
+        tag_prepare_txs = true,
+    ))]
     pub fn start_prepare_transactions_job(
         &mut self,
         shard_update_key: CachedShardUpdateKey,
@@ -609,6 +639,8 @@ impl ChunkProducer {
         prev_chunk_tx_hashes: HashSet<CryptoHash>,
         tx_validity_period_check: impl Fn(&SignedTransaction) -> bool + Send + 'static,
     ) {
+        let next_height = prev_block_context.height + 1;
+
         if cfg!(feature = "protocol_feature_spice") {
             return;
         }
@@ -650,6 +682,7 @@ impl ChunkProducer {
 
         // Run the preparation job on a separate thread
         self.prepare_transactions_spawner.spawn("prepare_transactions", move || {
+            let _span = tracing::debug_span!(target: "client", "run_prepare_transactions_job", height = next_height, shard_id = %shard_id, tag_block_production = true, tag_prepare_txs = true).entered();
             prepare_job.lock().take_result_or_run(Some(cancel));
         });
     }
@@ -755,6 +788,12 @@ pub enum PrepareTransactionsJob {
 impl PrepareTransactionsJob {
     /// Take the result if available, otherwise run the job and return the result.
     /// Usually the job is run before the result is needed, but sometimes it might not start in time.
+    #[instrument(
+        target = "client",
+        "take_result_or_run",
+        skip_all,
+        fields(tag_block_production = true, tag_prepare_txs = true)
+    )]
     pub fn take_result_or_run(
         &mut self,
         cancel: Option<Arc<AtomicBool>>,
@@ -772,6 +811,12 @@ impl PrepareTransactionsJob {
         }
     }
 
+    #[instrument(
+        target = "client",
+        "run_not_started",
+        skip_all,
+        fields(tag_block_production = true, tag_prepare_txs = true)
+    )]
     fn run_not_started(
         self,
         cancel: Option<Arc<AtomicBool>>,
@@ -807,6 +852,7 @@ impl PrepareTransactionsJob {
                 ?hash,
                 "block was already postprocessed before prepare_transactions job ran, skipping",
             );
+            let _span = tracing::debug_span!(target: "client", "already_postprocessed", tag_block_production = true, tag_prepare_txs = true).entered();
             return Err(Error::ChunkProducer(
                 "Block was already postprocessed before prepare_transactions job ran, skipping"
                     .to_string(),
