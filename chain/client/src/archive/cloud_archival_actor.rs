@@ -15,12 +15,15 @@ use time::Duration;
 /// Result of a single archiving attempt.
 #[derive(Debug)]
 enum CloudArchivingResult {
-    /// Cloud head is at least the hot final head; nothing to do.
-    NoHeightArchived,
-    /// Archived the current final head height; now up to date until a new block is finalized.
-    LatestHeightArchived,
-    /// Archived a height below the final head; more heights are immediately available.
-    OlderHeightArchived,
+    // Cloud head is at least the hot final head; nothing to do.
+    // Contains the current cloud head.
+    NoHeightArchived(BlockHeight),
+    // Archived the current final head height; now up to date until a new block is finalized.
+    // Contains the target (final) height that was archived.
+    LatestHeightArchived(BlockHeight),
+    // Archived a height below the final head; more heights are immediately available.
+    // Contains (archived_height, target_height).
+    OlderHeightArchived(BlockHeight, BlockHeight),
 }
 
 /// Error surfaced while archiving data or performing sanity checks.
@@ -86,7 +89,7 @@ impl CloudArchivalActor {
 
         let result = self.try_archive_data();
 
-        let duration = if let Ok(CloudArchivingResult::OlderHeightArchived) = result {
+        let duration = if let Ok(CloudArchivingResult::OlderHeightArchived(..)) = result {
             Duration::ZERO
         } else {
             self.config.polling_interval
@@ -102,23 +105,36 @@ impl CloudArchivalActor {
         // TODO(cloud_archival) Add metrics
         let result = self.try_archive_data_impl();
 
-        match &result {
-            Err(err) => {
-                tracing::error!(target : "cloud_archival", error = format!("{err:#?}"), "Archiving data to cloud failed");
+        let Ok(result) = result else {
+            tracing::error!(target : "cloud_archival", ?result, "Archiving data to cloud failed");
+            return result;
+        };
+
+        match result {
+            CloudArchivingResult::NoHeightArchived(cloud_head) => {
+                tracing::trace!(
+                    target: "cloud_archival",
+                    cloud_head,
+                    "No height was archived - cloud archival head is up to date"
+                );
             }
-            Ok(archive_result) => match archive_result {
-                CloudArchivingResult::NoHeightArchived => {
-                    tracing::trace!(target: "cloud_archival", "No height was archived - cloud archival head is up to date");
-                }
-                CloudArchivingResult::LatestHeightArchived => {
-                    tracing::trace!(target: "cloud_archival", "Latest height was archived");
-                }
-                CloudArchivingResult::OlderHeightArchived => {
-                    tracing::trace!(target: "cloud_archival", "Older height was archived - more archiving needed");
-                }
-            },
+            CloudArchivingResult::LatestHeightArchived(target_height) => {
+                tracing::trace!(
+                    target: "cloud_archival",
+                    target_height,
+                    "Latest height was archived"
+                );
+            }
+            CloudArchivingResult::OlderHeightArchived(archived_height, target_height) => {
+                tracing::trace!(
+                    target: "cloud_archival",
+                    archived_height,
+                    target_height,
+                    "Older height was archived - more archiving needed"
+                );
+            }
         }
-        result
+        Ok(result)
     }
 
     /// If the cloud head lags the hot final head, archive the next height. Updates `cloud_head` on success.
@@ -129,16 +145,16 @@ impl CloudArchivalActor {
 
         let target_height = hot_final_head_height(&self.hot_store, self.genesis_height)?;
         if self.cloud_head >= target_height {
-            return Ok(CloudArchivingResult::NoHeightArchived);
+            return Ok(CloudArchivingResult::NoHeightArchived(self.cloud_head));
         }
         let height_to_archive = self.cloud_head + 1;
         self.archive_data(height_to_archive)?;
         self.update_cloud_archival_head(height_to_archive)?;
 
         let result = if height_to_archive == target_height {
-            Ok(CloudArchivingResult::LatestHeightArchived)
+            Ok(CloudArchivingResult::LatestHeightArchived(target_height))
         } else {
-            Ok(CloudArchivingResult::OlderHeightArchived)
+            Ok(CloudArchivingResult::OlderHeightArchived(height_to_archive, target_height))
         };
         tracing::trace!(target: "cloud_archival", ?result, "ending");
         result
