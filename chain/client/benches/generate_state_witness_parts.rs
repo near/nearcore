@@ -3,7 +3,7 @@
 //!
 //! Run with `cargo bench --bench generate_state_witness_parts`
 
-use criterion::{Criterion, criterion_group, criterion_main};
+use criterion::{BatchSize, Criterion, criterion_group, criterion_main};
 use near_client::stateless_validation::partial_witness::partial_witness_actor::{
     WITNESS_RATIO_DATA_PARTS, compress_witness, generate_state_witness_parts,
 };
@@ -93,12 +93,15 @@ fn bench_reed_solomon_decoding_only(c: &mut Criterion) {
     }
 
     c.bench_function("reed_solomon_decoding_only", |b| {
-        b.iter(|| {
-            let mut parts = parts_with_loss.clone();
-            black_box(
-                encoder.decode::<EncodedChunkStateWitness>(&mut parts, encoded_length).unwrap(),
-            );
-        });
+        b.iter_batched(
+            || parts_with_loss.clone(),
+            |mut parts| {
+                black_box(
+                    encoder.decode::<EncodedChunkStateWitness>(&mut parts, encoded_length).unwrap(),
+                );
+            },
+            BatchSize::LargeInput,
+        );
     });
 }
 
