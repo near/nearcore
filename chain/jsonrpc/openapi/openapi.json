@@ -14801,6 +14801,10 @@
       },
       "VMConfigView": {
         "properties": {
+          "deterministic_account_ids": {
+            "description": "See [VMConfig::deterministic_account_ids](crate::vm::Config::deterministic_account_ids).",
+            "type": "boolean"
+          },
           "discard_custom_sections": {
             "description": "See [VMConfig::discard_custom_sections](crate::vm::Config::discard_custom_sections).",
             "type": "boolean"
@@ -14883,6 +14887,7 @@
           "saturating_float_to_int",
           "global_contract_host_fns",
           "reftypes_bulk_memory",
+          "deterministic_account_ids",
           "storage_get_mode",
           "fix_contract_loading_cost",
           "implicit_account_creation",
