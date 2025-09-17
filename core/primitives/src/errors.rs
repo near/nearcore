@@ -392,10 +392,18 @@ pub enum ActionsValidationError {
         protocol_feature: String,
         version: ProtocolVersion,
     } = 13,
-    InvalidDeterministicStateInit {
+    InvalidDeterministicStateInitReceiver {
         receiver_id: AccountId,
         derived_id: AccountId,
+    } = 14,
+    DeterministicStateInitKeyLengthExceeded {
+        length: u64,
+        limit: u64,
     } = 15,
+    DeterministicStateInitValueLengthExceeded {
+        length: u64,
+        limit: u64,
+    } = 16,
 }
 
 /// Describes the error for validating a receipt.
@@ -548,10 +556,25 @@ impl Display for ActionsValidationError {
                     protocol_feature, version,
                 )
             }
-            ActionsValidationError::InvalidDeterministicStateInit { receiver_id, derived_id } => {
+            ActionsValidationError::InvalidDeterministicStateInitReceiver {
+                receiver_id,
+                derived_id,
+            } => {
                 write!(
                     f,
                     "DeterministicStateInit action payload is invalid for account {receiver_id}, derived id is {derived_id}",
+                )
+            }
+            ActionsValidationError::DeterministicStateInitKeyLengthExceeded { length, limit } => {
+                write!(
+                    f,
+                    "DeterministicStateInit contains key of length {length} but at most {limit} is allowed",
+                )
+            }
+            ActionsValidationError::DeterministicStateInitValueLengthExceeded { length, limit } => {
+                write!(
+                    f,
+                    "DeterministicStateInit contains value of length {length} but at most {limit} is allowed",
                 )
             }
         }

@@ -445,7 +445,7 @@ pub fn validate_action(
             validate_delegate_action(limit_config, a, receiver, current_protocol_version)
         }
         Action::DeterministicStateInit(a) => {
-            validate_deterministic_state_init(a, receiver, current_protocol_version)
+            validate_deterministic_state_init(limit_config, a, receiver, current_protocol_version)
         }
     }
 }
@@ -598,6 +598,7 @@ fn validate_delete_action(action: &DeleteAccountAction) -> Result<(), ActionsVal
 }
 
 fn validate_deterministic_state_init(
+    limit_config: &LimitConfig,
     action: &DeterministicStateInitAction,
     receiver_id: &AccountId,
     current_protocol_version: u32,
@@ -612,15 +613,31 @@ fn validate_deterministic_state_init(
     let derived_id = derive_near_deterministic_account_id(&action.state_init);
 
     if derived_id != *receiver_id {
-        return Err(ActionsValidationError::InvalidDeterministicStateInit {
+        return Err(ActionsValidationError::InvalidDeterministicStateInitReceiver {
             derived_id,
             receiver_id: receiver_id.clone(),
         });
     }
 
-    // TODO: Do we miss additional checks?
-    // Total size is already limited by gas and existing size limits.
-    // Anything else?
+    // State init entries must not violate limits of individual state keys and values.
+    for (key, value) in action.state_init.data() {
+        if key.len() as u64 > limit_config.max_length_storage_key {
+            return Err(ActionsValidationError::DeterministicStateInitKeyLengthExceeded {
+                length: key.len() as u64,
+                limit: limit_config.max_length_storage_key,
+            }
+            .into());
+        }
+
+        if value.len() as u64 > limit_config.max_length_storage_value {
+            return Err(ActionsValidationError::DeterministicStateInitValueLengthExceeded {
+                length: value.len() as u64,
+                limit: limit_config.max_length_storage_value,
+            }
+            .into());
+        }
+    }
+
     Ok(())
 }
 
@@ -669,6 +686,7 @@ mod tests {
     use near_store::test_utils::TestTriesBuilder;
     use near_store::{set, set_access_key, set_account};
     use near_vm_runner::ContractCode;
+    use std::collections::BTreeMap;
     use std::sync::Arc;
     use testlib::runtime_utils::{alice_account, bob_account, eve_dot_alice_account};
 
@@ -2090,7 +2108,7 @@ mod tests {
     }
 
     #[test]
-    fn test_validate_deterministic_state_init() {
+    fn test_validate_deterministic_state_init_receiver() {
         use expect_test::{Expect, expect};
         fn check_validate_state_init(
             receiver: &str,
@@ -2132,7 +2150,7 @@ mod tests {
             ProtocolFeature::DeterministicAccountIds.protocol_version(),
             expect![[r#"
                 Err(
-                    InvalidDeterministicStateInit {
+                    InvalidDeterministicStateInitReceiver {
                         receiver_id: AccountId(
                             "0s1234567890123456789012345678901234567890",
                         ),
@@ -2150,7 +2168,7 @@ mod tests {
             ProtocolFeature::DeterministicAccountIds.protocol_version(),
             expect![[r#"
                 Err(
-                    InvalidDeterministicStateInit {
+                    InvalidDeterministicStateInitReceiver {
                         receiver_id: AccountId(
                             "alice.near",
                         ),
@@ -2167,7 +2185,7 @@ mod tests {
             ProtocolFeature::DeterministicAccountIds.protocol_version(),
             expect![[r#"
                 Err(
-                    InvalidDeterministicStateInit {
+                    InvalidDeterministicStateInitReceiver {
                         receiver_id: AccountId(
                             "eab5a5da5a83e1ffb05ed0905a104e09b7e13159fd4daf82e43d047887ce4e47",
                         ),
@@ -2199,6 +2217,89 @@ mod tests {
             "#]],
             );
         }
+    }
+
+    #[test]
+    fn test_validate_deterministic_state_init_data() {
+        use expect_test::{Expect, expect};
+        fn check_validate_state_init(
+            data: BTreeMap<Vec<u8>, Vec<u8>>,
+            protocol_version: ProtocolVersion,
+            want: Expect,
+        ) {
+            let state_init = DeterministicAccountStateInit::V1(DeterministicAccountStateInitV1 {
+                code: GlobalContractIdentifier::AccountId("ft.near".parse().unwrap()),
+                data,
+            });
+            let receiver = derive_near_deterministic_account_id(&state_init);
+            let validation_result = validate_actions(
+                &test_limit_config(),
+                &[Action::DeterministicStateInit(Box::new(DeterministicStateInitAction {
+                    state_init,
+                    deposit: 0,
+                }))],
+                &receiver,
+                protocol_version,
+            );
+
+            want.assert_debug_eq(&validation_result);
+        }
+
+        fn make_payload(key_size: usize, value_size: usize) -> BTreeMap<Vec<u8>, Vec<u8>> {
+            let key = vec![1u8; key_size];
+            let value = vec![2u8; value_size];
+            BTreeMap::from_iter([(key, value)])
+        }
+
+        // small payload
+        check_validate_state_init(
+            make_payload(10, 20),
+            ProtocolFeature::DeterministicAccountIds.protocol_version(),
+            expect![[r#"
+                Ok(
+                    (),
+                )
+            "#]],
+        );
+
+        // key and value exactly at limit
+        check_validate_state_init(
+            make_payload(2_048, 4_194_304),
+            ProtocolFeature::DeterministicAccountIds.protocol_version(),
+            expect![[r#"
+                Ok(
+                    (),
+                )
+            "#]],
+        );
+
+        // key above limit
+        check_validate_state_init(
+            make_payload(2_049, 4_194_304),
+            ProtocolFeature::DeterministicAccountIds.protocol_version(),
+            expect![[r#"
+                Err(
+                    DeterministicStateInitKeyLengthExceeded {
+                        length: 2049,
+                        limit: 2048,
+                    },
+                )
+            "#]],
+        );
+
+        // value above limit
+        check_validate_state_init(
+            make_payload(2_048, 4_194_305),
+            ProtocolFeature::DeterministicAccountIds.protocol_version(),
+            expect![[r#"
+                Err(
+                    DeterministicStateInitValueLengthExceeded {
+                        length: 4194305,
+                        limit: 4194304,
+                    },
+                )
+            "#]],
+        );
     }
 
     #[test]
