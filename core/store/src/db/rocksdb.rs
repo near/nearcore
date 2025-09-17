@@ -698,7 +698,7 @@ fn rocksdb_column_options(col: DBCol, store_config: &StoreConfig, temp: Temperat
         opts.set_num_levels(1);
         opts.set_level_zero_file_num_compaction_trigger(-1);
         opts.set_level_zero_slowdown_writes_trigger(-1);
-        opts.set_level_zero_stop_writes_trigger(-1);
+        opts.set_level_zero_stop_writes_trigger(i32::MAX);
     }
 
     opts
