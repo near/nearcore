@@ -613,11 +613,24 @@ impl ChunkProducer {
             return;
         }
 
+        #[cfg(feature = "test_features")]
+        if matches!(self.adversarial.produce_mode, Some(AdvProduceChunksMode::ProduceWithoutTx)) {
+            return;
+        }
+
         let prepare_job_key = PrepareTransactionsJobKey {
             shard_id,
             shard_uid,
             shard_update_key,
             prev_block_context: prev_block_context.clone(),
+        };
+
+        #[cfg(feature = "test_features")]
+        let tx_validity_period_check: Box<
+            dyn Fn(&SignedTransaction) -> bool + Send + 'static,
+        > = match self.adversarial.produce_mode {
+            Some(AdvProduceChunksMode::ProduceWithoutTxValidityCheck) => Box::new(|_| true),
+            _ => Box::new(tx_validity_period_check),
         };
 
         let prepare_job = Arc::new(Mutex::new(PrepareTransactionsJob::NotStarted {
