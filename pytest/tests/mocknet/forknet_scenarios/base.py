@@ -86,7 +86,7 @@ class TestSetup:
         self.node_hardware_config = NodeHardware.SameConfig(
             num_chunk_producer_seats=0, num_chunk_validator_seats=0)
         # The base binary url to be used for the nodes.
-        self.neard_binary_url = None
+        self.neard_binary_url = getattr(args, 'neard_binary_url', '')
         # The new binary url to be used for the nodes.
         self.neard_upgrade_binary_url = getattr(args,
                                                 'neard_upgrade_binary_url', '')
