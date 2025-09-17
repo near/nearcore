@@ -6315,9 +6315,8 @@ dependencies = [
 
 [[package]]
 name = "pkg-config"
-version = "0.3.25"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1df8c4ec4b0627e53bdf214615ad287367e482558cf84b109250b37464dc03ae"
+version = "0.3.32"
+source = "git+https://github.com/nagisa/pkg-config-rs.git?branch=no-is-static-available#0f2fd11ee80874f666b7d877e165a6b23dcbb65b"
 
 [[package]]
 name = "portable-atomic"
