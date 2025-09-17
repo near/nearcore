@@ -312,6 +312,7 @@ def handle_reset(args):
     reset_cmd_args = copy.deepcopy(args)
     reset_cmd_args.backup_id = "start"
     reset_cmd_args.yes = True
+    reset_cmd_args.gcs_state_sync = False
     reset_cmd(CommandContext(reset_cmd_args))
 
 
