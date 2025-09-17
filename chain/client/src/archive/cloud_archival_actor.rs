@@ -1,13 +1,11 @@
 //! Cloud archival actor: moves finalized data from the hot store to the cloud storage.
 //! Runs in a loop until the cloud head catches up with the hot final head.
 use std::io;
-use std::sync::Arc;
-use std::sync::atomic::AtomicBool;
 
 use near_async::futures::{DelayedActionRunner, DelayedActionRunnerExt};
 use near_async::messaging::Actor;
 use near_chain::types::Tip;
-use near_chain_configs::CloudArchivalWriterConfig;
+use near_chain_configs::{CloudArchivalHandle, CloudArchivalWriterConfig};
 use near_primitives::types::BlockHeight;
 use near_store::{DBCol, FINAL_HEAD_KEY, NodeStorage, Store};
 use time::Duration;
@@ -45,15 +43,15 @@ pub struct CloudArchivalActor {
     genesis_height: BlockHeight,
     hot_store: Store,
     cloud_head: BlockHeight,
-    keep_going: Arc<AtomicBool>,
+    handle: CloudArchivalHandle,
 }
 
-/// Creates the cloud archival actor and `keep_going` handle if cloud archival writer is configured.
+/// Creates the cloud archival actor with handle if cloud archival writer is configured.
 pub fn create_cloud_archival_actor(
     cloud_archival_config: Option<CloudArchivalWriterConfig>,
     genesis_height: BlockHeight,
     storage: &NodeStorage,
-) -> anyhow::Result<Option<(CloudArchivalActor, Arc<AtomicBool>)>> {
+) -> anyhow::Result<Option<(CloudArchivalActor, CloudArchivalHandle)>> {
     let Some(config) = cloud_archival_config else {
         tracing::debug!(target : "cloud_archival", "Not creating the cloud archival actor because cloud archival writer is not configured");
         return Ok(None);
@@ -63,12 +61,11 @@ pub fn create_cloud_archival_actor(
     // TODO(cloud_archival) Retrieve the `cloud_head` from the external storage
     let cloud_head = hot_final_head_height(&hot_store, genesis_height)?;
 
-    let keep_going = Arc::new(AtomicBool::new(true));
-    let keep_going_clone = keep_going.clone();
-
     tracing::info!(target: "cloud_archival", "Creating the cloud archival actor");
-    let actor = CloudArchivalActor { config, genesis_height, hot_store, cloud_head, keep_going };
-    Ok(Some((actor, keep_going_clone)))
+    let handle = CloudArchivalHandle::new();
+    let actor =
+        CloudArchivalActor::new(config, genesis_height, hot_store, cloud_head, handle.clone());
+    Ok(Some((actor, handle)))
 }
 
 impl Actor for CloudArchivalActor {
@@ -79,10 +76,20 @@ impl Actor for CloudArchivalActor {
 }
 
 impl CloudArchivalActor {
+    pub fn new(
+        config: CloudArchivalWriterConfig,
+        genesis_height: BlockHeight,
+        hot_store: Store,
+        cloud_head: BlockHeight,
+        handle: CloudArchivalHandle,
+    ) -> Self {
+        Self { config, genesis_height, hot_store, cloud_head, handle }
+    }
+
     /// Main loop: archive as fast as possible until `cloud_head == hot_final_head`, then sleep for
     /// `polling_interval` before trying again.
     fn cloud_archival_loop(&mut self, ctx: &mut dyn DelayedActionRunner<Self>) {
-        if !self.keep_going.load(std::sync::atomic::Ordering::Relaxed) {
+        if self.handle.is_cancelled() {
             tracing::debug!(target: "cloud_archival", "Stopping the cloud archival loop");
             return;
         }
@@ -175,6 +182,10 @@ impl CloudArchivalActor {
         debug_assert_eq!(new_head, self.cloud_head + 1);
         self.cloud_head = new_head;
         Ok(())
+    }
+
+    pub fn get_cloud_head(&self) -> BlockHeight {
+        self.cloud_head
     }
 }
 
