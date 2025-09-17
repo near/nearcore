@@ -713,17 +713,17 @@ fn action_receipt_congestion_gas(
     receipt: &Receipt,
     config: &RuntimeConfig,
     action_receipt: VersionedActionReceipt,
-) -> Result<u64, IntegerOverflowError> {
+) -> Result<Gas, IntegerOverflowError> {
     let prepaid_exec_gas =
-        total_prepaid_exec_fees(config, &action_receipt.actions, receipt.receiver_id())?
+        total_prepaid_exec_fees(config, &action_receipt.actions(), receipt.receiver_id())?
             .checked_add(config.fees.fee(ActionCosts::new_action_receipt).exec_fee())
             .ok_or(IntegerOverflowError)?;
     // account for gas guaranteed to be used for creating new receipts
-    let prepaid_send_gas = total_prepaid_send_fees(config, &action_receipt.actions)?;
+    let prepaid_send_gas = total_prepaid_send_fees(config, &action_receipt.actions())?;
     let prepaid_gas = prepaid_exec_gas.checked_add_result(prepaid_send_gas)?;
 
     // account for gas potentially used for dynamic execution
-    let gas_attached_to_fns = total_prepaid_gas(&action_receipt.actions)?;
+    let gas_attached_to_fns = total_prepaid_gas(&action_receipt.actions())?;
     let gas = gas_attached_to_fns.checked_add_result(prepaid_gas)?;
 
     Ok(gas)

@@ -869,13 +869,13 @@ fn action_receipt_required_gas(
     apply_state: &ApplyState,
     receipt: &Receipt,
     action_receipt: VersionedActionReceipt,
-) -> Result<u64, RuntimeError> {
+) -> Result<Gas, RuntimeError> {
     let mut required_gas = total_prepaid_exec_fees(
         &apply_state.config,
-        &action_receipt.actions,
+        &action_receipt.actions(),
         receipt.receiver_id(),
     )?
-    .checked_add_result(total_prepaid_gas(&action_receipt.actions)?)?;
+    .checked_add_result(total_prepaid_gas(&action_receipt.actions())?)?;
     required_gas = required_gas.checked_add_result(
         apply_state.config.fees.fee(ActionCosts::new_action_receipt).exec_fee(),
     )?;
