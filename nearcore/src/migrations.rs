@@ -71,7 +71,9 @@ impl<'a> near_store::StoreMigrator for Migrator<'a> {
 
     fn migrate(&self, store: &Store, version: DbVersion) -> anyhow::Result<()> {
         match version {
-            0..=31 => unreachable!(),
+            0..=29 => unreachable!(),
+            30 => migrate_30_to_31(store, self.config),
+            31 => Ok(()),
             32 => near_store::migrations::migrate_32_to_33(store),
             33 => {
                 near_store::migrations::migrate_33_to_34(store, self.config.client_config.archive)
