@@ -368,6 +368,7 @@ rocksdb = { version = "0.21.0", default-features = false, features = [
     "zstd",
     "zlib",
     "jemalloc",
+    "io-uring",
 ] }
 rusqlite = { version = "0.29.0", features = ["bundled", "chrono", "functions"] }
 rustc-demangle = "0.1"
