@@ -794,7 +794,10 @@ impl PrepareTransactionsJob {
                 ?hash,
                 "block was already postprocessed before prepare_transactions job ran, skipping",
             );
-            return Ok(PreparedTransactions::default());
+            return Err(Error::ChunkProducer(
+                "Block was already postprocessed before prepare_transactions job ran, skipping"
+                    .to_string(),
+            ));
         }
 
         let (prepared, skipped) = if let Some(mut iter) = pool_guard.get_pool_iterator(shard_uid) {
