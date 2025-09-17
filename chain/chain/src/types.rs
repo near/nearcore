@@ -1,4 +1,6 @@
 use std::collections::HashSet;
+use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
 
 use borsh::{BorshDeserialize, BorshSerialize};
 use itertools::Either;
@@ -363,6 +365,7 @@ pub enum PrepareTransactionsLimit {
     Time,
     ReceiptCount,
     StorageProofSize,
+    Cancelled,
 }
 
 /// Information from the previous block used to prepare transactions for the block after it.
@@ -454,6 +457,7 @@ pub trait RuntimeAdapter: Send + Sync {
         chain_validate: &dyn Fn(&SignedTransaction) -> bool,
         skip_tx_hashes: HashSet<CryptoHash>,
         time_limit: Option<Duration>,
+        cancel: Option<Arc<AtomicBool>>,
     ) -> Result<(PreparedTransactions, SkippedTransactions), Error>;
 
     /// Returns true if the shard layout will change in the next epoch

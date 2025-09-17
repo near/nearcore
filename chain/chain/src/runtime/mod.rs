@@ -54,7 +54,7 @@ use node_runtime::{
 };
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 use tracing::{debug, error, info, instrument};
 
@@ -621,6 +621,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         chain_validate: &dyn Fn(&SignedTransaction) -> bool,
         skip_tx_hashes: HashSet<CryptoHash>,
         time_limit: Option<Duration>,
+        cancel: Option<Arc<AtomicBool>>,
     ) -> Result<(PreparedTransactions, SkippedTransactions), Error> {
         let timer = PREPARE_TX_TIME.with_label_values(&[&shard_id.to_string()]).start_timer();
         let start_time = std::time::Instant::now();
@@ -699,6 +700,13 @@ impl RuntimeAdapter for NightshadeRuntime {
             if let Some(time_limit) = &time_limit {
                 if start_time.elapsed() >= *time_limit {
                     result.limited_by = Some(PrepareTransactionsLimit::Time);
+                    break;
+                }
+            }
+
+            if let Some(cancel) = &cancel {
+                if cancel.load(Ordering::Relaxed) {
+                    result.limited_by = Some(PrepareTransactionsLimit::Cancelled);
                     break;
                 }
             }

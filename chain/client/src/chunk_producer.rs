@@ -27,6 +27,7 @@ use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{BlockHeight, EpochId, ShardId};
 use near_primitives::validator_signer::ValidatorSigner;
+use near_store::adapter::StoreAdapter;
 use near_store::adapter::chain_store::ChainStoreAdapter;
 use near_store::{ShardUId, TrieUpdate};
 use parking_lot::Mutex;
@@ -36,6 +37,7 @@ use reed_solomon_erasure::galois_8::ReedSolomon;
 use std::collections::HashSet;
 use std::num::NonZeroUsize;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use time::ext::InstantExt as _;
 use tracing::{debug, instrument};
 
@@ -94,8 +96,70 @@ pub struct ChunkProducer {
     pub chunk_production_info: lru::LruCache<(BlockHeight, ShardId), ChunkProduction>,
 
     /// previous chunk update id -> prepared transactions for the next chunk
-    prepare_txs_jobs: lru::LruCache<PrepareTransactionsJobKey, Arc<Mutex<PrepareTransactionsJob>>>,
+    prepare_txs_jobs: PrepareTransactionsManager,
     prepare_transactions_spawner: Arc<dyn AsyncComputationSpawner>,
+}
+
+pub struct PrepareTransactionsManager {
+    jobs: lru::LruCache<
+        (BlockHeight, ShardId),
+        (PrepareTransactionsJobKey, Arc<Mutex<PrepareTransactionsJob>>, Option<Arc<AtomicBool>>),
+    >,
+}
+
+impl PrepareTransactionsManager {
+    pub fn new() -> Self {
+        Self { jobs: lru::LruCache::new(NonZeroUsize::new(64).unwrap()) }
+    }
+
+    fn cancel_and_wait(
+        &mut self,
+        height: BlockHeight,
+        shard_id: ShardId,
+    ) -> Option<Arc<Mutex<PrepareTransactionsJob>>> {
+        let Some((_, job, cancel)) = self.jobs.pop(&(height, shard_id)) else {
+            return None;
+        };
+        if let Some(cancel) = &cancel {
+            cancel.store(true, Ordering::SeqCst);
+        }
+        // Wait for the job completion. This ensures it will not run after a new job.
+        job.lock().take_result_or_run(cancel);
+        Some(job)
+    }
+
+    pub fn push(
+        &mut self,
+        key: PrepareTransactionsJobKey,
+        job: Arc<Mutex<PrepareTransactionsJob>>,
+        cancel: Option<Arc<AtomicBool>>,
+    ) {
+        // If there is an existing job for the same height and shard, cancel and wait for it.
+        self.cancel_and_wait(key.prev_block_context.height, key.shard_id);
+
+        self.jobs.put((key.prev_block_context.height, key.shard_id), (key, job, cancel));
+    }
+
+    pub fn pop(
+        &mut self,
+        key: &PrepareTransactionsJobKey,
+    ) -> Option<Arc<Mutex<PrepareTransactionsJob>>> {
+        let Some((job_key, job, cancel)) =
+            self.jobs.pop(&(key.prev_block_context.height, key.shard_id))
+        else {
+            return None;
+        };
+        if key == &job_key {
+            Some(job)
+        } else {
+            // Cancel the job and wait for it to finish.
+            if let Some(cancel) = &cancel {
+                cancel.store(true, Ordering::SeqCst);
+            }
+            job.lock().take_result_or_run(cancel);
+            None
+        }
+    }
 }
 
 impl ChunkProducer {
@@ -132,7 +196,7 @@ impl ChunkProducer {
             chunk_production_info: lru::LruCache::new(
                 NonZeroUsize::new(PRODUCTION_TIMES_CACHE_SIZE).unwrap(),
             ),
-            prepare_txs_jobs: lru::LruCache::new(NonZeroUsize::new(64).unwrap()),
+            prepare_txs_jobs: PrepareTransactionsManager::new(),
             prepare_transactions_spawner,
         }
     }
@@ -307,8 +371,8 @@ impl ChunkProducer {
                 )?,
             };
 
-            match self.prepare_txs_jobs.get(&prepare_job_key) {
-                Some(job) => match &*job.lock().take_result_or_run() {
+            match self.prepare_txs_jobs.pop(&prepare_job_key) {
+                Some(job) => match &*job.lock().take_result_or_run(None) {
                     Ok(txs) => {
                         let is_resharding = self
                             .epoch_manager
@@ -513,6 +577,7 @@ impl ChunkProducer {
                     chain_validate,
                     HashSet::new(),
                     self.chunk_transactions_time_limit.get(),
+                    None,
                 )?
                 .0
         } else {
@@ -566,12 +631,13 @@ impl ChunkProducer {
             prev_chunk_tx_hashes,
             time_limit: self.chunk_transactions_time_limit.get(),
         }));
+        let cancel = Arc::new(AtomicBool::new(false));
 
-        self.prepare_txs_jobs.push(prepare_job_key, prepare_job.clone());
+        self.prepare_txs_jobs.push(prepare_job_key, prepare_job.clone(), Some(cancel.clone()));
 
         // Run the preparation job on a separate thread
         self.prepare_transactions_spawner.spawn("prepare_transactions", move || {
-            prepare_job.lock().take_result_or_run();
+            prepare_job.lock().take_result_or_run(Some(cancel));
         });
     }
 
@@ -676,13 +742,16 @@ pub enum PrepareTransactionsJob {
 impl PrepareTransactionsJob {
     /// Take the result if available, otherwise run the job and return the result.
     /// Usually the job is run before the result is needed, but sometimes it might not start in time.
-    pub fn take_result_or_run(&mut self) -> Arc<Result<PreparedTransactions, Error>> {
+    pub fn take_result_or_run(
+        &mut self,
+        cancel: Option<Arc<AtomicBool>>,
+    ) -> Arc<Result<PreparedTransactions, Error>> {
         match self {
             Self::NotStarted { .. } => {
                 // Move out of self (replacing with dummy value), run the job, set *self to Finished.
                 let dummy = Self::Finished(Arc::new(Ok(PreparedTransactions::default())));
                 let moved = std::mem::replace(self, dummy);
-                let res = Arc::new(moved.run_not_started());
+                let res = Arc::new(moved.run_not_started(cancel));
                 *self = Self::Finished(res.clone());
                 res
             }
@@ -690,7 +759,10 @@ impl PrepareTransactionsJob {
         }
     }
 
-    fn run_not_started(self) -> Result<PreparedTransactions, Error> {
+    fn run_not_started(
+        self,
+        cancel: Option<Arc<AtomicBool>>,
+    ) -> Result<PreparedTransactions, Error> {
         let Self::NotStarted {
             runtime_adapter,
             state,
@@ -707,6 +779,23 @@ impl PrepareTransactionsJob {
         };
 
         let mut pool_guard = tx_pool.lock();
+        // TODO: This is pretty hacky, ideally we don't access the store,
+        // maybe a seperate cancel signal that's checked here (after taking the pool lock)?
+        if let Ok(hash) = runtime_adapter
+            .store()
+            .chain_store()
+            .get_block_hash_by_height(prev_block_context.height)
+        {
+            tracing::warn!(
+                target: "client",
+                %shard_id,
+                %shard_uid,
+                height = prev_block_context.height,
+                ?hash,
+                "block was already postprocessed before prepare_transactions job ran, skipping",
+            );
+            return Ok(PreparedTransactions::default());
+        }
 
         let (prepared, skipped) = if let Some(mut iter) = pool_guard.get_pool_iterator(shard_uid) {
             runtime_adapter.prepare_transactions(
@@ -717,6 +806,7 @@ impl PrepareTransactionsJob {
                 &*tx_validity_period_check,
                 prev_chunk_tx_hashes,
                 time_limit,
+                cancel,
             )?
         } else {
             (

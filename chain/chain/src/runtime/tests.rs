@@ -1440,6 +1440,7 @@ fn prepare_transactions(
             },
             HashSet::new(),
             default_produce_chunk_add_transactions_time_limit(),
+            None,
         )
         .map(|r| r.0)
 }
