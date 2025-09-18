@@ -3,7 +3,7 @@
 //!
 //! Run with `cargo bench --bench generate_state_witness_parts`
 
-use criterion::{Criterion, criterion_group, criterion_main};
+use criterion::{BatchSize, Criterion, criterion_group, criterion_main};
 use near_client::stateless_validation::partial_witness::partial_witness_actor::{
     WITNESS_RATIO_DATA_PARTS, compress_witness, generate_state_witness_parts,
 };
@@ -75,5 +75,40 @@ fn bench_reed_solomon_encoding_only(c: &mut Criterion) {
     });
 }
 
-criterion_group!(benches, bench_generate_state_witness_parts, bench_reed_solomon_encoding_only);
+/// Benchmark Reed Solomon decoding performance separately
+fn bench_reed_solomon_decoding_only(c: &mut Criterion) {
+    let witness_bytes = generate_test_witness_bytes(15_000_000);
+    let encoder = ReedSolomonEncoderCache::new(WITNESS_RATIO_DATA_PARTS).entry(VALIDATOR_COUNT);
+
+    // Encode data to get parts for decoding
+    let (encoded_parts, encoded_length) = encoder.encode(&witness_bytes);
+
+    let lost_parts =
+        (VALIDATOR_COUNT as f64 - VALIDATOR_COUNT as f64 * WITNESS_RATIO_DATA_PARTS) as usize;
+
+    // Simulate loss by setting data parts to None
+    let mut parts_with_loss = encoded_parts;
+    for i in 0..lost_parts {
+        parts_with_loss[i] = None;
+    }
+
+    c.bench_function("reed_solomon_decoding_only", |b| {
+        b.iter_batched(
+            || parts_with_loss.clone(),
+            |mut parts| {
+                black_box(
+                    encoder.decode::<EncodedChunkStateWitness>(&mut parts, encoded_length).unwrap(),
+                );
+            },
+            BatchSize::LargeInput,
+        );
+    });
+}
+
+criterion_group!(
+    benches,
+    bench_generate_state_witness_parts,
+    bench_reed_solomon_encoding_only,
+    bench_reed_solomon_decoding_only
+);
 criterion_main!(benches);

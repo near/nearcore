@@ -142,7 +142,7 @@ pub fn set_tx_state_changes(
 }
 
 pub fn get_signer_and_access_key(
-    state_update: &TrieUpdate,
+    state_update: &dyn near_store::TrieAccess,
     validated_tx: &ValidatedTransaction,
 ) -> Result<(Account, AccessKey), InvalidTxError> {
     let signer_id = validated_tx.signer_id();

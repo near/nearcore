@@ -23,6 +23,7 @@ rand.workspace = true
 rand_chacha.workspace = true
 serde_json.workspace = true
 tempfile.workspace = true
+tokio.workspace = true
 tracing.workspace = true
 
 near-async.workspace = true
@@ -32,6 +33,7 @@ near-chunks.workspace = true
 near-client.workspace = true
 near-crypto.workspace = true
 near-epoch-manager.workspace = true
+near-indexer.workspace = true
 near-jsonrpc.workspace = true
 near-network.workspace = true
 near-o11y.workspace = true

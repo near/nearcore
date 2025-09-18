@@ -285,16 +285,11 @@ impl ShardTracker {
         self.tracked_shards_config.tracks_all_shards()
     }
 
-    /// Returns whether the tracker configuration is valid for an archival node.
-    pub fn is_valid_for_archival(&self) -> bool {
-        match &self.tracked_shards_config {
-            TrackedShardsConfig::AllShards => true,
-            TrackedShardsConfig::Shards(shards) => !shards.is_empty(),
-            // `Accounts` config is likely to work as well,
-            // but this hasn't been fully tested or verified yet.
-            // Consider enabling support after proper validation.
-            _ => false,
-        }
+    /// Returns whether the tracker configuration is valid for cold store. Currently it is only valid if it
+    /// tracks given non-empty subset of shards. Tracking based on `Accounts` is likely to work as well, but
+    /// this hasn't been fully tested or verified yet. Consider enabling support after proper validation.
+    pub fn is_valid_for_cold_store(&self) -> bool {
+        self.tracked_shards_config.tracks_non_empty_subset_of_shards()
     }
 
     /// We want to guarantee that transactions are only applied once for each shard,
@@ -337,7 +332,8 @@ impl ShardTracker {
     /// Return all shards that whose states need to be caught up
     /// That has two cases:
     /// 1) Shard layout will change in the next epoch. In this case, the method returns all shards
-    ///    in the current epoch that will be split into a future shard that `me` will track.
+    ///    in the current epoch that will be split into a future shard that `me` will track in the
+    ///    next epoch but not this epoch.
     /// 2) Shard layout will be the same. In this case, the method returns all shards that `me` will
     ///    track in the next epoch but not this epoch
     fn get_shards_to_state_sync(&self, parent_hash: &CryptoHash) -> Result<Vec<ShardId>, Error> {

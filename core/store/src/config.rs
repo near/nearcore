@@ -665,30 +665,6 @@ pub struct PrefetchConfig {
     pub method_name: String,
 }
 
-/// Configures the external storage used by the archival nodes.
-#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
-pub struct CloudStorageConfig {
-    /// The storage to persist the archival data.
-    pub storage: CloudStorageLocation,
-}
-
-// TODO(cloud_archival) Implement these options. Consider replacing this with `ExternalStorageLocation`.
-#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
-pub enum CloudStorageLocation {
-    /// Archival data is persisted in the filesystem.
-    /// NOTE: This option not implemented yet.
-    Filesystem {
-        /// Root directory containing the archival storage files.
-        _path: std::path::PathBuf,
-    },
-    /// Archival data is persisted in the Google Cloud Storage.
-    /// NOTE: This option not implemented yet.
-    GCS {
-        /// GCS bucket containing the archival storage objects.
-        _bucket: String,
-    },
-}
-
 #[cfg(test)]
 mod tests {
     use super::{RocksDbConfig, StoreConfig};

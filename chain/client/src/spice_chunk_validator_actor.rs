@@ -93,6 +93,8 @@ impl SpiceChunkValidatorActor {
     }
 }
 
+// TODO(spice): Since data distributor makes sure block is available before witness is sent to the
+// chunk validator actor we don't need to handle possibility of missing blocks in this actor.
 impl Handler<ProcessedBlock> for SpiceChunkValidatorActor {
     fn handle(&mut self, ProcessedBlock { block_hash }: ProcessedBlock) {
         let block = match self.chain_store.get_block(&block_hash) {

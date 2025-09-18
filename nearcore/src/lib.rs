@@ -18,9 +18,10 @@ use near_chain::types::RuntimeAdapter;
 use near_chain::{
     Chain, ChainGenesis, PartialWitnessValidationThreadPool, WitnessCreationThreadPool,
 };
-use near_chain_configs::ReshardingHandle;
+use near_chain_configs::{CloudArchivalHandle, ReshardingHandle};
 use near_chunks::shards_manager_actor::start_shards_manager;
 use near_client::adapter::client_sender_for_network;
+use near_client::archive::cloud_archival_actor::create_cloud_archival_actor;
 use near_client::archive::cold_store_actor::create_cold_store_actor;
 use near_client::gc_actor::GCActor;
 use near_client::{
@@ -81,21 +82,14 @@ pub fn get_default_home() -> PathBuf {
 /// Opens node’s storage performing migrations and checks when necessary.
 ///
 /// If opened storage is an RPC store and `near_config.config.archive` is true,
-/// converts the storage to archival node.  Otherwise, if opening archival node
-/// with that field being false, prints a warning and sets the field to `true`.
-/// In other words, once store is archival, the node will act as archival nod
-/// regardless of settings in `config.json`.
-///
-/// The end goal is to get rid of `archive` option in `config.json` file and
-/// have the type of the node be determined purely based on kind of database
-/// being opened.
-pub fn open_storage(home_dir: &Path, near_config: &mut NearConfig) -> anyhow::Result<NodeStorage> {
+/// converts the storage to archival node.
+pub fn open_storage(home_dir: &Path, near_config: &NearConfig) -> anyhow::Result<NodeStorage> {
     let migrator = migrations::Migrator::new(near_config);
     let opener = NodeStorage::opener(
         home_dir,
         &near_config.config.store,
         near_config.config.cold_store.as_ref(),
-        near_config.config.cloud_storage.as_ref(),
+        near_config.config.cloud_storage_config(),
     )
     .with_migrator(&migrator);
     let storage = match opener.open() {
@@ -183,7 +177,7 @@ pub fn open_storage(home_dir: &Path, near_config: &mut NearConfig) -> anyhow::Re
         },
     }.with_context(|| format!("unable to open database at {}", opener.path().display()))?;
 
-    near_config.config.archive = storage.is_archive()?;
+    assert_eq!(near_config.config.archive, storage.is_archive()?);
     Ok(storage)
 }
 
@@ -226,6 +220,9 @@ pub struct NearNode {
     /// The cold_store_loop_handle will only be set if the cold store is configured.
     /// It's a handle to control the cold store actor that copies data from the hot store to the cold store.
     pub cold_store_loop_handle: Option<Arc<AtomicBool>>,
+    /// The `cloud_archival_handle` will only be set if the cloud archival writer is configured. It's a handle
+    /// to control the cloud archival actor that archives data from the hot store to the cloud archival.
+    pub cloud_archival_handle: Option<CloudArchivalHandle>,
     /// Contains handles to background threads that may be dumping state to S3.
     pub state_sync_dumper: StateSyncDumper,
     // A handle that allows the main process to interrupt resharding if needed.
@@ -245,14 +242,14 @@ pub fn start_with_config(
 
 pub fn start_with_config_and_synchronization(
     home_dir: &Path,
-    mut config: NearConfig,
+    config: NearConfig,
     actor_system: ActorSystem,
     // 'shutdown_signal' will notify the corresponding `oneshot::Receiver` when an instance of
     // `ClientActor` gets dropped.
     shutdown_signal: Option<broadcast::Sender<()>>,
     config_updater: Option<ConfigUpdater>,
 ) -> anyhow::Result<NearNode> {
-    let storage = open_storage(home_dir, &mut config)?;
+    let storage = open_storage(home_dir, &config)?;
     if config.client_config.enable_statistics_export {
         let period = config.client_config.log_summary_period;
         spawn_db_metrics_loop(actor_system.clone(), &storage, period);
@@ -335,6 +332,18 @@ pub fn start_with_config_and_synchronization(
     let cold_store_loop_handle = if let Some((actor, keep_going)) = result {
         let _cold_store_addr = actor_system.spawn_tokio_actor(actor);
         Some(keep_going)
+    } else {
+        None
+    };
+
+    let result = create_cloud_archival_actor(
+        config.config.cloud_archival_writer,
+        config.genesis.config.genesis_height,
+        &storage,
+    )?;
+    let cloud_archival_handle = if let Some((actor, handle)) = result {
+        let _cloud_archival_addr = actor_system.spawn_tokio_actor(actor);
+        Some(handle)
     } else {
         None
     };
@@ -594,6 +603,7 @@ pub fn start_with_config_and_synchronization(
         #[cfg(feature = "tx_generator")]
         tx_generator,
         cold_store_loop_handle,
+        cloud_archival_handle,
         state_sync_dumper,
         resharding_handle,
         shard_tracker,
