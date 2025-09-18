@@ -27,6 +27,7 @@ use near_primitives::sandbox::state_patch::SandboxStatePatch;
 use near_primitives::shard_layout::{ShardLayout, ShardUId};
 use near_primitives::state_part::{PartId, StatePart};
 use near_primitives::transaction::{SignedTransaction, ValidatedTransaction};
+use near_primitives::trie_key::{SmallKeyVec, TrieKey};
 use near_primitives::types::{
     AccountId, Balance, BlockHeight, EpochHeight, EpochId, EpochInfoProvider, Gas, MerkleHash,
     ShardId, StateRoot, StateRootNode,
@@ -39,9 +40,11 @@ use near_primitives::views::{
 use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
 use near_store::db::metadata::DbKind;
 use near_store::flat::FlatStorageManager;
+use near_store::trie::AccessOptions;
 use near_store::{
     ApplyStatePartResult, COLD_HEAD_KEY, DBCol, ShardTries, StateSnapshotConfig, Store, Trie,
-    TrieConfig, TrieUpdate, WrappedTrieChanges, get_access_key, get_account, set_account,
+    TrieAccess, TrieConfig, TrieUpdate, WrappedTrieChanges, get_access_key, get_account,
+    set_account,
 };
 use near_vm_runner::ContractCode;
 use near_vm_runner::{ContractRuntimeCache, precompile_contract};
@@ -53,8 +56,8 @@ use node_runtime::{
     get_signer_and_access_key, validate_transaction, verify_and_charge_tx_ephemeral,
 };
 use std::collections::{HashMap, HashSet};
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 use tracing::{debug, error, info, instrument};
 
@@ -636,7 +639,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         // invalid transactions to be included.
         let next_block_height = prev_block.height + 1;
 
-        let mut state_update = match storage_config {
+        let state_update = match storage_config {
             Either::Left(storage_config) => {
                 let mut trie = match storage_config.source {
                     StorageDataSource::Db => {
@@ -668,6 +671,8 @@ impl RuntimeAdapter for NightshadeRuntime {
             }
             Either::Right(trie_update) => trie_update,
         };
+
+        let mut state_update_wrapper = TrieUpdateWrapper::new(state_update);
 
         // Total amount of gas burnt for converting transactions towards receipts.
         let mut total_gas_burnt = Gas::ZERO;
@@ -712,9 +717,7 @@ impl RuntimeAdapter for NightshadeRuntime {
             }
 
             // FIXME(nagisa): why is this not using `check_proof_size_limit_exceed`? Comment.
-            // TODO: should incorporate this into the "recorded_storage_size" using some estimate.
-            let (_new_keys, _new_value_lens) = state_update.get_new_keys_and_value_lens();
-            if state_update.trie.recorded_storage_size() as u64
+            if state_update_wrapper.recorded_storage_size() as u64
                 > runtime_config.witness_config.new_transactions_validation_state_size_soft_limit
             {
                 result.limited_by = Some(PrepareTransactionsLimit::StorageProofSize);
@@ -769,10 +772,10 @@ impl RuntimeAdapter for NightshadeRuntime {
                     debug_assert_eq!(signer_id, id);
                     (signer, key)
                 } else {
-                    let signer = get_account(&state_update, signer_id);
+                    let signer = get_account(&state_update_wrapper, signer_id);
                     let signer = signer.transpose().and_then(|v| v.ok());
                     let access_key =
-                        get_access_key(&state_update, signer_id, validated_tx.public_key());
+                        get_access_key(&state_update_wrapper, signer_id, validated_tx.public_key());
                     let access_key = access_key.transpose().and_then(|v| v.ok());
                     let inserted = signer_access_key.insert((
                         signer_id.clone(),
@@ -821,14 +824,11 @@ impl RuntimeAdapter for NightshadeRuntime {
                 // groups, but only because pool guarantees that iteration is grouped by account_id
                 // and its public keys. It does however also mean that we must remember the account
                 // state as this code might operate over multiple access keys for the account.
-                set_account(&mut state_update, signer_id, &account);
+                set_account(&mut state_update_wrapper.trie_update, signer_id, &account);
             }
         }
-        // XXX: Remove
-        let (new_keys, new_value_lens) = state_update.get_new_keys_and_value_lens();
         // NOTE: this state update must not be committed or finalized!
-        drop(state_update);
-        tracing::warn!(target: "runtime", %new_keys, %new_value_lens, "prepare_transactions state_update");
+        drop(state_update_wrapper);
         debug!(target: "runtime", limited_by=?result.limited_by, "Transaction filtering results {} valid out of {} pulled from the pool", result.transactions.len(), num_checked_transactions);
         let shard_label = shard_id.to_string();
         metrics::PREPARE_TX_SIZE.with_label_values(&[&shard_label]).observe(total_size as f64);
@@ -1308,6 +1308,86 @@ impl RuntimeAdapter for NightshadeRuntime {
             }
         });
         Ok(())
+    }
+}
+
+pub struct TrieUpdateWrapper {
+    trie_update: TrieUpdate,
+    recorded: Mutex<Recorded>,
+}
+
+struct Recorded {
+    read_keys: HashSet<SmallKeyVec>,
+    additional_charged: usize,
+}
+
+impl TrieUpdateWrapper {
+    pub fn new(trie_update: TrieUpdate) -> TrieUpdateWrapper {
+        TrieUpdateWrapper {
+            trie_update,
+            recorded: Mutex::new(Recorded { read_keys: HashSet::new(), additional_charged: 0 }),
+        }
+    }
+
+    pub fn recorded_storage_size(&self) -> usize {
+        self.trie_update.trie.recorded_storage_size()
+            + self.recorded.lock().unwrap().additional_charged
+    }
+}
+
+impl TrieAccess for TrieUpdateWrapper {
+    fn get(&self, key: &TrieKey, opts: AccessOptions) -> Result<Option<Vec<u8>>, StorageError> {
+        let mut key_bytes = SmallKeyVec::new_const();
+        key.append_into(&mut key_bytes);
+        let key_bytes_len: usize = key_bytes.len();
+
+        let trie_read = self.trie_update.trie.get(&key_bytes, opts)?;
+        let update_read = self.trie_update.get_from_updates(&key, |_| Ok(None))?;
+
+        let r = match (trie_read, update_read) {
+            (None, None) => None,
+            (Some(t), None) => {
+                // Reading from the trie, not from the StateUpdate
+                // todo - what if trie update deleted this key?
+                let mut recorded = self.recorded.lock().unwrap();
+                recorded.read_keys.insert(key_bytes);
+                Some(t)
+            }
+            (None, Some(u)) => {
+                // First time reading a key that is only in the TrieUpdate
+                // Charge for the estimated cost of adding this value to the trie (key.len() + value.len() + one node size)
+                let value_len = u.len();
+                let mut recorded = self.recorded.lock().unwrap();
+                let insertion_trie_cost_base = 64;
+                if recorded.read_keys.insert(key_bytes) {
+                    recorded.additional_charged = recorded
+                        .additional_charged
+                        .saturating_add(key_bytes_len)
+                        .saturating_add(value_len)
+                        .saturating_add(insertion_trie_cost_base);
+                }
+
+                Some(u)
+            }
+            (Some(t), Some(u)) => {
+                let mut recorded = self.recorded.lock().unwrap();
+                if recorded.read_keys.insert(key_bytes) {
+                    // First time reading a value that is both in Trie and in the Update
+                    // Key and trie path are covered, charge extra if the new value is longer.
+                    // todo - charge less if the new value is shorter?
+                    recorded.additional_charged =
+                        recorded.additional_charged.saturating_add(u.len()).saturating_sub(t.len());
+                }
+
+                Some(u)
+            }
+        };
+
+        Ok(r)
+    }
+
+    fn contains_key(&self, _key: &TrieKey, _opts: AccessOptions) -> Result<bool, StorageError> {
+        unimplemented!()
     }
 }
 
