@@ -10,7 +10,6 @@ publish = false
 
 [features]
 nightly = [
-    "near-async/nightly",
     "near-client-primitives/nightly",
     "near-client/nightly",
     "near-network/nightly",

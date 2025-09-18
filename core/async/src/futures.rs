@@ -68,6 +68,16 @@ impl FutureSpawner for TokioRuntimeFutureSpawner {
     }
 }
 
+/// A FutureSpawner that directly spawns using tokio::spawn. Use only for tests.
+/// This is undesirable in production code because it bypasses any tracking functionality.
+pub struct DirectTokioFutureSpawnerForTest;
+
+impl FutureSpawner for DirectTokioFutureSpawnerForTest {
+    fn spawn_boxed(&self, _description: &'static str, f: BoxFuture<'static, ()>) {
+        tokio::spawn(f);
+    }
+}
+
 /// Abstraction for something that can schedule something to run after.
 /// This isn't the same as just delaying a closure. Rather, it has the
 /// additional power of providing the closure a mutable reference to some

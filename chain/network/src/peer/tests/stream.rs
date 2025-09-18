@@ -1,66 +1,65 @@
-use crate::actix::ActixSystem;
+use crate::actix::AutoStopActor;
 use crate::network_protocol::testonly as data;
 use crate::peer::stream;
 use crate::tcp;
 use crate::testonly::make_rng;
-use actix::Actor as _;
-use actix::ActorContext as _;
+use near_async::messaging::{CanSendAsync, IntoSender};
+use near_async::tokio::TokioRuntimeHandle;
+use near_async::{ActorSystem, messaging};
 use rand::Rng as _;
 use std::sync::Arc;
 use tokio::sync::mpsc;
 
 struct Actor {
-    stream: stream::FramedStream<Actor>,
+    handle: TokioRuntimeHandle<Self>,
+    stream: stream::FramedStream,
     queue_send: mpsc::UnboundedSender<stream::Frame>,
 }
 
-impl actix::Actor for Actor {
-    type Context = actix::Context<Actor>;
-}
+impl messaging::Actor for Actor {}
 
-#[derive(actix::Message)]
+#[derive(actix::Message, Debug)]
 #[rtype("()")]
 struct SendFrame(stream::Frame);
 
-impl actix::Handler<SendFrame> for Actor {
-    type Result = ();
-    fn handle(&mut self, SendFrame(frame): SendFrame, _ctx: &mut Self::Context) {
+impl messaging::Handler<SendFrame> for Actor {
+    fn handle(&mut self, SendFrame(frame): SendFrame) {
         self.stream.send(frame);
     }
 }
 
-impl actix::Handler<stream::Frame> for Actor {
-    type Result = ();
-    fn handle(&mut self, frame: stream::Frame, _ctx: &mut Self::Context) {
+impl messaging::Handler<stream::Frame> for Actor {
+    fn handle(&mut self, frame: stream::Frame) {
         self.queue_send.send(frame).ok().unwrap();
     }
 }
 
-impl actix::Handler<stream::Error> for Actor {
-    type Result = ();
-    fn handle(&mut self, _err: stream::Error, ctx: &mut Self::Context) {
-        ctx.stop();
+impl messaging::Handler<stream::Error> for Actor {
+    fn handle(&mut self, _err: stream::Error) {
+        self.handle.stop();
     }
 }
 
 struct Handler {
     queue_recv: mpsc::UnboundedReceiver<stream::Frame>,
-    system: ActixSystem<Actor>,
+    system: AutoStopActor<Actor>,
 }
 
 impl Actor {
-    async fn spawn(s: tcp::Stream) -> Handler {
+    fn spawn(actor_system: ActorSystem, s: tcp::Stream) -> Handler {
         let (queue_send, queue_recv) = mpsc::unbounded_channel();
-        Handler {
-            queue_recv,
-            system: ActixSystem::spawn(|| {
-                Actor::create(|ctx| {
-                    let stream = stream::FramedStream::spawn(ctx, s, Arc::default());
-                    Self { stream, queue_send }
-                })
-            })
-            .await,
-        }
+        let builder = actor_system.new_tokio_builder();
+        let handle = builder.handle();
+        let framed_stream = stream::FramedStream::spawn(
+            handle.clone().into_sender(),
+            handle.clone().into_sender(),
+            &*handle.future_spawner(),
+            s,
+            Arc::default(),
+        );
+        let actor = Actor { handle: handle.clone(), stream: framed_stream, queue_send };
+        builder.spawn_tokio_actor(actor);
+        Handler { queue_recv, system: AutoStopActor(handle) }
     }
 }
 
@@ -68,8 +67,9 @@ impl Actor {
 async fn send_recv() {
     let mut rng = make_rng(98324532);
     let (s1, s2) = tcp::Stream::loopback(data::make_peer_id(&mut rng), tcp::Tier::T2).await;
-    let a1 = Actor::spawn(s1).await;
-    let mut a2 = Actor::spawn(s2).await;
+    let actor_system = ActorSystem::new();
+    let a1 = Actor::spawn(actor_system.clone(), s1);
+    let mut a2 = Actor::spawn(actor_system, s2);
 
     for _ in 0..5 {
         let n = rng.gen_range(1..10);
@@ -82,7 +82,7 @@ async fn send_recv() {
             })
             .collect();
         for msg in &msgs {
-            a1.system.addr.send(SendFrame(msg.clone())).await.unwrap();
+            a1.system.send_async(SendFrame(msg.clone())).await.unwrap();
         }
         for want in &msgs {
             let got = a2.queue_recv.recv().await.unwrap();

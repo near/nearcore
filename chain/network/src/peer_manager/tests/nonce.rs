@@ -6,7 +6,7 @@ use crate::peer_manager::{self, peer_manager_actor};
 use crate::tcp;
 use crate::testonly::make_rng;
 use crate::testonly::stream;
-use crate::types::Edge;
+use crate::types::{Disconnect, Edge};
 use near_async::time;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::network::PeerId;
@@ -80,8 +80,10 @@ async fn test_nonces() {
             }
         } else {
             match stream.read().await {
-                Err(err) if err.kind() == std::io::ErrorKind::UnexpectedEof => {}
-                got => panic!("got = {got:?}, want UnexpectedEof"),
+                Ok(PeerMessage::Disconnect(Disconnect { remove_from_connection_store })) => {
+                    assert!(!remove_from_connection_store);
+                }
+                got => panic!("got = {got:?}, want Disconnect"),
             }
         }
     }

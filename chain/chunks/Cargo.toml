@@ -42,7 +42,6 @@ assert_matches.workspace = true
 
 [features]
 nightly = [
-    "near-async/nightly",
     "near-chain-configs/nightly",
     "near-chain/nightly",
     "near-epoch-manager/nightly",

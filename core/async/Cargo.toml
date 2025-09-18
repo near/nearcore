@@ -25,15 +25,8 @@ tokio-util.workspace = true
 tracing.workspace = true
 
 near-async-derive.workspace = true
-# TODO(#11652): we use it only for logging. i think, it's a bit too much...
-near-o11y.workspace = true
-near-performance-metrics.workspace = true
 near-time = { workspace = true, features = ["clock"] }
 
 [dev-dependencies]
 tokio-util.workspace = true
 
-[features]
-nightly = [
-    "near-o11y/nightly",
-]

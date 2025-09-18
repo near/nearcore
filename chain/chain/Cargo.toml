@@ -84,7 +84,6 @@ protocol_feature_spice = [
 ]
 
 nightly = [
-    "near-async/nightly",
     "near-chain-configs/nightly",
     "near-client-primitives/nightly",
     "near-epoch-manager/nightly",
