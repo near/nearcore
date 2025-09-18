@@ -569,7 +569,7 @@ impl FlatStorageCommand {
             home_dir,
             &near_config.config.store,
             near_config.config.cold_store.as_ref(),
-            near_config.config.cloud_storage.as_ref(),
+            near_config.config.cloud_storage_config(),
         );
 
         match &self.subcmd {

@@ -36,14 +36,12 @@ nearcore.workspace = true
 tempfile.workspace = true
 
 [dev-dependencies]
-near-actix-test-utils.workspace = true
 near-primitives-core.workspace = true
 near-test-contracts.workspace = true
 
 [features]
 test_features = ["near-jsonrpc/test_features", "nearcore/test_features"]
 nightly = [
-    "near-actix-test-utils/nightly",
     "near-async/nightly",
     "near-chain-configs/nightly",
     "near-client/nightly",

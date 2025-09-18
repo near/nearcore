@@ -1,3 +1,4 @@
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 
@@ -148,5 +149,11 @@ impl From<&NodeExecutionData> for Sender<TestLoopNetworkBlockInfo> {
 impl From<&NodeExecutionData> for SpiceDataDistributorSenderForTestLoopNetwork {
     fn from(data: &NodeExecutionData) -> SpiceDataDistributorSenderForTestLoopNetwork {
         data.spice_data_distributor_sender.clone().with_delay(NETWORK_DELAY).into_multi_sender()
+    }
+}
+
+impl NodeExecutionData {
+    pub(crate) fn homedir(tempdir: &TempDir, identifier: &str) -> PathBuf {
+        tempdir.path().join(identifier)
     }
 }

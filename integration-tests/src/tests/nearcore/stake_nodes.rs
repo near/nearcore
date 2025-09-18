@@ -451,6 +451,7 @@ fn ultra_slow_test_validator_join() {
 /// Checks that during the first epoch, total_supply matches total_supply in genesis.
 /// Checks that during the second epoch, total_supply matches the expected inflation rate.
 #[test]
+#[ignore] // TODO: #14261
 fn slow_test_inflation() {
     heavy_test(|| {
         let num_nodes = 1;

@@ -86,7 +86,7 @@ pub struct AcceptedBlock {
     pub provenance: Provenance,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct ApplyChunkResult {
     pub trie_changes: WrappedTrieChanges,
     pub new_root: StateRoot,

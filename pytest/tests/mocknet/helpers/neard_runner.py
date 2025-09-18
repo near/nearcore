@@ -412,10 +412,13 @@ class NeardRunner:
         config['log_summary_style'] = 'plain'
         config['network']['skip_sync_wait'] = False
         config['rpc']['enable_debug_rpc'] = True
-        config['consensus']['min_block_production_delay']['secs'] = 1
-        config['consensus']['min_block_production_delay']['nanos'] = 300000000
-        config['consensus']['max_block_production_delay']['secs'] = 3
-        config['consensus']['max_block_production_delay']['nanos'] = 0
+        config['consensus']['min_block_production_delay']['secs'] = 0
+        config['consensus']['min_block_production_delay']['nanos'] = 600000000
+        config['consensus']['max_block_production_delay']['secs'] = 1
+        config['consensus']['max_block_production_delay']['nanos'] = 800000000
+        config['consensus']['chunk_wait_mult'] = [1, 3]
+        config['consensus']['doomslug_step_period']['secs'] = 0
+        config['consensus']['doomslug_step_period']['nanos'] = 10000000
         with open(self.tmp_near_home_path('config.json'), 'w') as f:
             json.dump(config, f, indent=2)
 
