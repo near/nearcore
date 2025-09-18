@@ -731,6 +731,8 @@ pub struct ClientConfig {
     pub save_trie_changes: bool,
     /// Whether to persist transaction outcomes to disk or not.
     pub save_tx_outcomes: bool,
+    /// Whether to persist partial chunk parts for untracked shards or not.
+    pub save_untracked_partial_chunks_parts: bool,
     /// Number of threads for ViewClientActor pool.
     pub view_client_threads: usize,
     /// Number of threads for ChunkValidationActor pool.
@@ -867,6 +869,7 @@ impl ClientConfig {
             tracked_shards_config: TrackedShardsConfig::NoShards,
             archive,
             save_trie_changes,
+            save_untracked_partial_chunks_parts: true,
             save_tx_outcomes: true,
             log_summary_style: LogSummaryStyle::Colored,
             view_client_threads: 1,

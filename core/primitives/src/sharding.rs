@@ -848,6 +848,23 @@ impl PartialEncodedChunk {
             Self::V2(chunk) => chunk.header.shard_id(),
         }
     }
+
+    /// Creates a clone of this partial chunk without the parts, keeping only
+    /// the header and receipts.
+    pub fn clone_without_parts(&self) -> Self {
+        match self {
+            Self::V1(chunk) => Self::V1(PartialEncodedChunkV1 {
+                header: chunk.header.clone(),
+                parts: Vec::new(),
+                prev_outgoing_receipts: chunk.prev_outgoing_receipts.clone(),
+            }),
+            Self::V2(chunk) => Self::V2(PartialEncodedChunkV2 {
+                header: chunk.header.clone(),
+                parts: Vec::new(),
+                prev_outgoing_receipts: chunk.prev_outgoing_receipts.clone(),
+            }),
+        }
+    }
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Eq, PartialEq, ProtocolSchema)]
