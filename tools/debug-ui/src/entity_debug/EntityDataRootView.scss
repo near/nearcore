@@ -3,6 +3,21 @@
 
     .error {
         color: red;
+        
+        &.compact {
+            font-size: 0.8em;
+            padding: 2px 4px;
+            background-color: #ffe6e6;
+            border: 1px solid #ffcccc;
+            border-radius: 3px;
+            margin: 2px 0;
+            display: inline-block;
+        }
+        
+        .error-toggle {
+            user-select: none;
+            font-size: 0.7em;
+        }
     }
 
     .entity-root-header {
