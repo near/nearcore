@@ -104,7 +104,7 @@ fn test_single_promise_no_callback() {
         a0, Action::FunctionCall(function_call_action),
         {
             assert_eq!(function_call_action.gas, GAS_1);
-            assert_eq!(function_call_action.deposit, Balance::ZERO);
+            assert!(function_call_action.deposit.is_zero());
         }
     );
     let [r1, refunds @ ..] = &receipts else { panic!("Incorrect number of produced receipts") };
@@ -115,7 +115,7 @@ fn test_single_promise_no_callback() {
     actions,
     a0, Action::FunctionCall(function_call_action), {
     assert_eq!(function_call_action.gas, GAS_2);
-    assert_eq!(function_call_action.deposit, Balance::ZERO);
+    assert!(function_call_action.deposit.is_zero());
     });
     assert_single_refund_prior_to_nep536(&group, &receipts);
 }
@@ -175,7 +175,7 @@ fn test_single_promise_with_callback() {
     actions,
     a0, Action::FunctionCall(function_call_action), {
         assert_eq!(function_call_action.gas, GAS_1);
-        assert_eq!(function_call_action.deposit, Balance::ZERO);
+        assert!(function_call_action.deposit.is_zero());
     });
     let [r1, r2, refunds @ ..] = &receipts else { panic!("Incorrect number of produced receipts") };
     assert_single_refund_prior_to_nep536(&group, &refunds);
@@ -190,7 +190,7 @@ fn test_single_promise_with_callback() {
     actions,
     a0, Action::FunctionCall(function_call_action), {
         assert_eq!(function_call_action.gas, GAS_2);
-        assert_eq!(function_call_action.deposit, Balance::ZERO);
+        assert!(function_call_action.deposit.is_zero());
     });
     assert_single_refund_prior_to_nep536(&group, &receipts);
 
@@ -202,7 +202,7 @@ fn test_single_promise_with_callback() {
         actions,
         a0, Action::FunctionCall(function_call_action), {
             assert_eq!(function_call_action.gas, GAS_2);
-            assert_eq!(function_call_action.deposit, Balance::ZERO);
+            assert!(function_call_action.deposit.is_zero());
         }
     );
     assert_single_refund_prior_to_nep536(&group, &receipts);
@@ -263,7 +263,7 @@ fn test_two_promises_no_callbacks() {
     actions,
     a0, Action::FunctionCall(function_call_action), {
         assert_eq!(function_call_action.gas, GAS_1);
-        assert_eq!(function_call_action.deposit, Balance::ZERO);
+        assert!(function_call_action.deposit.is_zero());
     });
     let [r1, refunds @ ..] = &receipts else { panic!("must have outgoing receipt") };
     assert_single_refund_prior_to_nep536(&group, &refunds);
@@ -273,7 +273,7 @@ fn test_two_promises_no_callbacks() {
     actions,
     a0, Action::FunctionCall(function_call_action), {
         assert_eq!(function_call_action.gas, GAS_2);
-        assert_eq!(function_call_action.deposit, Balance::ZERO);
+        assert!(function_call_action.deposit.is_zero());
     });
     let [r2, refunds @ ..] = &receipts else { panic!("Incorrect number of produced receipts") };
     assert_single_refund_prior_to_nep536(&group, &refunds);
@@ -283,7 +283,7 @@ fn test_two_promises_no_callbacks() {
         actions,
         a0, Action::FunctionCall(function_call_action), {
             assert_eq!(function_call_action.gas, GAS_3);
-            assert_eq!(function_call_action.deposit, Balance::ZERO);
+            assert!(function_call_action.deposit.is_zero());
         }
     );
     assert_single_refund_prior_to_nep536(&group, receipts);
@@ -362,7 +362,7 @@ fn test_two_promises_with_two_callbacks() {
         actions,
         a0, Action::FunctionCall(function_call_action), {
             assert_eq!(function_call_action.gas, GAS_1);
-            assert_eq!(function_call_action.deposit, Balance::ZERO);
+            assert!(function_call_action.deposit.is_zero());
         }
     );
     let [r1, cb1, refunds @ ..] = &receipts else {
@@ -375,7 +375,7 @@ fn test_two_promises_with_two_callbacks() {
         actions,
         a0, Action::FunctionCall(function_call_action), {
             assert_eq!(function_call_action.gas, GAS_2);
-            assert_eq!(function_call_action.deposit, Balance::ZERO);
+            assert!(function_call_action.deposit.is_zero());
         }
     );
     let [r2, cb2, refunds @ ..] = &receipts else {
@@ -388,7 +388,7 @@ fn test_two_promises_with_two_callbacks() {
         actions,
         a0, Action::FunctionCall(function_call_action), {
             assert_eq!(function_call_action.gas, GAS_3);
-            assert_eq!(function_call_action.deposit, Balance::ZERO);
+            assert!(function_call_action.deposit.is_zero());
         }
     );
     assert_single_refund_prior_to_nep536(&group, receipts);
@@ -398,7 +398,7 @@ fn test_two_promises_with_two_callbacks() {
         actions,
         a0, Action::FunctionCall(function_call_action), {
             assert_eq!(function_call_action.gas, GAS_3);
-            assert_eq!(function_call_action.deposit, Balance::ZERO);
+            assert!(function_call_action.deposit.is_zero());
         }
     );
     assert_single_refund_prior_to_nep536(&group, receipts);
@@ -408,7 +408,7 @@ fn test_two_promises_with_two_callbacks() {
         actions,
         a0, Action::FunctionCall(function_call_action), {
             assert_eq!(function_call_action.gas, GAS_2);
-            assert_eq!(function_call_action.deposit, Balance::ZERO);
+            assert!(function_call_action.deposit.is_zero());
         }
     );
     assert_single_refund_prior_to_nep536(&group, receipts);
@@ -465,7 +465,7 @@ fn test_single_promise_no_callback_batch() {
         actions,
         a0, Action::FunctionCall(function_call_action), {
             assert_eq!(function_call_action.gas, GAS_1);
-            assert_eq!(function_call_action.deposit, Balance::ZERO);
+            assert!(function_call_action.deposit.is_zero());
         }
     );
     let [r1, refunds @ ..] = &receipts else { panic!("Incorrect number of produced receipts") };
@@ -476,7 +476,7 @@ fn test_single_promise_no_callback_batch() {
      actions,
      a0, Action::FunctionCall(function_call_action), {
         assert_eq!(function_call_action.gas, GAS_2);
-        assert_eq!(function_call_action.deposit, Balance::ZERO);
+        assert!(function_call_action.deposit.is_zero());
      }
     );
     assert_single_refund_prior_to_nep536(&group, &receipts);
@@ -543,7 +543,7 @@ fn test_single_promise_with_callback_batch() {
         actions,
         a0, Action::FunctionCall(function_call_action), {
             assert_eq!(function_call_action.gas, GAS_1);
-            assert_eq!(function_call_action.deposit, Balance::ZERO);
+            assert!(function_call_action.deposit.is_zero());
         }
     );
     let [r1, r2, refunds @ ..] = &receipts else { panic!("Incorrect number of produced receipts") };
@@ -558,7 +558,7 @@ fn test_single_promise_with_callback_batch() {
         actions,
         a0, Action::FunctionCall(function_call_action), {
             assert_eq!(function_call_action.gas, GAS_2);
-            assert_eq!(function_call_action.deposit, Balance::ZERO);
+            assert!(function_call_action.deposit.is_zero());
         }
     );
     assert_single_refund_prior_to_nep536(&group, &receipts);
@@ -571,7 +571,7 @@ fn test_single_promise_with_callback_batch() {
         actions,
         a0, Action::FunctionCall(function_call_action), {
             assert_eq!(function_call_action.gas, GAS_2);
-            assert_eq!(function_call_action.deposit, Balance::ZERO);
+            assert!(function_call_action.deposit.is_zero());
         }
     );
     if ProtocolFeature::ReducedGasRefunds.enabled(PROTOCOL_VERSION) {
@@ -628,7 +628,7 @@ fn test_simple_transfer() {
         actions,
         a0, Action::FunctionCall(function_call_action), {
             assert_eq!(function_call_action.gas, GAS_1);
-            assert_eq!(function_call_action.deposit, Balance::ZERO);
+            assert!(function_call_action.deposit.is_zero());
         }
     );
     let [r1, refunds @ ..] = &receipts else { panic!("Incorrect number of produced receipts") };
@@ -705,7 +705,7 @@ fn test_create_account_with_transfer_and_full_key() {
     actions,
     a0, Action::FunctionCall(function_call_action), {
         assert_eq!(function_call_action.gas, GAS_1);
-        assert_eq!(function_call_action.deposit, Balance::ZERO);
+        assert!(function_call_action.deposit.is_zero());
     });
     let [r1, refunds @ ..] = &receipts else { panic!("Incorrect number of produced receipts") };
     assert_single_refund_prior_to_nep536(&group, refunds);
@@ -826,7 +826,7 @@ fn test_account_factory() {
         actions,
         a0, Action::FunctionCall(function_call_action), {
             assert_eq!(function_call_action.gas, GAS_1);
-            assert_eq!(function_call_action.deposit, Balance::ZERO);
+            assert!(function_call_action.deposit.is_zero());
         }
     );
     let [r1, r2, refunds @ ..] = &receipts else { panic!("Incorrect number of produced receipts") };
@@ -864,7 +864,7 @@ fn test_account_factory() {
         },
         a4, Action::FunctionCall(function_call_action), {
             assert_eq!(function_call_action.gas, GAS_2);
-            assert_eq!(function_call_action.deposit, Balance::ZERO);
+            assert!(function_call_action.deposit.is_zero());
         }
     );
     let [r3, refunds @ ..] = &receipts else { panic!("Incorrect number of produced receipts") };
@@ -878,7 +878,7 @@ fn test_account_factory() {
      actions,
      a0, Action::FunctionCall(function_call_action), {
          assert_eq!(function_call_action.gas, GAS_2);
-         assert_eq!(function_call_action.deposit, Balance::ZERO);
+         assert!(function_call_action.deposit.is_zero());
         }
     );
     let [r4, refunds @ ..] = &receipts else { panic!("Incorrect number of produced receipts") };
@@ -890,7 +890,7 @@ fn test_account_factory() {
         actions,
         a0, Action::FunctionCall(function_call_action), {
             assert_eq!(function_call_action.gas, GAS_3);
-            assert_eq!(function_call_action.deposit, Balance::ZERO);
+            assert!(function_call_action.deposit.is_zero());
         }
     );
     assert_single_refund_prior_to_nep536(&group, receipts);
@@ -900,7 +900,7 @@ fn test_account_factory() {
      actions,
      a0, Action::FunctionCall(function_call_action), {
          assert_eq!(function_call_action.gas, GAS_3);
-         assert_eq!(function_call_action.deposit, Balance::ZERO);
+         assert!(function_call_action.deposit.is_zero());
         }
     );
     assert_single_refund_prior_to_nep536(&group, receipts);
@@ -988,7 +988,7 @@ fn test_create_account_add_key_call_delete_key_delete_account() {
         actions,
         a0, Action::FunctionCall(function_call_action), {
             assert_eq!(function_call_action.gas, GAS_1);
-            assert_eq!(function_call_action.deposit, Balance::ZERO);
+            assert!(function_call_action.deposit.is_zero());
         }
     );
     let [r1, refunds @ ..] = &receipts else { panic!("must have outgoing receipt") };
@@ -1013,7 +1013,7 @@ fn test_create_account_add_key_call_delete_key_delete_account() {
         },
         a4, Action::FunctionCall(function_call_action), {
             assert_eq!(function_call_action.gas, GAS_2);
-            assert_eq!(function_call_action.deposit, Balance::ZERO);
+            assert!(function_call_action.deposit.is_zero());
         },
         a5, Action::DeleteKey(delete_key_action), {
             assert_eq!(delete_key_action.public_key, signer_new_account.public_key());
@@ -1037,7 +1037,7 @@ fn test_create_account_add_key_call_delete_key_delete_account() {
         actions,
         a0, Action::FunctionCall(function_call_action), {
             assert_eq!(function_call_action.gas, GAS_3);
-            assert_eq!(function_call_action.deposit, Balance::ZERO);
+            assert!(function_call_action.deposit.is_zero());
         }
     );
     // For gas price difference
@@ -1105,7 +1105,7 @@ fn test_transfer_64len_hex() {
      actions,
      a0, Action::FunctionCall(function_call_action), {
         assert_eq!(function_call_action.gas, GAS_1);
-        assert_eq!(function_call_action.deposit, Balance::ZERO);
+        assert!(function_call_action.deposit.is_zero());
      }
     );
     let [r1, refunds @ ..] = &receipts else { panic!("Incorrect number of produced receipts") };
@@ -1183,7 +1183,7 @@ fn test_create_transfer_64len_hex_fail() {
      actions,
      a0, Action::FunctionCall(function_call_action), {
         assert_eq!(function_call_action.gas, GAS_1);
-        assert_eq!(function_call_action.deposit, Balance::ZERO);
+        assert!(function_call_action.deposit.is_zero());
      }
     );
 

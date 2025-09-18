@@ -309,7 +309,7 @@ pub(crate) async fn convert_block_changes_to_transactions(
                                 _ => Balance::ZERO,
                             })
                             .fold(Balance::ZERO, |sum, item| sum.checked_add(item).unwrap());
-                        if total_sum == Balance::ZERO { None } else { Some(total_sum) }
+                        if total_sum.is_zero() { None } else { Some(total_sum) }
                     }),
                     _ => None,
                 };

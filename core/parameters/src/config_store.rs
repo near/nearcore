@@ -428,7 +428,7 @@ mod tests {
     fn test_calimero_storage_costs_zero() {
         let store = RuntimeConfigStore::new(None);
         for (_, config) in &store.store {
-            assert_eq!(config.storage_amount_per_byte(), Balance::ZERO);
+            assert!(config.storage_amount_per_byte().is_zero());
         }
     }
 

@@ -1880,9 +1880,8 @@ impl Chain {
                 chunk_validators_count = epoch_info.validators_len();
             }
 
-            stake = stake.checked_div(Balance::from_near(1).as_yoctonear()).unwrap();
             metrics::VALIDATOR_AMOUNT_STAKED
-                .set(i64::try_from(stake.as_yoctonear()).unwrap_or(i64::MAX));
+                .set(i64::try_from(stake.as_near()).unwrap_or(i64::MAX));
             metrics::VALIDATOR_ACTIVE_TOTAL
                 .set(i64::try_from(chunk_producers_count).unwrap_or(i64::MAX));
             metrics::VALIDATOR_BLOCK_PRODUCERS_TOTAL

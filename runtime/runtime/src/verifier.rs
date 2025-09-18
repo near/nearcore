@@ -1272,7 +1272,7 @@ mod tests {
         .unwrap();
         assert_eq!(verification_result.gas_burnt, Gas::ZERO);
         assert_eq!(verification_result.gas_remaining, Gas::ZERO);
-        assert_eq!(verification_result.burnt_amount, Balance::ZERO);
+        assert!(verification_result.burnt_amount.is_zero());
     }
 
     #[test]

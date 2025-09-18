@@ -574,9 +574,9 @@ impl EpochManager {
 
         // Kickout unstaked validators.
         for (account_id, proposal) in all_proposals {
-            if proposal.stake() == Balance::ZERO
-                && *next_epoch_info.stake_change().get(&account_id).unwrap_or(&Balance::ZERO)
-                    != Balance::ZERO
+            if proposal.stake().is_zero()
+                && !(*next_epoch_info.stake_change().get(&account_id).unwrap_or(&Balance::ZERO))
+                    .is_zero()
             {
                 validator_kickout.insert(account_id.clone(), ValidatorKickoutReason::Unstaked);
             }

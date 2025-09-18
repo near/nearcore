@@ -317,7 +317,7 @@ impl GenesisBuilder {
     }
 
     fn add_additional_account(&mut self, account_id: AccountId) -> Result<()> {
-        let testing_init_balance = Balance::from_near(10u128.pow(6));
+        let testing_init_balance = Balance::from_near(1_000_000);
         let testing_init_stake = Balance::ZERO;
         let shard_id = self.genesis.config.shard_layout.account_id_to_shard_id(&account_id);
         let mut records = self.unflushed_records.remove(&shard_id).unwrap_or_default();

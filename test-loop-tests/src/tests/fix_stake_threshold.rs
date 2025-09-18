@@ -74,22 +74,15 @@ fn slow_test_fix_validator_stake_threshold() {
         .fold(Balance::ZERO, |sum, stake| sum.checked_add(stake).unwrap());
 
     assert_eq!(validators.len(), 2, "proposal with stake at threshold should not be approved");
-    assert_eq!(
-        total_stake.checked_div(Balance::from_near(1).as_yoctonear()).unwrap(),
-        Balance::from_yoctonear(37_500_000_000)
-    );
+    assert_eq!(total_stake.as_near(), 37_500_000_000);
 
     // after threshold fix
     // threshold = min_stake_ratio * total_stake / (1 - min_stake_ratio)
     //           = (1 / 62_500) * total_stake / (62_499 / 62_500)
     //           = total_stake / 62_499
     assert_eq!(
-        epoch_info.seat_price().checked_div(Balance::from_near(1).as_yoctonear()).unwrap(),
-        total_stake
-            .checked_div(62_499)
-            .unwrap()
-            .checked_div(Balance::from_near(1).as_yoctonear())
-            .unwrap()
+        epoch_info.seat_price().as_near(),
+        total_stake.checked_div(62_499).unwrap().as_near()
     );
 
     TestLoopEnv { test_loop, node_datas, shared_state }

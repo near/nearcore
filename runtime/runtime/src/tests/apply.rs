@@ -857,7 +857,7 @@ fn test_apply_surplus_gas_for_transfer() {
         0
     };
 
-    assert_eq!(result.stats.balance.gas_deficit_amount, Balance::ZERO);
+    assert!(result.stats.balance.gas_deficit_amount.is_zero());
     assert_eq!(result.stats.balance.tx_burnt_amount, expected_burnt_amount);
     assert_eq!(result.outgoing_receipts.len(), expected_receipts);
 }
@@ -944,7 +944,7 @@ fn test_apply_deficit_gas_for_function_call_covered() {
         .unwrap();
     if apply_state.config.fees.refund_gas_price_changes {
         // We used part of the prepaid gas to paying extra fees.
-        assert_eq!(result.stats.balance.gas_deficit_amount, Balance::ZERO);
+        assert!(result.stats.balance.gas_deficit_amount.is_zero());
     } else {
         assert_eq!(
             result.stats.balance.gas_deficit_amount,

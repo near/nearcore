@@ -222,7 +222,7 @@ impl InfoHelper {
             let mut stake_per_bp = HashMap::<ValidatorId, Balance>::new();
 
             let stake_to_blocks = |stake: Balance, stake_sum: Balance| -> i64 {
-                if stake == Balance::ZERO {
+                if stake.is_zero() {
                     0
                 } else {
                     (((stake.as_yoctonear() as f64) / (stake_sum.as_yoctonear() as f64))
@@ -243,7 +243,7 @@ impl InfoHelper {
                         epoch_info.get_validator(id).account_id().as_str(),
                         &epoch_height,
                     ])
-                    .set((stake.as_yoctonear() / 1e24 as u128) as i64);
+                    .set(stake.as_near() as i64);
                 metrics::VALIDATORS_BLOCKS_EXPECTED_IN_EPOCH
                     .with_label_values(&[
                         epoch_info.get_validator(id).account_id().as_str(),

@@ -117,7 +117,7 @@ fn test_eth_implicit_account_creation() {
     let request = QueryRequest::ViewAccount { account_id: eth_implicit_account_id.clone() };
     match view_request(&env, request).kind {
         QueryResponseKind::ViewAccount(view) => {
-            assert_eq!(view.amount, Balance::ZERO);
+            assert!(view.amount.is_zero());
             assert_eq!(view.code_hash, *magic_bytes.hash());
             assert!(view.storage_usage <= ZERO_BALANCE_ACCOUNT_STORAGE_LIMIT)
         }

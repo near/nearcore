@@ -321,7 +321,7 @@ pub fn amend_genesis(
                 if let Some(acc) = wanted.get_mut(account_id) {
                     acc.update_from_existing(account);
                 } else {
-                    if account.locked() != Balance::ZERO {
+                    if !account.locked().is_zero() {
                         account.set_amount(account.amount().checked_add(account.locked()).unwrap());
                         account.set_locked(Balance::ZERO);
                     }

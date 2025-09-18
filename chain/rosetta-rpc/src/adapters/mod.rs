@@ -49,7 +49,7 @@ async fn convert_genesis_records_to_transaction(
         let account_balances =
             crate::utils::RosettaAccountBalances::from_account(&account, &runtime_config);
 
-        if account_balances.liquid != Balance::ZERO {
+        if !account_balances.liquid.is_zero() {
             operations.push(crate::models::Operation {
                 operation_identifier: crate::models::OperationIdentifier::new(&operations),
                 related_operations: None,
@@ -65,7 +65,7 @@ async fn convert_genesis_records_to_transaction(
             });
         }
 
-        if account_balances.liquid_for_storage != Balance::ZERO {
+        if !account_balances.liquid_for_storage.is_zero() {
             operations.push(crate::models::Operation {
                 operation_identifier: crate::models::OperationIdentifier::new(&operations),
                 related_operations: None,
@@ -83,7 +83,7 @@ async fn convert_genesis_records_to_transaction(
             });
         }
 
-        if account_balances.locked != Balance::ZERO {
+        if !account_balances.locked.is_zero() {
             operations.push(crate::models::Operation {
                 operation_identifier: crate::models::OperationIdentifier::new(&operations),
                 related_operations: None,
@@ -1029,7 +1029,7 @@ mod tests {
         let operations = vec![crate::models::Operation {
             type_: crate::models::OperationType::Transfer,
             account: "sender.near".parse().unwrap(),
-            amount: Some(-crate::models::Amount::from_balance(Balance::from_yoctonear(1))),
+            amount: Some(-crate::models::Amount::from_yoctonear(1)),
             operation_identifier: crate::models::OperationIdentifier::new(&[]),
             related_operations: None,
             status: None,
@@ -1061,7 +1061,7 @@ mod tests {
             crate::models::Operation {
                 type_: crate::models::OperationType::Transfer,
                 account: "receiver.near".parse().unwrap(),
-                amount: Some(crate::models::Amount::from_balance(Balance::from_yoctonear(1))),
+                amount: Some(crate::models::Amount::from_yoctonear(1)),
                 operation_identifier: receiver_transfer_operation_id,
                 related_operations: Some(vec![sender_transfer_operation_id]),
                 status: None,
@@ -1085,7 +1085,7 @@ mod tests {
             crate::models::Operation {
                 type_: crate::models::OperationType::Transfer,
                 account: "sender.near".parse().unwrap(),
-                amount: Some(crate::models::Amount::from_balance(Balance::from_yoctonear(1))),
+                amount: Some(crate::models::Amount::from_yoctonear(1)),
                 operation_identifier: sender_transfer_operation_id.clone(),
                 related_operations: None,
                 status: None,
@@ -1094,7 +1094,7 @@ mod tests {
             crate::models::Operation {
                 type_: crate::models::OperationType::Transfer,
                 account: "receiver.near".parse().unwrap(),
-                amount: Some(crate::models::Amount::from_balance(Balance::from_yoctonear(1))),
+                amount: Some(crate::models::Amount::from_yoctonear(1)),
                 operation_identifier: receiver_transfer_operation_id,
                 related_operations: Some(vec![sender_transfer_operation_id]),
                 status: None,
@@ -1127,7 +1127,7 @@ mod tests {
             crate::models::Operation {
                 type_: crate::models::OperationType::Transfer,
                 account: "receiver.near".parse().unwrap(),
-                amount: Some(crate::models::Amount::from_balance(Balance::from_yoctonear(1))),
+                amount: Some(crate::models::Amount::from_yoctonear(1)),
                 operation_identifier: receiver_transfer_operation_id,
                 related_operations: Some(vec![sender_transfer_operation_id]),
                 status: None,
@@ -1151,7 +1151,7 @@ mod tests {
             crate::models::Operation {
                 type_: crate::models::OperationType::Transfer,
                 account: "sender.near".parse().unwrap(),
-                amount: Some(-crate::models::Amount::from_balance(Balance::from_yoctonear(1))),
+                amount: Some(-crate::models::Amount::from_yoctonear(1)),
                 operation_identifier: sender_transfer_operation_id.clone(),
                 related_operations: None,
                 status: None,
@@ -1205,7 +1205,7 @@ mod tests {
             crate::models::Operation {
                 type_: crate::models::OperationType::FunctionCall,
                 account: "sender.near".parse().unwrap(),
-                amount: Some(crate::models::Amount::from_balance(Balance::from_yoctonear(1))),
+                amount: Some(crate::models::Amount::from_yoctonear(1)),
                 operation_identifier: function_call_operation_id,
                 related_operations: Some(vec![
                     fund_transfer_function_call_operation_id,
@@ -1258,7 +1258,7 @@ mod tests {
             crate::models::Operation {
                 type_: crate::models::OperationType::FunctionCall,
                 account: "sender.near".parse().unwrap(),
-                amount: Some(crate::models::Amount::from_balance(Balance::from_yoctonear(1))),
+                amount: Some(crate::models::Amount::from_yoctonear(1)),
                 operation_identifier: function_call_operation_id,
                 related_operations: Some(vec![
                     fund_transfer_function_call_operation_id,
@@ -1293,7 +1293,7 @@ mod tests {
                 type_: crate::models::OperationType::Transfer,
                 account: "sender.near".parse().unwrap(),
                 // This is expected to be negative to match the amount in the FunctionCallOperation
-                amount: Some(crate::models::Amount::from_balance(Balance::from_yoctonear(1))),
+                amount: Some(crate::models::Amount::from_yoctonear(1)),
                 operation_identifier: fund_transfer_function_call_operation_id.clone(),
                 related_operations: None,
                 status: None,
@@ -1311,7 +1311,7 @@ mod tests {
             crate::models::Operation {
                 type_: crate::models::OperationType::FunctionCall,
                 account: "sender.near".parse().unwrap(),
-                amount: Some(crate::models::Amount::from_balance(Balance::from_yoctonear(1))),
+                amount: Some(crate::models::Amount::from_yoctonear(1)),
                 operation_identifier: function_call_operation_id,
                 related_operations: Some(vec![
                     fund_transfer_function_call_operation_id,
@@ -1364,7 +1364,7 @@ mod tests {
             crate::models::Operation {
                 type_: crate::models::OperationType::FunctionCall,
                 account: "sender.near".parse().unwrap(),
-                amount: Some(crate::models::Amount::from_balance(Balance::from_yoctonear(1))),
+                amount: Some(crate::models::Amount::from_yoctonear(1)),
                 operation_identifier: function_call_operation_id,
                 related_operations: Some(vec![
                     fund_transfer_function_call_operation_id,
@@ -1398,7 +1398,7 @@ mod tests {
             crate::models::Operation {
                 type_: crate::models::OperationType::Transfer,
                 account: "sender.near".parse().unwrap(),
-                amount: Some(-crate::models::Amount::from_balance(Balance::from_yoctonear(1))),
+                amount: Some(-crate::models::Amount::from_yoctonear(1)),
                 operation_identifier: fund_transfer_function_call_operation_id.clone(),
                 related_operations: None,
                 status: None,
@@ -1417,7 +1417,7 @@ mod tests {
                 type_: crate::models::OperationType::FunctionCall,
                 account: "sender.near".parse().unwrap(),
                 // This is expected to be positive
-                amount: Some(-crate::models::Amount::from_balance(Balance::from_yoctonear(1))),
+                amount: Some(-crate::models::Amount::from_yoctonear(1)),
                 operation_identifier: function_call_operation_id,
                 related_operations: Some(vec![
                     fund_transfer_function_call_operation_id,

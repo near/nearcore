@@ -37,7 +37,7 @@ fn assert_zero_balance_account(env: &TestEnv, account_id: &AccountId) {
         .unwrap();
     match response.kind {
         QueryResponseKind::ViewAccount(view) => {
-            assert_eq!(view.amount, Balance::ZERO);
+            assert!(view.amount.is_zero());
             assert!(view.storage_usage <= ZERO_BALANCE_ACCOUNT_STORAGE_LIMIT)
         }
         _ => panic!("wrong query response"),

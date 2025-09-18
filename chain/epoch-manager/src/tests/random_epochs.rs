@@ -147,7 +147,7 @@ fn verify_epochs(epoch_infos: &[Arc<EpochInfo>]) {
         let stakes_after_change = get_stakes_map(epoch_info);
         let mut stakes_with_change = stakes_before_change.clone();
         for (account_id, new_stake) in epoch_info.stake_change() {
-            if *new_stake == Balance::ZERO {
+            if (*new_stake).is_zero() {
                 if !stakes_before_change.contains_key(account_id) {
                     // Stake change from 0 to 0
                     assert!(prev_epoch_info.validator_kickout().contains_key(account_id));

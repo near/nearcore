@@ -348,7 +348,7 @@ pub(crate) fn action_stake(
     let increment = stake.stake.saturating_sub(account.locked());
 
     if account.amount() >= increment {
-        if account.locked() == Balance::ZERO && stake.stake == Balance::ZERO {
+        if account.locked().is_zero() && stake.stake.is_zero() {
             // if the account hasn't staked, it cannot unstake
             result.result =
                 Err(ActionErrorKind::TriesToUnstake { account_id: account_id.clone() }.into());
@@ -996,7 +996,7 @@ pub(crate) fn check_actor_permissions(
                 .into());
             }
             let account = account.as_ref().unwrap();
-            if account.locked() != Balance::ZERO {
+            if !account.locked().is_zero() {
                 return Err(ActionErrorKind::DeleteAccountStaking {
                     account_id: account_id.clone(),
                 }

@@ -806,7 +806,7 @@ impl ClientActorInner {
                         .map(|validator| {
                             (
                                 validator.account_id.clone(),
-                                (validator.stake_this_epoch.as_yoctonear() / 10u128.pow(24)) as u64,
+                                (validator.stake_this_epoch.as_near()) as u64,
                             )
                         })
                         .collect::<Vec<(AccountId, u64)>>()

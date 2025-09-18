@@ -8,7 +8,7 @@ use near_primitives::block_body::ChunkEndorsementSignatures;
 use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::{ChunkHash, ShardChunkHeader};
 use near_primitives::stateless_validation::validator_assignment::ChunkEndorsementsState;
-use near_primitives::types::{AccountId, Balance, EpochId, ShardId};
+use near_primitives::types::{AccountId, EpochId, ShardId};
 use std::collections::HashMap;
 use std::num::NonZeroUsize;
 
@@ -255,7 +255,7 @@ impl ChunkInclusionTracker {
                 continue;
             };
             let stats = &chunk_info.endorsements;
-            if stats.total_stake == Balance::ZERO {
+            if stats.total_stake.is_zero() {
                 continue;
             }
             let shard_label = shard_id.to_string();

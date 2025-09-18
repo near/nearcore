@@ -36,7 +36,7 @@ impl Row {
                 "Validator key must be specified if validator stake is not 0.",
             )));
         }
-        if self.validator_stake == Balance::ZERO && self.validator_key.is_some() {
+        if self.validator_stake.is_zero() && self.validator_key.is_some() {
             return Err(Box::new(std::io::Error::new(
                 std::io::ErrorKind::InvalidInput,
                 "Validator stake should be greater than 0 if validator stake is specified.",

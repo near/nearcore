@@ -145,6 +145,10 @@ impl Amount {
         }
     }
 
+    pub(crate) fn from_yoctonear(amount: near_primitives::types::Balance) -> Self {
+        Self { value: amount.into(), currency: Currency::near() }
+    }
+
     pub(crate) fn from_yoctonear_diff(amount: crate::utils::SignedDiff<u128>) -> Self {
         Self { value: amount, currency: Currency::near() }
     }

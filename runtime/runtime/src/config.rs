@@ -395,7 +395,7 @@ fn pessimistic_gas_price(
     // overcharging to 6x, which was the value before the cost increase.
     let minimum_new_receipt_gas = 4_855_842_000_000; // 4.855TGas.
     // In case the config is free, we don't care about the maximum depth.
-    let receipt_gas_price = if gas_price == Balance::ZERO {
+    let receipt_gas_price = if gas_price.is_zero() {
         Balance::ZERO
     } else {
         let maximum_depth = if minimum_new_receipt_gas > 0 {

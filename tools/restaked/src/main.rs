@@ -119,8 +119,7 @@ fn main() {
             .any(|validator_info| validator_info.account_id == account_id);
         if restake {
             // Already kicked out or getting kicked out.
-            let amount =
-                if stake_amount == Balance::ZERO { last_stake_amount } else { stake_amount };
+            let amount = if stake_amount.is_zero() { last_stake_amount } else { stake_amount };
             info!(
                 target: "restaked",
                 "Sending staking transaction {} -> {}", key_file.account_id, amount

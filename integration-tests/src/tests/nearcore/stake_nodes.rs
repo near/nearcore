@@ -194,11 +194,7 @@ fn slow_test_validator_kickout() {
                 4,
                 15,
                 false,
-                TESTING_INIT_STAKE
-                    .checked_div(Balance::from_near(1).as_yoctonear())
-                    .unwrap()
-                    .as_yoctonear() as u64
-                    + 1,
+                TESTING_INIT_STAKE.as_near() as u64 + 1,
                 false,
             );
             let mut rng = rand::thread_rng();
@@ -268,7 +264,7 @@ fn slow_test_validator_kickout() {
                                 let actor =
                                     actor.then(move |res| match res.unwrap().unwrap().kind {
                                         QueryResponseKind::ViewAccount(result) => {
-                                            if result.locked == Balance::ZERO
+                                            if result.locked.is_zero()
                                                 || result.amount == TESTING_INIT_BALANCE
                                             {
                                                 mark.store(true, Ordering::SeqCst);
@@ -416,7 +412,7 @@ fn ultra_slow_test_validator_join() {
                             ));
                             let actor = actor.then(move |res| match res.unwrap().unwrap().kind {
                                 QueryResponseKind::ViewAccount(result) => {
-                                    if result.locked == Balance::ZERO {
+                                    if result.locked.is_zero() {
                                         done1_copy2.store(true, Ordering::SeqCst);
                                     }
                                     future::ready(())

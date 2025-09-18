@@ -1158,7 +1158,7 @@ fn test_fishermen_stake() {
         env.step_default(vec![]);
     }
     let account0 = env.view_account(block_producers[0].validator_id());
-    assert_eq!(account0.locked, Balance::ZERO);
+    assert!(account0.locked.is_zero());
     assert_eq!(account0.amount, TESTING_INIT_BALANCE);
     let response = env
         .epoch_manager
@@ -1178,7 +1178,7 @@ fn test_fishermen_stake() {
     assert_eq!(account0.amount, TESTING_INIT_BALANCE.checked_sub(TESTING_INIT_STAKE).unwrap());
 
     let account1 = env.view_account(block_producers[1].validator_id());
-    assert_eq!(account1.locked, Balance::ZERO);
+    assert!(account1.locked.is_zero());
     assert_eq!(account1.amount, TESTING_INIT_BALANCE);
     let response = env
         .epoch_manager
@@ -1219,7 +1219,7 @@ fn test_fishermen_unstake() {
     }
 
     let account0 = env.view_account(block_producers[0].validator_id());
-    assert_eq!(account0.locked, Balance::ZERO);
+    assert!(account0.locked.is_zero());
     assert_eq!(account0.amount, TESTING_INIT_BALANCE);
     let response = env
         .epoch_manager
@@ -1233,7 +1233,7 @@ fn test_fishermen_unstake() {
     }
 
     let account0 = env.view_account(block_producers[0].validator_id());
-    assert_eq!(account0.locked, Balance::ZERO);
+    assert!(account0.locked.is_zero());
     assert_eq!(account0.amount, TESTING_INIT_BALANCE);
     let response = env
         .epoch_manager
@@ -1300,7 +1300,7 @@ fn test_delete_account_after_unstake() {
         env.step_default(vec![]);
     }
     let account = env.view_account(block_producers[1].validator_id());
-    assert_eq!(account.locked, Balance::ZERO);
+    assert!(account.locked.is_zero());
 
     let delete_account_transaction = SignedTransaction::from_actions(
         4,
@@ -1370,7 +1370,7 @@ fn test_insufficient_stake() {
     let staking_transaction3 = stake(3, &signers[1], &block_producers[1], Balance::ZERO);
     env.step_default(vec![staking_transaction3]);
     assert_eq!(env.last_proposals.len(), 1);
-    assert_eq!(env.last_proposals[0].stake(), Balance::ZERO);
+    assert!(env.last_proposals[0].stake().is_zero());
 }
 
 /// Check that flat state is included into trie and is not included into view trie, because we can't apply flat

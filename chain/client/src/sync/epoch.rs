@@ -863,7 +863,8 @@ impl EpochSync {
             total_stake = total_stake.checked_add(validator.stake()).unwrap();
         }
 
-        if endorsed_stake <= total_stake.checked_mul(2).unwrap().checked_div(3).unwrap() {
+        let required_stake = total_stake.checked_mul(2).unwrap().checked_div(3).unwrap();
+        if endorsed_stake <= required_stake {
             return Err(near_chain::Error::InvalidEpochSyncProof(format!(
                 "Block {} does not have enough endorsements",
                 block_height
