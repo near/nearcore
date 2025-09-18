@@ -94,7 +94,7 @@ impl OrphanStateWitnessPool {
     pub fn remove_witnesses_below_final_height(&mut self, final_height: BlockHeight) {
         let mut to_remove: Vec<WitnessProductionKey> = Vec::new();
         for (cache_key, cache_entry) in &self.witness_cache {
-            let witness_height = cache_key.height_created;
+            let witness_height = cache_key.chunk.height_created;
             if witness_height <= final_height {
                 to_remove.push(cache_key.clone());
                 let header = &cache_entry.witness.latest_chunk_header();
@@ -102,7 +102,7 @@ impl OrphanStateWitnessPool {
                     target: "client",
                     final_height,
                     ejected_witness_height = witness_height,
-                    ejected_witness_shard = ?cache_key.shard_id,
+                    ejected_witness_shard = ?cache_key.chunk.shard_id,
                     ejected_witness_chunk = ?header.chunk_hash(),
                     ejected_witness_prev_block = ?header.prev_block_hash(),
                     "Ejecting an orphaned ChunkStateWitness from the cache because it's below \

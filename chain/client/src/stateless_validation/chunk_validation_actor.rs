@@ -27,6 +27,7 @@ use near_network::types::{NetworkRequests, PeerManagerMessageRequest};
 use near_performance_metrics_macros::perf;
 use near_primitives::block::Block;
 use near_primitives::hash::CryptoHash;
+use near_primitives::stateless_validation::WitnessProductionKey;
 use near_primitives::stateless_validation::state_witness::{
     ChunkStateWitness, ChunkStateWitnessAck, ChunkStateWitnessSize,
 };
@@ -365,6 +366,81 @@ impl ChunkValidationActorInner {
         )
     }
 
+    fn try_validate_chunk_with_chunk_extra(
+        &self,
+        state_witness: ChunkStateWitness,
+        signer: &Arc<ValidatorSigner>,
+    ) -> Result<bool, Error> {
+        // If we have the chunk extra for the previous block, we can validate
+        // the chunk without state witness.
+        // This usually happens because we are a chunk producer and
+        // therefore have the chunk extra for the previous block saved on disk.
+        // We can also skip validating the chunk state witness in this case.
+        // We don't need to switch to parent shard uid, because resharding
+        // creates chunk extra for new shard uid.
+
+        let witness_production_key = state_witness.production_key();
+        if witness_production_key.is_optimistic {
+            // Don't bother trying to find block hash for chunk extra.
+            return Ok(false);
+        }
+
+        let chunk_production_key = witness_production_key.chunk;
+        let chunk_producer_name =
+            self.epoch_manager.get_chunk_producer_info(&chunk_production_key)?.take_account_id();
+        let chunk_header = state_witness.chunk_header().clone();
+        let prev_block_hash = chunk_header.prev_block_hash();
+        let shard_id = chunk_header.shard_id();
+        let epoch_id = state_witness.epoch_id();
+        let shard_uid = shard_id_to_uid(self.epoch_manager.as_ref(), shard_id, epoch_id)?;
+        let prev_block = self.chain_store.get_block(prev_block_hash)?;
+        let last_header = self.epoch_manager.get_prev_chunk_header(&prev_block, shard_id)?;
+
+        let Ok(prev_chunk_extra) = self.chain_store.get_chunk_extra(prev_block_hash, &shard_uid)
+        else {
+            // We don't have chunk extra so we can't quickly validate the chunk.
+            return Ok(false);
+        };
+
+        let Some(new_transactions) = state_witness.new_transactions() else {
+            return Err(Error::Other("No new transactions in state witness".to_string()));
+        };
+
+        match validate_chunk_with_chunk_extra_and_roots(
+            &self.chain_store,
+            self.epoch_manager.as_ref(),
+            prev_block_hash,
+            &prev_chunk_extra,
+            last_header.height_included(),
+            &chunk_header,
+            new_transactions,
+            self.rs.as_ref(),
+        ) {
+            Ok(()) => {
+                send_chunk_endorsement_to_block_producers(
+                    &chunk_header,
+                    self.epoch_manager.as_ref(),
+                    signer.as_ref(),
+                    &self.network_adapter,
+                );
+                Ok(true)
+            }
+            Err(err) => {
+                tracing::error!(
+                    target: "chunk_validation",
+                    ?err,
+                    ?chunk_producer_name,
+                    ?chunk_production_key,
+                    "Failed to validate chunk using existing chunk extra",
+                );
+                CHUNK_WITNESS_VALIDATION_FAILED_TOTAL
+                    .with_label_values(&[&shard_id.to_string(), err.prometheus_label_value()])
+                    .inc();
+                Err(err)
+            }
+        }
+    }
+
     fn start_validating_chunk(
         &self,
         state_witness: ChunkStateWitness,
@@ -372,7 +448,8 @@ impl ChunkValidationActorInner {
         save_witness_if_invalid: bool,
         processing_done_tracker: Option<ProcessingDoneTracker>,
     ) -> Result<(), Error> {
-        let chunk_production_key = state_witness.production_key().chunk;
+        let WitnessProductionKey { chunk: chunk_production_key, is_optimistic } =
+            state_witness.production_key();
         let _span = tracing::debug_span!(
             target: "chunk_validation",
             "start_validating_chunk",
@@ -420,57 +497,8 @@ impl ChunkValidationActorInner {
             err
         })?;
 
-        // If we have the chunk extra for the previous block, we can validate
-        // the chunk without state witness.
-        // This usually happens because we are a chunk producer and
-        // therefore have the chunk extra for the previous block saved on disk.
-        // We can also skip validating the chunk state witness in this case.
-        // We don't need to switch to parent shard uid, because resharding
-        // creates chunk extra for new shard uid.
-        let shard_uid = shard_id_to_uid(self.epoch_manager.as_ref(), shard_id, &expected_epoch_id)?;
-        let prev_block = self.chain_store.get_block(&prev_block_hash)?;
-        let last_header = self.epoch_manager.get_prev_chunk_header(&prev_block, shard_id)?;
-
-        if let Ok(prev_chunk_extra) = self.chain_store.get_chunk_extra(&prev_block_hash, &shard_uid)
-        {
-            if let Some(new_transactions) = state_witness.new_transactions() {
-                match validate_chunk_with_chunk_extra_and_roots(
-                    &self.chain_store,
-                    self.epoch_manager.as_ref(),
-                    &prev_block_hash,
-                    &prev_chunk_extra,
-                    last_header.height_included(),
-                    &chunk_header,
-                    new_transactions,
-                    self.rs.as_ref(),
-                ) {
-                    Ok(()) => {
-                        send_chunk_endorsement_to_block_producers(
-                            &chunk_header,
-                            self.epoch_manager.as_ref(),
-                            signer.as_ref(),
-                            &self.network_adapter,
-                        );
-                        return Ok(());
-                    }
-                    Err(err) => {
-                        tracing::error!(
-                            target: "chunk_validation",
-                            ?err,
-                            ?chunk_producer_name,
-                            ?chunk_production_key,
-                            "Failed to validate chunk using existing chunk extra",
-                        );
-                        CHUNK_WITNESS_VALIDATION_FAILED_TOTAL
-                            .with_label_values(&[
-                                &shard_id.to_string(),
-                                err.prometheus_label_value(),
-                            ])
-                            .inc();
-                        return Err(err);
-                    }
-                }
-            }
+        if self.try_validate_chunk_with_chunk_extra(state_witness.clone(), signer)? {
+            return Ok(());
         }
 
         let epoch_manager = self.epoch_manager.clone();
@@ -485,7 +513,7 @@ impl ChunkValidationActorInner {
             // Capture the processing_done_tracker here - it will be dropped when this closure completes
             let _processing_done_tracker = processing_done_tracker;
 
-            match chunk_validation::validate_chunk_state_witness(
+            if let Err(err) = chunk_validation::validate_chunk_state_witness(
                 state_witness,
                 pre_validation_result,
                 epoch_manager.as_ref(),
@@ -495,26 +523,25 @@ impl ChunkValidationActorInner {
                 save_witness_if_invalid,
                 rs,
             ) {
-                Ok(_) => {
-                    send_chunk_endorsement_to_block_producers(
-                        &chunk_header,
-                        epoch_manager.as_ref(),
-                        signer.as_ref(),
-                        &network_adapter,
-                    );
-                }
-                Err(err) => {
-                    near_chain::stateless_validation::metrics::CHUNK_WITNESS_VALIDATION_FAILED_TOTAL
-                        .with_label_values(&[&shard_id.to_string(), err.prometheus_label_value()])
-                        .inc();
-                    tracing::error!(
-                        target: "chunk_validation",
-                        ?err,
-                        ?chunk_producer_name,
-                        ?chunk_production_key,
-                        "Failed to validate chunk state witness"
-                    );
-                }
+                near_chain::stateless_validation::metrics::CHUNK_WITNESS_VALIDATION_FAILED_TOTAL
+                    .with_label_values(&[&shard_id.to_string(), err.prometheus_label_value()])
+                    .inc();
+                tracing::error!(
+                    target: "chunk_validation",
+                    ?err,
+                    ?chunk_producer_name,
+                    ?chunk_production_key,
+                    "Failed to validate chunk state witness"
+                );
+            }
+
+            if !is_optimistic {
+                send_chunk_endorsement_to_block_producers(
+                    &chunk_header,
+                    epoch_manager.as_ref(),
+                    signer.as_ref(),
+                    &network_adapter,
+                );
             }
         });
 

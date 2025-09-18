@@ -304,6 +304,7 @@ pub fn pre_validate_chunk_state_witness(
     genesis: Arc<Block>,
     epoch_manager: &dyn EpochManagerAdapter,
 ) -> Result<PreValidationOutput, Error> {
+    // TODO: solve optimistic case!
     // Ensure that the chunk header version is supported in this protocol version
     let WitnessProductionKey { chunk: ChunkProductionKey { epoch_id, .. }, .. } =
         state_witness.production_key();
@@ -538,6 +539,7 @@ pub fn validate_chunk_state_witness_impl(
     main_state_transition_cache: &MainStateTransitionCache,
     rs: Arc<ReedSolomon>,
 ) -> Result<ChunkExecutionResult, Error> {
+    // TODO: solve and cache optimistic case!
     let WitnessProductionKey {
         chunk: ChunkProductionKey { shard_id: witness_chunk_shard_id, epoch_id, height_created, .. },
         ..
