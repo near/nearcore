@@ -82,14 +82,7 @@ pub fn get_default_home() -> PathBuf {
 /// Opens node’s storage performing migrations and checks when necessary.
 ///
 /// If opened storage is an RPC store and `near_config.config.archive` is true,
-/// converts the storage to archival node.  Otherwise, if opening archival node
-/// with that field being false, prints a warning and sets the field to `true`.
-/// In other words, once store is archival, the node will act as archival nod
-/// regardless of settings in `config.json`.
-///
-/// The end goal is to get rid of `archive` option in `config.json` file and
-/// have the type of the node be determined purely based on kind of database
-/// being opened.
+/// converts the storage to archival node.
 pub fn open_storage(home_dir: &Path, near_config: &NearConfig) -> anyhow::Result<NodeStorage> {
     let migrator = migrations::Migrator::new(near_config);
     let opener = NodeStorage::opener(
