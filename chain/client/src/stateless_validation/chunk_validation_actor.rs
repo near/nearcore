@@ -226,7 +226,7 @@ impl ChunkValidationActorInner {
         witness: ChunkStateWitness,
         witness_size: ChunkStateWitnessSize,
     ) -> Result<HandleOrphanWitnessOutcome, Error> {
-        let chunk_header = witness.chunk_header();
+        let chunk_header = witness.latest_chunk_header();
         let witness_height = chunk_header.height_created();
         let witness_shard = chunk_header.shard_id();
 
@@ -287,7 +287,7 @@ impl ChunkValidationActorInner {
             .take_state_witnesses_waiting_for_block(new_block.hash());
 
         for witness in ready_witnesses {
-            let header = witness.chunk_header();
+            let header = witness.latest_chunk_header();
             tracing::debug!(
                 target: "chunk_validation",
                 witness_height = header.height_created(),
@@ -334,20 +334,21 @@ impl ChunkValidationActorInner {
         prev_block: &Block,
         processing_done_tracker: Option<ProcessingDoneTracker>,
     ) -> Result<(), Error> {
+        let chunk_header = witness.latest_chunk_header();
         let _span = tracing::debug_span!(
             target: "chunk_validation",
             "process_chunk_state_witness",
-            chunk_hash = ?witness.chunk_header().chunk_hash(),
-            height = %witness.chunk_header().height_created(),
-            shard_id = %witness.chunk_header().shard_id(),
+            chunk_hash = ?chunk_header.chunk_hash(),
+            height = %chunk_header.height_created(),
+            shard_id = %chunk_header.shard_id(),
         )
         .entered();
 
         // Validate that block hash matches
-        if witness.chunk_header().prev_block_hash() != prev_block.hash() {
+        if chunk_header.prev_block_hash() != prev_block.hash() {
             return Err(Error::Other(format!(
                 "Previous block hash mismatch: witness={}, block={}",
-                witness.chunk_header().prev_block_hash(),
+                chunk_header.prev_block_hash(),
                 prev_block.hash()
             )));
         }
@@ -383,6 +384,7 @@ impl ChunkValidationActorInner {
         )
         .entered();
 
+        // VERY IMPORTANT: always use NEXT chunk here. TODO
         let prev_block_hash = *state_witness.chunk_header().prev_block_hash();
         let shard_id = state_witness.chunk_header().shard_id();
         let chunk_header = state_witness.chunk_header().clone();
@@ -599,9 +601,9 @@ impl Handler<ChunkStateWitnessMessage> for ChunkValidationActorInner {
         let _span = tracing::debug_span!(
             target: "chunk_validation",
             "handle_chunk_state_witness",
-            chunk_hash = ?msg.witness.chunk_header().chunk_hash(),
-            height = %msg.witness.chunk_header().height_created(),
-            shard_id = %msg.witness.chunk_header().shard_id(),
+            chunk_hash = ?msg.witness.latest_chunk_header().chunk_hash(),
+            height = %msg.witness.latest_chunk_header().height_created(),
+            shard_id = %msg.witness.latest_chunk_header().shard_id(),
             tag_witness_distribution = true,
         )
         .entered();

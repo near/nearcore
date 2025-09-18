@@ -118,7 +118,7 @@ impl ChunkStateWitnessTracker {
         &mut self,
         witness: &near_primitives::stateless_validation::state_witness::ChunkStateWitness,
     ) -> Option<&ChunkStateWitnessRecord> {
-        let key = ChunkStateWitnessKey::new(witness.chunk_header().chunk_hash().clone());
+        let key = ChunkStateWitnessKey::new(witness.latest_chunk_header().chunk_hash().clone());
         self.witnesses.get(&key)
     }
 }
@@ -163,7 +163,11 @@ mod state_witness_tracker_tests {
         let clock = dummy_clock();
         let mut tracker = ChunkStateWitnessTracker::new(clock.clock());
 
-        tracker.record_witness_sent(witness.chunk_header().compute_hash(), 4321, NUM_VALIDATORS);
+        tracker.record_witness_sent(
+            witness.latest_chunk_header().compute_hash(),
+            4321,
+            NUM_VALIDATORS,
+        );
         clock.advance(Duration::milliseconds(3444));
 
         // Ack received from all "except for one".
@@ -182,7 +186,11 @@ mod state_witness_tracker_tests {
         let clock = dummy_clock();
         let mut tracker = ChunkStateWitnessTracker::new(clock.clock());
 
-        tracker.record_witness_sent(witness.chunk_header().compute_hash(), 4321, NUM_VALIDATORS);
+        tracker.record_witness_sent(
+            witness.latest_chunk_header().compute_hash(),
+            4321,
+            NUM_VALIDATORS,
+        );
         clock.advance(Duration::milliseconds(3444));
 
         // Ack received from all.

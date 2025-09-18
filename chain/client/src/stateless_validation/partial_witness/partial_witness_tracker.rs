@@ -505,7 +505,7 @@ impl PartialEncodedStateWitnessTracker {
             let _span = tracing::debug_span!(
                 target: "client",
                 "send_witness_to_chunk_validation_actor",
-                chunk_hash = ?witness.chunk_header().chunk_hash(),
+                chunk_hash = ?witness.latest_chunk_header().chunk_hash(),
                 height = key.height_created,
                 shard_id = %key.shard_id,
                 raw_witness_size = raw_witness_size,
@@ -580,7 +580,7 @@ impl PartialEncodedStateWitnessTracker {
                 (ChunkStateWitness::V1(witness), raw_witness_size)
             };
         let decode_elapsed_seconds = decode_start.elapsed().as_secs_f64();
-        let witness_shard = witness.chunk_header().shard_id();
+        let witness_shard = witness.latest_chunk_header().shard_id();
 
         // Record metrics after validating the witness
         near_chain::stateless_validation::metrics::CHUNK_STATE_WITNESS_DECODE_TIME

@@ -210,7 +210,7 @@ fn setup_orphan_witness_test() -> OrphanWitnessTestEnv {
     }
 
     env.propagate_chunk_state_witnesses_and_endorsements(false);
-    assert_eq!(witness.chunk_header().chunk_hash(), block2.chunks()[0].chunk_hash());
+    assert_eq!(witness.latest_chunk_header().chunk_hash(), block2.chunks()[0].chunk_hash());
 
     for client_idx in clients_without_excluded {
         let blocks_processed = env.clients[client_idx]

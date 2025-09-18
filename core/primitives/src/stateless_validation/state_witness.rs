@@ -100,7 +100,7 @@ pub struct ChunkStateWitnessAck {
 
 impl ChunkStateWitnessAck {
     pub fn new(witness: &ChunkStateWitness) -> Self {
-        Self { chunk_hash: witness.chunk_header().chunk_hash().clone() }
+        Self { chunk_hash: witness.latest_chunk_header().chunk_hash().clone() }
     }
 }
 
@@ -405,7 +405,8 @@ impl ChunkStateWitness {
         }
     }
 
-    // This is latest available chunk header in the witness. Used for logging!!!
+    // This is latest available chunk header in the witness.
+    // Used for orphan detection, logging.
     // Consider using production key instead.
     // But then we lose navigation by chunk hash.
     pub fn latest_chunk_header(&self) -> &ShardChunkHeader {
