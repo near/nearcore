@@ -116,6 +116,16 @@ impl CoreStatementsTracker {
         Ok(store_update)
     }
 
+    fn endorsement_exists(
+        &self,
+        chunk_production_key: &ChunkProductionKey,
+        account_id: &AccountId,
+    ) -> Result<bool, std::io::Error> {
+        self.chain_store
+            .store()
+            .exists(DBCol::endorsements(), &get_endorsements_key(chunk_production_key, account_id))
+    }
+
     fn get_endorsement(
         &self,
         chunk_production_key: &ChunkProductionKey,
@@ -758,6 +768,17 @@ impl CoreStatementsProcessor {
             });
         }
         Ok(())
+    }
+
+    pub fn endorsement_exists(
+        &self,
+        block: &Block,
+        chunk: &ShardChunkHeader,
+        account_id: &AccountId,
+    ) -> Result<bool, std::io::Error> {
+        let tracker = self.read();
+        let chunk_production_key = &make_chunk_production_key(block, chunk);
+        tracker.endorsement_exists(chunk_production_key, account_id)
     }
 }
 

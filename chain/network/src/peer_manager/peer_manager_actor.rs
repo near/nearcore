@@ -1238,13 +1238,8 @@ impl PeerManagerActor {
                 );
                 NetworkResponses::NoResponse
             }
-            // TODO(spice): remove
-            NetworkRequests::TestonlySpiceIncomingReceipts { .. } => {
-                debug_assert!(false);
-                NetworkResponses::NoResponse
-            }
-            // TODO(spice): remove
-            NetworkRequests::TestonlySpiceStateWitness { .. } => {
+            NetworkRequests::SpicePartialData { .. } => {
+                // TODO(spice): Implement propagation of spice partial data
                 debug_assert!(false);
                 NetworkResponses::NoResponse
             }

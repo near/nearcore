@@ -18,6 +18,7 @@ use near_client::chunk_executor_actor::ChunkExecutorActor;
 use near_client::client_actor::ClientActorInner;
 use near_client::gc_actor::GCActor;
 use near_client::spice_chunk_validator_actor::SpiceChunkValidatorActor;
+use near_client::spice_data_distributor_actor::SpiceDataDistributorActor;
 use near_client::sync_jobs_actor::SyncJobsActor;
 use near_client::{
     AsyncComputationMultiSpawner, Client, PartialWitnessActor, RpcHandler, RpcHandlerConfig,
@@ -70,6 +71,7 @@ pub fn setup_client(
     let sync_jobs_adapter = LateBoundSender::new();
     let resharding_sender = LateBoundSender::new();
     let chunk_executor_adapter = LateBoundSender::new();
+    let spice_data_distributor_adapter = LateBoundSender::new();
     let spice_chunk_validator_adapter = LateBoundSender::new();
 
     let homedir = NodeExecutionData::homedir(tempdir, identifier);
@@ -262,6 +264,11 @@ pub fn setup_client(
     } else {
         noop().into_sender()
     };
+    let spice_data_distributor_sender = if cfg!(feature = "protocol_feature_spice") {
+        spice_data_distributor_adapter.as_sender()
+    } else {
+        noop().into_sender()
+    };
     let client_actor = ClientActorInner::new(
         test_loop.clock(),
         client,
@@ -274,6 +281,7 @@ pub fn setup_client(
         sync_jobs_adapter.as_multi_sender(),
         chunk_executor_sender,
         spice_chunk_validator_sender,
+        spice_data_distributor_sender,
     )
     .unwrap();
 
@@ -354,6 +362,16 @@ pub fn setup_client(
         client_config.resharding_config.clone(),
     );
 
+    let spice_data_distributor_actor = SpiceDataDistributorActor::new(
+        epoch_manager.clone(),
+        runtime_adapter.store().chain_store(),
+        spice_core_processor.clone(),
+        validator_signer.clone(),
+        network_adapter.as_multi_sender(),
+        chunk_executor_adapter.as_sender(),
+        spice_chunk_validator_adapter.as_sender(),
+    );
+
     let chunk_executor_actor = ChunkExecutorActor::new(
         runtime_adapter.store().clone(),
         &chain_genesis,
@@ -367,14 +385,17 @@ pub fn setup_client(
         client_actor.client.chunk_endorsement_tracker.clone(),
         Arc::new(test_loop.async_computation_spawner(identifier, |_| Duration::milliseconds(80))),
         chunk_executor_adapter.as_sender(),
+        spice_data_distributor_adapter.as_multi_sender(),
         client_config.save_latest_witnesses,
     );
 
-    let chunk_executor_sender = test_loop.data.register_actor(
+    let spice_data_distributor_sender = test_loop.data.register_actor(
         identifier,
-        chunk_executor_actor,
-        Some(chunk_executor_adapter),
+        spice_data_distributor_actor,
+        Some(spice_data_distributor_adapter),
     );
+
+    test_loop.data.register_actor(identifier, chunk_executor_actor, Some(chunk_executor_adapter));
 
     let spice_chunk_validator_actor = SpiceChunkValidatorActor::new(
         runtime_adapter.store().clone(),
@@ -392,7 +413,7 @@ pub fn setup_client(
         client_config.save_invalid_witnesses,
     );
 
-    let spice_chunk_validator_sender = test_loop.data.register_actor(
+    test_loop.data.register_actor(
         identifier,
         spice_chunk_validator_actor,
         Some(spice_chunk_validator_adapter),
@@ -468,8 +489,7 @@ pub fn setup_client(
         peer_manager_sender,
         resharding_sender,
         state_sync_dumper_handle,
-        chunk_executor_sender,
-        spice_chunk_validator_sender,
+        spice_data_distributor_sender,
         cloud_archival_sender,
     };
 

@@ -6,20 +6,17 @@ use near_async::messaging::{IntoMultiSender, IntoSender, Sender};
 use near_async::test_loop::data::TestLoopDataHandle;
 use near_async::test_loop::sender::TestLoopSender;
 use near_async::time::Duration;
-use near_chain::chain::ChunkStateWitnessMessage;
 use near_chain::resharding::resharding_actor::ReshardingActor;
 use near_chain_configs::{ClientConfig, Genesis};
 use near_chunks::shards_manager_actor::ShardsManagerActor;
 use near_client::archive::cloud_archival_actor::CloudArchivalActor;
-use near_client::chunk_executor_actor::{ChunkExecutorActor, ExecutorIncomingReceipts};
 use near_client::client_actor::ClientActorInner;
-use near_client::spice_chunk_validator_actor::SpiceChunkValidatorActor;
+use near_client::spice_data_distributor_actor::SpiceDataDistributorActor;
 use near_client::{PartialWitnessActor, RpcHandler, StateRequestActor, ViewClientActorInner};
 use near_jsonrpc::ViewClientSenderForRpc;
 use near_network::shards_manager::ShardsManagerRequestFromNetwork;
 use near_network::state_witness::PartialWitnessSenderForNetwork;
 use near_network::types::StateRequestSenderForNetwork;
-use near_o11y::span_wrapped_msg::SpanWrapped;
 use near_parameters::RuntimeConfigStore;
 use near_primitives::epoch_manager::EpochConfigStore;
 use near_primitives::network::PeerId;
@@ -31,9 +28,9 @@ use parking_lot::Mutex;
 use tempfile::TempDir;
 
 use crate::utils::peer_manager_actor::{
-    ClientSenderForTestLoopNetwork, TestLoopNetworkBlockInfo, TestLoopNetworkSharedState,
-    TestLoopPeerManagerActor, TxRequestHandleSenderForTestLoopNetwork,
-    ViewClientSenderForTestLoopNetwork,
+    ClientSenderForTestLoopNetwork, SpiceDataDistributorSenderForTestLoopNetwork,
+    TestLoopNetworkBlockInfo, TestLoopNetworkSharedState, TestLoopPeerManagerActor,
+    TxRequestHandleSenderForTestLoopNetwork, ViewClientSenderForTestLoopNetwork,
 };
 
 use super::drop_condition::{DropCondition, TestLoopChunksStorage};
@@ -87,8 +84,7 @@ pub struct NodeExecutionData {
     pub peer_manager_sender: TestLoopSender<TestLoopPeerManagerActor>,
     pub resharding_sender: TestLoopSender<ReshardingActor>,
     pub state_sync_dumper_handle: TestLoopDataHandle<StateSyncDumper>,
-    pub chunk_executor_sender: TestLoopSender<ChunkExecutorActor>,
-    pub spice_chunk_validator_sender: TestLoopSender<SpiceChunkValidatorActor>,
+    pub spice_data_distributor_sender: TestLoopSender<SpiceDataDistributorActor>,
     pub cloud_archival_sender: Option<TestLoopSender<CloudArchivalActor>>,
 }
 
@@ -152,15 +148,9 @@ impl From<&NodeExecutionData> for Sender<TestLoopNetworkBlockInfo> {
     }
 }
 
-impl From<&NodeExecutionData> for Sender<ExecutorIncomingReceipts> {
-    fn from(data: &NodeExecutionData) -> Sender<ExecutorIncomingReceipts> {
-        data.chunk_executor_sender.clone().with_delay(NETWORK_DELAY).into_sender()
-    }
-}
-
-impl From<&NodeExecutionData> for Sender<SpanWrapped<ChunkStateWitnessMessage>> {
-    fn from(data: &NodeExecutionData) -> Sender<SpanWrapped<ChunkStateWitnessMessage>> {
-        data.spice_chunk_validator_sender.clone().with_delay(NETWORK_DELAY).into_sender()
+impl From<&NodeExecutionData> for SpiceDataDistributorSenderForTestLoopNetwork {
+    fn from(data: &NodeExecutionData) -> SpiceDataDistributorSenderForTestLoopNetwork {
+        data.spice_data_distributor_sender.clone().with_delay(NETWORK_DELAY).into_multi_sender()
     }
 }
 
