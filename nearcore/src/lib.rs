@@ -82,15 +82,8 @@ pub fn get_default_home() -> PathBuf {
 /// Opens node’s storage performing migrations and checks when necessary.
 ///
 /// If opened storage is an RPC store and `near_config.config.archive` is true,
-/// converts the storage to archival node.  Otherwise, if opening archival node
-/// with that field being false, prints a warning and sets the field to `true`.
-/// In other words, once store is archival, the node will act as archival nod
-/// regardless of settings in `config.json`.
-///
-/// The end goal is to get rid of `archive` option in `config.json` file and
-/// have the type of the node be determined purely based on kind of database
-/// being opened.
-pub fn open_storage(home_dir: &Path, near_config: &mut NearConfig) -> anyhow::Result<NodeStorage> {
+/// converts the storage to archival node.
+pub fn open_storage(home_dir: &Path, near_config: &NearConfig) -> anyhow::Result<NodeStorage> {
     let migrator = migrations::Migrator::new(near_config);
     let opener = NodeStorage::opener(
         home_dir,
@@ -184,7 +177,7 @@ pub fn open_storage(home_dir: &Path, near_config: &mut NearConfig) -> anyhow::Re
         },
     }.with_context(|| format!("unable to open database at {}", opener.path().display()))?;
 
-    near_config.config.archive = storage.is_archive()?;
+    assert_eq!(near_config.config.archive, storage.is_archive()?);
     Ok(storage)
 }
 
@@ -249,14 +242,14 @@ pub fn start_with_config(
 
 pub fn start_with_config_and_synchronization(
     home_dir: &Path,
-    mut config: NearConfig,
+    config: NearConfig,
     actor_system: ActorSystem,
     // 'shutdown_signal' will notify the corresponding `oneshot::Receiver` when an instance of
     // `ClientActor` gets dropped.
     shutdown_signal: Option<broadcast::Sender<()>>,
     config_updater: Option<ConfigUpdater>,
 ) -> anyhow::Result<NearNode> {
-    let storage = open_storage(home_dir, &mut config)?;
+    let storage = open_storage(home_dir, &config)?;
     if config.client_config.enable_statistics_export {
         let period = config.client_config.log_summary_period;
         spawn_db_metrics_loop(actor_system.clone(), &storage, period);
