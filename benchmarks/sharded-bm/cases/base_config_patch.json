@@ -67,5 +67,6 @@
         }
     },
     "save_tx_outcomes": false,
-    "gc_num_epochs_to_keep": 3
+    "gc_num_epochs_to_keep": 3,
+    "save_untracked_partial_chunks_parts": false
 }
