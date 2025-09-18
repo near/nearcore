@@ -108,7 +108,7 @@ fn test_burn_mint() {
         let block0 = env.clients[0].chain.get_block_by_height(0).unwrap();
         let block2 = env.clients[0].chain.get_block_by_height(2).unwrap();
         let duration = block2.header().raw_timestamp() - block0.header().raw_timestamp();
-        (U256::from(initial_total_supply) * U256::from(duration)
+        (U256::from(initial_total_supply.as_yoctonear()) * U256::from(duration)
             / U256::from(10u128.pow(9) * 24 * 60 * 60 * 365 * 10))
         .as_u128()
     });
@@ -140,7 +140,7 @@ fn test_burn_mint() {
     let prev_total_supply = block4.header().total_supply();
     let block2 = env.clients[0].chain.get_block_by_height(2).unwrap();
     let epoch_total_reward = Balance::from_yoctonear(
-        (U256::from(prev_total_supply)
+        (U256::from(prev_total_supply.as_yoctonear())
             * U256::from(block4.header().raw_timestamp() - block2.header().raw_timestamp())
             / U256::from(10u128.pow(9) * 24 * 60 * 60 * 365 * 10))
         .as_u128(),

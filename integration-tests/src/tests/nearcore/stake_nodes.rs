@@ -530,7 +530,7 @@ fn slow_test_inflation() {
                                         .await
                                         .unwrap()
                                         .unwrap();
-                                    Balance::from_yoctonear((U256::from(initial_total_supply)
+                                    Balance::from_yoctonear((U256::from(initial_total_supply.as_yoctonear())
                                         * U256::from(
                                             epoch_end_block_view.header.timestamp_nanosec
                                                 - genesis_block_view.header.timestamp_nanosec,

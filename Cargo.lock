@@ -4938,7 +4938,6 @@ dependencies = [
  "near-schema-checker-lib",
  "near-token",
  "num-rational 0.3.2",
- "primitive-types 0.10.1",
  "schemars 1.0.3",
  "serde",
  "serde_json",

@@ -79,7 +79,7 @@ impl RewardCalculator {
         };
         let epoch_total_reward = Balance::from_yoctonear(
             (U256::from(*max_inflation_rate.numer() as u64)
-                * U256::from(total_supply)
+                * U256::from(total_supply.as_yoctonear())
                 * U256::from(epoch_duration)
                 / (U256::from(self.num_seconds_per_year)
                     * U256::from(*max_inflation_rate.denom() as u64)
@@ -87,7 +87,8 @@ impl RewardCalculator {
             .as_u128(),
         );
         let epoch_protocol_treasury = Balance::from_yoctonear(
-            (U256::from(epoch_total_reward) * U256::from(*protocol_reward_rate.numer() as u64)
+            (U256::from(epoch_total_reward.as_yoctonear())
+                * U256::from(*protocol_reward_rate.numer() as u64)
                 / U256::from(*protocol_reward_rate.denom() as u64))
             .as_u128(),
         );

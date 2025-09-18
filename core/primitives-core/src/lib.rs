@@ -5,7 +5,6 @@ pub use num_rational;
 
 pub mod account;
 pub mod apply;
-pub mod balance;
 pub mod chains;
 pub mod code;
 pub mod config;

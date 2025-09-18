@@ -24,7 +24,7 @@ use near_primitives::version::{PROTOCOL_VERSION, ProtocolVersion};
 use near_primitives::views::{
     AccessKeyPermissionView, ExecutionStatusView, FinalExecutionOutcomeView, FinalExecutionStatus,
 };
-use near_primitives_core::balance::Balance;
+use near_primitives_core::types::Balance;
 use near_test_contracts::{ft_contract, smallest_rs_contract};
 use node_runtime::config::total_prepaid_gas;
 use testlib::runtime_utils::{

@@ -310,8 +310,9 @@ impl EpochManager {
         // exempted_validators.
         let mut exempted_validators = HashSet::new();
         let min_keep_stake = Balance::from_yoctonear(
-            (U256::from(total_stake) * U256::from(exempt_perc as u128) / U256::from(100u128))
-                .as_u128(),
+            (U256::from(total_stake.as_yoctonear()) * U256::from(exempt_perc as u128)
+                / U256::from(100u128))
+            .as_u128(),
         );
         let mut exempted_stake = Balance::ZERO;
         for account_id in accounts_sorted_by_online_ratio.into_iter().rev() {
@@ -524,7 +525,7 @@ impl EpochManager {
         }
         PROTOCOL_VERSION_VOTES.reset();
         for (version, stake) in &versions {
-            let stake_percent = (U256::from(*stake) * U256::from(100u128)
+            let stake_percent = (U256::from(stake.as_yoctonear()) * U256::from(100u128)
                 / U256::from(total_block_producer_stake.as_yoctonear()))
             .as_u128() as i64;
             PROTOCOL_VERSION_VOTES.with_label_values(&[&version.to_string()]).set(stake_percent);
@@ -542,8 +543,9 @@ impl EpochManager {
             let numer = *config.protocol_upgrade_stake_threshold.numer() as u128;
             let denom = *config.protocol_upgrade_stake_threshold.denom() as u128;
             let threshold = Balance::from_yoctonear(
-                (U256::from(total_block_producer_stake) * U256::from(numer) / U256::from(denom))
-                    .as_u128(),
+                (U256::from(total_block_producer_stake.as_yoctonear()) * U256::from(numer)
+                    / U256::from(denom))
+                .as_u128(),
             );
             if stake > threshold { version } else { protocol_version }
         } else {

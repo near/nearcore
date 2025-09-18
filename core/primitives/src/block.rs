@@ -336,10 +336,15 @@ impl Block {
             - adjustment_rate_numer * gas_limit;
         let denominator = 2 * adjustment_rate_denom * gas_limit;
         let next_gas_price =
-            U256::from(gas_price) * U256::from(numerator) / U256::from(denominator);
+            U256::from(gas_price.as_yoctonear()) * U256::from(numerator) / U256::from(denominator);
 
         Balance::from_yoctonear(
-            next_gas_price.clamp(U256::from(min_gas_price), U256::from(max_gas_price)).as_u128(),
+            next_gas_price
+                .clamp(
+                    U256::from(min_gas_price.as_yoctonear()),
+                    U256::from(max_gas_price.as_yoctonear()),
+                )
+                .as_u128(),
         )
     }
 

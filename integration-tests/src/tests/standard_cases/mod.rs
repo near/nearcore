@@ -23,7 +23,7 @@ use near_primitives::views::{
     AccessKeyView, AccountView, ExecutionMetadataView, FinalExecutionOutcomeView,
     FinalExecutionStatus,
 };
-use near_primitives_core::balance::Balance;
+use near_primitives_core::types::Balance;
 use near_store::trie::TrieNodesCount;
 use std::sync::Arc;
 
