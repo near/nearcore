@@ -300,6 +300,10 @@ pub struct Config {
     /// - All shards are tracked (i.e. node is an RPC node).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub save_tx_outcomes: Option<bool>,
+    /// Whether to persist partial chunk parts for untracked shards in the database.
+    /// If `None`, defaults to true (persist).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub save_untracked_partial_chunks_parts: Option<bool>,
     pub log_summary_style: LogSummaryStyle,
     #[serde(with = "near_async::time::serde_duration_as_std")]
     pub log_summary_period: Duration,
@@ -443,6 +447,7 @@ impl Default for Config {
             cloud_archival_writer: None,
             save_trie_changes: None,
             save_tx_outcomes: None,
+            save_untracked_partial_chunks_parts: None,
             log_summary_style: LogSummaryStyle::Colored,
             log_summary_period: default_log_summary_period(),
             gc: GCConfig::default(),
@@ -711,6 +716,9 @@ impl NearConfig {
                 cloud_archival_writer: config.cloud_archival_writer,
                 save_trie_changes: config.save_trie_changes.unwrap_or(!config.archive),
                 save_tx_outcomes: config.save_tx_outcomes.unwrap_or(is_archive_or_rpc),
+                save_untracked_partial_chunks_parts: config
+                    .save_untracked_partial_chunks_parts
+                    .unwrap_or(true),
                 log_summary_style: config.log_summary_style,
                 gc: config.gc,
                 view_client_threads: config.view_client_threads,
