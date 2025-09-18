@@ -242,14 +242,14 @@ pub fn start_with_config(
 
 pub fn start_with_config_and_synchronization(
     home_dir: &Path,
-    mut config: NearConfig,
+    config: NearConfig,
     actor_system: ActorSystem,
     // 'shutdown_signal' will notify the corresponding `oneshot::Receiver` when an instance of
     // `ClientActor` gets dropped.
     shutdown_signal: Option<broadcast::Sender<()>>,
     config_updater: Option<ConfigUpdater>,
 ) -> anyhow::Result<NearNode> {
-    let storage = open_storage(home_dir, &mut config)?;
+    let storage = open_storage(home_dir, &config)?;
     if config.client_config.enable_statistics_export {
         let period = config.client_config.log_summary_period;
         spawn_db_metrics_loop(actor_system.clone(), &storage, period);
