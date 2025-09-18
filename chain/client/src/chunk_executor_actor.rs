@@ -189,20 +189,8 @@ pub struct ExecutorApplyChunksDone {
 impl Handler<ExecutorIncomingUnverifiedReceipts> for ChunkExecutorActor {
     fn handle(&mut self, receipts: ExecutorIncomingUnverifiedReceipts) {
         let block_hash = receipts.block_hash;
-        let from_shard_id = receipts.receipt_proof.1.from_shard_id;
-        let to_shard_id = receipts.receipt_proof.1.from_shard_id;
+        self.pending_unverified_receipts.entry(block_hash).or_default().push(receipts);
 
-        if let Err(err) = self.process_new_receipts(receipts) {
-            tracing::error!(
-                target : "chunk_executor",
-                ?err,
-                ?block_hash,
-                ?from_shard_id,
-                ?to_shard_id,
-                "failed to process new receipts"
-            );
-            return;
-        }
         if let Err(err) = self.try_process_next_blocks(&block_hash) {
             tracing::error!(target: "chunk_executor", ?err, ?block_hash, "failed to process next blocks");
         }
@@ -771,27 +759,6 @@ impl ChunkExecutorActor {
         }
         let execution_results = self.core_processor.get_execution_results_by_shard_id(&block)?;
         Ok(ReceiptVerificationContext::Ready { execution_results })
-    }
-
-    fn process_new_receipts(
-        &mut self,
-        receipts: ExecutorIncomingUnverifiedReceipts,
-    ) -> Result<(), Error> {
-        let block_hash = receipts.block_hash;
-
-        let verified_receipts = match self.receipts_verification_context(&block_hash)? {
-            ReceiptVerificationContext::Ready { execution_results } => {
-                // TODO(spice): Notify spice data distributor about invalid receipts so it can ban
-                // or de-prioritize the node which sent them.
-                receipts.verify(&execution_results)?
-            }
-            ReceiptVerificationContext::NotReady => {
-                tracing::debug!(target: "chunk_executor", %block_hash, "not yet ready for verification of receipts");
-                self.pending_unverified_receipts.entry(block_hash).or_default().push(receipts);
-                return Ok(());
-            }
-        };
-        self.save_verified_receipts(&verified_receipts)
     }
 
     fn try_process_pending_unverified_receipts(
