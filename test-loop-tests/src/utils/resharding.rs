@@ -40,7 +40,7 @@ use crate::utils::transactions::{
     check_txs, check_txs_remove_successful, delete_account, get_anchor_hash, get_next_nonce,
     store_and_submit_tx, submit_tx,
 };
-use crate::utils::{TGAS, get_node_data, retrieve_client_actor};
+use crate::utils::{get_node_data, retrieve_client_actor};
 use near_chain::types::Tip;
 use near_client::client_actor::ClientActorInner;
 use near_primitives::shard_layout::ShardLayout;
@@ -207,19 +207,19 @@ pub(crate) fn execute_storage_operations(
             // Send transaction which reads a key and writes a key-value pair
             // to the contract storage.
             let anchor_hash = get_anchor_hash(&clients);
-            let gas = 20 * TGAS;
+            let gas = Gas::from_teragas(20);
             let salt = 2 * tip.height;
             nonce.set(nonce.get() + 1);
             let read_action = Action::FunctionCall(Box::new(FunctionCallAction {
                 args: near_primitives::test_utils::encode(&[salt]),
                 method_name: "read_value".to_string(),
-                gas: Gas::from_gas(gas),
+                gas: gas,
                 deposit: Balance::ZERO,
             }));
             let write_action = Action::FunctionCall(Box::new(FunctionCallAction {
                 args: near_primitives::test_utils::encode(&[salt + 1, salt * 10]),
                 method_name: "write_key_value".to_string(),
-                gas: Gas::from_gas(gas),
+                gas: gas,
                 deposit: Balance::ZERO,
             }));
             let tx = SignedTransaction::from_actions(
@@ -1120,7 +1120,7 @@ pub(crate) fn delayed_receipts_repro_missing_trie_value(
     epoch_length: u64,
 ) -> LoopAction {
     const CALLS_PER_BLOCK_HEIGHT: usize = 5;
-    const GAS_BURNT_PER_CALL: u64 = 275 * TGAS;
+    const GAS_BURNT_PER_CALL: Gas = Gas::from_teragas(275);
     let resharding_height: Cell<Option<u64>> = Cell::new(None);
     let txs = Cell::new(vec![]);
     let latest_height = Cell::new(0);
@@ -1159,7 +1159,7 @@ pub(crate) fn delayed_receipts_repro_missing_trie_value(
                     let signer: Signer = create_user_test_signer(signer_account).into();
                     nonce.set(nonce.get() + 1);
                     let method_name = "burn_gas_raw".to_owned();
-                    let args = GAS_BURNT_PER_CALL.to_le_bytes().to_vec();
+                    let args = GAS_BURNT_PER_CALL.as_gas().to_le_bytes().to_vec();
                     let tx = SignedTransaction::call(
                         nonce.get(),
                         signer_account.clone(),
@@ -1168,9 +1168,7 @@ pub(crate) fn delayed_receipts_repro_missing_trie_value(
                         Balance::from_yoctonear(1),
                         method_name,
                         args,
-                        Gas::from_gas(GAS_BURNT_PER_CALL)
-                            .checked_add(Gas::from_teragas(10))
-                            .unwrap(),
+                        GAS_BURNT_PER_CALL.checked_add(Gas::from_teragas(10)).unwrap(),
                         tip.last_block_hash,
                     );
                     store_and_submit_tx(

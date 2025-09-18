@@ -2,11 +2,11 @@ use crate::setup::builder::TestLoopBuilder;
 use crate::setup::drop_condition::DropCondition;
 use crate::setup::env::TestLoopEnv;
 use crate::setup::state::NodeExecutionData;
+use crate::utils::run_for_number_of_blocks;
 use crate::utils::transactions::{
     TransactionRunner, call_contract, check_txs, deploy_contract, execute_tx, make_accounts,
     prepare_transfer_tx,
 };
-use crate::utils::{TGAS, run_for_number_of_blocks};
 use assert_matches::assert_matches;
 use core::panic;
 use itertools::Itertools;
@@ -19,7 +19,7 @@ use near_o11y::testonly::init_test_logger;
 use near_parameters::RuntimeConfig;
 use near_primitives::errors::InvalidTxError;
 use near_primitives::shard_layout::ShardLayout;
-use near_primitives::types::{AccountId, Balance, BlockHeight};
+use near_primitives::types::{AccountId, Balance, BlockHeight, Gas};
 use near_primitives::views::FinalExecutionStatus;
 use near_primitives_core::types::BlockHeightDelta;
 
@@ -205,8 +205,8 @@ fn do_call_contract(
 ) {
     tracing::info!(target: "test", ?rpc_id, ?contract_id, "Calling contract.");
     let method_name = "burn_gas_raw".to_owned();
-    let burn_gas: u64 = 250 * TGAS;
-    let args = burn_gas.to_le_bytes().to_vec();
+    let burn_gas = Gas::from_teragas(250);
+    let args = burn_gas.as_gas().to_le_bytes().to_vec();
     let mut txs = vec![];
     for sender_id in accounts {
         let tx = call_contract(
