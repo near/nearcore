@@ -271,6 +271,26 @@ pub struct CloudArchivalWriterConfig {
     pub polling_interval: Duration,
 }
 
+// A handle that allows the main process to interrupt cloud archival actor if needed.
+#[derive(Clone)]
+pub struct CloudArchivalHandle {
+    keep_going: Arc<AtomicBool>,
+}
+
+impl CloudArchivalHandle {
+    pub fn new() -> Self {
+        Self { keep_going: Arc::new(AtomicBool::new(true)) }
+    }
+
+    pub fn is_cancelled(&self) -> bool {
+        !self.get()
+    }
+
+    fn get(&self) -> bool {
+        self.keep_going.load(std::sync::atomic::Ordering::Relaxed)
+    }
+}
+
 /// Configures how to dump state to external storage.
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
