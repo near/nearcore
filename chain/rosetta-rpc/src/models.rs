@@ -145,7 +145,8 @@ impl Amount {
         }
     }
 
-    pub(crate) fn from_yoctonear(amount: near_primitives::types::Balance) -> Self {
+    #[allow(dead_code)]
+    pub(crate) fn from_yoctonear(amount: u128) -> Self {
         Self { value: amount.into(), currency: Currency::near() }
     }
 
