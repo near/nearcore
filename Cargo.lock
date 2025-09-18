@@ -1054,7 +1054,6 @@ checksum = "613afe47fcd5fac7ccf1db93babcb082c5994d996f20b8b159f2ad1658eb5724"
 name = "chainsync-loadtest"
 version = "0.0.0"
 dependencies = [
- "actix",
  "anyhow",
  "clap",
  "dirs",
@@ -3310,7 +3309,6 @@ dependencies = [
 name = "indexer-example"
 version = "0.0.0"
 dependencies = [
- "actix",
  "anyhow",
  "clap",
  "near-config-utils",
@@ -4093,8 +4091,6 @@ dependencies = [
  "crossbeam-channel",
  "futures",
  "near-async-derive",
- "near-o11y",
- "near-performance-metrics",
  "near-time",
  "parking_lot 0.12.1",
  "rayon",
@@ -4765,7 +4761,6 @@ dependencies = [
  "thiserror 2.0.16",
  "time",
  "tokio",
- "tokio-util",
  "tracing",
  "turn",
  "webrtc-util",
@@ -4825,11 +4820,8 @@ dependencies = [
 name = "near-performance-metrics"
 version = "0.0.0"
 dependencies = [
- "actix",
  "bytesize 1.1.0",
- "futures",
  "libc",
- "parking_lot 0.12.1",
  "tracing",
 ]
 
@@ -5620,7 +5612,6 @@ dependencies = [
 name = "neard"
 version = "0.0.0"
 dependencies = [
- "actix",
  "anyhow",
  "clap",
  "cold-store-tool",

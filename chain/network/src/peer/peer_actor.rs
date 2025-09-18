@@ -141,11 +141,11 @@ impl ClosingReason {
             ClosingReason::RejectedByPeerManager(_) => true, // rejected by peer manager
             ClosingReason::StreamError => false,    // connection issue
             ClosingReason::DisallowedMessage => true, // misbehaving peer
-            ClosingReason::PeerManagerRequest => true, // closed intentionally
-            ClosingReason::DisconnectMessage => false, // graceful disconnect
-            ClosingReason::TooLargeClockSkew => true, // reconnect will fail for the same reason
+            ClosingReason::PeerManagerRequest => false, // closed intentionally but not for misbehavior
+            ClosingReason::DisconnectMessage => false,  // graceful disconnect
+            ClosingReason::TooLargeClockSkew => true,   // reconnect will fail for the same reason
             ClosingReason::OwnedAccountMismatch => true, // misbehaving peer
-            ClosingReason::Unknown => false,        // only happens in tests
+            ClosingReason::Unknown => false,            // only happens in tests
         }
     }
 }
@@ -1202,7 +1202,7 @@ impl PeerActor {
 
         match peer_msg {
             PeerMessage::Disconnect(d) => {
-                tracing::debug!(target: "network", "Disconnect signal. Me: {:?} Peer: {:?}", self.my_node_info.id, self.other_peer_id());
+                tracing::debug!(target: "network", "Disconnect signal. Me: {:?} Peer: {:?}, should remove: {}", self.my_node_info.id, self.other_peer_id(), d.remove_from_connection_store);
 
                 if d.remove_from_connection_store {
                     self.network_state

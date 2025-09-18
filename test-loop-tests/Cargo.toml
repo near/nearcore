@@ -61,7 +61,6 @@ test_features = [
     "near-test-contracts/test_features",
 ]
 nightly = [
-    "near-async/nightly",
     "near-chain-configs/nightly",
     "near-chain/nightly",
     "near-chunks/nightly",

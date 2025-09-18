@@ -12,11 +12,8 @@ publish = true
 workspace = true
 
 [dependencies]
-actix.workspace = true
 bytesize = { workspace = true, optional = true }
-futures.workspace = true
 libc.workspace = true
-parking_lot.workspace = true
 tracing.workspace = true
 
 [features]

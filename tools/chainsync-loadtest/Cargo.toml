@@ -16,7 +16,6 @@ path = "src/main.rs"
 name = "chainsync-loadtest"
 
 [dependencies]
-actix.workspace = true
 anyhow.workspace = true
 clap.workspace = true
 dirs.workspace = true
