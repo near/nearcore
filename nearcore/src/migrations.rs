@@ -1,8 +1,5 @@
-use near_chain::{ChainStore, ChainStoreAccess};
-use near_primitives::utils::index_to_bytes;
+use near_store::Store;
 use near_store::db::metadata::{DB_VERSION, DbVersion};
-use near_store::migrations::BatchedStoreUpdate;
-use near_store::{DBCol, Store};
 
 pub(super) struct Migrator<'a> {
     config: &'a crate::config::NearConfig,
