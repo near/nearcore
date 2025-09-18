@@ -877,7 +877,6 @@ impl PeerActor {
                     // Execute all actions that were delayed while registration was in progress.
                     // Technically this should always be a Some, but let's be defensive.
                     if let Some(buffered_actions) = act.registration_buffered_actions.take() {
-                        tracing::info!("Executing buffered actions after registration, count: {}", buffered_actions.len());
                         for f in buffered_actions {
                             f(act);
                         }
