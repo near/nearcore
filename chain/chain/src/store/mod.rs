@@ -1862,27 +1862,30 @@ impl<'a> ChainStoreUpdate<'a> {
 
             let mut chunk_hashes_by_height: HashMap<BlockHeight, HashSet<ChunkHash>> =
                 HashMap::new();
+            let mut insert_chunk_hash_by_height = |height: BlockHeight, hash: ChunkHash| {
+                match chunk_hashes_by_height.entry(height) {
+                    Entry::Occupied(mut entry) => {
+                        entry.get_mut().insert(hash);
+                    }
+                    Entry::Vacant(entry) => {
+                        let mut hash_set =
+                            match self.chain_store.get_all_chunk_hashes_by_height(height) {
+                                Ok(hash_set) => hash_set,
+                                Err(_) => HashSet::new(),
+                            };
+                        hash_set.insert(hash);
+                        entry.insert(hash_set);
+                    }
+                };
+            };
+
             for (chunk_hash, chunk) in &self.chain_store_cache_update.chunks {
                 if self.chain_store.chunk_exists(chunk_hash)? {
                     // No need to add same Chunk once again
                     continue;
                 }
 
-                let height_created = chunk.height_created();
-                match chunk_hashes_by_height.entry(height_created) {
-                    Entry::Occupied(mut entry) => {
-                        entry.get_mut().insert(chunk_hash.clone());
-                    }
-                    Entry::Vacant(entry) => {
-                        let mut hash_set =
-                            match self.chain_store.get_all_chunk_hashes_by_height(height_created) {
-                                Ok(hash_set) => hash_set.clone(),
-                                Err(_) => HashSet::new(),
-                            };
-                        hash_set.insert(chunk_hash.clone());
-                        entry.insert(hash_set);
-                    }
-                };
+                insert_chunk_hash_by_height(chunk.height_created(), chunk_hash.clone());
 
                 // Increase transaction refcounts for all included txs
                 for tx in chunk.to_transactions() {
@@ -1896,14 +1899,9 @@ impl<'a> ChainStoreUpdate<'a> {
 
                 store_update.insert_ser(DBCol::Chunks, chunk_hash.as_ref(), chunk)?;
             }
-            for (height, hash_set) in chunk_hashes_by_height {
-                store_update.set_ser(
-                    DBCol::ChunkHashesByHeight,
-                    &index_to_bytes(height),
-                    &hash_set,
-                )?;
-            }
             for (chunk_hash, partial_chunk) in &self.chain_store_cache_update.partial_chunks {
+                insert_chunk_hash_by_height(partial_chunk.height_created(), chunk_hash.clone());
+
                 store_update.insert_ser(
                     DBCol::PartialChunks,
                     chunk_hash.as_ref(),
@@ -1923,6 +1921,14 @@ impl<'a> ChainStoreUpdate<'a> {
                         );
                     }
                 }
+            }
+
+            for (height, hash_set) in chunk_hashes_by_height {
+                store_update.set_ser(
+                    DBCol::ChunkHashesByHeight,
+                    &index_to_bytes(height),
+                    &hash_set,
+                )?;
             }
         }
 
