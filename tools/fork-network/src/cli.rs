@@ -332,7 +332,7 @@ impl ForkNetworkCommand {
     // After this completes, almost every DB column can be removed, however this command doesn't delete anything itself.
     fn write_fork_info(
         &self,
-        near_config: &mut NearConfig,
+        near_config: &NearConfig,
         home_dir: &Path,
         shard_layout_override: &ShardLayoutOverride,
     ) -> anyhow::Result<()> {
@@ -421,7 +421,7 @@ impl ForkNetworkCommand {
 
     fn init(
         &self,
-        near_config: &mut NearConfig,
+        near_config: &NearConfig,
         home_dir: &Path,
         shard_layout_override: &ShardLayoutOverride,
     ) -> anyhow::Result<()> {
@@ -555,7 +555,7 @@ impl ForkNetworkCommand {
         epoch_length: u64,
         num_seats: &Option<NumSeats>,
         chain_id: &String,
-        near_config: &mut NearConfig,
+        near_config: &NearConfig,
         home_dir: &Path,
     ) -> anyhow::Result<()> {
         // 1. Open the state storage (maybe with DB migrations)

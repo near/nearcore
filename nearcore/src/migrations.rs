@@ -1,54 +1,5 @@
-use near_chain::{ChainStore, ChainStoreAccess};
-use near_primitives::utils::index_to_bytes;
+use near_store::Store;
 use near_store::db::metadata::{DB_VERSION, DbVersion};
-use near_store::migrations::BatchedStoreUpdate;
-use near_store::{DBCol, Store};
-
-/// Fix an issue with block ordinal (#5761)
-// This migration takes at least 3 hours to complete on mainnet
-pub fn migrate_30_to_31(store: &Store, near_config: &crate::NearConfig) -> anyhow::Result<()> {
-    if near_config.client_config.archive
-        && &near_config.genesis.config.chain_id == near_primitives::chains::MAINNET
-    {
-        do_migrate_30_to_31(store, &near_config.genesis.config)?;
-    }
-    Ok(())
-}
-
-/// Migrates the database from version 30 to 31.
-///
-/// Recomputes block ordinal due to a bug fixed in #5761.
-pub fn do_migrate_30_to_31(
-    store: &Store,
-    genesis_config: &near_chain_configs::GenesisConfig,
-) -> anyhow::Result<()> {
-    let chain_store =
-        ChainStore::new(store.clone(), false, genesis_config.transaction_validity_period);
-    let head = chain_store.head()?;
-    let mut store_update = BatchedStoreUpdate::new(store, 10_000_000);
-    let mut count = 0;
-    // we manually checked mainnet archival data and the first block where the discrepancy happened is `47443088`.
-    for height in 47443088..=head.height {
-        if let Ok(block_hash) = chain_store.get_block_hash_by_height(height) {
-            let block_ordinal = chain_store.get_block_merkle_tree(&block_hash)?.size();
-            let block_hash_from_block_ordinal =
-                chain_store.get_block_hash_from_ordinal(block_ordinal)?;
-            if block_hash_from_block_ordinal != block_hash {
-                println!(
-                    "Inconsistency in block ordinal to block hash mapping found at block height {}",
-                    height
-                );
-                count += 1;
-                store_update
-                    .set_ser(DBCol::BlockOrdinal, &index_to_bytes(block_ordinal), &block_hash)
-                    .expect("BorshSerialize should not fail");
-            }
-        }
-    }
-    println!("total inconsistency count: {}", count);
-    store_update.finish()?;
-    Ok(())
-}
 
 pub(super) struct Migrator<'a> {
     config: &'a crate::config::NearConfig,

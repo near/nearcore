@@ -11,8 +11,9 @@ use near_chain::state_snapshot_actor::{
 };
 use near_chain::types::RuntimeAdapter;
 use near_chain::{ApplyChunksSpawner, ChainGenesis};
-use near_chain_configs::{MutableConfigValue, ReshardingHandle};
+use near_chain_configs::{CloudArchivalHandle, MutableConfigValue, ReshardingHandle};
 use near_chunks::shards_manager_actor::ShardsManagerActor;
+use near_client::archive::cloud_archival_actor::CloudArchivalActor;
 use near_client::chunk_executor_actor::ChunkExecutorActor;
 use near_client::client_actor::ClientActorInner;
 use near_client::gc_actor::GCActor;
@@ -339,6 +340,21 @@ pub fn setup_client(
     // We don't send messages to `GCActor` so adapter is not needed.
     test_loop.data.register_actor(identifier, gc_actor, None);
 
+    let cloud_archival_sender = if let Some(config) = &client_config.cloud_archival_writer {
+        let cloud_archival_actor = CloudArchivalActor::new(
+            config.clone(),
+            genesis.config.genesis_height,
+            store,
+            genesis.config.genesis_height,
+            CloudArchivalHandle::new(),
+        );
+        let sender = LateBoundSender::new();
+        let sender = test_loop.data.register_actor(identifier, cloud_archival_actor, Some(sender));
+        Some(sender)
+    } else {
+        None
+    };
+
     let resharding_actor = ReshardingActor::new(
         epoch_manager.clone(),
         runtime_adapter.clone(),
@@ -474,6 +490,7 @@ pub fn setup_client(
         resharding_sender,
         state_sync_dumper_handle,
         spice_data_distributor_sender,
+        cloud_archival_sender,
     };
 
     // Add the client to the network shared state before returning data
