@@ -239,6 +239,8 @@ pub enum Parameter {
     ActionUseGlobalContract,
     ActionUseGlobalContractPerIdentifierByte,
     GlobalContractHostFns,
+
+    DeterministicAccountIds,
 }
 
 #[derive(

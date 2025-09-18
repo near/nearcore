@@ -247,7 +247,7 @@ pub struct CloudArchivalReaderConfig {
     pub cloud_storage: CloudStorageConfig,
 }
 
-fn default_archival_writer_polling_interval() -> Duration {
+pub fn default_archival_writer_polling_interval() -> Duration {
     Duration::seconds(1)
 }
 
