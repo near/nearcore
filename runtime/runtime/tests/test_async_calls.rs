@@ -14,9 +14,6 @@ pub mod runtime_group_tools;
 /// Initial balance used in tests.
 pub const TESTING_INIT_BALANCE: Balance = Balance::from_near(1_000_000_000);
 
-/// One NEAR, divisible by 10^24.
-pub const NEAR_BASE: Balance = Balance::from_near(1);
-
 const GAS_1: Gas = Gas::from_teragas(900);
 const GAS_2: Gas = GAS_1.checked_div(3).unwrap();
 const GAS_3: Gas = GAS_2.checked_div(3).unwrap();

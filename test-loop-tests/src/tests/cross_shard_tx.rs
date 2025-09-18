@@ -19,9 +19,9 @@ use rand::{Rng as _, thread_rng};
 use crate::setup::builder::TestLoopBuilder;
 use crate::setup::env::TestLoopEnv;
 use crate::setup::state::NodeExecutionData;
+use crate::utils::get_node_data;
 use crate::utils::rotating_validators_runner::RotatingValidatorsRunner;
 use crate::utils::transactions::get_anchor_hash;
-use crate::utils::{ONE_NEAR, get_node_data};
 
 struct Params {
     num_transfers: usize,
@@ -42,7 +42,7 @@ fn test_cross_shard_tx_common(Params { num_transfers, rotate_validators, drop_ch
     let rng: rand::rngs::StdRng = rand::SeedableRng::seed_from_u64(seed);
     let rng = Arc::new(RwLock::new(rng));
 
-    let stake = ONE_NEAR;
+    let stake = Balance::from_near(1);
 
     let (mut runner, validator_spec, validator_accounts) = if rotate_validators {
         let validators: Vec<Vec<AccountId>> = [

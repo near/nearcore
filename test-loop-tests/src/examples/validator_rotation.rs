@@ -3,11 +3,10 @@ use near_async::time::Duration;
 use near_chain_configs::test_genesis::TestEpochConfigBuilder;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::shard_layout::ShardLayout;
-use near_primitives::types::{AccountId, NumSeats};
+use near_primitives::types::{AccountId, Balance, NumSeats};
 
 use crate::setup::builder::TestLoopBuilder;
 use crate::setup::env::TestLoopEnv;
-use crate::utils::ONE_NEAR;
 use crate::utils::account::create_account_ids;
 use crate::utils::rotating_validators_runner::RotatingValidatorsRunner;
 
@@ -15,7 +14,7 @@ use crate::utils::rotating_validators_runner::RotatingValidatorsRunner;
 fn test_validator_rotation() {
     init_test_logger();
 
-    let stake = ONE_NEAR;
+    let stake = Balance::from_near(1);
 
     let validators: Vec<Vec<AccountId>> = vec![
         create_account_ids(["test1.1", "test1.2", "test1.3"]).to_vec(),

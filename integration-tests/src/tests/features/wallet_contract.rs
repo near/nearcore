@@ -3,7 +3,7 @@ use aurora_engine_transactions::EthTransactionKind;
 use aurora_engine_transactions::eip_2930::Transaction2930;
 use aurora_engine_types::types::{Address, Wei};
 use ethabi::ethereum_types::U256;
-use near_chain_configs::{Genesis, NEAR_BASE};
+use near_chain_configs::Genesis;
 use near_client::ProcessTxResponse;
 use near_crypto::{InMemorySigner, KeyType, PublicKey, SecretKey, Signer};
 use near_primitives::account::id::AccountIdRef;
@@ -143,7 +143,7 @@ fn test_transaction_from_eth_implicit_account_fail() {
     let mut env = TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build();
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
     let chain_id = &genesis.config.chain_id;
-    let deposit_for_account_creation = NEAR_BASE;
+    let deposit_for_account_creation = Balance::from_near(1);
     let mut height = 1;
     let blocks_number = 5;
     let signer1 = InMemorySigner::test_signer(&"test1".parse().unwrap());
@@ -259,7 +259,7 @@ fn test_wallet_contract_interaction() {
     // Create ETH-implicit account by funding it.
     // Although ETH-implicit account can be zero-balance, we pick a non-zero amount
     // here in order to make transfer later from this account.
-    let deposit_for_account_creation = NEAR_BASE;
+    let deposit_for_account_creation = Balance::from_near(1);
     let actions = vec![Action::Transfer(TransferAction { deposit: deposit_for_account_creation })];
     let nonce = view_nonce(&env, relayer_signer.account_id, relayer_signer.signer.public_key()) + 1;
     let block_hash = *genesis_block.hash();
@@ -307,7 +307,7 @@ fn test_wallet_contract_interaction() {
     let init_receiver_balance = view_balance(&env, &receiver);
 
     // The user signs a transaction to transfer some $NEAR
-    let transfer_amount = NEAR_BASE.checked_div(7).unwrap();
+    let transfer_amount = Balance::from_near(1).checked_div(7).unwrap();
     let action = Action::Transfer(TransferAction { deposit: transfer_amount });
     let signed_transaction = create_rlp_execute_tx(
         &receiver,
@@ -338,7 +338,7 @@ fn test_wallet_contract_interaction() {
     // Wallet balance is a little lower due to gas fees.
     assert!(
         wallet_balance_diff.checked_sub(transfer_amount).unwrap()
-            < NEAR_BASE.checked_div(500).unwrap().checked_add(refund_penalty).unwrap()
+            < Balance::from_near(1).checked_div(500).unwrap().checked_add(refund_penalty).unwrap()
     );
 }
 

@@ -2,7 +2,6 @@ mod rpc;
 mod runtime;
 
 use assert_matches::assert_matches;
-use near_chain_configs::NEAR_BASE;
 use near_chain_configs::test_utils::{TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
 use near_crypto::{InMemorySigner, KeyType, PublicKey, Signature, Signer};
 use near_jsonrpc_primitives::errors::ServerError;
@@ -733,7 +732,7 @@ pub fn test_create_account(node: impl Node) {
     let account_id = &node.account_id().unwrap();
     let node_user = node.user();
     let root = node_user.get_state_root();
-    let money_used = NEAR_BASE;
+    let money_used = Balance::from_near(1);
     let transaction_result = node_user
         .create_account(
             account_id.clone(),
@@ -776,7 +775,7 @@ pub fn test_create_account_again(node: impl Node) {
     let account_id = &node.account_id().unwrap();
     let node_user = node.user();
     let root = node_user.get_state_root();
-    let money_used = NEAR_BASE;
+    let money_used = Balance::from_near(1);
     let transaction_result = node_user
         .create_account(
             account_id.clone(),

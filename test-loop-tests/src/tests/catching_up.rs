@@ -18,7 +18,6 @@ use near_primitives::types::{AccountId, Balance, BlockReference, NumSeats, Shard
 use near_primitives::views::{QueryRequest, QueryResponseKind};
 
 use crate::setup::builder::TestLoopBuilder;
-use crate::utils::ONE_NEAR;
 use crate::utils::rotating_validators_runner::RotatingValidatorsRunner;
 use crate::utils::transactions::get_anchor_hash;
 
@@ -101,7 +100,7 @@ fn test_catchup_random_single_part_sync_common(
     .collect();
     let seats: NumSeats = 8;
 
-    let stake = ONE_NEAR;
+    let stake = Balance::from_near(1);
     let mut runner = RotatingValidatorsRunner::new(stake, validators);
 
     let test_accounts: Vec<AccountId> =
@@ -289,7 +288,7 @@ fn slow_test_catchup_sanity_blocks_produced() {
     .collect();
     let seats: NumSeats = 8;
 
-    let stake = ONE_NEAR;
+    let stake = Balance::from_near(1);
     let mut runner = RotatingValidatorsRunner::new(stake, validators);
 
     let accounts = runner.all_validators_accounts();
@@ -386,7 +385,7 @@ fn slow_test_all_chunks_accepted() {
     .collect();
     let seats: NumSeats = 8;
 
-    let stake = ONE_NEAR;
+    let stake = Balance::from_near(1);
     let mut runner = RotatingValidatorsRunner::new(stake, validators);
 
     let accounts = runner.all_validators_accounts();

@@ -1,6 +1,5 @@
 use crate::setup::builder::TestLoopBuilder;
 use crate::setup::env::TestLoopEnv;
-use crate::utils::ONE_NEAR;
 use crate::utils::validators::get_epoch_all_validators;
 use itertools::Itertools;
 use near_async::time::Duration;
@@ -76,7 +75,7 @@ fn slow_test_fix_validator_stake_threshold() {
 
     assert_eq!(validators.len(), 2, "proposal with stake at threshold should not be approved");
     assert_eq!(
-        total_stake.checked_div(ONE_NEAR.as_yoctonear()).unwrap(),
+        total_stake.checked_div(Balance::from_near(1).as_yoctonear()).unwrap(),
         Balance::from_yoctonear(37_500_000_000)
     );
 
@@ -85,8 +84,12 @@ fn slow_test_fix_validator_stake_threshold() {
     //           = (1 / 62_500) * total_stake / (62_499 / 62_500)
     //           = total_stake / 62_499
     assert_eq!(
-        epoch_info.seat_price().checked_div(ONE_NEAR.as_yoctonear()).unwrap(),
-        total_stake.checked_div(62_499).unwrap().checked_div(ONE_NEAR.as_yoctonear()).unwrap()
+        epoch_info.seat_price().checked_div(Balance::from_near(1).as_yoctonear()).unwrap(),
+        total_stake
+            .checked_div(62_499)
+            .unwrap()
+            .checked_div(Balance::from_near(1).as_yoctonear())
+            .unwrap()
     );
 
     TestLoopEnv { test_loop, node_datas, shared_state }

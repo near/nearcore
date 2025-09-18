@@ -11,7 +11,7 @@ use rand::Rng;
 use crate::utils::genesis_helpers::genesis_hash;
 use crate::utils::test_helpers::heavy_test;
 use near_actix_test_utils::run_actix;
-use near_chain_configs::{Genesis, NEAR_BASE, TrackedShardsConfig};
+use near_chain_configs::{Genesis, TrackedShardsConfig};
 use near_client::{GetBlock, ProcessTxRequest, Query, RpcHandler, ViewClientActorInner};
 use near_crypto::{InMemorySigner, Signer};
 use near_network::tcp;
@@ -194,14 +194,18 @@ fn slow_test_validator_kickout() {
                 4,
                 15,
                 false,
-                TESTING_INIT_STAKE.checked_div(NEAR_BASE.as_yoctonear()).unwrap().as_yoctonear()
-                    as u64
+                TESTING_INIT_STAKE
+                    .checked_div(Balance::from_near(1).as_yoctonear())
+                    .unwrap()
+                    .as_yoctonear() as u64
                     + 1,
                 false,
             );
             let mut rng = rand::thread_rng();
             let stakes = (0..num_nodes / 2).map(|_| {
-                NEAR_BASE.checked_add(Balance::from_yoctonear(rng.gen_range(1..100))).unwrap()
+                Balance::from_near(1)
+                    .checked_add(Balance::from_yoctonear(rng.gen_range(1..100)))
+                    .unwrap()
             });
             let stake_transactions = stakes.enumerate().map(|(i, stake)| {
                 let test_node = &test_nodes[i];

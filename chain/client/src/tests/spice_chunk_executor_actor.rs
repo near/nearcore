@@ -18,7 +18,7 @@ use near_chain::test_utils::{
 use near_chain::{Block, Chain, ChainGenesis};
 use near_chain::{BlockProcessingArtifact, Provenance};
 use near_chain_configs::MutableValidatorSigner;
-use near_chain_configs::test_genesis::{ONE_NEAR, TestGenesisBuilder, ValidatorsSpec};
+use near_chain_configs::test_genesis::{TestGenesisBuilder, ValidatorsSpec};
 use near_chain_configs::{Genesis, MutableConfigValue, TrackedShardsConfig};
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_network::types::{NetworkRequests, PeerManagerAdapter, PeerManagerMessageRequest};
@@ -29,9 +29,9 @@ use near_primitives::shard_layout::ShardLayout;
 use near_primitives::sharding::ShardChunk;
 use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsement;
 use near_primitives::test_utils::{TestBlockBuilder, create_test_signer};
-use near_primitives::types::AccountId;
-use near_primitives::types::ShardId;
-use near_primitives::types::{BlockExecutionResults, ChunkExecutionResult, NumShards};
+use near_primitives::types::{
+    AccountId, Balance, BlockExecutionResults, ChunkExecutionResult, NumShards, ShardId,
+};
 use near_store::ShardUId;
 use near_store::adapter::StoreAdapter as _;
 use reed_solomon_erasure::ReedSolomon;
@@ -195,7 +195,7 @@ fn setup_with_shards(
         .epoch_length(epoch_length)
         .shard_layout(shard_layout.clone())
         .validators_spec(validators_spec)
-        .add_user_accounts_simple(&accounts, ONE_NEAR)
+        .add_user_accounts_simple(&accounts, Balance::from_near(1))
         .build();
 
     signers
@@ -221,7 +221,7 @@ fn setup_with_non_validator(
         .genesis_time_from_clock(&Clock::real())
         .shard_layout(shard_layout.clone())
         .validators_spec(ValidatorsSpec::desired_roles(&["test1"], &[]))
-        .add_user_account_simple(signer.validator_id().clone(), ONE_NEAR)
+        .add_user_account_simple(signer.validator_id().clone(), Balance::from_near(1))
         .build();
 
     [
@@ -557,7 +557,7 @@ fn test_not_executing_with_bad_receipts() {
         };
         receipt_proofs[0].0.push(Receipt::new_balance_refund(
             &AccountId::from_str("test1").unwrap(),
-            ONE_NEAR,
+            Balance::from_near(1),
             ReceiptPriority::NoPriority,
         ));
         actors.iter_mut().for_each(|actor| {

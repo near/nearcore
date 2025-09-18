@@ -33,9 +33,6 @@ pub const TESTING_INIT_BALANCE: Balance = Balance::from_near(1_000_000_000);
 /// Validator's stake used in tests.
 pub const TESTING_INIT_STAKE: Balance = Balance::from_near(50_000_000);
 
-/// One NEAR, divisible by 10^24.
-pub const NEAR_BASE: Balance = Balance::from_near(1);
-
 pub struct StandaloneRuntime {
     pub apply_state: ApplyState,
     pub runtime: Runtime,

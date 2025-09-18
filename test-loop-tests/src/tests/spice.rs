@@ -17,8 +17,8 @@ use parking_lot::Mutex;
 
 use crate::setup::builder::TestLoopBuilder;
 use crate::setup::env::TestLoopEnv;
+use crate::utils::get_node_data;
 use crate::utils::transactions::get_anchor_hash;
-use crate::utils::{ONE_NEAR, get_node_data};
 
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
@@ -167,7 +167,7 @@ fn schedule_send_money_txs(
     let mut balance_changes = HashMap::new();
     let node_data = Arc::new(node_datas.to_vec());
     for (i, sender) in accounts.iter().cloned().enumerate() {
-        let amount = ONE_NEAR.checked_mul((i + 1).try_into().unwrap()).unwrap();
+        let amount = Balance::from_near(1).checked_mul((i + 1).try_into().unwrap()).unwrap();
         let receiver = accounts[(i + 1) % accounts.len()].clone();
         *balance_changes.entry(sender.clone()).or_default() -= amount.as_yoctonear() as i128;
         *balance_changes.entry(receiver.clone()).or_default() += amount.as_yoctonear() as i128;

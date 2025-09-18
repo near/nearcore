@@ -42,9 +42,6 @@ pub use updatable_config::{MutableConfigValue, MutableValidatorSigner, Updatable
 
 pub const GENESIS_CONFIG_FILENAME: &str = "genesis.json";
 
-/// One NEAR, divisible by 10^24.
-pub const NEAR_BASE: Balance = Balance::from_near(1);
-
 /// Protocol treasury account
 pub const PROTOCOL_TREASURY_ACCOUNT: &str = "near";
 

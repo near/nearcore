@@ -33,8 +33,6 @@ use std::collections::{HashMap, HashSet};
 use crate::env::nightshade_setup::TestEnvNightshadeSetupExt;
 use crate::env::test_env::TestEnv;
 
-const ONE_NEAR: Balance = Balance::from_near(1);
-
 fn run_chunk_validation_test(
     seed: u64,
     prob_missing_chunk: f64,
@@ -165,7 +163,7 @@ fn run_chunk_validation_test(
                 sender_account,
                 receiver_account,
                 &signer,
-                ONE_NEAR,
+                Balance::from_near(1),
                 tip.last_block_hash,
             );
             tx_hashes.push(tx.get_hash());
@@ -477,7 +475,7 @@ fn test_eth_implicit_accounts() {
     relayer_signer.account_id = &alice_eth_account;
 
     // 3. Use one implicit account to make a transfer to the other.
-    let transfer_amount = ONE_NEAR;
+    let transfer_amount = Balance::from_near(1);
     let action = Action::Transfer(TransferAction { deposit: transfer_amount });
     let signed_transaction = create_rlp_execute_tx(
         &bob_eth_account,
@@ -510,7 +508,7 @@ fn test_eth_implicit_accounts() {
     assert_eq!(bob_final_balance, bob_init_balance.checked_add(transfer_amount).unwrap());
 
     // The only tokens lost in the transaction are due to gas and refund penalty
-    let max_gas_cost = ONE_NEAR.checked_div(500).unwrap();
+    let max_gas_cost = Balance::from_near(1).checked_div(500).unwrap();
     let max_refund_cost = gas_price
         .checked_mul(u128::from(
             runtime_config.fees.gas_penalty_for_gas_refund(prepaid_gas).as_gas(),

@@ -6,8 +6,6 @@ use near_primitives::types::{AccountId, Balance};
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_primitives::views::FinalExecutionStatus;
 
-const ONE_NEAR: Balance = Balance::from_near(1);
-
 /// Tests if the maximum allowed contract can be deployed with current gas limits
 #[test]
 fn test_deploy_max_size_contract() {
@@ -43,7 +41,7 @@ fn test_deploy_max_size_contract() {
         .storage_amount_per_byte()
         .checked_mul(contract_size.try_into().unwrap())
         .unwrap()
-        .checked_add(ONE_NEAR)
+        .checked_add(Balance::from_near(1))
         .unwrap();
 
     // Create test account

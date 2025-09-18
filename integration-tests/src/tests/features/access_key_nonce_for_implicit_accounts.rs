@@ -5,7 +5,7 @@ use assert_matches::assert_matches;
 use near_async::messaging::CanSend;
 use near_chain::orphan::NUM_ORPHAN_ANCESTORS_CHECK;
 use near_chain::{Error, Provenance};
-use near_chain_configs::{Genesis, NEAR_BASE};
+use near_chain_configs::Genesis;
 use near_chunks::metrics::PARTIAL_ENCODED_CHUNK_FORWARD_CACHED_WITHOUT_HEADER;
 use near_client::test_utils::create_chunk;
 use near_client::{ProcessTxResponse, ProduceChunkResult};
@@ -89,7 +89,7 @@ fn test_transaction_hash_collision() {
         1,
         "test0".parse().unwrap(),
         "test1".parse().unwrap(),
-        NEAR_BASE,
+        Balance::from_near(1),
         signer1.public_key(),
         &signer0,
         *genesis_block.hash(),

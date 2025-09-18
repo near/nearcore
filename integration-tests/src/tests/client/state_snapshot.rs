@@ -1,7 +1,7 @@
 use crate::env::nightshade_setup::TestEnvNightshadeSetupExt;
 use crate::env::test_env::TestEnv;
 use near_chain::{ChainStoreAccess, Provenance};
-use near_chain_configs::{Genesis, NEAR_BASE};
+use near_chain_configs::Genesis;
 use near_client::ProcessTxResponse;
 use near_crypto::{InMemorySigner, Signer};
 use near_o11y::testonly::init_test_logger;
@@ -9,6 +9,7 @@ use near_primitives::block::Block;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::transaction::SignedTransaction;
+use near_primitives::types::Balance;
 use near_store::adapter::StoreAdapter;
 use near_store::config::StateSnapshotType;
 use near_store::flat::FlatStorageManager;
@@ -245,7 +246,7 @@ fn slow_test_make_state_snapshot() {
             nonce,
             "test0".parse().unwrap(),
             new_account_id.parse().unwrap(),
-            NEAR_BASE,
+            Balance::from_near(1),
             signer.public_key(),
             &signer,
             genesis_hash,

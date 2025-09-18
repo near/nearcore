@@ -15,9 +15,7 @@ use near_chain::validate::validate_chunk_with_chunk_extra;
 use near_chain::{Block, BlockProcessingArtifact, ChainStoreAccess, Error, Provenance};
 use near_chain::{ChainStore, MerkleProofAccess};
 use near_chain_configs::test_utils::{TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
-use near_chain_configs::{
-    DEFAULT_GC_NUM_EPOCHS_TO_KEEP, Genesis, NEAR_BASE, ProtocolVersionCheckConfig,
-};
+use near_chain_configs::{DEFAULT_GC_NUM_EPOCHS_TO_KEEP, Genesis, ProtocolVersionCheckConfig};
 use near_client::test_utils::create_chunk_on_height;
 use near_client::{GetBlockWithMerkleTree, ProcessTxResponse, ProduceChunkResult};
 use near_crypto::{InMemorySigner, KeyType, Signature};
@@ -1591,8 +1589,11 @@ fn test_gc_tail_update() {
 fn test_gas_price_change() {
     init_test_logger();
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
-    let target_num_tokens_left =
-        NEAR_BASE.checked_div(10).unwrap().checked_add(Balance::from_yoctonear(1)).unwrap();
+    let target_num_tokens_left = Balance::from_near(1)
+        .checked_div(10)
+        .unwrap()
+        .checked_add(Balance::from_yoctonear(1))
+        .unwrap();
     let transaction_costs = RuntimeConfig::test().fees;
 
     let send_money_total_gas = transaction_costs
@@ -1799,7 +1800,7 @@ fn test_data_reset_before_state_sync() {
         1,
         "test0".parse().unwrap(),
         "test_account".parse().unwrap(),
-        NEAR_BASE,
+        Balance::from_near(1),
         signer.public_key(),
         &signer,
         genesis_hash,

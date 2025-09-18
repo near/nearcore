@@ -40,7 +40,7 @@ use crate::utils::transactions::{
     check_txs, check_txs_remove_successful, delete_account, get_anchor_hash, get_next_nonce,
     store_and_submit_tx, submit_tx,
 };
-use crate::utils::{ONE_NEAR, TGAS, get_node_data, retrieve_client_actor};
+use crate::utils::{TGAS, get_node_data, retrieve_client_actor};
 use near_chain::types::Tip;
 use near_client::client_actor::ClientActorInner;
 use near_primitives::shard_layout::ShardLayout;
@@ -140,7 +140,7 @@ pub(crate) fn execute_money_transfers(account_ids: Vec<AccountId>) -> LoopAction
 
                 let anchor_hash = get_anchor_hash(&clients);
                 let nonce = get_next_nonce(&test_loop_data, &node_datas, &sender);
-                let amount = ONE_NEAR.checked_mul(rng.gen_range(1..=10)).unwrap();
+                let amount = Balance::from_near(1).checked_mul(rng.gen_range(1..=10)).unwrap();
                 let tx = SignedTransaction::send_money(
                     nonce,
                     sender.clone(),

@@ -23,7 +23,6 @@ use near_vm_runner::ContractCode;
 
 use crate::setup::builder::TestLoopBuilder;
 use crate::setup::env::TestLoopEnv;
-use crate::utils::ONE_NEAR;
 use crate::utils::account::{
     create_account_ids, create_validators_spec, rpc_account_id, validators_spec_clients_with_rpc,
 };
@@ -44,7 +43,7 @@ fn test_global_contract_by_account_id() {
 
 #[test]
 fn test_global_contract_deploy_insufficient_balance_for_storage() {
-    let mut env = GlobalContractsTestEnv::setup(ONE_NEAR);
+    let mut env = GlobalContractsTestEnv::setup(Balance::from_near(1));
 
     let tx = env.deploy_global_contract_tx(GlobalContractDeployMode::CodeHash);
     let outcome = env.execute_tx(tx);
@@ -61,7 +60,7 @@ fn test_global_contract_deploy_insufficient_balance_for_storage() {
 
 #[test]
 fn test_use_non_existent_global_contract() {
-    let mut env = GlobalContractsTestEnv::setup(ONE_NEAR);
+    let mut env = GlobalContractsTestEnv::setup(Balance::from_near(1));
 
     let identifier = env.global_contract_identifier(&GlobalContractDeployMode::CodeHash);
     let tx = env.use_global_contract_tx(&env.account_shard_0.clone(), identifier);

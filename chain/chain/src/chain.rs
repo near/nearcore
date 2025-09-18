@@ -128,9 +128,6 @@ const NUM_PARENTS_TO_CHECK_FINALITY: usize = 20;
 #[cfg(not(feature = "sandbox"))]
 const ACCEPTABLE_TIME_DIFFERENCE: i64 = 12 * 10;
 
-/// Private constant for 1 NEAR (copy from near/config.rs) used for reporting.
-const NEAR_BASE: Balance = Balance::from_near(1);
-
 /// `ApplyChunksDoneMessage` is a message that signals the finishing of applying chunks of a block.
 /// Upon receiving this message, ClientActors know that it's time to finish processing the blocks that
 /// just finished applying chunks.
@@ -1883,7 +1880,7 @@ impl Chain {
                 chunk_validators_count = epoch_info.validators_len();
             }
 
-            stake = stake.checked_div(NEAR_BASE.as_yoctonear()).unwrap();
+            stake = stake.checked_div(Balance::from_near(1).as_yoctonear()).unwrap();
             metrics::VALIDATOR_AMOUNT_STAKED
                 .set(i64::try_from(stake.as_yoctonear()).unwrap_or(i64::MAX));
             metrics::VALIDATOR_ACTIVE_TOTAL

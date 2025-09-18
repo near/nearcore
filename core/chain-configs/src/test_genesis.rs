@@ -585,8 +585,6 @@ struct DerivedValidatorSetup {
     num_chunk_validator_seats: NumSeats,
 }
 
-pub const ONE_NEAR: Balance = Balance::from_near(1);
-
 fn derive_validator_setup(specs: ValidatorsSpec) -> DerivedValidatorSetup {
     match specs {
         ValidatorsSpec::DesiredRoles { block_and_chunk_producers, chunk_validators_only } => {
