@@ -452,7 +452,7 @@ impl TxGenerator {
                     _ = rx_block.changed() => {
                         let (_, height) = *rx_block.borrow();
                         rate += controller.register(height);
-                        tracing::debug!(target: "transaction-generator", rate, "tps updated");
+                        tracing::warn!(target: "transaction-generator", rate, "tps updated");
                         let effective_rate = if rate.is_finite() && rate >= 1.0 { rate } else { 1.0 };
                         let micros = ((1_000_000.0 * TX_GENERATOR_TASK_COUNT as f64) / effective_rate)
                             .max(1.0) as u64;
