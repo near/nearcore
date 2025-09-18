@@ -4821,7 +4821,9 @@ name = "near-performance-metrics"
 version = "0.0.0"
 dependencies = [
  "bytesize 1.1.0",
+ "futures",
  "libc",
+ "parking_lot 0.12.1",
  "tracing",
 ]
 
