@@ -460,25 +460,23 @@ impl ChunkValidationActorInner {
             tag_witness_distribution = true,
         )
         .entered();
-        if is_optimistic {
-            println!("Optimistic witness, skipping validation");
-            return Ok(());
-        }
 
-        // VERY IMPORTANT: always use NEXT chunk here. TODO
-        let prev_block_hash = *state_witness.chunk_header().prev_block_hash();
-        let shard_id = state_witness.chunk_header().shard_id();
-        let chunk_header = state_witness.chunk_header().clone();
+        // If we are not optimistic, this will be the right chunk header to endorse.
+        let prev_block_hash = *state_witness.latest_chunk_header().prev_block_hash();
+        let shard_id = state_witness.latest_chunk_header().shard_id();
+        let chunk_header = state_witness.latest_chunk_header().clone();
         let chunk_producer_name =
             self.epoch_manager.get_chunk_producer_info(&chunk_production_key)?.take_account_id();
 
-        let expected_epoch_id =
-            self.epoch_manager.get_epoch_id_from_prev_block(&prev_block_hash)?;
-        if expected_epoch_id != chunk_production_key.epoch_id {
-            return Err(Error::InvalidChunkStateWitness(format!(
-                "Invalid EpochId {:?} for previous block {}, expected {:?}",
-                chunk_production_key.epoch_id, prev_block_hash, expected_epoch_id
-            )));
+        if !is_optimistic {
+            let expected_epoch_id =
+                self.epoch_manager.get_epoch_id_from_prev_block(&prev_block_hash)?;
+            if expected_epoch_id != chunk_production_key.epoch_id {
+                return Err(Error::InvalidChunkStateWitness(format!(
+                    "Invalid EpochId {:?} for previous block {}, expected {:?}",
+                    chunk_production_key.epoch_id, prev_block_hash, expected_epoch_id
+                )));
+            }
         }
 
         let pre_validation_result = chunk_validation::pre_validate_chunk_state_witness(
@@ -557,10 +555,6 @@ impl ChunkValidationActorInner {
         msg: ChunkStateWitnessMessage,
     ) -> Result<(), Error> {
         let ChunkStateWitnessMessage { witness, raw_witness_size, processing_done_tracker } = msg;
-        let is_optimistic = witness.production_key().is_optimistic;
-        if is_optimistic {
-            println!("RECEIVED OPTIMISTIC WITNESS MESSAGE");
-        }
 
         // Check if we're a validator
         if self.validator_signer.get().is_none() {

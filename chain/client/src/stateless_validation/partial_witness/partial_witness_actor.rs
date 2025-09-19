@@ -401,10 +401,6 @@ impl PartialWitnessActor {
         &self,
         partial_witness: PartialEncodedStateWitness,
     ) -> Result<(), Error> {
-        let is_optimistic = partial_witness.is_optimistic();
-        if is_optimistic {
-            println!("RECEIVED OPTIMISTIC PARTIAL WITNESS MESSAGE");
-        }
         let _span = tracing::debug_span!(
             target: "client",
             "handle_partial_encoded_state_witness",

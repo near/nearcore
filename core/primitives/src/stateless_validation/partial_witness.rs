@@ -78,10 +78,6 @@ impl PartialEncodedStateWitness {
         self.signature.verify(&data, public_key)
     }
 
-    pub fn is_optimistic(&self) -> bool {
-        self.inner.key.is_optimistic
-    }
-
     pub fn part_ord(&self) -> usize {
         self.inner.part_ord
     }

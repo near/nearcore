@@ -305,9 +305,15 @@ pub fn pre_validate_chunk_state_witness(
     epoch_manager: &dyn EpochManagerAdapter,
 ) -> Result<PreValidationOutput, Error> {
     // TODO: solve optimistic case!
-    // Ensure that the chunk header version is supported in this protocol version
-    let WitnessProductionKey { chunk: ChunkProductionKey { epoch_id, .. }, .. } =
+    println!("Pre-validating chunk state witness");
+    let WitnessProductionKey { chunk: ChunkProductionKey { epoch_id, .. }, is_optimistic } =
         state_witness.production_key();
+    if is_optimistic {
+        println!("Optimistic chunk state witness");
+        return Err(Error::InvalidChunkStateWitness("Optimistic chunk state witness".to_string()));
+    }
+
+    // Ensure that the chunk header version is supported in this protocol version
     let protocol_version = epoch_manager.get_epoch_info(&epoch_id)?.protocol_version();
     state_witness.chunk_header().validate_version(protocol_version)?;
 
