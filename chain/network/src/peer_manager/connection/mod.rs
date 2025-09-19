@@ -1,6 +1,5 @@
 use crate::batch_processor::BatchProcessor;
 use crate::concurrency::arc_mutex::ArcMutex;
-use crate::concurrency::atomic_cell::AtomicCell;
 use crate::network_protocol::{
     PeerInfo, PeerMessage, SignedAccountData, SignedOwnedAccount, SnapshotHostInfo,
     SyncAccountsData, SyncSnapshotHosts, TieredMessageBody,
@@ -20,6 +19,7 @@ use near_o11y::span_wrapped_msg::SpanWrappedMessageExt;
 use near_primitives::genesis::GenesisId;
 use near_primitives::network::PeerId;
 use near_primitives::types::ShardId;
+use parking_lot::Mutex;
 use std::collections::{HashMap, hash_map::Entry};
 use std::fmt;
 use std::future::Future;
@@ -115,9 +115,9 @@ pub(crate) struct Connection {
     pub established_time: time::Instant,
 
     /// Last time requested peers.
-    pub last_time_peer_requested: AtomicCell<Option<time::Instant>>,
+    pub last_time_peer_requested: Mutex<Option<time::Instant>>,
     /// Last time we received a message from this peer.
-    pub last_time_received_message: AtomicCell<time::Instant>,
+    pub last_time_received_message: Mutex<time::Instant>,
     /// Connection stats
     pub stats: Arc<Stats>,
     /// prometheus gauge point guard.

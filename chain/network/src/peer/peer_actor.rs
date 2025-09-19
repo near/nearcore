@@ -5,7 +5,6 @@ use crate::client::{
     EpochSyncRequestMessage, EpochSyncResponseMessage, OptimisticBlockMessage, ProcessTxRequest,
     StateRequestHeader, StateRequestPart, StateResponseReceived,
 };
-use crate::concurrency::atomic_cell::AtomicCell;
 use crate::config::PEERS_RESPONSE_MAX_PEERS;
 #[cfg(feature = "distance_vector_routing")]
 use crate::network_protocol::DistanceVector;
@@ -432,7 +431,7 @@ impl PeerActor {
 
     fn send_message(&self, msg: &PeerMessage) {
         if let (PeerStatus::Ready(conn), PeerMessage::PeersRequest(_)) = (&self.peer_status, msg) {
-            conn.last_time_peer_requested.store(Some(self.clock.now()));
+            *conn.last_time_peer_requested.lock() = Some(self.clock.now());
         }
         if let Some(enc) = self.encoding() {
             return self.send_message_with_encoding(msg, enc);
@@ -698,8 +697,8 @@ impl PeerActor {
                 type_: self.peer_type,
                 encoding: self.encoding(),
             }),
-            last_time_peer_requested: AtomicCell::new(None),
-            last_time_received_message: AtomicCell::new(now),
+            last_time_peer_requested: Mutex::new(None),
+            last_time_received_message: Mutex::new(now),
             established_time: now,
             send_accounts_data_processor: BatchProcessor::new(
                 self.network_state.config.accounts_data_broadcast_rate_limit,
@@ -1759,7 +1758,7 @@ impl messaging::Handler<stream::Frame> for PeerActor {
                         tracing::warn!(target: "network", "Received {} from closing connection {:?}. Ignoring", peer_msg, this.peer_type);
                         return;
                     }
-                    conn.last_time_received_message.store(now);
+                    *conn.last_time_received_message.lock() = now;
                     // Check if the message type is allowed given the TIER of the connection:
                     // TIER1 connections are reserved exclusively for BFT consensus messages.
                     if !conn.tier.is_allowed(&peer_msg) {

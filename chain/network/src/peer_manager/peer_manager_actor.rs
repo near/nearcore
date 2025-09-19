@@ -540,7 +540,7 @@ impl PeerManagerActor {
             .ready
             .values()
             .filter(|p| {
-                now - p.last_time_received_message.load()
+                now - *p.last_time_received_message.lock()
                     < self.state.config.peer_recent_time_window
             })
             .cloned()
@@ -587,7 +587,7 @@ impl PeerManagerActor {
             .load()
             .ready
             .values()
-            .filter(|p| now - p.last_time_received_message.load() > TIER3_IDLE_TIMEOUT)
+            .filter(|p| now - *p.last_time_received_message.lock() > TIER3_IDLE_TIMEOUT)
             .for_each(|p| p.stop(None));
     }
 
@@ -708,8 +708,8 @@ impl PeerManagerActor {
             full_peer_info: cp.full_peer_info(),
             received_bytes_per_sec: cp.stats.received_bytes_per_sec.load(Ordering::Relaxed),
             sent_bytes_per_sec: cp.stats.sent_bytes_per_sec.load(Ordering::Relaxed),
-            last_time_peer_requested: cp.last_time_peer_requested.load().unwrap_or(now),
-            last_time_received_message: cp.last_time_received_message.load(),
+            last_time_peer_requested: cp.last_time_peer_requested.lock().unwrap_or(now),
+            last_time_received_message: *cp.last_time_received_message.lock(),
             connection_established_time: cp.established_time,
             peer_type: cp.peer_type,
             nonce: match graph.local_edges.get(&cp.peer_info.id) {
