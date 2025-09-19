@@ -186,7 +186,7 @@ pub fn action_receipt_v1_to_latest(input: &Receipt, protocol_version: ProtocolVe
             signer_id: versioned.signer_id().clone(),
             refund_to: versioned.refund_to().clone(),
             signer_public_key: versioned.signer_public_key().clone(),
-            gas_price: versioned.gas_price().clone(),
+            gas_price: versioned.gas_price(),
             output_data_receivers: versioned.output_data_receivers().to_vec(),
             input_data_ids: versioned.input_data_ids().to_vec(),
             actions: versioned.actions().to_vec(),
@@ -195,7 +195,7 @@ pub fn action_receipt_v1_to_latest(input: &Receipt, protocol_version: ProtocolVe
         ReceiptEnum::Action(ActionReceipt {
             signer_id: versioned.signer_id().clone(),
             signer_public_key: versioned.signer_public_key().clone(),
-            gas_price: versioned.gas_price().clone(),
+            gas_price: versioned.gas_price(),
             output_data_receivers: versioned.output_data_receivers().to_vec(),
             input_data_ids: versioned.input_data_ids().to_vec(),
             actions: versioned.actions().to_vec(),
@@ -205,7 +205,7 @@ pub fn action_receipt_v1_to_latest(input: &Receipt, protocol_version: ProtocolVe
     Receipt::V0(ReceiptV0 {
         predecessor_id: input.predecessor_id().clone(),
         receiver_id: input.receiver_id().clone(),
-        receipt_id: input.receipt_id().clone(),
+        receipt_id: *input.receipt_id(),
         receipt: action_receipt,
     })
 }

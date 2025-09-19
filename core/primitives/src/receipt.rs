@@ -485,7 +485,7 @@ impl Receipt {
     }
 
     pub fn balance_refund_receiver(&self) -> &AccountId {
-        self.refund_to().as_ref().unwrap_or(self.predecessor_id())
+        self.refund_to().as_ref().unwrap_or_else(|| self.predecessor_id())
     }
 
     /// It's not a content hash, but receipt_id is unique.
