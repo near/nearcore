@@ -6,7 +6,9 @@ use near_async::time::{Clock, Duration, FakeClock, Utc};
 use near_o11y::testonly::init_test_logger;
 #[cfg(feature = "test_features")]
 use near_primitives::optimistic_block::OptimisticBlock;
-use near_primitives::{hash::CryptoHash, test_utils::TestBlockBuilder, version::PROTOCOL_VERSION};
+use near_primitives::{
+    hash::CryptoHash, test_utils::TestBlockBuilder, types::Balance, version::PROTOCOL_VERSION,
+};
 use num_rational::Ratio;
 use std::sync::Arc;
 
@@ -84,9 +86,9 @@ fn build_chain_with_orphans() {
         None,
         vec![],
         Ratio::from_integer(0),
-        0,
-        100,
-        Some(0),
+        Balance::ZERO,
+        Balance::from_yoctonear(100),
+        Some(Balance::ZERO),
         &*signer,
         *last_block.header().next_bp_hash(),
         CryptoHash::default(),

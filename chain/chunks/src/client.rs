@@ -164,7 +164,7 @@ mod tests {
         hash::CryptoHash,
         shard_layout::ShardLayout,
         transaction::{SignedTransaction, ValidatedTransaction},
-        types::{AccountId, ShardId},
+        types::{AccountId, Balance, ShardId},
     };
     use near_store::ShardUId;
     use rand::{SeedableRng, rngs::StdRng, seq::SliceRandom};
@@ -215,7 +215,7 @@ mod tests {
         shard_id_to_accounts
             .insert(ShardId::new(3), vec!["mmm", "rrr", "sweat", "ttt", "www", "zzz"]);
 
-        let deposit = 222;
+        let deposit = Balance::from_yoctonear(222);
 
         let mut rng: StdRng = SeedableRng::seed_from_u64(42);
 

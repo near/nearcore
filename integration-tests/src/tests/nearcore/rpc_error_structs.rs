@@ -16,7 +16,7 @@ use near_o11y::testonly::init_integration_logger;
 use near_primitives::hash::CryptoHash;
 use near_primitives::serialize::to_base64;
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::BlockId;
+use near_primitives::types::{Balance, BlockId};
 
 // Queries json-rpc block that doesn't exists
 // Checks if the struct is expected and contains the proper data
@@ -364,7 +364,7 @@ fn test_tx_invalid_tx_error() {
             "near.5".parse().unwrap(),
             "near.2".parse().unwrap(),
             &signer,
-            10000,
+            Balance::from_yoctonear(10000),
             genesis_hash,
         );
 

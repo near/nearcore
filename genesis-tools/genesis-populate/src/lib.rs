@@ -287,7 +287,7 @@ impl GenesisBuilder {
                 vec![],
                 Gas::ZERO,
                 self.genesis.config.gas_limit,
-                0,
+                Balance::ZERO,
                 Some(congestion_info),
                 chunk_header.bandwidth_requests().cloned().unwrap_or_else(BandwidthRequests::empty),
             );
@@ -317,8 +317,8 @@ impl GenesisBuilder {
     }
 
     fn add_additional_account(&mut self, account_id: AccountId) -> Result<()> {
-        let testing_init_balance: Balance = 10u128.pow(30);
-        let testing_init_stake: Balance = 0;
+        let testing_init_balance = Balance::from_near(1_000_000);
+        let testing_init_stake = Balance::ZERO;
         let shard_id = self.genesis.config.shard_layout.account_id_to_shard_id(&account_id);
         let mut records = self.unflushed_records.remove(&shard_id).unwrap_or_default();
         let mut state_update =

@@ -1,13 +1,12 @@
 use crate::setup::builder::{NodeStateBuilder, TestLoopBuilder};
 use crate::setup::env::TestLoopEnv;
-use crate::utils::ONE_NEAR;
 use crate::utils::client_queries::ClientQueries;
 use crate::utils::transactions::execute_money_transfers;
 use itertools::Itertools;
 use near_async::time::Duration;
 use near_chain_configs::test_genesis::{TestEpochConfigBuilder, ValidatorsSpec};
 use near_o11y::testonly::init_test_logger;
-use near_primitives::types::AccountId;
+use near_primitives::types::{AccountId, Balance};
 
 const NUM_CLIENTS: usize = 4;
 
@@ -24,7 +23,7 @@ fn slow_test_sync_from_genesis() {
         ValidatorsSpec::desired_roles(&clients.iter().map(|t| t.as_str()).collect_vec(), &[]);
     let genesis = TestLoopBuilder::new_genesis_builder()
         .validators_spec(validators_spec)
-        .add_user_accounts_simple(&accounts, 1_000_000 * ONE_NEAR)
+        .add_user_accounts_simple(&accounts, Balance::from_near(1_000_000))
         .genesis_height(10000)
         .build();
     let epoch_config_store = TestEpochConfigBuilder::from_genesis(&genesis)

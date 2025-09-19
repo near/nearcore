@@ -7,12 +7,11 @@ use near_chain_configs::test_genesis::{TestEpochConfigBuilder, ValidatorsSpec};
 use near_client::{GetValidatorInfo, ViewClientActorInner};
 use near_o11y::testonly::init_test_logger;
 use near_primitives::shard_layout::ShardLayout;
-use near_primitives::types::{AccountId, EpochId, EpochReference};
+use near_primitives::types::{AccountId, Balance, EpochId, EpochReference};
 use near_primitives::views::{CurrentEpochValidatorInfo, EpochValidatorInfo};
 
 use crate::setup::builder::TestLoopBuilder;
 use crate::setup::env::TestLoopEnv;
-use crate::utils::ONE_NEAR;
 use crate::utils::transactions::execute_money_transfers;
 
 const NUM_ACCOUNTS: usize = 20;
@@ -50,7 +49,7 @@ fn slow_test_stateless_validators_with_multi_test_loop() {
         .epoch_length(EPOCH_LENGTH)
         .shard_layout(shard_layout)
         .validators_spec(validators_spec)
-        .add_user_accounts_simple(&accounts, 1_000_000 * ONE_NEAR)
+        .add_user_accounts_simple(&accounts, Balance::from_near(1_000_000))
         .genesis_height(10000)
         .transaction_validity_period(1000)
         .build();

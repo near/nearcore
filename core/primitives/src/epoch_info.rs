@@ -8,7 +8,7 @@ use near_primitives_core::{
 };
 use smart_default::SmartDefault;
 
-use crate::rand::WeightedIndex;
+use crate::rand::StakeWeightedIndex;
 use crate::shard_layout::ShardLayout;
 use crate::types::validator_stake::{ValidatorStake, ValidatorStakeIter};
 use crate::types::{AccountId, ValidatorKickoutReason, ValidatorStakeV1};
@@ -75,8 +75,8 @@ pub struct EpochInfoV4 {
     pub protocol_version: ProtocolVersion,
     // stuff for selecting validators at each height
     rng_seed: RngSeed,
-    block_producers_sampler: crate::rand::WeightedIndex,
-    chunk_producers_sampler: Vec<crate::rand::WeightedIndex>,
+    block_producers_sampler: crate::rand::StakeWeightedIndex,
+    chunk_producers_sampler: Vec<crate::rand::StakeWeightedIndex>,
     /// Contains the epoch's validator mandates. Used to sample chunk validators.
     validator_mandates: crate::validator_mandates::ValidatorMandates,
 }
@@ -163,8 +163,8 @@ pub struct EpochInfoV3 {
     pub protocol_version: ProtocolVersion,
     // stuff for selecting validators at each height
     rng_seed: RngSeed,
-    block_producers_sampler: WeightedIndex,
-    chunk_producers_sampler: Vec<WeightedIndex>,
+    block_producers_sampler: StakeWeightedIndex,
+    chunk_producers_sampler: Vec<StakeWeightedIndex>,
 }
 
 impl EpochInfo {
@@ -183,8 +183,8 @@ impl EpochInfo {
         rng_seed: RngSeed,
         validator_mandates: ValidatorMandates,
     ) -> Self {
-        let stake_weights = |ids: &[ValidatorId]| -> WeightedIndex {
-            WeightedIndex::new(
+        let stake_weights = |ids: &[ValidatorId]| -> StakeWeightedIndex {
+            StakeWeightedIndex::new(
                 ids.iter()
                     .copied()
                     .map(|validator_id| validators[validator_id as usize].stake())

@@ -6,7 +6,6 @@ use near_crypto::PublicKey;
 use near_primitives_core::{
     account::{AccessKey, AccountContract},
     hash::CryptoHash,
-    serialize::dec_format,
     types::{AccountId, Balance, Gas},
 };
 use near_schema_checker_lib::ProtocolSchema;
@@ -282,8 +281,6 @@ pub struct FunctionCallAction {
     #[cfg_attr(feature = "schemars", schemars(with = "String"))]
     pub args: Vec<u8>,
     pub gas: Gas,
-    #[serde(with = "dec_format")]
-    #[cfg_attr(feature = "schemars", schemars(with = "String"))]
     pub deposit: Balance,
 }
 
@@ -313,8 +310,6 @@ impl fmt::Debug for FunctionCallAction {
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct StakeAction {
     /// Amount of tokens to stake.
-    #[serde(with = "dec_format")]
-    #[cfg_attr(feature = "schemars", schemars(with = "String"))]
     pub stake: Balance,
     /// Validator key which will be used to sign transactions on behalf of signer_id
     pub public_key: PublicKey,
@@ -333,8 +328,6 @@ pub struct StakeAction {
 )]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct TransferAction {
-    #[serde(with = "dec_format")]
-    #[cfg_attr(feature = "schemars", schemars(with = "String"))]
     pub deposit: Balance,
 }
 
@@ -390,7 +383,7 @@ impl Action {
         match self {
             Action::FunctionCall(a) => a.deposit,
             Action::Transfer(a) => a.deposit,
-            _ => 0,
+            _ => Balance::ZERO,
         }
     }
 }

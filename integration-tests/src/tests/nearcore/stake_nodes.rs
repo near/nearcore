@@ -11,7 +11,7 @@ use rand::Rng;
 use crate::utils::genesis_helpers::genesis_hash;
 use crate::utils::test_helpers::heavy_test;
 use near_actix_test_utils::run_actix;
-use near_chain_configs::{Genesis, NEAR_BASE, TrackedShardsConfig};
+use near_chain_configs::{Genesis, TrackedShardsConfig};
 use near_client::{GetBlock, ProcessTxRequest, Query, RpcHandler, ViewClientActorInner};
 use near_crypto::{InMemorySigner, Signer};
 use near_network::tcp;
@@ -19,7 +19,7 @@ use near_network::test_utils::{WaitOrTimeoutActor, convert_boot_nodes};
 use near_o11y::testonly::init_integration_logger;
 use near_primitives::hash::CryptoHash;
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{AccountId, BlockHeightDelta, BlockReference, NumSeats};
+use near_primitives::types::{AccountId, Balance, BlockHeightDelta, BlockReference, NumSeats};
 use near_primitives::views::{QueryRequest, QueryResponseKind, ValidatorInfo};
 use nearcore::{NearConfig, load_test_config, start_with_config};
 
@@ -65,7 +65,7 @@ fn init_test_staking(
     genesis.config.minimum_stake_divisor = minimum_stake_divisor;
     if !enable_rewards {
         genesis.config.max_inflation_rate = Ratio::from_integer(0);
-        genesis.config.min_gas_price = 0;
+        genesis.config.min_gas_price = Balance::ZERO;
     }
     let first_node = tcp::ListenerAddr::reserve_for_test();
 
@@ -194,11 +194,15 @@ fn slow_test_validator_kickout() {
                 4,
                 15,
                 false,
-                (TESTING_INIT_STAKE / NEAR_BASE) as u64 + 1,
+                TESTING_INIT_STAKE.as_near() as u64 + 1,
                 false,
             );
             let mut rng = rand::thread_rng();
-            let stakes = (0..num_nodes / 2).map(|_| NEAR_BASE + rng.gen_range(1..100));
+            let stakes = (0..num_nodes / 2).map(|_| {
+                Balance::from_near(1)
+                    .checked_add(Balance::from_yoctonear(rng.gen_range(1..100)))
+                    .unwrap()
+            });
             let stake_transactions = stakes.enumerate().map(|(i, stake)| {
                 let test_node = &test_nodes[i];
                 let signer = Arc::new(InMemorySigner::test_signer(&test_node.account_id));
@@ -260,7 +264,7 @@ fn slow_test_validator_kickout() {
                                 let actor =
                                     actor.then(move |res| match res.unwrap().unwrap().kind {
                                         QueryResponseKind::ViewAccount(result) => {
-                                            if result.locked == 0
+                                            if result.locked.is_zero()
                                                 || result.amount == TESTING_INIT_BALANCE
                                             {
                                                 mark.store(true, Ordering::SeqCst);
@@ -286,7 +290,9 @@ fn slow_test_validator_kickout() {
                                             assert_eq!(result.locked, TESTING_INIT_STAKE);
                                             assert_eq!(
                                                 result.amount,
-                                                TESTING_INIT_BALANCE - TESTING_INIT_STAKE
+                                                TESTING_INIT_BALANCE
+                                                    .checked_sub(TESTING_INIT_STAKE)
+                                                    .unwrap()
                                             );
                                             mark.store(true, Ordering::SeqCst);
                                             future::ready(())
@@ -341,7 +347,7 @@ fn ultra_slow_test_validator_join() {
                 1,
                 test_nodes[1].account_id.clone(),
                 &*signer,
-                0,
+                Balance::ZERO,
                 test_nodes[1].config.validator_signer.get().unwrap().public_key(),
                 test_nodes[1].genesis_hash,
             );
@@ -406,7 +412,7 @@ fn ultra_slow_test_validator_join() {
                             ));
                             let actor = actor.then(move |res| match res.unwrap().unwrap().kind {
                                 QueryResponseKind::ViewAccount(result) => {
-                                    if result.locked == 0 {
+                                    if result.locked.is_zero() {
                                         done1_copy2.store(true, Ordering::SeqCst);
                                     }
                                     future::ready(())
@@ -524,7 +530,7 @@ fn slow_test_inflation() {
                                         .await
                                         .unwrap()
                                         .unwrap();
-                                    (U256::from(initial_total_supply)
+                                    Balance::from_yoctonear((U256::from(initial_total_supply.as_yoctonear())
                                         * U256::from(
                                             epoch_end_block_view.header.timestamp_nanosec
                                                 - genesis_block_view.header.timestamp_nanosec,
@@ -532,7 +538,7 @@ fn slow_test_inflation() {
                                         * U256::from(*max_inflation_rate.numer() as u64)
                                         / (U256::from(10u64.pow(9) * 365 * 24 * 60 * 60)
                                             * U256::from(*max_inflation_rate.denom() as u64)))
-                                    .as_u128()
+                                    .as_u128())
                                 };
                                 // To match rounding, split into protocol reward and validator reward.
                                 // Protocol reward is one tenth of the base reward, while validator reward is the remainder.
@@ -545,12 +551,12 @@ fn slow_test_inflation() {
                                 //
                                 // For additional details check: chain/epoch-manager/src/reward_calculator.rs or
                                 // https://nomicon.io/Economics/Economic#validator-rewards-calculation
-                                let protocol_reward = base_reward * 1 / 10;
-                                let validator_reward = base_reward - protocol_reward;
+                                let protocol_reward = base_reward.checked_mul(1).unwrap().checked_div(10).unwrap();
+                                let validator_reward = base_reward.checked_sub(protocol_reward).unwrap();
                                 // Chunk endorsement ratio 9/10 is mapped to 1 so the reward multiplier becomes 20/27.
-                                let inflation = protocol_reward + validator_reward * 20 / 27;
+                                let inflation = protocol_reward.checked_add(validator_reward.checked_mul(20).unwrap().checked_div(27).unwrap()).unwrap();
                                 tracing::info!(?block.header.total_supply, ?block.header.height, ?initial_total_supply, epoch_length, ?inflation, "Step2: epoch2");
-                                if block.header.total_supply == initial_total_supply + inflation {
+                                if block.header.total_supply == initial_total_supply.checked_add(inflation).unwrap() {
                                     done2_copy2.store(true, Ordering::SeqCst);
                                 }
                             } else {

@@ -7,7 +7,7 @@ use near_parameters::vm::{Config as VMConfig, VMKind};
 use near_primitives::transaction::{
     Action, DeployContractAction, FunctionCallAction, SignedTransaction,
 };
-use near_primitives::types::Gas;
+use near_primitives::types::{Balance, Gas};
 use rand::Rng;
 use rand::distributions::Alphanumeric;
 use rand_xorshift::XorShiftRng;
@@ -309,7 +309,7 @@ fn function_call_action(method_name: String) -> Action {
         method_name,
         args: Vec::new(),
         gas: Gas::from_teragas(1000),
-        deposit: 0,
+        deposit: Balance::ZERO,
     }))
 }
 

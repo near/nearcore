@@ -39,7 +39,7 @@ fn run_with_seed(epoch_length: u64, num_heights: u64, test: u64) {
 }
 
 fn do_random_test<RngImpl: Rng>(rng: &mut RngImpl, epoch_length: u64, num_heights: u64) {
-    let stake_amount = 1_000;
+    let stake_amount = Balance::from_yoctonear(1_000);
 
     let validators = vec![
         ("test1".parse().unwrap(), stake_amount),
@@ -70,7 +70,7 @@ fn random_proposals<RngImpl: Rng>(rng: &mut RngImpl) -> Vec<ValidatorStake> {
     let proposal_chance = 0.2;
     if rng.gen_range(0.0..1.0) < proposal_chance {
         let account_id = AccountId::try_from(format!("test{}", rng.gen_range(1..6))).unwrap();
-        let stake_amount = rng.gen_range(100..2000);
+        let stake_amount = Balance::from_yoctonear(rng.gen_range(100..2000));
         proposals.push(stake(account_id, stake_amount));
     }
     proposals
@@ -142,12 +142,12 @@ fn verify_epochs(epoch_infos: &[Arc<EpochInfo>]) {
         let stakes_before_change = get_stakes_map(prev_epoch_info);
         assert!(!stakes_before_change.is_empty(), "validator set cannot be empty");
         for (_, stake) in &stakes_before_change {
-            assert_ne!(*stake, 0, "validators cannot have 0 stake");
+            assert_ne!(*stake, Balance::ZERO, "validators cannot have 0 stake");
         }
         let stakes_after_change = get_stakes_map(epoch_info);
         let mut stakes_with_change = stakes_before_change.clone();
         for (account_id, new_stake) in epoch_info.stake_change() {
-            if *new_stake == 0 {
+            if (*new_stake).is_zero() {
                 if !stakes_before_change.contains_key(account_id) {
                     // Stake change from 0 to 0
                     assert!(prev_epoch_info.validator_kickout().contains_key(account_id));

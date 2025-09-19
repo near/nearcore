@@ -82,7 +82,7 @@ fn test_promise_batch_action_function_call() {
                 103,
                 115
               ],
-              "attached_deposit": 0,
+              "attached_deposit": "0",
               "prepaid_gas": 0,
               "gas_weight": 0
             }
@@ -139,7 +139,7 @@ fn test_promise_batch_action_function_call() {
                 103,
                 115
               ],
-              "attached_deposit": 0,
+              "attached_deposit": "0",
               "prepaid_gas": 0,
               "gas_weight": 0
             }
@@ -200,7 +200,7 @@ fn test_promise_batch_action_create_account() {
                 103,
                 115
               ],
-              "attached_deposit": 0,
+              "attached_deposit": "0",
               "prepaid_gas": 0,
               "gas_weight": 0
             }
@@ -269,7 +269,7 @@ fn test_promise_batch_action_deploy_contract() {
                 103,
                 115
               ],
-              "attached_deposit": 0,
+              "attached_deposit": "0",
               "prepaid_gas": 0,
               "gas_weight": 0
             }
@@ -346,7 +346,7 @@ fn test_promise_batch_action_deploy_global_contract() {
                 103,
                 115
               ],
-              "attached_deposit": 0,
+              "attached_deposit": "0",
               "prepaid_gas": 0,
               "gas_weight": 0
             }
@@ -432,7 +432,7 @@ fn test_promise_batch_action_use_global_contract() {
                 103,
                 115
               ],
-              "attached_deposit": 0,
+              "attached_deposit": "0",
               "prepaid_gas": 0,
               "gas_weight": 0
             }
@@ -506,7 +506,7 @@ fn test_promise_batch_action_transfer() {
                 103,
                 115
               ],
-              "attached_deposit": 0,
+              "attached_deposit": "0",
               "prepaid_gas": 0,
               "gas_weight": 0
             }
@@ -514,7 +514,7 @@ fn test_promise_batch_action_transfer() {
           {
             "Transfer": {
               "receipt_index": 0,
-              "deposit": 110
+              "deposit": "110"
             }
           }
         ]"#]]
@@ -581,7 +581,7 @@ fn test_promise_batch_action_stake() {
                 103,
                 115
               ],
-              "attached_deposit": 0,
+              "attached_deposit": "0",
               "prepaid_gas": 0,
               "gas_weight": 0
             }
@@ -589,7 +589,7 @@ fn test_promise_batch_action_stake() {
           {
             "Stake": {
               "receipt_index": 0,
-              "stake": 110,
+              "stake": "110",
               "public_key": "ed25519:5do5nkAEVhL8iteDvXNgxi4pWK78Y7DDadX11ArFNyrf"
             }
           }
@@ -679,7 +679,7 @@ fn test_promise_batch_action_add_key_with_function_call() {
                 103,
                 115
               ],
-              "attached_deposit": 0,
+              "attached_deposit": "0",
               "prepaid_gas": 0,
               "gas_weight": 0
             }
@@ -689,7 +689,7 @@ fn test_promise_batch_action_add_key_with_function_call() {
               "receipt_index": 0,
               "public_key": "ed25519:5do5nkAEVhL8iteDvXNgxi4pWK78Y7DDadX11ArFNyrf",
               "nonce": 1,
-              "allowance": 999,
+              "allowance": "999",
               "receiver_id": "sam",
               "method_names": [
                 [
@@ -766,7 +766,7 @@ fn test_promise_batch_then() {
                 103,
                 115
               ],
-              "attached_deposit": 0,
+              "attached_deposit": "0",
               "prepaid_gas": 0,
               "gas_weight": 0
             }

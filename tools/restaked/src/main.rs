@@ -2,6 +2,7 @@ use clap::{Arg, Command};
 use near_chain_configs::BLOCK_PRODUCER_KICKOUT_THRESHOLD;
 use near_crypto::{InMemorySigner, KeyFile};
 use near_o11y::tracing::{error, info};
+use near_primitives::types::Balance;
 use near_primitives::views::CurrentEpochValidatorInfo;
 use nearcore::config::{CONFIG_FILENAME, Config};
 use nearcore::get_default_home;
@@ -65,9 +66,9 @@ fn main() {
         .map(|s| s.parse().expect("Wait period must be a number"))
         .unwrap();
     let rpc_url = matches.get_one::<String>("rpc-url").unwrap();
-    let stake_amount = matches
+    let stake_amount: Balance = matches
         .get_one::<String>("stake-amount")
-        .map(|s| s.parse().expect("Stake amount must be a number"))
+        .map(|s| Balance::from_yoctonear(s.parse().expect("Stake amount must be a number")))
         .unwrap();
 
     let config = Config::from_file(&home_dir.join(CONFIG_FILENAME)).expect("can't load config");
@@ -118,7 +119,7 @@ fn main() {
             .any(|validator_info| validator_info.account_id == account_id);
         if restake {
             // Already kicked out or getting kicked out.
-            let amount = if stake_amount == 0 { last_stake_amount } else { stake_amount };
+            let amount = if stake_amount.is_zero() { last_stake_amount } else { stake_amount };
             info!(
                 target: "restaked",
                 "Sending staking transaction {} -> {}", key_file.account_id, amount

@@ -22,9 +22,6 @@ pub(crate) mod transactions;
 pub(crate) mod trie_sanity;
 pub(crate) mod validators;
 
-pub(crate) const ONE_NEAR: u128 = 1_000_000_000_000_000_000_000_000;
-pub(crate) const TGAS: u64 = 1_000_000_000_000;
-
 pub(crate) fn get_node_client<'a>(
     env: &'a TestLoopEnv,
     client_account_id: &AccountId,

@@ -3,7 +3,7 @@ use aurora_engine_transactions::EthTransactionKind;
 use aurora_engine_transactions::eip_2930::Transaction2930;
 use aurora_engine_types::types::{Address, Wei};
 use ethabi::ethereum_types::U256;
-use near_chain_configs::{Genesis, NEAR_BASE};
+use near_chain_configs::Genesis;
 use near_client::ProcessTxResponse;
 use near_crypto::{InMemorySigner, KeyType, PublicKey, SecretKey, Signer};
 use near_primitives::account::id::AccountIdRef;
@@ -14,7 +14,7 @@ use near_primitives::transaction::{
     Action, AddKeyAction, DeployContractAction, FunctionCallAction, SignedTransaction,
     TransferAction,
 };
-use near_primitives::types::Gas;
+use near_primitives::types::{Balance, Gas};
 use near_primitives::utils::derive_eth_implicit_account_id;
 use near_primitives::views::{
     FinalExecutionStatus, QueryRequest, QueryResponse, QueryResponseKind,
@@ -66,7 +66,7 @@ fn view_request(env: &TestEnv, request: QueryRequest) -> QueryResponse {
         .unwrap()
 }
 
-pub fn view_balance(env: &TestEnv, account: &AccountIdRef) -> u128 {
+pub fn view_balance(env: &TestEnv, account: &AccountIdRef) -> Balance {
     let request = QueryRequest::ViewAccount { account_id: account.into() };
     match view_request(&env, request).kind {
         QueryResponseKind::ViewAccount(view) => view.amount,
@@ -99,7 +99,7 @@ fn test_eth_implicit_account_creation() {
         signer.get_account_id(),
         eth_implicit_account_id.clone(),
         &signer,
-        0,
+        Balance::ZERO,
         *genesis_block.hash(),
     );
     assert_eq!(
@@ -117,7 +117,7 @@ fn test_eth_implicit_account_creation() {
     let request = QueryRequest::ViewAccount { account_id: eth_implicit_account_id.clone() };
     match view_request(&env, request).kind {
         QueryResponseKind::ViewAccount(view) => {
-            assert_eq!(view.amount, 0);
+            assert!(view.amount.is_zero());
             assert_eq!(view.code_hash, *magic_bytes.hash());
             assert!(view.storage_usage <= ZERO_BALANCE_ACCOUNT_STORAGE_LIMIT)
         }
@@ -143,7 +143,7 @@ fn test_transaction_from_eth_implicit_account_fail() {
     let mut env = TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build();
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
     let chain_id = &genesis.config.chain_id;
-    let deposit_for_account_creation = NEAR_BASE;
+    let deposit_for_account_creation = Balance::from_near(1);
     let mut height = 1;
     let blocks_number = 5;
     let signer1 = InMemorySigner::test_signer(&"test1".parse().unwrap());
@@ -175,7 +175,7 @@ fn test_transaction_from_eth_implicit_account_fail() {
         eth_implicit_account_id.clone(),
         "test0".parse().unwrap(),
         &eth_implicit_account_signer,
-        100,
+        Balance::from_yoctonear(100),
         *block.hash(),
     );
     let response =
@@ -259,7 +259,7 @@ fn test_wallet_contract_interaction() {
     // Create ETH-implicit account by funding it.
     // Although ETH-implicit account can be zero-balance, we pick a non-zero amount
     // here in order to make transfer later from this account.
-    let deposit_for_account_creation = NEAR_BASE;
+    let deposit_for_account_creation = Balance::from_near(1);
     let actions = vec![Action::Transfer(TransferAction { deposit: deposit_for_account_creation })];
     let nonce = view_nonce(&env, relayer_signer.account_id, relayer_signer.signer.public_key()) + 1;
     let block_hash = *genesis_block.hash();
@@ -307,7 +307,7 @@ fn test_wallet_contract_interaction() {
     let init_receiver_balance = view_balance(&env, &receiver);
 
     // The user signs a transaction to transfer some $NEAR
-    let transfer_amount = NEAR_BASE / 7;
+    let transfer_amount = Balance::from_near(1).checked_div(7).unwrap();
     let action = Action::Transfer(TransferAction { deposit: transfer_amount });
     let signed_transaction = create_rlp_execute_tx(
         &receiver,
@@ -327,14 +327,19 @@ fn test_wallet_contract_interaction() {
     let tip = env.clients[0].chain.head().unwrap();
     let runtime_config = env.get_runtime_config(0, tip.epoch_id);
     let gas_price = env.clients[0].chain.block_economics_config.min_gas_price();
-    let refund_penalty =
-        u128::from(runtime_config.fees.gas_penalty_for_gas_refund(prepaid_gas).as_gas())
-            * gas_price;
+    let refund_penalty = gas_price
+        .checked_mul(u128::from(
+            runtime_config.fees.gas_penalty_for_gas_refund(prepaid_gas).as_gas(),
+        ))
+        .unwrap();
 
-    assert_eq!(final_receiver_balance - init_receiver_balance, transfer_amount);
-    let wallet_balance_diff = init_wallet_balance - final_wallet_balance;
+    assert_eq!(final_receiver_balance.checked_sub(init_receiver_balance).unwrap(), transfer_amount);
+    let wallet_balance_diff = init_wallet_balance.checked_sub(final_wallet_balance).unwrap();
     // Wallet balance is a little lower due to gas fees.
-    assert!(wallet_balance_diff - transfer_amount < NEAR_BASE / 500 + refund_penalty);
+    assert!(
+        wallet_balance_diff.checked_sub(transfer_amount).unwrap()
+            < Balance::from_near(1).checked_div(500).unwrap().checked_add(refund_penalty).unwrap()
+    );
 }
 
 pub fn create_rlp_execute_tx(
@@ -354,13 +359,13 @@ pub fn create_rlp_execute_tx(
     let value = match &mut action {
         Action::Transfer(tx) => {
             let raw_amount = tx.deposit;
-            tx.deposit = raw_amount % MAX_YOCTO_NEAR;
-            Wei::new_u128(raw_amount / MAX_YOCTO_NEAR)
+            tx.deposit = Balance::from_yoctonear(raw_amount.as_yoctonear() % MAX_YOCTO_NEAR);
+            Wei::new_u128(raw_amount.as_yoctonear() / MAX_YOCTO_NEAR)
         }
         Action::FunctionCall(fn_call) => {
             let raw_amount = fn_call.deposit;
-            fn_call.deposit = raw_amount % MAX_YOCTO_NEAR;
-            Wei::new_u128(raw_amount / MAX_YOCTO_NEAR)
+            fn_call.deposit = Balance::from_yoctonear(raw_amount.as_yoctonear() % MAX_YOCTO_NEAR);
+            Wei::new_u128(raw_amount.as_yoctonear() / MAX_YOCTO_NEAR)
         }
         _ => Wei::zero(),
     };
@@ -391,7 +396,7 @@ pub fn create_rlp_execute_tx(
         method_name: "rlp_execute".into(),
         args,
         gas: Gas::from_teragas(300),
-        deposit: 0,
+        deposit: Balance::ZERO,
     }))];
     let nonce = view_nonce(env, near_signer.account_id, near_signer.signer.public_key()) + 1;
     let block_hash = *env.clients[0].chain.get_head_block().unwrap().hash();
@@ -426,7 +431,9 @@ fn abi_encode(target: String, action: Action) -> Vec<u8> {
             let nonce = add_key.access_key.nonce;
             let (is_full_access, is_limited_allowance, allowance, receiver_id, method_names) =
                 match add_key.access_key.permission {
-                    AccessKeyPermission::FullAccess => (true, false, 0, String::new(), Vec::new()),
+                    AccessKeyPermission::FullAccess => {
+                        (true, false, Balance::ZERO, String::new(), Vec::new())
+                    }
                     AccessKeyPermission::FunctionCall(permission) => (
                         false,
                         permission.allowance.is_some(),
@@ -442,7 +449,7 @@ fn abi_encode(target: String, action: Action) -> Vec<u8> {
                 ethabi::Token::Uint(nonce.into()),
                 ethabi::Token::Bool(is_full_access),
                 ethabi::Token::Bool(is_limited_allowance),
-                ethabi::Token::Uint(allowance.into()),
+                ethabi::Token::Uint(allowance.as_yoctonear().into()),
                 ethabi::Token::String(receiver_id),
                 ethabi::Token::Array(method_names.into_iter().map(ethabi::Token::String).collect()),
             ];
@@ -450,7 +457,10 @@ fn abi_encode(target: String, action: Action) -> Vec<u8> {
         }
         Action::Transfer(tx) => {
             buf.extend_from_slice(TRANSFER_SELECTOR);
-            let tokens = &[ethabi::Token::String(target), ethabi::Token::Uint(tx.deposit.into())];
+            let tokens = &[
+                ethabi::Token::String(target),
+                ethabi::Token::Uint(tx.deposit.as_yoctonear().into()),
+            ];
             buf.extend_from_slice(&ethabi::encode(tokens));
         }
         _ => unimplemented!(),

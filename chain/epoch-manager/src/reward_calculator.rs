@@ -77,24 +77,31 @@ impl RewardCalculator {
         } else {
             self.protocol_reward_rate
         };
-        let epoch_total_reward: u128 = (U256::from(*max_inflation_rate.numer() as u64)
-            * U256::from(total_supply)
-            * U256::from(epoch_duration)
-            / (U256::from(self.num_seconds_per_year)
-                * U256::from(*max_inflation_rate.denom() as u64)
-                * U256::from(NUM_NS_IN_SECOND)))
-        .as_u128();
-        let epoch_protocol_treasury = (U256::from(epoch_total_reward)
-            * U256::from(*protocol_reward_rate.numer() as u64)
-            / U256::from(*protocol_reward_rate.denom() as u64))
-        .as_u128();
+        let epoch_total_reward = Balance::from_yoctonear(
+            (U256::from(*max_inflation_rate.numer() as u64)
+                * U256::from(total_supply.as_yoctonear())
+                * U256::from(epoch_duration)
+                / (U256::from(self.num_seconds_per_year)
+                    * U256::from(*max_inflation_rate.denom() as u64)
+                    * U256::from(NUM_NS_IN_SECOND)))
+            .as_u128(),
+        );
+        let epoch_protocol_treasury = Balance::from_yoctonear(
+            (U256::from(epoch_total_reward.as_yoctonear())
+                * U256::from(*protocol_reward_rate.numer() as u64)
+                / U256::from(*protocol_reward_rate.denom() as u64))
+            .as_u128(),
+        );
         res.insert(self.protocol_treasury_account.clone(), epoch_protocol_treasury);
         if num_validators == 0 {
-            return (res, 0);
+            return (res, Balance::ZERO);
         }
-        let epoch_validator_reward = epoch_total_reward - epoch_protocol_treasury;
+        let epoch_validator_reward =
+            epoch_total_reward.checked_sub(epoch_protocol_treasury).unwrap();
         let mut epoch_actual_reward = epoch_protocol_treasury;
-        let total_stake: Balance = validator_stake.values().sum();
+        let total_stake: Balance = validator_stake
+            .values()
+            .fold(Balance::ZERO, |sum, item| sum.checked_add(*item).unwrap());
         for (account_id, stats) in validator_block_chunk_stats {
             let production_ratio =
                 get_validator_online_ratio(&stats, online_thresholds.endorsement_cutoff_threshold);
@@ -114,7 +121,7 @@ impl RewardCalculator {
                 < online_min_numer * average_produced_denom
                 || (expected_chunks == 0 && expected_blocks == 0 && expected_endorsements == 0)
             {
-                0
+                Balance::ZERO
             } else {
                 // cspell:ignore denum
                 let stake = *validator_stake
@@ -134,13 +141,17 @@ impl RewardCalculator {
                 // Apply min between 1. and computed uptime.
                 uptime_numer =
                     if uptime_numer > uptime_denum { uptime_denum } else { uptime_numer };
-                (U512::from(epoch_validator_reward) * U512::from(uptime_numer) * U512::from(stake)
-                    / U512::from(uptime_denum)
-                    / U512::from(total_stake))
-                .as_u128()
+                Balance::from_yoctonear(
+                    (U512::from(epoch_validator_reward.as_yoctonear())
+                        * U512::from(uptime_numer)
+                        * U512::from(stake.as_yoctonear())
+                        / U512::from(uptime_denum)
+                        / U512::from(total_stake.as_yoctonear()))
+                    .as_u128(),
+                )
             };
             res.insert(account_id, reward);
-            epoch_actual_reward += reward;
+            epoch_actual_reward = epoch_actual_reward.checked_add(reward).unwrap();
         }
         (res, epoch_actual_reward)
     }
@@ -182,9 +193,11 @@ mod tests {
                 },
             ),
         ]);
-        let validator_stake =
-            HashMap::from([("test1".parse().unwrap(), 100), ("test2".parse().unwrap(), 100)]);
-        let total_supply = 1_000_000_000_000;
+        let validator_stake = HashMap::from([
+            ("test1".parse().unwrap(), Balance::from_yoctonear(100)),
+            ("test2".parse().unwrap(), Balance::from_yoctonear(100)),
+        ]);
+        let total_supply = Balance::from_yoctonear(1_000_000_000_000);
         let result = reward_calculator.calculate_reward(
             validator_block_chunk_stats,
             &validator_stake,
@@ -200,9 +213,9 @@ mod tests {
         assert_eq!(
             result.0,
             HashMap::from([
-                ("near".parse().unwrap(), 0u128),
-                ("test1".parse().unwrap(), 0u128),
-                ("test2".parse().unwrap(), 0u128)
+                ("near".parse().unwrap(), Balance::ZERO),
+                ("test1".parse().unwrap(), Balance::ZERO),
+                ("test2".parse().unwrap(), Balance::ZERO)
             ])
         );
     }
@@ -244,11 +257,11 @@ mod tests {
             ),
         ]);
         let validator_stake = HashMap::from([
-            ("test1".parse().unwrap(), 500_000),
-            ("test2".parse().unwrap(), 500_000),
-            ("test3".parse().unwrap(), 500_000),
+            ("test1".parse().unwrap(), Balance::from_yoctonear(500_000)),
+            ("test2".parse().unwrap(), Balance::from_yoctonear(500_000)),
+            ("test3".parse().unwrap(), Balance::from_yoctonear(500_000)),
         ]);
-        let total_supply = 1_000_000_000;
+        let total_supply = Balance::from_yoctonear(1_000_000_000);
         let result = reward_calculator.calculate_reward(
             validator_block_chunk_stats,
             &validator_stake,
@@ -266,13 +279,13 @@ mod tests {
         assert_eq!(
             result.0,
             HashMap::from([
-                ("near".parse().unwrap(), 0),
-                ("test1".parse().unwrap(), 1_666_666u128),
-                ("test2".parse().unwrap(), 3_333_333u128),
-                ("test3".parse().unwrap(), 0u128)
+                ("near".parse().unwrap(), Balance::ZERO),
+                ("test1".parse().unwrap(), Balance::from_yoctonear(1_666_666)),
+                ("test2".parse().unwrap(), Balance::from_yoctonear(3_333_333)),
+                ("test3".parse().unwrap(), Balance::ZERO)
             ])
         );
-        assert_eq!(result.1, 4_999_999u128);
+        assert_eq!(result.1, Balance::from_yoctonear(4_999_999));
     }
 
     /// Test reward calculation for chunk only or block only producers
@@ -323,12 +336,12 @@ mod tests {
             ),
         ]);
         let validator_stake = HashMap::from([
-            ("test1".parse().unwrap(), 500_000),
-            ("test2".parse().unwrap(), 500_000),
-            ("test3".parse().unwrap(), 500_000),
-            ("test4".parse().unwrap(), 500_000),
+            ("test1".parse().unwrap(), Balance::from_yoctonear(500_000)),
+            ("test2".parse().unwrap(), Balance::from_yoctonear(500_000)),
+            ("test3".parse().unwrap(), Balance::from_yoctonear(500_000)),
+            ("test4".parse().unwrap(), Balance::from_yoctonear(500_000)),
         ]);
-        let total_supply = 1_000_000_000;
+        let total_supply = Balance::from_yoctonear(1_000_000_000);
         let result = reward_calculator.calculate_reward(
             validator_block_chunk_stats,
             &validator_stake,
@@ -347,14 +360,14 @@ mod tests {
             assert_eq!(
                 result.0,
                 HashMap::from([
-                    ("near".parse().unwrap(), 0),
-                    ("test1".parse().unwrap(), 1_250_000u128),
-                    ("test2".parse().unwrap(), 2_500_000u128),
-                    ("test3".parse().unwrap(), 1_250_000u128),
-                    ("test4".parse().unwrap(), 0u128)
+                    ("near".parse().unwrap(), Balance::ZERO),
+                    ("test1".parse().unwrap(), Balance::from_yoctonear(1_250_000)),
+                    ("test2".parse().unwrap(), Balance::from_yoctonear(2_500_000)),
+                    ("test3".parse().unwrap(), Balance::from_yoctonear(1_250_000)),
+                    ("test4".parse().unwrap(), Balance::ZERO)
                 ])
             );
-            assert_eq!(result.1, 5_000_000u128);
+            assert_eq!(result.1, Balance::from_yoctonear(5_000_000));
         }
     }
 
@@ -411,12 +424,12 @@ mod tests {
             ),
         ]);
         let validator_stake = HashMap::from([
-            ("test1".parse().unwrap(), 500_000),
-            ("test2".parse().unwrap(), 500_000),
-            ("test3".parse().unwrap(), 500_000),
-            ("test4".parse().unwrap(), 500_000),
+            ("test1".parse().unwrap(), Balance::from_yoctonear(500_000)),
+            ("test2".parse().unwrap(), Balance::from_yoctonear(500_000)),
+            ("test3".parse().unwrap(), Balance::from_yoctonear(500_000)),
+            ("test4".parse().unwrap(), Balance::from_yoctonear(500_000)),
         ]);
-        let total_supply = 1_000_000_000;
+        let total_supply = Balance::from_yoctonear(1_000_000_000);
         let result = reward_calculator.calculate_reward(
             validator_block_chunk_stats,
             &validator_stake,
@@ -435,14 +448,14 @@ mod tests {
             assert_eq!(
                 result.0,
                 HashMap::from([
-                    ("near".parse().unwrap(), 0),
-                    ("test1".parse().unwrap(), 1_250_000u128),
-                    ("test2".parse().unwrap(), 2_500_000u128),
-                    ("test3".parse().unwrap(), 1_250_000u128),
-                    ("test4".parse().unwrap(), 2_500_000u128)
+                    ("near".parse().unwrap(), Balance::ZERO),
+                    ("test1".parse().unwrap(), Balance::from_yoctonear(1_250_000)),
+                    ("test2".parse().unwrap(), Balance::from_yoctonear(2_500_000)),
+                    ("test3".parse().unwrap(), Balance::from_yoctonear(1_250_000)),
+                    ("test4".parse().unwrap(), Balance::from_yoctonear(2_500_000))
                 ])
             );
-            assert_eq!(result.1, 7_500_000u128);
+            assert_eq!(result.1, Balance::from_yoctonear(7_500_000));
         }
     }
 
@@ -499,12 +512,12 @@ mod tests {
             ),
         ]);
         let validator_stake = HashMap::from([
-            ("test1".parse().unwrap(), 500_000),
-            ("test2".parse().unwrap(), 500_000),
-            ("test3".parse().unwrap(), 500_000),
-            ("test4".parse().unwrap(), 500_000),
+            ("test1".parse().unwrap(), Balance::from_yoctonear(500_000)),
+            ("test2".parse().unwrap(), Balance::from_yoctonear(500_000)),
+            ("test3".parse().unwrap(), Balance::from_yoctonear(500_000)),
+            ("test4".parse().unwrap(), Balance::from_yoctonear(500_000)),
         ]);
-        let total_supply = 1_000_000_000;
+        let total_supply = Balance::from_yoctonear(1_000_000_000);
         let result = reward_calculator.calculate_reward(
             validator_block_chunk_stats,
             &validator_stake,
@@ -524,14 +537,14 @@ mod tests {
             assert_eq!(
                 result.0,
                 HashMap::from([
-                    ("near".parse().unwrap(), 0),
-                    ("test1".parse().unwrap(), 1_750_000u128),
-                    ("test2".parse().unwrap(), 0),
-                    ("test3".parse().unwrap(), 2_500_000u128),
-                    ("test4".parse().unwrap(), 0)
+                    ("near".parse().unwrap(), Balance::ZERO),
+                    ("test1".parse().unwrap(), Balance::from_yoctonear(1_750_000)),
+                    ("test2".parse().unwrap(), Balance::ZERO),
+                    ("test3".parse().unwrap(), Balance::from_yoctonear(2_500_000)),
+                    ("test4".parse().unwrap(), Balance::ZERO)
                 ])
             );
-            assert_eq!(result.1, 4_250_000u128);
+            assert_eq!(result.1, Balance::from_yoctonear(4_250_000));
         }
     }
 
@@ -560,9 +573,10 @@ mod tests {
                 },
             },
         )]);
-        let validator_stake = HashMap::from([("test".parse().unwrap(), 500_000 * 10_u128.pow(24))]);
+        let validator_stake =
+            HashMap::from([("test".parse().unwrap(), Balance::from_near(500_000))]);
         // some hypothetical large total supply (100b)
-        let total_supply = 100_000_000_000 * 10_u128.pow(24);
+        let total_supply = Balance::from_near(100_000_000_000);
         reward_calculator.calculate_reward(
             validator_block_chunk_stats,
             &validator_stake,

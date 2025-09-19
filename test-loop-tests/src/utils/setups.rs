@@ -5,13 +5,12 @@ use itertools::Itertools;
 use near_chain_configs::test_genesis::{TestEpochConfigBuilder, ValidatorsSpec};
 use near_primitives::epoch_manager::EpochConfig;
 use near_primitives::shard_layout::ShardLayout;
-use near_primitives::types::AccountId;
+use near_primitives::types::{AccountId, Balance};
 use near_primitives::upgrade_schedule::ProtocolUpgradeVotingSchedule;
 use near_vm_runner::logic::ProtocolVersion;
 
 use crate::setup::builder::TestLoopBuilder;
 use crate::setup::env::TestLoopEnv;
-use crate::utils::ONE_NEAR;
 
 /// 2 producers, 2 validators, 1 rpc node, 4 shards, 20 accounts (account{i}) with 10k NEAR each.
 pub fn standard_setup_1() -> TestLoopEnv {
@@ -43,7 +42,7 @@ pub fn standard_setup_1() -> TestLoopEnv {
         .epoch_length(epoch_length)
         .shard_layout(shard_layout)
         .validators_spec(validators_spec)
-        .add_user_accounts_simple(&accounts, 10_000 * ONE_NEAR)
+        .add_user_accounts_simple(&accounts, Balance::from_near(10_000))
         .genesis_height(10000)
         .transaction_validity_period(1000)
         .build();
