@@ -49,13 +49,11 @@ fn setup_env(genesis: &Genesis) -> TestEnv {
 }
 
 fn calc_total_supply(env: &mut TestEnv) -> Balance {
-    ["near", "test0", "test1"]
-        .iter()
-        .map(|account_id| {
-            let account = env.query_account(account_id.parse().unwrap());
-            account.amount.checked_add(account.locked).unwrap()
-        })
-        .fold(Balance::ZERO, |sum, item| sum.checked_add(item).unwrap())
+    ["near", "test0", "test1"].iter().fold(Balance::ZERO, |sum, account_id| {
+        let account = env.query_account(account_id.parse().unwrap());
+        let to_add = account.amount.checked_add(account.locked).unwrap();
+        sum.checked_add(to_add).unwrap()
+    })
 }
 
 /// Test that node mints and burns tokens correctly with fees and epoch rewards.

@@ -360,12 +360,12 @@ pub fn create_rlp_execute_tx(
         Action::Transfer(tx) => {
             let raw_amount = tx.deposit;
             tx.deposit = Balance::from_yoctonear(raw_amount.as_yoctonear() % MAX_YOCTO_NEAR);
-            Wei::new_u128(raw_amount.checked_div(MAX_YOCTO_NEAR).unwrap().as_yoctonear())
+            Wei::new_u128(raw_amount.as_yoctonear() / MAX_YOCTO_NEAR)
         }
         Action::FunctionCall(fn_call) => {
             let raw_amount = fn_call.deposit;
             fn_call.deposit = Balance::from_yoctonear(raw_amount.as_yoctonear() % MAX_YOCTO_NEAR);
-            Wei::new_u128(raw_amount.checked_div(MAX_YOCTO_NEAR).unwrap().as_yoctonear())
+            Wei::new_u128(raw_amount.as_yoctonear() / MAX_YOCTO_NEAR)
         }
         _ => Wei::zero(),
     };

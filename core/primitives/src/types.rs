@@ -791,12 +791,8 @@ pub mod validator_stake {
         ///
         /// Panics if the number of mandates overflows `u16`.
         pub fn num_mandates(&self, stake_per_mandate: Balance) -> u16 {
-            // Integer division in Rust returns the floor as described here
-            // https://doc.rust-lang.org/std/primitive.u64.html#method.div_euclid
-            u16::try_from(
-                self.stake().checked_div(stake_per_mandate.as_yoctonear()).unwrap().as_yoctonear(),
-            )
-            .expect("number of mandates should fit u16")
+            u16::try_from(self.stake().as_yoctonear() / stake_per_mandate.as_yoctonear())
+                .expect("number of mandates should fit u16")
         }
 
         /// Returns the weight attributed to the validator's partial mandate.

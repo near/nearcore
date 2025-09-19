@@ -299,16 +299,13 @@ pub(crate) async fn convert_block_changes_to_transactions(
                     near_primitives::views::StateChangeCauseView::TransactionProcessing {
                         tx_hash,
                     } => transactions_in_block.get(tx_hash).and_then(|t| {
-                        let total_sum = t
-                            .actions
-                            .iter()
-                            .map(|action| match action {
+                        let total_sum =
+                            t.actions.iter().fold(Balance::ZERO, |sum, action| match action {
                                 near_primitives::views::ActionView::Transfer { deposit } => {
-                                    *deposit
+                                    sum.checked_add(*deposit).unwrap()
                                 }
-                                _ => Balance::ZERO,
-                            })
-                            .fold(Balance::ZERO, |sum, item| sum.checked_add(item).unwrap());
+                                _ => sum,
+                            });
                         if total_sum.is_zero() { None } else { Some(total_sum) }
                     }),
                     _ => None,

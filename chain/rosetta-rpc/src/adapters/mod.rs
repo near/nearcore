@@ -1052,7 +1052,7 @@ mod tests {
             crate::models::Operation {
                 type_: crate::models::OperationType::Transfer,
                 account: "sender.near".parse().unwrap(),
-                amount: Some(-crate::models::Amount::from_balance(Balance::from_yoctonear(2))),
+                amount: Some(-crate::models::Amount::from_yoctonear(2)),
                 operation_identifier: sender_transfer_operation_id.clone(),
                 related_operations: None,
                 status: None,
@@ -1346,7 +1346,7 @@ mod tests {
                 type_: crate::models::OperationType::Transfer,
                 account: "sender.near".parse().unwrap(),
                 // This is expected to match the amount in the FunctionCallOperation
-                amount: Some(-crate::models::Amount::from_balance(Balance::from_yoctonear(2))),
+                amount: Some(-crate::models::Amount::from_yoctonear(2)),
                 operation_identifier: fund_transfer_function_call_operation_id.clone(),
                 related_operations: None,
                 status: None,

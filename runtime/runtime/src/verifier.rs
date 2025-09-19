@@ -53,8 +53,9 @@ pub fn check_storage_stake(
     runtime_config: &RuntimeConfig,
 ) -> Result<(), StorageStakingError> {
     let billable_storage_bytes = account.storage_usage();
-    let required_amount = Balance::from_yoctonear(billable_storage_bytes.into())
-        .checked_mul(runtime_config.storage_amount_per_byte().as_yoctonear())
+    let required_amount = runtime_config
+        .storage_amount_per_byte()
+        .checked_mul(u128::from(billable_storage_bytes))
         .ok_or_else(|| {
             format!(
                 "Account's billable storage usage {} overflows multiplication",
@@ -933,7 +934,7 @@ mod tests {
         // All burned gas goes to the validators at current gas price
         assert_eq!(
             verification_result.burnt_amount,
-            gas_price.checked_mul(verification_result.gas_burnt.as_gas().into()).unwrap()
+            gas_price.checked_mul(u128::from(verification_result.gas_burnt.as_gas())).unwrap()
         );
 
         let account = get_account(&state_update, &alice_account()).unwrap().unwrap();
@@ -944,7 +945,7 @@ mod tests {
                 .checked_sub(
                     verification_result
                         .receipt_gas_price
-                        .checked_mul(verification_result.gas_remaining.as_gas().into())
+                        .checked_mul(u128::from(verification_result.gas_remaining.as_gas()))
                         .unwrap()
                 )
                 .unwrap()
@@ -1319,7 +1320,7 @@ mod tests {
                 signer_id: account_id,
                 amount: config
                     .storage_amount_per_byte()
-                    .checked_mul(account.storage_usage().into())
+                    .checked_mul(u128::from(account.storage_usage()))
                     .unwrap()
                     .checked_sub(initial_balance.checked_sub(transfer_amount).unwrap())
                     .unwrap()

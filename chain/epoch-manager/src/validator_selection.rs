@@ -319,7 +319,7 @@ fn apply_epoch_update_to_proposals(
         }
         let p = proposals_by_account.entry(account_id).or_insert(r);
         if let Some(reward) = validator_reward.get(p.account_id()) {
-            *p.stake_mut() = (*p.stake_mut()).checked_add(*reward).unwrap();
+            *p.stake_mut() = p.stake().checked_add(*reward).unwrap();
         }
         stake_change.insert(p.account_id().clone(), p.stake());
     }
@@ -502,7 +502,7 @@ mod tests {
         let proposals = create_proposals((2..(2 * num_bp_seats + num_cp_seats)).map(|i| {
             (
                 format!("test{}", i),
-                Balance::from_yoctonear((2000 + i).into()),
+                Balance::from_yoctonear(u128::from(2000 + i)),
                 if i <= num_cp_seats {
                     Proposal::ChunkOnlyProducer
                 } else {
@@ -588,7 +588,7 @@ mod tests {
         let proposals = create_proposals((2..(2 * num_bp_seats + num_cp_seats)).map(|i| {
             (
                 format!("test{}", i),
-                Balance::from_yoctonear((2000 + i).into()),
+                Balance::from_yoctonear(u128::from(2000 + i)),
                 if i <= num_cp_seats {
                     Proposal::ChunkOnlyProducer
                 } else {

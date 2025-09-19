@@ -14,27 +14,28 @@ use near_schema_checker_lib::ProtocolSchema;
     Eq,
     ProtocolSchema,
 )]
-pub struct WeightedIndex {
-    weight_sum: Balance,
+pub struct StakeWeightedIndex {
+    stake_sum: Balance,
     aliases: Vec<u64>,
     no_alias_odds: Vec<Balance>,
 }
 
 // cspell:words bigs
-impl WeightedIndex {
-    pub fn new(weights: Vec<Balance>) -> Self {
-        let n = weights.len() as u64;
-        let mut aliases = Aliases::new(weights.len());
+// TODO: move out of
+impl StakeWeightedIndex {
+    pub fn new(stakes: Vec<Balance>) -> Self {
+        let n = stakes.len() as u64;
+        let mut aliases = Aliases::new(stakes.len());
 
-        let mut no_alias_odds = weights;
-        let mut weight_sum = Balance::ZERO;
+        let mut no_alias_odds = stakes;
+        let mut stake_sum = Balance::ZERO;
         for w in &mut no_alias_odds {
-            weight_sum = weight_sum.checked_add(*w).unwrap();
-            *w = (*w).checked_mul(n.into()).unwrap();
+            stake_sum = stake_sum.checked_add(*w).unwrap();
+            *w = (*w).checked_mul(u128::from(n)).unwrap();
         }
 
         for (index, &odds) in no_alias_odds.iter().enumerate() {
-            if odds < weight_sum {
+            if odds < stake_sum {
                 aliases.push_small(index);
             } else {
                 aliases.push_big(index);
@@ -47,12 +48,12 @@ impl WeightedIndex {
 
             aliases.set_alias(s, b);
             no_alias_odds[b] = no_alias_odds[b]
-                .checked_sub(weight_sum)
+                .checked_sub(stake_sum)
                 .unwrap()
                 .checked_add(no_alias_odds[s])
                 .unwrap();
 
-            if no_alias_odds[b] < weight_sum {
+            if no_alias_odds[b] < stake_sum {
                 aliases.push_small(b);
             } else {
                 aliases.push_big(b);
@@ -60,25 +61,25 @@ impl WeightedIndex {
         }
 
         while !aliases.smalls_is_empty() {
-            no_alias_odds[aliases.pop_small()] = weight_sum;
+            no_alias_odds[aliases.pop_small()] = stake_sum;
         }
 
         while !aliases.bigs_is_empty() {
-            no_alias_odds[aliases.pop_big()] = weight_sum;
+            no_alias_odds[aliases.pop_big()] = stake_sum;
         }
 
-        Self { weight_sum, no_alias_odds, aliases: aliases.get_aliases() }
+        Self { stake_sum, no_alias_odds, aliases: aliases.get_aliases() }
     }
 
     pub fn sample(&self, seed: [u8; 32]) -> usize {
         let usize_seed = Self::copy_8_bytes(&seed[0..8]);
         let balance_seed = Self::copy_16_bytes(&seed[8..24]);
         let uniform_index = usize::from_le_bytes(usize_seed) % self.aliases.len();
-        let uniform_weight = Balance::from_yoctonear(
-            u128::from_le_bytes(balance_seed) % self.weight_sum.as_yoctonear(),
+        let uniform_stake = Balance::from_yoctonear(
+            u128::from_le_bytes(balance_seed) % self.stake_sum.as_yoctonear(),
         );
 
-        if uniform_weight < self.no_alias_odds[uniform_index] {
+        if uniform_stake < self.no_alias_odds[uniform_index] {
             uniform_index
         } else {
             self.aliases[uniform_index] as usize
@@ -156,13 +157,13 @@ mod aliases {
 #[cfg(test)]
 mod test {
     use crate::hash;
-    use crate::rand::WeightedIndex;
+    use crate::rand::StakeWeightedIndex;
     use near_primitives_core::types::Balance;
 
     #[test]
     fn test_should_correctly_compute_odds_and_aliases() {
         // Example taken from https://www.keithschwarz.com/darts-dice-coins/
-        let weights = vec![
+        let stakes = vec![
             Balance::from_yoctonear(5),
             Balance::from_yoctonear(8),
             Balance::from_yoctonear(4),
@@ -171,12 +172,12 @@ mod test {
             Balance::from_yoctonear(4),
             Balance::from_yoctonear(5),
         ];
-        let weighted_index = WeightedIndex::new(weights);
+        let stake_weighted_index = StakeWeightedIndex::new(stakes);
 
-        assert_eq!(weighted_index.get_aliases(), &[1, 0, 3, 1, 3, 3, 3]);
+        assert_eq!(stake_weighted_index.get_aliases(), &[1, 0, 3, 1, 3, 3, 3]);
 
         assert_eq!(
-            weighted_index.get_no_alias_odds(),
+            stake_weighted_index.get_no_alias_odds(),
             &[
                 Balance::from_yoctonear(35),
                 Balance::from_yoctonear(40),
@@ -191,18 +192,18 @@ mod test {
 
     #[test]
     fn test_sample_should_produce_correct_distribution() {
-        let weights = vec![
+        let stakes = vec![
             Balance::from_yoctonear(5),
             Balance::from_yoctonear(1),
             Balance::from_yoctonear(1),
         ];
-        let weighted_index = WeightedIndex::new(weights);
+        let stake_weighted_index = StakeWeightedIndex::new(stakes);
 
         let n_samples = 1_000_000;
         let mut seed = hash(&[0; 32]);
         let mut counts: [i32; 3] = [0, 0, 0];
         for _ in 0..n_samples {
-            let index = weighted_index.sample(seed);
+            let index = stake_weighted_index.sample(seed);
             counts[index] += 1;
             seed = hash(&seed);
         }

@@ -65,14 +65,11 @@ fn slow_test_fix_validator_stake_threshold() {
         client.epoch_manager.get_epoch_id_from_prev_block(&head.prev_block_hash).unwrap();
     let epoch_info = client.epoch_manager.get_epoch_info(&epoch_id).unwrap();
     let validators = get_epoch_all_validators(client);
-    let total_stake = validators
-        .iter()
-        .map(|v| {
-            let account_id = &v.parse().unwrap();
-            epoch_info.get_validator_stake(account_id).unwrap()
-        })
-        .fold(Balance::ZERO, |sum, stake| sum.checked_add(stake).unwrap());
-
+    let total_stake = validators.iter().fold(Balance::ZERO, |sum, v| {
+        let account_id = &v.parse().unwrap();
+        let stake = epoch_info.get_validator_stake(account_id).unwrap();
+        sum.checked_add(stake).unwrap()
+    });
     assert_eq!(validators.len(), 2, "proposal with stake at threshold should not be approved");
     assert_eq!(total_stake.as_near(), 37_500_000_000);
 

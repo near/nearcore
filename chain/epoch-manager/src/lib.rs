@@ -99,8 +99,7 @@ impl EpochInfoProvider for EpochManagerHandle {
         let epoch_info = epoch_manager.get_epoch_info(epoch_id)?;
         Ok(epoch_info
             .validators_iter()
-            .map(|info| info.stake())
-            .fold(Balance::ZERO, |sum, item| sum.checked_add(item).unwrap()))
+            .fold(Balance::ZERO, |sum, info| sum.checked_add(info.stake()).unwrap()))
     }
 
     fn minimum_stake(&self, prev_block_hash: &CryptoHash) -> Result<Balance, EpochError> {
@@ -511,8 +510,9 @@ impl EpochManager {
             .copied()
             .collect::<HashSet<_>>()
             .iter()
-            .map(|&id| epoch_info.validator_stake(id))
-            .fold(Balance::ZERO, |sum, item| sum.checked_add(item).unwrap());
+            .fold(Balance::ZERO, |sum, &id| {
+                sum.checked_add(epoch_info.validator_stake(id)).unwrap()
+            });
 
         // Next protocol version calculation.
         // Implements https://github.com/near/NEPs/blob/master/specs/ChainSpec/Upgradability.md
@@ -520,7 +520,7 @@ impl EpochManager {
         for (validator_id, version) in &version_tracker {
             let (validator_id, version) = (*validator_id, *version);
             let stake = epoch_info.validator_stake(validator_id);
-            let version_entry: &mut Balance = versions.entry(version).or_insert(Balance::ZERO);
+            let version_entry = versions.entry(version).or_insert(Balance::ZERO);
             *version_entry = version_entry.checked_add(stake).unwrap();
         }
         PROTOCOL_VERSION_VOTES.reset();
@@ -1306,7 +1306,7 @@ impl EpochManager {
         };
         let config = self.config.for_protocol_version(protocol_version);
         let stake_divisor = { config.minimum_stake_divisor };
-        Ok(seat_price.checked_div(stake_divisor.into()).unwrap())
+        Ok(seat_price.checked_div(u128::from(stake_divisor)).unwrap())
     }
 }
 

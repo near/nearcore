@@ -262,7 +262,7 @@ fn get_liquid_balance_for_storage(
     let staked_for_storage = if is_zero_balance_account(account) {
         Balance::ZERO
     } else {
-        storage_amount_per_byte.checked_mul(account.storage_usage().into()).unwrap()
+        storage_amount_per_byte.checked_mul(u128::from(account.storage_usage())).unwrap()
     };
 
     staked_for_storage.saturating_sub(account.locked())

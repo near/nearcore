@@ -32,12 +32,9 @@ pub fn compute_mandate_price(config: ValidatorMandatesConfig, stakes: &[Balance]
     // When we use a larger `m` value, `T / m` decreases but we need the LHS
     // to remain constant, therefore `\sum r_i` must also decrease.
     binary_search(Balance::from_yoctonear(1), total_stake, target_mandates, |mandate_price| {
-        stakes
-            .iter()
-            .fold(Balance::ZERO, |sum: Balance, item| {
-                sum.saturating_add(item.checked_div(mandate_price.as_yoctonear()).unwrap())
-            })
-            .as_yoctonear()
+        stakes.iter().fold(0, |sum, item| {
+            sum.saturating_add(item.as_yoctonear() / mandate_price.as_yoctonear())
+        })
     })
 }
 
@@ -251,11 +248,8 @@ mod tests {
     }
 
     fn count_whole_mandates(stakes: &[Balance], mandate_price: Balance) -> usize {
-        stakes
-            .iter()
-            .fold(Balance::ZERO, |sum, item| {
-                sum.saturating_add(item.checked_div(mandate_price.as_yoctonear()).unwrap())
-            })
-            .as_yoctonear() as usize
+        stakes.iter().fold(0u128, |sum, item| {
+            sum.saturating_add(item.as_yoctonear() / mandate_price.as_yoctonear())
+        }) as usize
     }
 }

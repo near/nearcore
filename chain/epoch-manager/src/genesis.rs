@@ -112,8 +112,7 @@ impl EpochManager {
             .enumerate()
             .flat_map(|(i, p)| {
                 iter::repeat(i as u64)
-                    .take((p.stake().checked_div(threshold.as_yoctonear()).unwrap()).as_yoctonear()
-                        as usize)
+                    .take((p.stake().as_yoctonear() / threshold.as_yoctonear()) as usize)
             })
             .collect_vec();
 
@@ -163,7 +162,7 @@ pub(crate) fn find_threshold(
 ) -> Result<Balance, EpochError> {
     let stake_sum: Balance =
         stakes.iter().fold(Balance::ZERO, |sum, item| sum.checked_add(*item).unwrap());
-    if stake_sum.as_yoctonear() < num_seats.into() {
+    if stake_sum < Balance::from_yoctonear(u128::from(num_seats)) {
         return Err(EpochError::ThresholdError { stake_sum, num_seats });
     }
     let (mut left, mut right): (Balance, Balance) =
@@ -177,7 +176,7 @@ pub(crate) fn find_threshold(
         for item in stakes {
             current_sum =
                 current_sum.checked_add(item.checked_div(mid.as_yoctonear()).unwrap()).unwrap();
-            if current_sum >= Balance::from_yoctonear(num_seats.into()) {
+            if current_sum >= Balance::from_yoctonear(u128::from(num_seats)) {
                 left = mid;
                 continue 'outer;
             }

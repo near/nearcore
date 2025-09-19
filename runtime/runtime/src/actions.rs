@@ -347,7 +347,7 @@ pub(crate) fn action_stake(
 ) -> Result<(), RuntimeError> {
     let increment = stake.stake.saturating_sub(account.locked());
 
-    if account.amount() >= increment {
+    if let Some(new_balance) = account.amount().checked_sub(increment) {
         if account.locked().is_zero() && stake.stake.is_zero() {
             // if the account hasn't staked, it cannot unstake
             result.result =
@@ -375,7 +375,7 @@ pub(crate) fn action_stake(
         ));
         if stake.stake > account.locked() {
             // We've checked above `account.amount >= increment`
-            account.set_amount(account.amount().checked_sub(increment).unwrap());
+            account.set_amount(new_balance);
             account.set_locked(stake.stake);
         }
     } else {

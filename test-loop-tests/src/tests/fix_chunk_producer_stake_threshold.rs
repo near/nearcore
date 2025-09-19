@@ -35,13 +35,13 @@ fn slow_test_fix_cp_stake_threshold() {
             public_key: create_test_signer(accounts[2].as_str()).public_key(),
             // cp min stake ratio was `(1 / 62500) / num_shards` before the fix
             // stake is right at threshold, and proposal should not be approved
-            amount: Balance::from_near(((30 + 30) * 62500 / 62500 / num_shards).into()),
+            amount: Balance::from_near(u128::from((30 + 30) * 62500 / 62500 / num_shards)),
         },
         AccountInfo {
             account_id: accounts[3].clone(),
             public_key: create_test_signer(accounts[3].as_str()).public_key(),
             // stake is above threshold, so proposal should be approved
-            amount: Balance::from_near(((30 + 30) * 62500 / 62500 / num_shards + 1).into()),
+            amount: Balance::from_near(u128::from((30 + 30) * 62500 / 62500 / num_shards + 1)),
         },
     ];
     let validators_spec = ValidatorsSpec::raw(validators, 5, 5, 5);

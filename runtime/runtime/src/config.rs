@@ -45,7 +45,7 @@ pub fn safe_gas_price_inflated(
 }
 
 pub fn safe_gas_to_balance(gas_price: Balance, gas: Gas) -> Result<Balance, IntegerOverflowError> {
-    gas_price.checked_mul(gas.as_gas().into()).ok_or(IntegerOverflowError {})
+    gas_price.checked_mul(u128::from(gas.as_gas())).ok_or(IntegerOverflowError {})
 }
 
 pub fn safe_add_balance(a: Balance, b: Balance) -> Result<Balance, IntegerOverflowError> {

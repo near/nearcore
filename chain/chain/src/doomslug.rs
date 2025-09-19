@@ -597,17 +597,19 @@ impl Doomslug {
         let threshold1 = threshold1.checked_mul(2).unwrap().checked_div(3).unwrap();
         let threshold2 = threshold2.checked_mul(2).unwrap().checked_div(3).unwrap();
 
-        let approved_stake1 = approvals
-            .iter()
-            .zip(stakes.iter())
-            .map(|(approval, (stake, _))| if approval.is_some() { *stake } else { Balance::ZERO })
-            .fold(Balance::ZERO, |sum, item| sum.checked_add(item).unwrap());
+        let approved_stake1 = approvals.iter().zip(stakes.iter()).fold(
+            Balance::ZERO,
+            |sum, (approval, (stake, _))| {
+                if approval.is_some() { sum.checked_add(*stake).unwrap() } else { sum }
+            },
+        );
 
-        let approved_stake2 = approvals
-            .iter()
-            .zip(stakes.iter())
-            .map(|(approval, (_, stake))| if approval.is_some() { *stake } else { Balance::ZERO })
-            .fold(Balance::ZERO, |sum, item| sum.checked_add(item).unwrap());
+        let approved_stake2 = approvals.iter().zip(stakes.iter()).fold(
+            Balance::ZERO,
+            |sum, (approval, (_, stake))| {
+                if approval.is_some() { sum.checked_add(*stake).unwrap() } else { sum }
+            },
+        );
 
         (approved_stake1 > threshold1 || threshold1.is_zero())
             && (approved_stake2 > threshold2 || threshold2.is_zero())

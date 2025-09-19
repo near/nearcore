@@ -19,7 +19,7 @@ impl FeeHelper {
     }
 
     pub fn gas_to_balance_inflated(&self, gas: Gas) -> Balance {
-        Balance::from_yoctonear(gas.as_gas().into())
+        Balance::from_yoctonear(u128::from(gas.as_gas()))
             .checked_mul(
                 self.gas_price
                     .checked_mul(
@@ -40,7 +40,7 @@ impl FeeHelper {
     }
 
     pub fn gas_to_balance(&self, gas: Gas) -> Balance {
-        self.gas_price.checked_mul(gas.as_gas().into()).unwrap()
+        self.gas_price.checked_mul(u128::from(gas.as_gas())).unwrap()
     }
 
     pub fn gas_burnt_to_reward(&self, gas_burnt: Gas) -> Balance {
@@ -423,7 +423,7 @@ impl FeeHelper {
 
     pub fn gas_refund_cost(&self, gas: Gas) -> Balance {
         self.gas_price
-            .checked_mul(self.cfg().gas_penalty_for_gas_refund(gas).as_gas().into())
+            .checked_mul(u128::from(self.cfg().gas_penalty_for_gas_refund(gas).as_gas()))
             .unwrap()
     }
 }

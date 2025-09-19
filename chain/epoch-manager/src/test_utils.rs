@@ -103,7 +103,7 @@ pub fn epoch_info_with_num_seats(
             all_validators.iter().fold(Balance::ZERO, |sum, item| sum.saturating_add(item.stake()));
         // For tests we estimate the target number of seats based on the seat price of the old algorithm.
         let target_mandates_per_shard =
-            total_stake.checked_div(seat_price.as_yoctonear()).unwrap().as_yoctonear() as usize;
+            (total_stake.as_yoctonear() / seat_price.as_yoctonear()) as usize;
         let config = ValidatorMandatesConfig::new(target_mandates_per_shard, num_shards);
         ValidatorMandates::new(config, &all_validators)
     };
@@ -267,7 +267,7 @@ pub fn setup_epoch_manager_with_block_and_chunk_producers(
             .unwrap()
             .checked_div(1_000_000)
             .unwrap()
-            .checked_div(num_shards.into())
+            .checked_div(u128::from(num_shards))
             .unwrap()
             .checked_add(Balance::from_yoctonear(1))
             .unwrap();

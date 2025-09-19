@@ -5167,8 +5167,9 @@ dependencies = [
 
 [[package]]
 name = "near-token"
-version = "0.3.1"
-source = "git+https://github.com/near/near-token-rs.git?branch=main#80626f958ba4bc15ea7a54ab248193ac04cb5051"
+version = "0.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "133a293baa70b78db8c4325753ca8012f84e67de6c84c013960722a937985615"
 dependencies = [
  "borsh",
  "schemars 1.0.3",
