@@ -557,6 +557,10 @@ impl ChunkValidationActorInner {
         msg: ChunkStateWitnessMessage,
     ) -> Result<(), Error> {
         let ChunkStateWitnessMessage { witness, raw_witness_size, processing_done_tracker } = msg;
+        let is_optimistic = witness.production_key().is_optimistic;
+        if is_optimistic {
+            println!("RECEIVED OPTIMISTIC WITNESS MESSAGE");
+        }
 
         // Check if we're a validator
         if self.validator_signer.get().is_none() {

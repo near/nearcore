@@ -60,6 +60,10 @@ impl PartialEncodedStateWitness {
         Self { inner, signature }
     }
 
+    pub fn production_key(&self) -> WitnessProductionKey {
+        self.inner.key.clone()
+    }
+
     pub fn chunk_production_key(&self) -> ChunkProductionKey {
         self.inner.key.chunk.clone()
         // ChunkProductionKey {
@@ -72,6 +76,10 @@ impl PartialEncodedStateWitness {
     pub fn verify(&self, public_key: &PublicKey) -> bool {
         let data = borsh::to_vec(&self.inner).unwrap();
         self.signature.verify(&data, public_key)
+    }
+
+    pub fn is_optimistic(&self) -> bool {
+        self.inner.key.is_optimistic
     }
 
     pub fn part_ord(&self) -> usize {

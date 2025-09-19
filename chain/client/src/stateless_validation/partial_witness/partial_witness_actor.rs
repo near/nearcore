@@ -401,6 +401,10 @@ impl PartialWitnessActor {
         &self,
         partial_witness: PartialEncodedStateWitness,
     ) -> Result<(), Error> {
+        let is_optimistic = partial_witness.is_optimistic();
+        if is_optimistic {
+            println!("RECEIVED OPTIMISTIC PARTIAL WITNESS MESSAGE");
+        }
         let _span = tracing::debug_span!(
             target: "client",
             "handle_partial_encoded_state_witness",
@@ -668,7 +672,7 @@ impl PartialWitnessActor {
             return Ok(());
         }
         let key = accesses.chunk_production_key();
-        let contracts_cache = self.runtime.compiled_contract_cache();
+        let contracts_cache: &dyn ContractRuntimeCache = self.runtime.compiled_contract_cache();
         let runtime_config = self
             .runtime
             .get_runtime_config(self.epoch_manager.get_epoch_protocol_version(&key.epoch_id)?);
@@ -684,8 +688,10 @@ impl PartialWitnessActor {
         if missing_contract_hashes.is_empty() {
             return Ok(());
         }
+        // is it necessary to support optimistic witness?
+        let witness_key = WitnessProductionKey { chunk: key.clone(), is_optimistic: false };
         self.partial_witness_tracker
-            .store_accessed_contract_hashes(key.clone(), missing_contract_hashes.clone())?;
+            .store_accessed_contract_hashes(witness_key, missing_contract_hashes.clone())?;
         let random_chunk_producer = {
             let mut chunk_producers = self
                 .epoch_manager
@@ -851,7 +857,10 @@ impl PartialWitnessActor {
 
     /// Handles contract code responses message from chunk producer.
     fn handle_contract_code_response(&self, response: ContractCodeResponse) -> Result<(), Error> {
-        let key = response.chunk_production_key().clone();
+        let key = WitnessProductionKey {
+            chunk: response.chunk_production_key().clone(),
+            is_optimistic: false,
+        };
         let contracts = response.decompress_contracts()?;
         self.partial_witness_tracker.store_accessed_contract_codes(key, contracts)
     }

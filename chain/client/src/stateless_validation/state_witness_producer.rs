@@ -87,10 +87,9 @@ impl Client {
         let ApplyChunkResult { proof, new_root, contract_updates, applied_receipts_hash, .. } =
             new_chunk.apply_result;
         let prev_block_hash = context.block.prev_block_hash;
-        let epoch_id = self.epoch_manager.get_epoch_id(&prev_block_hash)?;
-        let next_epoch_id =
-            self.epoch_manager.get_next_epoch_id_from_prev_block(&prev_block_hash)?;
-        if epoch_id != next_epoch_id {
+        let prev_block_epoch_id = self.epoch_manager.get_epoch_id(&prev_block_hash)?;
+        let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(&prev_block_hash)?;
+        if prev_block_epoch_id != epoch_id {
             // Let's just skip it because I don't want to handle resharding yet.
             return Ok(());
         }
@@ -108,7 +107,7 @@ impl Client {
         self.partial_witness_adapter.send(DistributeStateWitnessRequest {
             state_witness: ChunkStateWitness::V3(ChunkStateWitnessV3 {
                 chunk_apply_witness: ChunkApplyWitness {
-                    epoch_id,
+                    epoch_id: prev_block_epoch_id,
                     chunk_header: context.chunk_header.clone(),
                     main_state_transition,
                     receipts: context.receipts,
@@ -121,7 +120,6 @@ impl Client {
             contract_updates,
             main_transition_shard_id: shard_id,
         });
-
         Ok(())
     }
 }
