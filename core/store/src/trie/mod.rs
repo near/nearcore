@@ -538,10 +538,10 @@ pub enum OptimizedValueRef {
     AvailableValue(ValueAccessToken),
 }
 
-/// Opaque wrapper around Vec<u8> so that the value cannot be used directly and
-/// must instead be dereferenced via `Trie::deref_optimized`, so that gas
-/// accounting is never skipped.
-#[derive(Debug, PartialEq, Eq)]
+/// Opaque wrapper around Vec<u8> so that the value cannot be used directly and must instead be
+/// dereferenced via `Trie::deref_optimized`, so that recording this value to the state witness is
+/// not missed.
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub struct ValueAccessToken {
     // Must stay private.
     value: Vec<u8>,

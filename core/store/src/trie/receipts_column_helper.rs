@@ -1,6 +1,6 @@
+use std::sync::Arc;
 use crate::state_update::StateOperations;
-use crate::state_update::state_value::Deserialized;
-use borsh::{BorshDeserialize, BorshSerialize};
+use crate::state_update::state_value::{Deserializable, Deserialized};
 use near_primitives::errors::{IntegerOverflowError, StorageError};
 use near_primitives::receipt::{
     BufferedReceiptIndices, DelayedReceiptIndices, ReceiptOrStateStoredReceipt, TrieQueueIndices,
@@ -63,7 +63,7 @@ pub struct OutgoingReceiptBuffer<'parent> {
 /// implementation is provided as trait default implementation.
 pub trait TrieQueue {
     // TODO - remove the lifetime once we get rid of Cow in StateStoredReceipt.
-    type Item: BorshDeserialize + BorshSerialize + Deserialized + Clone;
+    type Item: Deserialized + Deserializable + Clone;
 
     /// Read queue indices of the queue from the trie, depending on impl.
     fn load_indices(
@@ -112,7 +112,7 @@ pub trait TrieQueue {
             return Ok(None);
         }
         let key = self.trie_key(indices.first_index);
-        let item: Self::Item = state_update.take(key)?.ok_or_else(|| {
+        let item: Arc<Self::Item> = state_update.take(key)?.ok_or_else(|| {
             StorageError::StorageInconsistentState(format!(
                 "TrieQueue::Item #{} should be in the state",
                 indices.first_index
@@ -121,7 +121,7 @@ pub trait TrieQueue {
         // Math checked above, first_index < next_available_index
         self.indices_mut().first_index += 1;
         self.write_indices(state_update);
-        Ok(Some(item))
+        Ok(Some(Arc::unwrap_or_clone(item)))
     }
 
     fn pop_back(
@@ -137,7 +137,7 @@ pub trait TrieQueue {
         // Math checked above: first_index < next_available_index => next_available_index > 0
         let last_item_index = indices.next_available_index - 1;
         let key = self.trie_key(last_item_index);
-        let item: Self::Item = state_update.take(key)?.ok_or_else(|| {
+        let item: Arc<Self::Item> = state_update.take(key)?.ok_or_else(|| {
             StorageError::StorageInconsistentState(format!(
                 "TrieQueue::Item #{} should be in the state",
                 last_item_index
@@ -145,7 +145,8 @@ pub trait TrieQueue {
         })?;
         self.indices_mut().next_available_index = last_item_index;
         self.write_indices(state_update);
-        Ok(Some(item))
+        // TODO: maybe avoid unwrap and just return Arc straight up?
+        Ok(Some(Arc::unwrap_or_clone(item)))
     }
 
     /// Modify the first item in a non-empty queue.
@@ -165,12 +166,13 @@ pub trait TrieQueue {
             panic!("TrieQueue::modify_first called on an empty queue! indices: {:?}", indices);
         }
         let key = self.trie_key(indices.first_index);
-        let first_item: Self::Item = state_update.take(key.clone())?.ok_or_else(|| {
+        let first_item: Arc<Self::Item> = state_update.take(key.clone())?.ok_or_else(|| {
             StorageError::StorageInconsistentState(format!(
                 "TrieQueue::Item #{} should be in the state",
                 indices.first_index
             ))
         })?;
+        let first_item = Arc::unwrap_or_clone(first_item);
         let modified_item = modify_fn(first_item);
         match modified_item {
             Some(item) => {

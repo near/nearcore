@@ -1,10 +1,9 @@
 #![allow(unused)]
 //! Next generation replacement for [`TrieUpdate`](crate::trie::update::TrieUpdate).
 use crate::Trie;
-use crate::trie::OptimizedValueRef;
 use crate::trie::update::TrieUpdateResult;
+use crate::trie::{OptimizedValueRef, ValueAccessToken};
 use crate::{KeyLookupMode, trie::AccessOptions};
-use borsh::BorshDeserialize;
 use near_primitives::errors::StorageError;
 use near_primitives::serialize;
 use near_primitives::state::ValueRef;
@@ -12,7 +11,7 @@ use near_primitives::trie_key::col::{ACCESS_KEY, CONTRACT_DATA};
 use near_primitives::trie_key::{SmallKeyVec, TrieKey};
 use near_primitives::types::AccountId;
 use parking_lot::Mutex;
-use state_value::Deserialized;
+use state_value::{Deserializable, Deserialized};
 use std::any::Any;
 use std::collections::{BTreeMap, btree_map};
 use std::sync::Arc;
@@ -109,13 +108,14 @@ struct OperationValue {
 impl OperationValue {
     const READ: u8 = 1 << 0;
     const WRITTEN: u8 = 1 << 1;
-
     // Value is known to not exist in the underlying store.
     const ABSENT_IN_TRIE: u8 = 1 << 2;
-    // Remove the value. No-op if the value is already known to be absent.
-    const REMOVE: u8 = 1 << 3;
 
     const UPDATES_CLOCK: u8 = Self::READ | Self::WRITTEN;
+
+    const fn absent_in_trie() -> Self {
+        Self { operations: Self::ABSENT_IN_TRIE, value: state_value::Type::Absent }
+    }
 }
 
 impl StateUpdate {
@@ -153,7 +153,7 @@ enum StateValue {
     /// The value was returned as a Vec<u8>.
     //
     // FIXME: must this be `Vec<u8>` here? Could we deal with something more optimal?
-    Serialized(Arc<Vec<u8>>),
+    Serialized(Arc<ValueAccessToken>),
     /// This is a deserialized form of the value stored at the given key.
     Deserialized(Arc<dyn Deserialized>),
 }
@@ -170,7 +170,7 @@ impl<'su> StateOperations<'su> {
         key: TrieKey,
         from_trie: FromTrie,
         on_present: Option<OnPresent>,
-    ) -> Result<&mut OperationValue, StorageError>
+    ) -> Result<(&mut OperationValue, &Trie), StorageError>
     where
         FromTrie: FnOnce(&Trie, &TrieKey) -> Result<OperationValue, StorageError>,
         OnPresent: FnOnce(&Trie, &TrieKey) -> Result<StateValue, StorageError>,
@@ -182,9 +182,9 @@ impl<'su> StateOperations<'su> {
                     let new_value = on_present(self.state_update.trie(), e.key())?.into();
                     let op = e.into_mut();
                     op.value = new_value;
-                    op
+                    (op, self.state_update.trie())
                 } else {
-                    e.into_mut()
+                    (e.into_mut(), self.state_update.trie())
                 },
             ),
             btree_map::Entry::Vacant(e) => {
@@ -203,7 +203,7 @@ impl<'su> StateOperations<'su> {
                 if let (state_value::Type::Present, Some(on_present)) = (&opval.value, on_present) {
                     opval.value = on_present(self.state_update.trie(), e.key())?.into();
                 }
-                Ok(e.insert(opval))
+                Ok((e.insert(opval), self.state_update.trie()))
             }
         }
     }
@@ -223,19 +223,23 @@ impl<'su> StateOperations<'su> {
     pub fn contains_key_or(
         &mut self,
         key: TrieKey,
-        fallback: impl FnOnce(&Trie, &TrieKey) -> Result<bool, StorageError>,
+        lookup: impl FnOnce(&Trie, &TrieKey) -> Result<bool, StorageError>,
     ) -> Result<bool, StorageError> {
-        let opval = self.pull_value(
+        let (opval, _) = self.pull_value(
             key,
             |trie, key| {
-                let exists = fallback(trie, key)?;
-                let value =
-                    if exists { state_value::Type::Present } else { state_value::Type::Absent };
-                Ok(OperationValue { operations: 0, value })
+                let exists = lookup(trie, key)?;
+                Ok(if exists {
+                    OperationValue {
+                        operations: OperationValue::READ,
+                        value: state_value::Type::Present,
+                    }
+                } else {
+                    OperationValue::absent_in_trie()
+                })
             },
             Self::NO_ON_PRESENT,
         )?;
-        opval.operations |= OperationValue::READ;
         Ok(opval.value.value_exists())
     }
 
@@ -265,7 +269,11 @@ impl<'su> StateOperations<'su> {
                 KeyLookupMode::MemOrFlatOrTrie,
                 AccessOptions::DEFAULT,
             );
-            todo!();
+            Ok(Some(match optref? {
+                Some(OptimizedValueRef::Ref(r)) => StateValue::TrieValueRef(r),
+                Some(OptimizedValueRef::AvailableValue(v)) => StateValue::Serialized(Arc::new(v)),
+                None => return Ok(None),
+            }))
         })
     }
 
@@ -273,19 +281,18 @@ impl<'su> StateOperations<'su> {
     pub fn get_ref_or(
         &mut self,
         key: TrieKey,
-        fallback: impl Fn(&Trie, &TrieKey) -> Result<Option<StateValue>, StorageError>,
+        fetch: impl Fn(&Trie, &TrieKey) -> Result<Option<StateValue>, StorageError>,
     ) -> Result<Option<StateValue>, StorageError> {
-        let opval = self.pull_value(
+        let (opval, _) = self.pull_value(
             key,
             |trie: &Trie, key: &TrieKey| {
-                let state_ref = fallback(trie, key)?;
-                let value = match state_ref {
-                    None => state_value::Type::Absent,
-                    Some(sr) => sr.into(),
-                };
-                Ok(OperationValue { operations: 0, value })
+                let state_ref = fetch(trie, key)?;
+                Ok(match state_ref {
+                    None => OperationValue::absent_in_trie(),
+                    Some(sr) => OperationValue { operations: 0, value: sr.into() },
+                })
             },
-            Some(|trie: &Trie, key: &TrieKey| match fallback(trie, key)? {
+            Some(|trie: &Trie, key: &TrieKey| match fetch(trie, key)? {
                 None => todo!("storage inconsistent error"),
                 Some(v) => Ok(v),
             }),
@@ -309,28 +316,87 @@ impl<'su> StateOperations<'su> {
     /// If you need to customize how the [`Trie`] is accessed, see [`Self::get_or`].
     pub fn get<V>(&mut self, key: TrieKey) -> Result<Option<&V>, StorageError>
     where
-        V: Deserialized,
-        Arc<V>: BorshDeserialize,
+        V: Deserialized + Deserializable,
     {
-        todo!()
-        // self.get_ref(key)
-        //     Ok(Some(value.downcast_ref().expect("TODO: type confusion??")))
-        // }
+        self.get_or(
+            key,
+            |trie, key| {
+                let mut key_buf = SmallKeyVec::new_const();
+                key.append_into(&mut key_buf);
+                let mode = KeyLookupMode::MemOrFlatOrTrie;
+                Ok(match trie.get_optimized_ref(&key_buf, mode, AccessOptions::DEFAULT)? {
+                    Some(OptimizedValueRef::Ref(r)) => Some(StateValue::TrieValueRef(r)),
+                    Some(OptimizedValueRef::AvailableValue(v)) => {
+                        Some(StateValue::Serialized(Arc::new(v)))
+                    }
+                    None => None,
+                })
+            },
+            // FIXME: `deref_optimized` could be better if it didn't (potentially) clone the vector
+            // inside...
+            |trie, optref| trie.deref_optimized(AccessOptions::DEFAULT, &optref),
+        )
     }
 
     /// This is a more flexible version of [`Self::get`], allowing custom [`Trie`] access.
     pub fn get_or<V>(
         &mut self,
         key: TrieKey,
-        fallback: impl Fn(&Trie, &TrieKey) -> Result<Option<StateValue>, StorageError>,
+        fetch: impl Fn(&Trie, &TrieKey) -> Result<Option<StateValue>, StorageError>,
+        deref: impl Fn(&Trie, OptimizedValueRef) -> Result<Vec<u8>, StorageError>,
     ) -> Result<Option<&V>, StorageError>
     where
-        V: Deserialized,
-        Arc<V>: BorshDeserialize,
+        V: Deserialized + Deserializable,
     {
-        match self.get_ref_or(key, fallback)? {
-            None => Ok(None),
-            Some(reference) => {
+        let (opval, trie) = self.pull_value(
+            key,
+            |trie: &Trie, key: &TrieKey| {
+                let state_ref = fetch(trie, key)?;
+                Ok(match state_ref {
+                    None => OperationValue::absent_in_trie(),
+                    Some(sr) => OperationValue { operations: 0, value: sr.into() },
+                })
+            },
+            Some(|trie: &Trie, key: &TrieKey| match fetch(trie, key)? {
+                None => todo!("storage inconsistent error"),
+                Some(v) => Ok(v),
+            }),
+        )?;
+        opval.operations |= OperationValue::READ;
+        match &mut opval.value {
+            state_value::Type::Absent => return Ok(None),
+            state_value::Type::Present => todo!("unreachable, storage inconsistent error"),
+            state_value::Type::Deserialized(v) => {
+                return Ok(Some(<dyn Any>::downcast_ref(v).expect("TODO: type confusion??")));
+            }
+            this @ state_value::Type::Serialized(_) => {
+                let serialized = std::mem::replace(this, state_value::Type::Present);
+                let state_value::Type::Serialized(serialized) = serialized else { unreachable!() };
+                let trie_ref = OptimizedValueRef::AvailableValue(Arc::unwrap_or_clone(serialized));
+                // NOTE: it is fine if failing here leaves `Type::Present` rather than the original
+                // value. It is not ideal, of course, but next time around if we request this key
+                // again, we would refetch it from trie again.
+                // That said, this is only okay so long as the only way to get `Serialized`
+                // variants in the state is by reading from underlying trie.
+                let serialized_bytes = deref(trie, trie_ref)?;
+                let deser = V::deserialize(serialized_bytes)?;
+                *this = state_value::Type::Deserialized(deser);
+                let state_value::Type::Deserialized(v) = this else {
+                    unreachable!();
+                };
+                return Ok(Some(<dyn Any>::downcast_ref(v).expect("TODO: type confusion??")));
+            }
+            this @ state_value::Type::TrieValueRef(_) => {
+                let valref = std::mem::replace(this, state_value::Type::Present);
+                let state_value::Type::TrieValueRef(valref) = valref else { unreachable!() };
+                let trie_ref = OptimizedValueRef::Ref(valref);
+                let serialized_bytes = deref(trie, trie_ref)?;
+                let deser = V::deserialize(serialized_bytes)?;
+                *this = state_value::Type::Deserialized(deser);
+                let state_value::Type::Deserialized(v) = this else {
+                    unreachable!();
+                };
+                return Ok(Some(<dyn Any>::downcast_ref(v).expect("TODO: type confusion??")));
             }
         }
     }
@@ -342,67 +408,89 @@ impl<'su> StateOperations<'su> {
     /// previously operated on in any way.
     pub fn mutate<'a, V>(&'a mut self, key: TrieKey) -> Result<Option<&'a mut V>, StorageError>
     where
-        V: Deserialized,
-        Arc<V>: BorshDeserialize,
+        V: Deserialized + Deserializable,
     {
-        let value = self.operate_value::<V>(key);
-        value.operations |= OperationValue::WRITTEN;
-        if Arc::get_mut(&mut value.value).is_none() {
-            let new_arc = value.value.arc();
-            value.value = new_arc;
-        }
-        // NOTE: unfortunate that we probe Arc's reference counters twice in cases where the strong
-        // count is known to be 1 (as would be the case if `Arc::get_mut` above returned `Some`.
-        // However that quickly runs afoul of the borrow checker (and for a good reason) so this is
-        // a straightforward work-around for now.
-        let value = Arc::get_mut(&mut value.value).expect("cannot fail!");
-        let value = value as &mut dyn Any;
         todo!()
-        // if value.is::<ValueAbsent>() {
-        //     Ok(None)
-        // } else {
-        //     Ok(Some(value.downcast_mut().expect("TODO: type confusion??")))
+        // let value = self.operate_value::<V>(key);
+        // value.operations |= OperationValue::WRITTEN;
+        // if Arc::get_mut(&mut value.value).is_none() {
+        //     let new_arc = value.value.arc();
+        //     value.value = new_arc;
         // }
+        // // NOTE: unfortunate that we probe Arc's reference counters twice in cases where the strong
+        // // count is known to be 1 (as would be the case if `Arc::get_mut` above returned `Some`.
+        // // However that quickly runs afoul of the borrow checker (and for a good reason) so this is
+        // // a straightforward work-around for now.
+        // let value = Arc::get_mut(&mut value.value).expect("cannot fail!");
+        // let value = value as &mut dyn Any;
+        // todo!()
+        // // if value.is::<ValueAbsent>() {
+        // //     Ok(None)
+        // // } else {
+        // //     Ok(Some(value.downcast_mut().expect("TODO: type confusion??")))
+        // // }
     }
 
     /// Set the value at the specified key.
     ///
-    /// The returned mutable reference can be used to modify the value further. Note that this
-    /// operation will not access the underlying [`Trie`] until the [`StateUpdate`] is finalized
-    /// and written out to the underlying storage.
-    pub fn set<V: Deserialized>(&mut self, key: TrieKey, value: V) -> Result<&mut V, StorageError> {
-        let value = match self.operations.entry(key) {
+    /// Note that this operation will not access the underlying [`Trie`] until the [`StateUpdate`]
+    /// is finalized and written out to the underlying storage.
+    pub fn set<V: Deserialized>(&mut self, key: TrieKey, value: V) -> () {
+        match self.operations.entry(key) {
             btree_map::Entry::Vacant(e) => {
-                let value = value.arc();
+                let value = state_value::Type::Deserialized(value.arc());
                 e.insert(OperationValue { operations: OperationValue::WRITTEN, value })
             }
             btree_map::Entry::Occupied(e) => {
                 let opval = e.into_mut();
-                opval.value = value.arc();
+                opval.value = state_value::Type::Deserialized(value.arc());
                 opval.operations |= OperationValue::WRITTEN;
                 opval
             }
         };
-        let value = Arc::get_mut(&mut value.value).expect("cannot fail!");
-        let value = value as &mut dyn Any;
-        Ok(value.downcast_mut().expect("TODO: type confusion??"))
     }
 
     /// The value at the specified key should be removed.
     ///
     /// If you need access to the value stored at this key previously, use [`Self::take`] instead.
     pub fn remove(&mut self, key: TrieKey) {
-        todo!()
-        // self.set(key, ValueAbsent);
+        match self.operations.entry(key) {
+            btree_map::Entry::Vacant(e) => {
+                let value = state_value::Type::Absent;
+                e.insert(OperationValue { operations: OperationValue::WRITTEN, value })
+            }
+            btree_map::Entry::Occupied(e) => {
+                let opval = e.into_mut();
+                opval.value = state_value::Type::Absent;
+                opval.operations |= OperationValue::WRITTEN;
+                opval
+            }
+        };
     }
 
     /// Remove and return the current value at the given key.
-    pub fn take<V>(&mut self, key: TrieKey) -> Result<Option<V>, StorageError>
+    pub fn take<V>(&mut self, key: TrieKey) -> Result<Option<Arc<V>>, StorageError>
     where
-        V: Deserialized + Clone,
-        Arc<V>: BorshDeserialize,
+        V: Deserialized + Deserializable,
     {
-        self.take_or(key, |t, k| todo!())
+        self.take_or(
+            key,
+            |trie, key| {
+                let mut key_buf = SmallKeyVec::new_const();
+                key.append_into(&mut key_buf);
+                let mode = KeyLookupMode::MemOrFlatOrTrie;
+                Ok(match trie.get_optimized_ref(&key_buf, mode, AccessOptions::DEFAULT)? {
+                    Some(OptimizedValueRef::Ref(r)) => Some(StateValue::TrieValueRef(r)),
+                    Some(OptimizedValueRef::AvailableValue(v)) => {
+                        Some(StateValue::Serialized(Arc::new(v)))
+                    }
+                    None => None,
+                })
+            },
+            // FIXME: `deref_optimized` could be better if it didn't (potentially) clone the vector
+            // inside...
+            |trie, optref| trie.deref_optimized(AccessOptions::DEFAULT, &optref),
+        )
     }
 
     /// A more flexible version of [`Self::take`] that allows customizing [`Trie`] access when
@@ -410,21 +498,44 @@ impl<'su> StateOperations<'su> {
     pub fn take_or<V>(
         &mut self,
         key: TrieKey,
-        fallback: impl FnOnce(&Trie, &TrieKey) -> Result<Option<Vec<u8>>, StorageError>,
-    ) -> Result<Option<V>, StorageError>
+        fetch: impl Fn(&Trie, &TrieKey) -> Result<Option<StateValue>, StorageError>,
+        deref: impl Fn(&Trie, OptimizedValueRef) -> Result<Vec<u8>, StorageError>,
+    ) -> Result<Option<Arc<V>>, StorageError>
     where
-        V: Deserialized + Clone,
-        Arc<V>: BorshDeserialize,
+        V: Deserialized + Deserializable,
     {
-        todo!()
-        // let value = self.operate_value::<V>(key);
-        // value.operations = OperationValue::READ | OperationValue::WRITTEN;
-        // let original_value = std::mem::replace(&mut value.value, ValueAbsent.arc());
-        // if (&*original_value as &dyn Any).is::<ValueAbsent>() {
-        //     return None;
-        // }
-        // let arc = Arc::downcast::<V>(original_value).expect("TODO: type confusion??");
-        // Some(Arc::unwrap_or_clone(arc))
+        let (opval, trie) = self.pull_value(
+            key,
+            |trie: &Trie, key: &TrieKey| {
+                let state_ref = fetch(trie, key)?;
+                Ok(match state_ref {
+                    None => OperationValue::absent_in_trie(),
+                    Some(sr) => OperationValue { operations: 0, value: sr.into() },
+                })
+            },
+            Some(|trie: &Trie, key: &TrieKey| match fetch(trie, key)? {
+                None => todo!("storage inconsistent error"),
+                Some(v) => Ok(v),
+            }),
+        )?;
+        opval.operations |= OperationValue::READ | OperationValue::WRITTEN;
+        match std::mem::replace(&mut opval.value, state_value::Type::Absent) {
+            state_value::Type::Absent => return Ok(None),
+            state_value::Type::Present => todo!("unreachable, storage inconsistent error"),
+            state_value::Type::Deserialized(v) => {
+                Ok(Some(<Arc<dyn Any + Send + Sync>>::downcast(v).expect("TODO: type confusion??")))
+            }
+            state_value::Type::Serialized(s) => {
+                let trie_ref = OptimizedValueRef::AvailableValue(Arc::unwrap_or_clone(s));
+                let serialized_bytes = deref(trie, trie_ref)?;
+                Ok(Some(V::deserialize(serialized_bytes)?))
+            }
+            this @ state_value::Type::TrieValueRef(r) => {
+                let trie_ref = OptimizedValueRef::Ref(r);
+                let serialized_bytes = deref(trie, trie_ref)?;
+                Ok(Some(V::deserialize(serialized_bytes)?))
+            }
+        }
     }
 
     /// Read value "purely".
@@ -432,8 +543,7 @@ impl<'su> StateOperations<'su> {
     /// Value read this way does not cause any observable side-effects on the underlying storage.
     pub fn pure_get<V>(&mut self, key: TrieKey) -> Result<Option<&V>, StorageError>
     where
-        V: Deserialized,
-        Arc<V>: BorshDeserialize,
+        V: Deserialized + Deserializable,
     {
         todo!()
     }
@@ -574,12 +684,11 @@ pub enum TrieKeyPrefix {
 }
 
 pub mod state_value {
+    use crate::trie::{OptimizedValueRef, ValueAccessToken};
+    use near_primitives::errors::StorageError;
+    use near_primitives::state::ValueRef;
     use std::any::Any;
     use std::sync::Arc;
-
-    use near_primitives::state::ValueRef;
-
-    use crate::trie::OptimizedValueRef;
 
     #[derive(Clone)]
     pub enum Type {
@@ -592,7 +701,7 @@ pub mod state_value {
         /// The value was returned as a Vec<u8>.
         //
         // FIXME: must Trie return `Vec<u8>`s here? Could it return something more optimal?
-        Serialized(Arc<Vec<u8>>),
+        Serialized(Arc<ValueAccessToken>),
         /// This is a deserialized form of the value stored at the given key.
         Deserialized(Arc<dyn Deserialized>),
     }
@@ -626,15 +735,24 @@ pub mod state_value {
     pub trait Deserialized: Any + Send + Sync {
         fn arc(&self) -> Arc<dyn Deserialized>;
     }
+
+    /// A value that can be eventually written out to the database.
+    ///
+    // FIXME: seal this so that implementing this is only possible in this module.
+    pub trait Deserializable {
+        fn deserialize(bytes: Vec<u8>) -> Result<Arc<Self>, StorageError>;
+    }
 }
 
 mod state_value_impls {
     use super::Deserialized;
+    use super::state_value::Deserializable;
     use crate::trie::outgoing_metadata::{
         ReceiptGroup, ReceiptGroupsQueueData, ReceiptGroupsQueueDataV0,
     };
     use near_primitives::account::{AccessKey, Account};
     use near_primitives::bandwidth_scheduler::BandwidthSchedulerState;
+    use near_primitives::errors::StorageError;
     use near_primitives::hash::CryptoHash;
     use near_primitives::receipt::{
         BufferedReceiptIndices, DelayedReceiptIndices, PromiseYieldIndices, PromiseYieldTimeout,
@@ -647,6 +765,16 @@ mod state_value_impls {
             impl Deserialized for $ty {
                 fn arc(&self) -> Arc<dyn Deserialized> {
                     Arc::new(self.clone())
+                }
+            }
+
+            impl Deserializable for $ty {
+                fn deserialize(bytes: Vec<u8>) -> Result<Arc<Self>, StorageError> {
+                    borsh::de::from_slice(&bytes).map_err(|e| {
+                        StorageError::StorageInconsistentState(format!(
+                            "value could not be deserialized: {e}"
+                        ))
+                    })
                 }
             }
         };
@@ -672,6 +800,11 @@ mod state_value_impls {
     impl Deserialized for Vec<u8> {
         fn arc(&self) -> Arc<dyn Deserialized> {
             Arc::new(self.clone())
+        }
+    }
+    impl Deserializable for Vec<u8> {
+        fn deserialize(bytes: Vec<u8>) -> Result<Arc<Self>, StorageError> {
+            Ok(Arc::new(bytes))
         }
     }
 }
