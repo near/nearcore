@@ -411,14 +411,14 @@ impl ChunkStateWitness {
     // But then we lose navigation by chunk hash.
     pub fn latest_chunk_header(&self) -> &ShardChunkHeader {
         if let ChunkStateWitness::V3(witness) = self {
-            if let Some(chunk_validate_witness) = &witness.chunk_validate_witness {
+            return if let Some(chunk_validate_witness) = &witness.chunk_validate_witness {
                 &chunk_validate_witness.chunk_header
             } else {
                 &witness.chunk_apply_witness.chunk_header
-            }
-        } else {
-            self.chunk_header()
+            };
         }
+
+        self.chunk_header()
     }
 
     pub fn main_state_transition(&self) -> &ChunkStateTransition {

@@ -202,6 +202,10 @@ pub fn record_witness_size_metrics(
     encoded_size: usize,
     witness: &ChunkStateWitness,
 ) {
+    if witness.production_key().is_optimistic {
+        // I don't care
+        return;
+    }
     if let Err(err) = record_witness_size_metrics_fallible(decoded_size, encoded_size, witness) {
         tracing::warn!(target:"client", "Failed to record witness size metrics!, error: {}", err);
     }

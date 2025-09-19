@@ -460,6 +460,10 @@ impl ChunkValidationActorInner {
             tag_witness_distribution = true,
         )
         .entered();
+        if is_optimistic {
+            println!("Optimistic witness, skipping validation");
+            return Ok(());
+        }
 
         // VERY IMPORTANT: always use NEXT chunk here. TODO
         let prev_block_hash = *state_witness.chunk_header().prev_block_hash();
@@ -578,7 +582,7 @@ impl ChunkValidationActorInner {
         }
 
         // Check if previous block exists to know whether or not this witness is an orphan
-        let prev_block_hash = *witness.chunk_header().prev_block_hash();
+        let prev_block_hash = *witness.latest_chunk_header().prev_block_hash();
         match self.chain_store.get_block(&prev_block_hash) {
             Ok(prev_block) => {
                 // Previous block exists
