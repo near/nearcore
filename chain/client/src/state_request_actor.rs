@@ -124,7 +124,7 @@ impl StateRequestActor {
         match self.check_sync_hash_validity(sync_hash) {
             Ok(true) => SyncHashValidationResult::Valid,
             Ok(false) => {
-                tracing::warn!(target: "sync", "sync_hash didn't pass validation, possible malicious behavior");
+                tracing::info!(target: "sync", "sync_hash didn't pass validation; likely too old");
                 SyncHashValidationResult::BadRequest
             }
             Err(near_chain::Error::DBNotFoundErr(_)) => {
@@ -282,7 +282,7 @@ impl Handler<StateRequestPart, Option<StateResponse>> for StateRequestActor {
                 // The request is valid - proceed.
             }
             SyncHashValidationResult::BadRequest => {
-                // Do not respond, possible malicious behavior.
+                // Do not respond; likely too old.
                 return None;
             }
             SyncHashValidationResult::Invalid => {
