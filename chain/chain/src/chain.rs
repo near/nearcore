@@ -47,8 +47,7 @@ use crate::{DoomslugThresholdMode, metrics};
 use crossbeam_channel::{Receiver, Sender, unbounded};
 use itertools::Itertools;
 use lru::LruCache;
-use near_async::futures::AsyncComputationSpawner;
-use near_async::futures::AsyncComputationSpawnerExt;
+use near_async::futures::{AsyncComputationSpawner, spawn_and_collect};
 use near_async::messaging::{IntoMultiSender, noop};
 use near_async::time::{Clock, Duration, Instant};
 use near_chain_configs::{MutableValidatorSigner, ProtocolVersionCheckConfig};
@@ -99,7 +98,6 @@ use near_store::adapter::chain_store::ChainStoreAdapter;
 use near_store::get_genesis_state_roots;
 use near_store::{DBCol, StateSnapshotConfig};
 use node_runtime::SignedValidPeriodTransactions;
-use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use std::cell::Cell;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fmt::{Debug, Formatter};
@@ -253,7 +251,7 @@ pub struct Chain {
     /// Used to receive apply chunks results
     apply_chunks_receiver: Receiver<BlockApplyChunksResult>,
     /// Used to spawn the apply chunks jobs.
-    apply_chunks_spawner: Arc<dyn AsyncComputationSpawner>,
+    pub apply_chunks_spawner: Arc<dyn AsyncComputationSpawner>,
     pub apply_chunk_results_cache: ApplyChunksResultCache,
     /// Time when head was updated most recently.
     last_time_head_updated: Instant,
@@ -1698,21 +1696,29 @@ impl Chain {
     ) {
         let sc = self.apply_chunks_sender.clone();
         let clock = self.clock.clone();
-        self.apply_chunks_spawner.spawn("apply_chunks", move || {
-            let apply_all_chunks_start_time = clock.now();
-            // do_apply_chunks runs `work` in parallel, but still waits for all of them to finish
-            let res = do_apply_chunks(block.clone(), block_height, work);
-            // If we encounter an error here, that means the receiver is deallocated and the client
-            // thread is already shut down. The node is already crashed, so we can unwrap here
+        let apply_all_chunks_start_time = clock.now();
+        let block_cloned = block.clone();
+        let process_results = move |res| {
             metrics::APPLY_ALL_CHUNKS_TIME.with_label_values(&[block.as_ref()]).observe(
                 (clock.now().signed_duration_since(apply_all_chunks_start_time)).as_seconds_f64(),
             );
+            // If we encounter an error here, that means the receiver is deallocated and the client
+            // thread is already shut down. The node is already crashed, so we can unwrap here
             sc.send((block, res)).unwrap();
             drop(apply_chunks_still_applying);
             if let Some(sender) = apply_chunks_done_sender {
                 sender.send(ApplyChunksDoneMessage {}.span_wrap());
             }
-        });
+        };
+        // do_apply_chunks_and_process_results runs `work` in parallel,
+        // then calls `process_results` when done.
+        do_apply_chunks_and_process_results(
+            self.apply_chunks_spawner.clone(),
+            block_cloned,
+            block_height,
+            work,
+            process_results,
+        );
     }
 
     #[tracing::instrument(level = "debug", target = "chain", "postprocess_block_only", skip_all)]
@@ -3695,20 +3701,42 @@ impl Chain {
     }
 }
 
-pub fn do_apply_chunks(
+pub fn do_apply_chunks_and_process_results<F>(
+    spawner: Arc<dyn AsyncComputationSpawner>,
     block: BlockToApply,
     block_height: BlockHeight,
     work: Vec<UpdateShardJob>,
-) -> Vec<(ShardId, CachedShardUpdateKey, Result<ShardUpdateResult, Error>)> {
+    process_results: F,
+) where
+    F: FnOnce(Vec<(ShardId, CachedShardUpdateKey, Result<ShardUpdateResult, Error>)>)
+        + Sync
+        + Send
+        + 'static,
+{
     let parent_span =
         tracing::debug_span!(target: "chain", "do_apply_chunks", block_height, ?block).entered();
-    work.into_par_iter()
-        .map(|(shard_id, cached_shard_update_key, task)| {
-            // As chunks can be processed in parallel, make sure they are all tracked as children of
-            // a single span.
-            (shard_id, cached_shard_update_key, task(&parent_span))
-        })
-        .collect()
+    spawn_and_collect(
+        spawner,
+        "do_apply_chunks",
+        work,
+        {
+            let parent_span = parent_span.clone();
+            move |(shard_id, cached_shard_update_key, task)| {
+                (shard_id, cached_shard_update_key, task(&parent_span))
+            }
+        },
+        move |res| {
+            tracing::warn!(target: "chain", ?block, block_height, "Finished applying chunks");
+            let _span = tracing::warn_span!(
+                target: "chain",
+                "chunks_applied",
+                block_height,
+                ?block,
+            )
+            .entered();
+            process_results(res);
+        },
+    )
 }
 
 pub fn collect_receipts<'a, T>(receipt_proofs: T) -> Vec<Receipt>

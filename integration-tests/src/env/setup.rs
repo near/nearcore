@@ -3,6 +3,7 @@
 #![allow(clippy::arc_with_non_send_sync)]
 
 use crate::utils::peer_manager_mock::PeerManagerMock;
+use near_async::futures::StdThreadAsyncComputationSpawnerForTest;
 use near_async::messaging::{CanSend, IntoMultiSender, IntoSender, LateBoundSender, Sender, noop};
 use near_async::time::{Clock, Duration, Utc};
 use near_chain::rayon_spawner::RayonAsyncComputationSpawner;
@@ -460,7 +461,7 @@ pub fn setup_client_with_runtime(
     config.epoch_length = chain_genesis.epoch_length;
     let protocol_upgrade_schedule = get_protocol_upgrade_schedule(&chain_genesis.chain_id);
     let multi_spawner = AsyncComputationMultiSpawner::default()
-        .custom_apply_chunks(Arc::new(RayonAsyncComputationSpawner)); // Use rayon instead of the default thread pool 
+        .custom_apply_chunks(Arc::new(StdThreadAsyncComputationSpawnerForTest)); // Use std::thread instead of the default thread pool 
 
     // TestEnv bypasses chunk validation actors and handles chunk validation
     // directly through propagate_chunk_state_witnesses method
