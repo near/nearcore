@@ -186,6 +186,96 @@ pub fn finite_wasm_gas(caller: &mut Caller<'_, Ctx>, gas: u64) -> Result<()> {
     consume_gas(&mut caller.data_mut().result_state.gas_counter, gas)
 }
 
+fn linear_gas(caller: &mut Caller<'_, Ctx>, count: u32, linear: u64, constant: u64) -> Result<u32> {
+    let linear = u64::from(count).checked_mul(linear).ok_or(HostError::IntegerOverflow)?;
+    let gas = constant.checked_add(linear).ok_or(HostError::IntegerOverflow)?;
+    consume_gas(&mut caller.data_mut().result_state.gas_counter, gas)?;
+    Ok(count)
+}
+
+pub fn finite_wasm_memory_copy(
+    caller: &mut Caller<'_, Ctx>,
+    count: u32,
+    linear: u64,
+    constant: u64,
+) -> Result<u32> {
+    linear_gas(caller, count, linear, constant)
+}
+
+pub fn finite_wasm_memory_fill(
+    caller: &mut Caller<'_, Ctx>,
+    count: u32,
+    linear: u64,
+    constant: u64,
+) -> Result<u32> {
+    linear_gas(caller, count, linear, constant)
+}
+
+pub fn finite_wasm_memory_init(
+    caller: &mut Caller<'_, Ctx>,
+    count: u32,
+    linear: u64,
+    constant: u64,
+) -> Result<u32> {
+    linear_gas(caller, count, linear, constant)
+}
+
+pub fn finite_wasm_table_copy(
+    caller: &mut Caller<'_, Ctx>,
+    count: u32,
+    linear: u64,
+    constant: u64,
+) -> Result<u32> {
+    linear_gas(caller, count, linear, constant)
+}
+
+pub fn finite_wasm_table_fill(
+    caller: &mut Caller<'_, Ctx>,
+    count: u32,
+    linear: u64,
+    constant: u64,
+) -> Result<u32> {
+    linear_gas(caller, count, linear, constant)
+}
+
+pub fn finite_wasm_table_init(
+    caller: &mut Caller<'_, Ctx>,
+    count: u32,
+    linear: u64,
+    constant: u64,
+) -> Result<u32> {
+    linear_gas(caller, count, linear, constant)
+}
+
+pub fn finite_wasm_stack(
+    caller: &mut Caller<'_, Ctx>,
+    operand_size: u64,
+    frame_size: u64,
+) -> Result<()> {
+    let ctx = caller.data_mut();
+    ctx.remaining_stack =
+        match ctx.remaining_stack.checked_sub(operand_size.saturating_add(frame_size)) {
+            Some(s) => s,
+            None => return Err(VMLogicError::HostError(HostError::MemoryAccessViolation)),
+        };
+    let gas = ((frame_size + 7) / 8) * u64::from(ctx.config.regular_op_cost);
+    consume_gas(&mut ctx.result_state.gas_counter, gas)?;
+    Ok(())
+}
+
+pub fn finite_wasm_unstack(
+    caller: &mut Caller<'_, Ctx>,
+    operand_size: u64,
+    frame_size: u64,
+) -> Result<()> {
+    let ctx = caller.data_mut();
+    ctx.remaining_stack = ctx
+        .remaining_stack
+        .checked_add(operand_size.saturating_add(frame_size))
+        .expect("remaining stack integer overflow");
+    Ok(())
+}
+
 pub fn finite_wasm_gas_exhausted(caller: &mut Caller<'_, Ctx>) -> Result<()> {
     let ctx = caller.data_mut();
     // Burn all remaining gas

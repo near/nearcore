@@ -217,6 +217,9 @@ pub struct Ctx {
     /// The DAG of promises, indexed by promise id.
     promises: Vec<Promise>,
 
+    /// Stores the amount of stack space remaining
+    remaining_stack: u64,
+
     /// Tracks size of the recorded trie storage proof.
     recorded_storage_counter: RecordedStorageCounter,
 
@@ -257,6 +260,7 @@ impl Ctx {
             ext.get_recorded_storage_size(),
             result_state.config.limit_config.per_receipt_storage_proof_size_limit,
         );
+        let remaining_stack = u64::from(result_state.config.limit_config.max_stack_height);
         Self {
             memory: Export::Unresolved(memory),
             limits,
@@ -268,6 +272,7 @@ impl Ctx {
             recorded_storage_counter,
             registers: Default::default(),
             promises: vec![],
+            remaining_stack,
             result_state,
         }
     }
