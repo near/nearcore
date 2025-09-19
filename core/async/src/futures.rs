@@ -176,28 +176,20 @@ pub fn spawn_and_collect<I, F, G, T>(
     let f = Arc::new(f);
 
     for (idx, item) in inputs.into_iter().enumerate() {
-        // tracing::warn!(target: "async", idx, num_tasks=n, name, "Spawning task");
         let tx = tx.clone();
         let f = Arc::clone(&f);
         spawner.spawn(name, move || {
-            // tracing::warn!(target: "async", idx, num_tasks=n, "Task started");
             let out = f(item);
             tx.send((idx, out)).unwrap();
         });
-        // tracing::warn!(target: "async", idx, num_tasks=n, name, "Task spawned");
     }
     drop(tx); // no more sends
 
-    // tracing::warn!(target: "async", num_tasks=n, "Spawning collector task");
     spawner.spawn(name, move || {
-        // tracing::warn!(target: "async", num_tasks=n, "Collector task started");
         let mut results: Vec<Option<T>> = std::iter::repeat_with(|| None).take(n).collect();
         for (idx, val) in rx {
-            // tracing::warn!(target: "async", idx, num_tasks=n, "Task done");
             results[idx] = Some(val);
         }
-        // tracing::warn!(target: "async", num_tasks=n, "All tasks done");
         with_result(results.into_iter().map(|x| x.unwrap()).collect());
     });
-    // tracing::warn!(target: "async", num_tasks=n, "Collector task spawned");
 }

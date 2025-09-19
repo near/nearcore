@@ -3726,7 +3726,8 @@ pub fn do_apply_chunks_and_process_results<F>(
             }
         },
         move |res| {
-            tracing::warn!(target: "chain", ?block, block_height, "Finished applying chunks");
+            // NOTE: This span is exists so tests can capture it and pause block processing.
+            // See `TestEnv::pause_block_processing`.
             let _span = tracing::warn_span!(
                 target: "chain",
                 "chunks_applied",
