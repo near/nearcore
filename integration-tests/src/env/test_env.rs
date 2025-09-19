@@ -121,6 +121,7 @@ impl TestEnv {
                 .clear_data(&gc_config, runtime_adapter, epoch_manager, &shard_tracker)
                 .unwrap();
         } else {
+            // TODO(cloud_archival) Handle the cloud archival case
             // An archival node with split storage should perform garbage collection
             // on the hot storage. In order to determine if split storage is enabled
             // *and* that the migration to split storage is finished we can check

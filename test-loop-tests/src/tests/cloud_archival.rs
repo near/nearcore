@@ -76,6 +76,7 @@ fn test_cloud_archival_base() {
     env.shutdown_and_drain_remaining_events(Duration::seconds(10));
 }
 
+/// Check that cloud archival writer does not crash and `cloud_head` progresses.
 #[test]
 fn test_cloud_archival() {
     test_cloud_archival_base();

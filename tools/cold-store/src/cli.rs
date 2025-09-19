@@ -168,6 +168,7 @@ fn check_open(store: &NodeStorage) -> anyhow::Result<()> {
 fn print_heads(store: &NodeStorage) -> anyhow::Result<()> {
     let hot_store = store.get_hot_store();
     let cold_store = store.get_cold_store();
+    // TODO(cloud_archival) Handle cloud head
 
     // hot store
     {

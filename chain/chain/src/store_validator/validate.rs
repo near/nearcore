@@ -121,6 +121,7 @@ pub(crate) fn head_tail_validity(sv: &mut StoreValidator) -> Result<(), StoreVal
     );
     if tail_db.is_none() != chunk_tail_db.is_none() {
         // Archival nodes can have chunk_tail set without tail being set.
+        // TODO(cloud_archival) Think about the cloud archival case
         if !sv.is_archival || chunk_tail_db.is_none() {
             err!("Tail is {:?} and Chunk Tail is {:?}", tail_db, chunk_tail_db);
         }
