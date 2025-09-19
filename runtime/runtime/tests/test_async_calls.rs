@@ -1250,6 +1250,102 @@ fn test_create_transfer_64len_hex_fail() {
     assert_single_refund_prior_to_nep536(&group, &refunds);
 }
 
+// redirect the balance refund using `promise_refund_to`
+#[test]
+fn test_refund_to() {
+    let test_contract = if ProtocolFeature::DeterministicAccountIds.enabled(PROTOCOL_VERSION) {
+        near_test_contracts::nightly_rs_contract()
+    } else {
+        near_test_contracts::rs_contract()
+    };
+    let group = RuntimeGroup::new(4, 4, &test_contract);
+
+    let signer_sender = group.signers[0].clone();
+    let signer_receiver = group.signers[1].clone();
+    let deposit = 1000;
+
+    let data = serde_json::json!([
+        {
+            "batch_create": {
+                "account_id": "near_2",
+            },
+            "id": 0
+        },
+        {
+            "action_function_call": {
+                "promise_index": 0,
+                "method_name": "non_existing_function",
+                "arguments": [],
+                "amount": deposit.to_string(),
+                "gas": GAS_2,
+            },
+            "id": 0
+        },
+        {
+            "set_refund_to": {
+                "promise_index": 0,
+                "beneficiary_id": "near_3"
+            }, "id": 0
+        }
+    ]);
+
+    let signed_transaction = SignedTransaction::from_actions(
+        1,
+        signer_sender.get_account_id(),
+        signer_receiver.get_account_id(),
+        &signer_sender,
+        vec![Action::FunctionCall(Box::new(FunctionCallAction {
+            method_name: "call_promise".to_string(),
+            args: serde_json::to_vec(&data).unwrap(),
+            gas: GAS_1,
+            deposit,
+        }))],
+        CryptoHash::default(),
+        0,
+    );
+
+    let handles = RuntimeGroup::start_runtimes(group.clone(), vec![signed_transaction.clone()]);
+    for h in handles {
+        h.join().unwrap();
+    }
+
+    use near_primitives::transaction::*;
+    let [r0] = &*assert_receipts!(group, signed_transaction) else {
+        panic!("Incorrect number of produced receipts")
+    };
+
+    let receipts = &*assert_receipts!(group, "near_0" => r0 @ "near_1",
+        ReceiptEnum::Action(ActionReceipt{actions, ..}) | ReceiptEnum::ActionV2(ActionReceiptV2{actions, ..}),
+        {},
+        actions,
+        a0, Action::FunctionCall(function_call_action), {
+            assert_eq!(function_call_action.gas, GAS_1);
+            assert_eq!(function_call_action.deposit, deposit);
+            assert_eq!(function_call_action.method_name, "call_promise");
+        }
+    );
+    let [r1] = &receipts else { panic!("Incorrect number of produced receipts") };
+
+    let receipts = &*assert_receipts!(group, "near_1" => r1 @ "near_2",
+        ReceiptEnum::Action(ActionReceipt{actions, ..}) | ReceiptEnum::ActionV2(ActionReceiptV2{actions, ..}),
+        {},
+        actions,
+        a0, Action::FunctionCall(function_call_action), {
+            assert_eq!(function_call_action.gas, GAS_2);
+            assert_eq!(function_call_action.deposit, deposit);
+            assert_eq!(function_call_action.method_name, "non_existing_function");
+        }
+    );
+    let [deposit_refund] = &receipts else { panic!("Incorrect number of produced receipts") };
+
+    // This is the redirected refund
+    if ProtocolFeature::DeterministicAccountIds.enabled(PROTOCOL_VERSION) {
+        assert_refund!(group, deposit_refund @ "near_3");
+    } else {
+        assert_refund!(group, deposit_refund @ "near_1");
+    }
+}
+
 #[track_caller]
 fn assert_single_refund_prior_to_nep536(group: &RuntimeGroup, receipts: &[CryptoHash]) {
     use near_primitives::transaction::*;
