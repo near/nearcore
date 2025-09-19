@@ -45,6 +45,7 @@ export function parseEntityKey(keyType: EntityKeyType, input: string): EntityKey
         case 'block_hash':
         case 'chunk_hash':
         case 'epoch_id':
+        case 'outcome_id':
         case 'receipt_id':
         case 'transaction_hash':
         case 'state_root':

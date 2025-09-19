@@ -18,7 +18,7 @@ use near_chain::types::RuntimeAdapter;
 use near_chain::{
     Chain, ChainGenesis, PartialWitnessValidationThreadPool, WitnessCreationThreadPool,
 };
-use near_chain_configs::ReshardingHandle;
+use near_chain_configs::{CloudArchivalHandle, ReshardingHandle};
 use near_chunks::shards_manager_actor::start_shards_manager;
 use near_client::adapter::client_sender_for_network;
 use near_client::archive::cloud_archival_actor::create_cloud_archival_actor;
@@ -222,7 +222,7 @@ pub struct NearNode {
     pub cold_store_loop_handle: Option<Arc<AtomicBool>>,
     /// The `cloud_archival_handle` will only be set if the cloud archival writer is configured. It's a handle
     /// to control the cloud archival actor that archives data from the hot store to the cloud archival.
-    pub cloud_archival_handle: Option<Arc<AtomicBool>>,
+    pub cloud_archival_handle: Option<CloudArchivalHandle>,
     /// Contains handles to background threads that may be dumping state to S3.
     pub state_sync_dumper: StateSyncDumper,
     // A handle that allows the main process to interrupt resharding if needed.
@@ -341,9 +341,9 @@ pub fn start_with_config_and_synchronization(
         config.genesis.config.genesis_height,
         &storage,
     )?;
-    let cloud_archival_handle = if let Some((actor, keep_going)) = result {
+    let cloud_archival_handle = if let Some((actor, handle)) = result {
         let _cloud_archival_addr = actor_system.spawn_tokio_actor(actor);
-        Some(keep_going)
+        Some(handle)
     } else {
         None
     };
