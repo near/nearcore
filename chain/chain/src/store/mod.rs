@@ -1868,11 +1868,10 @@ impl<'a> ChainStoreUpdate<'a> {
                         entry.get_mut().insert(hash);
                     }
                     Entry::Vacant(entry) => {
-                        let mut hash_set =
-                            match self.chain_store.get_all_chunk_hashes_by_height(height) {
-                                Ok(hash_set) => hash_set,
-                                Err(_) => HashSet::new(),
-                            };
+                        let mut hash_set = self
+                            .chain_store
+                            .get_all_chunk_hashes_by_height(height)
+                            .unwrap_or_default();
                         hash_set.insert(hash);
                         entry.insert(hash_set);
                     }
