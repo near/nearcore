@@ -631,7 +631,7 @@ impl<'a> InstrumentContext<'a> {
                 }
                 wp::Operator::Return => {
                     // FIXME: we could replace these `return`s with `br $well_chosen_index`
-                    // targetting the block we inserted around the function body.
+                    // targeting the block we inserted around the function body.
                     call_unstack_instrumentation(
                         &mut new_function,
                         stack_sz,
