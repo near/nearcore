@@ -316,3 +316,71 @@ fn too_many_tables() {
             "#]],
         ]);
 }
+
+#[test]
+fn use_imports() {
+    test_builder()
+        .wat(
+            r#"
+            (module
+              (import "env" "account_locked_balance" (func (param i64)))
+              (import "env" "alt_bn128_g1_multiexp" (func (param i64 i64 i64)))
+              (import "env" "alt_bn128_g1_sum" (func (param i64 i64 i64)))
+              (import "env" "alt_bn128_pairing_check" (func (param i64 i64) (result i64)))
+              (import "env" "keccak256" (func (param i64 i64 i64)))
+              (import "env" "keccak512" (func (param i64 i64 i64)))
+              (import "env" "bls12381_pairing_check" (func (param i64 i64) (result i64)))
+              (import "env" "write_register" (func (param i64 i64 i64)))
+              (import "env" "storage_has_key" (func (param i64 i64) (result i64)))
+              (func (export "main")
+                i64.const 0
+                call 0
+
+                i64.const 0
+                i64.const 0
+                i64.const 0
+                call 1
+
+                i64.const 0
+                i64.const 0
+                i64.const 0
+                call 2
+
+                i64.const 0
+                i64.const 0
+                call 3
+                drop
+
+                i64.const 0
+                i64.const 0
+                i64.const 0
+                call 4
+
+                i64.const 0
+                i64.const 0
+                i64.const 0
+                call 5
+
+                i64.const 0
+                i64.const 0
+                call 6
+                drop
+
+                i64.const 0
+                i64.const 0
+                i64.const 0
+                call 7
+
+                i64.const 0
+                i64.const 0
+                call 8
+                drop
+              )
+            )"#,
+        )
+        .expects(&[
+            expect![[r#"
+                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 12637863260998 used gas 12637863260998
+            "#]],
+        ]);
+}
