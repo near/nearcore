@@ -4,7 +4,7 @@ use near_crypto::InMemorySigner;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::Receipt;
-use near_primitives::receipt::ReceiptEnum::{PromiseResume, PromiseYield};
+use near_primitives::receipt::ReceiptEnum::{PromiseResume, PromiseYield, PromiseYieldV2};
 use near_primitives::transaction::{
     Action, DeployContractAction, FunctionCallAction, SignedTransaction,
 };
@@ -36,6 +36,9 @@ fn get_promise_yield_data_ids_from_latest_block(env: &TestEnv) -> Vec<CryptoHash
     let mut result = vec![];
     for receipt in get_outgoing_receipts_from_latest_block(&env) {
         if let PromiseYield(action_receipt) = receipt.receipt() {
+            result.push(action_receipt.input_data_ids[0]);
+        }
+        if let PromiseYieldV2(action_receipt) = receipt.receipt() {
             result.push(action_receipt.input_data_ids[0]);
         }
     }

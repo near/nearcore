@@ -184,6 +184,8 @@ pub enum HostError {
     CannotAppendActionToJointPromise,
     /// Returning joint promise is currently prohibited
     CannotReturnJointPromise,
+    /// Setting `refund_to` on a joint promise is prohibited
+    CannotSetRefundToOnJointPromise,
     /// Accessed invalid promise result index
     InvalidPromiseResultIndex {
         result_idx: u64,
@@ -463,6 +465,9 @@ impl std::fmt::Display for HostError {
             }
             CannotReturnJointPromise => {
                 write!(f, "Returning joint promise is currently prohibited.")
+            }
+            CannotSetRefundToOnJointPromise => {
+                write!(f, "Setting refund_to on a joint promise is prohibited.")
             }
             InvalidPromiseResultIndex { result_idx } => {
                 write!(f, "Accessed invalid promise result index: {:?}", result_idx)

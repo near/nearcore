@@ -24,6 +24,8 @@ type DataReceipts = Vec<DataReceiptMetadata>;
 pub struct ActionReceiptMetadata {
     /// Receipt destination
     pub receiver_id: AccountId,
+    /// The account id to send balance refunds generated from this receipt.
+    pub refund_to: Option<AccountId>,
     /// If present, where to route the output data
     pub output_data_receivers: Vec<DataReceiver>,
     /// A list of the input data dependencies for this Receipt to process.
@@ -117,6 +119,7 @@ impl ReceiptManager {
 
         let new_receipt = ActionReceiptMetadata {
             receiver_id,
+            refund_to: None,
             output_data_receivers: vec![],
             input_data_ids,
             actions: vec![],
@@ -143,6 +146,7 @@ impl ReceiptManager {
     ) -> Result<ReceiptIndex, VMLogicError> {
         let new_receipt = ActionReceiptMetadata {
             receiver_id,
+            refund_to: None,
             output_data_receivers: vec![],
             input_data_ids: vec![input_data_id],
             actions: vec![],
@@ -562,6 +566,13 @@ impl ReceiptManager {
         }
         assert_eq!(unused_gas.as_gas(), distributed);
         Ok(Gas::from_gas(distributed))
+    }
+
+    pub(super) fn set_refund_to(&mut self, receipt_index: ReceiptIndex, refund_to: AccountId) {
+        self.action_receipts
+            .get_mut(receipt_index as usize)
+            .expect("receipt index should be valid for setting refund_to")
+            .refund_to = Some(refund_to)
     }
 }
 

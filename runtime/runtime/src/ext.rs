@@ -485,6 +485,10 @@ impl<'a> External for RuntimeExt<'a> {
     fn get_receipt_receiver(&self, receipt_index: ReceiptIndex) -> &AccountId {
         self.receipt_manager.get_receipt_receiver(receipt_index)
     }
+
+    fn set_refund_to(&mut self, receipt_index: ReceiptIndex, refund_to: AccountId) {
+        self.receipt_manager.set_refund_to(receipt_index, refund_to);
+    }
 }
 
 pub(crate) struct RuntimeContractExt<'a> {
