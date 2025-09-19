@@ -1,14 +1,12 @@
 use std::fmt::{Debug, Formatter};
 
 use super::ChunkProductionKey;
-use crate::sharding::ShardChunkHeader;
 use crate::stateless_validation::WitnessProductionKey;
-use crate::types::{EpochId, SignatureDifferentiator};
+use crate::types::SignatureDifferentiator;
 use crate::validator_signer::ValidatorSigner;
 use borsh::{BorshDeserialize, BorshSerialize};
 use bytesize::ByteSize;
 use near_crypto::{PublicKey, Signature};
-use near_primitives_core::types::{BlockHeight, ShardId};
 use near_schema_checker_lib::ProtocolSchema;
 
 /// Represents max allowed size of the compressed state witness,

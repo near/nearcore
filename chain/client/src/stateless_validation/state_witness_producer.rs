@@ -7,16 +7,11 @@ use near_chain::chain::NewChunkResult;
 use near_chain::stateless_validation::state_witness::CreateWitnessResult;
 use near_chain::types::ApplyChunkResult;
 use near_chain_primitives::Error;
-use near_epoch_manager::shard_assignment::shard_id_to_uid;
 use near_primitives::sharding::{ShardChunk, ShardChunkHeader};
-use near_primitives::state::PartialState;
-use near_primitives::stateless_validation::contract_distribution::ContractUpdates;
 use near_primitives::stateless_validation::state_witness::{
     ChunkApplyWitness, ChunkStateTransition, ChunkStateWitness, ChunkStateWitnessV3,
 };
 use near_primitives::types::EpochId;
-use near_store::adapter::trie_store::TrieStoreAdapter;
-use near_store::{TrieDBStorage, TrieStorage};
 
 impl Client {
     /// Distributes the chunk state witness to chunk validators that are
@@ -93,6 +88,12 @@ impl Client {
             new_chunk.apply_result;
         let prev_block_hash = context.block.prev_block_hash;
         let epoch_id = self.epoch_manager.get_epoch_id(&prev_block_hash)?;
+        let next_epoch_id =
+            self.epoch_manager.get_next_epoch_id_from_prev_block(&prev_block_hash)?;
+        if epoch_id != next_epoch_id {
+            // Let's just skip it because I don't want to handle resharding yet.
+            return Ok(());
+        }
         let shard_id = context.chunk_header.shard_id();
 
         let main_state_transition = ChunkStateTransition {

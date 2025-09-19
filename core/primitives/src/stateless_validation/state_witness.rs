@@ -4,7 +4,6 @@ use {crate::state::PartialState, std::collections::HashMap};
 use super::ChunkProductionKey;
 #[cfg(feature = "solomon")]
 use crate::reed_solomon::{ReedSolomonEncoderDeserialize, ReedSolomonEncoderSerialize};
-use crate::sharding::shard_chunk_header_inner::ShardChunkApplyHeader;
 use crate::stateless_validation::WitnessProductionKey;
 use crate::transaction::SignedTransaction;
 use crate::types::{EpochId, SignatureDifferentiator};
