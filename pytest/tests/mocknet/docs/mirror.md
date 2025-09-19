@@ -83,7 +83,6 @@ mirror new-test \
   --genesis-protocol-version 71 \
   --num-validators 20 \
   --num-seats 20 \
-  --stateless-setup \
   --new-chain-id mocknet \
   --gcs-state-sync
 ```
@@ -95,8 +94,6 @@ mirror new-test \
 `--num-validators 20` How many of your GCP hosts you want to be added to the validator pool in genesis.
 
 `--num-seats 20` How many block producers do you want in your network. (WIP. Currently a dummy parameter)
-
-`--stateless-setup` Makes your nodes load the tracked shard in memory. 
 
 `--new-chain-id mocknet` Set the name of your chain id in genesis. Do not use `mainnet` or `testnet`. Typical value for this argument is `mocknet`. The chain_id in the grafana metrics is not set by this value, it is set by a value in terraform file. `chain_id` in metrics is always set to `mocknet.`
 
