@@ -378,7 +378,7 @@ impl WasmtimeVM {
                 let mut pooling_config = PoolingAllocationConfig::default();
                 pooling_config
                     .decommit_batch_size(
-                        MAX_CONCURRENCY.saturating_sub(2).try_into().unwrap_or(usize::MAX),
+                        MAX_CONCURRENCY.saturating_div(2).try_into().unwrap_or(usize::MAX),
                     )
                     .max_memory_size(max_memory_size)
                     .table_elements(max_elements_per_contract_table)
@@ -388,7 +388,6 @@ impl WasmtimeVM {
                     .total_tables(max_tables)
                     .max_memories_per_module(1)
                     .max_tables_per_module(max_tables_per_contract)
-                    // keep 1 / (pointer size) of maximum table element count resident
                     .table_keep_resident(max_elements_per_contract_table);
 
                 let mut engine_config = wasmtime::Config::from(features);
