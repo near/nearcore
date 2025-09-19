@@ -5,6 +5,7 @@ use crate::trie::update::TrieUpdateResult;
 use crate::trie::{OptimizedValueRef, ValueAccessToken};
 use crate::{KeyLookupMode, trie::AccessOptions};
 use near_primitives::errors::StorageError;
+use near_primitives::hash::CryptoHash;
 use near_primitives::serialize;
 use near_primitives::state::ValueRef;
 use near_primitives::trie_key::col::{ACCESS_KEY, CONTRACT_DATA};
@@ -147,7 +148,7 @@ impl StateUpdate {
     }
 }
 
-enum StateValue {
+pub enum StateValue {
     /// The value is present in the underlying Trie at a certain hash.
     TrieValueRef(ValueRef),
     /// The value was returned as a Vec<u8>.
@@ -156,6 +157,18 @@ enum StateValue {
     Serialized(Arc<ValueAccessToken>),
     /// This is a deserialized form of the value stored at the given key.
     Deserialized(Arc<dyn Deserialized>),
+}
+
+impl StateValue {
+    pub fn value_hash_len(&self) -> (CryptoHash, usize) {
+        match self {
+            StateValue::TrieValueRef(value_ref) => (value_ref.hash, value_ref.len()),
+            StateValue::Serialized(token) => (token.value_hash(), token.len()),
+            StateValue::Deserialized(deserialized) => {
+                todo!("serialize on the fly, hash and take length")
+            }
+        }
+    }
 }
 
 impl<'su> StateOperations<'su> {
@@ -254,21 +267,16 @@ impl<'su> StateOperations<'su> {
     /// The returned object will transparently memoize dereferences of this reference. Once the
     /// value is dereferenced for the first time, the [`StateUpdate`]/[`StateUpdateOperation`] will
     /// switch to storing the value itself.
-    ///
-    // FIXME: StateUpdate cannot serve `OptimizedValueRef`s. If the value is written-to, we cannot
-    // materialize `OVR::AvailableValue()` variant of it as it would store serialized data. Making
-    // `value_hash` not straightforward to compute. The only option I can think of is replacing
-    // `OptimizedValueRef` with our own enum that would store either the `ValueRef` or the
-    // deserialized value.
-    pub fn get_ref(&mut self, key: TrieKey) -> Result<Option<StateValue>, StorageError> {
+    pub fn get_ref(
+        &mut self,
+        key: TrieKey,
+        key_mode: KeyLookupMode,
+        access_options: AccessOptions,
+    ) -> Result<Option<StateValue>, StorageError> {
         self.get_ref_or(key, |t, k| {
             let mut key_buf = SmallKeyVec::new_const();
             k.append_into(&mut key_buf);
-            let optref = t.get_optimized_ref(
-                &*key_buf,
-                KeyLookupMode::MemOrFlatOrTrie,
-                AccessOptions::DEFAULT,
-            );
+            let optref = t.get_optimized_ref(&*key_buf, key_mode, access_options);
             Ok(Some(match optref? {
                 Some(OptimizedValueRef::Ref(r)) => StateValue::TrieValueRef(r),
                 Some(OptimizedValueRef::AvailableValue(v)) => StateValue::Serialized(Arc::new(v)),
@@ -278,7 +286,7 @@ impl<'su> StateOperations<'su> {
     }
 
     /// This is a more flexible version of [`Self::get_ref`], allowing custom [`Trie`] access.
-    pub fn get_ref_or(
+    fn get_ref_or(
         &mut self,
         key: TrieKey,
         fetch: impl Fn(&Trie, &TrieKey) -> Result<Option<StateValue>, StorageError>,
@@ -339,7 +347,7 @@ impl<'su> StateOperations<'su> {
     }
 
     /// This is a more flexible version of [`Self::get`], allowing custom [`Trie`] access.
-    pub fn get_or<V>(
+    fn get_or<V>(
         &mut self,
         key: TrieKey,
         fetch: impl Fn(&Trie, &TrieKey) -> Result<Option<StateValue>, StorageError>,
@@ -495,7 +503,7 @@ impl<'su> StateOperations<'su> {
 
     /// A more flexible version of [`Self::take`] that allows customizing [`Trie`] access when
     /// value is not yet part of [`StoreUpdate`].
-    pub fn take_or<V>(
+    fn take_or<V>(
         &mut self,
         key: TrieKey,
         fetch: impl Fn(&Trie, &TrieKey) -> Result<Option<StateValue>, StorageError>,

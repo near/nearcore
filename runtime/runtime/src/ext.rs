@@ -158,9 +158,7 @@ impl<'a, 'su> External for RuntimeExt<'a, 'su> {
         let options = AccessOptions::contract_runtime(&self.trie_access_tracker);
         let evicted_ptr = self
             .update_op
-            .get_ref_or(storage_key, |t, k| {
-                t.get_optimized_ref(&k.to_vec(), KeyLookupMode::MemOrTrie, options)
-            })
+            .get_ref(storage_key, KeyLookupMode::MemOrTrie, options)
             .map_err(wrap_storage_error)?;
         let evicted = match evicted_ptr {
             None => None,
@@ -201,7 +199,7 @@ impl<'a, 'su> External for RuntimeExt<'a, 'su> {
         // fail for the evicted values, this will record the TTN fees unconditionally.
         let result = self
             .update_op
-            .get_ref_or(storage_key, |t, k| t.get_optimized_ref(&k.to_vec(), mode, deref_options))
+            .get_ref(storage_key.clone(), mode, deref_options)
             .map_err(wrap_storage_error)
             .map(|option| {
                 option.map(|value_ptr| {
@@ -245,9 +243,7 @@ impl<'a, 'su> External for RuntimeExt<'a, 'su> {
         let options = AccessOptions::contract_runtime(&self.trie_access_tracker);
         let removed = self
             .update_op
-            .get_ref_or(storage_key.clone(), |t, k| {
-                t.get_optimized_ref(&k.to_vec(), KeyLookupMode::MemOrTrie, options)
-            })
+            .get_ref(storage_key.clone(), KeyLookupMode::MemOrTrie, options)
             .map_err(wrap_storage_error)?;
         let removed = match removed {
             None => None,
@@ -286,13 +282,7 @@ impl<'a, 'su> External for RuntimeExt<'a, 'su> {
         // FIXME: why isn't this using contains_key??
         let result = self
             .update_op
-            .get_ref_or(storage_key, |t, k| {
-                t.get_optimized_ref(
-                    &k.to_vec(),
-                    mode,
-                    AccessOptions::contract_runtime(&self.trie_access_tracker),
-                )
-            })
+            .get_ref(storage_key, mode, AccessOptions::contract_runtime(&self.trie_access_tracker))
             .map(|x| x.is_some())
             .map_err(wrap_storage_error);
         let _delta =
@@ -368,7 +358,7 @@ impl<'a, 'su> External for RuntimeExt<'a, 'su> {
         // If the yielded promise was created by a previous transaction, we'll find it in the trie
         let receiver_id = self.account_id.clone();
         let key = TrieKey::PromiseYieldReceipt { receiver_id, data_id };
-        if self.update_op.contains_key(&key).map_err(wrap_storage_error)? {
+        if self.update_op.contains_key(key).map_err(wrap_storage_error)? {
             self.receipt_manager.create_promise_resume_receipt(data_id, data)?;
             return Ok(true);
         }

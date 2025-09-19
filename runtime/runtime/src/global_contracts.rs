@@ -70,7 +70,7 @@ pub(crate) fn action_use_global_contract(
 ) -> Result<(), RuntimeError> {
     let _span = tracing::debug_span!(target: "runtime", "action_use_global_contract").entered();
     let key = TrieKey::GlobalContractCode { identifier: action.contract_identifier.clone().into() };
-    if !state_update.contains_key(&key)? {
+    if !state_update.contains_key(key)? {
         result.result = Err(ActionErrorKind::GlobalContractDoesNotExist {
             identifier: action.contract_identifier.clone(),
         }
@@ -326,13 +326,15 @@ impl<'su> GlobalContractAccessExt<&mut StateOperations<'su>> for GlobalContractI
             return Ok(crypto_hash);
         }
         let key = TrieKey::GlobalContractCode { identifier: self.clone().into() };
-        let value_ref = store.get_ref(key)?.ok_or_else(|| {
-            StorageError::StorageInconsistentState(format!(
-                "Global contract identifier not found {:?}",
-                self
-            ))
-        })?;
-        Ok(value_ref.value_hash())
+        let value_ref = store
+            .get_ref(key, KeyLookupMode::MemOrFlatOrTrie, AccessOptions::DEFAULT)?
+            .ok_or_else(|| {
+                StorageError::StorageInconsistentState(format!(
+                    "Global contract identifier not found {:?}",
+                    self
+                ))
+            })?;
+        Ok(value_ref.value_hash_len().0)
     }
 
     fn code(self, store: &mut StateOperations<'su>) -> Result<Option<ContractCode>, StorageError> {

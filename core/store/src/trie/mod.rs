@@ -547,6 +547,16 @@ pub struct ValueAccessToken {
     value: Vec<u8>,
 }
 
+impl ValueAccessToken {
+    pub fn len(&self) -> usize {
+        self.value.len()
+    }
+
+    pub fn value_hash(&self) -> CryptoHash {
+        hash(self.value.as_slice())
+    }
+}
+
 impl OptimizedValueRef {
     fn from_flat_value(value: FlatStateValue) -> Self {
         match value {
@@ -559,7 +569,7 @@ impl OptimizedValueRef {
     pub fn len(&self) -> usize {
         match self {
             Self::Ref(value_ref) => value_ref.len(),
-            Self::AvailableValue(token) => token.value.len(),
+            Self::AvailableValue(token) => token.len(),
         }
     }
 
@@ -567,7 +577,7 @@ impl OptimizedValueRef {
     pub fn value_hash(&self) -> CryptoHash {
         match self {
             OptimizedValueRef::Ref(value_ref) => value_ref.hash,
-            OptimizedValueRef::AvailableValue(ValueAccessToken { value }) => hash(value.as_slice()),
+            OptimizedValueRef::AvailableValue(token) => token.value_hash(),
         }
     }
 

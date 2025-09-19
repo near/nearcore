@@ -1120,7 +1120,7 @@ impl Runtime {
                 let mut pending_data_count: u32 = 0;
                 for &data_id in &action_receipt.input_data_ids {
                     let key = TrieKey::ReceivedData { receiver_id: account_id.clone(), data_id };
-                    if !state_ops.contains_key(&key)? {
+                    if !state_ops.contains_key(key)? {
                         pending_data_count += 1;
                         // The data for a given data_id is not available, so we save a link to this
                         // receipt_id for the pending data_id into the state.
@@ -2511,7 +2511,7 @@ fn resolve_promise_yield_timeouts(
             receiver_id: queue_entry.account_id.clone(),
             data_id: queue_entry.data_id,
         };
-        if state_update.contains_key(&promise_yield_key)? {
+        if state_update.contains_key(promise_yield_key)? {
             let new_receipt_id = create_receipt_id_from_receipt_id(
                 &queue_entry.data_id,
                 apply_state.block_height,
