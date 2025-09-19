@@ -181,6 +181,7 @@ fn run_estimation(cli_args: CliArgs) -> anyhow::Result<Option<CostTable>> {
             None,
             None,
             None,
+            None,
         )
         .expect("failed to init config");
 
