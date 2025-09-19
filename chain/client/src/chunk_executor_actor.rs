@@ -3,14 +3,14 @@ use std::collections::HashSet;
 use std::sync::Arc;
 
 use near_async::futures::AsyncComputationSpawner;
-use near_async::futures::AsyncComputationSpawnerExt;
 use near_async::messaging::CanSend;
 use near_async::messaging::Handler;
 use near_async::messaging::IntoSender;
 use near_async::messaging::Sender;
 use near_chain::ChainStoreAccess;
+use near_chain::chain::do_apply_chunks_and_process_results;
 use near_chain::chain::{
-    NewChunkData, NewChunkResult, ShardContext, StorageContext, UpdateShardJob, do_apply_chunks,
+    NewChunkData, NewChunkResult, ShardContext, StorageContext, UpdateShardJob,
 };
 use near_chain::sharding::get_receipts_shuffle_salt;
 use near_chain::sharding::shuffle_receipt_proofs;
@@ -394,19 +394,27 @@ impl ChunkExecutorActor {
         }
 
         let apply_done_sender = self.myself_sender.clone();
-        self.apply_chunks_spawner.spawn("apply_chunks", move || {
-            let block_hash = *block.hash();
-            let apply_results =
-                do_apply_chunks(BlockToApply::Normal(block_hash), block.header().height(), jobs)
+        let block_hash = *block.hash();
+        let block_height = block.header().height();
+        let process_results =
+            move |res: Vec<(ShardId, CachedShardUpdateKey, Result<ShardUpdateResult, Error>)>| {
+                let apply_results = res
                     .into_iter()
                     .map(|(shard_id, _, result)| {
                         result.unwrap_or_else(|err| {
                     panic!("failed to apply block {block_hash:?} chunk for shard {shard_id}: {err}")
-                })
+                        })
                     })
                     .collect();
-            apply_done_sender.send(ExecutorApplyChunksDone { block_hash, apply_results });
-        });
+                apply_done_sender.send(ExecutorApplyChunksDone { block_hash, apply_results });
+            };
+        do_apply_chunks_and_process_results(
+            self.apply_chunks_spawner.clone(),
+            BlockToApply::Normal(block_hash),
+            block_height,
+            jobs,
+            process_results,
+        );
         Ok(())
     }
 

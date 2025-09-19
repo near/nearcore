@@ -195,7 +195,10 @@ pub fn start_client(
     .unwrap();
 
     let client_sender_for_sync_jobs = LateBoundSender::<ClientSenderForSyncJobs>::new();
-    let sync_jobs_actor = SyncJobsActor::new(client_sender_for_sync_jobs.as_multi_sender());
+    let sync_jobs_actor = SyncJobsActor::new(
+        client_sender_for_sync_jobs.as_multi_sender(),
+        client.chain.apply_chunks_spawner.clone(),
+    );
     let sync_jobs_actor_addr = actor_system.spawn_tokio_actor(sync_jobs_actor);
 
     // Create chunk validation actor

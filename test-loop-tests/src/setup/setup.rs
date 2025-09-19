@@ -80,7 +80,10 @@ pub fn setup_client(
         ..Default::default()
     };
 
-    let sync_jobs_actor = SyncJobsActor::new(client_adapter.as_multi_sender());
+    let sync_jobs_actor = SyncJobsActor::new(
+        client_adapter.as_multi_sender(),
+        Arc::new(test_loop.async_computation_spawner(identifier, |_| Duration::milliseconds(80))),
+    );
     let chain_genesis = ChainGenesis::new(&genesis.config);
     let epoch_manager = EpochManager::new_arc_handle_from_epoch_config_store(
         store.clone(),
