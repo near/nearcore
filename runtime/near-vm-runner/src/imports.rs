@@ -93,6 +93,8 @@ imports! {
     @in internal: finite_wasm_table_init<[cnt: u32, lin: u64, constant: u64] -> [u32]>,
     @in internal: finite_wasm_stack<[operand_size: u64, frame_size: u64] -> []>,
     @in internal: finite_wasm_unstack<[operand_size: u64, frame_size: u64] -> []>,
+    @in internal: finite_wasm_gas_exhausted<[] -> []>,
+    @in internal: finite_wasm_stack_exhausted<[] -> []>,
     // #############
     // # Registers #
     // #############

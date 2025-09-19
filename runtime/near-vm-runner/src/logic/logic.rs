@@ -366,6 +366,18 @@ impl<'a> VMLogic<'a> {
         Ok(())
     }
 
+    pub fn finite_wasm_gas_exhausted(&mut self) -> Result<()> {
+        // Burn all remaining gas
+        self.gas(self.result_state.gas_counter.remaining_gas())?;
+        // This function will only ever be called by instrumentation on overflow, otherwise
+        // `finite_wasm_gas` will be called with the out-of-budget charge
+        Err(VMLogicError::HostError(HostError::IntegerOverflow))
+    }
+
+    pub fn finite_wasm_stack_exhausted(&mut self) -> Result<()> {
+        Err(VMLogicError::HostError(HostError::MemoryAccessViolation))
+    }
+
     // #################
     // # Registers API #
     // #################

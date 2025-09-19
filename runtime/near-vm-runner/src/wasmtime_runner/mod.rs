@@ -6,25 +6,29 @@ use crate::logic::errors::{
 use crate::logic::logic::Promise;
 use crate::logic::recorded_storage_counter::RecordedStorageCounter;
 use crate::logic::vmstate::Registers;
-use crate::logic::{Config, ExecutionResultState, External, GasCounter, VMContext, VMOutcome};
+use crate::logic::{
+    Config, ExecutionResultState, External, GasCounter, HostError, VMContext, VMOutcome,
+};
 use crate::runner::VMResult;
 use crate::{
     CompiledContract, CompiledContractInfo, Contract, ContractCode, ContractRuntimeCache,
-    MEMORY_EXPORT, NoContractRuntimeCache, get_contract_cache_key, imports, prepare,
+    EXPORT_PREFIX, MEMORY_EXPORT, NoContractRuntimeCache, REMAINING_GAS_EXPORT, START_EXPORT,
+    get_contract_cache_key, imports, prepare,
 };
 use core::mem::transmute;
 use core::ops::Deref;
 use core::sync::atomic::{AtomicU64, Ordering};
 use near_parameters::RuntimeFeesConfig;
 use near_parameters::vm::{LimitConfig, VMKind};
+use near_primitives_core::gas::Gas;
 use near_primitives_core::types::Balance;
 use std::collections::HashMap;
 use std::sync::{Arc, LazyLock};
 use tracing::warn;
 use wasmtime::{
-    Engine, ExternType, Instance, InstanceAllocationStrategy, InstancePre, Linker, Module,
-    ModuleExport, PoolingAllocationConfig, ResourcesRequired, Store, StoreLimits,
-    StoreLimitsBuilder, Strategy, WasmBacktraceDetails,
+    CallHook, Engine, Extern, ExternType, Instance, InstanceAllocationStrategy, InstancePre,
+    Linker, Memory, Module, ModuleExport, PoolingAllocationConfig, ResourcesRequired, Store,
+    StoreLimits, StoreLimitsBuilder, Strategy, Val, WasmBacktraceDetails,
 };
 
 mod logic;
@@ -185,8 +189,13 @@ impl ConcurrencySemaphore {
     }
 }
 
+enum Export<T> {
+    Unresolved(ModuleExport),
+    Resolved(T),
+}
+
 pub struct Ctx {
-    memory: ModuleExport,
+    memory: Export<Memory>,
     limits: StoreLimits,
     /// Provides access to the components outside the Wasm runtime for operations on the trie and
     /// receipts creation.
@@ -253,7 +262,7 @@ impl Ctx {
         );
         let remaining_stack = u64::from(result_state.config.limit_config.max_stack_height);
         Self {
-            memory,
+            memory: Export::Unresolved(memory),
             limits,
             ext,
             context,
@@ -331,6 +340,8 @@ pub(crate) struct WasmtimeVM {
 struct PreparedModule {
     pre: InstancePre<Ctx>,
     memory: ModuleExport,
+    remaining_gas: Option<ModuleExport>,
+    start: Option<ModuleExport>,
     num_tables: u32,
 }
 
@@ -367,7 +378,7 @@ impl WasmtimeVM {
                 let mut pooling_config = PoolingAllocationConfig::default();
                 pooling_config
                     .decommit_batch_size(
-                        MAX_CONCURRENCY.saturating_sub(2).try_into().unwrap_or(usize::MAX),
+                        MAX_CONCURRENCY.saturating_div(2).try_into().unwrap_or(usize::MAX),
                     )
                     .max_memory_size(max_memory_size)
                     .table_elements(max_elements_per_contract_table)
@@ -377,7 +388,6 @@ impl WasmtimeVM {
                     .total_tables(max_tables)
                     .max_memories_per_module(1)
                     .max_tables_per_module(max_tables_per_contract)
-                    // keep 1 / (pointer size) of maximum table element count resident
                     .table_keep_resident(max_elements_per_contract_table);
 
                 let mut engine_config = wasmtime::Config::from(features);
@@ -411,7 +421,8 @@ impl WasmtimeVM {
                     .memory_reservation(max_memory_size.try_into().unwrap_or(u64::MAX))
                     .memory_reservation_for_growth(0)
                     .compiler_inlining(true)
-                    .cranelift_nan_canonicalization(true);
+                    .cranelift_nan_canonicalization(true)
+                    .wasm_wide_arithmetic(true);
 
                 let config = Arc::clone(config);
                 let engine =
@@ -513,6 +524,8 @@ impl WasmtimeVM {
                         })),
                     )));
                 };
+                let remaining_gas = module.get_export_index(REMAINING_GAS_EXPORT);
+                let start = module.get_export_index(START_EXPORT);
                 let mut linker = Linker::new(&self.engine);
                 link(&mut linker, &self.config);
                 match linker.instantiate_pre(&module) {
@@ -522,7 +535,16 @@ impl WasmtimeVM {
                     }
                     Ok(pre) => {
                         let ResourcesRequired { num_tables, .. } = module.resources_required();
-                        Ok(to_any((wasm_bytes, Ok(Ok(PreparedModule { pre, memory, num_tables })))))
+                        Ok(to_any((
+                            wasm_bytes,
+                            Ok(Ok(PreparedModule {
+                                pre,
+                                memory,
+                                remaining_gas,
+                                start,
+                                num_tables,
+                            })),
+                        )))
                     }
                 }
             },
@@ -585,8 +607,9 @@ impl crate::runner::VM for WasmtimeVM {
             self.with_compiled_and_loaded(cache, code, gas_counter, method, |gas_counter, pre| {
                 let config = Arc::clone(&self.config);
                 match pre {
-                    Ok(PreparedModule { pre, memory, num_tables }) => {
-                        let Some(ExternType::Func(func_type)) = pre.module().get_export(method)
+                    Ok(PreparedModule { pre, memory, remaining_gas, start, num_tables }) => {
+                        let method = format!("{EXPORT_PREFIX}{method}");
+                        let Some(ExternType::Func(func_type)) = pre.module().get_export(&method)
                         else {
                             let e = FunctionCallError::MethodResolveError(
                                 MethodResolveError::MethodNotFound,
@@ -605,6 +628,8 @@ impl crate::runner::VM for WasmtimeVM {
                         let result = PreparationResult::Ready(ReadyContract {
                             pre,
                             memory,
+                            remaining_gas,
+                            start,
                             num_tables,
                             method: method.into(),
                             concurrency: self.concurrency.clone(),
@@ -624,8 +649,10 @@ impl crate::runner::VM for WasmtimeVM {
 struct ReadyContract {
     pre: InstancePre<Ctx>,
     memory: ModuleExport,
-    num_tables: u32,
+    remaining_gas: Option<ModuleExport>,
+    start: Option<ModuleExport>,
     method: Box<str>,
+    num_tables: u32,
     concurrency: ConcurrencySemaphore,
 }
 
@@ -685,15 +712,16 @@ impl crate::PreparedContract for VMResult<PreparedContract> {
     ) -> VMResult {
         let PreparedContract { config, gas_counter, result } = (*self)?;
         let result_state = ExecutionResultState::new(&context, gas_counter, config);
-        let ReadyContract { pre, memory, method, num_tables, concurrency } = match result {
-            PreparationResult::Ready(r) => r,
-            PreparationResult::OutcomeAbortButNopInOldProtocol(e) => {
-                return Ok(VMOutcome::abort_but_nop_outcome_in_old_protocol(result_state, e));
-            }
-            PreparationResult::OutcomeAbort(e) => {
-                return Ok(VMOutcome::abort(result_state, e));
-            }
-        };
+        let ReadyContract { pre, memory, remaining_gas, start, method, num_tables, concurrency } =
+            match result {
+                PreparationResult::Ready(r) => r,
+                PreparationResult::OutcomeAbortButNopInOldProtocol(e) => {
+                    return Ok(VMOutcome::abort_but_nop_outcome_in_old_protocol(result_state, e));
+                }
+                PreparationResult::OutcomeAbort(e) => {
+                    return Ok(VMOutcome::abort(result_state, e));
+                }
+            };
 
         // SAFETY:
         // Although the 'static here is a lie, we are pretty confident that the `External` and
@@ -720,6 +748,55 @@ impl crate::PreparedContract for VMResult<PreparedContract> {
                 return Ok(VMOutcome::abort(result_state, err));
             }
         };
+        if let Some(global) = remaining_gas {
+            let Some(Extern::Global(global)) = instance.get_module_export(&mut store, &global)
+            else {
+                let Ctx { result_state, .. } = store.into_data();
+                return Ok(VMOutcome::abort(
+                    result_state,
+                    FunctionCallError::HostError(HostError::GasExceeded),
+                ));
+            };
+            store.call_hook(move |mut store, hook| {
+                match hook {
+                    CallHook::CallingHost | CallHook::ReturningFromWasm => {
+                        let Val::I64(remaining_gas) = global.get(&mut store) else {
+                            return Err(VMLogicError::HostError(HostError::GasExceeded).into());
+                        };
+                        let ctx = store.data_mut();
+                        let burned = ctx
+                            .result_state
+                            .gas_counter
+                            .remaining_gas()
+                            .saturating_sub(Gas::from_gas(remaining_gas as _));
+                        if burned.as_gas() > 0 {
+                            ctx.result_state.gas_counter.burn_gas(burned)?;
+                        }
+                    }
+                    CallHook::ReturningFromHost | CallHook::CallingWasm => {
+                        let remaining_gas = store.data().result_state.gas_counter.remaining_gas();
+                        global
+                            .set(&mut store, Val::I64(remaining_gas.as_gas() as _))
+                            .or(Err(VMLogicError::HostError(HostError::GasExceeded)))?;
+                    }
+                }
+                Ok(())
+            });
+        }
+        if let Some(start) = start {
+            let Some(Extern::Func(start)) = instance.get_module_export(&mut store, &start) else {
+                let Ctx { result_state, .. } = store.into_data();
+                return Ok(VMOutcome::abort(
+                    result_state,
+                    FunctionCallError::HostError(HostError::GasExceeded),
+                ));
+            };
+            if let Err(err) = start.call(&mut store, &[], &mut []) {
+                let err = err.into_vm_error()?;
+                let Ctx { result_state, .. } = store.into_data();
+                return Ok(VMOutcome::abort(result_state, err));
+            }
+        }
 
         let res = call(&mut store, instance, &method);
         let Ctx { result_state, .. } = store.into_data();

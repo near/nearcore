@@ -4,6 +4,7 @@
 use crate::logic::errors::PrepareError;
 use near_parameters::vm::{Config, VMKind};
 
+mod instrument_v3;
 mod prepare_v2;
 mod prepare_v3;
 
