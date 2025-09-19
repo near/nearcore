@@ -1,8 +1,9 @@
 use super::test_builder::test_builder;
 #[cfg(feature = "prepare")]
 use super::test_vm_config;
-#[cfg(feature = "prepare")]
 use crate::tests::with_vm_variants;
+#[cfg(feature = "prepare")]
+use crate::{MEMORY_EXPORT, REMAINING_GAS_EXPORT, START_EXPORT};
 use expect_test::expect;
 use near_primitives_core::version::ProtocolFeature;
 
@@ -175,17 +176,16 @@ fn memory_export_method() {
 #[test]
 fn memory_export_clash() {
     test_builder()
-        .wat(
+        .wat(&format!(
             r#"
             (module
-              (func (export "\00nearcore_memory"))
+              (func (export "{MEMORY_EXPORT}"))
               (func (export "main"))
             )"#,
-        )
+        ))
         .expects(&[
             expect![[r#"
-                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 97535778 used gas 97535778
-                Err: PrepareError: Error happened during instantiation.
+                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 93224876 used gas 93224876
             "#]],
         ]);
 }
@@ -193,17 +193,16 @@ fn memory_export_clash() {
 #[test]
 fn gas_export_clash() {
     test_builder()
-        .wat(
+        .wat(&format!(
             r#"
             (module
-              (global (export "\00finite_wasm_remaining_gas") (mut i64) i64.const 0)
+              (global (export "{REMAINING_GAS_EXPORT}") (mut i64) i64.const 0)
               (func (export "main"))
             )"#,
-        )
+        ))
         .expects(&[
             expect![[r#"
-                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 112785908 used gas 112785908
-                Err: PrepareError: Error happened during instantiation.
+                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 105207121 used gas 105207121
             "#]],
         ]);
 }
@@ -211,17 +210,16 @@ fn gas_export_clash() {
 #[test]
 fn start_export_clash() {
     test_builder()
-        .wat(
+        .wat(&format!(
             r#"
             (module
-              (func (export "\00finite_wasm_start"))
+              (func (export "{START_EXPORT}"))
               (func (export "main"))
             )"#,
-        )
+        ))
         .expects(&[
             expect![[r#"
-                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 99714368 used gas 99714368
-                Err: PrepareError: Error happened during instantiation.
+                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 92135581 used gas 92135581
             "#]],
         ]);
 }
@@ -229,18 +227,17 @@ fn start_export_clash() {
 #[test]
 fn start_export_clash_duplicate() {
     test_builder()
-        .wat(
+        .wat(&format!(
             r#"
             (module
-              (func (export "\00finite_wasm_start") call 1)
+              (func (export "{START_EXPORT}") call 1)
               (func (export "main"))
               (start 1)
             )"#,
-        )
+        ))
         .expects(&[
             expect![[r#"
-                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 105160843 used gas 105160843
-                Err: PrepareError: Error happened during instantiation.
+                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 104164104 used gas 104164104
             "#]],
         ]);
 }
@@ -248,16 +245,16 @@ fn start_export_clash_duplicate() {
 #[test]
 fn memory_export_internal() {
     test_builder()
-        .wat(
+        .wat(&format!(
             r#"
             (module
-              (memory (export "\00nearcore_memory") 0 0)
+              (memory (export "{MEMORY_EXPORT}") 0 0)
               (func (export "main"))
             )"#,
-        )
+        ))
         .expects(&[
             expect![[r#"
-                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 106296416 used gas 106296416
+                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 95403466 used gas 95403466
             "#]],
         ]);
 }

@@ -2356,14 +2356,14 @@ dependencies = [
 [[package]]
 name = "finite-wasm"
 version = "0.6.0"
-source = "git+https://github.com/near/finite-wasm?rev=144ce2996ea8b03d788ead38dc3ef087018ebdcf#144ce2996ea8b03d788ead38dc3ef087018ebdcf"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4dce601f45d7bbc875827d3c35fa00f7dfc00ec63cdf327ff34b54ab1f2ac1ad"
 dependencies = [
  "bitvec",
  "dissimilar",
  "num-traits",
  "prefix-sum-vec",
  "thiserror 1.0.50",
- "wasm-encoder 0.228.0",
  "wasmparser 0.228.0",
 ]
 
@@ -5463,7 +5463,7 @@ dependencies = [
  "tracing",
  "wasm-encoder 0.236.0",
  "wasm-smith",
- "wasmparser 0.78.2",
+ "wasmparser 0.236.1",
  "wasmprinter 0.236.1",
  "wasmtime",
  "wat",
@@ -9181,16 +9181,6 @@ dependencies = [
 
 [[package]]
 name = "wasm-encoder"
-version = "0.228.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "05d30290541f2d4242a162bbda76b8f2d8b1ac59eab3568ed6f2327d52c9b2c4"
-dependencies = [
- "leb128fmt",
- "wasmparser 0.228.0",
-]
-
-[[package]]
-name = "wasm-encoder"
 version = "0.236.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3108979166ab0d3c7262d2e16a2190ffe784b2a5beb963edef154b5e8e07680b"
@@ -9224,12 +9214,6 @@ dependencies = [
  "wasm-bindgen-futures",
  "web-sys",
 ]
-
-[[package]]
-name = "wasmparser"
-version = "0.78.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "52144d4c78e5cf8b055ceab8e5fa22814ce4315d6002ad32cfd914f37c12fd65"
 
 [[package]]
 name = "wasmparser"

@@ -12,12 +12,12 @@ use crate::logic::{
 use crate::runner::VMResult;
 use crate::{
     CompiledContract, CompiledContractInfo, Contract, ContractCode, ContractRuntimeCache,
-    MEMORY_EXPORT, NoContractRuntimeCache, get_contract_cache_key, imports, prepare,
+    EXPORT_PREFIX, MEMORY_EXPORT, NoContractRuntimeCache, REMAINING_GAS_EXPORT, START_EXPORT,
+    get_contract_cache_key, imports, prepare,
 };
 use core::mem::transmute;
 use core::ops::Deref;
 use core::sync::atomic::{AtomicU64, Ordering};
-use finite_wasm_6::{REMAINING_GAS_EXPORT, START_EXPORT};
 use near_parameters::RuntimeFeesConfig;
 use near_parameters::vm::{LimitConfig, VMKind};
 use near_primitives_core::gas::Gas;
@@ -335,8 +335,8 @@ pub(crate) struct WasmtimeVM {
 struct PreparedModule {
     pre: InstancePre<Ctx>,
     memory: ModuleExport,
-    finite_wasm_remaining_gas: Option<ModuleExport>,
-    finite_wasm_start: Option<ModuleExport>,
+    remaining_gas: Option<ModuleExport>,
+    start: Option<ModuleExport>,
     num_tables: u32,
 }
 
@@ -520,8 +520,8 @@ impl WasmtimeVM {
                         })),
                     )));
                 };
-                let finite_wasm_remaining_gas = module.get_export_index(REMAINING_GAS_EXPORT);
-                let finite_wasm_start = module.get_export_index(START_EXPORT);
+                let remaining_gas = module.get_export_index(REMAINING_GAS_EXPORT);
+                let start = module.get_export_index(START_EXPORT);
                 let mut linker = Linker::new(&self.engine);
                 link(&mut linker, &self.config);
                 match linker.instantiate_pre(&module) {
@@ -536,8 +536,8 @@ impl WasmtimeVM {
                             Ok(Ok(PreparedModule {
                                 pre,
                                 memory,
-                                finite_wasm_remaining_gas,
-                                finite_wasm_start,
+                                remaining_gas,
+                                start,
                                 num_tables,
                             })),
                         )))
@@ -603,14 +603,9 @@ impl crate::runner::VM for WasmtimeVM {
             self.with_compiled_and_loaded(cache, code, gas_counter, method, |gas_counter, pre| {
                 let config = Arc::clone(&self.config);
                 match pre {
-                    Ok(PreparedModule {
-                        pre,
-                        memory,
-                        finite_wasm_remaining_gas,
-                        finite_wasm_start,
-                        num_tables,
-                    }) => {
-                        let Some(ExternType::Func(func_type)) = pre.module().get_export(method)
+                    Ok(PreparedModule { pre, memory, remaining_gas, start, num_tables }) => {
+                        let method = format!("{EXPORT_PREFIX}{method}");
+                        let Some(ExternType::Func(func_type)) = pre.module().get_export(&method)
                         else {
                             let e = FunctionCallError::MethodResolveError(
                                 MethodResolveError::MethodNotFound,
@@ -629,8 +624,8 @@ impl crate::runner::VM for WasmtimeVM {
                         let result = PreparationResult::Ready(ReadyContract {
                             pre,
                             memory,
-                            finite_wasm_remaining_gas,
-                            finite_wasm_start,
+                            remaining_gas,
+                            start,
                             num_tables,
                             method: method.into(),
                             concurrency: self.concurrency.clone(),
@@ -650,8 +645,8 @@ impl crate::runner::VM for WasmtimeVM {
 struct ReadyContract {
     pre: InstancePre<Ctx>,
     memory: ModuleExport,
-    finite_wasm_remaining_gas: Option<ModuleExport>,
-    finite_wasm_start: Option<ModuleExport>,
+    remaining_gas: Option<ModuleExport>,
+    start: Option<ModuleExport>,
     method: Box<str>,
     num_tables: u32,
     concurrency: ConcurrencySemaphore,
@@ -713,23 +708,16 @@ impl crate::PreparedContract for VMResult<PreparedContract> {
     ) -> VMResult {
         let PreparedContract { config, gas_counter, result } = (*self)?;
         let result_state = ExecutionResultState::new(&context, gas_counter, config);
-        let ReadyContract {
-            pre,
-            memory,
-            finite_wasm_remaining_gas,
-            finite_wasm_start,
-            method,
-            num_tables,
-            concurrency,
-        } = match result {
-            PreparationResult::Ready(r) => r,
-            PreparationResult::OutcomeAbortButNopInOldProtocol(e) => {
-                return Ok(VMOutcome::abort_but_nop_outcome_in_old_protocol(result_state, e));
-            }
-            PreparationResult::OutcomeAbort(e) => {
-                return Ok(VMOutcome::abort(result_state, e));
-            }
-        };
+        let ReadyContract { pre, memory, remaining_gas, start, method, num_tables, concurrency } =
+            match result {
+                PreparationResult::Ready(r) => r,
+                PreparationResult::OutcomeAbortButNopInOldProtocol(e) => {
+                    return Ok(VMOutcome::abort_but_nop_outcome_in_old_protocol(result_state, e));
+                }
+                PreparationResult::OutcomeAbort(e) => {
+                    return Ok(VMOutcome::abort(result_state, e));
+                }
+            };
 
         // SAFETY:
         // Although the 'static here is a lie, we are pretty confident that the `External` and
@@ -756,8 +744,9 @@ impl crate::PreparedContract for VMResult<PreparedContract> {
                 return Ok(VMOutcome::abort(result_state, err));
             }
         };
-        if let Some(gas) = finite_wasm_remaining_gas {
-            let Some(Extern::Global(gas)) = instance.get_module_export(&mut store, &gas) else {
+        if let Some(global) = remaining_gas {
+            let Some(Extern::Global(global)) = instance.get_module_export(&mut store, &global)
+            else {
                 let Ctx { result_state, .. } = store.into_data();
                 return Ok(VMOutcome::abort(
                     result_state,
@@ -767,7 +756,7 @@ impl crate::PreparedContract for VMResult<PreparedContract> {
             store.call_hook(move |mut store, hook| {
                 match hook {
                     CallHook::CallingHost | CallHook::ReturningFromWasm => {
-                        let Val::I64(remaining_gas) = gas.get(&mut store) else {
+                        let Val::I64(remaining_gas) = global.get(&mut store) else {
                             return Err(VMLogicError::HostError(HostError::GasExceeded).into());
                         };
                         let ctx = store.data_mut();
@@ -782,14 +771,15 @@ impl crate::PreparedContract for VMResult<PreparedContract> {
                     }
                     CallHook::ReturningFromHost | CallHook::CallingWasm => {
                         let remaining_gas = store.data().result_state.gas_counter.remaining_gas();
-                        gas.set(&mut store, Val::I64(remaining_gas.as_gas() as _))
+                        global
+                            .set(&mut store, Val::I64(remaining_gas.as_gas() as _))
                             .or(Err(VMLogicError::HostError(HostError::GasExceeded)))?;
                     }
                 }
                 Ok(())
             });
         }
-        if let Some(start) = finite_wasm_start {
+        if let Some(start) = start {
             let Some(Extern::Func(start)) = instance.get_module_export(&mut store, &start) else {
                 let Ctx { result_state, .. } = store.into_data();
                 return Ok(VMOutcome::abort(
