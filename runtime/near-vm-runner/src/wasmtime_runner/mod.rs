@@ -6,9 +6,7 @@ use crate::logic::errors::{
 use crate::logic::logic::Promise;
 use crate::logic::recorded_storage_counter::RecordedStorageCounter;
 use crate::logic::vmstate::Registers;
-use crate::logic::{
-    Config, ExecutionResultState, External, GasCounter, HostError, VMContext, VMOutcome,
-};
+use crate::logic::{Config, ExecutionResultState, External, GasCounter, VMContext, VMOutcome};
 use crate::runner::VMResult;
 use crate::{
     CompiledContract, CompiledContractInfo, Contract, ContractCode, ContractRuntimeCache,
@@ -751,17 +749,13 @@ impl crate::PreparedContract for VMResult<PreparedContract> {
         if let Some(global) = remaining_gas {
             let Some(Extern::Global(global)) = instance.get_module_export(&mut store, &global)
             else {
-                let Ctx { result_state, .. } = store.into_data();
-                return Ok(VMOutcome::abort(
-                    result_state,
-                    FunctionCallError::HostError(HostError::GasExceeded),
-                ));
+                panic!("gas global export was present on the module, but not on the instance");
             };
             store.call_hook(move |mut store, hook| {
                 match hook {
                     CallHook::CallingHost | CallHook::ReturningFromWasm => {
                         let Val::I64(remaining_gas) = global.get(&mut store) else {
-                            return Err(VMLogicError::HostError(HostError::GasExceeded).into());
+                            panic!("gas global export is not i64");
                         };
                         let ctx = store.data_mut();
                         let burned = ctx
@@ -777,7 +771,7 @@ impl crate::PreparedContract for VMResult<PreparedContract> {
                         let remaining_gas = store.data().result_state.gas_counter.remaining_gas();
                         global
                             .set(&mut store, Val::I64(remaining_gas.as_gas() as _))
-                            .or(Err(VMLogicError::HostError(HostError::GasExceeded)))?;
+                            .expect("failed to set gas global export")
                     }
                 }
                 Ok(())
@@ -785,11 +779,7 @@ impl crate::PreparedContract for VMResult<PreparedContract> {
         }
         if let Some(start) = start {
             let Some(Extern::Func(start)) = instance.get_module_export(&mut store, &start) else {
-                let Ctx { result_state, .. } = store.into_data();
-                return Ok(VMOutcome::abort(
-                    result_state,
-                    FunctionCallError::HostError(HostError::GasExceeded),
-                ));
+                panic!("start function export was present on the module, but not on the instance");
             };
             if let Err(err) = start.call(&mut store, &[], &mut []) {
                 let err = err.into_vm_error()?;
