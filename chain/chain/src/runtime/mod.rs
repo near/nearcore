@@ -1,10 +1,12 @@
 use crate::Error;
+use crate::runtime::metrics::PREPARE_TX_TIME;
 use crate::types::{
     ApplyChunkBlockContext, ApplyChunkResult, ApplyChunkShardContext,
     PrepareTransactionsBlockContext, PrepareTransactionsLimit, PreparedTransactions,
-    RuntimeAdapter, RuntimeStorageConfig, StorageDataSource, Tip,
+    RuntimeAdapter, RuntimeStorageConfig, SkippedTransactions, StorageDataSource, Tip,
 };
 use errors::FromStateViewerErrors;
+use itertools::Either;
 use near_async::time::{Duration, Instant};
 use near_chain_configs::{GenesisConfig, MIN_GC_NUM_EPOCHS_TO_KEEP, ProtocolConfig};
 use near_crypto::PublicKey;
@@ -25,6 +27,7 @@ use near_primitives::sandbox::state_patch::SandboxStatePatch;
 use near_primitives::shard_layout::{ShardLayout, ShardUId};
 use near_primitives::state_part::{PartId, StatePart};
 use near_primitives::transaction::{SignedTransaction, ValidatedTransaction};
+use near_primitives::trie_key::{SmallKeyVec, TrieKey};
 use near_primitives::types::{
     AccountId, Balance, BlockHeight, EpochHeight, EpochId, EpochInfoProvider, Gas, MerkleHash,
     ShardId, StateRoot, StateRootNode,
@@ -37,9 +40,11 @@ use near_primitives::views::{
 use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
 use near_store::db::metadata::DbKind;
 use near_store::flat::FlatStorageManager;
+use near_store::trie::AccessOptions;
 use near_store::{
     ApplyStatePartResult, COLD_HEAD_KEY, DBCol, ShardTries, StateSnapshotConfig, Store, Trie,
-    TrieConfig, TrieUpdate, WrappedTrieChanges, get_access_key, get_account, set_account,
+    TrieAccess, TrieConfig, TrieUpdate, WrappedTrieChanges, get_access_key, get_account,
+    set_account,
 };
 use near_vm_runner::ContractCode;
 use near_vm_runner::{ContractRuntimeCache, precompile_contract};
@@ -50,9 +55,9 @@ use node_runtime::{
     ApplyState, Runtime, SignedValidPeriodTransactions, ValidatorAccountsUpdate,
     get_signer_and_access_key, validate_transaction, verify_and_charge_tx_ephemeral,
 };
-use std::collections::HashMap;
-use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::collections::{HashMap, HashSet};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 use tracing::{debug, error, info, instrument};
 
@@ -173,8 +178,13 @@ impl NightshadeRuntime {
             congestion_info,
             bandwidth_requests,
         } = block;
-        let ApplyChunkShardContext { shard_id, last_validator_proposals, gas_limit, is_new_chunk } =
-            chunk;
+        let ApplyChunkShardContext {
+            shard_id,
+            last_validator_proposals,
+            gas_limit,
+            is_new_chunk,
+            on_post_state_ready,
+        } = chunk;
         let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(prev_block_hash)?;
         let validator_accounts_update = {
             let epoch_manager = self.epoch_manager.read();
@@ -236,6 +246,8 @@ impl NightshadeRuntime {
             is_first_block_of_version
         );
 
+        // XXX
+        // eprintln!("on_post_state_ready.is_some() = {}", on_post_state_ready.is_some());
         let apply_state = ApplyState {
             apply_reason,
             block_height,
@@ -254,6 +266,7 @@ impl NightshadeRuntime {
             congestion_info,
             bandwidth_requests,
             trie_access_tracker_state: Default::default(),
+            on_post_state_ready: on_post_state_ready.map(|callback| callback.into()),
         };
 
         let instant = Instant::now();
@@ -604,16 +617,19 @@ impl RuntimeAdapter for NightshadeRuntime {
     )]
     fn prepare_transactions(
         &self,
-        storage_config: RuntimeStorageConfig,
+        storage_config: Either<RuntimeStorageConfig, TrieUpdate>,
         shard_id: ShardId,
         prev_block: PrepareTransactionsBlockContext,
         transaction_groups: &mut dyn TransactionGroupIterator,
         chain_validate: &dyn Fn(&SignedTransaction) -> bool,
+        skip_tx_hashes: HashSet<CryptoHash>,
         time_limit: Option<Duration>,
-    ) -> Result<PreparedTransactions, Error> {
+        cancel: Option<Arc<AtomicBool>>,
+    ) -> Result<(PreparedTransactions, SkippedTransactions), Error> {
+        let timer = PREPARE_TX_TIME.with_label_values(&[&shard_id.to_string()]).start_timer();
         let start_time = std::time::Instant::now();
 
-        let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(&prev_block.block_hash)?;
+        let epoch_id = prev_block.next_epoch_id;
         let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
         let runtime_config = self.runtime_config_store.get_config(protocol_version);
 
@@ -623,31 +639,40 @@ impl RuntimeAdapter for NightshadeRuntime {
         // invalid transactions to be included.
         let next_block_height = prev_block.height + 1;
 
-        let mut trie = match storage_config.source {
-            StorageDataSource::Db => {
-                self.tries.get_trie_for_shard(shard_uid, storage_config.state_root)
+        let state_update = match storage_config {
+            Either::Left(storage_config) => {
+                let mut trie = match storage_config.source {
+                    StorageDataSource::Db => {
+                        self.tries.get_trie_for_shard(shard_uid, storage_config.state_root)
+                    }
+                    StorageDataSource::DbTrieOnly => {
+                        // If there is no flat storage on disk, use trie but simulate costs with enabled
+                        // flat storage by not charging gas for trie nodes.
+                        // WARNING: should never be used in production! Consider this option only for debugging or replaying blocks.
+                        let mut trie =
+                            self.tries.get_trie_for_shard(shard_uid, storage_config.state_root);
+                        trie.set_use_trie_accounting_cache(false);
+                        trie
+                    }
+                    StorageDataSource::Recorded(storage) => Trie::from_recorded_storage(
+                        storage,
+                        storage_config.state_root,
+                        storage_config.use_flat_storage,
+                    ),
+                };
+                // StateWitnessSizeLimit: We need to start recording reads if the stateless validation is
+                // enabled in the next epoch. We need to save the state transition data in the current epoch
+                // to be able to produce the state witness in the next epoch.
+                let proof_size_limit =
+                    runtime_config.witness_config.new_transactions_validation_state_size_soft_limit;
+                trie = trie.recording_reads_with_proof_size_limit(proof_size_limit);
+
+                TrieUpdate::new(trie)
             }
-            StorageDataSource::DbTrieOnly => {
-                // If there is no flat storage on disk, use trie but simulate costs with enabled
-                // flat storage by not charging gas for trie nodes.
-                // WARNING: should never be used in production! Consider this option only for debugging or replaying blocks.
-                let mut trie = self.tries.get_trie_for_shard(shard_uid, storage_config.state_root);
-                trie.set_use_trie_accounting_cache(false);
-                trie
-            }
-            StorageDataSource::Recorded(storage) => Trie::from_recorded_storage(
-                storage,
-                storage_config.state_root,
-                storage_config.use_flat_storage,
-            ),
+            Either::Right(trie_update) => trie_update,
         };
-        // StateWitnessSizeLimit: We need to start recording reads if the stateless validation is
-        // enabled in the next epoch. We need to save the state transition data in the current epoch
-        // to be able to produce the state witness in the next epoch.
-        let proof_size_limit =
-            runtime_config.witness_config.new_transactions_validation_state_size_soft_limit;
-        trie = trie.recording_reads_with_proof_size_limit(proof_size_limit);
-        let mut state_update = TrieUpdate::new(trie);
+
+        let mut state_update_wrapper = TrieUpdateWrapper::new(state_update);
 
         // Total amount of gas burnt for converting transactions towards receipts.
         let mut total_gas_burnt = Gas::ZERO;
@@ -663,6 +688,8 @@ impl RuntimeAdapter for NightshadeRuntime {
         let mut rejected_due_to_congestion = 0;
         let mut rejected_invalid_tx = 0;
         let mut rejected_invalid_for_chain = 0;
+
+        let mut skipped_txs = Vec::new();
 
         // Add new transactions to the result until some limit is hit or the transactions run out.
         'add_txs_loop: while let Some(transaction_group_iter) = transaction_groups.next() {
@@ -682,8 +709,15 @@ impl RuntimeAdapter for NightshadeRuntime {
                 }
             }
 
+            if let Some(cancel) = &cancel {
+                if cancel.load(Ordering::Relaxed) {
+                    result.limited_by = Some(PrepareTransactionsLimit::Cancelled);
+                    break;
+                }
+            }
+
             // FIXME(nagisa): why is this not using `check_proof_size_limit_exceed`? Comment.
-            if state_update.trie.recorded_storage_size() as u64
+            if state_update_wrapper.recorded_storage_size() as u64
                 > runtime_config.witness_config.new_transactions_validation_state_size_soft_limit
             {
                 result.limited_by = Some(PrepareTransactionsLimit::StorageProofSize);
@@ -707,6 +741,11 @@ impl RuntimeAdapter for NightshadeRuntime {
                 let validated_tx = transaction_group_iter
                     .next()
                     .expect("peek_next() returned Some, so next() should return Some as well");
+                if skip_tx_hashes.contains(&validated_tx.get_hash()) {
+                    skipped_txs.push(validated_tx);
+                    continue;
+                }
+
                 num_checked_transactions += 1;
 
                 if !congestion_control_accepts_transaction(
@@ -733,10 +772,10 @@ impl RuntimeAdapter for NightshadeRuntime {
                     debug_assert_eq!(signer_id, id);
                     (signer, key)
                 } else {
-                    let signer = get_account(&state_update, signer_id);
+                    let signer = get_account(&state_update_wrapper, signer_id);
                     let signer = signer.transpose().and_then(|v| v.ok());
                     let access_key =
-                        get_access_key(&state_update, signer_id, validated_tx.public_key());
+                        get_access_key(&state_update_wrapper, signer_id, validated_tx.public_key());
                     let access_key = access_key.transpose().and_then(|v| v.ok());
                     let inserted = signer_access_key.insert((
                         signer_id.clone(),
@@ -785,11 +824,11 @@ impl RuntimeAdapter for NightshadeRuntime {
                 // groups, but only because pool guarantees that iteration is grouped by account_id
                 // and its public keys. It does however also mean that we must remember the account
                 // state as this code might operate over multiple access keys for the account.
-                set_account(&mut state_update, signer_id, &account);
+                set_account(&mut state_update_wrapper.trie_update, signer_id, &account);
             }
         }
         // NOTE: this state update must not be committed or finalized!
-        drop(state_update);
+        drop(state_update_wrapper);
         debug!(target: "runtime", limited_by=?result.limited_by, "Transaction filtering results {} valid out of {} pulled from the pool", result.transactions.len(), num_checked_transactions);
         let shard_label = shard_id.to_string();
         metrics::PREPARE_TX_SIZE.with_label_values(&[&shard_label]).observe(total_size as f64);
@@ -808,7 +847,8 @@ impl RuntimeAdapter for NightshadeRuntime {
         metrics::CONGESTION_PREPARE_TX_GAS_LIMIT
             .with_label_values(&[&shard_label])
             .set(i64::try_from(transactions_gas_limit.as_gas()).unwrap_or(i64::MAX));
-        Ok(result)
+        timer.observe_duration();
+        Ok((result, SkippedTransactions(skipped_txs)))
     }
 
     fn get_gc_stop_height(&self, block_hash: &CryptoHash) -> BlockHeight {
@@ -1268,6 +1308,86 @@ impl RuntimeAdapter for NightshadeRuntime {
             }
         });
         Ok(())
+    }
+}
+
+pub struct TrieUpdateWrapper {
+    trie_update: TrieUpdate,
+    recorded: Mutex<Recorded>,
+}
+
+struct Recorded {
+    read_keys: HashSet<SmallKeyVec>,
+    additional_charged: usize,
+}
+
+impl TrieUpdateWrapper {
+    pub fn new(trie_update: TrieUpdate) -> TrieUpdateWrapper {
+        TrieUpdateWrapper {
+            trie_update,
+            recorded: Mutex::new(Recorded { read_keys: HashSet::new(), additional_charged: 0 }),
+        }
+    }
+
+    pub fn recorded_storage_size(&self) -> usize {
+        self.trie_update.trie.recorded_storage_size()
+            + self.recorded.lock().unwrap().additional_charged
+    }
+}
+
+impl TrieAccess for TrieUpdateWrapper {
+    fn get(&self, key: &TrieKey, opts: AccessOptions) -> Result<Option<Vec<u8>>, StorageError> {
+        let mut key_bytes = SmallKeyVec::new_const();
+        key.append_into(&mut key_bytes);
+        let key_bytes_len: usize = key_bytes.len();
+
+        let trie_read = self.trie_update.trie.get(&key_bytes, opts)?;
+        let update_read = self.trie_update.get_from_updates(&key, |_| Ok(None))?;
+
+        let r = match (trie_read, update_read) {
+            (None, None) => None,
+            (Some(t), None) => {
+                // Reading from the trie, not from the StateUpdate
+                // todo - what if trie update deleted this key?
+                let mut recorded = self.recorded.lock().unwrap();
+                recorded.read_keys.insert(key_bytes);
+                Some(t)
+            }
+            (None, Some(u)) => {
+                // First time reading a key that is only in the TrieUpdate
+                // Charge for the estimated cost of adding this value to the trie (key.len() + value.len() + one node size)
+                let value_len = u.len();
+                let mut recorded = self.recorded.lock().unwrap();
+                let insertion_trie_cost_base = 64;
+                if recorded.read_keys.insert(key_bytes) {
+                    recorded.additional_charged = recorded
+                        .additional_charged
+                        .saturating_add(key_bytes_len)
+                        .saturating_add(value_len)
+                        .saturating_add(insertion_trie_cost_base);
+                }
+
+                Some(u)
+            }
+            (Some(t), Some(u)) => {
+                let mut recorded = self.recorded.lock().unwrap();
+                if recorded.read_keys.insert(key_bytes) {
+                    // First time reading a value that is both in Trie and in the Update
+                    // Key and trie path are covered, charge extra if the new value is longer.
+                    // todo - charge less if the new value is shorter?
+                    recorded.additional_charged =
+                        recorded.additional_charged.saturating_add(u.len()).saturating_sub(t.len());
+                }
+
+                Some(u)
+            }
+        };
+
+        Ok(r)
+    }
+
+    fn contains_key(&self, _key: &TrieKey, _opts: AccessOptions) -> Result<bool, StorageError> {
+        unimplemented!()
     }
 }
 

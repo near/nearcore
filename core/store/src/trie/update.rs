@@ -15,11 +15,13 @@ use near_primitives::types::{
     StateRoot,
 };
 use near_vm_runner::ContractCode;
-use std::collections::BTreeMap;
+use parking_lot::Mutex;
+use std::collections::{BTreeMap, HashSet};
 
 mod iterator;
 
 /// Key-value update. Contains a TrieKey and a value.
+#[derive(Clone)]
 pub struct TrieKeyValueUpdate {
     pub trie_key: TrieKey,
     pub value: Option<Vec<u8>>,
@@ -35,6 +37,12 @@ pub struct TrieUpdate {
     contract_storage: ContractStorage,
     committed: RawStateChanges,
     prospective: TrieUpdates,
+
+    // TODO: something better?
+    // Keys that were accessed from the underlying trie, but did not exist.
+    // Uses Mutex for interior mutability from get_from_updates.
+    initially_empty: Mutex<HashSet<Vec<u8>>>,
+    newly_added_keys: HashSet<Vec<u8>>,
 }
 
 static_assertions::assert_impl_all!(TrieUpdate: Send, Sync);
@@ -86,7 +94,32 @@ impl TrieUpdate {
             contract_storage: ContractStorage::new(trie_storage),
             committed: Default::default(),
             prospective: Default::default(),
+            initially_empty: Default::default(),
+            newly_added_keys: Default::default(),
         }
+    }
+
+    pub fn clone_for_tx_preparation(&self) -> TrieUpdate {
+        Self {
+            trie: self.trie.recording_reads_new_recorder(),
+            // TODO: figure this out
+            contract_storage: ContractStorage::new(self.trie.storage.clone()),
+            committed: self.committed.clone(),
+            prospective: self.prospective.clone(),
+
+            initially_empty: Mutex::new(self.initially_empty.lock().clone()),
+            // This one is empty since we want to track newly added keys only during
+            // tx_preparation.
+            newly_added_keys: Default::default(),
+        }
+    }
+
+    pub fn committed_len(&self) -> usize {
+        self.committed.len()
+    }
+
+    pub fn prospective_len(&self) -> usize {
+        self.prospective.len()
     }
 
     pub fn trie(&self) -> &Trie {
@@ -140,13 +173,28 @@ impl TrieUpdate {
         self.trie.contains_key(&*key_buf, opts)
     }
 
+    pub fn get_new_keys_and_value_lens(&self) -> (usize, usize) {
+        let mut value_lens = 0;
+        for key in &self.newly_added_keys {
+            if let Some(Some(value)) = self.get_ref_from_updates(key) {
+                // TODO: error handling?
+                value_lens +=
+                    value.deref_value(AccessOptions::NO_SIDE_EFFECTS).map(|v| v.len()).unwrap_or(0);
+            }
+        }
+        (self.newly_added_keys.len(), value_lens)
+    }
+
     pub fn set(&mut self, trie_key: TrieKey, value: Vec<u8>) {
         // NOTE: Converting `TrieKey` to a `Vec<u8>` is useful here for 2 reasons:
         // - Using `Vec<u8>` for sorting `BTreeMap` in the same order as a `Trie` and
         //   avoid recomputing `Vec<u8>` every time. It helps for merging iterators.
         // - Using `TrieKey` later for `RawStateChangesWithTrieKey` for State changes RPCs.
-        self.prospective
-            .insert(trie_key.to_vec(), TrieKeyValueUpdate { trie_key, value: Some(value) });
+        let key = trie_key.to_vec();
+        if self.initially_empty.lock().contains(&key) {
+            self.newly_added_keys.insert(key.clone());
+        }
+        self.prospective.insert(key, TrieKeyValueUpdate { trie_key, value: Some(value) });
     }
 
     pub fn remove(&mut self, trie_key: TrieKey) {
@@ -260,7 +308,7 @@ impl TrieUpdate {
         self.trie.get_root()
     }
 
-    fn get_from_updates(
+    pub fn get_from_updates(
         &self,
         key: &TrieKey,
         fallback: impl FnOnce(&[u8]) -> Result<Option<Vec<u8>>, StorageError>,
@@ -274,7 +322,12 @@ impl TrieUpdate {
                 return Ok(data.as_ref().map(<Vec<u8>>::clone));
             }
         }
-        fallback(&*key_buf)
+        fallback(&*key_buf).map(|value| {
+            if value.is_none() {
+                self.initially_empty.lock().insert(key.to_vec());
+            }
+            value
+        })
     }
 
     /// Records deployment of a contract due to a deploy-contract action.

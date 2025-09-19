@@ -84,6 +84,7 @@ use rayon::prelude::*;
 use smallvec::SmallVec;
 use std::cmp::max;
 use std::collections::{HashMap, HashSet, VecDeque};
+use std::fmt::Debug;
 use std::sync::Arc;
 use tracing::{debug, instrument};
 use verifier::ValidateReceiptMode;
@@ -107,6 +108,50 @@ mod types;
 mod verifier;
 
 const EXPECT_ACCOUNT_EXISTS: &str = "account exists, checked above";
+
+pub struct PostState {
+    pub trie_update: TrieUpdate,
+}
+
+impl Debug for PostState {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "PostState {{ trie_update: committed: {}, prospective: {} }}",
+            self.trie_update.committed_len(),
+            self.trie_update.prospective_len()
+        )
+    }
+}
+
+pub trait PostStateReadyCallback: Send + Sync {
+    fn on_post_state_ready(&self, post_state: PostState);
+}
+
+impl<F> PostStateReadyCallback for F
+where
+    F: Fn(PostState) + Send + Sync + 'static,
+{
+    fn on_post_state_ready(&self, post_state: PostState) {
+        self(post_state)
+    }
+}
+
+pub struct PostStateReadyCallbackWrapper {
+    callback: Box<dyn PostStateReadyCallback>,
+}
+
+impl Debug for PostStateReadyCallbackWrapper {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "PostStateReadyCallbackWrapper {{ callback: ... }}")
+    }
+}
+
+impl From<Box<dyn PostStateReadyCallback>> for PostStateReadyCallbackWrapper {
+    fn from(callback: Box<dyn PostStateReadyCallback>) -> Self {
+        Self { callback }
+    }
+}
 
 #[derive(Debug)]
 pub struct ApplyState {
@@ -152,6 +197,8 @@ pub struct ApplyState {
     /// Each shard requests some bandwidth to other shards and then the bandwidth scheduler
     /// decides how much each shard is allowed to send.
     pub bandwidth_requests: BlockBandwidthRequests,
+
+    pub on_post_state_ready: Option<PostStateReadyCallbackWrapper>,
 }
 
 impl ApplyState {
@@ -2269,6 +2316,12 @@ impl Runtime {
         metrics::CHUNK_RECORDED_SIZE_UPPER_BOUND
             .with_label_values(&[shard_id_str.as_str()])
             .observe(chunk_recorded_size_upper_bound);
+
+        // XXX
+        if let Some(on_post_state_ready) = &apply_state.on_post_state_ready {
+            let post_state = PostState { trie_update: state_update.clone_for_tx_preparation() };
+            on_post_state_ready.callback.on_post_state_ready(post_state);
+        }
         let TrieUpdateResult { trie, trie_changes, state_changes, contract_updates } =
             state_update.finalize()?;
 

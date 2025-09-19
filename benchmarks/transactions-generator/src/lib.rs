@@ -7,7 +7,7 @@ use near_crypto::PublicKey;
 use near_network::client::{ProcessTxRequest, ProcessTxResponse};
 use near_primitives::hash::CryptoHash;
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{AccountId, BlockReference};
+use near_primitives::types::{AccountId, BlockReference, Finality};
 use near_primitives::views::{BlockView, QueryRequest, QueryResponse, QueryResponseKind};
 use node_runtime::metrics::TRANSACTION_PROCESSED_FAILED_TOTAL;
 use rand::SeedableRng;
@@ -293,7 +293,7 @@ impl TxGenerator {
     ) -> anyhow::Result<(CryptoHash, u64)> {
         match view_client_sender
             .block_request_sender
-            .send_async(GetBlock(BlockReference::latest()))
+            .send_async(GetBlock(Finality::Final.into()))
             .await
         {
             Ok(rsp) => {
@@ -452,7 +452,7 @@ impl TxGenerator {
                     _ = rx_block.changed() => {
                         let (_, height) = *rx_block.borrow();
                         rate += controller.register(height);
-                        tracing::debug!(target: "transaction-generator", rate, "tps updated");
+                        tracing::warn!(target: "transaction-generator", rate, "tps updated");
                         let effective_rate = if rate.is_finite() && rate >= 1.0 { rate } else { 1.0 };
                         let micros = ((1_000_000.0 * TX_GENERATOR_TASK_COUNT as f64) / effective_rate)
                             .max(1.0) as u64;
