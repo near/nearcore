@@ -265,7 +265,7 @@ gen_forknet() {
     echo "Running new-test to initialize nodes and collect validator keys"
     $MIRROR --host-type nodes new-test --state-source empty --patches-path "${BENCHNET_DIR}/${CASE}" \
         --epoch-length ${EPOCH_LENGTH} --num-validators ${NUM_CHUNK_PRODUCERS} \
-        --new-chain-id ${FORKNET_NAME} --stateless-setup --yes
+        --new-chain-id ${FORKNET_NAME} --yes
     
     echo "Waiting for node initialization to complete..."
     $MIRROR --host-type nodes status
