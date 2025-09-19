@@ -1699,6 +1699,16 @@ impl Chain {
         let apply_all_chunks_start_time = clock.now();
         let block_cloned = block.clone();
         let process_results = move |res| {
+            // NOTE: This span exists so tests can capture it and pause block processing.
+            // See `TestEnv::pause_block_processing`.
+            let _span = tracing::warn_span!(
+                target: "chain",
+                "chunks_applied",
+                block_height,
+                ?block,
+            )
+            .entered();
+
             metrics::APPLY_ALL_CHUNKS_TIME.with_label_values(&[block.as_ref()]).observe(
                 (clock.now().signed_duration_since(apply_all_chunks_start_time)).as_seconds_f64(),
             );
@@ -3725,18 +3735,7 @@ pub fn do_apply_chunks_and_process_results<F>(
                 (shard_id, cached_shard_update_key, task(&parent_span))
             }
         },
-        move |res| {
-            // NOTE: This span is exists so tests can capture it and pause block processing.
-            // See `TestEnv::pause_block_processing`.
-            let _span = tracing::warn_span!(
-                target: "chain",
-                "chunks_applied",
-                block_height,
-                ?block,
-            )
-            .entered();
-            process_results(res);
-        },
+        process_results,
     )
 }
 
