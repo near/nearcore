@@ -9954,6 +9954,10 @@
             "description": "Whether to persist transaction outcomes to disk or not.",
             "type": "boolean"
           },
+          "save_untracked_partial_chunks_parts": {
+            "description": "Whether to persist partial chunk parts for untracked shards or not.",
+            "type": "boolean"
+          },
           "skip_sync_wait": {
             "description": "Skip waiting for sync (for testing or single node testnet).",
             "type": "boolean"
@@ -10164,6 +10168,7 @@
           "archive",
           "save_trie_changes",
           "save_tx_outcomes",
+          "save_untracked_partial_chunks_parts",
           "view_client_threads",
           "chunk_validation_threads",
           "state_request_throttle_period",
