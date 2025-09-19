@@ -280,11 +280,11 @@ fn memory_custom() {
 fn too_many_table_elements() {
     test_builder()
         .wat(
-            &format!(r#"
+            r#"
             (module
               (func (export "main"))
               (table 1000001 funcref)
-            )"#),
+            )"#,
         )
         .expects(&[
             expect![[r#"
@@ -298,7 +298,7 @@ fn too_many_table_elements() {
 fn too_many_tables() {
     test_builder()
         .wat(
-            &format!(r#"
+            r#"
             (module
               (func (export "main"))
               (table 0 funcref)
@@ -307,7 +307,7 @@ fn too_many_tables() {
               (table 0 funcref)
               (table 0 funcref)
               (table 0 funcref)
-            )"#),
+            )"#,
         )
         .expects(&[
             expect![[r#"
