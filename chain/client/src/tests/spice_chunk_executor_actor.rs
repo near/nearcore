@@ -629,7 +629,7 @@ fn test_extra_pending_bad_receipt_proof_does_not_prevent_execution() {
         let mut extra_proof = receipt_proofs[0].clone();
         extra_proof.0.push(Receipt::new_balance_refund(
             &AccountId::from_str("test1").unwrap(),
-            ONE_NEAR,
+            Balance::from_near(1),
             ReceiptPriority::NoPriority,
         ));
         receipt_proofs.push(extra_proof);

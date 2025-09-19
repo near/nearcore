@@ -151,11 +151,10 @@ impl TryFrom<&ParameterValue> for Balance {
         match value {
             ParameterValue::U64(v) => Ok(Balance::from_yoctonear(u128::from(*v))),
             ParameterValue::String(s) => s
-                .parse::<u128>()
+                .parse::<Balance>()
                 .map_err(|_err| {
                     ValueConversionError::ParseType(std::any::type_name::<Balance>(), value.clone())
-                })
-                .map(Balance::from_yoctonear),
+                }),
             _ => Err(ValueConversionError::ParseType(
                 std::any::type_name::<Balance>(),
                 value.clone(),
