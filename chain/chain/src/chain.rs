@@ -1722,7 +1722,6 @@ impl Chain {
             metrics::APPLY_ALL_CHUNKS_TIME.with_label_values(&[block.as_ref()]).observe(
                 (clock.now().signed_duration_since(apply_all_chunks_start_time)).as_seconds_f64(),
             );
-            drop(apply_chunks_still_applying);
             if let Some(sender) = apply_chunks_done_sender {
                 for (_, _, shard_update_result) in &res {
                     if let Ok(ShardUpdateResult::NewChunk(res_new_chunk)) = shard_update_result {
@@ -1734,6 +1733,7 @@ impl Chain {
                 sender.apply_chunks_done.send(ApplyChunksDoneMessage {}.span_wrap());
             }
             sc.send((block, res)).unwrap();
+            drop(apply_chunks_still_applying);
         });
     }
 

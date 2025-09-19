@@ -891,11 +891,7 @@ impl Handler<SpanWrapped<ApplyChunksDoneMessage>> for ClientActorInner {
 
 impl Handler<NewChunkAppliedMessage> for ClientActorInner {
     fn handle(&mut self, msg: NewChunkAppliedMessage) {
-        if let Err(err) = self.client.send_chunk_apply_witness_to_chunk_validators(
-            // todo(slavas): epoch_id should be taken from the block, not from the head
-            self.client.chain.head().unwrap().epoch_id,
-            msg.result,
-        ) {
+        if let Err(err) = self.client.send_chunk_apply_witness_to_chunk_validators(msg.result) {
             tracing::error!(target: "client", ?err, "Failed to send chunk apply witness to chunk validators");
         }
     }
