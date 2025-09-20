@@ -13,7 +13,7 @@ pub use crate::node_storage::opener::{
     clear_columns,
 };
 pub use crate::node_storage::{NodeStorage, Temperature};
-pub use crate::store::{Store, StoreUpdate};
+pub use crate::store::{IntoArc, Store, StoreUpdate};
 pub use crate::trie::update::{TrieUpdate, TrieUpdateIterator, TrieUpdateValuePtr};
 pub use crate::trie::{
     ApplyStatePartResult, KeyForStateChanges, KeyLookupMode, NibbleSlice, PartialStorage,
