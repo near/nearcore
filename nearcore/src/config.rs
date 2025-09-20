@@ -969,6 +969,7 @@ pub fn init_configs(
     download_config_url: Option<&str>,
     boot_nodes: Option<&str>,
     max_gas_burnt_view: Option<Gas>,
+    state_sync_bucket: Option<&str>,
 ) -> anyhow::Result<()> {
     fs::create_dir_all(dir).with_context(|| anyhow!("Failed to create directory {:?}", dir))?;
 
@@ -1010,6 +1011,9 @@ pub fn init_configs(
             .context(format!("Failed to download the config file from {}", url))?;
         config = Config::from_file(&dir.join(CONFIG_FILENAME))?;
     }
+    if let Some(bucket) = state_sync_bucket {
+        config.state_sync = Some(StateSyncConfig::gcs_with_bucket(bucket.to_string()));
+    }
 
     if let Some(nodes) = boot_nodes {
         config.network.boot_nodes = nodes.to_string();
@@ -1026,8 +1030,9 @@ pub fn init_configs(
             if test_seed.is_some() {
                 bail!("Test seed is not supported for {chain_id}");
             }
-            config.telemetry.endpoints.push(NETWORK_TELEMETRY_URL.to_string());
-            config.state_sync = Some(StateSyncConfig::gcs_default());
+            if !config.telemetry.endpoints.contains(&NETWORK_TELEMETRY_URL.to_string()) {
+                config.telemetry.endpoints.push(NETWORK_TELEMETRY_URL.to_string());
+            }
         }
         _ => {
             // Create new configuration, key files and genesis for one validator.
@@ -1721,6 +1726,7 @@ mod tests {
             None,
             None,
             None,
+            None,
         )
         .unwrap();
         let genesis = Genesis::from_file(
@@ -1778,6 +1784,7 @@ mod tests {
             None,
             None,
             None,
+            None,
         )
         .unwrap();
 
@@ -1805,6 +1812,7 @@ mod tests {
             false,
             None,
             false,
+            None,
             None,
             None,
             None,
