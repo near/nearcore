@@ -947,11 +947,11 @@ impl Chain {
         // content is not tampered
         let block_body_hash = block.compute_block_body_hash();
         if block_body_hash.is_none() {
-            warn!("Block version too old for block: {:?}", block.hash());
+            warn!(block_hash = %block.hash(), "block version too old for block");
             return Ok(VerifyBlockHashAndSignatureResult::Incorrect);
         }
         if block.header().block_body_hash() != block_body_hash {
-            warn!("Invalid block body hash for block: {:?}", block.hash());
+            warn!(block_hash = %block.hash(), "invalid block body hash for block");
             return Ok(VerifyBlockHashAndSignatureResult::Incorrect);
         }
 
@@ -961,7 +961,7 @@ impl Chain {
             self.epoch_manager.as_ref(),
             block.header(),
         )? {
-            error!("wrong signature");
+            error!(block_hash = %block.hash(), "wrong signature");
             return Ok(VerifyBlockHashAndSignatureResult::Incorrect);
         }
         Ok(VerifyBlockHashAndSignatureResult::Correct)
@@ -1353,12 +1353,7 @@ impl Chain {
     /// If there are no blocks that are ready to be postprocessed, it returns immediately
     /// with an empty list. Even if there are blocks being processed, it does not wait
     /// for these blocks to be ready.
-    #[instrument(
-        level = "debug",
-        target = "chain",
-        "postprocess_ready_blocks_chain"
-        skip_all,
-    )]
+    #[instrument(level = "debug", target = "chain", skip_all)]
     pub fn postprocess_ready_blocks(
         &mut self,
         block_processing_artifacts: &mut BlockProcessingArtifact,
@@ -1733,7 +1728,7 @@ impl Chain {
         });
     }
 
-    #[instrument(level = "debug", target = "chain", "postprocess_block_only", skip_all)]
+    #[instrument(level = "debug", target = "chain", skip_all)]
     fn postprocess_block_only(
         &mut self,
         block: Arc<Block>,
