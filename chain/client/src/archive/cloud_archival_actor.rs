@@ -7,7 +7,7 @@ use near_async::messaging::Actor;
 use near_chain::types::Tip;
 use near_chain_configs::{CloudArchivalHandle, CloudArchivalWriterConfig};
 use near_primitives::types::BlockHeight;
-use near_store::db::{DBTransaction, CLOUD_HEAD_KEY};
+use near_store::db::{CLOUD_HEAD_KEY, DBTransaction};
 use near_store::{DBCol, FINAL_HEAD_KEY, NodeStorage, Store};
 use time::Duration;
 

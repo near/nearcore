@@ -386,7 +386,7 @@ impl NightshadeRuntime {
         // archival head and update gc_stop_height to the minimum.
         if self.is_cloud_archival_writer {
             let cloud_head = self.store.get_ser::<BlockHeight>(DBCol::BlockMisc, CLOUD_HEAD_KEY)?;
-            
+
             let cloud_head = cloud_head.ok_or_else(|| {
                 Error::DBNotFoundErr(
                     "Cloud archival writer is configured, but CLOUD_HEAD is missing".into(),
