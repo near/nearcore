@@ -18,7 +18,9 @@ use near_primitives::state_sync::{ShardStateSyncResponseHeader, StateHeaderKey};
 use near_primitives::transaction::{ExecutionOutcomeWithProof, SignedTransaction};
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{BlockHeight, EpochId, NumBlocks, ShardId};
-use near_primitives::utils::{get_block_shard_id, get_outcome_id_block_hash, index_to_bytes};
+use near_primitives::utils::{
+    get_block_shard_id, get_outcome_id_block_hash, height_hash_to_bytes, index_to_bytes,
+};
 use near_primitives::views::LightClientBlockView;
 use std::collections::{HashMap, HashSet};
 use std::io;
@@ -235,9 +237,11 @@ impl ChainStoreAdapter {
     /// Get partial chunk.
     pub fn get_partial_chunk(
         &self,
+        height: BlockHeight,
         chunk_hash: &ChunkHash,
     ) -> Result<Arc<PartialEncodedChunk>, Error> {
-        match self.store.caching_get_ser(DBCol::PartialChunks, chunk_hash.as_ref()) {
+        let key = height_hash_to_bytes(height, &chunk_hash.0);
+        match self.store.caching_get_ser(DBCol::PartialChunks, &key) {
             Ok(Some(shard_chunk)) => Ok(shard_chunk),
             _ => Err(Error::ChunkMissing(chunk_hash.clone())),
         }
@@ -249,8 +253,9 @@ impl ChainStoreAdapter {
     }
 
     /// Does this partial chunk exist?
-    pub fn partial_chunk_exists(&self, h: &ChunkHash) -> Result<bool, Error> {
-        self.store.exists(DBCol::PartialChunks, h.as_ref()).map_err(|e| e.into())
+    pub fn partial_chunk_exists(&self, height: BlockHeight, h: &ChunkHash) -> Result<bool, Error> {
+        let key = height_hash_to_bytes(height, &h.0);
+        self.store.exists(DBCol::PartialChunks, &key).map_err(|e| e.into())
     }
 
     /// Returns encoded chunk if it's invalid otherwise None.

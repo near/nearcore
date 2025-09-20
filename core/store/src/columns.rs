@@ -82,7 +82,7 @@ pub enum DBCol {
     /// - *Content type*: [near_primitives::sharding::ShardChunk]
     Chunks,
     /// Storage for  PartialEncodedChunk.
-    /// - *Rows*: ChunkHash (CryptoHash)
+    /// - *Rows*: (Height, ChunkHash) (CryptoHash)
     /// - *Content type*: [near_primitives::sharding::PartialEncodedChunk]
     PartialChunks,
     /// Blocks for which chunks need to be applied after the state is downloaded for a particular epoch
@@ -612,7 +612,7 @@ impl DBCol {
             DBCol::EpochInfo => &[DBKeyType::EpochId],
             DBCol::BlockInfo => &[DBKeyType::BlockHash],
             DBCol::Chunks => &[DBKeyType::ChunkHash],
-            DBCol::PartialChunks => &[DBKeyType::ChunkHash],
+            DBCol::PartialChunks => &[DBKeyType::BlockHeight, DBKeyType::ChunkHash],
             DBCol::BlocksToCatchup => &[DBKeyType::BlockHash],
             DBCol::StateDlInfos => &[DBKeyType::BlockHash],
             DBCol::ChallengedBlocks => &[DBKeyType::BlockHash],
