@@ -342,6 +342,7 @@ impl ReplayController {
                 gas_limit: _,
                 shard_uid: _,
                 apply_result,
+                ..
             }) => {
                 let outgoing_receipts = apply_result.outgoing_receipts.clone();
                 let chunk_extra = apply_result_to_chunk_extra(apply_result, &chunk_header).into();

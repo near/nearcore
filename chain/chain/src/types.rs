@@ -296,7 +296,7 @@ pub enum BlockType {
     Optimistic,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct ApplyChunkBlockContext {
     pub block_type: BlockType,
     pub height: BlockHeight,
