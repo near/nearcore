@@ -535,14 +535,14 @@ fn test_cold_loop_on_gc_boundary() {
     near_config.client_config = env.clients[0].config.clone();
     near_config.config.save_trie_changes = Some(true);
 
-    let epoch_manager =
-        EpochManager::new_arc_handle(storage.get_hot_store(), &genesis.config, None);
+    let epoch_manager = EpochManager::new_arc_handle(hot_store.clone(), &genesis.config, None);
     let shard_tracker = env.clients[0].shard_tracker.clone();
     let (actor, _keep_going) = create_cold_store_actor(
         near_config.config.save_trie_changes,
         &near_config.config.split_storage.clone().unwrap_or_default(),
         near_config.genesis.config.genesis_height,
-        &storage,
+        hot_store.clone(),
+        Some(cold_db),
         epoch_manager,
         shard_tracker,
     )
