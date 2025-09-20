@@ -1,7 +1,8 @@
 use futures::FutureExt;
 pub use futures::future::BoxFuture; // pub for macros
 use near_time::Duration;
-use std::sync::{Arc, mpsc};
+use parking_lot::Mutex;
+use std::sync::Arc;
 
 /// Abstraction for something that can drive futures.
 ///
@@ -171,25 +172,32 @@ pub fn spawn_and_collect<I, F, G, T>(
         return;
     }
 
-    let (tx, rx) = mpsc::channel();
-    let tx = Arc::new(tx);
-    let f = Arc::new(f);
+    // Each job will write its result into results[i].
+    let mut results: Vec<Mutex<Option<T>>> = Vec::with_capacity(n);
+    for _ in 0..n {
+        results.push(Mutex::new(None));
+    }
+    let results = Arc::new(results);
 
-    for (idx, item) in inputs.into_iter().enumerate() {
-        let tx = tx.clone();
-        let f = Arc::clone(&f);
+    // We will call with_result only once, when all jobs are done, tracking this
+    // with num_remaining.
+    let num_remaining = Arc::new(std::sync::atomic::AtomicUsize::new(n));
+    let with_result = Arc::new(Mutex::new(Some(with_result)));
+
+    let f = Arc::new(f);
+    for (i, input) in inputs.into_iter().enumerate() {
+        let num_remaining = num_remaining.clone();
+        let results = results.clone();
+        let f = f.clone();
+        let with_result = with_result.clone();
         spawner.spawn(name, move || {
-            let out = f(item);
-            tx.send((idx, out)).unwrap();
+            let result = f(input);
+            results[i].lock().replace(result);
+            if num_remaining.fetch_sub(1, std::sync::atomic::Ordering::AcqRel) == 1 {
+                let with_result = with_result.lock().take().unwrap();
+                let results = results.iter().map(|r| r.lock().take().unwrap()).collect::<Vec<T>>();
+                with_result(results);
+            }
         });
     }
-    drop(tx); // no more sends
-
-    spawner.spawn(name, move || {
-        let mut results: Vec<Option<T>> = std::iter::repeat_with(|| None).take(n).collect();
-        for (idx, val) in rx {
-            results[idx] = Some(val);
-        }
-        with_result(results.into_iter().map(|x| x.unwrap()).collect());
-    });
 }
