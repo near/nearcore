@@ -93,15 +93,19 @@ impl TestLoopEnv {
         let client_actor = self.test_loop.data.get(&node_data.client_sender.actor_handle());
         let client_config = client_actor.client.config.clone();
         let store = client_actor.client.chain.chain_store.store();
-        let split_store = if client_config.archive {
+
+        let (split_store, cold_db) = if let Some(cold_store_sender) = &node_data.cold_store_sender {
+            let cold_store_actor = self.test_loop.data.get(&cold_store_sender.actor_handle());
+            let cold_db = cold_store_actor.get_cold_db();
             let view_client_actor =
                 self.test_loop.data.get(&node_data.view_client_sender.actor_handle());
-            Some(view_client_actor.chain.chain_store.store())
+            let split_store = view_client_actor.chain.chain_store.store();
+            (Some(split_store), Some(cold_db))
         } else {
-            None
+            (None, None)
         };
 
-        NodeSetupState { account_id, client_config, store, split_store }
+        NodeSetupState { account_id, client_config, store, split_store, cold_db }
     }
 
     /// Function to restart a node in test loop environment. This function takes in the new_identifier

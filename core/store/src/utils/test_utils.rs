@@ -1,5 +1,5 @@
 use crate::adapter::{StoreAdapter, StoreUpdateAdapter};
-use crate::db::TestDB;
+use crate::db::{ColdDB, TestDB};
 use crate::flat::{BlockInfo, FlatStorageManager, FlatStorageReadyStatus, FlatStorageStatus};
 use crate::metadata::{DB_VERSION, DbKind, DbVersion};
 use crate::trie::AccessOptions;
@@ -68,11 +68,14 @@ pub fn create_test_store() -> Store {
     create_test_node_storage(DB_VERSION, DbKind::RPC).get_hot_store()
 }
 
-/// Returns a pair of (Hot, Split) store to be used for setting up archival clients.
+/// Returns a triple of (Hot store, Split store, Cold DB) to be used for setting up archival clients.
 /// Note that the Split store contains both Hot and Cold stores.
-pub fn create_test_split_store() -> (Store, Store) {
-    let (storage, ..) = create_test_node_storage_with_cold(DB_VERSION, DbKind::Hot);
-    (storage.get_hot_store(), storage.get_split_store().unwrap())
+pub fn create_test_split_store() -> (Store, Store, Arc<ColdDB>) {
+    let (storage, _, _) = create_test_node_storage_with_cold(DB_VERSION, DbKind::Hot);
+    let hot_store = storage.get_hot_store();
+    let split_store = storage.get_split_store().unwrap();
+    let cold_db = storage.cold_db().unwrap();
+    (hot_store, split_store, cold_db.clone())
 }
 
 pub struct TestTriesBuilder {

@@ -14,6 +14,7 @@ use near_chain::{ApplyChunksSpawner, ChainGenesis};
 use near_chain_configs::{CloudArchivalHandle, MutableConfigValue, ReshardingHandle};
 use near_chunks::shards_manager_actor::ShardsManagerActor;
 use near_client::archive::cloud_archival_actor::CloudArchivalActor;
+use near_client::archive::cold_store_actor::create_cold_store_actor;
 use near_client::chunk_executor_actor::ChunkExecutorActor;
 use near_client::client_actor::ClientActorInner;
 use near_client::gc_actor::GCActor;
@@ -49,7 +50,7 @@ pub fn setup_client(
     node_state: NodeSetupState,
     shared_state: &SharedState,
 ) -> NodeExecutionData {
-    let NodeSetupState { account_id, client_config, store, split_store } = node_state;
+    let NodeSetupState { account_id, client_config, store, split_store, cold_db } = node_state;
     let SharedState {
         genesis,
         tempdir,
@@ -340,6 +341,25 @@ pub fn setup_client(
     // We don't send messages to `GCActor` so adapter is not needed.
     test_loop.data.register_actor(identifier, gc_actor, None);
 
+    let cold_store_sender = if split_store.is_some() {
+        let (cold_store_actor, _) = create_cold_store_actor(
+            Some(client_config.save_trie_changes),
+            &Default::default(),
+            genesis.config.genesis_height,
+            runtime_adapter.store().clone(),
+            cold_db.as_ref(),
+            epoch_manager.clone(),
+            shard_tracker.clone(),
+        )
+        .unwrap()
+        .unwrap();
+        let sender = LateBoundSender::new();
+        let sender = test_loop.data.register_actor(identifier, cold_store_actor, Some(sender));
+        Some(sender)
+    } else {
+        None
+    };
+
     let cloud_archival_sender = if let Some(config) = &client_config.cloud_archival_writer {
         let cloud_archival_actor = CloudArchivalActor::new(
             config.clone(),
@@ -490,6 +510,7 @@ pub fn setup_client(
         resharding_sender,
         state_sync_dumper_handle,
         spice_data_distributor_sender,
+        cold_store_sender,
         cloud_archival_sender,
     };
 
