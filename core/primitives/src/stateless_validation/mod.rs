@@ -30,3 +30,20 @@ impl ChunkProductionKey {
         res.try_into().unwrap()
     }
 }
+
+/// This struct contains combination of fields that uniquely identify witness production.
+/// It means that for a given instance only one witness could be produced.
+#[derive(Debug, Hash, PartialEq, Eq, Clone, BorshSerialize, BorshDeserialize, ProtocolSchema)]
+pub struct WitnessProductionKey {
+    pub chunk: ChunkProductionKey,
+    pub is_optimistic: bool,
+}
+
+impl WitnessProductionKey {
+    pub fn to_le_bytes(&self) -> [u8; size_of::<ChunkProductionKey>() + 1] {
+        let mut res = Vec::with_capacity(size_of::<ChunkProductionKey>() + 1);
+        res.extend_from_slice(&self.chunk.to_le_bytes());
+        res.push(self.is_optimistic as u8);
+        res.try_into().unwrap()
+    }
+}

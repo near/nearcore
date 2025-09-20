@@ -3,9 +3,14 @@ use crate::Client;
 use crate::stateless_validation::chunk_validator::send_chunk_endorsement_to_block_producers;
 use near_async::messaging::{CanSend, IntoSender};
 use near_chain::BlockHeader;
+use near_chain::chain::NewChunkResult;
 use near_chain::stateless_validation::state_witness::CreateWitnessResult;
+use near_chain::types::ApplyChunkResult;
 use near_chain_primitives::Error;
 use near_primitives::sharding::{ShardChunk, ShardChunkHeader};
+use near_primitives::stateless_validation::state_witness::{
+    ChunkApplyWitness, ChunkStateTransition, ChunkStateWitness, ChunkStateWitnessV3,
+};
 use near_primitives::types::EpochId;
 
 impl Client {
@@ -70,6 +75,50 @@ impl Client {
             state_witness,
             contract_updates,
             main_transition_shard_id,
+        });
+        Ok(())
+    }
+
+    pub fn send_chunk_apply_witness_to_chunk_validators(
+        &mut self,
+        new_chunk: NewChunkResult,
+    ) -> Result<(), Error> {
+        let context = new_chunk.context;
+        let ApplyChunkResult { proof, new_root, contract_updates, applied_receipts_hash, .. } =
+            new_chunk.apply_result;
+        let prev_block_hash = context.block.prev_block_hash;
+        let prev_block_epoch_id = self.epoch_manager.get_epoch_id(&prev_block_hash)?;
+        let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(&prev_block_hash)?;
+        if prev_block_epoch_id != epoch_id {
+            // Let's just skip it because I don't want to handle resharding yet.
+            return Ok(());
+        }
+        let shard_id = context.chunk_header.shard_id();
+
+        let main_state_transition = ChunkStateTransition {
+            block_hash: Default::default(),
+            base_state: proof.unwrap().nodes,
+            post_state_root: new_root,
+        };
+
+        // todo(slavas): handle implicit transitions
+        let implicit_transitions = Vec::new();
+
+        self.partial_witness_adapter.send(DistributeStateWitnessRequest {
+            state_witness: ChunkStateWitness::V3(ChunkStateWitnessV3 {
+                chunk_apply_witness: ChunkApplyWitness {
+                    epoch_id: prev_block_epoch_id,
+                    chunk_header: context.chunk_header.clone(),
+                    main_state_transition,
+                    receipts: context.receipts,
+                    applied_receipts_hash,
+                    transactions: context.transactions,
+                    implicit_transitions,
+                },
+                chunk_validate_witness: None,
+            }),
+            contract_updates,
+            main_transition_shard_id: shard_id,
         });
         Ok(())
     }

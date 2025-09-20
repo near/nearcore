@@ -240,7 +240,7 @@ impl DumpWitnessesCmd {
 
         for (i, witness) in witnesses.iter().enumerate() {
             let ChunkProductionKey { shard_id, height_created, epoch_id } =
-                witness.chunk_production_key();
+                witness.production_key().chunk;
 
             println!(
                 "#{} (height: {}, shard_id: {}, epoch_id: {:?})",

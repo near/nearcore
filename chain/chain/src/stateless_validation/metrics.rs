@@ -202,6 +202,10 @@ pub fn record_witness_size_metrics(
     encoded_size: usize,
     witness: &ChunkStateWitness,
 ) {
+    if witness.production_key().is_optimistic {
+        // I don't care
+        return;
+    }
     if let Err(err) = record_witness_size_metrics_fallible(decoded_size, encoded_size, witness) {
         tracing::warn!(target:"client", "Failed to record witness size metrics!, error: {}", err);
     }
@@ -212,7 +216,7 @@ fn record_witness_size_metrics_fallible(
     encoded_size: usize,
     witness: &ChunkStateWitness,
 ) -> Result<(), std::io::Error> {
-    let shard_id = witness.chunk_header().shard_id().to_string();
+    let shard_id = witness.latest_chunk_header().shard_id().to_string();
     CHUNK_STATE_WITNESS_RAW_SIZE
         .with_label_values(&[shard_id.as_str()])
         .observe(decoded_size as f64);
