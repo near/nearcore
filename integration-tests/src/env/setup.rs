@@ -460,7 +460,7 @@ pub fn setup_client_with_runtime(
     config.epoch_length = chain_genesis.epoch_length;
     let protocol_upgrade_schedule = get_protocol_upgrade_schedule(&chain_genesis.chain_id);
     let multi_spawner = AsyncComputationMultiSpawner::default()
-        .custom_apply_chunks(Arc::new(RayonAsyncComputationSpawner)); // Use rayon instead of the default thread pool 
+        .custom_apply_chunks(Arc::new(RayonAsyncComputationSpawner)); // Use rayon instead of the default thread pool
 
     // TestEnv bypasses chunk validation actors and handles chunk validation
     // directly through propagate_chunk_state_witnesses method

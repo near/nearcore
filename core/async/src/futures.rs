@@ -1,6 +1,7 @@
 use futures::FutureExt;
 pub use futures::future::BoxFuture; // pub for macros
 use near_time::Duration;
+use parking_lot::Mutex;
 use std::sync::Arc;
 
 /// Abstraction for something that can drive futures.
@@ -145,6 +146,58 @@ pub struct StdThreadAsyncComputationSpawnerForTest;
 
 impl AsyncComputationSpawner for StdThreadAsyncComputationSpawnerForTest {
     fn spawn_boxed(&self, _name: &str, f: Box<dyn FnOnce() + Send>) {
-        std::thread::spawn(f);
+        let dispatcher = tracing::dispatcher::get_default(|it| it.clone());
+        std::thread::spawn(move || tracing::dispatcher::with_default(&dispatcher, f));
+    }
+}
+
+pub fn spawn_and_collect<I, F, G, T>(
+    spawner: Arc<dyn AsyncComputationSpawner>,
+    name: &str,
+    inputs: I,
+    f: F,
+    with_result: G,
+) where
+    I: IntoIterator,
+    I::Item: Send + 'static,
+    F: Fn(I::Item) -> T + Send + Sync + 'static,
+    T: Send + 'static,
+    G: FnOnce(Vec<T>) + Send + Sync + 'static,
+{
+    let inputs: Vec<I::Item> = inputs.into_iter().collect();
+    let n = inputs.len();
+
+    if n == 0 {
+        spawner.spawn(name, move || with_result(vec![]));
+        return;
+    }
+
+    // Each job will write its result into results[i].
+    let mut results: Vec<Mutex<Option<T>>> = Vec::with_capacity(n);
+    for _ in 0..n {
+        results.push(Mutex::new(None));
+    }
+    let results = Arc::new(results);
+
+    // We will call with_result only once, when all jobs are done, tracking this
+    // with num_remaining.
+    let num_remaining = Arc::new(std::sync::atomic::AtomicUsize::new(n));
+    let with_result = Arc::new(Mutex::new(Some(with_result)));
+
+    let f = Arc::new(f);
+    for (i, input) in inputs.into_iter().enumerate() {
+        let num_remaining = num_remaining.clone();
+        let results = results.clone();
+        let f = f.clone();
+        let with_result = with_result.clone();
+        spawner.spawn(name, move || {
+            let result = f(input);
+            results[i].lock().replace(result);
+            if num_remaining.fetch_sub(1, std::sync::atomic::Ordering::AcqRel) == 1 {
+                let with_result = with_result.lock().take().unwrap();
+                let results = results.iter().map(|r| r.lock().take().unwrap()).collect::<Vec<T>>();
+                with_result(results);
+            }
+        });
     }
 }

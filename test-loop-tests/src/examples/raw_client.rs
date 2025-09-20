@@ -80,7 +80,10 @@ fn test_raw_client_test_loop_setup() {
     let sync_jobs_adapter = LateBoundSender::new();
     let client_adapter = LateBoundSender::new();
 
-    let sync_jobs_actor = SyncJobsActor::new(client_adapter.as_multi_sender());
+    let sync_jobs_actor = SyncJobsActor::new(
+        client_adapter.as_multi_sender(),
+        Arc::new(test_loop.async_computation_spawner("node0", |_| Duration::milliseconds(80))),
+    );
 
     let protocol_upgrade_schedule = get_protocol_upgrade_schedule(&chain_genesis.chain_id);
     let multi_spawner = AsyncComputationMultiSpawner::all_custom(Arc::new(

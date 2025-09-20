@@ -58,7 +58,7 @@ automatically.
 
 However, a few corner cases exist.
 
-* `do_apply_chunks()` starts 4 sub-tasks in parallel and waits for their completion. To make it
+* `do_apply_chunks_and_process_results` starts sub-tasks in parallel and waits for their completion. To make it
 work, the parent span is passed explicitly to the sub-tasks.
 * Messages to actix workers. If you do nothing, that the traces are limited to work done in a
 single actor. But that is very restrictive and not useful enough. To workaround that, each actix
