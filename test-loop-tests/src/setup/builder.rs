@@ -1,5 +1,6 @@
 use itertools::Itertools;
 use near_chain_configs::test_genesis::{TestEpochConfigBuilder, TestGenesisBuilder};
+use near_chain_configs::test_utils::TestClientConfigParams;
 use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -297,8 +298,16 @@ impl<'a> NodeStateBuilder<'a> {
         let (store, split_store) = self.setup_store();
         let account_id = self.account_id.unwrap();
 
-        let mut client_config =
-            ClientConfig::test(true, MIN_BLOCK_PROD_TIME, 2000, 4, self.archive, true, false);
+        let mut client_config = ClientConfig::test(TestClientConfigParams {
+            skip_sync_wait: true,
+            min_block_prod_time: MIN_BLOCK_PROD_TIME,
+            max_block_prod_time: 2000,
+            num_block_producer_seats: 4,
+            archive: self.archive,
+            save_trie_changes: true,
+            state_sync_enabled: false,
+        });
+
         client_config.epoch_length = self.genesis.config.epoch_length;
         client_config.max_block_wait_delay = Duration::seconds(6);
         client_config.state_sync_enabled = true;

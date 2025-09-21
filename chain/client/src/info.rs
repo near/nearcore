@@ -962,6 +962,7 @@ mod tests {
     use near_chain::spice_core::CoreStatementsProcessor;
     use near_chain::types::ChainConfig;
     use near_chain::{Chain, ChainGenesis, DoomslugThresholdMode};
+    use near_chain_configs::test_utils::TestClientConfigParams;
     use near_chain_configs::{Genesis, MutableConfigValue};
     use near_epoch_manager::EpochManager;
     use near_epoch_manager::shard_tracker::ShardTracker;
@@ -992,7 +993,15 @@ mod tests {
 
     #[test]
     fn test_telemetry_info() {
-        let config = ClientConfig::test(false, 1230, 2340, 50, false, true, true);
+        let config = ClientConfig::test(TestClientConfigParams {
+            skip_sync_wait: false,
+            min_block_prod_time: 1230,
+            max_block_prod_time: 2340,
+            num_block_producer_seats: 50,
+            archive: false,
+            save_trie_changes: true,
+            state_sync_enabled: true,
+        });
         let validator = MutableConfigValue::new(None, "validator_signer");
         let info_helper = InfoHelper::new(Clock::real(), noop().into_sender(), &config);
 
@@ -1101,7 +1110,15 @@ mod tests {
         );
 
         // Then check that get_num_validators returns the correct number of validators.
-        let client_config = ClientConfig::test(false, 1230, 2340, 50, false, true, true);
+        let client_config = ClientConfig::test(TestClientConfigParams {
+            skip_sync_wait: false,
+            min_block_prod_time: 1230,
+            max_block_prod_time: 2340,
+            num_block_producer_seats: 50,
+            archive: false,
+            save_trie_changes: true,
+            state_sync_enabled: true,
+        });
         let mut info_helper = InfoHelper::new(Clock::real(), noop().into_sender(), &client_config);
         assert_eq!(
             num_validators,

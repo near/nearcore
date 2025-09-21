@@ -13,13 +13,11 @@ use near_time::Duration;
 #[cfg(feature = "schemars")]
 use near_time::{DurationAsStdSchemaProvider, DurationSchemarsProvider};
 use num_rational::Rational32;
-use std::cmp::{max, min};
+use std::cmp::max;
 use std::num::NonZero;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
-
-pub const TEST_STATE_SYNC_TIMEOUT: i64 = 5;
 
 #[derive(Debug, Copy, Clone, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
@@ -887,105 +885,6 @@ pub struct ClientConfig {
     /// Determines whether client should exit if the protocol version is not supported
     /// for the next or next next epoch.
     pub protocol_version_check: ProtocolVersionCheckConfig,
-}
-
-impl ClientConfig {
-    pub fn test(
-        skip_sync_wait: bool,
-        min_block_prod_time: u64,
-        max_block_prod_time: u64,
-        num_block_producer_seats: NumSeats,
-        archive: bool,
-        save_trie_changes: bool,
-        state_sync_enabled: bool,
-    ) -> Self {
-        assert!(
-            archive || save_trie_changes,
-            "Configuration with archive = false and save_trie_changes = false is not supported \
-            because non-archival nodes must save trie changes in order to do garbage collection."
-        );
-
-        Self {
-            version: Default::default(),
-            chain_id: "unittest".to_string(),
-            rpc_addr: Some("0.0.0.0:3030".to_string()),
-            expected_shutdown: MutableConfigValue::new(None, "expected_shutdown"),
-            block_production_tracking_delay: Duration::milliseconds(std::cmp::max(
-                10,
-                min_block_prod_time / 5,
-            ) as i64),
-            min_block_production_delay: Duration::milliseconds(min_block_prod_time as i64),
-            max_block_production_delay: Duration::milliseconds(max_block_prod_time as i64),
-            max_block_wait_delay: Duration::milliseconds(3 * min_block_prod_time as i64),
-            chunk_wait_mult: Rational32::new(1, 6),
-            skip_sync_wait,
-            sync_check_period: Duration::milliseconds(100),
-            sync_step_period: Duration::milliseconds(10),
-            sync_height_threshold: 1,
-            sync_max_block_requests: 10,
-            header_sync_initial_timeout: Duration::seconds(10),
-            header_sync_progress_timeout: Duration::seconds(2),
-            header_sync_stall_ban_timeout: Duration::seconds(30),
-            state_sync_external_timeout: Duration::seconds(TEST_STATE_SYNC_TIMEOUT),
-            state_sync_p2p_timeout: Duration::seconds(TEST_STATE_SYNC_TIMEOUT),
-            state_sync_retry_backoff: Duration::seconds(TEST_STATE_SYNC_TIMEOUT),
-            state_sync_external_backoff: Duration::seconds(TEST_STATE_SYNC_TIMEOUT),
-            header_sync_expected_height_per_second: 1,
-            min_num_peers: 1,
-            log_summary_period: Duration::seconds(10),
-            produce_empty_blocks: true,
-            epoch_length: 10,
-            num_block_producer_seats,
-            ttl_account_id_router: Duration::seconds(60 * 60),
-            block_fetch_horizon: 50,
-            catchup_step_period: Duration::milliseconds(100),
-            chunk_request_retry_period: min(
-                Duration::milliseconds(100),
-                Duration::milliseconds(min_block_prod_time as i64 / 5),
-            ),
-            doomslug_step_period: Duration::milliseconds(100),
-            block_header_fetch_horizon: 50,
-            gc: GCConfig { gc_blocks_limit: 100, ..GCConfig::default() },
-            tracked_shards_config: TrackedShardsConfig::NoShards,
-            archive,
-            cloud_archival_reader: None,
-            cloud_archival_writer: None,
-            save_trie_changes,
-            save_untracked_partial_chunks_parts: true,
-            save_tx_outcomes: true,
-            log_summary_style: LogSummaryStyle::Colored,
-            view_client_threads: 1,
-            chunk_validation_threads: 1,
-            state_request_throttle_period: Duration::seconds(1),
-            state_requests_per_throttle_period: 30,
-            state_request_server_threads: 1,
-            trie_viewer_state_size_limit: None,
-            max_gas_burnt_view: None,
-            enable_statistics_export: true,
-            client_background_migration_threads: 1,
-            state_sync_enabled,
-            state_sync: StateSyncConfig::default(),
-            epoch_sync: EpochSyncConfig::default(),
-            transaction_pool_size_limit: None,
-            enable_multiline_logging: false,
-            resharding_config: MutableConfigValue::new(
-                ReshardingConfig::default(),
-                "resharding_config",
-            ),
-            tx_routing_height_horizon: 4,
-            produce_chunk_add_transactions_time_limit: MutableConfigValue::new(
-                default_produce_chunk_add_transactions_time_limit(),
-                "produce_chunk_add_transactions_time_limit",
-            ),
-            chunk_distribution_network: None,
-            orphan_state_witness_pool_size: default_orphan_state_witness_pool_size(),
-            orphan_state_witness_max_size: default_orphan_state_witness_max_size(),
-            save_latest_witnesses: false,
-            save_invalid_witnesses: false,
-            transaction_request_handler_threads: default_rpc_handler_thread_count(),
-            protocol_version_check: Default::default(),
-        }
-    }
 }
 
 #[cfg(feature = "schemars")]
