@@ -5,6 +5,7 @@ use axum_test::TestServer;
 use near_async::ActorSystem;
 use near_async::messaging::{IntoMultiSender, IntoSender, noop};
 use near_chain::ChainGenesis;
+use near_chain_configs::test_utils::TestClientConfigParams;
 use near_chain_configs::{ClientConfig, Genesis, MutableConfigValue, TrackedShardsConfig};
 use near_client::adversarial::Controls;
 use near_client::{RpcHandlerConfig, ViewClientActorInner, spawn_rpc_handler_actor, start_client};
@@ -109,15 +110,15 @@ pub fn create_test_setup_with_accounts_and_validity(
         ShardTracker::new(TrackedShardsConfig::AllShards, epoch_manager.clone(), signer.clone());
 
     // 5. Create shared client config
-    let client_config = ClientConfig::test(
-        true, // skip_sync_wait
-        100,  // min_block_prod_time
-        200,  // max_block_prod_time
-        num_validator_seats,
-        false, // archive
-        true,  // save_trie_changes
-        true,  // state_sync_enabled
-    );
+    let client_config = ClientConfig::test(TestClientConfigParams {
+        skip_sync_wait: true,
+        min_block_prod_time: 100,
+        max_block_prod_time: 200,
+        num_block_producer_seats: num_validator_seats,
+        archive: false,
+        save_trie_changes: true,
+        state_sync_enabled: true,
+    });
 
     // 6. Create ViewClientActor
     let adv = Controls::default();

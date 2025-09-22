@@ -7,6 +7,7 @@ use near_async::time::{self, Clock};
 use near_chain::rayon_spawner::RayonAsyncComputationSpawner;
 use near_chain::types::RuntimeAdapter;
 use near_chain::{Chain, ChainGenesis, ChainStore};
+use near_chain_configs::test_utils::TestClientConfigParams;
 use near_chain_configs::{ClientConfig, Genesis, GenesisConfig, MutableConfigValue};
 use near_chunks::shards_manager_actor::start_shards_manager;
 use near_client::ChunkValidationActorInner;
@@ -80,7 +81,15 @@ fn setup_network_node(
         TelemetryActor::spawn_tokio_actor(actor_system.clone(), TelemetryConfig::default());
 
     let db = node_storage.into_inner(near_store::Temperature::Hot);
-    let mut client_config = ClientConfig::test(false, 100, 200, num_validators, false, true, true);
+    let mut client_config = ClientConfig::test(TestClientConfigParams {
+        skip_sync_wait: false,
+        min_block_prod_time: 100,
+        max_block_prod_time: 200,
+        num_block_producer_seats: num_validators,
+        archive: false,
+        save_trie_changes: true,
+        state_sync_enabled: true,
+    });
     client_config.archive = config.archive;
     client_config.ttl_account_id_router = config.ttl_account_id_router.try_into().unwrap();
     let state_roots = near_store::get_genesis_state_roots(runtime.store())
