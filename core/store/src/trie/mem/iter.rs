@@ -3,7 +3,7 @@ use super::memtrie_update::{MemTrieNode, MemTrieNodeWithSize};
 use super::memtries::MemTries;
 use super::node::MemTrieNodeId;
 use crate::Trie;
-use crate::trie::ops::interface::{GenericTrieInternalStorage, GenericTrieNodeWithSize};
+use crate::trie::ops::interface::GenericTrieInternalStorage;
 use crate::trie::ops::iter::TrieIteratorImpl;
 use crate::trie::{AccessOptions, OptimizedValueRef};
 use near_primitives::errors::StorageError;
@@ -52,7 +52,7 @@ impl<'a> GenericTrieInternalStorage<MemTrieNodeId, FlatStateValue> for MemTrieIt
         &self,
         node: MemTrieNodeId,
         opts: AccessOptions,
-    ) -> Result<GenericTrieNodeWithSize<MemTrieNodeId, FlatStateValue>, StorageError> {
+    ) -> Result<MemTrieNodeWithSize, StorageError> {
         let view = node.as_ptr(self.memtrie.arena.memory()).view();
         if opts.enable_state_witness_recording {
             if let Some(recorder) = &self.trie.recorder {
