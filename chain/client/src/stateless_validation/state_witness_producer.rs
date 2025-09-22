@@ -101,9 +101,6 @@ impl Client {
             post_state_root: new_root,
         };
 
-        // todo(slavas): handle implicit transitions
-        let implicit_transitions = Vec::new();
-
         self.partial_witness_adapter.send(DistributeStateWitnessRequest {
             state_witness: ChunkStateWitness::V3(ChunkStateWitnessV3 {
                 chunk_apply_witness: ChunkApplyWitness {
@@ -113,7 +110,6 @@ impl Client {
                     receipts: context.receipts,
                     applied_receipts_hash,
                     transactions: context.transactions,
-                    implicit_transitions,
                 },
                 chunk_validate_witness: None,
             }),

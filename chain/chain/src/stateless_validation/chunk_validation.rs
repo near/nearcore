@@ -547,8 +547,8 @@ pub fn validate_chunk_state_witness_impl(
 ) -> Result<ChunkExecutionResult, Error> {
     // TODO: solve and cache optimistic case!
     let WitnessProductionKey {
-        chunk: ChunkProductionKey { shard_id: witness_chunk_shard_id, epoch_id, height_created, .. },
-        ..
+        chunk: ChunkProductionKey { shard_id: witness_chunk_shard_id, epoch_id, height_created },
+        is_optimistic,
     } = state_witness.production_key();
     let _timer = crate::stateless_validation::metrics::CHUNK_STATE_WITNESS_VALIDATION_TIME
         .with_label_values(&[&witness_chunk_shard_id.to_string()])
@@ -632,6 +632,51 @@ pub fn validate_chunk_state_witness_impl(
                 outgoing_receipts: outgoing_receipts.clone(),
             },
         );
+    }
+    let outgoing_receipts_root = if !cfg!(feature = "protocol_feature_spice") {
+        let protocol_version = epoch_manager.get_epoch_protocol_version(&epoch_id)?;
+
+        // Compute receipts root + header validation in parallel with encoded-merkle-root check.
+        let (res_receipts_root, res_encoded_merkle_check) = rayon::join(
+            || -> Result<CryptoHash, Error> {
+                let (outgoing_receipts_root, _) = merklize(&outgoing_receipts_hashes);
+                validate_chunk_with_chunk_extra_and_receipts_root(
+                    &chunk_extra,
+                    &state_witness.chunk_header(),
+                    &outgoing_receipts_root,
+                )?;
+                Ok(outgoing_receipts_root)
+            },
+            || {
+                if ProtocolFeature::ChunkPartChecks.enabled(protocol_version) {
+                    let new_transactions = &state_witness.new_transactions().expect(
+                        "should only be called with the `ValidateChunkStateWitness` available",
+                    );
+                    let (tx_root, _) = merklize(new_transactions);
+                    if tx_root != *state_witness.chunk_header().tx_root() {
+                        return Err(Error::InvalidTxRoot);
+                    }
+                    validate_chunk_with_encoded_merkle_root(
+                        &state_witness.chunk_header(),
+                        &outgoing_receipts,
+                        new_transactions,
+                        rs.as_ref(),
+                        shard_id,
+                    )
+                } else {
+                    Ok(())
+                }
+            },
+        );
+        let outgoing_receipts_root = res_receipts_root?;
+        res_encoded_merkle_check?;
+        outgoing_receipts_root
+    } else {
+        let (root, _) = merklize(&outgoing_receipts_hashes);
+        root
+    };
+    if is_optimistic {
+        return Ok(ChunkExecutionResult { chunk_extra, outgoing_receipts_root });
     }
 
     if pre_validation_output.implicit_transition_params.len()
@@ -721,48 +766,6 @@ pub fn validate_chunk_state_witness_impl(
             )));
         }
     }
-    let outgoing_receipts_root = if !cfg!(feature = "protocol_feature_spice") {
-        let protocol_version = epoch_manager.get_epoch_protocol_version(&epoch_id)?;
-
-        // Compute receipts root + header validation in parallel with encoded-merkle-root check.
-        let (res_receipts_root, res_encoded_merkle_check) = rayon::join(
-            || -> Result<CryptoHash, Error> {
-                let (outgoing_receipts_root, _) = merklize(&outgoing_receipts_hashes);
-                validate_chunk_with_chunk_extra_and_receipts_root(
-                    &chunk_extra,
-                    &state_witness.chunk_header(),
-                    &outgoing_receipts_root,
-                )?;
-                Ok(outgoing_receipts_root)
-            },
-            || {
-                if ProtocolFeature::ChunkPartChecks.enabled(protocol_version) {
-                    let new_transactions = &state_witness.new_transactions().expect(
-                        "should only be called with the `ValidateChunkStateWitness` available",
-                    );
-                    let (tx_root, _) = merklize(new_transactions);
-                    if tx_root != *state_witness.chunk_header().tx_root() {
-                        return Err(Error::InvalidTxRoot);
-                    }
-                    validate_chunk_with_encoded_merkle_root(
-                        &state_witness.chunk_header(),
-                        &outgoing_receipts,
-                        new_transactions,
-                        rs.as_ref(),
-                        shard_id,
-                    )
-                } else {
-                    Ok(())
-                }
-            },
-        );
-        let outgoing_receipts_root = res_receipts_root?;
-        res_encoded_merkle_check?;
-        outgoing_receipts_root
-    } else {
-        let (root, _) = merklize(&outgoing_receipts_hashes);
-        root
-    };
 
     Ok(ChunkExecutionResult { chunk_extra, outgoing_receipts_root })
 }

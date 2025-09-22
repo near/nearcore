@@ -255,14 +255,6 @@ pub struct ChunkApplyWitness {
     /// The transactions to apply. These must be in the correct order in which
     /// they are to be applied.
     pub transactions: Vec<SignedTransaction>,
-    /// For each missing chunk after the last new chunk of the shard, we need
-    /// to carry out an implicit state transition. Mostly, this is for
-    /// distributing validator rewards. This list contains one for each such
-    /// chunk, in forward chronological order.
-    ///
-    /// After these are applied as well, we should arrive at the pre-state-root
-    /// of the chunk that this witness is for.
-    pub implicit_transitions: Vec<ChunkStateTransition>,
 }
 
 /// doc me
@@ -304,6 +296,14 @@ pub struct ChunkValidateWitness {
     /// receipts that must be applied, along with information that allows these
     /// receipts to be verifiable against the blockchain history.
     pub source_receipt_proofs: HashMap<ChunkHash, ReceiptProof>,
+    /// For each missing chunk after the last new chunk of the shard, we need
+    /// to carry out an implicit state transition. Mostly, this is for
+    /// distributing validator rewards. This list contains one for each such
+    /// chunk, in forward chronological order.
+    ///
+    /// After these are applied as well, we should arrive at the pre-state-root
+    /// of the chunk that this witness is for.
+    pub implicit_transitions: Vec<ChunkStateTransition>,
     pub new_transactions: Vec<SignedTransaction>,
 }
 
@@ -468,7 +468,13 @@ impl ChunkStateWitness {
         match self {
             ChunkStateWitness::V1(witness) => &witness.implicit_transitions,
             ChunkStateWitness::V2(witness) => &witness.implicit_transitions,
-            ChunkStateWitness::V3(witness) => &witness.chunk_apply_witness.implicit_transitions,
+            ChunkStateWitness::V3(witness) => {
+                if let Some(chunk_validate_witness) = &witness.chunk_validate_witness {
+                    &chunk_validate_witness.implicit_transitions
+                } else {
+                    panic!("ChunkValidateWitness is not given");
+                }
+            }
         }
     }
 
