@@ -1,3 +1,4 @@
+use near_async::map_collect::MapCollect;
 use near_async::messaging::{IntoMultiSender, IntoSender, LateBoundSender, noop};
 use near_async::test_loop::TestLoopV2;
 use near_async::time::Duration;
@@ -80,7 +81,9 @@ fn test_raw_client_test_loop_setup() {
     let sync_jobs_adapter = LateBoundSender::new();
     let client_adapter = LateBoundSender::new();
 
-    let sync_jobs_actor = SyncJobsActor::new(client_adapter.as_multi_sender());
+    let apply_chunks_map_collect = MapCollect::Sequential;
+    let sync_jobs_actor =
+        SyncJobsActor::new(client_adapter.as_multi_sender(), apply_chunks_map_collect);
 
     let protocol_upgrade_schedule = get_protocol_upgrade_schedule(&chain_genesis.chain_id);
     let multi_spawner = AsyncComputationMultiSpawner::all_custom(Arc::new(
@@ -100,6 +103,7 @@ fn test_raw_client_test_loop_setup() {
         [0; 32],
         None,
         multi_spawner,
+        apply_chunks_map_collect,
         noop().into_multi_sender(),
         noop().into_multi_sender(),
         Arc::new(test_loop.future_spawner("node0")),

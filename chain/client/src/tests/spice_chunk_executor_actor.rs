@@ -1,6 +1,7 @@
 use futures::channel::mpsc::{UnboundedReceiver, UnboundedSender, unbounded};
 use itertools::Itertools as _;
 use near_async::futures::AsyncComputationSpawner;
+use near_async::map_collect::MapCollect;
 use near_async::messaging::Handler;
 use near_async::messaging::IntoSender;
 use near_async::messaging::Sender;
@@ -170,6 +171,7 @@ impl TestActor {
             spice_core_processor,
             chunk_endorsement_tracker,
             Arc::new(spawner),
+            MapCollect::Sequential,
             chunk_executor_adapter,
             data_distributor_adapter,
             save_latest_witnesses,

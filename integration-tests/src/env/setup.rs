@@ -3,6 +3,7 @@
 #![allow(clippy::arc_with_non_send_sync)]
 
 use crate::utils::peer_manager_mock::PeerManagerMock;
+use near_async::map_collect::MapCollect;
 use near_async::messaging::{CanSend, IntoMultiSender, IntoSender, LateBoundSender, Sender, noop};
 use near_async::time::{Clock, Duration, Utc};
 use near_chain::rayon_spawner::RayonAsyncComputationSpawner;
@@ -461,6 +462,7 @@ pub fn setup_client_with_runtime(
     let protocol_upgrade_schedule = get_protocol_upgrade_schedule(&chain_genesis.chain_id);
     let multi_spawner = AsyncComputationMultiSpawner::default()
         .custom_apply_chunks(Arc::new(RayonAsyncComputationSpawner)); // Use rayon instead of the default thread pool 
+    let apply_chunks_map_collect = MapCollect::Sequential;
 
     // TestEnv bypasses chunk validation actors and handles chunk validation
     // directly through propagate_chunk_state_witnesses method
@@ -486,6 +488,7 @@ pub fn setup_client_with_runtime(
         rng_seed,
         snapshot_callbacks,
         multi_spawner,
+        apply_chunks_map_collect,
         partial_witness_adapter,
         resharding_sender,
         actor_system.new_future_spawner().into(),
@@ -554,6 +557,7 @@ pub fn setup_synchronous_shards_manager(
         }, // irrelevant
         None,
         Default::default(),
+        MapCollect::Sequential,
         MutableConfigValue::new(None, "validator_signer"),
         noop().into_multi_sender(),
         CoreStatementsProcessor::new_with_noop_senders(chain_store, epoch_manager.clone()),

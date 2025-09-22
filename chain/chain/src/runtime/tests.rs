@@ -4,6 +4,7 @@ use crate::types::{BlockType, ChainConfig, RuntimeStorageConfig};
 use crate::{Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode};
 use assert_matches::assert_matches;
 use borsh::BorshDeserialize;
+use near_async::map_collect::MapCollect;
 use near_async::messaging::{IntoMultiSender, noop};
 use near_async::time::Clock;
 use near_chain_configs::test_utils::{TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
@@ -1387,6 +1388,7 @@ fn get_test_env_with_chain_and_pool() -> (TestEnv, Chain, TransactionPool) {
         ChainConfig::test(),
         None,
         Default::default(),
+        MapCollect::Sequential,
         MutableConfigValue::new(None, "validator_signer"),
         noop().into_multi_sender(),
         CoreStatementsProcessor::new_with_noop_senders(

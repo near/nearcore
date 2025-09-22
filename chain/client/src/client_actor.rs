@@ -26,6 +26,7 @@ use crate::sync::state::chain_requests::{
 use crate::sync_jobs_actor::{ClientSenderForSyncJobs, SyncJobsActor};
 use crate::{AsyncComputationMultiSpawner, StatusResponse, metrics};
 use near_async::futures::{DelayedActionRunner, DelayedActionRunnerExt, FutureSpawner};
+use near_async::map_collect::MapCollect;
 use near_async::messaging::{
     self, CanSend, Handler, IntoMultiSender, IntoSender as _, LateBoundSender, Sender, noop,
 };
@@ -156,6 +157,7 @@ pub fn start_client(
     let client_sender_for_client = LateBoundSender::<ClientSenderForClient>::new();
     let protocol_upgrade_schedule = get_protocol_upgrade_schedule(client_config.chain_id.as_str());
     let multi_spawner = AsyncComputationMultiSpawner::default();
+    let apply_chunks_map_collect = MapCollect::Rayon;
 
     let chunk_validation_adapter = LateBoundSender::<ChunkValidationSender>::new();
 
@@ -180,6 +182,7 @@ pub fn start_client(
         seed.unwrap_or_else(random_seed_from_thread),
         snapshot_callbacks,
         multi_spawner,
+        apply_chunks_map_collect,
         partial_witness_adapter,
         resharding_sender,
         state_sync_future_spawner,
@@ -192,7 +195,8 @@ pub fn start_client(
     .unwrap();
 
     let client_sender_for_sync_jobs = LateBoundSender::<ClientSenderForSyncJobs>::new();
-    let sync_jobs_actor = SyncJobsActor::new(client_sender_for_sync_jobs.as_multi_sender());
+    let sync_jobs_actor =
+        SyncJobsActor::new(client_sender_for_sync_jobs.as_multi_sender(), apply_chunks_map_collect);
     let sync_jobs_actor_addr = actor_system.spawn_tokio_actor(sync_jobs_actor);
 
     // Create chunk validation actor

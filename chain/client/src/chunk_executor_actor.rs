@@ -4,6 +4,7 @@ use std::sync::Arc;
 
 use near_async::futures::AsyncComputationSpawner;
 use near_async::futures::AsyncComputationSpawnerExt;
+use near_async::map_collect::MapCollect;
 use near_async::messaging::CanSend;
 use near_async::messaging::Handler;
 use near_async::messaging::IntoSender;
@@ -72,6 +73,7 @@ pub struct ChunkExecutorActor {
     pub(crate) shard_tracker: ShardTracker,
     network_adapter: PeerManagerAdapter,
     apply_chunks_spawner: Arc<dyn AsyncComputationSpawner>,
+    apply_chunks_map_collect: MapCollect,
     myself_sender: Sender<ExecutorApplyChunksDone>,
     data_distributor_adapter: SpiceDataDistributorAdapter,
 
@@ -101,6 +103,7 @@ impl ChunkExecutorActor {
         core_processor: CoreStatementsProcessor,
         chunk_endorsement_tracker: Arc<ChunkEndorsementTracker>,
         apply_chunks_spawner: Arc<dyn AsyncComputationSpawner>,
+        apply_chunks_map_collect: MapCollect,
         myself_sender: Sender<ExecutorApplyChunksDone>,
         data_distributor_adapter: SpiceDataDistributorAdapter,
         save_latest_witnesses: bool,
@@ -112,6 +115,7 @@ impl ChunkExecutorActor {
             shard_tracker,
             network_adapter,
             apply_chunks_spawner,
+            apply_chunks_map_collect,
             myself_sender,
             blocks_in_execution: HashSet::new(),
             genesis_hash,
@@ -417,17 +421,22 @@ impl ChunkExecutorActor {
         }
 
         let apply_done_sender = self.myself_sender.clone();
+        let map_collect = self.apply_chunks_map_collect;
         self.apply_chunks_spawner.spawn("apply_chunks", move || {
             let block_hash = *block.hash();
-            let apply_results =
-                do_apply_chunks(BlockToApply::Normal(block_hash), block.header().height(), jobs)
-                    .into_iter()
-                    .map(|(shard_id, _, result)| {
-                        result.unwrap_or_else(|err| {
+            let apply_results = do_apply_chunks(
+                map_collect,
+                BlockToApply::Normal(block_hash),
+                block.header().height(),
+                jobs,
+            )
+            .into_iter()
+            .map(|(shard_id, _, result)| {
+                result.unwrap_or_else(|err| {
                     panic!("failed to apply block {block_hash:?} chunk for shard {shard_id}: {err}")
                 })
-                    })
-                    .collect();
+            })
+            .collect();
             apply_done_sender.send(ExecutorApplyChunksDone { block_hash, apply_results });
         });
         Ok(())

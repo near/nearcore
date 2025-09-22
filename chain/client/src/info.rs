@@ -956,6 +956,7 @@ fn get_validator_production_status(
 mod tests {
     use super::*;
     use assert_matches::assert_matches;
+    use near_async::map_collect::MapCollect;
     use near_async::messaging::{IntoMultiSender, IntoSender, noop};
     use near_async::time::Clock;
     use near_chain::runtime::NightshadeRuntime;
@@ -1021,6 +1022,7 @@ mod tests {
             ChainConfig::test(),
             None,
             Default::default(),
+            MapCollect::Sequential,
             validator.clone(),
             noop().into_multi_sender(),
             CoreStatementsProcessor::new_with_noop_senders(store.chain_store(), epoch_manager),

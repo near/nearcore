@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use near_async::map_collect::MapCollect;
 use near_async::messaging::{IntoMultiSender, IntoSender, LateBoundSender, noop};
 use near_async::test_loop::TestLoopV2;
 use near_async::time::Duration;
@@ -83,7 +84,9 @@ pub fn setup_client(
         ..Default::default()
     };
 
-    let sync_jobs_actor = SyncJobsActor::new(client_adapter.as_multi_sender());
+    let apply_chunks_map_collect = MapCollect::Sequential;
+    let sync_jobs_actor =
+        SyncJobsActor::new(client_adapter.as_multi_sender(), apply_chunks_map_collect);
     let chain_genesis = ChainGenesis::new(&genesis.config);
     let epoch_manager = EpochManager::new_arc_handle_from_epoch_config_store(
         store.clone(),
@@ -163,6 +166,7 @@ pub fn setup_client(
         [0; 32],
         Some(snapshot_callbacks),
         multi_spawner,
+        apply_chunks_map_collect,
         partial_witness_adapter.as_multi_sender(),
         resharding_sender.as_multi_sender(),
         Arc::new(test_loop.future_spawner(identifier)),
@@ -372,6 +376,7 @@ pub fn setup_client(
         spice_chunk_validator_adapter.as_sender(),
     );
 
+    let apply_chunks_map_collect = MapCollect::Sequential;
     let chunk_executor_actor = ChunkExecutorActor::new(
         runtime_adapter.store().clone(),
         &chain_genesis,
@@ -384,6 +389,7 @@ pub fn setup_client(
         spice_core_processor.clone(),
         client_actor.client.chunk_endorsement_tracker.clone(),
         Arc::new(test_loop.async_computation_spawner(identifier, |_| Duration::milliseconds(80))),
+        apply_chunks_map_collect,
         chunk_executor_adapter.as_sender(),
         spice_data_distributor_adapter.as_multi_sender(),
         client_config.save_latest_witnesses,
