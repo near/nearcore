@@ -1,6 +1,5 @@
 use itertools::Itertools;
 use near_chain_configs::test_genesis::{TestEpochConfigBuilder, TestGenesisBuilder};
-use near_store::db::ColdDB;
 use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -18,9 +17,8 @@ use near_primitives::epoch_manager::EpochConfigStore;
 use near_primitives::types::AccountId;
 use near_primitives::upgrade_schedule::ProtocolUpgradeVotingSchedule;
 use near_primitives::version::get_protocol_upgrade_schedule;
-use near_store::Store;
 use near_store::genesis::initialize_genesis_state;
-use near_store::test_utils::{create_test_split_store, create_test_store};
+use near_store::test_utils::{TestNodeStorage, create_test_split_storage, create_test_store};
 
 use crate::utils::peer_manager_actor::{TestLoopNetworkSharedState, UnreachableActor};
 
@@ -295,7 +293,7 @@ impl<'a> NodeStateBuilder<'a> {
     }
 
     pub fn build(self) -> NodeSetupState {
-        let (store, split_store, cold_db) = self.setup_store();
+        let storage = self.setup_storage();
         let account_id = self.account_id.unwrap();
 
         let mut client_config =
@@ -334,18 +332,17 @@ impl<'a> NodeStateBuilder<'a> {
             config_modifier(&mut client_config);
         }
 
-        NodeSetupState { account_id, client_config, store, split_store, cold_db }
+        NodeSetupState { account_id, client_config, storage }
     }
 
-    fn setup_store(&self) -> (Store, Option<Store>, Option<Arc<ColdDB>>) {
-        let (store, split_store, cold_db) = if self.archive {
-            let (hot_store, split_store, cold_db) = create_test_split_store();
-            (hot_store, Some(split_store), Some(cold_db))
+    fn setup_storage(&self) -> TestNodeStorage {
+        let storage = if self.archive {
+            create_test_split_storage()
         } else {
-            (create_test_store(), None, None)
+            TestNodeStorage { hot_store: create_test_store(), split_store: None, cold_db: None }
         };
 
-        initialize_genesis_state(store.clone(), &self.genesis, None);
-        (store, split_store, cold_db)
+        initialize_genesis_state(storage.hot_store.clone(), &self.genesis, None);
+        storage
     }
 }

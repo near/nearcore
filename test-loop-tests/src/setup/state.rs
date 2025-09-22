@@ -23,8 +23,7 @@ use near_primitives::epoch_manager::EpochConfigStore;
 use near_primitives::network::PeerId;
 use near_primitives::types::AccountId;
 use near_primitives::upgrade_schedule::ProtocolUpgradeVotingSchedule;
-use near_store::Store;
-use near_store::db::ColdDB;
+use near_store::test_utils::TestNodeStorage;
 use nearcore::state_sync::StateSyncDumper;
 use parking_lot::Mutex;
 use tempfile::TempDir;
@@ -65,9 +64,7 @@ pub struct SharedState {
 pub struct NodeSetupState {
     pub account_id: AccountId,
     pub client_config: ClientConfig,
-    pub store: Store,
-    pub split_store: Option<Store>,
-    pub cold_db: Option<Arc<ColdDB>>,
+    pub storage: TestNodeStorage,
 }
 
 /// This is the state associated with each node in the test loop environment after being built.
