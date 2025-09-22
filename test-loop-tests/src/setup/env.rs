@@ -94,6 +94,10 @@ impl TestLoopEnv {
         let client_config = client_actor.client.config.clone();
         let store = client_actor.client.chain.chain_store.store();
 
+        if client_config.archive {
+            assert!(node_data.cold_store_sender.is_some());
+        }
+
         let (split_store, cold_db) = if let Some(cold_store_sender) = &node_data.cold_store_sender {
             let cold_store_actor = self.test_loop.data.get(&cold_store_sender.actor_handle());
             let cold_db = cold_store_actor.get_cold_db();
