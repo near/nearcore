@@ -3,8 +3,8 @@ use crate::accounts_data::AccountDataCacheSnapshot;
 use crate::broadcast;
 use crate::client::ClientSenderForNetworkInput;
 use crate::client::ClientSenderForNetworkMessage;
+use crate::client::StatePartOrHeader;
 use crate::client::StateRequestPart;
-use crate::client::StateResponse;
 use crate::config;
 use crate::network_protocol::SnapshotHostInfo;
 use crate::network_protocol::StateResponseInfo;
@@ -624,7 +624,7 @@ pub(crate) async fn start(
                                     part,
                                 });
                             let result =
-                                Some(StateResponse(Box::new(StateResponseInfo::V2(Box::new(
+                                Some(StatePartOrHeader(Box::new(StateResponseInfo::V2(Box::new(
                                     StateResponseInfoV2 { shard_id, sync_hash, state_response },
                                 )))));
                             (msg.callback)(std::future::ready(Ok(result)).boxed());
