@@ -40,7 +40,7 @@ tempfile.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
 wasm-encoder = { workspace = true, features = ["wasmparser"], optional = true }
-wasmparser = { workspace = true, optional = true }
+wasmparser-latest = { workspace = true, optional = true }
 wasmtime = { workspace = true, features = [
     "call-hook",
     "parallel-compilation",
@@ -108,7 +108,7 @@ prepare = [
     "finite-wasm",
     "finite-wasm-6",
     "wasm-encoder",
-    "wasmparser",
+    "wasmparser-latest",
     "prefix-sum-vec",
     "metrics",
 ]

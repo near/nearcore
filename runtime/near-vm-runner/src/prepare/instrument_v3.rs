@@ -6,7 +6,7 @@ use finite_wasm_6::gas::InstrumentationKind;
 use finite_wasm_6::{AnalysisOutcome, Fee};
 use wasm_encoder::reencode::{Error as ReencodeError, Reencode};
 use wasm_encoder::{self as we};
-use wasmparser as wp;
+use wasmparser_latest as wp;
 
 const PLACEHOLDER_FOR_NAMES: u8 = !0;
 
@@ -278,19 +278,19 @@ impl<'a> InstrumentContext<'a> {
                     for import in imports {
                         let import = import.map_err(Error::ParseImport)?;
                         match import.ty {
-                            wasmparser::TypeRef::Func(..) => {
+                            wp::TypeRef::Func(..) => {
                                 self.imported_functions = self
                                     .imported_functions
                                     .checked_add(1)
                                     .ok_or(Error::TooManyImports)?;
                             }
-                            wasmparser::TypeRef::Global(..) => {
+                            wp::TypeRef::Global(..) => {
                                 self.globals =
                                     self.globals.checked_add(1).ok_or(Error::TooManyGlobals)?;
                             }
-                            wasmparser::TypeRef::Table(..)
-                            | wasmparser::TypeRef::Memory(..)
-                            | wasmparser::TypeRef::Tag(..) => {}
+                            wp::TypeRef::Table(..)
+                            | wp::TypeRef::Memory(..)
+                            | wp::TypeRef::Tag(..) => {}
                         }
                         if self.imported_functions.checked_add(F).is_none() {
                             return Err(Error::TooManyImports);
@@ -399,7 +399,7 @@ impl<'a> InstrumentContext<'a> {
                     });
                 }
                 wp::Payload::CustomSection(reader) if reader.name() == "name" => {
-                    let wasmparser::KnownCustom::Name(names) = reader.as_known() else {
+                    let wp::KnownCustom::Name(names) = reader.as_known() else {
                         continue;
                     };
                     if let Ok(_) = self.transform_name_section(&mut renc, names) {

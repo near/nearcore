@@ -423,7 +423,8 @@ url = "2.5.0"
 utoipa = "5.4"
 utoipa-swagger-ui = "9"
 wasm-encoder = "0.236"
-wasmparser = "0.236"
+wasmparser = "0.78" # TODO: unify at least the versions of wasmparser we have in our codebase
+wasmparser-latest = { package = "wasmparser", version = "0.236" }
 wasmprinter = "0.236"
 wasm-smith = "0.236"
 wasmtime = { version = "36", default-features = false, features = [
