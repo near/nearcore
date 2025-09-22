@@ -42,6 +42,7 @@ skip = [
     { name = "finite-wasm", version = "^0.5" },
 
     # wasm-tools
+    { name = "wasmparser", version = "=0.78.2" },
     { name = "wasmparser", version = "=0.99.0" },
     { name = "wasmparser", version = "=0.105.0" },
     { name = "wasmparser", version = "=0.228.0" },
