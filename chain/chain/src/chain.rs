@@ -1678,7 +1678,7 @@ impl Chain {
 
         // 2) Start creating snapshot if needed.
         if let Err(err) = self.process_snapshot() {
-            error!(target: "state_snapshot", ?err, "Failed to make a state snapshot");
+            error!(target: "state_snapshot", ?err, "failed to make a state snapshot");
         }
 
         let block = block.into_inner();
@@ -1835,7 +1835,7 @@ impl Chain {
                 // during catchup of this block.
                 cares_about_shard
             };
-            debug!(target: "chain", %shard_id, need_storage_update, "Updating storage");
+            debug!(target: "chain", %shard_id, need_storage_update, "update storage");
 
             if need_storage_update {
                 self.resharding_manager.start_resharding(
@@ -2031,8 +2031,8 @@ impl Chain {
         // This is possible if the node just went through state sync.
         let Ok(last_final_block) = self.get_block(&last_final_block_hash) else {
             warn!(
-                "get_new_flat_storage_head could not get last final block {}",
-                last_final_block_hash
+                %last_final_block_hash,
+                "get_new_flat_storage_head could not get last final block",
             );
             return Ok(None);
         };
