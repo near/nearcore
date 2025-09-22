@@ -44,6 +44,11 @@ impl TryFrom<crate::models::Operation> for StakeOperation {
     fn try_from(operation: crate::models::Operation) -> Result<Self, Self::Error> {
         Self::validate_operation_type(operation.type_)?;
         let amount = operation.amount.ok_or_else(required_fields_error)?;
+        if !amount.currency.is_near() {
+            return Err(crate::errors::ErrorKind::InvalidInput(
+                "STAKE opeartions must have NEAR currency".to_string(),
+            ));
+        }
         let amount = if amount.value.is_positive() {
             Balance::from_yoctonear(amount.value.absolute_difference())
         } else {

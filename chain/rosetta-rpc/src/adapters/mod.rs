@@ -631,6 +631,14 @@ impl TryFrom<Vec<crate::models::Operation>> for NearActions {
                                 .to_string(),
                         ));
                     }
+                    if !receiver_transfer_operation.amount.currency.is_near()
+                        || !sender_transfer_operation.amount.currency.is_near()
+                    {
+                        return Err(crate::errors::ErrorKind::InvalidInput(
+                            "Currency of Sender and Receiver TRANSFER opeartions must be NEAR"
+                                .to_string(),
+                        ));
+                    }
                     actions.push(
                         near_primitives::transaction::TransferAction {
                             deposit: Balance::from_yoctonear(
@@ -697,6 +705,11 @@ impl TryFrom<Vec<crate::models::Operation>> for NearActions {
                             validated_operations::TransferOperation::try_from_option(
                                 operations.next(),
                             )?;
+                        if !transfer_operation.amount.currency.is_near() {
+                            return Err(crate::errors::ErrorKind::InvalidInput(
+                                "Currency of TRANSFER has to be NEAR".to_string(),
+                            ));
+                        }
                         if transfer_operation.amount.value.is_positive()
                             || Balance::from_yoctonear(
                                 transfer_operation.amount.value.absolute_difference(),

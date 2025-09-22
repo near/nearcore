@@ -504,6 +504,9 @@ impl Currency {
     fn near() -> Self {
         Self { symbol: String::from("NEAR"), decimals: 24, metadata: None }
     }
+    pub fn is_near(&self) -> bool {
+        self == &Self::near()
+    }
 }
 impl FromIterator<Currency> for std::collections::HashMap<String, Currency> {
     fn from_iter<T: IntoIterator<Item = Currency>>(iter: T) -> Self {

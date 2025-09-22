@@ -67,6 +67,11 @@ impl TryFrom<crate::models::Operation> for FunctionCallOperation {
                     "FUNCTION_CALL operations must have non-negative `amount`".to_string(),
                 ));
             }
+            if !attached_amount.currency.is_near() {
+                return Err(crate::errors::ErrorKind::InvalidInput(
+                    "FUNCTION_CALL operations must have NEAR currency".to_string(),
+                ));
+            }
             Balance::from_yoctonear(attached_amount.value.absolute_difference())
         } else {
             Balance::ZERO
