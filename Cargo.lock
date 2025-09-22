@@ -5464,6 +5464,7 @@ dependencies = [
  "wasm-encoder 0.236.0",
  "wasm-smith",
  "wasmparser 0.236.1",
+ "wasmparser 0.78.2",
  "wasmprinter 0.236.1",
  "wasmtime",
  "wat",
@@ -9214,6 +9215,12 @@ dependencies = [
  "wasm-bindgen-futures",
  "web-sys",
 ]
+
+[[package]]
+name = "wasmparser"
+version = "0.78.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "52144d4c78e5cf8b055ceab8e5fa22814ce4315d6002ad32cfd914f37c12fd65"
 
 [[package]]
 name = "wasmparser"

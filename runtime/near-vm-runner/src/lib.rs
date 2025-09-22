@@ -55,7 +55,7 @@ pub(crate) const EXPORT_PREFIX: &str = "\0";
 pub mod internal {
     pub use crate::runner::VMKindExt;
     #[cfg(feature = "prepare")]
-    pub use wasmparser_latest as wasmparser;
+    pub use wasmparser;
 }
 
 /// Drop something somewhat lazily.
