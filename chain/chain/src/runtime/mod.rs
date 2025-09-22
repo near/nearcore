@@ -55,12 +55,14 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 use tracing::{debug, error, info, instrument};
+use trie_update_wrapper::TrieUpdateWitnessSizeWrapper;
 
 pub mod errors;
 mod metrics;
 pub mod test_utils;
 #[cfg(test)]
 mod tests;
+mod trie_update_wrapper;
 
 /// Defines Nightshade state transition and validator rotation.
 /// TODO: this possibly should be merged with the runtime cargo or at least reconciled on the interfaces.
@@ -684,8 +686,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         // invalid transactions to be included.
         let next_block_height = prev_block.height + 1;
 
-        // TODO - enforce witness size limits on TrieUpdate
-        let mut state_update = storage;
+        let mut state_update = TrieUpdateWitnessSizeWrapper::new(storage);
 
         // Total amount of gas burnt for converting transactions towards receipts.
         let mut total_gas_burnt = Gas::ZERO;
@@ -721,7 +722,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                 }
             }
 
-            if state_update.trie.recorded_storage_size() as u64
+            if state_update.recorded_storage_size() as u64
                 > runtime_config.witness_config.new_transactions_validation_state_size_soft_limit
             {
                 result.limited_by = Some(PrepareTransactionsLimit::StorageProofSize);
@@ -835,7 +836,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                 // groups, but only because pool guarantees that iteration is grouped by account_id
                 // and its public keys. It does however also mean that we must remember the account
                 // state as this code might operate over multiple access keys for the account.
-                set_account(&mut state_update, signer_id, &account);
+                set_account(&mut state_update.trie_update, signer_id, &account);
             }
         }
         // NOTE: this state update must not be committed or finalized!
