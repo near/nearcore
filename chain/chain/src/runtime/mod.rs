@@ -613,7 +613,7 @@ impl RuntimeAdapter for NightshadeRuntime {
     ) -> Result<PreparedTransactions, Error> {
         let start_time = std::time::Instant::now();
 
-        let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(&prev_block.block_hash)?;
+        let epoch_id = prev_block.next_epoch_id;
         let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
         let runtime_config = self.runtime_config_store.get_config(protocol_version);
 
