@@ -4,13 +4,15 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::MerklePath;
 use near_primitives::types::{AccountId, MerkleHash, ShardId};
 
-#[derive(actix::Message, Debug, Clone)]
+#[derive(actix::Message, Debug, Clone, PartialEq, Eq)]
 #[rtype(result = "()")]
 pub struct SpiceIncomingPartialData {
     pub data: SpicePartialData,
 }
 
 #[derive(Clone, MultiSend, MultiSenderFrom, MultiSendMessage)]
+#[multi_send_message_derive(Debug)]
+#[multi_send_input_derive(Debug, Clone, PartialEq, Eq)]
 pub struct SpiceDataDistributorSenderForNetwork {
     pub incoming: Sender<SpiceIncomingPartialData>,
 }

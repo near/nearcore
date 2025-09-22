@@ -107,7 +107,6 @@ impl TestActor {
 
         let chain_genesis = ChainGenesis::new(&genesis.config);
         let runtime = chain.runtime_adapter.clone();
-        let genesis_hash = *chain.genesis().hash();
 
         let spice_core_processor = CoreStatementsProcessor::new_with_noop_senders(
             runtime.store().chain_store(),
@@ -161,7 +160,6 @@ impl TestActor {
         let actor = ChunkExecutorActor::new(
             runtime.store().clone(),
             &chain_genesis,
-            genesis_hash,
             runtime.clone(),
             epoch_manager,
             shard_tracker,

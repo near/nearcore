@@ -27,7 +27,7 @@ use crate::sync_jobs_actor::{ClientSenderForSyncJobs, SyncJobsActor};
 use crate::{AsyncComputationMultiSpawner, StatusResponse, metrics};
 use near_async::futures::{DelayedActionRunner, DelayedActionRunnerExt, FutureSpawner};
 use near_async::messaging::{
-    self, CanSend, Handler, IntoMultiSender, IntoSender as _, LateBoundSender, Sender, noop,
+    self, CanSend, Handler, IntoMultiSender, IntoSender as _, LateBoundSender, Sender,
 };
 use near_async::multithread::MultithreadRuntimeHandle;
 use near_async::time::{Clock, Utc};
@@ -79,7 +79,6 @@ use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature, get_protocol_u
 use near_primitives::views::{DetailedDebugStatus, ValidatorInfo};
 #[cfg(feature = "test_features")]
 use near_store::DBCol;
-use near_store::adapter::StoreAdapter;
 use near_telemetry::TelemetryEvent;
 use parking_lot::Mutex;
 use rand::seq::SliceRandom;
