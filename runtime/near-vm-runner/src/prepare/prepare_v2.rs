@@ -1,5 +1,5 @@
-use crate::MEMORY_EXPORT;
 use crate::logic::errors::PrepareError;
+use crate::{EXPORT_PREFIX, MEMORY_EXPORT};
 use finite_wasm::wasmparser as wp;
 use near_parameters::vm::{Config, VMKind};
 use wasm_encoder::{Encode, Section, SectionId};
@@ -146,25 +146,39 @@ impl<'a> PrepareContext<'a> {
                     for res in reader {
                         let wp::Export { name, kind, index } =
                             res.map_err(|_| PrepareError::Deserialization)?;
+                        let prefix = (self.config.vm_kind == VMKind::Wasmtime)
+                            .then_some(EXPORT_PREFIX)
+                            .unwrap_or_default();
                         match kind {
                             wp::ExternalKind::Func => {
-                                new_section.export(name, wasm_encoder::ExportKind::Func, index);
+                                new_section.export(
+                                    &format!("{prefix}{name}"),
+                                    wasm_encoder::ExportKind::Func,
+                                    index,
+                                );
                             }
                             wp::ExternalKind::Table => {
-                                new_section.export(name, wasm_encoder::ExportKind::Table, index);
+                                new_section.export(
+                                    &format!("{prefix}{name}"),
+                                    wasm_encoder::ExportKind::Table,
+                                    index,
+                                );
                             }
                             wp::ExternalKind::Memory => continue,
                             wp::ExternalKind::Global => {
-                                new_section.export(name, wasm_encoder::ExportKind::Global, index);
+                                new_section.export(
+                                    &format!("{prefix}{name}"),
+                                    wasm_encoder::ExportKind::Global,
+                                    index,
+                                );
                             }
                             wp::ExternalKind::Tag => {
-                                new_section.export(name, wasm_encoder::ExportKind::Tag, index);
+                                new_section.export(
+                                    &format!("{prefix}{name}"),
+                                    wasm_encoder::ExportKind::Tag,
+                                    index,
+                                );
                             }
-                        }
-                        if name == MEMORY_EXPORT {
-                            // Something other than memory is exported under the name of
-                            // [MEMORY_EXPORT]
-                            return Err(PrepareError::Instantiate);
                         }
                     }
                     if self.config.vm_kind == VMKind::Wasmtime {
