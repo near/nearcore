@@ -2,7 +2,7 @@ use crate::Error;
 use crate::types::{
     ApplyChunkBlockContext, ApplyChunkResult, ApplyChunkShardContext,
     PrepareTransactionsBlockContext, PrepareTransactionsLimit, PreparedTransactions,
-    RuntimeAdapter, RuntimeStorageConfig, StorageDataSource, Tip,
+    RuntimeAdapter, RuntimeStorageConfig, SkippedTransactions, StorageDataSource, Tip,
 };
 use errors::FromStateViewerErrors;
 use near_async::time::{Duration, Instant};
@@ -50,9 +50,9 @@ use node_runtime::{
     ApplyState, Runtime, SignedValidPeriodTransactions, ValidatorAccountsUpdate,
     get_signer_and_access_key, validate_transaction, verify_and_charge_tx_ephemeral,
 };
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 use tracing::{debug, error, info, instrument};
 
@@ -611,17 +611,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         chain_validate: &dyn Fn(&SignedTransaction) -> bool,
         time_limit: Option<Duration>,
     ) -> Result<PreparedTransactions, Error> {
-        let start_time = std::time::Instant::now();
-
-        let epoch_id = prev_block.next_epoch_id;
-        let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
-        let runtime_config = self.runtime_config_store.get_config(protocol_version);
-
-        let shard_uid = self.get_shard_uid_from_epoch_id(shard_id, &epoch_id)?;
-        // While the height of the next block that includes the chunk might not be prev_height + 1,
-        // using it will result in a more conservative check and will not accidentally allow
-        // invalid transactions to be included.
-        let next_block_height = prev_block.height + 1;
+        let shard_uid = self.get_shard_uid_from_epoch_id(shard_id, &prev_block.next_epoch_id)?;
 
         let mut trie = match storage_config.source {
             StorageDataSource::Db => {
@@ -641,11 +631,61 @@ impl RuntimeAdapter for NightshadeRuntime {
                 storage_config.use_flat_storage,
             ),
         };
+
         // StateWitnessSizeLimit: We need to start recording reads if the stateless validation is
         // enabled in the next epoch. We need to save the state transition data in the current epoch
         // to be able to produce the state witness in the next epoch.
         trie = trie.recording_reads_new_recorder();
-        let mut state_update = TrieUpdate::new(trie);
+        let state_update = TrieUpdate::new(trie);
+
+        self.prepare_transactions_extra(
+            state_update,
+            shard_id,
+            prev_block,
+            transaction_groups,
+            chain_validate,
+            HashSet::new(),
+            time_limit,
+            None,
+        )
+        .map(|(prepared, _skipped)| prepared)
+    }
+
+    #[instrument(
+        target = "runtime",
+        level = "debug",
+        "runtime_prepare_transactions_extra",
+        skip_all,
+        fields(
+            height = prev_block.height + 1,
+            shard_id = %shard_id,
+            tag_block_production = true
+        )
+    )]
+    fn prepare_transactions_extra(
+        &self,
+        storage: TrieUpdate,
+        shard_id: ShardId,
+        prev_block: PrepareTransactionsBlockContext,
+        transaction_groups: &mut dyn TransactionGroupIterator,
+        chain_validate: &dyn Fn(&SignedTransaction) -> bool,
+        skip_tx_hashes: HashSet<CryptoHash>,
+        time_limit: Option<Duration>,
+        cancel: Option<Arc<AtomicBool>>,
+    ) -> Result<(PreparedTransactions, SkippedTransactions), Error> {
+        let start_time = std::time::Instant::now();
+
+        let epoch_id = prev_block.next_epoch_id;
+        let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
+        let runtime_config = self.runtime_config_store.get_config(protocol_version);
+
+        // While the height of the next block that includes the chunk might not be prev_height + 1,
+        // using it will result in a more conservative check and will not accidentally allow
+        // invalid transactions to be included.
+        let next_block_height = prev_block.height + 1;
+
+        // TODO - enforce witness size limits on TrieUpdate
+        let mut state_update = storage;
 
         // Total amount of gas burnt for converting transactions towards receipts.
         let mut total_gas_burnt = Gas::ZERO;
@@ -654,6 +694,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         let transactions_gas_limit = chunk_tx_gas_limit(runtime_config, &prev_block, shard_id);
 
         let mut result = PreparedTransactions { transactions: Vec::new(), limited_by: None };
+        let mut skipped_transactions = Vec::new();
         let mut num_checked_transactions = 0;
 
         let size_limit = runtime_config.witness_config.combined_transactions_size_limit as u64;
@@ -687,6 +728,13 @@ impl RuntimeAdapter for NightshadeRuntime {
                 break;
             }
 
+            if let Some(cancel) = &cancel {
+                if cancel.load(Ordering::Relaxed) {
+                    result.limited_by = Some(PrepareTransactionsLimit::Cancelled);
+                    break;
+                }
+            }
+
             let mut signer_access_key = None;
 
             // Take a single transaction from this transaction group
@@ -705,6 +753,11 @@ impl RuntimeAdapter for NightshadeRuntime {
                     .next()
                     .expect("peek_next() returned Some, so next() should return Some as well");
                 num_checked_transactions += 1;
+
+                if skip_tx_hashes.contains(&validated_tx.get_hash()) {
+                    skipped_transactions.push(validated_tx);
+                    continue;
+                }
 
                 if !congestion_control_accepts_transaction(
                     self.epoch_manager.as_ref(),
@@ -805,7 +858,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         metrics::CONGESTION_PREPARE_TX_GAS_LIMIT
             .with_label_values(&[&shard_label])
             .set(i64::try_from(transactions_gas_limit.as_gas()).unwrap_or(i64::MAX));
-        Ok(result)
+        Ok((result, SkippedTransactions(skipped_transactions)))
     }
 
     fn get_gc_stop_height(&self, block_hash: &CryptoHash) -> BlockHeight {
