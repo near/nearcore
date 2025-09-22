@@ -63,6 +63,12 @@ rustc_version = "0.4"
 [features]
 tx_generator = ["nearcore/tx_generator"]
 default = ["json_rpc", "rosetta_rpc"]
+protocol_feature_spice = [
+  "near-client/protocol_feature_spice",
+  "near-primitives/protocol_feature_spice",
+  "near-store/protocol_feature_spice",
+  "nearcore/protocol_feature_spice"
+]
 
 performance_stats = ["nearcore/performance_stats"]
 c_memory_stats = ["nearcore/c_memory_stats"]

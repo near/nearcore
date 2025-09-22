@@ -126,6 +126,13 @@ pub struct StartClientResult {
     pub chunk_validation_actor: MultithreadRuntimeHandle<ChunkValidationActorInner>,
 }
 
+pub struct SpiceClientConfig {
+    pub core_processor: CoreStatementsProcessor,
+    pub chunk_executor_sender: Sender<ProcessedBlock>,
+    pub spice_chunk_validator_sender: Sender<ProcessedBlock>,
+    pub spice_data_distributor_sender: Sender<ProcessedBlock>,
+}
+
 /// Starts client in a separate tokio runtime (thread).
 pub fn start_client(
     clock: Clock,
@@ -149,6 +156,7 @@ pub fn start_client(
     enable_doomslug: bool,
     seed: Option<RngSeed>,
     resharding_sender: ReshardingSender,
+    spice_client_config: SpiceClientConfig,
 ) -> StartClientResult {
     wait_until_genesis(&chain_genesis.time);
 
@@ -159,13 +167,6 @@ pub fn start_client(
 
     let chunk_validation_adapter = LateBoundSender::<ChunkValidationSender>::new();
 
-    // TODO(spice): Initialize CoreStatementsProcessor properly.
-    let spice_core_processor = CoreStatementsProcessor::new(
-        runtime.store().chain_store(),
-        epoch_manager.clone(),
-        noop().into_sender(),
-        noop().into_sender(),
-    );
     let client = Client::new(
         clock.clone(),
         client_config,
@@ -187,7 +188,7 @@ pub fn start_client(
         client_sender_for_client.as_multi_sender(),
         chunk_validation_adapter.as_multi_sender(),
         protocol_upgrade_schedule,
-        spice_core_processor,
+        spice_client_config.core_processor,
     )
     .unwrap();
 
@@ -232,12 +233,9 @@ pub fn start_client(
         adv,
         config_updater,
         sync_jobs_actor_addr.into_multi_sender(),
-        // TODO(spice): Pass in chunk_executor_sender.
-        noop().into_sender(),
-        // TODO(spice): Pass in spice_chunk_validator_sender.
-        noop().into_sender(),
-        // TODO(spice): Pass in spice_data_distributor_sender.
-        noop().into_sender(),
+        spice_client_config.chunk_executor_sender,
+        spice_client_config.spice_chunk_validator_sender,
+        spice_client_config.spice_data_distributor_sender,
     )
     .unwrap();
     let tx_pool = client_actor_inner.client.chunk_producer.sharded_tx_pool.clone();

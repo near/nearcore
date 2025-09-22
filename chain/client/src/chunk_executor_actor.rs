@@ -78,9 +78,6 @@ pub struct ChunkExecutorActor {
     blocks_in_execution: HashSet<CryptoHash>,
     pending_unverified_receipts: HashMap<CryptoHash, Vec<ExecutorIncomingUnverifiedReceipts>>,
 
-    // Hash of the genesis block.
-    genesis_hash: CryptoHash,
-
     pub(crate) validator_signer: MutableValidatorSigner,
     pub(crate) core_processor: CoreStatementsProcessor,
     chunk_endorsement_tracker: Arc<ChunkEndorsementTracker>,
@@ -92,7 +89,6 @@ impl ChunkExecutorActor {
     pub fn new(
         store: Store,
         genesis: &ChainGenesis,
-        genesis_hash: CryptoHash,
         runtime_adapter: Arc<dyn RuntimeAdapter>,
         epoch_manager: Arc<dyn EpochManagerAdapter>,
         shard_tracker: ShardTracker,
@@ -114,7 +110,6 @@ impl ChunkExecutorActor {
             apply_chunks_spawner,
             myself_sender,
             blocks_in_execution: HashSet::new(),
-            genesis_hash,
             validator_signer,
             core_processor,
             chunk_endorsement_tracker,
@@ -264,8 +259,8 @@ impl ChunkExecutorActor {
         let block = self.chain_store.get_block(block_hash)?;
         let header = block.header();
         let prev_block_hash = header.prev_hash();
+        let prev_block = self.chain_store.get_block(&prev_block_hash)?;
         let store = self.chain_store.store();
-        let prev_block_is_genesis = *prev_block_hash == self.genesis_hash;
 
         if let Err(err) = self.try_process_pending_unverified_receipts(prev_block_hash) {
             tracing::error!(target: "chunk_executor", ?err, ?block_hash, "failure when processing pending unverified receipts");
@@ -290,7 +285,7 @@ impl ChunkExecutorActor {
                 }
 
                 // Genesis block has no outgoing receipts.
-                if prev_block_is_genesis {
+                if prev_block.header().is_genesis() {
                     all_receipts.insert(prev_block_shard_id, vec![]);
                     continue;
                 }
@@ -446,6 +441,11 @@ impl ChunkExecutorActor {
         results: Vec<ShardUpdateResult>,
     ) -> Result<(), Error> {
         let block = self.chain_store.get_block(&block_hash).unwrap();
+        tracing::debug!(target: "chunk_executor",
+            ?block_hash,
+            block_height=?block.header().height(),
+            head_height=?self.chain_store.head().map(|tip| tip.height),
+            "processing chunk application results");
         let epoch_id = self.epoch_manager.get_epoch_id(&block_hash)?;
         let shard_layout = self.epoch_manager.get_shard_layout(&epoch_id)?;
         for result in &results {
