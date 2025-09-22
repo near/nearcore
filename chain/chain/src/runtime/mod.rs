@@ -644,9 +644,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         // StateWitnessSizeLimit: We need to start recording reads if the stateless validation is
         // enabled in the next epoch. We need to save the state transition data in the current epoch
         // to be able to produce the state witness in the next epoch.
-        let proof_size_limit =
-            runtime_config.witness_config.new_transactions_validation_state_size_soft_limit;
-        trie = trie.recording_reads_with_proof_size_limit(proof_size_limit);
+        trie = trie.recording_reads_new_recorder();
         let mut state_update = TrieUpdate::new(trie);
 
         // Total amount of gas burnt for converting transactions towards receipts.
@@ -682,7 +680,6 @@ impl RuntimeAdapter for NightshadeRuntime {
                 }
             }
 
-            // FIXME(nagisa): why is this not using `check_proof_size_limit_exceed`? Comment.
             if state_update.trie.recorded_storage_size() as u64
                 > runtime_config.witness_config.new_transactions_validation_state_size_soft_limit
             {
