@@ -2,6 +2,7 @@
 
 ## Definitions and notation
 
+<!-- cspell:ignore operatorname preconfigured -->
 For the purpose of maintaining consensus, transactions are grouped into *blocks*. There is a single preconfigured block $G$ called *genesis block*. Every block except $G$ has a link pointing to the *previous block* $\operatorname{prev}(B)$, where $B$ is the block, and $G$ is reachable from every block by following those links (that is, there are no cycles).
 
 The links between blocks give rise to a partial order: for blocks $A$ and $B$, $A < B$ means that $A \ne B$ and $A$ is reachable from $B$ by following links to previous blocks, and $A \le B$ means that $A < B$ or $A = B$. The relations $>$ and $\ge$ are defined as the reflected versions of $<$ and $\le$, respectively. Finally, $A \sim B$ means that either $A < B$, $A = B$ or $A > B$, and $A \nsim B$ means the opposite.
@@ -148,6 +149,7 @@ It is also necessary that `ENDORSEMENT_DELAY < MIN_DELAY`. Moreover, while not n
 
 ## Block Production
 
+<!-- cspell:ignore isinstance -->
 We first define a convenience function to fetch approvals that can be included in a block at particular height:
 
 ```python
@@ -195,7 +197,7 @@ Now back to the theorem. Without loss of generality, assume that $\operatorname{
 
 ## Liveness
 
-See the proof of liveness in [Doomslug Whitepaper](https://discovery-domain.org/papers/doomslug.pdf) and the recent [Nightshade](https://discovery-domain.org/papers/nightshade.pdf) sharding protocol. 
+See the proof of liveness in [Doomslug Whitepaper](https://discovery-domain.org/papers/doomslug.pdf) and the recent [Nightshade](https://discovery-domain.org/papers/nightshade.pdf) sharding protocol.
 
 The consensus in this section differs in that it requires two consecutive blocks with endorsements. The proof in the linked paper trivially extends, by observing that once the delay is sufficiently long for a honest block producer to collect enough endorsements, the next block producer ought to have enough time to collect all the endorsements too.
 
@@ -203,10 +205,10 @@ The consensus in this section differs in that it requires two consecutive blocks
 
 The approval condition above
 
-> Any valid block must logically include approvals from block producers whose cumulative stake exceeds 2/3 of the total stake in the epoch. For a block `B` and its previous block `B'` each approval in `B` must be an `Endorsement` with the hash of `B'` if and only if `B.height == B'.height + 1`, otherwise it must be a `Skip` with the height of `B'`
+> Any valid block must logically include approvals from block producers whose cumulative stake exceeds $^2\!/_3$ of the total stake in the epoch. For a block $B$ and its previous block $B'$ each approval in $B$ must be an `Endorsement` with the hash of $B'$ if and only if `B.height == B'.height + 1`, otherwise it must be a `Skip` with the height of $B'$.
 
 Is more complex that desired, and it is tempting to unify the two conditions. Unfortunately, they cannot be unified.
 
-It is critical that for endorsements each approval has the `prev_hash` equal to the hash of the previous block, because otherwise the [safety proof](#safety) above doesn't work, in the second case the endorsements in `B1` and `Bx` can be the very same approvals.
+It is critical that for endorsements each approval has the `prev_hash` equal to the hash of the previous block, because otherwise the [safety proof](#safety) above doesn't work, in the second case the endorsements in $B_1$ and $B_x$ can be the very same approvals.
 
 It is critical that for the skip messages we do **not** require the hashes in the approvals to match the hash of the previous block, because otherwise a malicious actor can create two blocks at the same height, and distribute them such that half of the block producers have one as their head, and the other half has the other. The two halves of the block producers will be sending skip messages with different `prev_hash` but the same `prev_height` to the future block producers, and if there's a requirement that the `prev_hash` in the skip matches exactly the `prev_hash` of the block, no block producer will be able to create their blocks.

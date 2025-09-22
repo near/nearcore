@@ -105,11 +105,12 @@ Then each `ActionReceipt` is passed to `Runtime::apply_action_receipt` where gas
 - all computed `ActionResult`s are merged into one, where all gas values are summed up;
 - unused gas is refunded in `generate_refund_receipts`, after subtracting the gas refund fee, see [Refunds](../Refunds.md).
 
-Inside `VMLogic`, the fees are tracked in the `GasCounter` struct. 
+Inside `VMLogic`, the fees are tracked in the `GasCounter` struct.
 The VM itself is called in the `action_function_call` inside `Runtime`. When all actions are processed, the result is returned as a `VMOutcome`, which is later merged with `ActionResult`.
  
 # Example
 
+<!-- cspell:ignore VGYT Fwya Wckywk Ejuz -->
 Let's say we have the following transaction:
 
 ```rust

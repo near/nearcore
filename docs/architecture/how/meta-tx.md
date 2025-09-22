@@ -20,10 +20,10 @@ _Credits for the diagram go to the NEP authors Alexander Fadeev and Egor
 Uleyskiy._
 
 The graphic shows an example use case for meta transactions. Alice owns an
-amount of the fungible token $FT. She wants to transfer some to John. To do
+amount of the fungible token \$FT. She wants to transfer some to John. To do
 that, she needs to call `ft_transfer("john", 10)` on an account named `FT`.
 
-In technical terms, ownership of $FT is an entry in the `FT` contract's storage
+In technical terms, ownership of \$FT is an entry in the `FT` contract's storage
 that tracks the balance for her account. Note that this is on the application
 layer and thus not a part of Near Protocol itself. But `FT` relies on the
 protocol to verify that the `ft_transfer` call actually comes from Alice. The
@@ -63,8 +63,8 @@ financially viable long-term. But they could easily have the user pay using
 other means, outside of Near blockchain. And with some tricks, it can even be
 paid using fungible tokens on Near.
 
-In the example visualized above, the payment is done using $FT. Together with
-the transfer to John, Alice also adds an action to pay 0.1 $FT to the relayer.
+In the example visualized above, the payment is done using \$FT. Together with
+the transfer to John, Alice also adds an action to pay 0.1 \$FT to the relayer.
 The relayer checks the content of the `SignedDelegateAction` and only processes
 it if this payment is included as the first action. In this way, the relayer
 will be paid in the same transaction as John.
@@ -75,7 +75,7 @@ relayer should check the $FT balance of Alice first.
 
 Unfortunately, this still does not guarantee that the balance will be high
 enough once the meta transaction executes. The relayer could waste NEAR gas
-without compensation if Alice somehow reduces her $FT balance in just the right
+without compensation if Alice somehow reduces her \$FT balance in just the right
 moment. Some level of trust between the relayer and its user is therefore
 required.
 
@@ -99,8 +99,8 @@ same as with chains of receipts.
 Unfortunately, this means the trick to compensate the relayer in the same meta
 transaction as the serviced actions only works if both happen on the same
 receiver. In the example, both happen on `FT` and this case works well. But it
-would not be possible to send $FT1 and pay the relayer in $FT2. Nor could one
-deploy a contract code on `Alice` and pay in $FT in one meta transaction. It
+would not be possible to send \$FT1 and pay the relayer in \$FT2. Nor could one
+deploy a contract code on `Alice` and pay in \$FT in one meta transaction. It
 would require two separate meta transactions to do that. Due to timing problems,
 this again requires some level of trust between the relayer and Alice.
 

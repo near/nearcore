@@ -17,7 +17,7 @@ produce chunks some times (they track all shards, so they will be able to produc
 shard easily); thus the key distinction is that chunk-only producers only produce chunks, i.e. never
 produce blocks.
 
-Near is a permissionless blockchain, so anyone (with sufficient stake) can become a chunk-only
+Near is a permission-less blockchain, so anyone (with sufficient stake) can become a chunk-only
 producer, or a block producer. In this section we outline the algorithm by which chunk-only
 producers and block producers are selected in each epoch from the proposals of participants in the
 network. Additionally, we will specify the algorithm for assigning those chunk-only producers and
@@ -130,7 +130,7 @@ select_validators(MAX_NUM_BP, min_stake_fraction, validator_proposals)
 
 ### Input
 
-- `MAX_NUM_CP: u16` max number of chunk producers, see Assumptions`
+- `MAX_NUM_CP: u16` max number of chunk producers, see Assumptions
 - `min_stake_fraction: Ratio<u128>` $s_\text{min} / S$, see Assumptions
 - `num_shards: u64` number of shards
 - `validator_proposals: Vec<ValidatorStake>` (proposed stakes for the next epoch from nodes sending
@@ -192,6 +192,7 @@ variables referencing "block producers" to reference "chunk producers" instead.
 
 ## Algorithm for sampling validators proportional to stake
 
+<!-- cspell:ignore Vose's byteorder -->
 We sample validators with probability proportional to their stake using the following data structure.
 
 - `weighted_sampler: WeightedIndex`

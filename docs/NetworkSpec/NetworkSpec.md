@@ -1,5 +1,6 @@
 # Network
 
+<!-- cspell:ignore permissioned isinstance -->
 Network layer constitutes the lower level of the NEAR protocol and is ultimately responsible of transporting messages between peers. To provide an efficient routing it maintains a routing table between all peers actively connected to the network, and sends messages between them using best paths. There is a mechanism in place that allows new peers joining the network to discover other peers, and rebalance network connections in such a way that latency is minimized. Cryptographic signatures are used to check identities from peers participating in the protocol since it is non-permissioned system.
 
 This document should serve as reference for all the clients to implement networking layer.

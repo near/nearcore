@@ -1,5 +1,6 @@
 # Merkle Proofs
 
+<!-- cspell:ignore CRYPTOHASH elif -->
 Many components of NEAR Protocol rely on Merkle root and Merkle proofs. For an array of sha256 hashes, we define its
 merkle root as:
 

@@ -73,6 +73,7 @@ struct BlockHeaderInnerRest {
 }
 ```
 
+<!-- cspell:ignore defaultdict -->
 The condition to switch to next protocol version is based on % of stake `PROTOCOL_UPGRADE_NUM_EPOCHS` epochs prior indicated about switching to the next version:
 
 ```python
