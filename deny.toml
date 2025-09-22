@@ -126,4 +126,7 @@ skip = [
     { name = "num-bigint", version = "=0.3.3" },
     { name = "num-rational", version = "=0.3.2" },
     { name = "regex-syntax", version = "=0.6.28" },
+
+    # ark-ff uses outdated version of itertools
+    { name = "itertools", version = "=0.10.5" },
 ]
