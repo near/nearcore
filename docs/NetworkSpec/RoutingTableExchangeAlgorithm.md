@@ -2,13 +2,13 @@
 
 - Proposal Name: New routing table exchange algorithm
 - Start Date: 6/21/2021
-- NEP PR: [nearprotocol/neps#0000](https://github.com/near/nearcore/pull/4112)
+- NEP PR: [`nearprotocol/neps#0000`](https://github.com/near/nearcore/pull/4112)
 - Issue(s): https://github.com/near/nearcore/issues/3838.
-- GitHub PR: https://github.com/near/NEPs/pull/220
+- [GitHub PR](https://github.com/near/NEPs/pull/220)
 
 # Summary
 
-Currently, every node on the network stores its own copy of the [Routing Graph](NetworkSpec.md#Routing Table).
+Currently, every node on the network stores its own copy of the [Routing Graph](./NetworkSpec.md#routing-table).
 The process of exchanging and verifying edges requires sending full copy of routing table on every synchronization.
 Sending full copy of routing table is wasteful, in this spec we propose a solution, which allows doing partial  synchronization.
 This should reduce both bandwidth used, and amount of CPU time.
@@ -233,7 +233,7 @@ That would still be an improvement of having to send just `4 MiB` over `400 MiB`
 
 # Future improvements
 
-## Reduce memory usagae
+## Reduce memory usage
 
 ### Used a fixed number of `IbfPeerSet` structures for each node Theoretically, smaller number of sets could be used. For example 10, this would require estimating how likely it is to produce edges such that they produce collisions
 

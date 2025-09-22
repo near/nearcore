@@ -33,8 +33,8 @@ A block is invalid if any of the following holds:
 - Transactions root computed from chunk headers does not match `chunk_tx_root` in the header.
 - For some index `i`, `chunk_mask[i]` does not match whether a new chunk from shard `i` is included in the block.
 - Its vrf output is invalid
-- Its gas price is invalid, i.e, gas priced computed from previous gas price and gas usage from chunks included in the block according to the formula described in [economoics](../Economics/Economic.md) does not match the gas price in the header.
-- Its `validator_proposals` is not valid, which means that it does not match the concatenation of validator proposals from the chunk headers included in the block. 
+- Its gas price is invalid, i.e, gas priced computed from previous gas price and gas usage from chunks included in the block according to the formula described in [economics](../Economics/Economic.md) does not match the gas price in the header.
+- Its `validator_proposals` is not valid, which means that it does not match the concatenation of validator proposals from the chunk headers included in the block.
 
 ## Process a new block
 

@@ -11,8 +11,8 @@ can then be used to point either to the memory on the guest or the memory on the
   from the storage and insert it into under a different key;
 - It makes API cleaner, because we don't need to pass `buffer_len` and `buffer_ptr` as arguments to other functions;
 - It allows merging certain functions together, see `storage_iter_next`;
-- This is consistent with other APIs that were created for high performance, e.g. allegedly Ewasm have implemented
-  SNARK-like computations in Wasm by exposing a bignum library through stack-like interface to the guest. The guest
+- This is consistent with other APIs that were created for high performance, e.g. allegedly `Ewasm` has implemented
+  SNARK-like computations in Wasm by exposing a `bignum` library through stack-like interface to the guest. The guest
   can manipulate then with the stack of 256-bit numbers that is located on the host.
 
 #### Host → host blob passing
