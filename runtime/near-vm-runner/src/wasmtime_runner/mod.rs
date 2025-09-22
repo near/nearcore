@@ -38,6 +38,11 @@ mod logic;
 /// Wasmtime defaults to `1_000`
 const MAX_CONCURRENCY: u32 = 1_000;
 
+/// Value used for [PoolingAllocationConfig::decommit_batch_size]
+///
+/// Wasmtime defaults to `1`
+const DECOMMIT_BATCH_SIZE: usize = MAX_CONCURRENCY as usize / 2;
+
 /// The default maximum amount of tables per module.
 ///
 /// This value is used if `max_tables_per_contract` is not set.
@@ -375,9 +380,7 @@ impl WasmtimeVM {
 
                 let mut pooling_config = PoolingAllocationConfig::default();
                 pooling_config
-                    .decommit_batch_size(
-                        MAX_CONCURRENCY.saturating_div(2).try_into().unwrap_or(usize::MAX),
-                    )
+                    .decommit_batch_size(DECOMMIT_BATCH_SIZE)
                     .max_memory_size(max_memory_size)
                     .table_elements(max_elements_per_contract_table)
                     .total_component_instances(0)
