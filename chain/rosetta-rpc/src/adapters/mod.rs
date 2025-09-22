@@ -635,7 +635,7 @@ impl TryFrom<Vec<crate::models::Operation>> for NearActions {
                         || !sender_transfer_operation.amount.currency.is_near()
                     {
                         return Err(crate::errors::ErrorKind::InvalidInput(
-                            "Currency of Sender and Receiver TRANSFER opeartions must be NEAR"
+                            "Currency of Sender and Receiver TRANSFER operations must be NEAR"
                                 .to_string(),
                         ));
                     }

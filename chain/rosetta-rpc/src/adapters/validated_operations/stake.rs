@@ -46,7 +46,7 @@ impl TryFrom<crate::models::Operation> for StakeOperation {
         let amount = operation.amount.ok_or_else(required_fields_error)?;
         if !amount.currency.is_near() {
             return Err(crate::errors::ErrorKind::InvalidInput(
-                "STAKE opeartions must have NEAR currency".to_string(),
+                "STAKE operations must have NEAR currency".to_string(),
             ));
         }
         let amount = if amount.value.is_positive() {
