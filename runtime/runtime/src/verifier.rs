@@ -9,7 +9,9 @@ use near_primitives::action::delegate::SignedDelegateAction;
 use near_primitives::errors::{
     ActionsValidationError, InvalidAccessKeyError, InvalidTxError, ReceiptValidationError,
 };
-use near_primitives::receipt::{DataReceipt, Receipt, ReceiptEnum, VersionedActionReceipt};
+use near_primitives::receipt::{
+    DataReceipt, Receipt, VersionedActionReceipt, VersionedReceiptEnum,
+};
 use near_primitives::transaction::{
     Action, AddKeyAction, DeployContractAction, FunctionCallAction, SignedTransaction, StakeAction,
     Transaction,
@@ -299,17 +301,16 @@ pub(crate) fn validate_receipt(
         ReceiptValidationError::InvalidReceiverId { account_id: receipt.receiver_id().to_string() }
     })?;
 
-    match receipt.receipt() {
-        ReceiptEnum::Action(action_receipt) | ReceiptEnum::PromiseYield(action_receipt) => {
+    match receipt.versioned_receipt() {
+        VersionedReceiptEnum::Action(action_receipt)
+        | VersionedReceiptEnum::PromiseYield(action_receipt) => {
             validate_action_receipt(limit_config, action_receipt.into(), current_protocol_version)
         }
-        ReceiptEnum::ActionV2(action_receipt) | ReceiptEnum::PromiseYieldV2(action_receipt) => {
-            validate_action_receipt(limit_config, action_receipt.into(), current_protocol_version)
+        VersionedReceiptEnum::Data(data_receipt)
+        | VersionedReceiptEnum::PromiseResume(data_receipt) => {
+            validate_data_receipt(limit_config, &data_receipt)
         }
-        ReceiptEnum::Data(data_receipt) | ReceiptEnum::PromiseResume(data_receipt) => {
-            validate_data_receipt(limit_config, data_receipt)
-        }
-        ReceiptEnum::GlobalContractDistribution(_) => Ok(()), // Distribution receipt can't be issued without a valid contract
+        VersionedReceiptEnum::GlobalContractDistribution(_) => Ok(()), // Distribution receipt can't be issued without a valid contract
     }
 }
 

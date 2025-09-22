@@ -11,8 +11,8 @@ use near_primitives::chunk_apply_stats::{ChunkApplyStatsV0, ReceiptSinkStats, Re
 use near_primitives::congestion_info::{CongestionControl, CongestionInfo, CongestionInfoV1};
 use near_primitives::errors::{IntegerOverflowError, RuntimeError};
 use near_primitives::receipt::{
-    Receipt, ReceiptEnum, ReceiptOrStateStoredReceipt, StateStoredReceipt,
-    StateStoredReceiptMetadata, VersionedActionReceipt,
+    Receipt, ReceiptOrStateStoredReceipt, StateStoredReceipt, StateStoredReceiptMetadata,
+    VersionedActionReceipt, VersionedReceiptEnum,
 };
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::{EpochId, EpochInfoProvider, Gas, ShardId};
@@ -671,16 +671,12 @@ pub(crate) fn compute_receipt_congestion_gas(
     receipt: &Receipt,
     config: &RuntimeConfig,
 ) -> Result<Gas, IntegerOverflowError> {
-    match receipt.receipt() {
-        ReceiptEnum::Action(action_receipt) => {
+    match receipt.versioned_receipt() {
+        VersionedReceiptEnum::Action(action_receipt) => {
             // account for gas guaranteed to be used for executing the receipts
             action_receipt_congestion_gas(receipt, config, action_receipt.into())
         }
-        ReceiptEnum::ActionV2(action_receipt) => {
-            // account for gas guaranteed to be used for executing the receipts
-            action_receipt_congestion_gas(receipt, config, action_receipt.into())
-        }
-        ReceiptEnum::Data(_data_receipt) => {
+        VersionedReceiptEnum::Data(_data_receipt) => {
             // Data receipts themselves don't cost gas to execute, their cost is
             // burnt at creation. What we should count, is the gas of the
             // postponed action receipt. But looking that up would require
@@ -689,7 +685,7 @@ pub(crate) fn compute_receipt_congestion_gas(
             // receipts or postponed receipts.
             Ok(Gas::ZERO)
         }
-        ReceiptEnum::PromiseYield(_) | ReceiptEnum::PromiseYieldV2(_) => {
+        VersionedReceiptEnum::PromiseYield(_) => {
             // The congestion control MVP does not account for yielding a
             // promise. Yielded promises are confined to a single account, hence
             // they never cross the shard boundaries. This makes it irrelevant
@@ -697,7 +693,7 @@ pub(crate) fn compute_receipt_congestion_gas(
             // buffers and delayed receipts queue.
             Ok(Gas::ZERO)
         }
-        ReceiptEnum::PromiseResume(_) => {
+        VersionedReceiptEnum::PromiseResume(_) => {
             // The congestion control MVP does not account for resuming a promise.
             // Unlike `PromiseYield`, it is possible that a promise-resume ends
             // up in the delayed receipts queue.
@@ -705,7 +701,7 @@ pub(crate) fn compute_receipt_congestion_gas(
             // of it without expensive state lookups.
             Ok(Gas::ZERO)
         }
-        ReceiptEnum::GlobalContractDistribution(_) => Ok(Gas::ZERO),
+        VersionedReceiptEnum::GlobalContractDistribution(_) => Ok(Gas::ZERO),
     }
 }
 

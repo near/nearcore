@@ -20,7 +20,7 @@ use crate::merkle::{MerklePath, combine_hash};
 use crate::network::PeerId;
 use crate::receipt::{
     ActionReceipt, DataReceipt, DataReceiver, GlobalContractDistributionReceipt, Receipt,
-    ReceiptEnum, ReceiptV1, VersionedActionReceipt,
+    ReceiptEnum, ReceiptV1, VersionedActionReceipt, VersionedReceiptEnum,
 };
 use crate::serialize::dec_format;
 use crate::sharding::shard_chunk_header_inner::ShardChunkHeaderInnerV4;
@@ -2192,10 +2192,8 @@ fn default_is_promise() -> bool {
 
 impl From<Receipt> for ReceiptView {
     fn from(receipt: Receipt) -> Self {
-        let is_promise_yield = matches!(
-            receipt.receipt(),
-            ReceiptEnum::PromiseYield(_) | ReceiptEnum::PromiseYieldV2(_)
-        );
+        let is_promise_yield =
+            matches!(receipt.versioned_receipt(), VersionedReceiptEnum::PromiseYield(_));
         let is_promise_resume = matches!(receipt.receipt(), ReceiptEnum::PromiseResume(_));
         let priority = receipt.priority().value();
 
@@ -2203,22 +2201,22 @@ impl From<Receipt> for ReceiptView {
             predecessor_id: receipt.predecessor_id().clone(),
             receiver_id: receipt.receiver_id().clone(),
             receipt_id: *receipt.receipt_id(),
-            receipt: match receipt.take_receipt() {
-                ReceiptEnum::Action(action_receipt) | ReceiptEnum::PromiseYield(action_receipt) => {
-                    ReceiptEnumView::from_action_receipt(action_receipt.into(), is_promise_yield)
+            receipt: match receipt.take_versioned_receipt() {
+                VersionedReceiptEnum::Action(action_receipt)
+                | VersionedReceiptEnum::PromiseYield(action_receipt) => {
+                    ReceiptEnumView::from_action_receipt(action_receipt, is_promise_yield)
                 }
-                ReceiptEnum::ActionV2(action_receipt)
-                | ReceiptEnum::PromiseYieldV2(action_receipt) => {
-                    ReceiptEnumView::from_action_receipt(action_receipt.into(), is_promise_yield)
-                }
-                ReceiptEnum::Data(data_receipt) | ReceiptEnum::PromiseResume(data_receipt) => {
+                VersionedReceiptEnum::Data(data_receipt)
+                | VersionedReceiptEnum::PromiseResume(data_receipt) => {
+                    // already owned, not a clone
+                    let data_receipt = data_receipt.into_owned();
                     ReceiptEnumView::Data {
                         data_id: data_receipt.data_id,
                         data: data_receipt.data,
                         is_promise_resume,
                     }
                 }
-                ReceiptEnum::GlobalContractDistribution(receipt) => {
+                VersionedReceiptEnum::GlobalContractDistribution(receipt) => {
                     ReceiptEnumView::GlobalContractDistribution {
                         id: receipt.id().clone(),
                         target_shard: receipt.target_shard(),

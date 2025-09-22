@@ -13,7 +13,7 @@ use near_primitives::errors::{ActionError, ActionErrorKind, InvalidAccessKeyErro
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{
     ActionReceipt, ActionReceiptV2, DataReceipt, Receipt, ReceiptEnum, ReceiptPriority, ReceiptV0,
-    VersionedActionReceipt,
+    VersionedActionReceipt, VersionedReceiptEnum,
 };
 use near_primitives::transaction::{
     Action, AddKeyAction, DeleteAccountAction, DeleteKeyAction, DeployContractAction,
@@ -852,16 +852,14 @@ pub(crate) fn apply_delegate_action(
 
 /// Returns Gas amount is required to execute Receipt and all actions it contains
 fn receipt_required_gas(apply_state: &ApplyState, receipt: &Receipt) -> Result<Gas, RuntimeError> {
-    Ok(match receipt.receipt() {
-        ReceiptEnum::Action(action_receipt) | ReceiptEnum::PromiseYield(action_receipt) => {
+    Ok(match receipt.versioned_receipt() {
+        VersionedReceiptEnum::Action(action_receipt)
+        | VersionedReceiptEnum::PromiseYield(action_receipt) => {
             action_receipt_required_gas(apply_state, receipt, action_receipt.into())?
         }
-        ReceiptEnum::ActionV2(action_receipt) | ReceiptEnum::PromiseYieldV2(action_receipt) => {
-            action_receipt_required_gas(apply_state, receipt, action_receipt.into())?
-        }
-        ReceiptEnum::GlobalContractDistribution(_)
-        | ReceiptEnum::Data(_)
-        | ReceiptEnum::PromiseResume(_) => Gas::ZERO,
+        VersionedReceiptEnum::GlobalContractDistribution(_)
+        | VersionedReceiptEnum::Data(_)
+        | VersionedReceiptEnum::PromiseResume(_) => Gas::ZERO,
     })
 }
 

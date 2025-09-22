@@ -44,6 +44,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{
     ActionReceipt, DataReceipt, PromiseYieldIndices, PromiseYieldTimeout, Receipt, ReceiptEnum,
     ReceiptOrStateStoredReceipt, ReceiptV0, ReceivedData, VersionedActionReceipt,
+    VersionedReceiptEnum,
 };
 use near_primitives::sandbox::state_patch::SandboxStatePatch;
 use near_primitives::state_record::StateRecord;
@@ -509,13 +510,9 @@ impl Runtime {
             "apply_action_receipt",
         )
         .entered();
-        let action_receipt: VersionedActionReceipt = match receipt.receipt() {
-            ReceiptEnum::Action(action_receipt) | ReceiptEnum::PromiseYield(action_receipt) => {
-                action_receipt.into()
-            }
-            ReceiptEnum::ActionV2(action_receipt) | ReceiptEnum::PromiseYieldV2(action_receipt) => {
-                action_receipt.into()
-            }
+        let action_receipt: VersionedActionReceipt = match receipt.versioned_receipt() {
+            VersionedReceiptEnum::Action(action_receipt)
+            | VersionedReceiptEnum::PromiseYield(action_receipt) => action_receipt,
             _ => unreachable!("given receipt should be an action receipt"),
         };
         let account_id = receipt.receiver_id();
@@ -1061,8 +1058,8 @@ impl Runtime {
             ..
         } = *processing_state;
         let account_id = receipt.receiver_id();
-        match receipt.receipt() {
-            ReceiptEnum::Data(data_receipt) => {
+        match receipt.versioned_receipt() {
+            VersionedReceiptEnum::Data(data_receipt) => {
                 // Received a new data receipt.
                 // Saving the data into the state keyed by the data_id.
                 set_received_data(
@@ -1149,7 +1146,7 @@ impl Runtime {
                     }
                 }
             }
-            ReceiptEnum::Action(action_receipt) => {
+            VersionedReceiptEnum::Action(action_receipt) => {
                 // Received a new action receipt. We'll first check how many input data items
                 // were already received before and saved in the state.
                 // And if we have all input data, then we can immediately execute the receipt.
@@ -1164,41 +1161,19 @@ impl Runtime {
                     pipeline_manager,
                     stats,
                     account_id,
-                    action_receipt.into(),
+                    action_receipt,
                 )?;
 
                 if executed.is_some() {
                     return Ok(executed);
                 }
             }
-            ReceiptEnum::ActionV2(action_receipt) => {
-                // Received a new action receipt. We'll first check how many input data items
-                // were already received before and saved in the state.
-                // And if we have all input data, then we can immediately execute the receipt.
-                // If not, then we will postpone this receipt for later.
-                let executed = self.process_action_receipt(
-                    receipt,
-                    receipt_sink,
-                    validator_proposals,
-                    state_update,
-                    apply_state,
-                    epoch_info_provider,
-                    pipeline_manager,
-                    stats,
-                    account_id,
-                    action_receipt.into(),
-                )?;
-
-                if executed.is_some() {
-                    return Ok(executed);
-                }
-            }
-            ReceiptEnum::PromiseYield(_) | ReceiptEnum::PromiseYieldV2(_) => {
+            VersionedReceiptEnum::PromiseYield(_) => {
                 // Received a new PromiseYield receipt. We simply store it and await
                 // the corresponding PromiseResume receipt.
                 set_promise_yield_receipt(state_update, receipt);
             }
-            ReceiptEnum::PromiseResume(data_receipt) => {
+            VersionedReceiptEnum::PromiseResume(data_receipt) => {
                 // Received a new PromiseResume receipt delivering input data for a PromiseYield.
                 // It is guaranteed that the PromiseYield has exactly one input data dependency
                 // and that it arrives first, so we can simply find and execute it.
@@ -1237,7 +1212,7 @@ impl Runtime {
                     return Ok(None);
                 }
             }
-            ReceiptEnum::GlobalContractDistribution(_) => {
+            VersionedReceiptEnum::GlobalContractDistribution(_) => {
                 apply_global_contract_distribution_receipt(
                     receipt,
                     apply_state,

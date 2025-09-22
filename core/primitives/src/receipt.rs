@@ -437,6 +437,13 @@ impl Receipt {
         }
     }
 
+    pub fn versioned_receipt(&self) -> VersionedReceiptEnum {
+        match self {
+            Receipt::V0(receipt) => VersionedReceiptEnum::from(&receipt.receipt),
+            Receipt::V1(receipt) => VersionedReceiptEnum::from(&receipt.receipt),
+        }
+    }
+
     pub fn receipt_mut(&mut self) -> &mut ReceiptEnum {
         match self {
             Receipt::V0(receipt) => &mut receipt.receipt,
@@ -444,10 +451,10 @@ impl Receipt {
         }
     }
 
-    pub fn take_receipt(self) -> ReceiptEnum {
+    pub fn take_versioned_receipt<'a>(self) -> VersionedReceiptEnum<'a> {
         match self {
-            Receipt::V0(receipt) => receipt.receipt,
-            Receipt::V1(receipt) => receipt.receipt,
+            Receipt::V0(receipt) => VersionedReceiptEnum::from(receipt.receipt),
+            Receipt::V1(receipt) => VersionedReceiptEnum::from(receipt.receipt),
         }
     }
 
@@ -809,6 +816,81 @@ impl<'a> From<&'a ActionReceiptV2> for VersionedActionReceipt<'a> {
 impl From<ActionReceiptV2> for VersionedActionReceipt<'_> {
     fn from(other: ActionReceiptV2) -> Self {
         VersionedActionReceipt::V2(Cow::Owned(other))
+    }
+}
+
+/// Convenience wrapper for common logic accessing fields on [`ReceiptEnum`] of
+/// different versions of its variants.
+///
+/// Note: So far, only action receipts are versioned. Other versioned variants
+/// can be added later if and when necessary. Then, the Cow pointer might be
+/// better pushed down, as done it [`VersionedActionReceipt`]. (Cow pointers are
+/// useful here to allow using the wrapper with owned and borrowed values
+/// without cloning.)
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub enum VersionedReceiptEnum<'a> {
+    Action(VersionedActionReceipt<'a>),
+    Data(Cow<'a, DataReceipt>),
+    PromiseYield(VersionedActionReceipt<'a>),
+    PromiseResume(Cow<'a, DataReceipt>),
+    GlobalContractDistribution(Cow<'a, GlobalContractDistributionReceipt>),
+}
+
+impl<'a> From<&'a ReceiptEnum> for VersionedReceiptEnum<'a> {
+    fn from(other: &'a ReceiptEnum) -> Self {
+        match other {
+            ReceiptEnum::Action(action_receipt) => {
+                VersionedReceiptEnum::Action(action_receipt.into())
+            }
+            ReceiptEnum::Data(data_receipt) => {
+                VersionedReceiptEnum::Data(Cow::Borrowed(data_receipt))
+            }
+            ReceiptEnum::PromiseYield(action_receipt) => {
+                VersionedReceiptEnum::PromiseYield(action_receipt.into())
+            }
+            ReceiptEnum::PromiseResume(data_receipt) => {
+                VersionedReceiptEnum::PromiseResume(Cow::Borrowed(data_receipt))
+            }
+            ReceiptEnum::GlobalContractDistribution(global_contract_distribution_receipt) => {
+                VersionedReceiptEnum::GlobalContractDistribution(Cow::Borrowed(
+                    global_contract_distribution_receipt,
+                ))
+            }
+            ReceiptEnum::ActionV2(action_receipt) => {
+                VersionedReceiptEnum::Action(action_receipt.into())
+            }
+            ReceiptEnum::PromiseYieldV2(action_receipt) => {
+                VersionedReceiptEnum::PromiseYield(action_receipt.into())
+            }
+        }
+    }
+}
+
+impl<'a> From<ReceiptEnum> for VersionedReceiptEnum<'a> {
+    fn from(other: ReceiptEnum) -> Self {
+        match other {
+            ReceiptEnum::Action(action_receipt) => {
+                VersionedReceiptEnum::Action(action_receipt.into())
+            }
+            ReceiptEnum::Data(data_receipt) => VersionedReceiptEnum::Data(Cow::Owned(data_receipt)),
+            ReceiptEnum::PromiseYield(action_receipt) => {
+                VersionedReceiptEnum::PromiseYield(action_receipt.into())
+            }
+            ReceiptEnum::PromiseResume(data_receipt) => {
+                VersionedReceiptEnum::PromiseResume(Cow::Owned(data_receipt))
+            }
+            ReceiptEnum::GlobalContractDistribution(global_contract_distribution_receipt) => {
+                VersionedReceiptEnum::GlobalContractDistribution(Cow::Owned(
+                    global_contract_distribution_receipt,
+                ))
+            }
+            ReceiptEnum::ActionV2(action_receipt) => {
+                VersionedReceiptEnum::Action(action_receipt.into())
+            }
+            ReceiptEnum::PromiseYieldV2(action_receipt) => {
+                VersionedReceiptEnum::PromiseYield(action_receipt.into())
+            }
+        }
     }
 }
 

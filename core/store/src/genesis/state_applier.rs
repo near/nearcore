@@ -12,7 +12,9 @@ use near_crypto::PublicKey;
 use near_parameters::StorageUsageConfig;
 use near_primitives::account::{AccessKey, Account, GasKey};
 use near_primitives::hash::CryptoHash;
-use near_primitives::receipt::{DelayedReceiptIndices, Receipt, ReceiptEnum, ReceivedData};
+use near_primitives::receipt::{
+    DelayedReceiptIndices, Receipt, ReceivedData, VersionedReceiptEnum,
+};
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::state_record::{StateRecord, state_record_to_account_id};
 use near_primitives::trie_key::TrieKey;
@@ -311,31 +313,23 @@ impl GenesisStateApplier {
             let account_id = receipt.receiver_id();
 
             // Logic similar to `apply_receipt`
-            match receipt.receipt() {
-                ReceiptEnum::Action(action_receipt) => {
+            match receipt.versioned_receipt() {
+                VersionedReceiptEnum::Action(action_receipt) => {
                     insert_postponed_action_receipt(
                         storage,
                         &receipt,
                         account_id,
-                        &action_receipt.input_data_ids,
+                        action_receipt.input_data_ids(),
                     );
                 }
-                ReceiptEnum::ActionV2(action_receipt) => {
-                    insert_postponed_action_receipt(
-                        storage,
-                        &receipt,
-                        account_id,
-                        &action_receipt.input_data_ids,
-                    );
-                }
-                ReceiptEnum::PromiseYield(_) | ReceiptEnum::PromiseYieldV2(_) => {
+                VersionedReceiptEnum::PromiseYield(_) => {
                     storage.modify(|state_update| {
                         set_promise_yield_receipt(state_update, &receipt);
                     });
                 }
-                ReceiptEnum::GlobalContractDistribution(_)
-                | ReceiptEnum::Data(_)
-                | ReceiptEnum::PromiseResume(_) => {
+                VersionedReceiptEnum::GlobalContractDistribution(_)
+                | VersionedReceiptEnum::Data(_)
+                | VersionedReceiptEnum::PromiseResume(_) => {
                     panic!("Expected action receipt")
                 }
             }
