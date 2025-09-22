@@ -48,15 +48,15 @@ use std::time::Instant;
 
 #[allow(clippy::large_enum_variant)]
 pub enum MainTransition {
-    Genesis { chunk_extra: ChunkExtra, block_hash: CryptoHash, shard_id: ShardId },
-    NewChunk { new_chunk_data: NewChunkData, block_hash: CryptoHash },
+    Genesis { chunk_extra: ChunkExtra, prev_hash: CryptoHash, shard_id: ShardId },
+    NewChunk { new_chunk_data: NewChunkData, prev_hash: CryptoHash },
 }
 
 impl MainTransition {
-    pub fn block_hash(&self) -> CryptoHash {
+    pub fn prev_hash(&self) -> CryptoHash {
         match self {
-            Self::Genesis { block_hash, .. } => *block_hash,
-            Self::NewChunk { block_hash, .. } => *block_hash,
+            Self::Genesis { prev_hash, .. } => *prev_hash,
+            Self::NewChunk { prev_hash, .. } => *prev_hash,
         }
     }
 
@@ -384,7 +384,7 @@ pub fn pre_validate_chunk_state_witness(
             Chain::genesis_chunk_extra(genesis, store, &shard_layout, last_chunk_shard_id)?;
         MainTransition::Genesis {
             chunk_extra,
-            block_hash: *last_chunk_block.hash(),
+            prev_hash: *last_chunk_block.header().prev_hash(),
             shard_id: last_chunk_shard_id,
         }
     } else {
@@ -410,7 +410,7 @@ pub fn pre_validate_chunk_state_witness(
                     state_patch: Default::default(),
                 },
             },
-            block_hash: *last_chunk_block.hash(),
+            prev_hash: *last_chunk_block.header().prev_hash(),
         }
     };
 
@@ -565,15 +565,15 @@ pub fn validate_chunk_state_witness_impl(
     let witness_shard_layout = epoch_manager.get_shard_layout(&epoch_id)?;
     let witness_chunk_shard_uid =
         shard_id_to_uid(epoch_manager, witness_chunk_shard_id, &epoch_id)?;
-    let block_hash = pre_validation_output.main_transition_params.block_hash();
-    let epoch_id = epoch_manager.get_epoch_id(&block_hash)?;
+    let prev_hash = pre_validation_output.main_transition_params.prev_hash();
+    let epoch_id = epoch_manager.get_epoch_id_from_prev_block(&prev_hash)?;
     let shard_id = pre_validation_output.main_transition_params.shard_id();
     let shard_uid = shard_id_to_uid(epoch_manager, shard_id, &epoch_id)?;
     let cache_result = {
         let mut shard_cache = main_state_transition_cache.lock();
         shard_cache
             .get_mut(&witness_chunk_shard_uid)
-            .and_then(|cache| cache.get(&block_hash).cloned())
+            .and_then(|cache| cache.get(&prev_hash).cloned())
     };
     let (mut chunk_extra, mut outgoing_receipts) =
         match (pre_validation_output.main_transition_params, cache_result) {
@@ -607,7 +607,7 @@ pub fn validate_chunk_state_witness_impl(
 
     // Compute receipt hashes here to avoid copying receipts
     let outgoing_receipts_hashes = {
-        let chunk_epoch_id = epoch_manager.get_epoch_id(&block_hash)?;
+        let chunk_epoch_id = epoch_manager.get_epoch_id_from_prev_block(&prev_hash)?;
         let chunk_shard_layout = epoch_manager.get_shard_layout(&chunk_epoch_id)?;
         if chunk_shard_layout != witness_shard_layout {
             ChainStore::reassign_outgoing_receipts_for_resharding(
@@ -626,7 +626,7 @@ pub fn validate_chunk_state_witness_impl(
             LruCache::new(NonZeroUsize::new(NUM_WITNESS_RESULT_CACHE_ENTRIES).unwrap())
         });
         cache.put(
-            block_hash,
+            prev_hash,
             ChunkStateWitnessValidationResult {
                 chunk_extra: chunk_extra.clone(),
                 outgoing_receipts: outgoing_receipts.clone(),
@@ -675,6 +675,53 @@ pub fn validate_chunk_state_witness_impl(
         let (root, _) = merklize(&outgoing_receipts_hashes);
         root
     };
+    if is_optimistic {
+        return Ok(ChunkExecutionResult { chunk_extra, outgoing_receipts_root });
+    }
+
+    let outgoing_receipts_root = if !cfg!(feature = "protocol_feature_spice") {
+        let protocol_version = epoch_manager.get_epoch_protocol_version(&epoch_id)?;
+
+        // Compute receipts root + header validation in parallel with encoded-merkle-root check.
+        let (res_receipts_root, res_encoded_merkle_check) = rayon::join(
+            || -> Result<CryptoHash, Error> {
+                let (outgoing_receipts_root, _) = merklize(&outgoing_receipts_hashes);
+                validate_chunk_with_chunk_extra_and_receipts_root(
+                    &chunk_extra,
+                    &state_witness.chunk_header(),
+                    &outgoing_receipts_root,
+                )?;
+                Ok(outgoing_receipts_root)
+            },
+            || {
+                if ProtocolFeature::ChunkPartChecks.enabled(protocol_version) {
+                    let new_transactions = &state_witness.new_transactions().expect(
+                        "should only be called with the `ValidateChunkStateWitness` available",
+                    );
+                    let (tx_root, _) = merklize(new_transactions);
+                    if tx_root != *state_witness.chunk_header().tx_root() {
+                        return Err(Error::InvalidTxRoot);
+                    }
+                    validate_chunk_with_encoded_merkle_root(
+                        &state_witness.chunk_header(),
+                        &outgoing_receipts,
+                        new_transactions,
+                        rs.as_ref(),
+                        shard_id,
+                    )
+                } else {
+                    Ok(())
+                }
+            },
+        );
+        let outgoing_receipts_root = res_receipts_root?;
+        res_encoded_merkle_check?;
+        outgoing_receipts_root
+    } else {
+        let (root, _) = merklize(&outgoing_receipts_hashes);
+        root
+    };
+
     if is_optimistic {
         return Ok(ChunkExecutionResult { chunk_extra, outgoing_receipts_root });
     }
@@ -729,11 +776,11 @@ pub fn validate_chunk_state_witness_impl(
                 // Update the congestion info based on the parent shard. It's
                 // important to do this step before the `retain_split_shard`
                 // because only the parent trie has the needed information.
-                let epoch_id = epoch_manager.get_epoch_id(&block_hash)?;
+                let epoch_id = epoch_manager.get_epoch_id_from_prev_block(&prev_hash)?;
                 let parent_shard_layout = epoch_manager.get_shard_layout(&epoch_id)?;
                 let parent_congestion_info = chunk_extra.congestion_info();
 
-                let child_epoch_id = epoch_manager.get_next_epoch_id(&block_hash)?;
+                let child_epoch_id = epoch_manager.get_next_epoch_id_from_prev_block(&prev_hash)?;
                 let child_shard_layout = epoch_manager.get_shard_layout(&child_epoch_id)?;
                 let child_congestion_info = ReshardingManager::get_child_congestion_info(
                     &parent_trie,

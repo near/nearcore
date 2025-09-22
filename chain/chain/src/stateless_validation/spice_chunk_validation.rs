@@ -150,7 +150,7 @@ pub fn spice_pre_validate_chunk_state_witness(
                 )?,
                 storage_context,
             },
-            block_hash: *block.header().hash(),
+            prev_hash: *block.header().hash(),
         }
     };
 
@@ -260,7 +260,7 @@ mod tests {
 
         let output = test_chain.run_pre_validation(&witness).unwrap();
         assert!(output.implicit_transition_params.is_empty());
-        let MainTransition::NewChunk { new_chunk_data, block_hash: _ } =
+        let MainTransition::NewChunk { new_chunk_data, prev_hash: _ } =
             output.main_transition_params
         else {
             unreachable!()
