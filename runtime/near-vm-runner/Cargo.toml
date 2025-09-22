@@ -41,7 +41,7 @@ thiserror.workspace = true
 tracing.workspace = true
 wasm-encoder = { workspace = true, features = ["wasmparser"], optional = true }
 wasmparser = { workspace = true, optional = true }
-wasmparser-latest = { workspace = true, optional = true }
+wasmparser-236 = { workspace = true, optional = true }
 wasmtime = { workspace = true, features = [
     "call-hook",
     "parallel-compilation",
@@ -110,7 +110,7 @@ prepare = [
     "finite-wasm-6",
     "wasm-encoder",
     "wasmparser",
-    "wasmparser-latest",
+    "wasmparser-236",
     "prefix-sum-vec",
     "metrics",
 ]

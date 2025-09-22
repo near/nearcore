@@ -6,7 +6,7 @@ use finite_wasm_6::gas::InstrumentationKind;
 use finite_wasm_6::{AnalysisOutcome, Fee};
 use wasm_encoder::reencode::{Error as ReencodeError, Reencode};
 use wasm_encoder::{self as we};
-use wasmparser_latest as wp;
+use wasmparser_236 as wp;
 
 const PLACEHOLDER_FOR_NAMES: u8 = !0;
 

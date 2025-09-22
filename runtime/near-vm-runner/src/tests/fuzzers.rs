@@ -12,7 +12,7 @@ use std::sync::Arc;
 /// Finds a no-parameter exported function, something like `(func (export "entry-point"))`.
 #[cfg(feature = "prepare")]
 pub fn find_entry_point(contract: &ContractCode) -> Option<String> {
-    use wasmparser_latest::{Export, ExternalKind, Parser, Payload};
+    use wasmparser_236::{Export, ExternalKind, Parser, Payload};
     let mut tys = Vec::new();
     let mut fns = Vec::new();
     for payload in Parser::default().parse_all(contract.code()) {
