@@ -362,22 +362,26 @@ pub enum PrepareTransactionsLimit {
     StorageProofSize,
 }
 
+/// Information taken from the previous block
+/// (Taken from block H for preparing transactions at height H+1)
 pub struct PrepareTransactionsBlockContext {
     pub next_gas_price: Balance,
+    /// Height of the previous block
     pub height: BlockHeight,
-    pub block_hash: CryptoHash,
+    /// Epoch id of the block after the previous block
+    pub next_epoch_id: EpochId,
     pub congestion_info: BlockCongestionInfo,
 }
 
-impl From<&Block> for PrepareTransactionsBlockContext {
-    fn from(block: &Block) -> Self {
-        let header = block.header();
-        Self {
+impl PrepareTransactionsBlockContext {
+    pub fn new(prev_block: &Block, epoch_manager: &dyn EpochManagerAdapter) -> Result<Self, Error> {
+        let header = prev_block.header();
+        Ok(Self {
             next_gas_price: header.next_gas_price(),
             height: header.height(),
-            block_hash: *header.hash(),
-            congestion_info: block.block_congestion_info(),
-        }
+            next_epoch_id: epoch_manager.get_epoch_id_from_prev_block(&header.hash())?,
+            congestion_info: prev_block.block_congestion_info(),
+        })
     }
 }
 
