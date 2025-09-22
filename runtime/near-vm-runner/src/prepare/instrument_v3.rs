@@ -1,3 +1,5 @@
+// NOTE: Adapted from https://github.com/near/finite-wasm/commits/164878dedc1220c4d789d5b07baaf6e2cd08ce35
+//
 // FIXME: Have `InstrumentContext` implement `Reencode` trait fully... rather than have it half way
 // manually implemented and half-way reliant on wasm_encoder::reencode...
 
