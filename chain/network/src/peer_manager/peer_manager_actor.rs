@@ -4,7 +4,7 @@ use crate::debug::{DebugStatus, GetDebugStatus};
 use crate::network_protocol::{self, T2MessageBody};
 use crate::network_protocol::{
     Disconnect, Edge, PeerIdOrHash, PeerMessage, Ping, Pong, RawRoutedMessage, StateHeaderRequest,
-    StatePartRequest,
+    StatePartRequest, StateRequestAck,
 };
 use crate::network_protocol::{SyncSnapshotHosts, T1MessageBody};
 use crate::peer::peer_actor::PeerActor;
@@ -33,6 +33,7 @@ use near_o11y::span_wrapped_msg::SpanWrappedMessageExt;
 use near_performance_metrics_macros::perf;
 use near_primitives::genesis::GenesisId;
 use near_primitives::network::{AnnounceAccount, PeerId};
+use near_primitives::state_sync::{PartIdOrHeader, StateRequestAckBody};
 use near_primitives::views::{
     ConnectionInfoView, EdgeView, KnownPeerStateView, NetworkGraphView, NetworkRoutesView,
     PeerStoreView, RecentOutboundConnectionsView, SnapshotHostInfoView, SnapshotHostsView,
@@ -828,6 +829,12 @@ impl PeerManagerActor {
                 }
             }
             NetworkRequests::StateRequestHeader { shard_id, sync_hash, sync_prev_prev_hash } => {
+                // The node needs to include its own public address in the request
+                // so that the response can be sent over a direct Tier3 connection.
+                let Some(addr) = *self.state.my_public_addr.read() else {
+                    return NetworkResponses::MyPublicAddrNotKnown;
+                };
+
                 // Select a peer which has advertised availability of the desired
                 // state snapshot.
                 let Some(peer_id) = self
@@ -837,24 +844,6 @@ impl PeerManagerActor {
                 else {
                     tracing::debug!(target: "network", %shard_id, ?sync_hash, "no snapshot hosts available");
                     return NetworkResponses::NoDestinationsAvailable;
-                };
-
-                // If we have a direct connection we can simply send a StateRequestHeader message
-                // over it. This is a bit of a hack for upgradability and can be deleted in the
-                // next release.
-                {
-                    if self.state.tier2.send_message(
-                        peer_id.clone(),
-                        Arc::new(PeerMessage::StateRequestHeader(shard_id, sync_hash)),
-                    ) {
-                        return NetworkResponses::SelectedDestination(peer_id);
-                    }
-                }
-
-                // The node needs to include its own public address in the request
-                // so that the response can be sent over a direct Tier3 connection.
-                let Some(addr) = *self.state.my_public_addr.read() else {
-                    return NetworkResponses::MyPublicAddrNotKnown;
                 };
 
                 let routed_message = self.state.sign_message(
@@ -920,6 +909,34 @@ impl PeerManagerActor {
 
                 tracing::debug!(target: "network", %shard_id, ?sync_hash, ?part_id, "requesting state part from host {peer_id}");
                 NetworkResponses::SelectedDestination(peer_id)
+            }
+            NetworkRequests::StateRequestAck {
+                shard_id,
+                sync_hash,
+                part_id_or_header,
+                body,
+                peer_id,
+            } => {
+                let routed_message = self.state.sign_message(
+                    &self.clock,
+                    RawRoutedMessage {
+                        target: PeerIdOrHash::PeerId(peer_id.clone()),
+                        body: T2MessageBody::StateRequestAck(StateRequestAck {
+                            shard_id,
+                            sync_hash,
+                            part_id_or_header,
+                            body,
+                        })
+                        .into(),
+                    },
+                );
+
+                if !self.state.send_message_to_peer(&self.clock, tcp::Tier::T2, routed_message) {
+                    return NetworkResponses::RouteNotFound;
+                }
+
+                tracing::debug!(target: "network", %shard_id, ?sync_hash, ?part_id_or_header, ?body, "ack state request from host {peer_id}");
+                NetworkResponses::NoResponse
             }
             NetworkRequests::SnapshotHostInfo { sync_hash, mut epoch_height, mut shards } => {
                 if shards.len() > MAX_SHARDS_PER_SNAPSHOT_HOST_INFO {
@@ -1351,41 +1368,83 @@ impl actix::Handler<Tier3Request> for PeerManagerActor {
         let clock = self.clock.clone();
         ctx.spawn(wrap_future(
             async move {
-                let tier3_response = match request.body {
+                // Process the request.
+                // Unconditionally produce an ack to be sent back over tier2.
+                // Optionally produce a response to be sent over tier3.
+                let (tier2_ack, maybe_tier3_response) = match request.body {
                     Tier3RequestBody::StateHeader(StateHeaderRequestBody { shard_id, sync_hash }) => {
-                        match state.state_request_adapter.send_async(StateRequestHeader { shard_id, sync_hash }).await {
+                        let (ack, response) = match state.state_request_adapter.send_async(StateRequestHeader { shard_id, sync_hash }).await {
                             Ok(Some(client_response)) => {
-                                PeerMessage::VersionedStateResponse(*client_response.0)
+                                (StateRequestAckBody::WillRespond, Some(PeerMessage::VersionedStateResponse(*client_response.0)))
                             }
                             Ok(None) => {
                                 tracing::debug!(target: "network", ?request, "client declined to respond");
-                                return;
+                                (StateRequestAckBody::Busy, None)
                             }
                             Err(err) => {
                                 tracing::error!(target: "network", ?request, ?err, "client failed to respond");
-                                return;
+                                (StateRequestAckBody::Error, None)
                             }
-                        }
+                        };
+
+                        (
+                            T2MessageBody::StateRequestAck(StateRequestAck {
+                                shard_id,
+                                sync_hash,
+                                part_id_or_header: PartIdOrHeader::Header,
+                                body: ack,
+                            }).into(),
+                            response
+                        )
                     }
                     Tier3RequestBody::StatePart(StatePartRequestBody { shard_id, sync_hash, part_id }) => {
-                        match state.state_request_adapter.send_async(StateRequestPart { shard_id, sync_hash, part_id }).await {
+                        let (ack, response) = match state.state_request_adapter.send_async(StateRequestPart { shard_id, sync_hash, part_id }).await {
                             Ok(Some(client_response)) => {
-                                PeerMessage::VersionedStateResponse(*client_response.0)
+                                (StateRequestAckBody::WillRespond, Some(PeerMessage::VersionedStateResponse(*client_response.0)))
                             }
                             Ok(None) => {
                                 tracing::debug!(target: "network", "client declined to respond to {:?}", request);
-                                return;
+                                (StateRequestAckBody::Busy, None)
                             }
                             Err(err) => {
                                 tracing::error!(target: "network", ?err, "client failed to respond to {:?}", request);
-                                return;
+                                (StateRequestAckBody::Error, None)
                             }
-                        }
+                        };
+
+                        (
+                            T2MessageBody::StateRequestAck(StateRequestAck {
+                                shard_id,
+                                sync_hash,
+                                part_id_or_header: PartIdOrHeader::Part { part_id },
+                                body: ack,
+                            }).into(),
+                            response
+                        )
                     }
                 };
 
+                let sender: PeerId = request.peer_info.id.clone();
+
+                // Send an ack for the request
+                tracing::debug!(target: "network", ?tier2_ack, "ack state request from host {sender}");
+                let routed_message = state.sign_message(
+                    &clock,
+                    RawRoutedMessage {
+                        target: PeerIdOrHash::PeerId(sender.clone()),
+                        body: tier2_ack,
+                    },
+                );
+                if !state.send_message_to_peer(&clock, tcp::Tier::T2, routed_message) {
+                    tracing::debug!(target: "network", "failed to route ack to {}", &sender);
+                }
+
+                let Some(tier3_response) = maybe_tier3_response else {
+                    return;
+                };
+
                 // Establish a tier3 connection if we don't have one already
-                if !state.tier3.load().ready.contains_key(&request.peer_info.id) {
+                if !state.tier3.load().ready.contains_key(&sender) {
                     let result = async {
                         let stream = tcp::Stream::connect(
                             &request.peer_info,
@@ -1401,7 +1460,7 @@ impl actix::Handler<Tier3Request> for PeerManagerActor {
                     }
                 }
 
-                state.tier3.send_message(request.peer_info.id, Arc::new(tier3_response));
+                state.tier3.send_message(sender, Arc::new(tier3_response));
             }
         ));
     }

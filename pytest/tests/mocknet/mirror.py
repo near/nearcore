@@ -391,8 +391,6 @@ def _get_state_parts_bucket_name(args):
 
 
 def _get_state_parts_location(args):
-    if not args.gcs_state_sync:
-        return None
     if args.local_test:
         return {
             "Filesystem": {
@@ -442,7 +440,7 @@ def new_test_cmd(ctx: CommandContext):
     logger.info("""Setting validators: {0}
 Run `status` to check if the nodes are ready. After they're ready,
  you can run `start-nodes` and `start-traffic`""".format(validators))
-    location = _get_state_parts_location(args)
+    location = _get_state_parts_location(args) if args.gcs_state_sync else None
     pmap(
         lambda node: node.neard_runner_network_init(
             validators,

@@ -2,7 +2,7 @@ use crate::accounts_data::{AccountDataCache, AccountDataError};
 use crate::announce_accounts::AnnounceAccountCache;
 use crate::client::{
     BlockApproval, ChunkEndorsementMessage, ClientSenderForNetwork, ProcessTxRequest,
-    TxStatusRequest, TxStatusResponse,
+    StateResponse, StateResponseReceived, TxStatusRequest, TxStatusResponse,
 };
 use crate::concurrency::demux;
 use crate::concurrency::runtime::Runtime;
@@ -845,6 +845,19 @@ impl NetworkState {
                 T2MessageBody::PartialEncodedContractDeploys(deploys) => {
                     self.partial_witness_adapter
                         .send(PartialEncodedContractDeploysMessage(deploys));
+                    None
+                }
+                T2MessageBody::StateRequestAck(ack) => {
+                    self.client
+                        .send_async(
+                            StateResponseReceived {
+                                peer_id: msg_author,
+                                state_response: StateResponse::Ack(ack),
+                            }
+                            .span_wrap(),
+                        )
+                        .await
+                        .ok();
                     None
                 }
                 body => {

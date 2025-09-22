@@ -10,6 +10,7 @@ use borsh::BorshDeserialize;
 use borsh::BorshSerialize;
 pub use edge::*;
 use near_primitives::genesis::GenesisId;
+pub use near_primitives::state_sync::StateRequestAck;
 use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsement;
 use near_primitives::stateless_validation::contract_distribution::ChunkContractAccesses;
 use near_primitives::stateless_validation::contract_distribution::ContractCodeRequest;
@@ -633,6 +634,9 @@ impl TieredMessageBody {
             RoutedMessageBody::StateHeaderRequest(state_header_request) => {
                 T2MessageBody::StateHeaderRequest(state_header_request).into()
             }
+            RoutedMessageBody::StateRequestAck(state_request_ack) => {
+                T2MessageBody::StateRequestAck(state_request_ack).into()
+            }
             RoutedMessageBody::_UnusedQueryRequest
             | RoutedMessageBody::_UnusedQueryResponse
             | RoutedMessageBody::_UnusedReceiptOutcomeRequest(_)
@@ -730,6 +734,7 @@ pub enum T2MessageBody {
     StatePartRequest(StatePartRequest),
     PartialEncodedContractDeploys(PartialEncodedContractDeploys),
     StateHeaderRequest(StateHeaderRequest),
+    StateRequestAck(StateRequestAck),
 }
 
 impl T2MessageBody {
@@ -789,6 +794,7 @@ pub enum RoutedMessageBody {
     ContractCodeResponse(ContractCodeResponse),
     PartialEncodedContractDeploys(PartialEncodedContractDeploys),
     StateHeaderRequest(StateHeaderRequest),
+    StateRequestAck(StateRequestAck),
 }
 
 impl RoutedMessageBody {
@@ -916,6 +922,11 @@ impl fmt::Debug for RoutedMessageBody {
                 "StateHeaderRequest(sync_hash={:?}, shard_id={:?})",
                 request.sync_hash, request.shard_id,
             ),
+            RoutedMessageBody::StateRequestAck(ack) => write!(
+                f,
+                "StateRequestAck(sync_hash={:?}, shard_id={:?}, header_or_part_id={:?}, body={:?})",
+                ack.sync_hash, ack.shard_id, ack.part_id_or_header, ack.body,
+            ),
         }
     }
 }
@@ -987,6 +998,9 @@ impl From<TieredMessageBody> for RoutedMessageBody {
                 }
                 T2MessageBody::StateHeaderRequest(state_header_request) => {
                     RoutedMessageBody::StateHeaderRequest(state_header_request)
+                }
+                T2MessageBody::StateRequestAck(state_request_ack) => {
+                    RoutedMessageBody::StateRequestAck(state_request_ack)
                 }
             },
         }
@@ -1493,6 +1507,20 @@ impl StateResponseInfo {
         match self {
             Self::V1(info) => info.sync_hash,
             Self::V2(info) => info.sync_hash,
+        }
+    }
+
+    pub fn part_id(&self) -> Option<u64> {
+        match self {
+            Self::V1(info) => info.state_response.part_id(),
+            Self::V2(info) => info.state_response.part_id(),
+        }
+    }
+
+    pub fn payload_length(&self) -> Option<usize> {
+        match self {
+            Self::V1(info) => info.state_response.payload_length(),
+            Self::V2(info) => info.state_response.payload_length(),
         }
     }
 
