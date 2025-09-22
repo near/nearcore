@@ -1,3 +1,7 @@
+use std::collections::HashSet;
+use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
+
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_async::time::{Duration, Utc};
 use near_chain_configs::GenesisConfig;
@@ -38,6 +42,7 @@ use near_primitives::version::PROD_GENESIS_PROTOCOL_VERSION;
 use near_primitives::version::{MIN_GAS_PRICE_NEP_92_FIX, ProtocolVersion};
 use near_primitives::views::{QueryRequest, QueryResponse};
 use near_schema_checker_lib::ProtocolSchema;
+use near_store::TrieUpdate;
 use near_store::flat::FlatStorageManager;
 use near_store::{PartialStorage, ShardTries, Store, Trie, WrappedTrieChanges};
 use near_vm_runner::ContractCode;
@@ -350,6 +355,11 @@ pub struct PreparedTransactions {
     pub limited_by: Option<PrepareTransactionsLimit>,
 }
 
+/// Transactions that were taken out of the pool in prepare_transactions,
+/// but should be skipped because they were in skip_tx_hashes.
+#[derive(Debug, Clone)]
+pub struct SkippedTransactions(pub Vec<ValidatedTransaction>);
+
 /// Chunk producer prepares transactions from the transaction pool
 /// until it hits some limit (too many transactions, too much gas used, etc).
 /// This enum describes which limit was hit when preparing transactions.
@@ -360,6 +370,7 @@ pub enum PrepareTransactionsLimit {
     Time,
     ReceiptCount,
     StorageProofSize,
+    Cancelled,
 }
 
 /// Information taken from the previous block
@@ -452,6 +463,22 @@ pub trait RuntimeAdapter: Send + Sync {
         chain_validate: &dyn Fn(&SignedTransaction) -> bool,
         time_limit: Option<Duration>,
     ) -> Result<PreparedTransactions, Error>;
+
+    /// prepare_transactions with extra options, used in early transaction preparation.
+    /// * takes TrieUpdate instead of RuntimeStorageConfig
+    /// * skip_tx_hashes - defines which transactions should be skipped. Used to skip transactions that were included in previous chunks.
+    /// * cancel - can be used to cancel the preparation
+    fn prepare_transactions_extra(
+        &self,
+        storage: TrieUpdate,
+        shard_id: ShardId,
+        prev_block: PrepareTransactionsBlockContext,
+        transaction_groups: &mut dyn TransactionGroupIterator,
+        chain_validate: &dyn Fn(&SignedTransaction) -> bool,
+        skip_tx_hashes: HashSet<CryptoHash>,
+        time_limit: Option<Duration>,
+        cancel: Option<Arc<AtomicBool>>,
+    ) -> Result<(PreparedTransactions, SkippedTransactions), Error>;
 
     /// Returns true if the shard layout will change in the next epoch
     /// Current epoch is the epoch of the block after `parent_hash`
