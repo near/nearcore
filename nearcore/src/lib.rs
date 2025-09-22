@@ -186,7 +186,10 @@ pub fn open_storage(home_dir: &Path, near_config: &mut NearConfig) -> anyhow::Re
         },
     }.with_context(|| format!("unable to open database at {}", opener.path().display()))?;
 
-    assert_eq!(near_config.config.archive, storage.is_archive()?);
+    assert_eq!(
+        near_config.config.archive,
+        storage.is_cold_archive()? || near_config.client_config.is_cloud_archival()
+    );
     Ok(storage)
 }
 
@@ -449,7 +452,7 @@ pub fn start_with_config_and_synchronization(
         epoch_manager.clone(),
         shard_tracker.clone(),
         config.client_config.gc.clone(),
-        config.client_config.archive,
+        storage.is_cold_archive()?,
     ));
 
     let resharding_handle = ReshardingHandle::new();

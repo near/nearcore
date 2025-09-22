@@ -21,7 +21,8 @@ pub struct GCActor {
     epoch_manager: Arc<dyn EpochManagerAdapter>,
     shard_tracker: ShardTracker,
     gc_config: GCConfig,
-    is_archive: bool,
+    /// True iff it is legacy or split storage archival node
+    is_cold_archive: bool,
     /// In some tests we may want to temporarily disable GC
     no_gc: bool,
 }
@@ -34,7 +35,7 @@ impl GCActor {
         epoch_manager: Arc<dyn EpochManagerAdapter>,
         shard_tracker: ShardTracker,
         gc_config: GCConfig,
-        is_archive: bool,
+        is_cold_archive: bool,
     ) -> Self {
         GCActor {
             store: ChainStore::new(store, true, genesis.transaction_validity_period),
@@ -42,14 +43,15 @@ impl GCActor {
             gc_config,
             epoch_manager,
             shard_tracker,
-            is_archive,
+            is_cold_archive,
             no_gc: false,
         }
     }
 
     fn clear_data(&mut self) -> Result<(), near_chain::Error> {
-        // A RPC node should do regular garbage collection.
-        if !self.is_archive {
+        // A node which does not use cold DB (either legacy or split storage)
+        // should just do regular garbage collection.
+        if !self.is_cold_archive {
             return self.store.clear_data(
                 &self.gc_config,
                 self.runtime_adapter.clone(),
@@ -72,8 +74,6 @@ impl GCActor {
                 &self.shard_tracker,
             );
         }
-
-        // TODO(cloud_archival) Allow GC to run if this is cloud archival node running without cold DB.
 
         // An archival node with legacy storage or in the midst of migration to split
         // storage should do the legacy clear_archive_data.
