@@ -165,7 +165,7 @@ mod validator_mandates_sample {
                     let current_shard_validator_stake: &mut Balance =
                         mandates_assignment.entry(validator_id).or_default();
                     *current_shard_validator_stake =
-                        (*current_shard_validator_stake).checked_add(stake_per_mandate).unwrap();
+                        current_shard_validator_stake.checked_add(stake_per_mandate).unwrap();
                 }
 
                 // Achieve shard id shuffling by writing to the position of the alias of `shard_id`.
@@ -179,7 +179,7 @@ mod validator_mandates_sample {
                     let current_shard_validator_stake: &mut Balance =
                         partials_assignment.entry(validator_id).or_default();
                     *current_shard_validator_stake =
-                        (*current_shard_validator_stake).checked_add(partial_weight).unwrap();
+                        current_shard_validator_stake.checked_add(partial_weight).unwrap();
                 }
             }
 

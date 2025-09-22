@@ -120,7 +120,7 @@ impl AccountRecords {
                 if self.amount_needed {
                     account.set_amount(Balance::from_near(10_000));
                 }
-                *total_supply = (*total_supply)
+                *total_supply = total_supply
                     .checked_add(account.amount())
                     .unwrap()
                     .checked_add(account.locked())

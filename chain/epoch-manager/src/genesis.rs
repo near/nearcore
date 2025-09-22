@@ -162,7 +162,8 @@ pub(crate) fn find_threshold(
 ) -> Result<Balance, EpochError> {
     let stake_sum: Balance =
         stakes.iter().fold(Balance::ZERO, |sum, item| sum.checked_add(*item).unwrap());
-    if stake_sum < Balance::from_yoctonear(u128::from(num_seats)) {
+    let min_possible_stake = Balance::from_yoctonear(u128::from(num_seats));
+    if stake_sum < min_possible_stake {
         return Err(EpochError::ThresholdError { stake_sum, num_seats });
     }
     let (mut left, mut right): (Balance, Balance) =
@@ -176,7 +177,8 @@ pub(crate) fn find_threshold(
         for item in stakes {
             current_sum =
                 current_sum.checked_add(item.checked_div(mid.as_yoctonear()).unwrap()).unwrap();
-            if current_sum >= Balance::from_yoctonear(u128::from(num_seats)) {
+            let min_possible_stake = Balance::from_yoctonear(u128::from(num_seats));
+            if current_sum >= min_possible_stake {
                 left = mid;
                 continue 'outer;
             }

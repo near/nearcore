@@ -31,7 +31,7 @@ impl StakeWeightedIndex {
         let mut stake_sum = Balance::ZERO;
         for w in &mut no_alias_odds {
             stake_sum = stake_sum.checked_add(*w).unwrap();
-            *w = (*w).checked_mul(u128::from(n)).unwrap();
+            *w = w.checked_mul(u128::from(n)).unwrap();
         }
 
         for (index, &odds) in no_alias_odds.iter().enumerate() {
