@@ -376,10 +376,10 @@ impl ArchivalDataLossRecoveryCommand {
         let env_filter = EnvFilterBuilder::from_env().verbose(Some("memtrie")).finish()?;
         let _subscriber = default_subscriber(env_filter, &Default::default()).global();
 
-        let mut near_config =
+        let near_config =
             nearcore::config::load_config(&home, genesis_validation).expect("Error loading config");
 
-        let node_storage = nearcore::open_storage(&home, &mut near_config)?;
+        let node_storage = nearcore::open_storage(&home, &near_config)?;
         let store = node_storage.get_split_store().expect("SplitStore not found!");
         let cold_store = node_storage.get_cold_store().expect("ColdStore not found!");
         let cold_db = node_storage.cold_db().expect("ColdDB not found!");
@@ -476,7 +476,7 @@ impl ArchivalDataLossRecoveryCommand {
         let shard_tracker = ShardTracker::new(
             near_config.client_config.tracked_shards_config.clone(),
             epoch_manager.clone(),
-            near_config.validator_signer.clone(),
+            near_config.validator_signer,
         );
         let resharding_manager =
             ReshardingManager::new(store, epoch_manager, shard_tracker, sender);

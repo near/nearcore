@@ -3,6 +3,7 @@ mod bug_repro;
 mod catching_up;
 mod chunk_validator_kickout;
 mod chunks_management;
+mod cloud_archival;
 mod congestion_control;
 mod congestion_control_genesis_bootstrap;
 mod consensus;

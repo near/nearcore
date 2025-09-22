@@ -271,6 +271,26 @@ pub struct CloudArchivalWriterConfig {
     pub polling_interval: Duration,
 }
 
+// A handle that allows the main process to interrupt cloud archival actor if needed.
+#[derive(Clone)]
+pub struct CloudArchivalHandle {
+    keep_going: Arc<AtomicBool>,
+}
+
+impl CloudArchivalHandle {
+    pub fn new() -> Self {
+        Self { keep_going: Arc::new(AtomicBool::new(true)) }
+    }
+
+    pub fn is_cancelled(&self) -> bool {
+        !self.get()
+    }
+
+    fn get(&self) -> bool {
+        self.keep_going.load(std::sync::atomic::Ordering::Relaxed)
+    }
+}
+
 /// Configures how to dump state to external storage.
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
@@ -791,6 +811,8 @@ pub struct ClientConfig {
     pub save_trie_changes: bool,
     /// Whether to persist transaction outcomes to disk or not.
     pub save_tx_outcomes: bool,
+    /// Whether to persist partial chunk parts for untracked shards or not.
+    pub save_untracked_partial_chunks_parts: bool,
     /// Number of threads for ViewClientActor pool.
     pub view_client_threads: usize,
     /// Number of threads for ChunkValidationActor pool.
@@ -929,6 +951,7 @@ impl ClientConfig {
             cloud_archival_reader: None,
             cloud_archival_writer: None,
             save_trie_changes,
+            save_untracked_partial_chunks_parts: true,
             save_tx_outcomes: true,
             log_summary_style: LogSummaryStyle::Colored,
             view_client_threads: 1,

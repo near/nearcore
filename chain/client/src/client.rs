@@ -1352,8 +1352,17 @@ impl Client {
         self.block_production_info
             .record_chunk_collected(partial_chunk.height_created(), shard_index);
 
+        // Filter the parts if we don't need full storage for untracked shards
+        let filtered_partial_chunk = if !self.config.save_untracked_partial_chunks_parts
+            && !self.shard_tracker.cares_about_shard_this_or_next_epoch(&parent_hash, shard_id)
+        {
+            partial_chunk.clone_without_parts()
+        } else {
+            partial_chunk
+        };
+
         // TODO(#10569) We would like a proper error handling here instead of `expect`.
-        persist_chunk(Arc::new(partial_chunk), shard_chunk, self.chain.mut_chain_store())
+        persist_chunk(Arc::new(filtered_partial_chunk), shard_chunk, self.chain.mut_chain_store())
             .expect("Could not persist chunk");
         // We're marking chunk as accepted.
         self.chain.blocks_with_missing_chunks.accept_chunk(&chunk_header.chunk_hash());

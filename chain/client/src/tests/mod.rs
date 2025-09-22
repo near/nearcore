@@ -1,2 +1,3 @@
 mod spice_chunk_executor_actor;
 mod spice_chunk_validator_actor;
+mod spice_data_distributor_actor;

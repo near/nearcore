@@ -139,6 +139,7 @@ fn test_raw_client_test_loop_setup() {
         sync_jobs_adapter.as_multi_sender(),
         noop().into_sender(),
         noop().into_sender(),
+        noop().into_sender(),
     )
     .unwrap();
 

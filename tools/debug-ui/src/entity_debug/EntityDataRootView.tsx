@@ -1,14 +1,14 @@
 import { useCallback, useContext, useEffect, useState } from 'react';
-import {
-    EntityDataValueNode,
-    EntityDataRootNode,
-    entityQueryOutputType,
-    getQueryType,
-} from './types';
-import { FetcherContext } from './fetcher';
 import { AllQueriesContext } from './all_queries';
 import './EntityDataRootView.scss';
 import { EntityDataValueView } from './EntityDataValueView';
+import { FetcherContext } from './fetcher';
+import {
+    EntityDataRootNode,
+    EntityDataValueNode,
+    entityQueryOutputType,
+    getQueryType,
+} from './types';
 
 export type EntityDataRootViewProps = {
     node: EntityDataRootNode;
@@ -19,6 +19,7 @@ export const EntityDataRootView = ({ node, removalCallback }: EntityDataRootView
     const [entry, setEntry] = useState<EntityDataValueNode | null>(null);
     const [error, setError] = useState<string | null>(null);
     const [, setVersion] = useState(0);
+    const [isCollapsed, setIsCollapsed] = useState(true);
     useEffect(() => {
         node.entry.then(
             (result) => {
@@ -46,7 +47,44 @@ export const EntityDataRootView = ({ node, removalCallback }: EntityDataRootView
     let content: JSX.Element;
     if (error) {
         const message = error.match(/String\("([^"]*)"\)/);
-        content = <div className="error">{message ? message[1] : error}</div>;
+        const errorText = message ? message[1] : error;
+        
+        // Get first line for collapsed view
+        const firstLine = errorText.split('\\n')[0];
+        const hasMultipleLines = errorText.includes('\\n');
+        
+        // Convert literal \n strings to actual line breaks
+        const formatErrorText = (text: string) => {
+            const lines = text.split('\\n');
+            return lines.map((line, index) => (
+                <span key={index}>
+                    {line}
+                    {index < lines.length - 1 && <br />}
+                </span>
+            ));
+        };
+        
+        content = (
+            <div className={`error ${isCollapsed ? 'compact' : ''}`}>
+                {hasMultipleLines && (
+                    <span 
+                        className="error-toggle" 
+                        onClick={() => setIsCollapsed(!isCollapsed)}
+                        style={{ cursor: 'pointer', marginRight: '4px' }}
+                    >
+                        {isCollapsed ? '▶' : '▼'}
+                    </span>
+                )}
+                <div>
+                    {isCollapsed ? firstLine : formatErrorText(errorText)}
+                </div>
+                {isCollapsed && hasMultipleLines && (
+                    <div className="error-details" style={{ fontSize: '0.7em', marginTop: '2px', opacity: 0.7 }}>
+                        Click to expand full error
+                    </div>
+                )}
+            </div>
+        );
     } else if (entry === null) {
         content = <div>Loading...</div>;
     } else {
