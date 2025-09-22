@@ -1580,6 +1580,7 @@ fn prepare_transactions(
     let shard_id = shard_layout.shard_ids().next().unwrap();
     let block = chain.get_block(&prev_hash).unwrap();
     let congestion_info = block.block_congestion_info();
+    let next_epoch_id = env.epoch_manager.get_epoch_id_from_prev_block(&prev_hash)?;
 
     env.runtime.prepare_transactions(
         storage_config,
@@ -1587,7 +1588,7 @@ fn prepare_transactions(
         PrepareTransactionsBlockContext {
             next_gas_price: env.runtime.genesis_config.min_gas_price,
             height: env.head.height,
-            block_hash: env.head.last_block_hash,
+            next_epoch_id,
             congestion_info,
         },
         transaction_groups,

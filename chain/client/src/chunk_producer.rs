@@ -2,7 +2,9 @@ use crate::debug::PRODUCTION_TIMES_CACHE_SIZE;
 use crate::metrics;
 use itertools::Itertools;
 use near_async::time::{Clock, Duration, Instant};
-use near_chain::types::{PreparedTransactions, RuntimeAdapter, RuntimeStorageConfig};
+use near_chain::types::{
+    PrepareTransactionsBlockContext, PreparedTransactions, RuntimeAdapter, RuntimeStorageConfig,
+};
 use near_chain::{Block, Chain, ChainStore};
 use near_chain_configs::MutableConfigValue;
 use near_chunks::client::ShardedTransactionPool;
@@ -416,10 +418,12 @@ impl ChunkProducer {
                 source: near_chain::types::StorageDataSource::Db,
                 state_patch: Default::default(),
             };
+            let prev_block_context =
+                PrepareTransactionsBlockContext::new(prev_block, &*self.epoch_manager)?;
             self.runtime_adapter.prepare_transactions(
                 storage_config,
                 shard_id,
-                prev_block.into(),
+                prev_block_context,
                 &mut iter,
                 chain_validate,
                 self.chunk_transactions_time_limit.get(),
