@@ -3,6 +3,7 @@ use std::sync::Arc;
 
 use near_async::messaging::{Actor, Handler};
 use near_async::time::{Clock, Duration, Instant};
+use near_chain::Error;
 use near_chain::state_sync::ChainStateSyncAdapter;
 use near_chain::types::RuntimeAdapter;
 use near_epoch_manager::EpochManagerAdapter;
@@ -119,12 +120,29 @@ impl StateRequestActor {
         Ok(good_sync_hash.as_ref() == Some(sync_hash))
     }
 
+    /// Checks if the sync_hash belongs to an epoch that is older than the current chain head's epoch.
+    fn is_sync_hash_from_old_epoch(&self, sync_hash: &CryptoHash) -> Result<bool, Error> {
+        let head = self.chain_store.head()?;
+        let sync_block_header = self.chain_store.get_block_header(sync_hash)?;
+        let sync_epoch_id = sync_block_header.epoch_id();
+
+        // If the sync_hash's epoch is different from the current head's epoch,
+        // we consider it to be from an old epoch
+        Ok(sync_epoch_id != &head.epoch_id)
+    }
+
     /// Validates sync hash and returns appropriate action to take.
     fn validate_sync_hash(&self, sync_hash: &CryptoHash) -> SyncHashValidationResult {
         match self.check_sync_hash_validity(sync_hash) {
             Ok(true) => SyncHashValidationResult::Valid,
             Ok(false) => {
-                tracing::info!(target: "sync", "sync_hash didn't pass validation; likely too old");
+                let sync_hash_too_old =
+                    self.is_sync_hash_from_old_epoch(sync_hash).unwrap_or(false);
+                if sync_hash_too_old {
+                    tracing::info!(target: "sync", "sync_hash didn't pass validation; belongs to an old epoch");
+                } else {
+                    tracing::warn!(target: "sync", "sync_hash didn't pass validation; possible divergence in sync hash computation");
+                }
                 SyncHashValidationResult::BadRequest
             }
             Err(near_chain::Error::DBNotFoundErr(_)) => {
