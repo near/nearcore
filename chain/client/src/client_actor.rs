@@ -1327,11 +1327,6 @@ impl ClientActorInner {
 
     fn handle_on_post_state_ready(&mut self, msg: PostStateReadyMessage) {
         tracing::trace!(target: "client", "Received PostStateReadyMessage: {:?}", msg);
-        let tx_validity_period_check = self.client.chain.early_prepare_transaction_validity_check(
-            msg.prev_block_context.height,
-            msg.prev_prev_block_header,
-        );
-
         // Check if we are chunk producer for this height and shard.
         let cpk = ChunkProductionKey {
             shard_id: msg.shard_uid.shard_id(),
@@ -1341,6 +1336,12 @@ impl ClientActorInner {
         if let Ok(v) = self.client.epoch_manager.get_chunk_producer_info(&cpk) {
             if let Some(val) = self.client.validator_signer.get() {
                 if v.account_id() == val.validator_id() {
+                    let tx_validity_period_check =
+                        self.client.chain.early_prepare_transaction_validity_check(
+                            msg.prev_block_context.height,
+                            msg.prev_prev_block_header,
+                        );
+
                     self.client.chunk_producer.start_prepare_transactions_job(
                         msg.key,
                         msg.shard_uid,
