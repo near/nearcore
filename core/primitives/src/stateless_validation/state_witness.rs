@@ -420,6 +420,21 @@ impl ChunkStateWitness {
         self.chunk_header()
     }
 
+    /// Latest necessary block to process the witness.
+    pub fn base_block_hash(&self) -> &CryptoHash {
+        match self {
+            ChunkStateWitness::V1(witness) => &witness.chunk_header.prev_block_hash(),
+            ChunkStateWitness::V2(witness) => &witness.chunk_header.prev_block_hash(),
+            ChunkStateWitness::V3(witness) => {
+                if let Some(chunk_validate_witness) = &witness.chunk_validate_witness {
+                    &chunk_validate_witness.chunk_header.prev_block_hash()
+                } else {
+                    &witness.chunk_apply_witness.main_state_transition.block_hash
+                }
+            }
+        }
+    }
+
     pub fn main_state_transition(&self) -> &ChunkStateTransition {
         match self {
             ChunkStateWitness::V1(witness) => &witness.main_state_transition,
