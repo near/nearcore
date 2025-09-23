@@ -3298,7 +3298,7 @@ impl Chain {
             let receipts = [new_receipts, old_receipts].concat();
             let chunk_transactions = chunk.into_transactions();
             tx_hashes = chunk_transactions.iter().map(|tx| tx.get_hash()).collect();
-            let transactions: SignedValidPeriodTransactions =
+            let transactions =
                 SignedValidPeriodTransactions::new(chunk_transactions, tx_valid_list);
 
             ShardUpdateReason::NewChunk(NewChunkData {
@@ -3325,7 +3325,7 @@ impl Chain {
         let callback = match &self.on_post_state_ready_sender {
             Some(sender) => {
                 let sender = sender.clone();
-                let prev_block_header: BlockHeader = prev_block.header().clone();
+                let prev_block_header = prev_block.header().clone();
                 let closure = move |state: PostState| {
                     sender.send(
                         PostStateReadyMessage {

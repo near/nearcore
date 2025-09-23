@@ -637,7 +637,7 @@ impl ChunkProducer {
             let _span = tracing::debug_span!(target: "client", "no_job", tag_block_production = true, tag_prepare_txs = true).entered();
             return Ok(None);
         };
-        match &*result {
+        match result {
             Err(err) => {
                 let _span = tracing::debug_span!(target: "client", "job_error", err = ?err, tag_block_production = true, tag_prepare_txs = true).entered();
                 tracing::warn!(
@@ -660,8 +660,7 @@ impl ChunkProducer {
                     num_txs = txs.transactions.len(),
                     "Using cached prepared transactions"
                 );
-                // TODO: can we fix this clone?
-                Ok(Some(txs.clone()))
+                Ok(Some(txs))
             }
         }
     }

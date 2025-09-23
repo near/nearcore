@@ -29,7 +29,7 @@ pub struct PrepareTransactionsJobInputs {
 enum PrepareTransactionsJobState {
     NotStarted(PrepareTransactionsJobInputs),
     Running, // Temporary state to use with std::mem::replace, not visible when locked
-    Finished(Arc<Result<PreparedTransactions, Error>>),
+    Finished(Option<Result<PreparedTransactions, Error>>),
 }
 
 pub struct PrepareTransactionsJob {
@@ -49,21 +49,35 @@ impl PrepareTransactionsJob {
         self.cancel.store(true, std::sync::atomic::Ordering::Relaxed);
     }
 
-    pub fn wait(&self) -> Arc<Result<PreparedTransactions, Error>> {
+    pub fn wait(&self) {
         let mut state = self.state.lock();
         match std::mem::replace(&mut *state, PrepareTransactionsJobState::Running) {
             PrepareTransactionsJobState::Finished(result) => {
                 // Put the result back since we took it
-                *state = PrepareTransactionsJobState::Finished(result.clone());
-                result
+                *state = PrepareTransactionsJobState::Finished(result);
             }
             PrepareTransactionsJobState::NotStarted(inputs) => {
-                let result = Arc::new(self.run_not_started(inputs));
-                *state = PrepareTransactionsJobState::Finished(result.clone());
-                result
+                let result = self.run_not_started(inputs);
+                *state = PrepareTransactionsJobState::Finished(Some(result));
             }
             PrepareTransactionsJobState::Running => {
                 unreachable!("not reachable due to locking")
+            }
+        }
+    }
+
+    pub fn take(&self) -> Option<Result<PreparedTransactions, Error>> {
+        let mut state = self.state.lock();
+        match std::mem::replace(&mut *state, PrepareTransactionsJobState::Running) {
+            PrepareTransactionsJobState::Finished(result) => {
+                // Put back Finished with None since we took the result
+                *state = PrepareTransactionsJobState::Finished(None);
+                result
+            }
+            other => {
+                // Put back the previous state since we took it
+                *state = other;
+                None
             }
         }
     }
@@ -151,7 +165,7 @@ impl PrepareTransactionsManager {
     pub fn pop_job_result(
         &mut self,
         key: PrepareTransactionsJobKey,
-    ) -> Option<Arc<Result<PreparedTransactions, Error>>> {
+    ) -> Option<Result<PreparedTransactions, Error>> {
         let height = key.prev_block_context.height;
         let shard_id = key.shard_uid.shard_id();
 
@@ -163,6 +177,7 @@ impl PrepareTransactionsManager {
             job.wait();
             return None;
         }
-        Some(job.wait())
+        job.wait();
+        job.take()
     }
 }
