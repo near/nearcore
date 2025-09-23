@@ -37,7 +37,9 @@ use near_async::{ActorSystem, MultiSend, MultiSenderFrom};
 use near_chain::ApplyChunksSpawner;
 #[cfg(feature = "test_features")]
 use near_chain::ChainStoreAccess;
-use near_chain::chain::{ApplyChunksDoneMessage, BlockCatchUpRequest, BlockCatchUpResponse};
+use near_chain::chain::{
+    ApplyChunksDoneMessage, BlockCatchUpRequest, BlockCatchUpResponse, NewChunkAppliedMessage,
+};
 use near_chain::resharding::types::ReshardingSender;
 use near_chain::spice_core::CoreStatementsProcessor;
 use near_chain::state_snapshot_actor::SnapshotCallbacks;
@@ -261,6 +263,7 @@ pub fn start_client(
 #[derive(Clone, MultiSend, MultiSenderFrom)]
 pub struct ClientSenderForClient {
     pub apply_chunks_done: Sender<SpanWrapped<ApplyChunksDoneMessage>>,
+    pub new_chunk_apply: Sender<NewChunkAppliedMessage>,
 }
 
 #[derive(Clone, MultiSend, MultiSenderFrom)]
@@ -593,7 +596,7 @@ impl Handler<SpanWrapped<BlockResponse>> for ClientActorInner {
                 block,
                 peer_id,
                 was_requested,
-                Some(self.client.myself_sender.apply_chunks_done.clone()),
+                Some(self.client.myself_sender.clone().into_multi_sender()),
             );
         } else {
             match self.client.epoch_manager.get_epoch_id_from_prev_block(block.header().prev_hash())
@@ -901,6 +904,14 @@ impl Handler<SpanWrapped<GetNetworkInfo>, Result<NetworkInfoResponse, String>>
 impl Handler<SpanWrapped<ApplyChunksDoneMessage>> for ClientActorInner {
     fn handle(&mut self, _msg: SpanWrapped<ApplyChunksDoneMessage>) {
         self.try_process_unfinished_blocks();
+    }
+}
+
+impl Handler<NewChunkAppliedMessage> for ClientActorInner {
+    fn handle(&mut self, msg: NewChunkAppliedMessage) {
+        if let Err(err) = self.client.send_chunk_apply_witness_to_chunk_validators(msg.result) {
+            tracing::error!(target: "client", ?err, "Failed to send chunk apply witness to chunk validators");
+        }
     }
 }
 
@@ -1326,7 +1337,7 @@ impl ClientActorInner {
     fn try_process_unfinished_blocks(&mut self) {
         let _span = debug_span!(target: "client", "try_process_unfinished_blocks").entered();
         let (accepted_blocks, errors) = self.client.postprocess_ready_blocks(
-            Some(self.client.myself_sender.apply_chunks_done.clone()),
+            Some(self.client.myself_sender.clone().into_multi_sender()),
             true,
         );
         if !errors.is_empty() {
@@ -1392,7 +1403,7 @@ impl ClientActorInner {
         let res = self.client.start_process_block(
             block,
             Provenance::PRODUCED,
-            Some(self.client.myself_sender.apply_chunks_done.clone()),
+            Some(self.client.myself_sender.clone().into_multi_sender()),
         );
         let Err(error) = res else {
             return Ok(());
@@ -1446,7 +1457,7 @@ impl ClientActorInner {
         self.client.chain.optimistic_block_chunks.add_block(optimistic_block);
 
         self.client.chain.maybe_process_optimistic_block(Some(
-            self.client.myself_sender.apply_chunks_done.clone(),
+            self.client.myself_sender.clone().into_multi_sender(),
         ));
 
         Ok(())
@@ -1620,7 +1631,7 @@ impl ClientActorInner {
             let _span = tracing::debug_span!(target: "client", "catchup").entered();
             if let Err(err) = self.client.run_catchup(
                 &self.sync_jobs_sender.block_catch_up,
-                Some(self.client.myself_sender.apply_chunks_done.clone()),
+                Some(self.client.myself_sender.clone().into_multi_sender()),
             ) {
                 error!(target: "client", "Error occurred during catchup for the next epoch: {:?}", err);
             }
@@ -1731,7 +1742,7 @@ impl ClientActorInner {
             &self.client.shard_tracker,
             highest_height,
             &self.network_info.highest_height_peers,
-            Some(self.client.myself_sender.apply_chunks_done.clone()),
+            Some(self.client.myself_sender.clone().into_multi_sender()),
         );
         let Some(sync_step_result) = sync_step_result else {
             return;
@@ -1915,7 +1926,7 @@ impl ClientActorInner {
             let _ = self.client.start_process_block(
                 block.into(),
                 Provenance::PRODUCED,
-                Some(self.client.myself_sender.apply_chunks_done.clone()),
+                Some(self.client.myself_sender.clone().into_multi_sender()),
             );
             blocks_produced += 1;
             if blocks_produced == num_blocks {
@@ -1961,7 +1972,7 @@ impl Handler<SpanWrapped<ShardsManagerResponse>> for ClientActorInner {
                 self.client.on_chunk_completed(
                     partial_chunk,
                     shard_chunk,
-                    Some(self.client.myself_sender.apply_chunks_done.clone()),
+                    Some(self.client.myself_sender.clone().into_multi_sender()),
                 );
             }
             ShardsManagerResponse::InvalidChunk(encoded_chunk) => {
