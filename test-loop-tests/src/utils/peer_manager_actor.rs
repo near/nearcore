@@ -709,10 +709,7 @@ fn network_message_to_spice_data_distributor_handler(
                 shared_state
                     .senders_for_account(&my_account_id, &account_id)
                     .spice_data_distributor_actor
-                    .send(SpiceIncomingPartialData {
-                        data: partial_data.clone(),
-                        sender: my_account_id.clone(),
-                    });
+                    .send(SpiceIncomingPartialData { data: partial_data.clone() });
             }
             None
         }
