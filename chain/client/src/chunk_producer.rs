@@ -573,7 +573,6 @@ impl ChunkProducer {
         }
 
         let prepare_job_key = PrepareTransactionsJobKey {
-            shard_id,
             shard_uid,
             shard_update_key,
             prev_block_context: prev_block_context.clone(),
@@ -590,7 +589,6 @@ impl ChunkProducer {
         let prepare_job_inputs = PrepareTransactionsJobInputs {
             runtime_adapter: self.runtime_adapter.clone(),
             state,
-            shard_id,
             shard_uid,
             prev_block_context,
             tx_pool: self.sharded_tx_pool.clone(),
@@ -628,7 +626,6 @@ impl ChunkProducer {
             Chain::get_cached_shard_update_key(&prev_block_context, &chunks, shard_id).unwrap();
 
         let prepare_job_key = PrepareTransactionsJobKey {
-            shard_id,
             shard_uid,
             shard_update_key: prev_chunk_shard_update_key,
             prev_block_context: PrepareTransactionsBlockContext::new(

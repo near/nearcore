@@ -20,7 +20,6 @@ use parking_lot::Mutex;
 pub struct PrepareTransactionsJobInputs {
     pub runtime_adapter: Arc<dyn RuntimeAdapter>,
     pub state: TrieUpdate,
-    pub shard_id: ShardId,
     pub shard_uid: ShardUId,
     pub prev_block_context: PrepareTransactionsBlockContext,
     pub tx_pool: Arc<Mutex<ShardedTransactionPool>>,
@@ -52,20 +51,6 @@ impl PrepareTransactionsJob {
         self.cancel.store(true, std::sync::atomic::Ordering::Relaxed);
     }
 
-    // Returns true if the job was cancelled.
-    fn cancel_if_not_started(&self) -> bool {
-        let mut cancelled = false;
-        self.state.try_lock().map(|mut state| {
-            if let PrepareTransactionsJobState::NotStarted(_) = *state {
-                *state = PrepareTransactionsJobState::Finished(Arc::new(Err(
-                    Error::ChunkProducer("Job was cancelled before starting".to_string()),
-                )));
-                cancelled = true;
-            }
-        });
-        cancelled
-    }
-
     pub fn wait(&self) -> Arc<Result<PreparedTransactions, Error>> {
         let mut state = self.state.lock();
         match std::mem::replace(&mut *state, PrepareTransactionsJobState::Running) {
@@ -91,6 +76,9 @@ impl PrepareTransactionsJob {
     ) -> Result<PreparedTransactions, Error> {
         let mut pool_guard = inputs.tx_pool.lock();
 
+        // This check is necessary, otherwise we may discard valid transactions from the mempool:
+        // If a new chain head was made available and transactions were anchored to it before we
+        // acquire the lock on the mempool, the old `chain_validate` would discard them.
         if let Ok(_hash) = inputs
             .runtime_adapter
             .store()
@@ -107,7 +95,7 @@ impl PrepareTransactionsJob {
             if let Some(mut iter) = pool_guard.get_pool_iterator(inputs.shard_uid) {
                 inputs.runtime_adapter.prepare_transactions_extra(
                     inputs.state,
-                    inputs.shard_id,
+                    inputs.shard_uid.shard_id(),
                     inputs.prev_block_context,
                     &mut iter,
                     &inputs.tx_validity_period_check,
@@ -129,7 +117,6 @@ impl PrepareTransactionsJob {
 
 #[derive(PartialEq, Eq)]
 pub struct PrepareTransactionsJobKey {
-    pub shard_id: ShardId,
     pub shard_uid: ShardUId,
     pub shard_update_key: CachedShardUpdateKey,
     pub prev_block_context: PrepareTransactionsBlockContext,
@@ -153,7 +140,7 @@ impl PrepareTransactionsManager {
         inputs: PrepareTransactionsJobInputs,
     ) -> Arc<PrepareTransactionsJob> {
         let height = key.prev_block_context.height;
-        let shard_id = key.shard_id;
+        let shard_id = key.shard_uid.shard_id();
         assert!(key.prev_block_context == inputs.prev_block_context);
 
         // Cancel the existing job if it exists
@@ -172,7 +159,7 @@ impl PrepareTransactionsManager {
         key: PrepareTransactionsJobKey,
     ) -> Option<Arc<Result<PreparedTransactions, Error>>> {
         let height = key.prev_block_context.height;
-        let shard_id = key.shard_id;
+        let shard_id = key.shard_uid.shard_id();
 
         let Some((job_key, job)) = self.jobs.pop(&(height, shard_id)) else {
             return None;
@@ -180,11 +167,6 @@ impl PrepareTransactionsManager {
         if job_key != key {
             job.cancel();
             job.wait();
-            return None;
-        }
-        // If the job is not started by now, cancel it so prepare_transactions
-        // runs with the latest postprocessed block.
-        if job.cancel_if_not_started() {
             return None;
         }
         Some(job.wait())
