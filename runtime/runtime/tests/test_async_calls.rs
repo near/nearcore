@@ -1276,7 +1276,7 @@ fn test_refund_to() {
                 "promise_index": 0,
                 "method_name": "non_existing_function",
                 "arguments": [],
-                "amount": serde_json::to_string(&deposit).unwrap(),
+                "amount": deposit.as_yoctonear().to_string(),
                 "gas": GAS_2,
             },
             "id": 0
