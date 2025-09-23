@@ -1262,7 +1262,7 @@ fn test_refund_to() {
 
     let signer_sender = group.signers[0].clone();
     let signer_receiver = group.signers[1].clone();
-    let deposit = 1000;
+    let deposit = Balance::from_yoctonear(1000);
 
     let data = serde_json::json!([
         {
