@@ -387,7 +387,7 @@ impl CongestionInfo {
 
 /// The block congestion info contains the congestion info for all shards in the
 /// block extended with the missed chunks count.
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct BlockCongestionInfo {
     /// The per shard congestion info. It's important that the data structure is
     /// deterministic because the allowed shard id selection depends on the
