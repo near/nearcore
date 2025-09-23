@@ -70,8 +70,8 @@ fn test_cloud_archival_base() {
     let gc_tail = client.client.chain.chain_store().tail().unwrap();
     let cloud_head = cloud_archival_actor.get_cloud_head();
     assert!(cloud_head > gc_tail);
-    // TODO(cloud_archival) Fix GC for cloud archival (`get_gc_stop_height_impl()`) and uncomment the assert below.
-    //assert!(gc_tail > EPOCH_LENGTH);
+    // TODO(cloud_archival) Test GC if cloud archival is enabled but cold store is not
+    assert!(gc_tail > EPOCH_LENGTH);
 
     env.shutdown_and_drain_remaining_events(Duration::seconds(10));
 }

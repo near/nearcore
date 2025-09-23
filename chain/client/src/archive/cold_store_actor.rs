@@ -15,7 +15,7 @@ use near_store::archive::cold_storage::{
 use near_store::config::SplitStorageConfig;
 use near_store::db::ColdDB;
 use near_store::db::metadata::DbKind;
-use near_store::{DBCol, FINAL_HEAD_KEY, NodeStorage, Store, TAIL_KEY, set_genesis_height};
+use near_store::{DBCol, FINAL_HEAD_KEY, Store, TAIL_KEY, set_genesis_height};
 
 use crate::metrics;
 
@@ -197,7 +197,7 @@ impl ColdStoreActor {
 
         let batch_size = self.split_storage_config.cold_store_initial_migration_batch_size;
         match copy_all_data_to_cold(
-            self.cold_db.clone(),
+            self.get_cold_db(),
             &self.hot_store,
             batch_size,
             &self.keep_going,
@@ -382,6 +382,10 @@ impl ColdStoreActor {
         tracing::trace!(target: "cold_store", ?result, "ending");
         result
     }
+
+    pub fn get_cold_db(&self) -> Arc<ColdDB> {
+        self.cold_db.clone()
+    }
 }
 
 /// Creates the cold store actor and keep_going handle if cold store is configured.
@@ -391,7 +395,8 @@ pub fn create_cold_store_actor(
     save_trie_changes: Option<bool>,
     split_storage_config: &SplitStorageConfig,
     genesis_height: BlockHeight,
-    storage: &NodeStorage,
+    hot_store: Store,
+    cold_db: Option<&Arc<ColdDB>>,
     epoch_manager: Arc<EpochManagerHandle>,
     shard_tracker: ShardTracker,
 ) -> anyhow::Result<Option<(ColdStoreActor, Arc<AtomicBool>)>> {
@@ -399,8 +404,7 @@ pub fn create_cold_store_actor(
         tracing::debug!(target:"cold_store", "Not creating cold store actor because TrieChanges are not saved");
         return Ok(None);
     }
-    let hot_store = storage.get_hot_store();
-    let cold_db = match storage.cold_db() {
+    let cold_db = match cold_db {
         Some(cold_db) => cold_db.clone(),
         None => {
             tracing::debug!(target : "cold_store", "Not creating the cold store actor because cold store is not configured");
