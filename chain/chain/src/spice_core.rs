@@ -393,7 +393,12 @@ impl CoreStatementsProcessor {
         // garbage collected.
         let shard_layout = tracker.epoch_manager.get_shard_layout(block.header().epoch_id())?;
         if !shard_layout.shard_ids().any(|shard_id| shard_id == chunk_production_key.shard_id) {
-            tracing::error!(target: "spice_core", block_hash=?block.hash(), ?chunk_production_key, "endorsement's key is invalid: missing from related block");
+            tracing::error!(
+                target: "spice_core",
+                block_hash=?block.hash(),
+                ?chunk_production_key,
+                "endorsement's key is invalid: missing from related block",
+            );
             return Err(Error::InvalidChunkEndorsement);
         }
 
