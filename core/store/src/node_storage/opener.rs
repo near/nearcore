@@ -1,6 +1,6 @@
 use near_chain_configs::CloudStorageConfig;
 
-use crate::archive::cloud_storage::CloudStorageOpener;
+use crate::archive::cloud_storage::opener::CloudStorageOpener;
 use crate::config::StateSnapshotType;
 use crate::db::rocksdb::RocksDB;
 use crate::db::rocksdb::snapshot::{Snapshot, SnapshotError, SnapshotRemoveError};
