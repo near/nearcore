@@ -1,6 +1,6 @@
-use near_async::map_collect::MapCollect;
 use near_async::messaging::{self, CanSend, Handler, Sender};
 use near_async::{MultiSend, MultiSenderFrom};
+use near_chain::ApplyChunksIterationMode;
 use near_chain::chain::{BlockCatchUpRequest, BlockCatchUpResponse, do_apply_chunks};
 use near_o11y::span_wrapped_msg::{SpanWrapped, SpanWrappedMessageExt};
 use near_performance_metrics_macros::perf;
@@ -13,7 +13,7 @@ pub struct ClientSenderForSyncJobs {
 
 pub struct SyncJobsActor {
     client_sender: ClientSenderForSyncJobs,
-    apply_chunks_map_collect: MapCollect,
+    apply_chunks_iteration_mode: ApplyChunksIterationMode,
 }
 
 impl messaging::Actor for SyncJobsActor {}
@@ -28,15 +28,15 @@ impl Handler<BlockCatchUpRequest> for SyncJobsActor {
 impl SyncJobsActor {
     pub fn new(
         client_sender: ClientSenderForSyncJobs,
-        apply_chunks_map_collect: MapCollect,
+        apply_chunks_iteration_mode: ApplyChunksIterationMode,
     ) -> Self {
-        Self { client_sender, apply_chunks_map_collect }
+        Self { client_sender, apply_chunks_iteration_mode }
     }
 
     pub fn handle_block_catch_up_request(&mut self, msg: BlockCatchUpRequest) {
         tracing::debug!(target: "sync", ?msg);
         let results = do_apply_chunks(
-            self.apply_chunks_map_collect,
+            self.apply_chunks_iteration_mode,
             BlockToApply::Normal(msg.block_hash),
             msg.block_height,
             msg.work,

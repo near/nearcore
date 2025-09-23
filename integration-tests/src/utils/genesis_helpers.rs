@@ -1,4 +1,3 @@
-use near_async::map_collect::MapCollect;
 use near_async::messaging::{IntoMultiSender, noop};
 use near_async::time::Clock;
 use near_chain::spice_core::CoreStatementsProcessor;
@@ -41,7 +40,7 @@ fn genesis_header(genesis: &Genesis) -> BlockHeader {
         ChainConfig::test(),
         None,
         Default::default(),
-        MapCollect::Sequential,
+        Default::default(),
         MutableConfigValue::new(None, "validator_signer"),
         noop().into_multi_sender(),
         CoreStatementsProcessor::new_with_noop_senders(store.chain_store(), epoch_manager),
@@ -70,7 +69,7 @@ pub fn genesis_block(genesis: &Genesis) -> Arc<Block> {
         ChainConfig::test(),
         None,
         Default::default(),
-        MapCollect::Sequential,
+        Default::default(),
         MutableConfigValue::new(None, "validator_signer"),
         noop().into_multi_sender(),
         CoreStatementsProcessor::new_with_noop_senders(store.chain_store(), epoch_manager),

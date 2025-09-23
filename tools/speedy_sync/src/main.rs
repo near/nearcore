@@ -1,5 +1,4 @@
 use borsh::{BorshDeserialize, BorshSerialize};
-use near_async::map_collect::MapCollect;
 use near_async::messaging::{IntoMultiSender, noop};
 use near_chain::spice_core::CoreStatementsProcessor;
 use near_chain::types::{ChainConfig, Tip};
@@ -252,7 +251,6 @@ fn load_snapshot(load_cmd: LoadCmd) {
         epoch_manager.clone(),
     )
     .expect("could not create transaction runtime");
-    let apply_chunks_map_collect = MapCollect::Rayon;
     // This will initialize the database (add genesis block etc)
     let _chain = Chain::new(
         Clock::real(),
@@ -273,7 +271,7 @@ fn load_snapshot(load_cmd: LoadCmd) {
         },
         None,
         Default::default(),
-        apply_chunks_map_collect,
+        Default::default(),
         MutableConfigValue::new(None, "validator_signer"),
         noop().into_multi_sender(),
         CoreStatementsProcessor::new_with_noop_senders(store.chain_store(), epoch_manager),

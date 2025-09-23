@@ -49,7 +49,6 @@ use itertools::Itertools;
 use lru::LruCache;
 use near_async::futures::AsyncComputationSpawner;
 use near_async::futures::AsyncComputationSpawnerExt;
-use near_async::map_collect::MapCollect;
 use near_async::messaging::{IntoMultiSender, noop};
 use near_async::time::{Clock, Duration, Instant};
 use near_chain_configs::{MutableValidatorSigner, ProtocolVersionCheckConfig};
@@ -100,6 +99,7 @@ use near_store::adapter::chain_store::ChainStoreAdapter;
 use near_store::get_genesis_state_roots;
 use near_store::{DBCol, StateSnapshotConfig};
 use node_runtime::SignedValidPeriodTransactions;
+use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use std::cell::Cell;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fmt::{Debug, Formatter};
@@ -224,6 +224,15 @@ impl ApplyChunksResultCache {
 type BlockApplyChunksResult =
     (BlockToApply, Vec<(ShardId, CachedShardUpdateKey, Result<ShardUpdateResult, Error>)>);
 
+/// Parallel or sequential applying of chunks for tracked shards.
+/// Default behavior uses Rayon, but can be configured to use sequential processing for testing.
+#[derive(Clone, Copy, Debug, Default)]
+pub enum ApplyChunksIterationMode {
+    #[default]
+    Rayon,
+    Sequential,
+}
+
 /// Facade to the blockchain block processing and storage.
 /// Provides current view on the state according to the chain state.
 pub struct Chain {
@@ -254,8 +263,8 @@ pub struct Chain {
     apply_chunks_receiver: Receiver<BlockApplyChunksResult>,
     /// Used to spawn the apply chunks jobs.
     apply_chunks_spawner: Arc<dyn AsyncComputationSpawner>,
-    /// Used to parallelize shard updates when applying chunks.
-    apply_chunks_map_collect: MapCollect,
+    /// Used to decide whether to parallelize shard updates when applying chunks.
+    apply_chunks_iteration_mode: ApplyChunksIterationMode,
     pub apply_chunk_results_cache: ApplyChunksResultCache,
     /// Time when head was updated most recently.
     last_time_head_updated: Instant,
@@ -384,7 +393,7 @@ impl Chain {
             apply_chunks_sender: sc,
             apply_chunks_receiver: rc,
             apply_chunks_spawner: ApplyChunksSpawner::default().into_spawner(num_shards),
-            apply_chunks_map_collect: MapCollect::Rayon,
+            apply_chunks_iteration_mode: ApplyChunksIterationMode::default(),
             apply_chunk_results_cache: ApplyChunksResultCache::new(APPLY_CHUNK_RESULTS_CACHE_SIZE),
             last_time_head_updated: clock.now(),
             processed_hashes: LruCache::new(NonZeroUsize::new(PROCESSED_HASHES_POOL_SIZE).unwrap()),
@@ -408,7 +417,7 @@ impl Chain {
         chain_config: ChainConfig,
         snapshot_callbacks: Option<SnapshotCallbacks>,
         apply_chunks_spawner: ApplyChunksSpawner,
-        apply_chunks_map_collect: MapCollect,
+        apply_chunks_iteration_mode: ApplyChunksIterationMode,
         validator_signer: MutableValidatorSigner,
         resharding_sender: ReshardingSender,
         spice_core_processor: CoreStatementsProcessor,
@@ -553,7 +562,7 @@ impl Chain {
             apply_chunks_sender: sc,
             apply_chunks_receiver: rc,
             apply_chunks_spawner,
-            apply_chunks_map_collect,
+            apply_chunks_iteration_mode,
             apply_chunk_results_cache: ApplyChunksResultCache::new(APPLY_CHUNK_RESULTS_CACHE_SIZE),
             last_time_head_updated: clock.now(),
             pending_state_patch: Default::default(),
@@ -1716,11 +1725,11 @@ impl Chain {
     ) {
         let sc = self.apply_chunks_sender.clone();
         let clock = self.clock.clone();
-        let map_collect = self.apply_chunks_map_collect;
+        let iteration_mode = self.apply_chunks_iteration_mode;
         self.apply_chunks_spawner.spawn("apply_chunks", move || {
             let apply_all_chunks_start_time = clock.now();
             // do_apply_chunks runs `work` in parallel, but still waits for all of them to finish
-            let res = do_apply_chunks(map_collect, block.clone(), block_height, work);
+            let res = do_apply_chunks(iteration_mode, block.clone(), block_height, work);
             // If we encounter an error here, that means the receiver is deallocated and the client
             // thread is already shut down. The node is already crashed, so we can unwrap here
             metrics::APPLY_ALL_CHUNKS_TIME.with_label_values(&[block.as_ref()]).observe(
@@ -3730,17 +3739,27 @@ impl Chain {
     fields(%block_height, ?block)
 )]
 pub fn do_apply_chunks(
-    map_collect: MapCollect,
+    iteration_mode: ApplyChunksIterationMode,
     block: BlockToApply,
     block_height: BlockHeight,
     work: Vec<UpdateShardJob>,
 ) -> Vec<(ShardId, CachedShardUpdateKey, Result<ShardUpdateResult, Error>)> {
+    // Track all children using `parent_span`, as they may be processed in parallel.
     let parent_span = Span::current();
-    map_collect.map_collect(work, |(shard_id, cached_shard_update_key, task)| {
-        // As chunks can be processed in parallel, make sure they are all tracked as children of
-        // a single span.
-        (shard_id, cached_shard_update_key, task(&parent_span))
-    })
+    match iteration_mode {
+        ApplyChunksIterationMode::Sequential => work
+            .into_iter()
+            .map(|(shard_id, cached_shard_update_key, task)| {
+                (shard_id, cached_shard_update_key, task(&parent_span))
+            })
+            .collect(),
+        ApplyChunksIterationMode::Rayon => work
+            .into_par_iter()
+            .map(|(shard_id, cached_shard_update_key, task)| {
+                (shard_id, cached_shard_update_key, task(&parent_span))
+            })
+            .collect(),
+    }
 }
 
 pub fn collect_receipts<'a, T>(receipt_proofs: T) -> Vec<Receipt>

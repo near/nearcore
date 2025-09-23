@@ -6,11 +6,10 @@ use crate::Client;
 use crate::chunk_producer::ProduceChunkResult;
 use crate::client::CatchupState;
 use itertools::Itertools;
-use near_async::map_collect::MapCollect;
 use near_async::messaging::Sender;
 use near_chain::chain::{BlockCatchUpRequest, do_apply_chunks};
 use near_chain::test_utils::{wait_for_all_blocks_in_processing, wait_for_block_in_processing};
-use near_chain::{ChainStoreAccess, Provenance};
+use near_chain::{ApplyChunksIterationMode, ChainStoreAccess, Provenance};
 use near_client_primitives::types::Error;
 use near_primitives::bandwidth_scheduler::BandwidthRequests;
 use near_primitives::block::Block;
@@ -272,7 +271,7 @@ pub fn run_catchup(client: &mut Client) -> Result<(), Error> {
         let mut catchup_done = true;
         for msg in block_messages.write().drain(..) {
             let results = do_apply_chunks(
-                MapCollect::Sequential,
+                ApplyChunksIterationMode::Sequential,
                 BlockToApply::Normal(msg.block_hash),
                 msg.block_height,
                 msg.work,

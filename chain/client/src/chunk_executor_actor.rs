@@ -4,11 +4,11 @@ use std::sync::Arc;
 
 use near_async::futures::AsyncComputationSpawner;
 use near_async::futures::AsyncComputationSpawnerExt;
-use near_async::map_collect::MapCollect;
 use near_async::messaging::CanSend;
 use near_async::messaging::Handler;
 use near_async::messaging::IntoSender;
 use near_async::messaging::Sender;
+use near_chain::ApplyChunksIterationMode;
 use near_chain::ChainStoreAccess;
 use near_chain::chain::{
     NewChunkData, NewChunkResult, ShardContext, StorageContext, UpdateShardJob, do_apply_chunks,
@@ -73,7 +73,7 @@ pub struct ChunkExecutorActor {
     pub(crate) shard_tracker: ShardTracker,
     network_adapter: PeerManagerAdapter,
     apply_chunks_spawner: Arc<dyn AsyncComputationSpawner>,
-    apply_chunks_map_collect: MapCollect,
+    apply_chunks_iteration_mode: ApplyChunksIterationMode,
     myself_sender: Sender<ExecutorApplyChunksDone>,
     data_distributor_adapter: SpiceDataDistributorAdapter,
 
@@ -103,7 +103,7 @@ impl ChunkExecutorActor {
         core_processor: CoreStatementsProcessor,
         chunk_endorsement_tracker: Arc<ChunkEndorsementTracker>,
         apply_chunks_spawner: Arc<dyn AsyncComputationSpawner>,
-        apply_chunks_map_collect: MapCollect,
+        apply_chunks_iteration_mode: ApplyChunksIterationMode,
         myself_sender: Sender<ExecutorApplyChunksDone>,
         data_distributor_adapter: SpiceDataDistributorAdapter,
         save_latest_witnesses: bool,
@@ -115,7 +115,7 @@ impl ChunkExecutorActor {
             shard_tracker,
             network_adapter,
             apply_chunks_spawner,
-            apply_chunks_map_collect,
+            apply_chunks_iteration_mode,
             myself_sender,
             blocks_in_execution: HashSet::new(),
             genesis_hash,
@@ -421,11 +421,11 @@ impl ChunkExecutorActor {
         }
 
         let apply_done_sender = self.myself_sender.clone();
-        let map_collect = self.apply_chunks_map_collect;
+        let iteration_mode = self.apply_chunks_iteration_mode;
         self.apply_chunks_spawner.spawn("apply_chunks", move || {
             let block_hash = *block.hash();
             let apply_results = do_apply_chunks(
-                map_collect,
+                iteration_mode,
                 BlockToApply::Normal(block_hash),
                 block.header().height(),
                 jobs,
