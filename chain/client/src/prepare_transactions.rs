@@ -13,6 +13,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::optimistic_block::CachedShardUpdateKey;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{BlockHeight, ShardId};
+use near_store::adapter::StoreAdapter;
 use near_store::{ShardUId, TrieUpdate};
 use parking_lot::Mutex;
 
@@ -89,6 +90,19 @@ impl PrepareTransactionsJob {
         inputs: PrepareTransactionsJobInputs,
     ) -> Result<PreparedTransactions, Error> {
         let mut pool_guard = inputs.tx_pool.lock();
+
+        if let Ok(_hash) = inputs
+            .runtime_adapter
+            .store()
+            .chain_store()
+            .get_block_hash_by_height(inputs.prev_block_context.height)
+        {
+            return Err(Error::ChunkProducer(
+                "Block was already postprocessed before prepare_transactions job ran, skipping"
+                    .to_string(),
+            ));
+        }
+
         let (prepared, skipped) =
             if let Some(mut iter) = pool_guard.get_pool_iterator(inputs.shard_uid) {
                 inputs.runtime_adapter.prepare_transactions_extra(
