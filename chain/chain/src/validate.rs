@@ -141,9 +141,11 @@ pub fn validate_chunk_with_chunk_extra_and_receipts_root(
     chunk_header: &ShardChunkHeader,
     outgoing_receipts_root: &CryptoHash,
 ) -> Result<(), Error> {
+    println!("validating start");
     if *prev_chunk_extra.state_root() != chunk_header.prev_state_root() {
         return Err(Error::InvalidStateRoot);
     }
+    println!("validation of state root passed");
 
     if prev_chunk_extra.outcome_root() != chunk_header.prev_outcome_root() {
         return Err(Error::InvalidOutcomesProof);
