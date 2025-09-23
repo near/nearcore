@@ -368,10 +368,9 @@ pub(crate) fn prepare_contract(
     kind: VMKind,
 ) -> Result<Vec<u8>, PrepareError> {
     let lightly_steamed = PrepareContext::new(original_code, features, config).run()?;
-
-    if kind == VMKind::NearVm {
-        // Built-in near-vm code instruments code for itself.
-        return Ok(lightly_steamed);
+    match kind {
+        VMKind::NearVm | VMKind::NearVm2 => return Ok(lightly_steamed),
+        VMKind::Wasmer0 | VMKind::Wasmtime | VMKind::Wasmer2 => {}
     }
 
     let res = finite_wasm::Analysis::new()

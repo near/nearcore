@@ -10,6 +10,7 @@ use near_chain::resharding::resharding_actor::ReshardingActor;
 use near_chain_configs::{ClientConfig, Genesis};
 use near_chunks::shards_manager_actor::ShardsManagerActor;
 use near_client::archive::cloud_archival_actor::CloudArchivalActor;
+use near_client::archive::cold_store_actor::ColdStoreActor;
 use near_client::client_actor::ClientActorInner;
 use near_client::spice_data_distributor_actor::SpiceDataDistributorActor;
 use near_client::{PartialWitnessActor, RpcHandler, StateRequestActor, ViewClientActorInner};
@@ -22,7 +23,7 @@ use near_primitives::epoch_manager::EpochConfigStore;
 use near_primitives::network::PeerId;
 use near_primitives::types::AccountId;
 use near_primitives::upgrade_schedule::ProtocolUpgradeVotingSchedule;
-use near_store::Store;
+use near_store::test_utils::TestNodeStorage;
 use nearcore::state_sync::StateSyncDumper;
 use parking_lot::Mutex;
 use tempfile::TempDir;
@@ -63,8 +64,7 @@ pub struct SharedState {
 pub struct NodeSetupState {
     pub account_id: AccountId,
     pub client_config: ClientConfig,
-    pub store: Store,
-    pub split_store: Option<Store>,
+    pub storage: TestNodeStorage,
 }
 
 /// This is the state associated with each node in the test loop environment after being built.
@@ -85,6 +85,7 @@ pub struct NodeExecutionData {
     pub resharding_sender: TestLoopSender<ReshardingActor>,
     pub state_sync_dumper_handle: TestLoopDataHandle<StateSyncDumper>,
     pub spice_data_distributor_sender: TestLoopSender<SpiceDataDistributorActor>,
+    pub cold_store_sender: Option<TestLoopSender<ColdStoreActor>>,
     pub cloud_archival_sender: Option<TestLoopSender<CloudArchivalActor>>,
 }
 

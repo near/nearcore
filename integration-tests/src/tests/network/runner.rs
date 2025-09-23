@@ -33,6 +33,7 @@ use near_primitives::network::PeerId;
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::types::{AccountId, ValidatorId};
 use near_store::genesis::initialize_genesis_state;
+use near_store::test_utils::create_in_memory_rpc_node_storage;
 use near_telemetry::{TelemetryActor, TelemetryConfig};
 use nearcore::NightshadeRuntime;
 use std::collections::HashSet;
@@ -55,7 +56,7 @@ fn setup_network_node(
     chain_genesis: ChainGenesis,
     config: config::NetworkConfig,
 ) -> Addr<PeerManagerActor> {
-    let node_storage = near_store::test_utils::create_test_node_storage_default();
+    let node_storage = create_in_memory_rpc_node_storage();
     let num_validators = validators.len() as ValidatorId;
 
     let mut genesis = Genesis::test(validators, 1);
