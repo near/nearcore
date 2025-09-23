@@ -83,6 +83,8 @@ pub fn get_default_home() -> PathBuf {
 ///
 /// If opened storage is an RPC store and `near_config.config.archive` is true,
 /// converts the storage to archival node.
+// TODO(cloud_archival) There seems to be some legacy complexity around the
+// `archive` config option and `DbKind` — maybe it can be simplified.
 pub fn open_storage(home_dir: &Path, near_config: &NearConfig) -> anyhow::Result<NodeStorage> {
     let migrator = migrations::Migrator::new(near_config);
     let opener = NodeStorage::opener(
@@ -177,7 +179,10 @@ pub fn open_storage(home_dir: &Path, near_config: &NearConfig) -> anyhow::Result
         },
     }.with_context(|| format!("unable to open database at {}", opener.path().display()))?;
 
-    assert_eq!(near_config.config.archive, storage.is_archive()?);
+    assert_eq!(
+        near_config.config.archive,
+        storage.is_cold_archive()? || near_config.client_config.is_cloud_archival()
+    );
     Ok(storage)
 }
 
@@ -440,7 +445,7 @@ pub fn start_with_config_and_synchronization(
         epoch_manager.clone(),
         shard_tracker.clone(),
         config.client_config.gc.clone(),
-        config.client_config.archive,
+        storage.is_cold_archive()?,
     ));
 
     let resharding_handle = ReshardingHandle::new();

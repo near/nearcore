@@ -78,7 +78,7 @@ fn slow_test_view_requests_to_archival_node() {
         .genesis(genesis)
         .epoch_config_store(epoch_config_store)
         .clients(all_clients)
-        .archival_clients(archival_clients)
+        .split_store_archival_clients(archival_clients)
         .gc_num_epochs_to_keep(GC_NUM_EPOCHS_TO_KEEP)
         .build()
         .warmup();
