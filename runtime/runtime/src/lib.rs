@@ -1147,10 +1147,6 @@ impl Runtime {
                 }
             }
             VersionedReceiptEnum::Action(action_receipt) => {
-                // Received a new action receipt. We'll first check how many input data items
-                // were already received before and saved in the state.
-                // And if we have all input data, then we can immediately execute the receipt.
-                // If not, then we will postpone this receipt for later.
                 let executed = self.process_action_receipt(
                     receipt,
                     receipt_sink,
@@ -1229,6 +1225,10 @@ impl Runtime {
         Ok(None)
     }
 
+    /// Received a new action receipt. We'll first check how many input data items
+    /// were already received before and saved in the state.
+    /// And if we have all input data, then we can immediately execute the receipt.
+    /// If not, then we will postpone this receipt for later.
     fn process_action_receipt(
         &self,
         receipt: &Receipt,
