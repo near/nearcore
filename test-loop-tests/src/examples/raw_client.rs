@@ -4,6 +4,7 @@ use near_async::time::Duration;
 use near_chain::ChainGenesis;
 use near_chain::spice_core::CoreStatementsProcessor;
 use near_chain_configs::test_genesis::TestGenesisBuilder;
+use near_chain_configs::test_utils::TestClientConfigParams;
 use near_chain_configs::{ClientConfig, MutableConfigValue, TrackedShardsConfig};
 use near_chunks::shards_manager_actor::ShardsManagerActor;
 use near_client::client_actor::ClientActorInner;
@@ -37,15 +38,15 @@ fn test_raw_client_test_loop_setup() {
     init_test_logger();
     let mut test_loop = TestLoopV2::new();
 
-    let client_config = ClientConfig::test(
-        true,
-        MIN_BLOCK_PROD_TIME.whole_milliseconds() as u64,
-        MAX_BLOCK_PROD_TIME.whole_milliseconds() as u64,
-        4,
-        false,
-        true,
-        false,
-    );
+    let client_config = ClientConfig::test(TestClientConfigParams {
+        skip_sync_wait: true,
+        min_block_prod_time: MIN_BLOCK_PROD_TIME.whole_milliseconds() as u64,
+        max_block_prod_time: MAX_BLOCK_PROD_TIME.whole_milliseconds() as u64,
+        num_block_producer_seats: 4,
+        archive: false,
+        save_trie_changes: true,
+        state_sync_enabled: false,
+    });
 
     let validators_spec = create_validators_spec(1, 0);
     let validator_id = validators_spec_clients(&validators_spec).remove(0);

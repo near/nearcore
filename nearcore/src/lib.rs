@@ -325,7 +325,8 @@ pub fn start_with_config_and_synchronization(
         config.config.save_trie_changes,
         &config.config.split_storage.clone().unwrap_or_default(),
         config.genesis.config.genesis_height,
-        &storage,
+        storage.get_hot_store(),
+        storage.cold_db(),
         epoch_manager.clone(),
         shard_tracker.clone(),
     )?;

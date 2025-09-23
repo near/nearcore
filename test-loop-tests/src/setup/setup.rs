@@ -14,6 +14,7 @@ use near_chain::{ApplyChunksSpawner, ChainGenesis};
 use near_chain_configs::{CloudArchivalHandle, MutableConfigValue, ReshardingHandle};
 use near_chunks::shards_manager_actor::ShardsManagerActor;
 use near_client::archive::cloud_archival_actor::CloudArchivalActor;
+use near_client::archive::cold_store_actor::create_cold_store_actor;
 use near_client::chunk_executor_actor::ChunkExecutorActor;
 use near_client::client_actor::ClientActorInner;
 use near_client::gc_actor::GCActor;
@@ -33,6 +34,7 @@ use near_primitives::genesis::GenesisId;
 use near_primitives::network::PeerId;
 use near_primitives::test_utils::create_test_signer;
 use near_store::adapter::StoreAdapter;
+use near_store::config::SplitStorageConfig;
 use near_store::{StoreConfig, TrieConfig};
 use near_vm_runner::{ContractRuntimeCache, FilesystemContractRuntimeCache};
 use nearcore::state_sync::StateSyncDumper;
@@ -49,7 +51,7 @@ pub fn setup_client(
     node_state: NodeSetupState,
     shared_state: &SharedState,
 ) -> NodeExecutionData {
-    let NodeSetupState { account_id, client_config, store, split_store } = node_state;
+    let NodeSetupState { account_id, client_config, storage } = node_state;
     let SharedState {
         genesis,
         tempdir,
@@ -86,7 +88,7 @@ pub fn setup_client(
     let sync_jobs_actor = SyncJobsActor::new(client_adapter.as_multi_sender());
     let chain_genesis = ChainGenesis::new(&genesis.config);
     let epoch_manager = EpochManager::new_arc_handle_from_epoch_config_store(
-        store.clone(),
+        storage.hot_store.clone(),
         &genesis.config,
         epoch_config_store.clone(),
     );
@@ -94,7 +96,7 @@ pub fn setup_client(
     let contract_cache = FilesystemContractRuntimeCache::test().expect("filesystem contract cache");
     let runtime_adapter = NightshadeRuntime::test_with_trie_config(
         &homedir,
-        store.clone(),
+        storage.hot_store.clone(),
         ContractRuntimeCache::handle(&contract_cache),
         &genesis.config,
         epoch_manager.clone(),
@@ -178,7 +180,7 @@ pub fn setup_client(
     // versions of EpochManager, ShardTracker and RuntimeAdapter and use them to initialize the
     // ViewClientActorInner. Otherwise, we use the regular versions created above.
     let (view_epoch_manager, view_shard_tracker, view_runtime_adapter) =
-        if let Some(split_store) = &split_store {
+        if let Some(split_store) = &storage.split_store {
             let view_epoch_manager = EpochManager::new_arc_handle_from_epoch_config_store(
                 split_store.clone(),
                 &genesis.config,
@@ -234,7 +236,7 @@ pub fn setup_client(
         shard_tracker.clone(),
         network_adapter.as_sender(),
         client_adapter.as_sender(),
-        store.chunk_store(),
+        storage.hot_store.chunk_store(),
         <_>::clone(&head),
         <_>::clone(&header_head),
         Duration::milliseconds(100),
@@ -340,11 +342,30 @@ pub fn setup_client(
     // We don't send messages to `GCActor` so adapter is not needed.
     test_loop.data.register_actor(identifier, gc_actor, None);
 
+    let cold_store_sender = if storage.split_store.is_some() {
+        let (cold_store_actor, _) = create_cold_store_actor(
+            Some(client_config.save_trie_changes),
+            &SplitStorageConfig::default(),
+            genesis.config.genesis_height,
+            runtime_adapter.store().clone(),
+            storage.cold_db.as_ref(),
+            epoch_manager.clone(),
+            shard_tracker.clone(),
+        )
+        .unwrap()
+        .unwrap();
+        let sender = LateBoundSender::new();
+        let sender = test_loop.data.register_actor(identifier, cold_store_actor, Some(sender));
+        Some(sender)
+    } else {
+        None
+    };
+
     let cloud_archival_sender = if let Some(config) = &client_config.cloud_archival_writer {
         let cloud_archival_actor = CloudArchivalActor::new(
             config.clone(),
             genesis.config.genesis_height,
-            store,
+            storage.hot_store,
             genesis.config.genesis_height,
             CloudArchivalHandle::new(),
         );
@@ -490,6 +511,7 @@ pub fn setup_client(
         resharding_sender,
         state_sync_dumper_handle,
         spice_data_distributor_sender,
+        cold_store_sender,
         cloud_archival_sender,
     };
 
