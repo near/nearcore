@@ -287,9 +287,7 @@ impl ChunkProducer {
         let prepared_transactions = {
             #[cfg(feature = "test_features")]
             match self.adversarial.produce_mode {
-                Some(AdvProduceChunksMode::ProduceWithoutTx) => {
-                    PreparedTransactions { transactions: Vec::new(), limited_by: None }
-                }
+                Some(AdvProduceChunksMode::ProduceWithoutTx) => PreparedTransactions::empty(),
                 _ => match cached_transactions {
                     Some(txs) => txs,
                     None => self.prepare_transactions(
@@ -434,7 +432,11 @@ impl ChunkProducer {
                 while let Some(iter) = iter.next() {
                     res.push(iter.next().unwrap());
                 }
-                return Ok(PreparedTransactions { transactions: res, limited_by: None });
+                return Ok(PreparedTransactions {
+                    transactions: res,
+                    skipped: Vec::new(),
+                    limited_by: None,
+                });
             }
 
             let storage_config = RuntimeStorageConfig {
@@ -446,15 +448,17 @@ impl ChunkProducer {
             let prev_block_context =
                 PrepareTransactionsBlockContext::new(prev_block, &*self.epoch_manager)?;
             self.runtime_adapter.prepare_transactions(
-                storage_config,
+                storage_config.into(),
                 shard_id,
                 prev_block_context,
                 &mut iter,
                 chain_validate,
                 self.chunk_transactions_time_limit.get(),
+                Default::default(),
+                None,
             )?
         } else {
-            PreparedTransactions { transactions: Vec::new(), limited_by: None }
+            PreparedTransactions::empty()
         };
         // Reintroduce valid transactions back to the pool. They will be removed when the chunk is
         // included into the block.

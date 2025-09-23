@@ -4,9 +4,7 @@ use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 
 use near_async::time::Duration;
-use near_chain::types::{
-    PrepareTransactionsBlockContext, PreparedTransactions, RuntimeAdapter, SkippedTransactions,
-};
+use near_chain::types::{PrepareTransactionsBlockContext, PreparedTransactions, RuntimeAdapter};
 use near_chunks::client::ShardedTransactionPool;
 use near_client_primitives::types::Error;
 use near_primitives::hash::CryptoHash;
@@ -91,26 +89,22 @@ impl PrepareTransactionsJob {
             ));
         }
 
-        let (prepared, skipped) =
-            if let Some(mut iter) = pool_guard.get_pool_iterator(inputs.shard_uid) {
-                inputs.runtime_adapter.prepare_transactions_extra(
-                    inputs.state,
-                    inputs.shard_uid.shard_id(),
-                    inputs.prev_block_context,
-                    &mut iter,
-                    &inputs.tx_validity_period_check,
-                    inputs.prev_chunk_tx_hashes,
-                    inputs.time_limit,
-                    Some(self.cancel.clone()),
-                )?
-            } else {
-                (
-                    PreparedTransactions { transactions: Vec::new(), limited_by: None },
-                    SkippedTransactions(Vec::new()),
-                )
-            };
+        let prepared = if let Some(mut iter) = pool_guard.get_pool_iterator(inputs.shard_uid) {
+            inputs.runtime_adapter.prepare_transactions(
+                inputs.state.into(),
+                inputs.shard_uid.shard_id(),
+                inputs.prev_block_context,
+                &mut iter,
+                &inputs.tx_validity_period_check,
+                inputs.time_limit,
+                inputs.prev_chunk_tx_hashes,
+                Some(self.cancel.clone()),
+            )?
+        } else {
+            PreparedTransactions::empty()
+        };
         pool_guard.reintroduce_transactions(inputs.shard_uid, prepared.transactions.clone());
-        pool_guard.reintroduce_transactions(inputs.shard_uid, skipped.0);
+        pool_guard.reintroduce_transactions(inputs.shard_uid, prepared.skipped.clone());
         Ok(prepared)
     }
 }

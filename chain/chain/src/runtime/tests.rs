@@ -1585,7 +1585,7 @@ fn prepare_transactions(
     let next_epoch_id = env.epoch_manager.get_epoch_id_from_prev_block(&prev_hash)?;
 
     env.runtime.prepare_transactions(
-        storage_config,
+        storage_config.into(),
         shard_id,
         PrepareTransactionsBlockContext {
             next_gas_price: env.runtime.genesis_config.min_gas_price,
@@ -1601,6 +1601,8 @@ fn prepare_transactions(
                 .is_ok()
         },
         default_produce_chunk_add_transactions_time_limit(),
+        Default::default(),
+        None,
     )
 }
 

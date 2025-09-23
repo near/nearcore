@@ -299,6 +299,24 @@ impl RuntimeStorageConfig {
     }
 }
 
+/// State to use for preparing transactions.
+pub enum PrepareTransactionsState {
+    StorageConfig(RuntimeStorageConfig),
+    TrieUpdate(TrieUpdate),
+}
+
+impl From<TrieUpdate> for PrepareTransactionsState {
+    fn from(update: TrieUpdate) -> Self {
+        PrepareTransactionsState::TrieUpdate(update)
+    }
+}
+
+impl From<RuntimeStorageConfig> for PrepareTransactionsState {
+    fn from(config: RuntimeStorageConfig) -> Self {
+        PrepareTransactionsState::StorageConfig(config)
+    }
+}
+
 #[derive(Clone, Debug)]
 pub enum BlockType {
     Normal,
@@ -351,14 +369,18 @@ pub struct ApplyChunkShardContext<'a> {
 pub struct PreparedTransactions {
     /// Prepared transactions
     pub transactions: Vec<ValidatedTransaction>,
+    /// Transactions that were taken out of the pool in prepare_transactions,
+    /// but should be skipped because they were in skip_tx_hashes.
+    pub skipped: Vec<ValidatedTransaction>,
     /// Describes which limit was hit when preparing the transactions.
     pub limited_by: Option<PrepareTransactionsLimit>,
 }
 
-/// Transactions that were taken out of the pool in prepare_transactions,
-/// but should be skipped because they were in skip_tx_hashes.
-#[derive(Debug, Clone)]
-pub struct SkippedTransactions(pub Vec<ValidatedTransaction>);
+impl PreparedTransactions {
+    pub fn empty() -> Self {
+        Self { transactions: Vec::new(), skipped: Vec::new(), limited_by: None }
+    }
+}
 
 /// Chunk producer prepares transactions from the transaction pool
 /// until it hits some limit (too many transactions, too much gas used, etc).
@@ -455,31 +477,20 @@ pub trait RuntimeAdapter: Send + Sync {
     /// update is preserved for validation of next transactions.
     /// Throws an `Error` with `ErrorKind::StorageError` in case the runtime throws
     /// `RuntimeError::StorageError`.
-    fn prepare_transactions(
-        &self,
-        storage: RuntimeStorageConfig,
-        shard_id: ShardId,
-        prev_block: PrepareTransactionsBlockContext,
-        transaction_groups: &mut dyn TransactionGroupIterator,
-        chain_validate: &dyn Fn(&SignedTransaction) -> bool,
-        time_limit: Option<Duration>,
-    ) -> Result<PreparedTransactions, Error>;
-
-    /// prepare_transactions with extra options, used in early transaction preparation.
-    /// * takes TrieUpdate instead of RuntimeStorageConfig
+    /// * storage - defines the state to use for preparing transactions (can use TrieUpdate or RuntimeStorageConfig)
     /// * skip_tx_hashes - defines which transactions should be skipped. Used to skip transactions that were included in previous chunks.
     /// * cancel - can be used to cancel the preparation
-    fn prepare_transactions_extra(
+    fn prepare_transactions(
         &self,
-        storage: TrieUpdate,
+        storage: PrepareTransactionsState,
         shard_id: ShardId,
         prev_block: PrepareTransactionsBlockContext,
         transaction_groups: &mut dyn TransactionGroupIterator,
         chain_validate: &dyn Fn(&SignedTransaction) -> bool,
-        skip_tx_hashes: HashSet<CryptoHash>,
         time_limit: Option<Duration>,
+        skip_tx_hashes: HashSet<CryptoHash>,
         cancel: Option<Arc<AtomicBool>>,
-    ) -> Result<(PreparedTransactions, SkippedTransactions), Error>;
+    ) -> Result<PreparedTransactions, Error>;
 
     /// Returns true if the shard layout will change in the next epoch
     /// Current epoch is the epoch of the block after `parent_hash`
