@@ -10,7 +10,7 @@ use near_chain::state_snapshot_actor::{
     SnapshotCallbacks, StateSnapshotActor, get_delete_snapshot_callback, get_make_snapshot_callback,
 };
 use near_chain::types::RuntimeAdapter;
-use near_chain::{ApplyChunksSpawner, ChainGenesis};
+use near_chain::{ApplyChunksIterationMode, ApplyChunksSpawner, ChainGenesis};
 use near_chain_configs::{CloudArchivalHandle, MutableConfigValue, ReshardingHandle};
 use near_chunks::shards_manager_actor::ShardsManagerActor;
 use near_client::archive::cloud_archival_actor::CloudArchivalActor;
@@ -85,7 +85,9 @@ pub fn setup_client(
         ..Default::default()
     };
 
-    let sync_jobs_actor = SyncJobsActor::new(client_adapter.as_multi_sender());
+    let apply_chunks_iteration_mode = ApplyChunksIterationMode::Sequential;
+    let sync_jobs_actor =
+        SyncJobsActor::new(client_adapter.as_multi_sender(), apply_chunks_iteration_mode);
     let chain_genesis = ChainGenesis::new(&genesis.config);
     let epoch_manager = EpochManager::new_arc_handle_from_epoch_config_store(
         storage.hot_store.clone(),
@@ -165,6 +167,7 @@ pub fn setup_client(
         [0; 32],
         Some(snapshot_callbacks),
         multi_spawner,
+        apply_chunks_iteration_mode,
         partial_witness_adapter.as_multi_sender(),
         resharding_sender.as_multi_sender(),
         Arc::new(test_loop.future_spawner(identifier)),
@@ -393,6 +396,7 @@ pub fn setup_client(
         spice_chunk_validator_adapter.as_sender(),
     );
 
+    let apply_chunks_iteration_mode = ApplyChunksIterationMode::Sequential;
     let chunk_executor_actor = ChunkExecutorActor::new(
         runtime_adapter.store().clone(),
         &chain_genesis,
@@ -404,6 +408,7 @@ pub fn setup_client(
         spice_core_processor.clone(),
         client_actor.client.chunk_endorsement_tracker.clone(),
         Arc::new(test_loop.async_computation_spawner(identifier, |_| Duration::milliseconds(80))),
+        apply_chunks_iteration_mode,
         chunk_executor_adapter.as_sender(),
         spice_data_distributor_adapter.as_multi_sender(),
         client_config.save_latest_witnesses,
