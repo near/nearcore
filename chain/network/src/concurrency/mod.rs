@@ -4,7 +4,6 @@ pub mod demux;
 pub mod rate;
 pub mod rayon;
 pub mod runtime;
-mod signal;
 
 #[cfg(test)]
 mod tests;
