@@ -1323,8 +1323,11 @@ impl Chain {
                 state_patch: SandboxStatePatch::default(),
             };
 
-            let cached_shard_update_key =
-                Self::get_cached_shard_update_key(&block_context, &chunks, shard_id)?;
+            let cached_shard_update_key = Self::get_cached_shard_update_key(
+                &block_context.to_key_source(),
+                &chunks,
+                shard_id,
+            )?;
             shard_update_keys.push(cached_shard_update_key);
             let job = self.get_update_shard_job(
                 cached_shard_update_key,
@@ -3049,8 +3052,11 @@ impl Chain {
                 chunk_header.is_new_chunk(),
             )?;
 
-            let cached_shard_update_key =
-                Self::get_cached_shard_update_key(&block_context, chunk_headers, shard_id)?;
+            let cached_shard_update_key = Self::get_cached_shard_update_key(
+                &block_context.to_key_source(),
+                chunk_headers,
+                shard_id,
+            )?;
             update_shard_args.push((block_context, cached_shard_update_key));
         }
 
@@ -3147,7 +3153,7 @@ impl Chain {
     /// Get a key which can uniquely define result of applying a chunk based on
     /// block execution context and other chunks.
     pub fn get_cached_shard_update_key(
-        block_context: &ApplyChunkBlockContext,
+        block: &OptimisticBlockKeySource,
         chunk_headers: &Chunks,
         shard_id: ShardId,
     ) -> Result<CachedShardUpdateKey, Error> {
@@ -3155,12 +3161,6 @@ impl Chain {
             size_of::<CryptoHash>() + size_of::<CryptoHash>() + size_of::<u64>();
 
         let mut bytes: Vec<u8> = Vec::with_capacity(BYTES_LEN);
-        let block = OptimisticBlockKeySource {
-            height: block_context.height,
-            prev_block_hash: block_context.prev_block_hash,
-            block_timestamp: block_context.block_timestamp,
-            random_seed: block_context.random_seed,
-        };
         bytes.extend_from_slice(&hash(&borsh::to_vec(&block)?).0);
 
         let chunks_key_source: Vec<_> = chunk_headers.iter_raw().map(|c| c.chunk_hash()).collect();

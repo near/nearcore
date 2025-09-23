@@ -385,8 +385,11 @@ impl ChunkExecutorActor {
             let storage_context =
                 StorageContext { storage_data_source: StorageDataSource::Db, state_patch };
 
-            let cached_shard_update_key =
-                Chain::get_cached_shard_update_key(&block_context, chunk_headers, shard_id)?;
+            let cached_shard_update_key = Chain::get_cached_shard_update_key(
+                &block_context.to_key_source(),
+                chunk_headers,
+                shard_id,
+            )?;
 
             let job = self.get_update_shard_job(
                 cached_shard_update_key,
