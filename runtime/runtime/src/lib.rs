@@ -916,7 +916,7 @@ impl Runtime {
             // enough balance to cover the difference, then the remaining balance is considered
             // the deficit and it's reported in the stats for the balance checker.
             gas_deficit_amount = safe_gas_to_balance(
-                current_gas_price.checked_sub(action_receipt.gas_price()).unwrap()(),
+                current_gas_price.checked_sub(action_receipt.gas_price()).unwrap(),
                 result.gas_burnt,
             )?;
             if gas_balance_refund >= gas_deficit_amount {
@@ -1015,7 +1015,7 @@ impl Runtime {
         if current_gas_price > action_receipt.gas_price() {
             // price increased, burning resulted in a deficit
             gas_refund_result.price_deficit = safe_gas_to_balance(
-                current_gas_price.checked_sub(action_receipt.gas_price()).unwrap()(),
+                current_gas_price.checked_sub(action_receipt.gas_price()).unwrap(),
                 result.gas_burnt,
             )?;
         } else {
