@@ -1311,7 +1311,6 @@ fn test_refund_to() {
 
     println!("{:?}", group.executed_receipts);
 
-
     use near_primitives::transaction::*;
     let [r0] = &*assert_receipts!(group, signed_transaction) else {
         panic!("Incorrect number of produced receipts")
