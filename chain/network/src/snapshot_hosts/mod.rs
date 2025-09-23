@@ -290,19 +290,19 @@ impl SnapshotHostsCache {
 
         // Verify the signatures in parallel.
         // Verification will stop at the first encountered error.
-        let (data, verification_result) = concurrency::rayon::run(move || {
-            concurrency::rayon::try_map_result(new_data.into_values().par_bridge(), |d| {
-                match d.verify() {
-                    Ok(()) => Ok(d),
-                    Err(err) => Err(err),
-                }
-            })
-        })
-        .await;
-        match verification_result {
-            Ok(()) => (data, None),
-            Err(err) => (data, Some(SnapshotHostInfoError::VerificationError(err))),
+        let start_time = std::time::Instant::now();
+        let mut verified = Vec::new();
+        for d in new_data.values() {
+            if let Err(err) = d.verify() {
+                let elapsed = std::time::Instant::now() - start_time;
+                tracing::error!("SnapshotHostInfo signature verification took {:?}", elapsed);
+                return (verified, Some(SnapshotHostInfoError::VerificationError(err)));
+            }
+            verified.push(d.clone());
         }
+        let elapsed = std::time::Instant::now() - start_time;
+        tracing::error!("SnapshotHostInfo signature verification took {:?}", elapsed);
+        (verified, None)
     }
 
     /// Verifies the signatures and inserts verified data to the cache.

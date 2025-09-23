@@ -35,6 +35,7 @@ use near_primitives::validator_signer::ValidatorSigner;
 use rayon::iter::ParallelBridge;
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::Instant;
 
 #[cfg(test)]
 mod tests;
@@ -259,19 +260,19 @@ impl AccountDataCache {
 
         // Verify the signatures in parallel.
         // Verification will stop at the first encountered error.
-        let (data, ok) = concurrency::rayon::run(move || {
-            concurrency::rayon::try_map(new_data.into_values().par_bridge(), |d| {
-                match d.payload().verify(&d.account_key) {
-                    Ok(()) => Some(d),
-                    Err(()) => None,
-                }
-            })
-        })
-        .await;
-        if !ok {
-            return (data, Some(AccountDataError::InvalidSignature));
+        let start_time = Instant::now();
+        let mut verified = Vec::new();
+        for d in new_data.values() {
+            if d.payload().verify(&d.account_key).is_err() {
+                let elapsed = Instant::now() - start_time;
+                tracing::error!("AccountData signature verification took {:?}", elapsed);
+                return (verified, Some(AccountDataError::InvalidSignature));
+            }
+            verified.push(d.clone());
         }
-        (data, None)
+        let elapsed = Instant::now() - start_time;
+        tracing::error!("AccountData signature verification took {:?}", elapsed);
+        (verified, None)
     }
 
     pub fn set_local(
