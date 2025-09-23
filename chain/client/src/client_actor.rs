@@ -74,7 +74,6 @@ use near_primitives::block_header::ApprovalType;
 use near_primitives::epoch_info::RngSeed;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
-use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::types::{AccountId, BlockHeight};
 use near_primitives::unwrap_or_return;
 use near_primitives::utils::MaybeValidated;
@@ -1328,6 +1327,10 @@ impl ClientActorInner {
     /// Receive the PostStateReadyMessage which contains data needed to start preparing transactions for the next height.
     fn handle_on_post_state_ready(&mut self, msg: PostStateReadyMessage) {
         tracing::trace!(target: "client", ?msg, "Received PostStateReadyMessage");
+
+        if !self.client.config.enable_early_prepare_transactions {
+            return;
+        }
 
         let tx_validity_period_check = self.client.chain.early_prepare_transaction_validity_check(
             msg.prev_block_context.height,

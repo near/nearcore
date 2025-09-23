@@ -410,6 +410,13 @@ pub struct Config {
     ///
     /// Use [`Self::contract_cache_path()`] to access this field.
     pub(crate) contract_cache_path: Option<PathBuf>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    /// If true, transactions for the next chunk will be prepared early, right after the previous chunk's
+    /// post-state is ready. This can help produce chunks faster, for high-throughput chains.
+    /// The current implementation increases latency on low-load chains, which will be fixed in the future.
+    /// The default is disabled.
+    pub enable_early_prepare_transactions: Option<bool>,
 }
 
 fn is_false(value: &bool) -> bool {
@@ -475,6 +482,7 @@ impl Default for Config {
             save_invalid_witnesses: false,
             transaction_request_handler_threads: 4,
             protocol_version_check_config_override: None,
+            enable_early_prepare_transactions: None,
         }
     }
 }
@@ -750,6 +758,10 @@ impl NearConfig {
                 protocol_version_check: config
                     .protocol_version_check_config_override
                     .unwrap_or(ProtocolVersionCheckConfig::NextNext),
+                // Enabled by default for tests.
+                enable_early_prepare_transactions: config
+                    .enable_early_prepare_transactions
+                    .unwrap_or(cfg!(feature = "test_features")),
             },
             #[cfg(feature = "tx_generator")]
             tx_generator: config.tx_generator,
