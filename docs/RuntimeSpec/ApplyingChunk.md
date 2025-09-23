@@ -19,9 +19,9 @@ and produces following outputs:
 
 ## Processing order
 
-* If this is first block of an epoch, dispense [epoch rewards](../Economics/Economic.md#validator-rewards-calculation) to validators (in order of *validator_accounts_update.stake_info*)
+* If this is first block of an epoch, dispense [epoch rewards](../Economics/Economics.md#validator-rewards-calculation) to validators (in order of *validator_accounts_update.stake_info*)
 * Slash locked balance for malicious behavior (in order of *validator_accounts_update.slashing_info*)
-* If [treasury account](../Economics/Economic.md#protocol-treasury) was not one of validators and this is first block of an epoch, dispense treasury account reward
+* If [treasury account](../Economics/Economics.md#protocol-treasury) was not one of validators and this is first block of an epoch, dispense treasury account reward
 * If this is first block of new version or first block with chunk of new version, apply corresponding migrations
 * If this block do not have chunk for this shard, end process early
 * Process [transactions](Transactions.md) (in order of *transactions*)
