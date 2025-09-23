@@ -7,8 +7,7 @@ use itertools::Itertools;
 use near_async::futures::{AsyncComputationSpawner, AsyncComputationSpawnerExt};
 use near_async::time::{Clock, Duration, Instant};
 use near_chain::types::{
-    ApplyChunkBlockContext, BlockType, PrepareTransactionsBlockContext, PreparedTransactions,
-    RuntimeAdapter, RuntimeStorageConfig,
+    PrepareTransactionsBlockContext, PreparedTransactions, RuntimeAdapter, RuntimeStorageConfig,
 };
 use near_chain::{Block, Chain, ChainStore};
 use near_chain_configs::MutableConfigValue;
@@ -18,11 +17,11 @@ use near_client_primitives::types::Error;
 use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_assignment::shard_id_to_uid;
 use near_pool::types::TransactionGroupIterator;
-use near_primitives::bandwidth_scheduler::{BandwidthRequests, BlockBandwidthRequests};
+use near_primitives::bandwidth_scheduler::BandwidthRequests;
 use near_primitives::epoch_info::RngSeed;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{MerklePath, merklize};
-use near_primitives::optimistic_block::CachedShardUpdateKey;
+use near_primitives::optimistic_block::{CachedShardUpdateKey, OptimisticBlockKeySource};
 use near_primitives::receipt::Receipt;
 use near_primitives::sharding::{ShardChunkHeader, ShardChunkWithEncoding};
 use near_primitives::stateless_validation::ChunkProductionKey;
@@ -615,18 +614,14 @@ impl ChunkProducer {
         shard_uid: ShardUId,
     ) -> Result<Option<PreparedTransactions>, Error> {
         let chunks = prev_block.chunks();
-        let prev_block_context = ApplyChunkBlockContext {
-            block_type: BlockType::Optimistic, // ignored
+        let prev_block_context = OptimisticBlockKeySource {
             height: prev_block.header().height(),
             prev_block_hash: *prev_block.header().prev_hash(),
             block_timestamp: prev_block.header().raw_timestamp(),
-            gas_price: Default::default(), // ignored, why?
             random_seed: *prev_block.header().random_value(),
-            congestion_info: Default::default(), // ignored, taken from chunk headers
-            bandwidth_requests: BlockBandwidthRequests::empty(), // ignored, taken from chunk headers
         };
         let shard_id = shard_uid.shard_id();
-        let prev_chunk_shard_update_key: CachedShardUpdateKey =
+        let prev_chunk_shard_update_key =
             Chain::get_cached_shard_update_key(&prev_block_context, &chunks, shard_id).unwrap();
 
         let prepare_job_key = PrepareTransactionsJobKey {
