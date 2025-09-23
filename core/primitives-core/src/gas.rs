@@ -30,7 +30,7 @@ pub struct Gas(NearGas);
 impl Gas {
     /// Maximum value for Gas (u64::MAX)
     pub const MAX: Gas = Gas::from_gas(u64::MAX);
-    /// Zero value for Gas
+    /// Zero value for Gas (0)
     pub const ZERO: Gas = Gas::from_gas(0);
 
     /// Creates a new `Gas` from the specified number of whole tera Gas.
