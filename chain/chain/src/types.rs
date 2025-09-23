@@ -385,6 +385,7 @@ pub enum PrepareTransactionsLimit {
 
 /// Information used to prepare transactions, based on the previous block.
 /// When preparing transactions for height H, H is the "current" block and H-1 is the "previous" block.
+#[derive(Clone, Eq, PartialEq)]
 pub struct PrepareTransactionsBlockContext {
     /// Gas price in the current block
     pub next_gas_price: Balance,
