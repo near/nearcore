@@ -1062,6 +1062,7 @@ mod tests {
             ChainConfig::test(),
             None,
             Default::default(),
+            Default::default(),
             validator_signer,
             noop().into_multi_sender(),
             CoreStatementsProcessor::new_with_noop_senders(

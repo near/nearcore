@@ -22,11 +22,12 @@ use near_chain_configs::{
 };
 use near_client_primitives::types::{ShardSyncStatus, StateSyncStatus};
 use near_epoch_manager::EpochManagerAdapter;
+use near_network::client::StateResponse;
 use near_network::types::{PeerManagerMessageRequest, PeerManagerMessageResponse};
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
 use near_primitives::state_part::StatePart;
-use near_primitives::state_sync::{ShardStateSyncResponse, ShardStateSyncResponseHeader};
+use near_primitives::state_sync::ShardStateSyncResponseHeader;
 use near_primitives::types::ShardId;
 use near_store::Store;
 use network::{StateSyncDownloadSourcePeer, StateSyncDownloadSourcePeerSharedState};
@@ -198,11 +199,9 @@ impl StateSync {
     pub fn apply_peer_message(
         &self,
         peer_id: PeerId,
-        shard_id: ShardId,
-        sync_hash: CryptoHash,
-        data: ShardStateSyncResponse,
+        msg: StateResponse,
     ) -> Result<(), near_chain::Error> {
-        self.peer_source_state.lock().receive_peer_message(peer_id, shard_id, sync_hash, data)?;
+        self.peer_source_state.lock().receive_peer_message(peer_id, msg)?;
         Ok(())
     }
 

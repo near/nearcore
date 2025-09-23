@@ -366,6 +366,18 @@ impl<'a> VMLogic<'a> {
         Ok(())
     }
 
+    pub fn finite_wasm_gas_exhausted(&mut self) -> Result<()> {
+        // Burn all remaining gas
+        self.gas(self.result_state.gas_counter.remaining_gas())?;
+        // This function will only ever be called by instrumentation on overflow, otherwise
+        // `finite_wasm_gas` will be called with the out-of-budget charge
+        Err(VMLogicError::HostError(HostError::IntegerOverflow))
+    }
+
+    pub fn finite_wasm_stack_exhausted(&mut self) -> Result<()> {
+        Err(VMLogicError::HostError(HostError::MemoryAccessViolation))
+    }
+
     // #################
     // # Registers API #
     // #################
@@ -2096,6 +2108,46 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
         let new_receipt_idx = self.ext.create_action_receipt(receipt_dependencies, account_id)?;
 
         self.checked_push_promise(Promise::Receipt(new_receipt_idx))
+    }
+
+    /// Sets the `refund_to` field on the promise
+    ///
+    /// # Errors
+    ///
+    /// * If `promise_idx` does not correspond to an existing promise returns `InvalidPromiseIndex`;
+    /// * If `account_id_len + account_id_ptr` points outside the memory of the guest or host
+    /// returns `MemoryAccessViolation`.
+    /// * If called as view function returns `ProhibitedInView`.
+    ///
+    /// # Cost
+    ///
+    /// `base + cost of reading and decoding the account id`
+    pub fn promise_set_refund_to(
+        &mut self,
+        promise_idx: u64,
+        account_id_len: u64,
+        account_id_ptr: u64,
+    ) -> Result<()> {
+        self.result_state.gas_counter.pay_base(base)?;
+        if self.context.is_view() {
+            return Err(HostError::ProhibitedInView {
+                method_name: "promise_set_refund_to".to_string(),
+            }
+            .into());
+        }
+        let refund_to = self.read_and_parse_account_id(account_id_ptr, account_id_len)?;
+        let promise = self
+            .promises
+            .get(promise_idx as usize)
+            .ok_or(HostError::InvalidPromiseIndex { promise_idx })?;
+
+        let receipt_idx = match &promise {
+            Promise::Receipt(receipt_idx) => Ok(*receipt_idx),
+            Promise::NotReceipt(_) => Err(HostError::CannotSetRefundToOnJointPromise),
+        }?;
+
+        self.ext.set_refund_to(receipt_idx, refund_to);
+        Ok(())
     }
 
     /// Helper function to return the receipt index corresponding to the given promise index.

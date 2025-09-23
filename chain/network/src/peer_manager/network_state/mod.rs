@@ -2,7 +2,7 @@ use crate::accounts_data::{AccountDataCache, AccountDataError};
 use crate::announce_accounts::AnnounceAccountCache;
 use crate::client::{
     BlockApproval, ChunkEndorsementMessage, ClientSenderForNetwork, ProcessTxRequest,
-    TxStatusRequest, TxStatusResponse,
+    StateResponse, StateResponseReceived, TxStatusRequest, TxStatusResponse,
 };
 use crate::concurrency::demux;
 use crate::concurrency::runtime::Runtime;
@@ -23,6 +23,9 @@ use crate::routing::NetworkTopologyChange;
 use crate::routing::route_back_cache::RouteBackCache;
 use crate::shards_manager::ShardsManagerRequestFromNetwork;
 use crate::snapshot_hosts::{SnapshotHostInfoError, SnapshotHostsCache};
+use crate::spice_data_distribution::{
+    SpiceDataDistributorSenderForNetwork, SpiceIncomingPartialData,
+};
 use crate::state_witness::{
     ChunkContractAccessesMessage, ChunkStateWitnessAckMessage, ContractCodeRequestMessage,
     ContractCodeResponseMessage, PartialEncodedContractDeploysMessage,
@@ -113,6 +116,7 @@ pub(crate) struct NetworkState {
     pub peer_manager_adapter: PeerManagerSenderForNetwork,
     pub shards_manager_adapter: Sender<ShardsManagerRequestFromNetwork>,
     pub partial_witness_adapter: PartialWitnessSenderForNetwork,
+    pub spice_data_distributor_adapter: SpiceDataDistributorSenderForNetwork,
 
     /// Network-related info about the chain.
     pub chain_info: ArcSwap<Option<ChainInfo>>,
@@ -191,6 +195,7 @@ impl NetworkState {
         shards_manager_adapter: Sender<ShardsManagerRequestFromNetwork>,
         partial_witness_adapter: PartialWitnessSenderForNetwork,
         whitelist_nodes: Vec<WhitelistNode>,
+        spice_data_distributor_adapter: SpiceDataDistributorSenderForNetwork,
     ) -> Self {
         Self {
             runtime: Runtime::new(),
@@ -239,6 +244,7 @@ impl NetworkState {
             config,
             created_at: clock.now(),
             tier1_advertise_proxies_mutex: tokio::sync::Mutex::new(()),
+            spice_data_distributor_adapter,
         }
     }
 
@@ -775,6 +781,11 @@ impl NetworkState {
                     self.partial_witness_adapter.send(ContractCodeResponseMessage(response));
                     None
                 }
+                T1MessageBody::SpicePartialData(spice_partial_data) => {
+                    self.spice_data_distributor_adapter
+                        .send(SpiceIncomingPartialData { data: spice_partial_data });
+                    None
+                }
             },
             TieredMessageBody::T2(body) => match *body {
                 T2MessageBody::TxStatusRequest(account_id, tx_hash) => self
@@ -855,6 +866,19 @@ impl NetworkState {
                 T2MessageBody::PartialEncodedContractDeploys(deploys) => {
                     self.partial_witness_adapter
                         .send(PartialEncodedContractDeploysMessage(deploys));
+                    None
+                }
+                T2MessageBody::StateRequestAck(ack) => {
+                    self.client
+                        .send_async(
+                            StateResponseReceived {
+                                peer_id: msg_author,
+                                state_response: StateResponse::Ack(ack),
+                            }
+                            .span_wrap(),
+                        )
+                        .await
+                        .ok();
                     None
                 }
                 body => {

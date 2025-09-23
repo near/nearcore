@@ -38,7 +38,16 @@ pub use profile::ProfileDataV3;
 pub use runner::{Contract, PreparedContract, VM, prepare, run};
 
 #[cfg(any(feature = "prepare", feature = "wasmtime_vm"))]
-pub(crate) const MEMORY_EXPORT: &str = "\0nearcore_memory";
+pub(crate) const MEMORY_EXPORT: &str = "memory";
+
+#[cfg(any(feature = "prepare", feature = "wasmtime_vm"))]
+pub(crate) const REMAINING_GAS_EXPORT: &str = "remaining_gas";
+
+#[cfg(any(feature = "prepare", feature = "wasmtime_vm"))]
+pub(crate) const START_EXPORT: &str = "start";
+
+#[cfg(any(feature = "prepare", feature = "wasmtime_vm"))]
+pub(crate) const EXPORT_PREFIX: &str = "\0";
 
 /// This is public for internal experimentation use only, and should otherwise be considered an
 /// implementation detail of `near-vm-runner`.

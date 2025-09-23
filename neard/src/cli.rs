@@ -337,6 +337,9 @@ pub(super) struct InitCmd {
     /// from genesis configuration will be taken.
     #[clap(long)]
     max_gas_burnt_view: Option<Gas>,
+    /// Specify the cloud bucket to use for state sync.
+    #[clap(long)]
+    state_sync_bucket: Option<String>,
 }
 
 /// Warns if unsupported build of the executable is used on mainnet or testnet.
@@ -407,6 +410,7 @@ impl InitCmd {
             self.download_config_url.as_deref(),
             self.boot_nodes.as_deref(),
             self.max_gas_burnt_view,
+            self.state_sync_bucket.as_deref(),
         )
         .context("Failed to initialize configs")
     }

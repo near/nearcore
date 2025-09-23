@@ -5,6 +5,7 @@ use near_async::messaging::Handler;
 use near_async::messaging::IntoSender;
 use near_async::messaging::Sender;
 use near_async::time::Clock;
+use near_chain::ApplyChunksIterationMode;
 use near_chain::ChainStoreAccess;
 use near_chain::spice_core::CoreStatementsProcessor;
 use near_chain::spice_core::ExecutionResultEndorsed;
@@ -107,7 +108,6 @@ impl TestActor {
 
         let chain_genesis = ChainGenesis::new(&genesis.config);
         let runtime = chain.runtime_adapter.clone();
-        let genesis_hash = *chain.genesis().hash();
 
         let spice_core_processor = CoreStatementsProcessor::new_with_noop_senders(
             runtime.store().chain_store(),
@@ -161,7 +161,6 @@ impl TestActor {
         let actor = ChunkExecutorActor::new(
             runtime.store().clone(),
             &chain_genesis,
-            genesis_hash,
             runtime.clone(),
             epoch_manager,
             shard_tracker,
@@ -170,6 +169,7 @@ impl TestActor {
             spice_core_processor,
             chunk_endorsement_tracker,
             Arc::new(spawner),
+            ApplyChunksIterationMode::Sequential,
             chunk_executor_adapter,
             data_distributor_adapter,
             save_latest_witnesses,

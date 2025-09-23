@@ -11,11 +11,12 @@ use near_chain::resharding::types::ReshardingSender;
 use near_chain::spice_core::CoreStatementsProcessor;
 use near_chain::state_snapshot_actor::SnapshotCallbacks;
 use near_chain::types::{ChainConfig, RuntimeAdapter};
-use near_chain::{Chain, ChainGenesis, DoomslugThresholdMode};
+use near_chain::{ApplyChunksIterationMode, Chain, ChainGenesis, DoomslugThresholdMode};
 
 use near_async::ActorSystem;
 use near_async::multithread::MultithreadRuntimeHandle;
 use near_async::tokio::TokioRuntimeHandle;
+use near_chain_configs::test_utils::TestClientConfigParams;
 use near_chain_configs::{
     ChunkDistributionNetworkConfig, ClientConfig, Genesis, MutableConfigValue,
     MutableValidatorSigner, ProtocolVersionCheckConfig, ReshardingConfig, ReshardingHandle,
@@ -26,7 +27,7 @@ use near_chunks::client::ShardsManagerResponse;
 use near_chunks::shards_manager_actor::{ShardsManagerActor, start_shards_manager};
 use near_chunks::test_utils::SynchronousShardsManagerAdapter;
 use near_client::adversarial::Controls;
-use near_client::client_actor::ClientActorInner;
+use near_client::client_actor::{ClientActorInner, SpiceClientConfig};
 use near_client::spawn_rpc_handler_actor;
 use near_client::{
     AsyncComputationMultiSpawner, ChunkValidationActorInner, ChunkValidationSender,
@@ -143,15 +144,15 @@ fn setup(
     let telemetry =
         TelemetryActor::spawn_tokio_actor(actor_system.clone(), TelemetryConfig::default());
     let config = {
-        let mut base = ClientConfig::test(
+        let mut base = ClientConfig::test(TestClientConfigParams {
             skip_sync_wait,
             min_block_prod_time,
             max_block_prod_time,
-            num_validator_seats,
+            num_block_producer_seats: num_validator_seats,
             archive,
-            true,
+            save_trie_changes: true,
             state_sync_enabled,
-        );
+        });
         base.chunk_distribution_network = chunk_distribution_config;
         base
     };
@@ -224,6 +225,15 @@ fn setup(
         enable_doomslug,
         Some(TEST_SEED),
         resharding_sender.into_multi_sender(),
+        SpiceClientConfig {
+            core_processor: CoreStatementsProcessor::new_with_noop_senders(
+                runtime.store().chain_store(),
+                epoch_manager.clone(),
+            ),
+            chunk_executor_sender: noop().into_sender(),
+            spice_chunk_validator_sender: noop().into_sender(),
+            spice_data_distributor_sender: noop().into_sender(),
+        },
     );
 
     let rpc_handler_config = RpcHandlerConfig {
@@ -453,14 +463,22 @@ pub fn setup_client_with_runtime(
     validator_signer: MutableValidatorSigner,
     resharding_sender: ReshardingSender,
 ) -> (Client, ChunkValidationActorInner) {
-    let mut config =
-        ClientConfig::test(true, 10, 20, num_validator_seats, archive, save_trie_changes, true);
+    let mut config = ClientConfig::test(TestClientConfigParams {
+        skip_sync_wait: true,
+        min_block_prod_time: 10,
+        max_block_prod_time: 20,
+        num_block_producer_seats: num_validator_seats,
+        archive,
+        save_trie_changes,
+        state_sync_enabled: true,
+    });
     config.save_tx_outcomes = save_tx_outcomes;
     config.protocol_version_check = protocol_version_check;
     config.epoch_length = chain_genesis.epoch_length;
     let protocol_upgrade_schedule = get_protocol_upgrade_schedule(&chain_genesis.chain_id);
     let multi_spawner = AsyncComputationMultiSpawner::default()
-        .custom_apply_chunks(Arc::new(RayonAsyncComputationSpawner)); // Use rayon instead of the default thread pool 
+        .custom_apply_chunks(Arc::new(RayonAsyncComputationSpawner)); // Use rayon instead of the default thread pool
+    let apply_chunks_iteration_mode = ApplyChunksIterationMode::default();
 
     // TestEnv bypasses chunk validation actors and handles chunk validation
     // directly through propagate_chunk_state_witnesses method
@@ -486,6 +504,7 @@ pub fn setup_client_with_runtime(
         rng_seed,
         snapshot_callbacks,
         multi_spawner,
+        apply_chunks_iteration_mode,
         partial_witness_adapter,
         resharding_sender,
         actor_system.new_future_spawner().into(),
@@ -554,6 +573,7 @@ pub fn setup_synchronous_shards_manager(
         }, // irrelevant
         None,
         Default::default(),
+        Default::default(),
         MutableConfigValue::new(None, "validator_signer"),
         noop().into_multi_sender(),
         CoreStatementsProcessor::new_with_noop_senders(chain_store, epoch_manager.clone()),
@@ -586,7 +606,15 @@ pub fn setup_tx_request_handler(
     runtime: Arc<dyn RuntimeAdapter>,
     network_adapter: PeerManagerAdapter,
 ) -> RpcHandler {
-    let client_config = ClientConfig::test(true, 10, 20, 0, true, true, true);
+    let client_config = ClientConfig::test(TestClientConfigParams {
+        skip_sync_wait: true,
+        min_block_prod_time: 10,
+        max_block_prod_time: 20,
+        num_block_producer_seats: 0,
+        archive: true,
+        save_trie_changes: true,
+        state_sync_enabled: true,
+    });
     let config = RpcHandlerConfig {
         handler_threads: 1,
         tx_routing_height_horizon: client_config.tx_routing_height_horizon,

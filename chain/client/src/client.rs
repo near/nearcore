@@ -38,8 +38,8 @@ use near_chain::state_snapshot_actor::SnapshotCallbacks;
 use near_chain::test_utils::format_hash;
 use near_chain::types::{ChainConfig, LatestKnown, RuntimeAdapter};
 use near_chain::{
-    ApplyChunksSpawner, BlockProcessingArtifact, BlockStatus, Chain, ChainGenesis,
-    ChainStoreAccess, ChunksReadiness, Doomslug, DoomslugThresholdMode, Provenance,
+    ApplyChunksIterationMode, ApplyChunksSpawner, BlockProcessingArtifact, BlockStatus, Chain,
+    ChainGenesis, ChainStoreAccess, ChunksReadiness, Doomslug, DoomslugThresholdMode, Provenance,
 };
 use near_chain_configs::{ClientConfig, MutableValidatorSigner, UpdatableClientConfig};
 use near_chunks::adapter::ShardsManagerRequestFromClient;
@@ -260,6 +260,7 @@ impl Client {
         rng_seed: RngSeed,
         snapshot_callbacks: Option<SnapshotCallbacks>,
         multi_spawner: AsyncComputationMultiSpawner,
+        apply_chunks_iteration_mode: ApplyChunksIterationMode,
         partial_witness_adapter: PartialWitnessSenderForClient,
         resharding_sender: ReshardingSender,
         state_sync_future_spawner: Arc<dyn FutureSpawner>,
@@ -291,6 +292,7 @@ impl Client {
             chain_config,
             snapshot_callbacks,
             multi_spawner.apply_chunks,
+            apply_chunks_iteration_mode,
             validator_signer.clone(),
             resharding_sender.clone(),
             spice_core_processor.clone(),

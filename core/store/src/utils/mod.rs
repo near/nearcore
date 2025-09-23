@@ -13,7 +13,7 @@ use near_primitives::errors::StorageError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{
     BufferedReceiptIndices, DelayedReceiptIndices, PromiseYieldIndices, PromiseYieldTimeout,
-    Receipt, ReceiptEnum, ReceivedData,
+    Receipt, ReceivedData, VersionedReceiptEnum,
 };
 use near_primitives::trie_key::{TrieKey, trie_key_parsers};
 use near_primitives::types::{AccountId, BlockHeight, Nonce, NonceIndex, StateRoot};
@@ -99,7 +99,7 @@ pub fn has_received_data(
 }
 
 pub fn set_postponed_receipt(state_update: &mut TrieUpdate, receipt: &Receipt) {
-    assert!(matches!(receipt.receipt(), ReceiptEnum::Action(_)));
+    assert!(matches!(receipt.versioned_receipt(), VersionedReceiptEnum::Action(_)));
     let key = TrieKey::PostponedReceipt {
         receiver_id: receipt.receiver_id().clone(),
         receipt_id: *receipt.receipt_id(),
@@ -179,12 +179,12 @@ pub fn enqueue_promise_yield_timeout(
 }
 
 pub fn set_promise_yield_receipt(state_update: &mut TrieUpdate, receipt: &Receipt) {
-    match receipt.receipt() {
-        ReceiptEnum::PromiseYield(action_receipt) => {
-            assert!(action_receipt.input_data_ids.len() == 1);
+    match receipt.versioned_receipt() {
+        VersionedReceiptEnum::PromiseYield(action_receipt) => {
+            assert!(action_receipt.input_data_ids().len() == 1);
             let key = TrieKey::PromiseYieldReceipt {
                 receiver_id: receipt.receiver_id().clone(),
-                data_id: action_receipt.input_data_ids[0],
+                data_id: action_receipt.input_data_ids()[0],
             };
             set(state_update, key, receipt);
         }

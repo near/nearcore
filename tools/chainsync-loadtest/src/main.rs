@@ -52,6 +52,7 @@ pub fn start_with_config(
         network_adapter.as_multi_sender(),
         noop().into_sender(),
         noop().into_multi_sender(),
+        noop().into_multi_sender(),
         GenesisId {
             chain_id: config.client_config.chain_id.clone(),
             hash: genesis_hash(&config.client_config.chain_id),

@@ -1,4 +1,4 @@
-use crate::client::{StateRequestHeader, StateRequestPart, StateResponse};
+use crate::client::{StatePartOrHeader, StateRequestHeader, StateRequestPart};
 /// Type that belong to the network protocol.
 pub use crate::network_protocol::{
     Disconnect, Encoding, Handshake, HandshakeFailureReason, PeerMessage, RoutingTableUpdate,
@@ -23,6 +23,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::optimistic_block::OptimisticBlock;
 use near_primitives::sharding::PartialEncodedChunkWithArcReceipts;
+use near_primitives::state_sync::{PartIdOrHeader, StateRequestAckBody};
 use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsement;
 use near_primitives::stateless_validation::contract_distribution::{
     ChunkContractAccesses, ContractCodeRequest, ContractCodeResponse, PartialEncodedContractDeploys,
@@ -260,6 +261,14 @@ pub enum NetworkRequests {
         sync_prev_prev_hash: CryptoHash,
         part_id: u64,
     },
+    /// Respond to state header request or state part request.
+    StateRequestAck {
+        shard_id: ShardId,
+        sync_hash: CryptoHash,
+        part_id_or_header: PartIdOrHeader,
+        body: StateRequestAckBody,
+        peer_id: PeerId,
+    },
     /// Ban given peer.
     BanPeer { peer_id: PeerId, ban_reason: ReasonForBan },
     /// Announce account
@@ -452,8 +461,8 @@ pub struct PeerManagerSenderForNetwork {
 #[multi_send_message_derive(Debug)]
 #[multi_send_input_derive(Debug, Clone, PartialEq, Eq)]
 pub struct StateRequestSenderForNetwork {
-    pub state_request_header: AsyncSender<StateRequestHeader, Option<StateResponse>>,
-    pub state_request_part: AsyncSender<StateRequestPart, Option<StateResponse>>,
+    pub state_request_header: AsyncSender<StateRequestHeader, Option<StatePartOrHeader>>,
+    pub state_request_part: AsyncSender<StateRequestPart, Option<StatePartOrHeader>>,
 }
 
 #[cfg(test)]

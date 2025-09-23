@@ -8,6 +8,7 @@ use near_async::messaging::CanSend;
 use near_async::messaging::Handler;
 use near_async::messaging::IntoSender;
 use near_async::messaging::Sender;
+use near_chain::ApplyChunksIterationMode;
 use near_chain::ChainStoreAccess;
 use near_chain::chain::{
     NewChunkData, NewChunkResult, ShardContext, StorageContext, UpdateShardJob, do_apply_chunks,
@@ -72,14 +73,12 @@ pub struct ChunkExecutorActor {
     pub(crate) shard_tracker: ShardTracker,
     network_adapter: PeerManagerAdapter,
     apply_chunks_spawner: Arc<dyn AsyncComputationSpawner>,
+    apply_chunks_iteration_mode: ApplyChunksIterationMode,
     myself_sender: Sender<ExecutorApplyChunksDone>,
     data_distributor_adapter: SpiceDataDistributorAdapter,
 
     blocks_in_execution: HashSet<CryptoHash>,
     pending_unverified_receipts: HashMap<CryptoHash, Vec<ExecutorIncomingUnverifiedReceipts>>,
-
-    // Hash of the genesis block.
-    genesis_hash: CryptoHash,
 
     pub(crate) validator_signer: MutableValidatorSigner,
     pub(crate) core_processor: CoreStatementsProcessor,
@@ -92,7 +91,6 @@ impl ChunkExecutorActor {
     pub fn new(
         store: Store,
         genesis: &ChainGenesis,
-        genesis_hash: CryptoHash,
         runtime_adapter: Arc<dyn RuntimeAdapter>,
         epoch_manager: Arc<dyn EpochManagerAdapter>,
         shard_tracker: ShardTracker,
@@ -101,6 +99,7 @@ impl ChunkExecutorActor {
         core_processor: CoreStatementsProcessor,
         chunk_endorsement_tracker: Arc<ChunkEndorsementTracker>,
         apply_chunks_spawner: Arc<dyn AsyncComputationSpawner>,
+        apply_chunks_iteration_mode: ApplyChunksIterationMode,
         myself_sender: Sender<ExecutorApplyChunksDone>,
         data_distributor_adapter: SpiceDataDistributorAdapter,
         save_latest_witnesses: bool,
@@ -112,9 +111,9 @@ impl ChunkExecutorActor {
             shard_tracker,
             network_adapter,
             apply_chunks_spawner,
+            apply_chunks_iteration_mode,
             myself_sender,
             blocks_in_execution: HashSet::new(),
-            genesis_hash,
             validator_signer,
             core_processor,
             chunk_endorsement_tracker,
@@ -264,8 +263,8 @@ impl ChunkExecutorActor {
         let block = self.chain_store.get_block(block_hash)?;
         let header = block.header();
         let prev_block_hash = header.prev_hash();
+        let prev_block = self.chain_store.get_block(&prev_block_hash)?;
         let store = self.chain_store.store();
-        let prev_block_is_genesis = *prev_block_hash == self.genesis_hash;
 
         if let Err(err) = self.try_process_pending_unverified_receipts(prev_block_hash) {
             tracing::error!(target: "chunk_executor", ?err, ?block_hash, "failure when processing pending unverified receipts");
@@ -290,7 +289,7 @@ impl ChunkExecutorActor {
                 }
 
                 // Genesis block has no outgoing receipts.
-                if prev_block_is_genesis {
+                if prev_block.header().is_genesis() {
                     all_receipts.insert(prev_block_shard_id, vec![]);
                     continue;
                 }
@@ -417,17 +416,22 @@ impl ChunkExecutorActor {
         }
 
         let apply_done_sender = self.myself_sender.clone();
+        let iteration_mode = self.apply_chunks_iteration_mode;
         self.apply_chunks_spawner.spawn("apply_chunks", move || {
             let block_hash = *block.hash();
-            let apply_results =
-                do_apply_chunks(BlockToApply::Normal(block_hash), block.header().height(), jobs)
-                    .into_iter()
-                    .map(|(shard_id, _, result)| {
-                        result.unwrap_or_else(|err| {
+            let apply_results = do_apply_chunks(
+                iteration_mode,
+                BlockToApply::Normal(block_hash),
+                block.header().height(),
+                jobs,
+            )
+            .into_iter()
+            .map(|(shard_id, _, result)| {
+                result.unwrap_or_else(|err| {
                     panic!("failed to apply block {block_hash:?} chunk for shard {shard_id}: {err}")
                 })
-                    })
-                    .collect();
+            })
+            .collect();
             apply_done_sender.send(ExecutorApplyChunksDone { block_hash, apply_results });
         });
         Ok(())
@@ -446,6 +450,11 @@ impl ChunkExecutorActor {
         results: Vec<ShardUpdateResult>,
     ) -> Result<(), Error> {
         let block = self.chain_store.get_block(&block_hash).unwrap();
+        tracing::debug!(target: "chunk_executor",
+            ?block_hash,
+            block_height=?block.header().height(),
+            head_height=?self.chain_store.head().map(|tip| tip.height),
+            "processing chunk application results");
         let epoch_id = self.epoch_manager.get_epoch_id(&block_hash)?;
         let shard_layout = self.epoch_manager.get_shard_layout(&epoch_id)?;
         for result in &results {

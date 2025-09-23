@@ -12,6 +12,9 @@ use crate::peer_manager::peer_manager_actor;
 use crate::peer_manager::peer_store;
 use crate::private_actix::SendMessage;
 use crate::shards_manager::ShardsManagerRequestFromNetwork;
+use crate::spice_data_distribution::{
+    SpiceDataDistributorSenderForNetworkInput, SpiceDataDistributorSenderForNetworkMessage,
+};
 use crate::state_witness::{
     PartialWitnessSenderForNetworkInput, PartialWitnessSenderForNetworkMessage,
 };
@@ -52,6 +55,7 @@ pub(crate) enum Event {
     Network(peer_manager_actor::Event),
     PartialWitness(PartialWitnessSenderForNetworkInput),
     PeerManager(PeerManagerSenderForNetworkInput),
+    SpiceDataDistributor(SpiceDataDistributorSenderForNetworkInput),
 }
 
 pub(crate) struct PeerHandle {
@@ -141,8 +145,14 @@ impl PeerHandle {
             }
         });
         let state_witness_sender = Sender::from_fn({
+            let send = send.clone();
             move |event: PartialWitnessSenderForNetworkMessage| {
                 send.send(Event::PartialWitness(event.into_input()));
+            }
+        });
+        let spice_data_distribution_sender = Sender::from_fn({
+            move |event: SpiceDataDistributorSenderForNetworkMessage| {
+                send.send(Event::SpiceDataDistributor(event.into_input()));
             }
         });
         let network_state = Arc::new(NetworkState::new(
@@ -158,6 +168,7 @@ impl PeerHandle {
             shards_manager_sender,
             state_witness_sender.break_apart().into_multi_sender(),
             vec![],
+            spice_data_distribution_sender.break_apart().into_multi_sender(),
         ));
         let actix = AutoStopActor(
             PeerActor::spawn(clock, actor_system, stream, cfg.force_encoding, network_state)
