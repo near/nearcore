@@ -31,7 +31,7 @@
     100
   ],
   "runtime_config": {
-    "storage_amount_per_byte": "100000000000000000000 YN",
+    "storage_amount_per_byte": "100000000000000000000 yN",
     "transaction_costs": {
       "action_receipt_creation_config": {
         "send_sir": 108059500000,
