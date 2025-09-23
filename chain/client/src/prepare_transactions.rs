@@ -13,6 +13,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::optimistic_block::CachedShardUpdateKey;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{BlockHeight, ShardId};
+use near_store::adapter::StoreAdapter;
 use near_store::{ShardUId, TrieUpdate};
 use parking_lot::Mutex;
 
@@ -63,7 +64,7 @@ impl PrepareTransactionsJob {
             }
             PrepareTransactionsJobState::NotStarted(inputs) => {
                 let result = self.run_not_started(inputs);
-                *state = PrepareTransactionsJobState::Finished(Some(result));
+                *state = PrepareTransactionsJobState::Finished(result.transpose());
             }
             PrepareTransactionsJobState::Running => {
                 unreachable!("not reachable due to locking")
@@ -82,8 +83,31 @@ impl PrepareTransactionsJob {
     fn run_not_started(
         &self,
         inputs: PrepareTransactionsJobInputs,
-    ) -> Result<PreparedTransactions, Error> {
+    ) -> Result<Option<PreparedTransactions>, Error> {
         let mut pool_guard = inputs.tx_pool.lock();
+
+        // Usually the prepare transactions job runs in parallel with chunk application, before the
+        // block that contains the applied chunk is postprocessed.
+        //
+        // However in rare cases (weird thread scheduling, testloop reordering things) it might
+        // happen that the job starts after the block is postprocessed.
+        //
+        // In such cases it's better to discard the job and prepare transactions the normal way, in
+        // `produce_chunk` which happens right after postprocessing the block.
+        //
+        // This is because the job is not aware of the block that was just postprocessed. If we run
+        // the job, there's a risk that transactions that were created using the latest
+        // postprocessed block will be rejected because the job isn't aware of the latest block.
+        // This happens is some testloop tests and makes them fail.
+        if let Ok(_hash) = inputs
+            .runtime_adapter
+            .store()
+            .chain_store()
+            .get_block_hash_by_height(inputs.prev_block_context.height)
+        {
+            return Ok(None);
+        }
+
         let (prepared, skipped) =
             if let Some(mut iter) = pool_guard.get_pool_iterator(inputs.shard_uid) {
                 inputs.runtime_adapter.prepare_transactions_extra(
@@ -104,7 +128,7 @@ impl PrepareTransactionsJob {
             };
         pool_guard.reintroduce_transactions(inputs.shard_uid, prepared.transactions.clone());
         pool_guard.reintroduce_transactions(inputs.shard_uid, skipped.0);
-        Ok(prepared)
+        Ok(Some(prepared))
     }
 }
 
