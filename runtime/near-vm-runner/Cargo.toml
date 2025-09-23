@@ -20,7 +20,7 @@ borsh.workspace = true
 ed25519-dalek.workspace = true
 enum-map.workspace = true
 finite-wasm = { workspace = true, features = ["instrument"], optional = true }
-finite-wasm-6 = { workspace = true, features = ["instrument"], optional = true }
+finite-wasm-6 = { workspace = true, optional = true }
 lru.workspace = true
 memoffset = { workspace = true, optional = true }
 num-rational.workspace = true
@@ -39,9 +39,11 @@ strum.workspace = true
 tempfile.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
-wasm-encoder = { workspace = true, optional = true }
+wasm-encoder = { workspace = true, features = ["wasmparser"], optional = true }
 wasmparser = { workspace = true, optional = true }
+wasmparser-236 = { workspace = true, optional = true }
 wasmtime = { workspace = true, features = [
+    "call-hook",
     "parallel-compilation",
     "pooling-allocator",
     "runtime",
@@ -108,6 +110,7 @@ prepare = [
     "finite-wasm-6",
     "wasm-encoder",
     "wasmparser",
+    "wasmparser-236",
     "prefix-sum-vec",
     "metrics",
 ]
