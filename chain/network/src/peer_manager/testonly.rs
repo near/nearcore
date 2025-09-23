@@ -20,6 +20,8 @@ use crate::peer_manager::network_state::NetworkState;
 use crate::peer_manager::peer_manager_actor::Event as PME;
 use crate::shards_manager::ShardsManagerRequestFromNetwork;
 use crate::snapshot_hosts::SnapshotHostsCache;
+use crate::spice_data_distribution::SpiceDataDistributorSenderForNetworkInput;
+use crate::spice_data_distribution::SpiceDataDistributorSenderForNetworkMessage;
 use crate::state_witness::PartialWitnessSenderForNetworkInput;
 use crate::state_witness::PartialWitnessSenderForNetworkMessage;
 use crate::tcp;
@@ -79,6 +81,7 @@ pub enum Event {
     PeerManager(PME),
     PeerManagerSender(PeerManagerSenderForNetworkInput),
     PartialWitness(PartialWitnessSenderForNetworkInput),
+    SpiceDataDistributor(SpiceDataDistributorSenderForNetworkInput),
 }
 
 pub(crate) struct ActorHandler {
@@ -656,6 +659,12 @@ pub(crate) async fn start(
                     send.send(Event::PartialWitness(event.into_input()));
                 }
             });
+            let spice_data_distribution_sender = Sender::from_fn({
+                let send = send.clone();
+                move |event: SpiceDataDistributorSenderForNetworkMessage| {
+                    send.send(Event::SpiceDataDistributor(event.into_input()));
+                }
+            });
             PeerManagerActor::spawn(
                 clock,
                 store,
@@ -665,6 +674,7 @@ pub(crate) async fn start(
                 peer_manager_sender.break_apart().into_multi_sender(),
                 shards_manager_sender,
                 state_witness_sender.break_apart().into_multi_sender(),
+                spice_data_distribution_sender.break_apart().into_multi_sender(),
                 genesis_id,
             )
             .unwrap()
