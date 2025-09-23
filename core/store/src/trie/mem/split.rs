@@ -603,7 +603,6 @@ mod tests {
     /// These tests verify the logic of aggregate (multi-subtree) descent.
     mod trie_descent {
         use super::*;
-        use crate::trie::mem::memtrie_update::MemTrieNode;
         use near_primitives::errors::StorageError;
 
         /// A minimal implementation of `GenericTrieInternalStorage` for tests
@@ -615,14 +614,6 @@ mod tests {
         impl<'a> GenericTrieInternalStorage<MemTrieNodeId, FlatStateValue> for TestStorage<'a> {
             fn get_root(&self) -> Option<MemTrieNodeId> {
                 Some(self.root)
-            }
-
-            fn get_node(
-                &self,
-                _ptr: MemTrieNodeId,
-                _opts: AccessOptions,
-            ) -> Result<MemTrieNode, StorageError> {
-                unimplemented!()
             }
 
             fn get_node_with_size(

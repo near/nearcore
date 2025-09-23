@@ -8,7 +8,7 @@ use near_primitives::hash::CryptoHash;
 use super::mem::iter::STMemTrieIterator;
 use super::ops::interface::GenericTrieInternalStorage;
 use super::ops::iter::{TrieItem, TrieIteratorImpl};
-use super::trie_storage_update::{TrieStorageNode, TrieStorageNodePtr, TrieStorageNodeWithSize};
+use super::trie_storage_update::{TrieStorageNodePtr, TrieStorageNodeWithSize};
 use super::{AccessOptions, Trie, ValueHandle};
 
 pub struct DiskTrieIteratorInner<'a> {
@@ -39,15 +39,6 @@ impl<'a> GenericTrieInternalStorage<TrieStorageNodePtr, ValueHandle> for DiskTri
             return None;
         }
         Some(self.trie.root)
-    }
-
-    fn get_node(
-        &self,
-        ptr: TrieStorageNodePtr,
-        opts: AccessOptions,
-    ) -> Result<TrieStorageNode, StorageError> {
-        let node_with_size = self.get_node_with_size(ptr, opts)?;
-        Ok(node_with_size.node)
     }
 
     fn get_node_with_size(
