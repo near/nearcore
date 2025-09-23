@@ -776,13 +776,13 @@ fn test_account_factory() {
         }, "id": 0 },
         {"action_transfer": {
             "promise_index": 0,
-            "amount": TESTING_INIT_BALANCE.checked_div(2).unwrap().as_yoctonear().to_string(),
+            "amount": TESTING_INIT_BALANCE.checked_div(2).unwrap(),
         }, "id": 0 },
         {"action_add_key_with_function_call": {
             "promise_index": 0,
             "public_key": to_base64(&borsh::to_vec(&signer_new_account.public_key()).unwrap()),
             "nonce": 0,
-            "allowance": TESTING_INIT_BALANCE.checked_div(2).unwrap().as_yoctonear().to_string(),
+            "allowance": TESTING_INIT_BALANCE.checked_div(2).unwrap(),
             "receiver_id": "near_1",
             "method_names": "call_promise,hello"
         }, "id": 0 },
@@ -955,7 +955,7 @@ fn test_create_account_add_key_call_delete_key_delete_account() {
         }, "id": 0 },
         {"action_transfer": {
             "promise_index": 0,
-            "amount": TESTING_INIT_BALANCE.checked_div(2).unwrap().as_yoctonear().to_string(),
+            "amount": TESTING_INIT_BALANCE.checked_div(2).unwrap(),
         }, "id": 0 },
         {"action_add_key_with_full_access": {
             "promise_index": 0,
@@ -1108,7 +1108,7 @@ fn test_transfer_64len_hex() {
         }, "id": 0 },
         {"action_transfer": {
             "promise_index": 0,
-            "amount": TESTING_INIT_BALANCE.checked_div(2).unwrap().as_yoctonear().to_string(),
+            "amount": TESTING_INIT_BALANCE.checked_div(2).unwrap(),
         }, "id": 0 },
     ]);
 
@@ -1188,7 +1188,7 @@ fn test_create_transfer_64len_hex_fail() {
         }, "id": 0 },
         {"action_transfer": {
             "promise_index": 0,
-            "amount": TESTING_INIT_BALANCE.checked_div(2).unwrap().as_yoctonear().to_string(),
+            "amount": TESTING_INIT_BALANCE.checked_div(2).unwrap(),
         }, "id": 0 },
     ]);
 
@@ -1276,7 +1276,7 @@ fn test_refund_to() {
                 "promise_index": 0,
                 "method_name": "non_existing_function",
                 "arguments": [],
-                "amount": deposit.as_yoctonear().to_string(),
+                "amount": deposit,
                 "gas": GAS_2,
             },
             "id": 0
