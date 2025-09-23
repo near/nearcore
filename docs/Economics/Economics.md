@@ -6,7 +6,7 @@
 
 | Name | Value |
 | - | - |
-| yoctoNEAR | smallest undividable amount of native currency *NEAR*. |
+| yoctoNEAR | smallest indivisible amount of native currency *NEAR*. |
 | NEAR | `10**24` yoctoNEAR |
 | block | smallest on-chain unit of time |
 | gas | unit to measure usage of blockchain |
@@ -154,7 +154,7 @@ of a validator is computed as an average of (block produced/expected, chunk prod
 and chunk endorsements produced/expected) and adjusted wrt the `ONLINE_THRESHOLD`, `ONLINE_THRESHOLD_MIN`, `ONLINE_THRESHOLD_MAX` parameters:
 
 ```python
-pct_online[t][j] = mean(num_blocks_produced[t][j] / num_blocks_expected[t][j], 
+pct_online[t][j] = mean(num_blocks_produced[t][j] / num_blocks_expected[t][j],
                         num_chunks_produced[t][j] / num_chunks_expected[t][j],
                         num_endorsements_produced[t][j] / num_endorsements_expected[t][j])
 if pct_online > ONLINE_THRESHOLD:

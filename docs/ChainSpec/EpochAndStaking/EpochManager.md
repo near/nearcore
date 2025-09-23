@@ -29,6 +29,7 @@ Aggregating blocks of the epoch computes the following sets:
 
 ### Slash set
 
+<!-- cspell:ignore slashable -->
 NOTE: slashing is currently disabled. The following is the current design, which can change.
 
 Slash sets are maintained on block basis. If a validator gets slashed in epoch `T`, subsequent blocks of epochs `T` and
