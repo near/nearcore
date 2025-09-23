@@ -635,9 +635,9 @@ pub(crate) async fn start(
                     let part = Some((part_id, vec![]));
                     let state_response =
                         ShardStateSyncResponse::V2(ShardStateSyncResponseV2 { header: None, part });
-                    let result = Some(StatePartOrHeader(Box::new(StateResponseInfo::V2(Box::new(
-                        StateResponseInfoV2 { shard_id, sync_hash, state_response },
-                    )))));
+                    let result = Some(StatePartOrHeader(Box::new(StateResponseInfo::V2(
+                        Box::new(StateResponseInfoV2 { shard_id, sync_hash, state_response }),
+                    ))));
                     (msg.callback)(std::future::ready(Ok(result)).boxed());
                     send.send(Event::StateRequestSender(
                         StateRequestSenderForNetworkInput::_state_request_part(msg.message),
