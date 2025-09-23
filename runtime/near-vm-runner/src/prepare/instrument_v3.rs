@@ -7,7 +7,7 @@ use crate::{REMAINING_GAS_EXPORT, START_EXPORT};
 use finite_wasm_6::gas::InstrumentationKind;
 use finite_wasm_6::{AnalysisOutcome, Fee};
 use wasm_encoder::reencode::{Error as ReencodeError, Reencode};
-use wasm_encoder::{self as we};
+use wasm_encoder::{self as we, InstructionSink};
 use wasmparser_236 as wp;
 
 const PLACEHOLDER_FOR_NAMES: u8 = !0;
@@ -524,7 +524,7 @@ impl<'a> InstrumentContext<'a> {
             new_function.block(block_type);
             'outer: {
                 let Some(stack_charge) = stack_sz.checked_add(frame_sz) else {
-                    new_function.call(STACK_EXHAUSTED_FN).unreachable();
+                    new_function.call(STACK_EXHAUSTED_FN).unreachable().end();
                     break 'outer;
                 };
                 let Some(gas_charge) = frame_sz
@@ -532,7 +532,7 @@ impl<'a> InstrumentContext<'a> {
                     .map(|n| n / 8)
                     .and_then(|n| n.checked_mul(self.op_cost.into()))
                 else {
-                    new_function.call(GAS_EXHAUSTED_FN).unreachable();
+                    new_function.call(GAS_EXHAUSTED_FN).unreachable().end();
                     break 'outer;
                 };
                 new_function
@@ -543,24 +543,15 @@ impl<'a> InstrumentContext<'a> {
                     .i64_const(0)
                     .checked_sub_i64(STACK_EXHAUSTED_FN)
                     // $stack - $stack_size - $frame_size
-                    .global_set(self.globals + STACK_GLOBAL)
-                    .i64_const(gas_charge as i64)
-                    // ($frame_size + 7) / 8 * $op_cost
-                    .global_get(self.globals + GAS_GLOBAL)
-                    .i64_gt_u()
-                    // ($frame_size + 7) / 8 * $op_cost > $gas
-                    .if_(we::BlockType::Empty)
-                    .i64_const(gas_charge as i64)
-                    .call(GAS_INSTRUMENTATION_FN)
-                    .unreachable()
-                    .else_()
-                    .global_get(self.globals + GAS_GLOBAL)
-                    .i64_const(gas_charge as i64)
-                    .i64_sub()
-                    // $gas - ($frame_size + 7) / 8 * $op_cost
-                    .global_set(self.globals + GAS_GLOBAL);
+                    .global_set(self.globals + STACK_GLOBAL);
+                call_gas_instrumentation(
+                    &mut new_function,
+                    None,
+                    Fee { constant: gas_charge, linear: 0 },
+                    self.globals,
+                    local_idx,
+                )?;
             }
-            new_function.end();
         }
 
         while !operators.eof() {
@@ -569,7 +560,13 @@ impl<'a> InstrumentContext<'a> {
             while instrumentation_points.peek().map(|((o, _), _)| **o) == Some(offset) {
                 let ((_, g), k) = instrumentation_points.next().expect("we just peeked");
                 if !matches!(k, InstrumentationKind::Unreachable) {
-                    call_gas_instrumentation(&mut new_function, k, *g, self.globals, local_idx)?;
+                    call_gas_instrumentation(
+                        &mut new_function.instructions(),
+                        Some(*k),
+                        *g,
+                        self.globals,
+                        local_idx,
+                    )?;
                 }
             }
             match op {
@@ -758,8 +755,8 @@ fn call_unstack_instrumentation(
 }
 
 fn call_gas_instrumentation(
-    func: &mut we::Function,
-    k: &InstrumentationKind,
+    func: &mut InstructionSink<'_>,
+    k: Option<InstrumentationKind>,
     gas: Fee,
     globals: u32,
     local_idx: u32,
@@ -769,8 +766,7 @@ fn call_gas_instrumentation(
     } else if gas.linear == 0 {
         // The reinterpreting cast is intentional here. On the other side the host function is
         // expected to reinterpret the argument back to u64.
-        func.instructions()
-            .global_get(globals + GAS_GLOBAL)
+        func.global_get(globals + GAS_GLOBAL)
             .i64_const(gas.constant as i64)
             // $gas | $constant
             .i64_lt_u()
@@ -789,15 +785,16 @@ fn call_gas_instrumentation(
         return Ok(());
     }
     match k {
-        InstrumentationKind::TableInit
-        | InstrumentationKind::TableFill
-        | InstrumentationKind::TableCopy
-        | InstrumentationKind::MemoryInit
-        | InstrumentationKind::MemoryFill
-        | InstrumentationKind::MemoryCopy => {
+        Some(
+            InstrumentationKind::TableInit
+            | InstrumentationKind::TableFill
+            | InstrumentationKind::TableCopy
+            | InstrumentationKind::MemoryInit
+            | InstrumentationKind::MemoryFill
+            | InstrumentationKind::MemoryCopy,
+        ) => {
             let count_idx = local_idx.checked_add(1).ok_or(Error::TooManyLocals)?;
-            func.instructions()
-                .local_tee(count_idx)
+            func.local_tee(count_idx)
                 .i64_extend_i32_u()
                 // $count
                 .i64_const(gas.linear as i64)
