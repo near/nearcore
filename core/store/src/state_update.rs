@@ -160,6 +160,17 @@ pub enum StateValue {
 }
 
 impl StateValue {
+    pub fn len(&self) -> usize {
+        match self {
+            StateValue::TrieValueRef(value_ref) => value_ref.len(),
+            StateValue::Serialized(token) => token.len(),
+            StateValue::Deserialized(deserialized) => {
+                todo!("serialize on the fly, take length")
+            }
+        }
+    }
+
+
     pub fn value_hash_len(&self) -> (CryptoHash, usize) {
         match self {
             StateValue::TrieValueRef(value_ref) => (value_ref.hash, value_ref.len()),
@@ -273,6 +284,7 @@ impl<'su> StateOperations<'su> {
         key_mode: KeyLookupMode,
         access_options: AccessOptions,
     ) -> Result<Option<StateValue>, StorageError> {
+        // FIXME: this needs to handle pure accesses specially.
         self.get_ref_or(key, |t, k| {
             let mut key_buf = SmallKeyVec::new_const();
             k.append_into(&mut key_buf);
@@ -477,17 +489,23 @@ impl<'su> StateOperations<'su> {
     }
 
     /// Remove and return the current value at the given key.
-    pub fn take<V>(&mut self, key: TrieKey) -> Result<Option<Arc<V>>, StorageError>
+    pub fn take<V>(
+        &mut self,
+        key: TrieKey,
+        mode: KeyLookupMode,
+        options: AccessOptions,
+    ) -> Result<Option<Arc<V>>, StorageError>
     where
         V: Deserialized + Deserializable,
     {
+        // FIXME: this needs to take care to keep track of pure vs non-pure accesses. Pure accesses
+        // cannot prevent future lookup that would record data into state witnesses or similar.
         self.take_or(
             key,
             |trie, key| {
                 let mut key_buf = SmallKeyVec::new_const();
                 key.append_into(&mut key_buf);
-                let mode = KeyLookupMode::MemOrFlatOrTrie;
-                Ok(match trie.get_optimized_ref(&key_buf, mode, AccessOptions::DEFAULT)? {
+                Ok(match trie.get_optimized_ref(&key_buf, mode, options)? {
                     Some(OptimizedValueRef::Ref(r)) => Some(StateValue::TrieValueRef(r)),
                     Some(OptimizedValueRef::AvailableValue(v)) => {
                         Some(StateValue::Serialized(Arc::new(v)))
@@ -497,12 +515,11 @@ impl<'su> StateOperations<'su> {
             },
             // FIXME: `deref_optimized` could be better if it didn't (potentially) clone the vector
             // inside...
-            |trie, optref| trie.deref_optimized(AccessOptions::DEFAULT, &optref),
+            |trie, optref| trie.deref_optimized(options, &optref),
         )
     }
 
-    /// A more flexible version of [`Self::take`] that allows customizing [`Trie`] access when
-    /// value is not yet part of [`StoreUpdate`].
+    /// A more flexible version of [`Self::take`] that allows customizing [`Trie`] access.
     fn take_or<V>(
         &mut self,
         key: TrieKey,

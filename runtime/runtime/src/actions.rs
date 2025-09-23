@@ -28,9 +28,9 @@ use near_primitives::utils::account_is_implicit;
 use near_primitives::version::ProtocolVersion;
 use near_primitives_core::account::id::AccountType;
 use near_primitives_core::version::ProtocolFeature;
-use near_store::StorageError;
 use near_store::state_update::StateOperations;
 use near_store::trie::AccessOptions;
+use near_store::{KeyLookupMode, StorageError};
 use near_vm_runner::logic::errors::{
     CompilationError, FunctionCallError, InconsistentStateError, VMRunnerError,
 };
@@ -665,14 +665,16 @@ fn get_code_len_or_default(
     let key = TrieKey::ContractCode { account_id };
     let code_len =
         if ProtocolFeature::ExcludeExistingCodeFromWitnessForCodeLen.enabled(protocol_version) {
-            state_update.get_ref(key)?.map(|code_ref| {
-                let (hash, len) = code_ref.value_hash_len();
-                debug_assert_eq!(
-                    code_hash, hash,
-                    "Code-hash in trie does not match code-hash in account"
-                );
-                len
-            })
+            state_update.get_ref(key, KeyLookupMode::MemOrFlatOrTrie, AccessOptions::DEFAULT)?.map(
+                |code_ref| {
+                    let (hash, len) = code_ref.value_hash_len();
+                    debug_assert_eq!(
+                        code_hash, hash,
+                        "Code-hash in trie does not match code-hash in account"
+                    );
+                    len
+                },
+            )
         } else {
             state_update.get::<Vec<u8>>(key)?.map(|code| code.len())
         };

@@ -9,7 +9,7 @@ use near_primitives::types::{AccountId, Balance, BlockHeight, EpochId, EpochInfo
 use near_primitives::utils::create_receipt_id_from_action_hash;
 use near_primitives::version::ProtocolVersion;
 use near_store::contract::ContractStorage;
-use near_store::state_update::StateOperations;
+use near_store::state_update::{StateOperations, StateValue};
 use near_store::trie::{AccessOptions, AccessTracker};
 use near_store::{KeyLookupMode, TrieUpdateValuePtr};
 use near_vm_runner::logic::errors::{AnyError, InconsistentStateError, VMLogicError};
@@ -57,7 +57,8 @@ impl From<ExternalError> for VMLogicError {
 }
 
 pub struct RuntimeExtValuePtr<'a, 'b> {
-    value_ptr: TrieUpdateValuePtr<'a>,
+    update_op: &'a mut StateOperations<'a>,
+    value_ptr: StateValue,
     deref_options: AccessOptions<'b>,
     accounting_state: Arc<AccountingState>,
 }
@@ -241,18 +242,29 @@ impl<'a, 'su> External for RuntimeExt<'a, 'su> {
         let start_ttn = self.trie_access_tracker.state.get_counts();
         let storage_key = self.create_storage_key(key);
         let options = AccessOptions::contract_runtime(&self.trie_access_tracker);
+        let mode = KeyLookupMode::MemOrTrie;
         let removed = self
             .update_op
-            .get_ref(storage_key.clone(), KeyLookupMode::MemOrTrie, options)
+            .get_ref(storage_key.clone(), mode, options)
             .map_err(wrap_storage_error)?;
-        let removed = match removed {
-            None => None,
-            Some(ptr) => {
-                access_tracker.deref_removed_value_bytes(u64::from(ptr.len()))?;
-                Some(ptr.deref_value(options).map_err(wrap_storage_error)?)
+        match removed {
+            None => {}
+            // Value has already been accessed.
+            Some(StateValue::Deserialized(_v)) => {
+                todo!(
+                    "previously we would charge for this regardless, so we gotta calculate the length anyway"
+                )
+                // access_tracker.deref_removed_value_bytes(u64::from(v.len()))?;
+            }
+            Some(StateValue::Serialized(token)) => {
+                access_tracker.deref_removed_value_bytes(u64::try_from(token.len()).unwrap())?;
+            }
+            Some(StateValue::TrieValueRef(v)) => {
+                access_tracker.deref_removed_value_bytes(u64::try_from(v.len()).unwrap())?;
             }
         };
-        self.update_op.remove(storage_key);
+        let removed =
+            self.update_op.take(storage_key, mode, options).map_err(wrap_storage_error)?;
         let _delta =
             self.trie_access_tracker.state.commit_counts_since(start_ttn, access_tracker)?;
         #[cfg(feature = "io_trace")]
@@ -264,8 +276,7 @@ impl<'a, 'su> External for RuntimeExt<'a, 'su> {
             tn_mem_reads = _delta.mem_reads,
             tn_db_reads = _delta.db_reads,
         );
-
-        Ok(removed)
+        Ok(removed.map(|v| Arc::unwrap_or_clone(v)))
     }
 
     fn storage_has_key(

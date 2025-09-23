@@ -1,4 +1,3 @@
-use std::sync::Arc;
 use crate::state_update::StateOperations;
 use crate::state_update::state_value::{Deserializable, Deserialized};
 use near_primitives::errors::{IntegerOverflowError, StorageError};
@@ -7,6 +6,9 @@ use near_primitives::receipt::{
 };
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::ShardId;
+use std::sync::Arc;
+
+use super::AccessOptions;
 
 /// Read-only iterator over items stored in a TrieQueue.
 struct TrieQueueIterator<'a, 'su, Queue>
@@ -66,10 +68,7 @@ pub trait TrieQueue {
     type Item: Deserialized + Deserializable + Clone;
 
     /// Read queue indices of the queue from the trie, depending on impl.
-    fn load_indices(
-        &self,
-        trie: &mut StateOperations,
-    ) -> Result<TrieQueueIndices, StorageError>;
+    fn load_indices(&self, trie: &mut StateOperations) -> Result<TrieQueueIndices, StorageError>;
 
     /// Read indices from a cached field.
     fn indices(&self) -> TrieQueueIndices;
@@ -112,12 +111,14 @@ pub trait TrieQueue {
             return Ok(None);
         }
         let key = self.trie_key(indices.first_index);
-        let item: Arc<Self::Item> = state_update.take(key)?.ok_or_else(|| {
-            StorageError::StorageInconsistentState(format!(
-                "TrieQueue::Item #{} should be in the state",
-                indices.first_index
-            ))
-        })?;
+        let item: Arc<Self::Item> = state_update
+            .take(key, super::KeyLookupMode::MemOrFlatOrTrie, AccessOptions::DEFAULT)?
+            .ok_or_else(|| {
+                StorageError::StorageInconsistentState(format!(
+                    "TrieQueue::Item #{} should be in the state",
+                    indices.first_index
+                ))
+            })?;
         // Math checked above, first_index < next_available_index
         self.indices_mut().first_index += 1;
         self.write_indices(state_update);
@@ -137,12 +138,14 @@ pub trait TrieQueue {
         // Math checked above: first_index < next_available_index => next_available_index > 0
         let last_item_index = indices.next_available_index - 1;
         let key = self.trie_key(last_item_index);
-        let item: Arc<Self::Item> = state_update.take(key)?.ok_or_else(|| {
-            StorageError::StorageInconsistentState(format!(
-                "TrieQueue::Item #{} should be in the state",
-                last_item_index
-            ))
-        })?;
+        let item: Arc<Self::Item> = state_update
+            .take(key, super::KeyLookupMode::MemOrFlatOrTrie, AccessOptions::DEFAULT)?
+            .ok_or_else(|| {
+                StorageError::StorageInconsistentState(format!(
+                    "TrieQueue::Item #{} should be in the state",
+                    last_item_index
+                ))
+            })?;
         self.indices_mut().next_available_index = last_item_index;
         self.write_indices(state_update);
         // TODO: maybe avoid unwrap and just return Arc straight up?
@@ -166,12 +169,14 @@ pub trait TrieQueue {
             panic!("TrieQueue::modify_first called on an empty queue! indices: {:?}", indices);
         }
         let key = self.trie_key(indices.first_index);
-        let first_item: Arc<Self::Item> = state_update.take(key.clone())?.ok_or_else(|| {
-            StorageError::StorageInconsistentState(format!(
-                "TrieQueue::Item #{} should be in the state",
-                indices.first_index
-            ))
-        })?;
+        let first_item: Arc<Self::Item> = state_update
+            .take(key.clone(), super::KeyLookupMode::MemOrFlatOrTrie, AccessOptions::DEFAULT)?
+            .ok_or_else(|| {
+                StorageError::StorageInconsistentState(format!(
+                    "TrieQueue::Item #{} should be in the state",
+                    indices.first_index
+                ))
+            })?;
         let first_item = Arc::unwrap_or_clone(first_item);
         let modified_item = modify_fn(first_item);
         match modified_item {
@@ -192,11 +197,7 @@ pub trait TrieQueue {
     ///
     /// Unlike `pop`, this method does not return the actual items or even
     /// check if they existed in state.
-    fn pop_n(
-        &mut self,
-        state_update: &mut StateOperations,
-        n: u64,
-    ) -> Result<u64, StorageError> {
+    fn pop_n(&mut self, state_update: &mut StateOperations, n: u64) -> Result<u64, StorageError> {
         self.debug_check_unchanged(state_update);
 
         let indices = self.indices();
@@ -272,10 +273,7 @@ impl DelayedReceiptQueue {
 impl TrieQueue for DelayedReceiptQueue {
     type Item = ReceiptOrStateStoredReceipt<'static>;
 
-    fn load_indices(
-        &self,
-        trie: &mut StateOperations,
-    ) -> Result<TrieQueueIndices, StorageError> {
+    fn load_indices(&self, trie: &mut StateOperations) -> Result<TrieQueueIndices, StorageError> {
         Ok(TrieQueueIndices::from(
             trie.get::<DelayedReceiptIndices>(TrieKey::DelayedReceiptIndices)?
                 .cloned()
