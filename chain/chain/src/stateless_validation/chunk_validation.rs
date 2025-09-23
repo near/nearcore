@@ -304,13 +304,10 @@ pub fn pre_validate_chunk_state_witness(
     genesis: Arc<Block>,
     epoch_manager: &dyn EpochManagerAdapter,
 ) -> Result<PreValidationOutput, Error> {
-    // TODO: solve optimistic case!
-    println!("Pre-validating chunk state witness");
     let WitnessProductionKey { chunk: ChunkProductionKey { epoch_id, .. }, is_optimistic } =
         state_witness.production_key();
     if is_optimistic {
-        println!("Optimistic chunk state witness");
-        return Err(Error::InvalidChunkStateWitness("Optimistic chunk state witness".to_string()));
+        panic!("Attempted to pre-validate optimistic chunk state witness");
     }
 
     // Ensure that the chunk header version is supported in this protocol version
@@ -640,15 +637,17 @@ pub fn validate_chunk_state_witness_impl(
         let (res_receipts_root, res_encoded_merkle_check) = rayon::join(
             || -> Result<CryptoHash, Error> {
                 let (outgoing_receipts_root, _) = merklize(&outgoing_receipts_hashes);
-                validate_chunk_with_chunk_extra_and_receipts_root(
-                    &chunk_extra,
-                    &state_witness.chunk_header(),
-                    &outgoing_receipts_root,
-                )?;
+                if !is_optimistic {
+                    validate_chunk_with_chunk_extra_and_receipts_root(
+                        &chunk_extra,
+                        &state_witness.chunk_header(),
+                        &outgoing_receipts_root,
+                    )?;
+                }
                 Ok(outgoing_receipts_root)
             },
             || {
-                if ProtocolFeature::ChunkPartChecks.enabled(protocol_version) {
+                if !is_optimistic && ProtocolFeature::ChunkPartChecks.enabled(protocol_version) {
                     let new_transactions = &state_witness.new_transactions().expect(
                         "should only be called with the `ValidateChunkStateWitness` available",
                     );
@@ -675,53 +674,6 @@ pub fn validate_chunk_state_witness_impl(
         let (root, _) = merklize(&outgoing_receipts_hashes);
         root
     };
-    if is_optimistic {
-        return Ok(ChunkExecutionResult { chunk_extra, outgoing_receipts_root });
-    }
-
-    let outgoing_receipts_root = if !cfg!(feature = "protocol_feature_spice") {
-        let protocol_version = epoch_manager.get_epoch_protocol_version(&epoch_id)?;
-
-        // Compute receipts root + header validation in parallel with encoded-merkle-root check.
-        let (res_receipts_root, res_encoded_merkle_check) = rayon::join(
-            || -> Result<CryptoHash, Error> {
-                let (outgoing_receipts_root, _) = merklize(&outgoing_receipts_hashes);
-                validate_chunk_with_chunk_extra_and_receipts_root(
-                    &chunk_extra,
-                    &state_witness.chunk_header(),
-                    &outgoing_receipts_root,
-                )?;
-                Ok(outgoing_receipts_root)
-            },
-            || {
-                if ProtocolFeature::ChunkPartChecks.enabled(protocol_version) {
-                    let new_transactions = &state_witness.new_transactions().expect(
-                        "should only be called with the `ValidateChunkStateWitness` available",
-                    );
-                    let (tx_root, _) = merklize(new_transactions);
-                    if tx_root != *state_witness.chunk_header().tx_root() {
-                        return Err(Error::InvalidTxRoot);
-                    }
-                    validate_chunk_with_encoded_merkle_root(
-                        &state_witness.chunk_header(),
-                        &outgoing_receipts,
-                        new_transactions,
-                        rs.as_ref(),
-                        shard_id,
-                    )
-                } else {
-                    Ok(())
-                }
-            },
-        );
-        let outgoing_receipts_root = res_receipts_root?;
-        res_encoded_merkle_check?;
-        outgoing_receipts_root
-    } else {
-        let (root, _) = merklize(&outgoing_receipts_hashes);
-        root
-    };
-
     if is_optimistic {
         return Ok(ChunkExecutionResult { chunk_extra, outgoing_receipts_root });
     }

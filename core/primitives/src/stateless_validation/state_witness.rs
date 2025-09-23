@@ -510,6 +510,22 @@ impl ChunkStateWitness {
             }
         }
     }
+
+    pub fn block_context(&self) -> &ApplyChunkBlockContext {
+        if let ChunkStateWitness::V3(witness) = self {
+            &witness.chunk_apply_witness.block_context
+        } else {
+            panic!("Block context is not available");
+        }
+    }
+
+    pub fn raw_receipts(&self) -> &Vec<Receipt> {
+        if let ChunkStateWitness::V3(witness) = self {
+            &witness.chunk_apply_witness.receipts
+        } else {
+            panic!("Raw receipts are not available");
+        }
+    }
 }
 
 impl ChunkStateWitnessV1 {

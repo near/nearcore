@@ -9,15 +9,18 @@
 
 use crate::stateless_validation::chunk_validator::orphan_witness_pool::OrphanStateWitnessPool;
 use crate::stateless_validation::chunk_validator::send_chunk_endorsement_to_block_producers;
+use itertools::Itertools;
 use near_async::futures::{AsyncComputationSpawner, AsyncComputationSpawnerExt};
 use near_async::messaging::{Actor, Handler, Sender};
 use near_async::multithread::MultithreadRuntimeHandle;
 use near_async::{ActorSystem, MultiSend, MultiSenderFrom};
-use near_chain::chain::ChunkStateWitnessMessage;
-use near_chain::stateless_validation::chunk_validation::{self, MainStateTransitionCache};
+use near_chain::chain::{ChunkStateWitnessMessage, NewChunkData, StorageContext};
+use near_chain::stateless_validation::chunk_validation::{
+    self, MainStateTransitionCache, MainTransition, PreValidationOutput,
+};
 use near_chain::stateless_validation::metrics::CHUNK_WITNESS_VALIDATION_FAILED_TOTAL;
 use near_chain::stateless_validation::processing_tracker::ProcessingDoneTracker;
-use near_chain::types::RuntimeAdapter;
+use near_chain::types::{RuntimeAdapter, StorageDataSource};
 use near_chain::validate::validate_chunk_with_chunk_extra_and_roots;
 use near_chain::{ChainStore, ChainStoreAccess, Error};
 use near_chain_configs::MutableValidatorSigner;
@@ -33,6 +36,8 @@ use near_primitives::stateless_validation::state_witness::{
 };
 use near_primitives::types::BlockHeight;
 use near_primitives::validator_signer::ValidatorSigner;
+use near_store::PartialStorage;
+use node_runtime::SignedValidPeriodTransactions;
 use parking_lot::Mutex;
 use reed_solomon_erasure::galois_8::ReedSolomon;
 use std::ops::Range;
@@ -466,7 +471,7 @@ impl ChunkValidationActorInner {
         let chunk_producer_name =
             self.epoch_manager.get_chunk_producer_info(&chunk_production_key)?.take_account_id();
 
-        if !is_optimistic {
+        let pre_validation_result = if !is_optimistic {
             let expected_epoch_id =
                 self.epoch_manager.get_epoch_id_from_prev_block(&prev_block_hash)?;
             if expected_epoch_id != chunk_production_key.epoch_id {
@@ -475,27 +480,62 @@ impl ChunkValidationActorInner {
                     chunk_production_key.epoch_id, prev_block_hash, expected_epoch_id
                 )));
             }
-        }
-
-        let pre_validation_result = chunk_validation::pre_validate_chunk_state_witness(
-            &state_witness,
-            &self.chain_store,
-            self.genesis_block.clone(),
-            self.epoch_manager.as_ref(),
-        )
-        .map_err(|err| {
-            CHUNK_WITNESS_VALIDATION_FAILED_TOTAL
-                .with_label_values(&[&shard_id.to_string(), err.prometheus_label_value()])
-                .inc();
-            tracing::error!(
-                target: "chunk_validation",
-                ?err,
-                ?chunk_producer_name,
-                ?chunk_production_key,
-                "Failed to pre-validate chunk state witness"
+            chunk_validation::pre_validate_chunk_state_witness(
+                &state_witness,
+                &self.chain_store,
+                self.genesis_block.clone(),
+                self.epoch_manager.as_ref(),
+            )
+            .map_err(|err| {
+                CHUNK_WITNESS_VALIDATION_FAILED_TOTAL
+                    .with_label_values(&[&shard_id.to_string(), err.prometheus_label_value()])
+                    .inc();
+                tracing::error!(
+                    target: "chunk_validation",
+                    ?err,
+                    ?chunk_producer_name,
+                    ?chunk_production_key,
+                    "Failed to pre-validate chunk state witness"
+                );
+                err
+            })?
+        } else {
+            let prev_block_header = self.chain_store.get_block_header(&prev_block_hash)?;
+            let transaction_validity_check_results = state_witness
+                .transactions()
+                .iter()
+                .map(|t| {
+                    self.chain_store
+                        .check_transaction_validity_period(
+                            &prev_block_header,
+                            t.transaction.block_hash(),
+                        )
+                        .is_ok()
+                })
+                .collect_vec();
+            let transactions = SignedValidPeriodTransactions::new(
+                state_witness.transactions().clone(),
+                transaction_validity_check_results,
             );
-            err
-        })?;
+            let block_context = state_witness.block_context();
+            let receipts = state_witness.raw_receipts();
+            let main_transition_params = MainTransition::NewChunk {
+                new_chunk_data: NewChunkData {
+                    chunk_header: chunk_header.clone(),
+                    transactions,
+                    receipts: receipts.clone(),
+                    block: block_context.clone(),
+                    storage_context: StorageContext {
+                        storage_data_source: StorageDataSource::Recorded(PartialStorage {
+                            nodes: state_witness.main_state_transition().base_state.clone(),
+                        }),
+                        state_patch: Default::default(),
+                    },
+                },
+                prev_hash: prev_block_hash,
+            };
+            PreValidationOutput { main_transition_params, implicit_transition_params: vec![] }
+        };
 
         if self.try_validate_chunk_with_chunk_extra(state_witness.clone(), signer)? {
             return Ok(());
@@ -542,6 +582,8 @@ impl ChunkValidationActorInner {
                     signer.as_ref(),
                     &network_adapter,
                 );
+            } else {
+                println!("SUCCESSFULLY VALIDATED OPTIMISTIC WITNESS");
             }
         });
 

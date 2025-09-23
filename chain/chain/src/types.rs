@@ -11,7 +11,6 @@ use near_parameters::RuntimeConfig;
 use near_pool::types::TransactionGroupIterator;
 use near_primitives::apply::ApplyChunkReason;
 use near_primitives::bandwidth_scheduler::BandwidthRequests;
-use near_primitives::bandwidth_scheduler::BlockBandwidthRequests;
 use near_primitives::block::ApplyChunkBlockContext;
 pub use near_primitives::block::{Block, BlockHeader, Tip};
 use near_primitives::chunk_apply_stats::ChunkApplyStatsV0;

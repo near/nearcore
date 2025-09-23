@@ -1692,7 +1692,6 @@ impl Chain {
 
         let block = block.into_inner();
         let block_hash = *block.hash();
-        let block_height = block.header().height();
         self.blocks_in_processing.add(block, block_preprocess_info)?;
 
         // 3) schedule apply chunks, which will be executed in the rayon thread pool.
@@ -3020,7 +3019,7 @@ impl Chain {
             prev_block.header(),
             true,
         )?;
-        for (shard_index, chunk_header) in chunk_headers.iter().enumerate() {
+        for (shard_index, _) in chunk_headers.iter().enumerate() {
             let shard_id = shard_layout.get_shard_id(shard_index)?;
             let cached_shard_update_key =
                 Self::get_cached_shard_update_key(&block_context, chunk_headers, shard_id)?;
