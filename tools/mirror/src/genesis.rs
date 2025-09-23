@@ -1,8 +1,9 @@
 use near_crypto::PublicKey;
 use near_primitives::action::delegate::{DelegateAction, SignedDelegateAction};
-use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum};
+use near_primitives::receipt::{DataReceiver, Receipt, ReceiptEnum};
 use near_primitives::state_record::StateRecord;
 use near_primitives::transaction::{Action, AddKeyAction, DeleteAccountAction, DeleteKeyAction};
+use near_primitives::types::AccountId;
 use near_primitives_core::account::id::AccountType;
 use near_primitives_core::account::{AccessKey, AccessKeyPermission};
 use serde::ser::{SerializeSeq, Serializer};
@@ -110,21 +111,23 @@ fn map_delegate_action(
 
 // map all the account IDs and keys in this receipt and its actions, and skip any stake actions
 fn map_action_receipt(
-    receipt: &mut ActionReceipt,
+    signer_id: &mut AccountId,
+    signer_public_key: &mut PublicKey,
+    output_data_receivers: &mut [DataReceiver],
+    actions: &mut Vec<Action>,
     secret: Option<&[u8; crate::secret::SECRET_LEN]>,
     default_key: &PublicKey,
 ) {
-    receipt.signer_id = crate::key_mapping::map_account(&receipt.signer_id, secret);
-    receipt.signer_public_key =
-        crate::key_mapping::map_key(&receipt.signer_public_key, secret).public_key();
-    for receiver in &mut receipt.output_data_receivers {
+    *signer_id = crate::key_mapping::map_account(signer_id, secret);
+    *signer_public_key = crate::key_mapping::map_key(signer_public_key, secret).public_key();
+    for receiver in output_data_receivers {
         receiver.receiver_id = crate::key_mapping::map_account(&receiver.receiver_id, secret);
     }
 
-    let mut actions = Vec::with_capacity(receipt.actions.len());
+    let mut new_actions = Vec::with_capacity(actions.len());
     let mut account_created = false;
     let mut full_key_added = false;
-    for action in &receipt.actions {
+    for action in actions.iter() {
         if let Some(a) = map_action(action, secret, default_key, true) {
             match &a {
                 Action::AddKey(add_key) => {
@@ -137,16 +140,16 @@ fn map_action_receipt(
                 }
                 _ => {}
             };
-            actions.push(a);
+            new_actions.push(a);
         }
     }
     if account_created && !full_key_added {
-        actions.push(Action::AddKey(Box::new(AddKeyAction {
+        new_actions.push(Action::AddKey(Box::new(AddKeyAction {
             public_key: default_key.clone(),
             access_key: AccessKey::full_access(),
         })));
     }
-    receipt.actions = actions;
+    *actions = new_actions;
 }
 
 // map any account IDs or keys referenced in the receipt
@@ -159,7 +162,24 @@ pub fn map_receipt(
     receipt.set_receiver_id(crate::key_mapping::map_account(receipt.receiver_id(), secret));
     match receipt.receipt_mut() {
         ReceiptEnum::Action(r) | ReceiptEnum::PromiseYield(r) => {
-            map_action_receipt(r, secret, default_key);
+            map_action_receipt(
+                &mut r.signer_id,
+                &mut r.signer_public_key,
+                &mut r.output_data_receivers,
+                &mut r.actions,
+                secret,
+                default_key,
+            );
+        }
+        ReceiptEnum::ActionV2(r) | ReceiptEnum::PromiseYieldV2(r) => {
+            map_action_receipt(
+                &mut r.signer_id,
+                &mut r.signer_public_key,
+                &mut r.output_data_receivers,
+                &mut r.actions,
+                secret,
+                default_key,
+            );
         }
         _ => {}
     }
