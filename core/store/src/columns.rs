@@ -347,13 +347,13 @@ pub enum DBCol {
     #[cfg(feature = "protocol_feature_spice")]
     AllNextBlockHashes,
     /// For spice contains execution results endorsements.
-    /// - *Rows*: ChunkProductionKeyWithAccount ([near_primitives::stateless_validation::ChunkProductionKey] || AccountId)
+    /// - *Rows*: SpiceEndorsementKey (BlockHash || ShardId || AccountId)
     /// - *Content type*: [near_primitives::stateless_validation::chunk_endorsement::SpiceEndorsementWithSignature]
     #[cfg(feature = "protocol_feature_spice")]
     Endorsements,
     /// For spice contains execution results of applying the chunk.
     /// Should only contain endorsed execution results.
-    /// - *Rows*: [near_primitives::stateless_validation::ChunkProductionKey]
+    /// - *Rows*: (BlockHash || ShardId)
     /// - *Content type*: ([near_primitives::types::ChunkExecutionResult])
     #[cfg(feature = "protocol_feature_spice")]
     ExecutionResults,
@@ -399,8 +399,7 @@ pub enum DBKeyType {
     LatestWitnessIndex,
     InvalidWitnessesKey,
     InvalidWitnessIndex,
-    ChunkProductionKey,
-    ChunkProductionKeyWithAccount,
+    SpiceEndorsementKey,
 }
 
 impl DBCol {
@@ -670,9 +669,9 @@ impl DBCol {
             #[cfg(feature = "protocol_feature_spice")]
             DBCol::AllNextBlockHashes => &[DBKeyType::BlockHash],
             #[cfg(feature = "protocol_feature_spice")]
-            DBCol::Endorsements => &[DBKeyType::ChunkProductionKeyWithAccount],
+            DBCol::Endorsements => &[DBKeyType::SpiceEndorsementKey],
             #[cfg(feature = "protocol_feature_spice")]
-            DBCol::ExecutionResults => &[DBKeyType::ChunkProductionKey],
+            DBCol::ExecutionResults => &[DBKeyType::BlockHash, DBKeyType::ShardId],
             #[cfg(feature = "protocol_feature_spice")]
             DBCol::UncertifiedChunks => &[DBKeyType::BlockHash],
         }

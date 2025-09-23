@@ -11,13 +11,12 @@ use near_primitives::errors::InvalidSpiceCoreStatementsError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::sharding::ShardChunkHeader;
-use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::stateless_validation::chunk_endorsement::{
     ChunkEndorsement, SpiceEndorsementSignedInner, SpiceEndorsementWithSignature,
 };
 use near_primitives::test_utils::{TestBlockBuilder, create_test_signer};
 use near_primitives::types::chunk_extra::ChunkExtra;
-use near_primitives::types::{ChunkExecutionResult, ChunkExecutionResultHash};
+use near_primitives::types::{ChunkExecutionResult, ChunkExecutionResultHash, SpiceChunkId};
 use near_store::adapter::StoreAdapter as _;
 use std::collections::HashMap;
 use std::str::FromStr;
@@ -25,8 +24,8 @@ use std::sync::Arc;
 use tokio::sync::mpsc::error::TryRecvError;
 use tokio::sync::mpsc::{UnboundedSender, unbounded_channel};
 
+use crate::spice_core::CoreStatementsProcessor;
 use crate::spice_core::ExecutionResultEndorsed;
-use crate::spice_core::{CoreStatementsProcessor, make_chunk_production_key};
 use crate::test_utils::{
     get_chain_with_genesis, get_fake_next_block_chunk_headers, process_block_sync,
 };
@@ -102,22 +101,6 @@ fn test_record_chunk_endorsement_with_unknown_block() {
     let chunk_header = chunks.iter_raw().next().unwrap();
     let endorsement = test_chunk_endorsement(&test_validators()[0], &block, chunk_header);
     assert!(core_processor.record_chunk_endorsement(endorsement).is_ok());
-}
-
-#[test]
-#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-fn test_record_chunk_endorsement_with_irrelevant_chunk_production_key() {
-    let (mut chain, core_processor) = setup();
-    let genesis = chain.genesis_block();
-    let block = build_block(&mut chain, &genesis, vec![]);
-    process_block(&mut chain, block.clone());
-    let genesis_chunks = genesis.chunks();
-    let genesis_chunk_header = genesis_chunks.iter_raw().next().unwrap();
-    let endorsement = test_chunk_endorsement(&test_validators()[0], &block, genesis_chunk_header);
-    assert_matches!(
-        core_processor.record_chunk_endorsement(endorsement),
-        Err(Error::InvalidChunkEndorsement)
-    );
 }
 
 #[test]
@@ -299,7 +282,7 @@ fn test_get_block_execution_results_with_all_execution_results_present() {
     assert!(execution_results.is_some());
     let execution_results = execution_results.unwrap();
     for chunk_header in chunks.iter_raw() {
-        assert!(execution_results.0.contains_key(&chunk_header.chunk_hash()));
+        assert!(execution_results.0.contains_key(&chunk_header.shard_id()));
     }
     assert_eq!(execution_results.0.len(), chunks.len());
 }
@@ -397,7 +380,10 @@ fn test_core_statement_for_next_block_contains_new_endorsements() {
     assert_eq!(
         core_statements[0],
         SpiceCoreStatement::Endorsement {
-            chunk_production_key,
+            chunk_id: SpiceChunkId {
+                block_hash: *block.hash(),
+                shard_id: chunk_production_key.shard_id,
+            },
             account_id,
             endorsement: SpiceEndorsementWithSignature { inner: signed_inner, signature }
         }
@@ -449,7 +435,10 @@ fn test_core_statement_for_next_block_contains_new_endorsement() {
     assert_eq!(
         core_statements[0],
         SpiceCoreStatement::Endorsement {
-            chunk_production_key,
+            chunk_id: SpiceChunkId {
+                block_hash: *block.hash(),
+                shard_id: chunk_production_key.shard_id,
+            },
             account_id,
             endorsement: SpiceEndorsementWithSignature { inner: signed_inner, signature }
         }
@@ -475,7 +464,7 @@ fn test_core_statement_for_next_block_contains_new_execution_results() {
     let execution_result = test_execution_result_for_chunk(&chunk_header);
     let core_statements = core_processor.core_statement_for_next_block(block.header()).unwrap();
     assert!(core_statements.contains(&SpiceCoreStatement::ChunkExecutionResult {
-        chunk_production_key: make_chunk_production_key(&block, chunk_header),
+        chunk_id: SpiceChunkId { block_hash: *block.hash(), shard_id: chunk_header.shard_id() },
         execution_result,
     }));
 }
@@ -607,7 +596,10 @@ fn test_core_statement_for_next_block_contains_all_endorsements() {
         let (chunk_production_key, account_id, signed_inner, _execution_result, signature) =
             endorsement.spice_destructure().unwrap();
         all_endorsements.push(SpiceCoreStatement::Endorsement {
-            chunk_production_key,
+            chunk_id: SpiceChunkId {
+                block_hash: *block.hash(),
+                shard_id: chunk_production_key.shard_id,
+            },
             account_id,
             endorsement: SpiceEndorsementWithSignature { inner: signed_inner, signature },
         });
@@ -659,7 +651,10 @@ fn test_record_block_for_block_with_endorsements() {
             let (chunk_production_key, account_id, signed_inner, _execution_result, signature) =
                 endorsement.spice_destructure().unwrap();
             SpiceCoreStatement::Endorsement {
-                chunk_production_key,
+                chunk_id: SpiceChunkId {
+                    block_hash: *block.hash(),
+                    shard_id: chunk_production_key.shard_id,
+                },
                 account_id,
                 endorsement: SpiceEndorsementWithSignature { inner: signed_inner, signature },
             }
@@ -697,7 +692,10 @@ fn test_record_block_for_block_with_execution_results() {
             let (chunk_production_key, account_id, signed_inner, _execution_result, signature) =
                 endorsement.spice_destructure().unwrap();
             SpiceCoreStatement::Endorsement {
-                chunk_production_key,
+                chunk_id: SpiceChunkId {
+                    block_hash: *block.hash(),
+                    shard_id: chunk_production_key.shard_id,
+                },
                 account_id,
                 endorsement: SpiceEndorsementWithSignature { inner: signed_inner, signature },
             }
@@ -705,7 +703,7 @@ fn test_record_block_for_block_with_execution_results() {
         .collect_vec();
     let execution_result = test_execution_result_for_chunk(&chunk_header);
     block_core_statements.push(SpiceCoreStatement::ChunkExecutionResult {
-        chunk_production_key: make_chunk_production_key(&block, chunk_header),
+        chunk_id: SpiceChunkId { block_hash: *block.hash(), shard_id: chunk_header.shard_id() },
         execution_result: execution_result.clone(),
     });
 
@@ -781,10 +779,10 @@ fn test_endorsements_from_forks_can_be_used_in_other_forks() {
     let chunk_header = chunks.iter_raw().next().unwrap();
 
     let endorsement = test_chunk_endorsement(&test_validators()[0], &block, chunk_header);
-    let (chunk_production_key, account_id, signed_inner, _execution_result, signature) =
+    let (_chunk_production_key, account_id, signed_inner, _execution_result, signature) =
         endorsement.spice_destructure().unwrap();
     let core_endorsement = SpiceCoreStatement::Endorsement {
-        chunk_production_key,
+        chunk_id: SpiceChunkId { block_hash: *block.hash(), shard_id: chunk_header.shard_id() },
         account_id,
         endorsement: SpiceEndorsementWithSignature { inner: signed_inner, signature },
     };
@@ -834,7 +832,10 @@ fn test_validate_core_statements_in_block_with_endorsement_with_invalid_account_
     let (chunk_production_key, account_id, signed_inner, _execution_result, signature) =
         endorsement.spice_destructure().unwrap();
     let core_endorsement = SpiceCoreStatement::Endorsement {
-        chunk_production_key,
+        chunk_id: SpiceChunkId {
+            block_hash: *block.hash(),
+            shard_id: chunk_production_key.shard_id,
+        },
         account_id,
         endorsement: SpiceEndorsementWithSignature { inner: signed_inner, signature },
     };
@@ -842,7 +843,10 @@ fn test_validate_core_statements_in_block_with_endorsement_with_invalid_account_
     let next_block = build_block(&mut chain, &block, vec![core_endorsement]);
     assert_matches!(
         core_processor.validate_core_statements_in_block(&next_block),
-        Err(InvalidSpiceCoreStatementsError::NoValidatorForAccountId { index: 0, .. })
+        Err(InvalidSpiceCoreStatementsError::InvalidCoreStatement {
+            reason: "endorsement is irrelevant",
+            index: 0
+        })
     );
 }
 
@@ -860,7 +864,10 @@ fn test_validate_core_statements_in_block_with_endorsement_with_invalid_signatur
     let (chunk_production_key, account_id, _signed_inner, _execution_result, signature) =
         endorsement.spice_destructure().unwrap();
     let core_endorsement = SpiceCoreStatement::Endorsement {
-        chunk_production_key,
+        chunk_id: SpiceChunkId {
+            block_hash: *block.hash(),
+            shard_id: chunk_production_key.shard_id,
+        },
         account_id,
         endorsement: SpiceEndorsementWithSignature {
             inner: SpiceEndorsementSignedInner {
@@ -895,7 +902,10 @@ fn test_validate_core_statements_in_block_with_endorsement_already_included() {
     let (chunk_production_key, account_id, signed_inner, _execution_result, signature) =
         endorsement.spice_destructure().unwrap();
     let core_endorsement = SpiceCoreStatement::Endorsement {
-        chunk_production_key,
+        chunk_id: SpiceChunkId {
+            block_hash: *block.hash(),
+            shard_id: chunk_production_key.shard_id,
+        },
         account_id,
         endorsement: SpiceEndorsementWithSignature { inner: signed_inner, signature },
     };
@@ -930,7 +940,10 @@ fn test_validate_core_statements_in_block_with_endorsement_for_unknown_block() {
     let (chunk_production_key, account_id, signed_inner, _execution_result, signature) =
         endorsement.spice_destructure().unwrap();
     let core_endorsement = SpiceCoreStatement::Endorsement {
-        chunk_production_key,
+        chunk_id: SpiceChunkId {
+            block_hash: *next_block.hash(),
+            shard_id: chunk_production_key.shard_id,
+        },
         account_id,
         endorsement: SpiceEndorsementWithSignature { inner: signed_inner, signature },
     };
@@ -960,7 +973,10 @@ fn test_validate_core_statements_in_block_with_duplicate_endorsement() {
     let (chunk_production_key, account_id, signed_inner, _execution_result, signature) =
         endorsement.spice_destructure().unwrap();
     let core_endorsement = SpiceCoreStatement::Endorsement {
-        chunk_production_key,
+        chunk_id: SpiceChunkId {
+            block_hash: *block.hash(),
+            shard_id: chunk_production_key.shard_id,
+        },
         account_id,
         endorsement: SpiceEndorsementWithSignature { inner: signed_inner, signature },
     };
@@ -993,14 +1009,17 @@ fn test_validate_core_statements_in_block_with_duplicate_execution_result() {
             let (chunk_production_key, account_id, signed_inner, _execution_result, signature) =
                 endorsement.spice_destructure().unwrap();
             SpiceCoreStatement::Endorsement {
-                chunk_production_key,
+                chunk_id: SpiceChunkId {
+                    block_hash: *block.hash(),
+                    shard_id: chunk_production_key.shard_id,
+                },
                 account_id,
                 endorsement: SpiceEndorsementWithSignature { inner: signed_inner, signature },
             }
         })
         .collect_vec();
     let execution_result = SpiceCoreStatement::ChunkExecutionResult {
-        chunk_production_key: make_chunk_production_key(&block, chunk_header),
+        chunk_id: SpiceChunkId { block_hash: *block.hash(), shard_id: chunk_header.shard_id() },
         execution_result: test_execution_result_for_chunk(&chunk_header),
     };
     block_core_statements.push(execution_result.clone());
@@ -1044,14 +1063,17 @@ fn test_validate_core_statements_in_block_with_child_execution_result_included_b
             let (chunk_production_key, account_id, signed_inner, _execution_result, signature) =
                 endorsement.spice_destructure().unwrap();
             SpiceCoreStatement::Endorsement {
-                chunk_production_key,
+                chunk_id: SpiceChunkId {
+                    block_hash: *block.hash(),
+                    shard_id: chunk_production_key.shard_id,
+                },
                 account_id,
                 endorsement: SpiceEndorsementWithSignature { inner: signed_inner, signature },
             }
         })
         .collect_vec();
     let execution_result = SpiceCoreStatement::ChunkExecutionResult {
-        chunk_production_key: make_chunk_production_key(&block, chunk_header),
+        chunk_id: SpiceChunkId { block_hash: *block.hash(), shard_id: chunk_header.shard_id() },
         execution_result: test_execution_result_for_chunk(&chunk_header),
     };
     block_core_statements.push(execution_result);
@@ -1061,15 +1083,13 @@ fn test_validate_core_statements_in_block_with_child_execution_result_included_b
     assert_matches!(result, Err(InvalidSpiceCoreStatementsError::SkippedExecutionResult { .. }));
 
     let Err(InvalidSpiceCoreStatementsError::SkippedExecutionResult {
-        shard_id,
-        epoch_id,
-        height_created,
+        chunk_id: SpiceChunkId { block_hash, shard_id },
     }) = result
     else {
         panic!();
     };
-    let parent_key = make_chunk_production_key(&parent_block, &parent_chunk_header);
-    assert_eq!(parent_key, ChunkProductionKey { shard_id, epoch_id, height_created });
+    assert_eq!(parent_block.hash(), &block_hash);
+    assert_eq!(parent_chunk_header.shard_id(), shard_id);
 }
 
 #[test]
@@ -1088,12 +1108,18 @@ fn test_validate_core_statements_in_block_with_execution_result_included_without
         endorsement.spice_destructure().unwrap();
     let block_core_statements = vec![
         SpiceCoreStatement::Endorsement {
-            chunk_production_key,
+            chunk_id: SpiceChunkId {
+                block_hash: *block.hash(),
+                shard_id: chunk_production_key.shard_id,
+            },
             account_id,
             endorsement: SpiceEndorsementWithSignature { inner: signed_inner, signature },
         },
         SpiceCoreStatement::ChunkExecutionResult {
-            chunk_production_key: make_chunk_production_key(&block, chunk_header),
+            chunk_id: SpiceChunkId {
+                block_hash: *block.hash(),
+                shard_id: chunk_production_key.shard_id,
+            },
             execution_result: test_execution_result_for_chunk(&chunk_header),
         },
     ];
@@ -1120,7 +1146,7 @@ fn test_validate_core_statements_in_block_with_execution_result_included_without
     let chunk_header = chunks.iter_raw().next().unwrap();
 
     let block_core_statements = vec![SpiceCoreStatement::ChunkExecutionResult {
-        chunk_production_key: make_chunk_production_key(&block, chunk_header),
+        chunk_id: SpiceChunkId { block_hash: *block.hash(), shard_id: chunk_header.shard_id() },
         execution_result: test_execution_result_for_chunk(&chunk_header),
     }];
 
@@ -1153,7 +1179,10 @@ fn test_validate_core_statements_in_block_with_enough_endorsements_but_no_execut
             let (chunk_production_key, account_id, signed_inner, _execution_result, signature) =
                 endorsement.spice_destructure().unwrap();
             SpiceCoreStatement::Endorsement {
-                chunk_production_key,
+                chunk_id: SpiceChunkId {
+                    block_hash: *block.hash(),
+                    shard_id: chunk_production_key.shard_id,
+                },
                 account_id,
                 endorsement: SpiceEndorsementWithSignature { inner: signed_inner, signature },
             }
@@ -1168,15 +1197,13 @@ fn test_validate_core_statements_in_block_with_enough_endorsements_but_no_execut
     );
 
     let Err(InvalidSpiceCoreStatementsError::NoExecutionResultForEndorsedChunk {
-        shard_id,
-        epoch_id,
-        height_created,
+        chunk_id: SpiceChunkId { block_hash, shard_id },
     }) = result
     else {
         panic!();
     };
-    let key = make_chunk_production_key(&block, &chunk_header);
-    assert_eq!(key, ChunkProductionKey { shard_id, epoch_id, height_created });
+    assert_eq!(block.hash(), &block_hash);
+    assert_eq!(chunk_header.shard_id(), shard_id);
 }
 
 #[test]
@@ -1197,14 +1224,17 @@ fn test_validate_core_statements_in_block_with_execution_result_different_from_e
             let (chunk_production_key, account_id, signed_inner, _execution_result, signature) =
                 endorsement.spice_destructure().unwrap();
             SpiceCoreStatement::Endorsement {
-                chunk_production_key,
+                chunk_id: SpiceChunkId {
+                    block_hash: *block.hash(),
+                    shard_id: chunk_production_key.shard_id,
+                },
                 account_id,
                 endorsement: SpiceEndorsementWithSignature { inner: signed_inner, signature },
             }
         })
         .collect_vec();
     block_core_statements.push(SpiceCoreStatement::ChunkExecutionResult {
-        chunk_production_key: make_chunk_production_key(&block, chunk_header),
+        chunk_id: SpiceChunkId { block_hash: *block.hash(), shard_id: chunk_header.shard_id() },
         execution_result: invalid_execution_result_for_chunk(&chunk_header),
     });
     let execution_result_index = block_core_statements.len() - 1;
@@ -1258,7 +1288,10 @@ fn test_validate_core_statements_in_block_valid_with_not_enough_on_chain_endorse
             let (chunk_production_key, account_id, signed_inner, _execution_result, signature) =
                 endorsement.spice_destructure().unwrap();
             SpiceCoreStatement::Endorsement {
-                chunk_production_key,
+                chunk_id: SpiceChunkId {
+                    block_hash: *block.hash(),
+                    shard_id: chunk_production_key.shard_id,
+                },
                 account_id,
                 endorsement: SpiceEndorsementWithSignature { inner: signed_inner, signature },
             }
@@ -1293,7 +1326,10 @@ fn test_validate_core_statements_in_block_valid_endorsements_without_execution_r
             let (chunk_production_key, account_id, signed_inner, _execution_result, signature) =
                 endorsement.spice_destructure().unwrap();
             SpiceCoreStatement::Endorsement {
-                chunk_production_key,
+                chunk_id: SpiceChunkId {
+                    block_hash: *block.hash(),
+                    shard_id: chunk_production_key.shard_id,
+                },
                 account_id,
                 endorsement: SpiceEndorsementWithSignature { inner: signed_inner, signature },
             }
@@ -1322,14 +1358,17 @@ fn test_validate_core_statements_in_block_valid_endorsements_with_execution_resu
             let (chunk_production_key, account_id, signed_inner, _execution_result, signature) =
                 endorsement.spice_destructure().unwrap();
             SpiceCoreStatement::Endorsement {
-                chunk_production_key,
+                chunk_id: SpiceChunkId {
+                    block_hash: *block.hash(),
+                    shard_id: chunk_production_key.shard_id,
+                },
                 account_id,
                 endorsement: SpiceEndorsementWithSignature { inner: signed_inner, signature },
             }
         })
         .collect_vec();
     block_core_statements.push(SpiceCoreStatement::ChunkExecutionResult {
-        chunk_production_key: make_chunk_production_key(&block, chunk_header),
+        chunk_id: SpiceChunkId { block_hash: *block.hash(), shard_id: chunk_header.shard_id() },
         execution_result: test_execution_result_for_chunk(&chunk_header),
     });
 
@@ -1357,7 +1396,10 @@ fn test_validate_core_statements_in_block_valid_execution_result_with_ancestral_
             let (chunk_production_key, account_id, signed_inner, _execution_result, signature) =
                 endorsement.spice_destructure().unwrap();
             SpiceCoreStatement::Endorsement {
-                chunk_production_key,
+                chunk_id: SpiceChunkId {
+                    block_hash: *block.hash(),
+                    shard_id: chunk_production_key.shard_id,
+                },
                 account_id,
                 endorsement: SpiceEndorsementWithSignature { inner: signed_inner, signature },
             }
@@ -1373,14 +1415,17 @@ fn test_validate_core_statements_in_block_valid_execution_result_with_ancestral_
             let (chunk_production_key, account_id, signed_inner, _execution_result, signature) =
                 endorsement.spice_destructure().unwrap();
             SpiceCoreStatement::Endorsement {
-                chunk_production_key,
+                chunk_id: SpiceChunkId {
+                    block_hash: *block.hash(),
+                    shard_id: chunk_production_key.shard_id,
+                },
                 account_id,
                 endorsement: SpiceEndorsementWithSignature { inner: signed_inner, signature },
             }
         })
         .collect_vec();
     next_next_block_core_statements.push(SpiceCoreStatement::ChunkExecutionResult {
-        chunk_production_key: make_chunk_production_key(&block, chunk_header),
+        chunk_id: SpiceChunkId { block_hash: *block.hash(), shard_id: chunk_header.shard_id() },
         execution_result: test_execution_result_for_chunk(&chunk_header),
     });
 
@@ -1402,10 +1447,10 @@ fn test_send_execution_result_endorsements_with_endorsements_but_without_executi
     let chunk_header = chunks.iter_raw().next().unwrap();
 
     let endorsement = test_chunk_endorsement(&test_validators()[0], &block, chunk_header);
-    let (chunk_production_key, account_id, signed_inner, _execution_result, signature) =
+    let (_chunk_production_key, account_id, signed_inner, _execution_result, signature) =
         endorsement.spice_destructure().unwrap();
     let block_core_statements = vec![SpiceCoreStatement::Endorsement {
-        chunk_production_key,
+        chunk_id: SpiceChunkId { block_hash: *block.hash(), shard_id: chunk_header.shard_id() },
         account_id,
         endorsement: SpiceEndorsementWithSignature { inner: signed_inner, signature },
     }];
@@ -1443,16 +1488,19 @@ fn test_send_execution_result_endorsements_with_endorsements_and_execution_resul
     for chunk_header in block.chunks().iter_raw() {
         for validator in &all_validators {
             let endorsement = test_chunk_endorsement(&validator, &block, chunk_header);
-            let (chunk_production_key, account_id, signed_inner, _execution_result, signature) =
+            let (_chunk_production_key, account_id, signed_inner, _execution_result, signature) =
                 endorsement.spice_destructure().unwrap();
             block_core_statements.push(SpiceCoreStatement::Endorsement {
-                chunk_production_key,
+                chunk_id: SpiceChunkId {
+                    block_hash: *block.hash(),
+                    shard_id: chunk_header.shard_id(),
+                },
                 account_id,
                 endorsement: SpiceEndorsementWithSignature { inner: signed_inner, signature },
             });
         }
         block_core_statements.push(SpiceCoreStatement::ChunkExecutionResult {
-            chunk_production_key: make_chunk_production_key(&block, chunk_header),
+            chunk_id: SpiceChunkId { block_hash: *block.hash(), shard_id: chunk_header.shard_id() },
             execution_result: test_execution_result_for_chunk(&chunk_header),
         });
     }
@@ -1497,16 +1545,22 @@ fn test_send_execution_result_endorsements_with_execution_results_for_several_bl
         for chunk_header in block.chunks().iter_raw() {
             for validator in &all_validators {
                 let endorsement = test_chunk_endorsement(&validator, &block, chunk_header);
-                let (chunk_production_key, account_id, signed_inner, _execution_result, signature) =
+                let (_chunk_production_key, account_id, signed_inner, _execution_result, signature) =
                     endorsement.spice_destructure().unwrap();
                 core_statements.push(SpiceCoreStatement::Endorsement {
-                    chunk_production_key,
+                    chunk_id: SpiceChunkId {
+                        block_hash: *block.hash(),
+                        shard_id: chunk_header.shard_id(),
+                    },
                     account_id,
                     endorsement: SpiceEndorsementWithSignature { inner: signed_inner, signature },
                 });
             }
             core_statements.push(SpiceCoreStatement::ChunkExecutionResult {
-                chunk_production_key: make_chunk_production_key(&block, chunk_header),
+                chunk_id: SpiceChunkId {
+                    block_hash: *block.hash(),
+                    shard_id: chunk_header.shard_id(),
+                },
                 execution_result: test_execution_result_for_chunk(&chunk_header),
             });
         }
