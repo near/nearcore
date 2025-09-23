@@ -1326,7 +1326,7 @@ impl ClientActorInner {
     }
 
     fn handle_on_post_state_ready(&mut self, msg: PostStateReadyMessage) {
-        tracing::trace!(target: "client", "Received PostStateReadyMessage: {:?}", msg);
+        tracing::trace!(target: "client", ?msg, "Received PostStateReadyMessage");
         // Check if we are chunk producer for this height and shard.
         let cpk = ChunkProductionKey {
             shard_id: msg.shard_uid.shard_id(),
