@@ -1,3 +1,4 @@
+use std::cmp::min;
 use std::path::PathBuf;
 
 use chrono::{DateTime, Utc};
@@ -9,15 +10,20 @@ use near_primitives::state_record::StateRecord;
 use near_primitives::types::{AccountId, AccountInfo, Balance, Gas, NumSeats, NumShards};
 use near_primitives::utils::{from_timestamp, generate_random_string};
 use near_primitives::version::PROTOCOL_VERSION;
-use near_time::Clock;
-use num_rational::Ratio;
+use near_time::{Clock, Duration};
+use num_rational::{Ratio, Rational32};
 
-use crate::client_config::default_archival_writer_polling_interval;
+use crate::client_config::{
+    default_archival_writer_polling_interval, default_rpc_handler_thread_count,
+};
 use crate::{
-    CloudArchivalReaderConfig, CloudArchivalWriterConfig, CloudStorageConfig,
-    ExternalStorageLocation, FAST_EPOCH_LENGTH, GAS_PRICE_ADJUSTMENT_RATE, Genesis, GenesisConfig,
-    INITIAL_GAS_LIMIT, MAX_INFLATION_RATE, MIN_GAS_PRICE, NEAR_BASE, NUM_BLOCKS_PER_YEAR,
-    PROTOCOL_REWARD_RATE, PROTOCOL_TREASURY_ACCOUNT, TRANSACTION_VALIDITY_PERIOD,
+    ClientConfig, CloudArchivalReaderConfig, CloudArchivalWriterConfig, CloudStorageConfig,
+    EpochSyncConfig, ExternalStorageLocation, FAST_EPOCH_LENGTH, GAS_PRICE_ADJUSTMENT_RATE,
+    GCConfig, Genesis, GenesisConfig, INITIAL_GAS_LIMIT, LogSummaryStyle, MAX_INFLATION_RATE,
+    MIN_GAS_PRICE, MutableConfigValue, NEAR_BASE, NUM_BLOCKS_PER_YEAR, PROTOCOL_REWARD_RATE,
+    PROTOCOL_TREASURY_ACCOUNT, ReshardingConfig, StateSyncConfig, TRANSACTION_VALIDITY_PERIOD,
+    TrackedShardsConfig, default_orphan_state_witness_max_size,
+    default_orphan_state_witness_pool_size, default_produce_chunk_add_transactions_time_limit,
 };
 
 /// Initial balance used in tests.
@@ -25,6 +31,8 @@ pub const TESTING_INIT_BALANCE: Balance = 1_000_000_000 * NEAR_BASE;
 
 /// Validator's stake used in tests.
 pub const TESTING_INIT_STAKE: Balance = 50_000_000 * NEAR_BASE;
+
+pub const TEST_STATE_SYNC_TIMEOUT: i64 = 5;
 
 impl GenesisConfig {
     pub fn test(clock: Clock) -> Self {
@@ -237,4 +245,115 @@ pub fn test_cloud_archival_configs(
         polling_interval: default_archival_writer_polling_interval(),
     };
     (reader_config, writer_config)
+}
+
+/// Common parameters used to set up test client.
+pub struct TestClientConfigParams {
+    pub skip_sync_wait: bool,
+    pub min_block_prod_time: u64,
+    pub max_block_prod_time: u64,
+    pub num_block_producer_seats: NumSeats,
+    pub archive: bool,
+    pub save_trie_changes: bool,
+    pub state_sync_enabled: bool,
+}
+
+impl ClientConfig {
+    pub fn test(params: TestClientConfigParams) -> ClientConfig {
+        let TestClientConfigParams {
+            skip_sync_wait,
+            min_block_prod_time,
+            max_block_prod_time,
+            num_block_producer_seats,
+            archive,
+            save_trie_changes,
+            state_sync_enabled,
+        } = params;
+        assert!(
+            archive || save_trie_changes,
+            "Configuration with archive = false and save_trie_changes = false is not supported \
+            because non-archival nodes must save trie changes in order to do garbage collection."
+        );
+
+        ClientConfig {
+            version: Default::default(),
+            chain_id: "unittest".to_string(),
+            rpc_addr: Some("0.0.0.0:3030".to_string()),
+            expected_shutdown: MutableConfigValue::new(None, "expected_shutdown"),
+            block_production_tracking_delay: Duration::milliseconds(std::cmp::max(
+                10,
+                min_block_prod_time / 5,
+            ) as i64),
+            min_block_production_delay: Duration::milliseconds(min_block_prod_time as i64),
+            max_block_production_delay: Duration::milliseconds(max_block_prod_time as i64),
+            max_block_wait_delay: Duration::milliseconds(3 * min_block_prod_time as i64),
+            chunk_wait_mult: Rational32::new(1, 6),
+            skip_sync_wait,
+            sync_check_period: Duration::milliseconds(100),
+            sync_step_period: Duration::milliseconds(10),
+            sync_height_threshold: 1,
+            sync_max_block_requests: 10,
+            header_sync_initial_timeout: Duration::seconds(10),
+            header_sync_progress_timeout: Duration::seconds(2),
+            header_sync_stall_ban_timeout: Duration::seconds(30),
+            state_sync_external_timeout: Duration::seconds(TEST_STATE_SYNC_TIMEOUT),
+            state_sync_p2p_timeout: Duration::seconds(TEST_STATE_SYNC_TIMEOUT),
+            state_sync_retry_backoff: Duration::seconds(TEST_STATE_SYNC_TIMEOUT),
+            state_sync_external_backoff: Duration::seconds(TEST_STATE_SYNC_TIMEOUT),
+            header_sync_expected_height_per_second: 1,
+            min_num_peers: 1,
+            log_summary_period: Duration::seconds(10),
+            produce_empty_blocks: true,
+            epoch_length: 10,
+            num_block_producer_seats,
+            ttl_account_id_router: Duration::seconds(60 * 60),
+            block_fetch_horizon: 50,
+            catchup_step_period: Duration::milliseconds(100),
+            chunk_request_retry_period: min(
+                Duration::milliseconds(100),
+                Duration::milliseconds(min_block_prod_time as i64 / 5),
+            ),
+            doomslug_step_period: Duration::milliseconds(100),
+            block_header_fetch_horizon: 50,
+            gc: GCConfig { gc_blocks_limit: 100, ..GCConfig::default() },
+            tracked_shards_config: TrackedShardsConfig::NoShards,
+            archive,
+            cloud_archival_reader: None,
+            cloud_archival_writer: None,
+            save_trie_changes,
+            save_untracked_partial_chunks_parts: true,
+            save_tx_outcomes: true,
+            log_summary_style: LogSummaryStyle::Colored,
+            view_client_threads: 1,
+            chunk_validation_threads: 1,
+            state_request_throttle_period: Duration::seconds(1),
+            state_requests_per_throttle_period: 30,
+            state_request_server_threads: 1,
+            trie_viewer_state_size_limit: None,
+            max_gas_burnt_view: None,
+            enable_statistics_export: true,
+            client_background_migration_threads: 1,
+            state_sync_enabled,
+            state_sync: StateSyncConfig::default(),
+            epoch_sync: EpochSyncConfig::default(),
+            transaction_pool_size_limit: None,
+            enable_multiline_logging: false,
+            resharding_config: MutableConfigValue::new(
+                ReshardingConfig::default(),
+                "resharding_config",
+            ),
+            tx_routing_height_horizon: 4,
+            produce_chunk_add_transactions_time_limit: MutableConfigValue::new(
+                default_produce_chunk_add_transactions_time_limit(),
+                "produce_chunk_add_transactions_time_limit",
+            ),
+            chunk_distribution_network: None,
+            orphan_state_witness_pool_size: default_orphan_state_witness_pool_size(),
+            orphan_state_witness_max_size: default_orphan_state_witness_max_size(),
+            save_latest_witnesses: false,
+            save_invalid_witnesses: false,
+            transaction_request_handler_threads: default_rpc_handler_thread_count(),
+            protocol_version_check: Default::default(),
+        }
+    }
 }

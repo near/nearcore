@@ -1,14 +1,13 @@
 name: Node Issue
 description: Issue while running a node
 title: "Node Issue: "
-labels: ["Node", "community", "investigation required"]
-assignees:
-  - VanBarbascu
+labels: ["Node", "community", "investigation required", "I-assign-to-bee"]
 body:
   - type: markdown
     attributes:
       value: |
         Thanks for taking the time to fill out this bug report!
+        Take a look at the [Node Issue Reporting Guide](https://near-nodes.io/bug-report/feature-request-and-bug-report) for more information on how to compose a comprehensive report about your node.
         Before you go ahead, please make sure that the issue has not been reported already.
         Please, follow steps below to help us resolve your issue.
         In scripts below we assume that `$NEARD` environmental variable contains path to your neard binary,
@@ -31,7 +30,7 @@ body:
         - Non-Top 100 Validator
         - RPC
         - Split Storage Archival
-        - Legacy Archival (Deprecated)
+        - Indexer
       default: 2
     validations:
       required: true
