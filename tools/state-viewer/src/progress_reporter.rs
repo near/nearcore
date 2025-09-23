@@ -40,10 +40,7 @@ impl ProgressReporter {
             empty_blocks.fetch_add(1, Ordering::Relaxed);
         } else {
             non_empty_blocks.fetch_add(1, Ordering::Relaxed);
-            tgas_burned.fetch_add(
-                gas_burnt.as_teragas(),
-                Ordering::Relaxed,
-            );
+            tgas_burned.fetch_add(gas_burnt.as_teragas(), Ordering::Relaxed);
         }
 
         const PRINT_PER: u64 = 100;

@@ -1276,7 +1276,7 @@ fn test_refund_to() {
                 "promise_index": 0,
                 "method_name": "non_existing_function",
                 "arguments": [],
-                "amount": deposit.to_string(),
+                "amount": serde_json::to_string(&deposit).unwrap(),
                 "gas": GAS_2,
             },
             "id": 0
@@ -1308,6 +1308,9 @@ fn test_refund_to() {
     for h in handles {
         h.join().unwrap();
     }
+
+    println!("{:?}", group.executed_receipts);
+
 
     use near_primitives::transaction::*;
     let [r0] = &*assert_receipts!(group, signed_transaction) else {
