@@ -24,6 +24,7 @@ use near_primitives::congestion_info::ExtendedCongestionInfo;
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{MerklePath, merklize};
+use near_primitives::optimistic_block::OptimisticBlockKeySource;
 use near_primitives::receipt::{PromiseYieldTimeout, Receipt};
 use near_primitives::sandbox::state_patch::SandboxStatePatch;
 use near_primitives::shard_layout::ShardLayout;
@@ -333,6 +334,15 @@ impl ApplyChunkBlockContext {
             random_seed: *header.random_value(),
             congestion_info,
             bandwidth_requests,
+        }
+    }
+
+    pub fn to_key_source(&self) -> OptimisticBlockKeySource {
+        OptimisticBlockKeySource {
+            height: self.height,
+            prev_block_hash: self.prev_block_hash,
+            block_timestamp: self.block_timestamp,
+            random_seed: self.random_seed,
         }
     }
 }
