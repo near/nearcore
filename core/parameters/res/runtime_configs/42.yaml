@@ -1,1 +1,1 @@
-storage_amount_per_byte: { old: 100000000000000000000 yN, new: 10000000000000000000 yN }
+storage_amount_per_byte: { old: 0.0001 yN, new: 10000000000000000000 yN }

@@ -630,7 +630,7 @@ mod tests {
             [
                 (Parameter::RegistrarAccountId, "\"registrar\""),
                 (Parameter::MinAllowedTopLevelAccountLength, "32"),
-                (Parameter::StorageAmountPerByte, "\"100000000000000000000 yN\""),
+                (Parameter::StorageAmountPerByte, "\"0.0001 yN\""),
                 (Parameter::StorageNumBytesAccount, "100"),
                 (Parameter::StorageNumExtraBytesRecord, "40"),
                 (Parameter::BurntGasReward, "{ numerator: 1_000_000, denominator: 300 }"),
@@ -651,7 +651,7 @@ mod tests {
             [
                 (Parameter::RegistrarAccountId, "\"registrar\""),
                 (Parameter::MinAllowedTopLevelAccountLength, "32"),
-                (Parameter::StorageAmountPerByte, "\"100000000000000000000 yN\""),
+                (Parameter::StorageAmountPerByte, "\"0.0001 yN\""),
                 (Parameter::StorageNumBytesAccount, "100"),
                 (Parameter::StorageNumExtraBytesRecord, "40"),
             ],
@@ -667,7 +667,7 @@ mod tests {
             [
                 (Parameter::RegistrarAccountId, "\"near\""),
                 (Parameter::MinAllowedTopLevelAccountLength, "32000"),
-                (Parameter::StorageAmountPerByte, "\"100000000000000000000 yN\""),
+                (Parameter::StorageAmountPerByte, "\"0.0001 yN\""),
                 (Parameter::StorageNumBytesAccount, "100"),
                 (Parameter::StorageNumExtraBytesRecord, "40"),
                 (Parameter::WasmRegularOpCost, "3856371"),
@@ -689,7 +689,7 @@ mod tests {
             [
                 (Parameter::RegistrarAccountId, "\"registrar\""),
                 (Parameter::MinAllowedTopLevelAccountLength, "32000"),
-                (Parameter::StorageAmountPerByte, "\"100000000000000000000 yN\""),
+                (Parameter::StorageAmountPerByte, "\"0.0001 yN\""),
                 (Parameter::StorageNumBytesAccount, "100"),
                 (Parameter::StorageNumExtraBytesRecord, "77"),
                 (Parameter::WasmRegularOpCost, "0"),
@@ -711,7 +711,7 @@ mod tests {
             &[diff_with_empty_value],
             [
                 (Parameter::RegistrarAccountId, "\"registrar\""),
-                (Parameter::StorageAmountPerByte, "\"100000000000000000000 yN\""),
+                (Parameter::StorageAmountPerByte, "\"0.0001 yN\""),
                 (Parameter::StorageNumBytesAccount, "100"),
                 (Parameter::StorageNumExtraBytesRecord, "40"),
                 (Parameter::BurntGasReward, "{ numerator: 1_000_000, denominator: 300 }"),
