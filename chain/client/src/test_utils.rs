@@ -9,7 +9,7 @@ use itertools::Itertools;
 use near_async::messaging::Sender;
 use near_chain::chain::{BlockCatchUpRequest, do_apply_chunks};
 use near_chain::test_utils::{wait_for_all_blocks_in_processing, wait_for_block_in_processing};
-use near_chain::{ChainStoreAccess, Provenance};
+use near_chain::{ApplyChunksIterationMode, ChainStoreAccess, Provenance};
 use near_client_primitives::types::Error;
 use near_primitives::bandwidth_scheduler::BandwidthRequests;
 use near_primitives::block::Block;
@@ -270,11 +270,15 @@ pub fn run_catchup(client: &mut Client) -> Result<(), Error> {
         client.run_catchup(&block_catch_up, None)?;
         let mut catchup_done = true;
         for msg in block_messages.write().drain(..) {
-            let results =
-                do_apply_chunks(BlockToApply::Normal(msg.block_hash), msg.block_height, msg.work)
-                    .into_iter()
-                    .map(|res| res.2)
-                    .collect_vec();
+            let results = do_apply_chunks(
+                ApplyChunksIterationMode::Sequential,
+                BlockToApply::Normal(msg.block_hash),
+                msg.block_height,
+                msg.work,
+            )
+            .into_iter()
+            .map(|res| res.2)
+            .collect_vec();
             if let Some(CatchupState { catchup, .. }) =
                 client.catchup_state_syncs.get_mut(&msg.sync_hash)
             {
