@@ -85,7 +85,6 @@ members = [
     "test-utils/store-validator",
     "test-utils/testlib",
     "tools/database",
-    "tools/chainsync-loadtest",
     "tools/congestion-model",
     "tools/fork-network",
     "tools/indexer/example",
