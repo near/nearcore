@@ -41,7 +41,7 @@ impl ProgressReporter {
         } else {
             non_empty_blocks.fetch_add(1, Ordering::Relaxed);
             tgas_burned.fetch_add(
-                gas_burnt.checked_div(Gas::from_teragas(1).as_gas()).unwrap().as_gas(),
+                gas_burnt.as_teragas(),
                 Ordering::Relaxed,
             );
         }
