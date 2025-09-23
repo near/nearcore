@@ -5,7 +5,11 @@ use near_async::test_loop::TestLoopV2;
 use near_async::test_loop::data::TestLoopData;
 use near_async::time::Duration;
 use near_primitives::types::AccountId;
+use near_store::Store;
 use near_store::adapter::StoreAdapter;
+use near_store::db::ColdDB;
+use near_store::test_utils::TestNodeStorage;
+use std::sync::Arc;
 use std::sync::atomic::Ordering;
 
 pub struct TestLoopEnv {
@@ -92,16 +96,30 @@ impl TestLoopEnv {
         let account_id = node_data.account_id.clone();
         let client_actor = self.test_loop.data.get(&node_data.client_sender.actor_handle());
         let client_config = client_actor.client.config.clone();
-        let store = client_actor.client.chain.chain_store.store();
-        let split_store = if client_config.archive {
-            let view_client_actor =
-                self.test_loop.data.get(&node_data.view_client_sender.actor_handle());
-            Some(view_client_actor.chain.chain_store.store())
-        } else {
-            None
-        };
+        let hot_store = client_actor.client.chain.chain_store.store();
 
-        NodeSetupState { account_id, client_config, store, split_store }
+        let (split_store, cold_db) = match self.get_split_store_and_cold_db(node_data) {
+            Some((split_store, cold_db)) => (Some(split_store), Some(cold_db)),
+            None => (None, None),
+        };
+        let storage = TestNodeStorage { hot_store, split_store, cold_db };
+
+        NodeSetupState { account_id, client_config, storage }
+    }
+
+    fn get_split_store_and_cold_db(
+        &self,
+        node_data: &NodeExecutionData,
+    ) -> Option<(Store, Arc<ColdDB>)> {
+        let Some(cold_store_sender) = &node_data.cold_store_sender else {
+            return None;
+        };
+        let cold_store_actor = self.test_loop.data.get(&cold_store_sender.actor_handle());
+        let cold_db = cold_store_actor.get_cold_db();
+        let view_client_actor =
+            self.test_loop.data.get(&node_data.view_client_sender.actor_handle());
+        let split_store = view_client_actor.chain.chain_store.store();
+        Some((split_store, cold_db))
     }
 
     /// Function to restart a node in test loop environment. This function takes in the new_identifier
