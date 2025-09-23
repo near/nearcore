@@ -193,10 +193,21 @@ pub(crate) struct PeerActor {
     /// Per-message rate limits for incoming messages.
     received_messages_rate_limits: messages_limits::RateLimits,
 
-    /// If exists, the peer actor is performing registration decision, so all messages
-    /// should be delayed until that is complete. The delayed actions are stored here,
-    /// to be executed when the registration is complete.
-    registration_buffered_actions: Option<Vec<Box<dyn FnOnce(&mut Self) + Send>>>,
+    /// See the comment on RegistrationBufferedActions.
+    registration_buffered_actions: RegistrationBufferedActions,
+}
+
+/// While registering a peer (which is an async operation), we are in an incomplete
+/// internal state, so we do not want to handle any actions. So instead we buffer them
+/// until registration is complete.
+#[derive(Default)]
+enum RegistrationBufferedActions {
+    /// Not currently registering, so execute all actions immediately.
+    #[default]
+    NotRegistering,
+    /// Currently registering, buffer all actions until registration is complete.
+    /// Each item stores a closure to execute once registration is complete.
+    Registering(Vec<Box<dyn FnOnce(&mut PeerActor) + Send>>),
 }
 
 impl Debug for PeerActor {
@@ -219,8 +230,8 @@ pub type HandshakeSignal = tokio::sync::oneshot::Receiver<std::convert::Infallib
 
 impl PeerActor {
     /// Spawns a PeerActor on a separate tokio runtime and awaits for the
-    /// handshake to succeed/fail. The actual result is not returned because
-    /// actix makes everything complicated.
+    /// handshake to succeed/fail. The actual result is not returned because we do not yet
+    /// implement a mechanism to propagate handshake result.
     pub(crate) async fn spawn_and_handshake(
         clock: time::Clock,
         actor_system: ActorSystem,
@@ -386,7 +397,7 @@ impl PeerActor {
             .into(),
             network_state,
             received_messages_rate_limits,
-            registration_buffered_actions: None,
+            registration_buffered_actions: RegistrationBufferedActions::NotRegistering,
         };
         builder.spawn_tokio_actor(actor);
         Ok((handle, recv))
@@ -395,7 +406,9 @@ impl PeerActor {
     /// If registration is in progress, queue up execution of `f` until it is complete.
     /// Otherwise, executes `f` immediately.
     fn delay_if_registering(&mut self, f: impl FnOnce(&mut Self) + Send + 'static) {
-        if let Some(buffered_actions) = &mut self.registration_buffered_actions {
+        if let RegistrationBufferedActions::Registering(buffered_actions) =
+            &mut self.registration_buffered_actions
+        {
             buffered_actions.push(Box::new(f));
         } else {
             f(self);
@@ -742,10 +755,14 @@ impl PeerActor {
         // decides whether to accept the connection or not: ctx.wait makes
         // the actor event loop poll on the future until it completes before
         // processing any other events.
-        if self.registration_buffered_actions.is_some() {
-            panic!("registration_buffered_actions should be None when starting registration");
-        }
-        self.registration_buffered_actions = Some(Vec::new());
+        debug_assert!(
+            matches!(
+                self.registration_buffered_actions,
+                RegistrationBufferedActions::NotRegistering
+            ),
+            "registration_buffered_actions should be NotRegistering when starting registration"
+        );
+        self.registration_buffered_actions = RegistrationBufferedActions::Registering(Vec::new());
         self.handle.spawn("register peer", {
             let network_state = self.network_state.clone();
             let clock = self.clock.clone();
@@ -875,8 +892,8 @@ impl PeerActor {
                     }
 
                     // Execute all actions that were delayed while registration was in progress.
-                    // Technically this should always be a Some, but let's be defensive.
-                    if let Some(buffered_actions) = act.registration_buffered_actions.take() {
+                    // Technically this should always be Registering, but let's be defensive.
+                    if let RegistrationBufferedActions::Registering(buffered_actions) = std::mem::take(&mut act.registration_buffered_actions) {
                         for f in buffered_actions {
                             f(act);
                         }

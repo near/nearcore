@@ -2,6 +2,7 @@ use near_async::messaging;
 use near_async::tokio::TokioRuntimeHandle;
 use std::ops::Deref;
 
+/// Just a simple structure that when dropped, stops the actor. It's for testing only.
 pub struct AutoStopActor<A: messaging::Actor + 'static>(pub TokioRuntimeHandle<A>);
 
 impl<A: messaging::Actor> Deref for AutoStopActor<A> {

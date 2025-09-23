@@ -433,13 +433,8 @@ impl ActorHandler {
     }
 
     pub async fn announce_account(&self, aa: AnnounceAccount) {
-        let _: () = self
-            .actix
-            .send_async(PeerManagerMessageRequest::NetworkRequests(
-                NetworkRequests::AnnounceAccount(aa),
-            ))
-            .await
-            .unwrap();
+        let msg = PeerManagerMessageRequest::NetworkRequests(NetworkRequests::AnnounceAccount(aa));
+        let _: () = self.actix.send_async(msg).await.unwrap();
     }
 
     // Awaits until the accounts_data state satisfies predicate `pred`.
