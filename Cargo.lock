@@ -28,12 +28,12 @@ dependencies = [
 
 [[package]]
 name = "actix-macros"
-version = "0.2.3"
+version = "0.2.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "465a6172cf69b960917811022d8f29bc0b7fa1398bc4f78b3c466673db1213b6"
+checksum = "e01ed3140b2f8d422c68afa1ed2e85d996ea619c988ac834d255db32138655cb"
 dependencies = [
  "quote",
- "syn 1.0.103",
+ "syn 2.0.106",
 ]
 
 [[package]]
@@ -1054,7 +1054,6 @@ checksum = "613afe47fcd5fac7ccf1db93babcb082c5994d996f20b8b159f2ad1658eb5724"
 name = "chainsync-loadtest"
 version = "0.0.0"
 dependencies = [
- "actix",
  "anyhow",
  "clap",
  "dirs",
@@ -3309,7 +3308,6 @@ dependencies = [
 name = "indexer-example"
 version = "0.0.0"
 dependencies = [
- "actix",
  "anyhow",
  "clap",
  "near-config-utils",
@@ -4092,8 +4090,6 @@ dependencies = [
  "crossbeam-channel",
  "futures",
  "near-async-derive",
- "near-o11y",
- "near-performance-metrics",
  "near-time",
  "parking_lot 0.12.1",
  "rayon",
@@ -4823,7 +4819,6 @@ dependencies = [
 name = "near-performance-metrics"
 version = "0.0.0"
 dependencies = [
- "actix",
  "bytesize 1.1.0",
  "futures",
  "libc",
@@ -5619,7 +5614,6 @@ dependencies = [
 name = "neard"
 version = "0.0.0"
 dependencies = [
- "actix",
  "anyhow",
  "clap",
  "cold-store-tool",

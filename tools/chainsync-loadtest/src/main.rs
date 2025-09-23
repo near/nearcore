@@ -7,7 +7,7 @@ use near_async::messaging::IntoMultiSender;
 use near_async::messaging::IntoSender;
 use near_async::messaging::LateBoundSender;
 use near_async::messaging::noop;
-use near_async::time;
+use near_async::{ActorSystem, time};
 use near_chain_configs::Genesis;
 use near_chain_configs::MutableConfigValue;
 use near_network::PeerManagerActor;
@@ -34,12 +34,17 @@ fn genesis_hash(chain_id: &str) -> CryptoHash {
     .unwrap();
 }
 
-pub fn start_with_config(config: NearConfig, qps_limit: u32) -> anyhow::Result<Arc<Network>> {
+pub fn start_with_config(
+    actor_system: ActorSystem,
+    config: NearConfig,
+    qps_limit: u32,
+) -> anyhow::Result<Arc<Network>> {
     let network_adapter = LateBoundSender::new();
     let network = Network::new(&config, network_adapter.as_multi_sender(), qps_limit);
 
     let network_actor = PeerManagerActor::spawn(
         time::Clock::real(),
+        actor_system,
         near_store::db::TestDB::new(),
         config.network_config,
         network.as_client_adapter(),
@@ -111,32 +116,30 @@ impl Cmd {
         // inside of it.
         let rt_ = Arc::new(tokio::runtime::Runtime::new()?);
         let rt = rt_;
-        return actix::System::new().block_on(async move {
-            let network =
-                start_with_config(near_config, cmd.qps_limit).context("start_with_config")?;
+        let network = start_with_config(ActorSystem::new(), near_config, cmd.qps_limit)
+            .context("start_with_config")?;
 
-            // We execute the chain_sync on a totally separate set of system threads to minimize
-            // the interaction with actix.
-            rt.spawn(async move {
-                scope::run!(|s| async {
-                    s.spawn_bg(async {
-                        match ctx::wait(tokio::signal::ctrl_c()).await {
-                            Err(ctx::ErrCanceled) => Ok(()),
-                            Ok(res) => {
-                                res?;
-                                info!("Got CTRL+C, stopping...");
-                                Err(anyhow!("Got CTRL+C"))
-                            }
+        // We execute the chain_sync on a totally separate set of system threads to minimize
+        // the interaction with actix.
+        let join_handle = rt.spawn(async move {
+            scope::run!(|s| async {
+                s.spawn_bg(async {
+                    match ctx::wait(tokio::signal::ctrl_c()).await {
+                        Err(ctx::ErrCanceled) => Ok(()),
+                        Ok(res) => {
+                            res?;
+                            info!("Got CTRL+C, stopping...");
+                            Err(anyhow!("Got CTRL+C"))
                         }
-                    });
-                    fetch_chain::run(&network, start_block_hash, cmd.block_limit).await?;
-                    info!("Fetch completed");
-                    anyhow::Ok(())
-                })
+                    }
+                });
+                fetch_chain::run(&network, start_block_hash, cmd.block_limit).await?;
+                info!("Fetch completed");
+                anyhow::Ok(())
             })
-            .await??;
-            return Ok(());
         });
+        rt.block_on(join_handle)??;
+        return Ok(());
     }
 }
 

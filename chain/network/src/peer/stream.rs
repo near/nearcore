@@ -1,9 +1,9 @@
 use crate::peer_manager::connection;
 use crate::stats::metrics;
 use crate::tcp;
-use actix::AsyncContext as _;
-use actix::fut::future::wrap_future;
 use bytesize::{GIB, MIB};
+use near_async::futures::{FutureSpawner, FutureSpawnerExt};
+use near_async::messaging::{self, MessageWithCallback};
 use std::io;
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -56,21 +56,19 @@ pub(crate) enum Error {
     Recv(#[source] RecvError),
 }
 
-pub(crate) struct FramedStream<Actor: actix::Actor> {
+pub(crate) struct FramedStream {
     queue_send: tokio::sync::mpsc::UnboundedSender<Frame>,
     stats: Arc<connection::Stats>,
     send_buf_size_metric: Arc<metrics::IntGaugeGuard>,
-    addr: actix::Addr<Actor>,
+    /// Sender to send the error to the PeerActor.
+    error_sender: messaging::Sender<Error>,
 }
 
-impl<Actor> FramedStream<Actor>
-where
-    Actor: actix::Actor<Context = actix::Context<Actor>>
-        + actix::Handler<Error>
-        + actix::Handler<Frame>,
-{
+impl FramedStream {
     pub fn spawn(
-        ctx: &mut actix::Context<Actor>,
+        error_sender: messaging::Sender<Error>,
+        frame_sender: messaging::Sender<MessageWithCallback<Frame, ()>>,
+        future_spawner: &dyn FutureSpawner,
         stream: tcp::Stream,
         stats: Arc<connection::Stats>,
     ) -> Self {
@@ -80,28 +78,28 @@ where
             &*metrics::PEER_DATA_WRITE_BUFFER_SIZE,
             vec![stream.peer_addr.to_string()],
         ));
-        ctx.spawn(wrap_future({
-            let addr = ctx.address();
+        future_spawner.spawn("run_send_loop", {
             let stats = stats.clone();
+            let error_sender = error_sender.clone();
             let m = send_buf_size_metric.clone();
             async move {
                 if let Err(err) = Self::run_send_loop(tcp_send, queue_recv, stats, m).await {
-                    addr.do_send(Error::Send(SendError::IO(err)));
+                    error_sender.send(Error::Send(SendError::IO(err)));
                 }
             }
-        }));
-        ctx.spawn(wrap_future({
-            let addr = ctx.address();
+        });
+        future_spawner.spawn("run_recv_loop", {
+            let error_sender = error_sender.clone();
             let stats = stats.clone();
             async move {
                 if let Err(err) =
-                    Self::run_recv_loop(stream.peer_addr, tcp_recv, addr.clone(), stats).await
+                    Self::run_recv_loop(stream.peer_addr, tcp_recv, frame_sender, stats).await
                 {
-                    addr.do_send(Error::Recv(err));
+                    error_sender.send(Error::Recv(err));
                 }
             }
-        }));
-        Self { queue_send, stats, send_buf_size_metric, addr: ctx.address() }
+        });
+        Self { queue_send, stats, send_buf_size_metric, error_sender }
     }
 
     /// Pushes `msg` to the send queue.
@@ -120,7 +118,7 @@ where
         // pushing the message to the queue anyway.
         if buf_size > MAX_WRITE_BUFFER_CAPACITY_BYTES {
             metrics::MessageDropped::MaxCapacityExceeded.inc_unknown_msg();
-            self.addr.do_send(Error::Send(SendError::QueueOverflow {
+            self.error_sender.send(Error::Send(SendError::QueueOverflow {
                 got_bytes: buf_size,
                 want_max_bytes: MAX_WRITE_BUFFER_CAPACITY_BYTES,
             }));
@@ -139,7 +137,7 @@ where
     async fn run_recv_loop(
         peer_addr: SocketAddr,
         read: ReadHalf,
-        addr: actix::Addr<Actor>,
+        frame_sender: messaging::Sender<MessageWithCallback<Frame, ()>>,
         stats: Arc<connection::Stats>,
     ) -> Result<(), RecvError> {
         const READ_BUFFER_CAPACITY: usize = 8 * 1024;
@@ -168,7 +166,7 @@ where
             buf_size_metric.set(0);
             stats.received_messages.fetch_add(1, Ordering::Relaxed);
             stats.received_bytes.fetch_add(n as u64, Ordering::Relaxed);
-            if let Err(_) = addr.send(Frame(buf)).await {
+            if let Err(_) = frame_sender.send_async(Frame(buf)).await {
                 // We got mailbox error, which means that Actor has stopped,
                 // so we should just close the stream.
                 return Ok(());
