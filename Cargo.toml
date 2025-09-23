@@ -2,7 +2,7 @@
 version = "0.0.0"                               # managed by cargo-workspaces, see below
 authors = ["Near Inc <hello@nearprotocol.com>"]
 edition = "2024"
-rust-version = "1.86.0"
+rust-version = "1.87.0"
 repository = "https://github.com/near/nearcore"
 license = "MIT OR Apache-2.0"
 
@@ -422,11 +422,11 @@ turn = "0.9"
 url = "2.5.0"
 utoipa = "5.4"
 utoipa-swagger-ui = "9"
-wasm-encoder = "0.236"
+wasm-encoder = "0.239"
 wasmparser = "0.78" # TODO: unify at least the versions of wasmparser we have in our codebase
-wasmprinter = "0.236"
-wasm-smith = "0.236"
-wasmtime = { version = "36", default-features = false, features = [
+wasmprinter = "0.239"
+wasm-smith = "0.239"
+wasmtime = { version = "37", default-features = false, features = [
     "cranelift",
 ] }
 wast = "40.0"
