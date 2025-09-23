@@ -551,14 +551,13 @@ impl ChunkProducer {
 
     #[instrument(target = "client", level = "debug", "start_prepare_transactions_job", skip_all, fields(
         height=prev_block_context.height + 1,
-        %shard_id,
+        shard_id=%shard_uid.shard_id(),
         tag_block_production = true,
         tag_prepare_txs = true,
     ))]
     pub fn start_prepare_transactions_job(
         &mut self,
         shard_update_key: CachedShardUpdateKey,
-        shard_id: ShardId,
         shard_uid: ShardUId,
         state: TrieUpdate,
         prev_block_context: PrepareTransactionsBlockContext,
@@ -603,7 +602,7 @@ impl ChunkProducer {
 
         // Run the preparation job on a separate thread
         self.prepare_transactions_spawner.spawn("prepare_transactions", move || {
-            let _span = tracing::debug_span!(target: "client", "run_prepare_transactions_job", height = next_height, shard_id = %shard_id, tag_block_production = true, tag_prepare_txs = true).entered();
+            let _span = tracing::debug_span!(target: "client", "run_prepare_transactions_job", height = next_height, shard_id = %shard_uid.shard_id(), tag_block_production = true, tag_prepare_txs = true).entered();
             prepare_job.wait();
         });
     }

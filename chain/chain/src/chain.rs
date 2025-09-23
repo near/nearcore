@@ -148,7 +148,6 @@ pub type ApplyChunksDoneSender = near_async::messaging::Sender<SpanWrapped<Apply
 #[rtype(result = "()")]
 pub struct PostStateReadyMessage {
     pub post_state: PostState,
-    pub shard_id: ShardId,
     pub shard_uid: ShardUId,
     pub prev_prev_block_header: BlockHeader,
     pub prev_block_context: PrepareTransactionsBlockContext,
@@ -3331,7 +3330,6 @@ impl Chain {
                     sender.send(
                         PostStateReadyMessage {
                             post_state: state,
-                            shard_id,
                             shard_uid,
                             prev_block_context: next_chunk_prepare_context.clone(),
                             prev_prev_block_header: prev_block_header.clone(),

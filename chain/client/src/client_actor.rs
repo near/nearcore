@@ -1334,7 +1334,7 @@ impl ClientActorInner {
 
         // Check if we are chunk producer for this height and shard.
         let cpk = ChunkProductionKey {
-            shard_id: msg.shard_id,
+            shard_id: msg.shard_uid.shard_id(),
             epoch_id: msg.prev_block_context.next_epoch_id,
             height_created: msg.prev_block_context.height + 1,
         };
@@ -1343,7 +1343,6 @@ impl ClientActorInner {
                 if v.account_id() == val.validator_id() {
                     self.client.chunk_producer.start_prepare_transactions_job(
                         msg.key,
-                        msg.shard_id,
                         msg.shard_uid,
                         msg.post_state.trie_update,
                         msg.prev_block_context,
