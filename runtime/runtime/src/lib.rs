@@ -38,7 +38,7 @@ use near_primitives::bandwidth_scheduler::{BandwidthRequests, BlockBandwidthRequ
 use near_primitives::chunk_apply_stats::ChunkApplyStatsV0;
 use near_primitives::congestion_info::{BlockCongestionInfo, CongestionInfo};
 use near_primitives::errors::{
-    ActionError, ActionErrorKind, EpochError, IntegerOverflowError, RuntimeError, TxExecutionError,
+    ActionError, ActionErrorKind, EpochError, IntegerOverflowError, InvalidTxError, RuntimeError, TxExecutionError
 };
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{
@@ -83,6 +83,7 @@ pub use near_vm_runner::with_ext_cost_counter;
 use pipelining::ReceiptPreparationPipeline;
 use rayon::prelude::*;
 use smallvec::SmallVec;
+use num_integer::Integer;
 use std::cmp::max;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::Arc;
@@ -1594,7 +1595,11 @@ impl Runtime {
         /// Avoid the overhead of inter-thread scheduling by processing at least this many
         /// transactions for each instance of this overhead. This can reduce the number of
         /// transaction chunks for smaller lists of transactions, however.
-        const MIN_CHUNK_SIZE: usize = 8;
+        /// We are populating the validations chunks in parallel. To avoid cache line conflicts
+        /// between the threads, we want to ensure that each chunk size is at least (and proportonal to) 
+        /// the gcd of Option<InvalidTxError> and a cache line sizes (8 at the time of writing).
+        const CACHE_LINE_SIZE: usize = 64;
+        let min_chunk_size: usize = size_of::<Option<InvalidTxError>>().gcd(&CACHE_LINE_SIZE);
         /// Avoid splitting transactions into just $NUM_THREADS chunks, as that can result in an
         /// increased tail latency when one of the threads is slower at processing its chunk
         /// compared to others (whatever reason may be for that.) Splitting into smaller chunks
@@ -1608,13 +1613,19 @@ impl Runtime {
         let len = tx_vec.len();
         let chunk_count_target = rayon::current_num_threads() * TARGET_CHUNKS_PER_THREAD;
         let chunk_size =
-            (tx_vec.len() / chunk_count_target).clamp(MIN_CHUNK_SIZE, ValidBitmask::BITS as _);
+            (tx_vec.len() / chunk_count_target).clamp(min_chunk_size, ValidBitmask::BITS as _);
+        let chunk_size = (chunk_size / min_chunk_size) * min_chunk_size;
         let protocol_version = processing_state.protocol_version;
-        let (valid_masks, (accounts, access_keys)) = rayon::join(
+ 
+        let mut validations: Vec<Option<InvalidTxError>> = vec![None; len];
+
+        let ((), (accounts, access_keys)) = rayon::join(
             || {
+                let validation_chunks = validations.par_chunks_mut(chunk_size);
                 tx_vec
                     .par_chunks(chunk_size)
-                    .map(|txs| {
+                    .zip(validation_chunks)
+                    .for_each(|(txs, vlds)| {
                         // Prepare signatures, public keys and messages (tx hash) for batch verification.
                         let mut batched_tx_mask: ValidBitmask = 0;
                         let mut signatures =
@@ -1649,7 +1660,6 @@ impl Runtime {
                             0
                         };
 
-                        let mut result: ValidBitmask = 0;
                         for (idx, tx) in txs.iter().enumerate() {
                             let tx_hash = tx.hash();
                             let signature_already_verified = (valid_signatures >> idx) & 1 == 1;
@@ -1672,14 +1682,11 @@ impl Runtime {
                                 .map(|_| ())
                             };
                             if let Err(err) = v {
-                                tracing::debug!(?tx_hash, ?err, "transaction invalid");
-                                continue;
+                                tracing::debug!(?tx_hash, error=?&err, "transaction invalid");
+                                vlds[idx] = Some(err);
                             }
-                            result |= 1 << idx;
                         }
-                        result
-                    })
-                    .collect::<Vec<_>>()
+                    });
             },
             || {
                 type AccountV = Result<Option<Account>, StorageError>;
@@ -1703,15 +1710,11 @@ impl Runtime {
             },
         );
 
-        let valid_mask_iterator = valid_masks
-            .into_iter()
-            .flat_map(|mask| (0..chunk_size).map(move |idx| ((mask >> idx) & 1) == 1));
-
         let default_hash = CryptoHash::default();
         let mut last_tx_hash = &default_hash;
-        for (tx, is_valid) in tx_vec.iter().zip(valid_mask_iterator) {
+        for (tx, maybe_validation_error) in tx_vec.iter().zip(validations) {
             metrics::TRANSACTION_PROCESSED_TOTAL.inc();
-            if !is_valid {
+            if maybe_validation_error.is_some() {
                 metrics::TRANSACTION_PROCESSED_FAILED_TOTAL.inc();
                 continue;
             }
