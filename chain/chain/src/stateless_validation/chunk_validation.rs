@@ -9,7 +9,7 @@ use crate::sharding::{get_receipts_shuffle_salt, shuffle_receipt_proofs};
 use crate::stateless_validation::processing_tracker::ProcessingDoneTracker;
 use crate::store::filter_incoming_receipts_for_shard;
 use crate::store::latest_witnesses::save_invalid_chunk_state_witness;
-use crate::types::{ApplyChunkBlockContext, ApplyChunkResult, RuntimeAdapter, StorageDataSource};
+use crate::types::{ApplyChunkResult, RuntimeAdapter, StorageDataSource};
 use crate::validate::{
     validate_chunk_with_chunk_extra_and_receipts_root, validate_chunk_with_encoded_merkle_root,
 };
@@ -21,7 +21,7 @@ use near_chain_primitives::Error;
 use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_assignment::shard_id_to_uid;
 use near_primitives::apply::ApplyChunkReason;
-use near_primitives::block::{Block, BlockHeader};
+use near_primitives::block::{ApplyChunkBlockContext, Block, BlockHeader};
 use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::merkle::merklize;
 use near_primitives::receipt::Receipt;

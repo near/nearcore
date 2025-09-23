@@ -7,6 +7,7 @@ use near_chain::chain::NewChunkResult;
 use near_chain::stateless_validation::state_witness::CreateWitnessResult;
 use near_chain::types::ApplyChunkResult;
 use near_chain_primitives::Error;
+use near_primitives::block::ApplyChunkBlockContext;
 use near_primitives::sharding::{ShardChunk, ShardChunkHeader};
 use near_primitives::stateless_validation::state_witness::{
     ChunkApplyWitness, ChunkStateTransition, ChunkStateWitness, ChunkStateWitnessV3,
@@ -82,6 +83,7 @@ impl Client {
     pub fn send_chunk_apply_witness_to_chunk_validators(
         &mut self,
         new_chunk: NewChunkResult,
+        block_context: ApplyChunkBlockContext,
     ) -> Result<(), Error> {
         let context = new_chunk.context;
         let ApplyChunkResult { proof, new_root, contract_updates, applied_receipts_hash, .. } =
@@ -106,6 +108,7 @@ impl Client {
                 chunk_apply_witness: ChunkApplyWitness {
                     epoch_id: prev_block_epoch_id,
                     chunk_header: context.chunk_header.clone(),
+                    block_context,
                     main_state_transition,
                     receipts: context.receipts,
                     applied_receipts_hash,

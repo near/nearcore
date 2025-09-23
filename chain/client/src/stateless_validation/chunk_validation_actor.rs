@@ -298,7 +298,15 @@ impl ChunkValidationActorInner {
                 "Processing an orphaned ChunkStateWitness, its previous block has arrived."
             );
 
-            if let Err(err) = self.process_chunk_state_witness(witness, new_block, None) {
+            // Validate that block hash matches
+            if header.prev_block_hash() != new_block.hash() {
+                let err = Error::Other(format!(
+                    "Previous block hash mismatch: witness={}, block={}",
+                    header.prev_block_hash(),
+                    new_block.hash()
+                ));
+                tracing::error!(target: "chunk_validation", ?err, "Error processing orphan chunk state witness");
+            } else if let Err(err) = self.process_chunk_state_witness(witness, None) {
                 tracing::error!(target: "chunk_validation", ?err, "Error processing orphan chunk state witness");
             }
         }
@@ -332,7 +340,6 @@ impl ChunkValidationActorInner {
     fn process_chunk_state_witness(
         &self,
         witness: ChunkStateWitness,
-        prev_block: &Block,
         processing_done_tracker: Option<ProcessingDoneTracker>,
     ) -> Result<(), Error> {
         let chunk_header = witness.latest_chunk_header();
@@ -344,15 +351,6 @@ impl ChunkValidationActorInner {
             shard_id = %chunk_header.shard_id(),
         )
         .entered();
-
-        // Validate that block hash matches
-        if chunk_header.prev_block_hash() != prev_block.hash() {
-            return Err(Error::Other(format!(
-                "Previous block hash mismatch: witness={}, block={}",
-                chunk_header.prev_block_hash(),
-                prev_block.hash()
-            )));
-        }
 
         let Some(signer) = self.validator_signer.get() else {
             return Err(Error::Other("No validator signer available".to_string()));
@@ -580,46 +578,48 @@ impl ChunkValidationActorInner {
         }
 
         // Check if previous block exists to know whether or not this witness is an orphan
-        let prev_block_hash = *witness.latest_chunk_header().prev_block_hash();
-        match self.chain_store.get_block(&prev_block_hash) {
-            Ok(prev_block) => {
-                // Previous block exists
-                match self.process_chunk_state_witness(
-                    witness,
-                    &prev_block,
-                    processing_done_tracker,
-                ) {
-                    Ok(()) => {
-                        tracing::debug!(target: "chunk_validation", "Chunk witness validation started successfully");
-                        Ok(())
-                    }
-                    Err(err) => {
-                        tracing::error!(target: "chunk_validation", ?err, "Failed to start chunk witness validation");
-                        Err(err)
-                    }
-                }
-            }
-            Err(Error::DBNotFoundErr(_)) => {
-                // Previous block isn't available at the moment - handle as orphan
-                tracing::debug!(
-                    target: "chunk_validation",
-                    "Previous block not found - handling as orphan witness"
-                );
-                match self.handle_orphan_witness(witness, raw_witness_size) {
-                    Ok(outcome) => {
-                        tracing::debug!(target: "chunk_validation", ?outcome, "Orphan witness handled");
-                        Ok(())
-                    }
-                    Err(err) => {
-                        tracing::error!(target: "chunk_validation", ?err, "Failed to handle orphan witness");
-                        Err(err)
-                    }
-                }
-            }
-            Err(err) => {
-                tracing::error!(target: "chunk_validation", ?err, "Failed to get previous block");
+        // new: do separate orphan check for OW and W
+        let is_optimistic = witness.production_key().is_optimistic;
+        let can_process = if !is_optimistic {
+            let prev_block_hash = *witness.latest_chunk_header().prev_block_hash();
+            if let Err(err) = self.chain_store.get_block(&prev_block_hash) {
+                tracing::error!(target: "chunk_validation", ?err, "Error getting previous block");
                 Err(err)
+            } else {
+                Ok(())
             }
+        } else {
+            Ok(())
+            // let block_height = witness.latest_chunk_header().height_created();
+            // if let Err(err) = self.chain_store.get_block_by_height(block_height) {
+            //     tracing::error!(target: "chunk_validation", ?err, "Error getting block by height");
+            //     Err(err)
+            // } else {
+            //     Ok(())
+            // }
+        };
+
+        match can_process {
+            Ok(()) => match self.process_chunk_state_witness(witness, processing_done_tracker) {
+                Ok(()) => {
+                    tracing::debug!(target: "chunk_validation", "Chunk witness validation started successfully");
+                    Ok(())
+                }
+                Err(err) => {
+                    tracing::error!(target: "chunk_validation", ?err, "Failed to start chunk witness validation");
+                    Err(err)
+                }
+            },
+            Err(_) => match self.handle_orphan_witness(witness, raw_witness_size) {
+                Ok(outcome) => {
+                    tracing::debug!(target: "chunk_validation", ?outcome, "Orphan witness handled");
+                    Ok(())
+                }
+                Err(err) => {
+                    tracing::error!(target: "chunk_validation", ?err, "Failed to handle orphan witness");
+                    Err(err)
+                }
+            },
         }
     }
 }

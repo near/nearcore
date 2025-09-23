@@ -891,7 +891,9 @@ impl Handler<SpanWrapped<ApplyChunksDoneMessage>> for ClientActorInner {
 
 impl Handler<NewChunkAppliedMessage> for ClientActorInner {
     fn handle(&mut self, msg: NewChunkAppliedMessage) {
-        if let Err(err) = self.client.send_chunk_apply_witness_to_chunk_validators(msg.result) {
+        if let Err(err) =
+            self.client.send_chunk_apply_witness_to_chunk_validators(msg.result, msg.block_context)
+        {
             tracing::error!(target: "client", ?err, "Failed to send chunk apply witness to chunk validators");
         }
     }

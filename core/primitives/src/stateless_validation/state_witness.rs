@@ -2,6 +2,7 @@ use std::fmt::Debug;
 use {crate::state::PartialState, std::collections::HashMap};
 
 use super::ChunkProductionKey;
+use crate::block::ApplyChunkBlockContext;
 #[cfg(feature = "solomon")]
 use crate::reed_solomon::{ReedSolomonEncoderDeserialize, ReedSolomonEncoderSerialize};
 use crate::stateless_validation::WitnessProductionKey;
@@ -212,6 +213,9 @@ pub struct ChunkApplyWitness {
     /// header of the chunk being applied, same height.
     pub chunk_header: ShardChunkHeader, // ShardChunkApplyHeader,
 
+    /// Context of the block being applied.
+    /// Needed to avoid chain store access.
+    pub block_context: ApplyChunkBlockContext,
     /// The base state and post-state-root of the main transition where we
     /// apply transactions and receipts. Corresponds to the state transition
     /// that takes us from the pre-state-root of the last new chunk of this
