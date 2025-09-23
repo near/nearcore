@@ -2203,10 +2203,7 @@ pub fn promise_set_refund_to(
     account_id_len: u64,
     account_id_ptr: u64,
 ) -> Result<()> {
-    let memory = caller.data().memory;
-    let Some(Extern::Memory(memory)) = caller.get_module_export(&memory) else {
-        return Err(HostError::MemoryAccessViolation.into());
-    };
+    let memory = get_memory(caller)?;
     let (memory, ctx) = memory.data_and_store_mut(caller);
 
     ctx.result_state.gas_counter.pay_base(base)?;
