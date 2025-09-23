@@ -81,6 +81,10 @@ pub enum MockAction {
         data_id: CryptoHash,
         data: Vec<u8>,
     },
+    SetRefundTo {
+        receipt_index: ReceiptIndex,
+        refund_to: AccountId,
+    },
 }
 
 #[derive(Default, Clone)]
@@ -354,6 +358,10 @@ impl External for MockedExternal {
             MockAction::CreateReceipt { receiver_id, .. } => receiver_id,
             _ => panic!("not a valid receipt index!"),
         }
+    }
+
+    fn set_refund_to(&mut self, receipt_index: ReceiptIndex, refund_to: AccountId) {
+        self.action_log.push(MockAction::SetRefundTo { receipt_index, refund_to });
     }
 }
 

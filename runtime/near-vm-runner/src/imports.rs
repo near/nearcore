@@ -173,6 +173,7 @@ imports! {
     promise_and<[promise_idx_ptr: u64, promise_idx_count: u64] -> [u64]>,
     promise_batch_create<[account_id_len: u64, account_id_ptr: u64] -> [u64]>,
     promise_batch_then<[promise_index: u64, account_id_len: u64, account_id_ptr: u64] -> [u64]>,
+    #[deterministic_account_ids] promise_set_refund_to<[promise_index: u64, account_id_len: u64, account_id_ptr: u64] -> []>,
     // #######################
     // # Promise API actions #
     // #######################

@@ -2110,6 +2110,46 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
         self.checked_push_promise(Promise::Receipt(new_receipt_idx))
     }
 
+    /// Sets the `refund_to` field on the promise
+    ///
+    /// # Errors
+    ///
+    /// * If `promise_idx` does not correspond to an existing promise returns `InvalidPromiseIndex`;
+    /// * If `account_id_len + account_id_ptr` points outside the memory of the guest or host
+    /// returns `MemoryAccessViolation`.
+    /// * If called as view function returns `ProhibitedInView`.
+    ///
+    /// # Cost
+    ///
+    /// `base + cost of reading and decoding the account id`
+    pub fn promise_set_refund_to(
+        &mut self,
+        promise_idx: u64,
+        account_id_len: u64,
+        account_id_ptr: u64,
+    ) -> Result<()> {
+        self.result_state.gas_counter.pay_base(base)?;
+        if self.context.is_view() {
+            return Err(HostError::ProhibitedInView {
+                method_name: "promise_set_refund_to".to_string(),
+            }
+            .into());
+        }
+        let refund_to = self.read_and_parse_account_id(account_id_ptr, account_id_len)?;
+        let promise = self
+            .promises
+            .get(promise_idx as usize)
+            .ok_or(HostError::InvalidPromiseIndex { promise_idx })?;
+
+        let receipt_idx = match &promise {
+            Promise::Receipt(receipt_idx) => Ok(*receipt_idx),
+            Promise::NotReceipt(_) => Err(HostError::CannotSetRefundToOnJointPromise),
+        }?;
+
+        self.ext.set_refund_to(receipt_idx, refund_to);
+        Ok(())
+    }
+
     /// Helper function to return the receipt index corresponding to the given promise index.
     /// It also pulls account ID for the given receipt and compares it with the current account ID
     /// to return whether the receipt's account ID is the same.

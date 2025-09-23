@@ -520,4 +520,9 @@ pub trait External {
     ///
     /// Panics if `ReceiptIndex` is invalid.
     fn get_receipt_receiver(&self, receipt_index: ReceiptIndex) -> &AccountId;
+
+    /// # Panic
+    ///
+    /// Panics if `ReceiptIndex` is invalid.
+    fn set_refund_to(&mut self, receipt_index: ReceiptIndex, refund_to: AccountId);
 }

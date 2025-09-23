@@ -3,7 +3,7 @@
 
 use borsh::BorshDeserialize;
 use near_primitives::hash::CryptoHash;
-use near_primitives::receipt::{Receipt, ReceiptEnum};
+use near_primitives::receipt::{Receipt, VersionedReceiptEnum};
 use near_primitives::transaction::{Action, ExecutionOutcomeWithProof};
 use near_primitives::trie_key::TrieKey;
 use near_primitives::trie_key::trie_key_parsers::parse_account_id_from_contract_code_key;
@@ -329,44 +329,46 @@ fn try_find_actions_spawned_by_receipt(
                     let outgoing_receipt = maybe_outgoing_receipt.ok_or({
                         ContractAccountError::MissingOutgoingReceipt(*outgoing_receipt_id)
                     })?;
-                    match outgoing_receipt.receipt() {
-                        ReceiptEnum::Action(action_receipt)
-                        | ReceiptEnum::PromiseYield(action_receipt) => {
-                            for action in &action_receipt.actions {
-                                let action_type = match action {
-                                    Action::CreateAccount(_) => ActionType::CreateAccount,
-                                    Action::DeployContract(_) => ActionType::DeployContract,
-                                    Action::FunctionCall(_) => ActionType::FunctionCall,
-                                    Action::Transfer(_) => ActionType::Transfer,
-                                    Action::Stake(_) => ActionType::Stake,
-                                    Action::AddKey(_) => ActionType::AddKey,
-                                    Action::DeleteKey(_) => ActionType::DeleteKey,
-                                    Action::DeleteAccount(_) => ActionType::DeleteAccount,
-                                    Action::Delegate(_) => ActionType::Delegate,
-                                    Action::DeployGlobalContract(_) => {
-                                        ActionType::DeployGlobalContract
-                                    }
-                                    Action::UseGlobalContract(_) => ActionType::UseGlobalContract,
-                                };
+                    match outgoing_receipt.versioned_receipt() {
+                        VersionedReceiptEnum::Action(action_receipt)
+                        | VersionedReceiptEnum::PromiseYield(action_receipt) => {
+                            for action in action_receipt.actions() {
+                                let action_type = map_action(action);
                                 entry
                                     .actions
                                     .get_or_insert_with(Default::default)
                                     .insert(action_type);
                             }
                         }
-                        ReceiptEnum::Data(_) | ReceiptEnum::PromiseResume(_) => {
+                        VersionedReceiptEnum::Data(_) | VersionedReceiptEnum::PromiseResume(_) => {
                             entry
                                 .actions
                                 .get_or_insert_with(Default::default)
                                 .insert(ActionType::DataReceipt);
                         }
-                        ReceiptEnum::GlobalContractDistribution(_) => {}
+                        VersionedReceiptEnum::GlobalContractDistribution(_) => {}
                     }
                 }
             }
         }
     }
     Ok(())
+}
+
+fn map_action(action: &Action) -> ActionType {
+    match action {
+        Action::CreateAccount(_) => ActionType::CreateAccount,
+        Action::DeployContract(_) => ActionType::DeployContract,
+        Action::FunctionCall(_) => ActionType::FunctionCall,
+        Action::Transfer(_) => ActionType::Transfer,
+        Action::Stake(_) => ActionType::Stake,
+        Action::AddKey(_) => ActionType::AddKey,
+        Action::DeleteKey(_) => ActionType::DeleteKey,
+        Action::DeleteAccount(_) => ActionType::DeleteAccount,
+        Action::Delegate(_) => ActionType::Delegate,
+        Action::DeployGlobalContract(_) => ActionType::DeployGlobalContract,
+        Action::UseGlobalContract(_) => ActionType::UseGlobalContract,
+    }
 }
 
 impl Iterator for ContractAccountIterator {
