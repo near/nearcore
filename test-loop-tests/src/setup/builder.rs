@@ -1,5 +1,6 @@
 use itertools::Itertools;
 use near_chain_configs::test_genesis::{TestEpochConfigBuilder, TestGenesisBuilder};
+use near_chain_configs::test_utils::TestClientConfigParams;
 use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -17,9 +18,8 @@ use near_primitives::epoch_manager::EpochConfigStore;
 use near_primitives::types::AccountId;
 use near_primitives::upgrade_schedule::ProtocolUpgradeVotingSchedule;
 use near_primitives::version::get_protocol_upgrade_schedule;
-use near_store::Store;
 use near_store::genesis::initialize_genesis_state;
-use near_store::test_utils::{create_test_split_store, create_test_store};
+use near_store::test_utils::{TestNodeStorage, create_test_split_storage, create_test_store};
 
 use crate::utils::peer_manager_actor::{TestLoopNetworkSharedState, UnreachableActor};
 
@@ -294,11 +294,19 @@ impl<'a> NodeStateBuilder<'a> {
     }
 
     pub fn build(self) -> NodeSetupState {
-        let (store, split_store) = self.setup_store();
+        let storage = self.setup_storage();
         let account_id = self.account_id.unwrap();
 
-        let mut client_config =
-            ClientConfig::test(true, MIN_BLOCK_PROD_TIME, 2000, 4, self.archive, true, false);
+        let mut client_config = ClientConfig::test(TestClientConfigParams {
+            skip_sync_wait: true,
+            min_block_prod_time: MIN_BLOCK_PROD_TIME,
+            max_block_prod_time: 2000,
+            num_block_producer_seats: 4,
+            archive: self.archive,
+            save_trie_changes: true,
+            state_sync_enabled: false,
+        });
+
         client_config.epoch_length = self.genesis.config.epoch_length;
         client_config.max_block_wait_delay = Duration::seconds(6);
         client_config.state_sync_enabled = true;
@@ -333,18 +341,17 @@ impl<'a> NodeStateBuilder<'a> {
             config_modifier(&mut client_config);
         }
 
-        NodeSetupState { account_id, client_config, store, split_store }
+        NodeSetupState { account_id, client_config, storage }
     }
 
-    fn setup_store(&self) -> (Store, Option<Store>) {
-        let (store, split_store) = if self.archive {
-            let (hot_store, split_store) = create_test_split_store();
-            (hot_store, Some(split_store))
+    fn setup_storage(&self) -> TestNodeStorage {
+        let storage = if self.archive {
+            create_test_split_storage()
         } else {
-            (create_test_store(), None)
+            TestNodeStorage { hot_store: create_test_store(), split_store: None, cold_db: None }
         };
 
-        initialize_genesis_state(store.clone(), &self.genesis, None);
-        (store, split_store)
+        initialize_genesis_state(storage.hot_store.clone(), &self.genesis, None);
+        storage
     }
 }

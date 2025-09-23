@@ -5,12 +5,15 @@ use near_async::actix::futures::ActixFutureSpawner;
 use near_async::messaging::{IntoMultiSender, IntoSender, LateBoundSender, noop};
 use near_async::time::{self, Clock};
 use near_chain::rayon_spawner::RayonAsyncComputationSpawner;
+use near_chain::spice_core::CoreStatementsProcessor;
 use near_chain::types::RuntimeAdapter;
 use near_chain::{Chain, ChainGenesis, ChainStore};
+use near_chain_configs::test_utils::TestClientConfigParams;
 use near_chain_configs::{ClientConfig, Genesis, GenesisConfig, MutableConfigValue};
 use near_chunks::shards_manager_actor::start_shards_manager;
 use near_client::ChunkValidationActorInner;
 use near_client::adapter::client_sender_for_network;
+use near_client::client_actor::SpiceClientConfig;
 use near_client::{
     PartialWitnessActor, RpcHandlerConfig, StartClientResult, StateRequestActor,
     ViewClientActorInner, spawn_rpc_handler_actor, start_client,
@@ -31,7 +34,9 @@ use near_primitives::genesis::GenesisId;
 use near_primitives::network::PeerId;
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::types::{AccountId, ValidatorId};
+use near_store::adapter::StoreAdapter as _;
 use near_store::genesis::initialize_genesis_state;
+use near_store::test_utils::create_in_memory_rpc_node_storage;
 use near_telemetry::{TelemetryActor, TelemetryConfig};
 use nearcore::NightshadeRuntime;
 use std::collections::HashSet;
@@ -54,7 +59,7 @@ fn setup_network_node(
     chain_genesis: ChainGenesis,
     config: config::NetworkConfig,
 ) -> Addr<PeerManagerActor> {
-    let node_storage = near_store::test_utils::create_test_node_storage_default();
+    let node_storage = create_in_memory_rpc_node_storage();
     let num_validators = validators.len() as ValidatorId;
 
     let mut genesis = Genesis::test(validators, 1);
@@ -80,7 +85,15 @@ fn setup_network_node(
         TelemetryActor::spawn_tokio_actor(actor_system.clone(), TelemetryConfig::default());
 
     let db = node_storage.into_inner(near_store::Temperature::Hot);
-    let mut client_config = ClientConfig::test(false, 100, 200, num_validators, false, true, true);
+    let mut client_config = ClientConfig::test(TestClientConfigParams {
+        skip_sync_wait: false,
+        min_block_prod_time: 100,
+        max_block_prod_time: 200,
+        num_block_producer_seats: num_validators,
+        archive: false,
+        save_trie_changes: true,
+        state_sync_enabled: true,
+    });
     client_config.archive = config.archive;
     client_config.ttl_account_id_router = config.ttl_account_id_router.try_into().unwrap();
     let state_roots = near_store::get_genesis_state_roots(runtime.store())
@@ -122,6 +135,15 @@ fn setup_network_node(
         true,
         None,
         noop().into_multi_sender(),
+        SpiceClientConfig {
+            core_processor: CoreStatementsProcessor::new_with_noop_senders(
+                runtime.store().chain_store(),
+                epoch_manager.clone(),
+            ),
+            chunk_executor_sender: noop().into_sender(),
+            spice_chunk_validator_sender: noop().into_sender(),
+            spice_data_distributor_sender: noop().into_sender(),
+        },
     );
     let view_client_addr = ViewClientActorInner::spawn_multithread_actor(
         Clock::real(),
@@ -209,6 +231,7 @@ fn setup_network_node(
         network_adapter.as_multi_sender(),
         shards_manager_adapter.as_sender(),
         partial_witness_actor.into_multi_sender(),
+        noop().into_multi_sender(),
         genesis_id,
     )
     .unwrap();
