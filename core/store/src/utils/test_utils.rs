@@ -1,5 +1,5 @@
 use crate::adapter::{StoreAdapter, StoreUpdateAdapter};
-use crate::db::TestDB;
+use crate::db::{ColdDB, TestDB};
 use crate::flat::{BlockInfo, FlatStorageManager, FlatStorageReadyStatus, FlatStorageStatus};
 use crate::metadata::{DB_VERSION, DbKind, DbVersion};
 use crate::trie::AccessOptions;
@@ -24,26 +24,26 @@ use std::collections::HashMap;
 use std::str::{FromStr, from_utf8};
 use std::sync::Arc;
 
-/// Creates an in-memory node storage.
-///
-/// In tests you’ll often want to use [`create_test_store`] instead.
-pub fn create_test_node_storage(version: DbVersion, hot_kind: DbKind) -> NodeStorage {
+fn create_in_memory_node_storage(version: DbVersion, hot_kind: DbKind) -> NodeStorage {
     let storage = NodeStorage::new(TestDB::new());
-
     storage.get_hot_store().set_db_version(version).unwrap();
     storage.get_hot_store().set_db_kind(hot_kind).unwrap();
-
     storage
 }
 
 /// Creates an in-memory node storage.
 ///
 /// In tests you’ll often want to use [`create_test_store`] or
-/// [`create_test_split_store`] (for archival nodes) instead.
+/// [`create_test_split_storage`] (for archival nodes) instead.
 /// It initializes the db version and db kind to sensible defaults -
 /// the current version and rpc kind.
-pub fn create_test_node_storage_default() -> NodeStorage {
-    create_test_node_storage(DB_VERSION, DbKind::RPC)
+pub fn create_in_memory_rpc_node_storage() -> NodeStorage {
+    create_in_memory_node_storage(DB_VERSION, DbKind::RPC)
+}
+
+/// Creates an in-memory database.
+pub fn create_test_store() -> Store {
+    create_in_memory_node_storage(DB_VERSION, DbKind::RPC).get_hot_store()
 }
 
 /// Creates an in-memory node storage with ColdDB
@@ -63,16 +63,20 @@ pub fn create_test_node_storage_with_cold(
     (storage, hot, cold)
 }
 
-/// Creates an in-memory database.
-pub fn create_test_store() -> Store {
-    create_test_node_storage(DB_VERSION, DbKind::RPC).get_hot_store()
+/// Provides access to hot store, split store, and cold db.
+/// Note that the split store contains both hot and cold stores.
+pub struct TestNodeStorage {
+    pub hot_store: Store,
+    pub split_store: Option<Store>,
+    pub cold_db: Option<Arc<ColdDB>>,
 }
 
-/// Returns a pair of (Hot, Split) store to be used for setting up archival clients.
-/// Note that the Split store contains both Hot and Cold stores.
-pub fn create_test_split_store() -> (Store, Store) {
-    let (storage, ..) = create_test_node_storage_with_cold(DB_VERSION, DbKind::Hot);
-    (storage.get_hot_store(), storage.get_split_store().unwrap())
+pub fn create_test_split_storage() -> TestNodeStorage {
+    let (storage, _, _) = create_test_node_storage_with_cold(DB_VERSION, DbKind::Hot);
+    let hot_store = storage.get_hot_store();
+    let split_store = storage.get_split_store().unwrap();
+    let cold_db = storage.cold_db().unwrap();
+    TestNodeStorage { hot_store, split_store: Some(split_store), cold_db: Some(cold_db.clone()) }
 }
 
 pub struct TestTriesBuilder {

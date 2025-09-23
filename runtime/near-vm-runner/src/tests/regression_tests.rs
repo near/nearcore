@@ -82,7 +82,6 @@ fn slow_test_parallel_runtime_invocations() {
         let handle = std::thread::spawn(|| {
             for _ in 0..16 {
                 test_builder()
-                .only_near_vm()
                 .wat(
                     r#"
                       (module

@@ -16,6 +16,7 @@ use near_chain::{Chain, ChainGenesis, DoomslugThresholdMode};
 use near_async::ActorSystem;
 use near_async::multithread::MultithreadRuntimeHandle;
 use near_async::tokio::TokioRuntimeHandle;
+use near_chain_configs::test_utils::TestClientConfigParams;
 use near_chain_configs::{
     ChunkDistributionNetworkConfig, ClientConfig, Genesis, MutableConfigValue,
     MutableValidatorSigner, ProtocolVersionCheckConfig, ReshardingConfig, ReshardingHandle,
@@ -143,15 +144,15 @@ fn setup(
     let telemetry =
         TelemetryActor::spawn_tokio_actor(actor_system.clone(), TelemetryConfig::default());
     let config = {
-        let mut base = ClientConfig::test(
+        let mut base = ClientConfig::test(TestClientConfigParams {
             skip_sync_wait,
             min_block_prod_time,
             max_block_prod_time,
-            num_validator_seats,
+            num_block_producer_seats: num_validator_seats,
             archive,
-            true,
+            save_trie_changes: true,
             state_sync_enabled,
-        );
+        });
         base.chunk_distribution_network = chunk_distribution_config;
         base
     };
@@ -453,8 +454,15 @@ pub fn setup_client_with_runtime(
     validator_signer: MutableValidatorSigner,
     resharding_sender: ReshardingSender,
 ) -> (Client, ChunkValidationActorInner) {
-    let mut config =
-        ClientConfig::test(true, 10, 20, num_validator_seats, archive, save_trie_changes, true);
+    let mut config = ClientConfig::test(TestClientConfigParams {
+        skip_sync_wait: true,
+        min_block_prod_time: 10,
+        max_block_prod_time: 20,
+        num_block_producer_seats: num_validator_seats,
+        archive,
+        save_trie_changes,
+        state_sync_enabled: true,
+    });
     config.save_tx_outcomes = save_tx_outcomes;
     config.protocol_version_check = protocol_version_check;
     config.epoch_length = chain_genesis.epoch_length;
@@ -586,7 +594,15 @@ pub fn setup_tx_request_handler(
     runtime: Arc<dyn RuntimeAdapter>,
     network_adapter: PeerManagerAdapter,
 ) -> RpcHandler {
-    let client_config = ClientConfig::test(true, 10, 20, 0, true, true, true);
+    let client_config = ClientConfig::test(TestClientConfigParams {
+        skip_sync_wait: true,
+        min_block_prod_time: 10,
+        max_block_prod_time: 20,
+        num_block_producer_seats: 0,
+        archive: true,
+        save_trie_changes: true,
+        state_sync_enabled: true,
+    });
     let config = RpcHandlerConfig {
         handler_threads: 1,
         tx_routing_height_horizon: client_config.tx_routing_height_horizon,
