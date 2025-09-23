@@ -13,6 +13,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::optimistic_block::CachedShardUpdateKey;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::ShardId;
+use near_store::adapter::StoreAdapter;
 use near_store::{ShardUId, TrieUpdate};
 use parking_lot::Mutex;
 
@@ -65,9 +66,35 @@ impl PrepareTransactionsJob {
         if let PrepareTransactionsJobState::NotStarted(_) = &*state {
             match std::mem::replace(&mut *state, PrepareTransactionsJobState::Running) {
                 PrepareTransactionsJobState::NotStarted(inputs) => {
+                    let tx_pool = inputs.tx_pool.clone();
+                    let mut tx_pool_guard = tx_pool.lock();
+
+                    // Usually the prepare transactions job runs in parallel with chunk application, before the
+                    // block that contains the applied chunk is postprocessed.
+                    //
+                    // However in rare cases (weird thread scheduling, testloop reordering things) it might
+                    // happen that the job starts after the block is postprocessed.
+                    //
+                    // In such cases it's better to discard the job and prepare transactions the normal way, in
+                    // `produce_chunk` which happens right after postprocessing the block.
+                    //
+                    // This is because the job is not aware of the block that was just postprocessed. If we run
+                    // the job, there's a risk that transactions that were created using the latest
+                    // postprocessed block will be rejected because the job isn't aware of the latest block.
+                    // This happens is some testloop tests and makes them fail.
+                    if let Ok(_hash) = inputs
+                        .runtime_adapter
+                        .store()
+                        .chain_store()
+                        .get_block_hash_by_height(inputs.prev_block_context.height)
+                    {
+                        *state = PrepareTransactionsJobState::NotStartedInTime;
+                        return;
+                    }
+
                     // Run the job. The state is locked so no other methods will read or modify it
                     // until the preparation finishes.
-                    let result = self.do_prepare_transactions(inputs);
+                    let result = self.do_prepare_transactions(inputs, &mut *tx_pool_guard);
                     *state = PrepareTransactionsJobState::Finished(result);
                 }
                 _ => unreachable!(),
@@ -111,10 +138,10 @@ impl PrepareTransactionsJob {
     fn do_prepare_transactions(
         &self,
         inputs: PrepareTransactionsJobInputs,
+        tx_pool: &mut ShardedTransactionPool,
     ) -> Result<PreparedTransactions, Error> {
-        let mut pool_guard = inputs.tx_pool.lock();
         let (prepared, skipped) =
-            if let Some(mut iter) = pool_guard.get_pool_iterator(inputs.shard_uid) {
+            if let Some(mut iter) = tx_pool.get_pool_iterator(inputs.shard_uid) {
                 inputs.runtime_adapter.prepare_transactions_extra(
                     inputs.state,
                     inputs.shard_uid.shard_id(),
@@ -131,8 +158,8 @@ impl PrepareTransactionsJob {
                     SkippedTransactions(Vec::new()),
                 )
             };
-        pool_guard.reintroduce_transactions(inputs.shard_uid, prepared.transactions.clone());
-        pool_guard.reintroduce_transactions(inputs.shard_uid, skipped.0);
+        tx_pool.reintroduce_transactions(inputs.shard_uid, prepared.transactions.clone());
+        tx_pool.reintroduce_transactions(inputs.shard_uid, skipped.0);
         Ok(prepared)
     }
 }
