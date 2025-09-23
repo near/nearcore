@@ -5,6 +5,7 @@ use near_async::actix::futures::ActixFutureSpawner;
 use near_async::messaging::{IntoMultiSender, IntoSender, LateBoundSender, noop};
 use near_async::time::{self, Clock};
 use near_chain::rayon_spawner::RayonAsyncComputationSpawner;
+use near_chain::spice_core::CoreStatementsProcessor;
 use near_chain::types::RuntimeAdapter;
 use near_chain::{Chain, ChainGenesis, ChainStore};
 use near_chain_configs::test_utils::TestClientConfigParams;
@@ -12,6 +13,7 @@ use near_chain_configs::{ClientConfig, Genesis, GenesisConfig, MutableConfigValu
 use near_chunks::shards_manager_actor::start_shards_manager;
 use near_client::ChunkValidationActorInner;
 use near_client::adapter::client_sender_for_network;
+use near_client::client_actor::SpiceClientConfig;
 use near_client::{
     PartialWitnessActor, RpcHandlerConfig, StartClientResult, StateRequestActor,
     ViewClientActorInner, spawn_rpc_handler_actor, start_client,
@@ -32,6 +34,7 @@ use near_primitives::genesis::GenesisId;
 use near_primitives::network::PeerId;
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::types::{AccountId, ValidatorId};
+use near_store::adapter::StoreAdapter as _;
 use near_store::genesis::initialize_genesis_state;
 use near_store::test_utils::create_in_memory_rpc_node_storage;
 use near_telemetry::{TelemetryActor, TelemetryConfig};
@@ -132,6 +135,15 @@ fn setup_network_node(
         true,
         None,
         noop().into_multi_sender(),
+        SpiceClientConfig {
+            core_processor: CoreStatementsProcessor::new_with_noop_senders(
+                runtime.store().chain_store(),
+                epoch_manager.clone(),
+            ),
+            chunk_executor_sender: noop().into_sender(),
+            spice_chunk_validator_sender: noop().into_sender(),
+            spice_data_distributor_sender: noop().into_sender(),
+        },
     );
     let view_client_addr = ViewClientActorInner::spawn_multithread_actor(
         Clock::real(),
@@ -219,6 +231,7 @@ fn setup_network_node(
         network_adapter.as_multi_sender(),
         shards_manager_adapter.as_sender(),
         partial_witness_actor.into_multi_sender(),
+        noop().into_multi_sender(),
         genesis_id,
     )
     .unwrap();

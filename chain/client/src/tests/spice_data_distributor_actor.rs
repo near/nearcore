@@ -69,7 +69,7 @@ fn build_block(epoch_manager: &dyn EpochManagerAdapter, prev_block: &Block) -> A
 #[allow(clippy::large_enum_variant)]
 #[derive(Debug)]
 enum OutgoingMessage {
-    NetworkRequests { request: NetworkRequests, sender: AccountId },
+    NetworkRequests { request: NetworkRequests },
     ExecutorIncomingUnverifiedReceipts(ExecutorIncomingUnverifiedReceipts),
     ChunkStateWitnessMessage(ChunkStateWitnessMessage),
 }
@@ -196,14 +196,11 @@ fn new_actor(
         state_sync_event_sender: noop().into_sender(),
         request_sender: Sender::from_fn({
             let outgoing_sc = outgoing_sc.clone();
-            let sender = account_id.clone();
             move |message: PeerManagerMessageRequest| {
                 let PeerManagerMessageRequest::NetworkRequests(request) = message else {
                     unreachable!()
                 };
-                outgoing_sc
-                    .send(OutgoingMessage::NetworkRequests { request, sender: sender.clone() })
-                    .unwrap();
+                outgoing_sc.send(OutgoingMessage::NetworkRequests { request }).unwrap();
             }
         }),
     };
@@ -312,16 +309,12 @@ fn test_witness_can_be_reconstructed_impl(num_chunk_producers: usize, num_valida
     while let Ok(message) = producers_messages_rc.try_recv() {
         let OutgoingMessage::NetworkRequests {
             request: NetworkRequests::SpicePartialData { partial_data, recipients },
-            sender,
         } = message
         else {
             panic!()
         };
         assert!(recipients.contains(validator));
-        receiver.handle(SpiceIncomingPartialData {
-            data: partial_data.clone(),
-            sender: sender.clone(),
-        });
+        receiver.handle(SpiceIncomingPartialData { data: partial_data.clone() });
     }
     let message = receiver_messages_rc.try_recv().unwrap();
     assert_matches!(receiver_messages_rc.try_recv(), Err(TryRecvError::Empty));
@@ -449,16 +442,12 @@ fn test_receipts_can_be_reconstructed_impl(num_chunk_producers: usize) {
     while let Ok(message) = producers_messages_rc.try_recv() {
         let OutgoingMessage::NetworkRequests {
             request: NetworkRequests::SpicePartialData { partial_data, recipients },
-            sender,
         } = message
         else {
             panic!()
         };
         assert!(recipients.contains(receiver_account));
-        receiver.handle(SpiceIncomingPartialData {
-            data: partial_data.clone(),
-            sender: sender.clone(),
-        });
+        receiver.handle(SpiceIncomingPartialData { data: partial_data.clone() });
     }
     let message = receiver_messages_rc.try_recv().unwrap();
     assert_matches!(receiver_messages_rc.try_recv(), Err(TryRecvError::Empty));
@@ -557,13 +546,12 @@ where
     actor.handle(message);
     let OutgoingMessage::NetworkRequests {
         request: NetworkRequests::SpicePartialData { partial_data, recipients },
-        sender,
     } = outgoing_rc.try_recv().unwrap()
     else {
         panic!();
     };
     let recipient = recipients.into_iter().next();
-    (SpiceIncomingPartialData { data: partial_data, sender }, recipient)
+    (SpiceIncomingPartialData { data: partial_data }, recipient)
 }
 
 fn receipt_proof_incoming_data(
@@ -609,8 +597,8 @@ macro_rules! test_invalid_incoming_partial_data {
                     {
                         let mut $incoming_data = incoming_data.clone();
                         $update_block
-                        let SpiceIncomingPartialData { data, sender } = $incoming_data;
-                        let result = actor.receive_data(data, sender);
+                        let SpiceIncomingPartialData { data } = $incoming_data;
+                        let result = actor.receive_data(data);
                         assert_matches!(outgoing_rc.try_recv(), Err(TryRecvError::Empty));
                         assert_matches!(result, Err($error));
                     }
@@ -642,7 +630,7 @@ test_invalid_incoming_partial_data! {
         *shard_id = ShardId::new(42);
     })
     sender_is_not_producer(Error::SenderIsNotProducer, receipt_proof_incoming_data, incoming_data, {
-        incoming_data.sender = AccountId::from_str("invalid-sender").unwrap();
+        incoming_data.data.sender = AccountId::from_str("invalid-sender").unwrap();
     })
     node_is_not_recipient(Error::NodeIsNotRecipient, receipt_proof_incoming_data, incoming_data, {
         let SpiceDataIdentifier::ReceiptProof { from_shard_id, to_shard_id, .. } =
@@ -695,8 +683,8 @@ fn test_incoming_partial_data_is_already_decoded() {
     let mut actor = new_actor(outgoing_sc, &chain, &recipient);
     actor.handle(incoming_data.clone());
     assert_matches!(outgoing_rc.try_recv(), Ok(_));
-    let SpiceIncomingPartialData { data, sender } = incoming_data;
-    let result = actor.receive_data(data, sender);
+    let SpiceIncomingPartialData { data } = incoming_data;
+    let result = actor.receive_data(data);
     assert_matches!(outgoing_rc.try_recv(), Err(TryRecvError::Empty));
     assert_matches!(result, Err(Error::DataIsAlreadyDecoded));
 }
@@ -715,8 +703,8 @@ fn test_incoming_partial_data_for_already_known_receipts() {
 
     let (outgoing_sc, mut outgoing_rc) = unbounded_channel();
     let mut actor = new_actor(outgoing_sc, &chain, &recipient);
-    let SpiceIncomingPartialData { data, sender } = incoming_data;
-    let result = actor.receive_data(data, sender);
+    let SpiceIncomingPartialData { data } = incoming_data;
+    let result = actor.receive_data(data);
     assert_matches!(outgoing_rc.try_recv(), Err(TryRecvError::Empty));
     assert_matches!(result, Err(Error::ReceiptsAreKnown));
 }
@@ -748,8 +736,8 @@ fn test_incoming_partial_data_for_already_endorsed_witness() {
         ))
         .unwrap();
 
-    let SpiceIncomingPartialData { data, sender } = incoming_data;
-    let result = actor.receive_data(data, sender);
+    let SpiceIncomingPartialData { data } = incoming_data;
+    let result = actor.receive_data(data);
     assert_matches!(outgoing_rc.try_recv(), Err(TryRecvError::Empty));
     assert_matches!(result, Err(Error::WitnessAlreadyValidated));
 }
@@ -767,8 +755,8 @@ fn test_incoming_partial_data_for_witness_with_receipt_id() {
         let (witness_partial_data, _) = witness_incoming_data(&chain, &block);
         incoming_data.data.commitment = witness_partial_data.data.commitment;
         incoming_data.data.parts = witness_partial_data.data.parts;
-        let SpiceIncomingPartialData { data, sender } = incoming_data;
-        let result = actor.receive_data(data, sender);
+        let SpiceIncomingPartialData { data } = incoming_data;
+        let result = actor.receive_data(data);
         assert_matches!(outgoing_rc.try_recv(), Err(TryRecvError::Empty));
         assert_matches!(result, Err(Error::IdAndDataMismatch));
     }
@@ -799,8 +787,8 @@ fn test_incoming_partial_data_for_receipts_with_non_matching_from_shard_id() {
         let mut incoming_data = incoming_data.clone();
         incoming_data.data.commitment = different_incoming_data.data.commitment;
         incoming_data.data.parts = different_incoming_data.data.parts;
-        let SpiceIncomingPartialData { data, sender } = incoming_data;
-        let result = actor.receive_data(data, sender);
+        let SpiceIncomingPartialData { data } = incoming_data;
+        let result = actor.receive_data(data);
         assert_matches!(outgoing_rc.try_recv(), Err(TryRecvError::Empty));
         assert_matches!(result, Err(Error::InvalidDecodedReceiptFromShardId));
     }
@@ -831,8 +819,8 @@ fn test_incoming_partial_data_for_receipts_with_non_matching_to_shard_id() {
         let mut incoming_data = incoming_data.clone();
         incoming_data.data.commitment = different_incoming_data.data.commitment;
         incoming_data.data.parts = different_incoming_data.data.parts;
-        let SpiceIncomingPartialData { data, sender } = incoming_data;
-        let result = actor.receive_data(data, sender);
+        let SpiceIncomingPartialData { data } = incoming_data;
+        let result = actor.receive_data(data);
         assert_matches!(outgoing_rc.try_recv(), Err(TryRecvError::Empty));
         assert_matches!(result, Err(Error::InvalidDecodedReceiptToShardId));
     }
@@ -853,8 +841,8 @@ fn test_incoming_partial_data_for_receipt_with_witness_id() {
         let (receipt_partial_data, _) = receipt_proof_incoming_data(&chain, &block);
         incoming_data.data.commitment = receipt_partial_data.data.commitment;
         incoming_data.data.parts = receipt_partial_data.data.parts;
-        let SpiceIncomingPartialData { data, sender } = incoming_data;
-        let result = actor.receive_data(data, sender);
+        let SpiceIncomingPartialData { data } = incoming_data;
+        let result = actor.receive_data(data);
         assert_matches!(outgoing_rc.try_recv(), Err(TryRecvError::Empty));
         assert_matches!(result, Err(Error::IdAndDataMismatch));
     }
@@ -897,8 +885,8 @@ fn test_incoming_partial_data_for_witness_with_wrong_shard_id() {
         let mut incoming_data = incoming_data.clone();
         incoming_data.data.commitment = incoming_data_for_different_witness.data.commitment;
         incoming_data.data.parts = incoming_data_for_different_witness.data.parts;
-        let SpiceIncomingPartialData { data, sender } = incoming_data;
-        let result = actor.receive_data(data, sender);
+        let SpiceIncomingPartialData { data } = incoming_data;
+        let result = actor.receive_data(data);
         assert_matches!(outgoing_rc.try_recv(), Err(TryRecvError::Empty));
         assert_matches!(result, Err(Error::InvalidDecodedWitnessShardId));
     }
@@ -926,8 +914,8 @@ fn test_incoming_partial_data_for_witness_with_wrong_block_hash() {
         let mut incoming_data = incoming_data.clone();
         incoming_data.data.commitment = incoming_data_for_different_witness.data.commitment;
         incoming_data.data.parts = incoming_data_for_different_witness.data.parts;
-        let SpiceIncomingPartialData { data, sender } = incoming_data;
-        let result = actor.receive_data(data, sender);
+        let SpiceIncomingPartialData { data } = incoming_data;
+        let result = actor.receive_data(data);
         assert_matches!(outgoing_rc.try_recv(), Err(TryRecvError::Empty));
         assert_matches!(result, Err(Error::InvalidDecodedWitnessBlockHash));
     }
@@ -965,8 +953,8 @@ macro_rules! test_invalid_incoming_partial_data_without_block {
                     {
                         let mut $incoming_data = incoming_data.clone();
                         $update_block
-                        let SpiceIncomingPartialData { data, sender } = $incoming_data;
-                        let result = actor.receive_data(data, sender);
+                        let SpiceIncomingPartialData { data } = $incoming_data;
+                        let result = actor.receive_data(data);
                         assert_eq!(actor.pending_partial_data_size(), 0);
                         assert_matches!(outgoing_rc.try_recv(), Err(TryRecvError::Empty));
                         assert_matches!(result, Err($error));
@@ -979,10 +967,10 @@ macro_rules! test_invalid_incoming_partial_data_without_block {
 
 test_invalid_incoming_partial_data_without_block! {
     invalid_sender_of_receipts(Error::SenderIsNotProducer, receipt_proof_incoming_data, incoming_data, {
-        incoming_data.sender = AccountId::from_str("invalid-sender").unwrap();
+        incoming_data.data.sender = AccountId::from_str("invalid-sender").unwrap();
     })
     invalid_sender_of_witness(Error::SenderIsNotProducer, witness_incoming_data, incoming_data, {
-        incoming_data.sender = AccountId::from_str("invalid-sender").unwrap();
+        incoming_data.data.sender = AccountId::from_str("invalid-sender").unwrap();
     })
     node_is_not_recipient(Error::NodeIsNotRecipient, receipt_proof_incoming_data, incoming_data, {
         let SpiceDataIdentifier::ReceiptProof { from_shard_id, to_shard_id, .. } =

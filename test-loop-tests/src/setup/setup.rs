@@ -396,7 +396,6 @@ pub fn setup_client(
     let chunk_executor_actor = ChunkExecutorActor::new(
         runtime_adapter.store().clone(),
         &chain_genesis,
-        *client_actor.client.chain.genesis().hash(),
         runtime_adapter.clone(),
         epoch_manager.clone(),
         shard_tracker.clone(),

@@ -39,6 +39,7 @@ pub use _proto::network as proto;
 use crate::network_protocol::proto_conv::trace_context::{
     extract_span_context, inject_trace_context,
 };
+use crate::spice_data_distribution::SpicePartialData;
 use near_async::time;
 use near_crypto::PublicKey;
 use near_crypto::Signature;
@@ -637,6 +638,9 @@ impl TieredMessageBody {
             RoutedMessageBody::StateRequestAck(state_request_ack) => {
                 T2MessageBody::StateRequestAck(state_request_ack).into()
             }
+            RoutedMessageBody::SpicePartialData(spice_partial_data) => {
+                T1MessageBody::SpicePartialData(spice_partial_data).into()
+            }
             RoutedMessageBody::_UnusedQueryRequest
             | RoutedMessageBody::_UnusedQueryResponse
             | RoutedMessageBody::_UnusedReceiptOutcomeRequest(_)
@@ -687,6 +691,7 @@ pub enum T1MessageBody {
     ChunkContractAccesses(ChunkContractAccesses),
     ContractCodeRequest(ContractCodeRequest),
     ContractCodeResponse(ContractCodeResponse),
+    SpicePartialData(SpicePartialData),
 }
 
 impl T1MessageBody {
@@ -794,6 +799,7 @@ pub enum RoutedMessageBody {
     ContractCodeResponse(ContractCodeResponse),
     PartialEncodedContractDeploys(PartialEncodedContractDeploys),
     StateHeaderRequest(StateHeaderRequest),
+    SpicePartialData(SpicePartialData),
     StateRequestAck(StateRequestAck),
 }
 
@@ -834,7 +840,8 @@ impl RoutedMessageBody {
             | RoutedMessageBody::VersionedChunkEndorsement(_)
             | RoutedMessageBody::ChunkContractAccesses(_)
             | RoutedMessageBody::ContractCodeRequest(_)
-            | RoutedMessageBody::ContractCodeResponse(_) => true,
+            | RoutedMessageBody::ContractCodeResponse(_)
+            | RoutedMessageBody::SpicePartialData(_) => true,
             _ => false,
         }
     }
@@ -927,6 +934,11 @@ impl fmt::Debug for RoutedMessageBody {
                 "StateRequestAck(sync_hash={:?}, shard_id={:?}, header_or_part_id={:?}, body={:?})",
                 ack.sync_hash, ack.shard_id, ack.part_id_or_header, ack.body,
             ),
+            RoutedMessageBody::SpicePartialData(spice_partial_data) => write!(
+                f,
+                "SpicePartialData(id={:?}, commitment={:?})",
+                spice_partial_data.id, spice_partial_data.commitment,
+            ),
         }
     }
 }
@@ -963,6 +975,9 @@ impl From<TieredMessageBody> for RoutedMessageBody {
                 }
                 T1MessageBody::ContractCodeResponse(contract_code_response) => {
                     RoutedMessageBody::ContractCodeResponse(contract_code_response)
+                }
+                T1MessageBody::SpicePartialData(spice_partial_data) => {
+                    RoutedMessageBody::SpicePartialData(spice_partial_data)
                 }
             },
             TieredMessageBody::T2(body) => match *body {

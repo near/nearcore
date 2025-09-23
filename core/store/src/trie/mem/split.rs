@@ -1,13 +1,17 @@
-use super::arena::ArenaMemory;
-use crate::NibbleSlice;
-use crate::trie::NUM_CHILDREN;
-use crate::trie::mem::flexible_data::children::ChildrenView;
-use crate::trie::mem::node::{MemTrieNodePtr, MemTrieNodeView};
+use crate::trie::iterator::DiskTrieIteratorInner;
+use crate::trie::mem::iter::MemTrieIteratorInner;
+use crate::trie::ops::interface::{
+    GenericTrieInternalStorage, GenericTrieNode, GenericTrieNodeWithSize,
+};
+use crate::trie::{AccessOptions, NUM_CHILDREN};
+use crate::{NibbleSlice, Trie};
 use derive_where::derive_where;
 use itertools::Itertools;
 use near_primitives::trie_key::col::{ACCESS_KEY, ACCOUNT, CONTRACT_CODE, CONTRACT_DATA};
 use near_primitives::types::AccountId;
 use smallvec::SmallVec;
+use std::fmt::Debug;
+use std::marker::PhantomData;
 
 const MAX_NIBBLES: usize = AccountId::MAX_LEN * 2;
 // The order of subtrees matters - accounts must go first (!)
@@ -18,7 +22,7 @@ const SUBTREES: [u8; 4] = [ACCOUNT, CONTRACT_CODE, ACCESS_KEY, CONTRACT_DATA];
 /// This represents a descent stage of a single subtree (e.g. accounts or access keys)
 /// in a descent that involves multiple subtrees.
 #[derive_where(Debug)]
-enum TrieDescentStage<'a, M: ArenaMemory> {
+enum TrieDescentStage<NodePtr: Debug> {
     /// The current descent path is not present in this subtree. Either we have descended
     /// below a leaf or took a branch that was not consistent with an extension in this subtree.
     CutOff,
@@ -30,44 +34,44 @@ enum TrieDescentStage<'a, M: ArenaMemory> {
     InsideExtension {
         memory_usage: u64,
         remaining_nibbles: SmallVec<[u8; MAX_NIBBLES]>, // non-empty (!)
-        child: Option<MemTrieNodePtr<'a, M>>,
+        child: Option<NodePtr>,
     },
     /// The current descent path leads to a branch node.
-    AtBranch { memory_usage: u64, children: ChildrenView<'a, M> },
+    AtBranch { memory_usage: u64, children: Box<[Option<NodePtr>; NUM_CHILDREN]> },
 }
 
-impl<'a, M: ArenaMemory> From<MemTrieNodePtr<'a, M>> for TrieDescentStage<'a, M> {
-    fn from(ptr: MemTrieNodePtr<'a, M>) -> Self {
-        let node = ptr.view();
-        match node {
-            MemTrieNodeView::Leaf { extension, .. } if extension.is_empty() => {
-                Self::AtLeaf { memory_usage: node.memory_usage() }
+impl<NodePtr: Debug, Value> From<GenericTrieNodeWithSize<NodePtr, Value>>
+    for TrieDescentStage<NodePtr>
+{
+    fn from(node: GenericTrieNodeWithSize<NodePtr, Value>) -> Self {
+        let memory_usage = node.memory_usage;
+        match node.node {
+            GenericTrieNode::Empty => Self::CutOff,
+            GenericTrieNode::Leaf { extension, .. } if extension.is_empty() => {
+                Self::AtLeaf { memory_usage }
             }
-            MemTrieNodeView::Leaf { extension, .. } => Self::InsideExtension {
-                memory_usage: node.memory_usage(),
-                remaining_nibbles: extension_to_nibbles(extension),
+            GenericTrieNode::Leaf { extension, .. } => Self::InsideExtension {
+                memory_usage,
+                remaining_nibbles: extension_to_nibbles(&extension),
                 child: None,
             },
-            MemTrieNodeView::Extension { memory_usage, extension, child, .. } => {
-                Self::InsideExtension {
-                    memory_usage,
-                    remaining_nibbles: extension_to_nibbles(extension),
-                    child: Some(child),
-                }
-            }
-            MemTrieNodeView::Branch { memory_usage, children, .. }
-            | MemTrieNodeView::BranchWithValue { memory_usage, children, .. } => {
-                Self::AtBranch { memory_usage, children }
-            }
+            GenericTrieNode::Extension { extension, child } => Self::InsideExtension {
+                memory_usage,
+                remaining_nibbles: extension_to_nibbles(&extension),
+                child: Some(child),
+            },
+            GenericTrieNode::Branch { children, .. } => Self::AtBranch { memory_usage, children },
         }
     }
 }
 
-impl<'a, M: ArenaMemory> From<Option<MemTrieNodePtr<'a, M>>> for TrieDescentStage<'a, M> {
-    fn from(value: Option<MemTrieNodePtr<'a, M>>) -> Self {
+impl<NodePtr: Debug, Value> From<Option<GenericTrieNodeWithSize<NodePtr, Value>>>
+    for TrieDescentStage<NodePtr>
+{
+    fn from(value: Option<GenericTrieNodeWithSize<NodePtr, Value>>) -> Self {
         match value {
             None => Self::CutOff,
-            Some(ptr) => ptr.into(),
+            Some(node) => node.into(),
         }
     }
 }
@@ -77,7 +81,7 @@ fn extension_to_nibbles(extension: &[u8]) -> SmallVec<[u8; MAX_NIBBLES]> {
     nibble_slice.iter().collect()
 }
 
-impl<'a, M: ArenaMemory> TrieDescentStage<'a, M> {
+impl<NodePtr: Debug + Copy> TrieDescentStage<NodePtr> {
     fn current_node_memory_usage(&self) -> u64 {
         match self {
             Self::CutOff => 0,
@@ -87,7 +91,10 @@ impl<'a, M: ArenaMemory> TrieDescentStage<'a, M> {
         }
     }
 
-    fn children_memory_usage(&self) -> [u64; NUM_CHILDREN] {
+    fn children_memory_usage<Value, Getter>(&self, get_node: Getter) -> [u64; NUM_CHILDREN]
+    where
+        Getter: Fn(NodePtr) -> GenericTrieNodeWithSize<NodePtr, Value>,
+    {
         match self {
             Self::CutOff | Self::AtLeaf { .. } => [0; NUM_CHILDREN],
             Self::InsideExtension { memory_usage, remaining_nibbles, .. } => {
@@ -96,8 +103,9 @@ impl<'a, M: ArenaMemory> TrieDescentStage<'a, M> {
                 result[next_nibble as usize] = *memory_usage;
                 result
             }
-            Self::AtBranch { children, .. } => (0..NUM_CHILDREN)
-                .map(|i| children.get(i).map(|ptr| ptr.view().memory_usage()).unwrap_or_default())
+            Self::AtBranch { children, .. } => children
+                .iter()
+                .map(|child| child.map(|child| get_node(child).memory_usage).unwrap_or_default())
                 .collect_vec()
                 .try_into()
                 .unwrap(),
@@ -111,7 +119,10 @@ impl<'a, M: ArenaMemory> TrieDescentStage<'a, M> {
         }
     }
 
-    fn descend(&mut self, nibble: u8) {
+    fn descend<Value, Getter>(&mut self, nibble: u8, get_node: Getter)
+    where
+        Getter: Fn(NodePtr) -> GenericTrieNodeWithSize<NodePtr, Value>,
+    {
         tracing::trace!(target = "memtrie", ?self, %nibble, "descending");
         match self {
             Self::CutOff => {}
@@ -127,11 +138,13 @@ impl<'a, M: ArenaMemory> TrieDescentStage<'a, M> {
                 if remaining_nibbles.is_empty() {
                     match child {
                         None => *self = Self::AtLeaf { memory_usage: *memory_usage },
-                        Some(child) => *self = (*child).into(),
+                        Some(child) => *self = get_node(*child).into(),
                     }
                 }
             }
-            Self::AtBranch { children, .. } => *self = children.get(nibble as usize).into(),
+            Self::AtBranch { children, .. } => {
+                *self = children[nibble as usize].map(get_node).into()
+            }
         }
     }
 }
@@ -140,9 +153,11 @@ impl<'a, M: ArenaMemory> TrieDescentStage<'a, M> {
 /// parts, according to the `memory_usage` stored in nodes. It descends all `SUBTREES`
 /// simultaneously, choosing a path which provides the best split (binary search).
 #[derive(Debug)]
-struct TrieDescent<'a, M: ArenaMemory> {
+struct TrieDescent<NodePtr: Debug, Value, Storage> {
+    _phantom: PhantomData<Value>,
+    trie_storage: Storage,
     /// Descent stage of each subtree
-    subtree_stages: SmallVec<[TrieDescentStage<'a, M>; SUBTREES.len()]>,
+    subtree_stages: SmallVec<[TrieDescentStage<NodePtr>; SUBTREES.len()]>,
     /// Nibbles walked so far (path from subtree root to current node)
     /// Doesn't include the first byte, which identifies the subtree.
     nibbles: SmallVec<[u8; MAX_NIBBLES]>,
@@ -154,21 +169,29 @@ struct TrieDescent<'a, M: ArenaMemory> {
     middle_memory: u64,
 }
 
-impl<'a, M: ArenaMemory> TrieDescent<'a, M> {
-    pub fn new(root: MemTrieNodePtr<'a, M>) -> Self {
+impl<NodePtr, Value, Storage> TrieDescent<NodePtr, Value, Storage>
+where
+    NodePtr: Debug + Copy,
+    Storage: GenericTrieInternalStorage<NodePtr, Value>,
+{
+    pub fn new(trie_storage: Storage) -> Self {
+        let root_ptr = trie_storage.get_root().expect("no root in trie");
+        let get_node = |ptr| trie_storage.get_node_with_size(ptr, AccessOptions::DEFAULT).unwrap();
         let mut subtree_stages = SmallVec::new();
         let mut middle_memory = 0;
 
         for subtree_key in SUBTREES {
-            let mut subtree_stage: TrieDescentStage<M> = root.into();
+            let mut subtree_stage: TrieDescentStage<NodePtr> = get_node(root_ptr).into();
             let (nib1, nib2) = byte_to_nibbles(subtree_key);
-            subtree_stage.descend(nib1);
-            subtree_stage.descend(nib2);
+            subtree_stage.descend(nib1, get_node);
+            subtree_stage.descend(nib2, get_node);
             middle_memory += subtree_stage.current_node_memory_usage();
             subtree_stages.push(subtree_stage);
         }
 
         Self {
+            _phantom: PhantomData,
+            trie_storage,
             subtree_stages,
             nibbles: SmallVec::new(),
             left_memory: 0,
@@ -183,9 +206,11 @@ impl<'a, M: ArenaMemory> TrieDescent<'a, M> {
 
     /// Aggregate children memory usage across all subtrees
     fn aggregate_children_mem_usage(&self) -> [u64; NUM_CHILDREN] {
+        let get_node =
+            |ptr| self.trie_storage.get_node_with_size(ptr, AccessOptions::DEFAULT).unwrap();
         let mut children_mem_usage = [0u64; NUM_CHILDREN];
         for subtree in &self.subtree_stages {
-            let subtree_children = subtree.children_memory_usage();
+            let subtree_children = subtree.children_memory_usage(get_node);
             for i in 0..NUM_CHILDREN {
                 children_mem_usage[i] += subtree_children[i];
             }
@@ -241,8 +266,10 @@ impl<'a, M: ArenaMemory> TrieDescent<'a, M> {
         tracing::debug!(target = "memtrie", %self.left_memory, %self.right_memory, %self.middle_memory, "remaining memory updated");
 
         // Update descent stages for all subtrees
+        let get_node =
+            |ptr| self.trie_storage.get_node_with_size(ptr, AccessOptions::DEFAULT).unwrap();
         for stage in &mut self.subtree_stages {
-            stage.descend(nibble);
+            stage.descend(nibble, get_node);
         }
         self.nibbles.push(nibble);
         tracing::debug!(target = "memtrie", ?self.nibbles, nibble_str = String::from_utf8_lossy(&nibbles_to_bytes(&self.nibbles)).to_string(), "nibbles updated");
@@ -304,8 +331,17 @@ fn nibbles_to_bytes(nibbles: &[u8]) -> Vec<u8> {
     nibbles.chunks_exact(2).map(|pair| (pair[0] << 4) | pair[1]).collect()
 }
 
-pub fn find_trie_split<M: ArenaMemory>(trie_ptr: MemTrieNodePtr<M>) -> TrieSplit {
-    TrieDescent::new(trie_ptr).find_mem_usage_split()
+pub fn find_trie_split(trie: &Trie) -> TrieSplit {
+    match trie.lock_memtries() {
+        Some(memtries) => {
+            let trie_storage = MemTrieIteratorInner::new(&memtries, trie);
+            TrieDescent::new(trie_storage).find_mem_usage_split()
+        }
+        None => {
+            let trie_storage = DiskTrieIteratorInner::new(trie);
+            TrieDescent::new(trie_storage).find_mem_usage_split()
+        }
+    }
 }
 
 #[cfg(test)]
@@ -313,7 +349,8 @@ mod tests {
     use super::*;
     use crate::trie::TRIE_COSTS;
     use crate::trie::mem::arena::Arena;
-    use crate::trie::mem::arena::single_thread::{STArena, STArenaMemory};
+    use crate::trie::mem::arena::single_thread::STArena;
+    use crate::trie::mem::memtrie_update::MemTrieNodeWithSize;
     use crate::trie::mem::node::{InputMemTrieNode, MemTrieNodeId};
     use assert_matches::assert_matches;
     use near_primitives::state::FlatStateValue;
@@ -384,40 +421,57 @@ mod tests {
         MemTrieNodeId::new(arena, input)
     }
 
+    /// A convenient trait to avoid boilerplate code when converting `MemTrieNodeId` to `TrieDescentStage`
+    trait ToDescentStage {
+        fn to_descent_stage(&self, arena: &STArena) -> TrieDescentStage<MemTrieNodeId>;
+    }
+
+    impl ToDescentStage for MemTrieNodeId {
+        fn to_descent_stage(&self, arena: &STArena) -> TrieDescentStage<MemTrieNodeId> {
+            get_node(arena)(*self).into()
+        }
+    }
+
+    fn get_node_stub<P>(_: P) -> GenericTrieNodeWithSize<P, ()> {
+        unreachable!()
+    }
+
+    fn get_node(arena: &STArena) -> impl Fn(MemTrieNodeId) -> MemTrieNodeWithSize {
+        |node_id| {
+            MemTrieNodeWithSize::from_existing_node_view(node_id.as_ptr(arena.memory()).view())
+        }
+    }
+
     /// These tests verify memory usage calculation of the current node and children nodes.
     mod mem_usage {
         use super::*;
 
         #[test]
         fn cut_off() {
-            let descent_stage = TrieDescentStage::<STArenaMemory>::CutOff;
+            let descent_stage = TrieDescentStage::<()>::CutOff;
             assert_eq!(descent_stage.current_node_memory_usage(), 0);
-            assert_eq!(descent_stage.children_memory_usage(), [0u64; NUM_CHILDREN]);
+            assert_eq!(descent_stage.children_memory_usage(get_node_stub), [0u64; NUM_CHILDREN]);
         }
 
         #[test]
         fn leaf() {
             let mut arena = STArena::new("test".to_string());
 
-            let empty_leaf: TrieDescentStage<_> =
-                new_leaf(&mut arena, &[], &[]).as_ptr(arena.memory()).into();
-
+            let empty_leaf = new_leaf(&mut arena, &[], &[]).to_descent_stage(&arena);
             assert_eq!(empty_leaf.current_node_memory_usage(), EMPTY_LEAF_MEM);
-            assert_eq!(empty_leaf.children_memory_usage(), [0u64; NUM_CHILDREN]);
+            assert_eq!(empty_leaf.children_memory_usage(get_node_stub), [0u64; NUM_CHILDREN]);
 
-            let nonempty_leaf: TrieDescentStage<_> =
-                new_leaf(&mut arena, &[], &[1, 2, 3]).as_ptr(arena.memory()).into();
+            let nonempty_leaf = new_leaf(&mut arena, &[], &[1, 2, 3]).to_descent_stage(&arena);
             let exp_memory = EMPTY_LEAF_MEM + TRIE_COSTS.byte_of_value * 3;
             assert_eq!(nonempty_leaf.current_node_memory_usage(), exp_memory);
-            assert_eq!(nonempty_leaf.children_memory_usage(), [0u64; NUM_CHILDREN]);
+            assert_eq!(nonempty_leaf.children_memory_usage(get_node_stub), [0u64; NUM_CHILDREN]);
 
-            let extension_leaf: TrieDescentStage<_> =
-                new_leaf(&mut arena, &[1, 2], &[]).as_ptr(arena.memory()).into();
+            let extension_leaf = new_leaf(&mut arena, &[1, 2], &[]).to_descent_stage(&arena);
             let exp_memory = EMPTY_LEAF_MEM + TRIE_COSTS.byte_of_key * 2;
             let mut exp_children_mem = [0u64; NUM_CHILDREN];
             exp_children_mem[1] = exp_memory; // The first nibble in extension is '1'
             assert_eq!(extension_leaf.current_node_memory_usage(), exp_memory);
-            assert_eq!(extension_leaf.children_memory_usage(), exp_children_mem);
+            assert_eq!(extension_leaf.children_memory_usage(get_node_stub), exp_children_mem);
         }
 
         #[test]
@@ -425,31 +479,32 @@ mod tests {
             let mut arena = STArena::new("test".to_string());
 
             let empty_leaf = new_leaf(&mut arena, &[], &[]);
-            let extension: TrieDescentStage<_> =
-                new_extension(&mut arena, &[4, 5], empty_leaf).as_ptr(arena.memory()).into();
+            let extension = new_extension(&mut arena, &[4, 5], empty_leaf).to_descent_stage(&arena);
 
             let exp_memory = EMPTY_LEAF_MEM + TRIE_COSTS.node_cost + TRIE_COSTS.byte_of_key * 2;
             let mut exp_children_mem = [0u64; NUM_CHILDREN];
             exp_children_mem[4] = exp_memory; // The first nibble in extension is '4'
             assert_eq!(extension.current_node_memory_usage(), exp_memory);
-            assert_eq!(extension.children_memory_usage(), exp_children_mem);
+            assert_eq!(extension.children_memory_usage(get_node_stub), exp_children_mem);
         }
 
         #[test]
         fn branch() {
             let mut arena = STArena::new("test".to_string());
 
-            let empty_branch: TrieDescentStage<_> =
-                new_branch(&mut arena, None, [None; 16]).as_ptr(arena.memory()).into();
+            let empty_branch = new_branch(&mut arena, None, [None; 16]).to_descent_stage(&arena);
             assert_eq!(empty_branch.current_node_memory_usage(), TRIE_COSTS.node_cost);
-            assert_eq!(empty_branch.children_memory_usage(), [0u64; NUM_CHILDREN]);
+            assert_eq!(empty_branch.children_memory_usage(get_node_stub), [0u64; NUM_CHILDREN]);
 
-            let branch_with_value: TrieDescentStage<_> =
-                new_branch(&mut arena, Some(&[1, 2, 3]), [None; 16]).as_ptr(arena.memory()).into();
+            let branch_with_value =
+                new_branch(&mut arena, Some(&[1, 2, 3]), [None; 16]).to_descent_stage(&arena);
             // For some reason, node_cost for branch with value is doubled (?)
             let exp_memory = TRIE_COSTS.node_cost * 2 + TRIE_COSTS.byte_of_value * 3;
             assert_eq!(branch_with_value.current_node_memory_usage(), exp_memory);
-            assert_eq!(branch_with_value.children_memory_usage(), [0u64; NUM_CHILDREN]);
+            assert_eq!(
+                branch_with_value.children_memory_usage(get_node_stub),
+                [0u64; NUM_CHILDREN]
+            );
 
             let leaf1 = new_leaf(&mut arena, &[], &[1, 2, 3]);
             let leaf2 = new_leaf(&mut arena, &[1, 2], &[1]);
@@ -458,14 +513,17 @@ mod tests {
             let mut children: [Option<MemTrieNodeId>; NUM_CHILDREN] = [None; NUM_CHILDREN];
             children[3] = Some(leaf1);
             children[5] = Some(leaf2);
-            let branch_with_children: TrieDescentStage<_> =
-                new_branch(&mut arena, None, children).as_ptr(arena.memory()).into();
+            let branch_with_children =
+                new_branch(&mut arena, None, children).to_descent_stage(&arena);
             let exp_memory = TRIE_COSTS.node_cost + leaf1_mem + leaf2_mem;
             let mut exp_children_mem = [0u64; NUM_CHILDREN];
             exp_children_mem[3] = leaf1_mem;
             exp_children_mem[5] = leaf2_mem;
             assert_eq!(branch_with_children.current_node_memory_usage(), exp_memory);
-            assert_eq!(branch_with_children.children_memory_usage(), exp_children_mem);
+            assert_eq!(
+                branch_with_children.children_memory_usage(get_node(&arena)),
+                exp_children_mem
+            );
         }
     }
 
@@ -475,9 +533,9 @@ mod tests {
 
         #[test]
         fn cut_off() {
-            let mut descent_stage = TrieDescentStage::<STArenaMemory>::CutOff;
+            let mut descent_stage = TrieDescentStage::<()>::CutOff;
             assert!(!descent_stage.can_descend());
-            descent_stage.descend(0);
+            descent_stage.descend(0, get_node_stub);
             assert_matches!(descent_stage, TrieDescentStage::CutOff);
         }
 
@@ -485,25 +543,24 @@ mod tests {
         fn leaf() {
             let mut arena = STArena::new("test".to_string());
 
-            let mut empty_leaf: TrieDescentStage<_> =
-                new_leaf(&mut arena, &[], &[]).as_ptr(arena.memory()).into();
+            let mut empty_leaf = new_leaf(&mut arena, &[], &[]).to_descent_stage(&arena);
             assert!(!empty_leaf.can_descend());
-            empty_leaf.descend(0);
+            empty_leaf.descend(0, get_node_stub);
             assert_matches!(empty_leaf, TrieDescentStage::CutOff);
 
-            let mut leaf_with_extension: TrieDescentStage<_> =
-                new_leaf(&mut arena, &[1, 2], &[]).as_ptr(arena.memory()).into();
+            let mut leaf_with_extension =
+                new_leaf(&mut arena, &[1, 2], &[]).to_descent_stage(&arena);
             assert!(leaf_with_extension.can_descend());
-            leaf_with_extension.descend(1);
+            leaf_with_extension.descend(1, get_node_stub);
             assert_matches!(&leaf_with_extension, TrieDescentStage::InsideExtension { remaining_nibbles, ..} if **remaining_nibbles == [2]);
             assert!(leaf_with_extension.can_descend());
-            leaf_with_extension.descend(2);
+            leaf_with_extension.descend(2, get_node_stub);
             assert_matches!(leaf_with_extension, TrieDescentStage::AtLeaf { .. });
             assert!(!leaf_with_extension.can_descend());
 
-            let mut leaf_with_extension: TrieDescentStage<_> =
-                new_leaf(&mut arena, &[1, 2], &[]).as_ptr(arena.memory()).into();
-            leaf_with_extension.descend(6); // Nibble **not** in the extension
+            let mut leaf_with_extension =
+                new_leaf(&mut arena, &[1, 2], &[]).to_descent_stage(&arena);
+            leaf_with_extension.descend(6, get_node_stub); // Nibble **not** in the extension
             assert_matches!(leaf_with_extension, TrieDescentStage::CutOff);
         }
 
@@ -512,18 +569,16 @@ mod tests {
             let mut arena = STArena::new("test".to_string());
 
             let leaf = new_leaf(&mut arena, &[], &[]);
-            let mut extension: TrieDescentStage<_> =
-                new_extension(&mut arena, &[1, 2], leaf).as_ptr(arena.memory()).into();
+            let mut extension = new_extension(&mut arena, &[1, 2], leaf).to_descent_stage(&arena);
             assert!(extension.can_descend());
-            extension.descend(1);
+            extension.descend(1, get_node(&arena));
             assert_matches!(&extension, TrieDescentStage::InsideExtension { remaining_nibbles, ..} if **remaining_nibbles == [2]);
             assert!(extension.can_descend());
-            extension.descend(2);
+            extension.descend(2, get_node(&arena));
             assert_matches!(extension, TrieDescentStage::AtLeaf { .. });
 
-            let mut extension: TrieDescentStage<_> =
-                new_extension(&mut arena, &[1, 2], leaf).as_ptr(arena.memory()).into();
-            extension.descend(3); // Nibble **not** in extension
+            let mut extension = new_extension(&mut arena, &[1, 2], leaf).to_descent_stage(&arena);
+            extension.descend(3, get_node_stub); // Nibble **not** in extension
             assert_matches!(extension, TrieDescentStage::CutOff);
         }
 
@@ -534,15 +589,13 @@ mod tests {
             let leaf = new_leaf(&mut arena, &[], &[]);
             let mut children = [None; NUM_CHILDREN];
             children[0] = Some(leaf);
-            let mut branch: TrieDescentStage<_> =
-                new_branch(&mut arena, None, children).as_ptr(arena.memory()).into();
+            let mut branch = new_branch(&mut arena, None, children).to_descent_stage(&arena);
             assert!(branch.can_descend());
-            branch.descend(0);
+            branch.descend(0, get_node(&arena));
             assert_matches!(branch, TrieDescentStage::AtLeaf { .. });
 
-            let mut branch: TrieDescentStage<_> =
-                new_branch(&mut arena, None, children).as_ptr(arena.memory()).into();
-            branch.descend(1); // Not child at this index
+            let mut branch = new_branch(&mut arena, None, children).to_descent_stage(&arena);
+            branch.descend(1, get_node_stub); // Not child at this index
             assert_matches!(branch, TrieDescentStage::CutOff);
         }
     }
@@ -550,11 +603,40 @@ mod tests {
     /// These tests verify the logic of aggregate (multi-subtree) descent.
     mod trie_descent {
         use super::*;
+        use near_primitives::errors::StorageError;
+
+        /// A minimal implementation of `GenericTrieInternalStorage` for tests
+        struct TestStorage<'a> {
+            root: MemTrieNodeId,
+            arena: &'a STArena,
+        }
+
+        impl<'a> GenericTrieInternalStorage<MemTrieNodeId, FlatStateValue> for TestStorage<'a> {
+            fn get_root(&self) -> Option<MemTrieNodeId> {
+                Some(self.root)
+            }
+
+            fn get_node_with_size(
+                &self,
+                ptr: MemTrieNodeId,
+                _opts: AccessOptions,
+            ) -> Result<MemTrieNodeWithSize, StorageError> {
+                Ok(get_node(self.arena)(ptr))
+            }
+
+            fn get_value(
+                &self,
+                _value_ref: FlatStateValue,
+                _opts: AccessOptions,
+            ) -> Result<Vec<u8>, StorageError> {
+                unimplemented!()
+            }
+        }
 
         fn init(
             arena: &mut STArena,
             subtrees: [MemTrieNodeId; SUBTREES.len()],
-        ) -> TrieDescent<STArenaMemory> {
+        ) -> TrieDescent<MemTrieNodeId, FlatStateValue, TestStorage<'_>> {
             let subtree_nibbles = SUBTREES.iter().map(|key| byte_to_nibbles(*key)).collect_vec();
             let first_nibble = subtree_nibbles[0].0;
             for (nib1, _) in &subtree_nibbles {
@@ -568,7 +650,8 @@ mod tests {
             }
             let branch = new_branch(arena, None, children);
             let root = new_extension(arena, &[first_nibble], branch);
-            TrieDescent::new(root.as_ptr(arena.memory()))
+            let storage = TestStorage { root, arena };
+            TrieDescent::new(storage)
         }
 
         #[test]
