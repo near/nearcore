@@ -563,11 +563,18 @@ pub fn validate_chunk_state_witness_impl(
     let witness_chunk_shard_uid =
         shard_id_to_uid(epoch_manager, witness_chunk_shard_id, &epoch_id)?;
     let prev_hash = pre_validation_output.main_transition_params.prev_hash();
+    println!(
+        "VALIDATING CHUNK STATE WITNESS: {:?} {:?} {:?}",
+        is_optimistic, prev_hash, witness_chunk_shard_id
+    );
     let epoch_id = epoch_manager.get_epoch_id_from_prev_block(&prev_hash)?;
     let shard_id = pre_validation_output.main_transition_params.shard_id();
     let shard_uid = shard_id_to_uid(epoch_manager, shard_id, &epoch_id)?;
     let cache_result = {
         let mut shard_cache = main_state_transition_cache.lock();
+        if !is_optimistic {
+            println!("GETTING CACHED RESULT: {:?} {:?}", prev_hash, shard_id);
+        }
         shard_cache
             .get_mut(&witness_chunk_shard_uid)
             .and_then(|cache| cache.get(&prev_hash).cloned())
@@ -589,7 +596,12 @@ pub fn validate_chunk_state_witness_impl(
 
                 (chunk_extra, outgoing_receipts)
             }
-            (_, Some(result)) => (result.chunk_extra, result.outgoing_receipts),
+            (_, Some(result)) => {
+                if !is_optimistic {
+                    println!("USING CACHED RESULT");
+                }
+                (result.chunk_extra, result.outgoing_receipts)
+            }
         };
     if chunk_extra.state_root() != &state_witness.main_state_transition().post_state_root {
         // This is an early check, it's not for correctness, only for better
@@ -622,6 +634,9 @@ pub fn validate_chunk_state_witness_impl(
         let cache = shard_cache.entry(witness_chunk_shard_uid).or_insert_with(|| {
             LruCache::new(NonZeroUsize::new(NUM_WITNESS_RESULT_CACHE_ENTRIES).unwrap())
         });
+        if is_optimistic {
+            println!("SAVING OPTIMISTIC CACHED RESULT: {:?} {:?}", prev_hash, shard_id);
+        }
         cache.put(
             prev_hash,
             ChunkStateWitnessValidationResult {

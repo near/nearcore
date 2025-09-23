@@ -537,9 +537,9 @@ impl ChunkValidationActorInner {
             PreValidationOutput { main_transition_params, implicit_transition_params: vec![] }
         };
 
-        if self.try_validate_chunk_with_chunk_extra(state_witness.clone(), signer)? {
-            return Ok(());
-        }
+        // if self.try_validate_chunk_with_chunk_extra(state_witness.clone(), signer)? {
+        //     return Ok(());
+        // }
 
         let epoch_manager = self.epoch_manager.clone();
         let runtime_adapter = self.runtime_adapter.clone();
@@ -566,6 +566,7 @@ impl ChunkValidationActorInner {
                 near_chain::stateless_validation::metrics::CHUNK_WITNESS_VALIDATION_FAILED_TOTAL
                     .with_label_values(&[&shard_id.to_string(), err.prometheus_label_value()])
                     .inc();
+                println!("FAILED TO VALIDATE CHUNK STATE WITNESS: {:?}", err);
                 tracing::error!(
                     target: "chunk_validation",
                     ?err,
@@ -573,6 +574,7 @@ impl ChunkValidationActorInner {
                     ?chunk_production_key,
                     "Failed to validate chunk state witness"
                 );
+                return;
             }
 
             if !is_optimistic {
