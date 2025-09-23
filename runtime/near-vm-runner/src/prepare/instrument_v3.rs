@@ -520,51 +520,47 @@ impl<'a> InstrumentContext<'a> {
 
         let should_instrument_stack = stack_sz != 0 || frame_sz != 0;
         if should_instrument_stack {
-            new_function
-                .instructions()
-                .block(block_type)
-                .global_get(self.globals + STACK_GLOBAL)
-                // $stack
-                .i64_const(0)
-                .i64_const(stack_sz as i64)
-                .i64_const(0)
-                .checked_sub_i64(STACK_EXHAUSTED_FN)
-                // $stack - $stack_size
-                .i64_const(0)
-                .i64_const(frame_sz as i64)
-                .i64_const(0)
-                .checked_sub_i64(STACK_EXHAUSTED_FN)
-                // $stack - $stack_size - $frame_size
-                .global_set(self.globals + STACK_GLOBAL)
-                .i64_const(frame_sz as i64)
-                .i64_const(0)
-                .i64_const(7)
-                .i64_const(0)
-                // $frame_size | 0 | 7 | 0
-                .checked_add_i64(GAS_EXHAUSTED_FN)
-                // $frame_size + 7
-                .i64_const(8)
-                .i64_div_u()
-                // ($frame_size + 7) / 8
-                .i64_const(self.op_cost.into())
-                // ($frame_size + 7) / 8 | $op_cost
-                .checked_mul_i64(GAS_EXHAUSTED_FN)
-                // ($frame_size + 7) / 8 * $op_cost
-                .local_tee(local_idx)
-                .global_get(self.globals + GAS_GLOBAL)
-                .i64_gt_u()
-                // ($frame_size + 7) / 8 * $op_cost > $gas
-                .if_(we::BlockType::Empty)
-                .local_get(local_idx)
-                .call(GAS_INSTRUMENTATION_FN)
-                .unreachable()
-                .else_()
-                .global_get(self.globals + GAS_GLOBAL)
-                .local_get(local_idx)
-                .i64_sub()
-                // $gas - ($frame_size + 7) / 8 * $op_cost
-                .global_set(self.globals + GAS_GLOBAL)
-                .end();
+            let mut new_function = new_function.instructions();
+            new_function.block(block_type);
+            'outer: {
+                let Some(stack_charge) = stack_sz.checked_add(frame_sz) else {
+                    new_function.call(STACK_EXHAUSTED_FN).unreachable();
+                    break 'outer;
+                };
+                let Some(gas_charge) = frame_sz
+                    .checked_add(7)
+                    .map(|n| n / 8)
+                    .and_then(|n| n.checked_mul(self.op_cost.into()))
+                else {
+                    new_function.call(GAS_EXHAUSTED_FN).unreachable();
+                    break 'outer;
+                };
+                new_function
+                    .global_get(self.globals + STACK_GLOBAL)
+                    // $stack
+                    .i64_const(0)
+                    .i64_const(stack_charge as i64)
+                    .i64_const(0)
+                    .checked_sub_i64(STACK_EXHAUSTED_FN)
+                    // $stack - $stack_size - $frame_size
+                    .global_set(self.globals + STACK_GLOBAL)
+                    .i64_const(gas_charge as i64)
+                    // ($frame_size + 7) / 8 * $op_cost
+                    .global_get(self.globals + GAS_GLOBAL)
+                    .i64_gt_u()
+                    // ($frame_size + 7) / 8 * $op_cost > $gas
+                    .if_(we::BlockType::Empty)
+                    .i64_const(gas_charge as i64)
+                    .call(GAS_INSTRUMENTATION_FN)
+                    .unreachable()
+                    .else_()
+                    .global_get(self.globals + GAS_GLOBAL)
+                    .i64_const(gas_charge as i64)
+                    .i64_sub()
+                    // $gas - ($frame_size + 7) / 8 * $op_cost
+                    .global_set(self.globals + GAS_GLOBAL);
+            }
+            new_function.end();
         }
 
         while !operators.eof() {
