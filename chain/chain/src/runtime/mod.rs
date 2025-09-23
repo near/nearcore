@@ -383,7 +383,7 @@ impl NightshadeRuntime {
         }
 
         // Analogous to split storage cold DB: if the cloud archival writer is enabled, we check the cloud
-        // archival head and update gc_stop_height to the minimum.
+        // archival head and update `gc_stop_height` to the minimum.
         if self.is_cloud_archival_writer {
             let cloud_head = self.store.get_ser::<BlockHeight>(DBCol::BlockMisc, CLOUD_HEAD_KEY)?;
 
@@ -392,7 +392,12 @@ impl NightshadeRuntime {
                     "Cloud archival writer is configured, but CLOUD_HEAD is missing".into(),
                 )
             })?;
-            // TODO(cloud_archival) Calculate the first block height in the epoch of `cloud_head`
+            // TODO(cloud_archival) Stop GC at the first block of the epoch containing `cloud_head`.
+            // Currently, it is acceptable to stop GC at `cloud_head` itself. However, if the cloud archival
+            // actor starts using epoch manager methods that rely on the first block of an epoch, we must stop
+            // GC at the first block of `cloud_head`'s epoch instead. There is a risk we might forget to do
+            // this later, so let's handle it proactively. To test this, pause the cloud store actor until the
+            // GC head reaches the cloud head and call `EpochManager::is_next_block_epoch_start(cloud_head)`.
             gc_stop_height = gc_stop_height.min(cloud_head);
         }
 

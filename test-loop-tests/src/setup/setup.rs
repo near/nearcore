@@ -340,7 +340,7 @@ pub fn setup_client(
         shard_tracker.clone(),
         client_config.gc.clone(),
         // In testloop, we do not use legacy archival node.
-        cold_db.is_some(),
+        storage.cold_db.is_some(),
     );
     // We don't send messages to `GCActor` so adapter is not needed.
     test_loop.data.register_actor(identifier, gc_actor, None);
