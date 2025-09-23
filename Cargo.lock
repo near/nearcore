@@ -2364,7 +2364,6 @@ dependencies = [
  "num-traits",
  "prefix-sum-vec",
  "thiserror 1.0.50",
- "wasm-encoder 0.228.0",
  "wasmparser 0.228.0",
 ]
 
@@ -5464,6 +5463,7 @@ dependencies = [
  "tracing",
  "wasm-encoder 0.236.0",
  "wasm-smith",
+ "wasmparser 0.236.1",
  "wasmparser 0.78.2",
  "wasmprinter 0.236.1",
  "wasmtime",
@@ -9178,16 +9178,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e77053dc709db790691d3732cfc458adc5acc881dec524965c608effdcd9c581"
 dependencies = [
  "leb128",
-]
-
-[[package]]
-name = "wasm-encoder"
-version = "0.228.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "05d30290541f2d4242a162bbda76b8f2d8b1ac59eab3568ed6f2327d52c9b2c4"
-dependencies = [
- "leb128fmt",
- "wasmparser 0.228.0",
 ]
 
 [[package]]
