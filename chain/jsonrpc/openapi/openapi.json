@@ -2144,6 +2144,84 @@
               "UseGlobalContractByAccountId"
             ],
             "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "DeterministicStateInit": {
+                "properties": {
+                  "code_hash": {
+                    "$ref": "#/components/schemas/CryptoHash"
+                  },
+                  "data": {
+                    "additionalProperties": {
+                      "$ref": "#/components/schemas/Base64Data"
+                    },
+                    "type": "object"
+                  },
+                  "deposit": {
+                    "format": "uint128",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "version": {
+                    "format": "uint32",
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "code_hash",
+                  "data",
+                  "deposit",
+                  "version"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "DeterministicStateInit"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "DeterministicStateInitByAccountId": {
+                "properties": {
+                  "account_id": {
+                    "$ref": "#/components/schemas/AccountId"
+                  },
+                  "data": {
+                    "additionalProperties": {
+                      "$ref": "#/components/schemas/Base64Data"
+                    },
+                    "type": "object"
+                  },
+                  "deposit": {
+                    "format": "uint128",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "version": {
+                    "format": "uint32",
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "account_id",
+                  "data",
+                  "deposit",
+                  "version"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "DeterministicStateInitByAccountId"
+            ],
+            "type": "object"
           }
         ]
       },
@@ -2445,6 +2523,86 @@
               "UnsupportedProtocolFeature"
             ],
             "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "InvalidDeterministicStateInitReceiver": {
+                "properties": {
+                  "derived_id": {
+                    "$ref": "#/components/schemas/AccountId"
+                  },
+                  "receiver_id": {
+                    "$ref": "#/components/schemas/AccountId"
+                  }
+                },
+                "required": [
+                  "receiver_id",
+                  "derived_id"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "InvalidDeterministicStateInitReceiver"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "DeterministicStateInitKeyLengthExceeded": {
+                "properties": {
+                  "length": {
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "limit": {
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "length",
+                  "limit"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "DeterministicStateInitKeyLengthExceeded"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "DeterministicStateInitValueLengthExceeded": {
+                "properties": {
+                  "length": {
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "limit": {
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "length",
+                  "limit"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "DeterministicStateInitValueLengthExceeded"
+            ],
+            "type": "object"
           }
         ]
       },
@@ -2550,6 +2708,10 @@
           "requests"
         ],
         "type": "object"
+      },
+      "Base64Data": {
+        "format": "bytes",
+        "type": "string"
       },
       "BlockHeaderInnerLiteView": {
         "description": "A part of a state for the current head of a light client. More info [here](https://nomicon.io/ChainSpec/LightClient).",
@@ -3706,6 +3868,63 @@
           "current_head_status",
           "current_header_head_status",
           "block_production_delay_millis"
+        ],
+        "type": "object"
+      },
+      "DeterministicAccountStateInit": {
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "properties": {
+              "V1": {
+                "$ref": "#/components/schemas/DeterministicAccountStateInitV1"
+              }
+            },
+            "required": [
+              "V1"
+            ],
+            "type": "object"
+          }
+        ]
+      },
+      "DeterministicAccountStateInitV1": {
+        "properties": {
+          "code": {
+            "$ref": "#/components/schemas/GlobalContractIdentifier"
+          },
+          "data": {
+            "additionalProperties": {
+              "items": {
+                "format": "uint8",
+                "maximum": 255,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "type": "array"
+            },
+            "type": "object"
+          }
+        },
+        "required": [
+          "code",
+          "data"
+        ],
+        "type": "object"
+      },
+      "DeterministicStateInitAction": {
+        "properties": {
+          "deposit": {
+            "format": "uint128",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "state_init": {
+            "$ref": "#/components/schemas/DeterministicAccountStateInit"
+          }
+        },
+        "required": [
+          "state_init",
+          "deposit"
         ],
         "type": "object"
       },
@@ -8973,6 +9192,18 @@
             },
             "required": [
               "UseGlobalContract"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "DeterministicStateInit": {
+                "$ref": "#/components/schemas/DeterministicStateInitAction"
+              }
+            },
+            "required": [
+              "DeterministicStateInit"
             ],
             "type": "object"
           }
