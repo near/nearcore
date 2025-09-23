@@ -535,7 +535,7 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
         test_setup_transactions.push(create_account_tx);
     }
     // Wait for the test setup transactions to settle and ensure they all succeeded.
-    env.test_loop.run_for(Duration::seconds(2));
+    env.test_loop.run_for(Duration::milliseconds(2300));
     check_txs(&env.test_loop.data, &env.node_datas, &client_account_id, &test_setup_transactions);
 
     let client_handles =

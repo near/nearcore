@@ -656,6 +656,13 @@ impl ChunkProducer {
                 Ok(None)
             }
             Ok(txs) => {
+                let is_resharding =
+                    self.epoch_manager.is_resharding_boundary(prev_block.header().hash())?;
+                if is_resharding {
+                    // We cannot use prepared transactions cached before resharding, because
+                    // the shard layout has changed and so the mapping of accounts to shards.
+                    return Ok(None);
+                }
                 let _span = tracing::debug_span!(target: "client", "use_job_result", num_txs = txs.transactions.len(), tag_block_production = true, tag_prepare_txs = true).entered();
                 tracing::debug!(
                     target: "client",
