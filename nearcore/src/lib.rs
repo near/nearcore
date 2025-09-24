@@ -181,7 +181,7 @@ pub fn open_storage(home_dir: &Path, near_config: &NearConfig) -> anyhow::Result
 
     assert_eq!(
         near_config.config.archive,
-        storage.is_cold_archive()? || near_config.client_config.is_cloud_archival()
+        storage.is_local_archive()? || near_config.client_config.is_cloud_archive()
     );
     Ok(storage)
 }
@@ -445,7 +445,7 @@ pub fn start_with_config_and_synchronization(
         epoch_manager.clone(),
         shard_tracker.clone(),
         config.client_config.gc.clone(),
-        storage.is_cold_archive()?,
+        storage.is_local_archive()?,
     ));
 
     let resharding_handle = ReshardingHandle::new();

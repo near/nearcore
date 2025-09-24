@@ -976,7 +976,7 @@ fn test_archival_save_trie_changes() {
     genesis.config.total_supply = 1_000_000_000;
     let mut env = TestEnv::builder(&genesis.config)
         .nightshade_runtimes(&genesis)
-        .use_split_store(true)
+        .enable_split_store(true)
         .save_trie_changes(true)
         .build();
 
@@ -1048,7 +1048,7 @@ fn test_archival_gc_common(
     let mut env = TestEnv::builder(&genesis.config)
         .stores(vec![hot_store.clone()])
         .nightshade_runtimes(&genesis)
-        .use_split_store(true)
+        .enable_split_store(true)
         .save_trie_changes(true)
         .build();
 

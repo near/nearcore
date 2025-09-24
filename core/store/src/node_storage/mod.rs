@@ -198,8 +198,8 @@ impl NodeStorage {
         self.cold_storage.is_some()
     }
 
-    /// Reads database metadata and returns whether it is split storage or legacy archival node.
-    pub fn is_cold_archive(&self) -> io::Result<bool> {
+    /// Reads database metadata and returns `true` if it is split storage or legacy archival node.
+    pub fn is_local_archive(&self) -> io::Result<bool> {
         if self.cold_storage.is_some() {
             return Ok(true);
         }

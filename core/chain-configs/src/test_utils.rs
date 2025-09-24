@@ -253,8 +253,8 @@ pub struct TestClientConfigParams {
     pub min_block_prod_time: u64,
     pub max_block_prod_time: u64,
     pub num_block_producer_seats: NumSeats,
-    pub use_split_store: bool,
-    pub is_cloud_archival_writer: bool,
+    pub enable_split_store: bool,
+    pub enable_cloud_archival_writer: bool,
     pub save_trie_changes: bool,
     pub state_sync_enabled: bool,
 }
@@ -266,20 +266,20 @@ impl ClientConfig {
             min_block_prod_time,
             max_block_prod_time,
             num_block_producer_seats,
-            use_split_store,
-            is_cloud_archival_writer,
+            enable_split_store,
+            enable_cloud_archival_writer,
             save_trie_changes,
             state_sync_enabled,
         } = params;
 
         // TODO(cloud_archival) Revisit for cloud archival reader
-        let archive = use_split_store || is_cloud_archival_writer;
+        let archive = enable_split_store || enable_cloud_archival_writer;
         assert!(
             archive || save_trie_changes,
             "Configuration with archive = false and save_trie_changes = false is not supported \
             because non-archival nodes must save trie changes in order to do garbage collection."
         );
-        let cloud_archival_writer = if is_cloud_archival_writer {
+        let cloud_archival_writer = if enable_cloud_archival_writer {
             let (_, writer_config) = test_cloud_archival_configs("");
             Some(writer_config)
         } else {

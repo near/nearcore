@@ -87,8 +87,8 @@ fn setup_network_node(
         min_block_prod_time: 100,
         max_block_prod_time: 200,
         num_block_producer_seats: num_validators,
-        use_split_store: config.archive,
-        is_cloud_archival_writer: false,
+        enable_split_store: config.archive,
+        enable_cloud_archival_writer: false,
         save_trie_changes: true,
         state_sync_enabled: true,
     });

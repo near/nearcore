@@ -83,7 +83,8 @@ fn test_cloud_archival_basic() {
     test_cloud_archival_base(params);
 }
 
-/// Verifies that the cloud archival writer works correctly when cold storage is enabled.
+/// Verifies that the cloud archival writer does not crash and that `cloud_head` progresses if cold store is
+/// enabled.
 #[test]
 fn test_cloud_archival_with_cold_store() {
     let params = TestCloudArchivalParameters { with_cold_store: true };

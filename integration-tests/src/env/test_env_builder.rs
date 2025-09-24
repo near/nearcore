@@ -52,7 +52,7 @@ pub struct TestEnvBuilder {
     // random seed to be inject in each client according to AccountId
     // if not set, a default constant TEST_SEED will be injected
     seeds: HashMap<AccountId, RngSeed>,
-    use_split_store: bool,
+    enable_split_store: bool,
     save_trie_changes: bool,
     save_tx_outcomes: bool,
     state_snapshot_enabled: bool,
@@ -81,7 +81,7 @@ impl TestEnvBuilder {
             runtimes: None,
             network_adapters: None,
             seeds,
-            use_split_store: false,
+            enable_split_store: false,
             save_trie_changes: true,
             save_tx_outcomes: true,
             state_snapshot_enabled: false,
@@ -422,8 +422,8 @@ impl TestEnvBuilder {
         }
     }
 
-    pub fn use_split_store(mut self, use_split_store: bool) -> Self {
-        self.use_split_store = use_split_store;
+    pub fn enable_split_store(mut self, enable_split_store: bool) -> Self {
+        self.enable_split_store = enable_split_store;
         self
     }
 
@@ -566,7 +566,7 @@ impl TestEnvBuilder {
                         shard_tracker,
                         runtime,
                         rng_seed,
-                        self.use_split_store,
+                        self.enable_split_store,
                         self.save_trie_changes,
                         self.save_tx_outcomes,
                         self.protocol_version_check,
@@ -612,7 +612,7 @@ impl TestEnvBuilder {
             ),
             paused_blocks: Default::default(),
             seeds,
-            use_split_store: self.use_split_store,
+            enable_split_store: self.enable_split_store,
             save_trie_changes: self.save_trie_changes,
             save_tx_outcomes: self.save_tx_outcomes,
             protocol_version_check: self.protocol_version_check,

@@ -247,8 +247,8 @@ impl TestLoopBuilder {
     fn setup_node_state(&self, idx: usize) -> NodeSetupState {
         let account_id = self.clients[idx].clone();
         let genesis = self.genesis.as_ref().unwrap();
-        let uses_split_store = self.split_store_archival_clients.contains(&account_id);
-        let is_cloud_archival_writer = self.cloud_archival_writers.contains(&account_id);
+        let enable_split_store = self.split_store_archival_clients.contains(&account_id);
+        let enable_cloud_archival_writer = self.cloud_archival_writers.contains(&account_id);
         let config_modifier = |client_config: &mut ClientConfig| {
             if let Some(num_epochs) = self.gc_num_epochs_to_keep {
                 client_config.gc.gc_num_epochs_to_keep = num_epochs;
@@ -271,8 +271,8 @@ impl TestLoopBuilder {
         let tempdir_path = self.test_loop_data_dir.path().to_path_buf();
         NodeStateBuilder::new(genesis.clone(), tempdir_path)
             .account_id(account_id.clone())
-            .use_split_store(uses_split_store)
-            .cloud_archival_writer(is_cloud_archival_writer)
+            .split_store(enable_split_store)
+            .cloud_archival_writer(enable_cloud_archival_writer)
             .config_modifier(config_modifier)
             .build()
     }
@@ -283,8 +283,8 @@ pub struct NodeStateBuilder<'a> {
     tempdir_path: PathBuf,
 
     account_id: Option<AccountId>,
-    use_split_store: bool,
-    is_cloud_archival_writer: bool,
+    enable_split_store: bool,
+    enable_cloud_archival_writer: bool,
     config_modifier: Option<Box<dyn Fn(&mut ClientConfig) + 'a>>,
 }
 
@@ -294,8 +294,8 @@ impl<'a> NodeStateBuilder<'a> {
             genesis,
             tempdir_path,
             account_id: None,
-            use_split_store: false,
-            is_cloud_archival_writer: false,
+            enable_split_store: false,
+            enable_cloud_archival_writer: false,
             config_modifier: None,
         }
     }
@@ -305,13 +305,13 @@ impl<'a> NodeStateBuilder<'a> {
         self
     }
 
-    pub fn use_split_store(mut self, use_split_store: bool) -> Self {
-        self.use_split_store = use_split_store;
+    pub fn split_store(mut self, enable_split_store: bool) -> Self {
+        self.enable_split_store = enable_split_store;
         self
     }
 
-    pub fn cloud_archival_writer(mut self, cloud_archival_writer: bool) -> Self {
-        self.is_cloud_archival_writer = cloud_archival_writer;
+    pub fn cloud_archival_writer(mut self, enable_cloud_archival_writer: bool) -> Self {
+        self.enable_cloud_archival_writer = enable_cloud_archival_writer;
         self
     }
 
@@ -329,8 +329,8 @@ impl<'a> NodeStateBuilder<'a> {
             min_block_prod_time: MIN_BLOCK_PROD_TIME,
             max_block_prod_time: 2000,
             num_block_producer_seats: 4,
-            use_split_store: self.use_split_store,
-            is_cloud_archival_writer: self.is_cloud_archival_writer,
+            enable_split_store: self.enable_split_store,
+            enable_cloud_archival_writer: self.enable_cloud_archival_writer,
             save_trie_changes: true,
             state_sync_enabled: false,
         });
@@ -373,7 +373,7 @@ impl<'a> NodeStateBuilder<'a> {
     }
 
     fn setup_storage(&self) -> TestNodeStorage {
-        let storage = if self.use_split_store {
+        let storage = if self.enable_split_store {
             create_test_split_storage()
         } else {
             TestNodeStorage { hot_store: create_test_store(), split_store: None, cold_db: None }
