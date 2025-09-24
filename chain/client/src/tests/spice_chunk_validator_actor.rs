@@ -2,12 +2,13 @@ use assert_matches::assert_matches;
 use near_async::futures::AsyncComputationSpawner;
 use near_async::messaging::{Handler, IntoSender as _, Sender};
 use near_async::time::Clock;
-use near_chain::chain::ChunkStateWitnessMessage;
 use near_chain::spice_core::{CoreStatementsProcessor, ExecutionResultEndorsed};
 use near_chain::test_utils::{
     get_chain_with_genesis, get_fake_next_block_chunk_headers, process_block_sync,
 };
-use near_chain::types::{ApplyChunkShardContext, RuntimeStorageConfig, StorageDataSource};
+use near_chain::types::{
+    ApplyChunkResult, ApplyChunkShardContext, RuntimeStorageConfig, StorageDataSource,
+};
 use near_chain::{
     ApplyChunksSpawner, Block, BlockProcessingArtifact, Chain, ChainGenesis, Provenance,
 };
@@ -20,28 +21,26 @@ use near_o11y::testonly::init_test_logger;
 use near_primitives::apply::ApplyChunkReason;
 use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::receipt::Receipt;
-use near_primitives::sharding::{ChunkHash, ReceiptProof};
+use near_primitives::sharding::ReceiptProof;
 use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsement;
-use near_primitives::stateless_validation::state_witness::{
-    ChunkStateTransition, ChunkStateWitness,
+use near_primitives::stateless_validation::spice_state_witness::{
+    SpiceChunkStateTransition, SpiceChunkStateWitness,
 };
 use near_primitives::test_utils::{TestBlockBuilder, create_test_signer};
 use near_primitives::types::chunk_extra::ChunkExtra;
-use near_primitives::types::{AccountId, ChunkExecutionResult};
+use near_primitives::types::{ChunkExecutionResult, ChunkExecutionResultHash, ShardId};
 use near_primitives::validator_signer::ValidatorSigner;
-use near_primitives::version::PROTOCOL_VERSION;
 use near_store::adapter::StoreAdapter as _;
 use near_store::adapter::chain_store::ChainStoreAdapter;
 use near_store::get_genesis_state_roots;
 use node_runtime::SignedValidPeriodTransactions;
 use std::collections::HashMap;
-use std::str::FromStr as _;
 use std::sync::Arc;
 use tokio::sync::mpsc::error::TryRecvError;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
 
 use crate::chunk_executor_actor::ProcessedBlock;
-use crate::spice_chunk_validator_actor::SpiceChunkValidatorActor;
+use crate::spice_chunk_validator_actor::{SpiceChunkStateWitnessMessage, SpiceChunkValidatorActor};
 use crate::stateless_validation::chunk_endorsement::ChunkEndorsementTracker;
 
 const TEST_RECEIPTS: Vec<Receipt> = Vec::new();
@@ -320,8 +319,6 @@ fn setup_with_genesis(genesis: Genesis, signer: Arc<ValidatorSigner>) -> TestAct
     let (spawner, tasks_rc) = FakeSpawner::new();
 
     let validator_signer = MutableConfigValue::new(Some(signer), "validator_signer");
-    let save_latest_witnesses = false;
-    let save_invalid_witnesses = false;
     let mut actor = TestActor {
         actor: SpiceChunkValidatorActor::new(
             runtime.store().clone(),
@@ -333,8 +330,6 @@ fn setup_with_genesis(genesis: Genesis, signer: Arc<ValidatorSigner>) -> TestAct
             spice_core_processor.clone(),
             chunk_endorsement_tracker,
             ApplyChunksSpawner::Custom(Arc::new(spawner)),
-            save_latest_witnesses,
-            save_invalid_witnesses,
         ),
         tasks_rc,
         network_rc,
@@ -382,7 +377,8 @@ fn test_chunk_endorsement(
             outgoing_receipts_root,
         },
         *block.hash(),
-        &block.chunks()[0],
+        block.chunks()[0].shard_id(),
+        block.chunks()[0].height_created(),
         &create_test_signer(&validator),
     )
 }
@@ -401,7 +397,7 @@ fn test_receipt_proofs_root(actor: &TestActor, block: &Block) -> CryptoHash {
     root
 }
 
-fn test_receipt_proofs(actor: &TestActor, block: &Block) -> HashMap<ChunkHash, ReceiptProof> {
+fn test_receipt_proofs(actor: &TestActor, block: &Block) -> HashMap<ShardId, ReceiptProof> {
     let epoch_id = block.header().epoch_id();
     let chunks = block.chunks();
     assert_eq!(chunks.len(), 1);
@@ -414,7 +410,7 @@ fn test_receipt_proofs(actor: &TestActor, block: &Block) -> HashMap<ChunkHash, R
     )
     .unwrap();
     assert_eq!(proofs.len(), 1);
-    HashMap::from([(chunk_header.chunk_hash().clone(), proofs.remove(0))])
+    HashMap::from([(chunk_header.shard_id(), proofs.remove(0))])
 }
 
 fn record_execution_results(actor: &TestActor, block: &Block, state_root: CryptoHash) {
@@ -443,12 +439,12 @@ fn test_starting_state_root(actor: &TestActor) -> CryptoHash {
     get_genesis_state_roots(&actor.chain_store.store()).unwrap().unwrap()[0]
 }
 
-fn test_chunk_state_transition(
+fn simulate_chunk_application(
     actor: &TestActor,
     block: &Block,
     prev_block: &Block,
     starting_state_root: &CryptoHash,
-) -> ChunkStateTransition {
+) -> (SpiceChunkStateTransition, ChunkExecutionResultHash) {
     let chunks = block.chunks();
     assert_eq!(chunks.len(), 1);
     let chunk_header = &chunks[0];
@@ -479,44 +475,60 @@ fn test_chunk_state_transition(
             transactions,
         )
         .unwrap();
-    ChunkStateTransition {
-        block_hash: *block.hash(),
-        base_state: apply_result.proof.unwrap().nodes,
-        post_state_root: apply_result.new_root,
-    }
+
+    let (outcome_root, _) = ApplyChunkResult::compute_outcomes_proof(&apply_result.outcomes);
+    let chunk_extra = ChunkExtra::new(
+        &apply_result.new_root,
+        outcome_root,
+        apply_result.validator_proposals.clone(),
+        apply_result.total_gas_burnt,
+        chunk_header.gas_limit(),
+        apply_result.total_balance_burnt,
+        apply_result.congestion_info,
+        apply_result.bandwidth_requests.clone(),
+    );
+    let shard_layout = actor.epoch_manager.get_shard_layout(block.header().epoch_id()).unwrap();
+    let (outgoing_receipts_root, _) = Chain::create_receipts_proofs_from_outgoing_receipts(
+        &shard_layout,
+        chunk_header.shard_id(),
+        apply_result.outgoing_receipts,
+    )
+    .unwrap();
+    let execution_result = ChunkExecutionResult { chunk_extra, outgoing_receipts_root };
+
+    (
+        SpiceChunkStateTransition {
+            base_state: apply_result.proof.unwrap().nodes,
+            post_state_root: apply_result.new_root,
+        },
+        execution_result.compute_hash(),
+    )
 }
 
 fn test_witness_message(
     block: &Block,
-    state_transition: ChunkStateTransition,
-    receipt_proofs: HashMap<ChunkHash, ReceiptProof>,
+    state_transition: SpiceChunkStateTransition,
+    chunk_execution_result_hash: ChunkExecutionResultHash,
+    receipt_proofs: HashMap<ShardId, ReceiptProof>,
     receipts_hash: CryptoHash,
-) -> ChunkStateWitnessMessage {
-    let epoch_id = block.header().epoch_id();
+) -> SpiceChunkStateWitnessMessage {
     let chunks = block.chunks();
     assert_eq!(chunks.len(), 1);
     let chunk_header = &chunks[0];
     let transactions = vec![];
-    let implicit_transitions = vec![];
-    let new_transactions = vec![];
-    let witness = ChunkStateWitness::new(
-        AccountId::from_str("unused").unwrap(),
-        *epoch_id,
-        chunk_header.clone(),
+    let witness = SpiceChunkStateWitness::new(
+        near_primitives::types::SpiceChunkId {
+            block_hash: *block.hash(),
+            shard_id: chunk_header.shard_id(),
+        },
         state_transition,
         receipt_proofs,
         receipts_hash,
         transactions,
-        implicit_transitions,
-        new_transactions,
-        PROTOCOL_VERSION,
+        chunk_execution_result_hash,
     );
     let witness_size = borsh::object_length(&witness).unwrap();
-    ChunkStateWitnessMessage {
-        witness,
-        raw_witness_size: witness_size,
-        processing_done_tracker: None,
-    }
+    SpiceChunkStateWitnessMessage { witness, raw_witness_size: witness_size }
 }
 
 fn valid_witness_message(
@@ -524,12 +536,18 @@ fn valid_witness_message(
     block: &Block,
     prev_block: &Block,
     starting_state_root: &CryptoHash,
-) -> ChunkStateWitnessMessage {
-    let state_transition =
-        test_chunk_state_transition(&actor, &block, &prev_block, &starting_state_root);
+) -> SpiceChunkStateWitnessMessage {
+    let (state_transition, execution_result_hash) =
+        simulate_chunk_application(&actor, &block, &prev_block, &starting_state_root);
     let receipt_proofs = test_receipt_proofs(&actor, &prev_block);
     let receipts_hash = hash(&borsh::to_vec(&TEST_RECEIPTS).unwrap());
-    test_witness_message(&block, state_transition, receipt_proofs, receipts_hash)
+    test_witness_message(
+        &block,
+        state_transition,
+        execution_result_hash,
+        receipt_proofs,
+        receipts_hash,
+    )
 }
 
 fn invalid_witness_message(
@@ -537,14 +555,20 @@ fn invalid_witness_message(
     block: &Block,
     prev_block: &Block,
     starting_state_root: &CryptoHash,
-) -> ChunkStateWitnessMessage {
-    let state_transition = {
-        let mut transition =
-            test_chunk_state_transition(&actor, &block, &prev_block, &starting_state_root);
+) -> SpiceChunkStateWitnessMessage {
+    let (state_transition, execution_result_hash) = {
+        let (mut transition, execution_result_hash) =
+            simulate_chunk_application(&actor, &block, &prev_block, &starting_state_root);
         transition.post_state_root = CryptoHash::default();
-        transition
+        (transition, execution_result_hash)
     };
     let receipt_proofs = test_receipt_proofs(&actor, &prev_block);
     let receipts_hash = hash(&borsh::to_vec(&TEST_RECEIPTS).unwrap());
-    test_witness_message(&block, state_transition, receipt_proofs, receipts_hash)
+    test_witness_message(
+        &block,
+        state_transition,
+        execution_result_hash,
+        receipt_proofs,
+        receipts_hash,
+    )
 }

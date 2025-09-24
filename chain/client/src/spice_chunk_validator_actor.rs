@@ -4,12 +4,10 @@ use std::sync::Arc;
 use near_async::futures::{AsyncComputationSpawner, AsyncComputationSpawnerExt as _};
 use near_async::messaging::{Handler, IntoSender as _, Sender};
 use near_async::{MultiSend, MultiSenderFrom};
-use near_chain::chain::ChunkStateWitnessMessage;
 use near_chain::spice_core::{CoreStatementsProcessor, ExecutionResultEndorsed};
-use near_chain::stateless_validation::chunk_validation::{
-    MainStateTransitionCache, validate_chunk_state_witness,
+use near_chain::stateless_validation::spice_chunk_validation::{
+    spice_pre_validate_chunk_state_witness, spice_validate_chunk_state_witness,
 };
-use near_chain::stateless_validation::spice_chunk_validation::spice_pre_validate_chunk_state_witness;
 use near_chain::types::RuntimeAdapter;
 use near_chain::{ApplyChunksSpawner, Block, ChainGenesis, ChainStore, Error};
 use near_chain_configs::MutableValidatorSigner;
@@ -18,16 +16,14 @@ use near_network::types::{NetworkRequests, PeerManagerAdapter, PeerManagerMessag
 use near_o11y::span_wrapped_msg::SpanWrapped;
 use near_performance_metrics_macros::perf;
 use near_primitives::hash::CryptoHash;
+use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsement;
-use near_primitives::stateless_validation::state_witness::{
-    ChunkStateWitness, ChunkStateWitnessSize,
-};
+use near_primitives::stateless_validation::spice_state_witness::SpiceChunkStateWitness;
+use near_primitives::stateless_validation::state_witness::ChunkStateWitnessSize;
 use near_primitives::types::BlockExecutionResults;
 use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_store::Store;
-use near_store::adapter::StoreAdapter as _;
-use reed_solomon_erasure::galois_8::ReedSolomon;
 
 use crate::chunk_executor_actor::ProcessedBlock;
 use crate::stateless_validation::chunk_endorsement::ChunkEndorsementTracker;
@@ -37,19 +33,21 @@ pub struct SpiceChunkValidatorActor {
     runtime_adapter: Arc<dyn RuntimeAdapter>,
     epoch_manager: Arc<dyn EpochManagerAdapter>,
     network_adapter: PeerManagerAdapter,
-    save_latest_witnesses: bool,
-    save_invalid_witnesses: bool,
 
     validator_signer: MutableValidatorSigner,
     core_processor: CoreStatementsProcessor,
     chunk_endorsement_tracker: Arc<ChunkEndorsementTracker>,
 
     /// Map holding witnesses we cannot process yet keyed by the block hash witness is for.
-    pending_witnesses: HashMap<CryptoHash, Vec<ChunkStateWitness>>,
-    main_state_transition_result_cache: MainStateTransitionCache,
+    pending_witnesses: HashMap<CryptoHash, Vec<SpiceChunkStateWitness>>,
     validation_spawner: Arc<dyn AsyncComputationSpawner>,
+}
 
-    rs: Arc<ReedSolomon>,
+#[derive(actix::Message, Debug)]
+#[rtype(result = "()")]
+pub struct SpiceChunkStateWitnessMessage {
+    pub witness: SpiceChunkStateWitness,
+    pub raw_witness_size: ChunkStateWitnessSize,
 }
 
 impl near_async::messaging::Actor for SpiceChunkValidatorActor {}
@@ -65,20 +63,13 @@ impl SpiceChunkValidatorActor {
         core_processor: CoreStatementsProcessor,
         chunk_endorsement_tracker: Arc<ChunkEndorsementTracker>,
         validation_spawner: ApplyChunksSpawner,
-        save_latest_witnesses: bool,
-        save_invalid_witnesses: bool,
     ) -> Self {
         // TODO(spice): Assess if this limit still makes sense for spice.
         // See ChunkValidator::new in c/c/s/s/chunk_validator/mod.rs for rationale used currently.
         let validation_thread_limit =
             runtime_adapter.get_shard_layout(PROTOCOL_VERSION).num_shards() as usize;
-        let data_parts = epoch_manager.num_data_parts();
-        let parity_parts = epoch_manager.num_total_parts() - data_parts;
-        let rs = Arc::new(ReedSolomon::new(data_parts, parity_parts).unwrap());
         Self {
             pending_witnesses: HashMap::new(),
-            save_latest_witnesses,
-            save_invalid_witnesses,
             chain_store: ChainStore::new(store, true, genesis.transaction_validity_period),
             runtime_adapter,
             epoch_manager,
@@ -87,8 +78,6 @@ impl SpiceChunkValidatorActor {
             core_processor,
             chunk_endorsement_tracker,
             validation_spawner: validation_spawner.into_spawner(validation_thread_limit),
-            main_state_transition_result_cache: MainStateTransitionCache::default(),
-            rs,
         }
     }
 }
@@ -134,14 +123,14 @@ impl Handler<ExecutionResultEndorsed> for SpiceChunkValidatorActor {
 
 #[derive(Clone, MultiSend, MultiSenderFrom)]
 pub struct SpiceChunkValidatorWitnessSender {
-    pub chunk_state_witness: Sender<SpanWrapped<ChunkStateWitnessMessage>>,
+    pub chunk_state_witness: Sender<SpanWrapped<SpiceChunkStateWitnessMessage>>,
 }
 
-impl Handler<SpanWrapped<ChunkStateWitnessMessage>> for SpiceChunkValidatorActor {
+impl Handler<SpanWrapped<SpiceChunkStateWitnessMessage>> for SpiceChunkValidatorActor {
     #[perf]
-    fn handle(&mut self, msg: SpanWrapped<ChunkStateWitnessMessage>) {
+    fn handle(&mut self, msg: SpanWrapped<SpiceChunkStateWitnessMessage>) {
         let msg = msg.span_unwrap();
-        let ChunkStateWitnessMessage { witness, raw_witness_size, .. } = msg;
+        let SpiceChunkStateWitnessMessage { witness, raw_witness_size, .. } = msg;
         let Some(signer) = self.validator_signer.get() else {
             tracing::error!(target: "spice_chunk_validator", ?witness, "Received a chunk state witness but this is not a validator node.");
             return;
@@ -155,20 +144,17 @@ impl Handler<SpanWrapped<ChunkStateWitnessMessage>> for SpiceChunkValidatorActor
 impl SpiceChunkValidatorActor {
     fn process_chunk_state_witness(
         &mut self,
-        witness: ChunkStateWitness,
+        witness: SpiceChunkStateWitness,
         raw_witness_size: ChunkStateWitnessSize,
         signer: Arc<ValidatorSigner>,
     ) -> Result<(), Error> {
         tracing::debug!(
             target: "spice_chunk_validator",
-            chunk_hash=?witness.chunk_header().chunk_hash(),
-            shard_id=?witness.chunk_header().shard_id(),
+            chunk_id=?witness.chunk_id(),
             "process_chunk_state_witness",
         );
 
-        if self.save_latest_witnesses {
-            self.chain_store.save_latest_chunk_state_witness(&witness)?;
-        }
+        // TODO(spice): Implementing saving latest witness based on configuration.
 
         match self.witness_processing_readiness(&witness)? {
             WitnessProcessingReadiness::NotReady => {
@@ -186,17 +172,16 @@ impl SpiceChunkValidatorActor {
 
     fn witness_processing_readiness(
         &self,
-        witness: &ChunkStateWitness,
+        witness: &SpiceChunkStateWitness,
     ) -> Result<WitnessProcessingReadiness, Error> {
-        let block_hash = witness.main_state_transition().block_hash;
-        let chunk_hash = witness.chunk_header().chunk_hash();
+        let chunk_id = witness.chunk_id();
+        let block_hash = chunk_id.block_hash;
         let block = match self.chain_store.get_block(&block_hash) {
             Ok(block) => block,
             Err(Error::DBNotFoundErr(err)) => {
                 tracing::debug!(
                     target: "spice_chunk_validator",
-                    ?chunk_hash,
-                    ?block_hash,
+                    ?chunk_id,
                     ?err,
                     "witness for block isn't ready for processing; block is missing");
                 return Ok(WitnessProcessingReadiness::NotReady);
@@ -210,8 +195,7 @@ impl SpiceChunkValidatorActor {
         else {
             tracing::debug!(
                 target: "spice_chunk_validator",
-                ?chunk_hash,
-                ?block_hash,
+                ?chunk_id,
                 prev_block_hash=?prev_block.header().hash(),
                 "witness for block isn't ready for processing; missing previous execution results required for chunk validation");
             return Ok(WitnessProcessingReadiness::NotReady);
@@ -249,7 +233,7 @@ impl SpiceChunkValidatorActor {
             tracing::debug!(
                 target: "spice_chunk_validator",
                 ?prev_hash,
-                witness_chunk=?witness.chunk_header().chunk_hash(),
+                chunk_id=?witness.chunk_id(),
                 "processing ready pending state witnesses");
             self.validate_state_witness_and_send_endorsements(
                 &witness_validation_context,
@@ -260,19 +244,24 @@ impl SpiceChunkValidatorActor {
         Ok(())
     }
 
-    fn handle_not_ready_state_witness(&mut self, witness: ChunkStateWitness, _witness_size: usize) {
+    fn handle_not_ready_state_witness(
+        &mut self,
+        witness: SpiceChunkStateWitness,
+        _witness_size: usize,
+    ) {
         // TODO(spice): Implement additional checks before adding witness to pending witnesses, see Client's orphan_witness_handling.rs.
-        let block_hash = witness.main_state_transition().block_hash;
+        let block_hash = witness.chunk_id().block_hash;
         self.pending_witnesses.entry(block_hash).or_default().push(witness);
     }
 
     fn validate_state_witness_and_send_endorsements(
         &self,
         WitnessValidationContext { block, prev_block, prev_block_execution_results }: &WitnessValidationContext,
-        witness: ChunkStateWitness,
+        witness: SpiceChunkStateWitness,
         signer: Arc<ValidatorSigner>,
     ) -> Result<(), Error> {
-        let block_hash = witness.main_state_transition().block_hash;
+        let chunk_id = witness.chunk_id().clone();
+        let block_hash = chunk_id.block_hash;
         assert_eq!(&block_hash, block.header().hash());
 
         let pre_validation_result = spice_pre_validate_chunk_state_witness(
@@ -284,42 +273,36 @@ impl SpiceChunkValidatorActor {
             &self.chain_store,
         )?;
 
-        let chunk_production_key = witness.chunk_production_key();
-        let chunk_producer_name =
-            self.epoch_manager.get_chunk_producer_info(&chunk_production_key)?.take_account_id();
+        // TODO(spice): Adjust logic to work when chunk may be missing.
+        let chunk_height_created = block
+            .chunks()
+            .iter_raw()
+            .find(|chunk| chunk.shard_id() == chunk_id.shard_id)
+            .map(ShardChunkHeader::height_created)
+            .unwrap();
 
-        let save_witness_if_invalid = self.save_invalid_witnesses;
         let epoch_id = self.epoch_manager.get_epoch_id(&block_hash)?;
         let epoch_manager = self.epoch_manager.clone();
         let runtime_adapter = self.runtime_adapter.clone();
-        let main_state_transition_cache = self.main_state_transition_result_cache.clone();
-        let store = self.chain_store.store();
         let network_sender = self.network_adapter.clone().into_sender();
         let chunk_endorsement_tracker = self.chunk_endorsement_tracker.clone();
-        let rs = self.rs.clone();
         self.validation_spawner.spawn("spice_stateless_validation", move || {
-            let chunk_header = witness.chunk_header().clone();
-            let shard_id = witness.chunk_header().shard_id();
-            let chunk_execution_result = match validate_chunk_state_witness(
+            // TODO(spice): Implement saving of invalid witnesses.
+            let chunk_execution_result = match spice_validate_chunk_state_witness(
                 witness,
                 pre_validation_result,
                 epoch_manager.as_ref(),
                 runtime_adapter.as_ref(),
-                &main_state_transition_cache,
-                store,
-                save_witness_if_invalid,
-                rs,
             ) {
                 Ok(execution_result) => execution_result,
                 Err(err) => {
                     near_chain::stateless_validation::metrics::CHUNK_WITNESS_VALIDATION_FAILED_TOTAL
-                        .with_label_values(&[&shard_id.to_string(), err.prometheus_label_value()])
+                        .with_label_values(&[&chunk_id.shard_id.to_string(), err.prometheus_label_value()])
                         .inc();
                     tracing::error!(
                         target: "spice_chunk_validator",
                         ?err,
-                        ?chunk_producer_name,
-                        ?chunk_production_key,
+                        ?chunk_id,
                         "Failed to validate chunk"
                     );
                     return;
@@ -330,7 +313,8 @@ impl SpiceChunkValidatorActor {
                 epoch_id,
                 chunk_execution_result,
                 block_hash,
-                &chunk_header,
+                chunk_id.shard_id,
+                chunk_height_created,
                 &signer,
             );
             send_spice_chunk_endorsement(

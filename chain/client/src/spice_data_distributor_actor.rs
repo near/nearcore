@@ -12,7 +12,6 @@ use near_async::messaging::CanSend;
 use near_async::messaging::Handler;
 use near_async::messaging::Sender;
 use near_chain::Block;
-use near_chain::chain::ChunkStateWitnessMessage;
 use near_chain::spice_core::CoreStatementsProcessor;
 use near_chain_configs::MutableValidatorSigner;
 use near_epoch_manager::EpochManagerAdapter;
@@ -34,7 +33,7 @@ use near_primitives::reed_solomon::ReedSolomonPartsTracker;
 use near_primitives::reed_solomon::{ReedSolomonEncoderCache, ReedSolomonEncoderSerialize};
 use near_primitives::sharding::ReceiptProof;
 use near_primitives::sharding::ShardChunkHeader;
-use near_primitives::stateless_validation::state_witness::ChunkStateWitness;
+use near_primitives::stateless_validation::spice_state_witness::SpiceChunkStateWitness;
 use near_primitives::types::AccountId;
 use near_primitives::types::EpochId;
 use near_store::adapter::StoreAdapter;
@@ -43,6 +42,7 @@ use near_store::adapter::chain_store::ChainStoreAdapter;
 use crate::chunk_executor_actor::ExecutorIncomingUnverifiedReceipts;
 use crate::chunk_executor_actor::ProcessedBlock;
 use crate::chunk_executor_actor::receipt_proof_exists;
+use crate::spice_chunk_validator_actor::SpiceChunkStateWitnessMessage;
 
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum Error {
@@ -102,7 +102,7 @@ pub struct SpiceDataDistributorActor {
 
     network_adapter: PeerManagerAdapter,
     executor_sender: Sender<ExecutorIncomingUnverifiedReceipts>,
-    witness_validator_sender: Sender<SpanWrapped<ChunkStateWitnessMessage>>,
+    witness_validator_sender: Sender<SpanWrapped<SpiceChunkStateWitnessMessage>>,
 
     // TODO(spice): handle the possibility of receiving parts for dubious data.
     data_parts: HashMap<(SpiceDataIdentifier, SpiceDataCommitment), DataPartsEntry>,
@@ -128,7 +128,7 @@ struct DataPartsEntry {
 #[derive(Debug, BorshSerialize, BorshDeserialize)]
 enum SpiceData {
     ReceiptProof(ReceiptProof),
-    StateWitness(Box<ChunkStateWitness>),
+    StateWitness(Box<SpiceChunkStateWitness>),
 }
 
 impl ReedSolomonEncoderSerialize for SpiceData {}
@@ -145,7 +145,7 @@ pub struct SpiceDistributorOutgoingReceipts {
 #[derive(actix::Message, Debug)]
 #[rtype(result = "()")]
 pub struct SpiceDistributorStateWitness {
-    pub state_witness: ChunkStateWitness,
+    pub state_witness: SpiceChunkStateWitness,
 }
 
 impl Handler<SpiceDistributorOutgoingReceipts> for SpiceDataDistributorActor {
@@ -175,10 +175,10 @@ impl Handler<SpiceDistributorStateWitness> for SpiceDataDistributorActor {
         &mut self,
         SpiceDistributorStateWitness { state_witness }: SpiceDistributorStateWitness,
     ) {
-        let key = state_witness.chunk_production_key();
+        let chunk_id = state_witness.chunk_id();
         let data_id = SpiceDataIdentifier::Witness {
-            block_hash: state_witness.main_state_transition().block_hash,
-            shard_id: key.shard_id,
+            block_hash: chunk_id.block_hash,
+            shard_id: chunk_id.shard_id,
         };
         // TODO(spice): compress witness before distributing.
         if let Err(err) =
@@ -217,7 +217,7 @@ impl SpiceDataDistributorActor {
         validator_signer: MutableValidatorSigner,
         network_adapter: PeerManagerAdapter,
         executor_sender: Sender<ExecutorIncomingUnverifiedReceipts>,
-        witness_validator_sender: Sender<SpanWrapped<ChunkStateWitnessMessage>>,
+        witness_validator_sender: Sender<SpanWrapped<SpiceChunkStateWitnessMessage>>,
     ) -> Self {
         const DATA_PARTS_RATIO: f64 = 0.6;
         const PENDING_PARTIAL_DATA_CAP: NonZeroUsize = NonZeroUsize::new(10).unwrap();
@@ -465,19 +465,18 @@ impl SpiceDataDistributorActor {
                             let SpiceDataIdentifier::Witness { block_hash, shard_id } = &id else {
                                 return Err(Error::IdAndDataMismatch);
                             };
-                            let key = witness.chunk_production_key();
-                            if &key.shard_id != shard_id {
+                            let chunk_id = witness.chunk_id();
+                            if &chunk_id.shard_id != shard_id {
                                 return Err(Error::InvalidDecodedWitnessShardId);
                             }
-                            if &witness.main_state_transition().block_hash != block_hash {
+                            if &chunk_id.block_hash != block_hash {
                                 return Err(Error::InvalidDecodedWitnessBlockHash);
                             }
 
                             self.witness_validator_sender.send(
-                                ChunkStateWitnessMessage {
+                                SpiceChunkStateWitnessMessage {
                                     witness: *witness,
                                     raw_witness_size: encoded_length as usize,
-                                    processing_done_tracker: None,
                                 }
                                 .span_wrap(),
                             );
