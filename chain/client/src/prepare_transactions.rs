@@ -15,6 +15,7 @@ use near_store::adapter::StoreAdapter;
 use near_store::{ShardUId, TrieUpdate};
 use parking_lot::Mutex;
 
+/// Inputs required to create a `PrepareTransactionsJob`.
 pub struct PrepareTransactionsJobInputs {
     pub runtime_adapter: Arc<dyn RuntimeAdapter>,
     pub state: TrieUpdate,
@@ -61,6 +62,7 @@ enum PrepareTransactionsJobState {
     Finished(Option<Result<PreparedTransactions, Error>>),
 }
 
+/// A job that prepares transactions for inclusion in a chunk.
 pub struct PrepareTransactionsJob {
     state: Mutex<PrepareTransactionsJobState>,
     cancel: Arc<AtomicBool>,
@@ -159,6 +161,9 @@ pub struct PrepareTransactionsJobKey {
     pub prev_block_context: PrepareTransactionsBlockContext,
 }
 
+/// Manages multiple `PrepareTransactionsJob`s, ensuring that only one job per (height, shard_id)
+/// is active at a time. If a new job is pushed for the same (height, shard_id), the existing job is
+/// cancelled and replaced.
 pub struct PrepareTransactionsManager {
     jobs: lru::LruCache<
         (BlockHeight, ShardId), // Only one job per (height, shard_id) is allowed
