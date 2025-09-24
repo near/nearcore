@@ -691,6 +691,7 @@ pub fn start_with_config_and_synchronization(
 
     let network_actor = PeerManagerActor::spawn(
         time::Clock::real(),
+        actor_system.clone(),
         storage.into_inner(near_store::Temperature::Hot),
         config.network_config,
         client_sender_for_network(

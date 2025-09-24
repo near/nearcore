@@ -16,7 +16,6 @@ path = "src/main.rs"
 name = "neard"
 
 [dependencies]
-actix.workspace = true
 anyhow.workspace = true
 clap.workspace = true
 openssl-probe.workspace = true
