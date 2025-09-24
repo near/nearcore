@@ -15,7 +15,7 @@ nodes = start_cluster(
     config=None,
     extra_state_dumper=True,
     genesis_config_changes=[
-        ["min_gas_price", 0],
+        ["min_gas_price", "0"],
         ["max_inflation_rate", [0, 1]],
         ["epoch_length", 10],
         ["block_producer_kickout_threshold", 70],

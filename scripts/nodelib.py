@@ -159,7 +159,7 @@ def check_and_setup(nodocker,
         with open(filename) as fd:
             genesis_config = json.load(fd)
         genesis_config["gas_price"] = 0
-        genesis_config["min_gas_price"] = 0
+        genesis_config["min_gas_price"] = "0"
         json.dump(genesis_config, open(filename, "w"))
 
 
