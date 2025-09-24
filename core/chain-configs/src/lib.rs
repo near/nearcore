@@ -12,10 +12,8 @@ mod updatable_config;
 pub use client_config::{
     ChunkDistributionNetworkConfig, ChunkDistributionUris, ClientConfig, CloudArchivalHandle,
     CloudArchivalReaderConfig, CloudArchivalWriterConfig, CloudStorageConfig,
-    DEFAULT_GC_NUM_EPOCHS_TO_KEEP, DEFAULT_STATE_PARTS_COMPRESSION_LEVEL,
-    DEFAULT_STATE_SYNC_NUM_CONCURRENT_REQUESTS_EXTERNAL,
-    DEFAULT_STATE_SYNC_NUM_CONCURRENT_REQUESTS_ON_CATCHUP_EXTERNAL, DumpConfig, EpochSyncConfig,
-    ExternalStorageConfig, ExternalStorageLocation, GCConfig, LogSummaryStyle,
+    DEFAULT_GC_NUM_EPOCHS_TO_KEEP, DEFAULT_STATE_PARTS_COMPRESSION_LEVEL, DumpConfig,
+    EpochSyncConfig, ExternalStorageConfig, ExternalStorageLocation, GCConfig, LogSummaryStyle,
     MIN_GC_NUM_EPOCHS_TO_KEEP, ProtocolVersionCheckConfig, ReshardingConfig, ReshardingHandle,
     StateSyncConfig, SyncConcurrency, SyncConfig, TrackedShardsConfig,
     default_chunk_validation_threads, default_chunk_wait_mult, default_enable_multiline_logging,

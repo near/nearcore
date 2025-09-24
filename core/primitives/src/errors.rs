@@ -3,7 +3,7 @@ use crate::hash::CryptoHash;
 use crate::serialize::dec_format;
 use crate::shard_layout::ShardLayoutError;
 use crate::sharding::ChunkHash;
-use crate::types::{AccountId, Balance, EpochId, Nonce};
+use crate::types::{AccountId, Balance, EpochId, Nonce, SpiceChunkId};
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::PublicKey;
 pub use near_primitives_core::errors::IntegerOverflowError;
@@ -11,6 +11,7 @@ use near_primitives_core::types::Gas;
 use near_primitives_core::types::{BlockHeight, ProtocolVersion, ShardId};
 use near_schema_checker_lib::ProtocolSchema;
 use std::fmt::{Debug, Display};
+use std::io;
 
 /// Error returned in the ExecutionOutcome in case of failure
 #[derive(
@@ -1349,14 +1350,12 @@ impl std::error::Error for ChunkAccessError {}
 pub enum InvalidSpiceCoreStatementsError {
     /// Information about uncertified chunks for previous block is missing.
     NoPrevUncertifiedChunks,
-    /// Could not find validator for account_id from endorsement.
-    NoValidatorForAccountId { index: usize, error: EpochError },
     /// Could not find shard_ids for endorsement epoch.
     NoShardIdsForEpochId { index: usize, error: EpochError },
     /// Spice core statement is invalid.
     InvalidCoreStatement { index: usize, reason: &'static str },
     /// Spice core statements skipped over execution result for chunk.
-    SkippedExecutionResult { shard_id: ShardId, epoch_id: EpochId, height_created: BlockHeight },
+    SkippedExecutionResult { chunk_id: SpiceChunkId },
     /// Could not find validator assignment for chunk.
     NoValidatorAssignments {
         shard_id: ShardId,
@@ -1365,11 +1364,11 @@ pub enum InvalidSpiceCoreStatementsError {
         error: EpochError,
     },
     /// Execution results for endorsed chunk are missing from block.
-    NoExecutionResultForEndorsedChunk {
-        shard_id: ShardId,
-        epoch_id: EpochId,
-        height_created: BlockHeight,
-    },
+    NoExecutionResultForEndorsedChunk { chunk_id: SpiceChunkId },
+    /// Could not find block corresponding to endorsement.
+    UnknownBlock { block_hash: CryptoHash },
+    /// Encountered io error
+    IoError { error: io::Error },
 }
 
 impl std::fmt::Display for InvalidSpiceCoreStatementsError {

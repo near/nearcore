@@ -11,7 +11,7 @@ use near_chain::resharding::types::ReshardingSender;
 use near_chain::spice_core::CoreStatementsProcessor;
 use near_chain::state_snapshot_actor::SnapshotCallbacks;
 use near_chain::types::{ChainConfig, RuntimeAdapter};
-use near_chain::{Chain, ChainGenesis, DoomslugThresholdMode};
+use near_chain::{ApplyChunksIterationMode, Chain, ChainGenesis, DoomslugThresholdMode};
 
 use near_async::ActorSystem;
 use near_async::multithread::MultithreadRuntimeHandle;
@@ -27,7 +27,7 @@ use near_chunks::client::ShardsManagerResponse;
 use near_chunks::shards_manager_actor::{ShardsManagerActor, start_shards_manager};
 use near_chunks::test_utils::SynchronousShardsManagerAdapter;
 use near_client::adversarial::Controls;
-use near_client::client_actor::ClientActorInner;
+use near_client::client_actor::{ClientActorInner, SpiceClientConfig};
 use near_client::spawn_rpc_handler_actor;
 use near_client::{
     AsyncComputationMultiSpawner, ChunkValidationActorInner, ChunkValidationSender,
@@ -225,6 +225,15 @@ fn setup(
         enable_doomslug,
         Some(TEST_SEED),
         resharding_sender.into_multi_sender(),
+        SpiceClientConfig {
+            core_processor: CoreStatementsProcessor::new_with_noop_senders(
+                runtime.store().chain_store(),
+                epoch_manager.clone(),
+            ),
+            chunk_executor_sender: noop().into_sender(),
+            spice_chunk_validator_sender: noop().into_sender(),
+            spice_data_distributor_sender: noop().into_sender(),
+        },
     );
 
     let rpc_handler_config = RpcHandlerConfig {
@@ -468,7 +477,8 @@ pub fn setup_client_with_runtime(
     config.epoch_length = chain_genesis.epoch_length;
     let protocol_upgrade_schedule = get_protocol_upgrade_schedule(&chain_genesis.chain_id);
     let multi_spawner = AsyncComputationMultiSpawner::default()
-        .custom_apply_chunks(Arc::new(RayonAsyncComputationSpawner)); // Use rayon instead of the default thread pool 
+        .custom_apply_chunks(Arc::new(RayonAsyncComputationSpawner)); // Use rayon instead of the default thread pool
+    let apply_chunks_iteration_mode = ApplyChunksIterationMode::default();
 
     // TestEnv bypasses chunk validation actors and handles chunk validation
     // directly through propagate_chunk_state_witnesses method
@@ -494,6 +504,7 @@ pub fn setup_client_with_runtime(
         rng_seed,
         snapshot_callbacks,
         multi_spawner,
+        apply_chunks_iteration_mode,
         partial_witness_adapter,
         resharding_sender,
         actor_system.new_future_spawner().into(),
@@ -561,6 +572,7 @@ pub fn setup_synchronous_shards_manager(
             protocol_version_check: Default::default(),
         }, // irrelevant
         None,
+        Default::default(),
         Default::default(),
         MutableConfigValue::new(None, "validator_signer"),
         noop().into_multi_sender(),

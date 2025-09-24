@@ -238,6 +238,9 @@ pub struct SpiceChunkEndorsementV3 {
     // Signature of the signed inner derivable from inner.
     signature: Signature,
     // This consists of the metadata for chunk endorsement used in validation
+    // TODO(spice): In metadata include only SpiceChunkId and AccountId. With spice endorsement are
+    // always for older existing blocks so we can derive all other information required for
+    // processing of endorsements from SpiceChunkId.
     metadata: ChunkEndorsementMetadata,
     // Metadata signature is used to validate that the metadata is produced by the expected validator
     metadata_signature: Signature,
@@ -255,6 +258,7 @@ impl SpiceChunkEndorsementV3 {
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
 struct SpiceChunkEndorsementInnerV2 {
     // Hash of the block that contains the chunk with specified execution results.
+    // TODO(spice): Move block hash to ChunkEndorsementMetadata
     block_hash: CryptoHash,
     execution_result: ChunkExecutionResult,
 }
