@@ -42,7 +42,6 @@ near-test-contracts.workspace = true
 [features]
 test_features = ["near-jsonrpc/test_features", "nearcore/test_features"]
 nightly = [
-    "near-async/nightly",
     "near-chain-configs/nightly",
     "near-client/nightly",
     "near-jsonrpc-primitives/nightly",

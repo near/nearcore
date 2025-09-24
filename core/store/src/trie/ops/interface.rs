@@ -259,7 +259,16 @@ pub trait GenericTrieInternalStorage<GenericTrieNodePtr, GenericValueHandle> {
         &self,
         ptr: GenericTrieNodePtr,
         opts: AccessOptions,
-    ) -> Result<GenericTrieNode<GenericTrieNodePtr, GenericValueHandle>, StorageError>;
+    ) -> Result<GenericTrieNode<GenericTrieNodePtr, GenericValueHandle>, StorageError> {
+        let node_with_size = self.get_node_with_size(ptr, opts)?;
+        Ok(node_with_size.node)
+    }
+
+    fn get_node_with_size(
+        &self,
+        ptr: GenericTrieNodePtr,
+        opts: AccessOptions,
+    ) -> Result<GenericTrieNodeWithSize<GenericTrieNodePtr, GenericValueHandle>, StorageError>;
 
     // Get a value from the storage, and record it if specified in `opts`.
     fn get_value(

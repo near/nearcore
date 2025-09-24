@@ -43,7 +43,8 @@ use near_primitives::errors::{
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{
     ActionReceipt, DataReceipt, PromiseYieldIndices, PromiseYieldTimeout, Receipt, ReceiptEnum,
-    ReceiptOrStateStoredReceipt, ReceiptV0, ReceivedData,
+    ReceiptOrStateStoredReceipt, ReceiptV0, ReceivedData, VersionedActionReceipt,
+    VersionedReceiptEnum,
 };
 use near_primitives::sandbox::state_patch::SandboxStatePatch;
 use near_primitives::state_record::StateRecord;
@@ -311,7 +312,7 @@ impl Runtime {
         account: &mut Option<Account>,
         actor_id: &mut AccountId,
         receipt: &Receipt,
-        action_receipt: &ActionReceipt,
+        action_receipt: &VersionedActionReceipt,
         promise_results: Arc<[PromiseResult]>,
         action_hash: &CryptoHash,
         action_index: usize,
@@ -509,16 +510,15 @@ impl Runtime {
             "apply_action_receipt",
         )
         .entered();
-        let action_receipt = match receipt.receipt() {
-            ReceiptEnum::Action(action_receipt) | ReceiptEnum::PromiseYield(action_receipt) => {
-                action_receipt
-            }
+        let action_receipt: VersionedActionReceipt = match receipt.versioned_receipt() {
+            VersionedReceiptEnum::Action(action_receipt)
+            | VersionedReceiptEnum::PromiseYield(action_receipt) => action_receipt,
             _ => unreachable!("given receipt should be an action receipt"),
         };
         let account_id = receipt.receiver_id();
         // Collecting input data and removing it from the state
         let promise_results = action_receipt
-            .input_data_ids
+            .input_data_ids()
             .iter()
             .map(|data_id| {
                 let ReceivedData { data } = get_received_data(state_update, account_id, *data_id)?
@@ -554,7 +554,7 @@ impl Runtime {
         result.compute_usage = exec_fees.as_gas();
 
         // Executing actions one by one
-        for (action_index, action) in action_receipt.actions.iter().enumerate() {
+        for (action_index, action) in action_receipt.actions().iter().enumerate() {
             let action_hash = create_action_hash_from_receipt_id(
                 receipt.receipt_id(),
                 apply_state.block_height,
@@ -568,11 +568,11 @@ impl Runtime {
                 &mut account,
                 &mut actor_id,
                 receipt,
-                action_receipt,
+                &action_receipt,
                 Arc::clone(&promise_results),
                 &action_hash,
                 action_index,
-                &action_receipt.actions,
+                &action_receipt.actions(),
                 epoch_info_provider,
                 stats,
             )?;
@@ -629,7 +629,7 @@ impl Runtime {
             if result.result.is_err() {
                 stats.balance.other_burnt_amount = safe_add_balance(
                     stats.balance.other_burnt_amount,
-                    total_deposit(&action_receipt.actions)?,
+                    total_deposit(&action_receipt.actions())?,
                 )?
             }
             GasRefundResult::default()
@@ -638,7 +638,7 @@ impl Runtime {
             self.generate_refund_receipts(
                 apply_state.gas_price,
                 receipt,
-                action_receipt,
+                &action_receipt,
                 &mut result,
                 &apply_state.config,
             )?
@@ -697,7 +697,7 @@ impl Runtime {
             full_reward.saturating_sub(gas_refund_result.price_deficit)
         } else {
             // Use receipt gas price for reward calculation
-            safe_gas_to_balance(action_receipt.gas_price, receiver_gas_reward)?
+            safe_gas_to_balance(action_receipt.gas_price(), receiver_gas_reward)?
             // Post NEP-536:
             // No shenanigans here. We are not refunding gas price differences,
             // we just use the receipt gas price and call it the correct price.
@@ -727,7 +727,7 @@ impl Runtime {
 
         // A {
         // B(); 42}
-        if !action_receipt.output_data_receivers.is_empty() {
+        if !action_receipt.output_data_receivers().is_empty() {
             if let Ok(ReturnData::ReceiptIndex(receipt_index)) = result.result {
                 // Modifying a new receipt instead of sending data
                 match result
@@ -739,7 +739,11 @@ impl Runtime {
                     ReceiptEnum::Action(new_action_receipt)
                     | ReceiptEnum::PromiseYield(new_action_receipt) => new_action_receipt
                         .output_data_receivers
-                        .extend_from_slice(&action_receipt.output_data_receivers),
+                        .extend_from_slice(&action_receipt.output_data_receivers()),
+                    ReceiptEnum::ActionV2(new_action_receipt)
+                    | ReceiptEnum::PromiseYieldV2(new_action_receipt) => new_action_receipt
+                        .output_data_receivers
+                        .extend_from_slice(&action_receipt.output_data_receivers()),
                     _ => unreachable!("the receipt should be an action receipt"),
                 }
             } else {
@@ -748,7 +752,7 @@ impl Runtime {
                     Ok(_) => Some(vec![]),
                     Err(_) => None,
                 };
-                result.new_receipts.extend(action_receipt.output_data_receivers.iter().map(
+                result.new_receipts.extend(action_receipt.output_data_receivers().iter().map(
                     |data_receiver| {
                         Receipt::V0(ReceiptV0 {
                             predecessor_id: account_id.clone(),
@@ -774,7 +778,10 @@ impl Runtime {
                 new_receipt.set_receipt_id(receipt_id);
                 let is_action = matches!(
                     new_receipt.receipt(),
-                    ReceiptEnum::Action(_) | ReceiptEnum::PromiseYield(_)
+                    ReceiptEnum::Action(_)
+                        | ReceiptEnum::PromiseYield(_)
+                        | ReceiptEnum::ActionV2(_)
+                        | ReceiptEnum::PromiseYieldV2(_)
                 );
 
                 let res =
@@ -821,7 +828,7 @@ impl Runtime {
         &self,
         current_gas_price: Balance,
         receipt: &Receipt,
-        action_receipt: &ActionReceipt,
+        action_receipt: &VersionedActionReceipt,
         result: &mut ActionResult,
         config: &RuntimeConfig,
     ) -> Result<GasRefundResult, RuntimeError> {
@@ -868,16 +875,16 @@ impl Runtime {
         &self,
         current_gas_price: Balance,
         receipt: &Receipt,
-        action_receipt: &ActionReceipt,
+        action_receipt: &VersionedActionReceipt,
         result: &mut ActionResult,
         config: &RuntimeConfig,
     ) -> Result<Balance, RuntimeError> {
-        let total_deposit = total_deposit(&action_receipt.actions)?;
-        let prepaid_gas = total_prepaid_gas(&action_receipt.actions)?
-            .checked_add(total_prepaid_send_fees(config, &action_receipt.actions)?)
+        let total_deposit = total_deposit(&action_receipt.actions())?;
+        let prepaid_gas = total_prepaid_gas(&action_receipt.actions())?
+            .checked_add(total_prepaid_send_fees(config, &action_receipt.actions())?)
             .ok_or(IntegerOverflowError)?;
         let prepaid_exec_gas =
-            total_prepaid_exec_fees(config, &action_receipt.actions, receipt.receiver_id())?
+            total_prepaid_exec_fees(config, &action_receipt.actions(), receipt.receiver_id())?
                 .checked_add(config.fees.fee(ActionCosts::new_action_receipt).exec_fee())
                 .ok_or(IntegerOverflowError)?;
         let deposit_refund = if result.result.is_err() { total_deposit } else { 0 };
@@ -896,15 +903,15 @@ impl Runtime {
         };
 
         // Refund for the unused portion of the gas at the price at which this gas was purchased.
-        let mut gas_balance_refund = safe_gas_to_balance(action_receipt.gas_price, gas_refund)?;
+        let mut gas_balance_refund = safe_gas_to_balance(action_receipt.gas_price(), gas_refund)?;
         let mut gas_deficit_amount = 0;
-        if current_gas_price > action_receipt.gas_price {
+        if current_gas_price > action_receipt.gas_price() {
             // In a rare scenario, when the current gas price is higher than the purchased gas
             // price, the difference is subtracted from the refund. If the refund doesn't have
             // enough balance to cover the difference, then the remaining balance is considered
             // the deficit and it's reported in the stats for the balance checker.
             gas_deficit_amount = safe_gas_to_balance(
-                current_gas_price - action_receipt.gas_price,
+                current_gas_price - action_receipt.gas_price(),
                 result.gas_burnt,
             )?;
             if gas_balance_refund >= gas_deficit_amount {
@@ -919,7 +926,7 @@ impl Runtime {
             gas_balance_refund = safe_add_balance(
                 gas_balance_refund,
                 safe_gas_to_balance(
-                    action_receipt.gas_price - current_gas_price,
+                    action_receipt.gas_price() - current_gas_price,
                     result.gas_burnt,
                 )?,
             )?;
@@ -927,7 +934,7 @@ impl Runtime {
 
         if deposit_refund > 0 {
             result.new_receipts.push(Receipt::new_balance_refund(
-                receipt.predecessor_id(),
+                receipt.balance_refund_receiver(),
                 deposit_refund,
                 receipt.priority(),
             ));
@@ -936,9 +943,9 @@ impl Runtime {
             // Gas refunds refund the allowance of the access key, so if the key exists on the
             // account it will increase the allowance by the refund amount.
             result.new_receipts.push(Receipt::new_gas_refund(
-                &action_receipt.signer_id,
+                &action_receipt.signer_id(),
                 gas_balance_refund,
-                action_receipt.signer_public_key.clone(),
+                action_receipt.signer_public_key().clone(),
                 receipt.priority(),
             ));
         }
@@ -957,16 +964,16 @@ impl Runtime {
         &self,
         current_gas_price: Balance,
         receipt: &Receipt,
-        action_receipt: &ActionReceipt,
+        action_receipt: &VersionedActionReceipt,
         result: &mut ActionResult,
         config: &RuntimeConfig,
     ) -> Result<GasRefundResult, RuntimeError> {
-        let total_deposit = total_deposit(&action_receipt.actions)?;
-        let prepaid_gas = total_prepaid_gas(&action_receipt.actions)?
-            .checked_add(total_prepaid_send_fees(config, &action_receipt.actions)?)
+        let total_deposit = total_deposit(&action_receipt.actions())?;
+        let prepaid_gas = total_prepaid_gas(&action_receipt.actions())?
+            .checked_add(total_prepaid_send_fees(config, &action_receipt.actions())?)
             .ok_or(IntegerOverflowError)?;
         let prepaid_exec_gas =
-            total_prepaid_exec_fees(config, &action_receipt.actions, receipt.receiver_id())?
+            total_prepaid_exec_fees(config, &action_receipt.actions(), receipt.receiver_id())?
                 .checked_add(config.fees.fee(ActionCosts::new_action_receipt).exec_fee())
                 .ok_or(IntegerOverflowError)?;
         let deposit_refund = if result.result.is_err() { total_deposit } else { 0 };
@@ -992,31 +999,31 @@ impl Runtime {
         };
 
         // Refund for the unused portion of the gas at the price at which this gas was purchased.
-        let gas_balance_refund = safe_gas_to_balance(action_receipt.gas_price, net_gas_refund)?;
+        let gas_balance_refund = safe_gas_to_balance(action_receipt.gas_price(), net_gas_refund)?;
 
         let mut gas_refund_result = GasRefundResult {
             price_deficit: 0,
             price_surplus: 0,
-            refund_penalty: safe_gas_to_balance(action_receipt.gas_price, refund_penalty)?,
+            refund_penalty: safe_gas_to_balance(action_receipt.gas_price(), refund_penalty)?,
         };
 
-        if current_gas_price > action_receipt.gas_price {
+        if current_gas_price > action_receipt.gas_price() {
             // price increased, burning resulted in a deficit
             gas_refund_result.price_deficit = safe_gas_to_balance(
-                current_gas_price - action_receipt.gas_price,
+                current_gas_price - action_receipt.gas_price(),
                 result.gas_burnt,
             )?;
         } else {
             // price decreased, burning resulted in a surplus
             gas_refund_result.price_surplus = safe_gas_to_balance(
-                action_receipt.gas_price - current_gas_price,
+                action_receipt.gas_price() - current_gas_price,
                 result.gas_burnt,
             )?;
         };
 
         if deposit_refund > 0 {
             result.new_receipts.push(Receipt::new_balance_refund(
-                receipt.predecessor_id(),
+                receipt.balance_refund_receiver(),
                 deposit_refund,
                 receipt.priority(),
             ));
@@ -1025,9 +1032,9 @@ impl Runtime {
             // Gas refunds refund the allowance of the access key, so if the key exists on the
             // account it will increase the allowance by the refund amount.
             result.new_receipts.push(Receipt::new_gas_refund(
-                &action_receipt.signer_id,
+                &action_receipt.signer_id(),
                 gas_balance_refund,
-                action_receipt.signer_public_key.clone(),
+                action_receipt.signer_public_key().clone(),
                 receipt.priority(),
             ));
         }
@@ -1051,8 +1058,8 @@ impl Runtime {
             ..
         } = *processing_state;
         let account_id = receipt.receiver_id();
-        match receipt.receipt() {
-            ReceiptEnum::Data(data_receipt) => {
+        match receipt.versioned_receipt() {
+            VersionedReceiptEnum::Data(data_receipt) => {
                 // Received a new data receipt.
                 // Saving the data into the state keyed by the data_id.
                 set_received_data(
@@ -1139,63 +1146,30 @@ impl Runtime {
                     }
                 }
             }
-            ReceiptEnum::Action(action_receipt) => {
-                // Received a new action receipt. We'll first check how many input data items
-                // were already received before and saved in the state.
-                // And if we have all input data, then we can immediately execute the receipt.
-                // If not, then we will postpone this receipt for later.
-                let mut pending_data_count: u32 = 0;
-                for data_id in &action_receipt.input_data_ids {
-                    if !has_received_data(state_update, account_id, *data_id)? {
-                        pending_data_count += 1;
-                        // The data for a given data_id is not available, so we save a link to this
-                        // receipt_id for the pending data_id into the state.
-                        set(
-                            state_update,
-                            TrieKey::PostponedReceiptId {
-                                receiver_id: account_id.clone(),
-                                data_id: *data_id,
-                            },
-                            receipt.receipt_id(),
-                        )
-                    }
-                }
-                if pending_data_count == 0 {
-                    // All input data is available. Executing the receipt. It will cleanup
-                    // input data from the state.
-                    return self
-                        .apply_action_receipt(
-                            state_update,
-                            apply_state,
-                            pipeline_manager,
-                            receipt,
-                            receipt_sink,
-                            validator_proposals,
-                            stats,
-                            epoch_info_provider,
-                        )
-                        .map(Some);
-                } else {
-                    // Not all input data is available now.
-                    // Save the counter for the number of pending input data items into the state.
-                    set(
-                        state_update,
-                        TrieKey::PendingDataCount {
-                            receiver_id: account_id.clone(),
-                            receipt_id: *receipt.receipt_id(),
-                        },
-                        &pending_data_count,
-                    );
-                    // Save the receipt itself into the state.
-                    set_postponed_receipt(state_update, receipt);
+            VersionedReceiptEnum::Action(action_receipt) => {
+                let executed = self.process_action_receipt(
+                    receipt,
+                    receipt_sink,
+                    validator_proposals,
+                    state_update,
+                    apply_state,
+                    epoch_info_provider,
+                    pipeline_manager,
+                    stats,
+                    account_id,
+                    action_receipt,
+                )?;
+
+                if executed.is_some() {
+                    return Ok(executed);
                 }
             }
-            ReceiptEnum::PromiseYield(_) => {
+            VersionedReceiptEnum::PromiseYield(_) => {
                 // Received a new PromiseYield receipt. We simply store it and await
                 // the corresponding PromiseResume receipt.
                 set_promise_yield_receipt(state_update, receipt);
             }
-            ReceiptEnum::PromiseResume(data_receipt) => {
+            VersionedReceiptEnum::PromiseResume(data_receipt) => {
                 // Received a new PromiseResume receipt delivering input data for a PromiseYield.
                 // It is guaranteed that the PromiseYield has exactly one input data dependency
                 // and that it arrives first, so we can simply find and execute it.
@@ -1234,7 +1208,7 @@ impl Runtime {
                     return Ok(None);
                 }
             }
-            ReceiptEnum::GlobalContractDistribution(_) => {
+            VersionedReceiptEnum::GlobalContractDistribution(_) => {
                 apply_global_contract_distribution_receipt(
                     receipt,
                     apply_state,
@@ -1248,6 +1222,73 @@ impl Runtime {
         // We didn't trigger execution, so we need to commit the state.
         state_update
             .commit(StateChangeCause::PostponedReceipt { receipt_hash: receipt.get_hash() });
+        Ok(None)
+    }
+
+    /// Received a new action receipt. We'll first check how many input data items
+    /// were already received before and saved in the state.
+    /// And if we have all input data, then we can immediately execute the receipt.
+    /// If not, then we will postpone this receipt for later.
+    fn process_action_receipt(
+        &self,
+        receipt: &Receipt,
+        receipt_sink: &mut ReceiptSink,
+        validator_proposals: &mut Vec<ValidatorStake>,
+        state_update: &mut TrieUpdate,
+        apply_state: &ApplyState,
+        epoch_info_provider: &dyn EpochInfoProvider,
+        pipeline_manager: &ReceiptPreparationPipeline,
+        stats: &mut ChunkApplyStatsV0,
+        account_id: &AccountId,
+        action_receipt: VersionedActionReceipt<'_>,
+    ) -> Result<Option<ExecutionOutcomeWithId>, RuntimeError> {
+        let mut pending_data_count: u32 = 0;
+        for data_id in action_receipt.input_data_ids() {
+            if !has_received_data(state_update, account_id, *data_id)? {
+                pending_data_count += 1;
+                // The data for a given data_id is not available, so we save a link to this
+                // receipt_id for the pending data_id into the state.
+                set(
+                    state_update,
+                    TrieKey::PostponedReceiptId {
+                        receiver_id: account_id.clone(),
+                        data_id: *data_id,
+                    },
+                    receipt.receipt_id(),
+                )
+            }
+        }
+
+        if pending_data_count == 0 {
+            // All input data is available. Executing the receipt. It will cleanup
+            // input data from the state.
+            return self
+                .apply_action_receipt(
+                    state_update,
+                    apply_state,
+                    pipeline_manager,
+                    receipt,
+                    receipt_sink,
+                    validator_proposals,
+                    stats,
+                    epoch_info_provider,
+                )
+                .map(Some);
+        } else {
+            // Not all input data is available now.
+            // Save the counter for the number of pending input data items into the state.
+            set(
+                state_update,
+                TrieKey::PendingDataCount {
+                    receiver_id: account_id.clone(),
+                    receipt_id: *receipt.receipt_id(),
+                },
+                &pending_data_count,
+            );
+            // Save the receipt itself into the state.
+            set_postponed_receipt(state_update, receipt);
+        }
+
         Ok(None)
     }
 
@@ -2374,7 +2415,7 @@ fn action_transfer_or_implicit_account_creation(
     account: &mut Option<Account>,
     deposit: u128,
     is_refund: bool,
-    action_receipt: &ActionReceipt,
+    action_receipt: &VersionedActionReceipt,
     receipt: &Receipt,
     state_update: &mut TrieUpdate,
     apply_state: &ApplyState,
@@ -2384,11 +2425,11 @@ fn action_transfer_or_implicit_account_creation(
     Ok(if let Some(account) = account.as_mut() {
         action_transfer(account, deposit)?;
         // Check if this is a gas refund, then try to refund the access key allowance.
-        if is_refund && &action_receipt.signer_id == receipt.receiver_id() {
+        if is_refund && action_receipt.signer_id() == receipt.receiver_id() {
             try_refund_allowance(
                 state_update,
                 receipt.receiver_id(),
-                &action_receipt.signer_public_key,
+                &action_receipt.signer_public_key(),
                 deposit,
             )?;
         }
@@ -2717,7 +2758,10 @@ fn schedule_contract_preparation<R: MaybeRefReceipt>(
             receipt: &Receipt,
         ) -> bool {
             match receipt.receipt() {
-                ReceiptEnum::Action(_) | ReceiptEnum::PromiseYield(_) => {
+                ReceiptEnum::Action(_)
+                | ReceiptEnum::PromiseYield(_)
+                | ReceiptEnum::ActionV2(_)
+                | ReceiptEnum::PromiseYieldV2(_) => {
                     // This returns `true` if work may have been scheduled (thus we currently
                     // prepare actions in at most 2 "interesting" receipts in parallel due to
                     // staggering.)

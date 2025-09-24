@@ -1,8 +1,9 @@
 use super::test_builder::test_builder;
 #[cfg(feature = "prepare")]
 use super::test_vm_config;
-#[cfg(feature = "prepare")]
 use crate::tests::with_vm_variants;
+#[cfg(feature = "prepare")]
+use crate::{MEMORY_EXPORT, REMAINING_GAS_EXPORT, START_EXPORT};
 use expect_test::expect;
 use near_primitives_core::version::ProtocolFeature;
 
@@ -175,17 +176,68 @@ fn memory_export_method() {
 #[test]
 fn memory_export_clash() {
     test_builder()
-        .wat(
+        .wat(&format!(
             r#"
             (module
-              (func (export "\00nearcore_memory"))
+              (func (export "{MEMORY_EXPORT}"))
               (func (export "main"))
             )"#,
-        )
+        ))
         .expects(&[
             expect![[r#"
-                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 97535778 used gas 97535778
-                Err: PrepareError: Error happened during instantiation.
+                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 93224876 used gas 93224876
+            "#]],
+        ]);
+}
+
+#[test]
+fn gas_export_clash() {
+    test_builder()
+        .wat(&format!(
+            r#"
+            (module
+              (global (export "{REMAINING_GAS_EXPORT}") (mut i64) i64.const 0)
+              (func (export "main"))
+            )"#,
+        ))
+        .expects(&[
+            expect![[r#"
+                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 105207121 used gas 105207121
+            "#]],
+        ]);
+}
+
+#[test]
+fn start_export_clash() {
+    test_builder()
+        .wat(&format!(
+            r#"
+            (module
+              (func (export "{START_EXPORT}"))
+              (func (export "main"))
+            )"#,
+        ))
+        .expects(&[
+            expect![[r#"
+                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 92135581 used gas 92135581
+            "#]],
+        ]);
+}
+
+#[test]
+fn start_export_clash_duplicate() {
+    test_builder()
+        .wat(&format!(
+            r#"
+            (module
+              (func (export "{START_EXPORT}") call 1)
+              (func (export "main"))
+              (start 1)
+            )"#,
+        ))
+        .expects(&[
+            expect![[r#"
+                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 104164104 used gas 104164104
             "#]],
         ]);
 }
@@ -193,16 +245,16 @@ fn memory_export_clash() {
 #[test]
 fn memory_export_internal() {
     test_builder()
-        .wat(
+        .wat(&format!(
             r#"
             (module
-              (memory (export "\00nearcore_memory") 0 0)
+              (memory (export "{MEMORY_EXPORT}") 0 0)
               (func (export "main"))
             )"#,
-        )
+        ))
         .expects(&[
             expect![[r#"
-                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 106296416 used gas 106296416
+                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 95403466 used gas 95403466
             "#]],
         ]);
 }
@@ -228,11 +280,11 @@ fn memory_custom() {
 fn too_many_table_elements() {
     test_builder()
         .wat(
-            &format!(r#"
+            r#"
             (module
               (func (export "main"))
               (table 1000001 funcref)
-            )"#),
+            )"#,
         )
         .expects(&[
             expect![[r#"
@@ -246,7 +298,7 @@ fn too_many_table_elements() {
 fn too_many_tables() {
     test_builder()
         .wat(
-            &format!(r#"
+            r#"
             (module
               (func (export "main"))
               (table 0 funcref)
@@ -255,12 +307,80 @@ fn too_many_tables() {
               (table 0 funcref)
               (table 0 funcref)
               (table 0 funcref)
-            )"#),
+            )"#,
         )
         .expects(&[
             expect![[r#"
                 VMOutcome: balance 4 storage_usage 12 return data None burnt gas 95357188 used gas 95357188
                 Err: PrepareError: Too many tables declared in the contract.
+            "#]],
+        ]);
+}
+
+#[test]
+fn use_imports() {
+    test_builder()
+        .wat(
+            r#"
+            (module
+              (import "env" "account_locked_balance" (func (param i64)))
+              (import "env" "alt_bn128_g1_multiexp" (func (param i64 i64 i64)))
+              (import "env" "alt_bn128_g1_sum" (func (param i64 i64 i64)))
+              (import "env" "alt_bn128_pairing_check" (func (param i64 i64) (result i64)))
+              (import "env" "keccak256" (func (param i64 i64 i64)))
+              (import "env" "keccak512" (func (param i64 i64 i64)))
+              (import "env" "bls12381_pairing_check" (func (param i64 i64) (result i64)))
+              (import "env" "write_register" (func (param i64 i64 i64)))
+              (import "env" "storage_has_key" (func (param i64 i64) (result i64)))
+              (func (export "main")
+                i64.const 0
+                call 0
+
+                i64.const 0
+                i64.const 0
+                i64.const 0
+                call 1
+
+                i64.const 0
+                i64.const 0
+                i64.const 0
+                call 2
+
+                i64.const 0
+                i64.const 0
+                call 3
+                drop
+
+                i64.const 0
+                i64.const 0
+                i64.const 0
+                call 4
+
+                i64.const 0
+                i64.const 0
+                i64.const 0
+                call 5
+
+                i64.const 0
+                i64.const 0
+                call 6
+                drop
+
+                i64.const 0
+                i64.const 0
+                i64.const 0
+                call 7
+
+                i64.const 0
+                i64.const 0
+                call 8
+                drop
+              )
+            )"#,
+        )
+        .expects(&[
+            expect![[r#"
+                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 12637863260998 used gas 12637863260998
             "#]],
         ]);
 }

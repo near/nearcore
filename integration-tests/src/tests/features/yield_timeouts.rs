@@ -4,7 +4,8 @@ use near_crypto::InMemorySigner;
 use near_o11y::testonly::init_test_logger;
 use near_parameters::config::TEST_CONFIG_YIELD_TIMEOUT_LENGTH;
 use near_primitives::hash::CryptoHash;
-use near_primitives::receipt::ReceiptEnum::{PromiseResume, PromiseYield};
+use near_primitives::receipt::ReceiptEnum::PromiseResume;
+use near_primitives::receipt::VersionedReceiptEnum::PromiseYield;
 use near_primitives::transaction::{
     Action, DeployContractAction, FunctionCallAction, SignedTransaction,
 };
@@ -42,8 +43,8 @@ fn find_yield_data_ids_from_latest_block(env: &TestEnv) -> Vec<CryptoHash> {
         .get_outgoing_receipts_for_shard(last_block_hash, shard_id, last_block_height)
         .unwrap()
     {
-        if let PromiseYield(action_receipt) = receipt.receipt() {
-            result.push(action_receipt.input_data_ids[0]);
+        if let PromiseYield(action_receipt) = receipt.versioned_receipt() {
+            result.push(action_receipt.input_data_ids()[0]);
         }
         if let PromiseResume(data_receipt) = receipt.receipt() {
             result.push(data_receipt.data_id);

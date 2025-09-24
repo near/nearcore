@@ -877,7 +877,7 @@ fn test_memory_copy_aggregate_accounting() {
             Err: PrepareError: Error happened while deserializing the module.
         "#]],
         expect![[r#"
-            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 121441980 used gas 121441980
+            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 146947416 used gas 146947416
         "#]]]);
 
     test_builder()
@@ -899,7 +899,7 @@ fn test_memory_copy_aggregate_accounting() {
         "#]],
         // Gas use here should be roughly double that of the test above!
         expect![[r#"
-            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 142010880 used gas 142010880
+            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 167516316 used gas 167516316
         "#]]]);
 }
 
@@ -933,7 +933,7 @@ fn test_memory_copy_full_memory() {
             Err: PrepareError: Error happened while deserializing the module.
         "#]],
         expect![[r#"
-            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 276071358793941 used gas 276071358793941
+            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 276071613848301 used gas 276071613848301
         "#]]]);
 }
 

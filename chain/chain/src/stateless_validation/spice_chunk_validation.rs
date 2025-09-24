@@ -120,10 +120,11 @@ pub fn spice_pre_validate_chunk_state_witness(
             )?;
             chunk_header.into_spice_chunk_execution_header(&chunk_extra)
         } else {
-            let prev_chunk_header = epoch_manager.get_prev_chunk_header(&prev_block, shard_id)?;
+            let (_, prev_shard_id, _prev_shard_index) =
+                epoch_manager.get_prev_shard_id_from_prev_hash(prev_block.hash(), shard_id)?;
             let prev_execution_result = prev_execution_results
                 .0
-                .get(prev_chunk_header.chunk_hash())
+                .get(&prev_shard_id)
                 .expect("execution results for all prev_block chunks should be available");
             chunk_header.into_spice_chunk_execution_header(&prev_execution_result.chunk_extra)
         };
@@ -176,7 +177,9 @@ fn validate_source_receipts_proofs(
         return Ok(vec![]);
     }
 
-    if source_receipt_proofs.len() != prev_block.chunks().len() {
+    let prev_block_shard_layout = epoch_manager.get_shard_layout(prev_block.header().epoch_id())?;
+
+    if source_receipt_proofs.len() as u64 != prev_block_shard_layout.num_shards() {
         return Err(Error::InvalidChunkStateWitness(format!(
             "source_receipt_proofs contains incorrect number of proofs. Expected {} proofs, found {}",
             prev_execution_results.0.len(),
@@ -186,11 +189,15 @@ fn validate_source_receipts_proofs(
 
     let mut receipt_proofs = Vec::new();
     for chunk in prev_block.chunks().iter_raw() {
+        let prev_block_shard_id = chunk.shard_id();
         let chunk_hash = chunk.chunk_hash();
         let prev_execution_result = prev_execution_results
             .0
-            .get(chunk_hash)
+            .get(&prev_block_shard_id)
             .expect("execution results for all prev_block chunks should be available");
+
+        // TODO(spice): Adjust witness to have source_receipt_proofs keyed by shard id which would
+        // allow it work in case of missing chunks.
         let Some(receipt_proof) = source_receipt_proofs.get(&chunk_hash) else {
             return Err(Error::InvalidChunkStateWitness(format!(
                 "Missing source receipt proof for chunk {:?}",
@@ -269,7 +276,7 @@ mod tests {
         let prev_execution_results = test_chain.prev_execution_results();
         let prev_chunk_header = test_chain.prev_chunk_header();
         let spice_chunk_header = test_chain.chunk_header().into_spice_chunk_execution_header(
-            &prev_execution_results.0.get(prev_chunk_header.chunk_hash()).unwrap().chunk_extra,
+            &prev_execution_results.0.get(&prev_chunk_header.shard_id()).unwrap().chunk_extra,
         );
         assert_eq!(new_chunk_data.chunk_header, spice_chunk_header);
 
@@ -829,19 +836,18 @@ mod tests {
         }
 
         fn prev_execution_results(&self) -> BlockExecutionResults {
-            let prev_block = self.prev_block();
             let shard_layout = self.shard_layout();
             let mut prev_execution_results = BlockExecutionResults(HashMap::new());
-            for prev_chunk_header in prev_block.chunks().iter_raw() {
-                let receipts = self.receipts_for_shard(prev_chunk_header.shard_id());
+            for shard_id in shard_layout.shard_ids() {
+                let receipts = self.receipts_for_shard(shard_id);
                 let (root, _proofs) = Chain::create_receipts_proofs_from_outgoing_receipts(
                     &shard_layout,
-                    prev_chunk_header.shard_id(),
+                    shard_id,
                     receipts,
                 )
                 .unwrap();
                 prev_execution_results.0.insert(
-                    prev_chunk_header.chunk_hash().clone(),
+                    shard_id,
                     Arc::new(ChunkExecutionResult {
                         chunk_extra: ChunkExtra::new_with_only_state_root(&CryptoHash::default()),
                         outgoing_receipts_root: root,
