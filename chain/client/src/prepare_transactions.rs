@@ -29,6 +29,34 @@ pub struct PrepareTransactionsJobInputs {
     pub time_limit: Option<Duration>,
 }
 
+impl PrepareTransactionsJobInputs {
+    #[cfg(test)]
+    pub fn new_for_test(
+        runtime: Arc<dyn RuntimeAdapter>,
+        state: TrieUpdate,
+        shard_uid: ShardUId,
+        tx_pool: Arc<Mutex<ShardedTransactionPool>>,
+    ) -> Self {
+        let prev_block_context = PrepareTransactionsBlockContext {
+            next_gas_price: Default::default(),
+            height: 0,
+            next_epoch_id: Default::default(),
+            congestion_info: Default::default(),
+        };
+
+        Self {
+            runtime_adapter: runtime,
+            state,
+            shard_uid,
+            prev_block_context,
+            tx_pool,
+            tx_validity_period_check: Box::new(|_| true),
+            prev_chunk_tx_hashes: HashSet::new(),
+            time_limit: None,
+        }
+    }
+}
+
 enum PrepareTransactionsJobState {
     /// Job created, but not running yet
     NotStarted(PrepareTransactionsJobInputs),
@@ -166,7 +194,7 @@ impl PrepareTransactionsJob {
 
 /// Key which uniquely identifies a preparation job with specific inputs. This key is used when
 /// fetching job result, any mismatch in the inputs will cause the job to be discarded.
-#[derive(PartialEq, Eq)]
+#[derive(PartialEq, Eq, Clone)]
 pub struct PrepareTransactionsJobKey {
     pub shard_uid: ShardUId,
     pub shard_update_key: CachedShardUpdateKey,
@@ -220,5 +248,217 @@ impl PrepareTransactionsManager {
             return None;
         }
         job.take_result()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use near_chain::runtime::NightshadeRuntime;
+    use near_chain::types::PrepareTransactionsBlockContext;
+    use near_chain_configs::test_genesis::TestGenesisBuilder;
+    use near_chunks::client::ShardedTransactionPool;
+    use near_epoch_manager::EpochManager;
+    use near_epoch_manager::test_utils::TEST_SEED;
+    use near_pool::InsertTransactionResult;
+    use near_primitives::hash::CryptoHash;
+    use near_primitives::optimistic_block::CachedShardUpdateKey;
+    use near_primitives::test_utils::create_test_signer;
+    use near_primitives::transaction::{SignedTransaction, ValidatedTransaction};
+    use near_primitives::types::{AccountId, Balance, BlockHeight};
+    use near_store::genesis::initialize_genesis_state;
+    use near_store::test_utils::{TestTriesBuilder, create_test_store};
+    use near_store::{ShardUId, TrieUpdate, get_genesis_state_roots};
+    use parking_lot::Mutex;
+
+    use crate::prepare_transactions::{
+        PrepareTransactionsJob, PrepareTransactionsJobInputs, PrepareTransactionsJobKey,
+        PrepareTransactionsJobState, PrepareTransactionsManager,
+    };
+
+    fn insert_tx(
+        pool: &mut ShardedTransactionPool,
+        shard_uid: ShardUId,
+        pub_key: near_crypto::PublicKey,
+        account_id: AccountId,
+        nonce: u64,
+    ) {
+        let signed_tx = SignedTransaction::new(
+            near_crypto::Signature::empty(near_crypto::KeyType::ED25519),
+            near_primitives::transaction::Transaction::new_v1(
+                account_id,
+                pub_key,
+                "other".parse().unwrap(),
+                nonce,
+                CryptoHash::default(),
+                0,
+            ),
+        );
+        let validated_tx = ValidatedTransaction::new_for_test(signed_tx);
+        assert_eq!(
+            InsertTransactionResult::Success,
+            pool.insert_transaction(shard_uid, validated_tx)
+        );
+    }
+
+    // Sets up store, genesis, runtime, tries and state for a single account,
+    // Returns a Nightshade runtime and a TrieUpdate on top of the genesis state,
+    // suitable for creating PrepareTransactionsJob.
+    fn setup_state(account_id: AccountId) -> (Arc<NightshadeRuntime>, TrieUpdate) {
+        let store = create_test_store();
+        let genesis = TestGenesisBuilder::new()
+            .add_user_account_simple(account_id, Balance::from_near(1))
+            .build();
+        let tempdir = tempfile::tempdir().unwrap();
+        initialize_genesis_state(store.clone(), &genesis, Some(tempdir.path()));
+        let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config, None);
+        let runtime =
+            NightshadeRuntime::test(tempdir.path(), store.clone(), &genesis.config, epoch_manager);
+        let roots = get_genesis_state_roots(&store)
+            .expect("Error getting genesis state roots")
+            .expect("Genesis state roots must exist");
+        let root = roots.iter().next().expect("Genesis state root for shard must exist");
+        let tries = TestTriesBuilder::new().with_store(store).build();
+        (runtime, tries.new_trie_update(ShardUId::single_shard(), *root))
+    }
+
+    // Sets up a transaction pool with `num_txs` transactions from `account_id`
+    fn setup_pool(
+        account_id: AccountId,
+        shard_uid: ShardUId,
+        num_txs: usize,
+    ) -> Arc<Mutex<ShardedTransactionPool>> {
+        let signer = create_test_signer(account_id.as_str());
+        let tx_pool = Arc::new(Mutex::new(ShardedTransactionPool::new(TEST_SEED, None)));
+        let mut pool_guard = tx_pool.lock();
+        for nonce in 1..=num_txs as u64 {
+            insert_tx(&mut pool_guard, shard_uid, signer.public_key(), account_id.clone(), nonce);
+        }
+        drop(pool_guard);
+        tx_pool
+    }
+
+    #[test]
+    fn test_prepare_transactions_job() {
+        let account_id: AccountId = "test".parse().unwrap();
+        let shard_uid = ShardUId::single_shard();
+        let (runtime, state) = setup_state(account_id.clone());
+        let tx_pool = setup_pool(account_id, shard_uid, 1);
+
+        let inputs = PrepareTransactionsJobInputs::new_for_test(runtime, state, shard_uid, tx_pool);
+        let job = PrepareTransactionsJob::new(inputs);
+        job.run_job();
+        let result = job
+            .take_result()
+            .expect("result must be available after running the job")
+            .expect("job must succeed");
+        assert_eq!(None, result.limited_by);
+        assert_eq!(1, result.transactions.len());
+
+        // Taking again returns None
+        let result = job.take_result();
+        assert!(result.is_none());
+    }
+
+    fn assert_cancelled(job: &PrepareTransactionsJob) {
+        assert!(matches!(&*job.state.lock(), PrepareTransactionsJobState::Cancelled));
+        assert!(job.take_result().is_none());
+    }
+
+    #[test]
+    fn test_prepare_transactions_job_cancel() {
+        let account_id: AccountId = "test".parse().unwrap();
+        let shard_uid = ShardUId::single_shard();
+        let (runtime, state) = setup_state(account_id.clone());
+        let tx_pool = setup_pool(account_id, shard_uid, 1);
+        let inputs = PrepareTransactionsJobInputs::new_for_test(runtime, state, shard_uid, tx_pool);
+        let job = PrepareTransactionsJob::new(inputs);
+        job.cancel();
+        assert_cancelled(&job);
+    }
+
+    fn make_key(
+        height: BlockHeight,
+        shard_uid: ShardUId,
+        shard_update_key_inner: CryptoHash,
+    ) -> PrepareTransactionsJobKey {
+        let prev_block_context = PrepareTransactionsBlockContext {
+            next_gas_price: Default::default(),
+            height,
+            next_epoch_id: Default::default(),
+            congestion_info: Default::default(),
+        };
+        PrepareTransactionsJobKey {
+            shard_uid,
+            shard_update_key: CachedShardUpdateKey::new(shard_update_key_inner),
+            prev_block_context,
+        }
+    }
+
+    #[test]
+    fn test_prepare_transactions_manager() {
+        let account_id: AccountId = "test".parse().unwrap();
+        let shard_uid = ShardUId::single_shard();
+        let (runtime, state) = setup_state(account_id.clone());
+        let tx_pool = setup_pool(account_id, shard_uid, 1);
+
+        let inputs = PrepareTransactionsJobInputs::new_for_test(runtime, state, shard_uid, tx_pool);
+        let key = make_key(0, shard_uid, CryptoHash::default());
+        let mut manager = PrepareTransactionsManager::new();
+        let job = manager.push(key.clone(), inputs);
+        job.run_job();
+        let result =
+            manager.pop_job_result(key).expect("should get result").expect("job must succeed");
+        assert_eq!(1, result.transactions.len());
+    }
+
+    #[test]
+    fn test_prepare_transactions_manager_pop_job_with_different_key() {
+        let account_id: AccountId = "test".parse().unwrap();
+        let shard_uid = ShardUId::single_shard();
+        let (runtime, state) = setup_state(account_id.clone());
+        let tx_pool = setup_pool(account_id, shard_uid, 1);
+        let inputs = PrepareTransactionsJobInputs::new_for_test(runtime, state, shard_uid, tx_pool);
+        let key = make_key(0, shard_uid, CryptoHash::default());
+        let mut manager = PrepareTransactionsManager::new();
+        let job = manager.push(key, inputs);
+        // Try to pop with a different key
+        let different_key = make_key(0, shard_uid, CryptoHash::hash_bytes(b"different"));
+        assert!(manager.pop_job_result(different_key).is_none());
+        assert_cancelled(&job);
+    }
+
+    #[test]
+    fn test_prepare_transactions_manager_push_same_height_and_shard() {
+        let account_id: AccountId = "test".parse().unwrap();
+        let shard_uid = ShardUId::single_shard();
+        let (runtime, state) = setup_state(account_id.clone());
+        let tx_pool = setup_pool(account_id, shard_uid, 1);
+        let inputs1 = PrepareTransactionsJobInputs::new_for_test(
+            runtime.clone(),
+            state.clone_for_tx_preparation(), // This is good enough for the test
+            shard_uid,
+            tx_pool.clone(),
+        );
+        let key1 = make_key(0, shard_uid, CryptoHash::default());
+        let mut manager = PrepareTransactionsManager::new();
+        let job1 = manager.push(key1, inputs1);
+        job1.run_job();
+
+        // Create a second job with the same (height, shard_id) but different key
+        let inputs2 =
+            PrepareTransactionsJobInputs::new_for_test(runtime, state, shard_uid, tx_pool);
+        let key2 = make_key(0, shard_uid, CryptoHash::hash_bytes(b"different"));
+        let job2 = manager.push(key2.clone(), inputs2);
+        job2.run_job();
+
+        // The first job should be cancelled
+        assert_cancelled(&job1);
+
+        // The second job should complete successfully
+        let result =
+            manager.pop_job_result(key2).expect("should get result").expect("job must succeed");
+        assert_eq!(1, result.transactions.len());
     }
 }
