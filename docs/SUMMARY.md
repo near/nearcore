@@ -2,7 +2,7 @@
 
 [Introduction](README.md)
 
-# Protocol Specifications
+# Protocol Specification
 
 - [Data Structures](./DataStructures/README.md)
    - [Access Keys](./DataStructures/AccessKey.md)
