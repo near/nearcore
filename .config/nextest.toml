@@ -14,11 +14,12 @@ filter = 'test(/^(.*::slow_test|slow_test)/)'
 slow-timeout = { period = "30s", terminate-after = 3, grace-period = "1s" }
 
 # Tests that take longer than the heat death of the universe of time to execute. Consider making
-# the test faster, but if you must `ultra_slow_test*` tests are given 1h to execute. These are
+# the test faster, but if you must `ultra_slow_test*` tests are given 10m to execute. These are
 # generally left for nayduck to execute.
+# If you find yourself needing even more time than this, please fix the test.
 [[profile.default.overrides]]
 filter = 'test(/^(.*::ultra_slow_test|ultra_slow_test)/)'
-slow-timeout = { period = "30m", terminate-after = 2, grace-period = "1s" }
+slow-timeout = { period = "5m", terminate-after = 2, grace-period = "1s" }
 
 
 # Unfortunately no support for inheriting profiles yet:

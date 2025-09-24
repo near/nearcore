@@ -28,6 +28,7 @@ futures.workspace = true
 im.workspace = true
 itertools.workspace = true
 lru.workspace = true
+named-lock.workspace = true
 opentelemetry.workspace = true
 parking_lot.workspace = true
 protobuf.workspace = true

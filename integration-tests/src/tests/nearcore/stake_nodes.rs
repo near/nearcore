@@ -2,20 +2,16 @@ use std::path::Path;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use actix::Actor;
-use futures::{FutureExt, future};
 use near_chain_configs::test_utils::{TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
 use near_primitives::num_rational::Ratio;
 use rand::Rng;
 
 use crate::utils::genesis_helpers::genesis_hash;
-use crate::utils::test_helpers::heavy_test;
-use near_actix_test_utils::run_actix;
 use near_chain_configs::{Genesis, TrackedShardsConfig};
 use near_client::{GetBlock, ProcessTxRequest, Query, RpcHandler, ViewClientActorInner};
 use near_crypto::{InMemorySigner, Signer};
 use near_network::tcp;
-use near_network::test_utils::{WaitOrTimeoutActor, convert_boot_nodes};
+use near_network::test_utils::{convert_boot_nodes, wait_or_timeout};
 use near_o11y::testonly::init_integration_logger;
 use near_primitives::hash::CryptoHash;
 use near_primitives::transaction::SignedTransaction;
@@ -24,12 +20,14 @@ use near_primitives::views::{QueryRequest, QueryResponseKind, ValidatorInfo};
 use nearcore::{NearConfig, load_test_config, start_with_config};
 
 use near_async::ActorSystem;
-use near_async::messaging::CanSendAsync;
+use near_async::messaging::{CanSend, CanSendAsync};
 use near_async::multithread::MultithreadRuntimeHandle;
 use near_async::tokio::TokioRuntimeHandle;
 use near_client::client_actor::ClientActorInner;
 use near_client_primitives::types::Status;
 use near_o11y::span_wrapped_msg::SpanWrappedMessageExt;
+use near_store::db::RocksDB;
+use std::ops::ControlFlow;
 use {near_primitives::types::BlockId, primitive_types::U256};
 
 #[derive(Clone)]
@@ -103,219 +101,196 @@ fn init_test_staking(
 
 /// Runs one validator network, sends staking transaction for the second node and
 /// waits until it becomes a validator.
-#[test]
-fn slow_test_stake_nodes() {
-    heavy_test(|| {
-        let num_nodes = 2;
-        let dirs = (0..num_nodes)
-            .map(|i| {
-                tempfile::Builder::new().prefix(&format!("stake_node_{}", i)).tempdir().unwrap()
-            })
-            .collect::<Vec<_>>();
-        run_actix(async {
-            let test_nodes = init_test_staking(
-                dirs.iter().map(|dir| dir.path()).collect::<Vec<_>>(),
-                num_nodes,
-                1,
-                10,
-                false,
-                10,
-                false,
-            );
+#[tokio::test]
+async fn slow_test_stake_nodes() {
+    let num_nodes = 2;
+    let dirs = (0..num_nodes)
+        .map(|i| tempfile::Builder::new().prefix(&format!("stake_node_{}", i)).tempdir().unwrap())
+        .collect::<Vec<_>>();
+    let test_nodes = init_test_staking(
+        dirs.iter().map(|dir| dir.path()).collect::<Vec<_>>(),
+        num_nodes,
+        1,
+        10,
+        false,
+        10,
+        false,
+    );
 
-            let tx = SignedTransaction::stake(
-                1,
-                test_nodes[1].account_id.clone(),
-                // &*test_nodes[1].config.block_producer.as_ref().unwrap().signer,
-                &(*test_nodes[1].signer),
-                TESTING_INIT_STAKE,
-                test_nodes[1].config.validator_signer.get().unwrap().public_key(),
-                test_nodes[1].genesis_hash,
-            );
-            actix::spawn(
-                test_nodes[0]
-                    .tx_processor
-                    .send_async(ProcessTxRequest {
-                        transaction: tx,
-                        is_forwarded: false,
-                        check_only: false,
-                    })
-                    .map(drop::<Result<near_client::ProcessTxResponse, _>>),
-            );
-
-            WaitOrTimeoutActor::new(
-                Box::new(move |_ctx| {
-                    let actor = test_nodes[0]
-                        .client
-                        .send_async(Status { is_health_check: false, detailed: false }.span_wrap());
-                    let actor = actor.then(|res| {
-                        let res = res.unwrap();
-                        if res.is_err() {
-                            return future::ready(());
-                        }
-                        let mut validators = res.unwrap().validators;
-                        validators.sort_unstable_by(|a, b| a.account_id.cmp(&b.account_id));
-                        if validators
-                            == vec![
-                                ValidatorInfo { account_id: "near.0".parse().unwrap() },
-                                ValidatorInfo { account_id: "near.1".parse().unwrap() },
-                            ]
-                        {
-                            near_async::shutdown_all_actors();
-                        }
-                        future::ready(())
-                    });
-                    actix::spawn(actor);
-                }),
-                100,
-                40000,
-            )
-            .start();
-        });
+    let tx = SignedTransaction::stake(
+        1,
+        test_nodes[1].account_id.clone(),
+        // &*test_nodes[1].config.block_producer.as_ref().unwrap().signer,
+        &(*test_nodes[1].signer),
+        TESTING_INIT_STAKE,
+        test_nodes[1].config.validator_signer.get().unwrap().public_key(),
+        test_nodes[1].genesis_hash,
+    );
+    test_nodes[0].tx_processor.send(ProcessTxRequest {
+        transaction: tx,
+        is_forwarded: false,
+        check_only: false,
     });
+
+    wait_or_timeout(100, 40000, || {
+        let test_nodes = test_nodes.clone();
+        async move {
+            let res = test_nodes[0]
+                .client
+                .send_async(Status { is_health_check: false, detailed: false }.span_wrap())
+                .await
+                .unwrap();
+            if res.is_err() {
+                return ControlFlow::Continue(());
+            }
+            let mut validators = res.unwrap().validators;
+            validators.sort_unstable_by(|a, b| a.account_id.cmp(&b.account_id));
+            if validators
+                == vec![
+                    ValidatorInfo { account_id: "near.0".parse().unwrap() },
+                    ValidatorInfo { account_id: "near.1".parse().unwrap() },
+                ]
+            {
+                ControlFlow::Break(())
+            } else {
+                ControlFlow::Continue(())
+            }
+        }
+    })
+    .await
+    .unwrap();
+    near_async::shutdown_all_actors();
+    RocksDB::block_until_all_instances_are_dropped();
 }
 
-#[test]
-fn slow_test_validator_kickout() {
-    heavy_test(|| {
-        let num_nodes = 4;
-        let dirs = (0..num_nodes)
-            .map(|i| {
-                tempfile::Builder::new()
-                    .prefix(&format!("validator_kickout_{}", i))
-                    .tempdir()
-                    .unwrap()
-            })
-            .collect::<Vec<_>>();
-        run_actix(async {
-            let test_nodes = init_test_staking(
-                dirs.iter().map(|dir| dir.path()).collect::<Vec<_>>(),
-                num_nodes,
-                4,
-                15,
-                false,
-                TESTING_INIT_STAKE.as_near() as u64 + 1,
-                false,
-            );
-            let mut rng = rand::thread_rng();
-            let stakes = (0..num_nodes / 2).map(|_| {
-                Balance::from_near(1)
-                    .checked_add(Balance::from_yoctonear(rng.gen_range(1..100)))
-                    .unwrap()
-            });
-            let stake_transactions = stakes.enumerate().map(|(i, stake)| {
-                let test_node = &test_nodes[i];
-                let signer = Arc::new(InMemorySigner::test_signer(&test_node.account_id));
-                SignedTransaction::stake(
-                    1,
-                    test_node.account_id.clone(),
-                    &*signer,
-                    stake,
-                    test_node.config.validator_signer.get().unwrap().public_key(),
-                    test_node.genesis_hash,
-                )
-            });
+#[tokio::test]
+async fn slow_test_validator_kickout() {
+    let num_nodes = 4;
+    let dirs = (0..num_nodes)
+        .map(|i| {
+            tempfile::Builder::new().prefix(&format!("validator_kickout_{}", i)).tempdir().unwrap()
+        })
+        .collect::<Vec<_>>();
+    let test_nodes = init_test_staking(
+        dirs.iter().map(|dir| dir.path()).collect::<Vec<_>>(),
+        num_nodes,
+        4,
+        15,
+        false,
+        TESTING_INIT_STAKE.as_near() as u64 + 1,
+        false,
+    );
+    let mut rng = rand::thread_rng();
+    let stakes = (0..num_nodes / 2).map(|_| {
+        Balance::from_near(1).checked_add(Balance::from_yoctonear(rng.gen_range(1..100))).unwrap()
+    });
+    let stake_transactions = stakes.enumerate().map(|(i, stake)| {
+        let test_node = &test_nodes[i];
+        let signer = Arc::new(InMemorySigner::test_signer(&test_node.account_id));
+        SignedTransaction::stake(
+            1,
+            test_node.account_id.clone(),
+            &*signer,
+            stake,
+            test_node.config.validator_signer.get().unwrap().public_key(),
+            test_node.genesis_hash,
+        )
+    });
 
-            for (i, stake_transaction) in stake_transactions.enumerate() {
-                let test_node = &test_nodes[i];
-                actix::spawn(
-                    test_node
-                        .tx_processor
-                        .send_async(ProcessTxRequest {
-                            transaction: stake_transaction,
-                            is_forwarded: false,
-                            check_only: false,
-                        })
-                        .map(drop::<Result<near_client::ProcessTxResponse, _>>),
-                );
-            }
-
-            let finalized_mark: Arc<Vec<_>> =
-                Arc::new((0..num_nodes).map(|_| Arc::new(AtomicBool::new(false))).collect());
-
-            WaitOrTimeoutActor::new(
-                Box::new(move |_ctx| {
-                    let test_nodes = test_nodes.clone();
-                    let test_node1 = test_nodes[(num_nodes / 2) as usize].clone();
-                    let finalized_mark1 = finalized_mark.clone();
-
-                    let actor = test_node1
-                        .client
-                        .send_async(Status { is_health_check: false, detailed: false }.span_wrap());
-                    let actor = actor.then(move |res| {
-                        let expected: Vec<_> = (num_nodes / 2..num_nodes)
-                            .map(|i| ValidatorInfo {
-                                account_id: AccountId::try_from(format!("near.{}", i)).unwrap(),
-                            })
-                            .collect();
-                        let res = res.unwrap();
-                        if res.is_err() {
-                            return future::ready(());
-                        }
-                        if res.unwrap().validators == expected {
-                            for i in 0..num_nodes / 2 {
-                                let mark = finalized_mark1[i as usize].clone();
-                                let actor = test_node1.view_client.send_async(Query::new(
-                                    BlockReference::latest(),
-                                    QueryRequest::ViewAccount {
-                                        account_id: test_nodes[i as usize].account_id.clone(),
-                                    },
-                                ));
-                                let actor =
-                                    actor.then(move |res| match res.unwrap().unwrap().kind {
-                                        QueryResponseKind::ViewAccount(result) => {
-                                            if result.locked.is_zero()
-                                                || result.amount == TESTING_INIT_BALANCE
-                                            {
-                                                mark.store(true, Ordering::SeqCst);
-                                            }
-                                            future::ready(())
-                                        }
-                                        _ => panic!("wrong return result"),
-                                    });
-                                actix::spawn(actor);
-                            }
-                            for i in num_nodes / 2..num_nodes {
-                                let mark = finalized_mark1[i as usize].clone();
-
-                                let actor = test_node1.view_client.send_async(Query::new(
-                                    BlockReference::latest(),
-                                    QueryRequest::ViewAccount {
-                                        account_id: test_nodes[i as usize].account_id.clone(),
-                                    },
-                                ));
-                                let actor =
-                                    actor.then(move |res| match res.unwrap().unwrap().kind {
-                                        QueryResponseKind::ViewAccount(result) => {
-                                            assert_eq!(result.locked, TESTING_INIT_STAKE);
-                                            assert_eq!(
-                                                result.amount,
-                                                TESTING_INIT_BALANCE
-                                                    .checked_sub(TESTING_INIT_STAKE)
-                                                    .unwrap()
-                                            );
-                                            mark.store(true, Ordering::SeqCst);
-                                            future::ready(())
-                                        }
-                                        _ => panic!("wrong return result"),
-                                    });
-                                actix::spawn(actor);
-                            }
-
-                            if finalized_mark1.iter().all(|mark| mark.load(Ordering::SeqCst)) {
-                                near_async::shutdown_all_actors();
-                            }
-                        }
-                        future::ready(())
-                    });
-                    actix::spawn(actor);
-                }),
-                100,
-                70000,
-            )
-            .start();
+    for (i, stake_transaction) in stake_transactions.enumerate() {
+        let test_node = &test_nodes[i];
+        test_node.tx_processor.send(ProcessTxRequest {
+            transaction: stake_transaction,
+            is_forwarded: false,
+            check_only: false,
         });
+    }
+
+    let finalized_mark: Arc<Vec<_>> =
+        Arc::new((0..num_nodes).map(|_| Arc::new(AtomicBool::new(false))).collect());
+
+    wait_or_timeout(100, 120000, || {
+        let test_nodes = test_nodes.clone();
+        let finalized_mark = finalized_mark.clone();
+        async move {
+            let test_nodes = test_nodes.clone();
+            let test_node1 = test_nodes[(num_nodes / 2) as usize].clone();
+            let finalized_mark1 = finalized_mark.clone();
+
+            let res = test_node1
+                .client
+                .send_async(Status { is_health_check: false, detailed: false }.span_wrap())
+                .await;
+            let expected: Vec<_> = (num_nodes / 2..num_nodes)
+                .map(|i| ValidatorInfo {
+                    account_id: AccountId::try_from(format!("near.{}", i)).unwrap(),
+                })
+                .collect();
+            let res = res.unwrap();
+            if res.is_err() {
+                return ControlFlow::Continue(());
+            }
+            if res.unwrap().validators == expected {
+                for i in 0..num_nodes / 2 {
+                    let mark = finalized_mark1[i as usize].clone();
+                    let res = test_node1
+                        .view_client
+                        .send_async(Query::new(
+                            BlockReference::latest(),
+                            QueryRequest::ViewAccount {
+                                account_id: test_nodes[i as usize].account_id.clone(),
+                            },
+                        ))
+                        .await
+                        .unwrap()
+                        .unwrap();
+                    match res.kind {
+                        QueryResponseKind::ViewAccount(result) => {
+                            if result.locked.is_zero() || result.amount == TESTING_INIT_BALANCE {
+                                mark.store(true, Ordering::SeqCst);
+                            }
+                        }
+                        _ => panic!("wrong return result"),
+                    }
+                }
+                for i in num_nodes / 2..num_nodes {
+                    let mark = finalized_mark1[i as usize].clone();
+
+                    let res = test_node1
+                        .view_client
+                        .send_async(Query::new(
+                            BlockReference::latest(),
+                            QueryRequest::ViewAccount {
+                                account_id: test_nodes[i as usize].account_id.clone(),
+                            },
+                        ))
+                        .await
+                        .unwrap()
+                        .unwrap();
+                    match res.kind {
+                        QueryResponseKind::ViewAccount(result) => {
+                            assert_eq!(result.locked, TESTING_INIT_STAKE);
+                            assert_eq!(
+                                result.amount,
+                                TESTING_INIT_BALANCE.checked_sub(TESTING_INIT_STAKE).unwrap()
+                            );
+                            mark.store(true, Ordering::SeqCst);
+                        }
+                        _ => panic!("wrong return result"),
+                    }
+                }
+
+                if finalized_mark1.iter().all(|mark| mark.load(Ordering::SeqCst)) {
+                    return ControlFlow::Break(());
+                }
+            }
+            ControlFlow::Continue(())
+        }
     })
+    .await
+    .unwrap();
+    near_async::shutdown_all_actors();
+    RocksDB::block_until_all_instances_are_dropped();
 }
 
 /// Starts 4 nodes, genesis has 2 validator seats.
@@ -323,255 +298,224 @@ fn slow_test_validator_kickout() {
 /// Submit the transactions via Node1 and Node2.
 /// Poll `/status` until you see the change of validator assignments.
 /// Afterwards check that `locked` amount on accounts Node1 and Node2 are 0 and TESTING_INIT_STAKE.
-#[test]
-fn ultra_slow_test_validator_join() {
-    heavy_test(|| {
-        let num_nodes = 4;
-        let dirs = (0..num_nodes)
-            .map(|i| {
-                tempfile::Builder::new().prefix(&format!("validator_join_{}", i)).tempdir().unwrap()
-            })
-            .collect::<Vec<_>>();
-        run_actix(async {
-            let test_nodes = init_test_staking(
-                dirs.iter().map(|dir| dir.path()).collect::<Vec<_>>(),
-                num_nodes,
-                2,
-                30,
-                false,
-                10,
-                false,
-            );
-            let signer = Arc::new(InMemorySigner::test_signer(&test_nodes[1].account_id));
-            let unstake_transaction = SignedTransaction::stake(
-                1,
-                test_nodes[1].account_id.clone(),
-                &*signer,
-                Balance::ZERO,
-                test_nodes[1].config.validator_signer.get().unwrap().public_key(),
-                test_nodes[1].genesis_hash,
-            );
+#[tokio::test]
+async fn ultra_slow_test_validator_join() {
+    let num_nodes = 4;
+    let dirs = (0..num_nodes)
+        .map(|i| {
+            tempfile::Builder::new().prefix(&format!("validator_join_{}", i)).tempdir().unwrap()
+        })
+        .collect::<Vec<_>>();
+    let test_nodes = init_test_staking(
+        dirs.iter().map(|dir| dir.path()).collect::<Vec<_>>(),
+        num_nodes,
+        2,
+        30,
+        false,
+        10,
+        false,
+    );
+    let signer = Arc::new(InMemorySigner::test_signer(&test_nodes[1].account_id));
+    let unstake_transaction = SignedTransaction::stake(
+        1,
+        test_nodes[1].account_id.clone(),
+        &*signer,
+        Balance::ZERO,
+        test_nodes[1].config.validator_signer.get().unwrap().public_key(),
+        test_nodes[1].genesis_hash,
+    );
 
-            let signer = Arc::new(InMemorySigner::test_signer(&test_nodes[2].account_id));
-            let stake_transaction = SignedTransaction::stake(
-                1,
-                test_nodes[2].account_id.clone(),
-                &*signer,
-                TESTING_INIT_STAKE,
-                test_nodes[2].config.validator_signer.get().unwrap().public_key(),
-                test_nodes[2].genesis_hash,
-            );
+    let signer = Arc::new(InMemorySigner::test_signer(&test_nodes[2].account_id));
+    let stake_transaction = SignedTransaction::stake(
+        1,
+        test_nodes[2].account_id.clone(),
+        &*signer,
+        TESTING_INIT_STAKE,
+        test_nodes[2].config.validator_signer.get().unwrap().public_key(),
+        test_nodes[2].genesis_hash,
+    );
 
-            actix::spawn(
-                test_nodes[1]
-                    .tx_processor
-                    .send_async(ProcessTxRequest {
-                        transaction: unstake_transaction,
-                        is_forwarded: false,
-                        check_only: false,
-                    })
-                    .map(drop::<Result<near_client::ProcessTxResponse, _>>),
-            );
-            actix::spawn(
-                test_nodes[0]
-                    .tx_processor
-                    .send_async(ProcessTxRequest {
-                        transaction: stake_transaction,
-                        is_forwarded: false,
-                        check_only: false,
-                    })
-                    .map(drop::<Result<near_client::ProcessTxResponse, _>>),
-            );
-
-            let (done1, done2) =
-                (Arc::new(AtomicBool::new(false)), Arc::new(AtomicBool::new(false)));
-            let (done1_copy1, done2_copy1) = (done1, done2);
-            WaitOrTimeoutActor::new(
-                Box::new(move |_ctx| {
-                    let test_nodes = test_nodes.clone();
-                    let test_node1 = test_nodes[0].clone();
-                    let (done1_copy2, done2_copy2) = (done1_copy1.clone(), done2_copy1.clone());
-                    let actor = test_node1
-                        .client
-                        .send_async(Status { is_health_check: false, detailed: false }.span_wrap());
-                    let actor = actor.then(move |res| {
-                        let expected = vec![
-                            ValidatorInfo { account_id: "near.0".parse().unwrap() },
-                            ValidatorInfo { account_id: "near.2".parse().unwrap() },
-                        ];
-                        let res = res.unwrap();
-                        if res.is_err() {
-                            return future::ready(());
-                        }
-                        if res.unwrap().validators == expected {
-                            let actor = test_node1.view_client.send_async(Query::new(
-                                BlockReference::latest(),
-                                QueryRequest::ViewAccount {
-                                    account_id: test_nodes[1].account_id.clone(),
-                                },
-                            ));
-                            let actor = actor.then(move |res| match res.unwrap().unwrap().kind {
-                                QueryResponseKind::ViewAccount(result) => {
-                                    if result.locked.is_zero() {
-                                        done1_copy2.store(true, Ordering::SeqCst);
-                                    }
-                                    future::ready(())
-                                }
-                                _ => panic!("wrong return result"),
-                            });
-                            actix::spawn(actor);
-                            let actor = test_node1.view_client.send_async(Query::new(
-                                BlockReference::latest(),
-                                QueryRequest::ViewAccount {
-                                    account_id: test_nodes[2].account_id.clone(),
-                                },
-                            ));
-                            let actor = actor.then(move |res| match res.unwrap().unwrap().kind {
-                                QueryResponseKind::ViewAccount(result) => {
-                                    if result.locked == TESTING_INIT_STAKE {
-                                        done2_copy2.store(true, Ordering::SeqCst);
-                                    }
-
-                                    future::ready(())
-                                }
-                                _ => panic!("wrong return result"),
-                            });
-                            actix::spawn(actor);
-                        }
-
-                        future::ready(())
-                    });
-                    actix::spawn(actor);
-                    if done1_copy1.load(Ordering::SeqCst) && done2_copy1.load(Ordering::SeqCst) {
-                        near_async::shutdown_all_actors();
-                    }
-                }),
-                1000,
-                60000,
-            )
-            .start();
-        });
+    test_nodes[1].tx_processor.send(ProcessTxRequest {
+        transaction: unstake_transaction,
+        is_forwarded: false,
+        check_only: false,
     });
+    test_nodes[0].tx_processor.send(ProcessTxRequest {
+        transaction: stake_transaction,
+        is_forwarded: false,
+        check_only: false,
+    });
+
+    let (done1, done2) = (Arc::new(AtomicBool::new(false)), Arc::new(AtomicBool::new(false)));
+
+    wait_or_timeout(1000, 120000, || {
+        let test_nodes = test_nodes.clone();
+        let done1 = done1.clone();
+        let done2 = done2.clone();
+        async move {
+            let test_node1 = test_nodes[0].clone();
+            let expected = vec![
+                ValidatorInfo { account_id: "near.0".parse().unwrap() },
+                ValidatorInfo { account_id: "near.2".parse().unwrap() },
+            ];
+            let res = test_node1
+                .client
+                .send_async(Status { is_health_check: false, detailed: false }.span_wrap())
+                .await
+                .unwrap();
+            if res.is_err() {
+                return ControlFlow::Continue(());
+            }
+            if res.unwrap().validators == expected {
+                let res = test_node1
+                    .view_client
+                    .send_async(Query::new(
+                        BlockReference::latest(),
+                        QueryRequest::ViewAccount { account_id: test_nodes[1].account_id.clone() },
+                    ))
+                    .await;
+                match res.unwrap().unwrap().kind {
+                    QueryResponseKind::ViewAccount(result) => {
+                        if result.locked.is_zero() {
+                            done1.store(true, Ordering::SeqCst);
+                        }
+                    }
+                    _ => panic!("wrong return result"),
+                }
+                let res = test_node1
+                    .view_client
+                    .send_async(Query::new(
+                        BlockReference::latest(),
+                        QueryRequest::ViewAccount { account_id: test_nodes[2].account_id.clone() },
+                    ))
+                    .await;
+                match res.unwrap().unwrap().kind {
+                    QueryResponseKind::ViewAccount(result) => {
+                        if result.locked == TESTING_INIT_STAKE {
+                            done2.store(true, Ordering::SeqCst);
+                        }
+                    }
+                    _ => panic!("wrong return result"),
+                }
+            }
+
+            if done1.load(Ordering::SeqCst) && done2.load(Ordering::SeqCst) {
+                return ControlFlow::Break(());
+            }
+            ControlFlow::Continue(())
+        }
+    })
+    .await
+    .unwrap();
+    near_async::shutdown_all_actors();
+    RocksDB::block_until_all_instances_are_dropped();
 }
 
 /// Checks that during the first epoch, total_supply matches total_supply in genesis.
 /// Checks that during the second epoch, total_supply matches the expected inflation rate.
-#[test]
-#[ignore] // TODO: #14261
-fn slow_test_inflation() {
-    heavy_test(|| {
-        let num_nodes = 1;
-        let dirs = (0..num_nodes)
-            .map(|i| {
-                tempfile::Builder::new().prefix(&format!("stake_node_{}", i)).tempdir().unwrap()
-            })
-            .collect::<Vec<_>>();
-        let epoch_length = 10;
-        run_actix(async {
-            let test_nodes = init_test_staking(
-                dirs.iter().map(|dir| dir.path()).collect::<Vec<_>>(),
-                num_nodes,
-                1,
-                epoch_length,
-                true,
-                10,
-                false,
-            );
-            let initial_total_supply = test_nodes[0].config.genesis.config.total_supply;
-            let max_inflation_rate = test_nodes[0].config.genesis.config.max_inflation_rate;
+#[tokio::test]
+async fn slow_test_inflation() {
+    let num_nodes = 1;
+    let dirs = (0..num_nodes)
+        .map(|i| tempfile::Builder::new().prefix(&format!("stake_node_{}", i)).tempdir().unwrap())
+        .collect::<Vec<_>>();
+    let epoch_length = 10;
+    let test_nodes = init_test_staking(
+        dirs.iter().map(|dir| dir.path()).collect::<Vec<_>>(),
+        num_nodes,
+        1,
+        epoch_length,
+        true,
+        10,
+        false,
+    );
+    let initial_total_supply = test_nodes[0].config.genesis.config.total_supply;
+    let max_inflation_rate = test_nodes[0].config.genesis.config.max_inflation_rate;
 
-            let (done1, done2) =
-                (Arc::new(AtomicBool::new(false)), Arc::new(AtomicBool::new(false)));
-            let (done1_copy1, done2_copy1) = (done1, done2);
-            WaitOrTimeoutActor::new(
-                Box::new(move |_ctx| {
-                    let (done1_copy2, done2_copy2) = (done1_copy1.clone(), done2_copy1.clone());
-                    let actor =
-                        test_nodes[0].view_client.send_async(GetBlock::latest());
-                    let actor = actor.then(move |res| {
-                        if let Ok(Ok(block)) = res {
-                            if block.header.height >= 2 && block.header.height <= epoch_length {
-                                tracing::info!(?block.header.total_supply, ?block.header.height, ?initial_total_supply, epoch_length, "Step1: epoch1");
-                                if block.header.total_supply == initial_total_supply {
-                                    done1_copy2.store(true, Ordering::SeqCst);
-                                }
-                            } else {
-                                tracing::info!("Step1: not epoch1");
-                            }
+    let (done1, done2) = (Arc::new(AtomicBool::new(false)), Arc::new(AtomicBool::new(false)));
+
+    wait_or_timeout(100, 60000, || {
+            let test_nodes = test_nodes.clone();
+            let done1 = done1.clone();
+            let done2 = done2.clone();
+            async move {
+                let view_client = test_nodes[0].view_client.clone();
+
+                if let Ok(Ok(block)) = view_client.send_async(GetBlock::latest()).await {
+                    if block.header.height >= 2 && block.header.height <= epoch_length {
+                        tracing::info!(?block.header.total_supply, ?block.header.height, ?initial_total_supply, epoch_length, "Step1: epoch1");
+                        if block.header.total_supply == initial_total_supply {
+                            done1.store(true, Ordering::SeqCst);
                         }
-                        future::ready(())
-                    });
-                    actix::spawn(actor);
-                    let view_client = test_nodes[0].view_client.clone();
-                    actix::spawn(async move {
-                        if let Ok(Ok(block)) =
-                            view_client.send_async(GetBlock::latest()).await
-                        {
-                            if block.header.height > epoch_length
-                                && block.header.height < epoch_length * 2
-                            {
-                                tracing::info!(?block.header.total_supply, ?block.header.height, ?initial_total_supply, epoch_length, "Step2: epoch2");
-                                let base_reward = {
-                                    let genesis_block_view = view_client
-                                        .send_async(
-                                            GetBlock(BlockReference::BlockId(BlockId::Height(0)))
-                                                ,
-                                        )
-                                        .await
-                                        .unwrap()
-                                        .unwrap();
-                                    let epoch_end_block_view = view_client
-                                        .send_async(
-                                            GetBlock(BlockReference::BlockId(BlockId::Height(
-                                                epoch_length,
-                                            )))
-                                            ,
-                                        )
-                                        .await
-                                        .unwrap()
-                                        .unwrap();
-                                    Balance::from_yoctonear((U256::from(initial_total_supply.as_yoctonear())
-                                        * U256::from(
-                                            epoch_end_block_view.header.timestamp_nanosec
-                                                - genesis_block_view.header.timestamp_nanosec,
-                                        )
-                                        * U256::from(*max_inflation_rate.numer() as u64)
-                                        / (U256::from(10u64.pow(9) * 365 * 24 * 60 * 60)
-                                            * U256::from(*max_inflation_rate.denom() as u64)))
-                                    .as_u128())
-                                };
-                                // To match rounding, split into protocol reward and validator reward.
-                                // Protocol reward is one tenth of the base reward, while validator reward is the remainder.
-                                // There's only one validator so the second part of the computation is easier.
-                                // The validator rewards depend on its uptime; in other words, the more blocks, chunks and endorsements
-                                // it produces the bigger is the reward.
-                                // In this test the validator produces 10 blocks out 10, 9 chunks out of 10 and 9 endorsements out of 10.
-                                // Then there's a formula to translate 28/30 successes to a 10/27 reward multiplier
-                                // (using min_online_threshold=9/10 and max_online_threshold=99/100).
-                                //
-                                // For additional details check: chain/epoch-manager/src/reward_calculator.rs or
-                                // https://nomicon.io/Economics/Economic#validator-rewards-calculation
-                                let protocol_reward = base_reward.checked_mul(1).unwrap().checked_div(10).unwrap();
-                                let validator_reward = base_reward.checked_sub(protocol_reward).unwrap();
-                                // Chunk endorsement ratio 9/10 is mapped to 1 so the reward multiplier becomes 20/27.
-                                let inflation = protocol_reward.checked_add(validator_reward.checked_mul(20).unwrap().checked_div(27).unwrap()).unwrap();
-                                tracing::info!(?block.header.total_supply, ?block.header.height, ?initial_total_supply, epoch_length, ?inflation, "Step2: epoch2");
-                                if block.header.total_supply == initial_total_supply.checked_add(inflation).unwrap() {
-                                    done2_copy2.store(true, Ordering::SeqCst);
-                                }
-                            } else {
-                                tracing::info!("Step2: not epoch2");
-                            }
-                        }
-                    });
-                    if done1_copy1.load(Ordering::SeqCst) && done2_copy1.load(Ordering::SeqCst) {
-                        near_async::shutdown_all_actors();
+                    } else {
+                        tracing::info!("Step1: not epoch1");
                     }
-                }),
-                100,
-                20000,
-            )
-            .start();
-        });
-    });
+
+                    if block.header.height > epoch_length
+                        && block.header.height < epoch_length * 2
+                    {
+                        tracing::info!(?block.header.total_supply, ?block.header.height, ?initial_total_supply, epoch_length, "Step2: epoch2");
+                        let base_reward = {
+                            let genesis_block_view = view_client
+                                .send_async(
+                                    GetBlock(BlockReference::BlockId(BlockId::Height(0)))
+                                        ,
+                                )
+                                .await
+                                .unwrap()
+                                .unwrap();
+                            let epoch_end_block_view = view_client
+                                .send_async(
+                                    GetBlock(BlockReference::BlockId(BlockId::Height(
+                                        epoch_length,
+                                    )))
+                                    ,
+                                )
+                                .await
+                                .unwrap()
+                                .unwrap();
+                            Balance::from_yoctonear((U256::from(initial_total_supply.as_yoctonear())
+                                * U256::from(
+                                    epoch_end_block_view.header.timestamp_nanosec
+                                        - genesis_block_view.header.timestamp_nanosec,
+                                )
+                                * U256::from(*max_inflation_rate.numer() as u64)
+                                / (U256::from(10u64.pow(9) * 365 * 24 * 60 * 60)
+                                    * U256::from(*max_inflation_rate.denom() as u64)))
+                            .as_u128())
+                        };
+                        // To match rounding, split into protocol reward and validator reward.
+                        // Protocol reward is one tenth of the base reward, while validator reward is the remainder.
+                        // There's only one validator so the second part of the computation is easier.
+                        // The validator rewards depend on its uptime; in other words, the more blocks, chunks and endorsements
+                        // it produces the bigger is the reward.
+                        // In this test the validator produces 10 blocks out 10, 9 chunks out of 10 and 9 endorsements out of 10.
+                        // Then there's a formula to translate 28/30 successes to a 10/27 reward multiplier
+                        // (using min_online_threshold=9/10 and max_online_threshold=99/100).
+                        //
+                        // For additional details check: chain/epoch-manager/src/reward_calculator.rs or
+                        // https://nomicon.io/Economics/Economic#validator-rewards-calculation
+                        let protocol_reward = base_reward .checked_mul(1).unwrap().checked_div(10).unwrap();
+                        let validator_reward = base_reward .checked_sub(protocol_reward).unwrap();
+                        // Chunk endorsement ratio 9/10 is mapped to 1 so the reward multiplier becomes 20/27.
+                        let inflation = protocol_reward .checked_add(validator_reward.checked_mul(20).unwrap().checked_div(27).unwrap()).unwrap();
+                        tracing::info!(?block.header.total_supply, ?block.header.height, ?initial_total_supply, epoch_length, ?inflation, "Step2: epoch2");
+                        if block.header.total_supply == initial_total_supply .checked_add(inflation).unwrap() {
+                            done2.store(true, Ordering::SeqCst);
+                        }
+                    } else {
+                        tracing::info!("Step2: not epoch2");
+                    }
+                }
+
+                if done1.load(Ordering::SeqCst) && done2.load(Ordering::SeqCst) {
+                    return ControlFlow::Break(());
+                }
+                ControlFlow::Continue(())
+            }
+        })
+        .await
+        .unwrap();
+    near_async::shutdown_all_actors();
+    RocksDB::block_until_all_instances_are_dropped();
 }
