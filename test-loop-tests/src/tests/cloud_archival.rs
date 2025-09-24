@@ -1,18 +1,41 @@
 use std::collections::HashSet;
 
 use near_async::time::Duration;
+use near_chain::ChainStoreAccess;
+use near_chain::types::Tip;
 use near_chain_configs::test_genesis::{TestEpochConfigBuilder, ValidatorsSpec};
 use near_o11y::testonly::init_test_logger;
 use near_primitives::shard_layout::ShardLayout;
-use near_primitives::types::AccountId;
+use near_primitives::types::{AccountId, BlockHeight};
+use near_store::{COLD_HEAD_KEY, DBCol};
 
 use crate::setup::builder::TestLoopBuilder;
 
 const EPOCH_LENGTH: u64 = 10;
 const GC_NUM_EPOCHS_TO_KEEP: u64 = 3;
+const DEFAULT_NUM_EPOCHS_TO_WAIT: u64 = GC_NUM_EPOCHS_TO_KEEP + 1;
 
+/// Parameters to control the behavior of cloud archival tests
+#[derive(derive_builder::Builder)]
+#[builder(pattern = "owned", build_fn(skip))]
 struct TestCloudArchivalParameters {
-    with_cold_store: bool,
+    /// Run the cold store loop.
+    enable_split_store: bool,
+    #[allow(unused)]
+    /// Delay the start of cloud archival node to the given height.
+    delay_cloud_archival_start: Option<BlockHeight>,
+    /// For how many epochs should the test be running.
+    num_epochs_to_wait: u64,
+}
+
+impl TestCloudArchivalParametersBuilder {
+    fn build(self) -> TestCloudArchivalParameters {
+        TestCloudArchivalParameters {
+            enable_split_store: self.enable_split_store.unwrap_or(false),
+            delay_cloud_archival_start: self.delay_cloud_archival_start.unwrap_or_default(),
+            num_epochs_to_wait: self.num_epochs_to_wait.unwrap_or(DEFAULT_NUM_EPOCHS_TO_WAIT),
+        }
+    }
 }
 
 fn test_cloud_archival_base(params: TestCloudArchivalParameters) {
@@ -34,7 +57,7 @@ fn test_cloud_archival_base(params: TestCloudArchivalParameters) {
     let archival_client_index = 0;
     assert_eq!(all_clients[archival_client_index], archival_client);
     let mut split_store_archival_clients = HashSet::<AccountId>::new();
-    if params.with_cold_store {
+    if params.enable_split_store {
         split_store_archival_clients.insert(archival_client.clone());
     }
     let cloud_archival_writers = [archival_client].into_iter().collect();
@@ -51,7 +74,8 @@ fn test_cloud_archival_base(params: TestCloudArchivalParameters) {
 
     // Run the chain until it garbage collects blocks from the first epoch.
     let client_handle = env.node_datas[archival_client_index].client_sender.actor_handle();
-    let target_height = EPOCH_LENGTH * (GC_NUM_EPOCHS_TO_KEEP + 1);
+    let target_height = params.num_epochs_to_wait * EPOCH_LENGTH;
+
     env.test_loop.run_until(
         |test_loop_data| {
             let chain = &test_loop_data.get(&client_handle).client.chain;
@@ -59,7 +83,10 @@ fn test_cloud_archival_base(params: TestCloudArchivalParameters) {
         },
         Duration::seconds(target_height as i64),
     );
+
     let client = env.test_loop.data.get(&client_handle);
+    let client_store = client.client.chain.chain_store();
+
     let cloud_archival_actor_handle = env.node_datas[archival_client_index]
         .cloud_archival_sender
         .as_ref()
@@ -67,8 +94,15 @@ fn test_cloud_archival_base(params: TestCloudArchivalParameters) {
         .actor_handle();
     let cloud_archival_actor = env.test_loop.data.get(&cloud_archival_actor_handle);
 
-    let gc_tail = client.client.chain.chain_store().tail().unwrap();
+    let gc_tail = client_store.tail().unwrap();
     let cloud_head = cloud_archival_actor.get_cloud_head();
+
+    if params.enable_split_store {
+        let cold_head = client_store.store().get_ser::<Tip>(DBCol::BlockMisc, COLD_HEAD_KEY);
+        let cold_head_height = cold_head.unwrap().unwrap().height;
+        assert!(cold_head_height > gc_tail);
+    }
+
     // TODO(cloud_archival) With cloud archival paused, the assertion below would fail.
     assert!(cloud_head > gc_tail);
     assert!(gc_tail > EPOCH_LENGTH);
@@ -79,14 +113,13 @@ fn test_cloud_archival_base(params: TestCloudArchivalParameters) {
 /// Verifies that the cloud archival writer does not crash and that `cloud_head` progresses.
 #[test]
 fn test_cloud_archival_basic() {
-    let params = TestCloudArchivalParameters { with_cold_store: false };
-    test_cloud_archival_base(params);
+    test_cloud_archival_base(TestCloudArchivalParametersBuilder::default().build());
 }
 
-/// Verifies that the cloud archival writer does not crash and that `cloud_head` progresses if cold store is
-/// enabled.
+/// Verifies that the cloud archival writer and cold store loop progress when both are enabled.
 #[test]
-fn test_cloud_archival_with_cold_store() {
-    let params = TestCloudArchivalParameters { with_cold_store: true };
-    test_cloud_archival_base(params);
+fn test_cloud_archival_with_split_store() {
+    test_cloud_archival_base(
+        TestCloudArchivalParametersBuilder::default().enable_split_store(true).build(),
+    );
 }

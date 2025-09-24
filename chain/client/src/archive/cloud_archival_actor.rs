@@ -7,6 +7,7 @@ use near_async::messaging::Actor;
 use near_chain::types::Tip;
 use near_chain_configs::{CloudArchivalHandle, CloudArchivalWriterConfig};
 use near_primitives::types::BlockHeight;
+use near_store::db::{CLOUD_HEAD_KEY, DBTransaction};
 use near_store::{DBCol, FINAL_HEAD_KEY, NodeStorage, Store};
 use time::Duration;
 
@@ -181,6 +182,12 @@ impl CloudArchivalActor {
     ) -> anyhow::Result<(), CloudArchivingError> {
         debug_assert_eq!(new_head, self.cloud_head + 1);
         self.cloud_head = new_head;
+        // Write CLOUD_HEAD to the hot db.
+        {
+            let mut transaction = DBTransaction::new();
+            transaction.set(DBCol::BlockMisc, CLOUD_HEAD_KEY.to_vec(), borsh::to_vec(&new_head)?);
+            self.hot_store.database().write(transaction)?;
+        }
         Ok(())
     }
 
