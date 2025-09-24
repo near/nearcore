@@ -202,11 +202,11 @@ max_elements_per_contract_table                       10_000
 flat_storage_reads                      true
 implicit_account_creation               true
 fix_contract_loading_cost               false
-vm_kind                                 NearVm2
+vm_kind                                 NearVm
 eth_implicit_accounts                   true
 discard_custom_sections                 true
 saturating_float_to_int                 true
-reftypes_bulk_memory                    true
+reftypes_bulk_memory                    false
 max_congestion_incoming_gas             400_000_000_000_000_000
 max_congestion_outgoing_gas             10_000_000_000_000_000
 max_congestion_memory_consumption              1_000_000_000

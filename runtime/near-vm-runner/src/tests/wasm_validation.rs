@@ -312,7 +312,7 @@ fn too_many_tables() {
         .expects(&[
             expect![[r#"
                 VMOutcome: balance 4 storage_usage 12 return data None burnt gas 95357188 used gas 95357188
-                Err: PrepareError: Too many tables declared in the contract.
+                Err: PrepareError: Error happened while deserializing the module.
             "#]],
         ]);
 }
