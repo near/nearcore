@@ -998,7 +998,8 @@ mod tests {
             min_block_prod_time: 1230,
             max_block_prod_time: 2340,
             num_block_producer_seats: 50,
-            archive: false,
+            enable_split_store: false,
+            enable_cloud_archival_writer: false,
             save_trie_changes: true,
             state_sync_enabled: true,
         });
@@ -1116,7 +1117,8 @@ mod tests {
             min_block_prod_time: 1230,
             max_block_prod_time: 2340,
             num_block_producer_seats: 50,
-            archive: false,
+            enable_split_store: false,
+            enable_cloud_archival_writer: false,
             save_trie_changes: true,
             state_sync_enabled: true,
         });

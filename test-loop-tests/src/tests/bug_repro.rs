@@ -183,7 +183,7 @@ fn slow_test_sync_from_archival_node() {
         .genesis(genesis)
         .epoch_config_store(epoch_config_store)
         .clients(clients.clone())
-        .archival_clients([clients[0].clone()].into())
+        .split_store_archival_clients([clients[0].clone()].into())
         .config_modifier(move |config, idx| {
             config.min_block_production_delay = block_prod_time;
             config.max_block_production_delay = 3 * block_prod_time;

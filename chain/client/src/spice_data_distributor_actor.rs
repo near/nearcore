@@ -520,15 +520,10 @@ impl SpiceDataDistributorActor {
             }
             SpiceDataIdentifier::Witness { block_hash, shard_id } => {
                 debug_assert_eq!(block_hash, block.hash());
-                let chunks = block.chunks();
-                let chunk = chunks
-                    .iter_raw()
-                    .find(|chunk| &chunk.shard_id() == shard_id)
-                    .ok_or(Error::InvalidWitnessShardId)?;
                 // TODO(spice): Check for unsuccessful validations as well.
                 if self
                     .core_processor
-                    .endorsement_exists(block, chunk, me)
+                    .endorsement_exists(block_hash, *shard_id, me)
                     .map_err(near_chain::Error::from)?
                 {
                     return Err(Error::WitnessAlreadyValidated);
