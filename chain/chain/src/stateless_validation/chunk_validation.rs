@@ -42,9 +42,11 @@ use near_store::{PartialStorage, Store, Trie};
 use node_runtime::SignedValidPeriodTransactions;
 use parking_lot::Mutex;
 use reed_solomon_erasure::galois_8::ReedSolomon;
+use std::cell::Cell;
 use std::collections::HashMap;
 use std::num::NonZeroUsize;
 use std::sync::Arc;
+use std::sync::OnceLock;
 use std::time::Instant;
 
 #[allow(clippy::large_enum_variant)]
@@ -86,9 +88,9 @@ pub struct ChunkStateWitnessValidationResult {
 // TODO: key should be a pair (chunk_shard_uid, witness_shard_uid) for shard merging
 // pub type MainStateTransitionCache =
 // Arc<Mutex<HashMap<ShardUId, LruCache<CryptoHash, ChunkStateWitnessValidationResult>>>>;
-pub type MainStateTransitionCache = Arc<
-    Mutex<HashMap<ShardUId, LruCache<CachedShardUpdateKey, ChunkStateWitnessValidationResult>>>,
->;
+type CachedOnceCell = Arc<OnceLock<Result<ChunkStateWitnessValidationResult, Error>>>;
+pub type MainStateTransitionCache =
+    Arc<Mutex<HashMap<ShardUId, LruCache<CachedShardUpdateKey, CachedOnceCell>>>>;
 
 /// The number of state witness validation results to cache per shard.
 /// This number needs to be small because result contains outgoing receipts, which can be large.
@@ -588,17 +590,35 @@ pub fn validate_chunk_state_witness_impl(
     let epoch_id = epoch_manager.get_epoch_id_from_prev_block(&prev_hash)?;
     let shard_id = pre_validation_output.main_transition_params.shard_id();
     let shard_uid = shard_id_to_uid(epoch_manager, shard_id, &epoch_id)?;
-    let cache_result = {
-        let mut shard_cache = main_state_transition_cache.lock();
-        // if !is_optimistic {
-        //     println!("GETTING CACHED RESULT: {:?} {:?} {:?}", prev_hash, key, shard_id);
-        // }
-        shard_cache.get_mut(&witness_chunk_shard_uid).and_then(|cache| cache.get(&key).cloned())
-    };
-    let (mut chunk_extra, mut outgoing_receipts) =
-        match (pre_validation_output.main_transition_params, cache_result) {
-            (MainTransition::Genesis { chunk_extra, .. }, _) => (chunk_extra, vec![]),
-            (MainTransition::NewChunk { new_chunk_data, .. }, None) => {
+    // Get or create the OnceLock cell for this key, then initialize (or wait) on it.
+    let (mut chunk_extra, mut outgoing_receipts) = match pre_validation_output
+        .main_transition_params
+    {
+        MainTransition::Genesis { chunk_extra, .. } => (chunk_extra, vec![]),
+        MainTransition::NewChunk { new_chunk_data, .. } => {
+            let cell_arc = {
+                let mut shard_cache = main_state_transition_cache.lock();
+                let cache = shard_cache.entry(witness_chunk_shard_uid).or_insert_with(|| {
+                    LruCache::new(NonZeroUsize::new(NUM_WITNESS_RESULT_CACHE_ENTRIES).unwrap())
+                });
+                if let Some(existing) = cache.get(&key) {
+                    existing.clone()
+                } else {
+                    let cell = Arc::new(OnceLock::new());
+                    cache.put(key, cell.clone());
+                    cell
+                }
+            };
+
+            // Initialize or wait for the result
+            let already_initialized = cell_arc.get().is_some();
+            let start_wait = Instant::now();
+            let we_initialized = Cell::new(false);
+            let init_result = cell_arc.get_or_init(|| {
+                we_initialized.set(true);
+                // if is_optimistic {
+                //     std::thread::sleep(std::time::Duration::from_millis(5));
+                // }
                 let chunk_header = new_chunk_data.chunk_header.clone();
                 let NewChunkResult { apply_result: mut main_apply_result, .. } = apply_new_chunk(
                     ApplyChunkReason::ValidateChunkStateWitness,
@@ -615,15 +635,22 @@ pub fn validate_chunk_state_witness_impl(
                         height_created, shard_id, prev_hash, key
                     );
                 }
-                (chunk_extra, outgoing_receipts)
+                Ok(ChunkStateWitnessValidationResult { chunk_extra, outgoing_receipts })
+            });
+            let waited = start_wait.elapsed();
+            if !is_optimistic && !we_initialized.get() && !already_initialized {
+                println!(
+                    "PESSIMISTIC WAITED on OnceLock {} {:?} {:?} {:?}, waited {:?}",
+                    height_created, shard_id, prev_hash, key, waited
+                );
             }
-            (_, Some(result)) => {
-                // if !is_optimistic {
-                //     println!("USING CACHED RESULT");
-                // }
-                (result.chunk_extra, result.outgoing_receipts)
-            }
-        };
+            let res = match init_result {
+                Ok(val) => val,
+                Err(err) => return Err(Error::Other(err.to_string())),
+            };
+            (res.chunk_extra.clone(), res.outgoing_receipts.clone())
+        }
+    };
 
     if chunk_extra.state_root() != &state_witness.main_state_transition().post_state_root {
         // This is an early check, it's not for correctness, only for better
@@ -650,23 +677,7 @@ pub fn validate_chunk_state_witness_impl(
         }
         Chain::build_receipts_hashes(&outgoing_receipts, &witness_shard_layout)?
     };
-    // Save main state transition result to cache.
-    {
-        let mut shard_cache = main_state_transition_cache.lock();
-        let cache = shard_cache.entry(witness_chunk_shard_uid).or_insert_with(|| {
-            LruCache::new(NonZeroUsize::new(NUM_WITNESS_RESULT_CACHE_ENTRIES).unwrap())
-        });
-        // if is_optimistic {
-        //     println!("SAVING OPTIMISTIC CACHED RESULT: {:?} {:?} {:?}", prev_hash, key, shard_id);
-        // }
-        cache.put(
-            key,
-            ChunkStateWitnessValidationResult {
-                chunk_extra: chunk_extra.clone(),
-                outgoing_receipts: outgoing_receipts.clone(),
-            },
-        );
-    }
+    // No explicit save needed; OnceLock cell was inserted before initialization.
     if is_optimistic {
         // we're not using it anyway
         return Ok(ChunkExecutionResult {
