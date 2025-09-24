@@ -693,13 +693,15 @@ impl EpochAnalysisCmd {
 pub struct PartialChunksCmd {
     #[clap(long)]
     partial_chunk_hash: String,
+    #[clap(long)]
+    partial_chunk_height: BlockHeight,
 }
 
 impl PartialChunksCmd {
     pub fn run(self, near_config: NearConfig, store: Store) {
         let partial_chunk_hash =
             ChunkHash::from(CryptoHash::from_str(&self.partial_chunk_hash).unwrap());
-        get_partial_chunk(partial_chunk_hash, near_config, store)
+        get_partial_chunk(self.partial_chunk_height, partial_chunk_hash, near_config, store)
     }
 }
 

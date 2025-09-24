@@ -108,7 +108,7 @@ struct IncomingRequests {
 fn retrieve_starting_chunk_hash(
     chain: &ChainStoreAdapter,
     head_height: BlockHeight,
-) -> anyhow::Result<ChunkHash> {
+) -> anyhow::Result<(BlockHeight, ChunkHash)> {
     let mut last_err = None;
     for height in (chain.tail().context("failed fetching chain tail")? + 1..=head_height).rev() {
         match chain
@@ -116,7 +116,7 @@ fn retrieve_starting_chunk_hash(
             .and_then(|hash| chain.get_block(&hash))
             .map(|block| block.chunks()[0].chunk_hash().clone())
         {
-            Ok(hash) => return Ok(hash),
+            Ok(hash) => return Ok((height, hash)),
             Err(e) => {
                 last_err = Some(e);
             }
@@ -176,7 +176,7 @@ impl IncomingRequests {
             }
             if let Some(chunk_request_config) = &config.chunk_request {
                 match retrieve_starting_chunk_hash(chain, max_height) {
-                    Ok(chunk_hash) => {
+                    Ok((chunk_height, chunk_hash)) => {
                         chunk_request = Some(PeriodicRequest {
                             interval: tokio::time::interval_at(
                                 (now + chunk_request_config.interval).into(),
@@ -184,6 +184,7 @@ impl IncomingRequests {
                             ),
                             message: Message::Routed(RoutedMessage::PartialEncodedChunkRequest(
                                 PartialEncodedChunkRequestMsg {
+                                    chunk_height,
                                     chunk_hash,
                                     part_ords: vec![0],
                                     tracking_shards: [ShardId::new(0)]
@@ -539,7 +540,7 @@ fn retrieve_partial_encoded_chunk(
     request: &PartialEncodedChunkRequestMsg,
 ) -> Result<PartialEncodedChunkResponseMsg, Error> {
     let num_total_parts = epoch_manager.num_total_parts();
-    let partial_chunk = chain.get_partial_chunk(&request.chunk_hash)?;
+    let partial_chunk = chain.get_partial_chunk(request.chunk_height, &request.chunk_hash)?;
     let present_parts: HashMap<u64, _> =
         partial_chunk.parts().iter().map(|part| (part.part_ord, part)).collect();
     assert_eq!(

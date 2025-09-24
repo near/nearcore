@@ -693,6 +693,17 @@ fn rocksdb_column_options(col: DBCol, store_config: &StoreConfig, temp: Temperat
     opts.set_max_write_buffer_number(max_write_buffer_number);
     opts.set_compaction_readahead_size(compaction_readahead_size.as_u64() as usize);
 
+    if col == DBCol::PartialChunks {
+        opts.set_compression_type(rocksdb::DBCompressionType::None);
+        opts.set_bottommost_compression_type(rocksdb::DBCompressionType::None);
+        opts.set_enable_blob_files(true);
+        opts.set_min_blob_size(1024);
+        opts.set_blob_compression_type(rocksdb::DBCompressionType::None);
+        opts.set_level_zero_file_num_compaction_trigger(-1);
+        opts.set_level_zero_slowdown_writes_trigger(-1);
+        opts.set_level_zero_stop_writes_trigger(i32::MAX);
+    }
+
     opts
 }
 

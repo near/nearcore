@@ -94,6 +94,7 @@ fn serialize_deserialize() -> anyhow::Result<()> {
     let routed_message1 = Box::new(data::make_routed_message(
         &mut rng,
         T2MessageBody::PartialEncodedChunkRequest(PartialEncodedChunkRequestMsg {
+            chunk_height: block3_chunks[0].height_created(),
             chunk_hash: chunk_hash.clone(),
             part_ords: vec![],
             tracking_shards: Default::default(),
@@ -188,6 +189,7 @@ fn make_chunk_request_message() -> RoutedMessage {
     data::make_routed_message(
         &mut rng,
         T2MessageBody::PartialEncodedChunkRequest(PartialEncodedChunkRequestMsg {
+            chunk_height: 1,
             chunk_hash: CryptoHash::default().into(),
             part_ords: vec![],
             tracking_shards: Default::default(),

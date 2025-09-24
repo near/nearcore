@@ -16,7 +16,8 @@ use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::types::{BlockHeight, BlockHeightDelta, EpochId, NumBlocks, ShardId};
 use near_primitives::utils::{
     get_block_shard_id, get_block_shard_id_rev, get_endorsements_key_prefix,
-    get_execution_results_key, get_outcome_id_block_hash, get_receipt_proof_key, index_to_bytes,
+    get_execution_results_key, get_outcome_id_block_hash, get_receipt_proof_key,
+    height_hash_to_bytes, index_to_bytes,
 };
 use near_store::adapter::trie_store::get_shard_uid_mapping;
 use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
@@ -583,7 +584,7 @@ impl<'a> ChainStoreUpdate<'a> {
                     self.gc_col(DBCol::Transactions, transaction.get_hash().as_bytes());
                 }
 
-                let partial_chunk = self.get_partial_chunk(&chunk_hash);
+                let partial_chunk = self.get_partial_chunk(height, &chunk_hash);
                 if let Ok(partial_chunk) = partial_chunk {
                     for receipts in partial_chunk.prev_outgoing_receipts() {
                         for receipt in &receipts.0 {
@@ -593,9 +594,10 @@ impl<'a> ChainStoreUpdate<'a> {
                 }
 
                 // 2. Delete chunk_hash-indexed data
+                let partial_chunk_key = height_hash_to_bytes(height, &chunk_hash.0);
                 let chunk_hash = chunk_hash.as_bytes();
                 self.gc_col(DBCol::Chunks, chunk_hash);
-                self.gc_col(DBCol::PartialChunks, chunk_hash);
+                self.gc_col(DBCol::PartialChunks, &partial_chunk_key);
                 self.gc_col(DBCol::InvalidChunks, chunk_hash);
             }
 
@@ -639,18 +641,19 @@ impl<'a> ChainStoreUpdate<'a> {
         let mut remaining = gc_height_limit;
         while height < gc_stop_height && remaining > 0 {
             let chunk_hashes = self.chain_store().get_all_chunk_hashes_by_height(height)?;
-            height += 1;
             if !chunk_hashes.is_empty() {
                 remaining -= 1;
                 for chunk_hash in chunk_hashes {
-                    let chunk_hash = chunk_hash.as_bytes();
-                    self.gc_col(DBCol::PartialChunks, chunk_hash);
+                    let partial_chunk_key = height_hash_to_bytes(height, &chunk_hash.0);
+                    self.gc_col(DBCol::PartialChunks, &partial_chunk_key);
                     // Data in DBCol::InvalidChunks isn't technically redundant (it
                     // cannot be calculated from other data) but it is data we
                     // don't need for anything so it can be deleted as well.
+                    let chunk_hash = chunk_hash.as_bytes();
                     self.gc_col(DBCol::InvalidChunks, chunk_hash);
                 }
             }
+            height += 1;
         }
         self.update_chunk_tail(height);
         Ok(())
@@ -956,7 +959,7 @@ impl<'a> ChainStoreUpdate<'a> {
                 self.gc_col(DBCol::Transactions, transaction.get_hash().as_bytes());
             }
 
-            let partial_chunk = self.get_partial_chunk(&chunk_hash);
+            let partial_chunk = self.get_partial_chunk(height, &chunk_hash);
             if let Ok(partial_chunk) = partial_chunk {
                 for receipts in partial_chunk.prev_outgoing_receipts() {
                     for receipt in &receipts.0 {
@@ -966,9 +969,10 @@ impl<'a> ChainStoreUpdate<'a> {
             }
 
             // 2. Delete chunk_hash-indexed data
+            let partial_chunk_key = height_hash_to_bytes(height, &chunk_hash.0);
             let chunk_hash = chunk_hash.as_bytes();
             self.gc_col(DBCol::Chunks, chunk_hash);
-            self.gc_col(DBCol::PartialChunks, chunk_hash);
+            self.gc_col(DBCol::PartialChunks, &partial_chunk_key);
             self.gc_col(DBCol::InvalidChunks, chunk_hash);
         }
 

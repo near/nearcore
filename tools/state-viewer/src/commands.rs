@@ -593,6 +593,7 @@ pub(crate) fn print_chunk_apply_stats(
 }
 
 pub(crate) fn get_partial_chunk(
+    partial_chunk_height: BlockHeight,
     partial_chunk_hash: ChunkHash,
     near_config: NearConfig,
     store: Store,
@@ -602,7 +603,7 @@ pub(crate) fn get_partial_chunk(
         near_config.client_config.save_trie_changes,
         near_config.genesis.config.transaction_validity_period,
     );
-    let partial_chunk = chain_store.get_partial_chunk(&partial_chunk_hash);
+    let partial_chunk = chain_store.get_partial_chunk(partial_chunk_height, &partial_chunk_hash);
     println!("Partial chunk: {:#?}", partial_chunk);
 }
 

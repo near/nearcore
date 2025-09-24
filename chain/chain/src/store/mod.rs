@@ -32,8 +32,8 @@ use near_primitives::types::{
     StateChangesKinds, StateChangesKindsExt, StateChangesRequest,
 };
 use near_primitives::utils::{
-    get_block_shard_id, get_outcome_id_block_hash, get_outcome_id_block_hash_rev, index_to_bytes,
-    to_timestamp,
+    get_block_shard_id, get_outcome_id_block_hash, get_outcome_id_block_hash_rev,
+    height_hash_to_bytes, index_to_bytes, to_timestamp,
 };
 use near_primitives::views::LightClientBlockView;
 use near_store::adapter::chain_store::ChainStoreAdapter;
@@ -94,13 +94,17 @@ pub trait ChainStoreAccess {
     /// Get full block.
     fn get_block(&self, h: &CryptoHash) -> Result<Arc<Block>, Error>;
     /// Get partial chunk.
-    fn get_partial_chunk(&self, chunk_hash: &ChunkHash) -> Result<Arc<PartialEncodedChunk>, Error>;
+    fn get_partial_chunk(
+        &self,
+        height: BlockHeight,
+        chunk_hash: &ChunkHash,
+    ) -> Result<Arc<PartialEncodedChunk>, Error>;
     /// Does this full block exist?
     fn block_exists(&self, h: &CryptoHash) -> Result<bool, Error>;
     /// Does this chunk exist?
     fn chunk_exists(&self, h: &ChunkHash) -> Result<bool, Error>;
     /// Does this partial chunk exist?
-    fn partial_chunk_exists(&self, h: &ChunkHash) -> Result<bool, Error>;
+    fn partial_chunk_exists(&self, height: BlockHeight, h: &ChunkHash) -> Result<bool, Error>;
     /// Get previous header.
     fn get_previous_header(&self, header: &BlockHeader) -> Result<Arc<BlockHeader>, Error>;
     /// Get chunk extra info for given block hash + shard id.
@@ -878,8 +882,12 @@ impl ChainStoreAccess for ChainStore {
     }
 
     /// Get partial chunk.
-    fn get_partial_chunk(&self, chunk_hash: &ChunkHash) -> Result<Arc<PartialEncodedChunk>, Error> {
-        ChainStoreAdapter::get_partial_chunk(self, chunk_hash)
+    fn get_partial_chunk(
+        &self,
+        height: BlockHeight,
+        chunk_hash: &ChunkHash,
+    ) -> Result<Arc<PartialEncodedChunk>, Error> {
+        ChainStoreAdapter::get_partial_chunk(self, height, chunk_hash)
     }
 
     /// Does this full block exist?
@@ -891,8 +899,8 @@ impl ChainStoreAccess for ChainStore {
         ChainStoreAdapter::chunk_exists(self, h)
     }
 
-    fn partial_chunk_exists(&self, h: &ChunkHash) -> Result<bool, Error> {
-        ChainStoreAdapter::partial_chunk_exists(self, h)
+    fn partial_chunk_exists(&self, height: BlockHeight, h: &ChunkHash) -> Result<bool, Error> {
+        ChainStoreAdapter::partial_chunk_exists(self, height, h)
     }
 
     /// Get previous header.
@@ -1013,7 +1021,7 @@ pub(crate) struct ChainStoreCacheUpdate {
     headers: HashMap<CryptoHash, Arc<BlockHeader>>,
     chunk_extras: HashMap<(CryptoHash, ShardUId), Arc<ChunkExtra>>,
     chunks: HashMap<ChunkHash, Arc<ArcedShardChunk>>,
-    partial_chunks: HashMap<ChunkHash, Arc<PartialEncodedChunk>>,
+    partial_chunks: HashMap<(BlockHeight, ChunkHash), Arc<PartialEncodedChunk>>,
     pub(crate) height_to_hashes: HashMap<BlockHeight, Option<CryptoHash>>,
     next_block_hashes: HashMap<CryptoHash, CryptoHash>,
     epoch_light_client_blocks: HashMap<CryptoHash, Arc<LightClientBlockView>>,
@@ -1194,9 +1202,9 @@ impl<'a> ChainStoreAccess for ChainStoreUpdate<'a> {
             || self.chain_store.chunk_exists(h)?)
     }
 
-    fn partial_chunk_exists(&self, h: &ChunkHash) -> Result<bool, Error> {
-        Ok(self.chain_store_cache_update.partial_chunks.contains_key(h)
-            || self.chain_store.partial_chunk_exists(h)?)
+    fn partial_chunk_exists(&self, height: BlockHeight, h: &ChunkHash) -> Result<bool, Error> {
+        Ok(self.chain_store_cache_update.partial_chunks.contains_key(&(height, h.clone()))
+            || self.chain_store.partial_chunk_exists(height, h)?)
     }
 
     /// Get previous header.
@@ -1315,11 +1323,17 @@ impl<'a> ChainStoreAccess for ChainStoreUpdate<'a> {
         }
     }
 
-    fn get_partial_chunk(&self, chunk_hash: &ChunkHash) -> Result<Arc<PartialEncodedChunk>, Error> {
-        if let Some(partial_chunk) = self.chain_store_cache_update.partial_chunks.get(chunk_hash) {
+    fn get_partial_chunk(
+        &self,
+        height: BlockHeight,
+        chunk_hash: &ChunkHash,
+    ) -> Result<Arc<PartialEncodedChunk>, Error> {
+        if let Some(partial_chunk) =
+            self.chain_store_cache_update.partial_chunks.get(&(height, chunk_hash.clone()))
+        {
             Ok(Arc::clone(partial_chunk))
         } else {
-            self.chain_store.get_partial_chunk(chunk_hash)
+            self.chain_store.get_partial_chunk(height, chunk_hash)
         }
     }
 
@@ -1545,9 +1559,10 @@ impl<'a> ChainStoreUpdate<'a> {
     }
 
     pub fn save_partial_chunk(&mut self, partial_chunk: Arc<PartialEncodedChunk>) {
-        self.chain_store_cache_update
-            .partial_chunks
-            .insert(partial_chunk.chunk_hash().clone(), partial_chunk);
+        self.chain_store_cache_update.partial_chunks.insert(
+            (partial_chunk.height_created(), partial_chunk.chunk_hash().clone()),
+            partial_chunk,
+        );
     }
 
     pub fn save_block_merkle_tree(
@@ -1903,10 +1918,12 @@ impl<'a> ChainStoreUpdate<'a> {
                     &hash_set,
                 )?;
             }
-            for (chunk_hash, partial_chunk) in &self.chain_store_cache_update.partial_chunks {
+            for ((height, chunk_hash), partial_chunk) in
+                &self.chain_store_cache_update.partial_chunks
+            {
                 store_update.insert_ser(
                     DBCol::PartialChunks,
-                    chunk_hash.as_ref(),
+                    &height_hash_to_bytes(*height, &chunk_hash.0),
                     partial_chunk,
                 )?;
 

@@ -211,6 +211,7 @@ impl Network {
                         min_height: ch.height_included(),
                     },
                     request: PartialEncodedChunkRequestMsg {
+                        chunk_height: ch.height_created(),
                         chunk_hash: ch.chunk_hash().clone(),
                         part_ords: (0..self.parts_per_chunk).collect(),
                         tracking_shards: Default::default(),
