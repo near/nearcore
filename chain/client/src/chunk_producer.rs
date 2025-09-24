@@ -607,6 +607,9 @@ impl ChunkProducer {
             .entered();
             prepare_job.wait();
         });
+        metrics::PREPARE_TRANSACTIONS_JOB_STARTED_TOTAL
+            .with_label_values(&[&shard_uid.shard_id().to_string()])
+            .inc();
     }
 
     /// Get transactions that were prepared using the background prepare transactions job.
@@ -645,6 +648,9 @@ impl ChunkProducer {
                 ?prev_chunk_shard_update_key,
                 "Cached prepared transactions not found"
             );
+            metrics::PREPARE_TRANSACTIONS_JOB_NOT_FOUND_TOTAL
+                .with_label_values(&[&shard_id.to_string()])
+                .inc();
             return Ok(None);
         };
         match result {
@@ -657,6 +663,9 @@ impl ChunkProducer {
                     ?err,
                     "Error preparing transactions",
                 );
+                metrics::PREPARE_TRANSACTIONS_JOB_ERROR_TOTAL
+                    .with_label_values(&[&shard_id.to_string()])
+                    .inc();
                 Ok(None)
             }
             Ok(txs) => {
@@ -668,6 +677,9 @@ impl ChunkProducer {
                     num_txs = txs.transactions.len(),
                     "Found cached prepared transactions"
                 );
+                metrics::PREPARE_TRANSACTIONS_JOB_RESULT_USED_TOTAL
+                    .with_label_values(&[&shard_id.to_string()])
+                    .inc();
                 Ok(Some(txs))
             }
         }
