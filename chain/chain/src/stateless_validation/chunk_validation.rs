@@ -566,8 +566,9 @@ pub fn validate_chunk_state_witness_impl(
         chunk: ChunkProductionKey { shard_id: witness_chunk_shard_id, epoch_id, height_created },
         is_optimistic,
     } = state_witness.production_key();
+    let type_str = if is_optimistic { "optimistic" } else { "full" };
     let _timer = crate::stateless_validation::metrics::CHUNK_STATE_WITNESS_VALIDATION_TIME
-        .with_label_values(&[&witness_chunk_shard_id.to_string()])
+        .with_label_values(&[&witness_chunk_shard_id.to_string(), type_str])
         .start_timer();
     let span = tracing::debug_span!(
         target: "client",
@@ -639,6 +640,9 @@ pub fn validate_chunk_state_witness_impl(
             });
             let waited = start_wait.elapsed();
             if !is_optimistic && !we_initialized.get() && !already_initialized {
+                crate::stateless_validation::metrics::CHUNK_STATE_WITNESS_WAIT_TIME
+                    .with_label_values(&[&witness_chunk_shard_id.to_string()])
+                    .observe(waited.as_secs_f64());
                 println!(
                     "PESSIMISTIC WAITED on OnceLock {} {:?} {:?} {:?}, waited {:?}",
                     height_created, shard_id, prev_hash, key, waited
