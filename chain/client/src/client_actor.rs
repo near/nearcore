@@ -27,14 +27,13 @@ use crate::sync_jobs_actor::{ClientSenderForSyncJobs, SyncJobsActor};
 use crate::{AsyncComputationMultiSpawner, StatusResponse, metrics};
 use near_async::futures::{DelayedActionRunner, DelayedActionRunnerExt, FutureSpawner};
 use near_async::messaging::{
-    self, CanSend, Handler, IntoMultiSender, IntoSender as _, LateBoundSender, Sender, noop,
+    self, CanSend, Handler, IntoMultiSender, IntoSender as _, LateBoundSender, Sender,
 };
 use near_async::multithread::MultithreadRuntimeHandle;
 use near_async::time::{Clock, Utc};
 use near_async::time::{Duration, Instant};
 use near_async::tokio::TokioRuntimeHandle;
 use near_async::{ActorSystem, MultiSend, MultiSenderFrom};
-use near_chain::ApplyChunksSpawner;
 #[cfg(feature = "test_features")]
 use near_chain::ChainStoreAccess;
 use near_chain::chain::{ApplyChunksDoneMessage, BlockCatchUpRequest, BlockCatchUpResponse};
@@ -43,6 +42,7 @@ use near_chain::spice_core::CoreStatementsProcessor;
 use near_chain::state_snapshot_actor::SnapshotCallbacks;
 use near_chain::test_utils::format_hash;
 use near_chain::types::RuntimeAdapter;
+use near_chain::{ApplyChunksIterationMode, ApplyChunksSpawner};
 use near_chain::{
     Block, BlockHeader, ChainGenesis, Provenance, byzantine_assert, near_chain_primitives,
 };
@@ -79,7 +79,6 @@ use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature, get_protocol_u
 use near_primitives::views::{DetailedDebugStatus, ValidatorInfo};
 #[cfg(feature = "test_features")]
 use near_store::DBCol;
-use near_store::adapter::StoreAdapter;
 use near_telemetry::TelemetryEvent;
 use parking_lot::Mutex;
 use rand::seq::SliceRandom;
@@ -126,6 +125,13 @@ pub struct StartClientResult {
     pub chunk_validation_actor: MultithreadRuntimeHandle<ChunkValidationActorInner>,
 }
 
+pub struct SpiceClientConfig {
+    pub core_processor: CoreStatementsProcessor,
+    pub chunk_executor_sender: Sender<ProcessedBlock>,
+    pub spice_chunk_validator_sender: Sender<ProcessedBlock>,
+    pub spice_data_distributor_sender: Sender<ProcessedBlock>,
+}
+
 /// Starts client in a separate tokio runtime (thread).
 pub fn start_client(
     clock: Clock,
@@ -149,6 +155,7 @@ pub fn start_client(
     enable_doomslug: bool,
     seed: Option<RngSeed>,
     resharding_sender: ReshardingSender,
+    spice_client_config: SpiceClientConfig,
 ) -> StartClientResult {
     wait_until_genesis(&chain_genesis.time);
 
@@ -156,16 +163,10 @@ pub fn start_client(
     let client_sender_for_client = LateBoundSender::<ClientSenderForClient>::new();
     let protocol_upgrade_schedule = get_protocol_upgrade_schedule(client_config.chain_id.as_str());
     let multi_spawner = AsyncComputationMultiSpawner::default();
+    let apply_chunks_iteration_mode = ApplyChunksIterationMode::default();
 
     let chunk_validation_adapter = LateBoundSender::<ChunkValidationSender>::new();
 
-    // TODO(spice): Initialize CoreStatementsProcessor properly.
-    let spice_core_processor = CoreStatementsProcessor::new(
-        runtime.store().chain_store(),
-        epoch_manager.clone(),
-        noop().into_sender(),
-        noop().into_sender(),
-    );
     let client = Client::new(
         clock.clone(),
         client_config,
@@ -180,6 +181,7 @@ pub fn start_client(
         seed.unwrap_or_else(random_seed_from_thread),
         snapshot_callbacks,
         multi_spawner,
+        apply_chunks_iteration_mode,
         partial_witness_adapter,
         resharding_sender,
         state_sync_future_spawner,
@@ -187,12 +189,15 @@ pub fn start_client(
         client_sender_for_client.as_multi_sender(),
         chunk_validation_adapter.as_multi_sender(),
         protocol_upgrade_schedule,
-        spice_core_processor,
+        spice_client_config.core_processor,
     )
     .unwrap();
 
     let client_sender_for_sync_jobs = LateBoundSender::<ClientSenderForSyncJobs>::new();
-    let sync_jobs_actor = SyncJobsActor::new(client_sender_for_sync_jobs.as_multi_sender());
+    let sync_jobs_actor = SyncJobsActor::new(
+        client_sender_for_sync_jobs.as_multi_sender(),
+        apply_chunks_iteration_mode,
+    );
     let sync_jobs_actor_addr = actor_system.spawn_tokio_actor(sync_jobs_actor);
 
     // Create chunk validation actor
@@ -232,12 +237,9 @@ pub fn start_client(
         adv,
         config_updater,
         sync_jobs_actor_addr.into_multi_sender(),
-        // TODO(spice): Pass in chunk_executor_sender.
-        noop().into_sender(),
-        // TODO(spice): Pass in spice_chunk_validator_sender.
-        noop().into_sender(),
-        // TODO(spice): Pass in spice_data_distributor_sender.
-        noop().into_sender(),
+        spice_client_config.chunk_executor_sender,
+        spice_client_config.spice_chunk_validator_sender,
+        spice_client_config.spice_data_distributor_sender,
     )
     .unwrap();
     let tx_pool = client_actor_inner.client.chunk_producer.sharded_tx_pool.clone();

@@ -14,10 +14,12 @@ use near_primitives::test_utils::create_user_test_signer;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::AccountId;
 use near_primitives::types::Gas;
+use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_primitives::views::FinalExecutionStatus;
 
 use crate::setup::env::TestLoopEnv;
 use crate::setup::state::NodeExecutionData;
+use crate::utils::receipts::action_receipt_v1_to_latest;
 use crate::utils::setups::standard_setup_1;
 use crate::utils::transactions::{TransactionRunner, execute_tx, get_shared_block_hash, run_tx};
 
@@ -184,6 +186,8 @@ fn test_max_receipt_size_promise_return() {
             }))],
         }),
     });
+    let base_receipt_template =
+        action_receipt_v1_to_latest(&base_receipt_template, PROTOCOL_VERSION);
     let base_receipt_size = borsh::object_length(&base_receipt_template).unwrap();
     let max_receipt_size = 4_194_304;
     let args_size = max_receipt_size - base_receipt_size;
@@ -327,12 +331,17 @@ fn test_max_receipt_size_yield_resume() {
     )
     .unwrap();
 
+    let expected_size = if ProtocolFeature::DeterministicAccountIds.enabled(PROTOCOL_VERSION) {
+        4194504
+    } else {
+        4194503
+    };
     let expected_yield_status =
         FinalExecutionStatus::Failure(TxExecutionError::ActionError(ActionError {
             index: Some(0),
             kind: ActionErrorKind::NewReceiptValidationError(
                 ReceiptValidationError::ReceiptSizeExceeded {
-                    size: 4194503,
+                    size: expected_size,
                     limit: max_receipt_size,
                 },
             ),

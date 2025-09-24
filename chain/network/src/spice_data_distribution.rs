@@ -1,15 +1,23 @@
+use near_async::messaging::Sender;
+use near_async::{MultiSend, MultiSendMessage, MultiSenderFrom};
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::MerklePath;
 use near_primitives::types::{AccountId, MerkleHash, ShardId};
 
-#[derive(actix::Message, Debug, Clone)]
+#[derive(actix::Message, Debug, Clone, PartialEq, Eq)]
 #[rtype(result = "()")]
 pub struct SpiceIncomingPartialData {
     pub data: SpicePartialData,
-    pub sender: AccountId,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Clone, MultiSend, MultiSenderFrom, MultiSendMessage)]
+#[multi_send_message_derive(Debug)]
+#[multi_send_input_derive(Debug, Clone, PartialEq, Eq)]
+pub struct SpiceDataDistributorSenderForNetwork {
+    pub incoming: Sender<SpiceIncomingPartialData>,
+}
+
+#[derive(borsh::BorshSerialize, borsh::BorshDeserialize, Debug, Clone, PartialEq, Eq, Hash)]
 pub enum SpiceDataIdentifier {
     ReceiptProof { block_hash: CryptoHash, from_shard_id: ShardId, to_shard_id: ShardId },
     Witness { block_hash: CryptoHash, shard_id: ShardId },
@@ -24,14 +32,14 @@ impl SpiceDataIdentifier {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(borsh::BorshSerialize, borsh::BorshDeserialize, Debug, Clone, PartialEq, Eq, Hash)]
 pub struct SpiceDataCommitment {
     pub hash: CryptoHash,
     pub root: MerkleHash,
     pub encoded_length: u64,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(borsh::BorshSerialize, borsh::BorshDeserialize, Debug, Clone, PartialEq, Eq)]
 pub struct SpiceDataPart {
     pub part_ord: u64,
     pub part: Box<[u8]>,
@@ -39,10 +47,12 @@ pub struct SpiceDataPart {
 }
 
 // TODO(spice): Version this struct since it is sent over the network.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(borsh::BorshSerialize, borsh::BorshDeserialize, Debug, Clone, PartialEq, Eq)]
 pub struct SpicePartialData {
     // We include id to allow finding recipients and producers when receiving the data.
     pub id: SpiceDataIdentifier,
     pub commitment: SpiceDataCommitment,
     pub parts: Vec<SpiceDataPart>,
+    // TODO(spice): Validate that data.sender actually sent the data.
+    pub sender: AccountId,
 }

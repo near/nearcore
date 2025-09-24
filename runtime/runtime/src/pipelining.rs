@@ -124,6 +124,7 @@ impl ReceiptPreparationPipeline {
         }
         let actions = match receipt.receipt() {
             ReceiptEnum::Action(a) | ReceiptEnum::PromiseYield(a) => &a.actions,
+            ReceiptEnum::ActionV2(a) | ReceiptEnum::PromiseYieldV2(a) => &a.actions,
             ReceiptEnum::GlobalContractDistribution(global_contract_data) => {
                 self.block_global_contracts.insert(global_contract_data.id().clone());
                 return false;
@@ -267,6 +268,10 @@ impl ReceiptPreparationPipeline {
         let account_id = receipt.receiver_id();
         let action = match receipt.receipt() {
             ReceiptEnum::Action(r) | ReceiptEnum::PromiseYield(r) => r
+                .actions
+                .get(action_index)
+                .expect("indexing receipt actions by an action_index failed!"),
+            ReceiptEnum::ActionV2(r) | ReceiptEnum::PromiseYieldV2(r) => r
                 .actions
                 .get(action_index)
                 .expect("indexing receipt actions by an action_index failed!"),

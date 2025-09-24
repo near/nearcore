@@ -41,6 +41,7 @@ use near_primitives::shard_layout::ShardLayout;
 use near_primitives::test_utils::create_user_test_signer;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, BlockHeight, Gas, Nonce, ShardId, ShardIndex};
+use near_primitives::version::PROTOCOL_VERSION;
 use near_store::adapter::StoreAdapter;
 use near_store::trie::outgoing_metadata::{ReceiptGroupsConfig, ReceiptGroupsQueue};
 use near_store::trie::receipts_column_helper::{ShardsOutgoingReceiptBuffer, TrieQueue};
@@ -58,6 +59,7 @@ use crate::setup::drop_condition::DropCondition;
 use crate::setup::env::TestLoopEnv;
 use crate::setup::state::NodeExecutionData;
 use crate::utils::ONE_NEAR;
+use crate::utils::receipts::action_receipt_v1_to_latest;
 use crate::utils::transactions::{TransactionRunner, run_txs_parallel};
 
 /// 3 shards, random receipt sizes
@@ -738,7 +740,7 @@ fn make_send_receipt_transaction(
     let method_name = "noop".to_string();
 
     // Find out how large a basic receipt with empty arguments will be.
-    let base_receipt_size = borsh::object_length(&Receipt::V0(ReceiptV0 {
+    let base_receipt_template = Receipt::V0(ReceiptV0 {
         predecessor_id: sender_account.clone(),
         receiver_id: receiver_account.clone(),
         receipt_id: CryptoHash::default(),
@@ -755,8 +757,10 @@ fn make_send_receipt_transaction(
                 deposit: 0,
             }))],
         }),
-    }))
-    .unwrap();
+    });
+    let base_receipt_template =
+        action_receipt_v1_to_latest(&base_receipt_template, PROTOCOL_VERSION);
+    let base_receipt_size = borsh::object_length(&base_receipt_template).unwrap();
 
     // Choose the size of the arguments so that the total receipt size is `target_receipt_size`.
     let args_size = target_receipt_size.as_u64().saturating_sub(base_receipt_size as u64);

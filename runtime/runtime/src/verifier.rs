@@ -9,7 +9,9 @@ use near_primitives::action::delegate::SignedDelegateAction;
 use near_primitives::errors::{
     ActionsValidationError, InvalidAccessKeyError, InvalidTxError, ReceiptValidationError,
 };
-use near_primitives::receipt::{ActionReceipt, DataReceipt, Receipt, ReceiptEnum};
+use near_primitives::receipt::{
+    DataReceipt, Receipt, VersionedActionReceipt, VersionedReceiptEnum,
+};
 use near_primitives::transaction::{
     Action, AddKeyAction, DeployContractAction, FunctionCallAction, SignedTransaction, StakeAction,
     Transaction,
@@ -299,14 +301,16 @@ pub(crate) fn validate_receipt(
         ReceiptValidationError::InvalidReceiverId { account_id: receipt.receiver_id().to_string() }
     })?;
 
-    match receipt.receipt() {
-        ReceiptEnum::Action(action_receipt) | ReceiptEnum::PromiseYield(action_receipt) => {
-            validate_action_receipt(limit_config, action_receipt, current_protocol_version)
+    match receipt.versioned_receipt() {
+        VersionedReceiptEnum::Action(action_receipt)
+        | VersionedReceiptEnum::PromiseYield(action_receipt) => {
+            validate_action_receipt(limit_config, action_receipt.into(), current_protocol_version)
         }
-        ReceiptEnum::Data(data_receipt) | ReceiptEnum::PromiseResume(data_receipt) => {
-            validate_data_receipt(limit_config, data_receipt)
+        VersionedReceiptEnum::Data(data_receipt)
+        | VersionedReceiptEnum::PromiseResume(data_receipt) => {
+            validate_data_receipt(limit_config, &data_receipt)
         }
-        ReceiptEnum::GlobalContractDistribution(_) => Ok(()), // Distribution receipt can't be issued without a valid contract
+        VersionedReceiptEnum::GlobalContractDistribution(_) => Ok(()), // Distribution receipt can't be issued without a valid contract
     }
 }
 
@@ -328,16 +332,16 @@ pub enum ValidateReceiptMode {
 /// Validates given ActionReceipt. Checks validity of the number of input data dependencies and all actions.
 fn validate_action_receipt(
     limit_config: &LimitConfig,
-    receipt: &ActionReceipt,
+    receipt: VersionedActionReceipt,
     current_protocol_version: ProtocolVersion,
 ) -> Result<(), ReceiptValidationError> {
-    if receipt.input_data_ids.len() as u64 > limit_config.max_number_input_data_dependencies {
+    if receipt.input_data_ids().len() as u64 > limit_config.max_number_input_data_dependencies {
         return Err(ReceiptValidationError::NumberInputDataDependenciesExceeded {
-            number_of_input_data_dependencies: receipt.input_data_ids.len() as u64,
+            number_of_input_data_dependencies: receipt.input_data_ids().len() as u64,
             limit: limit_config.max_number_input_data_dependencies,
         });
     }
-    validate_actions(limit_config, &receipt.actions, current_protocol_version)
+    validate_actions(limit_config, receipt.actions(), current_protocol_version)
         .map_err(ReceiptValidationError::ActionsValidation)
 }
 
@@ -607,7 +611,7 @@ mod tests {
     use near_primitives::account::{AccessKey, AccountContract, FunctionCallPermission};
     use near_primitives::action::delegate::{DelegateAction, NonDelegateAction};
     use near_primitives::hash::{CryptoHash, hash};
-    use near_primitives::receipt::ReceiptPriority;
+    use near_primitives::receipt::{ActionReceipt, ReceiptPriority};
     use near_primitives::test_utils::account_new;
     use near_primitives::transaction::{
         CreateAccountAction, DeleteAccountAction, DeleteKeyAction, StakeAction, TransferAction,
@@ -1609,14 +1613,15 @@ mod tests {
         assert_eq!(
             validate_action_receipt(
                 &limit_config,
-                &ActionReceipt {
+                ActionReceipt {
                     signer_id: alice_account(),
                     signer_public_key: PublicKey::empty(KeyType::ED25519),
                     gas_price: 100,
                     output_data_receivers: vec![],
                     input_data_ids: vec![CryptoHash::default(), CryptoHash::default()],
                     actions: vec![]
-                },
+                }
+                .into(),
                 PROTOCOL_VERSION
             )
             .expect_err("expected an error"),
