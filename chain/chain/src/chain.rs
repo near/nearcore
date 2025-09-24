@@ -82,6 +82,7 @@ use near_primitives::sharding::{
     StateSyncInfo,
 };
 use near_primitives::state_sync::ReceiptProofResponse;
+use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::stateless_validation::state_witness::{
     ChunkStateWitness, ChunkStateWitnessSize,
 };
@@ -3322,27 +3323,40 @@ impl Chain {
         // `PostStateReadyMessage` when the state is ready. Runtime cannot
         // directly send the message because it doesn't have access to the
         // near-async crate.
-        let callback = match &self.on_post_state_ready_sender {
-            Some(sender) => {
-                let sender = sender.clone();
-                let prev_block_header = prev_block.header().clone();
-                let closure = move |state: PostState| {
-                    sender.send(
-                        PostStateReadyMessage {
-                            post_state: state,
-                            shard_uid,
-                            prev_block_context: next_chunk_prepare_context.clone(),
-                            prev_prev_block_header: prev_block_header.clone(),
-                            key: cached_shard_update_key,
-                            prev_chunk_tx_hashes: tx_hashes.clone(),
-                        }
-                        .into(),
-                    );
-                };
-                Some(PostStateReadyCallback::new(Box::new(closure)))
+        let callback = self.on_post_state_ready_sender.as_ref().and_then(|sender| {
+            // Check if we are chunk producer for this height and shard.
+            let cpk = ChunkProductionKey {
+                shard_id: shard_uid.shard_id(),
+                epoch_id: next_chunk_prepare_context.next_epoch_id,
+                height_created: next_chunk_prepare_context.height + 1,
+            };
+            let Some(signer) = self.validator_signer.get() else {
+                return None;
+            };
+            let Ok(producer) = self.epoch_manager.get_chunk_producer_info(&cpk) else {
+                return None;
+            };
+            if signer.validator_id() != producer.account_id() {
+                return None;
             }
-            None => None,
-        };
+
+            let sender = sender.clone();
+            let prev_block_header = prev_block.header().clone();
+            let closure = move |state: PostState| {
+                sender.send(
+                    PostStateReadyMessage {
+                        post_state: state,
+                        shard_uid,
+                        prev_block_context: next_chunk_prepare_context.clone(),
+                        prev_prev_block_header: prev_block_header.clone(),
+                        key: cached_shard_update_key,
+                        prev_chunk_tx_hashes: tx_hashes.clone(),
+                    }
+                    .into(),
+                );
+            };
+            Some(PostStateReadyCallback::new(Box::new(closure)))
+        });
 
         let runtime = self.runtime_adapter.clone();
         Ok(Some((

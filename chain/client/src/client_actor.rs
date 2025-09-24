@@ -74,7 +74,6 @@ use near_primitives::block_header::ApprovalType;
 use near_primitives::epoch_info::RngSeed;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
-use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::types::{AccountId, BlockHeight};
 use near_primitives::unwrap_or_return;
 use near_primitives::utils::MaybeValidated;
@@ -1330,32 +1329,20 @@ impl ClientActorInner {
         if !self.client.config.early_prepare_transactions {
             return;
         }
-        // Check if we are chunk producer for this height and shard.
-        let cpk = ChunkProductionKey {
-            shard_id: msg.shard_uid.shard_id(),
-            epoch_id: msg.prev_block_context.next_epoch_id,
-            height_created: msg.prev_block_context.height + 1,
-        };
-        if let Ok(v) = self.client.epoch_manager.get_chunk_producer_info(&cpk) {
-            if let Some(val) = self.client.validator_signer.get() {
-                if v.account_id() == val.validator_id() {
-                    let tx_validity_period_check =
-                        self.client.chain.early_prepare_transaction_validity_check(
-                            msg.prev_block_context.height,
-                            msg.prev_prev_block_header,
-                        );
-
-                    self.client.chunk_producer.start_prepare_transactions_job(
-                        msg.key,
-                        msg.shard_uid,
-                        msg.post_state.trie_update,
-                        msg.prev_block_context,
-                        msg.prev_chunk_tx_hashes,
-                        tx_validity_period_check,
-                    );
-                }
-            }
-        }
+        // Sender already checked whether we are chunk producer for (height, shard_uid),
+        // so we can skip this check here and start the job.
+        let tx_validity_period_check = self.client.chain.early_prepare_transaction_validity_check(
+            msg.prev_block_context.height,
+            msg.prev_prev_block_header,
+        );
+        self.client.chunk_producer.start_prepare_transactions_job(
+            msg.key,
+            msg.shard_uid,
+            msg.post_state.trie_update,
+            msg.prev_block_context,
+            msg.prev_chunk_tx_hashes,
+            tx_validity_period_check,
+        );
     }
 
     /// "Unfinished" blocks means that blocks that client has started the processing and haven't
