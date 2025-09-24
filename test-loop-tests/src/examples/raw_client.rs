@@ -44,7 +44,8 @@ fn test_raw_client_test_loop_setup() {
         min_block_prod_time: MIN_BLOCK_PROD_TIME.whole_milliseconds() as u64,
         max_block_prod_time: MAX_BLOCK_PROD_TIME.whole_milliseconds() as u64,
         num_block_producer_seats: 4,
-        archive: false,
+        enable_split_store: false,
+        enable_cloud_archival_writer: false,
         save_trie_changes: true,
         state_sync_enabled: false,
     });

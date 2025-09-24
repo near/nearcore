@@ -963,7 +963,7 @@ fn test_gc_long_epoch() {
     test_gc_with_epoch_length_common(200);
 }
 
-/// Test that producing blocks works in archival mode with save_trie_changes enabled.
+/// Test that producing blocks works in split store archival mode with save_trie_changes enabled.
 /// In that case garbage collection should not happen but trie changes should be saved to the store.
 #[test]
 fn test_archival_save_trie_changes() {
@@ -974,7 +974,7 @@ fn test_archival_save_trie_changes() {
     genesis.config.total_supply = Balance::from_yoctonear(1_000_000_000);
     let mut env = TestEnv::builder(&genesis.config)
         .nightshade_runtimes(&genesis)
-        .archive(true)
+        .enable_split_store(true)
         .save_trie_changes(true)
         .build();
 
@@ -1046,7 +1046,7 @@ fn test_archival_gc_common(
     let mut env = TestEnv::builder(&genesis.config)
         .stores(vec![hot_store.clone()])
         .nightshade_runtimes(&genesis)
-        .archive(true)
+        .enable_split_store(true)
         .save_trie_changes(true)
         .build();
 

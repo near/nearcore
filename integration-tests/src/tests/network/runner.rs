@@ -89,11 +89,11 @@ fn setup_network_node(
         min_block_prod_time: 100,
         max_block_prod_time: 200,
         num_block_producer_seats: num_validators,
-        archive: false,
+        enable_split_store: config.archive,
+        enable_cloud_archival_writer: false,
         save_trie_changes: true,
         state_sync_enabled: true,
     });
-    client_config.archive = config.archive;
     client_config.ttl_account_id_router = config.ttl_account_id_router.try_into().unwrap();
     let state_roots = near_store::get_genesis_state_roots(runtime.store())
         .unwrap()

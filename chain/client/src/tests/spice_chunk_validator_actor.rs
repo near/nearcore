@@ -66,9 +66,9 @@ fn test_valid_witness_adds_endorsement_to_core_state() {
     let block_execution_results =
         actor.core_processor.get_block_execution_results(&block).unwrap().unwrap();
     assert_eq!(block_execution_results.0.len(), 1);
-    let chunk_hash = block.chunks()[0].chunk_hash().clone();
+    let shard_id = block.chunks()[0].shard_id();
     assert_eq!(
-        block_execution_results.0.get(&chunk_hash).unwrap().chunk_extra.state_root(),
+        block_execution_results.0.get(&shard_id).unwrap().chunk_extra.state_root(),
         &post_state_root
     );
 }
