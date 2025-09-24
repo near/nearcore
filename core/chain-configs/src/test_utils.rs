@@ -371,7 +371,7 @@ impl ClientConfig {
             save_invalid_witnesses: false,
             transaction_request_handler_threads: default_rpc_handler_thread_count(),
             protocol_version_check: Default::default(),
-            enable_early_prepare_transactions: true,
+            enable_early_prepare_transactions: cfg!(feature = "nightly"), // Allows testing enabled and disabled in CI
         }
     }
 }
