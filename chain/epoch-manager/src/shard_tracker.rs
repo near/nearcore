@@ -538,14 +538,16 @@ mod tests {
     use near_primitives::hash::CryptoHash;
     use near_primitives::shard_layout::ShardLayout;
     use near_primitives::types::validator_stake::ValidatorStake;
-    use near_primitives::types::{AccountInfo, BlockHeight, EpochId, ProtocolVersion, ShardId};
+    use near_primitives::types::{
+        AccountInfo, Balance, BlockHeight, EpochId, ProtocolVersion, ShardId,
+    };
     use near_primitives::version::PROTOCOL_VERSION;
     use near_store::ShardUId;
     use near_store::test_utils::create_test_store;
     use std::collections::{BTreeMap, HashSet};
     use std::sync::Arc;
 
-    const DEFAULT_TOTAL_SUPPLY: u128 = 1_000_000_000_000;
+    const DEFAULT_TOTAL_SUPPLY: Balance = Balance::from_yoctonear(1_000_000_000_000);
     const EPOCH_LENGTH: usize = 5;
 
     // Initializes an epoch manager, optionally including epoch configs for two reshardings.
@@ -560,7 +562,7 @@ mod tests {
         genesis_config.validators = vec![AccountInfo {
             account_id: "test".parse().unwrap(),
             public_key: PublicKey::empty(KeyType::ED25519),
-            amount: 100,
+            amount: Balance::from_yoctonear(100),
         }];
         let base_shard_layout = ShardLayout::multi_shard(num_shards, 0);
         let base_epoch_config = TestEpochConfigBuilder::new()

@@ -40,12 +40,12 @@ pub fn safe_gas_price_inflated(
     let numer = BigUint::from(*inflation_base.numer() as usize).pow(inflation_exponent as u32);
     let denom = BigUint::from(*inflation_base.denom() as usize).pow(inflation_exponent as u32);
     // Rounding up
-    let inflated_gas_price: BigUint = (numer * gas_price + &denom - 1u8) / denom;
-    inflated_gas_price.to_u128().ok_or(IntegerOverflowError {})
+    let inflated_gas_price: BigUint = (numer * gas_price.as_yoctonear() + &denom - 1u8) / denom;
+    inflated_gas_price.to_u128().ok_or(IntegerOverflowError {}).map(Balance::from_yoctonear)
 }
 
 pub fn safe_gas_to_balance(gas_price: Balance, gas: Gas) -> Result<Balance, IntegerOverflowError> {
-    gas_price.checked_mul(Balance::from(gas.as_gas())).ok_or(IntegerOverflowError {})
+    gas_price.checked_mul(u128::from(gas.as_gas())).ok_or(IntegerOverflowError {})
 }
 
 pub fn safe_add_balance(a: Balance, b: Balance) -> Result<Balance, IntegerOverflowError> {
@@ -343,7 +343,7 @@ pub fn total_prepaid_exec_fees(
 }
 /// Get the total sum of deposits for given actions.
 pub fn total_deposit(actions: &[Action]) -> Result<Balance, IntegerOverflowError> {
-    let mut total_balance: Balance = 0;
+    let mut total_balance = Balance::ZERO;
     for action in actions {
         let action_balance;
         if let Action::Delegate(signed_delegate_action) = action {
@@ -381,11 +381,11 @@ pub fn total_prepaid_gas(actions: &[Action]) -> Result<Gas, IntegerOverflowError
 ///
 /// Note: this is no longer used with ProtocolFeature::ReducedGasRefunds
 fn pessimistic_gas_price(
-    gas_price: u128,
+    gas_price: Balance,
     sender_is_receiver: bool,
     fees: &std::sync::Arc<near_parameters::RuntimeFeesConfig>,
     prepaid_gas: Gas,
-) -> Result<u128, IntegerOverflowError> {
+) -> Result<Balance, IntegerOverflowError> {
     // If signer is equals to receiver the receipt will be processed at the same block as this
     // transaction. Otherwise it will processed in the next block and the gas might be inflated.
     let initial_receipt_hop = if sender_is_receiver { 0 } else { 1 };
@@ -395,8 +395,8 @@ fn pessimistic_gas_price(
     // overcharging to 6x, which was the value before the cost increase.
     let minimum_new_receipt_gas = 4_855_842_000_000; // 4.855TGas.
     // In case the config is free, we don't care about the maximum depth.
-    let receipt_gas_price = if gas_price == 0 {
-        0
+    let receipt_gas_price = if gas_price.is_zero() {
+        Balance::ZERO
     } else {
         let maximum_depth = if minimum_new_receipt_gas > 0 {
             prepaid_gas.checked_div(minimum_new_receipt_gas).unwrap().as_gas()
@@ -420,10 +420,26 @@ mod tests {
 
     #[test]
     fn test_safe_gas_price_inflated() {
-        assert_eq!(safe_gas_price_inflated(10000, Rational32::new(101, 100), 1).unwrap(), 10100);
-        assert_eq!(safe_gas_price_inflated(10000, Rational32::new(101, 100), 2).unwrap(), 10201);
+        assert_eq!(
+            safe_gas_price_inflated(Balance::from_yoctonear(10000), Rational32::new(101, 100), 1)
+                .unwrap(),
+            Balance::from_yoctonear(10100)
+        );
+        assert_eq!(
+            safe_gas_price_inflated(Balance::from_yoctonear(10000), Rational32::new(101, 100), 2)
+                .unwrap(),
+            Balance::from_yoctonear(10201)
+        );
         // Rounded up
-        assert_eq!(safe_gas_price_inflated(10000, Rational32::new(101, 100), 3).unwrap(), 10304);
-        assert_eq!(safe_gas_price_inflated(10000, Rational32::new(101, 100), 32).unwrap(), 13750);
+        assert_eq!(
+            safe_gas_price_inflated(Balance::from_yoctonear(10000), Rational32::new(101, 100), 3)
+                .unwrap(),
+            Balance::from_yoctonear(10304)
+        );
+        assert_eq!(
+            safe_gas_price_inflated(Balance::from_yoctonear(10000), Rational32::new(101, 100), 32)
+                .unwrap(),
+            Balance::from_yoctonear(13750)
+        );
     }
 }

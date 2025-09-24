@@ -14,7 +14,7 @@ use near_primitives::shard_layout::ShardLayout;
 use near_primitives::test_utils::create_user_test_signer;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{
-    AccountId, AccountInfo, BlockHeight, BlockHeightDelta, Nonce, NumSeats, ShardId,
+    AccountId, AccountInfo, Balance, BlockHeight, BlockHeightDelta, Nonce, NumSeats, ShardId,
 };
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolVersion};
 
@@ -22,7 +22,6 @@ use crate::setup::builder::{NodeStateBuilder, TestLoopBuilder};
 use crate::setup::drop_condition::DropCondition;
 use crate::setup::env::TestLoopEnv;
 use crate::setup::state::NodeExecutionData;
-use crate::utils::ONE_NEAR;
 use crate::utils::transactions::{get_anchor_hash, get_smallest_height_head};
 
 use itertools::Itertools;
@@ -107,7 +106,7 @@ fn setup_initial_blockchain(
                 account_id: account_id.parse().unwrap(),
                 public_key: near_primitives::test_utils::create_test_signer(account_id.as_str())
                     .public_key(),
-                amount: 10000 * ONE_NEAR,
+                amount: Balance::from_near(10000),
             }
         })
         .collect::<Vec<_>>();
@@ -148,8 +147,8 @@ fn setup_initial_blockchain(
     if let Some(accounts) = accounts.as_ref() {
         for accounts in accounts {
             for (account, _nonce) in accounts {
-                genesis_builder =
-                    genesis_builder.add_user_account_simple(account.clone(), 10000 * ONE_NEAR);
+                genesis_builder = genesis_builder
+                    .add_user_account_simple(account.clone(), Balance::from_near(10000));
             }
         }
     }
@@ -230,7 +229,7 @@ fn send_txs_between_shards(
             sender.clone(),
             receiver.clone(),
             &create_user_test_signer(sender).into(),
-            1000,
+            Balance::from_yoctonear(1000),
             block_hash,
         );
         *nonce += 1;

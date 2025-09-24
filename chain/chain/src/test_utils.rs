@@ -23,7 +23,7 @@ use near_primitives::optimistic_block::BlockToApply;
 use near_primitives::sharding::{ShardChunkHeader, ShardChunkHeaderV3};
 use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::test_utils::create_test_signer;
-use near_primitives::types::{AccountId, BlockHeight, Gas, NumBlocks, NumShards, ShardId};
+use near_primitives::types::{AccountId, Balance, BlockHeight, Gas, NumBlocks, NumShards, ShardId};
 use near_primitives::utils::MaybeValidated;
 use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::version::PROTOCOL_VERSION;
@@ -155,9 +155,9 @@ pub fn setup_with_tx_validity_period(
     genesis.config.epoch_length = epoch_length;
     genesis.config.transaction_validity_period = tx_validity_period;
     genesis.config.gas_limit = Gas::from_gas(1_000_000);
-    genesis.config.min_gas_price = 100;
-    genesis.config.max_gas_price = 1_000_000_000;
-    genesis.config.total_supply = 1_000_000_000;
+    genesis.config.min_gas_price = Balance::from_yoctonear(100);
+    genesis.config.max_gas_price = Balance::from_yoctonear(1_000_000_000);
+    genesis.config.total_supply = Balance::from_yoctonear(1_000_000_000);
     genesis.config.gas_price_adjustment_rate = Ratio::from_integer(0);
     genesis.config.protocol_version = PROTOCOL_VERSION;
     let tempdir = tempfile::tempdir().unwrap();
@@ -347,7 +347,7 @@ mod test {
     use near_primitives::hash::CryptoHash;
     use near_primitives::receipt::{Receipt, ReceiptPriority};
     use near_primitives::sharding::ReceiptList;
-    use near_primitives::types::{AccountId, NumShards};
+    use near_primitives::types::{AccountId, Balance, NumShards};
 
     use crate::Chain;
 
@@ -371,8 +371,9 @@ mod test {
 
     fn test_build_receipt_hashes_with_num_shard(num_shards: NumShards) {
         let shard_layout = ShardLayout::multi_shard(num_shards, 0);
-        let create_receipt_from_receiver_id =
-            |receiver_id| Receipt::new_balance_refund(&receiver_id, 0, ReceiptPriority::NoPriority);
+        let create_receipt_from_receiver_id = |receiver_id| {
+            Receipt::new_balance_refund(&receiver_id, Balance::ZERO, ReceiptPriority::NoPriority)
+        };
         let mut rng = rand::thread_rng();
         let receipts = (0..3000)
             .map(|_| {

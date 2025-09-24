@@ -1,6 +1,6 @@
 use crate::node::{Node, RuntimeNode};
 use near_primitives::errors::{ActionError, ActionErrorKind, FunctionCallError};
-use near_primitives::types::Gas;
+use near_primitives::types::{Balance, Gas};
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_primitives::views::FinalExecutionStatus;
 use std::mem::size_of;
@@ -8,10 +8,7 @@ use std::mem::size_of;
 use assert_matches::assert_matches;
 
 /// Initial balance used in tests.
-pub const TESTING_INIT_BALANCE: u128 = 1_000_000_000 * NEAR_BASE;
-
-/// One NEAR, divisible by 10^24.
-pub const NEAR_BASE: u128 = 1_000_000_000_000_000_000_000_000;
+pub const TESTING_INIT_BALANCE: Balance = Balance::from_near(1_000_000_000);
 
 /// Max prepaid amount of gas.
 const MAX_GAS: Gas = Gas::from_teragas(300);
@@ -25,7 +22,7 @@ fn setup_test_contract(wasm_binary: &[u8]) -> RuntimeNode {
             account_id,
             "test_contract.alice.near".parse().unwrap(),
             node.signer().public_key(),
-            TESTING_INIT_BALANCE / 2,
+            TESTING_INIT_BALANCE.checked_div(2).unwrap(),
         )
         .unwrap();
     assert_eq!(transaction_result.status, FinalExecutionStatus::SuccessValue(Vec::new()));
@@ -60,7 +57,7 @@ fn slow_test_evil_deep_trie() {
                 "insert_strings",
                 input_data.to_vec(),
                 MAX_GAS,
-                0,
+                Balance::ZERO,
             )
             .unwrap();
         println!("Gas burnt: {}", res.receipts_outcome[0].outcome.gas_burnt);
@@ -81,7 +78,7 @@ fn slow_test_evil_deep_trie() {
                 "delete_strings",
                 input_data.to_vec(),
                 MAX_GAS,
-                0,
+                Balance::ZERO,
             )
             .unwrap();
         println!("Gas burnt: {}", res.receipts_outcome[0].outcome.gas_burnt);
@@ -102,7 +99,7 @@ fn slow_test_self_delay() {
             "max_self_recursion_delay",
             vec![0; 4],
             MAX_GAS,
-            0,
+            Balance::ZERO,
         )
         .unwrap();
 
@@ -145,7 +142,7 @@ fn test_evil_deep_recursion() {
                 "recurse",
                 n_bytes.clone(),
                 MAX_GAS,
-                0,
+                Balance::ZERO,
             )
             .unwrap();
         if n <= 1000 {
@@ -167,7 +164,7 @@ fn test_evil_abort() {
             "abort_with_zero",
             vec![],
             MAX_GAS,
-            0,
+            Balance::ZERO,
         )
         .unwrap();
     assert_eq!(

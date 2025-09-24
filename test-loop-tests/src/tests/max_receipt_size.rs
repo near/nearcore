@@ -13,6 +13,7 @@ use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum, ReceiptV0};
 use near_primitives::test_utils::create_user_test_signer;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::AccountId;
+use near_primitives::types::Balance;
 use near_primitives::types::Gas;
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_primitives::views::FinalExecutionStatus;
@@ -69,7 +70,7 @@ fn slow_test_max_receipt_size() {
         account0.clone(),
         account0.clone(),
         &account0_signer,
-        0,
+        Balance::ZERO,
         "generate_large_receipt".into(),
         r#"{"account_id": "account0", "method_name": "noop", "total_args_size": 3000000}"#.into(),
         Gas::from_teragas(300),
@@ -83,7 +84,7 @@ fn slow_test_max_receipt_size() {
         account0.clone(),
         account0.clone(),
         &account0_signer,
-        0,
+        Balance::ZERO,
         "generate_large_receipt".into(),
         r#"{"account_id": "account0", "method_name": "noop", "total_args_size": 5000000}"#.into(),
         Gas::from_teragas(300),
@@ -125,7 +126,7 @@ fn slow_test_max_receipt_size() {
         account0.clone(),
         account0,
         &account0_signer,
-        0,
+        Balance::ZERO,
         "sum_n".into(),
         5_u64.to_le_bytes().to_vec(),
         Gas::from_teragas(300),
@@ -175,14 +176,14 @@ fn test_max_receipt_size_promise_return() {
         receipt: ReceiptEnum::Action(ActionReceipt {
             signer_id: account.clone(),
             signer_public_key: account_signer.public_key().into(),
-            gas_price: 0,
+            gas_price: Balance::ZERO,
             output_data_receivers: vec![],
             input_data_ids: vec![],
             actions: vec![Action::FunctionCall(Box::new(FunctionCallAction {
                 method_name: "noop".into(),
                 args: vec![],
                 gas: Gas::ZERO,
-                deposit: 0,
+                deposit: Balance::ZERO,
             }))],
         }),
     });
@@ -198,7 +199,7 @@ fn test_max_receipt_size_promise_return() {
         account.clone(),
         account.clone(),
         &account_signer,
-        0,
+        Balance::ZERO,
         "max_receipt_size_promise_return_method1".into(),
         format!("{{\"args_size\": {}}}", args_size).into(),
         Gas::from_teragas(300),
@@ -212,7 +213,7 @@ fn test_max_receipt_size_promise_return() {
         account.clone(),
         account,
         &account_signer,
-        0,
+        Balance::ZERO,
         "assert_test_completed".into(),
         "".into(),
         Gas::from_teragas(300),
@@ -258,7 +259,7 @@ fn test_max_receipt_size_value_return() {
         account.clone(),
         account.clone(),
         &account_signer,
-        0,
+        Balance::ZERO,
         "max_receipt_size_value_return_method".into(),
         format!("{{\"value_size\": {}}}", max_receipt_size).into(),
         Gas::from_teragas(300),
@@ -272,7 +273,7 @@ fn test_max_receipt_size_value_return() {
         account.clone(),
         account,
         &account_signer,
-        0,
+        Balance::ZERO,
         "assert_test_completed".into(),
         "".into(),
         Gas::from_teragas(300),
@@ -316,7 +317,7 @@ fn test_max_receipt_size_yield_resume() {
         account.clone(),
         account.clone(),
         &account_signer,
-        0,
+        Balance::ZERO,
         "yield_with_large_args".into(),
         format!("{{\"args_size\": {}}}", max_receipt_size).into(),
         Gas::from_teragas(300),
@@ -356,7 +357,7 @@ fn test_max_receipt_size_yield_resume() {
         account.clone(),
         account,
         &account_signer,
-        0,
+        Balance::ZERO,
         "resume_with_large_payload".into(),
         format!("{{\"payload_size\": {}}}", 2000).into(),
         Gas::from_teragas(300),

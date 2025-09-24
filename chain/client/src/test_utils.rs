@@ -19,7 +19,7 @@ use near_primitives::optimistic_block::BlockToApply;
 use near_primitives::sharding::{EncodedShardChunk, ShardChunk, ShardChunkWithEncoding};
 use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsement;
 use near_primitives::transaction::ValidatedTransaction;
-use near_primitives::types::{BlockHeight, EpochId, ShardId};
+use near_primitives::types::{Balance, BlockHeight, EpochId, ShardId};
 use near_primitives::utils::MaybeValidated;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_store::ShardUId;
@@ -241,8 +241,8 @@ pub fn create_chunk(
         None,
         vec![],
         Ratio::new(0, 1),
-        0,
-        100,
+        Balance::ZERO,
+        Balance::from_yoctonear(100),
         None,
         &*client.validator_signer.get().unwrap(),
         *last_block.header().next_bp_hash(),

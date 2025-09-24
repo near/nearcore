@@ -17,7 +17,7 @@ use near_primitives::sharding::{
     ChunkHash, EncodedShardChunkBody, PartialEncodedChunkPart, ShardChunk,
 };
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{AccountId, BlockHeight, EpochId, Gas, StateRoot};
+use near_primitives::types::{AccountId, Balance, BlockHeight, EpochId, Gas, StateRoot};
 use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
 use near_primitives::version;
 use rand::Rng;
@@ -32,8 +32,8 @@ pub fn make_genesis_block(clock: &time::Clock, chunks: Vec<ShardChunk>) -> Arc<B
         chunks.into_iter().map(|c| c.take_header()).collect(),
         clock.now_utc(),
         0,
-        1000,
-        1000,
+        Balance::from_yoctonear(1000),
+        Balance::from_yoctonear(1000),
         &vec![],
     ))
 }
@@ -56,9 +56,9 @@ pub fn make_block(
         None,
         vec![],
         Ratio::from_integer(0),
-        0,
-        0,
-        Some(0),
+        Balance::ZERO,
+        Balance::ZERO,
+        Some(Balance::ZERO),
         signer,
         CryptoHash::default(),
         CryptoHash::default(),
@@ -152,7 +152,7 @@ pub fn make_signed_transaction<R: Rng>(rng: &mut R) -> SignedTransaction {
         sender.get_account_id(),
         receiver,
         &sender,
-        15,
+        Balance::from_yoctonear(15),
         CryptoHash::default(),
     )
 }

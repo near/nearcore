@@ -241,6 +241,7 @@ near-account-id = { version = "1.1.3", features = [
     "borsh",
 ] }
 near-gas = { version = "0.3.2" }
+near-token = { version = "0.3.2" }
 near-actix-test-utils = { path = "test-utils/actix-test-utils" }
 near-amend-genesis = { path = "tools/amend-genesis" }
 near-database-tool = { path = "tools/database" }

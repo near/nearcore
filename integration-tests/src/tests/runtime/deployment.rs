@@ -2,11 +2,9 @@ use crate::node::{Node, RuntimeNode};
 use near_chain_configs::Genesis;
 use near_parameters::RuntimeConfigStore;
 use near_primitives::transaction::{Action, DeployContractAction, SignedTransaction};
-use near_primitives::types::AccountId;
+use near_primitives::types::{AccountId, Balance};
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_primitives::views::FinalExecutionStatus;
-
-const ONE_NEAR: u128 = 10u128.pow(24);
 
 /// Tests if the maximum allowed contract can be deployed with current gas limits
 #[test]
@@ -39,7 +37,12 @@ fn test_deploy_max_size_contract() {
     let max_transaction_size = config.wasm_config.limit_config.max_transaction_size;
     let contract_size = max_contract_size.min(max_transaction_size - tx_overhead);
     // Enough token to store contract + 1 NEAR for account
-    let token_balance = config.storage_amount_per_byte() * contract_size as u128 + ONE_NEAR;
+    let token_balance = config
+        .storage_amount_per_byte()
+        .checked_mul(contract_size.try_into().unwrap())
+        .unwrap()
+        .checked_add(Balance::from_near(1))
+        .unwrap();
 
     // Create test account
     let transaction_result = node_user

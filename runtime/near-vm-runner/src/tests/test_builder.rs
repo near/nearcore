@@ -5,7 +5,7 @@ use crate::runner::VMKindExt;
 use near_parameters::vm::VMKind;
 use near_parameters::{RuntimeConfig, RuntimeConfigStore, RuntimeFeesConfig};
 use near_primitives_core::code::ContractCode;
-use near_primitives_core::types::Gas;
+use near_primitives_core::types::{Balance, Gas};
 use near_primitives_core::version::ProtocolFeature;
 use std::{collections::HashSet, fmt::Write, sync::Arc};
 
@@ -20,10 +20,10 @@ pub(crate) fn test_builder() -> TestBuilder {
         block_height: 10,
         block_timestamp: 42,
         epoch_height: 1,
-        account_balance: 2u128,
-        account_locked_balance: 0,
+        account_balance: Balance::from_yoctonear(2),
+        account_locked_balance: Balance::ZERO,
         storage_usage: 12,
-        attached_deposit: 2u128,
+        attached_deposit: Balance::from_yoctonear(2),
         prepaid_gas: Gas::from_teragas(100),
         random_seed: vec![0, 1, 2],
         view_config: None,
@@ -261,7 +261,7 @@ fn fmt_outcome_without_abort(
     write!(
         out,
         "VMOutcome: balance {} storage_usage {} return data {} burnt gas {} used gas {}",
-        outcome.balance,
+        outcome.balance.as_yoctonear(),
         outcome.storage_usage,
         return_data_str,
         outcome.burnt_gas.as_gas(),

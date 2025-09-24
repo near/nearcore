@@ -20,7 +20,6 @@ use near_primitives::types::StateRoot;
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::{
     hash::CryptoHash,
-    serialize::dec_format,
     state_record::StateRecord,
     types::{
         AccountId, AccountInfo, Balance, BlockHeight, BlockHeightDelta, Gas, NumBlocks, NumSeats,
@@ -40,7 +39,7 @@ use std::io::{BufReader, Read};
 use std::path::{Path, PathBuf};
 use tracing::warn;
 
-const MAX_GAS_PRICE: Balance = 10_000_000_000_000_000_000_000;
+const MAX_GAS_PRICE: Balance = Balance::from_millinear(10);
 
 fn default_online_min_threshold() -> Rational32 {
     Rational32::new(90, 100)
@@ -144,12 +143,8 @@ pub struct GenesisConfig {
     /// Initial gas limit.
     pub gas_limit: Gas,
     /// Minimum gas price. It is also the initial gas price.
-    #[serde(with = "dec_format")]
-    #[cfg_attr(feature = "schemars", schemars(with = "String"))]
     pub min_gas_price: Balance,
-    #[serde(with = "dec_format")]
     #[default(MAX_GAS_PRICE)]
-    #[cfg_attr(feature = "schemars", schemars(with = "String"))]
     pub max_gas_price: Balance,
     /// Threshold for kicking out block producers, between 0 and 100.
     pub block_producer_kickout_threshold: u8,
@@ -189,8 +184,6 @@ pub struct GenesisConfig {
     #[cfg_attr(feature = "schemars", schemars(with = "Rational32SchemarsProvider"))]
     pub max_inflation_rate: Rational32,
     /// Total supply of tokens at genesis.
-    #[serde(with = "dec_format")]
-    #[cfg_attr(feature = "schemars", schemars(with = "String"))]
     pub total_supply: Balance,
     /// Expected number of blocks per year
     pub num_blocks_per_year: NumBlocks,
@@ -198,8 +191,6 @@ pub struct GenesisConfig {
     #[default("near".parse().unwrap())]
     pub protocol_treasury_account: AccountId,
     /// Fishermen stake threshold.
-    #[serde(with = "dec_format")]
-    #[cfg_attr(feature = "schemars", schemars(with = "String"))]
     pub fishermen_threshold: Balance,
     /// The minimum stake required for staking is last seat price divided by this number.
     #[serde(default = "default_minimum_stake_divisor")]
@@ -842,12 +833,8 @@ pub struct ProtocolConfigView {
     /// Initial gas limit.
     pub gas_limit: Gas,
     /// Minimum gas price. It is also the initial gas price.
-    #[serde(with = "dec_format")]
-    #[cfg_attr(feature = "schemars", schemars(with = "String"))]
     pub min_gas_price: Balance,
     /// Maximum gas price.
-    #[serde(with = "dec_format")]
-    #[cfg_attr(feature = "schemars", schemars(with = "String"))]
     pub max_gas_price: Balance,
     /// Threshold for kicking out block producers, between 0 and 100.
     pub block_producer_kickout_threshold: u8,
@@ -881,8 +868,6 @@ pub struct ProtocolConfigView {
     /// Protocol treasury account
     pub protocol_treasury_account: AccountId,
     /// Fishermen stake threshold.
-    #[serde(with = "dec_format")]
-    #[cfg_attr(feature = "schemars", schemars(with = "String"))]
     pub fishermen_threshold: Balance,
     /// The minimum stake required for staking is last seat price divided by this number.
     pub minimum_stake_divisor: u64,
@@ -954,10 +939,12 @@ impl From<ProtocolConfig> for ProtocolConfigView {
 }
 
 pub fn get_initial_supply(records: &[StateRecord]) -> Balance {
-    let mut total_supply = 0;
+    let mut total_supply = Balance::ZERO;
     for record in records {
         if let StateRecord::Account { account, .. } = record {
-            total_supply += account.amount() + account.locked();
+            total_supply = total_supply
+                .checked_add(account.amount().checked_add(account.locked()).unwrap())
+                .unwrap();
         }
     }
     total_supply

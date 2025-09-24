@@ -7,7 +7,7 @@ use near_network::test_utils::wait_or_timeout;
 use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::serialize::to_base64;
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::BlockReference;
+use near_primitives::types::{Balance, BlockReference};
 use near_primitives::views::{FinalExecutionStatus, TxExecutionStatus};
 
 use near_jsonrpc_tests::{
@@ -28,7 +28,7 @@ async fn test_send_tx_async() {
         "test1".parse().unwrap(),
         "test2".parse().unwrap(),
         &signer,
-        100,
+        Balance::from_yoctonear(100),
         block_hash,
     );
     let bytes = borsh::to_vec(&tx).unwrap();
@@ -79,7 +79,7 @@ async fn test_send_tx_commit() {
         "test1".parse().unwrap(),
         "test2".parse().unwrap(),
         &signer,
-        100,
+        Balance::from_yoctonear(100),
         block_hash,
     );
     let bytes = borsh::to_vec(&tx).unwrap();
@@ -131,7 +131,7 @@ async fn test_expired_tx() {
         "test1".parse().unwrap(),
         "test2".parse().unwrap(),
         &signer,
-        100,
+        Balance::from_yoctonear(100),
         old_block_hash,
     );
     let bytes = borsh::to_vec(&tx).unwrap();
@@ -162,7 +162,7 @@ async fn test_replay_protection() {
         "test1".parse().unwrap(),
         "test2".parse().unwrap(),
         &signer,
-        100,
+        Balance::from_yoctonear(100),
         hash(&[1]),
     );
     let bytes = borsh::to_vec(&tx).unwrap();
@@ -205,7 +205,7 @@ async fn test_check_invalid_tx() {
             "test1".parse().unwrap(),
             "test2".parse().unwrap(),
             &signer,
-            100,
+            Balance::from_yoctonear(100),
             hash(&[1]),
         )),
         wait_until: TxExecutionStatus::None,

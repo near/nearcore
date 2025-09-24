@@ -1,7 +1,6 @@
 use crate::account::{AccessKey, Account};
 use crate::errors::EpochError;
 use crate::hash::CryptoHash;
-use crate::serialize::dec_format;
 use crate::shard_layout::ShardLayout;
 use crate::trie_key::TrieKey;
 use borsh::{BorshDeserialize, BorshSerialize};
@@ -62,8 +61,6 @@ pub struct AccountWithPublicKey {
 pub struct AccountInfo {
     pub account_id: AccountId,
     pub public_key: PublicKey,
-    #[serde(with = "dec_format")]
-    #[cfg_attr(feature = "schemars", schemars(with = "String"))]
     pub amount: Balance,
 }
 
@@ -697,7 +694,7 @@ pub mod validator_stake {
         }
 
         pub fn test(account_id: AccountId) -> Self {
-            Self::new_v1(account_id, PublicKey::empty(KeyType::ED25519), 0)
+            Self::new_v1(account_id, PublicKey::empty(KeyType::ED25519), Balance::ZERO)
         }
 
         pub fn into_v1(self) -> ValidatorStakeV1 {
@@ -766,8 +763,8 @@ pub mod validator_stake {
             ApprovalStake {
                 account_id: self.account_id().clone(),
                 public_key: self.public_key().clone(),
-                stake_this_epoch: if is_next_epoch { 0 } else { self.stake() },
-                stake_next_epoch: if is_next_epoch { self.stake() } else { 0 },
+                stake_this_epoch: if is_next_epoch { Balance::ZERO } else { self.stake() },
+                stake_next_epoch: if is_next_epoch { self.stake() } else { Balance::ZERO },
             }
         }
 
@@ -792,9 +789,7 @@ pub mod validator_stake {
         ///
         /// Panics if the number of mandates overflows `u16`.
         pub fn num_mandates(&self, stake_per_mandate: Balance) -> u16 {
-            // Integer division in Rust returns the floor as described here
-            // https://doc.rust-lang.org/std/primitive.u64.html#method.div_euclid
-            u16::try_from(self.stake() / stake_per_mandate)
+            u16::try_from(self.stake().as_yoctonear() / stake_per_mandate.as_yoctonear())
                 .expect("number of mandates should fit u16")
         }
 
@@ -812,7 +807,7 @@ pub mod validator_stake {
         /// Let `V` be a validator with stake of 12. If `stake_per_mandate` equals 5 then the weight
         /// of `V`'s partial mandate is `12 % 5 = 2`.
         pub fn partial_mandate_weight(&self, stake_per_mandate: Balance) -> Balance {
-            self.stake() % stake_per_mandate
+            Balance::from_yoctonear(self.stake().as_yoctonear() % stake_per_mandate.as_yoctonear())
         }
     }
 }
@@ -921,7 +916,7 @@ pub mod chunk_extra {
                 vec![],
                 Gas::ZERO,
                 Gas::ZERO,
-                0,
+                Balance::ZERO,
                 congestion_control,
                 BandwidthRequests::empty(),
             )
@@ -1217,11 +1212,9 @@ pub enum ValidatorKickoutReason {
     Unstaked = 3,
     /// Validator stake is now below threshold
     NotEnoughStake {
-        #[serde(with = "dec_format", rename = "stake_u128")]
-        #[cfg_attr(feature = "schemars", schemars(with = "String"))]
+        #[serde(rename = "stake_u128")]
         stake: Balance,
-        #[serde(with = "dec_format", rename = "threshold_u128")]
-        #[cfg_attr(feature = "schemars", schemars(with = "String"))]
+        #[serde(rename = "threshold_u128")]
         threshold: Balance,
     } = 4,
     /// Enough stake but is not chosen because of seat limits.
@@ -1337,15 +1330,34 @@ mod tests {
 
     #[test]
     fn test_validator_stake_num_mandates() {
-        assert_eq!(new_validator_stake(0).num_mandates(5), 0);
-        assert_eq!(new_validator_stake(10).num_mandates(5), 2);
-        assert_eq!(new_validator_stake(12).num_mandates(5), 2);
+        assert_eq!(new_validator_stake(Balance::ZERO).num_mandates(Balance::from_yoctonear(5)), 0);
+        assert_eq!(
+            new_validator_stake(Balance::from_yoctonear(10))
+                .num_mandates(Balance::from_yoctonear(5)),
+            2
+        );
+        assert_eq!(
+            new_validator_stake(Balance::from_yoctonear(12))
+                .num_mandates(Balance::from_yoctonear(5)),
+            2
+        );
     }
 
     #[test]
     fn test_validator_partial_mandate_weight() {
-        assert_eq!(new_validator_stake(0).partial_mandate_weight(5), 0);
-        assert_eq!(new_validator_stake(10).partial_mandate_weight(5), 0);
-        assert_eq!(new_validator_stake(12).partial_mandate_weight(5), 2);
+        assert_eq!(
+            new_validator_stake(Balance::ZERO).partial_mandate_weight(Balance::from_yoctonear(5)),
+            Balance::ZERO
+        );
+        assert_eq!(
+            new_validator_stake(Balance::from_yoctonear(10))
+                .partial_mandate_weight(Balance::from_yoctonear(5)),
+            Balance::ZERO
+        );
+        assert_eq!(
+            new_validator_stake(Balance::from_yoctonear(12))
+                .partial_mandate_weight(Balance::from_yoctonear(5)),
+            Balance::from_yoctonear(2)
+        );
     }
 }

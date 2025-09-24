@@ -4,7 +4,7 @@ use near_async::time::{Clock, Duration};
 use near_chain::near_chain_primitives::error::QueryError;
 use near_chain::{ChainGenesis, ChainStoreAccess, Provenance};
 use near_chain_configs::ExternalStorageLocation::Filesystem;
-use near_chain_configs::{DumpConfig, Genesis, MutableConfigValue, NEAR_BASE};
+use near_chain_configs::{DumpConfig, Genesis, MutableConfigValue};
 use near_client::ProcessTxResponse;
 use near_client::sync::external::{StateFileType, external_storage_location};
 use near_crypto::InMemorySigner;
@@ -14,7 +14,7 @@ use near_primitives::shard_layout::ShardUId;
 use near_primitives::state::FlatStateValue;
 use near_primitives::state_part::{PartId, StatePart};
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{BlockHeight, ShardId};
+use near_primitives::types::{Balance, BlockHeight, ShardId};
 use near_primitives::validator_signer::{EmptyValidatorSigner, InMemoryValidatorSigner};
 use near_primitives::views::{QueryRequest, QueryResponseKind};
 use near_store::Store;
@@ -202,7 +202,7 @@ fn run_state_sync_with_dumped_parts(
                 1,
                 "test0".parse().unwrap(),
                 "test_account".parse().unwrap(),
-                NEAR_BASE,
+                Balance::from_near(1),
                 signer.public_key(),
                 &signer,
                 genesis_hash,

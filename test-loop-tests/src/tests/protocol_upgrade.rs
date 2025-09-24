@@ -7,7 +7,7 @@ use near_chain_configs::test_genesis::{
 use near_o11y::testonly::init_test_logger;
 use near_primitives::epoch_manager::{EpochConfig, EpochConfigStore};
 use near_primitives::shard_layout::ShardLayout;
-use near_primitives::types::{AccountId, BlockHeight, ShardId, ShardIndex};
+use near_primitives::types::{AccountId, Balance, BlockHeight, ShardId, ShardIndex};
 use near_primitives::upgrade_schedule::ProtocolUpgradeVotingSchedule;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_vm_runner::logic::ProtocolVersion;
@@ -20,7 +20,6 @@ use std::sync::Arc;
 use crate::setup::builder::TestLoopBuilder;
 use crate::setup::drop_condition::DropCondition;
 use crate::setup::env::TestLoopEnv;
-use crate::utils::ONE_NEAR;
 
 /// Test upgrading the blockchain to another protocol version.
 /// Optionally make some chunks around epoch boundary missing.
@@ -41,7 +40,7 @@ pub(crate) fn test_protocol_upgrade(
     let epoch_length = 10;
     let accounts =
         (0..20).map(|i| format!("account{}", i).parse().unwrap()).collect::<Vec<AccountId>>();
-    let initial_balance = 10000 * ONE_NEAR;
+    let initial_balance = Balance::from_near(10000);
     let clients = accounts.iter().take(num_clients).cloned().collect_vec();
 
     // TODO - support different shard layouts, is there a way to make missing chunks generic?

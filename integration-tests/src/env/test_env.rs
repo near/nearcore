@@ -532,7 +532,7 @@ impl TestEnv {
             account_id.clone(),
             account_id,
             &signer,
-            100,
+            Balance::from_yoctonear(100),
             self.clients[id].chain.head().unwrap().last_block_hash,
         );
         self.rpc_handlers[id].process_tx(tx, false, false)
@@ -851,7 +851,7 @@ impl TestEnv {
             method_name: "main".to_string(),
             args: vec![],
             gas: Gas::from_teragas(300),
-            deposit: 0,
+            deposit: Balance::ZERO,
         }))];
         let tx = self.tx_from_actions(actions, &signer, signer.get_account_id());
         self.execute_tx(tx).unwrap()

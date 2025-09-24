@@ -28,13 +28,10 @@ use std::thread::JoinHandle;
 pub mod random_config;
 
 /// Initial balance used in tests.
-pub const TESTING_INIT_BALANCE: Balance = 1_000_000_000 * NEAR_BASE;
+pub const TESTING_INIT_BALANCE: Balance = Balance::from_near(1_000_000_000);
 
 /// Validator's stake used in tests.
-pub const TESTING_INIT_STAKE: Balance = 50_000_000 * NEAR_BASE;
-
-/// One NEAR, divisible by 10^24.
-pub const NEAR_BASE: Balance = 1_000_000_000_000_000_000_000_000;
+pub const TESTING_INIT_STAKE: Balance = Balance::from_near(50_000_000);
 
 pub struct StandaloneRuntime {
     pub apply_state: ApplyState,
@@ -108,7 +105,7 @@ impl StandaloneRuntime {
             shard_id: shard_uid.shard_id(),
             epoch_id: Default::default(),
             epoch_height: 0,
-            gas_price: 100,
+            gas_price: Balance::from_yoctonear(100),
             block_timestamp: 0,
             gas_limit: None,
             random_seed: Default::default(),

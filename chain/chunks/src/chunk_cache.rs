@@ -335,6 +335,7 @@ mod tests {
     use near_crypto::KeyType;
     use near_primitives::hash::CryptoHash;
     use near_primitives::sharding::{ShardChunkHeader, ShardChunkHeaderV2};
+    use near_primitives::types::Balance;
     use near_primitives::types::{Gas, ShardId};
     use near_primitives::validator_signer::InMemoryValidatorSigner;
 
@@ -354,7 +355,7 @@ mod tests {
             shard_id,
             Gas::ZERO,
             Gas::ZERO,
-            0,
+            Balance::ZERO,
             CryptoHash::default(),
             CryptoHash::default(),
             vec![],

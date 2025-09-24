@@ -269,7 +269,7 @@ fn iterate_over_records(
     let epoch_id = last_block_header.epoch_id();
     let shard_layout = epoch_manager.get_shard_layout(epoch_id).unwrap();
 
-    let mut total_supply = 0;
+    let mut total_supply = Balance::ZERO;
     for (shard_index, state_root) in state_roots.iter().enumerate() {
         let shard_id = shard_layout.get_shard_id(shard_index).unwrap();
         let trie = runtime
@@ -284,20 +284,33 @@ fn iterate_over_records(
                 }
                 match &mut sr {
                     StateRecord::Account { account_id, account } => {
-                        if account.locked() > 0 {
-                            let mut stake =
-                                *validators.get(account_id).map(|(_, s)| s).unwrap_or(&0);
+                        if account.locked() > Balance::ZERO {
+                            let mut stake = *validators
+                                .get(account_id)
+                                .map(|(_, s)| s)
+                                .unwrap_or(&Balance::ZERO);
                             if let Some(whitelist) = &change_config.whitelist_validators {
                                 if !whitelist.contains(account_id) {
-                                    stake = 0;
+                                    stake = Balance::ZERO;
                                 }
                             }
                             if account.locked() > stake {
-                                account.set_amount(account.amount() + account.locked() - stake);
+                                account.set_amount(
+                                    account
+                                        .amount()
+                                        .checked_add(account.locked())
+                                        .unwrap()
+                                        .checked_sub(stake)
+                                        .unwrap(),
+                                );
                             }
                             account.set_locked(stake);
                         }
-                        total_supply += account.amount() + account.locked();
+                        total_supply = total_supply
+                            .checked_add(account.amount())
+                            .unwrap()
+                            .checked_add(account.locked())
+                            .unwrap();
                         callback(sr);
                     }
                     StateRecord::DelayedReceipt(r) => {

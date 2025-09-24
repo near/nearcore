@@ -109,7 +109,7 @@ impl ValidatorMandates {
         let mut partials = Vec::with_capacity(validators.len());
         for i in 0..validators.len() {
             let partial_weight = validators[i].partial_mandate_weight(stake_per_mandate);
-            if partial_weight > 0 {
+            if partial_weight > Balance::ZERO {
                 partials.push((i as ValidatorId, partial_weight));
             }
         }
@@ -162,7 +162,10 @@ mod validator_mandates_sample {
                 // `i % num_shards == shard_id`.
                 for idx in (shard_id..shuffled_mandates.len()).step_by(self.config.num_shards) {
                     let validator_id = shuffled_mandates[idx];
-                    *mandates_assignment.entry(validator_id).or_default() += stake_per_mandate;
+                    let current_shard_validator_stake: &mut Balance =
+                        mandates_assignment.entry(validator_id).or_default();
+                    *current_shard_validator_stake =
+                        current_shard_validator_stake.checked_add(stake_per_mandate).unwrap();
                 }
 
                 // Achieve shard id shuffling by writing to the position of the alias of `shard_id`.
@@ -173,7 +176,10 @@ mod validator_mandates_sample {
                 // `i % num_shards == shard_id`.
                 for idx in (shard_id..shuffled_partials.len()).step_by(self.config.num_shards) {
                     let (validator_id, partial_weight) = shuffled_partials[idx];
-                    *partials_assignment.entry(validator_id).or_default() += partial_weight;
+                    let current_shard_validator_stake: &mut Balance =
+                        partials_assignment.entry(validator_id).or_default();
+                    *current_shard_validator_stake =
+                        current_shard_validator_stake.checked_add(partial_weight).unwrap();
                 }
             }
 
@@ -322,13 +328,13 @@ mod tests {
         };
 
         vec![
-            new_vs("account_0", 30),
-            new_vs("account_1", 27),
-            new_vs("account_2", 9),
-            new_vs("account_3", 12),
-            new_vs("account_4", 35),
-            new_vs("account_5", 4),
-            new_vs("account_6", 6),
+            new_vs("account_0", Balance::from_yoctonear(30)),
+            new_vs("account_1", Balance::from_yoctonear(27)),
+            new_vs("account_2", Balance::from_yoctonear(9)),
+            new_vs("account_3", Balance::from_yoctonear(12)),
+            new_vs("account_4", Balance::from_yoctonear(35)),
+            new_vs("account_5", Balance::from_yoctonear(4)),
+            new_vs("account_6", Balance::from_yoctonear(6)),
         ]
     }
 
@@ -343,7 +349,7 @@ mod tests {
         // close to 10. But the algorithm for computing price tries to make the number of _whole_
         // mandates equal to 12, and there are validators with partial mandates in the distribution,
         // therefore the price is set a little lower than 10.
-        assert_eq!(mandates.stake_per_mandate, 8);
+        assert_eq!(mandates.stake_per_mandate, Balance::from_yoctonear(8));
 
         // At 8 stake per mandate, the first validator holds three mandates, and so on.
         // Note that "account_5" and "account_6" hold no mandate as both their stakes are below the threshold.
@@ -355,8 +361,15 @@ mod tests {
 
         // At 8 stake per mandate, the first validator a partial mandate with weight 6, the second
         // validator holds a partial mandate with weight 3, and so on.
-        let expected_partials: Vec<(ValidatorId, Balance)> =
-            vec![(0, 6), (1, 3), (2, 1), (3, 4), (4, 3), (5, 4), (6, 6)];
+        let expected_partials: Vec<(ValidatorId, Balance)> = vec![
+            (0, Balance::from_yoctonear(6)),
+            (1, Balance::from_yoctonear(3)),
+            (2, Balance::from_yoctonear(1)),
+            (3, Balance::from_yoctonear(4)),
+            (4, Balance::from_yoctonear(3)),
+            (5, Balance::from_yoctonear(4)),
+            (6, Balance::from_yoctonear(6)),
+        ];
         assert_eq!(mandates.partials, expected_partials);
     }
 
@@ -393,11 +406,26 @@ mod tests {
         // Testing with different `num_shards` values to verify the shuffles used in other tests.
         assert_validator_mandates_shuffled_partials(
             3,
-            vec![(3, 2), (4, 5), (1, 7), (2, 9), (5, 4), (6, 6)],
+            vec![
+                (3, Balance::from_yoctonear(2)),
+                (4, Balance::from_yoctonear(5)),
+                (1, Balance::from_yoctonear(7)),
+                (2, Balance::from_yoctonear(9)),
+                (5, Balance::from_yoctonear(4)),
+                (6, Balance::from_yoctonear(6)),
+            ],
         );
         assert_validator_mandates_shuffled_partials(
             4,
-            vec![(5, 4), (3, 4), (0, 6), (2, 1), (1, 3), (4, 3), (6, 6)],
+            vec![
+                (5, Balance::from_yoctonear(4)),
+                (3, Balance::from_yoctonear(4)),
+                (0, Balance::from_yoctonear(6)),
+                (2, Balance::from_yoctonear(1)),
+                (1, Balance::from_yoctonear(3)),
+                (4, Balance::from_yoctonear(3)),
+                (6, Balance::from_yoctonear(6)),
+            ],
         );
     }
 
@@ -433,9 +461,25 @@ mod tests {
         // Note that shard ids are shuffled too, see `test_shuffled_shard_ids_new`.
         let config = ValidatorMandatesConfig::new(3, 3);
         let expected_assignment = vec![
-            vec![(1, 17), (4, 10), (6, 06), (0, 10)],
-            vec![(4, 05), (5, 04), (0, 10), (1, 10), (3, 10)],
-            vec![(0, 10), (2, 09), (4, 20), (3, 02)],
+            vec![
+                (1, Balance::from_yoctonear(17)),
+                (4, Balance::from_yoctonear(10)),
+                (6, Balance::from_yoctonear(6)),
+                (0, Balance::from_yoctonear(10)),
+            ],
+            vec![
+                (4, Balance::from_yoctonear(5)),
+                (5, Balance::from_yoctonear(4)),
+                (0, Balance::from_yoctonear(10)),
+                (1, Balance::from_yoctonear(10)),
+                (3, Balance::from_yoctonear(10)),
+            ],
+            vec![
+                (0, Balance::from_yoctonear(10)),
+                (2, Balance::from_yoctonear(9)),
+                (4, Balance::from_yoctonear(20)),
+                (3, Balance::from_yoctonear(2)),
+            ],
         ];
         assert_validator_mandates_sample(config, expected_assignment);
     }
@@ -450,10 +494,26 @@ mod tests {
         // Note that shard ids are shuffled too, see `test_shuffled_shard_ids_new`.
         let config = ValidatorMandatesConfig::new(3, 4);
         let expected_mandates_per_shards = vec![
-            vec![(3, 8), (6, 6), (0, 22)],
-            vec![(4, 8), (2, 9), (1, 08)],
-            vec![(0, 8), (3, 4), (4, 19)],
-            vec![(4, 8), (5, 4), (1, 19)],
+            vec![
+                (3, Balance::from_yoctonear(8)),
+                (6, Balance::from_yoctonear(6)),
+                (0, Balance::from_yoctonear(22)),
+            ],
+            vec![
+                (4, Balance::from_yoctonear(8)),
+                (2, Balance::from_yoctonear(9)),
+                (1, Balance::from_yoctonear(8)),
+            ],
+            vec![
+                (0, Balance::from_yoctonear(8)),
+                (3, Balance::from_yoctonear(4)),
+                (4, Balance::from_yoctonear(19)),
+            ],
+            vec![
+                (4, Balance::from_yoctonear(8)),
+                (5, Balance::from_yoctonear(4)),
+                (1, Balance::from_yoctonear(19)),
+            ],
         ];
         assert_validator_mandates_sample(config, expected_mandates_per_shards);
     }

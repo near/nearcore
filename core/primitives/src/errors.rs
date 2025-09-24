@@ -1,6 +1,5 @@
 use crate::action::GlobalContractIdentifier;
 use crate::hash::CryptoHash;
-use crate::serialize::dec_format;
 use crate::shard_layout::ShardLayoutError;
 use crate::sharding::ChunkHash;
 use crate::types::{AccountId, Balance, EpochId, Nonce, SpiceChunkId};
@@ -228,11 +227,7 @@ pub enum InvalidTxError {
     /// Account does not have enough balance to cover TX cost
     NotEnoughBalance {
         signer_id: AccountId,
-        #[serde(with = "dec_format")]
-        #[cfg_attr(feature = "schemars", schemars(with = "String"))]
         balance: Balance,
-        #[serde(with = "dec_format")]
-        #[cfg_attr(feature = "schemars", schemars(with = "String"))]
         cost: Balance,
     } = 7,
     /// Signer account doesn't have enough balance after transaction.
@@ -240,8 +235,6 @@ pub enum InvalidTxError {
         /// An account which doesn't have enough balance to cover storage.
         signer_id: AccountId,
         /// Required balance to cover the state.
-        #[serde(with = "dec_format")]
-        #[cfg_attr(feature = "schemars", schemars(with = "String"))]
         amount: Balance,
     } = 8,
     /// An integer overflow occurred during transaction cost estimation.
@@ -315,11 +308,7 @@ pub enum InvalidAccessKeyError {
     NotEnoughAllowance {
         account_id: AccountId,
         public_key: Box<PublicKey>,
-        #[serde(with = "dec_format")]
-        #[cfg_attr(feature = "schemars", schemars(with = "String"))]
         allowance: Balance,
-        #[serde(with = "dec_format")]
-        #[cfg_attr(feature = "schemars", schemars(with = "String"))]
         cost: Balance,
     } = 4,
     /// Having a deposit with a function call action is not allowed with a function call access key.
@@ -616,8 +605,6 @@ pub enum ActionErrorKind {
         /// An account which needs balance
         account_id: AccountId,
         /// Balance required to complete an action.
-        #[serde(with = "dec_format")]
-        #[cfg_attr(feature = "schemars", schemars(with = "String"))]
         amount: Balance,
     } = 8,
     /// Account is not yet staked, but tries to unstake
@@ -627,23 +614,13 @@ pub enum ActionErrorKind {
     /// The account doesn't have enough balance to increase the stake.
     TriesToStake {
         account_id: AccountId,
-        #[serde(with = "dec_format")]
-        #[cfg_attr(feature = "schemars", schemars(with = "String"))]
         stake: Balance,
-        #[serde(with = "dec_format")]
-        #[cfg_attr(feature = "schemars", schemars(with = "String"))]
         locked: Balance,
-        #[serde(with = "dec_format")]
-        #[cfg_attr(feature = "schemars", schemars(with = "String"))]
         balance: Balance,
     } = 10,
     InsufficientStake {
         account_id: AccountId,
-        #[serde(with = "dec_format")]
-        #[cfg_attr(feature = "schemars", schemars(with = "String"))]
         stake: Balance,
-        #[serde(with = "dec_format")]
-        #[cfg_attr(feature = "schemars", schemars(with = "String"))]
         minimum_stake: Balance,
     } = 11,
     /// An error occurred during a `FunctionCall` Action, parameter is debug message.

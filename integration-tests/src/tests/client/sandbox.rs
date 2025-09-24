@@ -8,7 +8,7 @@ use near_primitives::state_record::StateRecord;
 use near_primitives::transaction::{
     Action, DeployContractAction, FunctionCallAction, SignedTransaction,
 };
-use near_primitives::types::{AccountId, BlockHeight, Gas, Nonce};
+use near_primitives::types::{AccountId, Balance, BlockHeight, Gas, Nonce};
 
 use crate::env::nightshade_setup::TestEnvNightshadeSetupExt;
 use crate::env::test_env::TestEnv;
@@ -45,7 +45,7 @@ fn test_setup() -> (TestEnv, Signer) {
                 method_name: "write_random_value".to_string(),
                 args: vec![],
                 gas: Gas::from_teragas(100),
-                deposit: 0,
+                deposit: Balance::ZERO,
             }))],
         ),
         ProcessTxResponse::ValidTx
@@ -96,7 +96,7 @@ fn test_patch_state() {
 fn test_patch_account() {
     let (mut env, _signer) = test_setup();
     let mut test1: Account = env.query_account("test1".parse().unwrap()).into();
-    test1.set_amount(10);
+    test1.set_amount(Balance::from_yoctonear(10));
 
     env.clients[0].chain.patch_state(SandboxStatePatch::new(vec![StateRecord::Account {
         account_id: "test1".parse().unwrap(),
@@ -104,5 +104,5 @@ fn test_patch_account() {
     }]));
     do_blocks(&mut env, 9, 20);
     let test1_after = env.query_account("test1".parse().unwrap());
-    assert_eq!(test1_after.amount, 10);
+    assert_eq!(test1_after.amount, Balance::from_yoctonear(10));
 }

@@ -26,7 +26,7 @@ pub type BlockHeight = u64;
 /// Height of the epoch.
 pub type EpochHeight = u64;
 /// Balance is type for storing amounts of tokens.
-pub type Balance = u128;
+pub type Balance = near_token::NearToken;
 /// Compute is a type for storing compute time. Measured in femtoseconds (10^-15 seconds).
 pub type Compute = u64;
 

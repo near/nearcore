@@ -38,9 +38,9 @@ config = load_config()
 node_config = state_sync_lib.get_state_sync_config_combined()
 
 near_root, node_dirs = init_cluster(
-    2, 3, 1, config,
-    [["min_gas_price", 0], ["max_inflation_rate", [0, 1]], ["epoch_length", 10],
-     ["block_producer_kickout_threshold", 80]],
+    2, 3, 1,
+    config, [["min_gas_price", "0"], ["max_inflation_rate", [0, 1]],
+             ["epoch_length", 10], ["block_producer_kickout_threshold", 80]],
     {x: node_config for x in range(5)})
 
 started = time.time()

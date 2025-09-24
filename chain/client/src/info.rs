@@ -106,7 +106,7 @@ impl InfoHelper {
         metrics::TGAS_USAGE_HIST
             .with_label_values(&[&shard_id.to_string()])
             .observe(gas_used.as_gas() as f64 / TERAGAS);
-        metrics::BALANCE_BURNT.inc_by(balance_burnt as f64);
+        metrics::BALANCE_BURNT.inc_by(balance_burnt.as_yoctonear() as f64);
     }
 
     pub fn chunk_skipped(&self, shard_id: ShardId) {
@@ -130,8 +130,8 @@ impl InfoHelper {
         metrics::GAS_USED.inc_by(gas_used.as_gas() as f64);
         metrics::BLOCKS_PROCESSED.inc();
         metrics::CHUNKS_PROCESSED.inc_by(num_chunks);
-        metrics::GAS_PRICE.set(gas_price as f64);
-        metrics::TOTAL_SUPPLY.set(total_supply as f64);
+        metrics::GAS_PRICE.set(gas_price.as_yoctonear() as f64);
+        metrics::TOTAL_SUPPLY.set(total_supply.as_yoctonear() as f64);
         metrics::FINAL_BLOCK_HEIGHT.set(last_final_block_height as i64);
         metrics::FINAL_DOOMSLUG_BLOCK_HEIGHT.set(last_final_ds_block_height as i64);
         metrics::EPOCH_HEIGHT.set(epoch_height as i64);
@@ -222,18 +222,19 @@ impl InfoHelper {
             let mut stake_per_bp = HashMap::<ValidatorId, Balance>::new();
 
             let stake_to_blocks = |stake: Balance, stake_sum: Balance| -> i64 {
-                if stake == 0 {
+                if stake.is_zero() {
                     0
                 } else {
-                    (((stake as f64) / (stake_sum as f64)) * (blocks_in_epoch as f64)) as i64
+                    (((stake.as_yoctonear() as f64) / (stake_sum.as_yoctonear() as f64))
+                        * (blocks_in_epoch as f64)) as i64
                 }
             };
 
-            let mut stake_sum = 0;
+            let mut stake_sum = Balance::ZERO;
             for &id in epoch_info.block_producers_settlement() {
                 let stake = epoch_info.validator_stake(id);
                 stake_per_bp.insert(id, stake);
-                stake_sum += stake;
+                stake_sum = stake_sum.checked_add(stake).unwrap();
             }
 
             stake_per_bp.iter().for_each(|(&id, &stake)| {
@@ -242,7 +243,7 @@ impl InfoHelper {
                         epoch_info.get_validator(id).account_id().as_str(),
                         &epoch_height,
                     ])
-                    .set((stake / 1e24 as u128) as i64);
+                    .set(stake.as_near() as i64);
                 metrics::VALIDATORS_BLOCKS_EXPECTED_IN_EPOCH
                     .with_label_values(&[
                         epoch_info.get_validator(id).account_id().as_str(),
@@ -254,7 +255,7 @@ impl InfoHelper {
             for shard_id in shard_ids {
                 let shard_index = shard_layout.get_shard_index(shard_id).unwrap();
                 let mut stake_per_cp = HashMap::<ValidatorId, Balance>::new();
-                stake_sum = 0;
+                stake_sum = Balance::ZERO;
                 let chunk_producers_settlement = &epoch_info.chunk_producers_settlement();
                 let chunk_producers = chunk_producers_settlement.get(shard_index);
                 let Some(chunk_producers) = chunk_producers else {
@@ -264,7 +265,7 @@ impl InfoHelper {
                 for &id in chunk_producers {
                     let stake = epoch_info.validator_stake(id);
                     stake_per_cp.insert(id, stake);
-                    stake_sum += stake;
+                    stake_sum = stake_sum.checked_add(stake).unwrap();
                 }
 
                 stake_per_cp.iter().for_each(|(&id, &stake)| {
@@ -1070,7 +1071,7 @@ mod tests {
     /// Tests that `num_validators` returns the number of all validators including both block and chunk producers.
     #[test]
     fn test_num_validators() {
-        let amount_staked = 1_000_000;
+        let amount_staked = Balance::from_yoctonear(1_000_000);
         let validators = vec![
             ("test1".parse().unwrap(), amount_staked),
             ("test2".parse().unwrap(), amount_staked),

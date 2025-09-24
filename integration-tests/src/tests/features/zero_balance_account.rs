@@ -9,6 +9,7 @@ use near_primitives::errors::{ActionError, ActionErrorKind, InvalidTxError, TxEx
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::transaction::Action::AddKey;
 use near_primitives::transaction::{Action, AddKeyAction, DeleteKeyAction, SignedTransaction};
+use near_primitives::types::Balance;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::{FinalExecutionStatus, QueryRequest, QueryResponseKind};
 use node_runtime::ZERO_BALANCE_ACCOUNT_STORAGE_LIMIT;
@@ -36,7 +37,7 @@ fn assert_zero_balance_account(env: &TestEnv, account_id: &AccountId) {
         .unwrap();
     match response.kind {
         QueryResponseKind::ViewAccount(view) => {
-            assert_eq!(view.amount, 0);
+            assert!(view.amount.is_zero());
             assert!(view.storage_usage <= ZERO_BALANCE_ACCOUNT_STORAGE_LIMIT)
         }
         _ => panic!("wrong query response"),
@@ -63,7 +64,7 @@ fn test_zero_balance_account_creation() {
         1,
         signer0_account_id.clone(),
         new_account_id.clone(),
-        0,
+        Balance::ZERO,
         new_signer.public_key(),
         &signer0,
         *genesis_block.hash(),
@@ -86,7 +87,7 @@ fn test_zero_balance_account_creation() {
         signer0_account_id,
         new_account_id,
         contract.to_vec(),
-        0,
+        Balance::ZERO,
         new_signer.public_key(),
         &signer0,
         *genesis_block.hash(),
@@ -122,10 +123,10 @@ fn test_zero_balance_account_add_key() {
     let mut runtime_config = RuntimeConfig::free();
     let fees = Arc::make_mut(&mut runtime_config.fees);
     fees.storage_usage_config = StorageUsageConfig {
-        storage_amount_per_byte: 10u128.pow(19),
+        storage_amount_per_byte: Balance::from_yoctonear(10u128.pow(19)),
         num_bytes_account: 100,
         num_extra_bytes_record: 40,
-        global_contract_storage_amount_per_byte: 10u128.pow(20),
+        global_contract_storage_amount_per_byte: Balance::from_yoctonear(10u128.pow(20)),
     };
     let wasm_config = Arc::make_mut(&mut runtime_config.wasm_config);
     wasm_config.ext_costs = ExtCostsConfig::test();
@@ -140,7 +141,7 @@ fn test_zero_balance_account_add_key() {
     let signer0 = InMemorySigner::test_signer(&signer0_account_id);
     let new_signer: Signer = InMemorySigner::test_signer(&new_account_id);
 
-    let amount = 10u128.pow(24);
+    let amount = Balance::from_near(1);
     let create_account_tx = SignedTransaction::create_account(
         1,
         signer0_account_id.clone(),
@@ -177,7 +178,7 @@ fn test_zero_balance_account_add_key() {
             access_key: AccessKey {
                 nonce: 0,
                 permission: AccessKeyPermission::FunctionCall(FunctionCallPermission {
-                    allowance: Some(10u128.pow(12)),
+                    allowance: Some(Balance::from_yoctonear(10u128.pow(12))),
                     receiver_id: "a".repeat(64),
                     method_names: vec![],
                 }),
@@ -266,7 +267,7 @@ fn test_storage_usage_components() {
     let fn_access_key = AccessKey {
         nonce: u64::MAX,
         permission: AccessKeyPermission::FunctionCall(FunctionCallPermission {
-            allowance: Some(u128::MAX),
+            allowance: Some(Balance::MAX),
             receiver_id: "a".repeat(64),
             method_names: vec![],
         }),

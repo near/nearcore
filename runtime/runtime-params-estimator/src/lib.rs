@@ -105,7 +105,7 @@ use near_primitives::transaction::{
     Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, DeleteKeyAction,
     DeployContractAction, SignedTransaction, StakeAction, TransferAction,
 };
-use near_primitives::types::{AccountId, Gas};
+use near_primitives::types::{AccountId, Balance, Gas};
 use near_primitives::version::PROTOCOL_VERSION;
 use near_vm_runner::ContractCode;
 use near_vm_runner::MockContractRuntimeCache;
@@ -383,7 +383,8 @@ fn action_transfer(ctx: &mut EstimatorContext) -> GasCost {
         let mut make_transaction = |tb: &mut TransactionBuilder| -> SignedTransaction {
             let (sender, receiver) = tb.random_account_pair();
 
-            let actions = vec![Action::Transfer(TransferAction { deposit: 1 })];
+            let actions =
+                vec![Action::Transfer(TransferAction { deposit: Balance::from_yoctonear(1) })];
             tb.transaction_from_actions(sender, receiver, actions)
         };
         let block_size = 100;
@@ -406,7 +407,7 @@ fn action_create_account(ctx: &mut EstimatorContext) -> GasCost {
 
             let actions = vec![
                 Action::CreateAccount(CreateAccountAction {}),
-                Action::Transfer(TransferAction { deposit: 10u128.pow(26) }),
+                Action::Transfer(TransferAction { deposit: Balance::from_near(100) }),
             ];
             tb.transaction_from_actions(sender, new_account, actions)
         };
@@ -468,7 +469,7 @@ fn action_add_function_access_key_base(ctx: &mut EstimatorContext) -> GasCost {
             let receiver_id = tb.account(0).to_string();
 
             let permission = AccessKeyPermission::FunctionCall(FunctionCallPermission {
-                allowance: Some(100),
+                allowance: Some(Balance::from_yoctonear(100)),
                 receiver_id,
                 method_names: vec!["m".to_string()],
             });
@@ -499,7 +500,7 @@ fn action_add_function_access_key_per_byte(ctx: &mut EstimatorContext) -> GasCos
             let receiver_id = tb.account(0).to_string();
 
             let permission = AccessKeyPermission::FunctionCall(FunctionCallPermission {
-                allowance: Some(100),
+                allowance: Some(Balance::from_yoctonear(100)),
                 receiver_id,
                 method_names: method_names.clone(),
             });
@@ -577,7 +578,7 @@ fn action_stake(ctx: &mut EstimatorContext) -> GasCost {
             let receiver = sender.clone();
 
             let actions = vec![Action::Stake(Box::new(StakeAction {
-                stake: 1,
+                stake: Balance::from_yoctonear(1),
                 public_key: "22skMptHjFWNyuEWY22ftn2AbLPSYpmYwGJRGwpNHbTV".parse().unwrap(),
             }))];
             tb.transaction_from_actions(sender, receiver, actions)

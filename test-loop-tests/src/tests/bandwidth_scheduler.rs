@@ -58,9 +58,9 @@ use crate::setup::builder::TestLoopBuilder;
 use crate::setup::drop_condition::DropCondition;
 use crate::setup::env::TestLoopEnv;
 use crate::setup::state::NodeExecutionData;
-use crate::utils::ONE_NEAR;
 use crate::utils::receipts::action_receipt_v1_to_latest;
 use crate::utils::transactions::{TransactionRunner, run_txs_parallel};
+use near_primitives::types::Balance;
 
 /// 3 shards, random receipt sizes
 #[test]
@@ -156,7 +156,7 @@ fn run_bandwidth_scheduler_test(scenario: TestScenario, tx_concurrency: usize) -
         .epoch_length(epoch_length)
         .shard_layout(shard_layout)
         .validators_spec(validators_spec)
-        .add_user_accounts_simple(&all_accounts, 1_000_000 * ONE_NEAR)
+        .add_user_accounts_simple(&all_accounts, Balance::from_near(1_000_000))
         .genesis_height(10000)
         .transaction_validity_period(1000)
         .build();
@@ -747,14 +747,14 @@ fn make_send_receipt_transaction(
         receipt: ReceiptEnum::Action(ActionReceipt {
             signer_id: sender_account.clone(),
             signer_public_key: sender_signer.public_key(),
-            gas_price: 0,
+            gas_price: Balance::ZERO,
             output_data_receivers: vec![],
             input_data_ids: vec![],
             actions: vec![Action::FunctionCall(Box::new(FunctionCallAction {
                 method_name: method_name.clone(),
                 args: Vec::new(),
                 gas: Gas::ZERO,
-                deposit: 0,
+                deposit: Balance::ZERO,
             }))],
         }),
     });
@@ -770,7 +770,7 @@ fn make_send_receipt_transaction(
         sender_account.clone(),
         sender_account,
         &sender_signer,
-        0,
+        Balance::ZERO,
         "do_function_call_with_args_of_size".to_string(),
         serde_json::json!({
             "account_id": receiver_account,

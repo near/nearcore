@@ -846,8 +846,8 @@ impl EpochSync {
             block_height + 1,
         );
 
-        let mut total_stake: Balance = 0;
-        let mut endorsed_stake: Balance = 0;
+        let mut total_stake = Balance::ZERO;
+        let mut endorsed_stake = Balance::ZERO;
 
         for (validator, may_be_signature) in block_producers.iter().zip(endorsements.iter()) {
             if let Some(signature) = may_be_signature {
@@ -858,12 +858,13 @@ impl EpochSync {
                         validator.account_id()
                     )));
                 }
-                endorsed_stake += validator.stake();
+                endorsed_stake = endorsed_stake.checked_add(validator.stake()).unwrap();
             }
-            total_stake += validator.stake();
+            total_stake = total_stake.checked_add(validator.stake()).unwrap();
         }
 
-        if endorsed_stake <= total_stake * 2 / 3 {
+        let required_stake = total_stake.checked_mul(2).unwrap().checked_div(3).unwrap();
+        if endorsed_stake <= required_stake {
             return Err(near_chain::Error::InvalidEpochSyncProof(format!(
                 "Block {} does not have enough endorsements",
                 block_height

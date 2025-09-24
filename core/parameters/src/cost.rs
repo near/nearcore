@@ -575,8 +575,10 @@ impl StorageUsageConfig {
         Self {
             num_bytes_account: 100,
             num_extra_bytes_record: 40,
-            storage_amount_per_byte: 909 * 100_000_000_000_000_000,
-            global_contract_storage_amount_per_byte: 100_000_000_000_000_000_000,
+            storage_amount_per_byte: Balance::from_yoctonear(909 * 100_000_000_000_000_000),
+            global_contract_storage_amount_per_byte: Balance::from_yoctonear(
+                100_000_000_000_000_000_000,
+            ),
         }
     }
 
@@ -584,8 +586,8 @@ impl StorageUsageConfig {
         Self {
             num_bytes_account: 0,
             num_extra_bytes_record: 0,
-            storage_amount_per_byte: 0,
-            global_contract_storage_amount_per_byte: 0,
+            storage_amount_per_byte: Balance::ZERO,
+            global_contract_storage_amount_per_byte: Balance::ZERO,
         }
     }
 }

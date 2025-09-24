@@ -47,7 +47,7 @@ use near_o11y::span_wrapped_msg::SpanWrapped;
 use near_primitives::epoch_info::RngSeed;
 use near_primitives::network::PeerId;
 use near_primitives::test_utils::create_test_signer;
-use near_primitives::types::{AccountId, BlockHeightDelta, Gas, NumBlocks, NumSeats};
+use near_primitives::types::{AccountId, Balance, BlockHeightDelta, Gas, NumBlocks, NumSeats};
 use near_primitives::validator_signer::EmptyValidatorSigner;
 use near_primitives::version::{PROTOCOL_VERSION, get_protocol_upgrade_schedule};
 use near_store::adapter::StoreAdapter;
@@ -123,9 +123,9 @@ fn setup(
         time: genesis_time,
         height: 0,
         gas_limit: Gas::from_gas(1_000_000),
-        min_gas_price: 100,
-        max_gas_price: 1_000_000_000,
-        total_supply: 3_000_000_000_000_000_000_000_000_000_000_000,
+        min_gas_price: Balance::from_yoctonear(100),
+        max_gas_price: Balance::from_yoctonear(1_000_000_000),
+        total_supply: Balance::from_near(3_000_000_000),
         gas_price_adjustment_rate: Ratio::from_integer(0),
         transaction_validity_period,
         epoch_length,

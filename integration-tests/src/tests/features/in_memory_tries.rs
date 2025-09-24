@@ -12,7 +12,7 @@ use near_primitives::block::Tip;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::test_utils::create_user_test_signer;
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::EpochId;
+use near_primitives::types::{Balance, EpochId};
 use near_primitives_core::types::AccountId;
 use near_store::test_utils::create_test_store;
 use near_store::{ShardUId, TrieConfig};
@@ -23,13 +23,11 @@ use std::collections::{HashMap, HashSet};
 use crate::env::nightshade_setup::TestEnvNightshadeSetupExt;
 use crate::env::test_env::TestEnv;
 
-const ONE_NEAR: u128 = 1_000_000_000_000_000_000_000_000;
-
 #[test]
 fn slow_test_in_memory_trie_node_consistency() {
     // Recommended to run with RUST_LOG=memtrie=debug,chunks=error,info
     init_test_logger();
-    let initial_balance = 1000000 * ONE_NEAR;
+    let initial_balance = Balance::from_near(1000000);
     let accounts =
         (0..100).map(|i| format!("account{}", i).parse().unwrap()).collect::<Vec<AccountId>>();
     let mut clock = FakeClock::new(Utc::UNIX_EPOCH);
@@ -91,7 +89,7 @@ fn slow_test_in_memory_trie_node_consistency() {
     let mut balances = accounts
         .iter()
         .map(|account| (account.clone(), initial_balance))
-        .collect::<HashMap<AccountId, u128>>();
+        .collect::<HashMap<AccountId, Balance>>();
 
     run_chain_for_some_blocks_while_sending_money_around(
         &mut clock,
@@ -224,7 +222,7 @@ fn run_chain_for_some_blocks_while_sending_money_around(
     clock: &FakeClock,
     env: &mut TestEnv,
     nonces: &mut HashMap<AccountId, u64>,
-    balances: &mut HashMap<AccountId, u128>,
+    balances: &mut HashMap<AccountId, Balance>,
     num_rounds: usize,
     track_all_shards: bool,
 ) {
@@ -254,7 +252,7 @@ fn run_chain_for_some_blocks_while_sending_money_around(
                     sender.clone(),
                     receiver.clone(),
                     &create_user_test_signer(&sender).into(),
-                    ONE_NEAR,
+                    Balance::from_near(1),
                     tip.last_block_hash,
                 );
                 // Process the txn in all shards, because they may not always
@@ -266,8 +264,13 @@ fn run_chain_for_some_blocks_while_sending_money_around(
                         _ => {}
                     }
                 }
-                *balances.get_mut(&sender).unwrap() -= ONE_NEAR;
-                *balances.get_mut(&receiver).unwrap() += ONE_NEAR;
+                *balances.get_mut(&sender).unwrap() =
+                    balances.get_mut(&sender).unwrap().checked_sub(Balance::from_near(1)).unwrap();
+                *balances.get_mut(&receiver).unwrap() = balances
+                    .get_mut(&receiver)
+                    .unwrap()
+                    .checked_add(Balance::from_near(1))
+                    .unwrap();
             }
         }
 
@@ -397,7 +400,7 @@ fn num_memtrie_roots(env: &TestEnv, client_id: usize, shard: ShardUId) -> Option
 fn test_in_memory_trie_consistency_with_state_sync_base_case(track_all_shards: bool) {
     // Recommended to run with RUST_LOG=memtrie=debug,chunks=error,info
     init_test_logger();
-    let initial_balance = 1000000 * ONE_NEAR;
+    let initial_balance = Balance::from_near(1000000);
     let accounts =
         (0..100).map(|i| format!("account{}", i).parse().unwrap()).collect::<Vec<AccountId>>();
     // We'll test with 4 shards. This can be any number, but we want to test
@@ -459,7 +462,7 @@ fn test_in_memory_trie_consistency_with_state_sync_base_case(track_all_shards: b
     let mut balances = accounts
         .iter()
         .map(|account| (account.clone(), initial_balance))
-        .collect::<HashMap<AccountId, u128>>();
+        .collect::<HashMap<AccountId, Balance>>();
 
     run_chain_for_some_blocks_while_sending_money_around(
         &mut clock,

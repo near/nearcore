@@ -15,7 +15,7 @@ outgoing_receipts_usual_size_limit                   102_400
 outgoing_receipts_big_size_limit                   4_718_592
 min_allowed_top_level_account_length                      65
 registrar_account_id                    registrar
-storage_amount_per_byte                 10000000000000000000
+storage_amount_per_byte                 10000000000000000000 yN
 storage_num_bytes_account                                100
 storage_num_extra_bytes_record                            40
 action_receipt_creation                 
@@ -230,7 +230,7 @@ action_deploy_global_contract_per_byte
 - send_sir:                6_812_999
 - send_not_sir:           47_683_715
 - execution:              70_000_000
-global_contract_storage_amount_per_byte 100000000000000000000
+global_contract_storage_amount_per_byte 0.0001 N
 action_use_global_contract              
 - send_sir:          184_765_750_000
 - send_not_sir:      184_765_750_000

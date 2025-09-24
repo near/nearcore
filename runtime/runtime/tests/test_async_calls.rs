@@ -6,16 +6,13 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{ActionReceipt, ActionReceiptV2, ReceiptEnum};
 use near_primitives::serialize::to_base64;
 use near_primitives::types::AccountId;
-use near_primitives::types::Gas;
+use near_primitives::types::{Balance, Gas};
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 
 pub mod runtime_group_tools;
 
 /// Initial balance used in tests.
-pub const TESTING_INIT_BALANCE: u128 = 1_000_000_000 * NEAR_BASE;
-
-/// One NEAR, divisible by 10^24.
-pub const NEAR_BASE: u128 = 1_000_000_000_000_000_000_000_000;
+pub const TESTING_INIT_BALANCE: Balance = Balance::from_near(1_000_000_000);
 
 const GAS_1: Gas = Gas::from_teragas(900);
 const GAS_2: Gas = GAS_1.checked_div(3).unwrap();
@@ -36,7 +33,7 @@ fn test_simple_func_call() {
             method_name: "sum_n".to_string(),
             args: 10u64.to_le_bytes().to_vec(),
             gas: GAS_1,
-            deposit: 0,
+            deposit: Balance::ZERO,
         }))],
         CryptoHash::default(),
         0,
@@ -87,7 +84,7 @@ fn test_single_promise_no_callback() {
             method_name: "call_promise".to_string(),
             args: serde_json::to_vec(&data).unwrap(),
             gas: GAS_1,
-            deposit: 0,
+            deposit: Balance::ZERO,
         }))],
         CryptoHash::default(),
         0,
@@ -109,7 +106,7 @@ fn test_single_promise_no_callback() {
         a0, Action::FunctionCall(function_call_action),
         {
             assert_eq!(function_call_action.gas, GAS_1);
-            assert_eq!(function_call_action.deposit, 0);
+            assert!(function_call_action.deposit.is_zero());
         }
     );
     let [r1, refunds @ ..] = &receipts else { panic!("Incorrect number of produced receipts") };
@@ -121,7 +118,7 @@ fn test_single_promise_no_callback() {
         actions,
         a0, Action::FunctionCall(function_call_action), {
         assert_eq!(function_call_action.gas, GAS_2);
-        assert_eq!(function_call_action.deposit, 0);
+        assert!(function_call_action.deposit.is_zero());
     });
     assert_single_refund_prior_to_nep536(&group, &receipts);
 }
@@ -160,7 +157,7 @@ fn test_single_promise_with_callback() {
             method_name: "call_promise".to_string(),
             args: serde_json::to_vec(&data).unwrap(),
             gas: GAS_1,
-            deposit: 0,
+            deposit: Balance::ZERO,
         }))],
         CryptoHash::default(),
         0,
@@ -182,7 +179,7 @@ fn test_single_promise_with_callback() {
         actions,
         a0, Action::FunctionCall(function_call_action), {
             assert_eq!(function_call_action.gas, GAS_1);
-            assert_eq!(function_call_action.deposit, 0);
+            assert!(function_call_action.deposit.is_zero());
         }
     );
     let [r1, r2, refunds @ ..] = &receipts else { panic!("Incorrect number of produced receipts") };
@@ -199,7 +196,7 @@ fn test_single_promise_with_callback() {
     actions,
     a0, Action::FunctionCall(function_call_action), {
         assert_eq!(function_call_action.gas, GAS_2);
-        assert_eq!(function_call_action.deposit, 0);
+        assert!(function_call_action.deposit.is_zero());
     });
     assert_single_refund_prior_to_nep536(&group, &receipts);
 
@@ -212,7 +209,7 @@ fn test_single_promise_with_callback() {
         actions,
         a0, Action::FunctionCall(function_call_action), {
             assert_eq!(function_call_action.gas, GAS_2);
-            assert_eq!(function_call_action.deposit, 0);
+            assert!(function_call_action.deposit.is_zero());
         }
     );
     assert_single_refund_prior_to_nep536(&group, &receipts);
@@ -253,7 +250,7 @@ fn test_two_promises_no_callbacks() {
             method_name: "call_promise".to_string(),
             args: serde_json::to_vec(&data).unwrap(),
             gas: GAS_1,
-            deposit: 0,
+            deposit: Balance::ZERO,
         }))],
         CryptoHash::default(),
         0,
@@ -274,7 +271,7 @@ fn test_two_promises_no_callbacks() {
         actions,
         a0, Action::FunctionCall(function_call_action), {
             assert_eq!(function_call_action.gas, GAS_1);
-            assert_eq!(function_call_action.deposit, 0);
+            assert!(function_call_action.deposit.is_zero());
         }
     );
     let [r1, refunds @ ..] = &receipts else { panic!("must have outgoing receipt") };
@@ -286,7 +283,7 @@ fn test_two_promises_no_callbacks() {
         actions,
         a0, Action::FunctionCall(function_call_action), {
             assert_eq!(function_call_action.gas, GAS_2);
-            assert_eq!(function_call_action.deposit, 0);
+            assert!(function_call_action.deposit.is_zero());
         }
     );
     let [r2, refunds @ ..] = &receipts else { panic!("Incorrect number of produced receipts") };
@@ -298,7 +295,7 @@ fn test_two_promises_no_callbacks() {
         actions,
         a0, Action::FunctionCall(function_call_action), {
             assert_eq!(function_call_action.gas, GAS_3);
-            assert_eq!(function_call_action.deposit, 0);
+            assert!(function_call_action.deposit.is_zero());
         }
     );
     assert_single_refund_prior_to_nep536(&group, receipts);
@@ -356,7 +353,7 @@ fn test_two_promises_with_two_callbacks() {
             method_name: "call_promise".to_string(),
             args: serde_json::to_vec(&data).unwrap(),
             gas: GAS_1,
-            deposit: 0,
+            deposit: Balance::ZERO,
         }))],
         CryptoHash::default(),
         0,
@@ -378,7 +375,7 @@ fn test_two_promises_with_two_callbacks() {
         actions,
         a0, Action::FunctionCall(function_call_action), {
             assert_eq!(function_call_action.gas, GAS_1);
-            assert_eq!(function_call_action.deposit, 0);
+            assert!(function_call_action.deposit.is_zero());
         }
     );
     let [r1, cb1, refunds @ ..] = &receipts else {
@@ -392,7 +389,7 @@ fn test_two_promises_with_two_callbacks() {
         actions,
         a0, Action::FunctionCall(function_call_action), {
             assert_eq!(function_call_action.gas, GAS_2);
-            assert_eq!(function_call_action.deposit, 0);
+            assert!(function_call_action.deposit.is_zero());
         }
     );
     let [r2, cb2, refunds @ ..] = &receipts else {
@@ -406,7 +403,7 @@ fn test_two_promises_with_two_callbacks() {
         actions,
         a0, Action::FunctionCall(function_call_action), {
             assert_eq!(function_call_action.gas, GAS_3);
-            assert_eq!(function_call_action.deposit, 0);
+            assert!(function_call_action.deposit.is_zero());
         }
     );
     assert_single_refund_prior_to_nep536(&group, receipts);
@@ -417,7 +414,7 @@ fn test_two_promises_with_two_callbacks() {
         actions,
         a0, Action::FunctionCall(function_call_action), {
             assert_eq!(function_call_action.gas, GAS_3);
-            assert_eq!(function_call_action.deposit, 0);
+            assert!(function_call_action.deposit.is_zero());
         }
     );
     assert_single_refund_prior_to_nep536(&group, receipts);
@@ -428,7 +425,7 @@ fn test_two_promises_with_two_callbacks() {
         actions,
         a0, Action::FunctionCall(function_call_action), {
             assert_eq!(function_call_action.gas, GAS_2);
-            assert_eq!(function_call_action.deposit, 0);
+            assert!(function_call_action.deposit.is_zero());
         }
     );
     assert_single_refund_prior_to_nep536(&group, receipts);
@@ -465,7 +462,7 @@ fn test_single_promise_no_callback_batch() {
             method_name: "call_promise".to_string(),
             args: serde_json::to_vec(&data).unwrap(),
             gas: GAS_1,
-            deposit: 0,
+            deposit: Balance::ZERO,
         }))],
         CryptoHash::default(),
         0,
@@ -486,7 +483,7 @@ fn test_single_promise_no_callback_batch() {
         actions,
         a0, Action::FunctionCall(function_call_action), {
             assert_eq!(function_call_action.gas, GAS_1);
-            assert_eq!(function_call_action.deposit, 0);
+            assert!(function_call_action.deposit.is_zero());
         }
     );
     let [r1, refunds @ ..] = &receipts else { panic!("Incorrect number of produced receipts") };
@@ -498,7 +495,7 @@ fn test_single_promise_no_callback_batch() {
         actions,
         a0, Action::FunctionCall(function_call_action), {
             assert_eq!(function_call_action.gas, GAS_2);
-            assert_eq!(function_call_action.deposit, 0);
+            assert!(function_call_action.deposit.is_zero());
         }
     );
     assert_single_refund_prior_to_nep536(&group, &receipts);
@@ -544,7 +541,7 @@ fn test_single_promise_with_callback_batch() {
             method_name: "call_promise".to_string(),
             args: serde_json::to_vec(&data).unwrap(),
             gas: GAS_1,
-            deposit: 0,
+            deposit: Balance::ZERO,
         }))],
         CryptoHash::default(),
         0,
@@ -566,7 +563,7 @@ fn test_single_promise_with_callback_batch() {
         actions,
         a0, Action::FunctionCall(function_call_action), {
             assert_eq!(function_call_action.gas, GAS_1);
-            assert_eq!(function_call_action.deposit, 0);
+            assert!(function_call_action.deposit.is_zero());
         }
     );
     let [r1, r2, refunds @ ..] = &receipts else { panic!("Incorrect number of produced receipts") };
@@ -582,7 +579,7 @@ fn test_single_promise_with_callback_batch() {
         actions,
         a0, Action::FunctionCall(function_call_action), {
             assert_eq!(function_call_action.gas, GAS_2);
-            assert_eq!(function_call_action.deposit, 0);
+            assert!(function_call_action.deposit.is_zero());
         }
     );
     assert_single_refund_prior_to_nep536(&group, &receipts);
@@ -596,7 +593,7 @@ fn test_single_promise_with_callback_batch() {
         actions,
         a0, Action::FunctionCall(function_call_action), {
             assert_eq!(function_call_action.gas, GAS_2);
-            assert_eq!(function_call_action.deposit, 0);
+            assert!(function_call_action.deposit.is_zero());
         }
     );
     if ProtocolFeature::ReducedGasRefunds.enabled(PROTOCOL_VERSION) {
@@ -632,7 +629,7 @@ fn test_simple_transfer() {
             method_name: "call_promise".to_string(),
             args: serde_json::to_vec(&data).unwrap(),
             gas: GAS_1,
-            deposit: 0,
+            deposit: Balance::ZERO,
         }))],
         CryptoHash::default(),
         0,
@@ -654,7 +651,7 @@ fn test_simple_transfer() {
         actions,
         a0, Action::FunctionCall(function_call_action), {
             assert_eq!(function_call_action.gas, GAS_1);
-            assert_eq!(function_call_action.deposit, 0);
+            assert!(function_call_action.deposit.is_zero());
         }
     );
     let [r1, refunds @ ..] = &receipts else { panic!("Incorrect number of produced receipts") };
@@ -666,7 +663,7 @@ fn test_simple_transfer() {
         {},
         actions,
         a0, Action::Transfer(TransferAction{deposit}), {
-            assert_eq!(*deposit, 1000000000);
+            assert_eq!(*deposit, Balance::from_yoctonear(1000000000));
         }
     );
     // For gas price difference
@@ -712,7 +709,7 @@ fn test_create_account_with_transfer_and_full_key() {
             method_name: "call_promise".to_string(),
             args: serde_json::to_vec(&data).unwrap(),
             gas: GAS_1,
-            deposit: 0,
+            deposit: Balance::ZERO,
         }))],
         CryptoHash::default(),
         0,
@@ -733,7 +730,7 @@ fn test_create_account_with_transfer_and_full_key() {
         actions,
         a0, Action::FunctionCall(function_call_action), {
             assert_eq!(function_call_action.gas, GAS_1);
-            assert_eq!(function_call_action.deposit, 0);
+            assert!(function_call_action.deposit.is_zero());
         }
     );
     let [r1, refunds @ ..] = &receipts else { panic!("Incorrect number of produced receipts") };
@@ -745,7 +742,7 @@ fn test_create_account_with_transfer_and_full_key() {
         actions,
         a0, Action::CreateAccount(CreateAccountAction{}), {},
         a1, Action::Transfer(TransferAction{deposit}), {
-            assert_eq!(*deposit, 10000000000000000000000000);
+            assert_eq!(*deposit, Balance::from_near(10));
         },
         a2, Action::AddKey(add_key_action), {
             assert_eq!(add_key_action.public_key, signer_new_account.public_key());
@@ -779,13 +776,13 @@ fn test_account_factory() {
         }, "id": 0 },
         {"action_transfer": {
             "promise_index": 0,
-            "amount": (TESTING_INIT_BALANCE / 2).to_string(),
+            "amount": TESTING_INIT_BALANCE.checked_div(2).unwrap(),
         }, "id": 0 },
         {"action_add_key_with_function_call": {
             "promise_index": 0,
             "public_key": to_base64(&borsh::to_vec(&signer_new_account.public_key()).unwrap()),
             "nonce": 0,
-            "allowance": (TESTING_INIT_BALANCE / 2).to_string(),
+            "allowance": TESTING_INIT_BALANCE.checked_div(2).unwrap(),
             "receiver_id": "near_1",
             "method_names": "call_promise,hello"
         }, "id": 0 },
@@ -836,7 +833,7 @@ fn test_account_factory() {
             method_name: "call_promise".to_string(),
             args: serde_json::to_vec(&data).unwrap(),
             gas: GAS_1,
-            deposit: 0,
+            deposit: Balance::ZERO,
         }))],
         CryptoHash::default(),
         0,
@@ -857,7 +854,7 @@ fn test_account_factory() {
         actions,
         a0, Action::FunctionCall(function_call_action), {
             assert_eq!(function_call_action.gas, GAS_1);
-            assert_eq!(function_call_action.deposit, 0);
+            assert!(function_call_action.deposit.is_zero());
         }
     );
     let [r1, r2, refunds @ ..] = &receipts else { panic!("Incorrect number of produced receipts") };
@@ -880,13 +877,13 @@ fn test_account_factory() {
         actions,
         a0, Action::CreateAccount(CreateAccountAction{}), {},
         a1, Action::Transfer(TransferAction{deposit}), {
-            assert_eq!(*deposit, TESTING_INIT_BALANCE / 2);
+            assert_eq!(*deposit, TESTING_INIT_BALANCE.checked_div(2).unwrap());
         },
         a2, Action::AddKey(add_key_action), {
             assert_eq!(add_key_action.public_key, signer_new_account.public_key());
             assert_eq!(add_key_action.access_key.nonce, 0);
             assert_eq!(add_key_action.access_key.permission, AccessKeyPermission::FunctionCall(FunctionCallPermission {
-                allowance: Some(TESTING_INIT_BALANCE / 2),
+                allowance: Some(TESTING_INIT_BALANCE.checked_div(2).unwrap()),
                 receiver_id: "near_1".parse().unwrap(),
                 method_names: vec!["call_promise".to_string(), "hello".to_string()],
             }));
@@ -896,7 +893,7 @@ fn test_account_factory() {
         },
         a4, Action::FunctionCall(function_call_action), {
             assert_eq!(function_call_action.gas, GAS_2);
-            assert_eq!(function_call_action.deposit, 0);
+            assert!(function_call_action.deposit.is_zero());
         }
     );
     let [r3, refunds @ ..] = &receipts else { panic!("Incorrect number of produced receipts") };
@@ -911,7 +908,7 @@ fn test_account_factory() {
         actions,
         a0, Action::FunctionCall(function_call_action), {
             assert_eq!(function_call_action.gas, GAS_2);
-            assert_eq!(function_call_action.deposit, 0);
+            assert!(function_call_action.deposit.is_zero());
         }
     );
     let [r4, refunds @ ..] = &receipts else { panic!("Incorrect number of produced receipts") };
@@ -924,7 +921,7 @@ fn test_account_factory() {
         actions,
         a0, Action::FunctionCall(function_call_action), {
             assert_eq!(function_call_action.gas, GAS_3);
-            assert_eq!(function_call_action.deposit, 0);
+            assert!(function_call_action.deposit.is_zero());
         }
     );
     assert_single_refund_prior_to_nep536(&group, receipts);
@@ -936,7 +933,7 @@ fn test_account_factory() {
         a0,
         Action::FunctionCall(function_call_action), {
             assert_eq!(function_call_action.gas, GAS_3);
-            assert_eq!(function_call_action.deposit, 0);
+            assert!(function_call_action.deposit.is_zero());
         }
     );
     assert_single_refund_prior_to_nep536(&group, receipts);
@@ -958,7 +955,7 @@ fn test_create_account_add_key_call_delete_key_delete_account() {
         }, "id": 0 },
         {"action_transfer": {
             "promise_index": 0,
-            "amount": (TESTING_INIT_BALANCE / 2).to_string(),
+            "amount": TESTING_INIT_BALANCE.checked_div(2).unwrap(),
         }, "id": 0 },
         {"action_add_key_with_full_access": {
             "promise_index": 0,
@@ -1004,7 +1001,7 @@ fn test_create_account_add_key_call_delete_key_delete_account() {
             method_name: "call_promise".to_string(),
             args: serde_json::to_vec(&data).unwrap(),
             gas: GAS_1,
-            deposit: 0,
+            deposit: Balance::ZERO,
         }))],
         CryptoHash::default(),
         0,
@@ -1025,7 +1022,7 @@ fn test_create_account_add_key_call_delete_key_delete_account() {
         actions,
         a0, Action::FunctionCall(function_call_action), {
             assert_eq!(function_call_action.gas, GAS_1);
-            assert_eq!(function_call_action.deposit, 0);
+            assert!(function_call_action.deposit.is_zero());
         }
     );
     let [r1, refunds @ ..] = &receipts else { panic!("must have outgoing receipt") };
@@ -1039,7 +1036,7 @@ fn test_create_account_add_key_call_delete_key_delete_account() {
         actions,
         a0, Action::CreateAccount(CreateAccountAction{}), {},
         a1, Action::Transfer(TransferAction{deposit}), {
-            assert_eq!(*deposit, TESTING_INIT_BALANCE / 2);
+            assert_eq!(*deposit, TESTING_INIT_BALANCE.checked_div(2).unwrap());
         },
         a2, Action::AddKey(add_key_action), {
             assert_eq!(add_key_action.public_key, signer_new_account.public_key());
@@ -1051,7 +1048,7 @@ fn test_create_account_add_key_call_delete_key_delete_account() {
         },
         a4, Action::FunctionCall(function_call_action), {
             assert_eq!(function_call_action.gas, GAS_2);
-            assert_eq!(function_call_action.deposit, 0);
+            assert!(function_call_action.deposit.is_zero());
         },
         a5, Action::DeleteKey(delete_key_action), {
             assert_eq!(delete_key_action.public_key, signer_new_account.public_key());
@@ -1076,7 +1073,7 @@ fn test_create_account_add_key_call_delete_key_delete_account() {
         actions,
         a0, Action::FunctionCall(function_call_action), {
             assert_eq!(function_call_action.gas, GAS_3);
-            assert_eq!(function_call_action.deposit, 0);
+            assert!(function_call_action.deposit.is_zero());
         }
     );
     // For gas price difference
@@ -1111,7 +1108,7 @@ fn test_transfer_64len_hex() {
         }, "id": 0 },
         {"action_transfer": {
             "promise_index": 0,
-            "amount": (TESTING_INIT_BALANCE / 2).to_string(),
+            "amount": TESTING_INIT_BALANCE.checked_div(2).unwrap(),
         }, "id": 0 },
     ]);
 
@@ -1124,7 +1121,7 @@ fn test_transfer_64len_hex() {
             method_name: "call_promise".to_string(),
             args: serde_json::to_vec(&data).unwrap(),
             gas: GAS_1,
-            deposit: 0,
+            deposit: Balance::ZERO,
         }))],
         CryptoHash::default(),
         0,
@@ -1145,7 +1142,7 @@ fn test_transfer_64len_hex() {
         actions,
         a0, Action::FunctionCall(function_call_action), {
             assert_eq!(function_call_action.gas, GAS_1);
-            assert_eq!(function_call_action.deposit, 0);
+            assert!(function_call_action.deposit.is_zero());
         }
     );
     let [r1, refunds @ ..] = &receipts else { panic!("Incorrect number of produced receipts") };
@@ -1156,7 +1153,7 @@ fn test_transfer_64len_hex() {
         {},
         actions,
         a0, Action::Transfer(TransferAction{deposit}), {
-        assert_eq!(*deposit, TESTING_INIT_BALANCE / 2);
+        assert_eq!(*deposit, TESTING_INIT_BALANCE.checked_div(2).unwrap());
        }
     );
 
@@ -1191,7 +1188,7 @@ fn test_create_transfer_64len_hex_fail() {
         }, "id": 0 },
         {"action_transfer": {
             "promise_index": 0,
-            "amount": (TESTING_INIT_BALANCE / 2).to_string(),
+            "amount": TESTING_INIT_BALANCE.checked_div(2).unwrap(),
         }, "id": 0 },
     ]);
 
@@ -1204,7 +1201,7 @@ fn test_create_transfer_64len_hex_fail() {
             method_name: "call_promise".to_string(),
             args: serde_json::to_vec(&data).unwrap(),
             gas: GAS_1,
-            deposit: 0,
+            deposit: Balance::ZERO,
         }))],
         CryptoHash::default(),
         0,
@@ -1225,9 +1222,12 @@ fn test_create_transfer_64len_hex_fail() {
         actions,
         a0, Action::FunctionCall(function_call_action), {
             assert_eq!(function_call_action.gas, GAS_1);
-            assert_eq!(function_call_action.deposit, 0);
+            assert!(function_call_action.deposit.is_zero());
         }
     );
+
+    println!("receipts: {:?}", receipts);
+
     let [r1, refunds @ ..] = &receipts else { panic!("Incorrect number of produced receipts") };
     assert_single_refund_prior_to_nep536(&group, &refunds);
 
@@ -1237,7 +1237,7 @@ fn test_create_transfer_64len_hex_fail() {
         actions,
         a0, Action::CreateAccount(CreateAccountAction{}), {},
         a1, Action::Transfer(TransferAction{deposit}), {
-            assert_eq!(*deposit, TESTING_INIT_BALANCE / 2);
+            assert_eq!(*deposit, TESTING_INIT_BALANCE.checked_div(2).unwrap());
         }
     );
 
@@ -1262,7 +1262,7 @@ fn test_refund_to() {
 
     let signer_sender = group.signers[0].clone();
     let signer_receiver = group.signers[1].clone();
-    let deposit = 1000;
+    let deposit = Balance::from_yoctonear(1000);
 
     let data = serde_json::json!([
         {
@@ -1276,7 +1276,7 @@ fn test_refund_to() {
                 "promise_index": 0,
                 "method_name": "non_existing_function",
                 "arguments": [],
-                "amount": deposit.to_string(),
+                "amount": deposit,
                 "gas": GAS_2,
             },
             "id": 0
@@ -1308,6 +1308,8 @@ fn test_refund_to() {
     for h in handles {
         h.join().unwrap();
     }
+
+    println!("{:?}", group.executed_receipts);
 
     use near_primitives::transaction::*;
     let [r0] = &*assert_receipts!(group, signed_transaction) else {

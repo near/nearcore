@@ -1,5 +1,6 @@
 use near_chain::{Block, BlockHeader};
 use near_primitives::block::Chunks;
+use near_primitives::types::Balance;
 use near_primitives::{
     stateless_validation::chunk_endorsements_bitmap::ChunkEndorsementsBitmap,
     test_utils::create_test_signer,
@@ -7,9 +8,9 @@ use near_primitives::{
 
 pub fn set_no_chunk_in_block(block: &mut Block, prev_block: &Block) {
     let chunk_headers = vec![prev_block.chunks()[0].clone()];
-    let mut balance_burnt = 0;
+    let mut balance_burnt = Balance::ZERO;
     for chunk in block.chunks().iter_new() {
-        balance_burnt += chunk.prev_balance_burnt();
+        balance_burnt = balance_burnt.checked_add(chunk.prev_balance_burnt()).unwrap();
     }
     block.set_chunks(chunk_headers.clone());
     block.set_chunk_endorsements(vec![vec![]; chunk_headers.len()]);
@@ -25,7 +26,8 @@ pub fn set_no_chunk_in_block(block: &mut Block, prev_block: &Block) {
             header.inner_lite.prev_outcome_root = chunks.compute_outcome_root();
             header.inner_rest.chunk_mask = vec![false];
             header.inner_rest.next_gas_price = prev_block.header().next_gas_price();
-            header.inner_rest.total_supply += balance_burnt;
+            header.inner_rest.total_supply =
+                header.inner_rest.total_supply.checked_add(balance_burnt).unwrap();
         }
         BlockHeader::BlockHeaderV2(header) => {
             header.inner_rest.chunk_headers_root = chunks.compute_chunk_headers_root().0;
@@ -36,7 +38,8 @@ pub fn set_no_chunk_in_block(block: &mut Block, prev_block: &Block) {
             header.inner_lite.prev_outcome_root = chunks.compute_outcome_root();
             header.inner_rest.chunk_mask = vec![false];
             header.inner_rest.next_gas_price = prev_block.header().next_gas_price();
-            header.inner_rest.total_supply += balance_burnt;
+            header.inner_rest.total_supply =
+                header.inner_rest.total_supply.checked_add(balance_burnt).unwrap();
         }
         BlockHeader::BlockHeaderV3(header) => {
             header.inner_rest.chunk_headers_root = chunks.compute_chunk_headers_root().0;
@@ -47,7 +50,8 @@ pub fn set_no_chunk_in_block(block: &mut Block, prev_block: &Block) {
             header.inner_lite.prev_outcome_root = chunks.compute_outcome_root();
             header.inner_rest.chunk_mask = vec![false];
             header.inner_rest.next_gas_price = prev_block.header().next_gas_price();
-            header.inner_rest.total_supply += balance_burnt;
+            header.inner_rest.total_supply =
+                header.inner_rest.total_supply.checked_add(balance_burnt).unwrap();
         }
         BlockHeader::BlockHeaderV4(header) => {
             header.inner_rest.chunk_headers_root = chunks.compute_chunk_headers_root().0;
@@ -58,7 +62,8 @@ pub fn set_no_chunk_in_block(block: &mut Block, prev_block: &Block) {
             header.inner_lite.prev_outcome_root = chunks.compute_outcome_root();
             header.inner_rest.chunk_mask = vec![false];
             header.inner_rest.next_gas_price = prev_block.header().next_gas_price();
-            header.inner_rest.total_supply += balance_burnt;
+            header.inner_rest.total_supply =
+                header.inner_rest.total_supply.checked_add(balance_burnt).unwrap();
             header.inner_rest.block_body_hash = block_body_hash.unwrap();
         }
         // Same as BlockHeader::BlockHeaderV4 branch but with inner_rest.chunk_endorsements field set.
@@ -71,7 +76,8 @@ pub fn set_no_chunk_in_block(block: &mut Block, prev_block: &Block) {
             header.inner_lite.prev_outcome_root = chunks.compute_outcome_root();
             header.inner_rest.chunk_mask = vec![false];
             header.inner_rest.next_gas_price = prev_block.header().next_gas_price();
-            header.inner_rest.total_supply += balance_burnt;
+            header.inner_rest.total_supply =
+                header.inner_rest.total_supply.checked_add(balance_burnt).unwrap();
             header.inner_rest.block_body_hash = block_body_hash.unwrap();
             header.inner_rest.chunk_endorsements =
                 ChunkEndorsementsBitmap::new(chunk_headers.len());

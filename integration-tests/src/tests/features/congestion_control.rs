@@ -13,7 +13,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::sharding::{ShardChunk, ShardChunkHeader};
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{Gas, ShardId};
+use near_primitives::types::{Balance, Gas, ShardId};
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_primitives::views::FinalExecutionStatus;
 use near_vm_runner::logic::ProtocolVersion;
@@ -90,7 +90,7 @@ fn setup_account(
     let signer = InMemorySigner::test_signer(&signer_id);
 
     let public_key = PublicKey::from_seed(KeyType::ED25519, account_id.as_str());
-    let amount = 10 * 10u128.pow(24);
+    let amount = Balance::from_near(10);
 
     *nonce += 1;
     let create_account_tx = SignedTransaction::create_account(
@@ -124,7 +124,7 @@ fn setup_contract(env: &mut TestEnv, nonce: &mut u64) {
         signer_id,
         CONTRACT_ID.parse().unwrap(),
         contract.to_vec(),
-        10 * 10u128.pow(24),
+        Balance::from_near(10),
         PublicKey::from_seed(KeyType::ED25519, CONTRACT_ID),
         &signer,
         *block.hash(),
@@ -185,7 +185,7 @@ fn new_fn_call_100tgas(
     block_hash: CryptoHash,
 ) -> SignedTransaction {
     let hundred_tgas = Gas::from_teragas(100);
-    let deposit = 0;
+    let deposit = Balance::ZERO;
     let nonce = *nonce_source;
     *nonce_source += 1;
     SignedTransaction::call(
@@ -211,7 +211,7 @@ fn new_cheap_fn_call(
     block_hash: CryptoHash,
 ) -> SignedTransaction {
     let one_tgas = Gas::from_teragas(1);
-    let deposit = 0;
+    let deposit = Balance::ZERO;
     let nonce = *nonce_source;
     *nonce_source += 1;
     SignedTransaction::call(

@@ -14,7 +14,7 @@ use near_store::{genesis::initialize_genesis_state, test_utils::create_test_stor
 use nearcore::NightshadeRuntime;
 use testlib::fees_utils::FeeHelper;
 
-use near_primitives::types::EpochId;
+use near_primitives::types::{Balance, EpochId};
 use primitive_types::U256;
 
 fn build_genesis() -> Genesis {
@@ -48,14 +48,12 @@ fn setup_env(genesis: &Genesis) -> TestEnv {
         .build()
 }
 
-fn calc_total_supply(env: &mut TestEnv) -> u128 {
-    ["near", "test0", "test1"]
-        .iter()
-        .map(|account_id| {
-            let account = env.query_account(account_id.parse().unwrap());
-            account.amount + account.locked
-        })
-        .sum()
+fn calc_total_supply(env: &mut TestEnv) -> Balance {
+    ["near", "test0", "test1"].iter().fold(Balance::ZERO, |sum, account_id| {
+        let account = env.query_account(account_id.parse().unwrap());
+        let to_add = account.amount.checked_add(account.locked).unwrap();
+        sum.checked_add(to_add).unwrap()
+    })
 }
 
 /// Test that node mints and burns tokens correctly with fees and epoch rewards.
@@ -80,7 +78,7 @@ fn test_burn_mint() {
                 "test0".parse().unwrap(),
                 "test1".parse().unwrap(),
                 &signer,
-                1000,
+                Balance::from_yoctonear(1000),
                 genesis_hash,
             ),
             false,
@@ -103,36 +101,50 @@ fn test_burn_mint() {
     // Block 3: epoch ends, it gets it's 10% of total supply - transfer cost.
     let block3 = env.clients[0].chain.get_block_by_height(3).unwrap();
     // We burn half of the cost when tx executed and the other half in the next block for the receipt processing.
-    let half_transfer_cost = fee_helper.transfer_cost() / 2;
-    let epoch_total_reward = {
+    let half_transfer_cost = fee_helper.transfer_cost().checked_div(2).unwrap();
+    let epoch_total_reward = Balance::from_yoctonear({
         let block0 = env.clients[0].chain.get_block_by_height(0).unwrap();
         let block2 = env.clients[0].chain.get_block_by_height(2).unwrap();
         let duration = block2.header().raw_timestamp() - block0.header().raw_timestamp();
-        (U256::from(initial_total_supply) * U256::from(duration)
+        (U256::from(initial_total_supply.as_yoctonear()) * U256::from(duration)
             / U256::from(10u128.pow(9) * 24 * 60 * 60 * 365 * 10))
         .as_u128()
-    };
+    });
     // supply + 10% of protocol rewards (where protocol reward rate = 1/10) + average_uptime * 90% of validator rewards.
     // Validator stats: Block production rate: 2/2, Chunk production rate: 1/2, Chunk endorsement rate: 1/1.
     // Average uptime: (2/2 + 1/2 + 1/1) / 3 = 5/6
     // 1/10 + 5/6 * 9/10 = 85/100
-    let expected_total_supply =
-        initial_total_supply + epoch_total_reward * 85 / 100 - half_transfer_cost;
+    let expected_total_supply = initial_total_supply
+        .checked_add(epoch_total_reward.checked_mul(85).unwrap().checked_div(100).unwrap())
+        .unwrap()
+        .checked_sub(half_transfer_cost)
+        .unwrap();
     assert_eq!(block3.header().total_supply(), expected_total_supply);
     assert_eq!(block3.chunks()[0].prev_balance_burnt(), half_transfer_cost);
     // Block 4: subtract 2nd part of transfer.
     let block4 = env.clients[0].chain.get_block_by_height(4).unwrap();
-    assert_eq!(block4.header().total_supply(), block3.header().total_supply() - half_transfer_cost);
+    assert_eq!(
+        block4.header().total_supply(),
+        block3.header().total_supply().checked_sub(half_transfer_cost).unwrap()
+    );
     assert_eq!(block4.chunks()[0].prev_balance_burnt(), half_transfer_cost);
     // Check that Protocol Treasury account got it's 1% as well.
-    assert_eq!(env.query_balance("near".parse().unwrap()), near_balance + epoch_total_reward / 10);
+    assert_eq!(
+        env.query_balance("near".parse().unwrap()),
+        near_balance.checked_add(epoch_total_reward.checked_div(10).unwrap()).unwrap()
+    );
     // Block 5: reward from previous block.
     let block5 = env.clients[0].chain.get_block_by_height(5).unwrap();
     let prev_total_supply = block4.header().total_supply();
     let block2 = env.clients[0].chain.get_block_by_height(2).unwrap();
-    let epoch_total_reward = (U256::from(prev_total_supply)
-        * U256::from(block4.header().raw_timestamp() - block2.header().raw_timestamp())
-        / U256::from(10u128.pow(9) * 24 * 60 * 60 * 365 * 10))
-    .as_u128();
-    assert_eq!(block5.header().total_supply(), prev_total_supply + epoch_total_reward);
+    let epoch_total_reward = Balance::from_yoctonear(
+        (U256::from(prev_total_supply.as_yoctonear())
+            * U256::from(block4.header().raw_timestamp() - block2.header().raw_timestamp())
+            / U256::from(10u128.pow(9) * 24 * 60 * 60 * 365 * 10))
+        .as_u128(),
+    );
+    assert_eq!(
+        block5.header().total_supply(),
+        prev_total_supply.checked_add(epoch_total_reward).unwrap()
+    );
 }

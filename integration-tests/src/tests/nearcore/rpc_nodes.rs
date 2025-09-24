@@ -20,7 +20,7 @@ use near_primitives::merkle::{compute_root_from_path_and_item, verify_path};
 use near_primitives::serialize::to_base64;
 use near_primitives::transaction::{PartialExecutionStatus, SignedTransaction};
 use near_primitives::types::{
-    BlockId, BlockReference, EpochId, EpochReference, Finality, TransactionOrReceiptId,
+    Balance, BlockId, BlockReference, EpochId, EpochReference, Finality, TransactionOrReceiptId,
 };
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature, ProtocolVersion};
 use near_primitives::views::{ExecutionOutcomeView, ExecutionStatusView, TxExecutionStatus};
@@ -112,7 +112,7 @@ fn test_get_execution_outcome(is_tx_successful: bool) {
                 "near.0".parse().unwrap(),
                 "near.1".parse().unwrap(),
                 &signer,
-                10000,
+                Balance::from_yoctonear(10000),
                 genesis_hash,
             )
         } else {
@@ -120,7 +120,7 @@ fn test_get_execution_outcome(is_tx_successful: bool) {
                 1,
                 "near.0".parse().unwrap(),
                 "near.1".parse().unwrap(),
-                10,
+                Balance::from_yoctonear(10),
                 signer.public_key(),
                 &signer,
                 genesis_hash,
@@ -363,7 +363,7 @@ fn slow_test_tx_not_enough_balance_must_return_error() {
             "near.0".parse().unwrap(),
             "near.1".parse().unwrap(),
             &signer,
-            1100000000000000000000000000000000,
+            Balance::from_near(1100000000),
             genesis_hash,
         );
 
@@ -431,7 +431,7 @@ fn slow_test_check_unknown_tx_must_return_error() {
             "near.0".parse().unwrap(),
             "near.0".parse().unwrap(),
             &signer,
-            10000,
+            Balance::from_yoctonear(10000),
             genesis_hash,
         );
 
@@ -494,7 +494,7 @@ fn test_tx_status_on_lightclient_must_return_does_not_track_shard() {
             "near.1".parse().unwrap(),
             "near.1".parse().unwrap(),
             &signer,
-            10000,
+            Balance::from_yoctonear(10000),
             genesis_hash,
         );
 

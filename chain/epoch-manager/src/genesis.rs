@@ -44,8 +44,10 @@ impl EpochManager {
         // Missing genesis epoch, means that there is no validator initialize yet.
         let genesis_protocol_version = self.config.genesis_protocol_version();
         let genesis_epoch_config = self.config.for_protocol_version(genesis_protocol_version);
-        let validator_reward =
-            HashMap::from([(self.reward_calculator.protocol_treasury_account.clone(), 0u128)]);
+        let validator_reward = HashMap::from([(
+            self.reward_calculator.protocol_treasury_account.clone(),
+            Balance::ZERO,
+        )]);
 
         // use custom code for genesis protocol version 29 used in mainnet and testnet
         if genesis_protocol_version == PROD_GENESIS_PROTOCOL_VERSION {
@@ -67,7 +69,7 @@ impl EpochManager {
                 validators,
                 HashMap::default(),
                 validator_reward,
-                0,
+                Balance::ZERO,
                 genesis_protocol_version,
                 false,
                 None,
@@ -108,7 +110,10 @@ impl EpochManager {
         let mut dup_proposals = validators
             .iter()
             .enumerate()
-            .flat_map(|(i, p)| iter::repeat(i as u64).take((p.stake() / threshold) as usize))
+            .flat_map(|(i, p)| {
+                iter::repeat(i as u64)
+                    .take((p.stake().as_yoctonear() / threshold.as_yoctonear()) as usize)
+            })
             .collect_vec();
 
         assert!(dup_proposals.len() >= num_total_seats as usize, "bug in find_threshold");
@@ -143,7 +148,7 @@ impl EpochManager {
             stake_change,
             validator_reward,
             validator_kickout: Default::default(),
-            minted_amount: 0,
+            minted_amount: Balance::ZERO,
             seat_price: threshold,
             protocol_version: PROD_GENESIS_PROTOCOL_VERSION,
         })
@@ -155,20 +160,25 @@ pub(crate) fn find_threshold(
     stakes: &[Balance],
     num_seats: NumSeats,
 ) -> Result<Balance, EpochError> {
-    let stake_sum: Balance = stakes.iter().sum();
-    if stake_sum < num_seats.into() {
+    let stake_sum: Balance =
+        stakes.iter().fold(Balance::ZERO, |sum, item| sum.checked_add(*item).unwrap());
+    let min_possible_stake = Balance::from_yoctonear(u128::from(num_seats));
+    if stake_sum < min_possible_stake {
         return Err(EpochError::ThresholdError { stake_sum, num_seats });
     }
-    let (mut left, mut right): (Balance, Balance) = (1, stake_sum + 1);
+    let (mut left, mut right): (Balance, Balance) =
+        (Balance::from_yoctonear(1), stake_sum.checked_add(Balance::from_yoctonear(1)).unwrap());
     'outer: loop {
-        if left == right - 1 {
+        if left == right.checked_sub(Balance::from_yoctonear(1)).unwrap() {
             break Ok(left);
         }
-        let mid = (left + right) / 2;
-        let mut current_sum: Balance = 0;
+        let mid = left.checked_add(right).unwrap().checked_div(2).unwrap();
+        let mut current_sum = Balance::ZERO;
         for item in stakes {
-            current_sum += item / mid;
-            if current_sum >= u128::from(num_seats) {
+            current_sum =
+                current_sum.checked_add(item.checked_div(mid.as_yoctonear()).unwrap()).unwrap();
+            let min_possible_stake = Balance::from_yoctonear(u128::from(num_seats));
+            if current_sum >= min_possible_stake {
                 left = mid;
                 continue 'outer;
             }
