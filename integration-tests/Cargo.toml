@@ -35,7 +35,6 @@ tokio-util.workspace = true
 tracing.workspace = true
 wat.workspace = true
 
-near-actix-test-utils.workspace = true
 near-async.workspace = true
 near-chain.workspace = true
 near-chain-configs.workspace = true
@@ -91,7 +90,6 @@ test_features = [
 ]
 
 nightly = [
-  "near-actix-test-utils/nightly",
   "near-chain-configs/nightly",
   "near-chain/nightly",
   "near-chunks/nightly",
