@@ -736,17 +736,16 @@ fn call_unstack_instrumentation(
     globals: u32,
 ) {
     if max_operand_stack_size != 0 || function_frame_size != 0 {
+        let mut func = func.instructions();
+        let Some(stack_charge) = max_operand_stack_size.checked_add(function_frame_size) else {
+            func.call(STACK_EXHAUSTED_FN).unreachable();
+            return;
+        };
         // These casts being able to wrap-around is intentional. The callee must reinterpret these
         // back to unsigned.
-        func.instructions()
-            .global_get(globals + STACK_GLOBAL)
+        func.global_get(globals + STACK_GLOBAL)
             .i64_const(0)
-            .i64_const(max_operand_stack_size as i64)
-            .i64_const(0)
-            .checked_add_i64(STACK_EXHAUSTED_FN)
-            // $stack + $operand_size
-            .i64_const(0)
-            .i64_const(function_frame_size as i64)
+            .i64_const(stack_charge as i64)
             .i64_const(0)
             .checked_add_i64(STACK_EXHAUSTED_FN)
             // $stack + $operand_size + $frame_size
