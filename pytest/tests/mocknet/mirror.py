@@ -902,7 +902,6 @@ def register_base_commands(subparsers):
     new_test_parser.add_argument('--num-seats', type=int)
     new_test_parser.add_argument('--new-chain-id', type=str)
     new_test_parser.add_argument('--genesis-protocol-version', type=int)
-    new_test_parser.add_argument('--stateless-setup', action='store_true')
     new_test_parser.add_argument(
         '--gcs-state-sync',
         action='store_true',
