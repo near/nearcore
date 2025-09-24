@@ -887,5 +887,12 @@ pub struct ClientConfig {
     pub protocol_version_check: ProtocolVersionCheckConfig,
 }
 
+impl ClientConfig {
+    /// Whether the node is configured as cloud reader or cloud writer archival node.
+    pub fn is_cloud_archive(&self) -> bool {
+        self.cloud_archival_reader.is_some() || self.cloud_archival_writer.is_some()
+    }
+}
+
 #[cfg(feature = "schemars")]
 pub type ByteSizeSchemarsProvider = u64;

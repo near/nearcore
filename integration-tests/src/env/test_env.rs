@@ -76,7 +76,7 @@ pub struct TestEnv {
     // random seed to be inject in each client according to AccountId
     // if not set, a default constant TEST_SEED will be injected
     pub(crate) seeds: HashMap<AccountId, RngSeed>,
-    pub(crate) archive: bool,
+    pub(crate) enable_split_store: bool,
     pub(crate) save_trie_changes: bool,
     pub(crate) save_tx_outcomes: bool,
     pub(crate) protocol_version_check: ProtocolVersionCheckConfig,
@@ -121,6 +121,7 @@ impl TestEnv {
                 .clear_data(&gc_config, runtime_adapter, epoch_manager, &shard_tracker)
                 .unwrap();
         } else {
+            // TODO(cloud_archival) Handle the cloud archival case
             // An archival node with split storage should perform garbage collection
             // on the hot storage. In order to determine if split storage is enabled
             // *and* that the migration to split storage is finished we can check
@@ -690,7 +691,7 @@ impl TestEnv {
             self.clients[idx].shard_tracker.clone(),
             self.clients[idx].runtime_adapter.clone(),
             rng_seed,
-            self.archive,
+            self.enable_split_store,
             self.save_trie_changes,
             self.save_tx_outcomes,
             self.protocol_version_check,

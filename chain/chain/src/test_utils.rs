@@ -2,7 +2,7 @@ use std::cmp::Ordering;
 use std::sync::Arc;
 
 use crate::block_processing_utils::BlockNotInPoolError;
-use crate::chain::Chain;
+use crate::chain::{ApplyChunksIterationMode, Chain};
 use crate::rayon_spawner::RayonAsyncComputationSpawner;
 use crate::runtime::NightshadeRuntime;
 use crate::spice_core::CoreStatementsProcessor;
@@ -86,6 +86,7 @@ pub fn get_chain_with_genesis(clock: Clock, genesis: Genesis) -> Chain {
         ChainConfig::test(),
         None,
         ApplyChunksSpawner::Custom(Arc::new(RayonAsyncComputationSpawner)),
+        ApplyChunksIterationMode::Sequential,
         MutableConfigValue::new(None, "validator_signer"),
         noop().into_multi_sender(),
         CoreStatementsProcessor::new_with_noop_senders(store.chain_store(), epoch_manager),
@@ -179,6 +180,7 @@ pub fn setup_with_tx_validity_period(
         ChainConfig::test(),
         None,
         ApplyChunksSpawner::Custom(Arc::new(RayonAsyncComputationSpawner)),
+        ApplyChunksIterationMode::Sequential,
         MutableConfigValue::new(None, "validator_signer"),
         noop().into_multi_sender(),
         CoreStatementsProcessor::new_with_noop_senders(store.chain_store(), epoch_manager.clone()),

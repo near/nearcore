@@ -11,7 +11,7 @@ use near_chain::resharding::types::ReshardingSender;
 use near_chain::spice_core::CoreStatementsProcessor;
 use near_chain::state_snapshot_actor::SnapshotCallbacks;
 use near_chain::types::{ChainConfig, RuntimeAdapter};
-use near_chain::{Chain, ChainGenesis, DoomslugThresholdMode};
+use near_chain::{ApplyChunksIterationMode, Chain, ChainGenesis, DoomslugThresholdMode};
 
 use near_async::ActorSystem;
 use near_async::multithread::MultithreadRuntimeHandle;
@@ -27,7 +27,7 @@ use near_chunks::client::ShardsManagerResponse;
 use near_chunks::shards_manager_actor::{ShardsManagerActor, start_shards_manager};
 use near_chunks::test_utils::SynchronousShardsManagerAdapter;
 use near_client::adversarial::Controls;
-use near_client::client_actor::ClientActorInner;
+use near_client::client_actor::{ClientActorInner, SpiceClientConfig};
 use near_client::spawn_rpc_handler_actor;
 use near_client::{
     AsyncComputationMultiSpawner, ChunkValidationActorInner, ChunkValidationSender,
@@ -76,7 +76,6 @@ fn setup(
     min_block_prod_time: u64,
     max_block_prod_time: u64,
     enable_doomslug: bool,
-    archive: bool,
     state_sync_enabled: bool,
     network_adapter: PeerManagerAdapter,
     transaction_validity_period: NumBlocks,
@@ -149,7 +148,8 @@ fn setup(
             min_block_prod_time,
             max_block_prod_time,
             num_block_producer_seats: num_validator_seats,
-            archive,
+            enable_split_store: false,
+            enable_cloud_archival_writer: false,
             save_trie_changes: true,
             state_sync_enabled,
         });
@@ -225,6 +225,15 @@ fn setup(
         enable_doomslug,
         Some(TEST_SEED),
         resharding_sender.into_multi_sender(),
+        SpiceClientConfig {
+            core_processor: CoreStatementsProcessor::new_with_noop_senders(
+                runtime.store().chain_store(),
+                epoch_manager.clone(),
+            ),
+            chunk_executor_sender: noop().into_sender(),
+            spice_chunk_validator_sender: noop().into_sender(),
+            spice_data_distributor_sender: noop().into_sender(),
+        },
     );
 
     let rpc_handler_config = RpcHandlerConfig {
@@ -338,7 +347,6 @@ pub fn setup_mock_with_validity_period(
         MIN_BLOCK_PROD_TIME.whole_milliseconds() as u64,
         MAX_BLOCK_PROD_TIME.whole_milliseconds() as u64,
         enable_doomslug,
-        false,
         true,
         network_adapter.as_multi_sender(),
         transaction_validity_period,
@@ -445,7 +453,7 @@ pub fn setup_client_with_runtime(
     shard_tracker: ShardTracker,
     runtime: Arc<dyn RuntimeAdapter>,
     rng_seed: RngSeed,
-    archive: bool,
+    enable_split_store: bool,
     save_trie_changes: bool,
     save_tx_outcomes: bool,
     protocol_version_check: ProtocolVersionCheckConfig,
@@ -459,7 +467,8 @@ pub fn setup_client_with_runtime(
         min_block_prod_time: 10,
         max_block_prod_time: 20,
         num_block_producer_seats: num_validator_seats,
-        archive,
+        enable_split_store: enable_split_store,
+        enable_cloud_archival_writer: false,
         save_trie_changes,
         state_sync_enabled: true,
     });
@@ -468,7 +477,8 @@ pub fn setup_client_with_runtime(
     config.epoch_length = chain_genesis.epoch_length;
     let protocol_upgrade_schedule = get_protocol_upgrade_schedule(&chain_genesis.chain_id);
     let multi_spawner = AsyncComputationMultiSpawner::default()
-        .custom_apply_chunks(Arc::new(RayonAsyncComputationSpawner)); // Use rayon instead of the default thread pool 
+        .custom_apply_chunks(Arc::new(RayonAsyncComputationSpawner)); // Use rayon instead of the default thread pool
+    let apply_chunks_iteration_mode = ApplyChunksIterationMode::default();
 
     // TestEnv bypasses chunk validation actors and handles chunk validation
     // directly through propagate_chunk_state_witnesses method
@@ -494,6 +504,7 @@ pub fn setup_client_with_runtime(
         rng_seed,
         snapshot_callbacks,
         multi_spawner,
+        apply_chunks_iteration_mode,
         partial_witness_adapter,
         resharding_sender,
         actor_system.new_future_spawner().into(),
@@ -562,6 +573,7 @@ pub fn setup_synchronous_shards_manager(
         }, // irrelevant
         None,
         Default::default(),
+        Default::default(),
         MutableConfigValue::new(None, "validator_signer"),
         noop().into_multi_sender(),
         CoreStatementsProcessor::new_with_noop_senders(chain_store, epoch_manager.clone()),
@@ -599,7 +611,8 @@ pub fn setup_tx_request_handler(
         min_block_prod_time: 10,
         max_block_prod_time: 20,
         num_block_producer_seats: 0,
-        archive: true,
+        enable_split_store: true,
+        enable_cloud_archival_writer: false,
         save_trie_changes: true,
         state_sync_enabled: true,
     });

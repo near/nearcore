@@ -4,9 +4,9 @@ use crate::types::{
     NetworkInfo, NetworkResponses, PeerManagerMessageRequest, PeerManagerMessageResponse,
     SetChainInfo, StateSyncEvent, Tier3Request,
 };
-use actix::{Actor, ActorContext, Context, Handler};
+use actix::{Actor, AsyncContext, Context};
 use futures::{Future, FutureExt};
-use near_async::messaging::{CanSend, MessageWithCallback};
+use near_async::messaging::{self, CanSend, MessageWithCallback};
 use near_crypto::{KeyType, SecretKey};
 use near_primitives::hash::hash;
 use near_primitives::network::PeerId;
@@ -79,8 +79,7 @@ impl WaitOrTimeoutActor {
     fn wait_or_timeout(&mut self, ctx: &mut Context<Self>) {
         (self.f)(ctx);
 
-        near_performance_metrics::actix::run_later(
-            ctx,
+        ctx.run_later(
             tokio::time::Duration::from_millis(self.check_interval_ms),
             move |act, ctx| {
                 act.ms_slept += act.check_interval_ms;
@@ -175,10 +174,8 @@ pub fn expected_routing_tables(
 #[rtype(result = "NetworkInfo")]
 pub struct GetInfo {}
 
-impl Handler<GetInfo> for PeerManagerActor {
-    type Result = crate::types::NetworkInfo;
-
-    fn handle(&mut self, _msg: GetInfo, _ctx: &mut Context<Self>) -> Self::Result {
+impl messaging::Handler<GetInfo, crate::types::NetworkInfo> for PeerManagerActor {
+    fn handle(&mut self, _msg: GetInfo) -> crate::types::NetworkInfo {
         self.get_network_info()
     }
 }
@@ -196,16 +193,14 @@ impl StopSignal {
     }
 }
 
-impl Handler<StopSignal> for PeerManagerActor {
-    type Result = ();
-
-    fn handle(&mut self, msg: StopSignal, ctx: &mut Self::Context) -> Self::Result {
+impl messaging::Handler<StopSignal> for PeerManagerActor {
+    fn handle(&mut self, msg: StopSignal) {
         debug!(target: "network", "Receive Stop Signal.");
 
         if msg.should_panic {
             panic!("Node crashed");
         } else {
-            ctx.stop();
+            self.handle.stop();
         }
     }
 }

@@ -3,8 +3,6 @@ use crate::errors::EpochError;
 use crate::hash::CryptoHash;
 use crate::serialize::dec_format;
 use crate::shard_layout::ShardLayout;
-use crate::sharding::ChunkHash;
-use crate::stateless_validation::ChunkProductionKey;
 use crate::trie_key::TrieKey;
 use borsh::{BorshDeserialize, BorshSerialize};
 pub use chunk_validator_stats::ChunkStats;
@@ -1287,6 +1285,14 @@ pub struct StateChangesForShard {
     pub state_changes: Vec<RawStateChangesWithTrieKey>,
 }
 
+/// In spice missing chunks and equivalent to empty chunks so block hash and shard id always
+/// uniquely identifies chunks.
+#[derive(Debug, Clone, Hash, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
+pub struct SpiceChunkId {
+    pub block_hash: CryptoHash,
+    pub shard_id: ShardId,
+}
+
 /// Chunk application result.
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
 pub struct ChunkExecutionResult {
@@ -1296,7 +1302,7 @@ pub struct ChunkExecutionResult {
 
 /// Execution results for all chunks in the block.
 /// For genesis inner hashmap is always empty.
-pub struct BlockExecutionResults(pub HashMap<ChunkHash, Arc<ChunkExecutionResult>>);
+pub struct BlockExecutionResults(pub HashMap<ShardId, Arc<ChunkExecutionResult>>);
 
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ChunkExecutionResultHash(pub CryptoHash);
@@ -1310,7 +1316,7 @@ impl ChunkExecutionResult {
 
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq, Hash)]
 pub struct SpiceUncertifiedChunkInfo {
-    pub chunk_production_key: ChunkProductionKey,
+    pub chunk_id: SpiceChunkId,
     pub missing_endorsements: Vec<AccountId>,
 }
 
