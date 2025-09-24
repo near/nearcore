@@ -38,7 +38,8 @@ use near_primitives::bandwidth_scheduler::{BandwidthRequests, BlockBandwidthRequ
 use near_primitives::chunk_apply_stats::ChunkApplyStatsV0;
 use near_primitives::congestion_info::{BlockCongestionInfo, CongestionInfo};
 use near_primitives::errors::{
-    ActionError, ActionErrorKind, EpochError, IntegerOverflowError, InvalidTxError, RuntimeError, TxExecutionError
+    ActionError, ActionErrorKind, EpochError, IntegerOverflowError, InvalidTxError, RuntimeError,
+    TxExecutionError,
 };
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{
@@ -80,10 +81,10 @@ use near_vm_runner::ProfileDataV3;
 use near_vm_runner::logic::ReturnData;
 use near_vm_runner::logic::types::PromiseResult;
 pub use near_vm_runner::with_ext_cost_counter;
+use num_integer::Integer;
 use pipelining::ReceiptPreparationPipeline;
 use rayon::prelude::*;
 use smallvec::SmallVec;
-use num_integer::Integer;
 use std::cmp::max;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::Arc;
@@ -1596,7 +1597,7 @@ impl Runtime {
         /// transactions for each instance of this overhead. This can reduce the number of
         /// transaction chunks for smaller lists of transactions, however.
         /// We are populating the validations chunks in parallel. To avoid cache line conflicts
-        /// between the threads, we want to ensure that each chunk size is at least (and proportonal to) 
+        /// between the threads, we want to ensure that each chunk size is at least (and proportonal to)
         /// the gcd of Option<InvalidTxError> and a cache line sizes (8 at the time of writing).
         const CACHE_LINE_SIZE: usize = 64;
         let min_chunk_size: usize = size_of::<Option<InvalidTxError>>().gcd(&CACHE_LINE_SIZE);
@@ -1609,23 +1610,25 @@ impl Runtime {
         let total = &mut processing_state.total;
         let apply_state = &mut processing_state.apply_state;
         let state_update = &mut processing_state.state_update;
-        let tx_vec = signed_txs.into_nonexpired_transactions();
-        let len = tx_vec.len();
+        let num_transactions = signed_txs.len();
         let chunk_count_target = rayon::current_num_threads() * TARGET_CHUNKS_PER_THREAD;
         let chunk_size =
-            (tx_vec.len() / chunk_count_target).clamp(min_chunk_size, ValidBitmask::BITS as _);
+            (num_transactions / chunk_count_target).clamp(min_chunk_size, ValidBitmask::BITS as _);
         let chunk_size = (chunk_size / min_chunk_size) * min_chunk_size;
         let protocol_version = processing_state.protocol_version;
- 
-        let mut validations: Vec<Option<InvalidTxError>> = vec![None; len];
+
+        let mut validations: Vec<Option<InvalidTxError>> = vec![None; num_transactions];
 
         let ((), (accounts, access_keys)) = rayon::join(
             || {
                 let validation_chunks = validations.par_chunks_mut(chunk_size);
-                tx_vec
+                let (maybe_expired_txs, tx_expiration_flags) =
+                    signed_txs.get_potentially_expired_transactions_and_expiration_flags();
+                maybe_expired_txs
                     .par_chunks(chunk_size)
+                    .zip(tx_expiration_flags.par_chunks(chunk_size))
                     .zip(validation_chunks)
-                    .for_each(|(txs, vlds)| {
+                    .for_each(|((txs, expiration_flags), validations)| {
                         // Prepare signatures, public keys and messages (tx hash) for batch verification.
                         let mut batched_tx_mask: ValidBitmask = 0;
                         let mut signatures =
@@ -1635,7 +1638,11 @@ impl Runtime {
                         let mut messages =
                             SmallVec::<[_; MAX_BATCH_SIZE]>::with_capacity(txs.len());
 
-                        for (idx, tx) in txs.iter().enumerate() {
+                        for (idx, (tx, non_expired)) in txs.iter().zip(expiration_flags).enumerate()
+                        {
+                            if !non_expired {
+                                continue;
+                            }
                             if let Some((signature, public_key)) =
                                 get_batchable_signature_and_public_key(tx)
                             {
@@ -1660,7 +1667,12 @@ impl Runtime {
                             0
                         };
 
-                        for (idx, tx) in txs.iter().enumerate() {
+                        for (idx, (tx, non_expired)) in txs.iter().zip(expiration_flags).enumerate()
+                        {
+                            if !non_expired {
+                                validations[idx] = Some(InvalidTxError::Expired);
+                                continue;
+                            }
                             let tx_hash = tx.hash();
                             let signature_already_verified = (valid_signatures >> idx) & 1 == 1;
 
@@ -1675,7 +1687,7 @@ impl Runtime {
                                 // to avoid re-parsing the public key here if batch verification fails?
                                 validate_transaction(
                                     &apply_state.config,
-                                    tx.clone(),
+                                    tx.clone().clone(),
                                     protocol_version,
                                 )
                                 .map_err(|(err, _)| err)
@@ -1683,7 +1695,7 @@ impl Runtime {
                             };
                             if let Err(err) = v {
                                 tracing::debug!(?tx_hash, error=?&err, "transaction invalid");
-                                vlds[idx] = Some(err);
+                                validations[idx] = Some(err);
                             }
                         }
                     });
@@ -1691,28 +1703,44 @@ impl Runtime {
             || {
                 type AccountV = Result<Option<Account>, StorageError>;
                 type AccessKeyV = Result<Option<AccessKey>, StorageError>;
-                let accounts = dashmap::DashMap::<&AccountId, AccountV>::with_capacity(len);
+                let accounts =
+                    dashmap::DashMap::<&AccountId, AccountV>::with_capacity(num_transactions);
                 let access_keys =
-                    dashmap::DashMap::<(&AccountId, &PublicKey), AccessKeyV>::with_capacity(len);
-                tx_vec.par_chunks(chunk_size).for_each(|txs| {
-                    for tx in txs {
-                        let signer_id = tx.transaction.signer_id();
-                        let pubkey = tx.transaction.public_key();
-                        accounts
-                            .entry(signer_id)
-                            .or_insert_with(|| get_account(state_update, signer_id));
-                        access_keys
-                            .entry((signer_id, pubkey))
-                            .or_insert_with(|| get_access_key(state_update, signer_id, pubkey));
-                    }
-                });
+                    dashmap::DashMap::<(&AccountId, &PublicKey), AccessKeyV>::with_capacity(
+                        num_transactions,
+                    );
+
+                let (maybe_expired_txs, tx_expiration_flags) =
+                    signed_txs.get_potentially_expired_transactions_and_expiration_flags();
+
+                maybe_expired_txs
+                    .par_chunks(chunk_size)
+                    .zip(tx_expiration_flags.par_chunks(chunk_size))
+                    .for_each(|(txs, expiration_flags)| {
+                        for (tx, non_expired) in txs.iter().zip(expiration_flags) {
+                            if !non_expired {
+                                continue;
+                            }
+                            let signer_id = tx.transaction.signer_id();
+                            let pubkey = tx.transaction.public_key();
+                            accounts
+                                .entry(signer_id)
+                                .or_insert_with(|| get_account(state_update, signer_id));
+                            access_keys
+                                .entry((signer_id, pubkey))
+                                .or_insert_with(|| get_access_key(state_update, signer_id, pubkey));
+                        }
+                    });
                 (accounts, access_keys)
             },
         );
 
         let default_hash = CryptoHash::default();
         let mut last_tx_hash = &default_hash;
-        for (tx, maybe_validation_error) in tx_vec.iter().zip(validations) {
+        let (maybe_expired_txs, _) =
+            signed_txs.get_potentially_expired_transactions_and_expiration_flags();
+
+        for (tx, maybe_validation_error) in maybe_expired_txs.iter().zip(validations) {
             metrics::TRANSACTION_PROCESSED_TOTAL.inc();
             if maybe_validation_error.is_some() {
                 metrics::TRANSACTION_PROCESSED_FAILED_TOTAL.inc();
