@@ -756,10 +756,9 @@ impl NearConfig {
                 protocol_version_check: config
                     .protocol_version_check_config_override
                     .unwrap_or(ProtocolVersionCheckConfig::NextNext),
-                // Enabled by default for tests.
                 early_prepare_transactions: config
                     .early_prepare_transactions
-                    .unwrap_or(cfg!(feature = "test_features")),
+                    .unwrap_or(cfg!(feature = "nightly")), // Allows testing enabled and disabled in CI
             },
             #[cfg(feature = "tx_generator")]
             tx_generator: config.tx_generator,
