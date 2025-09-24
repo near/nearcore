@@ -581,18 +581,18 @@ pub fn validate_chunk_state_witness_impl(
         shard_id_to_uid(epoch_manager, witness_chunk_shard_id, &epoch_id)?;
     let prev_hash = pre_validation_output.main_transition_params.prev_hash();
     let key = pre_validation_output.cached_shard_update_key;
-    println!(
-        "VALIDATING CHUNK STATE WITNESS: {:?} {:?} {:?}",
-        is_optimistic, prev_hash, witness_chunk_shard_id
-    );
+    // println!(
+    //     "VALIDATING CHUNK STATE WITNESS: {:?} {:?} {:?}",
+    //     is_optimistic, prev_hash, witness_chunk_shard_id
+    // );
     let epoch_id = epoch_manager.get_epoch_id_from_prev_block(&prev_hash)?;
     let shard_id = pre_validation_output.main_transition_params.shard_id();
     let shard_uid = shard_id_to_uid(epoch_manager, shard_id, &epoch_id)?;
     let cache_result = {
         let mut shard_cache = main_state_transition_cache.lock();
-        if !is_optimistic {
-            println!("GETTING CACHED RESULT: {:?} {:?} {:?}", prev_hash, key, shard_id);
-        }
+        // if !is_optimistic {
+        //     println!("GETTING CACHED RESULT: {:?} {:?} {:?}", prev_hash, key, shard_id);
+        // }
         shard_cache.get_mut(&witness_chunk_shard_uid).and_then(|cache| cache.get(&key).cloned())
     };
     let (mut chunk_extra, mut outgoing_receipts) =
@@ -609,13 +609,18 @@ pub fn validate_chunk_state_witness_impl(
                 )?;
                 let outgoing_receipts = std::mem::take(&mut main_apply_result.outgoing_receipts);
                 let chunk_extra = apply_result_to_chunk_extra(main_apply_result, &chunk_header);
-
+                if !is_optimistic {
+                    println!(
+                        "HAD TO APPLY NEW CHUNK PESSIMISTICALLY {} {:?} {:?} {:?}",
+                        height_created, shard_id, prev_hash, key
+                    );
+                }
                 (chunk_extra, outgoing_receipts)
             }
             (_, Some(result)) => {
-                if !is_optimistic {
-                    println!("USING CACHED RESULT");
-                }
+                // if !is_optimistic {
+                //     println!("USING CACHED RESULT");
+                // }
                 (result.chunk_extra, result.outgoing_receipts)
             }
         };
@@ -651,9 +656,9 @@ pub fn validate_chunk_state_witness_impl(
         let cache = shard_cache.entry(witness_chunk_shard_uid).or_insert_with(|| {
             LruCache::new(NonZeroUsize::new(NUM_WITNESS_RESULT_CACHE_ENTRIES).unwrap())
         });
-        if is_optimistic {
-            println!("SAVING OPTIMISTIC CACHED RESULT: {:?} {:?} {:?}", prev_hash, key, shard_id);
-        }
+        // if is_optimistic {
+        //     println!("SAVING OPTIMISTIC CACHED RESULT: {:?} {:?} {:?}", prev_hash, key, shard_id);
+        // }
         cache.put(
             key,
             ChunkStateWitnessValidationResult {
@@ -756,7 +761,6 @@ pub fn validate_chunk_state_witness_impl(
                 transition.post_state_root
             )));
         }
-        println!("chunk_extra.state_root(): {:?}", chunk_extra.state_root());
     }
     let outgoing_receipts_root = if !cfg!(feature = "protocol_feature_spice") {
         let protocol_version = epoch_manager.get_epoch_protocol_version(&epoch_id)?;

@@ -4,8 +4,8 @@ use crate::progress_reporter::ProgressReporter;
 use core::panic;
 use near_chain::chain::collect_receipts_from_response;
 use near_chain::types::{
-    ApplyChunkBlockContext, ApplyChunkResult, ApplyChunkShardContext, RuntimeAdapter,
-    RuntimeStorageConfig, StorageDataSource,
+    ApplyChunkResult, ApplyChunkShardContext, RuntimeAdapter, RuntimeStorageConfig,
+    StorageDataSource,
 };
 use near_chain::{
     Block, ChainStore, ChainStoreAccess, ChainStoreUpdate, ReceiptFilter,
@@ -15,6 +15,7 @@ use near_chain_configs::Genesis;
 use near_epoch_manager::shard_assignment::{shard_id_to_index, shard_id_to_uid};
 use near_epoch_manager::{EpochManagerAdapter, EpochManagerHandle};
 use near_primitives::apply::ApplyChunkReason;
+use near_primitives::block::ApplyChunkBlockContext;
 use near_primitives::receipt::{DelayedReceiptIndices, Receipt};
 use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::stateless_validation::stored_chunk_state_transition_data::{

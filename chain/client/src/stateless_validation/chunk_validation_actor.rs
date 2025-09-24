@@ -595,7 +595,7 @@ impl ChunkValidationActorInner {
                     &network_adapter,
                 );
             } else {
-                println!("SUCCESSFULLY VALIDATED OPTIMISTIC WITNESS");
+                // println!("SUCCESSFULLY VALIDATED OPTIMISTIC WITNESS");
             }
         });
 
