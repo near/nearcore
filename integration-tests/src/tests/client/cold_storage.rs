@@ -463,7 +463,7 @@ fn test_cold_loop_on_gc_boundary() {
     let hot_store = &storage.get_hot_store();
     let cold_store = &storage.get_cold_store().unwrap();
     let mut env = TestEnv::builder(&genesis.config)
-        .archive(true)
+        .enable_split_store(true)
         .save_trie_changes(true)
         .stores(vec![hot_store.clone()])
         .track_all_shards()

@@ -2,7 +2,6 @@ use std::collections::HashSet;
 
 use near_async::time::Duration;
 use near_chain_configs::test_genesis::{TestEpochConfigBuilder, ValidatorsSpec};
-use near_chain_configs::test_utils::test_cloud_archival_configs;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::AccountId;
@@ -12,8 +11,11 @@ use crate::setup::builder::TestLoopBuilder;
 const EPOCH_LENGTH: u64 = 10;
 const GC_NUM_EPOCHS_TO_KEEP: u64 = 3;
 
-#[test]
-fn test_cloud_archival_base() {
+struct TestCloudArchivalParameters {
+    with_cold_store: bool,
+}
+
+fn test_cloud_archival_base(params: TestCloudArchivalParameters) {
     init_test_logger();
 
     let shard_layout = ShardLayout::multi_shard(3, 3);
@@ -31,21 +33,19 @@ fn test_cloud_archival_base() {
     let all_clients = vec![archival_client.clone(), validator_client];
     let archival_client_index = 0;
     assert_eq!(all_clients[archival_client_index], archival_client);
-    let archival_clients: HashSet<AccountId> = [archival_client].into_iter().collect();
+    let mut split_store_archival_clients = HashSet::<AccountId>::new();
+    if params.with_cold_store {
+        split_store_archival_clients.insert(archival_client.clone());
+    }
+    let cloud_archival_writers = [archival_client].into_iter().collect();
 
     let mut env = TestLoopBuilder::new()
         .genesis(genesis)
         .epoch_config_store(epoch_config_store)
         .clients(all_clients)
-        .archival_clients(archival_clients)
+        .split_store_archival_clients(split_store_archival_clients)
+        .cloud_archival_writers(cloud_archival_writers)
         .gc_num_epochs_to_keep(GC_NUM_EPOCHS_TO_KEEP)
-        .config_modifier(move |config, client_index| {
-            if client_index != archival_client_index {
-                return;
-            }
-            let (_, writer_config) = test_cloud_archival_configs("");
-            config.cloud_archival_writer = Some(writer_config);
-        })
         .build()
         .warmup();
 
@@ -69,14 +69,24 @@ fn test_cloud_archival_base() {
 
     let gc_tail = client.client.chain.chain_store().tail().unwrap();
     let cloud_head = cloud_archival_actor.get_cloud_head();
+    // TODO(cloud_archival) With cloud archival paused, the assertion below would fail.
     assert!(cloud_head > gc_tail);
-    // TODO(cloud_archival) Test GC if cloud archival is enabled but cold store is not
     assert!(gc_tail > EPOCH_LENGTH);
 
     env.shutdown_and_drain_remaining_events(Duration::seconds(10));
 }
 
+/// Verifies that the cloud archival writer does not crash and that `cloud_head` progresses.
 #[test]
-fn test_cloud_archival() {
-    test_cloud_archival_base();
+fn test_cloud_archival_basic() {
+    let params = TestCloudArchivalParameters { with_cold_store: false };
+    test_cloud_archival_base(params);
+}
+
+/// Verifies that the cloud archival writer does not crash and that `cloud_head` progresses if cold store is
+/// enabled.
+#[test]
+fn test_cloud_archival_with_cold_store() {
+    let params = TestCloudArchivalParameters { with_cold_store: true };
+    test_cloud_archival_base(params);
 }

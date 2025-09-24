@@ -331,7 +331,6 @@ pub struct Config {
     /// Different parameters to configure underlying storage.
     pub store: near_store::StoreConfig,
     /// Different parameters to configure underlying cold storage.
-    /// This feature is under development, do not use in production.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cold_store: Option<near_store::StoreConfig>,
     /// Configuration for the split storage.
@@ -834,7 +833,6 @@ impl NightshadeRuntime {
             &config.config.contract_cache_path(),
             config.config.max_loaded_contracts,
         )?;
-        let state_parts_compression_lvl = config.client_config.state_sync.parts_compression_lvl;
         Ok(NightshadeRuntime::new(
             store,
             ContractRuntimeCache::handle(&contract_cache),
@@ -846,7 +844,7 @@ impl NightshadeRuntime {
             config.config.gc.gc_num_epochs_to_keep(),
             TrieConfig::from_store_config(&config.config.store),
             state_snapshot_config,
-            state_parts_compression_lvl,
+            config.client_config.state_sync.parts_compression_lvl,
         ))
     }
 }

@@ -493,7 +493,7 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
         .genesis(genesis)
         .epoch_config_store(epoch_config_store)
         .clients(params.clients)
-        .archival_clients(params.archivals.iter().cloned().collect())
+        .split_store_archival_clients(params.archivals.iter().cloned().collect())
         .load_memtries_for_tracked_shards(params.load_memtries_for_tracked_shards)
         .gc_num_epochs_to_keep(GC_NUM_EPOCHS_TO_KEEP)
         .build()
