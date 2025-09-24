@@ -84,6 +84,7 @@ impl Client {
         &mut self,
         new_chunk: NewChunkResult,
         block_context: ApplyChunkBlockContext,
+        chunks: Vec<ShardChunkHeader>,
     ) -> Result<(), Error> {
         let context = new_chunk.context;
         let ApplyChunkResult { proof, new_root, contract_updates, applied_receipts_hash, .. } =
@@ -109,6 +110,7 @@ impl Client {
                     epoch_id: prev_block_epoch_id,
                     chunk_header: context.chunk_header.clone(),
                     block_context,
+                    chunks,
                     main_state_transition,
                     receipts: context.receipts,
                     applied_receipts_hash,

@@ -216,6 +216,7 @@ pub struct ChunkApplyWitness {
     /// Context of the block being applied.
     /// Needed to avoid chain store access.
     pub block_context: ApplyChunkBlockContext,
+    pub chunks: Vec<ShardChunkHeader>,
     /// The base state and post-state-root of the main transition where we
     /// apply transactions and receipts. Corresponds to the state transition
     /// that takes us from the pre-state-root of the last new chunk of this
@@ -516,6 +517,14 @@ impl ChunkStateWitness {
             &witness.chunk_apply_witness.block_context
         } else {
             panic!("Block context is not available");
+        }
+    }
+
+    pub fn chunks(&self) -> &Vec<ShardChunkHeader> {
+        if let ChunkStateWitness::V3(witness) = self {
+            &witness.chunk_apply_witness.chunks
+        } else {
+            panic!("Chunks are not available");
         }
     }
 

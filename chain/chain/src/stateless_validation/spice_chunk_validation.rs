@@ -4,8 +4,9 @@ use std::sync::Arc;
 use near_chain_primitives::Error;
 use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::block::Block;
-use near_primitives::hash::hash;
+use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::merkle::merklize;
+use near_primitives::optimistic_block::CachedShardUpdateKey;
 use near_primitives::receipt::Receipt;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::sharding::{ChunkHash, ReceiptProof};
@@ -154,7 +155,11 @@ pub fn spice_pre_validate_chunk_state_witness(
         }
     };
 
-    Ok(PreValidationOutput { main_transition_params, implicit_transition_params })
+    Ok(PreValidationOutput {
+        main_transition_params,
+        implicit_transition_params,
+        cached_shard_update_key: CachedShardUpdateKey::new(CryptoHash::default()),
+    })
 }
 
 fn validate_source_receipts_proofs(

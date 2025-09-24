@@ -144,6 +144,7 @@ pub struct ApplyChunksDoneMessage;
 pub struct NewChunkAppliedMessage {
     pub result: NewChunkResult,
     pub block_context: ApplyChunkBlockContext,
+    pub chunks: Vec<ShardChunkHeader>,
 }
 
 #[derive(Clone, MultiSend, MultiSenderFrom, MultiSendMessage)]
@@ -1313,7 +1314,7 @@ impl Chain {
             };
 
             let cached_shard_update_key =
-                Self::get_cached_shard_update_key(&block_context, &chunks, shard_id)?;
+                Self::get_cached_shard_update_key(&block_context, chunks.iter_raw(), shard_id)?;
             shard_update_keys.push(cached_shard_update_key);
             let job = self.get_update_shard_job(
                 cached_shard_update_key,
@@ -1356,6 +1357,7 @@ impl Chain {
         self.schedule_apply_chunks(
             BlockToApply::Optimistic(block_height),
             Some(block_context),
+            chunks.iter_raw().cloned().collect_vec(),
             jobs,
             apply_chunks_still_applying,
             apply_chunks_done_sender,
@@ -1690,6 +1692,7 @@ impl Chain {
             tracing::error!(target: "state_snapshot", ?err, "Failed to make a state snapshot");
         }
 
+        let chunks = block.chunks().iter_raw().cloned().collect_vec();
         let block = block.into_inner();
         let block_hash = *block.hash();
         self.blocks_in_processing.add(block, block_preprocess_info)?;
@@ -1698,6 +1701,7 @@ impl Chain {
         self.schedule_apply_chunks(
             BlockToApply::Normal(block_hash),
             block_context,
+            chunks,
             apply_chunk_work,
             apply_chunks_still_applying,
             apply_chunks_done_sender,
@@ -1713,6 +1717,7 @@ impl Chain {
         &self,
         block: BlockToApply,
         block_context: Option<ApplyChunkBlockContext>,
+        chunks: Vec<ShardChunkHeader>,
         work: Vec<UpdateShardJob>,
         apply_chunks_still_applying: ApplyChunksStillApplying,
         apply_chunks_done_sender: Option<ApplyChunksDoneSender>,
@@ -1741,6 +1746,7 @@ impl Chain {
                             sender.new_chunk_apply.send(NewChunkAppliedMessage {
                                 result: res_new_chunk.clone(),
                                 block_context: block_context.clone(),
+                                chunks: chunks.clone(),
                             });
                         }
                     }
@@ -3021,8 +3027,11 @@ impl Chain {
         )?;
         for (shard_index, _) in chunk_headers.iter().enumerate() {
             let shard_id = shard_layout.get_shard_id(shard_index)?;
-            let cached_shard_update_key =
-                Self::get_cached_shard_update_key(&block_context, chunk_headers, shard_id)?;
+            let cached_shard_update_key = Self::get_cached_shard_update_key(
+                &block_context,
+                chunk_headers.iter_raw(),
+                shard_id,
+            )?;
             update_shard_args.push((block_context.clone(), cached_shard_update_key));
         }
 
@@ -3118,9 +3127,9 @@ impl Chain {
 
     /// Get a key which can uniquely define result of applying a chunk based on
     /// block execution context and other chunks.
-    pub fn get_cached_shard_update_key(
+    pub fn get_cached_shard_update_key<'a>(
         block_context: &ApplyChunkBlockContext,
-        chunk_headers: &Chunks,
+        chunk_headers: impl Iterator<Item = &'a ShardChunkHeader>,
         shard_id: ShardId,
     ) -> Result<CachedShardUpdateKey, Error> {
         const BYTES_LEN: usize =
@@ -3135,7 +3144,7 @@ impl Chain {
         };
         bytes.extend_from_slice(&hash(&borsh::to_vec(&block)?).0);
 
-        let chunks_key_source: Vec<_> = chunk_headers.iter_raw().map(|c| c.chunk_hash()).collect();
+        let chunks_key_source: Vec<_> = chunk_headers.map(|c| c.chunk_hash()).collect();
         bytes.extend_from_slice(&hash(&borsh::to_vec(&chunks_key_source)?).0);
         bytes.extend_from_slice(&shard_id.to_le_bytes());
 

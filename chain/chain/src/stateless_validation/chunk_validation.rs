@@ -24,6 +24,7 @@ use near_primitives::apply::ApplyChunkReason;
 use near_primitives::block::{ApplyChunkBlockContext, Block, BlockHeader};
 use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::merkle::merklize;
+use near_primitives::optimistic_block::CachedShardUpdateKey;
 use near_primitives::receipt::Receipt;
 use near_primitives::shard_layout::{ShardLayout, ShardUId};
 use near_primitives::sharding::{ChunkHash, ReceiptProof, ShardChunkHeader};
@@ -73,6 +74,7 @@ impl MainTransition {
 pub struct PreValidationOutput {
     pub main_transition_params: MainTransition,
     pub implicit_transition_params: Vec<ImplicitTransitionParams>,
+    pub cached_shard_update_key: CachedShardUpdateKey,
 }
 
 #[derive(Clone)]
@@ -82,8 +84,11 @@ pub struct ChunkStateWitnessValidationResult {
 }
 
 // TODO: key should be a pair (chunk_shard_uid, witness_shard_uid) for shard merging
-pub type MainStateTransitionCache =
-    Arc<Mutex<HashMap<ShardUId, LruCache<CryptoHash, ChunkStateWitnessValidationResult>>>>;
+// pub type MainStateTransitionCache =
+// Arc<Mutex<HashMap<ShardUId, LruCache<CryptoHash, ChunkStateWitnessValidationResult>>>>;
+pub type MainStateTransitionCache = Arc<
+    Mutex<HashMap<ShardUId, LruCache<CachedShardUpdateKey, ChunkStateWitnessValidationResult>>>,
+>;
 
 /// The number of state witness validation results to cache per shard.
 /// This number needs to be small because result contains outgoing receipts, which can be large.
@@ -411,7 +416,20 @@ pub fn pre_validate_chunk_state_witness(
         }
     };
 
-    Ok(PreValidationOutput { main_transition_params, implicit_transition_params })
+    let cached_shard_update_key = match &main_transition_params {
+        MainTransition::Genesis { .. } => CachedShardUpdateKey::new(CryptoHash::default()),
+        MainTransition::NewChunk { new_chunk_data, .. } => Chain::get_cached_shard_update_key(
+            &new_chunk_data.block,
+            last_chunk_block.chunks().iter_raw(),
+            new_chunk_data.chunk_header.shard_id(),
+        )?,
+    };
+
+    Ok(PreValidationOutput {
+        main_transition_params,
+        implicit_transition_params,
+        cached_shard_update_key,
+    })
 }
 
 /// Validate that receipt proofs contain the receipts that should be applied during the
@@ -542,7 +560,6 @@ pub fn validate_chunk_state_witness_impl(
     main_state_transition_cache: &MainStateTransitionCache,
     rs: Arc<ReedSolomon>,
 ) -> Result<ChunkExecutionResult, Error> {
-    // TODO: solve and cache optimistic case!
     let WitnessProductionKey {
         chunk: ChunkProductionKey { shard_id: witness_chunk_shard_id, epoch_id, height_created },
         is_optimistic,
@@ -563,6 +580,7 @@ pub fn validate_chunk_state_witness_impl(
     let witness_chunk_shard_uid =
         shard_id_to_uid(epoch_manager, witness_chunk_shard_id, &epoch_id)?;
     let prev_hash = pre_validation_output.main_transition_params.prev_hash();
+    let key = pre_validation_output.cached_shard_update_key;
     println!(
         "VALIDATING CHUNK STATE WITNESS: {:?} {:?} {:?}",
         is_optimistic, prev_hash, witness_chunk_shard_id
@@ -573,11 +591,9 @@ pub fn validate_chunk_state_witness_impl(
     let cache_result = {
         let mut shard_cache = main_state_transition_cache.lock();
         if !is_optimistic {
-            println!("GETTING CACHED RESULT: {:?} {:?}", prev_hash, shard_id);
+            println!("GETTING CACHED RESULT: {:?} {:?} {:?}", prev_hash, key, shard_id);
         }
-        shard_cache
-            .get_mut(&witness_chunk_shard_uid)
-            .and_then(|cache| cache.get(&prev_hash).cloned())
+        shard_cache.get_mut(&witness_chunk_shard_uid).and_then(|cache| cache.get(&key).cloned())
     };
     let (mut chunk_extra, mut outgoing_receipts) =
         match (pre_validation_output.main_transition_params, cache_result) {
@@ -636,10 +652,10 @@ pub fn validate_chunk_state_witness_impl(
             LruCache::new(NonZeroUsize::new(NUM_WITNESS_RESULT_CACHE_ENTRIES).unwrap())
         });
         if is_optimistic {
-            println!("SAVING OPTIMISTIC CACHED RESULT: {:?} {:?}", prev_hash, shard_id);
+            println!("SAVING OPTIMISTIC CACHED RESULT: {:?} {:?} {:?}", prev_hash, key, shard_id);
         }
         cache.put(
-            prev_hash,
+            key,
             ChunkStateWitnessValidationResult {
                 chunk_extra: chunk_extra.clone(),
                 outgoing_receipts: outgoing_receipts.clone(),

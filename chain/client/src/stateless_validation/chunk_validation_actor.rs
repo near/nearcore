@@ -22,7 +22,7 @@ use near_chain::stateless_validation::metrics::CHUNK_WITNESS_VALIDATION_FAILED_T
 use near_chain::stateless_validation::processing_tracker::ProcessingDoneTracker;
 use near_chain::types::{RuntimeAdapter, StorageDataSource};
 use near_chain::validate::validate_chunk_with_chunk_extra_and_roots;
-use near_chain::{ChainStore, ChainStoreAccess, Error};
+use near_chain::{Chain, ChainStore, ChainStoreAccess, Error};
 use near_chain_configs::MutableValidatorSigner;
 use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_assignment::shard_id_to_uid;
@@ -518,6 +518,7 @@ impl ChunkValidationActorInner {
                 transaction_validity_check_results,
             );
             let block_context = state_witness.block_context();
+            let chunk_headers = state_witness.chunks();
             let receipts = state_witness.raw_receipts();
             let main_transition_params = MainTransition::NewChunk {
                 new_chunk_data: NewChunkData {
@@ -534,7 +535,16 @@ impl ChunkValidationActorInner {
                 },
                 prev_hash: prev_block_hash,
             };
-            PreValidationOutput { main_transition_params, implicit_transition_params: vec![] }
+            let cached_shard_update_key = Chain::get_cached_shard_update_key(
+                &block_context,
+                chunk_headers.iter(),
+                chunk_header.shard_id(),
+            )?;
+            PreValidationOutput {
+                main_transition_params,
+                implicit_transition_params: vec![],
+                cached_shard_update_key,
+            }
         };
 
         // if self.try_validate_chunk_with_chunk_extra(state_witness.clone(), signer)? {
