@@ -896,8 +896,10 @@ pub struct BlockHeaderView {
     pub gas_price: Balance,
     pub block_ordinal: Option<NumBlocks>,
     /// TODO(2271): deprecated.
+    #[serde(default)]
     pub rent_paid: Balance,
     /// TODO(2271): deprecated.
+    #[serde(default)]
     pub validator_reward: Balance,
     pub total_supply: Balance,
     // Deprecated
@@ -1073,8 +1075,10 @@ pub struct ChunkHeaderView {
     pub gas_used: Gas,
     pub gas_limit: Gas,
     /// TODO(2271): deprecated.
+    #[serde(default)]
     pub rent_paid: Balance,
     /// TODO(2271): deprecated.
+    #[serde(default)]
     pub validator_reward: Balance,
     pub balance_burnt: Balance,
     pub outgoing_receipts_root: CryptoHash,

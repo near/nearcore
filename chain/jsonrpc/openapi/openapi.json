@@ -2776,6 +2776,7 @@
                 "$ref": "#/components/schemas/NearToken"
               }
             ],
+            "default": "0",
             "description": "TODO(2271): deprecated."
           },
           "signature": {
@@ -2810,6 +2811,7 @@
                 "$ref": "#/components/schemas/NearToken"
               }
             ],
+            "default": "0",
             "description": "TODO(2271): deprecated."
           }
         },
@@ -2832,8 +2834,6 @@
           "validator_proposals",
           "chunk_mask",
           "gas_price",
-          "rent_paid",
-          "validator_reward",
           "total_supply",
           "challenges_result",
           "last_final_block",
@@ -3048,6 +3048,7 @@
                 "$ref": "#/components/schemas/NearToken"
               }
             ],
+            "default": "0",
             "description": "TODO(2271): deprecated."
           },
           "shard_id": {
@@ -3071,6 +3072,7 @@
                 "$ref": "#/components/schemas/NearToken"
               }
             ],
+            "default": "0",
             "description": "TODO(2271): deprecated."
           }
         },
@@ -3086,8 +3088,6 @@
           "shard_id",
           "gas_used",
           "gas_limit",
-          "rent_paid",
-          "validator_reward",
           "balance_burnt",
           "outgoing_receipts_root",
           "tx_root",
