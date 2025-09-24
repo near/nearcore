@@ -575,6 +575,7 @@ pub fn validate_chunk_state_witness_impl(
         "validate_chunk_state_witness",
         height = height_created,
         shard_id = %witness_chunk_shard_id,
+        is_optimistic = is_optimistic,
         tag_block_production = true,
         tag_witness_distribution = true,
     )
