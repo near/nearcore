@@ -1,54 +1,64 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use itertools::Itertools;
 use near_chain_primitives::Error;
 use near_epoch_manager::EpochManagerAdapter;
+use near_epoch_manager::shard_assignment::shard_id_to_uid;
+use near_primitives::apply::ApplyChunkReason;
 use near_primitives::block::Block;
 use near_primitives::hash::hash;
 use near_primitives::merkle::merklize;
 use near_primitives::receipt::Receipt;
 use near_primitives::shard_layout::ShardLayout;
-use near_primitives::sharding::{ChunkHash, ReceiptProof};
-use near_primitives::stateless_validation::state_witness::ChunkStateWitness;
-use near_primitives::types::{BlockExecutionResults, ShardId};
+use near_primitives::sharding::ReceiptProof;
+use near_primitives::stateless_validation::spice_state_witness::SpiceChunkStateWitness;
+use near_primitives::types::{BlockExecutionResults, ChunkExecutionResult, ShardId};
 use near_store::PartialStorage;
 use near_store::adapter::StoreAdapter as _;
 use node_runtime::SignedValidPeriodTransactions;
+use tracing::Span;
 
-use crate::chain::{NewChunkData, StorageContext};
+use crate::chain::{NewChunkData, NewChunkResult, ShardContext, StorageContext, apply_new_chunk};
 use crate::sharding::{get_receipts_shuffle_salt, shuffle_receipt_proofs};
 use crate::store::filter_incoming_receipts_for_shard;
-use crate::types::StorageDataSource;
+use crate::types::{RuntimeAdapter, StorageDataSource};
 use crate::{Chain, ChainStore};
 
-use super::chunk_validation::{MainTransition, PreValidationOutput, validate_receipt_proof};
+use super::chunk_validation::{apply_result_to_chunk_extra, validate_receipt_proof};
+
+pub struct SpicePreValidationOutput {
+    new_chunk_data: NewChunkData,
+}
 
 pub fn spice_pre_validate_chunk_state_witness(
-    state_witness: &ChunkStateWitness,
+    state_witness: &SpiceChunkStateWitness,
     block: &Block,
     prev_block: &Block,
     prev_execution_results: &BlockExecutionResults,
     epoch_manager: &dyn EpochManagerAdapter,
     store: &ChainStore,
-) -> Result<PreValidationOutput, Error> {
+) -> Result<SpicePreValidationOutput, Error> {
+    assert_eq!(block.hash(), &state_witness.chunk_id().block_hash);
     let epoch_id = epoch_manager.get_epoch_id(block.header().hash())?;
+    let shard_id = state_witness.chunk_id().shard_id;
 
-    if &epoch_id != state_witness.epoch_id() {
+    let shard_layout = epoch_manager.get_shard_layout(&epoch_id)?;
+    if !shard_layout.shard_ids().contains(&shard_id) {
         return Err(Error::InvalidChunkStateWitness(format!(
-            "Epoch id in block ({:?}) {:?} does not match epoch id in witness {:?}",
-            block.header().hash(),
+            "Shard layout for block's ({:?}) epoch ({:?}) doesn't contain witness shard {:?}",
+            block.hash(),
             epoch_id,
-            state_witness.epoch_id(),
+            shard_id
         )));
     }
-    let chunk_header = state_witness.chunk_header().clone();
-    if !block.chunks().contains(&chunk_header) {
-        return Err(Error::InvalidChunkStateWitness(format!(
-            "Block {:?} doesn't contain state witness' chunk header with hash {:?}",
-            block.header().hash(),
-            chunk_header.chunk_hash(),
-        )));
-    }
+
+    let chunks = block.chunks();
+    let chunk_header = chunks
+        .iter_raw()
+        .find(|chunk| chunk.shard_id() == shard_id)
+        // TODO(spice): Handle a case of missing chunks by assuming it's empty.
+        .unwrap();
 
     // Ensure that the chunk header version is supported in this protocol version
     let protocol_version = epoch_manager.get_epoch_info(&epoch_id)?.protocol_version();
@@ -56,12 +66,9 @@ pub fn spice_pre_validate_chunk_state_witness(
 
     let prev_block_header = prev_block.header();
 
-    let shard_id = chunk_header.shard_id();
-    let shard_layout = epoch_manager.get_shard_layout(&epoch_id)?;
-
-    // TODO(spice-resharding): Populate implicit_transition_params when resharding. See
+    // TODO(spice-resharding): Handle resharding, same as part of implicit_transition_params in
+    // non-spice validation. See
     // get_resharding_transition in c/c/s/stateless_validation/chunk_validation.rs
-    let implicit_transition_params = Vec::new();
 
     let receipts_to_apply = validate_source_receipts_proofs(
         &state_witness.source_receipt_proofs(),
@@ -107,7 +114,7 @@ pub fn spice_pre_validate_chunk_state_witness(
         ));
     }
 
-    let main_transition_params = {
+    let new_chunk_data = {
         // For correct application we need to convert chunk_header into spice_chunk_header.
         let spice_chunk_header = if prev_block_header.is_genesis() {
             let prev_block_epoch_id = prev_block_header.epoch_id();
@@ -118,7 +125,7 @@ pub fn spice_pre_validate_chunk_state_witness(
                 shard_id,
                 &prev_block,
             )?;
-            chunk_header.into_spice_chunk_execution_header(&chunk_extra)
+            chunk_header.clone().into_spice_chunk_execution_header(&chunk_extra)
         } else {
             let (_, prev_shard_id, _prev_shard_index) =
                 epoch_manager.get_prev_shard_id_from_prev_hash(prev_block.hash(), shard_id)?;
@@ -126,7 +133,9 @@ pub fn spice_pre_validate_chunk_state_witness(
                 .0
                 .get(&prev_shard_id)
                 .expect("execution results for all prev_block chunks should be available");
-            chunk_header.into_spice_chunk_execution_header(&prev_execution_result.chunk_extra)
+            chunk_header
+                .clone()
+                .into_spice_chunk_execution_header(&prev_execution_result.chunk_extra)
         };
 
         let storage_context = StorageContext {
@@ -136,30 +145,93 @@ pub fn spice_pre_validate_chunk_state_witness(
             state_patch: Default::default(),
         };
         let is_new_chunk = true;
-        MainTransition::NewChunk {
-            new_chunk_data: NewChunkData {
-                chunk_header: spice_chunk_header,
-                transactions: SignedValidPeriodTransactions::new(
-                    state_witness.transactions().clone(),
-                    transaction_validity_check_results,
-                ),
-                receipts: receipts_to_apply,
-                block: Chain::get_apply_chunk_block_context(
-                    &block,
-                    &prev_block_header,
-                    is_new_chunk,
-                )?,
-                storage_context,
-            },
-            block_hash: *block.header().hash(),
+        NewChunkData {
+            chunk_header: spice_chunk_header,
+            transactions: SignedValidPeriodTransactions::new(
+                state_witness.transactions().to_vec(),
+                transaction_validity_check_results,
+            ),
+            receipts: receipts_to_apply,
+            block: Chain::get_apply_chunk_block_context(&block, &prev_block_header, is_new_chunk)?,
+            storage_context,
         }
     };
 
-    Ok(PreValidationOutput { main_transition_params, implicit_transition_params })
+    Ok(SpicePreValidationOutput { new_chunk_data })
+}
+
+#[tracing::instrument(
+    level = tracing::Level::DEBUG,
+    skip_all,
+    target = "spice_chunk_validator",
+    fields(
+        chunk_id = ?state_witness.chunk_id(),
+    )
+)]
+pub fn spice_validate_chunk_state_witness(
+    state_witness: SpiceChunkStateWitness,
+    pre_validation_output: SpicePreValidationOutput,
+    epoch_manager: &dyn EpochManagerAdapter,
+    runtime_adapter: &dyn RuntimeAdapter,
+) -> Result<ChunkExecutionResult, Error> {
+    let chunk_id = state_witness.chunk_id();
+    let _timer = crate::stateless_validation::metrics::CHUNK_STATE_WITNESS_VALIDATION_TIME
+        .with_label_values(&[&chunk_id.shard_id.to_string()])
+        .start_timer();
+
+    let block_hash = &chunk_id.block_hash;
+    let shard_id = chunk_id.shard_id;
+    let epoch_id = epoch_manager.get_epoch_id(block_hash)?;
+    let shard_uid = shard_id_to_uid(epoch_manager, shard_id, &epoch_id)?;
+
+    assert_eq!(shard_id, pre_validation_output.new_chunk_data.chunk_header.shard_id());
+
+    // TODO(spice): Similar to non-spice validation consider using cache to avoid re-evaluating
+    // the same witnesses.
+    let (chunk_extra, outgoing_receipts) = {
+        let chunk_header = pre_validation_output.new_chunk_data.chunk_header.clone();
+        let NewChunkResult { apply_result: mut main_apply_result, .. } = apply_new_chunk(
+            ApplyChunkReason::ValidateChunkStateWitness,
+            &Span::current(),
+            pre_validation_output.new_chunk_data,
+            ShardContext { shard_uid, should_apply_chunk: true },
+            runtime_adapter,
+        )?;
+        let outgoing_receipts = std::mem::take(&mut main_apply_result.outgoing_receipts);
+        let chunk_extra = apply_result_to_chunk_extra(main_apply_result, &chunk_header);
+
+        (chunk_extra, outgoing_receipts)
+    };
+
+    if chunk_extra.state_root() != &state_witness.main_state_transition().post_state_root {
+        return Err(Error::InvalidChunkStateWitness(format!(
+            "Post state root {:?} for main transition does not match expected post state root {:?}",
+            chunk_extra.state_root(),
+            state_witness.main_state_transition().post_state_root,
+        )));
+    }
+
+    // TODO(spice-resharding): Handle possible resharding transitions.
+
+    let shard_layout = epoch_manager.get_shard_layout(&epoch_id)?;
+    let outgoing_receipts_hashes = Chain::build_receipts_hashes(&outgoing_receipts, &shard_layout)?;
+    let (outgoing_receipts_root, _) = merklize(&outgoing_receipts_hashes);
+
+    let execution_result = ChunkExecutionResult { chunk_extra, outgoing_receipts_root };
+    let execution_result_hash = execution_result.compute_hash();
+    if &execution_result_hash != state_witness.execution_result_hash() {
+        return Err(Error::InvalidChunkStateWitness(format!(
+            "Execution result hash {:?} does not match expected execution result hash {:?}",
+            execution_result_hash,
+            state_witness.execution_result_hash(),
+        )));
+    }
+
+    Ok(execution_result)
 }
 
 fn validate_source_receipts_proofs(
-    source_receipt_proofs: &HashMap<ChunkHash, ReceiptProof>,
+    source_receipt_proofs: &HashMap<ShardId, ReceiptProof>,
     prev_execution_results: &BlockExecutionResults,
     shard_layout: &ShardLayout,
     shard_id: ShardId,
@@ -182,29 +254,26 @@ fn validate_source_receipts_proofs(
     if source_receipt_proofs.len() as u64 != prev_block_shard_layout.num_shards() {
         return Err(Error::InvalidChunkStateWitness(format!(
             "source_receipt_proofs contains incorrect number of proofs. Expected {} proofs, found {}",
-            prev_execution_results.0.len(),
-            prev_block.chunks().len(),
+            source_receipt_proofs.len(),
+            prev_block_shard_layout.num_shards(),
         )));
     }
 
     let mut receipt_proofs = Vec::new();
     for chunk in prev_block.chunks().iter_raw() {
         let prev_block_shard_id = chunk.shard_id();
-        let chunk_hash = chunk.chunk_hash();
         let prev_execution_result = prev_execution_results
             .0
             .get(&prev_block_shard_id)
             .expect("execution results for all prev_block chunks should be available");
-
-        // TODO(spice): Adjust witness to have source_receipt_proofs keyed by shard id which would
-        // allow it work in case of missing chunks.
-        let Some(receipt_proof) = source_receipt_proofs.get(&chunk_hash) else {
+        let Some(receipt_proof) = source_receipt_proofs.get(&prev_block_shard_id) else {
             return Err(Error::InvalidChunkStateWitness(format!(
-                "Missing source receipt proof for chunk {:?}",
-                chunk_hash
+                "Missing source receipt proof for shard {:?}",
+                prev_block_shard_id
             )));
         };
 
+        // TODO(spice): Allow validating receipt proofs without chunk available.
         validate_receipt_proof(
             receipt_proof,
             chunk,
@@ -243,17 +312,21 @@ mod tests {
     use near_primitives::sharding::{ShardChunkHeader, ShardChunkHeaderV3};
     use near_primitives::state::PartialState;
     use near_primitives::stateless_validation::ChunkProductionKey;
-    use near_primitives::stateless_validation::state_witness::ChunkStateTransition;
+    use near_primitives::stateless_validation::spice_state_witness::SpiceChunkStateTransition;
     use near_primitives::test_utils::{
         TestBlockBuilder, create_test_signer, create_user_test_signer,
     };
     use near_primitives::transaction::SignedTransaction;
     use near_primitives::types::chunk_extra::ChunkExtra;
-    use near_primitives::types::{AccountId, BlockHeight, ChunkExecutionResult, EpochId};
+    use near_primitives::types::{
+        AccountId, BlockHeight, ChunkExecutionResult, ChunkExecutionResultHash, SpiceChunkId,
+    };
     use near_primitives::validator_signer::ValidatorSigner;
-    use near_primitives::version::PROTOCOL_VERSION;
+    use near_store::get_genesis_state_roots;
+    use tracing::Span;
 
     use crate::test_utils::{get_chain_with_genesis, process_block_sync};
+    use crate::types::ApplyChunkResult;
     use crate::{BlockProcessingArtifact, Provenance};
 
     use super::*;
@@ -267,12 +340,7 @@ mod tests {
         let witness = test_chain.valid_witness();
 
         let output = test_chain.run_pre_validation(&witness).unwrap();
-        assert!(output.implicit_transition_params.is_empty());
-        let MainTransition::NewChunk { new_chunk_data, block_hash: _ } =
-            output.main_transition_params
-        else {
-            unreachable!()
-        };
+        let new_chunk_data = output.new_chunk_data;
 
         let prev_execution_results = test_chain.prev_execution_results();
         let prev_chunk_header = test_chain.prev_chunk_header();
@@ -287,37 +355,23 @@ mod tests {
         let transactions = test_chain.transactions();
         let new_chunk_data_transactions =
             new_chunk_data.transactions.into_nonexpired_transactions();
+        assert!(!transactions.is_empty());
         assert_eq!(new_chunk_data_transactions, transactions);
     }
 
     #[test]
     #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-    fn test_pre_validation_fails_with_incorrect_epoch_id() {
+    fn test_pre_validation_fails_with_unrelated_shard_id() {
         let test_chain = setup();
         let valid_witness = test_chain.valid_witness();
+        let block_hash = valid_witness.chunk_id().block_hash;
 
-        let invalid_epoch_id =
-            EpochId::from_str("32222222222233333333334444444444445555555777").unwrap();
-        let invalid_witness =
-            TestWitnessBuilder::from_default(valid_witness).epoch_id(invalid_epoch_id).build();
-
-        let error_message = unwrap_error_message(test_chain.run_pre_validation(&invalid_witness));
-        assert_contains(&error_message, "does not match epoch id");
-    }
-
-    #[test]
-    #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-    fn test_pre_validation_fails_with_unrelated_chunk_header() {
-        let test_chain = setup();
-        let valid_witness = test_chain.valid_witness();
-
-        let invalid_chunk_header = test_chain.prev_chunk_header();
         let invalid_witness = TestWitnessBuilder::from_default(valid_witness)
-            .chunk_header(invalid_chunk_header)
+            .chunk_id(SpiceChunkId { block_hash, shard_id: ShardId::new(42) })
             .build();
 
         let error_message = unwrap_error_message(test_chain.run_pre_validation(&invalid_witness));
-        assert_contains(&error_message, "doesn't contain state witness' chunk header");
+        assert_contains(&error_message, "doesn't contain witness shard");
     }
 
     #[test]
@@ -345,14 +399,8 @@ mod tests {
         let valid_witness = test_chain.valid_witness();
 
         let proof = valid_witness.source_receipt_proofs().values().next().unwrap();
-        let invalid_receipt_proofs = test_chain
-            // We use block's chunks instead of prev block's chunks (which would be valid keys)
-            .block()
-            .chunks()
-            .iter_raw()
-            .map(|chunk| -> (ChunkHash, ReceiptProof) {
-                (chunk.chunk_hash().clone(), proof.clone())
-            })
+        let invalid_receipt_proofs = (0..test_chain.prev_block().chunks().len())
+            .map(|i| -> (ShardId, ReceiptProof) { (ShardId::new(42 + i as u64), proof.clone()) })
             .collect();
         let invalid_witness = TestWitnessBuilder::from_default(valid_witness)
             .source_receipt_proofs(invalid_receipt_proofs)
@@ -484,24 +532,19 @@ mod tests {
     fn test_pre_validation_fails_with_genesis_block() {
         let test_chain = setup();
         let genesis = test_chain.chain.genesis_block();
-        let chunk_header = genesis.chunks()[0].clone();
+        let shard_id = genesis.chunks()[0].shard_id();
 
         let receipts: Vec<Receipt> = Vec::new();
-        let invalid_witness = ChunkStateWitness::new(
-            AccountId::from_str("unused").unwrap(),
-            *genesis.header().epoch_id(),
-            chunk_header,
-            ChunkStateTransition {
-                block_hash: *genesis.hash(),
+        let invalid_witness = SpiceChunkStateWitness::new(
+            SpiceChunkId { block_hash: *genesis.hash(), shard_id },
+            SpiceChunkStateTransition {
                 base_state: PartialState::TrieValues(vec![]),
                 post_state_root: CryptoHash::default(),
             },
             HashMap::new(),
             hash(&borsh::to_vec(receipts.as_slice()).unwrap()),
             vec![],
-            vec![],
-            vec![],
-            PROTOCOL_VERSION,
+            ChunkExecutionResultHash(CryptoHash::default()),
         );
 
         let result = spice_pre_validate_chunk_state_witness(
@@ -530,27 +573,21 @@ mod tests {
             &mut BlockProcessingArtifact::default(),
         )
         .unwrap();
-        let chunk_header = block.chunks()[0].clone();
+        let shard_id = block.chunks()[0].shard_id();
 
         let receipts: Vec<Receipt> = Vec::new();
         let proof = test_chain.source_receipt_proofs().into_values().next().unwrap();
-        let invalid_source_receipt_proofs =
-            HashMap::from([(chunk_header.chunk_hash().clone(), proof)]);
-        let invalid_witness = ChunkStateWitness::new(
-            AccountId::from_str("unused").unwrap(),
-            *block.header().epoch_id(),
-            chunk_header,
-            ChunkStateTransition {
-                block_hash: *block.hash(),
+        let invalid_source_receipt_proofs = HashMap::from([(shard_id, proof)]);
+        let invalid_witness = SpiceChunkStateWitness::new(
+            SpiceChunkId { block_hash: *block.hash(), shard_id },
+            SpiceChunkStateTransition {
                 base_state: PartialState::TrieValues(vec![]),
                 post_state_root: CryptoHash::default(),
             },
             invalid_source_receipt_proofs,
             hash(&borsh::to_vec(receipts.as_slice()).unwrap()),
             test_chain.transactions(),
-            vec![],
-            vec![],
-            PROTOCOL_VERSION,
+            ChunkExecutionResultHash(CryptoHash::default()),
         );
 
         let result = spice_pre_validate_chunk_state_witness(
@@ -566,6 +603,48 @@ mod tests {
         assert_contains(&error_message, "genesis source_receipt_proofs should be empty");
     }
 
+    #[test]
+    #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+    fn test_validation_succeeds_with_valid_witness() {
+        let test_chain = setup();
+        let witness = test_chain.valid_witness();
+        let witness_execution_result = test_chain.run_validation(witness).unwrap();
+
+        let (_, execution_result) = test_chain.simulate_chunk_application();
+
+        assert_eq!(witness_execution_result, execution_result);
+    }
+
+    #[test]
+    #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+    fn test_validation_fails_with_incorrect_post_main_transition_root() {
+        let test_chain = setup();
+        let valid_witness = test_chain.valid_witness();
+        let main_state_transition = SpiceChunkStateTransition {
+            base_state: valid_witness.main_state_transition().base_state.clone(),
+            post_state_root: CryptoHash::default(),
+        };
+        let invalid_witness = TestWitnessBuilder::from_default(valid_witness)
+            .main_state_transition(main_state_transition)
+            .build();
+
+        let error_message = unwrap_error_message(test_chain.run_validation(invalid_witness));
+        assert_contains(&error_message, "main transition does not match expected post state root");
+    }
+
+    #[test]
+    #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+    fn test_validation_fails_with_incorrect_execution_result_hash() {
+        let test_chain = setup();
+        let valid_witness = test_chain.valid_witness();
+        let invalid_witness = TestWitnessBuilder::from_default(valid_witness)
+            .execution_result_hash(ChunkExecutionResultHash(CryptoHash::default()))
+            .build();
+
+        let error_message = unwrap_error_message(test_chain.run_validation(invalid_witness));
+        assert_contains(&error_message, "does not match expected execution result hash");
+    }
+
     #[track_caller]
     fn assert_contains(message: &str, substring: &str) {
         assert!(
@@ -577,7 +656,7 @@ mod tests {
     }
 
     #[track_caller]
-    fn unwrap_error_message(result: Result<PreValidationOutput, Error>) -> String {
+    fn unwrap_error_message<T>(result: Result<T, Error>) -> String {
         assert!(result.is_err());
         let err = result.err().unwrap();
         let Error::InvalidChunkStateWitness(message) = err else {
@@ -684,13 +763,12 @@ mod tests {
     }
 
     struct TestWitnessBuilder {
-        epoch_id: EpochId,
-        chunk_header: ShardChunkHeader,
-        main_state_transition: ChunkStateTransition,
-        source_receipt_proofs: HashMap<ChunkHash, ReceiptProof>,
+        chunk_id: SpiceChunkId,
+        main_state_transition: SpiceChunkStateTransition,
+        source_receipt_proofs: HashMap<ShardId, ReceiptProof>,
         applied_receipts_hash: CryptoHash,
         transactions: Vec<SignedTransaction>,
-        implicit_transitions: Vec<ChunkStateTransition>,
+        execution_result_hash: ChunkExecutionResultHash,
     }
 
     macro_rules! builder_setter {
@@ -703,37 +781,32 @@ mod tests {
     }
 
     impl TestWitnessBuilder {
-        builder_setter!(epoch_id, EpochId);
-        builder_setter!(chunk_header, ShardChunkHeader);
-        builder_setter!(source_receipt_proofs, HashMap<ChunkHash, ReceiptProof>);
+        builder_setter!(chunk_id, SpiceChunkId);
+        builder_setter!(main_state_transition, SpiceChunkStateTransition);
+        builder_setter!(source_receipt_proofs, HashMap<ShardId, ReceiptProof>);
         builder_setter!(applied_receipts_hash, CryptoHash);
         builder_setter!(transactions, Vec<SignedTransaction>);
+        builder_setter!(execution_result_hash, ChunkExecutionResultHash);
 
-        fn from_default(default: ChunkStateWitness) -> Self {
+        fn from_default(default: SpiceChunkStateWitness) -> Self {
             Self {
-                epoch_id: *default.epoch_id(),
-                chunk_header: default.chunk_header().clone(),
+                chunk_id: default.chunk_id().clone(),
                 main_state_transition: default.main_state_transition().clone(),
                 source_receipt_proofs: default.source_receipt_proofs().clone(),
                 applied_receipts_hash: *default.applied_receipts_hash(),
-                transactions: default.transactions().clone(),
-                implicit_transitions: default.implicit_transitions().clone(),
+                transactions: default.transactions().to_vec(),
+                execution_result_hash: default.execution_result_hash().clone(),
             }
         }
 
-        fn build(self) -> ChunkStateWitness {
-            let new_transactions = vec![];
-            ChunkStateWitness::new(
-                AccountId::from_str("unused").unwrap(),
-                self.epoch_id,
-                self.chunk_header,
+        fn build(self) -> SpiceChunkStateWitness {
+            SpiceChunkStateWitness::new(
+                self.chunk_id,
                 self.main_state_transition,
                 self.source_receipt_proofs,
                 self.applied_receipts_hash,
                 self.transactions,
-                self.implicit_transitions,
-                new_transactions,
-                PROTOCOL_VERSION,
+                self.execution_result_hash,
             )
         }
     }
@@ -818,7 +891,7 @@ mod tests {
                 .unwrap()
         }
 
-        fn source_receipt_proofs(&self) -> HashMap<ChunkHash, ReceiptProof> {
+        fn source_receipt_proofs(&self) -> HashMap<ShardId, ReceiptProof> {
             let prev_block = self.prev_block();
             let shard_layout = self.shard_layout();
             let chunk_header = self.chunk_header();
@@ -835,7 +908,7 @@ mod tests {
                     .into_iter()
                     .find(|p| p.1.to_shard_id == chunk_header.shard_id())
                     .unwrap();
-                receipt_proofs.insert(prev_chunk_header.chunk_hash().clone(), proof);
+                receipt_proofs.insert(prev_chunk_header.shard_id(), proof);
             }
             receipt_proofs
         }
@@ -843,6 +916,8 @@ mod tests {
         fn prev_execution_results(&self) -> BlockExecutionResults {
             let shard_layout = self.shard_layout();
             let mut prev_execution_results = BlockExecutionResults(HashMap::new());
+            let genesis_state_root =
+                get_genesis_state_roots(&self.chain.chain_store.store()).unwrap().unwrap()[0];
             for shard_id in shard_layout.shard_ids() {
                 let receipts = self.receipts_for_shard(shard_id);
                 let (root, _proofs) = Chain::create_receipts_proofs_from_outgoing_receipts(
@@ -854,7 +929,7 @@ mod tests {
                 prev_execution_results.0.insert(
                     shard_id,
                     Arc::new(ChunkExecutionResult {
-                        chunk_extra: ChunkExtra::new_with_only_state_root(&CryptoHash::default()),
+                        chunk_extra: ChunkExtra::new_with_only_state_root(&genesis_state_root),
                         outgoing_receipts_root: root,
                     }),
                 );
@@ -873,39 +948,54 @@ mod tests {
             test_transactions_from_prev_block_hash(*block.header().prev_hash())
         }
 
-        fn valid_witness(&self) -> ChunkStateWitness {
+        fn valid_witness(&self) -> SpiceChunkStateWitness {
             let block = self.block();
             let chunk_header = self.chunk_header();
+            let shard_id = chunk_header.shard_id();
             let receipt_proofs = self.source_receipt_proofs();
             let receipts_hash = self.applied_receipts_hash();
             let transactions = self.transactions();
 
-            let epoch_id = block.header().epoch_id();
-            let implicit_transitions = vec![];
-            let new_transactions = vec![];
-            ChunkStateWitness::new(
-                AccountId::from_str("unused").unwrap(),
-                *epoch_id,
-                chunk_header,
-                ChunkStateTransition {
-                    block_hash: *block.hash(),
-                    // We only care about pre-validation validity, not overall validity.
-                    base_state: PartialState::TrieValues(vec![]),
-                    post_state_root: CryptoHash::default(),
-                },
+            let (transition, execution_result) = self.simulate_chunk_application();
+            SpiceChunkStateWitness::new(
+                SpiceChunkId { block_hash: *block.hash(), shard_id },
+                transition,
                 receipt_proofs,
                 receipts_hash,
                 transactions,
-                implicit_transitions,
-                new_transactions,
-                PROTOCOL_VERSION,
+                execution_result.compute_hash(),
+            )
+        }
+
+        fn run_validation(
+            &self,
+            state_witness: SpiceChunkStateWitness,
+        ) -> Result<ChunkExecutionResult, Error> {
+            let block = self.block();
+            let prev_block = self.prev_block();
+            let prev_execution_results = self.prev_execution_results();
+            let pre_validation_output = spice_pre_validate_chunk_state_witness(
+                &state_witness,
+                &block,
+                &prev_block,
+                &prev_execution_results,
+                self.chain.epoch_manager.as_ref(),
+                self.chain.chain_store(),
+            )
+            .unwrap();
+
+            spice_validate_chunk_state_witness(
+                state_witness,
+                pre_validation_output,
+                self.chain.epoch_manager.as_ref(),
+                self.chain.runtime_adapter.as_ref(),
             )
         }
 
         fn run_pre_validation(
             &self,
-            state_witness: &ChunkStateWitness,
-        ) -> Result<PreValidationOutput, Error> {
+            state_witness: &SpiceChunkStateWitness,
+        ) -> Result<SpicePreValidationOutput, Error> {
             let block = self.block();
             let prev_block = self.prev_block();
             let prev_execution_results = self.prev_execution_results();
@@ -916,6 +1006,85 @@ mod tests {
                 &prev_execution_results,
                 self.chain.epoch_manager.as_ref(),
                 self.chain.chain_store(),
+            )
+        }
+
+        fn simulate_chunk_application(&self) -> (SpiceChunkStateTransition, ChunkExecutionResult) {
+            let prev_execution_results = self.prev_execution_results();
+            let chunk_header = self.chunk_header();
+            let block = self.block();
+            let prev_block = self.prev_block();
+            let prev_chunk_header = self.prev_chunk_header();
+            let prev_execution_result =
+                prev_execution_results.0.get(&prev_chunk_header.shard_id()).unwrap();
+            let spice_chunk_header = chunk_header
+                .clone()
+                .into_spice_chunk_execution_header(&prev_execution_result.chunk_extra);
+            let receipts = self.receipts_for_shard(chunk_header.shard_id());
+            let is_new_chunk = true;
+            let storage_context = StorageContext {
+                storage_data_source: StorageDataSource::Db,
+                state_patch: Default::default(),
+            };
+
+            let shard_uid = shard_id_to_uid(
+                self.chain.epoch_manager.as_ref(),
+                chunk_header.shard_id(),
+                block.header().epoch_id(),
+            )
+            .unwrap();
+
+            let transactions = self.transactions();
+            let txs_validity = std::iter::repeat_n(true, transactions.len()).collect_vec();
+            let new_chunk_data = NewChunkData {
+                chunk_header: spice_chunk_header,
+                transactions: SignedValidPeriodTransactions::new(transactions, txs_validity),
+                receipts,
+                block: Chain::get_apply_chunk_block_context(
+                    &block,
+                    &prev_block.header(),
+                    is_new_chunk,
+                )
+                .unwrap(),
+                storage_context,
+            };
+            let NewChunkResult { shard_uid: _, gas_limit, apply_result } = apply_new_chunk(
+                ApplyChunkReason::UpdateTrackedShard,
+                &Span::none(),
+                new_chunk_data,
+                ShardContext { shard_uid, should_apply_chunk: true },
+                self.chain.runtime_adapter.as_ref(),
+            )
+            .unwrap();
+
+            let (outcome_root, _) =
+                ApplyChunkResult::compute_outcomes_proof(&apply_result.outcomes);
+            let chunk_extra = ChunkExtra::new(
+                &apply_result.new_root,
+                outcome_root,
+                apply_result.validator_proposals.clone(),
+                apply_result.total_gas_burnt,
+                gas_limit,
+                apply_result.total_balance_burnt,
+                apply_result.congestion_info,
+                apply_result.bandwidth_requests.clone(),
+            );
+            let shard_layout =
+                self.chain.epoch_manager.get_shard_layout(block.header().epoch_id()).unwrap();
+            let (outgoing_receipts_root, _) = Chain::create_receipts_proofs_from_outgoing_receipts(
+                &shard_layout,
+                chunk_header.shard_id(),
+                apply_result.outgoing_receipts,
+            )
+            .unwrap();
+            let execution_result = ChunkExecutionResult { chunk_extra, outgoing_receipts_root };
+
+            (
+                SpiceChunkStateTransition {
+                    base_state: apply_result.proof.unwrap().nodes,
+                    post_state_root: apply_result.new_root,
+                },
+                execution_result,
             )
         }
     }

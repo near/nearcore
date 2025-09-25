@@ -1696,7 +1696,8 @@ fn invalid_chunk_endorsement(
         *epoch_id,
         execution_result,
         *block.hash(),
-        chunk_header,
+        chunk_header.shard_id(),
+        chunk_header.height_created(),
         &signer,
     )
 }
@@ -1713,7 +1714,8 @@ fn test_chunk_endorsement(
         *epoch_id,
         execution_result,
         *block.hash(),
-        chunk_header,
+        chunk_header.shard_id(),
+        chunk_header.height_created(),
         &signer,
     )
 }
