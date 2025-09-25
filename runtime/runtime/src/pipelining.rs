@@ -136,7 +136,7 @@ impl ReceiptPreparationPipeline {
         for (action_index, action) in actions.iter().enumerate() {
             let account_id = account_id.clone();
             match action {
-                Action::DeployContract(_) | Action::UseGlobalContract(_) => {
+                Action::DeployContract(_) | Action::UseGlobalContract(_) | Action::DeterministicStateInit(_) => {
                     // FIXME: instead of blocking these accounts, move the handling of
                     // deploy action into here, so that the necessary data dependencies can be
                     // established.
@@ -244,8 +244,6 @@ impl ReceiptPreparationPipeline {
                 | Action::AddKey(_)
                 | Action::DeleteKey(_)
                 | Action::DeleteAccount(_)
-                // TODO: verify we don't need to handle these
-                | Action::DeterministicStateInit(_)
                 | Action::DeployGlobalContract(_) => {}
             }
         }
