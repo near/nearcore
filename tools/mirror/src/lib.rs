@@ -1992,7 +1992,6 @@ impl<T: ChainAccess> TxMirror<T> {
         let target_height2 = target_height.clone();
         let target_head2 = target_head.clone();
         let tracker2 = tracker.clone();
-        let index_target_thread = actix::Arbiter::new();
 
         // TODO: Consider moving this back to the TxTracker struct. Separating these made certain things easier, but now it
         // means we need to be careful about the lock order to avoid deadlocks. We keep the convention that the TxTracker is
@@ -2000,7 +1999,7 @@ impl<T: ChainAccess> TxMirror<T> {
         let tx_block_queue = Arc::new(Mutex::new(VecDeque::new()));
 
         let tx_block_queue2 = tx_block_queue.clone();
-        index_target_thread.spawn(async move {
+        let _index_target_task = tokio::task::spawn(async move {
             let res = Self::index_target_loop(
                 tracker2,
                 tx_block_queue2,
@@ -2090,10 +2089,9 @@ impl<T: ChainAccess> TxMirror<T> {
         let tx_block_queue2 = tx_block_queue.clone();
         let rpc_handler2 = rpc_handler.clone();
         let db = self.db.clone();
-        let send_txs_thread = actix::Arbiter::new();
         let (send_txs_done_tx, send_txs_done_rx) =
             tokio::sync::oneshot::channel::<anyhow::Result<()>>();
-        send_txs_thread.spawn(async move {
+        let _send_txs_task = tokio::task::spawn(async move {
             let res = Self::send_txs_loop(
                 db,
                 blocks_sent_tx,

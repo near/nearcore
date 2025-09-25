@@ -4670,7 +4670,6 @@ dependencies = [
 name = "near-mirror"
 version = "0.0.0"
 dependencies = [
- "actix",
  "anyhow",
  "async-trait",
  "borsh",
