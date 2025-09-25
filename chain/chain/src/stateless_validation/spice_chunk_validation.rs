@@ -109,16 +109,15 @@ pub fn spice_pre_validate_chunk_state_witness(
 
     let main_transition_params = {
         // For correct application we need to convert chunk_header into spice_chunk_header.
-        let spice_chunk_header = if prev_block_header.is_genesis() {
+        let prev_chunk_chunk_extra = if prev_block_header.is_genesis() {
             let prev_block_epoch_id = prev_block_header.epoch_id();
             let prev_block_shard_layout = epoch_manager.get_shard_layout(&prev_block_epoch_id)?;
-            let chunk_extra = Chain::build_genesis_chunk_extra(
+            &Chain::build_genesis_chunk_extra(
                 &store.store(),
                 &prev_block_shard_layout,
                 shard_id,
                 &prev_block,
-            )?;
-            chunk_header.into_spice_chunk_execution_header(&chunk_extra)
+            )?
         } else {
             let (_, prev_shard_id, _prev_shard_index) =
                 epoch_manager.get_prev_shard_id_from_prev_hash(prev_block.hash(), shard_id)?;
@@ -126,7 +125,7 @@ pub fn spice_pre_validate_chunk_state_witness(
                 .0
                 .get(&prev_shard_id)
                 .expect("execution results for all prev_block chunks should be available");
-            chunk_header.into_spice_chunk_execution_header(&prev_execution_result.chunk_extra)
+            &prev_execution_result.chunk_extra
         };
 
         let storage_context = StorageContext {
@@ -138,7 +137,10 @@ pub fn spice_pre_validate_chunk_state_witness(
         let is_new_chunk = true;
         MainTransition::NewChunk {
             new_chunk_data: NewChunkData {
-                chunk_header: spice_chunk_header,
+                gas_limit: prev_chunk_chunk_extra.gas_limit(),
+                prev_state_root: *prev_chunk_chunk_extra.state_root(),
+                prev_validator_proposals: prev_chunk_chunk_extra.validator_proposals().collect(),
+                chunk_hash: Some(chunk_header.chunk_hash().clone()),
                 transactions: SignedValidPeriodTransactions::new(
                     state_witness.transactions().clone(),
                     transaction_validity_check_results,
@@ -151,6 +153,7 @@ pub fn spice_pre_validate_chunk_state_witness(
                 )?,
                 storage_context,
             },
+            shard_id: chunk_header.shard_id(),
             block_hash: *block.header().hash(),
         }
     };
@@ -230,6 +233,7 @@ fn validate_source_receipts_proofs(
 
 #[cfg(test)]
 mod tests {
+    use itertools::Itertools as _;
     use near_primitives::types::Balance;
     use std::str::FromStr as _;
 
@@ -268,18 +272,22 @@ mod tests {
 
         let output = test_chain.run_pre_validation(&witness).unwrap();
         assert!(output.implicit_transition_params.is_empty());
-        let MainTransition::NewChunk { new_chunk_data, block_hash: _ } =
-            output.main_transition_params
-        else {
+        let MainTransition::NewChunk { new_chunk_data, .. } = output.main_transition_params else {
             unreachable!()
         };
 
         let prev_execution_results = test_chain.prev_execution_results();
         let prev_chunk_header = test_chain.prev_chunk_header();
-        let spice_chunk_header = test_chain.chunk_header().into_spice_chunk_execution_header(
-            &prev_execution_results.0.get(&prev_chunk_header.shard_id()).unwrap().chunk_extra,
+        let chunk_header = test_chain.chunk_header();
+        let prev_chunk_chunk_extra =
+            &prev_execution_results.0.get(&prev_chunk_header.shard_id()).unwrap().chunk_extra;
+        assert_eq!(new_chunk_data.gas_limit, prev_chunk_chunk_extra.gas_limit());
+        assert_eq!(&new_chunk_data.prev_state_root, prev_chunk_chunk_extra.state_root());
+        assert_eq!(
+            new_chunk_data.prev_validator_proposals,
+            prev_chunk_chunk_extra.validator_proposals().collect_vec()
         );
-        assert_eq!(new_chunk_data.chunk_header, spice_chunk_header);
+        assert_eq!(new_chunk_data.chunk_hash, Some(chunk_header.chunk_hash().clone()));
 
         let receipts = test_chain.receipts_for_shard(prev_chunk_header.shard_id());
         assert_eq!(new_chunk_data.receipts, receipts);
