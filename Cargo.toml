@@ -67,14 +67,6 @@ members = [
     "runtime/near-vm/types",
     "runtime/near-vm/wast",
     "runtime/near-vm/compiler-test-derive",
-    "runtime/near-vm-2/test-api",
-    "runtime/near-vm-2/compiler",
-    "runtime/near-vm-2/compiler-singlepass",
-    "runtime/near-vm-2/engine",
-    "runtime/near-vm-2/vm",
-    "runtime/near-vm-2/types",
-    "runtime/near-vm-2/wast",
-    "runtime/near-vm-2/compiler-test-derive",
     "runtime/near-vm-runner",
     "runtime/near-wallet-contract",
     "runtime/runtime",
@@ -308,15 +300,6 @@ near-vm-test-generator = { path = "runtime/near-vm/test-generator" }
 near-vm-types = { path = "runtime/near-vm/types" }
 near-vm-vm = { path = "runtime/near-vm/vm" }
 near-vm-wast = { path = "runtime/near-vm/wast" }
-near-vm-2-test-api = { path = "runtime/near-vm-2/test-api" }
-near-vm-2-compiler = { path = "runtime/near-vm-2/compiler" }
-near-vm-2-compiler-singlepass = { path = "runtime/near-vm-2/compiler-singlepass" }
-near-vm-2-compiler-test-derive = { path = "runtime/near-vm-2/compiler-test-derive" }
-near-vm-2-engine = { path = "runtime/near-vm-2/engine" }
-near-vm-2-test-generator = { path = "runtime/near-vm-2/test-generator" }
-near-vm-2-types = { path = "runtime/near-vm-2/types" }
-near-vm-2-vm = { path = "runtime/near-vm-2/vm" }
-near-vm-2-wast = { path = "runtime/near-vm-2/wast" }
 near-wallet-contract = { path = "runtime/near-wallet-contract" }
 nix = "0.24"
 node-runtime = { path = "runtime/runtime" }
@@ -332,7 +315,7 @@ openssl-probe = "0.1.4"
 opentelemetry = { version = "0.30", features = ["trace"] }
 opentelemetry_sdk = { version = "0.30", features = ["rt-tokio"] }
 opentelemetry-otlp = { version = "0.30", default-features = false, features = ["grpc-tonic", "trace"] }
-opentelemetry-semantic-conventions = "0.30" 
+opentelemetry-semantic-conventions = "0.30"
 ordered-float = { version = "4.2.0", features = ["serde", "borsh"] }
 parking_lot = "0.12.1"
 percent-encoding = "2.2.0"

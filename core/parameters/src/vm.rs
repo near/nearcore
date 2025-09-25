@@ -36,8 +36,6 @@ pub enum VMKind {
     Wasmer2,
     /// NearVM.
     NearVm,
-    /// NearVM. Exists temporarily while bulk memory and reftypes are getting enabled.
-    NearVm2,
 }
 
 impl VMKind {

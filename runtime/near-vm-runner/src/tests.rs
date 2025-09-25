@@ -41,9 +41,6 @@ pub(crate) fn with_vm_variants(runner: impl Fn(VMKind) -> ()) {
 
     #[cfg(all(feature = "near_vm", target_arch = "x86_64"))]
     run(VMKind::NearVm);
-
-    #[cfg(all(feature = "near_vm", target_arch = "x86_64"))]
-    run(VMKind::NearVm2);
 }
 
 fn create_context(input: Vec<u8>) -> VMContext {

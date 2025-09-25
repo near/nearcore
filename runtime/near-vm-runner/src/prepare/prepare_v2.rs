@@ -383,7 +383,7 @@ pub(crate) fn prepare_contract(
 ) -> Result<Vec<u8>, PrepareError> {
     let lightly_steamed = PrepareContext::new(original_code, features, config).run()?;
     match kind {
-        VMKind::NearVm | VMKind::NearVm2 => return Ok(lightly_steamed),
+        VMKind::NearVm => return Ok(lightly_steamed),
         VMKind::Wasmer0 | VMKind::Wasmtime | VMKind::Wasmer2 => {}
     }
 

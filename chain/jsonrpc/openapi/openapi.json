@@ -15009,13 +15009,6 @@
               "NearVm"
             ],
             "type": "string"
-          },
-          {
-            "description": "NearVM. Exists temporarily while bulk memory and reftypes are getting enabled.",
-            "enum": [
-              "NearVm2"
-            ],
-            "type": "string"
           }
         ]
       },
