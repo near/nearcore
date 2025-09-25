@@ -1144,7 +1144,8 @@ pub(crate) fn print_epoch_analysis(
             for validator_id in validator_ids {
                 let validator = next_next_epoch_info.get_validator(*validator_id);
                 let account_id = validator.account_id().clone();
-                *stakes.entry(i).or_insert(0) += validator.stake();
+                let entry: &mut Balance = stakes.entry(i).or_insert(Balance::ZERO);
+                *entry = entry.checked_add(validator.stake()).unwrap();
                 *validator_num.entry(i).or_insert(0) += 1;
                 if !next_validator_to_shard
                     .get(&account_id)
@@ -1180,8 +1181,9 @@ pub(crate) fn print_epoch_analysis(
                     validator_num.values().min().unwrap(),
                     validator_num.values().max().unwrap() - validator_num.values().min().unwrap(),
                     min_stake,
-                    max_stake - min_stake,
-                    ((max_stake - min_stake) as f64) / (*max_stake as f64)
+                    max_stake.checked_sub(*min_stake).unwrap(),
+                    ((max_stake.checked_sub(*min_stake).unwrap()).as_yoctonear() as f64)
+                        / (max_stake.as_yoctonear() as f64)
                 );
                 // Use the generated epoch info for the next iteration.
                 next_epoch_info = next_next_epoch_info;

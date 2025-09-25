@@ -502,8 +502,8 @@ mod tests {
         ExecutionOutcomeWithProof, ExecutionStatus, FunctionCallAction, TransferAction,
     };
     use near_primitives::trie_key::TrieKey;
-    use near_primitives::types::AccountId;
     use near_primitives::types::Gas;
+    use near_primitives::types::{AccountId, Balance};
     use near_store::test_utils::{
         TestTriesBuilder, create_test_store, test_populate_store, test_populate_store_rc,
         test_populate_trie,
@@ -582,7 +582,7 @@ mod tests {
                 method_name: "foo".to_owned(),
                 args: vec![],
                 gas: Gas::from_gas(1000),
-                deposit: 0,
+                deposit: Balance::ZERO,
             }))],
         );
 
@@ -594,7 +594,7 @@ mod tests {
             "bob.near",
             "alice.near",
             vec![
-                Action::Transfer(TransferAction { deposit: 20 }),
+                Action::Transfer(TransferAction { deposit: Balance::from_yoctonear(20) }),
                 Action::CreateAccount(CreateAccountAction {}),
                 Action::DeployContract(DeployContractAction { code: vec![] }),
             ],
@@ -690,7 +690,7 @@ mod tests {
                 receipt_ids,
                 gas_burnt: Gas::from_gas(100),
                 compute_usage: Some(200),
-                tokens_burnt: 2000,
+                tokens_burnt: Balance::from_yoctonear(2000),
                 executor_id: "someone.near".parse().unwrap(),
                 status: ExecutionStatus::SuccessValue(vec![]),
                 metadata: ExecutionMetadata::default(),
@@ -731,7 +731,7 @@ mod tests {
             receipt: ReceiptEnum::Action(ActionReceipt {
                 signer_id: sender_id,
                 signer_public_key: signer.public_key(),
-                gas_price: 2,
+                gas_price: Balance::from_yoctonear(2),
                 output_data_receivers: vec![],
                 input_data_ids: vec![],
                 actions,

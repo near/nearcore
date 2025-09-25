@@ -1459,17 +1459,14 @@ impl Client {
         Duration::nanoseconds(ns)
     }
 
-    pub fn send_block_approval(
+    fn send_block_approval_to_account(
         &mut self,
-        parent_hash: &CryptoHash,
         approval: Approval,
-    ) -> Result<(), Error> {
-        let next_epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(parent_hash)?;
-        let next_block_producer =
-            self.epoch_manager.get_block_producer(&next_epoch_id, approval.target_height)?;
-        let signer = self.validator_signer.get();
-        let next_block_producer_id = signer.as_ref().map(|x| x.validator_id());
-        if Some(&next_block_producer) == next_block_producer_id {
+        next_block_producer: AccountId,
+    ) {
+        let validator_signer = self.validator_signer.get();
+        let my_account_id = validator_signer.as_ref().map(|x| x.validator_id());
+        if Some(&next_block_producer) == my_account_id {
             self.collect_block_approval(&approval, ApprovalType::SelfApproval);
         } else {
             debug!(target: "client",
@@ -1484,6 +1481,42 @@ impl Client {
                 NetworkRequests::Approval { approval_message },
             ));
         }
+    }
+
+    pub fn send_block_approval(
+        &mut self,
+        parent_hash: &CryptoHash,
+        approval: Approval,
+    ) -> Result<(), Error> {
+        let next_epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(parent_hash)?;
+
+        // If epoch transition is not final there may be a fork which is still in the previous epoch
+        // as of the approval's target height.
+        let final_head_epoch_id = self.chain.final_head()?.epoch_id;
+        if final_head_epoch_id != next_epoch_id {
+            match approval.inner {
+                ApprovalInner::Endorsement(_) => {
+                    // Endorsement is an approval specifically on the parent hash block and has no
+                    // relevance for forks which do not contain it.
+                }
+                ApprovalInner::Skip(_) => {
+                    // Skip approval isn't built on top of a particular block, but rather specifies
+                    // only start and target heights. It must be sent to the other possible producer
+                    // for the target height to ensure liveness.
+                    let prev_epoch_next_block_producer = self
+                        .epoch_manager
+                        .get_block_producer(&final_head_epoch_id, approval.target_height)?;
+                    self.send_block_approval_to_account(
+                        approval.clone(),
+                        prev_epoch_next_block_producer,
+                    );
+                }
+            };
+        }
+
+        let next_block_producer =
+            self.epoch_manager.get_block_producer(&next_epoch_id, approval.target_height)?;
+        self.send_block_approval_to_account(approval, next_block_producer);
 
         Ok(())
     }

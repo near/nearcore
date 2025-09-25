@@ -18,7 +18,7 @@ use near_primitives::receipt::{
 use near_primitives::transaction::FunctionCallAction;
 use near_primitives::trie_key::trie_key_parsers;
 use near_primitives::types::{
-    AccountId, BlockHeight, EpochHeight, EpochId, EpochInfoProvider, Gas, ShardId,
+    AccountId, Balance, BlockHeight, EpochHeight, EpochId, EpochInfoProvider, Gas, ShardId,
 };
 use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::{StateItem, ViewStateResult};
@@ -228,7 +228,7 @@ impl TrieViewer {
             shard_id: view_state.shard_id,
             epoch_id: view_state.epoch_id,
             epoch_height: view_state.epoch_height,
-            gas_price: 0,
+            gas_price: Balance::ZERO,
             block_timestamp: view_state.block_timestamp,
             gas_limit: None,
             random_seed: root,
@@ -244,12 +244,12 @@ impl TrieViewer {
             method_name: method_name.to_string(),
             args: args.to_vec(),
             gas: self.max_gas_burnt_view,
-            deposit: 0,
+            deposit: Balance::ZERO,
         };
         let action_receipt = ActionReceipt {
             signer_id: originator_id.clone(),
             signer_public_key: public_key,
-            gas_price: 0,
+            gas_price: Balance::ZERO,
             output_data_receivers: vec![],
             input_data_ids: vec![],
             actions: vec![function_call.clone().into()],

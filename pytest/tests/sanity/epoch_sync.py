@@ -46,7 +46,7 @@ class EpochSyncTest(unittest.TestCase):
             num_observers=1,
             num_shards=1,
             config=self.config,
-            genesis_config_changes=[["min_gas_price", 0],
+            genesis_config_changes=[["min_gas_price", "0"],
                                     ["epoch_length", EPOCH_LENGTH],
                                     [
                                         "transaction_validity_period",

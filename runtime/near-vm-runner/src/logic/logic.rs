@@ -792,7 +792,7 @@ impl<'a> VMLogic<'a> {
         let account_id = self.read_and_parse_account_id(account_id_ptr, account_id_len)?;
         self.result_state.gas_counter.pay_base(validator_stake_base)?;
         let balance = self.ext.validator_stake(&account_id)?.unwrap_or_default();
-        self.memory.set_u128(&mut self.result_state.gas_counter, stake_ptr, balance)
+        self.memory.set_u128(&mut self.result_state.gas_counter, stake_ptr, balance.as_yoctonear())
     }
 
     /// Get the total validator stake of the current epoch.
@@ -806,7 +806,11 @@ impl<'a> VMLogic<'a> {
         self.result_state.gas_counter.pay_base(base)?;
         self.result_state.gas_counter.pay_base(validator_total_stake_base)?;
         let total_stake = self.ext.validator_total_stake()?;
-        self.memory.set_u128(&mut self.result_state.gas_counter, stake_ptr, total_stake)
+        self.memory.set_u128(
+            &mut self.result_state.gas_counter,
+            stake_ptr,
+            total_stake.as_yoctonear(),
+        )
     }
 
     /// Returns the number of bytes used by the contract if it was saved to the trie as of the
@@ -839,7 +843,7 @@ impl<'a> VMLogic<'a> {
         self.memory.set_u128(
             &mut self.result_state.gas_counter,
             balance_ptr,
-            self.result_state.current_account_balance,
+            self.result_state.current_account_balance.as_yoctonear(),
         )
     }
 
@@ -853,7 +857,7 @@ impl<'a> VMLogic<'a> {
         self.memory.set_u128(
             &mut self.result_state.gas_counter,
             balance_ptr,
-            self.current_account_locked_balance,
+            self.current_account_locked_balance.as_yoctonear(),
         )
     }
 
@@ -873,7 +877,7 @@ impl<'a> VMLogic<'a> {
         self.memory.set_u128(
             &mut self.result_state.gas_counter,
             balance_ptr,
-            self.context.attached_deposit,
+            self.context.attached_deposit.as_yoctonear(),
         )
     }
 
@@ -2530,7 +2534,9 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
             }
             .into());
         }
-        let amount = self.memory.get_u128(&mut self.result_state.gas_counter, amount_ptr)?;
+        let amount = Balance::from_yoctonear(
+            self.memory.get_u128(&mut self.result_state.gas_counter, amount_ptr)?,
+        );
         let gas = Gas::from_gas(gas);
         let method_name = get_memory_or_register!(self, method_name_ptr, method_name_len)?;
         if method_name.is_empty() {
@@ -2587,7 +2593,9 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
             }
             .into());
         }
-        let amount = self.memory.get_u128(&mut self.result_state.gas_counter, amount_ptr)?;
+        let amount = Balance::from_yoctonear(
+            self.memory.get_u128(&mut self.result_state.gas_counter, amount_ptr)?,
+        );
 
         let (receipt_idx, sir) = self.promise_idx_to_receipt_idx_with_sir(promise_idx)?;
         let receiver_id = self.ext.get_receipt_receiver(receipt_idx);
@@ -2647,7 +2655,9 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
             }
             .into());
         }
-        let amount = self.memory.get_u128(&mut self.result_state.gas_counter, amount_ptr)?;
+        let amount = Balance::from_yoctonear(
+            self.memory.get_u128(&mut self.result_state.gas_counter, amount_ptr)?,
+        );
         let public_key = self.get_public_key(public_key_ptr, public_key_len)?;
         let (receipt_idx, sir) = self.promise_idx_to_receipt_idx_with_sir(promise_idx)?;
         self.pay_action_base(ActionCosts::stake, sir)?;
@@ -2732,8 +2742,10 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
             .into());
         }
         let public_key = self.get_public_key(public_key_ptr, public_key_len)?;
-        let allowance = self.memory.get_u128(&mut self.result_state.gas_counter, allowance_ptr)?;
-        let allowance = if allowance > 0 { Some(allowance) } else { None };
+        let allowance = Balance::from_yoctonear(
+            self.memory.get_u128(&mut self.result_state.gas_counter, allowance_ptr)?,
+        );
+        let allowance = if allowance > Balance::ZERO { Some(allowance) } else { None };
         let receiver_id = self.read_and_parse_account_id(receiver_id_ptr, receiver_id_len)?;
         let raw_method_names = get_memory_or_register!(self, method_names_ptr, method_names_len)?;
         let method_names = split_method_names(&raw_method_names)?;
@@ -2917,7 +2929,7 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
             new_receipt_idx,
             method_name,
             arguments,
-            0,
+            Balance::ZERO,
             Gas::from_gas(gas),
             GasWeight(gas_weight),
         )?;
@@ -3738,7 +3750,7 @@ impl VMOutcome {
     pub fn nop_outcome(error: FunctionCallError) -> VMOutcome {
         VMOutcome {
             // Note: Balance and storage fields are ignored on a failed outcome.
-            balance: 0,
+            balance: Balance::ZERO,
             storage_usage: 0,
             // Note: Fields below are added or merged when processing the
             // outcome. With 0 or the empty set, those are no-ops.
@@ -3776,7 +3788,11 @@ impl std::fmt::Debug for VMOutcome {
         write!(
             f,
             "VMOutcome: balance {} storage_usage {} return data {} burnt gas {} used gas {}",
-            self.balance, self.storage_usage, return_data_str, self.burnt_gas, self.used_gas
+            self.balance.as_yoctonear(),
+            self.storage_usage,
+            return_data_str,
+            self.burnt_gas.as_gas(),
+            self.used_gas.as_gas()
         )?;
         if let Some(err) = &self.aborted {
             write!(f, " failed with {err}")?;

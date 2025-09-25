@@ -4,7 +4,7 @@ use anyhow::Context;
 use chrono::{DateTime, Utc};
 use near_chain::types::{RuntimeAdapter, Tip};
 use near_chain::{Chain, ChainGenesis, ChainStore, ChainStoreAccess};
-use near_chain_configs::{Genesis, GenesisConfig, GenesisValidationMode, NEAR_BASE};
+use near_chain_configs::{Genesis, GenesisConfig, GenesisValidationMode};
 use near_crypto::{InMemorySigner, PublicKey, SecretKey};
 use near_epoch_manager::{EpochManager, EpochManagerAdapter};
 use near_mirror::key_mapping::{map_account, map_key};
@@ -16,7 +16,6 @@ use near_primitives::account::{AccessKey, AccessKeyPermission, Account, AccountC
 use near_primitives::borsh;
 use near_primitives::epoch_manager::{EpochConfig, EpochConfigStore};
 use near_primitives::hash::CryptoHash;
-use near_primitives::serialize::dec_format;
 use near_primitives::shard_layout::{ShardLayout, ShardUId};
 use near_primitives::state::FlatStateValue;
 use near_primitives::state_record::StateRecord;
@@ -201,7 +200,6 @@ struct ResetCmd;
 struct Validator {
     account_id: AccountId,
     public_key: PublicKey,
-    #[serde(with = "dec_format")]
     amount: Option<Balance>,
 }
 
@@ -1283,7 +1281,7 @@ impl ForkNetworkCommand {
             .map(|v| AccountInfo {
                 account_id: v.account_id,
                 public_key: v.public_key,
-                amount: v.amount.unwrap_or(50_000 * NEAR_BASE),
+                amount: v.amount.unwrap_or(Balance::from_near(50_000)),
             })
             .collect();
         Ok(account_infos)
@@ -1301,7 +1299,7 @@ impl ForkNetworkCommand {
     ) -> anyhow::Result<Vec<AccountInfo>> {
         let mut new_validator_accounts = vec![];
 
-        let liquid_balance = 100_000_000 * NEAR_BASE;
+        let liquid_balance = Balance::from_near(100_000_000);
         let storage_bytes = runtime_config.fees.storage_usage_config.num_bytes_account;
         let new_validators = Self::read_validators(validators, home_dir)?;
         for validator_account in new_validators {
@@ -1356,7 +1354,7 @@ impl ForkNetworkCommand {
         let _ = std::fs::remove_dir_all(&accounts_path);
         std::fs::create_dir_all(&accounts_path)?;
 
-        let liquid_balance = 100_000_000 * NEAR_BASE;
+        let liquid_balance = Balance::from_near(100_000_000);
         let storage_bytes = runtime_config.fees.storage_usage_config.num_bytes_account;
         let boundary_account_ids = shard_layout.boundary_accounts().clone();
         let first_boundary_account_id = boundary_account_ids[0].clone();
@@ -1408,7 +1406,12 @@ impl ForkNetworkCommand {
                 storage_mutator.set_account(
                     shard_idx,
                     account_id.clone(),
-                    Account::new(liquid_balance, 0, AccountContract::None, storage_bytes),
+                    Account::new(
+                        liquid_balance,
+                        Balance::ZERO,
+                        AccountContract::None,
+                        storage_bytes,
+                    ),
                 )?;
                 storage_mutator.set_access_key(
                     shard_idx,

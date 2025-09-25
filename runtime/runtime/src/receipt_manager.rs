@@ -579,7 +579,7 @@ impl ReceiptManager {
 #[cfg(test)]
 mod tests {
     use near_primitives::transaction::Action;
-    use near_primitives_core::types::{Gas, GasWeight};
+    use near_primitives_core::types::{Balance, Gas, GasWeight};
 
     #[track_caller]
     fn function_call_weight_verify(function_calls: &[(Gas, u64, Gas)], after_distribute: bool) {
@@ -597,7 +597,7 @@ mod tests {
                     index,
                     vec![],
                     vec![],
-                    0,
+                    Balance::ZERO,
                     static_gas,
                     GasWeight(gas_weight),
                 )

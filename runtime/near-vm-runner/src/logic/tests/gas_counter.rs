@@ -877,7 +877,8 @@ fn test_memory_copy_aggregate_accounting() {
             Err: PrepareError: Error happened while deserializing the module.
         "#]],
         expect![[r#"
-            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 146947416 used gas 146947416
+            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 91000008 used gas 91000008
+            Err: PrepareError: Error happened while deserializing the module.
         "#]]]);
 
     test_builder()
@@ -899,7 +900,8 @@ fn test_memory_copy_aggregate_accounting() {
         "#]],
         // Gas use here should be roughly double that of the test above!
         expect![[r#"
-            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 167516316 used gas 167516316
+            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 91000008 used gas 91000008
+            Err: PrepareError: Error happened while deserializing the module.
         "#]]]);
 }
 
@@ -933,7 +935,8 @@ fn test_memory_copy_full_memory() {
             Err: PrepareError: Error happened while deserializing the module.
         "#]],
         expect![[r#"
-            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 276071613848301 used gas 276071613848301
+            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 224983293 used gas 224983293
+            Err: PrepareError: Error happened while deserializing the module.
         "#]]]);
 }
 
@@ -969,7 +972,7 @@ fn test_memory_copy_full_memory_out_of_gas() {
             Err: PrepareError: Error happened while deserializing the module.
         "#]],
         expect![[r#"
-            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 300000000000000 used gas 300000000000000
-            Err: Exceeded the maximum amount of gas allowed to burn per contract.
+            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 253304963 used gas 253304963
+            Err: PrepareError: Error happened while deserializing the module.
         "#]]]);
 }

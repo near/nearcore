@@ -15,7 +15,7 @@ from transaction import sign_payment_tx
 import utils
 
 nodes = start_cluster(
-    2, 2, 4, None, [["min_gas_price", 0], ["epoch_length", 10],
+    2, 2, 4, None, [["min_gas_price", "0"], ["epoch_length", 10],
                     ["block_producer_kickout_threshold", 70]], {
                         0: {
                             "tracked_shards_config": "NoShards",

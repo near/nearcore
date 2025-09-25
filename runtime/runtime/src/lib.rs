@@ -665,7 +665,8 @@ impl Runtime {
             if receipt.predecessor_id().is_system() { Gas::ZERO } else { result.gas_burnt };
         // `price_deficit` is strictly less than `gas_price * gas_burnt`.
         let mut tx_burnt_amount = safe_gas_to_balance(apply_state.gas_price, gas_burnt)?
-            - gas_refund_result.price_deficit;
+            .checked_sub(gas_refund_result.price_deficit)
+            .unwrap();
         tx_burnt_amount = safe_add_balance(tx_burnt_amount, gas_refund_result.price_surplus)?;
         tx_burnt_amount = safe_add_balance(tx_burnt_amount, gas_refund_result.refund_penalty)?;
         // The amount of tokens burnt for the execution of this receipt. It's used in the execution
@@ -703,13 +704,13 @@ impl Runtime {
             // we just use the receipt gas price and call it the correct price.
             // No deficits to try and recover.
         };
-        if receiver_reward > 0 {
+        if receiver_reward > Balance::ZERO {
             let mut account = get_account(state_update, account_id)?;
             if let Some(ref mut account) = account {
                 // Validators receive the remaining execution reward that was not given to the
                 // account holder. If the account doesn't exist by the end of the execution, the
                 // validators receive the full reward.
-                tx_burnt_amount -= receiver_reward;
+                tx_burnt_amount = tx_burnt_amount.checked_sub(receiver_reward).unwrap();
                 account.set_amount(safe_add_balance(account.amount(), receiver_reward)?);
                 set_account(state_update, account_id.clone(), account);
                 state_update.commit(StateChangeCause::ActionReceiptGasReward {
@@ -840,7 +841,11 @@ impl Runtime {
                 result,
                 config,
             )?;
-            Ok(GasRefundResult { price_deficit, price_surplus: 0, refund_penalty: 0 })
+            Ok(GasRefundResult {
+                price_deficit,
+                price_surplus: Balance::ZERO,
+                refund_penalty: Balance::ZERO,
+            })
         } else {
             self.refund_unspent_gas_and_deposits(
                 current_gas_price,
@@ -887,7 +892,7 @@ impl Runtime {
             total_prepaid_exec_fees(config, &action_receipt.actions(), receipt.receiver_id())?
                 .checked_add(config.fees.fee(ActionCosts::new_action_receipt).exec_fee())
                 .ok_or(IntegerOverflowError)?;
-        let deposit_refund = if result.result.is_err() { total_deposit } else { 0 };
+        let deposit_refund = if result.result.is_err() { total_deposit } else { Balance::ZERO };
         let gas_refund = if result.result.is_err() {
             prepaid_gas
                 .checked_add(prepaid_exec_gas)
@@ -904,42 +909,42 @@ impl Runtime {
 
         // Refund for the unused portion of the gas at the price at which this gas was purchased.
         let mut gas_balance_refund = safe_gas_to_balance(action_receipt.gas_price(), gas_refund)?;
-        let mut gas_deficit_amount = 0;
+        let mut gas_deficit_amount = Balance::ZERO;
         if current_gas_price > action_receipt.gas_price() {
             // In a rare scenario, when the current gas price is higher than the purchased gas
             // price, the difference is subtracted from the refund. If the refund doesn't have
             // enough balance to cover the difference, then the remaining balance is considered
             // the deficit and it's reported in the stats for the balance checker.
             gas_deficit_amount = safe_gas_to_balance(
-                current_gas_price - action_receipt.gas_price(),
+                current_gas_price.checked_sub(action_receipt.gas_price()).unwrap(),
                 result.gas_burnt,
             )?;
             if gas_balance_refund >= gas_deficit_amount {
-                gas_balance_refund -= gas_deficit_amount;
-                gas_deficit_amount = 0;
+                gas_balance_refund = gas_balance_refund.checked_sub(gas_deficit_amount).unwrap();
+                gas_deficit_amount = Balance::ZERO;
             } else {
-                gas_deficit_amount -= gas_balance_refund;
-                gas_balance_refund = 0;
+                gas_deficit_amount = gas_deficit_amount.checked_sub(gas_balance_refund).unwrap();
+                gas_balance_refund = Balance::ZERO;
             }
         } else {
             // Refund for the difference of the purchased gas price and the current gas price.
             gas_balance_refund = safe_add_balance(
                 gas_balance_refund,
                 safe_gas_to_balance(
-                    action_receipt.gas_price() - current_gas_price,
+                    action_receipt.gas_price().checked_sub(current_gas_price).unwrap(),
                     result.gas_burnt,
                 )?,
             )?;
         }
 
-        if deposit_refund > 0 {
+        if deposit_refund > Balance::ZERO {
             result.new_receipts.push(Receipt::new_balance_refund(
                 receipt.balance_refund_receiver(),
                 deposit_refund,
                 receipt.priority(),
             ));
         }
-        if gas_balance_refund > 0 {
+        if gas_balance_refund > Balance::ZERO {
             // Gas refunds refund the allowance of the access key, so if the key exists on the
             // account it will increase the allowance by the refund amount.
             result.new_receipts.push(Receipt::new_gas_refund(
@@ -976,7 +981,7 @@ impl Runtime {
             total_prepaid_exec_fees(config, &action_receipt.actions(), receipt.receiver_id())?
                 .checked_add(config.fees.fee(ActionCosts::new_action_receipt).exec_fee())
                 .ok_or(IntegerOverflowError)?;
-        let deposit_refund = if result.result.is_err() { total_deposit } else { 0 };
+        let deposit_refund = if result.result.is_err() { total_deposit } else { Balance::ZERO };
         let gross_gas_refund = if result.result.is_err() {
             prepaid_gas
                 .checked_add(prepaid_exec_gas)
@@ -1002,33 +1007,33 @@ impl Runtime {
         let gas_balance_refund = safe_gas_to_balance(action_receipt.gas_price(), net_gas_refund)?;
 
         let mut gas_refund_result = GasRefundResult {
-            price_deficit: 0,
-            price_surplus: 0,
+            price_deficit: Balance::ZERO,
+            price_surplus: Balance::ZERO,
             refund_penalty: safe_gas_to_balance(action_receipt.gas_price(), refund_penalty)?,
         };
 
         if current_gas_price > action_receipt.gas_price() {
             // price increased, burning resulted in a deficit
             gas_refund_result.price_deficit = safe_gas_to_balance(
-                current_gas_price - action_receipt.gas_price(),
+                current_gas_price.checked_sub(action_receipt.gas_price()).unwrap(),
                 result.gas_burnt,
             )?;
         } else {
             // price decreased, burning resulted in a surplus
             gas_refund_result.price_surplus = safe_gas_to_balance(
-                action_receipt.gas_price() - current_gas_price,
+                action_receipt.gas_price().checked_sub(current_gas_price).unwrap(),
                 result.gas_burnt,
             )?;
         };
 
-        if deposit_refund > 0 {
+        if deposit_refund > Balance::ZERO {
             result.new_receipts.push(Receipt::new_balance_refund(
                 receipt.balance_refund_receiver(),
                 deposit_refund,
                 receipt.priority(),
             ));
         }
-        if gas_balance_refund > 0 {
+        if gas_balance_refund > Balance::ZERO {
             // Gas refunds refund the allowance of the access key, so if the key exists on the
             // account it will increase the allowance by the refund amount.
             result.new_receipts.push(Receipt::new_gas_refund(
@@ -1320,8 +1325,10 @@ impl Runtime {
                         account.locked(),
                         max_of_stakes)).into());
                 }
-                let last_proposal =
-                    *validator_accounts_update.last_proposals.get(account_id).unwrap_or(&0);
+                let last_proposal = *validator_accounts_update
+                    .last_proposals
+                    .get(account_id)
+                    .unwrap_or(&Balance::ZERO);
                 let return_stake = account
                     .locked()
                     .checked_sub(max(*max_of_stakes, last_proposal))
@@ -1347,7 +1354,7 @@ impl Runtime {
                 )?);
 
                 set_account(state_update, account_id.clone(), &account);
-            } else if *max_of_stakes > 0 {
+            } else if *max_of_stakes > Balance::ZERO {
                 // if max_of_stakes > 0, it means that the account must have locked balance
                 // and therefore must exist
                 return Err(StorageError::StorageInconsistentState(format!(
@@ -2413,7 +2420,7 @@ impl ApplyState {
 
 fn action_transfer_or_implicit_account_creation(
     account: &mut Option<Account>,
-    deposit: u128,
+    deposit: Balance,
     is_refund: bool,
     action_receipt: &VersionedActionReceipt,
     receipt: &Receipt,

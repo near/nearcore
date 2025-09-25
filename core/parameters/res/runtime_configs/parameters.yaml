@@ -31,7 +31,7 @@ min_allowed_top_level_account_length: 32
 registrar_account_id: "registrar"
 
 # Storage usage config
-storage_amount_per_byte: 100_000_000_000_000_000_000
+storage_amount_per_byte: 0.0001 N
 storage_num_bytes_account: 100
 storage_num_extra_bytes_record: 40
 
@@ -292,7 +292,7 @@ action_deploy_global_contract_per_byte: {
   send_not_sir: 999_999_999_999_999,
   execution: 999_999_999_999_999,
 }
-global_contract_storage_amount_per_byte: 999_999_999_999_999_999_999_999_999
+global_contract_storage_amount_per_byte: 999999999999999999999999999 yN
 
 action_use_global_contract: {
   send_sir: 999_999_999_999_999,

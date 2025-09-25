@@ -7,8 +7,7 @@ use crate::parameter::{FeeParameter, Parameter};
 use crate::vm::VMKind;
 use crate::vm::{Config, StorageGetMode};
 use near_primitives_core::account::id::ParseAccountError;
-use near_primitives_core::types::AccountId;
-use near_primitives_core::types::Gas;
+use near_primitives_core::types::{AccountId, Balance, Gas};
 use num_rational::Rational32;
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -141,6 +140,23 @@ impl TryFrom<&ParameterValue> for Gas {
         match value {
             ParameterValue::U64(v) => Ok(Gas::from_gas(u64::from(*v))),
             _ => Err(ValueConversionError::ParseType(std::any::type_name::<Gas>(), value.clone())),
+        }
+    }
+}
+
+impl TryFrom<&ParameterValue> for Balance {
+    type Error = ValueConversionError;
+
+    fn try_from(value: &ParameterValue) -> Result<Self, Self::Error> {
+        match value {
+            ParameterValue::U64(v) => Ok(Balance::from_yoctonear(u128::from(*v))),
+            ParameterValue::String(s) => s.parse::<Balance>().map_err(|_err| {
+                ValueConversionError::ParseType(std::any::type_name::<Balance>(), value.clone())
+            }),
+            _ => Err(ValueConversionError::ParseType(
+                std::any::type_name::<Balance>(),
+                value.clone(),
+            )),
         }
     }
 }
@@ -614,7 +630,7 @@ mod tests {
             [
                 (Parameter::RegistrarAccountId, "\"registrar\""),
                 (Parameter::MinAllowedTopLevelAccountLength, "32"),
-                (Parameter::StorageAmountPerByte, "\"100000000000000000000\""),
+                (Parameter::StorageAmountPerByte, "\"0.0001 N\""),
                 (Parameter::StorageNumBytesAccount, "100"),
                 (Parameter::StorageNumExtraBytesRecord, "40"),
                 (Parameter::BurntGasReward, "{ numerator: 1_000_000, denominator: 300 }"),
@@ -635,7 +651,7 @@ mod tests {
             [
                 (Parameter::RegistrarAccountId, "\"registrar\""),
                 (Parameter::MinAllowedTopLevelAccountLength, "32"),
-                (Parameter::StorageAmountPerByte, "\"100000000000000000000\""),
+                (Parameter::StorageAmountPerByte, "\"0.0001 N\""),
                 (Parameter::StorageNumBytesAccount, "100"),
                 (Parameter::StorageNumExtraBytesRecord, "40"),
             ],
@@ -651,7 +667,7 @@ mod tests {
             [
                 (Parameter::RegistrarAccountId, "\"near\""),
                 (Parameter::MinAllowedTopLevelAccountLength, "32000"),
-                (Parameter::StorageAmountPerByte, "\"100000000000000000000\""),
+                (Parameter::StorageAmountPerByte, "\"0.0001 N\""),
                 (Parameter::StorageNumBytesAccount, "100"),
                 (Parameter::StorageNumExtraBytesRecord, "40"),
                 (Parameter::WasmRegularOpCost, "3856371"),
@@ -673,7 +689,7 @@ mod tests {
             [
                 (Parameter::RegistrarAccountId, "\"registrar\""),
                 (Parameter::MinAllowedTopLevelAccountLength, "32000"),
-                (Parameter::StorageAmountPerByte, "\"100000000000000000000\""),
+                (Parameter::StorageAmountPerByte, "\"0.0001 N\""),
                 (Parameter::StorageNumBytesAccount, "100"),
                 (Parameter::StorageNumExtraBytesRecord, "77"),
                 (Parameter::WasmRegularOpCost, "0"),
@@ -695,7 +711,7 @@ mod tests {
             &[diff_with_empty_value],
             [
                 (Parameter::RegistrarAccountId, "\"registrar\""),
-                (Parameter::StorageAmountPerByte, "\"100000000000000000000\""),
+                (Parameter::StorageAmountPerByte, "\"0.0001 N\""),
                 (Parameter::StorageNumBytesAccount, "100"),
                 (Parameter::StorageNumExtraBytesRecord, "40"),
                 (Parameter::BurntGasReward, "{ numerator: 1_000_000, denominator: 300 }"),

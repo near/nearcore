@@ -19,7 +19,7 @@ use near_parameters::{
 };
 use near_primitives_core::config::INLINE_DISK_VALUE_THRESHOLD;
 use near_primitives_core::hash::CryptoHash;
-use near_primitives_core::types::{AccountId, EpochHeight, Gas, GasWeight, StorageUsage};
+use near_primitives_core::types::{AccountId, Balance, EpochHeight, Gas, GasWeight, StorageUsage};
 use wasmtime::{Caller, Extern, Memory};
 
 // Lookup the memory export and cache it on success.
@@ -734,7 +734,7 @@ pub fn validator_stake(
     )?;
     ctx.result_state.gas_counter.pay_base(validator_stake_base)?;
     let balance = ctx.ext.validator_stake(&account_id)?.unwrap_or_default();
-    set_u128(&mut ctx.result_state.gas_counter, memory, stake_ptr, balance)
+    set_u128(&mut ctx.result_state.gas_counter, memory, stake_ptr, balance.as_yoctonear())
 }
 
 /// Get the total validator stake of the current epoch.
@@ -750,7 +750,7 @@ pub fn validator_total_stake(caller: &mut Caller<'_, Ctx>, stake_ptr: u64) -> Re
     ctx.result_state.gas_counter.pay_base(base)?;
     ctx.result_state.gas_counter.pay_base(validator_total_stake_base)?;
     let total_stake = ctx.ext.validator_total_stake()?;
-    set_u128(&mut ctx.result_state.gas_counter, memory, stake_ptr, total_stake)
+    set_u128(&mut ctx.result_state.gas_counter, memory, stake_ptr, total_stake.as_yoctonear())
 }
 
 /// Returns the number of bytes used by the contract if it was saved to the trie as of the
@@ -787,7 +787,7 @@ pub fn account_balance(caller: &mut Caller<'_, Ctx>, balance_ptr: u64) -> Result
         &mut ctx.result_state.gas_counter,
         memory,
         balance_ptr,
-        ctx.result_state.current_account_balance,
+        ctx.result_state.current_account_balance.as_yoctonear(),
     )
 }
 
@@ -804,7 +804,7 @@ pub fn account_locked_balance(caller: &mut Caller<'_, Ctx>, balance_ptr: u64) ->
         &mut ctx.result_state.gas_counter,
         memory,
         balance_ptr,
-        ctx.current_account_locked_balance,
+        ctx.current_account_locked_balance.as_yoctonear(),
     )
 }
 
@@ -822,7 +822,12 @@ pub fn attached_deposit(caller: &mut Caller<'_, Ctx>, balance_ptr: u64) -> Resul
     let memory = get_memory(caller)?;
     let (memory, ctx) = memory.data_and_store_mut(caller);
     ctx.result_state.gas_counter.pay_base(base)?;
-    set_u128(&mut ctx.result_state.gas_counter, memory, balance_ptr, ctx.context.attached_deposit)
+    set_u128(
+        &mut ctx.result_state.gas_counter,
+        memory,
+        balance_ptr,
+        ctx.context.attached_deposit.as_yoctonear(),
+    )
 }
 
 /// The amount of gas attached to the call that can be used to pay for the gas fees.
@@ -2693,7 +2698,8 @@ pub fn promise_batch_action_function_call_weight(
         }
         .into());
     }
-    let amount = get_u128(&mut ctx.result_state.gas_counter, memory, amount_ptr)?;
+    let amount =
+        Balance::from_yoctonear(get_u128(&mut ctx.result_state.gas_counter, memory, amount_ptr)?);
     let method_name = get_memory_or_register(
         &mut ctx.result_state.gas_counter,
         memory,
@@ -2776,7 +2782,8 @@ pub fn promise_batch_action_transfer(
         }
         .into());
     }
-    let amount = get_u128(&mut ctx.result_state.gas_counter, memory, amount_ptr)?;
+    let amount =
+        Balance::from_yoctonear(get_u128(&mut ctx.result_state.gas_counter, memory, amount_ptr)?);
 
     let (receipt_idx, sir) = promise_idx_to_receipt_idx_with_sir(ctx, promise_idx)?;
     let receiver_id = ctx.ext.get_receipt_receiver(receipt_idx);
@@ -2838,7 +2845,8 @@ pub fn promise_batch_action_stake(
         }
         .into());
     }
-    let amount = get_u128(&mut ctx.result_state.gas_counter, memory, amount_ptr)?;
+    let amount =
+        Balance::from_yoctonear(get_u128(&mut ctx.result_state.gas_counter, memory, amount_ptr)?);
     let public_key = get_public_key(
         &mut ctx.result_state.gas_counter,
         memory,
@@ -2951,8 +2959,12 @@ pub fn promise_batch_action_add_key_with_function_call(
         public_key_ptr,
         public_key_len,
     )?;
-    let allowance = get_u128(&mut ctx.result_state.gas_counter, memory, allowance_ptr)?;
-    let allowance = if allowance > 0 { Some(allowance) } else { None };
+    let allowance = Balance::from_yoctonear(get_u128(
+        &mut ctx.result_state.gas_counter,
+        memory,
+        allowance_ptr,
+    )?);
+    let allowance = if allowance > Balance::ZERO { Some(allowance) } else { None };
     let receiver_id = read_and_parse_account_id(
         &mut ctx.result_state.gas_counter,
         memory,
@@ -3210,7 +3222,7 @@ pub fn promise_yield_create(
         new_receipt_idx,
         method_name,
         arguments,
-        0,
+        Balance::ZERO,
         Gas::from_gas(gas),
         GasWeight(gas_weight),
     )?;

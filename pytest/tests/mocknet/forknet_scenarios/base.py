@@ -157,7 +157,6 @@ class TestSetup:
         new_test_args.num_validators = self.node_hardware_config.num_chunk_validator_seats
         # Set all seats to the lower value. This will be increased later in epoch config.
         new_test_args.num_seats = self.node_hardware_config.num_chunk_producer_seats
-        new_test_args.stateless_setup = True
         new_test_args.new_chain_id = self.unique_id
         new_test_args.yes = True
         new_test_args.gcs_state_sync = self.has_state_dumper

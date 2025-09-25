@@ -41,9 +41,6 @@ pub use updatable_config::{MutableConfigValue, MutableValidatorSigner, Updatable
 
 pub const GENESIS_CONFIG_FILENAME: &str = "genesis.json";
 
-/// One NEAR, divisible by 10^24.
-pub const NEAR_BASE: Balance = 1_000_000_000_000_000_000_000_000;
-
 /// Protocol treasury account
 pub const PROTOCOL_TREASURY_ACCOUNT: &str = "near";
 
@@ -63,7 +60,7 @@ pub const CHUNK_PRODUCER_KICKOUT_THRESHOLD: u8 = 90;
 pub const CHUNK_VALIDATOR_ONLY_KICKOUT_THRESHOLD: u8 = 80;
 
 /// Fishermen stake threshold.
-pub const FISHERMEN_THRESHOLD: Balance = 10 * NEAR_BASE;
+pub const FISHERMEN_THRESHOLD: Balance = Balance::from_near(10);
 
 /// The rate at which the gas price can be adjusted (alpha in the formula).
 /// The formula is
@@ -84,7 +81,7 @@ pub const EXPECTED_EPOCH_LENGTH: BlockHeightDelta =
 pub const MAX_INFLATION_RATE: Rational32 = Rational32::new_raw(1, 20);
 
 /// Initial and minimum gas price.
-pub const MIN_GAS_PRICE: Balance = 100_000_000;
+pub const MIN_GAS_PRICE: Balance = Balance::from_yoctonear(100_000_000);
 
 /// Expected number of blocks per year
 pub const NUM_BLOCKS_PER_YEAR: u64 = 365 * 24 * 60 * 60;

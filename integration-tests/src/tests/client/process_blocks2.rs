@@ -17,7 +17,7 @@ use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::sharding::ShardChunkHeaderV3;
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::types::validator_stake::ValidatorStake;
-use near_primitives::types::{Gas, ShardId};
+use near_primitives::types::{Balance, Gas, ShardId};
 use near_primitives::utils::MaybeValidated;
 use near_store::ShardUId;
 use std::sync::Arc;
@@ -34,8 +34,11 @@ fn test_not_process_height_twice() {
     env.process_block(0, block, Provenance::PRODUCED);
     let validator_signer = create_test_signer("test0");
 
-    let proposals =
-        vec![ValidatorStake::new("test1".parse().unwrap(), PublicKey::empty(KeyType::ED25519), 0)];
+    let proposals = vec![ValidatorStake::new(
+        "test1".parse().unwrap(),
+        PublicKey::empty(KeyType::ED25519),
+        Balance::ZERO,
+    )];
     let mut_block = Arc::make_mut(&mut duplicate_block);
     mut_block.mut_header().set_prev_validator_proposals(proposals);
     mut_block.mut_header().resign(&validator_signer);

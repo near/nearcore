@@ -20,17 +20,17 @@ use crate::{
     ClientConfig, CloudArchivalReaderConfig, CloudArchivalWriterConfig, CloudStorageConfig,
     EpochSyncConfig, ExternalStorageLocation, FAST_EPOCH_LENGTH, GAS_PRICE_ADJUSTMENT_RATE,
     GCConfig, Genesis, GenesisConfig, INITIAL_GAS_LIMIT, LogSummaryStyle, MAX_INFLATION_RATE,
-    MIN_GAS_PRICE, MutableConfigValue, NEAR_BASE, NUM_BLOCKS_PER_YEAR, PROTOCOL_REWARD_RATE,
+    MIN_GAS_PRICE, MutableConfigValue, NUM_BLOCKS_PER_YEAR, PROTOCOL_REWARD_RATE,
     PROTOCOL_TREASURY_ACCOUNT, ReshardingConfig, StateSyncConfig, TRANSACTION_VALIDITY_PERIOD,
     TrackedShardsConfig, default_orphan_state_witness_max_size,
     default_orphan_state_witness_pool_size, default_produce_chunk_add_transactions_time_limit,
 };
 
 /// Initial balance used in tests.
-pub const TESTING_INIT_BALANCE: Balance = 1_000_000_000 * NEAR_BASE;
+pub const TESTING_INIT_BALANCE: Balance = Balance::from_near(1_000_000_000);
 
 /// Validator's stake used in tests.
-pub const TESTING_INIT_STAKE: Balance = 50_000_000 * NEAR_BASE;
+pub const TESTING_INIT_STAKE: Balance = Balance::from_near(50_000_000);
 
 pub const TEST_STATE_SYNC_TIMEOUT: i64 = 5;
 
@@ -40,9 +40,9 @@ impl GenesisConfig {
             genesis_time: from_timestamp(clock.now_utc().unix_timestamp_nanos() as u64),
             genesis_height: 0,
             gas_limit: Gas::from_teragas(1000),
-            min_gas_price: 0,
-            max_gas_price: 1_000_000_000,
-            total_supply: 1_000_000_000,
+            min_gas_price: Balance::ZERO,
+            max_gas_price: Balance::from_yoctonear(1_000_000_000),
+            total_supply: Balance::from_yoctonear(1_000_000_000),
             gas_price_adjustment_rate: Ratio::from_integer(0),
             transaction_validity_period: 100,
             epoch_length: 5,
@@ -67,7 +67,11 @@ impl Genesis {
             account_infos.push(AccountInfo {
                 account_id: account.clone(),
                 public_key: signer.public_key(),
-                amount: if i < num_validator_seats as usize { TESTING_INIT_STAKE } else { 0 },
+                amount: if i < num_validator_seats as usize {
+                    TESTING_INIT_STAKE
+                } else {
+                    Balance::ZERO
+                },
             });
         }
         let genesis_time = from_timestamp(clock.now_utc().unix_timestamp_nanos() as u64);
@@ -92,7 +96,7 @@ impl Genesis {
                 &mut records,
                 account_info.account_id,
                 &account_info.public_key,
-                TESTING_INIT_BALANCE - account_info.amount,
+                TESTING_INIT_BALANCE.checked_sub(account_info.amount).unwrap(),
                 account_info.amount,
                 CryptoHash::default(),
             );
@@ -193,7 +197,7 @@ pub fn add_protocol_account(records: &mut Vec<StateRecord>) {
         PROTOCOL_TREASURY_ACCOUNT.parse().unwrap(),
         &signer.public_key(),
         TESTING_INIT_BALANCE,
-        0,
+        Balance::ZERO,
         CryptoHash::default(),
     );
 }
@@ -202,8 +206,8 @@ pub fn add_account_with_key(
     records: &mut Vec<StateRecord>,
     account_id: AccountId,
     public_key: &PublicKey,
-    amount: u128,
-    staked: u128,
+    amount: Balance,
+    staked: Balance,
     code_hash: CryptoHash,
 ) {
     records.push(StateRecord::Account {
@@ -222,10 +226,12 @@ pub fn random_chain_id() -> String {
 }
 
 pub fn get_initial_supply(records: &[StateRecord]) -> Balance {
-    let mut total_supply = 0;
+    let mut total_supply = Balance::ZERO;
     for record in records {
         if let StateRecord::Account { account, .. } = record {
-            total_supply += account.amount() + account.locked();
+            total_supply = total_supply
+                .checked_add(account.amount().checked_add(account.locked()).unwrap())
+                .unwrap();
         }
     }
     total_supply
