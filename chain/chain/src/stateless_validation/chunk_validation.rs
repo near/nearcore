@@ -570,9 +570,11 @@ pub fn validate_chunk_state_witness_impl(
     let _timer = crate::stateless_validation::metrics::CHUNK_STATE_WITNESS_VALIDATION_TIME
         .with_label_values(&[&witness_chunk_shard_id.to_string(), type_str])
         .start_timer();
+    let key = pre_validation_output.cached_shard_update_key;
     let span = tracing::debug_span!(
         target: "client",
         "validate_chunk_state_witness",
+        key = key,
         height = height_created,
         shard_id = %witness_chunk_shard_id,
         is_optimistic = is_optimistic,
@@ -584,7 +586,6 @@ pub fn validate_chunk_state_witness_impl(
     let witness_chunk_shard_uid =
         shard_id_to_uid(epoch_manager, witness_chunk_shard_id, &epoch_id)?;
     let prev_hash = pre_validation_output.main_transition_params.prev_hash();
-    let key = pre_validation_output.cached_shard_update_key;
     // println!(
     //     "VALIDATING CHUNK STATE WITNESS: {:?} {:?} {:?}",
     //     is_optimistic, prev_hash, witness_chunk_shard_id
