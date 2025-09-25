@@ -4,7 +4,7 @@
 
 ### Protocol Changes
 * The contract runtime has been upgraded to use the new Wasmtime-based runtime;
-* The contract runtime now allows for bulk memory instructions in WASM code.
+* The contract runtime now allows for bulk memory instructions in Wasm code.
 
 ### Non-protocol Changes
 * Moved Tier1 configuration from experimental to top level config. No action is necessary as the default values are the recommended ones. ([#13575](https://github.com/near/nearcore/pull/13575))
