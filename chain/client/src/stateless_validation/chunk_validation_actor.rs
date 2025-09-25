@@ -145,6 +145,7 @@ impl ChunkValidationActorInner {
         save_invalid_witnesses: bool,
         validation_spawner: Arc<dyn AsyncComputationSpawner>,
         shared_orphan_pool: Arc<Mutex<OrphanStateWitnessPool>>,
+        main_state_transition_result_cache: MainStateTransitionCache,
         max_orphan_witness_size: u64,
     ) -> Self {
         let data_parts = epoch_manager.num_data_parts();
@@ -160,7 +161,7 @@ impl ChunkValidationActorInner {
             save_latest_witnesses,
             save_invalid_witnesses,
             validation_spawner,
-            main_state_transition_result_cache: MainStateTransitionCache::default(),
+            main_state_transition_result_cache,
             orphan_witness_pool: shared_orphan_pool,
             max_orphan_witness_size,
             rs,
@@ -186,6 +187,7 @@ impl ChunkValidationActorInner {
         // Create shared orphan witness pool
         let shared_orphan_pool =
             Arc::new(Mutex::new(OrphanStateWitnessPool::new(orphan_witness_pool_size)));
+        let main_state_transition_result_cache = MainStateTransitionCache::default();
 
         actor_system.spawn_multithread_actor(num_actors, move || {
             ChunkValidationActorInner::new_with_shared_pool(
@@ -199,6 +201,7 @@ impl ChunkValidationActorInner {
                 save_invalid_witnesses,
                 validation_spawner.clone(),
                 shared_orphan_pool.clone(),
+                main_state_transition_result_cache.clone(),
                 max_orphan_witness_size,
             )
         })
