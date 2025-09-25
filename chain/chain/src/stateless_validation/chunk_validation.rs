@@ -606,11 +606,11 @@ pub fn validate_chunk_state_witness_impl(
                     LruCache::new(NonZeroUsize::new(NUM_WITNESS_RESULT_CACHE_ENTRIES).unwrap())
                 });
                 if let Some(existing) = cache.get(&key) {
-                    tracing::debug!(target: "chunk_validation", "Cache hit");
+                    tracing::debug!(target: "chunk_validation", "Cache hit: ptr={:p}", existing.as_ptr());
                     existing.clone()
                 } else {
                     let cell = Arc::new(OnceLock::new());
-                    tracing::debug!(target: "chunk_validation", "Creating cell");
+                    tracing::debug!(target: "chunk_validation", "Creating cell: ptr={:p}", cell.as_ptr());
                     cache.put(key, cell.clone());
                     cell
                 }
@@ -620,8 +620,9 @@ pub fn validate_chunk_state_witness_impl(
             let already_initialized = cell_arc.get().is_some();
             let start_wait = Instant::now();
             let we_initialized = Cell::new(false);
+            tracing::debug!(target: "chunk_validation", "Using cell: ptr={:p}, already_initialized={}", cell_arc.as_ptr(), already_initialized);
             let init_result = cell_arc.get_or_init(|| {
-                tracing::debug!(target: "chunk_validation", "Initializing cell");
+                tracing::debug!(target: "chunk_validation", "Initializing cell: ptr={:p}", cell_arc.as_ptr());
                 we_initialized.set(true);
                 // if is_optimistic {
                 //     std::thread::sleep(std::time::Duration::from_millis(5));
