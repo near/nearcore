@@ -574,7 +574,7 @@ pub fn validate_chunk_state_witness_impl(
     let span = tracing::debug_span!(
         target: "client",
         "validate_chunk_state_witness",
-        key = key,
+        key = ?key,
         height = height_created,
         shard_id = %witness_chunk_shard_id,
         is_optimistic = is_optimistic,
