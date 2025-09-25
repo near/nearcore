@@ -1,7 +1,7 @@
 use near_async::messaging::{IntoMultiSender, noop};
 use near_async::time::Clock;
 use near_chain::spice_core::CoreStatementsProcessor;
-use near_chain::types::ChainConfig;
+use near_chain::types::{ArcRuntimeAdapter, ChainConfig};
 use near_chain::{Chain, ChainGenesis, DoomslugThresholdMode};
 use near_chain_configs::{Genesis, MutableConfigValue};
 use near_epoch_manager::EpochManager;
@@ -28,8 +28,12 @@ fn genesis_header(genesis: &Genesis) -> BlockHeader {
     let chain_genesis = ChainGenesis::new(&genesis.config);
     let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config, None);
     let shard_tracker = ShardTracker::new_empty(epoch_manager.clone());
-    let runtime =
-        NightshadeRuntime::test(dir.path(), store.clone(), &genesis.config, epoch_manager.clone());
+    let runtime = ArcRuntimeAdapter::new(NightshadeRuntime::test(
+        dir.path(),
+        store.clone(),
+        &genesis.config,
+        epoch_manager.clone(),
+    ));
     let chain = Chain::new(
         Clock::real(),
         epoch_manager.clone(),
@@ -57,8 +61,12 @@ pub fn genesis_block(genesis: &Genesis) -> Arc<Block> {
     let chain_genesis = ChainGenesis::new(&genesis.config);
     let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config, None);
     let shard_tracker = ShardTracker::new_empty(epoch_manager.clone());
-    let runtime =
-        NightshadeRuntime::test(dir.path(), store.clone(), &genesis.config, epoch_manager.clone());
+    let runtime = ArcRuntimeAdapter::new(NightshadeRuntime::test(
+        dir.path(),
+        store.clone(),
+        &genesis.config,
+        epoch_manager.clone(),
+    ));
     let chain = Chain::new(
         Clock::real(),
         epoch_manager.clone(),

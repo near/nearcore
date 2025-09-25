@@ -59,7 +59,7 @@ use tracing::{debug, error, info, warn};
 #[derive(Clone)]
 pub struct FlatStorageResharder {
     epoch_manager: Arc<dyn EpochManagerAdapter>,
-    runtime: Arc<dyn RuntimeAdapter>,
+    runtime: crate::types::ArcRuntimeAdapter,
     /// Controls cancellation of background processing.
     handle: ReshardingHandle,
     /// Configuration for resharding.
@@ -69,7 +69,7 @@ pub struct FlatStorageResharder {
 impl FlatStorageResharder {
     pub fn new(
         epoch_manager: Arc<dyn EpochManagerAdapter>,
-        runtime: Arc<dyn RuntimeAdapter>,
+        runtime: crate::types::ArcRuntimeAdapter,
         controller: ReshardingHandle,
         resharding_config: MutableConfigValue<ReshardingConfig>,
     ) -> Self {

@@ -1,6 +1,7 @@
 use crate::env::test_env::TestEnv;
 use itertools::Itertools;
 use near_async::time::Clock;
+use near_chain::types::ArcRuntimeAdapter;
 use near_chain::{ChainStore, ChainStoreAccess, Provenance};
 use near_chain_configs::Genesis;
 use near_client::ProcessTxResponse;
@@ -55,12 +56,12 @@ fn test_apply_chunk() {
         ChainStore::new(store.clone(), false, genesis.config.transaction_validity_period);
 
     let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config, None);
-    let runtime = NightshadeRuntime::test(
+    let runtime = ArcRuntimeAdapter::new(NightshadeRuntime::test(
         Path::new("."),
         store.clone(),
         &genesis.config,
         epoch_manager.clone(),
-    );
+    ));
 
     let signers = (0..4)
         .map(|i| {
@@ -145,12 +146,12 @@ fn test_apply_tx_apply_receipt() {
         ChainStore::new(store.clone(), false, genesis.config.transaction_validity_period);
 
     let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config, None);
-    let runtime = NightshadeRuntime::test(
+    let runtime = ArcRuntimeAdapter::new(NightshadeRuntime::test(
         Path::new("."),
         store.clone(),
         &genesis.config,
         epoch_manager.clone(),
-    );
+    ));
 
     let signers = (0..4)
         .map(|i| {

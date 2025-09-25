@@ -3,6 +3,7 @@ use std::path::Path;
 
 use crate::env::test_env::TestEnv;
 use near_chain::Provenance;
+use near_chain::types::ArcRuntimeAdapter;
 use near_chain_configs::Genesis;
 use near_chain_configs::test_utils::TESTING_INIT_STAKE;
 use near_client::ProcessTxResponse;
@@ -25,12 +26,12 @@ fn setup(epoch_length: NumBlocks) -> (Store, Genesis, TestEnv) {
     let store = create_test_store();
     initialize_genesis_state(store.clone(), &genesis, None);
     let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config, None);
-    let nightshade_runtime = NightshadeRuntime::test(
+    let nightshade_runtime = ArcRuntimeAdapter::new(NightshadeRuntime::test(
         Path::new("."),
         store.clone(),
         &genesis.config,
         epoch_manager.clone(),
-    );
+    ));
     let env = TestEnv::builder(&genesis.config)
         .validator_seats(2)
         .stores(vec![store.clone()])
@@ -94,12 +95,12 @@ fn test_apply_chain_range() {
 
     initialize_genesis_state(store.clone(), &genesis, None);
     let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config, None);
-    let runtime = NightshadeRuntime::test(
+    let runtime = ArcRuntimeAdapter::new(NightshadeRuntime::test(
         Path::new("."),
         store.clone(),
         &genesis.config,
         epoch_manager.clone(),
-    );
+    ));
     apply_chain_range(
         ApplyRangeMode::Parallel,
         store,
@@ -137,12 +138,12 @@ fn test_apply_chain_range_no_chunks() {
 
     initialize_genesis_state(store.clone(), &genesis, None);
     let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config, None);
-    let runtime = NightshadeRuntime::test(
+    let runtime = ArcRuntimeAdapter::new(NightshadeRuntime::test(
         Path::new("."),
         store.clone(),
         &genesis.config,
         epoch_manager.clone(),
-    );
+    ));
     let mut file = tempfile::NamedTempFile::new().unwrap();
     apply_chain_range(
         ApplyRangeMode::Parallel,

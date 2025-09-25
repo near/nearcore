@@ -18,7 +18,8 @@ use itertools::ChunkBy;
 use itertools::Itertools;
 use near_chain::chain::collect_receipts_from_response;
 use near_chain::types::{
-    ApplyChunkBlockContext, ApplyChunkResult, ApplyChunkShardContext, RuntimeAdapter,
+    ApplyChunkBlockContext, ApplyChunkResult, ApplyChunkShardContext, ArcRuntimeAdapter,
+    RuntimeAdapter,
 };
 use near_chain::{
     Chain, ChainGenesis, ChainStore, ChainStoreAccess, Error, ReceiptFilter,
@@ -172,9 +173,10 @@ pub(crate) fn apply_block_at_height(
         &near_config.genesis.config,
         Some(home_dir),
     );
-    let runtime =
+    let runtime = ArcRuntimeAdapter::new(
         NightshadeRuntime::from_config(home_dir, read_store, &near_config, epoch_manager.clone())
-            .context("could not create the transaction runtime")?;
+            .context("could not create the transaction runtime")?,
+    );
     let block_hash = read_chain_store.get_block_hash_by_height(height).unwrap();
     let (block, apply_result) = apply_block(
         block_hash,
@@ -213,13 +215,15 @@ pub(crate) fn apply_chunk(
 ) -> anyhow::Result<()> {
     let epoch_manager =
         EpochManager::new_arc_handle(store.clone(), &near_config.genesis.config, Some(home_dir));
-    let runtime = NightshadeRuntime::from_config(
-        home_dir,
-        store.clone(),
-        &near_config,
-        epoch_manager.clone(),
-    )
-    .context("could not create the transaction runtime")?;
+    let runtime = ArcRuntimeAdapter::new(
+        NightshadeRuntime::from_config(
+            home_dir,
+            store.clone(),
+            &near_config,
+            epoch_manager.clone(),
+        )
+        .context("could not create the transaction runtime")?,
+    );
     let mut chain_store = ChainStore::new(
         store,
         near_config.client_config.save_trie_changes,
@@ -259,13 +263,15 @@ pub(crate) fn apply_range(
         &near_config.genesis.config,
         Some(home_dir),
     );
-    let runtime = NightshadeRuntime::from_config(
-        home_dir,
-        read_store.clone(),
-        &near_config,
-        epoch_manager.clone(),
-    )
-    .expect("could not create the transaction runtime");
+    let runtime = ArcRuntimeAdapter::new(
+        NightshadeRuntime::from_config(
+            home_dir,
+            read_store.clone(),
+            &near_config,
+            epoch_manager.clone(),
+        )
+        .expect("could not create the transaction runtime"),
+    );
     let shard_ids = if shard_id.is_empty() {
         let chain_store = ChainStore::new(
             read_store.clone(),
@@ -339,13 +345,15 @@ pub(crate) fn apply_receipt(
 ) -> anyhow::Result<()> {
     let epoch_manager =
         EpochManager::new_arc_handle(store.clone(), &near_config.genesis.config, Some(home_dir));
-    let runtime = NightshadeRuntime::from_config(
-        home_dir,
-        store.clone(),
-        &near_config,
-        epoch_manager.clone(),
-    )
-    .context("could not create the transaction runtime")?;
+    let runtime = ArcRuntimeAdapter::new(
+        NightshadeRuntime::from_config(
+            home_dir,
+            store.clone(),
+            &near_config,
+            epoch_manager.clone(),
+        )
+        .context("could not create the transaction runtime")?,
+    );
     apply_chunk::apply_receipt(
         &near_config.genesis.config,
         epoch_manager.as_ref(),
@@ -366,13 +374,15 @@ pub(crate) fn apply_tx(
 ) -> anyhow::Result<()> {
     let epoch_manager =
         EpochManager::new_arc_handle(store.clone(), &near_config.genesis.config, Some(home_dir));
-    let runtime = NightshadeRuntime::from_config(
-        home_dir,
-        store.clone(),
-        &near_config,
-        epoch_manager.clone(),
-    )
-    .context("could not create the transaction runtime")?;
+    let runtime = ArcRuntimeAdapter::new(
+        NightshadeRuntime::from_config(
+            home_dir,
+            store.clone(),
+            &near_config,
+            epoch_manager.clone(),
+        )
+        .context("could not create the transaction runtime")?,
+    );
     apply_chunk::apply_tx(
         &near_config.genesis.config,
         epoch_manager.as_ref(),
@@ -447,22 +457,23 @@ pub(crate) fn dump_code(
     let epoch_id = &epoch_manager.get_epoch_id(header.hash()).unwrap();
     let shard_layout = epoch_manager.get_shard_layout(epoch_id).unwrap();
 
-    for (shard_index, state_root) in state_roots.iter().enumerate() {
-        let shard_uid = shard_layout.get_shard_uid(shard_index).unwrap();
-        if let Ok(contract_code) =
-            runtime.view_contract_code(&shard_uid, *state_root, &account_id.parse().unwrap())
-        {
-            let mut file = File::create(output).unwrap();
-            file.write_all(contract_code.code()).unwrap();
-            println!("Dump contract of account {} into file {}", account_id, output.display());
+    todo!()
+    // for (shard_index, state_root) in state_roots.iter().enumerate() {
+    //     let shard_uid = shard_layout.get_shard_uid(shard_index).unwrap();
+    //     if let Ok(contract_code) =
+    //         runtime.view_contract_code(&shard_uid, *state_root, &account_id.parse().unwrap())
+    //     {
+    //         let mut file = File::create(output).unwrap();
+    //         file.write_all(contract_code.code()).unwrap();
+    //         println!("Dump contract of account {} into file {}", account_id, output.display());
 
-            std::process::exit(0);
-        }
-    }
-    println!(
-        "Account {} does not exist or do not have contract deployed in all shards",
-        account_id
-    );
+    //         std::process::exit(0);
+    //     }
+    // }
+    // println!(
+    //     "Account {} does not exist or do not have contract deployed in all shards",
+    //     account_id
+    // );
 }
 
 pub(crate) fn dump_state(
@@ -843,13 +854,15 @@ pub(crate) fn view_genesis(
     let chain_genesis = ChainGenesis::new(&near_config.genesis.config);
     let epoch_manager =
         EpochManager::new_arc_handle(store.clone(), &near_config.genesis.config, Some(home_dir));
-    let runtime_adapter = NightshadeRuntime::from_config(
-        home_dir,
-        store.clone(),
-        &near_config,
-        epoch_manager.clone(),
-    )
-    .unwrap();
+    let runtime_adapter = ArcRuntimeAdapter::new(
+        NightshadeRuntime::from_config(
+            home_dir,
+            store.clone(),
+            &near_config,
+            epoch_manager.clone(),
+        )
+        .unwrap(),
+    );
     let genesis_height = near_config.genesis.config.genesis_height;
     let chain_store = ChainStore::new(
         store,

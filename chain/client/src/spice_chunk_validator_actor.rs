@@ -34,7 +34,7 @@ use crate::stateless_validation::chunk_endorsement::ChunkEndorsementTracker;
 
 pub struct SpiceChunkValidatorActor {
     chain_store: ChainStore,
-    runtime_adapter: Arc<dyn RuntimeAdapter>,
+    runtime_adapter: near_chain::types::ArcRuntimeAdapter,
     epoch_manager: Arc<dyn EpochManagerAdapter>,
     network_adapter: PeerManagerAdapter,
     save_latest_witnesses: bool,
@@ -58,7 +58,7 @@ impl SpiceChunkValidatorActor {
     pub fn new(
         store: Store,
         genesis: &ChainGenesis,
-        runtime_adapter: Arc<dyn RuntimeAdapter>,
+        runtime_adapter: near_chain::types::ArcRuntimeAdapter,
         epoch_manager: Arc<dyn EpochManagerAdapter>,
         network_adapter: PeerManagerAdapter,
         validator_signer: MutableValidatorSigner,

@@ -20,6 +20,7 @@ use nearcore::{NearConfig, NightshadeRuntime, NightshadeRuntimeExt};
 use std::cmp::min;
 use std::path::Path;
 use std::sync::Arc;
+use near_chain::types::ArcRuntimeAdapter;
 
 /// Starts a mock server listening on the addr specified in `config`
 /// The `archival` field does not refer to whether the database is archival
@@ -104,8 +105,8 @@ pub fn setup_mock_node(
         near_config.validator_signer.clone(),
     );
     let runtime =
-        NightshadeRuntime::from_config(home_dir, store, &near_config, epoch_manager.clone())
-            .context("could not create transaction runtime")?;
+        ArcRuntimeAdapter::new(NightshadeRuntime::from_config(home_dir, store, &near_config, epoch_manager.clone())
+            .context("could not create transaction runtime")?);
 
     let chain_genesis = ChainGenesis::new(&near_config.genesis.config);
     let chain = Chain::new_for_view_client(

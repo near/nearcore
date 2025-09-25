@@ -41,7 +41,7 @@ use near_chain::resharding::types::ReshardingSender;
 use near_chain::spice_core::CoreStatementsProcessor;
 use near_chain::state_snapshot_actor::SnapshotCallbacks;
 use near_chain::test_utils::format_hash;
-use near_chain::types::RuntimeAdapter;
+use near_chain::types::{ArcRuntimeAdapter, RuntimeAdapter};
 use near_chain::{ApplyChunksIterationMode, ApplyChunksSpawner};
 use near_chain::{
     Block, BlockHeader, ChainGenesis, Provenance, byzantine_assert, near_chain_primitives,
@@ -140,7 +140,7 @@ pub fn start_client(
     chain_genesis: ChainGenesis,
     epoch_manager: Arc<dyn EpochManagerAdapter>,
     shard_tracker: ShardTracker,
-    runtime: Arc<dyn RuntimeAdapter>,
+    runtime: ArcRuntimeAdapter,
     node_id: PeerId,
     state_sync_future_spawner: Arc<dyn FutureSpawner>,
     network_adapter: PeerManagerAdapter,

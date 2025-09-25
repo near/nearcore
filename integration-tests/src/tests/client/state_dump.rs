@@ -308,7 +308,7 @@ fn run_state_sync_with_dumped_parts(
         .state_sync_adapter
         .set_state_header(shard_id, sync_hash, state_sync_header)
         .unwrap();
-    let runtime_client_1 = Arc::clone(&env.clients[1].runtime_adapter);
+    let runtime_client_1 = env.clients[1].runtime_adapter.clone();
     let mut store_update = runtime_client_1.store().store_update();
     assert!(
         runtime_client_1

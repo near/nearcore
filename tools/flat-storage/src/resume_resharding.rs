@@ -1,7 +1,7 @@
 use crate::commands::ResumeReshardingCmd;
 use near_chain::resharding::flat_storage_resharder::FlatStorageResharder;
 use near_chain::resharding::trie_state_resharder::{ResumeAllowed, TrieStateResharder};
-use near_chain::types::RuntimeAdapter;
+use near_chain::types::{ArcRuntimeAdapter, RuntimeAdapter};
 use near_chain_configs::ReshardingHandle;
 use near_epoch_manager::EpochManager;
 use near_store::{ShardUId, StoreOpener};
@@ -20,12 +20,12 @@ pub(crate) fn resume_resharding(
         &config.genesis.config,
         Some(home_dir),
     );
-    let runtime_adapter = NightshadeRuntime::from_config(
+    let runtime_adapter = ArcRuntimeAdapter::new(NightshadeRuntime::from_config(
         home_dir,
         node_storage.get_hot_store(),
         &config,
         epoch_manager.clone(),
-    )?;
+    )?);
 
     let flat_storage_resharder = FlatStorageResharder::new(
         epoch_manager,

@@ -14,6 +14,7 @@ use near_store::{genesis::initialize_genesis_state, test_utils::create_test_stor
 use nearcore::NightshadeRuntime;
 use testlib::fees_utils::FeeHelper;
 
+use near_chain::types::ArcRuntimeAdapter;
 use near_primitives::types::EpochId;
 use primitive_types::U256;
 
@@ -35,12 +36,12 @@ fn setup_env(genesis: &Genesis) -> TestEnv {
     let store = create_test_store();
     initialize_genesis_state(store.clone(), &genesis, None);
     let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config, None);
-    let runtime = NightshadeRuntime::test(
+    let runtime = ArcRuntimeAdapter::new(NightshadeRuntime::test(
         Path::new("."),
         store.clone(),
         &genesis.config,
         epoch_manager.clone(),
-    );
+    ));
     TestEnv::builder(&genesis.config)
         .stores(vec![store])
         .epoch_managers(vec![epoch_manager])

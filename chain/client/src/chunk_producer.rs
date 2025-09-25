@@ -79,7 +79,7 @@ pub struct ChunkProducer {
     chunk_transactions_time_limit: MutableConfigValue<Option<Duration>>,
     chain: ChainStoreAdapter,
     epoch_manager: Arc<dyn EpochManagerAdapter>,
-    runtime_adapter: Arc<dyn RuntimeAdapter>,
+    runtime_adapter: near_chain::types::ArcRuntimeAdapter,
     // TODO: put mutex on individual shards instead of the complete pool
     pub sharded_tx_pool: Arc<Mutex<ShardedTransactionPool>>,
     /// A ReedSolomon instance to encode shard chunks.
@@ -94,7 +94,7 @@ impl ChunkProducer {
         chunk_transactions_time_limit: MutableConfigValue<Option<Duration>>,
         chain_store: &ChainStoreAdapter,
         epoch_manager: Arc<dyn EpochManagerAdapter>,
-        runtime_adapter: Arc<dyn RuntimeAdapter>,
+        runtime_adapter: near_chain::types::ArcRuntimeAdapter,
         rng_seed: RngSeed,
         transaction_pool_size_limit: Option<u64>,
     ) -> Self {

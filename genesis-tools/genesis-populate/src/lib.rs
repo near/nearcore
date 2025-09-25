@@ -74,7 +74,7 @@ pub struct GenesisBuilder {
     genesis: Arc<Genesis>,
     store: Store,
     epoch_manager: Arc<EpochManagerHandle>,
-    runtime: Arc<NightshadeRuntime>,
+    runtime: near_chain::types::ArcRuntimeAdapter,
     unflushed_records: HashMap<ShardId, Vec<StateRecord>>,
     roots: HashMap<ShardId, StateRoot>,
     state_updates: HashMap<ShardId, TrieUpdate>,
@@ -93,13 +93,13 @@ impl GenesisBuilder {
         initialize_genesis_state(store.clone(), &config.genesis, Some(tmpdir.path()));
         let epoch_manager =
             EpochManager::new_arc_handle(store.clone(), &config.genesis.config, None);
-        let runtime = NightshadeRuntime::from_config(
+        let runtime = ArcRuntimeAdapter::new(NightshadeRuntime::from_config(
             tmpdir.path(),
             store.clone(),
             &config,
             epoch_manager.clone(),
         )
-        .expect("could not create the transaction runtime");
+        .expect("could not create the transaction runtime"));
         Self {
             home_dir: home_dir.to_path_buf(),
             tmpdir,

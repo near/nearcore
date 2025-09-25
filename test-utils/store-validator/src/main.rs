@@ -7,6 +7,7 @@ use nearcore::{NightshadeRuntimeExt, get_default_home, load_config};
 use std::path::PathBuf;
 use std::process;
 use yansi::Color::{Green, Red, White, Yellow};
+use near_chain::types::ArcRuntimeAdapter;
 
 fn main() {
     init_integration_logger();
@@ -43,13 +44,13 @@ fn main() {
         epoch_manager.clone(),
         near_config.validator_signer.clone(),
     );
-    let runtime = nearcore::NightshadeRuntime::from_config(
+    let runtime = ArcRuntimeAdapter::new(nearcore::NightshadeRuntime::from_config(
         home_dir,
         store.clone(),
         &near_config,
         epoch_manager.clone(),
     )
-    .expect("could not create transaction runtime");
+    .expect("could not create transaction runtime"));
     let mut store_validator = StoreValidator::new(
         near_config.genesis.config,
         epoch_manager,

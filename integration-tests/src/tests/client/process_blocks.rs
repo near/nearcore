@@ -2849,7 +2849,7 @@ fn test_query_final_state() {
     }
 
     let query_final_state =
-        |chain: &mut near_chain::Chain, runtime: Arc<dyn RuntimeAdapter>, account_id: AccountId| {
+        |chain: &mut near_chain::Chain, runtime: near_chain::types::ArcRuntimeAdapter, account_id: AccountId| {
             let final_head = chain.chain_store().final_head().unwrap();
             let last_final_block = chain.get_block(&final_head.last_block_hash).unwrap();
             let response = runtime

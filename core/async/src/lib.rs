@@ -54,6 +54,7 @@ pub struct ActorSystem {
 
 impl ActorSystem {
     pub fn new() -> Self {
+        tracing::info!("Creating new ActorSystem");
         let mut systems = ACTOR_SYSTEMS.lock();
         let (multithread_cancellation_sender, multithread_cancellation_receiver) =
             crossbeam_channel::bounded(0);

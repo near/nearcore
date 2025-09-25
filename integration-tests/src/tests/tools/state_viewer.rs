@@ -1,4 +1,5 @@
 use crate::env::test_env::TestEnv;
+use near_chain::types::ArcRuntimeAdapter;
 use near_chain_configs::{Genesis, MutableConfigValue};
 use near_crypto::{InMemorySigner, KeyFile};
 use near_epoch_manager::EpochManager;
@@ -26,8 +27,12 @@ fn test_latest_trie_state() {
     let store = near_store::test_utils::create_test_store();
     initialize_genesis_state(store.clone(), &genesis, Some(home_dir));
     let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config, None);
-    let runtime =
-        NightshadeRuntime::test(home_dir, store.clone(), &genesis.config, epoch_manager.clone());
+    let runtime = ArcRuntimeAdapter::new(NightshadeRuntime::test(
+        home_dir,
+        store.clone(),
+        &genesis.config,
+        epoch_manager.clone(),
+    ));
 
     let stores = vec![store.clone()];
     let epoch_managers = vec![epoch_manager];

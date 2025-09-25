@@ -4,7 +4,7 @@ use crate::progress_reporter::ProgressReporter;
 use core::panic;
 use near_chain::chain::collect_receipts_from_response;
 use near_chain::types::{
-    ApplyChunkBlockContext, ApplyChunkResult, ApplyChunkShardContext, RuntimeAdapter,
+    ApplyChunkBlockContext, ApplyChunkResult, ApplyChunkShardContext, ArcRuntimeAdapter, RuntimeAdapter,
     RuntimeStorageConfig, StorageDataSource,
 };
 use near_chain::{
@@ -319,7 +319,7 @@ fn apply_block_from_range(
     write_store: Option<Store>,
     genesis: &Genesis,
     epoch_manager: &EpochManagerHandle,
-    runtime_adapter: Arc<dyn RuntimeAdapter>,
+    runtime_adapter: ArcRuntimeAdapter,
     progress_reporter: &ProgressReporter,
     verbose_output: bool,
     csv_file_mutex: &Mutex<Option<&mut File>>,
@@ -598,7 +598,7 @@ pub fn apply_chain_range(
     end_height: Option<BlockHeight>,
     shard_id: ShardId,
     epoch_manager: &EpochManagerHandle,
-    runtime_adapter: Arc<NightshadeRuntime>,
+    runtime_adapter: ArcRuntimeAdapter,
     verbose_output: bool,
     csv_file: Option<&mut File>,
     only_contracts: bool,
@@ -772,7 +772,7 @@ fn benchmark_chunk_application(
     genesis: &Genesis,
     epoch_manager: &EpochManagerHandle,
     storage: StorageSource,
-    runtime_adapter: Arc<NightshadeRuntime>,
+    runtime_adapter: ArcRuntimeAdapter,
     only_contracts: bool,
     parent_span: EnteredSpan,
 ) {

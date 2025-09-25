@@ -19,6 +19,7 @@ use near_time::Clock;
 use nearcore::NearConfig;
 use nearcore::NightshadeRuntimeExt;
 use reed_solomon_erasure::galois_8::ReedSolomon;
+use near_chain::types::ArcRuntimeAdapter;
 
 pub enum DumpWitnessesSource {
     /// Dumps latest saved witnesses.
@@ -62,8 +63,8 @@ fn setup_chain(home_dir: &Path, near_config: NearConfig, store: Store) -> Chain 
     let epoch_manager =
         EpochManager::new_arc_handle(store.clone(), &near_config.genesis.config, Some(home_dir));
     let runtime_adapter =
-        NightshadeRuntime::from_config(home_dir, store, &near_config, epoch_manager.clone())
-            .expect("could not create the transaction runtime");
+        ArcRuntimeAdapter::new(NightshadeRuntime::from_config(home_dir, store, &near_config, epoch_manager.clone())
+            .expect("could not create the transaction runtime"));
     let shard_tracker = ShardTracker::new(
         near_config.client_config.tracked_shards_config,
         epoch_manager.clone(),

@@ -1,7 +1,7 @@
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_async::messaging::{IntoMultiSender, noop};
 use near_chain::spice_core::CoreStatementsProcessor;
-use near_chain::types::{ChainConfig, Tip};
+use near_chain::types::{ArcRuntimeAdapter, ChainConfig, Tip};
 use near_chain::{Chain, ChainGenesis, DoomslugThresholdMode};
 use near_chain_configs::{GenesisValidationMode, MutableConfigValue, ReshardingConfig};
 use near_epoch_manager::EpochManager;
@@ -244,13 +244,13 @@ fn load_snapshot(load_cmd: LoadCmd) {
         epoch_manager.clone(),
         near_config.validator_signer.clone(),
     );
-    let runtime = NightshadeRuntime::from_config(
+    let runtime = ArcRuntimeAdapter::new(NightshadeRuntime::from_config(
         home_dir,
         store.clone(),
         &near_config,
         epoch_manager.clone(),
     )
-    .expect("could not create transaction runtime");
+    .expect("could not create transaction runtime"));
     // This will initialize the database (add genesis block etc)
     let _chain = Chain::new(
         Clock::real(),

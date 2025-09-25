@@ -71,7 +71,7 @@ pub struct PartialWitnessActor {
     /// Please note that the locked value should not be stored anywhere or passed through the thread boundary.
     my_signer: MutableValidatorSigner,
     epoch_manager: Arc<dyn EpochManagerAdapter>,
-    runtime: Arc<dyn RuntimeAdapter>,
+    runtime: near_chain::types::ArcRuntimeAdapter,
     /// Tracks the parts of the state witness sent from chunk producers to chunk validators.
     partial_witness_tracker: Arc<PartialEncodedStateWitnessTracker>,
     partial_deploys_tracker: PartialEncodedContractDeploysTracker,
@@ -175,7 +175,7 @@ impl PartialWitnessActor {
         chunk_validation_sender: ChunkValidationSenderForPartialWitness,
         my_signer: MutableValidatorSigner,
         epoch_manager: Arc<dyn EpochManagerAdapter>,
-        runtime: Arc<dyn RuntimeAdapter>,
+        runtime: near_chain::types::ArcRuntimeAdapter,
         compile_contracts_spawner: Arc<dyn AsyncComputationSpawner>,
         partial_witness_spawner: Arc<dyn AsyncComputationSpawner>,
         witness_creation_spawner: Arc<dyn AsyncComputationSpawner>,

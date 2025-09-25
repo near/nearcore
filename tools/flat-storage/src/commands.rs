@@ -2,7 +2,7 @@
 use crate::resume_resharding::resume_resharding;
 use borsh::BorshDeserialize;
 use clap::Parser;
-use near_chain::types::RuntimeAdapter;
+use near_chain::types::{ArcRuntimeAdapter, RuntimeAdapter};
 use near_chain::{ChainStore, ChainStoreAccess};
 use near_chain_configs::GenesisValidationMode;
 use near_epoch_manager::shard_assignment::shard_id_to_uid;
@@ -169,20 +169,20 @@ impl FlatStorageCommand {
         home_dir: &PathBuf,
         near_config: &NearConfig,
         mode: Mode,
-    ) -> (NodeStorage, Arc<EpochManagerHandle>, Arc<NightshadeRuntime>, ChainStore, Store) {
+    ) -> (NodeStorage, Arc<EpochManagerHandle>, near_chain::types::ArcRuntimeAdapter, ChainStore, Store) {
         let node_storage = opener.open_in_mode(mode).unwrap();
         let epoch_manager = EpochManager::new_arc_handle(
             node_storage.get_hot_store(),
             &near_config.genesis.config,
             Some(home_dir.as_path()),
         );
-        let hot_runtime = NightshadeRuntime::from_config(
+        let hot_runtime = ArcRuntimeAdapter::new(NightshadeRuntime::from_config(
             home_dir,
             node_storage.get_hot_store(),
             &near_config,
             epoch_manager.clone(),
         )
-        .expect("could not create transaction runtime");
+        .expect("could not create transaction runtime"));
         let chain_store = ChainStore::new(node_storage.get_hot_store(), false, 100);
         let hot_store = node_storage.get_hot_store();
         (node_storage, epoch_manager, hot_runtime, chain_store, hot_store)

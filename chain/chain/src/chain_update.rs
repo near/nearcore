@@ -38,7 +38,7 @@ use tracing::{debug, warn};
 /// Safe to stop process mid way (Ctrl+C or crash).
 pub struct ChainUpdate<'a> {
     epoch_manager: Arc<dyn EpochManagerAdapter>,
-    runtime_adapter: Arc<dyn RuntimeAdapter>,
+    runtime_adapter: crate::types::ArcRuntimeAdapter,
     chain_store_update: ChainStoreUpdate<'a>,
     doomslug_threshold_mode: DoomslugThresholdMode,
     spice_core_processor: CoreStatementsProcessor,
@@ -48,7 +48,7 @@ impl<'a> ChainUpdate<'a> {
     pub fn new(
         chain_store: &'a mut ChainStore,
         epoch_manager: Arc<dyn EpochManagerAdapter>,
-        runtime_adapter: Arc<dyn RuntimeAdapter>,
+        runtime_adapter: crate::types::ArcRuntimeAdapter,
         doomslug_threshold_mode: DoomslugThresholdMode,
         spice_core_processor: CoreStatementsProcessor,
     ) -> Self {
@@ -64,7 +64,7 @@ impl<'a> ChainUpdate<'a> {
 
     fn new_impl(
         epoch_manager: Arc<dyn EpochManagerAdapter>,
-        runtime_adapter: Arc<dyn RuntimeAdapter>,
+        runtime_adapter: crate::types::ArcRuntimeAdapter,
         doomslug_threshold_mode: DoomslugThresholdMode,
         chain_store_update: ChainStoreUpdate<'a>,
         spice_core_processor: CoreStatementsProcessor,

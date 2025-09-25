@@ -1,6 +1,6 @@
 use super::*;
 use crate::spice_core::CoreStatementsProcessor;
-use crate::types::{BlockType, ChainConfig, RuntimeStorageConfig};
+use crate::types::{ArcRuntimeAdapter, BlockType, ChainConfig, RuntimeStorageConfig};
 use crate::{Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode};
 use assert_matches::assert_matches;
 use borsh::BorshDeserialize;
@@ -67,7 +67,7 @@ struct TestEnvConfig {
 /// `hash([i])`.
 struct TestEnv {
     pub epoch_manager: Arc<EpochManagerHandle>,
-    pub runtime: Arc<NightshadeRuntime>,
+    pub runtime: near_chain::types::ArcRuntimeAdapter,
     pub head: Tip,
     state_roots: Vec<StateRoot>,
     pub last_receipts: HashMap<ShardId, Vec<Receipt>>,
@@ -1606,4 +1606,89 @@ fn stake(
         CryptoHash::default(),
         0,
     )
+}
+
+#[test]
+fn test_arc_reference_tracking() {
+    init_test_logger();
+
+    tracing::warn!(target: "arc_debug", "=== Starting Arc reference tracking test ===");
+
+    let dir = tempfile::TempDir::new().unwrap();
+    let store = NodeStorage::test_opener().open(dir.path()).unwrap().get_hot_store();
+    let compiled_contract_cache = FilesystemContractRuntimeCache::test(&dir.path()).unwrap();
+
+    let mut genesis = Genesis::test(vec!["test"], 1);
+    genesis.config.epoch_length = 5;
+    genesis.config.protocol_version = PROTOCOL_VERSION;
+
+    let runtime_config_store = RuntimeConfigStore::for_chain_id(&genesis.config.chain_id);
+
+    initialize_genesis_state(store.clone(), &genesis, None);
+    let epoch_manager = Arc::new(EpochManager::new_arc_handle(store.clone(), &genesis.config));
+
+    // Create first RuntimeAdapter Arc
+    tracing::warn!(target: "arc_debug", "Creating first NightshadeRuntime...");
+    let runtime1 = ArcRuntimeAdapter::new(NightshadeRuntime::new(
+        store.clone(),
+        compiled_contract_cache.handle(),
+        &genesis.config,
+        epoch_manager.clone(),
+        None,
+        None,
+        Some(runtime_config_store.clone()),
+        DEFAULT_GC_NUM_EPOCHS_TO_KEEP,
+        Default::default(),
+        StateSnapshotConfig::disabled(),
+        DEFAULT_STATE_PARTS_COMPRESSION_LEVEL,
+    ));
+    tracing::warn!(target: "arc_debug", "Created first NightshadeRuntime: arc_count={}", Arc::strong_count(&runtime1.0));
+
+    // Clone the Arc
+    tracing::warn!(target: "arc_debug", "Cloning RuntimeAdapter...");
+    let runtime2 = runtime1.clone();
+    tracing::warn!(target: "arc_debug", "Cloned RuntimeAdapter: arc_count={}", Arc::strong_count(&runtime2.0));
+
+    // Create a Chain which will also hold the Arc
+    tracing::warn!(target: "arc_debug", "Creating Chain...");
+    let chain_genesis = ChainGenesis::new(&genesis.config);
+    let shard_tracker = ShardTracker::new(
+        InMemorySigner::from_seed("test".parse().unwrap(), near_crypto::KeyType::ED25519, "test")
+            .public_key(),
+        Vec::default(),
+    );
+
+    let chain = Chain::new_for_view_client(
+        Clock::real(),
+        epoch_manager.clone(),
+        shard_tracker,
+        runtime1.clone(),
+        &chain_genesis,
+        DoomslugThresholdMode::TwoThirds,
+        true,
+        MutableValidatorSigner::new(Some(Arc::new(InMemorySigner::from_seed(
+            "test".parse().unwrap(),
+            near_crypto::KeyType::ED25519,
+            "test",
+        )))),
+    )
+    .expect("Failed to create chain");
+
+    tracing::warn!(target: "arc_debug", "Created Chain: arc_count={}", Arc::strong_count(&runtime1.0));
+
+    // Drop runtime2
+    tracing::warn!(target: "arc_debug", "Dropping runtime2...");
+    drop(runtime2);
+    tracing::warn!(target: "arc_debug", "Dropped runtime2: arc_count={}", Arc::strong_count(&runtime1.0));
+
+    // Drop chain
+    tracing::warn!(target: "arc_debug", "Dropping chain...");
+    drop(chain);
+    tracing::warn!(target: "arc_debug", "Dropped chain: arc_count={}", Arc::strong_count(&runtime1.0));
+
+    // Drop runtime1 - should be final reference
+    tracing::warn!(target: "arc_debug", "Dropping runtime1 (should be final reference)...");
+    drop(runtime1);
+
+    tracing::warn!(target: "arc_debug", "=== Arc reference tracking test completed ===");
 }

@@ -1,5 +1,6 @@
 use crate::epoch_info::iterate_and_filter;
 use borsh::BorshSerialize;
+use near_chain::types::ArcRuntimeAdapter;
 use near_chain::{Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode};
 use near_client::sync::external::{
     ExternalConnection, StateFileType, create_bucket_read_write, create_bucket_readonly,
@@ -109,13 +110,15 @@ impl StatePartsSubCommand {
             epoch_manager.clone(),
             near_config.validator_signer.clone(),
         );
-        let runtime = NightshadeRuntime::from_config(
-            home_dir,
-            store.clone(),
-            &near_config,
-            epoch_manager.clone(),
-        )
-        .expect("could not create the transaction runtime");
+        let runtime = ArcRuntimeAdapter::new(
+            NightshadeRuntime::from_config(
+                home_dir,
+                store.clone(),
+                &near_config,
+                epoch_manager.clone(),
+            )
+            .expect("could not create the transaction runtime"),
+        );
         let chain_genesis = ChainGenesis::new(&near_config.genesis.config);
         let mut chain = Chain::new_for_view_client(
             Clock::real(),

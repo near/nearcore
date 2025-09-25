@@ -7,6 +7,7 @@ use near_primitives::types::{ShardId, ShardIndex, StateRoot};
 use near_store::Mode;
 use nearcore::{NightshadeRuntime, NightshadeRuntimeExt, get_default_home, load_config};
 use std::time::{Duration, Instant};
+use near_chain::types::ArcRuntimeAdapter;
 
 /// Read `TrieItem`s - nodes containing values - using Trie iterator, stop when 10k items were read.
 /// Note that the first run populates OS caches, so all next runs will be faster. You may want to run
@@ -42,8 +43,8 @@ fn read_trie_items(bench: &mut Bencher, shard_index: ShardIndex, shard_id: Shard
         );
         let epoch_manager =
             EpochManager::new_arc_handle(store.clone(), &near_config.genesis.config, None);
-        let runtime = NightshadeRuntime::from_config(&home_dir, store, &near_config, epoch_manager)
-            .unwrap_or_else(|e| panic!("could not create the transaction runtime: {e}"));
+        let runtime = ArcRuntimeAdapter::new(NightshadeRuntime::from_config(&home_dir, store, &near_config, epoch_manager)
+            .unwrap_or_else(|e| panic!("could not create the transaction runtime: {e}")));
         let head = chain_store.head().unwrap();
         let last_block = chain_store.get_block(&head.last_block_hash).unwrap();
         let state_roots: Vec<StateRoot> =

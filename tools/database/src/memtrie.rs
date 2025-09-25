@@ -5,7 +5,7 @@ use near_async::messaging::{IntoMultiSender, noop};
 use near_async::time::Instant;
 use near_chain::resharding::event_type::{ReshardingEventType, ReshardingSplitShardParams};
 use near_chain::resharding::manager::ReshardingManager;
-use near_chain::types::RuntimeAdapter;
+use near_chain::types::{ArcRuntimeAdapter, RuntimeAdapter};
 use near_chain::{ChainStore, ChainStoreAccess};
 use near_chain_configs::GenesisValidationMode;
 use near_epoch_manager::shard_tracker::ShardTracker;
@@ -80,8 +80,8 @@ impl LoadMemTrieCommand {
                 .collect(),
         };
 
-        let runtime = NightshadeRuntime::from_config(home, store, &near_config, epoch_manager)
-            .context("could not create the transaction runtime")?;
+        let runtime = ArcRuntimeAdapter::new(NightshadeRuntime::from_config(home, store, &near_config, epoch_manager)
+            .context("could not create the transaction runtime")?);
 
         println!("Loading memtries for shards {:?}...", selected_shard_uids);
         let start_time = std::time::Instant::now();
@@ -165,8 +165,8 @@ impl SplitShardTrieCommand {
 
         // Create runtime and load memtrie
         let runtime =
-            NightshadeRuntime::from_config(home, store.clone(), &near_config, epoch_manager)
-                .context("could not create the transaction runtime")?;
+            ArcRuntimeAdapter::new(NightshadeRuntime::from_config(home, store.clone(), &near_config, epoch_manager)
+                .context("could not create the transaction runtime")?);
         let shard_tries = runtime.get_tries();
         println!("Loading memtrie for shard {}...", self.shard_uid);
         shard_tries.load_memtrie(&self.shard_uid, None, false)?;
@@ -321,8 +321,8 @@ impl FindBoundaryAccountCommand {
 
         let epoch_manager =
             EpochManager::new_arc_handle(store.clone(), &genesis_config, Some(home));
-        let runtime = NightshadeRuntime::from_config(home, store, &near_config, epoch_manager)
-            .context("could not create the transaction runtime")?;
+        let runtime = ArcRuntimeAdapter::new(NightshadeRuntime::from_config(home, store, &near_config, epoch_manager)
+            .context("could not create the transaction runtime")?);
         let shard_tries = runtime.get_tries();
         let shard_uid = self.shard_uid;
         tracing::info!("Loading memtries for {shard_uid}...");
@@ -390,12 +390,12 @@ impl ArchivalDataLossRecoveryCommand {
         // Create epoch manager and runtime
         let epoch_manager =
             EpochManager::new_arc_handle(store.clone(), &near_config.genesis.config, Some(home));
-        let runtime = NightshadeRuntime::from_config(
+        let runtime = ArcRuntimeAdapter::new(NightshadeRuntime::from_config(
             home,
             store.clone(),
             &near_config,
             epoch_manager.clone(),
-        );
+        ));
         let runtime = runtime.context("could not create the transaction runtime")?;
 
         // Get the shard layout and ensure the protocol version upgrade actually

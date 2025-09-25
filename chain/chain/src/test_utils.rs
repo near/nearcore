@@ -7,7 +7,7 @@ use crate::rayon_spawner::RayonAsyncComputationSpawner;
 use crate::runtime::NightshadeRuntime;
 use crate::spice_core::CoreStatementsProcessor;
 use crate::store::ChainStoreAccess;
-use crate::types::{AcceptedBlock, ChainConfig, ChainGenesis};
+use crate::types::{AcceptedBlock, ArcRuntimeAdapter, ChainConfig, ChainGenesis};
 use crate::{ApplyChunksSpawner, DoomslugThresholdMode};
 use crate::{BlockProcessingArtifact, Provenance};
 use near_async::time::Clock;
@@ -70,12 +70,12 @@ pub fn get_chain_with_genesis(clock: Clock, genesis: Genesis) -> Chain {
     let chain_genesis = ChainGenesis::new(&genesis.config);
     let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config, None);
     let shard_tracker = ShardTracker::new_empty(epoch_manager.clone());
-    let runtime = NightshadeRuntime::test(
+    let runtime = ArcRuntimeAdapter::new(NightshadeRuntime::test(
         tempdir.path(),
         store.clone(),
         &genesis.config,
         epoch_manager.clone(),
-    );
+    ));
     Chain::new(
         clock,
         epoch_manager.clone(),
@@ -136,7 +136,7 @@ pub fn process_block_sync(
 // TODO(#8190) Improve this testing API.
 pub fn setup(
     clock: Clock,
-) -> (Chain, Arc<EpochManagerHandle>, Arc<NightshadeRuntime>, Arc<ValidatorSigner>) {
+) -> (Chain, Arc<EpochManagerHandle>, crate::types::ArcRuntimeAdapter, Arc<ValidatorSigner>) {
     setup_with_tx_validity_period(clock, 100, 1000)
 }
 
@@ -144,7 +144,7 @@ pub fn setup_with_tx_validity_period(
     clock: Clock,
     tx_validity_period: NumBlocks,
     epoch_length: u64,
-) -> (Chain, Arc<EpochManagerHandle>, Arc<NightshadeRuntime>, Arc<ValidatorSigner>) {
+) -> (Chain, Arc<EpochManagerHandle>, ArcRuntimeAdapter, Arc<ValidatorSigner>) {
     let store = create_test_store();
     let mut genesis = Genesis::test_sharded(
         clock.clone(),
@@ -164,12 +164,12 @@ pub fn setup_with_tx_validity_period(
     initialize_genesis_state(store.clone(), &genesis, Some(tempdir.path()));
     let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config, None);
     let shard_tracker = ShardTracker::new_empty(epoch_manager.clone());
-    let runtime = NightshadeRuntime::test(
+    let runtime = ArcRuntimeAdapter::new(NightshadeRuntime::test(
         tempdir.path(),
         store.clone(),
         &genesis.config,
         epoch_manager.clone(),
-    );
+    ));
     let chain = Chain::new(
         clock,
         epoch_manager.clone(),

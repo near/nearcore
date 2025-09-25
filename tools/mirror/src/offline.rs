@@ -1,7 +1,7 @@
 use crate::{ChainError, SourceBlock, SourceChunk};
 use anyhow::Context;
 use async_trait::async_trait;
-use near_chain::types::RuntimeAdapter;
+use near_chain::types::{ArcRuntimeAdapter, RuntimeAdapter};
 use near_chain::{ChainStore, ChainStoreAccess};
 use near_chain_configs::GenesisValidationMode;
 use near_chain_primitives::error::EpochErrorResultToChainError;
@@ -31,7 +31,7 @@ fn is_on_current_chain(
 pub(crate) struct ChainAccess {
     chain: ChainStore,
     epoch_manager: Arc<EpochManagerHandle>,
-    runtime: Arc<NightshadeRuntime>,
+    runtime: near_chain::types::ArcRuntimeAdapter,
 }
 
 impl ChainAccess {
@@ -54,8 +54,8 @@ impl ChainAccess {
             Some(home.as_ref()),
         );
         let runtime =
-            NightshadeRuntime::from_config(home.as_ref(), store, &config, epoch_manager.clone())
-                .context("could not create the transaction runtime")?;
+            ArcRuntimeAdapter::new(NightshadeRuntime::from_config(home.as_ref(), store, &config, epoch_manager.clone())
+                .context("could not create the transaction runtime")?);
         Ok(Self { chain, epoch_manager, runtime })
     }
 }

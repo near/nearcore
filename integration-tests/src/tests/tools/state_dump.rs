@@ -4,6 +4,7 @@ use std::sync::Arc;
 
 use crate::env::nightshade_setup::TestEnvNightshadeSetupExt;
 use crate::env::test_env::TestEnv;
+use near_chain::types::ArcRuntimeAdapter;
 use near_chain::{ChainStoreAccess, Provenance};
 use near_chain_configs::genesis_validate::validate_genesis;
 use near_chain_configs::test_utils::TESTING_INIT_STAKE;
@@ -125,8 +126,12 @@ fn test_dump_state_preserve_validators() {
         last_block.chunks().iter().map(|chunk| chunk.prev_state_root()).collect();
     initialize_genesis_state(store.clone(), &genesis, None);
     let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config, None);
-    let runtime =
-        NightshadeRuntime::test(Path::new("."), store, &genesis.config, epoch_manager.clone());
+    let runtime = ArcRuntimeAdapter::new(NightshadeRuntime::test(
+        Path::new("."),
+        store,
+        &genesis.config,
+        epoch_manager.clone(),
+    ));
     let records_file = tempfile::NamedTempFile::new().unwrap();
     let new_near_config = state_dump(
         epoch_manager.as_ref(),
@@ -198,8 +203,12 @@ fn test_dump_state_respect_select_account_ids() {
         last_block.chunks().iter().map(|chunk| chunk.prev_state_root()).collect();
     initialize_genesis_state(store.clone(), &genesis, None);
     let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config, None);
-    let runtime =
-        NightshadeRuntime::test(Path::new("."), store, &genesis.config, epoch_manager.clone());
+    let runtime = ArcRuntimeAdapter::new(NightshadeRuntime::test(
+        Path::new("."),
+        store,
+        &genesis.config,
+        epoch_manager.clone(),
+    ));
     let select_account_ids = vec!["test0".parse().unwrap()];
     let new_near_config = state_dump(
         epoch_manager.as_ref(),
@@ -257,8 +266,12 @@ fn test_dump_state_preserve_validators_in_memory() {
         last_block.chunks().iter().map(|chunk| chunk.prev_state_root()).collect();
     initialize_genesis_state(store.clone(), &genesis, None);
     let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config, None);
-    let runtime =
-        NightshadeRuntime::test(Path::new("."), store, &genesis.config, epoch_manager.clone());
+    let runtime = ArcRuntimeAdapter::new(NightshadeRuntime::test(
+        Path::new("."),
+        store,
+        &genesis.config,
+        epoch_manager.clone(),
+    ));
     let new_near_config = state_dump(
         epoch_manager.as_ref(),
         runtime,
@@ -299,8 +312,12 @@ fn test_dump_state_return_locked() {
         last_block.chunks().iter().map(|chunk| chunk.prev_state_root()).collect();
     initialize_genesis_state(store.clone(), &genesis, None);
     let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config, None);
-    let runtime =
-        NightshadeRuntime::test(Path::new("."), store, &genesis.config, epoch_manager.clone());
+    let runtime = ArcRuntimeAdapter::new(NightshadeRuntime::test(
+        Path::new("."),
+        store,
+        &genesis.config,
+        epoch_manager.clone(),
+    ));
 
     let records_file = tempfile::NamedTempFile::new().unwrap();
     let new_near_config = state_dump(
@@ -335,18 +352,18 @@ fn test_dump_state_not_track_shard() {
     initialize_genesis_state(store2.clone(), &genesis, None);
     let epoch_manager1 = EpochManager::new_arc_handle(store1.clone(), &genesis.config, None);
     let epoch_manager2 = EpochManager::new_arc_handle(store2.clone(), &genesis.config, None);
-    let runtime1 = NightshadeRuntime::test(
+    let runtime1 = ArcRuntimeAdapter::new(NightshadeRuntime::test(
         Path::new("."),
         store1.clone(),
         &genesis.config,
         epoch_manager1.clone(),
-    );
-    let runtime2 = NightshadeRuntime::test(
+    ));
+    let runtime2 = ArcRuntimeAdapter::new(NightshadeRuntime::test(
         Path::new("."),
         store2.clone(),
         &genesis.config,
         epoch_manager2.clone(),
-    );
+    ));
     let mut env = TestEnv::builder(&genesis.config)
         .clients_count(2)
         .stores(vec![store1, store2])
@@ -421,12 +438,12 @@ fn test_dump_state_with_delayed_receipt() {
     let store = create_test_store();
     initialize_genesis_state(store.clone(), &genesis, None);
     let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config, None);
-    let nightshade_runtime = NightshadeRuntime::test(
+    let nightshade_runtime = ArcRuntimeAdapter::new(NightshadeRuntime::test(
         Path::new("."),
         store.clone(),
         &genesis.config,
         epoch_manager.clone(),
-    );
+    ));
     let mut env = TestEnv::builder(&genesis.config)
         .validator_seats(2)
         .stores(vec![store.clone()])
@@ -477,8 +494,12 @@ fn test_dump_state_with_delayed_receipt() {
         last_block.chunks().iter().map(|chunk| chunk.prev_state_root()).collect();
     initialize_genesis_state(store.clone(), &genesis, None);
     let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config, None);
-    let runtime =
-        NightshadeRuntime::test(Path::new("."), store, &genesis.config, epoch_manager.clone());
+    let runtime = ArcRuntimeAdapter::new(NightshadeRuntime::test(
+        Path::new("."),
+        store,
+        &genesis.config,
+        epoch_manager.clone(),
+    ));
     let records_file = tempfile::NamedTempFile::new().unwrap();
     let new_near_config = state_dump(
         epoch_manager.as_ref(),
@@ -531,8 +552,12 @@ fn test_dump_state_respect_select_whitelist_validators() {
         last_block.chunks().iter().map(|chunk| chunk.prev_state_root()).collect();
     initialize_genesis_state(store.clone(), &genesis, None);
     let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config, None);
-    let runtime =
-        NightshadeRuntime::test(Path::new("."), store, &genesis.config, epoch_manager.clone());
+    let runtime = ArcRuntimeAdapter::new(NightshadeRuntime::test(
+        Path::new("."),
+        store,
+        &genesis.config,
+        epoch_manager.clone(),
+    ));
     let new_near_config = state_dump(
         epoch_manager.as_ref(),
         runtime,

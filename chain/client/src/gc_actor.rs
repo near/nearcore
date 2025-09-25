@@ -4,7 +4,7 @@ use near_async::messaging::Actor;
 #[cfg(feature = "test_features")]
 use near_async::messaging::Handler;
 use near_chain::ChainGenesis;
-use near_chain::{ChainStore, ChainStoreAccess, types::RuntimeAdapter};
+use near_chain::{ChainStore, ChainStoreAccess, types::{ArcRuntimeAdapter, RuntimeAdapter}};
 use near_chain_configs::GCConfig;
 use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_tracker::ShardTracker;
@@ -17,7 +17,7 @@ use std::sync::Arc;
 /// to garbage collect blockchain data
 pub struct GCActor {
     store: ChainStore,
-    runtime_adapter: Arc<dyn RuntimeAdapter>,
+    runtime_adapter: ArcRuntimeAdapter,
     epoch_manager: Arc<dyn EpochManagerAdapter>,
     shard_tracker: ShardTracker,
     gc_config: GCConfig,
@@ -30,7 +30,7 @@ impl GCActor {
     pub fn new(
         store: Store,
         genesis: &ChainGenesis,
-        runtime_adapter: Arc<dyn RuntimeAdapter>,
+        runtime_adapter: ArcRuntimeAdapter,
         epoch_manager: Arc<dyn EpochManagerAdapter>,
         shard_tracker: ShardTracker,
         gc_config: GCConfig,

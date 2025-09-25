@@ -34,7 +34,7 @@ pub(super) struct StateSyncDownloader {
     pub num_attempts_before_fallback: usize,
     pub header_validation_sender:
         AsyncSender<SpanWrapped<StateHeaderValidationRequest>, Result<(), near_chain::Error>>,
-    pub runtime: Arc<dyn RuntimeAdapter>,
+    pub runtime: near_chain::types::ArcRuntimeAdapter,
     pub retry_backoff: Duration,
     pub task_tracker: TaskTracker,
 }

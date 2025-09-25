@@ -28,7 +28,7 @@ use std::sync::Arc;
 /// otherwise the returned `NearConfig` will contain all the records within itself.
 pub fn state_dump(
     epoch_manager: &EpochManagerHandle,
-    runtime: Arc<NightshadeRuntime>,
+    runtime: near_chain::types::ArcRuntimeAdapter,
     state_roots: &[StateRoot],
     last_block_header: BlockHeader,
     near_config: &NearConfig,
@@ -130,7 +130,7 @@ pub fn state_dump(
 
 pub fn state_dump_redis(
     epoch_manager: Arc<EpochManagerHandle>,
-    runtime: Arc<NightshadeRuntime>,
+    runtime: near_chain::types::ArcRuntimeAdapter,
     state_roots: &[StateRoot],
     last_block_header: BlockHeader,
 ) -> redis::RedisResult<()> {
@@ -248,7 +248,7 @@ impl DelayedReceiptsTracker {
 /// Iterates over the state, calling `callback` for every record that genesis needs to contain.
 fn iterate_over_records(
     epoch_manager: &EpochManagerHandle,
-    runtime: Arc<NightshadeRuntime>,
+    runtime: near_chain::types::ArcRuntimeAdapter,
     state_roots: &[StateRoot],
     last_block_header: BlockHeader,
     validators: &HashMap<AccountId, (PublicKey, Balance)>,

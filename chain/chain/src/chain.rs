@@ -30,7 +30,7 @@ use crate::store::{
     ChainStore, ChainStoreAccess, ChainStoreUpdate, MerkleProofAccess, ReceiptFilter,
 };
 use crate::types::{
-    AcceptedBlock, ApplyChunkBlockContext, BlockEconomicsConfig, BlockType, ChainConfig,
+    AcceptedBlock, ApplyChunkBlockContext, ArcRuntimeAdapter, BlockEconomicsConfig, BlockType, ChainConfig,
     RuntimeAdapter, StorageDataSource,
 };
 pub use crate::update_shard::{
@@ -240,7 +240,7 @@ pub struct Chain {
     pub chain_store: ChainStore,
     pub epoch_manager: Arc<dyn EpochManagerAdapter>,
     pub shard_tracker: ShardTracker,
-    pub runtime_adapter: Arc<dyn RuntimeAdapter>,
+    pub runtime_adapter: ArcRuntimeAdapter,
     pub state_sync_adapter: ChainStateSyncAdapter,
     pub(crate) orphans: OrphanBlockPool,
     pub blocks_with_missing_chunks: MissingChunksPool<Orphan>,
@@ -300,6 +300,12 @@ pub struct Chain {
 
 impl Drop for Chain {
     fn drop(&mut self) {
+        // DEBUG: Track Arc reference count when Chain is being dropped
+        tracing::warn!(
+            target: "arc_debug",
+            "Chain::drop - dropping Chain with RuntimeAdapter arc_count={}",
+            Arc::strong_count(&self.runtime_adapter.0)
+        );
         let _ = self.blocks_in_processing.wait_for_all_blocks();
     }
 }
@@ -337,12 +343,18 @@ impl Chain {
         clock: Clock,
         epoch_manager: Arc<dyn EpochManagerAdapter>,
         shard_tracker: ShardTracker,
-        runtime_adapter: Arc<dyn RuntimeAdapter>,
+        runtime_adapter: ArcRuntimeAdapter,
         chain_genesis: &ChainGenesis,
         doomslug_threshold_mode: DoomslugThresholdMode,
         save_trie_changes: bool,
         validator_signer: MutableValidatorSigner,
     ) -> Result<Chain, Error> {
+        // DEBUG: Track Arc reference for Chain::new_for_view_client
+        tracing::warn!(
+            target: "arc_debug",
+            "Chain::new_for_view_client - creating Chain with RuntimeAdapter arc_count={}",
+            Arc::strong_count(&runtime_adapter.0)
+        );
         let store = runtime_adapter.store();
         let transaction_validity_period = chain_genesis.transaction_validity_period;
         let chain_store =
@@ -411,7 +423,7 @@ impl Chain {
         clock: Clock,
         epoch_manager: Arc<dyn EpochManagerAdapter>,
         shard_tracker: ShardTracker,
-        runtime_adapter: Arc<dyn RuntimeAdapter>,
+        runtime_adapter: ArcRuntimeAdapter,
         chain_genesis: &ChainGenesis,
         doomslug_threshold_mode: DoomslugThresholdMode,
         chain_config: ChainConfig,
@@ -422,6 +434,12 @@ impl Chain {
         resharding_sender: ReshardingSender,
         spice_core_processor: CoreStatementsProcessor,
     ) -> Result<Chain, Error> {
+        // DEBUG: Track Arc reference for Chain::new
+        tracing::warn!(
+            target: "arc_debug",
+            "Chain::new - creating Chain with RuntimeAdapter arc_count={}",
+            Arc::strong_count(&runtime_adapter.0)
+        );
         let state_roots = get_genesis_state_roots(runtime_adapter.store())?
             .expect("genesis should be initialized.");
         let (genesis, genesis_chunks) = Self::make_genesis_block(

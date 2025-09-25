@@ -9,7 +9,7 @@ use near_chain::chain::{
 use near_chain::sharding::{get_receipts_shuffle_salt, shuffle_receipt_proofs};
 use near_chain::stateless_validation::chunk_endorsement::validate_chunk_endorsements_in_block;
 use near_chain::stateless_validation::chunk_validation::apply_result_to_chunk_extra;
-use near_chain::types::StorageDataSource;
+use near_chain::types::{ArcRuntimeAdapter, StorageDataSource};
 use near_chain::update_shard::{ShardUpdateReason, ShardUpdateResult, process_shard_update};
 use near_chain::validate::{validate_chunk_proofs, validate_chunk_with_chunk_extra};
 use near_chain::{
@@ -95,7 +95,7 @@ struct ReplayChunkOutput {
 struct ReplayController {
     storage: Arc<ReplayDB>,
     chain_store: ChainStore,
-    runtime: Arc<NightshadeRuntime>,
+    runtime: near_chain::types::ArcRuntimeAdapter,
     epoch_manager: Arc<EpochManagerHandle>,
     progress_reporter: ProgressReporter,
     start_height: BlockHeight,
@@ -131,8 +131,8 @@ impl ReplayController {
         );
 
         let runtime =
-            NightshadeRuntime::from_config(home_dir, store, &near_config, epoch_manager.clone())
-                .context("Failed to create runtime")?;
+            ArcRuntimeAdapter::new(NightshadeRuntime::from_config(home_dir, store, &near_config, epoch_manager.clone())
+                .context("Failed to create runtime")?);
 
         let progress_reporter = ProgressReporter {
             cnt: AtomicU64::new(0),

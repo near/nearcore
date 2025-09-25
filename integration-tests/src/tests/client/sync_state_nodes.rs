@@ -393,6 +393,7 @@ async fn ultra_slow_test_sync_state_dump() {
     drop(_dump_dir);
     drop(_dir1);
     drop(_dir2);
+    drop(state_sync_dumper);
     actor_system.stop();
     RocksDB::block_until_all_instances_are_dropped();
 }

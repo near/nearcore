@@ -6,7 +6,7 @@ use crate::rocksdb_stats::get_rocksdb_stats;
 use crate::trie_iteration_benchmark::TrieIterationBenchmarkCmd;
 
 use crate::latest_witnesses::StateWitnessCmd;
-use near_chain::types::RuntimeStorageConfig;
+use near_chain::types::{ArcRuntimeAdapter, RuntimeStorageConfig};
 use near_chain_configs::{GenesisChangeConfig, GenesisValidationMode};
 use near_epoch_manager::EpochManager;
 use near_jsonrpc::start_http_for_readonly_debug_querying;
@@ -485,8 +485,8 @@ impl DebugUICmd {
             hot_store: store.clone(),
             cold_store,
             epoch_manager: epoch_manager.clone(),
-            runtime: NightshadeRuntime::from_config(home_dir, store, &near_config, epoch_manager)
-                .unwrap(),
+            runtime: ArcRuntimeAdapter::new(NightshadeRuntime::from_config(home_dir, store, &near_config, epoch_manager)
+                .unwrap()),
         };
         let mut rpc_config = near_config.rpc_config.unwrap_or_default();
         if let Some(port) = self.port {

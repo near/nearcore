@@ -77,6 +77,23 @@ pub struct NightshadeRuntime {
     state_parts_compression_lvl: i32,
 }
 
+static RUNTIME_INSTANCES_ACTIVE: AtomicU64 = AtomicU64::new(0);
+
+impl Drop for NightshadeRuntime {
+    fn drop(&mut self) {
+        RUNTIME_INSTANCES_ACTIVE.fetch_sub(1, Ordering::SeqCst);
+        tracing::warn!(
+            target: "arc_debug",
+            "NightshadeRuntime::drop - dropping NightshadeRuntime instance. Active instances: {}",
+            RUNTIME_INSTANCES_ACTIVE.load(Ordering::SeqCst)
+        );
+        tracing::info!(
+            "Dropping NightshadeRuntime instance. Active instances: {}",
+            RUNTIME_INSTANCES_ACTIVE.load(Ordering::SeqCst)
+        );
+    }
+}
+
 impl NightshadeRuntime {
     pub fn new(
         store: Store,
@@ -91,6 +108,12 @@ impl NightshadeRuntime {
         state_snapshot_config: StateSnapshotConfig,
         state_parts_compression_lvl: i32,
     ) -> Arc<Self> {
+        RUNTIME_INSTANCES_ACTIVE.fetch_add(1, Ordering::SeqCst);
+        tracing::warn!(
+            target: "arc_debug",
+            "NightshadeRuntime::new - creating new NightshadeRuntime instance. Active instances: {}",
+            RUNTIME_INSTANCES_ACTIVE.load(Ordering::SeqCst)
+        );
         let runtime_config_store = match runtime_config_store {
             Some(store) => store,
             None => RuntimeConfigStore::for_chain_id(&genesis_config.chain_id),
@@ -117,7 +140,7 @@ impl NightshadeRuntime {
             tracing::debug!(target: "runtime", ?err, "The state snapshot is not available.");
         }
 
-        Arc::new(NightshadeRuntime {
+        let runtime_arc = Arc::new(NightshadeRuntime {
             genesis_config: genesis_config.clone(),
             compiled_contract_cache,
             runtime_config_store,
@@ -128,7 +151,15 @@ impl NightshadeRuntime {
             epoch_manager,
             gc_num_epochs_to_keep: gc_num_epochs_to_keep.max(MIN_GC_NUM_EPOCHS_TO_KEEP),
             state_parts_compression_lvl,
-        })
+        });
+
+        tracing::warn!(
+            target: "arc_debug",
+            "NightshadeRuntime::new - created new NightshadeRuntime Arc with initial arc_count={}",
+            Arc::strong_count(&runtime_arc)
+        );
+
+        runtime_arc
     }
 
     fn get_shard_uid_from_prev_hash(

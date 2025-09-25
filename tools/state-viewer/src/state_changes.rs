@@ -1,5 +1,5 @@
 use borsh::BorshDeserialize;
-use near_chain::types::RuntimeAdapter;
+use near_chain::types::{ArcRuntimeAdapter, RuntimeAdapter};
 use near_chain::{ChainStore, ChainStoreAccess};
 use near_epoch_manager::shard_assignment::{
     account_id_to_shard_id, shard_id_to_index, shard_id_to_uid,
@@ -145,13 +145,13 @@ fn apply_state_changes(
 ) {
     let epoch_manager =
         EpochManager::new_arc_handle(store.clone(), &near_config.genesis.config, Some(home_dir));
-    let runtime = NightshadeRuntime::from_config(
+    let runtime = ArcRuntimeAdapter::new(NightshadeRuntime::from_config(
         home_dir,
         store.clone(),
         &near_config,
         epoch_manager.clone(),
     )
-    .expect("could not create the transaction runtime");
+    .expect("could not create the transaction runtime"));
     let mut chain_store = ChainStore::new(
         store,
         near_config.client_config.save_trie_changes,

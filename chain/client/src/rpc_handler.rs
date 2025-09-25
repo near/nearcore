@@ -2,7 +2,7 @@ use near_async::messaging::CanSend;
 use near_async::messaging::Handler;
 use near_async::{ActorSystem, messaging};
 use near_chain::check_transaction_validity_period;
-use near_chain::types::RuntimeAdapter;
+use near_chain::types::{ArcRuntimeAdapter, RuntimeAdapter};
 use near_chain::types::Tip;
 use near_chain_configs::MutableValidatorSigner;
 use near_chunks::client::ShardedTransactionPool;
@@ -65,7 +65,7 @@ pub fn spawn_rpc_handler_actor(
     epoch_manager: Arc<dyn EpochManagerAdapter>,
     shard_tracker: ShardTracker,
     validator_signer: MutableValidatorSigner,
-    runtime: Arc<dyn RuntimeAdapter>,
+    runtime: ArcRuntimeAdapter,
     network_adapter: PeerManagerAdapter,
 ) -> MultithreadRuntimeHandle<RpcHandler> {
     let actor = RpcHandler::new(
@@ -104,7 +104,7 @@ pub struct RpcHandler {
     epoch_manager: Arc<dyn EpochManagerAdapter>,
     shard_tracker: ShardTracker,
     validator_signer: MutableValidatorSigner,
-    runtime: Arc<dyn RuntimeAdapter>,
+    runtime: ArcRuntimeAdapter,
     network_adapter: PeerManagerAdapter,
 }
 
@@ -116,7 +116,7 @@ impl RpcHandler {
         epoch_manager: Arc<dyn EpochManagerAdapter>,
         shard_tracker: ShardTracker,
         validator_signer: MutableValidatorSigner,
-        runtime: Arc<dyn RuntimeAdapter>,
+        runtime: ArcRuntimeAdapter,
         network_adapter: PeerManagerAdapter,
     ) -> Self {
         let chain_store = runtime.store().chain_store();

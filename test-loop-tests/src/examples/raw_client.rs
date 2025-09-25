@@ -22,6 +22,7 @@ use near_primitives::version::get_protocol_upgrade_schedule;
 use near_store::adapter::StoreAdapter;
 
 use crate::utils::account::{create_account_ids, create_validators_spec, validators_spec_clients};
+use near_chain::types::ArcRuntimeAdapter;
 use near_store::genesis::initialize_genesis_state;
 use near_store::test_utils::create_test_store;
 use nearcore::NightshadeRuntime;
@@ -62,12 +63,12 @@ fn test_raw_client_test_loop_setup() {
 
     let chain_genesis = ChainGenesis::new(&genesis.config);
     let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config, None);
-    let runtime_adapter = NightshadeRuntime::test(
+    let runtime_adapter = ArcRuntimeAdapter::new(NightshadeRuntime::test(
         Path::new("."),
         store.clone(),
         &genesis.config,
         epoch_manager.clone(),
-    );
+    ));
     let validator_signer = MutableConfigValue::new(
         Some(Arc::new(create_test_signer(validator_id.as_str()))),
         "validator_signer",

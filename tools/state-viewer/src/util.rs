@@ -1,5 +1,6 @@
 use std::{path::Path, sync::Arc};
 
+use near_chain::types::ArcRuntimeAdapter;
 use near_chain::{
     Block, BlockHeader, ChainStore, ChainStoreAccess,
     types::{ApplyChunkResult, Tip},
@@ -27,7 +28,7 @@ pub fn load_trie(
     store: Store,
     home_dir: &Path,
     near_config: &NearConfig,
-) -> (Arc<EpochManagerHandle>, Arc<NightshadeRuntime>, Vec<StateRoot>, BlockHeader) {
+) -> (Arc<EpochManagerHandle>, near_chain::types::ArcRuntimeAdapter, Vec<StateRoot>, BlockHeader) {
     load_trie_stop_at_height(store, home_dir, near_config, LoadTrieMode::Latest)
 }
 
@@ -36,7 +37,7 @@ pub fn load_trie_stop_at_height(
     home_dir: &Path,
     near_config: &NearConfig,
     mode: LoadTrieMode,
-) -> (Arc<EpochManagerHandle>, Arc<NightshadeRuntime>, Vec<StateRoot>, BlockHeader) {
+) -> (Arc<EpochManagerHandle>, near_chain::types::ArcRuntimeAdapter, Vec<StateRoot>, BlockHeader) {
     let chain_store = ChainStore::new(
         store.clone(),
         near_config.client_config.save_trie_changes,
@@ -45,9 +46,10 @@ pub fn load_trie_stop_at_height(
 
     let epoch_manager =
         EpochManager::new_arc_handle(store.clone(), &near_config.genesis.config, Some(home_dir));
-    let runtime =
-        NightshadeRuntime::from_config(home_dir, store, near_config, epoch_manager.clone());
-    let runtime = runtime.expect("could not create the transaction runtime");
+    let runtime = ArcRuntimeAdapter::new(
+        NightshadeRuntime::from_config(home_dir, store, near_config, epoch_manager.clone())
+            .expect("could not create the transaction runtime"),
+    );
 
     let head = chain_store.head().unwrap();
     let block = match mode {

@@ -7,7 +7,7 @@ use crate::{
 };
 use near_async::messaging::{Actor, CanSend, Handler};
 use near_async::time::{Clock, Duration, Instant};
-use near_chain::types::{RuntimeAdapter, Tip};
+use near_chain::types::{ArcRuntimeAdapter, RuntimeAdapter, Tip};
 use near_chain::{
     Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode, MerkleProofAccess,
     get_epoch_block_producers_view, retrieve_headers,
@@ -85,7 +85,7 @@ pub struct ViewClientActorInner {
     pub chain: Chain,
     epoch_manager: Arc<dyn EpochManagerAdapter>,
     shard_tracker: ShardTracker,
-    runtime: Arc<dyn RuntimeAdapter>,
+    runtime: ArcRuntimeAdapter,
     network_adapter: PeerManagerAdapter,
     pub config: ClientConfig,
     request_manager: Arc<RwLock<ViewClientRequestManager>>,
@@ -109,7 +109,7 @@ impl ViewClientActorInner {
         chain_genesis: ChainGenesis,
         epoch_manager: Arc<dyn EpochManagerAdapter>,
         shard_tracker: ShardTracker,
-        runtime: Arc<dyn RuntimeAdapter>,
+        runtime: ArcRuntimeAdapter,
         network_adapter: PeerManagerAdapter,
         config: ClientConfig,
         adv: crate::adversarial::Controls,
@@ -136,12 +136,18 @@ impl ViewClientActorInner {
         chain_genesis: ChainGenesis,
         epoch_manager: Arc<dyn EpochManagerAdapter>,
         shard_tracker: ShardTracker,
-        runtime: Arc<dyn RuntimeAdapter>,
+        runtime: ArcRuntimeAdapter,
         network_adapter: PeerManagerAdapter,
         config: ClientConfig,
         adv: crate::adversarial::Controls,
         validator_signer: MutableValidatorSigner,
     ) -> Result<Self, Error> {
+        // DEBUG: Track Arc reference for ViewClientActorInner::new
+        tracing::warn!(
+            target: "arc_debug",
+            "ViewClientActorInner::new - creating ViewClientActorInner with RuntimeAdapter arc_count={}",
+            Arc::strong_count(&runtime.0)
+        );
         // TODO: should we create shared ChainStore that is passed to both Client and ViewClient?
         let chain = Chain::new_for_view_client(
             clock.clone(),
@@ -1462,5 +1468,16 @@ impl Handler<GetSplitStorageInfo, Result<SplitStorageInfoView, GetSplitStorageIn
             cold_head_height: cold_head.map(|tip| tip.height),
             hot_db_kind,
         })
+    }
+}
+
+impl Drop for ViewClientActorInner {
+    fn drop(&mut self) {
+        // DEBUG: Track Arc reference count when ViewClientActorInner is being dropped
+        tracing::warn!(
+            target: "arc_debug",
+            "ViewClientActorInner::drop - dropping ViewClientActorInner with RuntimeAdapter arc_count={}",
+            Arc::strong_count(&self.runtime.0)
+        );
     }
 }

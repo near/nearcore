@@ -10,7 +10,7 @@ use near_chain::resharding::resharding_actor::ReshardingActor;
 use near_chain::resharding::types::ReshardingSender;
 use near_chain::spice_core::CoreStatementsProcessor;
 use near_chain::state_snapshot_actor::SnapshotCallbacks;
-use near_chain::types::{ChainConfig, RuntimeAdapter};
+use near_chain::types::{ArcRuntimeAdapter, ChainConfig, RuntimeAdapter};
 use near_chain::{ApplyChunksIterationMode, Chain, ChainGenesis, DoomslugThresholdMode};
 
 use near_async::ActorSystem;
@@ -113,12 +113,12 @@ fn setup(
 
     let tempdir = tempfile::TempDir::new().unwrap();
 
-    let runtime = NightshadeRuntime::test(
+    let runtime = ArcRuntimeAdapter::new(NightshadeRuntime::test(
         tempdir.path(),
         store.clone(),
         &genesis.config,
         epoch_manager.clone(),
-    );
+    ));
 
     let chain_genesis = ChainGenesis {
         time: genesis_time,
@@ -452,7 +452,7 @@ pub fn setup_client_with_runtime(
     chain_genesis: ChainGenesis,
     epoch_manager: Arc<dyn EpochManagerAdapter>,
     shard_tracker: ShardTracker,
-    runtime: Arc<dyn RuntimeAdapter>,
+    runtime: near_chain::types::ArcRuntimeAdapter,
     rng_seed: RngSeed,
     archive: bool,
     save_trie_changes: bool,
@@ -544,7 +544,7 @@ pub fn setup_synchronous_shards_manager(
     network_adapter: PeerManagerAdapter,
     epoch_manager: Arc<dyn EpochManagerAdapter>,
     shard_tracker: ShardTracker,
-    runtime: Arc<dyn RuntimeAdapter>,
+    runtime: near_chain::types::ArcRuntimeAdapter,
     chain_genesis: &ChainGenesis,
 ) -> SynchronousShardsManagerAdapter {
     // Initialize the chain, to make sure that if the store is empty, we write the genesis
@@ -603,7 +603,7 @@ pub fn setup_tx_request_handler(
     client: &Client,
     epoch_manager: Arc<dyn EpochManagerAdapter>,
     shard_tracker: ShardTracker,
-    runtime: Arc<dyn RuntimeAdapter>,
+    runtime: near_chain::types::ArcRuntimeAdapter,
     network_adapter: PeerManagerAdapter,
 ) -> RpcHandler {
     let client_config = ClientConfig::test(TestClientConfigParams {

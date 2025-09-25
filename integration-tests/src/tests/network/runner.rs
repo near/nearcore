@@ -5,7 +5,7 @@ use near_async::time::{self, Clock};
 use near_async::tokio::TokioRuntimeHandle;
 use near_chain::rayon_spawner::RayonAsyncComputationSpawner;
 use near_chain::spice_core::CoreStatementsProcessor;
-use near_chain::types::RuntimeAdapter;
+use near_chain::types::{ArcRuntimeAdapter, RuntimeAdapter};
 use near_chain::{Chain, ChainGenesis, ChainStore};
 use near_chain_configs::test_utils::TestClientConfigParams;
 use near_chain_configs::{ClientConfig, Genesis, GenesisConfig, MutableConfigValue};
@@ -69,12 +69,12 @@ fn setup_network_node(
     let epoch_manager =
         EpochManager::new_arc_handle(node_storage.get_hot_store(), &genesis.config, None);
     let shard_tracker = ShardTracker::new_empty(epoch_manager.clone());
-    let runtime = NightshadeRuntime::test(
+    let runtime = ArcRuntimeAdapter::new(NightshadeRuntime::test(
         tempdir.path(),
         node_storage.get_hot_store(),
         &genesis.config,
         epoch_manager.clone(),
-    );
+    ));
     let validator_signer = MutableConfigValue::new(
         Some(Arc::new(create_test_signer(account_id.as_str()))),
         "validator_signer",

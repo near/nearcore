@@ -2,7 +2,7 @@ use anyhow::Context;
 use near_epoch_manager::shard_assignment::{account_id_to_shard_id, shard_id_to_uid};
 use std::path::Path;
 
-use near_chain::types::RuntimeAdapter;
+use near_chain::types::{ArcRuntimeAdapter, RuntimeAdapter};
 use near_chain::{ChainStore, ChainStoreAccess};
 use near_chain_configs::GenesisValidationMode;
 use near_crypto::{PublicKey, SecretKey};
@@ -64,8 +64,8 @@ pub(crate) fn keys_from_source_db(
     let epoch_manager =
         EpochManager::new_arc_handle(store.clone(), &config.genesis.config, Some(home));
     let runtime =
-        NightshadeRuntime::from_config(home.as_ref(), store, &config, epoch_manager.clone())
-            .context("could not create the transaction runtime")?;
+        ArcRuntimeAdapter::new(NightshadeRuntime::from_config(home.as_ref(), store, &config, epoch_manager.clone())
+            .context("could not create the transaction runtime")?);
     let block_height = match block_height {
         Some(h) => h,
         None => {

@@ -9,6 +9,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use super::test_env_builder::TestEnvBuilder;
+use near_chain::types::ArcRuntimeAdapter;
 
 pub trait TestEnvNightshadeSetupExt {
     fn nightshade_runtimes(self, genesis: &Genesis) -> Self;
@@ -52,14 +53,14 @@ impl TestEnvNightshadeSetupExt for TestEnvBuilder {
             // We should instead try to do this while configuring store.
             let home_dir = home_dir.as_path();
             initialize_genesis_state(store.clone(), genesis, Some(home_dir));
-            NightshadeRuntime::test_with_runtime_config_store(
+            ArcRuntimeAdapter::new(NightshadeRuntime::test_with_runtime_config_store(
                 home_dir,
                 store,
                 contract_cache,
                 &genesis.config,
                 epoch_manager,
                 runtime_config,
-            )
+            ))
         };
         let dummy_trie_configs = vec![TrieConfig::default(); self.num_clients()];
         self.internal_initialize_nightshade_runtimes(
@@ -85,7 +86,7 @@ impl TestEnvNightshadeSetupExt for TestEnvBuilder {
                 // We should instead try to do this while configuring store.
                 let home_dir = home_dir.as_path();
                 initialize_genesis_state(store.clone(), genesis, Some(home_dir));
-                NightshadeRuntime::test_with_trie_config(
+                ArcRuntimeAdapter::new(NightshadeRuntime::test_with_trie_config(
                     home_dir,
                     store,
                     contract_cache,
@@ -94,7 +95,7 @@ impl TestEnvNightshadeSetupExt for TestEnvBuilder {
                     Some(runtime_config_store),
                     trie_config,
                     DEFAULT_GC_NUM_EPOCHS_TO_KEEP,
-                )
+                ))
             };
         let dummy_runtime_configs =
             vec![RuntimeConfigStore::test_congestion_control_disabled(); self.num_clients()];

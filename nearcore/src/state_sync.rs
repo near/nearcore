@@ -6,7 +6,7 @@ use futures::future::select_all;
 use futures::{FutureExt, StreamExt};
 use near_async::futures::{FutureSpawner, respawn_for_parallelism};
 use near_async::time::{Clock, Duration, Interval};
-use near_chain::types::RuntimeAdapter;
+use near_chain::types::{ArcRuntimeAdapter, RuntimeAdapter};
 use near_chain::{Chain, ChainGenesis, DoomslugThresholdMode};
 use near_chain_configs::{ClientConfig, ExternalStorageLocation, MutableValidatorSigner};
 use near_client::sync::external::{
@@ -45,7 +45,7 @@ pub struct StateSyncDumper {
     pub chain_genesis: ChainGenesis,
     pub epoch_manager: Arc<dyn EpochManagerAdapter>,
     pub shard_tracker: ShardTracker,
-    pub runtime: Arc<dyn RuntimeAdapter>,
+    pub runtime: ArcRuntimeAdapter,
     /// Contains validator key for this node. This field is mutable and optional. Use with caution!
     /// Lock the value of mutable validator signer for the duration of a request to ensure consistency.
     /// Please note that the locked value should not be stored anywhere or passed through the thread boundary.
@@ -354,7 +354,7 @@ struct StateDumper {
     shard_tracker: ShardTracker,
     chain: Chain,
     epoch_manager: Arc<dyn EpochManagerAdapter>,
-    runtime: Arc<dyn RuntimeAdapter>,
+    runtime: ArcRuntimeAdapter,
     // State associated with dumping the current epoch
     current_dump: CurrentDump,
     external: ExternalConnection,
@@ -367,7 +367,7 @@ struct StateDumper {
 struct PartUploader {
     clock: Clock,
     external: ExternalConnection,
-    runtime: Arc<dyn RuntimeAdapter>,
+    runtime: ArcRuntimeAdapter,
     chain_id: String,
     epoch_id: EpochId,
     epoch_height: EpochHeight,
@@ -630,7 +630,7 @@ impl StateDumper {
         shard_tracker: ShardTracker,
         chain: Chain,
         epoch_manager: Arc<dyn EpochManagerAdapter>,
-        runtime: Arc<dyn RuntimeAdapter>,
+        runtime: ArcRuntimeAdapter,
         external: ExternalConnection,
         future_spawner: Arc<dyn FutureSpawner>,
     ) -> Self {
@@ -1003,7 +1003,7 @@ async fn state_sync_dump(
     chain: Chain,
     epoch_manager: Arc<dyn EpochManagerAdapter>,
     shard_tracker: ShardTracker,
-    runtime: Arc<dyn RuntimeAdapter>,
+    runtime: ArcRuntimeAdapter,
     chain_id: String,
     external: ExternalConnection,
     iteration_delay: Duration,
@@ -1061,7 +1061,7 @@ async fn do_state_sync_dump(
     chain: Chain,
     epoch_manager: Arc<dyn EpochManagerAdapter>,
     shard_tracker: ShardTracker,
-    runtime: Arc<dyn RuntimeAdapter>,
+    runtime: ArcRuntimeAdapter,
     chain_id: String,
     external: ExternalConnection,
     iteration_delay: Duration,

@@ -149,7 +149,7 @@ impl ChainStore {
     pub fn clear_data(
         &mut self,
         gc_config: &GCConfig,
-        runtime_adapter: Arc<dyn RuntimeAdapter>,
+        runtime_adapter: crate::types::ArcRuntimeAdapter,
         epoch_manager: Arc<dyn EpochManagerAdapter>,
         shard_tracker: &ShardTracker,
     ) -> Result<(), Error> {
@@ -170,7 +170,7 @@ impl ChainStore {
     fn clear_old_blocks_data(
         &mut self,
         gc_config: &GCConfig,
-        runtime_adapter: Arc<dyn RuntimeAdapter>,
+        runtime_adapter: crate::types::ArcRuntimeAdapter,
         epoch_manager: Arc<dyn EpochManagerAdapter>,
         shard_tracker: &ShardTracker,
     ) -> Result<(), Error> {
@@ -393,7 +393,7 @@ impl ChainStore {
     pub fn clear_archive_data(
         &mut self,
         gc_height_limit: BlockHeightDelta,
-        runtime_adapter: Arc<dyn RuntimeAdapter>,
+        runtime_adapter: crate::types::ArcRuntimeAdapter,
     ) -> Result<(), Error> {
         let _span =
             tracing::debug_span!(target: "chain", "clear_archive_data", gc_height_limit).entered();
@@ -472,7 +472,7 @@ impl ChainStore {
     pub fn reset_data_pre_state_sync(
         &mut self,
         sync_hash: CryptoHash,
-        runtime_adapter: Arc<dyn RuntimeAdapter>,
+        runtime_adapter: crate::types::ArcRuntimeAdapter,
         epoch_manager: Arc<dyn EpochManagerAdapter>,
     ) -> Result<(), Error> {
         let _span = tracing::debug_span!(target: "sync", "reset_data_pre_state_sync").entered();

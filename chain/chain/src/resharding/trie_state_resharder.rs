@@ -95,7 +95,7 @@ impl TrieStateReshardingStatus {
 
 /// TrieStateResharder is responsible for handling state resharding operations.
 pub struct TrieStateResharder {
-    runtime: Arc<dyn RuntimeAdapter>,
+    runtime: crate::types::ArcRuntimeAdapter,
     /// Controls cancellation of background processing.
     handle: ReshardingHandle,
     /// Configuration for resharding.
@@ -110,7 +110,7 @@ pub enum ResumeAllowed {
 
 impl TrieStateResharder {
     pub fn new(
-        runtime: Arc<dyn RuntimeAdapter>,
+        runtime: crate::types::ArcRuntimeAdapter,
         handle: ReshardingHandle,
         resharding_config: MutableConfigValue<ReshardingConfig>,
         resume_allowed: ResumeAllowed,
@@ -537,7 +537,7 @@ mod tests {
 
     type KeyValues = Vec<(Vec<u8>, Option<Vec<u8>>)>;
     struct TestSetup {
-        runtime: Arc<dyn RuntimeAdapter>,
+        runtime: crate::types::ArcRuntimeAdapter,
         initial: KeyValues,
         parent_shard: ShardUId,
         left_shard: ShardUId,

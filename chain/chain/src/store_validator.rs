@@ -69,7 +69,7 @@ pub struct StoreValidator {
     config: GenesisConfig,
     epoch_manager: Arc<dyn EpochManagerAdapter>,
     shard_tracker: ShardTracker,
-    runtime: Arc<dyn RuntimeAdapter>,
+    runtime: crate::types::ArcRuntimeAdapter,
     store: Store,
     inner: StoreValidatorCache,
     timeout: Option<i64>,
@@ -88,7 +88,7 @@ impl StoreValidator {
         config: GenesisConfig,
         epoch_manager: Arc<dyn EpochManagerAdapter>,
         shard_tracker: ShardTracker,
-        runtime: Arc<dyn RuntimeAdapter>,
+        runtime: crate::types::ArcRuntimeAdapter,
         store: Store,
         is_archival: bool,
     ) -> Self {

@@ -56,7 +56,7 @@ impl HandlerWithContext<ScheduleResharding> for ReshardingActor {
 impl ReshardingActor {
     pub fn new(
         epoch_manager: Arc<dyn EpochManagerAdapter>,
-        runtime_adapter: Arc<dyn RuntimeAdapter>,
+        runtime_adapter: crate::types::ArcRuntimeAdapter,
         resharding_handle: ReshardingHandle,
         resharding_config: MutableConfigValue<ReshardingConfig>,
     ) -> Self {

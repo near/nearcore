@@ -68,7 +68,7 @@ use crate::stateless_validation::chunk_endorsement::ChunkEndorsementTracker;
 
 pub struct ChunkExecutorActor {
     pub(crate) chain_store: ChainStore,
-    pub(crate) runtime_adapter: Arc<dyn RuntimeAdapter>,
+    pub(crate) runtime_adapter: near_chain::types::ArcRuntimeAdapter,
     pub(crate) epoch_manager: Arc<dyn EpochManagerAdapter>,
     pub(crate) shard_tracker: ShardTracker,
     network_adapter: PeerManagerAdapter,
@@ -91,7 +91,7 @@ impl ChunkExecutorActor {
     pub fn new(
         store: Store,
         genesis: &ChainGenesis,
-        runtime_adapter: Arc<dyn RuntimeAdapter>,
+        runtime_adapter: near_chain::types::ArcRuntimeAdapter,
         epoch_manager: Arc<dyn EpochManagerAdapter>,
         shard_tracker: ShardTracker,
         network_adapter: PeerManagerAdapter,

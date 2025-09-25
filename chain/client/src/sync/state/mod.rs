@@ -49,7 +49,7 @@ pub struct StateSync {
     store: Store,
     future_spawner: Arc<dyn FutureSpawner>,
     epoch_manager: Arc<dyn EpochManagerAdapter>,
-    runtime: Arc<dyn RuntimeAdapter>,
+    runtime: near_chain::types::ArcRuntimeAdapter,
 
     /// We keep a reference to this so that peer messages received about state sync can be
     /// given to the StateSyncDownloadSourcePeer.
@@ -82,7 +82,7 @@ impl StateSync {
         clock: Clock,
         store: Store,
         epoch_manager: Arc<dyn EpochManagerAdapter>,
-        runtime: Arc<dyn RuntimeAdapter>,
+        runtime: near_chain::types::ArcRuntimeAdapter,
         network_adapter: AsyncSender<PeerManagerMessageRequest, PeerManagerMessageResponse>,
         external_timeout: Duration,
         p2p_timeout: Duration,

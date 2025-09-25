@@ -44,6 +44,7 @@ use near_vm_runner::ContractCode;
 use near_vm_runner::ContractRuntimeCache;
 use node_runtime::SignedValidPeriodTransactions;
 use num_rational::Rational32;
+use std::sync::Arc;
 use tracing::instrument;
 
 #[derive(Eq, PartialEq, Debug, Clone)]
@@ -373,6 +374,63 @@ impl From<&Block> for PrepareTransactionsBlockContext {
             block_hash: *header.hash(),
             congestion_info: block.block_congestion_info(),
         }
+    }
+}
+
+pub struct ArcRuntimeAdapter(pub Arc<dyn RuntimeAdapter>, Arc<()>);
+
+impl Clone for ArcRuntimeAdapter {
+    fn clone(&self) -> Self {
+        let new_id = Arc::new(());
+        std::fs::create_dir_all("arc_debug").ok();
+        let filename = format!("arc_debug/{:p}.log", Arc::as_ptr(&new_id));
+        let backtrace = std::backtrace::Backtrace::force_capture();
+        std::fs::write(&filename, format!("{backtrace:?}")).ok();
+        tracing::info!(
+            "Cloning ArcRuntimeAdapter: {:p} -> {:p}; stack trace written to {:?}",
+            Arc::as_ptr(&self.1),
+            Arc::as_ptr(&new_id),
+            &filename
+        );
+        Self(self.0.clone(), new_id)
+    }
+}
+
+impl std::ops::Deref for ArcRuntimeAdapter {
+    type Target = dyn RuntimeAdapter;
+
+    fn deref(&self) -> &Self::Target {
+        &*self.0
+    }
+}
+
+impl ArcRuntimeAdapter {
+    pub fn new(adapter: Arc<dyn RuntimeAdapter>) -> Self {
+        let new_id = Arc::new(());
+        std::fs::create_dir_all("arc_debug").ok();
+        let filename = format!("arc_debug/{:p}.log", Arc::as_ptr(&new_id));
+        let backtrace = std::backtrace::Backtrace::force_capture();
+        std::fs::write(&filename, format!("{backtrace:?}")).ok();
+        tracing::info!(
+            "Creating ArcRuntimeAdapter: {:p}; stack trace written to {:?}",
+            Arc::as_ptr(&new_id),
+            &filename
+        );
+        Self(adapter, new_id)
+    }
+}
+
+impl Drop for ArcRuntimeAdapter {
+    fn drop(&mut self) {
+        let old_id = Arc::as_ptr(&self.1);
+        let filename = format!("arc_debug/{:p}.log", Arc::as_ptr(&self.1));
+        std::fs::remove_file(&filename).ok();
+        tracing::info!("Dropping ArcRuntimeAdapter: {:p}", old_id);
+    }
+}
+impl AsRef<dyn RuntimeAdapter> for ArcRuntimeAdapter {
+    fn as_ref(&self) -> &(dyn RuntimeAdapter + 'static) {
+        &*self.0
     }
 }
 

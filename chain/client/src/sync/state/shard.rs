@@ -59,7 +59,7 @@ pub(super) async fn run_state_sync_for_shard(
     shard_id: ShardId,
     sync_hash: CryptoHash,
     downloader: Arc<StateSyncDownloader>,
-    runtime: Arc<dyn RuntimeAdapter>,
+    runtime: near_chain::types::ArcRuntimeAdapter,
     epoch_manager: Arc<dyn EpochManagerAdapter>,
     computation_task_tracker: TaskTracker,
     status: Arc<Mutex<ShardSyncStatus>>,
@@ -271,7 +271,7 @@ pub enum StatePartApplyResult {
 
 async fn apply_state_part(
     store: Store,
-    runtime: Arc<dyn RuntimeAdapter>,
+    runtime: near_chain::types::ArcRuntimeAdapter,
     computation_task_tracker: TaskTracker,
     cancel: CancellationToken,
     sync_hash: CryptoHash,
@@ -344,7 +344,7 @@ mod tests {
         StatePart::from_partial_state(partial_state, PROTOCOL_VERSION, 1)
     }
 
-    fn create_test_runtime_and_store() -> (Arc<dyn RuntimeAdapter>, Store, TempDir) {
+    fn create_test_runtime_and_store() -> (near_chain::types::ArcRuntimeAdapter, Store, TempDir) {
         let tmp_dir = tempfile::TempDir::new().unwrap();
         let store = create_test_store();
         let genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);

@@ -36,7 +36,7 @@ use near_chain::resharding::types::ReshardingSender;
 use near_chain::spice_core::CoreStatementsProcessor;
 use near_chain::state_snapshot_actor::SnapshotCallbacks;
 use near_chain::test_utils::format_hash;
-use near_chain::types::{ChainConfig, LatestKnown, RuntimeAdapter};
+use near_chain::types::{ArcRuntimeAdapter, ChainConfig, LatestKnown, RuntimeAdapter};
 use near_chain::{
     ApplyChunksIterationMode, ApplyChunksSpawner, BlockProcessingArtifact, BlockStatus, Chain,
     ChainGenesis, ChainStoreAccess, ChunksReadiness, Doomslug, DoomslugThresholdMode, Provenance,
@@ -122,7 +122,7 @@ pub struct Client {
     pub doomslug: Doomslug,
     pub epoch_manager: Arc<dyn EpochManagerAdapter>,
     pub shard_tracker: ShardTracker,
-    pub runtime_adapter: Arc<dyn RuntimeAdapter>,
+    pub runtime_adapter: ArcRuntimeAdapter,
     pub shards_manager_adapter: Sender<ShardsManagerRequestFromClient>,
     /// Network adapter.
     pub network_adapter: PeerManagerAdapter,
@@ -252,7 +252,7 @@ impl Client {
         chain_genesis: ChainGenesis,
         epoch_manager: Arc<dyn EpochManagerAdapter>,
         shard_tracker: ShardTracker,
-        runtime_adapter: Arc<dyn RuntimeAdapter>,
+        runtime_adapter: ArcRuntimeAdapter,
         network_adapter: PeerManagerAdapter,
         shards_manager_sender: Sender<ShardsManagerRequestFromClient>,
         validator_signer: MutableValidatorSigner,
@@ -270,6 +270,12 @@ impl Client {
         upgrade_schedule: ProtocolUpgradeVotingSchedule,
         spice_core_processor: CoreStatementsProcessor,
     ) -> Result<Self, Error> {
+        // DEBUG: Track Arc reference for Client::new
+        tracing::warn!(
+            target: "arc_debug",
+            "Client::new - creating Client with RuntimeAdapter arc_count={}",
+            Arc::strong_count(&runtime_adapter.0)
+        );
         let doomslug_threshold_mode = if enable_doomslug {
             DoomslugThresholdMode::TwoThirds
         } else {
@@ -282,11 +288,24 @@ impl Client {
             resharding_config: config.resharding_config.clone(),
             protocol_version_check: config.protocol_version_check,
         };
+        // DEBUG: Log Arc count before cloning for Chain creation
+        tracing::warn!(
+            target: "arc_debug",
+            "Client::new - cloning RuntimeAdapter for Chain::new, current arc_count={}",
+            Arc::strong_count(&runtime_adapter.0)
+        );
+        let runtime_adapter_for_chain = runtime_adapter.clone();
+        tracing::warn!(
+            target: "arc_debug",
+            "Client::new - cloned RuntimeAdapter for Chain::new, new arc_count={}",
+            Arc::strong_count(&runtime_adapter_for_chain.0)
+        );
+
         let chain = Chain::new(
             clock.clone(),
             epoch_manager.clone(),
             shard_tracker.clone(),
-            runtime_adapter.clone(),
+            runtime_adapter_for_chain,
             &chain_genesis,
             doomslug_threshold_mode,
             chain_config,
@@ -2378,5 +2397,16 @@ impl Client {
             });
         }
         Ok(ret)
+    }
+}
+
+impl Drop for Client {
+    fn drop(&mut self) {
+        // DEBUG: Track Arc reference count when Client is being dropped
+        tracing::warn!(
+            target: "arc_debug",
+            "Client::drop - dropping Client with RuntimeAdapter arc_count={}",
+            Arc::strong_count(&self.runtime_adapter.0)
+        );
     }
 }

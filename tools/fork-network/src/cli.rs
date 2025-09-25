@@ -2,7 +2,7 @@ use crate::delayed_receipts::DelayedReceiptTracker;
 use crate::storage_mutator::{ShardUpdateState, StorageMutator};
 use anyhow::Context;
 use chrono::{DateTime, Utc};
-use near_chain::types::{RuntimeAdapter, Tip};
+use near_chain::types::{ArcRuntimeAdapter, RuntimeAdapter, Tip};
 use near_chain::{Chain, ChainGenesis, ChainStore, ChainStoreAccess};
 use near_chain_configs::{Genesis, GenesisConfig, GenesisValidationMode, NEAR_BASE};
 use near_crypto::{InMemorySigner, PublicKey, SecretKey};
@@ -470,8 +470,8 @@ impl ForkNetworkCommand {
         assert_eq!(all_shard_uids.len(), prev_state_roots.len());
 
         let runtime =
-            NightshadeRuntime::from_config(home_dir, store.clone(), &near_config, epoch_manager)
-                .context("could not create the transaction runtime")?;
+            ArcRuntimeAdapter::new(NightshadeRuntime::from_config(home_dir, store.clone(), &near_config, epoch_manager)
+                .context("could not create the transaction runtime")?);
         // TODO: add an option to not load them all at once. As is, this takes an insane amount of memory for mainnet state.
         runtime
             .get_tries()
@@ -574,8 +574,8 @@ impl ForkNetworkCommand {
             self.get_state_roots_and_hash(store.clone(), epoch_manager.as_ref())?;
 
         let runtime =
-            NightshadeRuntime::from_config(home_dir, store.clone(), &near_config, epoch_manager)
-                .context("could not create the transaction runtime")?;
+            ArcRuntimeAdapter::new(NightshadeRuntime::from_config(home_dir, store.clone(), &near_config, epoch_manager)
+                .context("could not create the transaction runtime")?);
         let runtime_config = runtime.get_runtime_config(protocol_version);
 
         let shard_uids = target_shard_layout.shard_uids().collect::<Vec<_>>();
@@ -734,8 +734,8 @@ impl ForkNetworkCommand {
         let epoch_manager =
             EpochManager::new_arc_handle(store.clone(), &genesis.config, Some(home_dir));
         let runtime =
-            NightshadeRuntime::from_config(home_dir, store, &near_config, epoch_manager.clone())
-                .context("could not create the transaction runtime")?;
+            ArcRuntimeAdapter::new(NightshadeRuntime::from_config(home_dir, store, &near_config, epoch_manager.clone())
+                .context("could not create the transaction runtime")?);
         let chain_genesis = ChainGenesis::new(&genesis.config);
         Self::set_genesis_block(
             epoch_manager.as_ref(),
@@ -1185,7 +1185,7 @@ impl ForkNetworkCommand {
         flat_head: BlockInfo,
         mut source_state_roots: HashMap<ShardUId, StateRoot>,
         make_storage_mutator: MakeSingleShardStorageMutatorFn,
-        runtime: Arc<NightshadeRuntime>,
+        runtime: near_chain::types::ArcRuntimeAdapter,
     ) -> anyhow::Result<Vec<StateRoot>> {
         let shard_uids = source_shard_layout.shard_uids().collect::<Vec<_>>();
         assert_eq!(

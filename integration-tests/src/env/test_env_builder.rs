@@ -2,7 +2,7 @@ use itertools::{Itertools, multizip};
 use near_async::messaging::{IntoMultiSender, IntoSender, noop};
 use near_async::time::Clock;
 use near_chain::state_snapshot_actor::SnapshotCallbacks;
-use near_chain::types::RuntimeAdapter;
+use near_chain::types::{ArcRuntimeAdapter, RuntimeAdapter};
 use near_chain::{Block, ChainGenesis};
 use near_chain_configs::{
     Genesis, GenesisConfig, MutableConfigValue, ProtocolVersionCheckConfig, TrackedShardsConfig,
@@ -47,7 +47,7 @@ pub struct TestEnvBuilder {
     stores: Option<Vec<Store>>,
     contract_caches: Option<Vec<Box<dyn ContractRuntimeCache>>>,
     epoch_managers: Option<Vec<Arc<EpochManagerHandle>>>,
-    runtimes: Option<Vec<Arc<NightshadeRuntime>>>,
+    runtimes: Option<Vec<near_chain::types::ArcRuntimeAdapter>>,
     network_adapters: Option<Vec<Arc<MockPeerManagerAdapter>>>,
     // random seed to be inject in each client according to AccountId
     // if not set, a default constant TEST_SEED will be injected
@@ -321,7 +321,7 @@ impl TestEnvBuilder {
             Arc<EpochManagerHandle>,
             RuntimeConfigStore,
             TrieConfig,
-        ) -> Arc<NightshadeRuntime>,
+        ) -> near_chain::types::ArcRuntimeAdapter,
     ) -> Self {
         let builder = self
             .ensure_home_dirs()
@@ -369,7 +369,7 @@ impl TestEnvBuilder {
 
     /// Specifies custom NightshadeRuntime for each client.  This allows us to
     /// construct [`TestEnv`] with a custom implementation.
-    pub fn runtimes(mut self, runtimes: Vec<Arc<NightshadeRuntime>>) -> Self {
+    pub fn runtimes(mut self, runtimes: Vec<near_chain::types::ArcRuntimeAdapter>) -> Self {
         assert_eq!(runtimes.len(), self.clients.len());
         assert!(self.runtimes.is_none(), "Cannot override twice");
         self.runtimes = Some(runtimes);
@@ -391,12 +391,12 @@ impl TestEnvBuilder {
                     // which in default case we can ensure only if builder has information about genesis.
                     panic!("NightshadeRuntime cannot be created automatically in testenv without genesis")
                 }
-                return NightshadeRuntime::test(
+                return ArcRuntimeAdapter::new(NightshadeRuntime::test(
                     Path::new("."),
                     store,
                     &ret.genesis_config,
                     epoch_manager,
-                );
+                ));
             })
             .collect();
         ret.runtimes(runtimes)

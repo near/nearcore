@@ -3,7 +3,7 @@ use crate::store::utils::{
     get_block_header_on_chain_by_height, get_chunk_clone_from_header,
     get_incoming_receipts_for_shard,
 };
-use crate::types::RuntimeAdapter;
+use crate::types::{ArcRuntimeAdapter, RuntimeAdapter};
 use crate::validate::validate_chunk_proofs;
 use crate::{ReceiptFilter, byzantine_assert, metrics};
 use near_async::time::{Clock, Instant};
@@ -37,7 +37,7 @@ pub struct ChainStateSyncAdapter {
     clock: Clock,
     chain_store: ChainStoreAdapter,
     epoch_manager: Arc<dyn EpochManagerAdapter>,
-    runtime_adapter: Arc<dyn RuntimeAdapter>,
+    runtime_adapter: ArcRuntimeAdapter,
 
     /// Used to store state parts already requested along with elapsed time
     /// to create the parts. This information is used for debugging.
@@ -49,7 +49,7 @@ impl ChainStateSyncAdapter {
         clock: Clock,
         chain_store: ChainStoreAdapter,
         epoch_manager: Arc<dyn EpochManagerAdapter>,
-        runtime_adapter: Arc<dyn RuntimeAdapter>,
+        runtime_adapter: ArcRuntimeAdapter,
     ) -> Self {
         Self {
             clock,

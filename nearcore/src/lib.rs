@@ -15,7 +15,7 @@ use near_chain::spice_core::CoreStatementsProcessor;
 use near_chain::state_snapshot_actor::{
     SnapshotCallbacks, StateSnapshotActor, get_delete_snapshot_callback, get_make_snapshot_callback,
 };
-use near_chain::types::RuntimeAdapter;
+use near_chain::types::{ArcRuntimeAdapter, RuntimeAdapter};
 use near_chain::{
     ApplyChunksSpawner, Chain, ChainGenesis, PartialWitnessValidationThreadPool,
     WitnessCreationThreadPool,
@@ -267,7 +267,7 @@ fn spawn_spice_actors(
     chain_genesis: &ChainGenesis,
     epoch_manager: Arc<dyn EpochManagerAdapter>,
     shard_tracker: ShardTracker,
-    runtime: Arc<NightshadeRuntime>,
+    runtime: near_chain::types::ArcRuntimeAdapter,
     network_adapter: PeerManagerAdapter,
     core_processor: CoreStatementsProcessor,
     chunk_endorsement_tracker: Arc<ChunkEndorsementTracker>,
@@ -408,13 +408,15 @@ pub fn start_with_config_and_synchronization(
         epoch_manager.clone(),
         config.validator_signer.clone(),
     );
-    let runtime = NightshadeRuntime::from_config(
-        home_dir,
-        storage.get_hot_store(),
-        &config,
-        epoch_manager.clone(),
-    )
-    .context("could not create the transaction runtime")?;
+    let runtime = ArcRuntimeAdapter::new(
+        NightshadeRuntime::from_config(
+            home_dir,
+            storage.get_hot_store(),
+            &config,
+            epoch_manager.clone(),
+        )
+        .context("could not create the transaction runtime")?,
+    );
 
     // Get the split store. If split store is some then create a new set of structures for
     // the view client. Otherwise just re-use the existing ones.
@@ -431,13 +433,15 @@ pub fn start_with_config_and_synchronization(
                 epoch_manager.clone(),
                 config.validator_signer.clone(),
             );
-            let view_runtime = NightshadeRuntime::from_config(
-                home_dir,
-                split_store.clone(),
-                &config,
-                view_epoch_manager.clone(),
-            )
-            .context("could not create the transaction runtime")?;
+            let view_runtime = ArcRuntimeAdapter::new(
+                NightshadeRuntime::from_config(
+                    home_dir,
+                    split_store.clone(),
+                    &config,
+                    view_epoch_manager.clone(),
+                )
+                .context("could not create the transaction runtime")?,
+            );
             (view_epoch_manager, view_shard_tracker, view_runtime)
         } else {
             (epoch_manager.clone(), shard_tracker.clone(), runtime.clone())
@@ -714,9 +718,10 @@ pub fn start_with_config_and_synchronization(
     network_adapter.bind(network_actor.clone());
     #[cfg(feature = "json_rpc")]
     if let Some(rpc_config) = config.rpc_config {
+        tracing::info!("Creating EntityDebugHandlerImpl");
         let entity_debug_handler = EntityDebugHandlerImpl {
             epoch_manager: view_epoch_manager,
-            runtime: view_runtime,
+            runtime: view_runtime.clone(),
             hot_store,
             cold_store,
         };

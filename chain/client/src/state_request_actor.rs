@@ -4,7 +4,7 @@ use std::sync::Arc;
 use near_async::messaging::{Actor, Handler};
 use near_async::time::{Clock, Duration, Instant};
 use near_chain::state_sync::ChainStateSyncAdapter;
-use near_chain::types::RuntimeAdapter;
+use near_chain::types::{ArcRuntimeAdapter, RuntimeAdapter};
 use near_epoch_manager::EpochManagerAdapter;
 use near_network::client::{StatePartOrHeader, StateRequestHeader, StateRequestPart};
 use near_network::types::{StateResponseInfo, StateResponseInfoV2};
@@ -46,7 +46,7 @@ enum SyncHashValidationResult {
 impl StateRequestActor {
     pub fn new(
         clock: Clock,
-        runtime: Arc<dyn RuntimeAdapter>,
+        runtime: ArcRuntimeAdapter,
         epoch_manager: Arc<dyn EpochManagerAdapter>,
         genesis_hash: CryptoHash,
         throttle_period: Duration,

@@ -2,7 +2,7 @@ use crate::entity_debug_serializer::serialize_entity;
 use anyhow::{Context, anyhow};
 
 use borsh::BorshDeserialize;
-use near_chain::types::{LatestKnown, RuntimeAdapter};
+use near_chain::types::{ArcRuntimeAdapter, LatestKnown, RuntimeAdapter};
 use near_chain::{Block, BlockHeader};
 use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::epoch_info_aggregator::EpochInfoAggregator;
@@ -53,9 +53,15 @@ use std::sync::Arc;
 
 pub struct EntityDebugHandlerImpl {
     pub epoch_manager: Arc<dyn EpochManagerAdapter>,
-    pub runtime: Arc<dyn RuntimeAdapter>,
+    pub runtime: ArcRuntimeAdapter,
     pub hot_store: Store,
     pub cold_store: Option<Store>,
+}
+
+impl Drop for EntityDebugHandlerImpl {
+    fn drop(&mut self) {
+        tracing::info!("Dropping EntityDebugHandlerImpl");
+    }
 }
 
 impl EntityDebugHandlerImpl {
