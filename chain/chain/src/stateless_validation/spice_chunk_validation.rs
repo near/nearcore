@@ -17,6 +17,7 @@ use near_primitives::types::{BlockExecutionResults, ChunkExecutionResult, ShardI
 use near_store::PartialStorage;
 use near_store::adapter::StoreAdapter as _;
 use node_runtime::SignedValidPeriodTransactions;
+use tracing::Span;
 
 use crate::chain::{NewChunkData, NewChunkResult, ShardContext, StorageContext, apply_new_chunk};
 use crate::sharding::{get_receipts_shuffle_salt, shuffle_receipt_proofs};
@@ -159,6 +160,14 @@ pub fn spice_pre_validate_chunk_state_witness(
     Ok(SpicePreValidationOutput { new_chunk_data })
 }
 
+#[tracing::instrument(
+    level = tracing::Level::DEBUG,
+    skip_all,
+    target = "spice_chunk_validator",
+    fields(
+        chunk_id = ?state_witness.chunk_id(),
+    )
+)]
 pub fn spice_validate_chunk_state_witness(
     state_witness: SpiceChunkStateWitness,
     pre_validation_output: SpicePreValidationOutput,
@@ -169,14 +178,6 @@ pub fn spice_validate_chunk_state_witness(
     let _timer = crate::stateless_validation::metrics::CHUNK_STATE_WITNESS_VALIDATION_TIME
         .with_label_values(&[&chunk_id.shard_id.to_string()])
         .start_timer();
-    let span = tracing::debug_span!(
-        target: "spice_chunk_validator",
-        "validate_chunk_state_witness",
-        ?chunk_id,
-        tag_block_production = true,
-        tag_witness_distribution = true,
-    )
-    .entered();
 
     let block_hash = &chunk_id.block_hash;
     let shard_id = chunk_id.shard_id;
@@ -191,7 +192,7 @@ pub fn spice_validate_chunk_state_witness(
         let chunk_header = pre_validation_output.new_chunk_data.chunk_header.clone();
         let NewChunkResult { apply_result: mut main_apply_result, .. } = apply_new_chunk(
             ApplyChunkReason::ValidateChunkStateWitness,
-            &span,
+            &Span::current(),
             pre_validation_output.new_chunk_data,
             ShardContext { shard_uid, should_apply_chunk: true },
             runtime_adapter,
