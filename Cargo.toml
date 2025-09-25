@@ -85,7 +85,6 @@ members = [
     "test-utils/store-validator",
     "test-utils/testlib",
     "tools/database",
-    "tools/chainsync-loadtest",
     "tools/congestion-model",
     "tools/fork-network",
     "tools/indexer/example",
@@ -230,7 +229,6 @@ itertools = "0.14.0"
 itoa = "1.0"
 json_comments = "0.2.1"
 libc = "0.2.81"
-log = "0.4"
 lru = "0.12.3"
 memoffset = "0.8"
 merlin = { version = "3", default-features = false }

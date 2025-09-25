@@ -1051,30 +1051,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "613afe47fcd5fac7ccf1db93babcb082c5994d996f20b8b159f2ad1658eb5724"
 
 [[package]]
-name = "chainsync-loadtest"
-version = "0.0.0"
-dependencies = [
- "anyhow",
- "clap",
- "dirs",
- "log",
- "near-async",
- "near-chain-configs",
- "near-config-utils",
- "near-crypto",
- "near-network",
- "near-o11y",
- "near-primitives",
- "near-store",
- "nearcore",
- "openssl-probe",
- "parking_lot 0.12.1",
- "rand 0.8.5",
- "time",
- "tokio",
-]
-
-[[package]]
 name = "chrono"
 version = "0.4.41"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4723,7 +4699,6 @@ dependencies = [
  "bytes",
  "bytesize 1.1.0",
  "criterion",
- "crossbeam-channel",
  "enum-map",
  "futures",
  "futures-util",
@@ -4742,7 +4717,6 @@ dependencies = [
  "near-store",
  "opentelemetry",
  "parking_lot 0.12.1",
- "pin-project",
  "pretty_assertions",
  "protobuf",
  "protobuf-codegen",
