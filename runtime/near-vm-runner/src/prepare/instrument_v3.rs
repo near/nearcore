@@ -4,6 +4,7 @@
 // manually implemented and half-way reliant on wasm_encoder::reencode...
 
 use crate::{REMAINING_GAS_EXPORT, START_EXPORT};
+use core::num::NonZeroU64;
 use finite_wasm_6::gas::InstrumentationKind;
 use finite_wasm_6::{AnalysisOutcome, Fee};
 use wasm_encoder::reencode::{Error as ReencodeError, Reencode};
@@ -517,16 +518,14 @@ impl<'a> InstrumentContext<'a> {
         locals.push((1, we::ValType::I64));
         locals.push((1, we::ValType::I32));
         let mut new_function = we::Function::new(locals);
+        'outer: {
+            let Some(stack_charge) = stack_sz.checked_add(frame_sz).map(NonZeroU64::new) else {
+                new_function.instructions().call(STACK_EXHAUSTED_FN).unreachable().end();
+                break 'outer;
+            };
+            if let Some(stack_charge) = stack_charge {
+                let mut new_function = new_function.instructions();
 
-        let should_instrument_stack = stack_sz != 0 || frame_sz != 0;
-        if should_instrument_stack {
-            let mut new_function = new_function.instructions();
-            new_function.block(block_type);
-            'outer: {
-                let Some(stack_charge) = stack_sz.checked_add(frame_sz) else {
-                    new_function.call(STACK_EXHAUSTED_FN).unreachable().end();
-                    break 'outer;
-                };
                 let Some(gas_charge) = frame_sz
                     .checked_add(7)
                     .map(|n| n / 8)
@@ -536,10 +535,11 @@ impl<'a> InstrumentContext<'a> {
                     break 'outer;
                 };
                 new_function
+                    .block(block_type)
                     .global_get(self.globals + STACK_GLOBAL)
                     // $stack
                     .i64_const(0)
-                    .i64_const(stack_charge as i64)
+                    .i64_const(u64::from(stack_charge) as i64)
                     .i64_const(0)
                     .checked_sub_i64(STACK_EXHAUSTED_FN)
                     // $stack - $stack_size - $frame_size
@@ -552,83 +552,77 @@ impl<'a> InstrumentContext<'a> {
                     local_idx,
                 )?;
             }
-        }
-
-        while !operators.eof() {
-            let (op, offset) = operators.read_with_offset().map_err(Error::ParseOperator)?;
-            let end_offset = operators.original_position();
-            while instrumentation_points.peek().map(|((o, _), _)| **o) == Some(offset) {
-                let ((_, g), k) = instrumentation_points.next().expect("we just peeked");
-                if !matches!(k, InstrumentationKind::Unreachable) {
-                    call_gas_instrumentation(
-                        &mut new_function.instructions(),
-                        Some(*k),
-                        *g,
-                        self.globals,
-                        local_idx,
-                    )?;
-                }
-            }
-            match op {
-                wp::Operator::RefFunc { function_index } => {
-                    let idx = renc
-                        .function_index(function_index)
-                        .or(Err(Error::RemapFunctionIndex(function_index)))?;
-                    new_function.instruction(&we::Instruction::RefFunc(idx))
-                }
-                wp::Operator::Call { function_index } => {
-                    let idx = renc
-                        .function_index(function_index)
-                        .or(Err(Error::RemapFunctionIndex(function_index)))?;
-                    new_function.instruction(&we::Instruction::Call(idx))
-                }
-                wp::Operator::ReturnCall { function_index } => {
-                    call_unstack_instrumentation(
-                        &mut new_function,
-                        stack_sz,
-                        frame_sz,
-                        self.globals,
-                    );
-                    let idx = renc
-                        .function_index(function_index)
-                        .or(Err(Error::RemapFunctionIndex(function_index)))?;
-                    new_function.instruction(&we::Instruction::ReturnCall(idx))
-                }
-                wp::Operator::ReturnCallIndirect { .. } => {
-                    call_unstack_instrumentation(
-                        &mut new_function,
-                        stack_sz,
-                        frame_sz,
-                        self.globals,
-                    );
-                    new_function.raw(self.wasm[offset..end_offset].iter().copied())
-                }
-                wp::Operator::Return => {
-                    // FIXME: we could replace these `return`s with `br $well_chosen_index`
-                    // targeting the block we inserted around the function body.
-                    call_unstack_instrumentation(
-                        &mut new_function,
-                        stack_sz,
-                        frame_sz,
-                        self.globals,
-                    );
-                    new_function.instruction(&we::Instruction::Return)
-                }
-                wp::Operator::End if operators.eof() => {
-                    // This is the last function end…
-                    if should_instrument_stack {
-                        new_function.instruction(&we::Instruction::End);
-                        call_unstack_instrumentation(
-                            &mut new_function,
-                            stack_sz,
-                            frame_sz,
+            while !operators.eof() {
+                let (op, offset) = operators.read_with_offset().map_err(Error::ParseOperator)?;
+                let end_offset = operators.original_position();
+                while instrumentation_points.peek().map(|((o, _), _)| **o) == Some(offset) {
+                    let ((_, g), k) = instrumentation_points.next().expect("we just peeked");
+                    if !matches!(k, InstrumentationKind::Unreachable) {
+                        call_gas_instrumentation(
+                            &mut new_function.instructions(),
+                            Some(*k),
+                            *g,
                             self.globals,
-                        );
+                            local_idx,
+                        )?;
                     }
-                    new_function.instruction(&we::Instruction::End)
                 }
-                _ => new_function.raw(self.wasm[offset..end_offset].iter().copied()),
-            };
+                match op {
+                    wp::Operator::RefFunc { function_index } => {
+                        let idx = renc
+                            .function_index(function_index)
+                            .or(Err(Error::RemapFunctionIndex(function_index)))?;
+                        new_function.instructions().ref_func(idx);
+                    }
+                    wp::Operator::Call { function_index } => {
+                        let idx = renc
+                            .function_index(function_index)
+                            .or(Err(Error::RemapFunctionIndex(function_index)))?;
+                        new_function.instructions().call(idx);
+                    }
+                    wp::Operator::ReturnCall { function_index } => {
+                        let mut new_function = new_function.instructions();
+                        if let Some(charge) = stack_charge {
+                            call_unstack_instrumentation(&mut new_function, charge, self.globals);
+                        }
+                        let idx = renc
+                            .function_index(function_index)
+                            .or(Err(Error::RemapFunctionIndex(function_index)))?;
+                        new_function.return_call(idx);
+                    }
+                    wp::Operator::ReturnCallIndirect { .. } => {
+                        if let Some(charge) = stack_charge {
+                            call_unstack_instrumentation(
+                                &mut new_function.instructions(),
+                                charge,
+                                self.globals,
+                            );
+                        }
+                        new_function.raw(self.wasm[offset..end_offset].iter().copied());
+                    }
+                    wp::Operator::Return => {
+                        // FIXME: we could replace these `return`s with `br $well_chosen_index`
+                        // targeting the block we inserted around the function body.
+                        let mut new_function = new_function.instructions();
+                        if let Some(charge) = stack_charge {
+                            call_unstack_instrumentation(&mut new_function, charge, self.globals);
+                        }
+                        new_function.return_();
+                    }
+                    wp::Operator::End if operators.eof() => {
+                        // This is the last function end…
+                        let mut new_function = new_function.instructions();
+                        if let Some(charge) = stack_charge {
+                            new_function.end();
+                            call_unstack_instrumentation(&mut new_function, charge, self.globals);
+                        }
+                        new_function.end();
+                    }
+                    _ => {
+                        new_function.raw(self.wasm[offset..end_offset].iter().copied());
+                    }
+                };
+            }
         }
 
         self.code_section.function(&new_function);
@@ -729,29 +723,16 @@ impl<'a> InstrumentContext<'a> {
     }
 }
 
-fn call_unstack_instrumentation(
-    func: &mut we::Function,
-    max_operand_stack_size: u64,
-    function_frame_size: u64,
-    globals: u32,
-) {
-    if max_operand_stack_size != 0 || function_frame_size != 0 {
-        // These casts being able to wrap-around is intentional. The callee must reinterpret these
-        // back to unsigned.
-        func.instructions()
-            .global_get(globals + STACK_GLOBAL)
-            .i64_const(0)
-            .i64_const(max_operand_stack_size as i64)
-            .i64_const(0)
-            .checked_add_i64(STACK_EXHAUSTED_FN)
-            // $stack + $operand_size
-            .i64_const(0)
-            .i64_const(function_frame_size as i64)
-            .i64_const(0)
-            .checked_add_i64(STACK_EXHAUSTED_FN)
-            // $stack + $operand_size + $frame_size
-            .global_set(globals + STACK_GLOBAL);
-    }
+fn call_unstack_instrumentation(func: &mut InstructionSink<'_>, charge: NonZeroU64, globals: u32) {
+    func.global_get(globals + STACK_GLOBAL)
+        .i64_const(0)
+        // This cast being able to wrap-around is intentional.
+        // The callee must reinterpret this back to unsigned.
+        .i64_const(u64::from(charge) as i64)
+        .i64_const(0)
+        .checked_add_i64(STACK_EXHAUSTED_FN)
+        // $stack + $operand_size + $frame_size
+        .global_set(globals + STACK_GLOBAL);
 }
 
 fn call_gas_instrumentation(
