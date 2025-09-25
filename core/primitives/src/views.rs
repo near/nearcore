@@ -1345,13 +1345,17 @@ pub enum ActionView {
     } = 12,
     DeterministicStateInit {
         code_hash: CryptoHash,
-        data: BTreeMap<Base64Data, Base64Data>,
+        #[serde_as(as = "BTreeMap<Base64, Base64>")]
+        #[cfg_attr(feature = "schemars", schemars(with = "BTreeMap<String, String>"))]
+        data: BTreeMap<Vec<u8>, Vec<u8>>,
         deposit: Balance,
         version: u32,
     } = 13,
     DeterministicStateInitByAccountId {
         account_id: AccountId,
-        data: BTreeMap<Base64Data, Base64Data>,
+        #[serde_as(as = "BTreeMap<Base64, Base64>")]
+        #[cfg_attr(feature = "schemars", schemars(with = "BTreeMap<String, String>"))]
+        data: BTreeMap<Vec<u8>, Vec<u8>>,
         deposit: Balance,
         version: u32,
     } = 14,
@@ -1407,7 +1411,6 @@ impl From<Action> for ActionView {
             Action::DeterministicStateInit(action) => {
                 let version = action.state_init.version();
                 let (code, data) = action.state_init.take();
-                let data = data.into_iter().map(|(k, v)| (Base64Data(k), Base64Data(v))).collect();
                 match code {
                     GlobalContractIdentifier::CodeHash(code_hash) => {
                         ActionView::DeterministicStateInit {
@@ -1496,10 +1499,7 @@ impl TryFrom<ActionView> for Action {
                     state_init: DeterministicAccountStateInit::V1(
                         DeterministicAccountStateInitV1 {
                             code: GlobalContractIdentifier::CodeHash(code_hash),
-                            data: data
-                                .into_iter()
-                                .map(|(Base64Data(k), Base64Data(v))| (k, v))
-                                .collect(),
+                            data,
                         },
                     ),
                     deposit,
@@ -1516,10 +1516,7 @@ impl TryFrom<ActionView> for Action {
                         state_init: DeterministicAccountStateInit::V1(
                             DeterministicAccountStateInitV1 {
                                 code: GlobalContractIdentifier::AccountId(account_id),
-                                data: data
-                                    .into_iter()
-                                    .map(|(Base64Data(k), Base64Data(v))| (k, v))
-                                    .collect(),
+                                data,
                             },
                         ),
                         deposit,
@@ -1533,26 +1530,6 @@ impl TryFrom<ActionView> for Action {
         })
     }
 }
-
-#[serde_as]
-#[derive(
-    BorshSerialize,
-    BorshDeserialize,
-    Debug,
-    PartialEq,
-    Eq,
-    PartialOrd,
-    Ord,
-    Clone,
-    serde::Serialize,
-    serde::Deserialize,
-)]
-#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-pub struct Base64Data(
-    #[serde_as(as = "Base64")]
-    #[cfg_attr(feature = "schemars", schemars(schema_with = "crate::serialize::base64_schema"))]
-    pub Vec<u8>,
-);
 
 #[derive(
     BorshSerialize,

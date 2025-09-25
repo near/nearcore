@@ -1,6 +1,8 @@
 use crate::global_contract::GlobalContractIdentifier;
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_schema_checker_lib::ProtocolSchema;
+use serde_with::base64::Base64;
+use serde_with::serde_as;
 use std::collections::BTreeMap;
 
 #[derive(
@@ -21,6 +23,7 @@ pub enum DeterministicAccountStateInit {
     V1(DeterministicAccountStateInitV1),
 }
 
+#[serde_as]
 #[derive(
     BorshSerialize,
     BorshDeserialize,
@@ -35,6 +38,8 @@ pub enum DeterministicAccountStateInit {
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct DeterministicAccountStateInitV1 {
     pub code: GlobalContractIdentifier,
+    #[serde_as(as = "BTreeMap<Base64, Base64>")]
+    #[cfg_attr(feature = "schemars", schemars(with = "BTreeMap<String, String>"))]
     pub data: BTreeMap<Vec<u8>, Vec<u8>>,
 }
 
