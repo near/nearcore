@@ -216,8 +216,8 @@ fn test_near_vm_artifact_output_stability() {
 #[test]
 #[cfg(all(feature = "wasmtime", target_arch = "x86_64"))]
 fn test_wasmtime_artifact_output_stability() {
-    use crate::wasmtime_runner::WasmtimeVM;
     use crate::prepare;
+    use crate::wasmtime_runner::WasmtimeVM;
     // If this test has failed, you want to adjust the necessary constants so that `cache::vm_hash`
     // changes (and only then the hashes here).
     //
@@ -282,7 +282,8 @@ fn test_wasmtime_artifact_output_stability() {
     assert!(
         got_prepared_hashes == prepared_hashes && got_compiled_hashes == compiled_hashes,
         "let prepared_hashes = {:#?};\nlet compiled_hashes = {:#?};",
-        got_prepared_hashes, got_compiled_hashes
+        got_prepared_hashes,
+        got_compiled_hashes
     );
     // Once it has been confirmed that these steps have been done, the expected hashes in this test
     // can be adjusted.
