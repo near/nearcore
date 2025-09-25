@@ -7,6 +7,7 @@ use near_chain_configs::test_genesis::{TestEpochConfigBuilder, ValidatorsSpec};
 use near_o11y::testonly::init_test_logger;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::{AccountId, BlockHeight};
+use near_store::db::CLOUD_HEAD_KEY;
 use near_store::{COLD_HEAD_KEY, DBCol};
 
 use crate::setup::builder::TestLoopBuilder;
@@ -21,8 +22,8 @@ const DEFAULT_NUM_EPOCHS_TO_WAIT: u64 = GC_NUM_EPOCHS_TO_KEEP + 1;
 struct TestCloudArchivalParameters {
     /// Run the cold store loop.
     enable_split_store: bool,
-    #[allow(unused)]
     /// Delay the start of cloud archival node to the given height.
+    #[allow(unused)]
     delay_cloud_archival_start: Option<BlockHeight>,
     /// For how many epochs should the test be running.
     num_epochs_to_wait: u64,
@@ -102,23 +103,35 @@ fn test_cloud_archival_base(params: TestCloudArchivalParameters) {
         let cold_head_height = cold_head.unwrap().unwrap().height;
         assert!(cold_head_height > gc_tail);
     }
-
-    // TODO(cloud_archival) With cloud archival paused, the assertion below would fail.
+    let stored_cloud_head = client_store
+        .store()
+        .get_ser::<BlockHeight>(DBCol::BlockMisc, CLOUD_HEAD_KEY)
+        .unwrap()
+        .unwrap();
+    assert_eq!(cloud_head, stored_cloud_head);
     assert!(cloud_head > gc_tail);
     assert!(gc_tail > EPOCH_LENGTH);
 
     env.shutdown_and_drain_remaining_events(Duration::seconds(10));
 }
 
-/// Verifies that the cloud archival writer does not crash and that `cloud_head` progresses.
+/// `cloud_head` progresses without crashing.
 #[test]
 fn test_cloud_archival_basic() {
     test_cloud_archival_base(TestCloudArchivalParametersBuilder::default().build());
 }
 
-/// Verifies that the cloud archival writer and cold store loop progress when both are enabled.
+/// `cloud_head` and `cold_head` progress when split store is enabled.
 #[test]
 fn test_cloud_archival_with_split_store() {
+    test_cloud_archival_base(
+        TestCloudArchivalParametersBuilder::default().enable_split_store(true).build(),
+    );
+}
+
+/// Verifies that the cloud archival writer and cold store loop progress when both are enabled.
+#[test]
+fn test_cloud_archival_gc_stop_height() {
     test_cloud_archival_base(
         TestCloudArchivalParametersBuilder::default().enable_split_store(true).build(),
     );
