@@ -6,7 +6,6 @@ use near_o11y::testonly::init_integration_logger;
 use near_primitives::types::{BlockHeight, BlockHeightDelta, NumSeats, NumShards};
 use nearcore::{load_test_config, start_with_config};
 
-use crate::utils::test_helpers::heavy_test_async;
 use near_async::multithread::MultithreadRuntimeHandle;
 use near_async::tokio::TokioRuntimeHandle;
 use near_async::{ActorSystem, shutdown_all_actors};
@@ -149,23 +148,20 @@ impl NodeCluster {
             min_num_nodes <= num_nodes,
             "cluster config: [num_nodes] must be at least {min_num_nodes} but got {num_nodes}"
         );
-        heavy_test_async(async move {
-            let temp_dir = tempfile::tempdir().unwrap();
+        let temp_dir = tempfile::tempdir().unwrap();
 
-            let (genesis, rpc_addrs, clients) = start_nodes(
-                temp_dir.path(),
-                num_shards,
-                num_nodes,
-                num_validator_seats,
-                num_lightclient,
-                epoch_length,
-                genesis_height,
-                self.save_tx_outcomes,
-            );
-            f(genesis, rpc_addrs, clients).await;
-            shutdown_all_actors();
-            RocksDB::block_until_all_instances_are_dropped();
-        })
-        .await;
+        let (genesis, rpc_addrs, clients) = start_nodes(
+            temp_dir.path(),
+            num_shards,
+            num_nodes,
+            num_validator_seats,
+            num_lightclient,
+            epoch_length,
+            genesis_height,
+            self.save_tx_outcomes,
+        );
+        f(genesis, rpc_addrs, clients).await;
+        shutdown_all_actors();
+        RocksDB::block_until_all_instances_are_dropped();
     }
 }

@@ -24,6 +24,14 @@ pub struct ThreadNode {
     account_id: AccountId,
 }
 
+impl Drop for ThreadNode {
+    fn drop(&mut self) {
+        if let ThreadNodeState::Running(handle) = &self.state {
+            handle.stop();
+        }
+    }
+}
+
 fn start_thread(config: NearConfig, path: PathBuf) -> ActorSystem {
     let actor_system = ActorSystem::new();
     start_with_config(&path, config, actor_system.clone()).expect("start_with_config");

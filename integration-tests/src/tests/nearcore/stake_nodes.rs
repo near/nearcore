@@ -7,7 +7,6 @@ use near_primitives::num_rational::Ratio;
 use rand::Rng;
 
 use crate::utils::genesis_helpers::genesis_hash;
-use crate::utils::test_helpers::heavy_test_async;
 use near_chain_configs::{Genesis, NEAR_BASE, TrackedShardsConfig};
 use near_client::{GetBlock, ProcessTxRequest, Query, RpcHandler, ViewClientActorInner};
 use near_crypto::{InMemorySigner, Signer};
@@ -104,203 +103,189 @@ fn init_test_staking(
 /// waits until it becomes a validator.
 #[tokio::test]
 async fn slow_test_stake_nodes() {
-    heavy_test_async(async move {
-        let num_nodes = 2;
-        let dirs = (0..num_nodes)
-            .map(|i| {
-                tempfile::Builder::new().prefix(&format!("stake_node_{}", i)).tempdir().unwrap()
-            })
-            .collect::<Vec<_>>();
-        let test_nodes = init_test_staking(
-            dirs.iter().map(|dir| dir.path()).collect::<Vec<_>>(),
-            num_nodes,
-            1,
-            10,
-            false,
-            10,
-            false,
-        );
+    let num_nodes = 2;
+    let dirs = (0..num_nodes)
+        .map(|i| tempfile::Builder::new().prefix(&format!("stake_node_{}", i)).tempdir().unwrap())
+        .collect::<Vec<_>>();
+    let test_nodes = init_test_staking(
+        dirs.iter().map(|dir| dir.path()).collect::<Vec<_>>(),
+        num_nodes,
+        1,
+        10,
+        false,
+        10,
+        false,
+    );
 
-        let tx = SignedTransaction::stake(
-            1,
-            test_nodes[1].account_id.clone(),
-            // &*test_nodes[1].config.block_producer.as_ref().unwrap().signer,
-            &(*test_nodes[1].signer),
-            TESTING_INIT_STAKE,
-            test_nodes[1].config.validator_signer.get().unwrap().public_key(),
-            test_nodes[1].genesis_hash,
-        );
-        test_nodes[0].tx_processor.send(ProcessTxRequest {
-            transaction: tx,
-            is_forwarded: false,
-            check_only: false,
-        });
+    let tx = SignedTransaction::stake(
+        1,
+        test_nodes[1].account_id.clone(),
+        // &*test_nodes[1].config.block_producer.as_ref().unwrap().signer,
+        &(*test_nodes[1].signer),
+        TESTING_INIT_STAKE,
+        test_nodes[1].config.validator_signer.get().unwrap().public_key(),
+        test_nodes[1].genesis_hash,
+    );
+    test_nodes[0].tx_processor.send(ProcessTxRequest {
+        transaction: tx,
+        is_forwarded: false,
+        check_only: false,
+    });
 
-        wait_or_timeout(100, 40000, || {
-            let test_nodes = test_nodes.clone();
-            async move {
-                let res = test_nodes[0]
-                    .client
-                    .send_async(Status { is_health_check: false, detailed: false }.span_wrap())
-                    .await
-                    .unwrap();
-                if res.is_err() {
-                    return ControlFlow::Continue(());
-                }
-                let mut validators = res.unwrap().validators;
-                validators.sort_unstable_by(|a, b| a.account_id.cmp(&b.account_id));
-                if validators
-                    == vec![
-                        ValidatorInfo { account_id: "near.0".parse().unwrap() },
-                        ValidatorInfo { account_id: "near.1".parse().unwrap() },
-                    ]
-                {
-                    ControlFlow::Break(())
-                } else {
-                    ControlFlow::Continue(())
-                }
+    wait_or_timeout(100, 40000, || {
+        let test_nodes = test_nodes.clone();
+        async move {
+            let res = test_nodes[0]
+                .client
+                .send_async(Status { is_health_check: false, detailed: false }.span_wrap())
+                .await
+                .unwrap();
+            if res.is_err() {
+                return ControlFlow::Continue(());
             }
-        })
-        .await
-        .unwrap();
-        near_async::shutdown_all_actors();
-        RocksDB::block_until_all_instances_are_dropped();
+            let mut validators = res.unwrap().validators;
+            validators.sort_unstable_by(|a, b| a.account_id.cmp(&b.account_id));
+            if validators
+                == vec![
+                    ValidatorInfo { account_id: "near.0".parse().unwrap() },
+                    ValidatorInfo { account_id: "near.1".parse().unwrap() },
+                ]
+            {
+                ControlFlow::Break(())
+            } else {
+                ControlFlow::Continue(())
+            }
+        }
     })
-    .await;
+    .await
+    .unwrap();
+    near_async::shutdown_all_actors();
+    RocksDB::block_until_all_instances_are_dropped();
 }
 
 #[tokio::test]
-async fn ultra_slow_test_validator_kickout() {
-    heavy_test_async(async move {
-        let num_nodes = 4;
-        let dirs = (0..num_nodes)
-            .map(|i| {
-                tempfile::Builder::new()
-                    .prefix(&format!("validator_kickout_{}", i))
-                    .tempdir()
-                    .unwrap()
-            })
-            .collect::<Vec<_>>();
-        let test_nodes = init_test_staking(
-            dirs.iter().map(|dir| dir.path()).collect::<Vec<_>>(),
-            num_nodes,
-            4,
-            15,
-            false,
-            (TESTING_INIT_STAKE / NEAR_BASE) as u64 + 1,
-            false,
-        );
-        let mut rng = rand::thread_rng();
-        let stakes = (0..num_nodes / 2).map(|_| NEAR_BASE + rng.gen_range(1..100));
-        let stake_transactions = stakes.enumerate().map(|(i, stake)| {
-            let test_node = &test_nodes[i];
-            let signer = Arc::new(InMemorySigner::test_signer(&test_node.account_id));
-            SignedTransaction::stake(
-                1,
-                test_node.account_id.clone(),
-                &*signer,
-                stake,
-                test_node.config.validator_signer.get().unwrap().public_key(),
-                test_node.genesis_hash,
-            )
+async fn slow_test_validator_kickout() {
+    let num_nodes = 4;
+    let dirs = (0..num_nodes)
+        .map(|i| {
+            tempfile::Builder::new().prefix(&format!("validator_kickout_{}", i)).tempdir().unwrap()
+        })
+        .collect::<Vec<_>>();
+    let test_nodes = init_test_staking(
+        dirs.iter().map(|dir| dir.path()).collect::<Vec<_>>(),
+        num_nodes,
+        4,
+        15,
+        false,
+        (TESTING_INIT_STAKE / NEAR_BASE) as u64 + 1,
+        false,
+    );
+    let mut rng = rand::thread_rng();
+    let stakes = (0..num_nodes / 2).map(|_| NEAR_BASE + rng.gen_range(1..100));
+    let stake_transactions = stakes.enumerate().map(|(i, stake)| {
+        let test_node = &test_nodes[i];
+        let signer = Arc::new(InMemorySigner::test_signer(&test_node.account_id));
+        SignedTransaction::stake(
+            1,
+            test_node.account_id.clone(),
+            &*signer,
+            stake,
+            test_node.config.validator_signer.get().unwrap().public_key(),
+            test_node.genesis_hash,
+        )
+    });
+
+    for (i, stake_transaction) in stake_transactions.enumerate() {
+        let test_node = &test_nodes[i];
+        test_node.tx_processor.send(ProcessTxRequest {
+            transaction: stake_transaction,
+            is_forwarded: false,
+            check_only: false,
         });
+    }
 
-        for (i, stake_transaction) in stake_transactions.enumerate() {
-            let test_node = &test_nodes[i];
-            test_node.tx_processor.send(ProcessTxRequest {
-                transaction: stake_transaction,
-                is_forwarded: false,
-                check_only: false,
-            });
-        }
+    let finalized_mark: Arc<Vec<_>> =
+        Arc::new((0..num_nodes).map(|_| Arc::new(AtomicBool::new(false))).collect());
 
-        let finalized_mark: Arc<Vec<_>> =
-            Arc::new((0..num_nodes).map(|_| Arc::new(AtomicBool::new(false))).collect());
-
-        wait_or_timeout(100, 120000, || {
+    wait_or_timeout(100, 120000, || {
+        let test_nodes = test_nodes.clone();
+        let finalized_mark = finalized_mark.clone();
+        async move {
             let test_nodes = test_nodes.clone();
-            let finalized_mark = finalized_mark.clone();
-            async move {
-                let test_nodes = test_nodes.clone();
-                let test_node1 = test_nodes[(num_nodes / 2) as usize].clone();
-                let finalized_mark1 = finalized_mark.clone();
+            let test_node1 = test_nodes[(num_nodes / 2) as usize].clone();
+            let finalized_mark1 = finalized_mark.clone();
 
-                let res = test_node1
-                    .client
-                    .send_async(Status { is_health_check: false, detailed: false }.span_wrap())
-                    .await;
-                let expected: Vec<_> = (num_nodes / 2..num_nodes)
-                    .map(|i| ValidatorInfo {
-                        account_id: AccountId::try_from(format!("near.{}", i)).unwrap(),
-                    })
-                    .collect();
-                let res = res.unwrap();
-                if res.is_err() {
-                    return ControlFlow::Continue(());
-                }
-                if res.unwrap().validators == expected {
-                    for i in 0..num_nodes / 2 {
-                        let mark = finalized_mark1[i as usize].clone();
-                        let res = test_node1
-                            .view_client
-                            .send_async(Query::new(
-                                BlockReference::latest(),
-                                QueryRequest::ViewAccount {
-                                    account_id: test_nodes[i as usize].account_id.clone(),
-                                },
-                            ))
-                            .await
-                            .unwrap()
-                            .unwrap();
-                        match res.kind {
-                            QueryResponseKind::ViewAccount(result) => {
-                                if result.locked == 0 || result.amount == TESTING_INIT_BALANCE {
-                                    mark.store(true, Ordering::SeqCst);
-                                }
-                            }
-                            _ => panic!("wrong return result"),
-                        }
-                    }
-                    for i in num_nodes / 2..num_nodes {
-                        let mark = finalized_mark1[i as usize].clone();
-
-                        let res = test_node1
-                            .view_client
-                            .send_async(Query::new(
-                                BlockReference::latest(),
-                                QueryRequest::ViewAccount {
-                                    account_id: test_nodes[i as usize].account_id.clone(),
-                                },
-                            ))
-                            .await
-                            .unwrap()
-                            .unwrap();
-                        match res.kind {
-                            QueryResponseKind::ViewAccount(result) => {
-                                assert_eq!(result.locked, TESTING_INIT_STAKE);
-                                assert_eq!(
-                                    result.amount,
-                                    TESTING_INIT_BALANCE - TESTING_INIT_STAKE
-                                );
+            let res = test_node1
+                .client
+                .send_async(Status { is_health_check: false, detailed: false }.span_wrap())
+                .await;
+            let expected: Vec<_> = (num_nodes / 2..num_nodes)
+                .map(|i| ValidatorInfo {
+                    account_id: AccountId::try_from(format!("near.{}", i)).unwrap(),
+                })
+                .collect();
+            let res = res.unwrap();
+            if res.is_err() {
+                return ControlFlow::Continue(());
+            }
+            if res.unwrap().validators == expected {
+                for i in 0..num_nodes / 2 {
+                    let mark = finalized_mark1[i as usize].clone();
+                    let res = test_node1
+                        .view_client
+                        .send_async(Query::new(
+                            BlockReference::latest(),
+                            QueryRequest::ViewAccount {
+                                account_id: test_nodes[i as usize].account_id.clone(),
+                            },
+                        ))
+                        .await
+                        .unwrap()
+                        .unwrap();
+                    match res.kind {
+                        QueryResponseKind::ViewAccount(result) => {
+                            if result.locked == 0 || result.amount == TESTING_INIT_BALANCE {
                                 mark.store(true, Ordering::SeqCst);
                             }
-                            _ => panic!("wrong return result"),
                         }
-                    }
-
-                    if finalized_mark1.iter().all(|mark| mark.load(Ordering::SeqCst)) {
-                        return ControlFlow::Break(());
+                        _ => panic!("wrong return result"),
                     }
                 }
-                ControlFlow::Continue(())
+                for i in num_nodes / 2..num_nodes {
+                    let mark = finalized_mark1[i as usize].clone();
+
+                    let res = test_node1
+                        .view_client
+                        .send_async(Query::new(
+                            BlockReference::latest(),
+                            QueryRequest::ViewAccount {
+                                account_id: test_nodes[i as usize].account_id.clone(),
+                            },
+                        ))
+                        .await
+                        .unwrap()
+                        .unwrap();
+                    match res.kind {
+                        QueryResponseKind::ViewAccount(result) => {
+                            assert_eq!(result.locked, TESTING_INIT_STAKE);
+                            assert_eq!(result.amount, TESTING_INIT_BALANCE - TESTING_INIT_STAKE);
+                            mark.store(true, Ordering::SeqCst);
+                        }
+                        _ => panic!("wrong return result"),
+                    }
+                }
+
+                if finalized_mark1.iter().all(|mark| mark.load(Ordering::SeqCst)) {
+                    return ControlFlow::Break(());
+                }
             }
-        })
-        .await
-        .unwrap();
-        near_async::shutdown_all_actors();
-        RocksDB::block_until_all_instances_are_dropped();
+            ControlFlow::Continue(())
+        }
     })
-    .await;
+    .await
+    .unwrap();
+    near_async::shutdown_all_actors();
+    RocksDB::block_until_all_instances_are_dropped();
 }
 
 /// Starts 4 nodes, genesis has 2 validator seats.
@@ -310,152 +295,141 @@ async fn ultra_slow_test_validator_kickout() {
 /// Afterwards check that `locked` amount on accounts Node1 and Node2 are 0 and TESTING_INIT_STAKE.
 #[tokio::test]
 async fn ultra_slow_test_validator_join() {
-    heavy_test_async(async move {
-        let num_nodes = 4;
-        let dirs = (0..num_nodes)
-            .map(|i| {
-                tempfile::Builder::new().prefix(&format!("validator_join_{}", i)).tempdir().unwrap()
-            })
-            .collect::<Vec<_>>();
-        let test_nodes = init_test_staking(
-            dirs.iter().map(|dir| dir.path()).collect::<Vec<_>>(),
-            num_nodes,
-            2,
-            30,
-            false,
-            10,
-            false,
-        );
-        let signer = Arc::new(InMemorySigner::test_signer(&test_nodes[1].account_id));
-        let unstake_transaction = SignedTransaction::stake(
-            1,
-            test_nodes[1].account_id.clone(),
-            &*signer,
-            0,
-            test_nodes[1].config.validator_signer.get().unwrap().public_key(),
-            test_nodes[1].genesis_hash,
-        );
-
-        let signer = Arc::new(InMemorySigner::test_signer(&test_nodes[2].account_id));
-        let stake_transaction = SignedTransaction::stake(
-            1,
-            test_nodes[2].account_id.clone(),
-            &*signer,
-            TESTING_INIT_STAKE,
-            test_nodes[2].config.validator_signer.get().unwrap().public_key(),
-            test_nodes[2].genesis_hash,
-        );
-
-        test_nodes[1].tx_processor.send(ProcessTxRequest {
-            transaction: unstake_transaction,
-            is_forwarded: false,
-            check_only: false,
-        });
-        test_nodes[0].tx_processor.send(ProcessTxRequest {
-            transaction: stake_transaction,
-            is_forwarded: false,
-            check_only: false,
-        });
-
-        let (done1, done2) = (Arc::new(AtomicBool::new(false)), Arc::new(AtomicBool::new(false)));
-
-        wait_or_timeout(1000, 120000, || {
-            let test_nodes = test_nodes.clone();
-            let done1 = done1.clone();
-            let done2 = done2.clone();
-            async move {
-                let test_node1 = test_nodes[0].clone();
-                let expected = vec![
-                    ValidatorInfo { account_id: "near.0".parse().unwrap() },
-                    ValidatorInfo { account_id: "near.2".parse().unwrap() },
-                ];
-                let res = test_node1
-                    .client
-                    .send_async(Status { is_health_check: false, detailed: false }.span_wrap())
-                    .await
-                    .unwrap();
-                if res.is_err() {
-                    return ControlFlow::Continue(());
-                }
-                if res.unwrap().validators == expected {
-                    let res = test_node1
-                        .view_client
-                        .send_async(Query::new(
-                            BlockReference::latest(),
-                            QueryRequest::ViewAccount {
-                                account_id: test_nodes[1].account_id.clone(),
-                            },
-                        ))
-                        .await;
-                    match res.unwrap().unwrap().kind {
-                        QueryResponseKind::ViewAccount(result) => {
-                            if result.locked == 0 {
-                                done1.store(true, Ordering::SeqCst);
-                            }
-                        }
-                        _ => panic!("wrong return result"),
-                    }
-                    let res = test_node1
-                        .view_client
-                        .send_async(Query::new(
-                            BlockReference::latest(),
-                            QueryRequest::ViewAccount {
-                                account_id: test_nodes[2].account_id.clone(),
-                            },
-                        ))
-                        .await;
-                    match res.unwrap().unwrap().kind {
-                        QueryResponseKind::ViewAccount(result) => {
-                            if result.locked == TESTING_INIT_STAKE {
-                                done2.store(true, Ordering::SeqCst);
-                            }
-                        }
-                        _ => panic!("wrong return result"),
-                    }
-                }
-
-                if done1.load(Ordering::SeqCst) && done2.load(Ordering::SeqCst) {
-                    return ControlFlow::Break(());
-                }
-                ControlFlow::Continue(())
-            }
+    let num_nodes = 4;
+    let dirs = (0..num_nodes)
+        .map(|i| {
+            tempfile::Builder::new().prefix(&format!("validator_join_{}", i)).tempdir().unwrap()
         })
-        .await
-        .unwrap();
-        near_async::shutdown_all_actors();
-        RocksDB::block_until_all_instances_are_dropped();
+        .collect::<Vec<_>>();
+    let test_nodes = init_test_staking(
+        dirs.iter().map(|dir| dir.path()).collect::<Vec<_>>(),
+        num_nodes,
+        2,
+        30,
+        false,
+        10,
+        false,
+    );
+    let signer = Arc::new(InMemorySigner::test_signer(&test_nodes[1].account_id));
+    let unstake_transaction = SignedTransaction::stake(
+        1,
+        test_nodes[1].account_id.clone(),
+        &*signer,
+        0,
+        test_nodes[1].config.validator_signer.get().unwrap().public_key(),
+        test_nodes[1].genesis_hash,
+    );
+
+    let signer = Arc::new(InMemorySigner::test_signer(&test_nodes[2].account_id));
+    let stake_transaction = SignedTransaction::stake(
+        1,
+        test_nodes[2].account_id.clone(),
+        &*signer,
+        TESTING_INIT_STAKE,
+        test_nodes[2].config.validator_signer.get().unwrap().public_key(),
+        test_nodes[2].genesis_hash,
+    );
+
+    test_nodes[1].tx_processor.send(ProcessTxRequest {
+        transaction: unstake_transaction,
+        is_forwarded: false,
+        check_only: false,
+    });
+    test_nodes[0].tx_processor.send(ProcessTxRequest {
+        transaction: stake_transaction,
+        is_forwarded: false,
+        check_only: false,
+    });
+
+    let (done1, done2) = (Arc::new(AtomicBool::new(false)), Arc::new(AtomicBool::new(false)));
+
+    wait_or_timeout(1000, 120000, || {
+        let test_nodes = test_nodes.clone();
+        let done1 = done1.clone();
+        let done2 = done2.clone();
+        async move {
+            let test_node1 = test_nodes[0].clone();
+            let expected = vec![
+                ValidatorInfo { account_id: "near.0".parse().unwrap() },
+                ValidatorInfo { account_id: "near.2".parse().unwrap() },
+            ];
+            let res = test_node1
+                .client
+                .send_async(Status { is_health_check: false, detailed: false }.span_wrap())
+                .await
+                .unwrap();
+            if res.is_err() {
+                return ControlFlow::Continue(());
+            }
+            if res.unwrap().validators == expected {
+                let res = test_node1
+                    .view_client
+                    .send_async(Query::new(
+                        BlockReference::latest(),
+                        QueryRequest::ViewAccount { account_id: test_nodes[1].account_id.clone() },
+                    ))
+                    .await;
+                match res.unwrap().unwrap().kind {
+                    QueryResponseKind::ViewAccount(result) => {
+                        if result.locked == 0 {
+                            done1.store(true, Ordering::SeqCst);
+                        }
+                    }
+                    _ => panic!("wrong return result"),
+                }
+                let res = test_node1
+                    .view_client
+                    .send_async(Query::new(
+                        BlockReference::latest(),
+                        QueryRequest::ViewAccount { account_id: test_nodes[2].account_id.clone() },
+                    ))
+                    .await;
+                match res.unwrap().unwrap().kind {
+                    QueryResponseKind::ViewAccount(result) => {
+                        if result.locked == TESTING_INIT_STAKE {
+                            done2.store(true, Ordering::SeqCst);
+                        }
+                    }
+                    _ => panic!("wrong return result"),
+                }
+            }
+
+            if done1.load(Ordering::SeqCst) && done2.load(Ordering::SeqCst) {
+                return ControlFlow::Break(());
+            }
+            ControlFlow::Continue(())
+        }
     })
-    .await;
+    .await
+    .unwrap();
+    near_async::shutdown_all_actors();
+    RocksDB::block_until_all_instances_are_dropped();
 }
 
 /// Checks that during the first epoch, total_supply matches total_supply in genesis.
 /// Checks that during the second epoch, total_supply matches the expected inflation rate.
 #[tokio::test]
 async fn slow_test_inflation() {
-    heavy_test_async(async move {
-        let num_nodes = 1;
-        let dirs = (0..num_nodes)
-            .map(|i| {
-                tempfile::Builder::new().prefix(&format!("stake_node_{}", i)).tempdir().unwrap()
-            })
-            .collect::<Vec<_>>();
-        let epoch_length = 10;
-        let test_nodes = init_test_staking(
-            dirs.iter().map(|dir| dir.path()).collect::<Vec<_>>(),
-            num_nodes,
-            1,
-            epoch_length,
-            true,
-            10,
-            false,
-        );
-        let initial_total_supply = test_nodes[0].config.genesis.config.total_supply;
-        let max_inflation_rate = test_nodes[0].config.genesis.config.max_inflation_rate;
+    let num_nodes = 1;
+    let dirs = (0..num_nodes)
+        .map(|i| tempfile::Builder::new().prefix(&format!("stake_node_{}", i)).tempdir().unwrap())
+        .collect::<Vec<_>>();
+    let epoch_length = 10;
+    let test_nodes = init_test_staking(
+        dirs.iter().map(|dir| dir.path()).collect::<Vec<_>>(),
+        num_nodes,
+        1,
+        epoch_length,
+        true,
+        10,
+        false,
+    );
+    let initial_total_supply = test_nodes[0].config.genesis.config.total_supply;
+    let max_inflation_rate = test_nodes[0].config.genesis.config.max_inflation_rate;
 
-        let (done1, done2) =
-            (Arc::new(AtomicBool::new(false)), Arc::new(AtomicBool::new(false)));
+    let (done1, done2) = (Arc::new(AtomicBool::new(false)), Arc::new(AtomicBool::new(false)));
 
-        wait_or_timeout(100, 60000, || {
+    wait_or_timeout(100, 60000, || {
             let test_nodes = test_nodes.clone();
             let done1 = done1.clone();
             let done2 = done2.clone();
@@ -537,8 +511,6 @@ async fn slow_test_inflation() {
         })
         .await
         .unwrap();
-        near_async::shutdown_all_actors();
-        RocksDB::block_until_all_instances_are_dropped();
-    })
-    .await;
+    near_async::shutdown_all_actors();
+    RocksDB::block_until_all_instances_are_dropped();
 }
