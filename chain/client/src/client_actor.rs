@@ -1323,10 +1323,22 @@ impl ClientActorInner {
         delay
     }
 
-    // TODO: Implement handling of PostStateReadyMessage, for now just log it.
-    #[allow(clippy::needless_pass_by_ref_mut)]
+    /// Receive the PostStateReadyMessage which contains data needed to start preparing transactions for the next height.
     fn handle_on_post_state_ready(&mut self, msg: PostStateReadyMessage) {
         tracing::trace!(target: "client", ?msg, "Received PostStateReadyMessage");
+
+        let tx_validity_period_check = self.client.chain.early_prepare_transaction_validity_check(
+            msg.prev_block_context.height,
+            msg.prev_prev_block_header,
+        );
+        self.client.chunk_producer.start_prepare_transactions_job(
+            msg.key,
+            msg.shard_uid,
+            msg.post_state.trie_update,
+            msg.prev_block_context,
+            msg.prev_chunk_tx_hashes,
+            tx_validity_period_check,
+        );
     }
 
     /// "Unfinished" blocks means that blocks that client has started the processing and haven't
