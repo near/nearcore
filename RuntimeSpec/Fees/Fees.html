@@ -1,0 +1,380 @@
+<!DOCTYPE HTML>
+<html lang="en" class="sidebar-visible no-js light">
+    <head>
+        <!-- Book generated using mdBook -->
+        <meta charset="UTF-8">
+        <title>Fees - Guide to Nearcore Development</title>
+        <!-- Custom HTML head -->
+        <meta content="text/html; charset=utf-8" http-equiv="Content-Type">
+        <meta name="description" content="">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <meta name="theme-color" content="#ffffff" />
+
+        <link rel="icon" href="../../favicon.svg">
+        <link rel="shortcut icon" href="../../favicon.png">
+        <link rel="stylesheet" href="../../css/variables.css">
+        <link rel="stylesheet" href="../../css/general.css">
+        <link rel="stylesheet" href="../../css/chrome.css">
+        <link rel="stylesheet" href="../../css/print.css" media="print">
+        <!-- Fonts -->
+        <link rel="stylesheet" href="../../FontAwesome/css/font-awesome.css">
+        <link rel="stylesheet" href="../../fonts/fonts.css">
+        <!-- Highlight.js Stylesheets -->
+        <link rel="stylesheet" href="../../highlight.css">
+        <link rel="stylesheet" href="../../tomorrow-night.css">
+        <link rel="stylesheet" href="../../ayu-highlight.css">
+
+        <!-- Custom theme stylesheets -->
+    </head>
+    <body>
+        <!-- Provide site root to javascript -->
+        <script type="text/javascript">
+            var path_to_root = "../../";
+            var default_theme = window.matchMedia("(prefers-color-scheme: dark)").matches ? "navy" : "light";
+        </script>
+
+        <!-- Work around some values being stored in localStorage wrapped in quotes -->
+        <script type="text/javascript">
+            try {
+                var theme = localStorage.getItem('mdbook-theme');
+                var sidebar = localStorage.getItem('mdbook-sidebar');
+
+                if (theme.startsWith('"') && theme.endsWith('"')) {
+                    localStorage.setItem('mdbook-theme', theme.slice(1, theme.length - 1));
+                }
+
+                if (sidebar.startsWith('"') && sidebar.endsWith('"')) {
+                    localStorage.setItem('mdbook-sidebar', sidebar.slice(1, sidebar.length - 1));
+                }
+            } catch (e) { }
+        </script>
+
+        <!-- Set the theme before any content is loaded, prevents flash -->
+        <script type="text/javascript">
+            var theme;
+            try { theme = localStorage.getItem('mdbook-theme'); } catch(e) { }
+            if (theme === null || theme === undefined) { theme = default_theme; }
+            var html = document.querySelector('html');
+            html.classList.remove('no-js')
+            html.classList.remove('light')
+            html.classList.add(theme);
+            html.classList.add('js');
+        </script>
+
+        <!-- Hide / unhide sidebar before it is displayed -->
+        <script type="text/javascript">
+            var html = document.querySelector('html');
+            var sidebar = 'hidden';
+            if (document.body.clientWidth >= 1080) {
+                try { sidebar = localStorage.getItem('mdbook-sidebar'); } catch(e) { }
+                sidebar = sidebar || 'visible';
+            }
+            html.classList.remove('sidebar-visible');
+            html.classList.add("sidebar-" + sidebar);
+        </script>
+
+        <nav id="sidebar" class="sidebar" aria-label="Table of contents">
+            <div class="sidebar-scrollbox">
+                <ol class="chapter"><li class="chapter-item expanded affix "><a href="../../index.html">Introduction</a></li><li class="chapter-item expanded affix "><li class="part-title">Protocol Specification</li><li class="chapter-item expanded "><a href="../../DataStructures/index.html"><strong aria-hidden="true">1.</strong> Data Structures</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../../DataStructures/AccessKey.html"><strong aria-hidden="true">1.1.</strong> Access Keys</a></li><li class="chapter-item expanded "><a href="../../DataStructures/Account.html"><strong aria-hidden="true">1.2.</strong> Accounts</a></li><li class="chapter-item expanded "><a href="../../DataStructures/Block.html"><strong aria-hidden="true">1.3.</strong> Block and Block Header</a></li><li class="chapter-item expanded "><a href="../../DataStructures/DataTypes.html"><strong aria-hidden="true">1.4.</strong> Data Types</a></li><li class="chapter-item expanded "><a href="../../DataStructures/MerkleProof.html"><strong aria-hidden="true">1.5.</strong> Merkle Proofs</a></li><li class="chapter-item expanded "><a href="../../DataStructures/Transaction.html"><strong aria-hidden="true">1.6.</strong> Transaction</a></li></ol></li><li class="chapter-item expanded "><a href="../../ChainSpec/index.html"><strong aria-hidden="true">2.</strong> Chain Specification</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../../ChainSpec/BlockProcessing.html"><strong aria-hidden="true">2.1.</strong> Block Processing</a></li><li class="chapter-item expanded "><a href="../../ChainSpec/Consensus.html"><strong aria-hidden="true">2.2.</strong> Consensus</a></li><li class="chapter-item expanded "><a href="../../ChainSpec/LightClient.html"><strong aria-hidden="true">2.3.</strong> Light Client</a></li><li class="chapter-item expanded "><a href="../../ChainSpec/SelectingBlockProducers.html"><strong aria-hidden="true">2.4.</strong> Selecting Chunk and Block Producers</a></li><li class="chapter-item expanded "><a href="../../ChainSpec/Transactions.html"><strong aria-hidden="true">2.5.</strong> Transactions in the Blockchain Layer</a></li><li class="chapter-item expanded "><a href="../../ChainSpec/Upgradability.html"><strong aria-hidden="true">2.6.</strong> Upgradability</a></li><li class="chapter-item expanded "><a href="../../ChainSpec/EpochAndStaking/index.html"><strong aria-hidden="true">2.7.</strong> Epochs and Staking</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../../ChainSpec/EpochAndStaking/Epoch.html"><strong aria-hidden="true">2.7.1.</strong> Epoch</a></li><li class="chapter-item expanded "><a href="../../ChainSpec/EpochAndStaking/EpochManager.html"><strong aria-hidden="true">2.7.2.</strong> EpochManager</a></li><li class="chapter-item expanded "><a href="../../ChainSpec/EpochAndStaking/Staking.html"><strong aria-hidden="true">2.7.3.</strong> Staking and slashing</a></li></ol></li></ol></li><li class="chapter-item expanded "><a href="../../NetworkSpec/NetworkSpec.html"><strong aria-hidden="true">3.</strong> Network Specification</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../../NetworkSpec/Messages.html"><strong aria-hidden="true">3.1.</strong> Messages</a></li><li class="chapter-item expanded "><a href="../../NetworkSpec/RoutingTableExchangeAlgorithm.html"><strong aria-hidden="true">3.2.</strong> Routing Table Exchange Algorithm</a></li></ol></li><li class="chapter-item expanded "><a href="../../RuntimeSpec/index.html"><strong aria-hidden="true">4.</strong> Runtime Specification</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../../RuntimeSpec/AccountStorage.html"><strong aria-hidden="true">4.1.</strong> Account Receipt Storage</a></li><li class="chapter-item expanded "><a href="../../RuntimeSpec/Actions.html"><strong aria-hidden="true">4.2.</strong> Actions</a></li><li class="chapter-item expanded "><a href="../../RuntimeSpec/ApplyingChunk.html"><strong aria-hidden="true">4.3.</strong> Applying chunk</a></li><li class="chapter-item expanded "><a href="../../RuntimeSpec/Components/Components.html"><strong aria-hidden="true">4.4.</strong> Components</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../../RuntimeSpec/Components/RuntimeCrate.html"><strong aria-hidden="true">4.4.1.</strong> Runtime Crate</a></li><li class="chapter-item expanded "><a href="../../RuntimeSpec/Components/BindingsSpec/BindingsSpec.html"><strong aria-hidden="true">4.4.2.</strong> Bindings Specification</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../../RuntimeSpec/Components/BindingsSpec/ContextAPI.html"><strong aria-hidden="true">4.4.2.1.</strong> Context API</a></li><li class="chapter-item expanded "><a href="../../RuntimeSpec/Components/BindingsSpec/EconomicsAPI.html"><strong aria-hidden="true">4.4.2.2.</strong> Economics API</a></li><li class="chapter-item expanded "><a href="../../RuntimeSpec/Components/BindingsSpec/MathAPI.html"><strong aria-hidden="true">4.4.2.3.</strong> Math API</a></li><li class="chapter-item expanded "><a href="../../RuntimeSpec/Components/BindingsSpec/MiscellaneousAPI.html"><strong aria-hidden="true">4.4.2.4.</strong> Miscellaneous API</a></li><li class="chapter-item expanded "><a href="../../RuntimeSpec/Components/BindingsSpec/PromisesAPI.html"><strong aria-hidden="true">4.4.2.5.</strong> Promises API</a></li><li class="chapter-item expanded "><a href="../../RuntimeSpec/Components/BindingsSpec/RegistersAPI.html"><strong aria-hidden="true">4.4.2.6.</strong> Registers API</a></li><li class="chapter-item expanded "><a href="../../RuntimeSpec/Components/BindingsSpec/TrieAPI.html"><strong aria-hidden="true">4.4.2.7.</strong> Trie API</a></li></ol></li></ol></li><li class="chapter-item expanded "><a href="../../RuntimeSpec/Fees/Fees.html" class="active"><strong aria-hidden="true">4.5.</strong> Fees</a></li><li class="chapter-item expanded "><a href="../../RuntimeSpec/FunctionCall.html"><strong aria-hidden="true">4.6.</strong> Function Call</a></li><li class="chapter-item expanded "><a href="../../RuntimeSpec/Preparation.html"><strong aria-hidden="true">4.7.</strong> Contract Preparation</a></li><li class="chapter-item expanded "><a href="../../RuntimeSpec/Receipts.html"><strong aria-hidden="true">4.8.</strong> Receipts</a></li><li class="chapter-item expanded "><a href="../../RuntimeSpec/Refunds.html"><strong aria-hidden="true">4.9.</strong> Refunds</a></li><li class="chapter-item expanded "><a href="../../RuntimeSpec/Runtime.html"><strong aria-hidden="true">4.10.</strong> Runtime</a></li><li class="chapter-item expanded "><a href="../../RuntimeSpec/Transactions.html"><strong aria-hidden="true">4.11.</strong> Transactions</a></li><li class="chapter-item expanded "><a href="../../RuntimeSpec/Scenarios/Scenarios.html"><strong aria-hidden="true">4.12.</strong> Scenarios</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../../RuntimeSpec/Scenarios/CrossContractCall.html"><strong aria-hidden="true">4.12.1.</strong> Cross-ContractCall</a></li><li class="chapter-item expanded "><a href="../../RuntimeSpec/Scenarios/FinancialTransaction.html"><strong aria-hidden="true">4.12.2.</strong> Financial Transaction</a></li></ol></li></ol></li><li class="chapter-item expanded "><a href="../../Economics/Economics.html"><strong aria-hidden="true">5.</strong> Economics</a></li><li class="chapter-item expanded "><a href="../../GenesisConfig/GenesisConfig.html"><strong aria-hidden="true">6.</strong> GenesisConfig</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../../GenesisConfig/ExtCostsConfig.html"><strong aria-hidden="true">6.1.</strong> ExtCostsConfig</a></li><li class="chapter-item expanded "><a href="../../GenesisConfig/VMConfig.html"><strong aria-hidden="true">6.2.</strong> VMConfig</a></li><li class="chapter-item expanded "><a href="../../GenesisConfig/StateRecord.html"><strong aria-hidden="true">6.3.</strong> StateRecord</a></li><li class="chapter-item expanded "><a href="../../GenesisConfig/RuntimeConfig.html"><strong aria-hidden="true">6.4.</strong> RuntimeConfig</a></li><li class="chapter-item expanded "><a href="../../GenesisConfig/RuntimeFeeConfig.html"><strong aria-hidden="true">6.5.</strong> RuntimeFeeConfig</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../../GenesisConfig/RuntimeFeeConfig/AccessKeyCreationConfig.html"><strong aria-hidden="true">6.5.1.</strong> AccessKeyCreationConfig</a></li><li class="chapter-item expanded "><a href="../../GenesisConfig/RuntimeFeeConfig/ActionCreationConfig.html"><strong aria-hidden="true">6.5.2.</strong> ActionCreationConfig</a></li><li class="chapter-item expanded "><a href="../../GenesisConfig/RuntimeFeeConfig/DataReceiptCreationConfig.html"><strong aria-hidden="true">6.5.3.</strong> DataReceiptCreationConfig</a></li><li class="chapter-item expanded "><a href="../../GenesisConfig/RuntimeFeeConfig/Fee.html"><strong aria-hidden="true">6.5.4.</strong> Fee</a></li><li class="chapter-item expanded "><a href="../../GenesisConfig/RuntimeFeeConfig/Fraction.html"><strong aria-hidden="true">6.5.5.</strong> Fraction</a></li><li class="chapter-item expanded "><a href="../../GenesisConfig/RuntimeFeeConfig/StorageUsageConfig.html"><strong aria-hidden="true">6.5.6.</strong> StorageUsageConfig</a></li></ol></li></ol></li><li class="chapter-item expanded "><li class="part-title">Architecture</li><li class="chapter-item expanded "><a href="../../architecture/index.html"><strong aria-hidden="true">7.</strong> Overview</a></li><li class="chapter-item expanded "><a href="../../architecture/how/index.html"><strong aria-hidden="true">8.</strong> How neard works</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../../architecture/how/sync.html"><strong aria-hidden="true">8.1.</strong> How Sync Works</a></li><li class="chapter-item expanded "><a href="../../architecture/how/gc.html"><strong aria-hidden="true">8.2.</strong> Garbage Collection</a></li><li class="chapter-item expanded "><a href="../../architecture/how/epoch.html"><strong aria-hidden="true">8.3.</strong> How Epoch Works</a></li><li class="chapter-item expanded "><a href="../../architecture/how/tx_routing.html"><strong aria-hidden="true">8.4.</strong> Transaction Routing</a></li><li class="chapter-item expanded "><a href="../../architecture/how/tx_receipts.html"><strong aria-hidden="true">8.5.</strong> Transactions And Receipts</a></li><li class="chapter-item expanded "><a href="../../architecture/how/cross-shard.html"><strong aria-hidden="true">8.6.</strong> Cross shard transactions - deep dive</a></li><li class="chapter-item expanded "><a href="../../architecture/how/gas.html"><strong aria-hidden="true">8.7.</strong> Gas</a></li><li class="chapter-item expanded "><a href="../../architecture/how/receipt-congestion.html"><strong aria-hidden="true">8.8.</strong> Receipt Congestion</a></li><li class="chapter-item expanded "><a href="../../architecture/how/meta-tx.html"><strong aria-hidden="true">8.9.</strong> Meta transactions</a></li><li class="chapter-item expanded "><a href="../../architecture/how/serialization.html"><strong aria-hidden="true">8.10.</strong> Serialization: Borsh, Json, ProtoBuf</a></li><li class="chapter-item expanded "><a href="../../architecture/how/proofs.html"><strong aria-hidden="true">8.11.</strong> Proofs</a></li><li class="chapter-item expanded "><a href="../../architecture/how/resharding_v2.html"><strong aria-hidden="true">8.12.</strong> Resharding V2</a></li><li class="chapter-item expanded "><a href="../../architecture/how/optimistic_block.html"><strong aria-hidden="true">8.13.</strong> Optimistic block</a></li></ol></li><li class="chapter-item expanded "><a href="../../architecture/next/index.html"><strong aria-hidden="true">9.</strong> How neard will work</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../../architecture/next/catchup_and_state_sync.html"><strong aria-hidden="true">9.1.</strong> Catchup and state sync improvements</a></li><li class="chapter-item expanded "><a href="../../architecture/next/malicious_chunk_producer_and_phase2.html"><strong aria-hidden="true">9.2.</strong> Malicious producers and phase 2</a></li></ol></li><li class="chapter-item expanded "><a href="../../architecture/storage.html"><strong aria-hidden="true">10.</strong> Storage</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../../architecture/storage/flow.html"><strong aria-hidden="true">10.1.</strong> Storage Request Flow</a></li><li class="chapter-item expanded "><a href="../../architecture/storage/trie_storage.html"><strong aria-hidden="true">10.2.</strong> Trie Storage</a></li><li class="chapter-item expanded "><a href="../../architecture/storage/database.html"><strong aria-hidden="true">10.3.</strong> Database Format</a></li><li class="chapter-item expanded "><a href="../../architecture/storage/flat_storage.html"><strong aria-hidden="true">10.4.</strong> Flat Storage</a></li></ol></li><li class="chapter-item expanded "><a href="../../architecture/network.html"><strong aria-hidden="true">11.</strong> Network</a></li><li class="chapter-item expanded "><a href="../../architecture/gas/index.html"><strong aria-hidden="true">12.</strong> Gas Cost Parameters</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../../architecture/gas/parameter_definition.html"><strong aria-hidden="true">12.1.</strong> Parameter Definitions</a></li><li class="chapter-item expanded "><a href="../../architecture/gas/gas_profile.html"><strong aria-hidden="true">12.2.</strong> Gas Profile</a></li><li class="chapter-item expanded "><a href="../../architecture/gas/estimator.html"><strong aria-hidden="true">12.3.</strong> Runtime Parameter Estimator</a></li></ol></li><li class="chapter-item expanded "><li class="part-title">Practices</li><li class="chapter-item expanded "><a href="../../practices/index.html"><strong aria-hidden="true">13.</strong> Overview</a></li><li class="chapter-item expanded "><a href="../../practices/rust.html"><strong aria-hidden="true">14.</strong> Rust 🦀</a></li><li class="chapter-item expanded "><a href="../../practices/workflows/index.html"><strong aria-hidden="true">15.</strong> Workflows</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../../practices/workflows/run_a_node.html"><strong aria-hidden="true">15.1.</strong> Run a Node</a></li><li class="chapter-item expanded "><a href="../../practices/workflows/deploy_a_contract.html"><strong aria-hidden="true">15.2.</strong> Deploy a Contract</a></li><li class="chapter-item expanded "><a href="../../practices/workflows/gas_estimations.html"><strong aria-hidden="true">15.3.</strong> Run Gas Estimations</a></li><li class="chapter-item expanded "><a href="../../practices/workflows/localnet_on_many_machines.html"><strong aria-hidden="true">15.4.</strong> Localnet on many machines</a></li><li class="chapter-item expanded "><a href="../../practices/workflows/io_trace.html"><strong aria-hidden="true">15.5.</strong> IO tracing</a></li><li class="chapter-item expanded "><a href="../../practices/workflows/profiling.html"><strong aria-hidden="true">15.6.</strong> Profiling</a></li><li class="chapter-item expanded "><a href="../../practices/workflows/benchmarks.html"><strong aria-hidden="true">15.7.</strong> Benchmarks</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../../practices/workflows/benchmarking_synthetic_workloads.html"><strong aria-hidden="true">15.7.1.</strong> Synthetic Workloads</a></li><li class="chapter-item expanded "><a href="../../practices/workflows/benchmarking_chunk_application_on_native_transfers.html"><strong aria-hidden="true">15.7.2.</strong> Native Transfer Chunk Application</a></li></ol></li><li class="chapter-item expanded "><a href="../../practices/workflows/otel_traces.html"><strong aria-hidden="true">15.8.</strong> Working with OpenTelemetry Traces</a></li><li class="chapter-item expanded "><a href="../../practices/workflows/futex_contention.html"><strong aria-hidden="true">15.9.</strong> Futex contention</a></li></ol></li><li class="chapter-item expanded "><a href="../../practices/style.html"><strong aria-hidden="true">16.</strong> Code Style</a></li><li class="chapter-item expanded "><a href="../../practices/docs.html"><strong aria-hidden="true">17.</strong> Documentation</a></li><li class="chapter-item expanded "><a href="../../practices/tracking_issues.html"><strong aria-hidden="true">18.</strong> Tracking Issues</a></li><li class="chapter-item expanded "><a href="../../practices/security_vulnerabilities.html"><strong aria-hidden="true">19.</strong> Security Vulnerabilities</a></li><li class="chapter-item expanded "><a href="../../practices/fast_builds.html"><strong aria-hidden="true">20.</strong> Fast Builds</a></li><li class="chapter-item expanded "><a href="../../practices/testing/index.html"><strong aria-hidden="true">21.</strong> Testing</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../../practices/testing/python_tests.html"><strong aria-hidden="true">21.1.</strong> Python Tests</a></li><li class="chapter-item expanded "><a href="../../practices/testing/test_utils.html"><strong aria-hidden="true">21.2.</strong> Testing Utils</a></li><li class="chapter-item expanded "><a href="../../practices/testing/coverage.html"><strong aria-hidden="true">21.3.</strong> Test Coverage</a></li></ol></li><li class="chapter-item expanded "><a href="../../practices/protocol_upgrade.html"><strong aria-hidden="true">22.</strong> Protocol Upgrade</a></li><li class="chapter-item expanded affix "><li class="part-title">Advanced configuration</li><li class="chapter-item expanded "><a href="../../advanced_configuration/networking.html"><strong aria-hidden="true">23.</strong> Networking</a></li><li class="chapter-item expanded affix "><li class="part-title">Custom test networks</li><li class="chapter-item expanded "><a href="../../test_networks/mainnet_spoon.html"><strong aria-hidden="true">24.</strong> Starting a network from mainnet state</a></li><li class="chapter-item expanded affix "><li class="part-title">Misc</li><li class="chapter-item expanded "><a href="../../misc/index.html"><strong aria-hidden="true">25.</strong> Overview</a></li><li class="chapter-item expanded "><a href="../../misc/state_sync_dump.html"><strong aria-hidden="true">26.</strong> State Sync Dump</a></li><li class="chapter-item expanded "><a href="../../misc/archival_data_recovery.html"><strong aria-hidden="true">27.</strong> Archival node - recovery of missing data</a></li></ol>
+            </div>
+            <div id="sidebar-resize-handle" class="sidebar-resize-handle"></div>
+        </nav>
+
+        <div id="page-wrapper" class="page-wrapper">
+
+            <div class="page">
+                <div id="menu-bar-hover-placeholder"></div>
+                <div id="menu-bar" class="menu-bar sticky bordered">
+                    <div class="left-buttons">
+                        <button id="sidebar-toggle" class="icon-button" type="button" title="Toggle Table of Contents" aria-label="Toggle Table of Contents" aria-controls="sidebar">
+                            <i class="fa fa-bars"></i>
+                        </button>
+                        <button id="theme-toggle" class="icon-button" type="button" title="Change theme" aria-label="Change theme" aria-haspopup="true" aria-expanded="false" aria-controls="theme-list">
+                            <i class="fa fa-paint-brush"></i>
+                        </button>
+                        <ul id="theme-list" class="theme-popup" aria-label="Themes" role="menu">
+                            <li role="none"><button role="menuitem" class="theme" id="light">Light (default)</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="rust">Rust</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="coal">Coal</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="navy">Navy</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="ayu">Ayu</button></li>
+                        </ul>
+                        <button id="search-toggle" class="icon-button" type="button" title="Search. (Shortkey: s)" aria-label="Toggle Searchbar" aria-expanded="false" aria-keyshortcuts="S" aria-controls="searchbar">
+                            <i class="fa fa-search"></i>
+                        </button>
+                    </div>
+
+                    <h1 class="menu-title">Guide to Nearcore Development</h1>
+
+                    <div class="right-buttons">
+                        <a href="../../print.html" title="Print this book" aria-label="Print this book">
+                            <i id="print-button" class="fa fa-print"></i>
+                        </a>
+                        <a href="https://github.com/near/nearcore/tree/master/docs" title="Git repository" aria-label="Git repository">
+                            <i id="git-repository-button" class="fa fa-github"></i>
+                        </a>
+                        <a href="https://github.com/near/nearcore/edit/master/docs/./RuntimeSpec/Fees/Fees.md" title="Suggest an edit" aria-label="Suggest an edit">
+                            <i id="git-edit-button" class="fa fa-edit"></i>
+                        </a>
+                    </div>
+                </div>
+
+                <div id="search-wrapper" class="hidden">
+                    <form id="searchbar-outer" class="searchbar-outer">
+                        <input type="search" id="searchbar" name="searchbar" placeholder="Search this book ..." aria-controls="searchresults-outer" aria-describedby="searchresults-header">
+                    </form>
+                    <div id="searchresults-outer" class="searchresults-outer hidden">
+                        <div id="searchresults-header" class="searchresults-header"></div>
+                        <ul id="searchresults">
+                        </ul>
+                    </div>
+                </div>
+                <!-- Apply ARIA attributes after the sidebar and the sidebar toggle button are added to the DOM -->
+                <script type="text/javascript">
+                    document.getElementById('sidebar-toggle').setAttribute('aria-expanded', sidebar === 'visible');
+                    document.getElementById('sidebar').setAttribute('aria-hidden', sidebar !== 'visible');
+                    Array.from(document.querySelectorAll('#sidebar a')).forEach(function(link) {
+                        link.setAttribute('tabIndex', sidebar === 'visible' ? 0 : -1);
+                    });
+                </script>
+
+                <div id="content" class="content">
+                    <main>
+                        <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.4/dist/katex.min.css">
+<h1 id="runtime-fees"><a class="header" href="#runtime-fees">Runtime Fees</a></h1>
+<p>Runtime fees are measured in Gas. Gas price will be discussed separately.</p>
+<p>When a transaction is converted into a receipt, the signer account is charged for the full cost of the transaction.
+This cost consists of extra attached gas, attached deposits and the transaction fee.</p>
+<p>The total transaction fee is the sum of the following:</p>
+<ul>
+<li>A fee for creation of the receipt</li>
+<li>A fee for every action</li>
+</ul>
+<p>Every <a href="/GenesisConfig/RuntimeFeeConfig/Fee.html">Fee</a> consists of 3 values measured in gas:</p>
+<ul>
+<li><code>send_sir</code> and <code>send_not_sir</code> - the gas burned when the action is being created to be sent to a receiver.
+<ul>
+<li><code>send_sir</code> is used when <code>current_account_id == receiver_id</code> (<code>current_account_id</code> is a <code>signer_id</code> for a signed transaction).</li>
+<li><code>send_not_sir</code> is used when <code>current_account_id != receiver_id</code></li>
+</ul>
+</li>
+<li><code>execution</code> - the gas burned when the action is being executed on the receiver's account.</li>
+</ul>
+<h2 id="receipt-creation-cost"><a class="header" href="#receipt-creation-cost">Receipt creation cost</a></h2>
+<p>There are 2 types of receipts:</p>
+<ul>
+<li>Action receipts <a href="/RuntimeSpec/Receipts.html#actionreceipt">ActionReceipt</a></li>
+<li>Data receipts <a href="/RuntimeSpec/Receipts.html#datareceipt">DataReceipt</a></li>
+</ul>
+<p>A transaction is converted into an <a href="/RuntimeSpec/Receipts.html#actionreceipt">ActionReceipt</a>.
+Data receipts are used for data dependencies and will be discussed separately.</p>
+<p>The <code>Fee</code> for an action receipt creation is described in the config <a href="/GenesisConfig/RuntimeFeeConfig.html#action_receipt_creation_config"><code>action_receipt_creation_config</code></a>.</p>
+<p>Example: when a signed transaction is being converted into a receipt, the gas for <code>action_receipt_creation_config.send</code> is being burned immediately,
+while the gas for <code>action_receipt_creation_config.execution</code> is only charged, but not burned. It'll be burned when
+the newly created receipt is executed on the receiver's account.</p>
+<h2 id="fees-for-actions"><a class="header" href="#fees-for-actions">Fees for actions</a></h2>
+<p>Every <a href="/RuntimeSpec/Actions"><code>Action</code></a> has a corresponding Fee(s) described in the config <a href="/GenesisConfig/RuntimeFeeConfig/ActionCreationConfig.html"><code>action_creation_config</code></a>.
+Similar to a receipt creation costs, the <code>send</code> gas is burned when an action is added to a receipt to be sent, and the <code>execution</code> gas is only charged, but not burned.</p>
+<p>Fees are either a base fee or a fee per byte of some data within the action.</p>
+<p>Here is the list of actions and their corresponding fees:</p>
+<ul>
+<li><a href="/RuntimeSpec/Actions.html#createaccountaction">CreateAccount</a> uses
+<ul>
+<li>the base fee <a href="/GenesisConfig/RuntimeFeeConfig/ActionCreationConfig.html#create_account_cost"><code>create_account_cost</code></a></li>
+</ul>
+</li>
+<li><a href="/RuntimeSpec/Actions.html#deploycontractaction">DeployContract</a> uses the sum of the following fees:
+<ul>
+<li>the base fee <a href="/GenesisConfig/RuntimeFeeConfig/ActionCreationConfig.html#deploy_contract_cost"><code>deploy_contract_cost</code></a></li>
+<li>the fee per byte of the contract code to be deployed with the fee <a href="/GenesisConfig/RuntimeFeeConfig/ActionCreationConfig.html#deploy_contract_cost_per_byte"><code>deploy_contract_cost_per_byte</code></a>
+To compute the number of bytes for a deploy contract action <code>deploy_contract_action</code> use <code>deploy_contract_action.code.len()</code></li>
+</ul>
+</li>
+<li><a href="/RuntimeSpec/Actions.html#functioncallaction">FunctionCall</a> uses the sum of the following fees:
+<ul>
+<li>the base fee <a href="/GenesisConfig/RuntimeFeeConfig/ActionCreationConfig.html#function_call_cost"><code>function_call_cost</code></a></li>
+<li>the fee per byte of method name string and per byte of arguments with the fee <a href="/GenesisConfig/RuntimeFeeConfig/ActionCreationConfig.html#function_call_cost_per_byte"><code>function_call_cost_per_byte</code></a>.
+To compute the number of bytes for a function call action <code>function_call_action</code> use <code>function_call_action.method_name.as_bytes().len() + function_call_action.args.len()</code></li>
+</ul>
+</li>
+<li><a href="/RuntimeSpec/Actions.html#transferaction">Transfer</a> uses one of the following fees:
+<ul>
+<li>if the <code>receiver_id</code> is an <a href="/DataStructures/Account#near-implicit-account-id">Implicit Account ID</a>, then a sum of base fees is used:
+<ul>
+<li>the create account base fee <a href="/GenesisConfig/RuntimeFeeConfig/ActionCreationConfig.html#create_account_cost"><code>create_account_cost</code></a></li>
+<li>the transfer base fee <a href="/GenesisConfig/RuntimeFeeConfig/ActionCreationConfig.html#transfer_cost"><code>transfer_cost</code></a></li>
+<li>the add full access key base fee <a href="/GenesisConfig/RuntimeFeeConfig/AccessKeyCreationConfig.html#full_access_cost"><code>add_key_cost.full_access_cost</code></a></li>
+</ul>
+</li>
+<li>if the <code>receiver_id</code> is NOT an <a href="/DataStructures/Account.html#near-implicit-account-id">Implicit Account ID</a>, then only the base fee is used:
+<ul>
+<li>the transfer base fee <a href="/GenesisConfig/RuntimeFeeConfig/ActionCreationConfig.html#transfer_cost"><code>transfer_cost</code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li><a href="/RuntimeSpec/Actions.html#stakeaction">Stake</a> uses
+<ul>
+<li>the base fee <a href="/GenesisConfig/RuntimeFeeConfig/ActionCreationConfig.html#stake_cost"><code>stake_cost</code></a></li>
+</ul>
+</li>
+<li><a href="/RuntimeSpec/Actions.html#addkeyaction">AddKey</a> uses one of the following fees:
+<ul>
+<li>if the access key is <a href="/DataStructures/AccessKey"><code>AccessKeyPermission::FullAccess</code></a> the base fee is used
+<ul>
+<li>the add full access key base fee <a href="/GenesisConfig/RuntimeFeeConfig/AccessKeyCreationConfig.html#full_access_cost"><code>add_key_cost.full_access_cost</code></a></li>
+</ul>
+</li>
+<li>if the access key is <a href="/DataStructures/AccessKey.html#accesskeypermissionfunctioncall"><code>AccessKeyPermission::FunctionCall</code></a> the sum of the fees is used
+<ul>
+<li>the add function call permission access key base fee <a href="/GenesisConfig/RuntimeFeeConfig/AccessKeyCreationConfig.html#full_access_cost"><code>add_key_cost.function_call_cost</code></a></li>
+<li>the fee per byte of method names with extra byte for every method with the fee <a href="/GenesisConfig/RuntimeFeeConfig/AccessKeyCreationConfig.html#function_call_cost_per_byte"><code>add_key_cost.function_call_cost_per_byte</code></a>
+To compute the number of bytes for <code>function_call_permission</code> use <code>function_call_permission.method_names.iter().map(|name| name.as_bytes().len() as u64 + 1).sum::&lt;u64&gt;()</code></li>
+</ul>
+</li>
+</ul>
+</li>
+<li><a href="/RuntimeSpec/Actions.html#deletekeyaction">DeleteKey</a> uses
+<ul>
+<li>the base fee <a href="/GenesisConfig/RuntimeFeeConfig/ActionCreationConfig.html#delete_key_cost"><code>delete_key_cost</code></a></li>
+</ul>
+</li>
+<li><a href="/RuntimeSpec/Actions.html#deleteaccountaction">DeleteAccount</a> uses
+<ul>
+<li>the base fee <a href="/GenesisConfig/RuntimeFeeConfig/ActionCreationConfig.html#delete_account_cost"><code>delete_account_cost</code></a></li>
+<li>action receipt creation fee for creating Transfer to send remaining funds to <code>beneficiary_id</code></li>
+<li>full transfer fee described in the corresponding item</li>
+</ul>
+</li>
+</ul>
+<h2 id="gas-tracking"><a class="header" href="#gas-tracking">Gas tracking</a></h2>
+<p>In <code>Runtime</code>, gas is tracked in the following fields of <code>ActionResult</code> struct:</p>
+<ul>
+<li><code>gas_burnt</code> - irreversible amount of gas spent on computations.</li>
+<li><code>gas_used</code> - includes burnt gas and gas attached to the new <code>ActionReceipt</code>s created during the method execution.</li>
+<li><code>gas_burnt_for_function_call</code> - stores gas burnt during function call execution. Later, contract account gets 30% of it as a reward for a possibility to invoke the function.</li>
+</ul>
+<p>Initially runtime charges <code>gas_used</code> from the account. Some gas may be refunded later, see <a href="../Refunds.html">Refunds</a>.</p>
+<p>At first, we charge fees related to conversion from <code>SignedTransaction</code> to <code>ActionReceipt</code> and future execution of this receipt:</p>
+<ul>
+<li>costs of all <code>SignedTransaction</code>s passed to <code>Runtime::apply</code> are computed in <code>tx_cost</code> function during validation;</li>
+<li><code>total_cost</code> is deducted from signer, which is a sum of:
+<ul>
+<li><code>gas_to_balance(gas_burnt)</code> where <code>gas_burnt</code> is action receipt send fee + <code>total_send_fees(transaction.actions)</code>);</li>
+<li><code>gas_to_balance(gas_remaining)</code> where <code>gas_remaining</code> is action receipt exec fee + <code>total_prepaid_exec_fees(transaction.actions)</code> to pay all remaining fees caused by transaction;</li>
+<li><code>total_deposit(transaction.actions)</code>;</li>
+</ul>
+</li>
+<li>each transaction is converted to receipt and passed to <code>Runtime::process_receipt</code>.</li>
+</ul>
+<p>Then each <code>ActionReceipt</code> is passed to <code>Runtime::apply_action_receipt</code> where gas is tracked as follows:</p>
+<ul>
+<li><code>ActionResult</code> is created with <code>ActionReceipt</code> execution fee;</li>
+<li>all actions inside <code>ActionReceipt</code> are passed to <code>Runtime::apply_action</code>;</li>
+<li><code>ActionResult</code> with charged base execution fees is created there;</li>
+<li>if action execution leads to new <code>ActionReceipt</code>s creation, corresponding <code>action_[action_name]</code> function adds new fees to the <code>ActionResult</code>. E.g. <code>action_delete_account</code> also charges the following fees:
+<ul>
+<li><code>gas_burnt</code>: <strong>send</strong> fee for <strong>new</strong> <code>ActionReceipt</code> creation + complex <strong>send</strong> fee for <code>Transfer</code> to beneficiary account</li>
+<li><code>gas_used</code>: <code>gas_burnt</code> + <strong>exec</strong> fee for created <code>ActionReceipt</code> + complex <strong>exec</strong> fee for <code>Transfer</code></li>
+</ul>
+</li>
+<li>all computed <code>ActionResult</code>s are merged into one, where all gas values are summed up;</li>
+<li>unused gas is refunded in <code>generate_refund_receipts</code>, after subtracting the gas refund fee, see <a href="../Refunds.html">Refunds</a>.</li>
+</ul>
+<p>Inside <code>VMLogic</code>, the fees are tracked in the <code>GasCounter</code> struct.
+The VM itself is called in the <code>action_function_call</code> inside <code>Runtime</code>. When all actions are processed, the result is returned as a <code>VMOutcome</code>, which is later merged with <code>ActionResult</code>.</p>
+<h1 id="example"><a class="header" href="#example">Example</a></h1>
+<!-- cspell:ignore VGYT Fwya Wckywk Ejuz -->
+<p>Let's say we have the following transaction:</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>Transaction {
+    signer_id: &quot;alice.near&quot;,
+    public_key: &quot;2onVGYTFwyaGetWckywk92ngBiZeNpBeEjuzSznEdhRE&quot;,
+    nonce: 23,
+    receiver_id: &quot;lockup.alice.near&quot;,
+    block_hash: &quot;3CwEMonK6MmKgjKePiFYgydbAvxhhqCPHKuDMnUcGGTK&quot;,
+    actions: [
+        Action::CreateAccount(CreateAccountAction {}),
+        Action::Transfer(TransferAction {
+            deposit: 100000000000000000000000000,
+        }),
+        Action::DeployContract(DeployContractAction {
+            code: vec![/*&lt;...128000 bytes...&gt;*/],
+        }),
+        Action::FunctionCall(FunctionCallAction {
+            method_name: &quot;new&quot;,
+            args: b&quot;{\&quot;owner_id\&quot;: \&quot;alice.near\&quot;}&quot;.to_vec(),
+            gas: 25000000000000,
+            deposit: 0,
+        }),
+    ],
+}
+<span class="boring">}
+</span></code></pre></pre>
+<p>It has <code>signer_id != receiver_id</code> so it will use <code>send_not_sir</code> for send fees.</p>
+<p>It contains 4 actions with 2 actions that requires to compute number of bytes.
+We assume <code>code</code> in <code>DeployContractAction</code> contains <code>128000</code> bytes. And <code>FunctionCallAction</code> has
+<code>method_name</code> with length of <code>3</code> and <code>args</code> length of <code>26</code>, so total of <code>29</code>.</p>
+<p>First let's compute the amount that will be burned immediately for sending a receipt.</p>
+<pre><code class="language-python">burnt_gas = \
+    config.action_receipt_creation_config.send_not_sir + \
+    config.action_creation_config.create_account_cost.send_not_sir + \
+    config.action_creation_config.transfer_cost.send_not_sir + \
+    config.action_creation_config.deploy_contract_cost.send_not_sir + \
+    128000 * config.action_creation_config.deploy_contract_cost_per_byte.send_not_sir + \
+    config.action_creation_config.function_call_cost.send_not_sir + \
+    29 * config.action_creation_config.function_call_cost_per_byte.send_not_sir
+</code></pre>
+<p>Now, by using <code>burnt_gas</code>, we can calculate the total transaction fee</p>
+<pre><code class="language-python">total_transaction_fee = burnt_gas + \
+    config.action_receipt_creation_config.execution + \
+    config.action_creation_config.create_account_cost.execution + \
+    config.action_creation_config.transfer_cost.execution + \
+    config.action_creation_config.deploy_contract_cost.execution + \
+    128000 * config.action_creation_config.deploy_contract_cost_per_byte.execution + \
+    config.action_creation_config.function_call_cost.execution + \
+    29 * config.action_creation_config.function_call_cost_per_byte.execution
+</code></pre>
+<p>This <code>total_transaction_fee</code> is the amount of gas required to create a new receipt from the transaction.</p>
+<p>NOTE: There are extra amounts required to prepay for deposit in <code>TransferAction</code> and gas in <code>FunctionCallAction</code>, but this is not part of the total transaction fee.</p>
+
+                    </main>
+
+                    <nav class="nav-wrapper" aria-label="Page navigation">
+                        <!-- Mobile navigation buttons -->
+                            <a rel="prev" href="../../RuntimeSpec/Components/BindingsSpec/TrieAPI.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                                <i class="fa fa-angle-left"></i>
+                            </a>
+                            <a rel="next" href="../../RuntimeSpec/FunctionCall.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                                <i class="fa fa-angle-right"></i>
+                            </a>
+                        <div style="clear: both"></div>
+                    </nav>
+                </div>
+            </div>
+
+            <nav class="nav-wide-wrapper" aria-label="Page navigation">
+                    <a rel="prev" href="../../RuntimeSpec/Components/BindingsSpec/TrieAPI.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                        <i class="fa fa-angle-left"></i>
+                    </a>
+                    <a rel="next" href="../../RuntimeSpec/FunctionCall.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                        <i class="fa fa-angle-right"></i>
+                    </a>
+            </nav>
+
+        </div>
+
+        <script type="text/javascript">
+            window.playground_copyable = true;
+        </script>
+        <script src="../../elasticlunr.min.js" type="text/javascript" charset="utf-8"></script>
+        <script src="../../mark.min.js" type="text/javascript" charset="utf-8"></script>
+        <script src="../../searcher.js" type="text/javascript" charset="utf-8"></script>
+        <script src="../../clipboard.min.js" type="text/javascript" charset="utf-8"></script>
+        <script src="../../highlight.js" type="text/javascript" charset="utf-8"></script>
+        <script src="../../book.js" type="text/javascript" charset="utf-8"></script>
+
+        <!-- Custom JS scripts -->
+    </body>
+</html>

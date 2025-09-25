@@ -1,0 +1,361 @@
+<!DOCTYPE HTML>
+<html lang="en" class="sidebar-visible no-js light">
+    <head>
+        <!-- Book generated using mdBook -->
+        <meta charset="UTF-8">
+        <title>Economics - Guide to Nearcore Development</title>
+        <!-- Custom HTML head -->
+        <meta content="text/html; charset=utf-8" http-equiv="Content-Type">
+        <meta name="description" content="">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <meta name="theme-color" content="#ffffff" />
+
+        <link rel="icon" href="../favicon.svg">
+        <link rel="shortcut icon" href="../favicon.png">
+        <link rel="stylesheet" href="../css/variables.css">
+        <link rel="stylesheet" href="../css/general.css">
+        <link rel="stylesheet" href="../css/chrome.css">
+        <link rel="stylesheet" href="../css/print.css" media="print">
+        <!-- Fonts -->
+        <link rel="stylesheet" href="../FontAwesome/css/font-awesome.css">
+        <link rel="stylesheet" href="../fonts/fonts.css">
+        <!-- Highlight.js Stylesheets -->
+        <link rel="stylesheet" href="../highlight.css">
+        <link rel="stylesheet" href="../tomorrow-night.css">
+        <link rel="stylesheet" href="../ayu-highlight.css">
+
+        <!-- Custom theme stylesheets -->
+    </head>
+    <body>
+        <!-- Provide site root to javascript -->
+        <script type="text/javascript">
+            var path_to_root = "../";
+            var default_theme = window.matchMedia("(prefers-color-scheme: dark)").matches ? "navy" : "light";
+        </script>
+
+        <!-- Work around some values being stored in localStorage wrapped in quotes -->
+        <script type="text/javascript">
+            try {
+                var theme = localStorage.getItem('mdbook-theme');
+                var sidebar = localStorage.getItem('mdbook-sidebar');
+
+                if (theme.startsWith('"') && theme.endsWith('"')) {
+                    localStorage.setItem('mdbook-theme', theme.slice(1, theme.length - 1));
+                }
+
+                if (sidebar.startsWith('"') && sidebar.endsWith('"')) {
+                    localStorage.setItem('mdbook-sidebar', sidebar.slice(1, sidebar.length - 1));
+                }
+            } catch (e) { }
+        </script>
+
+        <!-- Set the theme before any content is loaded, prevents flash -->
+        <script type="text/javascript">
+            var theme;
+            try { theme = localStorage.getItem('mdbook-theme'); } catch(e) { }
+            if (theme === null || theme === undefined) { theme = default_theme; }
+            var html = document.querySelector('html');
+            html.classList.remove('no-js')
+            html.classList.remove('light')
+            html.classList.add(theme);
+            html.classList.add('js');
+        </script>
+
+        <!-- Hide / unhide sidebar before it is displayed -->
+        <script type="text/javascript">
+            var html = document.querySelector('html');
+            var sidebar = 'hidden';
+            if (document.body.clientWidth >= 1080) {
+                try { sidebar = localStorage.getItem('mdbook-sidebar'); } catch(e) { }
+                sidebar = sidebar || 'visible';
+            }
+            html.classList.remove('sidebar-visible');
+            html.classList.add("sidebar-" + sidebar);
+        </script>
+
+        <nav id="sidebar" class="sidebar" aria-label="Table of contents">
+            <div class="sidebar-scrollbox">
+                <ol class="chapter"><li class="chapter-item expanded affix "><a href="../index.html">Introduction</a></li><li class="chapter-item expanded affix "><li class="part-title">Protocol Specification</li><li class="chapter-item expanded "><a href="../DataStructures/index.html"><strong aria-hidden="true">1.</strong> Data Structures</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../DataStructures/AccessKey.html"><strong aria-hidden="true">1.1.</strong> Access Keys</a></li><li class="chapter-item expanded "><a href="../DataStructures/Account.html"><strong aria-hidden="true">1.2.</strong> Accounts</a></li><li class="chapter-item expanded "><a href="../DataStructures/Block.html"><strong aria-hidden="true">1.3.</strong> Block and Block Header</a></li><li class="chapter-item expanded "><a href="../DataStructures/DataTypes.html"><strong aria-hidden="true">1.4.</strong> Data Types</a></li><li class="chapter-item expanded "><a href="../DataStructures/MerkleProof.html"><strong aria-hidden="true">1.5.</strong> Merkle Proofs</a></li><li class="chapter-item expanded "><a href="../DataStructures/Transaction.html"><strong aria-hidden="true">1.6.</strong> Transaction</a></li></ol></li><li class="chapter-item expanded "><a href="../ChainSpec/index.html"><strong aria-hidden="true">2.</strong> Chain Specification</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../ChainSpec/BlockProcessing.html"><strong aria-hidden="true">2.1.</strong> Block Processing</a></li><li class="chapter-item expanded "><a href="../ChainSpec/Consensus.html"><strong aria-hidden="true">2.2.</strong> Consensus</a></li><li class="chapter-item expanded "><a href="../ChainSpec/LightClient.html"><strong aria-hidden="true">2.3.</strong> Light Client</a></li><li class="chapter-item expanded "><a href="../ChainSpec/SelectingBlockProducers.html"><strong aria-hidden="true">2.4.</strong> Selecting Chunk and Block Producers</a></li><li class="chapter-item expanded "><a href="../ChainSpec/Transactions.html"><strong aria-hidden="true">2.5.</strong> Transactions in the Blockchain Layer</a></li><li class="chapter-item expanded "><a href="../ChainSpec/Upgradability.html"><strong aria-hidden="true">2.6.</strong> Upgradability</a></li><li class="chapter-item expanded "><a href="../ChainSpec/EpochAndStaking/index.html"><strong aria-hidden="true">2.7.</strong> Epochs and Staking</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../ChainSpec/EpochAndStaking/Epoch.html"><strong aria-hidden="true">2.7.1.</strong> Epoch</a></li><li class="chapter-item expanded "><a href="../ChainSpec/EpochAndStaking/EpochManager.html"><strong aria-hidden="true">2.7.2.</strong> EpochManager</a></li><li class="chapter-item expanded "><a href="../ChainSpec/EpochAndStaking/Staking.html"><strong aria-hidden="true">2.7.3.</strong> Staking and slashing</a></li></ol></li></ol></li><li class="chapter-item expanded "><a href="../NetworkSpec/NetworkSpec.html"><strong aria-hidden="true">3.</strong> Network Specification</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../NetworkSpec/Messages.html"><strong aria-hidden="true">3.1.</strong> Messages</a></li><li class="chapter-item expanded "><a href="../NetworkSpec/RoutingTableExchangeAlgorithm.html"><strong aria-hidden="true">3.2.</strong> Routing Table Exchange Algorithm</a></li></ol></li><li class="chapter-item expanded "><a href="../RuntimeSpec/index.html"><strong aria-hidden="true">4.</strong> Runtime Specification</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../RuntimeSpec/AccountStorage.html"><strong aria-hidden="true">4.1.</strong> Account Receipt Storage</a></li><li class="chapter-item expanded "><a href="../RuntimeSpec/Actions.html"><strong aria-hidden="true">4.2.</strong> Actions</a></li><li class="chapter-item expanded "><a href="../RuntimeSpec/ApplyingChunk.html"><strong aria-hidden="true">4.3.</strong> Applying chunk</a></li><li class="chapter-item expanded "><a href="../RuntimeSpec/Components/Components.html"><strong aria-hidden="true">4.4.</strong> Components</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../RuntimeSpec/Components/RuntimeCrate.html"><strong aria-hidden="true">4.4.1.</strong> Runtime Crate</a></li><li class="chapter-item expanded "><a href="../RuntimeSpec/Components/BindingsSpec/BindingsSpec.html"><strong aria-hidden="true">4.4.2.</strong> Bindings Specification</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../RuntimeSpec/Components/BindingsSpec/ContextAPI.html"><strong aria-hidden="true">4.4.2.1.</strong> Context API</a></li><li class="chapter-item expanded "><a href="../RuntimeSpec/Components/BindingsSpec/EconomicsAPI.html"><strong aria-hidden="true">4.4.2.2.</strong> Economics API</a></li><li class="chapter-item expanded "><a href="../RuntimeSpec/Components/BindingsSpec/MathAPI.html"><strong aria-hidden="true">4.4.2.3.</strong> Math API</a></li><li class="chapter-item expanded "><a href="../RuntimeSpec/Components/BindingsSpec/MiscellaneousAPI.html"><strong aria-hidden="true">4.4.2.4.</strong> Miscellaneous API</a></li><li class="chapter-item expanded "><a href="../RuntimeSpec/Components/BindingsSpec/PromisesAPI.html"><strong aria-hidden="true">4.4.2.5.</strong> Promises API</a></li><li class="chapter-item expanded "><a href="../RuntimeSpec/Components/BindingsSpec/RegistersAPI.html"><strong aria-hidden="true">4.4.2.6.</strong> Registers API</a></li><li class="chapter-item expanded "><a href="../RuntimeSpec/Components/BindingsSpec/TrieAPI.html"><strong aria-hidden="true">4.4.2.7.</strong> Trie API</a></li></ol></li></ol></li><li class="chapter-item expanded "><a href="../RuntimeSpec/Fees/Fees.html"><strong aria-hidden="true">4.5.</strong> Fees</a></li><li class="chapter-item expanded "><a href="../RuntimeSpec/FunctionCall.html"><strong aria-hidden="true">4.6.</strong> Function Call</a></li><li class="chapter-item expanded "><a href="../RuntimeSpec/Preparation.html"><strong aria-hidden="true">4.7.</strong> Contract Preparation</a></li><li class="chapter-item expanded "><a href="../RuntimeSpec/Receipts.html"><strong aria-hidden="true">4.8.</strong> Receipts</a></li><li class="chapter-item expanded "><a href="../RuntimeSpec/Refunds.html"><strong aria-hidden="true">4.9.</strong> Refunds</a></li><li class="chapter-item expanded "><a href="../RuntimeSpec/Runtime.html"><strong aria-hidden="true">4.10.</strong> Runtime</a></li><li class="chapter-item expanded "><a href="../RuntimeSpec/Transactions.html"><strong aria-hidden="true">4.11.</strong> Transactions</a></li><li class="chapter-item expanded "><a href="../RuntimeSpec/Scenarios/Scenarios.html"><strong aria-hidden="true">4.12.</strong> Scenarios</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../RuntimeSpec/Scenarios/CrossContractCall.html"><strong aria-hidden="true">4.12.1.</strong> Cross-ContractCall</a></li><li class="chapter-item expanded "><a href="../RuntimeSpec/Scenarios/FinancialTransaction.html"><strong aria-hidden="true">4.12.2.</strong> Financial Transaction</a></li></ol></li></ol></li><li class="chapter-item expanded "><a href="../Economics/Economics.html" class="active"><strong aria-hidden="true">5.</strong> Economics</a></li><li class="chapter-item expanded "><a href="../GenesisConfig/GenesisConfig.html"><strong aria-hidden="true">6.</strong> GenesisConfig</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../GenesisConfig/ExtCostsConfig.html"><strong aria-hidden="true">6.1.</strong> ExtCostsConfig</a></li><li class="chapter-item expanded "><a href="../GenesisConfig/VMConfig.html"><strong aria-hidden="true">6.2.</strong> VMConfig</a></li><li class="chapter-item expanded "><a href="../GenesisConfig/StateRecord.html"><strong aria-hidden="true">6.3.</strong> StateRecord</a></li><li class="chapter-item expanded "><a href="../GenesisConfig/RuntimeConfig.html"><strong aria-hidden="true">6.4.</strong> RuntimeConfig</a></li><li class="chapter-item expanded "><a href="../GenesisConfig/RuntimeFeeConfig.html"><strong aria-hidden="true">6.5.</strong> RuntimeFeeConfig</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../GenesisConfig/RuntimeFeeConfig/AccessKeyCreationConfig.html"><strong aria-hidden="true">6.5.1.</strong> AccessKeyCreationConfig</a></li><li class="chapter-item expanded "><a href="../GenesisConfig/RuntimeFeeConfig/ActionCreationConfig.html"><strong aria-hidden="true">6.5.2.</strong> ActionCreationConfig</a></li><li class="chapter-item expanded "><a href="../GenesisConfig/RuntimeFeeConfig/DataReceiptCreationConfig.html"><strong aria-hidden="true">6.5.3.</strong> DataReceiptCreationConfig</a></li><li class="chapter-item expanded "><a href="../GenesisConfig/RuntimeFeeConfig/Fee.html"><strong aria-hidden="true">6.5.4.</strong> Fee</a></li><li class="chapter-item expanded "><a href="../GenesisConfig/RuntimeFeeConfig/Fraction.html"><strong aria-hidden="true">6.5.5.</strong> Fraction</a></li><li class="chapter-item expanded "><a href="../GenesisConfig/RuntimeFeeConfig/StorageUsageConfig.html"><strong aria-hidden="true">6.5.6.</strong> StorageUsageConfig</a></li></ol></li></ol></li><li class="chapter-item expanded "><li class="part-title">Architecture</li><li class="chapter-item expanded "><a href="../architecture/index.html"><strong aria-hidden="true">7.</strong> Overview</a></li><li class="chapter-item expanded "><a href="../architecture/how/index.html"><strong aria-hidden="true">8.</strong> How neard works</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../architecture/how/sync.html"><strong aria-hidden="true">8.1.</strong> How Sync Works</a></li><li class="chapter-item expanded "><a href="../architecture/how/gc.html"><strong aria-hidden="true">8.2.</strong> Garbage Collection</a></li><li class="chapter-item expanded "><a href="../architecture/how/epoch.html"><strong aria-hidden="true">8.3.</strong> How Epoch Works</a></li><li class="chapter-item expanded "><a href="../architecture/how/tx_routing.html"><strong aria-hidden="true">8.4.</strong> Transaction Routing</a></li><li class="chapter-item expanded "><a href="../architecture/how/tx_receipts.html"><strong aria-hidden="true">8.5.</strong> Transactions And Receipts</a></li><li class="chapter-item expanded "><a href="../architecture/how/cross-shard.html"><strong aria-hidden="true">8.6.</strong> Cross shard transactions - deep dive</a></li><li class="chapter-item expanded "><a href="../architecture/how/gas.html"><strong aria-hidden="true">8.7.</strong> Gas</a></li><li class="chapter-item expanded "><a href="../architecture/how/receipt-congestion.html"><strong aria-hidden="true">8.8.</strong> Receipt Congestion</a></li><li class="chapter-item expanded "><a href="../architecture/how/meta-tx.html"><strong aria-hidden="true">8.9.</strong> Meta transactions</a></li><li class="chapter-item expanded "><a href="../architecture/how/serialization.html"><strong aria-hidden="true">8.10.</strong> Serialization: Borsh, Json, ProtoBuf</a></li><li class="chapter-item expanded "><a href="../architecture/how/proofs.html"><strong aria-hidden="true">8.11.</strong> Proofs</a></li><li class="chapter-item expanded "><a href="../architecture/how/resharding_v2.html"><strong aria-hidden="true">8.12.</strong> Resharding V2</a></li><li class="chapter-item expanded "><a href="../architecture/how/optimistic_block.html"><strong aria-hidden="true">8.13.</strong> Optimistic block</a></li></ol></li><li class="chapter-item expanded "><a href="../architecture/next/index.html"><strong aria-hidden="true">9.</strong> How neard will work</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../architecture/next/catchup_and_state_sync.html"><strong aria-hidden="true">9.1.</strong> Catchup and state sync improvements</a></li><li class="chapter-item expanded "><a href="../architecture/next/malicious_chunk_producer_and_phase2.html"><strong aria-hidden="true">9.2.</strong> Malicious producers and phase 2</a></li></ol></li><li class="chapter-item expanded "><a href="../architecture/storage.html"><strong aria-hidden="true">10.</strong> Storage</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../architecture/storage/flow.html"><strong aria-hidden="true">10.1.</strong> Storage Request Flow</a></li><li class="chapter-item expanded "><a href="../architecture/storage/trie_storage.html"><strong aria-hidden="true">10.2.</strong> Trie Storage</a></li><li class="chapter-item expanded "><a href="../architecture/storage/database.html"><strong aria-hidden="true">10.3.</strong> Database Format</a></li><li class="chapter-item expanded "><a href="../architecture/storage/flat_storage.html"><strong aria-hidden="true">10.4.</strong> Flat Storage</a></li></ol></li><li class="chapter-item expanded "><a href="../architecture/network.html"><strong aria-hidden="true">11.</strong> Network</a></li><li class="chapter-item expanded "><a href="../architecture/gas/index.html"><strong aria-hidden="true">12.</strong> Gas Cost Parameters</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../architecture/gas/parameter_definition.html"><strong aria-hidden="true">12.1.</strong> Parameter Definitions</a></li><li class="chapter-item expanded "><a href="../architecture/gas/gas_profile.html"><strong aria-hidden="true">12.2.</strong> Gas Profile</a></li><li class="chapter-item expanded "><a href="../architecture/gas/estimator.html"><strong aria-hidden="true">12.3.</strong> Runtime Parameter Estimator</a></li></ol></li><li class="chapter-item expanded "><li class="part-title">Practices</li><li class="chapter-item expanded "><a href="../practices/index.html"><strong aria-hidden="true">13.</strong> Overview</a></li><li class="chapter-item expanded "><a href="../practices/rust.html"><strong aria-hidden="true">14.</strong> Rust 🦀</a></li><li class="chapter-item expanded "><a href="../practices/workflows/index.html"><strong aria-hidden="true">15.</strong> Workflows</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../practices/workflows/run_a_node.html"><strong aria-hidden="true">15.1.</strong> Run a Node</a></li><li class="chapter-item expanded "><a href="../practices/workflows/deploy_a_contract.html"><strong aria-hidden="true">15.2.</strong> Deploy a Contract</a></li><li class="chapter-item expanded "><a href="../practices/workflows/gas_estimations.html"><strong aria-hidden="true">15.3.</strong> Run Gas Estimations</a></li><li class="chapter-item expanded "><a href="../practices/workflows/localnet_on_many_machines.html"><strong aria-hidden="true">15.4.</strong> Localnet on many machines</a></li><li class="chapter-item expanded "><a href="../practices/workflows/io_trace.html"><strong aria-hidden="true">15.5.</strong> IO tracing</a></li><li class="chapter-item expanded "><a href="../practices/workflows/profiling.html"><strong aria-hidden="true">15.6.</strong> Profiling</a></li><li class="chapter-item expanded "><a href="../practices/workflows/benchmarks.html"><strong aria-hidden="true">15.7.</strong> Benchmarks</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../practices/workflows/benchmarking_synthetic_workloads.html"><strong aria-hidden="true">15.7.1.</strong> Synthetic Workloads</a></li><li class="chapter-item expanded "><a href="../practices/workflows/benchmarking_chunk_application_on_native_transfers.html"><strong aria-hidden="true">15.7.2.</strong> Native Transfer Chunk Application</a></li></ol></li><li class="chapter-item expanded "><a href="../practices/workflows/otel_traces.html"><strong aria-hidden="true">15.8.</strong> Working with OpenTelemetry Traces</a></li><li class="chapter-item expanded "><a href="../practices/workflows/futex_contention.html"><strong aria-hidden="true">15.9.</strong> Futex contention</a></li></ol></li><li class="chapter-item expanded "><a href="../practices/style.html"><strong aria-hidden="true">16.</strong> Code Style</a></li><li class="chapter-item expanded "><a href="../practices/docs.html"><strong aria-hidden="true">17.</strong> Documentation</a></li><li class="chapter-item expanded "><a href="../practices/tracking_issues.html"><strong aria-hidden="true">18.</strong> Tracking Issues</a></li><li class="chapter-item expanded "><a href="../practices/security_vulnerabilities.html"><strong aria-hidden="true">19.</strong> Security Vulnerabilities</a></li><li class="chapter-item expanded "><a href="../practices/fast_builds.html"><strong aria-hidden="true">20.</strong> Fast Builds</a></li><li class="chapter-item expanded "><a href="../practices/testing/index.html"><strong aria-hidden="true">21.</strong> Testing</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../practices/testing/python_tests.html"><strong aria-hidden="true">21.1.</strong> Python Tests</a></li><li class="chapter-item expanded "><a href="../practices/testing/test_utils.html"><strong aria-hidden="true">21.2.</strong> Testing Utils</a></li><li class="chapter-item expanded "><a href="../practices/testing/coverage.html"><strong aria-hidden="true">21.3.</strong> Test Coverage</a></li></ol></li><li class="chapter-item expanded "><a href="../practices/protocol_upgrade.html"><strong aria-hidden="true">22.</strong> Protocol Upgrade</a></li><li class="chapter-item expanded affix "><li class="part-title">Advanced configuration</li><li class="chapter-item expanded "><a href="../advanced_configuration/networking.html"><strong aria-hidden="true">23.</strong> Networking</a></li><li class="chapter-item expanded affix "><li class="part-title">Custom test networks</li><li class="chapter-item expanded "><a href="../test_networks/mainnet_spoon.html"><strong aria-hidden="true">24.</strong> Starting a network from mainnet state</a></li><li class="chapter-item expanded affix "><li class="part-title">Misc</li><li class="chapter-item expanded "><a href="../misc/index.html"><strong aria-hidden="true">25.</strong> Overview</a></li><li class="chapter-item expanded "><a href="../misc/state_sync_dump.html"><strong aria-hidden="true">26.</strong> State Sync Dump</a></li><li class="chapter-item expanded "><a href="../misc/archival_data_recovery.html"><strong aria-hidden="true">27.</strong> Archival node - recovery of missing data</a></li></ol>
+            </div>
+            <div id="sidebar-resize-handle" class="sidebar-resize-handle"></div>
+        </nav>
+
+        <div id="page-wrapper" class="page-wrapper">
+
+            <div class="page">
+                <div id="menu-bar-hover-placeholder"></div>
+                <div id="menu-bar" class="menu-bar sticky bordered">
+                    <div class="left-buttons">
+                        <button id="sidebar-toggle" class="icon-button" type="button" title="Toggle Table of Contents" aria-label="Toggle Table of Contents" aria-controls="sidebar">
+                            <i class="fa fa-bars"></i>
+                        </button>
+                        <button id="theme-toggle" class="icon-button" type="button" title="Change theme" aria-label="Change theme" aria-haspopup="true" aria-expanded="false" aria-controls="theme-list">
+                            <i class="fa fa-paint-brush"></i>
+                        </button>
+                        <ul id="theme-list" class="theme-popup" aria-label="Themes" role="menu">
+                            <li role="none"><button role="menuitem" class="theme" id="light">Light (default)</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="rust">Rust</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="coal">Coal</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="navy">Navy</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="ayu">Ayu</button></li>
+                        </ul>
+                        <button id="search-toggle" class="icon-button" type="button" title="Search. (Shortkey: s)" aria-label="Toggle Searchbar" aria-expanded="false" aria-keyshortcuts="S" aria-controls="searchbar">
+                            <i class="fa fa-search"></i>
+                        </button>
+                    </div>
+
+                    <h1 class="menu-title">Guide to Nearcore Development</h1>
+
+                    <div class="right-buttons">
+                        <a href="../print.html" title="Print this book" aria-label="Print this book">
+                            <i id="print-button" class="fa fa-print"></i>
+                        </a>
+                        <a href="https://github.com/near/nearcore/tree/master/docs" title="Git repository" aria-label="Git repository">
+                            <i id="git-repository-button" class="fa fa-github"></i>
+                        </a>
+                        <a href="https://github.com/near/nearcore/edit/master/docs/./Economics/Economics.md" title="Suggest an edit" aria-label="Suggest an edit">
+                            <i id="git-edit-button" class="fa fa-edit"></i>
+                        </a>
+                    </div>
+                </div>
+
+                <div id="search-wrapper" class="hidden">
+                    <form id="searchbar-outer" class="searchbar-outer">
+                        <input type="search" id="searchbar" name="searchbar" placeholder="Search this book ..." aria-controls="searchresults-outer" aria-describedby="searchresults-header">
+                    </form>
+                    <div id="searchresults-outer" class="searchresults-outer hidden">
+                        <div id="searchresults-header" class="searchresults-header"></div>
+                        <ul id="searchresults">
+                        </ul>
+                    </div>
+                </div>
+                <!-- Apply ARIA attributes after the sidebar and the sidebar toggle button are added to the DOM -->
+                <script type="text/javascript">
+                    document.getElementById('sidebar-toggle').setAttribute('aria-expanded', sidebar === 'visible');
+                    document.getElementById('sidebar').setAttribute('aria-hidden', sidebar !== 'visible');
+                    Array.from(document.querySelectorAll('#sidebar a')).forEach(function(link) {
+                        link.setAttribute('tabIndex', sidebar === 'visible' ? 0 : -1);
+                    });
+                </script>
+
+                <div id="content" class="content">
+                    <main>
+                        <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.4/dist/katex.min.css">
+<h1 id="economics"><a class="header" href="#economics">Economics</a></h1>
+<p><code>This is under heavy development</code></p>
+<h2 id="units"><a class="header" href="#units">Units</a></h2>
+<div class="table-wrapper"><table><thead><tr><th>Name</th><th>Value</th></tr></thead><tbody>
+<tr><td>yoctoNEAR</td><td>smallest indivisible amount of native currency <em>NEAR</em>.</td></tr>
+<tr><td>NEAR</td><td><code>10**24</code> yoctoNEAR</td></tr>
+<tr><td>block</td><td>smallest on-chain unit of time</td></tr>
+<tr><td>gas</td><td>unit to measure usage of blockchain</td></tr>
+</tbody></table>
+</div>
+<h2 id="general-parameters"><a class="header" href="#general-parameters">General Parameters</a></h2>
+<div class="table-wrapper"><table><thead><tr><th>Name</th><th>Value</th></tr></thead><tbody>
+<tr><td><code>INITIAL_SUPPLY</code></td><td><code>10**33</code> yoctoNEAR</td></tr>
+<tr><td><code>MIN_GAS_PRICE</code></td><td><code>10**5</code> yoctoNEAR</td></tr>
+<tr><td><code>REWARD_PCT_PER_YEAR</code></td><td><code>0.05</code></td></tr>
+<tr><td><code>EPOCH_LENGTH</code></td><td><code>43,200</code> blocks</td></tr>
+<tr><td><code>EPOCHS_A_YEAR</code></td><td><code>730</code> epochs</td></tr>
+<tr><td><code>INITIAL_MAX_STORAGE</code></td><td><code>10 * 2**40</code> bytes == <code>10</code> TB</td></tr>
+<tr><td><code>TREASURY_PCT</code></td><td><code>0.1</code></td></tr>
+<tr><td><code>TREASURY_ACCOUNT_ID</code></td><td><code>treasury</code></td></tr>
+<tr><td><code>CONTRACT_PCT</code></td><td><code>0.3</code></td></tr>
+<tr><td><code>INVALID_STATE_SLASH_PCT</code></td><td><code>0.05</code></td></tr>
+<tr><td><code>ADJ_FEE</code></td><td><code>0.01</code></td></tr>
+<tr><td><code>TOTAL_SEATS</code></td><td><code>100</code></td></tr>
+<tr><td><code>ONLINE_THRESHOLD_MIN</code></td><td><code>0.9</code></td></tr>
+<tr><td><code>ONLINE_THRESHOLD_MAX</code></td><td><code>0.99</code></td></tr>
+<tr><td><code>BLOCK_PRODUCER_KICKOUT_THRESHOLD</code></td><td><code>0.9</code></td></tr>
+<tr><td><code>CHUNK_PRODUCER_KICKOUT_THRESHOLD</code></td><td><code>0.6</code></td></tr>
+</tbody></table>
+</div>
+<h2 id="general-variables"><a class="header" href="#general-variables">General Variables</a></h2>
+<div class="table-wrapper"><table><thead><tr><th>Name</th><th>Description</th><th>Initial value</th></tr></thead><tbody>
+<tr><td><code>totalSupply[t]</code></td><td>Total supply of NEAR at given epoch[t]</td><td><code>INITIAL_SUPPLY</code></td></tr>
+<tr><td><code>gasPrice[t]</code></td><td>The cost of 1 unit of <em>gas</em> in NEAR tokens (see Transaction Fees section below)</td><td><code>MIN_GAS_PRICE</code></td></tr>
+<tr><td><code>storageAmountPerByte[t]</code></td><td>keeping constant, <code>INITIAL_SUPPLY / INITIAL_MAX_STORAGE</code></td><td><code>~9.09 * 10**19</code> yoctoNEAR</td></tr>
+</tbody></table>
+</div>
+<h2 id="issuance"><a class="header" href="#issuance">Issuance</a></h2>
+<p>The protocol sets a ceiling for the maximum issuance of tokens, and dynamically decreases this issuance depending on the amount of total fees in the system.</p>
+<div class="table-wrapper"><table><thead><tr><th>Name</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>reward[t]</code></td><td><code>totalSupply[t]</code> * <code>REWARD_PCT_PER_YEAR</code> * <code>epochTime[t]</code> / <code>NUM_SECONDS_IN_A_YEAR</code></td></tr>
+<tr><td><code>epochFee[t]</code></td><td><code>sum([(1 - DEVELOPER_PCT_PER_YEAR) * block.txFee + block.stateFee for block in epoch[t]])</code></td></tr>
+<tr><td><code>issuance[t]</code></td><td>The amount of token issued at a certain epoch[t], <code>issuance[t] = reward[t] - epochFee[t]</code></td></tr>
+</tbody></table>
+</div>
+<p>Where <code>totalSupply[t]</code> is the total number of tokens in the system at a given time <em>t</em> and <code>epochTime[t]</code> is the
+duration of the epoch in seconds.
+If <code>epochFee[t] &gt; reward[t]</code> the issuance is negative, thus the <code>totalSupply[t]</code> decreases in given epoch.</p>
+<h2 id="transaction-fees"><a class="header" href="#transaction-fees">Transaction Fees</a></h2>
+<p>Each transaction before inclusion must buy gas enough to cover the cost of bandwidth and execution.</p>
+<p>Gas unifies execution and bytes of bandwidth usage of blockchain. Each WASM instruction or pre-compiled function gets assigned an amount of gas based on measurements on common-denominator computer. Same goes for weighting the used bandwidth based on general unified costs.</p>
+<p>Gas is priced dynamically in <code>NEAR</code> tokens. At each block <code>t</code>, we update <code>gasPrice[t] = gasPrice[t - 1] * (1 + (gasUsed[t - 1] / gasLimit[t - 1] - 0.5) * ADJ_FEE)</code>.</p>
+<p>Where <code>gasUsed[t] = sum([sum([gas(tx) for tx in chunk]) for chunk in block[t]])</code>.
+<code>gasLimit[t]</code> is defined as <code>gasLimit[t] = gasLimit[t - 1] + validatorGasDiff[t - 1]</code>, where <code>validatorGasDiff</code> is parameter with which each chunk producer can either increase or decrease gas limit based on how long it to execute the previous chunk. <code>validatorGasDiff[t]</code> can be only within <code>±0.1%</code> of <code>gasLimit[t]</code> and only if <code>gasUsed[t - 1] &gt; 0.9 * gasLimit[t - 1]</code>.</p>
+<h2 id="state-stake"><a class="header" href="#state-stake">State Stake</a></h2>
+<p>Amount of <code>NEAR</code> on the account represents right for this account to take portion of the blockchain's overall global state. Transactions fail if account doesn't have enough balance to cover the storage required for given account.</p>
+<pre><code class="language-python">def check_storage_cost(account):
+    # Compute requiredAmount given size of the account.
+    requiredAmount = sizeOf(account) * storageAmountPerByte
+    return Ok() if account.amount + account.locked &gt;= requiredAmount else Error(requiredAmount)
+
+# Check when transaction is received to verify that it is valid.
+def verify_transaction(tx, signer_account):
+    # ...
+    # Updates signer's account with the amount it will have after executing this tx.
+    update_post_amount(signer_account, tx)
+    result = check_storage_cost(signer_account)
+    # If enough balance OR account is been deleted by the owner.
+    if not result.ok() or DeleteAccount(tx.signer_id) in tx.actions:
+        assert LackBalanceForState(signer_id: tx.signer_id, amount: result.err())
+
+# After account touched / changed, we check it still has enough balance to cover it's storage.
+def on_account_change(block_height, account):
+    # ... execute transaction / receipt changes ...
+    # Validate post-condition and revert if it fails.
+    result = check_storage_cost(sender_account)
+    if not result.ok():
+        assert LackBalanceForState(signer_id: tx.signer_id, amount: result.err())
+</code></pre>
+<p>Where <code>sizeOf(account)</code> includes size of <code>account_id</code>, <code>account</code> structure and size of all the data stored under the account.</p>
+<p>Account can end up with not enough balance in case it gets slashed. Account will become unusable as all originating transactions will fail (including deletion).
+The only way to recover it in this case is by sending extra funds from a different accounts.</p>
+<h2 id="validators"><a class="header" href="#validators">Validators</a></h2>
+<p>NEAR validators provide their resources in exchange for a reward <code>epochReward[t]</code>, where [t] represents the considered epoch</p>
+<div class="table-wrapper"><table><thead><tr><th>Name</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>epochReward[t]</code></td><td><code>= coinbaseReward[t] + epochFee[t]</code></td></tr>
+<tr><td><code>coinbaseReward[t]</code></td><td>The maximum inflation per epoch[t], as a function of <code>REWARD_PCT_PER_YEAR / EPOCHS_A_YEAR</code></td></tr>
+</tbody></table>
+</div>
+<h3 id="validator-selection"><a class="header" href="#validator-selection">Validator Selection</a></h3>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>struct Proposal {
+    account_id: AccountId,
+    stake: Balance,
+    public_key: PublicKey,
+}
+<span class="boring">}
+</span></code></pre></pre>
+<p>During the epoch, outcome of staking transactions produce <code>proposals</code>, which are collected, in the form of <code>Proposal</code>s.
+There are separate proposals for block producers and chunk-only producers, see <a href="../ChainSpec/SelectingBlockProducers.html">Selecting Chunk and Block Producers</a>.
+for more information.
+At the end of every epoch <code>T</code>, next algorithm gets executed to determine validators for epoch <code>T + 2</code>:</p>
+<ol>
+<li>For every chunk/block producer in <code>epoch[T]</code> determine <code>num_blocks_produced</code>, <code>num_chunks_produced</code> based on what they produced during the epoch.</li>
+<li>Remove validators, for whom <code>num_blocks_produced &lt; num_blocks_expected * BLOCK_PRODUCER_KICKOUT_THRESHOLD</code> or <code>num_chunks_produced &lt; num_chunks_expected * CHUNK_PRODUCER_KICKOUT_THRESHOLD</code>.</li>
+<li>Collect chunk-only and block producer <code>proposals</code>, if validator was also a validator in <code>epoch[T]</code>, considered stake of the proposal is <code>0 if proposal.stake == 0 else proposal.stake + reward[proposal.account_id]</code>.</li>
+<li>Use the chunk/block producer selection algorithms outlined in <a href="../ChainSpec/SelectingBlockProducers.html">Selecting Chunk and Block Producers</a>.</li>
+</ol>
+<h3 id="validator-rewards-calculation"><a class="header" href="#validator-rewards-calculation">Validator Rewards Calculation</a></h3>
+<p>Note: all calculations are done in Rational numbers.</p>
+<p>Total reward every epoch <code>t</code> is equal to:</p>
+<pre><code class="language-python">total_reward[t] = floor(totalSupply * max_inflation_rate * epoch_length)
+</code></pre>
+<p>where <code>max_inflation_rate</code> is the genesis parameter while <code>totalSupply</code> and <code>epoch_length</code> are
+taken from the last block in the epoch.</p>
+<p>After that a fraction of the reward goes to the treasury and the remaining amount will be used for computing validator rewards:</p>
+<pre><code class="language-python">treasury_reward[t] = floor(reward[t] * protocol_reward_rate)
+validator_reward[t] = total_reward[t] - treasury_reward[t]
+</code></pre>
+<p>Validators that didn't meet the threshold for either blocks or chunks get kicked out and don't get any reward, otherwise uptime
+of a validator is computed as an average of (block produced/expected, chunk produced/expected,
+and chunk endorsements produced/expected) and adjusted wrt the <code>ONLINE_THRESHOLD</code>, <code>ONLINE_THRESHOLD_MIN</code>, <code>ONLINE_THRESHOLD_MAX</code> parameters:</p>
+<pre><code class="language-python">pct_online[t][j] = mean(num_blocks_produced[t][j] / num_blocks_expected[t][j],
+                        num_chunks_produced[t][j] / num_chunks_expected[t][j],
+                        num_endorsements_produced[t][j] / num_endorsements_expected[t][j])
+if pct_online &gt; ONLINE_THRESHOLD:
+    uptime[t][j] = min(1, (pct_online[t][j] - ONLINE_THRESHOLD_MIN) / (ONLINE_THRESHOLD_MAX - ONLINE_THRESHOLD_MIN))
+else:
+    uptime[t][j] = 0
+</code></pre>
+<p>Where <code>expected_produced_blocks</code> and <code>expected_produced_chunks</code> is the number of blocks and chunks respectively that is expected to be produced by given validator <code>j</code> in the epoch <code>t</code>.</p>
+<p>The specific <code>validator[t][j]</code> reward for epoch <code>t</code> is then proportional to the fraction of stake of this validator from total stake:</p>
+<pre><code class="language-python">validator_reward[t][j] = floor(uptime[t][j] * stake[t][j] * total_reward[t] / total_stake[t])
+</code></pre>
+<h3 id="slashing"><a class="header" href="#slashing">Slashing</a></h3>
+<h4 id="chunkproofs"><a class="header" href="#chunkproofs">ChunkProofs</a></h4>
+<pre><code class="language-python"># Check that chunk is invalid, because the proofs in header don't match the body.
+def chunk_proofs_condition(chunk):
+    # TODO
+
+# At the end of the epoch, run update validators and
+# determine how much to slash validators.
+def end_of_epoch_update_validators(validators):
+    # ...
+    for validator in validators:
+        if validator.is_slashed:
+            validator.stake -= INVALID_STATE_SLASH_PCT * validator.stake
+</code></pre>
+<h4 id="chunkstate"><a class="header" href="#chunkstate">ChunkState</a></h4>
+<pre><code class="language-python"># Check that chunk header post state root is invalid,
+# because the execution of previous chunk doesn't lead to it.
+def chunk_state_condition(prev_chunk, prev_state, chunk_header):
+    # TODO
+
+# At the end of the epoch, run update validators and
+# determine how much to slash validators.
+def end_of_epoch(..., validators):
+    # ...
+    for validator in validators:
+        if validator.is_slashed:
+            validator.stake -= INVALID_STATE_SLASH_PCT * validator.stake
+</code></pre>
+<h2 id="protocol-treasury"><a class="header" href="#protocol-treasury">Protocol Treasury</a></h2>
+<p>Treasury account <code>TREASURY_ACCOUNT_ID</code> receives fraction of reward every epoch <code>t</code>:</p>
+<pre><code class="language-python"># At the end of the epoch, update treasury
+def end_of_epoch(..., reward):
+    # ...
+    accounts[TREASURY_ACCOUNT_ID].amount = treasury_reward[t]
+</code></pre>
+<h2 id="contract-rewards"><a class="header" href="#contract-rewards">Contract Rewards</a></h2>
+<p>Contract account is rewarded with 30% of gas burnt during the execution of its functions.
+The reward is credited to the contract account after applying the corresponding receipt with <a href="../RuntimeSpec/Actions.html#functioncallaction"><code>FunctionCallAction</code></a>, gas is converted to tokens using gas price of the current block.</p>
+<p>You can read more about:</p>
+<ul>
+<li><a href="../RuntimeSpec/Receipts.html">receipts execution</a>;</li>
+<li><a href="../RuntimeSpec/Fees/Fees.html">runtime fees</a> with description <a href="../RuntimeSpec/Fees/Fees.html#gas-tracking">how gas is charged</a>.</li>
+</ul>
+
+                    </main>
+
+                    <nav class="nav-wrapper" aria-label="Page navigation">
+                        <!-- Mobile navigation buttons -->
+                            <a rel="prev" href="../RuntimeSpec/Scenarios/FinancialTransaction.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                                <i class="fa fa-angle-left"></i>
+                            </a>
+                            <a rel="next" href="../GenesisConfig/GenesisConfig.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                                <i class="fa fa-angle-right"></i>
+                            </a>
+                        <div style="clear: both"></div>
+                    </nav>
+                </div>
+            </div>
+
+            <nav class="nav-wide-wrapper" aria-label="Page navigation">
+                    <a rel="prev" href="../RuntimeSpec/Scenarios/FinancialTransaction.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                        <i class="fa fa-angle-left"></i>
+                    </a>
+                    <a rel="next" href="../GenesisConfig/GenesisConfig.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                        <i class="fa fa-angle-right"></i>
+                    </a>
+            </nav>
+
+        </div>
+
+        <script type="text/javascript">
+            window.playground_copyable = true;
+        </script>
+        <script src="../elasticlunr.min.js" type="text/javascript" charset="utf-8"></script>
+        <script src="../mark.min.js" type="text/javascript" charset="utf-8"></script>
+        <script src="../searcher.js" type="text/javascript" charset="utf-8"></script>
+        <script src="../clipboard.min.js" type="text/javascript" charset="utf-8"></script>
+        <script src="../highlight.js" type="text/javascript" charset="utf-8"></script>
+        <script src="../book.js" type="text/javascript" charset="utf-8"></script>
+
+        <!-- Custom JS scripts -->
+    </body>
+</html>

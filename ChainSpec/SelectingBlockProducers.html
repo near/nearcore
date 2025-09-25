@@ -1,0 +1,492 @@
+<!DOCTYPE HTML>
+<html lang="en" class="sidebar-visible no-js light">
+    <head>
+        <!-- Book generated using mdBook -->
+        <meta charset="UTF-8">
+        <title>Selecting Chunk and Block Producers - Guide to Nearcore Development</title>
+        <!-- Custom HTML head -->
+        <meta content="text/html; charset=utf-8" http-equiv="Content-Type">
+        <meta name="description" content="">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <meta name="theme-color" content="#ffffff" />
+
+        <link rel="icon" href="../favicon.svg">
+        <link rel="shortcut icon" href="../favicon.png">
+        <link rel="stylesheet" href="../css/variables.css">
+        <link rel="stylesheet" href="../css/general.css">
+        <link rel="stylesheet" href="../css/chrome.css">
+        <link rel="stylesheet" href="../css/print.css" media="print">
+        <!-- Fonts -->
+        <link rel="stylesheet" href="../FontAwesome/css/font-awesome.css">
+        <link rel="stylesheet" href="../fonts/fonts.css">
+        <!-- Highlight.js Stylesheets -->
+        <link rel="stylesheet" href="../highlight.css">
+        <link rel="stylesheet" href="../tomorrow-night.css">
+        <link rel="stylesheet" href="../ayu-highlight.css">
+
+        <!-- Custom theme stylesheets -->
+    </head>
+    <body>
+        <!-- Provide site root to javascript -->
+        <script type="text/javascript">
+            var path_to_root = "../";
+            var default_theme = window.matchMedia("(prefers-color-scheme: dark)").matches ? "navy" : "light";
+        </script>
+
+        <!-- Work around some values being stored in localStorage wrapped in quotes -->
+        <script type="text/javascript">
+            try {
+                var theme = localStorage.getItem('mdbook-theme');
+                var sidebar = localStorage.getItem('mdbook-sidebar');
+
+                if (theme.startsWith('"') && theme.endsWith('"')) {
+                    localStorage.setItem('mdbook-theme', theme.slice(1, theme.length - 1));
+                }
+
+                if (sidebar.startsWith('"') && sidebar.endsWith('"')) {
+                    localStorage.setItem('mdbook-sidebar', sidebar.slice(1, sidebar.length - 1));
+                }
+            } catch (e) { }
+        </script>
+
+        <!-- Set the theme before any content is loaded, prevents flash -->
+        <script type="text/javascript">
+            var theme;
+            try { theme = localStorage.getItem('mdbook-theme'); } catch(e) { }
+            if (theme === null || theme === undefined) { theme = default_theme; }
+            var html = document.querySelector('html');
+            html.classList.remove('no-js')
+            html.classList.remove('light')
+            html.classList.add(theme);
+            html.classList.add('js');
+        </script>
+
+        <!-- Hide / unhide sidebar before it is displayed -->
+        <script type="text/javascript">
+            var html = document.querySelector('html');
+            var sidebar = 'hidden';
+            if (document.body.clientWidth >= 1080) {
+                try { sidebar = localStorage.getItem('mdbook-sidebar'); } catch(e) { }
+                sidebar = sidebar || 'visible';
+            }
+            html.classList.remove('sidebar-visible');
+            html.classList.add("sidebar-" + sidebar);
+        </script>
+
+        <nav id="sidebar" class="sidebar" aria-label="Table of contents">
+            <div class="sidebar-scrollbox">
+                <ol class="chapter"><li class="chapter-item expanded affix "><a href="../index.html">Introduction</a></li><li class="chapter-item expanded affix "><li class="part-title">Protocol Specification</li><li class="chapter-item expanded "><a href="../DataStructures/index.html"><strong aria-hidden="true">1.</strong> Data Structures</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../DataStructures/AccessKey.html"><strong aria-hidden="true">1.1.</strong> Access Keys</a></li><li class="chapter-item expanded "><a href="../DataStructures/Account.html"><strong aria-hidden="true">1.2.</strong> Accounts</a></li><li class="chapter-item expanded "><a href="../DataStructures/Block.html"><strong aria-hidden="true">1.3.</strong> Block and Block Header</a></li><li class="chapter-item expanded "><a href="../DataStructures/DataTypes.html"><strong aria-hidden="true">1.4.</strong> Data Types</a></li><li class="chapter-item expanded "><a href="../DataStructures/MerkleProof.html"><strong aria-hidden="true">1.5.</strong> Merkle Proofs</a></li><li class="chapter-item expanded "><a href="../DataStructures/Transaction.html"><strong aria-hidden="true">1.6.</strong> Transaction</a></li></ol></li><li class="chapter-item expanded "><a href="../ChainSpec/index.html"><strong aria-hidden="true">2.</strong> Chain Specification</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../ChainSpec/BlockProcessing.html"><strong aria-hidden="true">2.1.</strong> Block Processing</a></li><li class="chapter-item expanded "><a href="../ChainSpec/Consensus.html"><strong aria-hidden="true">2.2.</strong> Consensus</a></li><li class="chapter-item expanded "><a href="../ChainSpec/LightClient.html"><strong aria-hidden="true">2.3.</strong> Light Client</a></li><li class="chapter-item expanded "><a href="../ChainSpec/SelectingBlockProducers.html" class="active"><strong aria-hidden="true">2.4.</strong> Selecting Chunk and Block Producers</a></li><li class="chapter-item expanded "><a href="../ChainSpec/Transactions.html"><strong aria-hidden="true">2.5.</strong> Transactions in the Blockchain Layer</a></li><li class="chapter-item expanded "><a href="../ChainSpec/Upgradability.html"><strong aria-hidden="true">2.6.</strong> Upgradability</a></li><li class="chapter-item expanded "><a href="../ChainSpec/EpochAndStaking/index.html"><strong aria-hidden="true">2.7.</strong> Epochs and Staking</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../ChainSpec/EpochAndStaking/Epoch.html"><strong aria-hidden="true">2.7.1.</strong> Epoch</a></li><li class="chapter-item expanded "><a href="../ChainSpec/EpochAndStaking/EpochManager.html"><strong aria-hidden="true">2.7.2.</strong> EpochManager</a></li><li class="chapter-item expanded "><a href="../ChainSpec/EpochAndStaking/Staking.html"><strong aria-hidden="true">2.7.3.</strong> Staking and slashing</a></li></ol></li></ol></li><li class="chapter-item expanded "><a href="../NetworkSpec/NetworkSpec.html"><strong aria-hidden="true">3.</strong> Network Specification</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../NetworkSpec/Messages.html"><strong aria-hidden="true">3.1.</strong> Messages</a></li><li class="chapter-item expanded "><a href="../NetworkSpec/RoutingTableExchangeAlgorithm.html"><strong aria-hidden="true">3.2.</strong> Routing Table Exchange Algorithm</a></li></ol></li><li class="chapter-item expanded "><a href="../RuntimeSpec/index.html"><strong aria-hidden="true">4.</strong> Runtime Specification</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../RuntimeSpec/AccountStorage.html"><strong aria-hidden="true">4.1.</strong> Account Receipt Storage</a></li><li class="chapter-item expanded "><a href="../RuntimeSpec/Actions.html"><strong aria-hidden="true">4.2.</strong> Actions</a></li><li class="chapter-item expanded "><a href="../RuntimeSpec/ApplyingChunk.html"><strong aria-hidden="true">4.3.</strong> Applying chunk</a></li><li class="chapter-item expanded "><a href="../RuntimeSpec/Components/Components.html"><strong aria-hidden="true">4.4.</strong> Components</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../RuntimeSpec/Components/RuntimeCrate.html"><strong aria-hidden="true">4.4.1.</strong> Runtime Crate</a></li><li class="chapter-item expanded "><a href="../RuntimeSpec/Components/BindingsSpec/BindingsSpec.html"><strong aria-hidden="true">4.4.2.</strong> Bindings Specification</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../RuntimeSpec/Components/BindingsSpec/ContextAPI.html"><strong aria-hidden="true">4.4.2.1.</strong> Context API</a></li><li class="chapter-item expanded "><a href="../RuntimeSpec/Components/BindingsSpec/EconomicsAPI.html"><strong aria-hidden="true">4.4.2.2.</strong> Economics API</a></li><li class="chapter-item expanded "><a href="../RuntimeSpec/Components/BindingsSpec/MathAPI.html"><strong aria-hidden="true">4.4.2.3.</strong> Math API</a></li><li class="chapter-item expanded "><a href="../RuntimeSpec/Components/BindingsSpec/MiscellaneousAPI.html"><strong aria-hidden="true">4.4.2.4.</strong> Miscellaneous API</a></li><li class="chapter-item expanded "><a href="../RuntimeSpec/Components/BindingsSpec/PromisesAPI.html"><strong aria-hidden="true">4.4.2.5.</strong> Promises API</a></li><li class="chapter-item expanded "><a href="../RuntimeSpec/Components/BindingsSpec/RegistersAPI.html"><strong aria-hidden="true">4.4.2.6.</strong> Registers API</a></li><li class="chapter-item expanded "><a href="../RuntimeSpec/Components/BindingsSpec/TrieAPI.html"><strong aria-hidden="true">4.4.2.7.</strong> Trie API</a></li></ol></li></ol></li><li class="chapter-item expanded "><a href="../RuntimeSpec/Fees/Fees.html"><strong aria-hidden="true">4.5.</strong> Fees</a></li><li class="chapter-item expanded "><a href="../RuntimeSpec/FunctionCall.html"><strong aria-hidden="true">4.6.</strong> Function Call</a></li><li class="chapter-item expanded "><a href="../RuntimeSpec/Preparation.html"><strong aria-hidden="true">4.7.</strong> Contract Preparation</a></li><li class="chapter-item expanded "><a href="../RuntimeSpec/Receipts.html"><strong aria-hidden="true">4.8.</strong> Receipts</a></li><li class="chapter-item expanded "><a href="../RuntimeSpec/Refunds.html"><strong aria-hidden="true">4.9.</strong> Refunds</a></li><li class="chapter-item expanded "><a href="../RuntimeSpec/Runtime.html"><strong aria-hidden="true">4.10.</strong> Runtime</a></li><li class="chapter-item expanded "><a href="../RuntimeSpec/Transactions.html"><strong aria-hidden="true">4.11.</strong> Transactions</a></li><li class="chapter-item expanded "><a href="../RuntimeSpec/Scenarios/Scenarios.html"><strong aria-hidden="true">4.12.</strong> Scenarios</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../RuntimeSpec/Scenarios/CrossContractCall.html"><strong aria-hidden="true">4.12.1.</strong> Cross-ContractCall</a></li><li class="chapter-item expanded "><a href="../RuntimeSpec/Scenarios/FinancialTransaction.html"><strong aria-hidden="true">4.12.2.</strong> Financial Transaction</a></li></ol></li></ol></li><li class="chapter-item expanded "><a href="../Economics/Economics.html"><strong aria-hidden="true">5.</strong> Economics</a></li><li class="chapter-item expanded "><a href="../GenesisConfig/GenesisConfig.html"><strong aria-hidden="true">6.</strong> GenesisConfig</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../GenesisConfig/ExtCostsConfig.html"><strong aria-hidden="true">6.1.</strong> ExtCostsConfig</a></li><li class="chapter-item expanded "><a href="../GenesisConfig/VMConfig.html"><strong aria-hidden="true">6.2.</strong> VMConfig</a></li><li class="chapter-item expanded "><a href="../GenesisConfig/StateRecord.html"><strong aria-hidden="true">6.3.</strong> StateRecord</a></li><li class="chapter-item expanded "><a href="../GenesisConfig/RuntimeConfig.html"><strong aria-hidden="true">6.4.</strong> RuntimeConfig</a></li><li class="chapter-item expanded "><a href="../GenesisConfig/RuntimeFeeConfig.html"><strong aria-hidden="true">6.5.</strong> RuntimeFeeConfig</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../GenesisConfig/RuntimeFeeConfig/AccessKeyCreationConfig.html"><strong aria-hidden="true">6.5.1.</strong> AccessKeyCreationConfig</a></li><li class="chapter-item expanded "><a href="../GenesisConfig/RuntimeFeeConfig/ActionCreationConfig.html"><strong aria-hidden="true">6.5.2.</strong> ActionCreationConfig</a></li><li class="chapter-item expanded "><a href="../GenesisConfig/RuntimeFeeConfig/DataReceiptCreationConfig.html"><strong aria-hidden="true">6.5.3.</strong> DataReceiptCreationConfig</a></li><li class="chapter-item expanded "><a href="../GenesisConfig/RuntimeFeeConfig/Fee.html"><strong aria-hidden="true">6.5.4.</strong> Fee</a></li><li class="chapter-item expanded "><a href="../GenesisConfig/RuntimeFeeConfig/Fraction.html"><strong aria-hidden="true">6.5.5.</strong> Fraction</a></li><li class="chapter-item expanded "><a href="../GenesisConfig/RuntimeFeeConfig/StorageUsageConfig.html"><strong aria-hidden="true">6.5.6.</strong> StorageUsageConfig</a></li></ol></li></ol></li><li class="chapter-item expanded "><li class="part-title">Architecture</li><li class="chapter-item expanded "><a href="../architecture/index.html"><strong aria-hidden="true">7.</strong> Overview</a></li><li class="chapter-item expanded "><a href="../architecture/how/index.html"><strong aria-hidden="true">8.</strong> How neard works</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../architecture/how/sync.html"><strong aria-hidden="true">8.1.</strong> How Sync Works</a></li><li class="chapter-item expanded "><a href="../architecture/how/gc.html"><strong aria-hidden="true">8.2.</strong> Garbage Collection</a></li><li class="chapter-item expanded "><a href="../architecture/how/epoch.html"><strong aria-hidden="true">8.3.</strong> How Epoch Works</a></li><li class="chapter-item expanded "><a href="../architecture/how/tx_routing.html"><strong aria-hidden="true">8.4.</strong> Transaction Routing</a></li><li class="chapter-item expanded "><a href="../architecture/how/tx_receipts.html"><strong aria-hidden="true">8.5.</strong> Transactions And Receipts</a></li><li class="chapter-item expanded "><a href="../architecture/how/cross-shard.html"><strong aria-hidden="true">8.6.</strong> Cross shard transactions - deep dive</a></li><li class="chapter-item expanded "><a href="../architecture/how/gas.html"><strong aria-hidden="true">8.7.</strong> Gas</a></li><li class="chapter-item expanded "><a href="../architecture/how/receipt-congestion.html"><strong aria-hidden="true">8.8.</strong> Receipt Congestion</a></li><li class="chapter-item expanded "><a href="../architecture/how/meta-tx.html"><strong aria-hidden="true">8.9.</strong> Meta transactions</a></li><li class="chapter-item expanded "><a href="../architecture/how/serialization.html"><strong aria-hidden="true">8.10.</strong> Serialization: Borsh, Json, ProtoBuf</a></li><li class="chapter-item expanded "><a href="../architecture/how/proofs.html"><strong aria-hidden="true">8.11.</strong> Proofs</a></li><li class="chapter-item expanded "><a href="../architecture/how/resharding_v2.html"><strong aria-hidden="true">8.12.</strong> Resharding V2</a></li><li class="chapter-item expanded "><a href="../architecture/how/optimistic_block.html"><strong aria-hidden="true">8.13.</strong> Optimistic block</a></li></ol></li><li class="chapter-item expanded "><a href="../architecture/next/index.html"><strong aria-hidden="true">9.</strong> How neard will work</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../architecture/next/catchup_and_state_sync.html"><strong aria-hidden="true">9.1.</strong> Catchup and state sync improvements</a></li><li class="chapter-item expanded "><a href="../architecture/next/malicious_chunk_producer_and_phase2.html"><strong aria-hidden="true">9.2.</strong> Malicious producers and phase 2</a></li></ol></li><li class="chapter-item expanded "><a href="../architecture/storage.html"><strong aria-hidden="true">10.</strong> Storage</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../architecture/storage/flow.html"><strong aria-hidden="true">10.1.</strong> Storage Request Flow</a></li><li class="chapter-item expanded "><a href="../architecture/storage/trie_storage.html"><strong aria-hidden="true">10.2.</strong> Trie Storage</a></li><li class="chapter-item expanded "><a href="../architecture/storage/database.html"><strong aria-hidden="true">10.3.</strong> Database Format</a></li><li class="chapter-item expanded "><a href="../architecture/storage/flat_storage.html"><strong aria-hidden="true">10.4.</strong> Flat Storage</a></li></ol></li><li class="chapter-item expanded "><a href="../architecture/network.html"><strong aria-hidden="true">11.</strong> Network</a></li><li class="chapter-item expanded "><a href="../architecture/gas/index.html"><strong aria-hidden="true">12.</strong> Gas Cost Parameters</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../architecture/gas/parameter_definition.html"><strong aria-hidden="true">12.1.</strong> Parameter Definitions</a></li><li class="chapter-item expanded "><a href="../architecture/gas/gas_profile.html"><strong aria-hidden="true">12.2.</strong> Gas Profile</a></li><li class="chapter-item expanded "><a href="../architecture/gas/estimator.html"><strong aria-hidden="true">12.3.</strong> Runtime Parameter Estimator</a></li></ol></li><li class="chapter-item expanded "><li class="part-title">Practices</li><li class="chapter-item expanded "><a href="../practices/index.html"><strong aria-hidden="true">13.</strong> Overview</a></li><li class="chapter-item expanded "><a href="../practices/rust.html"><strong aria-hidden="true">14.</strong> Rust 🦀</a></li><li class="chapter-item expanded "><a href="../practices/workflows/index.html"><strong aria-hidden="true">15.</strong> Workflows</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../practices/workflows/run_a_node.html"><strong aria-hidden="true">15.1.</strong> Run a Node</a></li><li class="chapter-item expanded "><a href="../practices/workflows/deploy_a_contract.html"><strong aria-hidden="true">15.2.</strong> Deploy a Contract</a></li><li class="chapter-item expanded "><a href="../practices/workflows/gas_estimations.html"><strong aria-hidden="true">15.3.</strong> Run Gas Estimations</a></li><li class="chapter-item expanded "><a href="../practices/workflows/localnet_on_many_machines.html"><strong aria-hidden="true">15.4.</strong> Localnet on many machines</a></li><li class="chapter-item expanded "><a href="../practices/workflows/io_trace.html"><strong aria-hidden="true">15.5.</strong> IO tracing</a></li><li class="chapter-item expanded "><a href="../practices/workflows/profiling.html"><strong aria-hidden="true">15.6.</strong> Profiling</a></li><li class="chapter-item expanded "><a href="../practices/workflows/benchmarks.html"><strong aria-hidden="true">15.7.</strong> Benchmarks</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../practices/workflows/benchmarking_synthetic_workloads.html"><strong aria-hidden="true">15.7.1.</strong> Synthetic Workloads</a></li><li class="chapter-item expanded "><a href="../practices/workflows/benchmarking_chunk_application_on_native_transfers.html"><strong aria-hidden="true">15.7.2.</strong> Native Transfer Chunk Application</a></li></ol></li><li class="chapter-item expanded "><a href="../practices/workflows/otel_traces.html"><strong aria-hidden="true">15.8.</strong> Working with OpenTelemetry Traces</a></li><li class="chapter-item expanded "><a href="../practices/workflows/futex_contention.html"><strong aria-hidden="true">15.9.</strong> Futex contention</a></li></ol></li><li class="chapter-item expanded "><a href="../practices/style.html"><strong aria-hidden="true">16.</strong> Code Style</a></li><li class="chapter-item expanded "><a href="../practices/docs.html"><strong aria-hidden="true">17.</strong> Documentation</a></li><li class="chapter-item expanded "><a href="../practices/tracking_issues.html"><strong aria-hidden="true">18.</strong> Tracking Issues</a></li><li class="chapter-item expanded "><a href="../practices/security_vulnerabilities.html"><strong aria-hidden="true">19.</strong> Security Vulnerabilities</a></li><li class="chapter-item expanded "><a href="../practices/fast_builds.html"><strong aria-hidden="true">20.</strong> Fast Builds</a></li><li class="chapter-item expanded "><a href="../practices/testing/index.html"><strong aria-hidden="true">21.</strong> Testing</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../practices/testing/python_tests.html"><strong aria-hidden="true">21.1.</strong> Python Tests</a></li><li class="chapter-item expanded "><a href="../practices/testing/test_utils.html"><strong aria-hidden="true">21.2.</strong> Testing Utils</a></li><li class="chapter-item expanded "><a href="../practices/testing/coverage.html"><strong aria-hidden="true">21.3.</strong> Test Coverage</a></li></ol></li><li class="chapter-item expanded "><a href="../practices/protocol_upgrade.html"><strong aria-hidden="true">22.</strong> Protocol Upgrade</a></li><li class="chapter-item expanded affix "><li class="part-title">Advanced configuration</li><li class="chapter-item expanded "><a href="../advanced_configuration/networking.html"><strong aria-hidden="true">23.</strong> Networking</a></li><li class="chapter-item expanded affix "><li class="part-title">Custom test networks</li><li class="chapter-item expanded "><a href="../test_networks/mainnet_spoon.html"><strong aria-hidden="true">24.</strong> Starting a network from mainnet state</a></li><li class="chapter-item expanded affix "><li class="part-title">Misc</li><li class="chapter-item expanded "><a href="../misc/index.html"><strong aria-hidden="true">25.</strong> Overview</a></li><li class="chapter-item expanded "><a href="../misc/state_sync_dump.html"><strong aria-hidden="true">26.</strong> State Sync Dump</a></li><li class="chapter-item expanded "><a href="../misc/archival_data_recovery.html"><strong aria-hidden="true">27.</strong> Archival node - recovery of missing data</a></li></ol>
+            </div>
+            <div id="sidebar-resize-handle" class="sidebar-resize-handle"></div>
+        </nav>
+
+        <div id="page-wrapper" class="page-wrapper">
+
+            <div class="page">
+                <div id="menu-bar-hover-placeholder"></div>
+                <div id="menu-bar" class="menu-bar sticky bordered">
+                    <div class="left-buttons">
+                        <button id="sidebar-toggle" class="icon-button" type="button" title="Toggle Table of Contents" aria-label="Toggle Table of Contents" aria-controls="sidebar">
+                            <i class="fa fa-bars"></i>
+                        </button>
+                        <button id="theme-toggle" class="icon-button" type="button" title="Change theme" aria-label="Change theme" aria-haspopup="true" aria-expanded="false" aria-controls="theme-list">
+                            <i class="fa fa-paint-brush"></i>
+                        </button>
+                        <ul id="theme-list" class="theme-popup" aria-label="Themes" role="menu">
+                            <li role="none"><button role="menuitem" class="theme" id="light">Light (default)</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="rust">Rust</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="coal">Coal</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="navy">Navy</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="ayu">Ayu</button></li>
+                        </ul>
+                        <button id="search-toggle" class="icon-button" type="button" title="Search. (Shortkey: s)" aria-label="Toggle Searchbar" aria-expanded="false" aria-keyshortcuts="S" aria-controls="searchbar">
+                            <i class="fa fa-search"></i>
+                        </button>
+                    </div>
+
+                    <h1 class="menu-title">Guide to Nearcore Development</h1>
+
+                    <div class="right-buttons">
+                        <a href="../print.html" title="Print this book" aria-label="Print this book">
+                            <i id="print-button" class="fa fa-print"></i>
+                        </a>
+                        <a href="https://github.com/near/nearcore/tree/master/docs" title="Git repository" aria-label="Git repository">
+                            <i id="git-repository-button" class="fa fa-github"></i>
+                        </a>
+                        <a href="https://github.com/near/nearcore/edit/master/docs/./ChainSpec/SelectingBlockProducers.md" title="Suggest an edit" aria-label="Suggest an edit">
+                            <i id="git-edit-button" class="fa fa-edit"></i>
+                        </a>
+                    </div>
+                </div>
+
+                <div id="search-wrapper" class="hidden">
+                    <form id="searchbar-outer" class="searchbar-outer">
+                        <input type="search" id="searchbar" name="searchbar" placeholder="Search this book ..." aria-controls="searchresults-outer" aria-describedby="searchresults-header">
+                    </form>
+                    <div id="searchresults-outer" class="searchresults-outer hidden">
+                        <div id="searchresults-header" class="searchresults-header"></div>
+                        <ul id="searchresults">
+                        </ul>
+                    </div>
+                </div>
+                <!-- Apply ARIA attributes after the sidebar and the sidebar toggle button are added to the DOM -->
+                <script type="text/javascript">
+                    document.getElementById('sidebar-toggle').setAttribute('aria-expanded', sidebar === 'visible');
+                    document.getElementById('sidebar').setAttribute('aria-hidden', sidebar !== 'visible');
+                    Array.from(document.querySelectorAll('#sidebar a')).forEach(function(link) {
+                        link.setAttribute('tabIndex', sidebar === 'visible' ? 0 : -1);
+                    });
+                </script>
+
+                <div id="content" class="content">
+                    <main>
+                        <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.4/dist/katex.min.css">
+<h1 id="selecting-chunk-and-block-producers"><a class="header" href="#selecting-chunk-and-block-producers">Selecting Chunk and Block Producers</a></h1>
+<h2 id="background"><a class="header" href="#background">Background</a></h2>
+<p>Near is intended to be a sharded blockchain. At the time of writing (March 2021), challenges (an
+important security feature for a sharded network) are not fully implemented. As a stepping stone
+towards the full sharded solution, Near will go through a phase called &quot;Simple Nightshade&quot;. In this
+protocol, block producers will track all shards (i.e. validate all transactions, eliminating the need
+for challenges), and there will be an additional type of participant called a &quot;chunk-only producer&quot;
+which tracks only a single shard. A block includes one chunk for each shard, and it is the chunks
+which include the transactions that were executed for its associated shard. The purpose of this
+design is to allow decentralization (running a node which supports a chunk-only producer should be
+possible for a large number of participants) while maintaining security (since block producers track
+all shards). For more details on chunks see the subsequent chapter on Transactions. Note: the
+purpose of the &quot;chunk-only&quot; nomenclature is to reduce confusion since block producers will also
+produce chunks some times (they track all shards, so they will be able to produce chunks for any
+shard easily); thus the key distinction is that chunk-only producers only produce chunks, i.e. never
+produce blocks.</p>
+<p>Near is a permission-less blockchain, so anyone (with sufficient stake) can become a chunk-only
+producer, or a block producer. In this section we outline the algorithm by which chunk-only
+producers and block producers are selected in each epoch from the proposals of participants in the
+network. Additionally, we will specify the algorithm for assigning those chunk-only producers and
+block producers to be the one responsible for producing the chunk/block at each height and for each
+shard.</p>
+<p>There are several desiderata for these algorithms:</p>
+<ul>
+<li>Larger stakes should be preferred (more staked tokens means more security)</li>
+<li>The frequency with which a given participant is selected to produce a particular chunk/block is
+proportional to that participant's stake</li>
+<li>All participants selected as chunk/block producers should be selected to produce at least one
+chunk/block during the epoch</li>
+<li>It should be possible to determine which chunk/block producer is supposed to produce the
+chunk/block at height <span class="katex"><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.6944em;"></span><span class="mord mathnormal">h</span></span></span></span>, for any <span class="katex"><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.6944em;"></span><span class="mord mathnormal">h</span></span></span></span> within the epoch, in constant time</li>
+<li>The block producer chosen at height <span class="katex"><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.6944em;"></span><span class="mord mathnormal">h</span></span></span></span> should have been a chunk producer for some shard at
+height <span class="katex"><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.7778em;vertical-align:-0.0833em;"></span><span class="mord mathnormal">h</span><span class="mspace" style="margin-right:0.2222em;"></span><span class="mbin">−</span><span class="mspace" style="margin-right:0.2222em;"></span></span><span class="base"><span class="strut" style="height:0.6444em;"></span><span class="mord">1</span></span></span></span>, this minimizes network communication between chunk producers and block
+producers</li>
+<li>The number of distinct chunk-only/block producers should be as large as is allowed by the
+scalability in the consensus algorithm (too large and the system would be too slow, too small and
+the system would be too centralized) <span class="katex"><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.8491em;"></span><span class="mord"><span></span><span class="msupsub"><span class="vlist-t"><span class="vlist-r"><span class="vlist" style="height:0.8491em;"><span style="top:-3.063em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight"><span class="mord mtight">†</span></span></span></span></span></span></span></span></span></span></span></span></li>
+</ul>
+<blockquote>
+<p><span class="katex"><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.8889em;vertical-align:-0.1944em;"></span><span class="mord">†</span></span></span></span> Note: By &quot;distinct block producers&quot; we mean the number of different signing keys.
+We recognize it is possible for a single &quot;logical entity&quot; to split their stake into two or more
+proposals (Sybil attack), however steps to prevent this kind of attack against centralization are
+out of scope for this document.</p>
+</blockquote>
+<h2 id="assumptions"><a class="header" href="#assumptions">Assumptions</a></h2>
+<ul>
+<li>The maximum number of distinct chunk-only producers and block producers supported by the consensus
+algorithm is a fixed constant. This will be a parameter of the protocol itself (i.e. all nodes
+must agree on the constant). In this document, we will denote the maximum number of chunk-only
+producers as <code>MAX_NUM_CP</code> and the maximum number of block producers by <code>MAX_NUM_BP</code>.</li>
+<li>The minimum number of blocks in the epoch is known at the time of block producer selection. This
+minimum does not need to be incredibly accurate, but we will assume it is within a factor of 2 of
+the actual number of blocks in the epoch. In this document we will refer to this as the &quot;length of
+the epoch&quot;, denoted by <code>epoch_length</code>.</li>
+<li>To meet the requirement that any chosen validator will be selected to produce at least one
+chunk/block in the epoch, we assume it is acceptable for the probability of this <em>not</em> happening
+to be sufficiently low. Let <code>PROBABILITY_NEVER_SELECTED</code> be a protocol constant which gives the
+maximum allowable probability that the chunk-only/block producer with the least stake will never
+be selected to produce a chunk/block during the epoch. We will additionally assume the chunk/block
+producer assigned to make each chunk/block is chosen independently, and in proportion to the
+participant's stake. Therefore, the probability that the block producer with least stake is never
+chosen is given by the expression <span class="katex"><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mopen">(</span><span class="mord">1</span><span class="mspace" style="margin-right:0.2222em;"></span><span class="mbin">−</span><span class="mspace" style="margin-right:0.2222em;"></span></span><span class="base"><span class="strut" style="height:1.0991em;vertical-align:-0.25em;"></span><span class="mopen">(</span><span class="mord"><span class="mord mathnormal">s</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3175em;"><span style="top:-2.55em;margin-left:0em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord text mtight"><span class="mord mtight">min</span></span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span><span class="mord">/</span><span class="mord mathnormal" style="margin-right:0.05764em;">S</span><span class="mclose">)</span><span class="mclose"><span class="mclose">)</span><span class="msupsub"><span class="vlist-t"><span class="vlist-r"><span class="vlist" style="height:0.8491em;"><span style="top:-3.063em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord text mtight"><span class="mord mtight">epoch_length</span></span></span></span></span></span></span></span></span></span></span></span>, where
+<span class="katex"><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.5806em;vertical-align:-0.15em;"></span><span class="mord"><span class="mord mathnormal">s</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3175em;"><span style="top:-2.55em;margin-left:0em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord text mtight"><span class="mord mtight">min</span></span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span></span></span></span> is the least stake of any block producer and <span class="katex"><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.6833em;"></span><span class="mord mathnormal" style="margin-right:0.05764em;">S</span></span></span></span> is the total relevant
+stake (what stake is &quot;relevant&quot; depends on whether the validator is a chunk-only producer or a
+block producer; more details below). Hence, the algorithm will enforce the condition <span class="katex"><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mopen">(</span><span class="mord">1</span><span class="mspace" style="margin-right:0.2222em;"></span><span class="mbin">−</span><span class="mspace" style="margin-right:0.2222em;"></span></span><span class="base"><span class="strut" style="height:1.0991em;vertical-align:-0.25em;"></span><span class="mopen">(</span><span class="mord"><span class="mord mathnormal">s</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3175em;"><span style="top:-2.55em;margin-left:0em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord text mtight"><span class="mord mtight">min</span></span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span><span class="mord">/</span><span class="mord mathnormal" style="margin-right:0.05764em;">S</span><span class="mclose">)</span><span class="mclose"><span class="mclose">)</span><span class="msupsub"><span class="vlist-t"><span class="vlist-r"><span class="vlist" style="height:0.8491em;"><span style="top:-3.063em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord text mtight"><span class="mord mtight">epoch_length</span></span></span></span></span></span></span></span></span><span class="mspace" style="margin-right:0.2778em;"></span><span class="mrel">&lt;</span><span class="mspace" style="margin-right:0.2778em;"></span></span><span class="base"><span class="strut" style="height:0.9933em;vertical-align:-0.31em;"></span><span class="mord text"><span class="mord">PROBABILITY_NEVER_SELECTED</span></span></span></span></span>.</li>
+</ul>
+<p>In mainnet and testnet, <code>epoch_length</code> is set to <code>43200</code>. Let <span class="katex"><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.9933em;vertical-align:-0.31em;"></span><span class="mord text"><span class="mord">PROBABILITY_NEVER_SELECTED</span></span><span class="mspace" style="margin-right:0.2778em;"></span><span class="mrel">=</span><span class="mspace" style="margin-right:0.2778em;"></span></span><span class="base"><span class="strut" style="height:0.6444em;"></span><span class="mord">0.001</span></span></span></span>,
+we obtain, <span class="katex"><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mord"><span class="mord mathnormal">s</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3175em;"><span style="top:-2.55em;margin-left:0em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord text mtight"><span class="mord mtight">min</span></span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span><span class="mord">/</span><span class="mord mathnormal" style="margin-right:0.05764em;">S</span><span class="mspace" style="margin-right:0.2778em;"></span><span class="mrel">=</span><span class="mspace" style="margin-right:0.2778em;"></span></span><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mord">160/1000</span><span class="mpunct">,</span><span class="mspace" style="margin-right:0.1667em;"></span><span class="mord">000</span></span></span></span>.</p>
+<h2 id="algorithm-for-selecting-block-and-chunk-producers"><a class="header" href="#algorithm-for-selecting-block-and-chunk-producers">Algorithm for selecting block and chunk producers</a></h2>
+<p>A potential validator cannot specify whether they want to become a block producer or a chunk-only producer.
+There is only one type of proposal. The same algorithm is used for selecting block producers and chunk producers,
+but with different thresholds. The threshold for becoming block producers is higher, so if a node is selected as a block
+producer, it will also be a chunk producer, but not the other way around. Validators who are selected as chunk producers
+but not block producers are chunk-only producers.</p>
+<h3 id="select_validators"><a class="header" href="#select_validators">select_validators</a></h3>
+<h3 id="input"><a class="header" href="#input">Input</a></h3>
+<ul>
+<li><code>max_num_validators: u16</code> max number of validators to be selected</li>
+<li><code>min_stake_fraction: Ratio&lt;u128&gt;</code> minimum stake ratio for selected validator</li>
+<li><code>validator_proposals: Vec&lt;ValidatorStake&gt;</code> (proposed stakes for the next epoch from nodes sending
+staking transactions)</li>
+</ul>
+<h3 id="output"><a class="header" href="#output">Output</a></h3>
+<ul>
+<li><code>(validators: Vec&lt;ValidatorStake&gt;, sampler: WeightedIndex)</code></li>
+</ul>
+<h3 id="steps"><a class="header" href="#steps">Steps</a></h3>
+<pre><code class="language-python">sorted_proposals =
+    sorted_descending(validator_proposals, key=lambda v: (v.stake, v.account_id))
+
+total_stake = 0
+
+validators = []
+for v in sorted_proposals[0:max_num_validators]:
+    total_stake += v.stake
+    if (v.stake / total_stake) &gt; min_stake_fraction:
+        validators.append(v)
+    else:
+        break
+
+validator_sampler = WeightedIndex([v.stake for v in validators])
+
+return (validators, validator_sampler)
+</code></pre>
+<h2 id="algorithm-for-selecting-block-producers"><a class="header" href="#algorithm-for-selecting-block-producers">Algorithm for selecting block producers</a></h2>
+<h3 id="input-1"><a class="header" href="#input-1">Input</a></h3>
+<ul>
+<li><code>MAX_NUM_BP: u16</code> Max number of block producers, see Assumptions</li>
+<li><code>min_stake_fraction: Ratio&lt;u128&gt;</code> <span class="katex"><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mord"><span class="mord mathnormal">s</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3175em;"><span style="top:-2.55em;margin-left:0em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord text mtight"><span class="mord mtight">min</span></span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span><span class="mord">/</span><span class="mord mathnormal" style="margin-right:0.05764em;">S</span></span></span></span>, see Assumptions</li>
+<li><code>validator_proposals: Vec&lt;ValidatorStake&gt;</code> (proposed stakes for the next epoch from nodes sending
+staking transactions)</li>
+</ul>
+<pre><code class="language-python">select_validators(MAX_NUM_BP, min_stake_fraction, validator_proposals)
+</code></pre>
+<h2 id="algorithm-for-selecting-chunk-producers"><a class="header" href="#algorithm-for-selecting-chunk-producers">Algorithm for selecting chunk producers</a></h2>
+<h3 id="input-2"><a class="header" href="#input-2">Input</a></h3>
+<ul>
+<li><code>MAX_NUM_CP: u16</code> max number of chunk producers, see Assumptions</li>
+<li><code>min_stake_fraction: Ratio&lt;u128&gt;</code> <span class="katex"><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mord"><span class="mord mathnormal">s</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3175em;"><span style="top:-2.55em;margin-left:0em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord text mtight"><span class="mord mtight">min</span></span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span><span class="mord">/</span><span class="mord mathnormal" style="margin-right:0.05764em;">S</span></span></span></span>, see Assumptions</li>
+<li><code>num_shards: u64</code> number of shards</li>
+<li><code>validator_proposals: Vec&lt;ValidatorStake&gt;</code> (proposed stakes for the next epoch from nodes sending
+staking transactions)</li>
+</ul>
+<pre><code class="language-python">select_validators(MAX_NUM_CP, min_stake_fraction/num_shards, validator_proposals)
+</code></pre>
+<p>The reasoning for using <code>min_stake_fraction/num_shards</code> as the threshold here is that
+we will assign chunk producers to shards later and the algorithm (described below) will try to assign
+them in a way that the total stake in each shard is distributed as evenly as possible.
+So the total stake in each shard will be roughly be <code>total_stake_all_chunk_producers / num_shards</code>.</p>
+<h2 id="algorithm-for-assigning-chunk-producers-to-shards"><a class="header" href="#algorithm-for-assigning-chunk-producers-to-shards">Algorithm for assigning chunk producers to shards</a></h2>
+<p>Note that block producers are a subset of chunk producers, so this algorithm will also assign block producers
+to shards. This also means that a block producer may only be assigned to a subset of shards. For the security of
+the protocol, all block producers must track all shards, even if they are not assigned to produce chunks for all shards.
+We enforce that in the implementation level, not the protocol level. A validator node will panic if it doesn't track all
+shards.</p>
+<h3 id="input-3"><a class="header" href="#input-3">Input</a></h3>
+<ul>
+<li><code>chunk_producers: Vec&lt;ValidatorStake&gt;</code></li>
+<li><code>num_shards: usize</code></li>
+<li><code>min_validators_per_shard: usize</code></li>
+</ul>
+<h3 id="output-1"><a class="header" href="#output-1">Output</a></h3>
+<ul>
+<li><code>validator_shard_assignments: Vec&lt;Vec&lt;ValidatorStake&gt;&gt;</code>
+<ul>
+<li><span class="katex"><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.6595em;"></span><span class="mord mathnormal">i</span></span></span></span>-th element gives the validators assigned to shard <span class="katex"><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.6595em;"></span><span class="mord mathnormal">i</span></span></span></span></li>
+</ul>
+</li>
+</ul>
+<h3 id="steps-1"><a class="header" href="#steps-1">Steps</a></h3>
+<ul>
+<li>While any shard has fewer than <code>min_validators_per_shard</code> validators assigned to it:
+<ul>
+<li>Let <code>cp_i</code> be the next element of <code>chunk_producers</code> (cycle back to the beginning as needed)
+<ul>
+<li>Note: if there are more shards than chunk producers, then some chunk producers will
+be assigned to multiple shards. This is undesirable because we want each chunk-only producer
+to be a assigned to exactly one shard. However, block producers are also chunk producers,
+so even if we must wrap around a little, chunk-only producers may still not be assigned
+multiple shards. Moreover, we assume that in practice there will be many more chunk producers
+than shards (in particular because block producers are also chunk producers).</li>
+</ul>
+</li>
+<li>Let <code>shard_id</code> be the shard with the fewest number of assigned validators such that <code>cp_i</code> has
+not been assigned to <code>shard_id</code></li>
+<li>Assign <code>cp_i</code> to <code>shard_id</code></li>
+</ul>
+</li>
+<li>While there are any validators which have not been assigned to any shard:
+<ul>
+<li>Let <code>cp_i</code> be the next validator not assigned to any shard</li>
+<li>Let <code>shard_id</code> be the shard with the least total stake (total stake = sum of stakes of all
+validators assigned to that shard)</li>
+<li>Assign <code>cp_i</code> to <code>shard_id</code></li>
+</ul>
+</li>
+<li>Return the shard assignments</li>
+</ul>
+<p>In addition to the above description, we have a <a href="https://github.com/birchmd/bp-shard-assign-poc">proof-of-concept (PoC) on
+GitHub</a>. Note: this PoC has not been updated since
+the change to Simple Nightshade, so it assumes we are assigning block producers to shards. However,
+the same algorithm works to assign chunk producers to shards; it is only a matter of renaming
+variables referencing &quot;block producers&quot; to reference &quot;chunk producers&quot; instead.</p>
+<h2 id="algorithm-for-sampling-validators-proportional-to-stake"><a class="header" href="#algorithm-for-sampling-validators-proportional-to-stake">Algorithm for sampling validators proportional to stake</a></h2>
+<!-- cspell:ignore Vose's byteorder -->
+<p>We sample validators with probability proportional to their stake using the following data structure.</p>
+<ul>
+<li><code>weighted_sampler: WeightedIndex</code>
+<ul>
+<li>Allow <span class="katex"><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mord mathnormal" style="margin-right:0.02778em;">O</span><span class="mopen">(</span><span class="mord">1</span><span class="mclose">)</span></span></span></span> sampling</li>
+<li>This structure will be based on the
+<a href="https://docs.rs/rand/latest/rand/distr/weighted/struct.WeightedIndex.html">WeightedIndex</a>
+implementation (see a description of <a href="https://en.wikipedia.org/wiki/Alias_method">Vose's Alias
+Method</a> for details)</li>
+</ul>
+</li>
+</ul>
+<p>This algorithm is applied using both chunk-only producers and block producers in the subsequent
+algorithms for selecting a specific block producer and chunk producer at each height.</p>
+<h3 id="input-4"><a class="header" href="#input-4">Input</a></h3>
+<ul>
+<li><code>rng_seed: [u8; 32]</code>
+<ul>
+<li>See usages of this algorithm below to see how this seed is generated</li>
+</ul>
+</li>
+<li><code>validators: Vec&lt;ValidatorStake&gt;</code></li>
+<li><code>sampler: WeightedIndex</code></li>
+</ul>
+<h3 id="output-2"><a class="header" href="#output-2">Output</a></h3>
+<ul>
+<li><code>selection: ValidatorStake</code></li>
+</ul>
+<h3 id="steps-2"><a class="header" href="#steps-2">Steps</a></h3>
+<pre><code class="language-python"># The seed is used as an entropy source for the random numbers.
+# The first 8 bytes select a block producer uniformly.
+uniform_index = int.from_bytes(rng_seed[0:8], byteorder='little') % len(validators)
+
+# The next 16 bytes uniformly pick some weight between 0 and the total
+# weight (i.e. stake) of all block producers.
+let uniform_weight = int.from_bytes(rng_seed[8:24], byteorder='little') \
+    % sampler.weight_sum()
+
+# Return either the uniformly selected block producer, or its &quot;alias&quot;
+# depending on the uniformly selected weight.
+index = uniform_index \
+    if uniform_weight &lt; sampler.no_alias_odds[uniform_index] \
+    else sampler.aliases[uniform_index]
+
+return validators[index]
+</code></pre>
+<h2 id="algorithm-for-selecting-producer-of-block-at-height-h"><a class="header" href="#algorithm-for-selecting-producer-of-block-at-height-h">Algorithm for selecting producer of block at height <span class="katex"><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.6944em;"></span><span class="mord mathnormal">h</span></span></span></span></a></h2>
+<h3 id="input-5"><a class="header" href="#input-5">Input</a></h3>
+<ul>
+<li><code>h: BlockHeight</code>
+<ul>
+<li>Height to compute the block producer for</li>
+<li>Only heights within the epoch corresponding to the given block producers make sense as input</li>
+</ul>
+</li>
+<li><code>block_producers: Vec&lt;ValidatorStake&gt;</code> (output from above)</li>
+<li><code>block_producer_sampler: WeightedIndex</code></li>
+<li><code>epoch_rng_seed: [u8; 32]</code>
+<ul>
+<li>Fixed seed for the epoch determined from Verified Random Function (VRF) output of last block in
+the previous epoch</li>
+</ul>
+</li>
+</ul>
+<h3 id="output-3"><a class="header" href="#output-3">Output</a></h3>
+<ul>
+<li><code>block_producer: ValidatorStake</code></li>
+</ul>
+<h3 id="steps-3"><a class="header" href="#steps-3">Steps</a></h3>
+<pre><code class="language-python"># Concatenates the bytes of the epoch seed with the height,
+# then computes the sha256 hash.
+block_seed = combine(epoch_rng_seed, h)
+
+# Use the algorithm defined above
+return select_validator(rng_seed=block_seed, validators=block_producers, sampler=block_producer_sampler)
+</code></pre>
+<h2 id="algorithm-for-selection-of-chunk-producer-at-height-h-for-all-shards"><a class="header" href="#algorithm-for-selection-of-chunk-producer-at-height-h-for-all-shards">Algorithm for selection of chunk producer at height <span class="katex"><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.6944em;"></span><span class="mord mathnormal">h</span></span></span></span> for all shards</a></h2>
+<h3 id="input-6"><a class="header" href="#input-6">Input</a></h3>
+<ul>
+<li>(same inputs as selection of block producer at height h)</li>
+<li><code>num_shards: usize</code></li>
+<li><code>chunk_producer_sampler: Vec&lt;WeightedIndex&gt;</code> (outputs from chunk-only producer selection)</li>
+<li><code>validator_shard_assignments: Vec&lt;Vec&lt;ValidatorStake&gt;&gt;</code></li>
+</ul>
+<h3 id="output-4"><a class="header" href="#output-4">Output</a></h3>
+<ul>
+<li><code>chunk_producers: Vec&lt;ValidatorStake&gt;</code>
+<ul>
+<li><code>i</code>th element gives the validator that will produce the chunk for shard <code>i</code>. Note: at least one
+of these will be a block producer, while others will be chunk-only producers.</li>
+</ul>
+</li>
+</ul>
+<h3 id="steps-4"><a class="header" href="#steps-4">Steps</a></h3>
+<pre><code class="language-python">bp = block_producer_at_height(
+    h + 1,
+    block_producers,
+    block_producer_sampler,
+    epoch_rng_seed,
+)
+
+result = []
+for shard_id in range(num_shards):
+    # concatenate bytes and take hash to create unique seed
+    shard_seed = combine(epoch_rng_seed, h, shard_id)
+    # Use selection algorithm defined above
+    cp = select_validator(
+        rng_seed=shard_seed,
+        validators=validator_shard_assignments[shard_id],
+        sampler=chunk_producer_sampler[shard_id]
+    )
+    result.append(cp)
+
+# Ensure the block producer for the next block also produces one of the shards.
+# `bp` could already be in the result because block producers are also
+# chunk producers (see algorithm for selecting chunk producers from proposals).
+if bp not in result:
+    # select a random shard for the block producer to also create the chunk for
+    rand_shard_seed = combine(epoch_rng_seed, h)
+    bp_shard_id = int.from_bytes(rand_shard_seed[0:8], byteorder='little') % num_shards
+    result[bp_shard_id] = bp
+
+return result
+</code></pre>
+
+                    </main>
+
+                    <nav class="nav-wrapper" aria-label="Page navigation">
+                        <!-- Mobile navigation buttons -->
+                            <a rel="prev" href="../ChainSpec/LightClient.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                                <i class="fa fa-angle-left"></i>
+                            </a>
+                            <a rel="next" href="../ChainSpec/Transactions.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                                <i class="fa fa-angle-right"></i>
+                            </a>
+                        <div style="clear: both"></div>
+                    </nav>
+                </div>
+            </div>
+
+            <nav class="nav-wide-wrapper" aria-label="Page navigation">
+                    <a rel="prev" href="../ChainSpec/LightClient.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                        <i class="fa fa-angle-left"></i>
+                    </a>
+                    <a rel="next" href="../ChainSpec/Transactions.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                        <i class="fa fa-angle-right"></i>
+                    </a>
+            </nav>
+
+        </div>
+
+        <script type="text/javascript">
+            window.playground_copyable = true;
+        </script>
+        <script src="../elasticlunr.min.js" type="text/javascript" charset="utf-8"></script>
+        <script src="../mark.min.js" type="text/javascript" charset="utf-8"></script>
+        <script src="../searcher.js" type="text/javascript" charset="utf-8"></script>
+        <script src="../clipboard.min.js" type="text/javascript" charset="utf-8"></script>
+        <script src="../highlight.js" type="text/javascript" charset="utf-8"></script>
+        <script src="../book.js" type="text/javascript" charset="utf-8"></script>
+
+        <!-- Custom JS scripts -->
+    </body>
+</html>

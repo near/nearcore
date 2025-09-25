@@ -1,0 +1,385 @@
+<!DOCTYPE HTML>
+<html lang="en" class="sidebar-visible no-js light">
+    <head>
+        <!-- Book generated using mdBook -->
+        <meta charset="UTF-8">
+        <title>Routing Table Exchange Algorithm - Guide to Nearcore Development</title>
+        <!-- Custom HTML head -->
+        <meta content="text/html; charset=utf-8" http-equiv="Content-Type">
+        <meta name="description" content="">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <meta name="theme-color" content="#ffffff" />
+
+        <link rel="icon" href="../favicon.svg">
+        <link rel="shortcut icon" href="../favicon.png">
+        <link rel="stylesheet" href="../css/variables.css">
+        <link rel="stylesheet" href="../css/general.css">
+        <link rel="stylesheet" href="../css/chrome.css">
+        <link rel="stylesheet" href="../css/print.css" media="print">
+        <!-- Fonts -->
+        <link rel="stylesheet" href="../FontAwesome/css/font-awesome.css">
+        <link rel="stylesheet" href="../fonts/fonts.css">
+        <!-- Highlight.js Stylesheets -->
+        <link rel="stylesheet" href="../highlight.css">
+        <link rel="stylesheet" href="../tomorrow-night.css">
+        <link rel="stylesheet" href="../ayu-highlight.css">
+
+        <!-- Custom theme stylesheets -->
+    </head>
+    <body>
+        <!-- Provide site root to javascript -->
+        <script type="text/javascript">
+            var path_to_root = "../";
+            var default_theme = window.matchMedia("(prefers-color-scheme: dark)").matches ? "navy" : "light";
+        </script>
+
+        <!-- Work around some values being stored in localStorage wrapped in quotes -->
+        <script type="text/javascript">
+            try {
+                var theme = localStorage.getItem('mdbook-theme');
+                var sidebar = localStorage.getItem('mdbook-sidebar');
+
+                if (theme.startsWith('"') && theme.endsWith('"')) {
+                    localStorage.setItem('mdbook-theme', theme.slice(1, theme.length - 1));
+                }
+
+                if (sidebar.startsWith('"') && sidebar.endsWith('"')) {
+                    localStorage.setItem('mdbook-sidebar', sidebar.slice(1, sidebar.length - 1));
+                }
+            } catch (e) { }
+        </script>
+
+        <!-- Set the theme before any content is loaded, prevents flash -->
+        <script type="text/javascript">
+            var theme;
+            try { theme = localStorage.getItem('mdbook-theme'); } catch(e) { }
+            if (theme === null || theme === undefined) { theme = default_theme; }
+            var html = document.querySelector('html');
+            html.classList.remove('no-js')
+            html.classList.remove('light')
+            html.classList.add(theme);
+            html.classList.add('js');
+        </script>
+
+        <!-- Hide / unhide sidebar before it is displayed -->
+        <script type="text/javascript">
+            var html = document.querySelector('html');
+            var sidebar = 'hidden';
+            if (document.body.clientWidth >= 1080) {
+                try { sidebar = localStorage.getItem('mdbook-sidebar'); } catch(e) { }
+                sidebar = sidebar || 'visible';
+            }
+            html.classList.remove('sidebar-visible');
+            html.classList.add("sidebar-" + sidebar);
+        </script>
+
+        <nav id="sidebar" class="sidebar" aria-label="Table of contents">
+            <div class="sidebar-scrollbox">
+                <ol class="chapter"><li class="chapter-item expanded affix "><a href="../index.html">Introduction</a></li><li class="chapter-item expanded affix "><li class="part-title">Protocol Specification</li><li class="chapter-item expanded "><a href="../DataStructures/index.html"><strong aria-hidden="true">1.</strong> Data Structures</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../DataStructures/AccessKey.html"><strong aria-hidden="true">1.1.</strong> Access Keys</a></li><li class="chapter-item expanded "><a href="../DataStructures/Account.html"><strong aria-hidden="true">1.2.</strong> Accounts</a></li><li class="chapter-item expanded "><a href="../DataStructures/Block.html"><strong aria-hidden="true">1.3.</strong> Block and Block Header</a></li><li class="chapter-item expanded "><a href="../DataStructures/DataTypes.html"><strong aria-hidden="true">1.4.</strong> Data Types</a></li><li class="chapter-item expanded "><a href="../DataStructures/MerkleProof.html"><strong aria-hidden="true">1.5.</strong> Merkle Proofs</a></li><li class="chapter-item expanded "><a href="../DataStructures/Transaction.html"><strong aria-hidden="true">1.6.</strong> Transaction</a></li></ol></li><li class="chapter-item expanded "><a href="../ChainSpec/index.html"><strong aria-hidden="true">2.</strong> Chain Specification</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../ChainSpec/BlockProcessing.html"><strong aria-hidden="true">2.1.</strong> Block Processing</a></li><li class="chapter-item expanded "><a href="../ChainSpec/Consensus.html"><strong aria-hidden="true">2.2.</strong> Consensus</a></li><li class="chapter-item expanded "><a href="../ChainSpec/LightClient.html"><strong aria-hidden="true">2.3.</strong> Light Client</a></li><li class="chapter-item expanded "><a href="../ChainSpec/SelectingBlockProducers.html"><strong aria-hidden="true">2.4.</strong> Selecting Chunk and Block Producers</a></li><li class="chapter-item expanded "><a href="../ChainSpec/Transactions.html"><strong aria-hidden="true">2.5.</strong> Transactions in the Blockchain Layer</a></li><li class="chapter-item expanded "><a href="../ChainSpec/Upgradability.html"><strong aria-hidden="true">2.6.</strong> Upgradability</a></li><li class="chapter-item expanded "><a href="../ChainSpec/EpochAndStaking/index.html"><strong aria-hidden="true">2.7.</strong> Epochs and Staking</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../ChainSpec/EpochAndStaking/Epoch.html"><strong aria-hidden="true">2.7.1.</strong> Epoch</a></li><li class="chapter-item expanded "><a href="../ChainSpec/EpochAndStaking/EpochManager.html"><strong aria-hidden="true">2.7.2.</strong> EpochManager</a></li><li class="chapter-item expanded "><a href="../ChainSpec/EpochAndStaking/Staking.html"><strong aria-hidden="true">2.7.3.</strong> Staking and slashing</a></li></ol></li></ol></li><li class="chapter-item expanded "><a href="../NetworkSpec/NetworkSpec.html"><strong aria-hidden="true">3.</strong> Network Specification</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../NetworkSpec/Messages.html"><strong aria-hidden="true">3.1.</strong> Messages</a></li><li class="chapter-item expanded "><a href="../NetworkSpec/RoutingTableExchangeAlgorithm.html" class="active"><strong aria-hidden="true">3.2.</strong> Routing Table Exchange Algorithm</a></li></ol></li><li class="chapter-item expanded "><a href="../RuntimeSpec/index.html"><strong aria-hidden="true">4.</strong> Runtime Specification</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../RuntimeSpec/AccountStorage.html"><strong aria-hidden="true">4.1.</strong> Account Receipt Storage</a></li><li class="chapter-item expanded "><a href="../RuntimeSpec/Actions.html"><strong aria-hidden="true">4.2.</strong> Actions</a></li><li class="chapter-item expanded "><a href="../RuntimeSpec/ApplyingChunk.html"><strong aria-hidden="true">4.3.</strong> Applying chunk</a></li><li class="chapter-item expanded "><a href="../RuntimeSpec/Components/Components.html"><strong aria-hidden="true">4.4.</strong> Components</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../RuntimeSpec/Components/RuntimeCrate.html"><strong aria-hidden="true">4.4.1.</strong> Runtime Crate</a></li><li class="chapter-item expanded "><a href="../RuntimeSpec/Components/BindingsSpec/BindingsSpec.html"><strong aria-hidden="true">4.4.2.</strong> Bindings Specification</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../RuntimeSpec/Components/BindingsSpec/ContextAPI.html"><strong aria-hidden="true">4.4.2.1.</strong> Context API</a></li><li class="chapter-item expanded "><a href="../RuntimeSpec/Components/BindingsSpec/EconomicsAPI.html"><strong aria-hidden="true">4.4.2.2.</strong> Economics API</a></li><li class="chapter-item expanded "><a href="../RuntimeSpec/Components/BindingsSpec/MathAPI.html"><strong aria-hidden="true">4.4.2.3.</strong> Math API</a></li><li class="chapter-item expanded "><a href="../RuntimeSpec/Components/BindingsSpec/MiscellaneousAPI.html"><strong aria-hidden="true">4.4.2.4.</strong> Miscellaneous API</a></li><li class="chapter-item expanded "><a href="../RuntimeSpec/Components/BindingsSpec/PromisesAPI.html"><strong aria-hidden="true">4.4.2.5.</strong> Promises API</a></li><li class="chapter-item expanded "><a href="../RuntimeSpec/Components/BindingsSpec/RegistersAPI.html"><strong aria-hidden="true">4.4.2.6.</strong> Registers API</a></li><li class="chapter-item expanded "><a href="../RuntimeSpec/Components/BindingsSpec/TrieAPI.html"><strong aria-hidden="true">4.4.2.7.</strong> Trie API</a></li></ol></li></ol></li><li class="chapter-item expanded "><a href="../RuntimeSpec/Fees/Fees.html"><strong aria-hidden="true">4.5.</strong> Fees</a></li><li class="chapter-item expanded "><a href="../RuntimeSpec/FunctionCall.html"><strong aria-hidden="true">4.6.</strong> Function Call</a></li><li class="chapter-item expanded "><a href="../RuntimeSpec/Preparation.html"><strong aria-hidden="true">4.7.</strong> Contract Preparation</a></li><li class="chapter-item expanded "><a href="../RuntimeSpec/Receipts.html"><strong aria-hidden="true">4.8.</strong> Receipts</a></li><li class="chapter-item expanded "><a href="../RuntimeSpec/Refunds.html"><strong aria-hidden="true">4.9.</strong> Refunds</a></li><li class="chapter-item expanded "><a href="../RuntimeSpec/Runtime.html"><strong aria-hidden="true">4.10.</strong> Runtime</a></li><li class="chapter-item expanded "><a href="../RuntimeSpec/Transactions.html"><strong aria-hidden="true">4.11.</strong> Transactions</a></li><li class="chapter-item expanded "><a href="../RuntimeSpec/Scenarios/Scenarios.html"><strong aria-hidden="true">4.12.</strong> Scenarios</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../RuntimeSpec/Scenarios/CrossContractCall.html"><strong aria-hidden="true">4.12.1.</strong> Cross-ContractCall</a></li><li class="chapter-item expanded "><a href="../RuntimeSpec/Scenarios/FinancialTransaction.html"><strong aria-hidden="true">4.12.2.</strong> Financial Transaction</a></li></ol></li></ol></li><li class="chapter-item expanded "><a href="../Economics/Economics.html"><strong aria-hidden="true">5.</strong> Economics</a></li><li class="chapter-item expanded "><a href="../GenesisConfig/GenesisConfig.html"><strong aria-hidden="true">6.</strong> GenesisConfig</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../GenesisConfig/ExtCostsConfig.html"><strong aria-hidden="true">6.1.</strong> ExtCostsConfig</a></li><li class="chapter-item expanded "><a href="../GenesisConfig/VMConfig.html"><strong aria-hidden="true">6.2.</strong> VMConfig</a></li><li class="chapter-item expanded "><a href="../GenesisConfig/StateRecord.html"><strong aria-hidden="true">6.3.</strong> StateRecord</a></li><li class="chapter-item expanded "><a href="../GenesisConfig/RuntimeConfig.html"><strong aria-hidden="true">6.4.</strong> RuntimeConfig</a></li><li class="chapter-item expanded "><a href="../GenesisConfig/RuntimeFeeConfig.html"><strong aria-hidden="true">6.5.</strong> RuntimeFeeConfig</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../GenesisConfig/RuntimeFeeConfig/AccessKeyCreationConfig.html"><strong aria-hidden="true">6.5.1.</strong> AccessKeyCreationConfig</a></li><li class="chapter-item expanded "><a href="../GenesisConfig/RuntimeFeeConfig/ActionCreationConfig.html"><strong aria-hidden="true">6.5.2.</strong> ActionCreationConfig</a></li><li class="chapter-item expanded "><a href="../GenesisConfig/RuntimeFeeConfig/DataReceiptCreationConfig.html"><strong aria-hidden="true">6.5.3.</strong> DataReceiptCreationConfig</a></li><li class="chapter-item expanded "><a href="../GenesisConfig/RuntimeFeeConfig/Fee.html"><strong aria-hidden="true">6.5.4.</strong> Fee</a></li><li class="chapter-item expanded "><a href="../GenesisConfig/RuntimeFeeConfig/Fraction.html"><strong aria-hidden="true">6.5.5.</strong> Fraction</a></li><li class="chapter-item expanded "><a href="../GenesisConfig/RuntimeFeeConfig/StorageUsageConfig.html"><strong aria-hidden="true">6.5.6.</strong> StorageUsageConfig</a></li></ol></li></ol></li><li class="chapter-item expanded "><li class="part-title">Architecture</li><li class="chapter-item expanded "><a href="../architecture/index.html"><strong aria-hidden="true">7.</strong> Overview</a></li><li class="chapter-item expanded "><a href="../architecture/how/index.html"><strong aria-hidden="true">8.</strong> How neard works</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../architecture/how/sync.html"><strong aria-hidden="true">8.1.</strong> How Sync Works</a></li><li class="chapter-item expanded "><a href="../architecture/how/gc.html"><strong aria-hidden="true">8.2.</strong> Garbage Collection</a></li><li class="chapter-item expanded "><a href="../architecture/how/epoch.html"><strong aria-hidden="true">8.3.</strong> How Epoch Works</a></li><li class="chapter-item expanded "><a href="../architecture/how/tx_routing.html"><strong aria-hidden="true">8.4.</strong> Transaction Routing</a></li><li class="chapter-item expanded "><a href="../architecture/how/tx_receipts.html"><strong aria-hidden="true">8.5.</strong> Transactions And Receipts</a></li><li class="chapter-item expanded "><a href="../architecture/how/cross-shard.html"><strong aria-hidden="true">8.6.</strong> Cross shard transactions - deep dive</a></li><li class="chapter-item expanded "><a href="../architecture/how/gas.html"><strong aria-hidden="true">8.7.</strong> Gas</a></li><li class="chapter-item expanded "><a href="../architecture/how/receipt-congestion.html"><strong aria-hidden="true">8.8.</strong> Receipt Congestion</a></li><li class="chapter-item expanded "><a href="../architecture/how/meta-tx.html"><strong aria-hidden="true">8.9.</strong> Meta transactions</a></li><li class="chapter-item expanded "><a href="../architecture/how/serialization.html"><strong aria-hidden="true">8.10.</strong> Serialization: Borsh, Json, ProtoBuf</a></li><li class="chapter-item expanded "><a href="../architecture/how/proofs.html"><strong aria-hidden="true">8.11.</strong> Proofs</a></li><li class="chapter-item expanded "><a href="../architecture/how/resharding_v2.html"><strong aria-hidden="true">8.12.</strong> Resharding V2</a></li><li class="chapter-item expanded "><a href="../architecture/how/optimistic_block.html"><strong aria-hidden="true">8.13.</strong> Optimistic block</a></li></ol></li><li class="chapter-item expanded "><a href="../architecture/next/index.html"><strong aria-hidden="true">9.</strong> How neard will work</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../architecture/next/catchup_and_state_sync.html"><strong aria-hidden="true">9.1.</strong> Catchup and state sync improvements</a></li><li class="chapter-item expanded "><a href="../architecture/next/malicious_chunk_producer_and_phase2.html"><strong aria-hidden="true">9.2.</strong> Malicious producers and phase 2</a></li></ol></li><li class="chapter-item expanded "><a href="../architecture/storage.html"><strong aria-hidden="true">10.</strong> Storage</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../architecture/storage/flow.html"><strong aria-hidden="true">10.1.</strong> Storage Request Flow</a></li><li class="chapter-item expanded "><a href="../architecture/storage/trie_storage.html"><strong aria-hidden="true">10.2.</strong> Trie Storage</a></li><li class="chapter-item expanded "><a href="../architecture/storage/database.html"><strong aria-hidden="true">10.3.</strong> Database Format</a></li><li class="chapter-item expanded "><a href="../architecture/storage/flat_storage.html"><strong aria-hidden="true">10.4.</strong> Flat Storage</a></li></ol></li><li class="chapter-item expanded "><a href="../architecture/network.html"><strong aria-hidden="true">11.</strong> Network</a></li><li class="chapter-item expanded "><a href="../architecture/gas/index.html"><strong aria-hidden="true">12.</strong> Gas Cost Parameters</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../architecture/gas/parameter_definition.html"><strong aria-hidden="true">12.1.</strong> Parameter Definitions</a></li><li class="chapter-item expanded "><a href="../architecture/gas/gas_profile.html"><strong aria-hidden="true">12.2.</strong> Gas Profile</a></li><li class="chapter-item expanded "><a href="../architecture/gas/estimator.html"><strong aria-hidden="true">12.3.</strong> Runtime Parameter Estimator</a></li></ol></li><li class="chapter-item expanded "><li class="part-title">Practices</li><li class="chapter-item expanded "><a href="../practices/index.html"><strong aria-hidden="true">13.</strong> Overview</a></li><li class="chapter-item expanded "><a href="../practices/rust.html"><strong aria-hidden="true">14.</strong> Rust 🦀</a></li><li class="chapter-item expanded "><a href="../practices/workflows/index.html"><strong aria-hidden="true">15.</strong> Workflows</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../practices/workflows/run_a_node.html"><strong aria-hidden="true">15.1.</strong> Run a Node</a></li><li class="chapter-item expanded "><a href="../practices/workflows/deploy_a_contract.html"><strong aria-hidden="true">15.2.</strong> Deploy a Contract</a></li><li class="chapter-item expanded "><a href="../practices/workflows/gas_estimations.html"><strong aria-hidden="true">15.3.</strong> Run Gas Estimations</a></li><li class="chapter-item expanded "><a href="../practices/workflows/localnet_on_many_machines.html"><strong aria-hidden="true">15.4.</strong> Localnet on many machines</a></li><li class="chapter-item expanded "><a href="../practices/workflows/io_trace.html"><strong aria-hidden="true">15.5.</strong> IO tracing</a></li><li class="chapter-item expanded "><a href="../practices/workflows/profiling.html"><strong aria-hidden="true">15.6.</strong> Profiling</a></li><li class="chapter-item expanded "><a href="../practices/workflows/benchmarks.html"><strong aria-hidden="true">15.7.</strong> Benchmarks</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../practices/workflows/benchmarking_synthetic_workloads.html"><strong aria-hidden="true">15.7.1.</strong> Synthetic Workloads</a></li><li class="chapter-item expanded "><a href="../practices/workflows/benchmarking_chunk_application_on_native_transfers.html"><strong aria-hidden="true">15.7.2.</strong> Native Transfer Chunk Application</a></li></ol></li><li class="chapter-item expanded "><a href="../practices/workflows/otel_traces.html"><strong aria-hidden="true">15.8.</strong> Working with OpenTelemetry Traces</a></li><li class="chapter-item expanded "><a href="../practices/workflows/futex_contention.html"><strong aria-hidden="true">15.9.</strong> Futex contention</a></li></ol></li><li class="chapter-item expanded "><a href="../practices/style.html"><strong aria-hidden="true">16.</strong> Code Style</a></li><li class="chapter-item expanded "><a href="../practices/docs.html"><strong aria-hidden="true">17.</strong> Documentation</a></li><li class="chapter-item expanded "><a href="../practices/tracking_issues.html"><strong aria-hidden="true">18.</strong> Tracking Issues</a></li><li class="chapter-item expanded "><a href="../practices/security_vulnerabilities.html"><strong aria-hidden="true">19.</strong> Security Vulnerabilities</a></li><li class="chapter-item expanded "><a href="../practices/fast_builds.html"><strong aria-hidden="true">20.</strong> Fast Builds</a></li><li class="chapter-item expanded "><a href="../practices/testing/index.html"><strong aria-hidden="true">21.</strong> Testing</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../practices/testing/python_tests.html"><strong aria-hidden="true">21.1.</strong> Python Tests</a></li><li class="chapter-item expanded "><a href="../practices/testing/test_utils.html"><strong aria-hidden="true">21.2.</strong> Testing Utils</a></li><li class="chapter-item expanded "><a href="../practices/testing/coverage.html"><strong aria-hidden="true">21.3.</strong> Test Coverage</a></li></ol></li><li class="chapter-item expanded "><a href="../practices/protocol_upgrade.html"><strong aria-hidden="true">22.</strong> Protocol Upgrade</a></li><li class="chapter-item expanded affix "><li class="part-title">Advanced configuration</li><li class="chapter-item expanded "><a href="../advanced_configuration/networking.html"><strong aria-hidden="true">23.</strong> Networking</a></li><li class="chapter-item expanded affix "><li class="part-title">Custom test networks</li><li class="chapter-item expanded "><a href="../test_networks/mainnet_spoon.html"><strong aria-hidden="true">24.</strong> Starting a network from mainnet state</a></li><li class="chapter-item expanded affix "><li class="part-title">Misc</li><li class="chapter-item expanded "><a href="../misc/index.html"><strong aria-hidden="true">25.</strong> Overview</a></li><li class="chapter-item expanded "><a href="../misc/state_sync_dump.html"><strong aria-hidden="true">26.</strong> State Sync Dump</a></li><li class="chapter-item expanded "><a href="../misc/archival_data_recovery.html"><strong aria-hidden="true">27.</strong> Archival node - recovery of missing data</a></li></ol>
+            </div>
+            <div id="sidebar-resize-handle" class="sidebar-resize-handle"></div>
+        </nav>
+
+        <div id="page-wrapper" class="page-wrapper">
+
+            <div class="page">
+                <div id="menu-bar-hover-placeholder"></div>
+                <div id="menu-bar" class="menu-bar sticky bordered">
+                    <div class="left-buttons">
+                        <button id="sidebar-toggle" class="icon-button" type="button" title="Toggle Table of Contents" aria-label="Toggle Table of Contents" aria-controls="sidebar">
+                            <i class="fa fa-bars"></i>
+                        </button>
+                        <button id="theme-toggle" class="icon-button" type="button" title="Change theme" aria-label="Change theme" aria-haspopup="true" aria-expanded="false" aria-controls="theme-list">
+                            <i class="fa fa-paint-brush"></i>
+                        </button>
+                        <ul id="theme-list" class="theme-popup" aria-label="Themes" role="menu">
+                            <li role="none"><button role="menuitem" class="theme" id="light">Light (default)</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="rust">Rust</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="coal">Coal</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="navy">Navy</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="ayu">Ayu</button></li>
+                        </ul>
+                        <button id="search-toggle" class="icon-button" type="button" title="Search. (Shortkey: s)" aria-label="Toggle Searchbar" aria-expanded="false" aria-keyshortcuts="S" aria-controls="searchbar">
+                            <i class="fa fa-search"></i>
+                        </button>
+                    </div>
+
+                    <h1 class="menu-title">Guide to Nearcore Development</h1>
+
+                    <div class="right-buttons">
+                        <a href="../print.html" title="Print this book" aria-label="Print this book">
+                            <i id="print-button" class="fa fa-print"></i>
+                        </a>
+                        <a href="https://github.com/near/nearcore/tree/master/docs" title="Git repository" aria-label="Git repository">
+                            <i id="git-repository-button" class="fa fa-github"></i>
+                        </a>
+                        <a href="https://github.com/near/nearcore/edit/master/docs/./NetworkSpec/RoutingTableExchangeAlgorithm.md" title="Suggest an edit" aria-label="Suggest an edit">
+                            <i id="git-edit-button" class="fa fa-edit"></i>
+                        </a>
+                    </div>
+                </div>
+
+                <div id="search-wrapper" class="hidden">
+                    <form id="searchbar-outer" class="searchbar-outer">
+                        <input type="search" id="searchbar" name="searchbar" placeholder="Search this book ..." aria-controls="searchresults-outer" aria-describedby="searchresults-header">
+                    </form>
+                    <div id="searchresults-outer" class="searchresults-outer hidden">
+                        <div id="searchresults-header" class="searchresults-header"></div>
+                        <ul id="searchresults">
+                        </ul>
+                    </div>
+                </div>
+                <!-- Apply ARIA attributes after the sidebar and the sidebar toggle button are added to the DOM -->
+                <script type="text/javascript">
+                    document.getElementById('sidebar-toggle').setAttribute('aria-expanded', sidebar === 'visible');
+                    document.getElementById('sidebar').setAttribute('aria-hidden', sidebar !== 'visible');
+                    Array.from(document.querySelectorAll('#sidebar a')).forEach(function(link) {
+                        link.setAttribute('tabIndex', sidebar === 'visible' ? 0 : -1);
+                    });
+                </script>
+
+                <div id="content" class="content">
+                    <main>
+                        <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.4/dist/katex.min.css">
+<h1 id="routing-table-exchange-algorithm"><a class="header" href="#routing-table-exchange-algorithm">Routing table exchange algorithm</a></h1>
+<!-- cspell:ignore neps -->
+<ul>
+<li>Proposal Name: New routing table exchange algorithm</li>
+<li>Start Date: 6/21/2021</li>
+<li>NEP PR: <a href="https://github.com/near/nearcore/pull/4112"><code>nearprotocol/neps#0000</code></a></li>
+<li>Issue(s): https://github.com/near/nearcore/issues/3838.</li>
+<li><a href="https://github.com/near/NEPs/pull/220">GitHub PR</a></li>
+</ul>
+<h1 id="summary"><a class="header" href="#summary">Summary</a></h1>
+<p>Currently, every node on the network stores its own copy of the <a href="./NetworkSpec.html#routing-table">Routing Graph</a>.
+The process of exchanging and verifying edges requires sending full copy of routing table on every synchronization.
+Sending full copy of routing table is wasteful, in this spec we propose a solution, which allows doing partial  synchronization.
+This should reduce both bandwidth used, and amount of CPU time.</p>
+<p>Typically, only one full sync would be required when a node connects to the network for the first time.
+For given two nodes doing synchronization, we propose a method, which requires bandwidth/processing time proportional to the size of data which needs to be exchanged for given nodes.</p>
+<h1 id="algorithm"><a class="header" href="#algorithm">Algorithm</a></h1>
+<p>In this spec we describe the implementation of <code>Routing Graph Reconciliation</code> algorithm using Inverse Bloom Filters.
+An overview of different <code>Routing Graph Reconciliation</code> algorithms can be a found at
+<a href="https://github.com/pmnoxx/docs/blob/piotr-test-markdown/near/ROUTING_GRAPH_RECONCILIATION.pdf">ROUTING_GRAPH_RECONCILIATION.pdf</a></p>
+<p>The process of exchanging <code>routing tables</code> involves exchanging edges between a pair of nodes.
+For given nodes <code>A</code>, <code>B</code>, that involves adding edges which <code>A</code> has, but <code>B</code> doesn't and vice-versa.
+For each connection we create a data structure <a href="#ibfset">IbfSet</a>.
+It stores <code>Inverse Bloom Filters</code> <a href="#ibf">Ibf</a> of powers of <code>2^k</code> for <code>k</code> in range <code>10..17</code>.
+This allows us to recover around <code>2^17 / 1.3</code> edges with <code>99%</code> probability according to <a href="https://www.ics.uci.edu/%7Eeppstein/pubs/EppGooUye-SIGCOMM-11.pdf">Efficient Set Reconciliation without Prior Context</a>.
+Otherwise, we do full routing table exchange.</p>
+<p>We have chosen a minimum size of <code>Ibf</code> to be <code>2^10</code>, because the overhead of processing <code>IBF</code> of smaller size of negligible, and to reduce the number of messages required in exchange.
+On the other side, we limit <code>Ibf</code> to size of <code>2^17</code> to reduce memory usage required for each data structure.</p>
+<h1 id="routing-table"><a class="header" href="#routing-table">Routing Table</a></h1>
+<p>We are extending [Routing Table](NetworkSpec.md#Routing Table) by additional field <code>peer_ibf_set</code></p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>pub struct RoutingTable {
+   /// Other fields
+   ///    ..
+   /// Data structure used for exchanging routing tables.
+   pub peer_ibf_set: IbfPeerSet,
+}
+<span class="boring">}
+</span></code></pre></pre>
+<ul>
+<li><code>peer_ibf_set</code> - a helper data structure, which allows doing partial synchronization.</li>
+</ul>
+<h1 id="ibfpeerset"><a class="header" href="#ibfpeerset">IbfPeerSet</a></h1>
+<p><code>IbfPeerSet</code> contains a mapping between <code>PeerId</code> and <code>IbfSet</code>.
+It's used to store metadata for each peer, which can be used to compute set difference between routing tables of current peer and peer contained in the mapping.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>pub struct SimpleEdge {
+  pub key: (PeerId, PeerId),
+  pub nonce: u64,
+}
+
+pub struct IbfPeerSet {
+    peer2seed: HashMap&lt;PeerId, u64&gt;,
+    unused_seeds: Vec&lt;u64&gt;,
+    seed2ibf: HashMap&lt;u64, IbfSet&lt;SimpleEdge&gt;&gt;,
+    slot_map: SlotMap,
+    edges: u64,
+}
+<span class="boring">}
+</span></code></pre></pre>
+<ul>
+<li><code>peer2seed</code> - contains a mapping from <code>PeerId</code> to <code>seed</code> used to generate <code>IbfSet</code></li>
+<li><code>unused_seeds</code> - list of currently unused seeds, which will be used for new incoming connections</li>
+<li><code>seed2ibf</code> - contains a mapping from <code>seed</code> to <code>IbfSet</code></li>
+<li><code>slot_map</code> - a helper data structure, which is used to store <code>Edges</code>, this allows us to save memory by not storing
+duplicates.</li>
+<li><code>edges</code> - total number of edges in the data structure</li>
+</ul>
+<h1 id="messages"><a class="header" href="#messages">Messages</a></h1>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>pub struct RoutingSyncV2 {
+    pub version: u64,
+    pub known_edges: u64,
+    pub ibf_level: u64,
+    pub ibf: Vec&lt;IbfElem&gt;,
+    pub request_all_edges: bool,
+    pub seed: u64,
+    pub edges: Vec&lt;Edge&gt;,
+    pub requested_edges: Vec&lt;u64&gt;,
+    pub done: bool,
+}
+<span class="boring">}
+</span></code></pre></pre>
+<ul>
+<li><code>version</code> - version of routing table, currently 0, for future use</li>
+<li><code>known_edges</code> - number of edges peer knows about, this allows us to decide whenever to request all edges
+immediately or not.</li>
+<li><code>ibf_level</code> - level of inverse bloom filter requested from <code>10</code> to <code>17</code>.</li>
+<li><code>request_all_edges</code> - true if peer decides to request all edges from other peer</li>
+<li><code>seed</code> - seed used to generate ibf</li>
+<li><code>edges</code> - list of edges send to the other peer</li>
+<li><code>requested_edges</code> - list of hashes of edges peer want to get</li>
+<li><code>done</code> - true if it's the last message in synchronization</li>
+</ul>
+<h2 id="ibfset"><a class="header" href="#ibfset">IbfSet</a></h2>
+<p>Structure used to represent set of <code>Inverse Bloom Filters</code> for given peer.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>pub struct IbfSet&lt;T: Hash + Clone&gt; {
+    seed: u64,
+    ibf: Vec&lt;Ibf&gt;,
+    h2e: HashMap&lt;u64, SlotMapId&gt;,
+    hasher: DefaultHasher,
+    pd: PhantomData&lt;T&gt;,
+}
+<span class="boring">}
+</span></code></pre></pre>
+<ul>
+<li><code>seed</code> - seed used to generate IbfSet</li>
+<li><code>ibf</code> - list of <code>Inverse Bloom Filters</code> with sizes from <code>10</code> to <code>17</code>.</li>
+<li><code>h2e</code> - mapping from hash of given edge to id of the edge. This is used to save memory, to avoid storing multiple
+copies of given edge.</li>
+<li><code>hasher</code> - hashing function</li>
+</ul>
+<h2 id="ibf"><a class="header" href="#ibf">Ibf</a></h2>
+<p>Structure representing Reverse Bloom Filter.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>pub struct Ibf {
+    k: i32,
+    pub data: Vec&lt;IbfElem&gt;,
+    hasher: IbfHasher,
+    pub seed: u64,
+}
+<span class="boring">}
+</span></code></pre></pre>
+<ul>
+<li><code>k</code> - number of elements in vector</li>
+<li><code>data</code> - vector of elements of bloom filter</li>
+<li><code>seed</code> - seed of each inverse bloom filter</li>
+<li><code>hasher</code> - hashing function</li>
+</ul>
+<h2 id="ibfelem"><a class="header" href="#ibfelem">IbfElem</a></h2>
+<p>Element of bloom filter</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>pub struct IbfElem {
+    xor_elem: u64,
+    xor_hash: u64,
+}
+<span class="boring">}
+</span></code></pre></pre>
+<ul>
+<li><code>xor_element</code> - xor of hashes of edges stored in given box</li>
+<li><code>xor_hash</code> - xor of hashes of hashes of edges stored in give n box</li>
+</ul>
+<h2 id="routing-table-exchange"><a class="header" href="#routing-table-exchange">Routing table exchange</a></h2>
+<p>The process of exchanging routing tables involves multiple steps.
+It could be reduced if needed by adding an estimator of how many edges differ, but it's not implemented for sake of simplicity.</p>
+<h2 id="step-1"><a class="header" href="#step-1">Step 1</a></h2>
+<p>Peer <code>A</code> connects to peer <code>B</code>.</p>
+<h2 id="step-2"><a class="header" href="#step-2">Step 2</a></h2>
+<p>Peer <code>B</code> chooses unique <code>seed</code>, and generates <code>IbfPeerSet</code> based on seed and all known edges in
+[Routing Table](NetworkSpec.md#Routing Table).</p>
+<h2 id="step-3---10"><a class="header" href="#step-3---10">Step 3 - 10</a></h2>
+<p>On odd steps peer <code>B</code> sends message to peer <code>A</code>, with Ibf of size <code>2^(step+7)</code>.
+On even steps, peer <code>A</code> does it.</p>
+<ul>
+<li>Case 1 - if we were unable to find all edges we continue to the next step.</li>
+<li>Case 2 - otherwise, we know what the set difference is.
+We compute the set of hashes of edges given node knows about, and doesn't know about.
+Current peer sends to the other peer the edges it knows about, and asks about edges, based on hashes, it doesn't know about the other peer.
+The other peer sends the response, and the routing table exchange ends.</li>
+</ul>
+<h2 id="step-11"><a class="header" href="#step-11">Step 11</a></h2>
+<p>In case the synchronization isn't done yet, each side sends list of hashes of edges it knows about.</p>
+<h2 id="step-12"><a class="header" href="#step-12">Step 12</a></h2>
+<p>Each side sends list of edges the other side requested.</p>
+<h1 id="security-considerations"><a class="header" href="#security-considerations">Security considerations</a></h1>
+<h3 id="avoid-extra-computation-if-another-peer-reconnects-to-server"><a class="header" href="#avoid-extra-computation-if-another-peer-reconnects-to-server">Avoid extra computation if another peer reconnects to server</a></h3>
+<p>In order to avoid extra computation whenever a peer reconnects to server, we can keep a pool of <code>IbfPeerSet</code> structures.
+The number of such structures which we need to keep is going to be equal to the peak number of incoming connections, which servers have had plus the number of outgoing connections.</p>
+<h3 id="producing-edges-where-there-is-a-hash-collision"><a class="header" href="#producing-edges-where-there-is-a-hash-collision">Producing edges, where there is a hash collision</a></h3>
+<p>We use unique <code>IbfPeerSet</code> structure, for each connection, this prevents seeds to be guessed.
+Therefore, we are resistant to that type of attack.</p>
+<h1 id="memory-overhead"><a class="header" href="#memory-overhead">Memory overhead</a></h1>
+<p>For each connection we need to use approximately <code>(2^10 + ... 2^17) * sizeof(IbfElem) bytes = 2^18 * 16 bytes = 4 MiB</code>.
+Assuming we keep extra <code>40</code> of such data structures, we would need extra <code>160 MiB</code>.</p>
+<h1 id="performance-overhead"><a class="header" href="#performance-overhead">Performance overhead</a></h1>
+<p>On each update we need up update each <code>IbfSet</code> structure <code>3*8 = 24</code> times.
+Assuming we keep <code>40</code> such data structures, that requires up to <code>960</code> updates.</p>
+<h1 id="alternative-approaches"><a class="header" href="#alternative-approaches">Alternative approaches</a></h1>
+<h3 id="only-use-one-ibfpeerset-structure-for-everyone"><a class="header" href="#only-use-one-ibfpeerset-structure-for-everyone">Only use one <code>IbfPeerSet</code> structure for everyone</a></h3>
+<p>This would reduce number of updates we need to do, and memory usage.
+However, it would be possible to guess the hash function used, which would expose us to security vulnerability.
+It would be simple to produce two edges, such that there is a hash collision, which would cause routing table exchange to fail.</p>
+<h3 id="increase-number-of-ibfset-structures-per-ibfpeerset"><a class="header" href="#increase-number-of-ibfset-structures-per-ibfpeerset">Increase number of <code>IbfSet</code> structures per <code>IbfPeerSet</code></a></h3>
+<p>In theory, we could increase the sizes of <code>IBF</code> structures used from <code>2^10..2^17</code> to <code>2^10..2^20</code>.
+This would allow us to recover the set difference if it's up to <code>2^20/3</code> instead of <code>2^17/3</code> at cost of increasing memory overhead from <code>160 MiB to 640 Mib</code>.</p>
+<h3 id="simplify-algorithm-to-only-exchange-list-of-hashes-of-known-edges-of-each-peer"><a class="header" href="#simplify-algorithm-to-only-exchange-list-of-hashes-of-known-edges-of-each-peer">Simplify algorithm to only exchange list of hashes of known edges of each peer</a></h3>
+<p>Each edge has a size of about 400 bytes.
+Let's assume we need to send 1 million edges.
+By sending list of 4 bytes hashes of all known edges on each synchronization we would only need to send <code>4 MiB</code> of metadata plus the size of edges that differ.
+This approach would be simpler, but not as efficient in terms of bandwidth.
+That would still be an improvement of having to send just <code>4 MiB</code> over <code>400 MiB</code> with existing implementation.</p>
+<h1 id="future-improvements"><a class="header" href="#future-improvements">Future improvements</a></h1>
+<h2 id="reduce-memory-usage"><a class="header" href="#reduce-memory-usage">Reduce memory usage</a></h2>
+<h3 id="used-a-fixed-number-of-ibfpeerset-structures-for-each-node-theoretically-smaller-number-of-sets-could-be-used-for-example-10-this-would-require-estimating-how-likely-it-is-to-produce-edges-such-that-they-produce-collisions"><a class="header" href="#used-a-fixed-number-of-ibfpeerset-structures-for-each-node-theoretically-smaller-number-of-sets-could-be-used-for-example-10-this-would-require-estimating-how-likely-it-is-to-produce-edges-such-that-they-produce-collisions">Used a fixed number of <code>IbfPeerSet</code> structures for each node Theoretically, smaller number of sets could be used. For example 10, this would require estimating how likely it is to produce edges such that they produce collisions</a></h3>
+<p>It may be still possible to generate offline such set of edges that can cause recovery of edges from <code>IBF</code> to fail for one node.</p>
+
+                    </main>
+
+                    <nav class="nav-wrapper" aria-label="Page navigation">
+                        <!-- Mobile navigation buttons -->
+                            <a rel="prev" href="../NetworkSpec/Messages.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                                <i class="fa fa-angle-left"></i>
+                            </a>
+                            <a rel="next" href="../RuntimeSpec/index.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                                <i class="fa fa-angle-right"></i>
+                            </a>
+                        <div style="clear: both"></div>
+                    </nav>
+                </div>
+            </div>
+
+            <nav class="nav-wide-wrapper" aria-label="Page navigation">
+                    <a rel="prev" href="../NetworkSpec/Messages.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                        <i class="fa fa-angle-left"></i>
+                    </a>
+                    <a rel="next" href="../RuntimeSpec/index.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                        <i class="fa fa-angle-right"></i>
+                    </a>
+            </nav>
+
+        </div>
+
+        <script type="text/javascript">
+            window.playground_copyable = true;
+        </script>
+        <script src="../elasticlunr.min.js" type="text/javascript" charset="utf-8"></script>
+        <script src="../mark.min.js" type="text/javascript" charset="utf-8"></script>
+        <script src="../searcher.js" type="text/javascript" charset="utf-8"></script>
+        <script src="../clipboard.min.js" type="text/javascript" charset="utf-8"></script>
+        <script src="../highlight.js" type="text/javascript" charset="utf-8"></script>
+        <script src="../book.js" type="text/javascript" charset="utf-8"></script>
+
+        <!-- Custom JS scripts -->
+    </body>
+</html>

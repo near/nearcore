@@ -1,0 +1,459 @@
+<!DOCTYPE HTML>
+<html lang="en" class="sidebar-visible no-js light">
+    <head>
+        <!-- Book generated using mdBook -->
+        <meta charset="UTF-8">
+        <title>Function Call - Guide to Nearcore Development</title>
+        <!-- Custom HTML head -->
+        <meta content="text/html; charset=utf-8" http-equiv="Content-Type">
+        <meta name="description" content="">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <meta name="theme-color" content="#ffffff" />
+
+        <link rel="icon" href="../favicon.svg">
+        <link rel="shortcut icon" href="../favicon.png">
+        <link rel="stylesheet" href="../css/variables.css">
+        <link rel="stylesheet" href="../css/general.css">
+        <link rel="stylesheet" href="../css/chrome.css">
+        <link rel="stylesheet" href="../css/print.css" media="print">
+        <!-- Fonts -->
+        <link rel="stylesheet" href="../FontAwesome/css/font-awesome.css">
+        <link rel="stylesheet" href="../fonts/fonts.css">
+        <!-- Highlight.js Stylesheets -->
+        <link rel="stylesheet" href="../highlight.css">
+        <link rel="stylesheet" href="../tomorrow-night.css">
+        <link rel="stylesheet" href="../ayu-highlight.css">
+
+        <!-- Custom theme stylesheets -->
+    </head>
+    <body>
+        <!-- Provide site root to javascript -->
+        <script type="text/javascript">
+            var path_to_root = "../";
+            var default_theme = window.matchMedia("(prefers-color-scheme: dark)").matches ? "navy" : "light";
+        </script>
+
+        <!-- Work around some values being stored in localStorage wrapped in quotes -->
+        <script type="text/javascript">
+            try {
+                var theme = localStorage.getItem('mdbook-theme');
+                var sidebar = localStorage.getItem('mdbook-sidebar');
+
+                if (theme.startsWith('"') && theme.endsWith('"')) {
+                    localStorage.setItem('mdbook-theme', theme.slice(1, theme.length - 1));
+                }
+
+                if (sidebar.startsWith('"') && sidebar.endsWith('"')) {
+                    localStorage.setItem('mdbook-sidebar', sidebar.slice(1, sidebar.length - 1));
+                }
+            } catch (e) { }
+        </script>
+
+        <!-- Set the theme before any content is loaded, prevents flash -->
+        <script type="text/javascript">
+            var theme;
+            try { theme = localStorage.getItem('mdbook-theme'); } catch(e) { }
+            if (theme === null || theme === undefined) { theme = default_theme; }
+            var html = document.querySelector('html');
+            html.classList.remove('no-js')
+            html.classList.remove('light')
+            html.classList.add(theme);
+            html.classList.add('js');
+        </script>
+
+        <!-- Hide / unhide sidebar before it is displayed -->
+        <script type="text/javascript">
+            var html = document.querySelector('html');
+            var sidebar = 'hidden';
+            if (document.body.clientWidth >= 1080) {
+                try { sidebar = localStorage.getItem('mdbook-sidebar'); } catch(e) { }
+                sidebar = sidebar || 'visible';
+            }
+            html.classList.remove('sidebar-visible');
+            html.classList.add("sidebar-" + sidebar);
+        </script>
+
+        <nav id="sidebar" class="sidebar" aria-label="Table of contents">
+            <div class="sidebar-scrollbox">
+                <ol class="chapter"><li class="chapter-item expanded affix "><a href="../index.html">Introduction</a></li><li class="chapter-item expanded affix "><li class="part-title">Protocol Specification</li><li class="chapter-item expanded "><a href="../DataStructures/index.html"><strong aria-hidden="true">1.</strong> Data Structures</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../DataStructures/AccessKey.html"><strong aria-hidden="true">1.1.</strong> Access Keys</a></li><li class="chapter-item expanded "><a href="../DataStructures/Account.html"><strong aria-hidden="true">1.2.</strong> Accounts</a></li><li class="chapter-item expanded "><a href="../DataStructures/Block.html"><strong aria-hidden="true">1.3.</strong> Block and Block Header</a></li><li class="chapter-item expanded "><a href="../DataStructures/DataTypes.html"><strong aria-hidden="true">1.4.</strong> Data Types</a></li><li class="chapter-item expanded "><a href="../DataStructures/MerkleProof.html"><strong aria-hidden="true">1.5.</strong> Merkle Proofs</a></li><li class="chapter-item expanded "><a href="../DataStructures/Transaction.html"><strong aria-hidden="true">1.6.</strong> Transaction</a></li></ol></li><li class="chapter-item expanded "><a href="../ChainSpec/index.html"><strong aria-hidden="true">2.</strong> Chain Specification</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../ChainSpec/BlockProcessing.html"><strong aria-hidden="true">2.1.</strong> Block Processing</a></li><li class="chapter-item expanded "><a href="../ChainSpec/Consensus.html"><strong aria-hidden="true">2.2.</strong> Consensus</a></li><li class="chapter-item expanded "><a href="../ChainSpec/LightClient.html"><strong aria-hidden="true">2.3.</strong> Light Client</a></li><li class="chapter-item expanded "><a href="../ChainSpec/SelectingBlockProducers.html"><strong aria-hidden="true">2.4.</strong> Selecting Chunk and Block Producers</a></li><li class="chapter-item expanded "><a href="../ChainSpec/Transactions.html"><strong aria-hidden="true">2.5.</strong> Transactions in the Blockchain Layer</a></li><li class="chapter-item expanded "><a href="../ChainSpec/Upgradability.html"><strong aria-hidden="true">2.6.</strong> Upgradability</a></li><li class="chapter-item expanded "><a href="../ChainSpec/EpochAndStaking/index.html"><strong aria-hidden="true">2.7.</strong> Epochs and Staking</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../ChainSpec/EpochAndStaking/Epoch.html"><strong aria-hidden="true">2.7.1.</strong> Epoch</a></li><li class="chapter-item expanded "><a href="../ChainSpec/EpochAndStaking/EpochManager.html"><strong aria-hidden="true">2.7.2.</strong> EpochManager</a></li><li class="chapter-item expanded "><a href="../ChainSpec/EpochAndStaking/Staking.html"><strong aria-hidden="true">2.7.3.</strong> Staking and slashing</a></li></ol></li></ol></li><li class="chapter-item expanded "><a href="../NetworkSpec/NetworkSpec.html"><strong aria-hidden="true">3.</strong> Network Specification</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../NetworkSpec/Messages.html"><strong aria-hidden="true">3.1.</strong> Messages</a></li><li class="chapter-item expanded "><a href="../NetworkSpec/RoutingTableExchangeAlgorithm.html"><strong aria-hidden="true">3.2.</strong> Routing Table Exchange Algorithm</a></li></ol></li><li class="chapter-item expanded "><a href="../RuntimeSpec/index.html"><strong aria-hidden="true">4.</strong> Runtime Specification</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../RuntimeSpec/AccountStorage.html"><strong aria-hidden="true">4.1.</strong> Account Receipt Storage</a></li><li class="chapter-item expanded "><a href="../RuntimeSpec/Actions.html"><strong aria-hidden="true">4.2.</strong> Actions</a></li><li class="chapter-item expanded "><a href="../RuntimeSpec/ApplyingChunk.html"><strong aria-hidden="true">4.3.</strong> Applying chunk</a></li><li class="chapter-item expanded "><a href="../RuntimeSpec/Components/Components.html"><strong aria-hidden="true">4.4.</strong> Components</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../RuntimeSpec/Components/RuntimeCrate.html"><strong aria-hidden="true">4.4.1.</strong> Runtime Crate</a></li><li class="chapter-item expanded "><a href="../RuntimeSpec/Components/BindingsSpec/BindingsSpec.html"><strong aria-hidden="true">4.4.2.</strong> Bindings Specification</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../RuntimeSpec/Components/BindingsSpec/ContextAPI.html"><strong aria-hidden="true">4.4.2.1.</strong> Context API</a></li><li class="chapter-item expanded "><a href="../RuntimeSpec/Components/BindingsSpec/EconomicsAPI.html"><strong aria-hidden="true">4.4.2.2.</strong> Economics API</a></li><li class="chapter-item expanded "><a href="../RuntimeSpec/Components/BindingsSpec/MathAPI.html"><strong aria-hidden="true">4.4.2.3.</strong> Math API</a></li><li class="chapter-item expanded "><a href="../RuntimeSpec/Components/BindingsSpec/MiscellaneousAPI.html"><strong aria-hidden="true">4.4.2.4.</strong> Miscellaneous API</a></li><li class="chapter-item expanded "><a href="../RuntimeSpec/Components/BindingsSpec/PromisesAPI.html"><strong aria-hidden="true">4.4.2.5.</strong> Promises API</a></li><li class="chapter-item expanded "><a href="../RuntimeSpec/Components/BindingsSpec/RegistersAPI.html"><strong aria-hidden="true">4.4.2.6.</strong> Registers API</a></li><li class="chapter-item expanded "><a href="../RuntimeSpec/Components/BindingsSpec/TrieAPI.html"><strong aria-hidden="true">4.4.2.7.</strong> Trie API</a></li></ol></li></ol></li><li class="chapter-item expanded "><a href="../RuntimeSpec/Fees/Fees.html"><strong aria-hidden="true">4.5.</strong> Fees</a></li><li class="chapter-item expanded "><a href="../RuntimeSpec/FunctionCall.html" class="active"><strong aria-hidden="true">4.6.</strong> Function Call</a></li><li class="chapter-item expanded "><a href="../RuntimeSpec/Preparation.html"><strong aria-hidden="true">4.7.</strong> Contract Preparation</a></li><li class="chapter-item expanded "><a href="../RuntimeSpec/Receipts.html"><strong aria-hidden="true">4.8.</strong> Receipts</a></li><li class="chapter-item expanded "><a href="../RuntimeSpec/Refunds.html"><strong aria-hidden="true">4.9.</strong> Refunds</a></li><li class="chapter-item expanded "><a href="../RuntimeSpec/Runtime.html"><strong aria-hidden="true">4.10.</strong> Runtime</a></li><li class="chapter-item expanded "><a href="../RuntimeSpec/Transactions.html"><strong aria-hidden="true">4.11.</strong> Transactions</a></li><li class="chapter-item expanded "><a href="../RuntimeSpec/Scenarios/Scenarios.html"><strong aria-hidden="true">4.12.</strong> Scenarios</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../RuntimeSpec/Scenarios/CrossContractCall.html"><strong aria-hidden="true">4.12.1.</strong> Cross-ContractCall</a></li><li class="chapter-item expanded "><a href="../RuntimeSpec/Scenarios/FinancialTransaction.html"><strong aria-hidden="true">4.12.2.</strong> Financial Transaction</a></li></ol></li></ol></li><li class="chapter-item expanded "><a href="../Economics/Economics.html"><strong aria-hidden="true">5.</strong> Economics</a></li><li class="chapter-item expanded "><a href="../GenesisConfig/GenesisConfig.html"><strong aria-hidden="true">6.</strong> GenesisConfig</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../GenesisConfig/ExtCostsConfig.html"><strong aria-hidden="true">6.1.</strong> ExtCostsConfig</a></li><li class="chapter-item expanded "><a href="../GenesisConfig/VMConfig.html"><strong aria-hidden="true">6.2.</strong> VMConfig</a></li><li class="chapter-item expanded "><a href="../GenesisConfig/StateRecord.html"><strong aria-hidden="true">6.3.</strong> StateRecord</a></li><li class="chapter-item expanded "><a href="../GenesisConfig/RuntimeConfig.html"><strong aria-hidden="true">6.4.</strong> RuntimeConfig</a></li><li class="chapter-item expanded "><a href="../GenesisConfig/RuntimeFeeConfig.html"><strong aria-hidden="true">6.5.</strong> RuntimeFeeConfig</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../GenesisConfig/RuntimeFeeConfig/AccessKeyCreationConfig.html"><strong aria-hidden="true">6.5.1.</strong> AccessKeyCreationConfig</a></li><li class="chapter-item expanded "><a href="../GenesisConfig/RuntimeFeeConfig/ActionCreationConfig.html"><strong aria-hidden="true">6.5.2.</strong> ActionCreationConfig</a></li><li class="chapter-item expanded "><a href="../GenesisConfig/RuntimeFeeConfig/DataReceiptCreationConfig.html"><strong aria-hidden="true">6.5.3.</strong> DataReceiptCreationConfig</a></li><li class="chapter-item expanded "><a href="../GenesisConfig/RuntimeFeeConfig/Fee.html"><strong aria-hidden="true">6.5.4.</strong> Fee</a></li><li class="chapter-item expanded "><a href="../GenesisConfig/RuntimeFeeConfig/Fraction.html"><strong aria-hidden="true">6.5.5.</strong> Fraction</a></li><li class="chapter-item expanded "><a href="../GenesisConfig/RuntimeFeeConfig/StorageUsageConfig.html"><strong aria-hidden="true">6.5.6.</strong> StorageUsageConfig</a></li></ol></li></ol></li><li class="chapter-item expanded "><li class="part-title">Architecture</li><li class="chapter-item expanded "><a href="../architecture/index.html"><strong aria-hidden="true">7.</strong> Overview</a></li><li class="chapter-item expanded "><a href="../architecture/how/index.html"><strong aria-hidden="true">8.</strong> How neard works</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../architecture/how/sync.html"><strong aria-hidden="true">8.1.</strong> How Sync Works</a></li><li class="chapter-item expanded "><a href="../architecture/how/gc.html"><strong aria-hidden="true">8.2.</strong> Garbage Collection</a></li><li class="chapter-item expanded "><a href="../architecture/how/epoch.html"><strong aria-hidden="true">8.3.</strong> How Epoch Works</a></li><li class="chapter-item expanded "><a href="../architecture/how/tx_routing.html"><strong aria-hidden="true">8.4.</strong> Transaction Routing</a></li><li class="chapter-item expanded "><a href="../architecture/how/tx_receipts.html"><strong aria-hidden="true">8.5.</strong> Transactions And Receipts</a></li><li class="chapter-item expanded "><a href="../architecture/how/cross-shard.html"><strong aria-hidden="true">8.6.</strong> Cross shard transactions - deep dive</a></li><li class="chapter-item expanded "><a href="../architecture/how/gas.html"><strong aria-hidden="true">8.7.</strong> Gas</a></li><li class="chapter-item expanded "><a href="../architecture/how/receipt-congestion.html"><strong aria-hidden="true">8.8.</strong> Receipt Congestion</a></li><li class="chapter-item expanded "><a href="../architecture/how/meta-tx.html"><strong aria-hidden="true">8.9.</strong> Meta transactions</a></li><li class="chapter-item expanded "><a href="../architecture/how/serialization.html"><strong aria-hidden="true">8.10.</strong> Serialization: Borsh, Json, ProtoBuf</a></li><li class="chapter-item expanded "><a href="../architecture/how/proofs.html"><strong aria-hidden="true">8.11.</strong> Proofs</a></li><li class="chapter-item expanded "><a href="../architecture/how/resharding_v2.html"><strong aria-hidden="true">8.12.</strong> Resharding V2</a></li><li class="chapter-item expanded "><a href="../architecture/how/optimistic_block.html"><strong aria-hidden="true">8.13.</strong> Optimistic block</a></li></ol></li><li class="chapter-item expanded "><a href="../architecture/next/index.html"><strong aria-hidden="true">9.</strong> How neard will work</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../architecture/next/catchup_and_state_sync.html"><strong aria-hidden="true">9.1.</strong> Catchup and state sync improvements</a></li><li class="chapter-item expanded "><a href="../architecture/next/malicious_chunk_producer_and_phase2.html"><strong aria-hidden="true">9.2.</strong> Malicious producers and phase 2</a></li></ol></li><li class="chapter-item expanded "><a href="../architecture/storage.html"><strong aria-hidden="true">10.</strong> Storage</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../architecture/storage/flow.html"><strong aria-hidden="true">10.1.</strong> Storage Request Flow</a></li><li class="chapter-item expanded "><a href="../architecture/storage/trie_storage.html"><strong aria-hidden="true">10.2.</strong> Trie Storage</a></li><li class="chapter-item expanded "><a href="../architecture/storage/database.html"><strong aria-hidden="true">10.3.</strong> Database Format</a></li><li class="chapter-item expanded "><a href="../architecture/storage/flat_storage.html"><strong aria-hidden="true">10.4.</strong> Flat Storage</a></li></ol></li><li class="chapter-item expanded "><a href="../architecture/network.html"><strong aria-hidden="true">11.</strong> Network</a></li><li class="chapter-item expanded "><a href="../architecture/gas/index.html"><strong aria-hidden="true">12.</strong> Gas Cost Parameters</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../architecture/gas/parameter_definition.html"><strong aria-hidden="true">12.1.</strong> Parameter Definitions</a></li><li class="chapter-item expanded "><a href="../architecture/gas/gas_profile.html"><strong aria-hidden="true">12.2.</strong> Gas Profile</a></li><li class="chapter-item expanded "><a href="../architecture/gas/estimator.html"><strong aria-hidden="true">12.3.</strong> Runtime Parameter Estimator</a></li></ol></li><li class="chapter-item expanded "><li class="part-title">Practices</li><li class="chapter-item expanded "><a href="../practices/index.html"><strong aria-hidden="true">13.</strong> Overview</a></li><li class="chapter-item expanded "><a href="../practices/rust.html"><strong aria-hidden="true">14.</strong> Rust 🦀</a></li><li class="chapter-item expanded "><a href="../practices/workflows/index.html"><strong aria-hidden="true">15.</strong> Workflows</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../practices/workflows/run_a_node.html"><strong aria-hidden="true">15.1.</strong> Run a Node</a></li><li class="chapter-item expanded "><a href="../practices/workflows/deploy_a_contract.html"><strong aria-hidden="true">15.2.</strong> Deploy a Contract</a></li><li class="chapter-item expanded "><a href="../practices/workflows/gas_estimations.html"><strong aria-hidden="true">15.3.</strong> Run Gas Estimations</a></li><li class="chapter-item expanded "><a href="../practices/workflows/localnet_on_many_machines.html"><strong aria-hidden="true">15.4.</strong> Localnet on many machines</a></li><li class="chapter-item expanded "><a href="../practices/workflows/io_trace.html"><strong aria-hidden="true">15.5.</strong> IO tracing</a></li><li class="chapter-item expanded "><a href="../practices/workflows/profiling.html"><strong aria-hidden="true">15.6.</strong> Profiling</a></li><li class="chapter-item expanded "><a href="../practices/workflows/benchmarks.html"><strong aria-hidden="true">15.7.</strong> Benchmarks</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../practices/workflows/benchmarking_synthetic_workloads.html"><strong aria-hidden="true">15.7.1.</strong> Synthetic Workloads</a></li><li class="chapter-item expanded "><a href="../practices/workflows/benchmarking_chunk_application_on_native_transfers.html"><strong aria-hidden="true">15.7.2.</strong> Native Transfer Chunk Application</a></li></ol></li><li class="chapter-item expanded "><a href="../practices/workflows/otel_traces.html"><strong aria-hidden="true">15.8.</strong> Working with OpenTelemetry Traces</a></li><li class="chapter-item expanded "><a href="../practices/workflows/futex_contention.html"><strong aria-hidden="true">15.9.</strong> Futex contention</a></li></ol></li><li class="chapter-item expanded "><a href="../practices/style.html"><strong aria-hidden="true">16.</strong> Code Style</a></li><li class="chapter-item expanded "><a href="../practices/docs.html"><strong aria-hidden="true">17.</strong> Documentation</a></li><li class="chapter-item expanded "><a href="../practices/tracking_issues.html"><strong aria-hidden="true">18.</strong> Tracking Issues</a></li><li class="chapter-item expanded "><a href="../practices/security_vulnerabilities.html"><strong aria-hidden="true">19.</strong> Security Vulnerabilities</a></li><li class="chapter-item expanded "><a href="../practices/fast_builds.html"><strong aria-hidden="true">20.</strong> Fast Builds</a></li><li class="chapter-item expanded "><a href="../practices/testing/index.html"><strong aria-hidden="true">21.</strong> Testing</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../practices/testing/python_tests.html"><strong aria-hidden="true">21.1.</strong> Python Tests</a></li><li class="chapter-item expanded "><a href="../practices/testing/test_utils.html"><strong aria-hidden="true">21.2.</strong> Testing Utils</a></li><li class="chapter-item expanded "><a href="../practices/testing/coverage.html"><strong aria-hidden="true">21.3.</strong> Test Coverage</a></li></ol></li><li class="chapter-item expanded "><a href="../practices/protocol_upgrade.html"><strong aria-hidden="true">22.</strong> Protocol Upgrade</a></li><li class="chapter-item expanded affix "><li class="part-title">Advanced configuration</li><li class="chapter-item expanded "><a href="../advanced_configuration/networking.html"><strong aria-hidden="true">23.</strong> Networking</a></li><li class="chapter-item expanded affix "><li class="part-title">Custom test networks</li><li class="chapter-item expanded "><a href="../test_networks/mainnet_spoon.html"><strong aria-hidden="true">24.</strong> Starting a network from mainnet state</a></li><li class="chapter-item expanded affix "><li class="part-title">Misc</li><li class="chapter-item expanded "><a href="../misc/index.html"><strong aria-hidden="true">25.</strong> Overview</a></li><li class="chapter-item expanded "><a href="../misc/state_sync_dump.html"><strong aria-hidden="true">26.</strong> State Sync Dump</a></li><li class="chapter-item expanded "><a href="../misc/archival_data_recovery.html"><strong aria-hidden="true">27.</strong> Archival node - recovery of missing data</a></li></ol>
+            </div>
+            <div id="sidebar-resize-handle" class="sidebar-resize-handle"></div>
+        </nav>
+
+        <div id="page-wrapper" class="page-wrapper">
+
+            <div class="page">
+                <div id="menu-bar-hover-placeholder"></div>
+                <div id="menu-bar" class="menu-bar sticky bordered">
+                    <div class="left-buttons">
+                        <button id="sidebar-toggle" class="icon-button" type="button" title="Toggle Table of Contents" aria-label="Toggle Table of Contents" aria-controls="sidebar">
+                            <i class="fa fa-bars"></i>
+                        </button>
+                        <button id="theme-toggle" class="icon-button" type="button" title="Change theme" aria-label="Change theme" aria-haspopup="true" aria-expanded="false" aria-controls="theme-list">
+                            <i class="fa fa-paint-brush"></i>
+                        </button>
+                        <ul id="theme-list" class="theme-popup" aria-label="Themes" role="menu">
+                            <li role="none"><button role="menuitem" class="theme" id="light">Light (default)</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="rust">Rust</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="coal">Coal</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="navy">Navy</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="ayu">Ayu</button></li>
+                        </ul>
+                        <button id="search-toggle" class="icon-button" type="button" title="Search. (Shortkey: s)" aria-label="Toggle Searchbar" aria-expanded="false" aria-keyshortcuts="S" aria-controls="searchbar">
+                            <i class="fa fa-search"></i>
+                        </button>
+                    </div>
+
+                    <h1 class="menu-title">Guide to Nearcore Development</h1>
+
+                    <div class="right-buttons">
+                        <a href="../print.html" title="Print this book" aria-label="Print this book">
+                            <i id="print-button" class="fa fa-print"></i>
+                        </a>
+                        <a href="https://github.com/near/nearcore/tree/master/docs" title="Git repository" aria-label="Git repository">
+                            <i id="git-repository-button" class="fa fa-github"></i>
+                        </a>
+                        <a href="https://github.com/near/nearcore/edit/master/docs/./RuntimeSpec/FunctionCall.md" title="Suggest an edit" aria-label="Suggest an edit">
+                            <i id="git-edit-button" class="fa fa-edit"></i>
+                        </a>
+                    </div>
+                </div>
+
+                <div id="search-wrapper" class="hidden">
+                    <form id="searchbar-outer" class="searchbar-outer">
+                        <input type="search" id="searchbar" name="searchbar" placeholder="Search this book ..." aria-controls="searchresults-outer" aria-describedby="searchresults-header">
+                    </form>
+                    <div id="searchresults-outer" class="searchresults-outer hidden">
+                        <div id="searchresults-header" class="searchresults-header"></div>
+                        <ul id="searchresults">
+                        </ul>
+                    </div>
+                </div>
+                <!-- Apply ARIA attributes after the sidebar and the sidebar toggle button are added to the DOM -->
+                <script type="text/javascript">
+                    document.getElementById('sidebar-toggle').setAttribute('aria-expanded', sidebar === 'visible');
+                    document.getElementById('sidebar').setAttribute('aria-hidden', sidebar !== 'visible');
+                    Array.from(document.querySelectorAll('#sidebar a')).forEach(function(link) {
+                        link.setAttribute('tabIndex', sidebar === 'visible' ? 0 : -1);
+                    });
+                </script>
+
+                <div id="content" class="content">
+                    <main>
+                        <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.4/dist/katex.min.css">
+<h1 id="function-call"><a class="header" href="#function-call">Function Call</a></h1>
+<p>In this section we provide an explanation how the <code>FunctionCall</code> action execution works, what are
+the inputs and what are the outputs. Suppose runtime received the following ActionReceipt:</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>ActionReceipt {
+     id: &quot;A1&quot;,
+     signer_id: &quot;alice&quot;,
+     signer_public_key: &quot;6934...e248&quot;,
+     receiver_id: &quot;dex&quot;,
+     predecessor_id: &quot;alice&quot;,
+     input_data_ids: [],
+     output_data_receivers: [],
+     actions: [FunctionCall { gas: 100000, deposit: 100000u128, method_name: &quot;exchange&quot;, args: &quot;{arg1, arg2, ...}&quot;, ... }],
+ }
+<span class="boring">}
+</span></code></pre></pre>
+<h3 id="input_data_ids-to-promiseresults"><a class="header" href="#input_data_ids-to-promiseresults"><code>input_data_ids</code> to <code>PromiseResult</code>s</a></h3>
+<p><code>ActionReceipt.input_data_ids</code> must be satisfied before execution (see
+<a href="/RuntimeSpec/Receipts#receipt-matching">Receipt Matching</a>). Each of <code>ActionReceipt.input_data_ids</code> will be converted to
+the <code>PromiseResult::Successful(Vec&lt;u8&gt;)</code> if <code>data_id.data</code> is <code>Some(Vec&lt;u8&gt;)</code> otherwise if
+<code>data_id.data</code> is <code>None</code> promise will be <code>PromiseResult::Failed</code>.</p>
+<h2 id="input"><a class="header" href="#input">Input</a></h2>
+<p>The <code>FunctionCall</code> executes in the <code>receiver_id</code> account environment.</p>
+<ul>
+<li>a vector of <a href="#input_data_ids-to-promiseresults">Promise Results</a> which can be accessed by a <code>promise_result</code>
+import <a href="Components/BindingsSpec/PromisesAPI.html">PromisesAPI</a> <code>promise_result</code>)</li>
+<li>the original Transaction <code>signer_id</code>, <code>signer_public_key</code> data from the ActionReceipt (e.g.
+<code>method_name</code>, <code>args</code>, <code>predecessor_id</code>, <code>deposit</code>, <code>prepaid_gas</code> (which is <code>gas</code> in
+FunctionCall))</li>
+<li>a general blockchain data (e.g. <code>block_index</code>, <code>block_timestamp</code>)</li>
+<li>read data from the account storage</li>
+</ul>
+<p>A full list of the data available for the contract can be found in <a href="Components/BindingsSpec/ContextAPI.html">Context
+API</a> and <a href="Components/BindingsSpec/TrieAPI.html">Trie</a></p>
+<h2 id="execution"><a class="header" href="#execution">Execution</a></h2>
+<p>In order to implement this action, the runtime will:</p>
+<ul>
+<li>load the contract code from the <code>receiver_id</code> <a href="../DataStructures/Account.html#account">account</a>’s
+storage;</li>
+<li>parse, validate and instrument the contract code (see <a href="./Preparation.html">Preparation</a>);</li>
+<li>optionally, convert the contract code to a different executable format;</li>
+<li>instantiate the WASM module, linking runtime-provided functions defined in the
+<a href="Components/BindingsSpec/BindingsSpec.html">Bindings Spec</a> &amp; running the start function; and</li>
+<li>invoke the function that has been exported from the wasm module with the name matching
+that specified in the <code>FunctionCall.method_name</code> field.</li>
+</ul>
+<p>Note that some of these steps may be executed during the
+<a href="./Actions.html#deploycontractaction"><code>DeployContractAction</code></a> instead. This is largely an
+optimization of the <code>FunctionCall</code> gas fee, and must not result in an observable behavioral
+difference of the <code>FunctionCall</code> action.</p>
+<p>During the execution of the contract, the runtime will:</p>
+<ul>
+<li>count burnt gas on execution;</li>
+<li>count used gas (which is <code>burnt gas</code> + gas attached to the new created receipts);</li>
+<li>measure the increase in account’s storage usage as a result of this call;</li>
+<li>collect logs produced by the contract;</li>
+<li>set the return data; and</li>
+<li>create new receipts through <a href="Components/BindingsSpec/PromisesAPI.html">PromisesAPI</a>.</li>
+</ul>
+<h2 id="output"><a class="header" href="#output">Output</a></h2>
+<p>The output of the <code>FunctionCall</code>:</p>
+<ul>
+<li>storage updates - changes to the account trie storage which will be applied on a successful call</li>
+<li><code>burnt_gas</code>, <code>used_gas</code> - see <a href="Fees/Fees.html">Runtime Fees</a></li>
+<li><code>balance</code> - unspent account balance (account balance could be spent on deposits of newly created
+<code>FunctionCall</code>s or <a href="Actions.html#transferaction"><code>TransferAction</code>s</a> to other contracts)</li>
+<li><code>storage_usage</code> - storage_usage after ActionReceipt application</li>
+<li><code>logs</code> - during contract execution, utf8/16 string log records could be created. Logs are not
+persistent currently.</li>
+<li><code>new_receipts</code> - new <code>ActionReceipts</code> created during the execution. These receipts are going to
+be sent to the respective <code>receiver_id</code>s (see <a href="/RuntimeSpec/Receipts#receipt-matching">Receipt Matching explanation</a>)</li>
+<li>result could be either <a href="#value-result"><code>ReturnData::Value(Vec&lt;u8&gt;)</code></a> or
+<a href="#receiptindex-result"><code>ReturnData::ReceiptIndex(u64)</code></a>`</li>
+</ul>
+<h3 id="value-result"><a class="header" href="#value-result">Value Result</a></h3>
+<p>If applied <code>ActionReceipt</code> contains <a href="Receipts.html#output_data_receivers"><code>output_data_receivers</code></a>,
+runtime will create <code>DataReceipt</code> for each of <code>data_id</code> and <code>receiver_id</code> and <code>data</code> equals
+returned value. Eventually, these <code>DataReceipt</code> will be delivered to the corresponding receivers.</p>
+<h3 id="receiptindex-result"><a class="header" href="#receiptindex-result">ReceiptIndex Result</a></h3>
+<p>Successful result could not return any Value, but generates a bunch of new ActionReceipts instead.
+One example could be a callback. In this case, we assume the new Receipt will send its Value
+Result to the <a href="Receipts.html#output_data_receivers"><code>output_data_receivers</code></a> of the current
+<code>ActionReceipt</code>.</p>
+<h3 id="errors"><a class="header" href="#errors">Errors</a></h3>
+<p>As with other actions, errors can be divided into two categories: validation error and execution
+error.</p>
+<h4 id="validation-error"><a class="header" href="#validation-error">Validation Error</a></h4>
+<ul>
+<li>
+<p>If there is zero gas attached to the function call, a</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>/// The attached amount of gas in a FunctionCall action has to be a positive number.
+FunctionCallZeroAttachedGas,
+<span class="boring">}
+</span></code></pre></pre>
+<p>error will be returned</p>
+</li>
+<li>
+<p>If the length of the method name to be called exceeds <code>max_length_method_name</code>, a genesis
+parameter whose current value is <code>256</code>, a</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>/// The length of the method name exceeded the limit in a Function Call action.
+FunctionCallMethodNameLengthExceeded { length: u64, limit: u64 }
+<span class="boring">}
+</span></code></pre></pre>
+<p>error is returned.</p>
+</li>
+<li>
+<p>If the length of the argument to the function call exceeds <code>max_arguments_length</code>, a genesis
+parameter whose current value is <code>4194304</code> (4MB), a</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>/// The length of the arguments exceeded the limit in a Function Call action.
+FunctionCallArgumentsLengthExceeded { length: u64, limit: u64 }
+<span class="boring">}
+</span></code></pre></pre>
+<p>error is returned.</p>
+</li>
+</ul>
+<h4 id="execution-error"><a class="header" href="#execution-error">Execution Error</a></h4>
+<p>There are three types of errors which may occur when applying a function call action:
+<code>FunctionCallError</code>, <code>ExternalError</code>, and <code>StorageError</code>.</p>
+<ul>
+<li>
+<p><code>FunctionCallError</code> includes everything from around the execution of the wasm binary,
+from compiling wasm to native to traps occurred while executing the compiled native binary. More specifically,
+it includes the following errors:</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>pub enum FunctionCallError {
+    /// Wasm compilation error
+    CompilationError(CompilationError),
+    /// Wasm binary env link error
+    LinkError {
+        msg: String,
+    },
+    /// Import/export resolve error
+    MethodResolveError(MethodResolveError),
+    /// A trap happened during execution of a binary
+    WasmTrap(WasmTrap),
+    WasmUnknownError,
+    HostError(HostError),
+}
+<span class="boring">}
+</span></code></pre></pre>
+</li>
+<li>
+<p><code>CompilationError</code> includes errors that can occur during the compilation of wasm binary.</p>
+</li>
+<li>
+<p><code>LinkError</code> is returned when wasmer runtime is unable to link the wasm module with provided imports.</p>
+</li>
+<li>
+<p><code>MethodResolveError</code> occurs when the method in the action cannot be found in the contract code.</p>
+</li>
+<li>
+<p><code>WasmTrap</code> error happens when a trap occurs during the execution of the binary. Traps here include</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>pub enum WasmTrap {
+    /// An `unreachable` opcode was executed.
+    Unreachable,
+    /// Call indirect incorrect signature trap.
+    IncorrectCallIndirectSignature,
+    /// Memory out of bounds trap.
+    MemoryOutOfBounds,
+    /// Call indirect out of bounds trap.
+    CallIndirectOOB,
+    /// An arithmetic exception, e.g. divided by zero.
+    IllegalArithmetic,
+    /// Misaligned atomic access trap.
+    MisalignedAtomicAccess,
+    /// Breakpoint trap.
+    BreakpointTrap,
+    /// Stack overflow.
+    StackOverflow,
+    /// Generic trap.
+    GenericTrap,
+}
+<span class="boring">}
+</span></code></pre></pre>
+</li>
+<li>
+<p><code>WasmUnknownError</code> occurs when something inside wasmer goes wrong</p>
+</li>
+<li>
+<p><code>HostError</code> includes errors that might be returned during the execution of a host function. Those errors are</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>pub enum HostError {
+    /// String encoding is bad UTF-16 sequence
+    BadUTF16,
+    /// String encoding is bad UTF-8 sequence
+    BadUTF8,
+    /// Exceeded the prepaid gas
+    GasExceeded,
+    /// Exceeded the maximum amount of gas allowed to burn per contract
+    GasLimitExceeded,
+    /// Exceeded the account balance
+    BalanceExceeded,
+    /// Tried to call an empty method name
+    EmptyMethodName,
+    /// Smart contract panicked
+    GuestPanic { panic_msg: String },
+    /// IntegerOverflow happened during a contract execution
+    IntegerOverflow,
+    /// `promise_idx` does not correspond to existing promises
+    InvalidPromiseIndex { promise_idx: u64 },
+    /// Actions can only be appended to non-joint promise.
+    CannotAppendActionToJointPromise,
+    /// Returning joint promise is currently prohibited
+    CannotReturnJointPromise,
+    /// Accessed invalid promise result index
+    InvalidPromiseResultIndex { result_idx: u64 },
+    /// Accessed invalid register id
+    InvalidRegisterId { register_id: u64 },
+    /// Iterator `iterator_index` was invalidated after its creation by performing a mutable operation on trie
+    IteratorWasInvalidated { iterator_index: u64 },
+    /// Accessed memory outside the bounds
+    MemoryAccessViolation,
+    /// VM Logic returned an invalid receipt index
+    InvalidReceiptIndex { receipt_index: u64 },
+    /// Iterator index `iterator_index` does not exist
+    InvalidIteratorIndex { iterator_index: u64 },
+    /// VM Logic returned an invalid account id
+    InvalidAccountId,
+    /// VM Logic returned an invalid method name
+    InvalidMethodName,
+    /// VM Logic provided an invalid public key
+    InvalidPublicKey,
+    /// `method_name` is not allowed in view calls
+    ProhibitedInView { method_name: String },
+    /// The total number of logs will exceed the limit.
+    NumberOfLogsExceeded { limit: u64 },
+    /// The storage key length exceeded the limit.
+    KeyLengthExceeded { length: u64, limit: u64 },
+    /// The storage value length exceeded the limit.
+    ValueLengthExceeded { length: u64, limit: u64 },
+    /// The total log length exceeded the limit.
+    TotalLogLengthExceeded { length: u64, limit: u64 },
+    /// The maximum number of promises within a FunctionCall exceeded the limit.
+    NumberPromisesExceeded { number_of_promises: u64, limit: u64 },
+    /// The maximum number of input data dependencies exceeded the limit.
+    NumberInputDataDependenciesExceeded { number_of_input_data_dependencies: u64, limit: u64 },
+    /// The returned value length exceeded the limit.
+    ReturnedValueLengthExceeded { length: u64, limit: u64 },
+    /// The contract size for DeployContract action exceeded the limit.
+    ContractSizeExceeded { size: u64, limit: u64 },
+    /// The host function was deprecated.
+    Deprecated { method_name: String },
+}
+<span class="boring">}
+</span></code></pre></pre>
+</li>
+<li>
+<p><code>ExternalError</code> includes errors that occur during the execution inside <code>External</code>, which is an interface between runtime
+and the rest of the system. The possible errors are:</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>pub enum ExternalError {
+    /// Unexpected error which is typically related to the node storage corruption.
+    /// It's possible the input state is invalid or malicious.
+    StorageError(StorageError),
+    /// Error when accessing validator information. Happens inside epoch manager.
+    ValidatorError(EpochError),
+}
+<span class="boring">}
+</span></code></pre></pre>
+</li>
+<li>
+<p><code>StorageError</code> occurs when state or storage is corrupted.</p>
+</li>
+</ul>
+
+                    </main>
+
+                    <nav class="nav-wrapper" aria-label="Page navigation">
+                        <!-- Mobile navigation buttons -->
+                            <a rel="prev" href="../RuntimeSpec/Fees/Fees.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                                <i class="fa fa-angle-left"></i>
+                            </a>
+                            <a rel="next" href="../RuntimeSpec/Preparation.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                                <i class="fa fa-angle-right"></i>
+                            </a>
+                        <div style="clear: both"></div>
+                    </nav>
+                </div>
+            </div>
+
+            <nav class="nav-wide-wrapper" aria-label="Page navigation">
+                    <a rel="prev" href="../RuntimeSpec/Fees/Fees.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                        <i class="fa fa-angle-left"></i>
+                    </a>
+                    <a rel="next" href="../RuntimeSpec/Preparation.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                        <i class="fa fa-angle-right"></i>
+                    </a>
+            </nav>
+
+        </div>
+
+        <script type="text/javascript">
+            window.playground_copyable = true;
+        </script>
+        <script src="../elasticlunr.min.js" type="text/javascript" charset="utf-8"></script>
+        <script src="../mark.min.js" type="text/javascript" charset="utf-8"></script>
+        <script src="../searcher.js" type="text/javascript" charset="utf-8"></script>
+        <script src="../clipboard.min.js" type="text/javascript" charset="utf-8"></script>
+        <script src="../highlight.js" type="text/javascript" charset="utf-8"></script>
+        <script src="../book.js" type="text/javascript" charset="utf-8"></script>
+
+        <!-- Custom JS scripts -->
+    </body>
+</html>

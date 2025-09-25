@@ -1,0 +1,426 @@
+<!DOCTYPE HTML>
+<html lang="en" class="sidebar-visible no-js light">
+    <head>
+        <!-- Book generated using mdBook -->
+        <meta charset="UTF-8">
+        <title>Receipts - Guide to Nearcore Development</title>
+        <!-- Custom HTML head -->
+        <meta content="text/html; charset=utf-8" http-equiv="Content-Type">
+        <meta name="description" content="">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <meta name="theme-color" content="#ffffff" />
+
+        <link rel="icon" href="../favicon.svg">
+        <link rel="shortcut icon" href="../favicon.png">
+        <link rel="stylesheet" href="../css/variables.css">
+        <link rel="stylesheet" href="../css/general.css">
+        <link rel="stylesheet" href="../css/chrome.css">
+        <link rel="stylesheet" href="../css/print.css" media="print">
+        <!-- Fonts -->
+        <link rel="stylesheet" href="../FontAwesome/css/font-awesome.css">
+        <link rel="stylesheet" href="../fonts/fonts.css">
+        <!-- Highlight.js Stylesheets -->
+        <link rel="stylesheet" href="../highlight.css">
+        <link rel="stylesheet" href="../tomorrow-night.css">
+        <link rel="stylesheet" href="../ayu-highlight.css">
+
+        <!-- Custom theme stylesheets -->
+    </head>
+    <body>
+        <!-- Provide site root to javascript -->
+        <script type="text/javascript">
+            var path_to_root = "../";
+            var default_theme = window.matchMedia("(prefers-color-scheme: dark)").matches ? "navy" : "light";
+        </script>
+
+        <!-- Work around some values being stored in localStorage wrapped in quotes -->
+        <script type="text/javascript">
+            try {
+                var theme = localStorage.getItem('mdbook-theme');
+                var sidebar = localStorage.getItem('mdbook-sidebar');
+
+                if (theme.startsWith('"') && theme.endsWith('"')) {
+                    localStorage.setItem('mdbook-theme', theme.slice(1, theme.length - 1));
+                }
+
+                if (sidebar.startsWith('"') && sidebar.endsWith('"')) {
+                    localStorage.setItem('mdbook-sidebar', sidebar.slice(1, sidebar.length - 1));
+                }
+            } catch (e) { }
+        </script>
+
+        <!-- Set the theme before any content is loaded, prevents flash -->
+        <script type="text/javascript">
+            var theme;
+            try { theme = localStorage.getItem('mdbook-theme'); } catch(e) { }
+            if (theme === null || theme === undefined) { theme = default_theme; }
+            var html = document.querySelector('html');
+            html.classList.remove('no-js')
+            html.classList.remove('light')
+            html.classList.add(theme);
+            html.classList.add('js');
+        </script>
+
+        <!-- Hide / unhide sidebar before it is displayed -->
+        <script type="text/javascript">
+            var html = document.querySelector('html');
+            var sidebar = 'hidden';
+            if (document.body.clientWidth >= 1080) {
+                try { sidebar = localStorage.getItem('mdbook-sidebar'); } catch(e) { }
+                sidebar = sidebar || 'visible';
+            }
+            html.classList.remove('sidebar-visible');
+            html.classList.add("sidebar-" + sidebar);
+        </script>
+
+        <nav id="sidebar" class="sidebar" aria-label="Table of contents">
+            <div class="sidebar-scrollbox">
+                <ol class="chapter"><li class="chapter-item expanded affix "><a href="../index.html">Introduction</a></li><li class="chapter-item expanded affix "><li class="part-title">Protocol Specification</li><li class="chapter-item expanded "><a href="../DataStructures/index.html"><strong aria-hidden="true">1.</strong> Data Structures</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../DataStructures/AccessKey.html"><strong aria-hidden="true">1.1.</strong> Access Keys</a></li><li class="chapter-item expanded "><a href="../DataStructures/Account.html"><strong aria-hidden="true">1.2.</strong> Accounts</a></li><li class="chapter-item expanded "><a href="../DataStructures/Block.html"><strong aria-hidden="true">1.3.</strong> Block and Block Header</a></li><li class="chapter-item expanded "><a href="../DataStructures/DataTypes.html"><strong aria-hidden="true">1.4.</strong> Data Types</a></li><li class="chapter-item expanded "><a href="../DataStructures/MerkleProof.html"><strong aria-hidden="true">1.5.</strong> Merkle Proofs</a></li><li class="chapter-item expanded "><a href="../DataStructures/Transaction.html"><strong aria-hidden="true">1.6.</strong> Transaction</a></li></ol></li><li class="chapter-item expanded "><a href="../ChainSpec/index.html"><strong aria-hidden="true">2.</strong> Chain Specification</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../ChainSpec/BlockProcessing.html"><strong aria-hidden="true">2.1.</strong> Block Processing</a></li><li class="chapter-item expanded "><a href="../ChainSpec/Consensus.html"><strong aria-hidden="true">2.2.</strong> Consensus</a></li><li class="chapter-item expanded "><a href="../ChainSpec/LightClient.html"><strong aria-hidden="true">2.3.</strong> Light Client</a></li><li class="chapter-item expanded "><a href="../ChainSpec/SelectingBlockProducers.html"><strong aria-hidden="true">2.4.</strong> Selecting Chunk and Block Producers</a></li><li class="chapter-item expanded "><a href="../ChainSpec/Transactions.html"><strong aria-hidden="true">2.5.</strong> Transactions in the Blockchain Layer</a></li><li class="chapter-item expanded "><a href="../ChainSpec/Upgradability.html"><strong aria-hidden="true">2.6.</strong> Upgradability</a></li><li class="chapter-item expanded "><a href="../ChainSpec/EpochAndStaking/index.html"><strong aria-hidden="true">2.7.</strong> Epochs and Staking</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../ChainSpec/EpochAndStaking/Epoch.html"><strong aria-hidden="true">2.7.1.</strong> Epoch</a></li><li class="chapter-item expanded "><a href="../ChainSpec/EpochAndStaking/EpochManager.html"><strong aria-hidden="true">2.7.2.</strong> EpochManager</a></li><li class="chapter-item expanded "><a href="../ChainSpec/EpochAndStaking/Staking.html"><strong aria-hidden="true">2.7.3.</strong> Staking and slashing</a></li></ol></li></ol></li><li class="chapter-item expanded "><a href="../NetworkSpec/NetworkSpec.html"><strong aria-hidden="true">3.</strong> Network Specification</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../NetworkSpec/Messages.html"><strong aria-hidden="true">3.1.</strong> Messages</a></li><li class="chapter-item expanded "><a href="../NetworkSpec/RoutingTableExchangeAlgorithm.html"><strong aria-hidden="true">3.2.</strong> Routing Table Exchange Algorithm</a></li></ol></li><li class="chapter-item expanded "><a href="../RuntimeSpec/index.html"><strong aria-hidden="true">4.</strong> Runtime Specification</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../RuntimeSpec/AccountStorage.html"><strong aria-hidden="true">4.1.</strong> Account Receipt Storage</a></li><li class="chapter-item expanded "><a href="../RuntimeSpec/Actions.html"><strong aria-hidden="true">4.2.</strong> Actions</a></li><li class="chapter-item expanded "><a href="../RuntimeSpec/ApplyingChunk.html"><strong aria-hidden="true">4.3.</strong> Applying chunk</a></li><li class="chapter-item expanded "><a href="../RuntimeSpec/Components/Components.html"><strong aria-hidden="true">4.4.</strong> Components</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../RuntimeSpec/Components/RuntimeCrate.html"><strong aria-hidden="true">4.4.1.</strong> Runtime Crate</a></li><li class="chapter-item expanded "><a href="../RuntimeSpec/Components/BindingsSpec/BindingsSpec.html"><strong aria-hidden="true">4.4.2.</strong> Bindings Specification</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../RuntimeSpec/Components/BindingsSpec/ContextAPI.html"><strong aria-hidden="true">4.4.2.1.</strong> Context API</a></li><li class="chapter-item expanded "><a href="../RuntimeSpec/Components/BindingsSpec/EconomicsAPI.html"><strong aria-hidden="true">4.4.2.2.</strong> Economics API</a></li><li class="chapter-item expanded "><a href="../RuntimeSpec/Components/BindingsSpec/MathAPI.html"><strong aria-hidden="true">4.4.2.3.</strong> Math API</a></li><li class="chapter-item expanded "><a href="../RuntimeSpec/Components/BindingsSpec/MiscellaneousAPI.html"><strong aria-hidden="true">4.4.2.4.</strong> Miscellaneous API</a></li><li class="chapter-item expanded "><a href="../RuntimeSpec/Components/BindingsSpec/PromisesAPI.html"><strong aria-hidden="true">4.4.2.5.</strong> Promises API</a></li><li class="chapter-item expanded "><a href="../RuntimeSpec/Components/BindingsSpec/RegistersAPI.html"><strong aria-hidden="true">4.4.2.6.</strong> Registers API</a></li><li class="chapter-item expanded "><a href="../RuntimeSpec/Components/BindingsSpec/TrieAPI.html"><strong aria-hidden="true">4.4.2.7.</strong> Trie API</a></li></ol></li></ol></li><li class="chapter-item expanded "><a href="../RuntimeSpec/Fees/Fees.html"><strong aria-hidden="true">4.5.</strong> Fees</a></li><li class="chapter-item expanded "><a href="../RuntimeSpec/FunctionCall.html"><strong aria-hidden="true">4.6.</strong> Function Call</a></li><li class="chapter-item expanded "><a href="../RuntimeSpec/Preparation.html"><strong aria-hidden="true">4.7.</strong> Contract Preparation</a></li><li class="chapter-item expanded "><a href="../RuntimeSpec/Receipts.html" class="active"><strong aria-hidden="true">4.8.</strong> Receipts</a></li><li class="chapter-item expanded "><a href="../RuntimeSpec/Refunds.html"><strong aria-hidden="true">4.9.</strong> Refunds</a></li><li class="chapter-item expanded "><a href="../RuntimeSpec/Runtime.html"><strong aria-hidden="true">4.10.</strong> Runtime</a></li><li class="chapter-item expanded "><a href="../RuntimeSpec/Transactions.html"><strong aria-hidden="true">4.11.</strong> Transactions</a></li><li class="chapter-item expanded "><a href="../RuntimeSpec/Scenarios/Scenarios.html"><strong aria-hidden="true">4.12.</strong> Scenarios</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../RuntimeSpec/Scenarios/CrossContractCall.html"><strong aria-hidden="true">4.12.1.</strong> Cross-ContractCall</a></li><li class="chapter-item expanded "><a href="../RuntimeSpec/Scenarios/FinancialTransaction.html"><strong aria-hidden="true">4.12.2.</strong> Financial Transaction</a></li></ol></li></ol></li><li class="chapter-item expanded "><a href="../Economics/Economics.html"><strong aria-hidden="true">5.</strong> Economics</a></li><li class="chapter-item expanded "><a href="../GenesisConfig/GenesisConfig.html"><strong aria-hidden="true">6.</strong> GenesisConfig</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../GenesisConfig/ExtCostsConfig.html"><strong aria-hidden="true">6.1.</strong> ExtCostsConfig</a></li><li class="chapter-item expanded "><a href="../GenesisConfig/VMConfig.html"><strong aria-hidden="true">6.2.</strong> VMConfig</a></li><li class="chapter-item expanded "><a href="../GenesisConfig/StateRecord.html"><strong aria-hidden="true">6.3.</strong> StateRecord</a></li><li class="chapter-item expanded "><a href="../GenesisConfig/RuntimeConfig.html"><strong aria-hidden="true">6.4.</strong> RuntimeConfig</a></li><li class="chapter-item expanded "><a href="../GenesisConfig/RuntimeFeeConfig.html"><strong aria-hidden="true">6.5.</strong> RuntimeFeeConfig</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../GenesisConfig/RuntimeFeeConfig/AccessKeyCreationConfig.html"><strong aria-hidden="true">6.5.1.</strong> AccessKeyCreationConfig</a></li><li class="chapter-item expanded "><a href="../GenesisConfig/RuntimeFeeConfig/ActionCreationConfig.html"><strong aria-hidden="true">6.5.2.</strong> ActionCreationConfig</a></li><li class="chapter-item expanded "><a href="../GenesisConfig/RuntimeFeeConfig/DataReceiptCreationConfig.html"><strong aria-hidden="true">6.5.3.</strong> DataReceiptCreationConfig</a></li><li class="chapter-item expanded "><a href="../GenesisConfig/RuntimeFeeConfig/Fee.html"><strong aria-hidden="true">6.5.4.</strong> Fee</a></li><li class="chapter-item expanded "><a href="../GenesisConfig/RuntimeFeeConfig/Fraction.html"><strong aria-hidden="true">6.5.5.</strong> Fraction</a></li><li class="chapter-item expanded "><a href="../GenesisConfig/RuntimeFeeConfig/StorageUsageConfig.html"><strong aria-hidden="true">6.5.6.</strong> StorageUsageConfig</a></li></ol></li></ol></li><li class="chapter-item expanded "><li class="part-title">Architecture</li><li class="chapter-item expanded "><a href="../architecture/index.html"><strong aria-hidden="true">7.</strong> Overview</a></li><li class="chapter-item expanded "><a href="../architecture/how/index.html"><strong aria-hidden="true">8.</strong> How neard works</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../architecture/how/sync.html"><strong aria-hidden="true">8.1.</strong> How Sync Works</a></li><li class="chapter-item expanded "><a href="../architecture/how/gc.html"><strong aria-hidden="true">8.2.</strong> Garbage Collection</a></li><li class="chapter-item expanded "><a href="../architecture/how/epoch.html"><strong aria-hidden="true">8.3.</strong> How Epoch Works</a></li><li class="chapter-item expanded "><a href="../architecture/how/tx_routing.html"><strong aria-hidden="true">8.4.</strong> Transaction Routing</a></li><li class="chapter-item expanded "><a href="../architecture/how/tx_receipts.html"><strong aria-hidden="true">8.5.</strong> Transactions And Receipts</a></li><li class="chapter-item expanded "><a href="../architecture/how/cross-shard.html"><strong aria-hidden="true">8.6.</strong> Cross shard transactions - deep dive</a></li><li class="chapter-item expanded "><a href="../architecture/how/gas.html"><strong aria-hidden="true">8.7.</strong> Gas</a></li><li class="chapter-item expanded "><a href="../architecture/how/receipt-congestion.html"><strong aria-hidden="true">8.8.</strong> Receipt Congestion</a></li><li class="chapter-item expanded "><a href="../architecture/how/meta-tx.html"><strong aria-hidden="true">8.9.</strong> Meta transactions</a></li><li class="chapter-item expanded "><a href="../architecture/how/serialization.html"><strong aria-hidden="true">8.10.</strong> Serialization: Borsh, Json, ProtoBuf</a></li><li class="chapter-item expanded "><a href="../architecture/how/proofs.html"><strong aria-hidden="true">8.11.</strong> Proofs</a></li><li class="chapter-item expanded "><a href="../architecture/how/resharding_v2.html"><strong aria-hidden="true">8.12.</strong> Resharding V2</a></li><li class="chapter-item expanded "><a href="../architecture/how/optimistic_block.html"><strong aria-hidden="true">8.13.</strong> Optimistic block</a></li></ol></li><li class="chapter-item expanded "><a href="../architecture/next/index.html"><strong aria-hidden="true">9.</strong> How neard will work</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../architecture/next/catchup_and_state_sync.html"><strong aria-hidden="true">9.1.</strong> Catchup and state sync improvements</a></li><li class="chapter-item expanded "><a href="../architecture/next/malicious_chunk_producer_and_phase2.html"><strong aria-hidden="true">9.2.</strong> Malicious producers and phase 2</a></li></ol></li><li class="chapter-item expanded "><a href="../architecture/storage.html"><strong aria-hidden="true">10.</strong> Storage</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../architecture/storage/flow.html"><strong aria-hidden="true">10.1.</strong> Storage Request Flow</a></li><li class="chapter-item expanded "><a href="../architecture/storage/trie_storage.html"><strong aria-hidden="true">10.2.</strong> Trie Storage</a></li><li class="chapter-item expanded "><a href="../architecture/storage/database.html"><strong aria-hidden="true">10.3.</strong> Database Format</a></li><li class="chapter-item expanded "><a href="../architecture/storage/flat_storage.html"><strong aria-hidden="true">10.4.</strong> Flat Storage</a></li></ol></li><li class="chapter-item expanded "><a href="../architecture/network.html"><strong aria-hidden="true">11.</strong> Network</a></li><li class="chapter-item expanded "><a href="../architecture/gas/index.html"><strong aria-hidden="true">12.</strong> Gas Cost Parameters</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../architecture/gas/parameter_definition.html"><strong aria-hidden="true">12.1.</strong> Parameter Definitions</a></li><li class="chapter-item expanded "><a href="../architecture/gas/gas_profile.html"><strong aria-hidden="true">12.2.</strong> Gas Profile</a></li><li class="chapter-item expanded "><a href="../architecture/gas/estimator.html"><strong aria-hidden="true">12.3.</strong> Runtime Parameter Estimator</a></li></ol></li><li class="chapter-item expanded "><li class="part-title">Practices</li><li class="chapter-item expanded "><a href="../practices/index.html"><strong aria-hidden="true">13.</strong> Overview</a></li><li class="chapter-item expanded "><a href="../practices/rust.html"><strong aria-hidden="true">14.</strong> Rust 🦀</a></li><li class="chapter-item expanded "><a href="../practices/workflows/index.html"><strong aria-hidden="true">15.</strong> Workflows</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../practices/workflows/run_a_node.html"><strong aria-hidden="true">15.1.</strong> Run a Node</a></li><li class="chapter-item expanded "><a href="../practices/workflows/deploy_a_contract.html"><strong aria-hidden="true">15.2.</strong> Deploy a Contract</a></li><li class="chapter-item expanded "><a href="../practices/workflows/gas_estimations.html"><strong aria-hidden="true">15.3.</strong> Run Gas Estimations</a></li><li class="chapter-item expanded "><a href="../practices/workflows/localnet_on_many_machines.html"><strong aria-hidden="true">15.4.</strong> Localnet on many machines</a></li><li class="chapter-item expanded "><a href="../practices/workflows/io_trace.html"><strong aria-hidden="true">15.5.</strong> IO tracing</a></li><li class="chapter-item expanded "><a href="../practices/workflows/profiling.html"><strong aria-hidden="true">15.6.</strong> Profiling</a></li><li class="chapter-item expanded "><a href="../practices/workflows/benchmarks.html"><strong aria-hidden="true">15.7.</strong> Benchmarks</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../practices/workflows/benchmarking_synthetic_workloads.html"><strong aria-hidden="true">15.7.1.</strong> Synthetic Workloads</a></li><li class="chapter-item expanded "><a href="../practices/workflows/benchmarking_chunk_application_on_native_transfers.html"><strong aria-hidden="true">15.7.2.</strong> Native Transfer Chunk Application</a></li></ol></li><li class="chapter-item expanded "><a href="../practices/workflows/otel_traces.html"><strong aria-hidden="true">15.8.</strong> Working with OpenTelemetry Traces</a></li><li class="chapter-item expanded "><a href="../practices/workflows/futex_contention.html"><strong aria-hidden="true">15.9.</strong> Futex contention</a></li></ol></li><li class="chapter-item expanded "><a href="../practices/style.html"><strong aria-hidden="true">16.</strong> Code Style</a></li><li class="chapter-item expanded "><a href="../practices/docs.html"><strong aria-hidden="true">17.</strong> Documentation</a></li><li class="chapter-item expanded "><a href="../practices/tracking_issues.html"><strong aria-hidden="true">18.</strong> Tracking Issues</a></li><li class="chapter-item expanded "><a href="../practices/security_vulnerabilities.html"><strong aria-hidden="true">19.</strong> Security Vulnerabilities</a></li><li class="chapter-item expanded "><a href="../practices/fast_builds.html"><strong aria-hidden="true">20.</strong> Fast Builds</a></li><li class="chapter-item expanded "><a href="../practices/testing/index.html"><strong aria-hidden="true">21.</strong> Testing</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../practices/testing/python_tests.html"><strong aria-hidden="true">21.1.</strong> Python Tests</a></li><li class="chapter-item expanded "><a href="../practices/testing/test_utils.html"><strong aria-hidden="true">21.2.</strong> Testing Utils</a></li><li class="chapter-item expanded "><a href="../practices/testing/coverage.html"><strong aria-hidden="true">21.3.</strong> Test Coverage</a></li></ol></li><li class="chapter-item expanded "><a href="../practices/protocol_upgrade.html"><strong aria-hidden="true">22.</strong> Protocol Upgrade</a></li><li class="chapter-item expanded affix "><li class="part-title">Advanced configuration</li><li class="chapter-item expanded "><a href="../advanced_configuration/networking.html"><strong aria-hidden="true">23.</strong> Networking</a></li><li class="chapter-item expanded affix "><li class="part-title">Custom test networks</li><li class="chapter-item expanded "><a href="../test_networks/mainnet_spoon.html"><strong aria-hidden="true">24.</strong> Starting a network from mainnet state</a></li><li class="chapter-item expanded affix "><li class="part-title">Misc</li><li class="chapter-item expanded "><a href="../misc/index.html"><strong aria-hidden="true">25.</strong> Overview</a></li><li class="chapter-item expanded "><a href="../misc/state_sync_dump.html"><strong aria-hidden="true">26.</strong> State Sync Dump</a></li><li class="chapter-item expanded "><a href="../misc/archival_data_recovery.html"><strong aria-hidden="true">27.</strong> Archival node - recovery of missing data</a></li></ol>
+            </div>
+            <div id="sidebar-resize-handle" class="sidebar-resize-handle"></div>
+        </nav>
+
+        <div id="page-wrapper" class="page-wrapper">
+
+            <div class="page">
+                <div id="menu-bar-hover-placeholder"></div>
+                <div id="menu-bar" class="menu-bar sticky bordered">
+                    <div class="left-buttons">
+                        <button id="sidebar-toggle" class="icon-button" type="button" title="Toggle Table of Contents" aria-label="Toggle Table of Contents" aria-controls="sidebar">
+                            <i class="fa fa-bars"></i>
+                        </button>
+                        <button id="theme-toggle" class="icon-button" type="button" title="Change theme" aria-label="Change theme" aria-haspopup="true" aria-expanded="false" aria-controls="theme-list">
+                            <i class="fa fa-paint-brush"></i>
+                        </button>
+                        <ul id="theme-list" class="theme-popup" aria-label="Themes" role="menu">
+                            <li role="none"><button role="menuitem" class="theme" id="light">Light (default)</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="rust">Rust</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="coal">Coal</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="navy">Navy</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="ayu">Ayu</button></li>
+                        </ul>
+                        <button id="search-toggle" class="icon-button" type="button" title="Search. (Shortkey: s)" aria-label="Toggle Searchbar" aria-expanded="false" aria-keyshortcuts="S" aria-controls="searchbar">
+                            <i class="fa fa-search"></i>
+                        </button>
+                    </div>
+
+                    <h1 class="menu-title">Guide to Nearcore Development</h1>
+
+                    <div class="right-buttons">
+                        <a href="../print.html" title="Print this book" aria-label="Print this book">
+                            <i id="print-button" class="fa fa-print"></i>
+                        </a>
+                        <a href="https://github.com/near/nearcore/tree/master/docs" title="Git repository" aria-label="Git repository">
+                            <i id="git-repository-button" class="fa fa-github"></i>
+                        </a>
+                        <a href="https://github.com/near/nearcore/edit/master/docs/./RuntimeSpec/Receipts.md" title="Suggest an edit" aria-label="Suggest an edit">
+                            <i id="git-edit-button" class="fa fa-edit"></i>
+                        </a>
+                    </div>
+                </div>
+
+                <div id="search-wrapper" class="hidden">
+                    <form id="searchbar-outer" class="searchbar-outer">
+                        <input type="search" id="searchbar" name="searchbar" placeholder="Search this book ..." aria-controls="searchresults-outer" aria-describedby="searchresults-header">
+                    </form>
+                    <div id="searchresults-outer" class="searchresults-outer hidden">
+                        <div id="searchresults-header" class="searchresults-header"></div>
+                        <ul id="searchresults">
+                        </ul>
+                    </div>
+                </div>
+                <!-- Apply ARIA attributes after the sidebar and the sidebar toggle button are added to the DOM -->
+                <script type="text/javascript">
+                    document.getElementById('sidebar-toggle').setAttribute('aria-expanded', sidebar === 'visible');
+                    document.getElementById('sidebar').setAttribute('aria-hidden', sidebar !== 'visible');
+                    Array.from(document.querySelectorAll('#sidebar a')).forEach(function(link) {
+                        link.setAttribute('tabIndex', sidebar === 'visible' ? 0 : -1);
+                    });
+                </script>
+
+                <div id="content" class="content">
+                    <main>
+                        <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.4/dist/katex.min.css">
+<h1 id="receipt"><a class="header" href="#receipt">Receipt</a></h1>
+<p>All cross-contract (we assume that each account lives in its own shard) communication in Near happens through Receipts.</p>
+<p>Receipts are stateful in a sense that they serve not only as messages between accounts but also can be stored in the account storage to await DataReceipts.</p>
+<p>Each receipt has a <a href="#predecessor_id"><code>predecessor_id</code></a> (who sent it) and <a href="#receiver_id"><code>receiver_id</code></a> the current account.</p>
+<p>Receipts are one of 2 types: action receipts or data receipts.</p>
+<p>Data Receipts are receipts that contains some data for some <code>ActionReceipt</code> with the same <code>receiver_id</code>.
+Data Receipts have 2 fields: the unique data identifier <code>data_id</code> and <code>data</code> the received result.
+<code>data</code> is an <code>Option</code> field and it indicates whether the result was a success or a failure. If it's <code>Some</code>, it means
+the remote execution was successful and it represents the result as a vector of bytes.</p>
+<p>Each <code>ActionReceipt</code> also contains fields related to data:</p>
+<ul>
+<li><a href="#input_data_ids"><code>input_data_ids</code></a> - a vector of input data with the <code>data_id</code>s required for the execution of this receipt.</li>
+<li><a href="#output_data_receivers"><code>output_data_receivers</code></a> - a vector of output data receivers. It indicates where to send outgoing data.
+Each <code>DataReceiver</code> consists of <code>data_id</code> and <code>receiver_id</code> for routing.</li>
+</ul>
+<p>Before any action receipt is executed, all input data dependencies need to be satisfied.
+Which means all corresponding data receipts have to be received.
+If any of the data dependencies are missing, the action receipt is postponed until all missing data dependencies arrive.</p>
+<p>Because chain and runtime guarantees that no receipts are missing, we can rely that every action receipt will be executed eventually (<a href="#receipt-matching">Receipt Matching explanation</a>).</p>
+<p>Each <code>Receipt</code> has the following fields:</p>
+<h4 id="predecessor_id"><a class="header" href="#predecessor_id">predecessor_id</a></h4>
+<ul>
+<li><strong><code>type</code></strong>: <code>AccountId</code></li>
+</ul>
+<p>The account_id which issued a receipt.
+In case of a gas or deposit refund, the account ID is <code>system</code>.</p>
+<h4 id="receiver_id"><a class="header" href="#receiver_id">receiver_id</a></h4>
+<ul>
+<li><strong><code>type</code></strong>: <code>AccountId</code></li>
+</ul>
+<p>The destination account_id.</p>
+<h4 id="receipt_id"><a class="header" href="#receipt_id">receipt_id</a></h4>
+<ul>
+<li><strong><code>type</code></strong>: <code>CryptoHash</code></li>
+</ul>
+<p>An unique id for the receipt.</p>
+<h4 id="receipt-1"><a class="header" href="#receipt-1">receipt</a></h4>
+<ul>
+<li><strong><code>type</code></strong>: <a href="#actionreceipt">ActionReceipt</a> | <a href="#datareceipt">DataReceipt</a></li>
+</ul>
+<p>There are 2 types of Receipt: <a href="#actionreceipt">ActionReceipt</a> and <a href="#datareceipt">DataReceipt</a>. An <code>ActionReceipt</code> is a request to apply <a href="Actions.html">Actions</a>, while a <code>DataReceipt</code> is a result of the application of these actions.</p>
+<h2 id="actionreceipt"><a class="header" href="#actionreceipt">ActionReceipt</a></h2>
+<p><code>ActionReceipt</code> represents a request to apply actions on the <code>receiver_id</code> side. It could be derived as a result of a <code>Transaction</code> execution or another <code>ActionReceipt</code> processing. <code>ActionReceipt</code> consists the following fields:</p>
+<h4 id="signer_id"><a class="header" href="#signer_id">signer_id</a></h4>
+<ul>
+<li><strong><code>type</code></strong>: <code>AccountId</code></li>
+</ul>
+<p>An account_id which signed the original <a href="Transactions.html">transaction</a>.
+In case of a deposit refund, the account ID is <code>system</code>.</p>
+<h4 id="signer_public_key"><a class="header" href="#signer_public_key">signer_public_key</a></h4>
+<ul>
+<li><strong><code>type</code></strong>: <code>PublicKey</code></li>
+</ul>
+<p>The public key of an <a href="../DataStructures/AccessKey.html">AccessKey</a> which was used to sign the original transaction.
+In case of a deposit refund, the public key is empty (all bytes are 0).</p>
+<h4 id="gas_price"><a class="header" href="#gas_price">gas_price</a></h4>
+<ul>
+<li><strong><code>type</code></strong>: <code>u128</code></li>
+</ul>
+<p>Gas price which was set in a block where the original <a href="Transactions.html">transaction</a> has been applied.</p>
+<h4 id="output_data_receivers"><a class="header" href="#output_data_receivers">output_data_receivers</a></h4>
+<ul>
+<li><strong><code>type</code></strong>: <code>[DataReceiver{ data_id: CryptoHash, receiver_id: AccountId }]</code></li>
+</ul>
+<p>If smart contract finishes its execution with some value (not Promise), runtime creates a [<code>DataReceipt</code>]s for each of the <code>output_data_receivers</code>.</p>
+<h4 id="input_data_ids"><a class="header" href="#input_data_ids">input_data_ids</a></h4>
+<ul>
+<li><strong><code>type</code></strong>: <code>[CryptoHash]_</code></li>
+</ul>
+<p><code>input_data_ids</code> are the receipt data dependencies. <code>input_data_ids</code> correspond to <code>DataReceipt.data_id</code>.</p>
+<h4 id="actions"><a class="header" href="#actions">actions</a></h4>
+<ul>
+<li><strong><code>type</code></strong>: <a href="Actions.html#functioncallaction"><code>FunctionCall</code></a> | <a href="Actions.html#transferaction"><code>TransferAction</code></a> | <a href="Actions.html#stakeaction"><code>StakeAction</code></a> | <a href="Actions.html#addkeyaction"><code>AddKeyAction</code></a> | <a href="Actions.html#deletekeyaction"><code>DeleteKeyAction</code></a> | <a href="Actions.html#createaccountaction"><code>CreateAccountAction</code></a> | <a href="Actions.html#deleteaccountaction"><code>DeleteAccountAction</code></a></li>
+</ul>
+<h2 id="datareceipt"><a class="header" href="#datareceipt">DataReceipt</a></h2>
+<p><code>DataReceipt</code> represents a final result of some contract execution.</p>
+<h4 id="data_id"><a class="header" href="#data_id">data_id</a></h4>
+<ul>
+<li><strong><code>type</code></strong>: <code>CryptoHash</code></li>
+</ul>
+<p>A unique <code>DataReceipt</code> identifier.</p>
+<h4 id="data"><a class="header" href="#data">data</a></h4>
+<ul>
+<li><strong><code>type</code></strong>: <code>Option([u8])</code></li>
+</ul>
+<p>Associated data in bytes. <code>None</code> indicates an error during execution.</p>
+<h2 id="creating-receipt"><a class="header" href="#creating-receipt">Creating Receipt</a></h2>
+<p>Receipts can be generated during the execution of a <a href="/RuntimeSpec/Transactions#signed-transaction">SignedTransaction</a> (see <a href="./Scenarios/FinancialTransaction.html">example</a>) or during application of some <code>ActionReceipt</code> which contains a <a href="#actions"><code>FunctionCall</code></a> action. The result of the <code>FunctionCall</code> could be either another <code>ActionReceipt</code> or a <code>DataReceipt</code> (returned data).</p>
+<h2 id="receipt-matching"><a class="header" href="#receipt-matching">Receipt Matching</a></h2>
+<p>Runtime doesn't require that Receipts come in a particular order. Each Receipt is processed individually. The goal of the <code>Receipt Matching</code> process is to match all <a href="#actionreceipt"><code>ActionReceipt</code>s</a> to the corresponding <a href="#datareceipt"><code>DataReceipt</code>s</a>.</p>
+<h2 id="processing-actionreceipt"><a class="header" href="#processing-actionreceipt">Processing ActionReceipt</a></h2>
+<p>For each incoming <a href="#actionreceipt"><code>ActionReceipt</code></a> runtime checks whether we have all the <a href="#datareceipt"><code>DataReceipt</code>s</a> (defined as <a href="#input_data_ids"><code>ActionsReceipt.input_data_ids</code></a>) required for execution. If all the required <a href="#datareceipt"><code>DataReceipt</code>s</a> are already in the <a href="#received-datareceipt">storage</a>, runtime can apply this <code>ActionReceipt</code> immediately. Otherwise we save this receipt as a <a href="#postponed-actionreceipt">Postponed ActionReceipt</a>. Also we save <a href="#pending-datareceipt-count">Pending DataReceipts Count</a> and <a href="#pending-datareceipt-for-postponed-actionreceipt">a link from pending <code>DataReceipt</code> to the <code>Postponed ActionReceipt</code></a>. Now runtime will wait for all the missing <code>DataReceipt</code>s to apply the <code>Postponed ActionReceipt</code>.</p>
+<h4 id="postponed-actionreceipt"><a class="header" href="#postponed-actionreceipt">Postponed ActionReceipt</a></h4>
+<p>A Receipt which runtime stores until all the designated <a href="#datareceipt"><code>DataReceipt</code>s</a> arrive.</p>
+<ul>
+<li><strong><code>key</code></strong> = <code>account_id</code>,<code>receipt_id</code></li>
+<li><strong><code>value</code></strong> = <code>[u8]</code></li>
+</ul>
+<p><em>Where <code>account_id</code> is <a href="#receiver_id"><code>Receipt.receiver_id</code></a>, <code>receipt_id</code> is <a href="#receipt_id"><code>Receipt.receipt_id</code></a> and value is a serialized <a href="#receipt-1"><code>Receipt</code></a> (which type must be <a href="#actionreceipt">ActionReceipt</a>).</em></p>
+<h4 id="pending-datareceipt-count"><a class="header" href="#pending-datareceipt-count">Pending DataReceipt Count</a></h4>
+<p>A counter which counts pending <a href="#datareceipt"><code>DataReceipt</code>s</a> for a <a href="#postponed-actionreceipt">Postponed Receipt</a> initially set to the length of missing <a href="#input_data_ids"><code>input_data_ids</code></a> of the incoming <code>ActionReceipt</code>. It's decrementing with every new received <a href="#datareceipt"><code>DataReceipt</code></a>:</p>
+<ul>
+<li><strong><code>key</code></strong> = <code>account_id</code>,<code>receipt_id</code></li>
+<li><strong><code>value</code></strong> = <code>u32</code></li>
+</ul>
+<p><em>Where <code>account_id</code> is AccountId, <code>receipt_id</code> is CryptoHash and value is an integer.</em></p>
+<h4 id="pending-datareceipt-for-postponed-actionreceipt"><a class="header" href="#pending-datareceipt-for-postponed-actionreceipt">Pending DataReceipt for Postponed ActionReceipt</a></h4>
+<p>We index each pending <code>DataReceipt</code> so when a new <a href="#datareceipt"><code>DataReceipt</code></a> arrives we connect it to the <a href="#postponed-actionreceipt">Postponed Receipt</a> it belongs to.</p>
+<ul>
+<li><strong><code>key</code></strong> = <code>account_id</code>,<code>data_id</code></li>
+<li><strong><code>value</code></strong> = <code>receipt_id</code></li>
+</ul>
+<h2 id="processing-datareceipt"><a class="header" href="#processing-datareceipt">Processing DataReceipt</a></h2>
+<h4 id="received-datareceipt"><a class="header" href="#received-datareceipt">Received DataReceipt</a></h4>
+<p>First of all, runtime saves the incoming <code>DataReceipt</code> to the storage as:</p>
+<ul>
+<li><strong><code>key</code></strong> = <code>account_id</code>,<code>data_id</code></li>
+<li><strong><code>value</code></strong> = <code>[u8]</code></li>
+</ul>
+<p><em>Where <code>account_id</code> is <a href="#receiver_id"><code>Receipt.receiver_id</code></a>, <code>data_id</code> is <a href="#data_id"><code>DataReceipt.data_id</code></a> and value is a <a href="#data"><code>DataReceipt.data</code></a> (which is typically a serialized result of the call to a particular contract).</em></p>
+<p>Next, runtime checks if there are any <a href="#postponed-actionreceipt"><code>Postponed ActionReceipt</code></a> waiting for this <code>DataReceipt</code> by querying <a href="#pending-datareceipt-for-postponed-actionreceipt"><code>Pending DataReceipt</code> to the Postponed Receipt</a>. If there is no postponed <code>receipt_id</code> yet, we do nothing else. If there is a postponed <code>receipt_id</code>, we do the following:</p>
+<ul>
+<li>decrement <a href="#pending-datareceipt-count"><code>Pending Data Count</code></a> for the postponed <code>receipt_id</code></li>
+<li>remove found <a href="#pending-datareceipt-for-postponed-actionreceipt"><code>Pending DataReceipt</code> to the <code>Postponed ActionReceipt</code></a></li>
+</ul>
+<p>If <a href="#pending-datareceipt-count"><code>Pending DataReceipt Count</code></a> is now 0 that means all the <a href="#input_data_ids"><code>Receipt.input_data_ids</code></a> are in storage and runtime can safely apply the <a href="#postponed-actionreceipt">Postponed Receipt</a> and remove it from the store.</p>
+<h2 id="case-1-call-to-multiple-contracts-and-await-responses"><a class="header" href="#case-1-call-to-multiple-contracts-and-await-responses">Case 1: Call to multiple contracts and await responses</a></h2>
+<p>Suppose runtime got the following <code>ActionReceipt</code>:</p>
+<pre><code class="language-python"># Non-relevant fields are omitted.
+Receipt{
+    receiver_id: &quot;alice&quot;,
+    receipt_id: &quot;693406&quot;
+    receipt: ActionReceipt {
+        input_data_ids: []
+    }
+}
+</code></pre>
+<p>If execution return Result::Value</p>
+<p>Suppose runtime got the following <code>ActionReceipt</code> (we use a python-like pseudo code):</p>
+<pre><code class="language-python"># Non-relevant fields are omitted.
+Receipt{
+    receiver_id: &quot;alice&quot;,
+    receipt_id: &quot;5e73d4&quot;
+    receipt: ActionReceipt {
+        input_data_ids: [&quot;e5fa44&quot;, &quot;7448d8&quot;]
+    }
+}
+</code></pre>
+<p>We can't apply this receipt right away: there are missing DataReceipt'a with IDs: [&quot;e5fa44&quot;, &quot;7448d8&quot;]. Runtime does the following:</p>
+<pre><code class="language-python">postponed_receipts[&quot;alice,5e73d4&quot;] = borsh_serialize(
+    Receipt{
+        receiver_id: &quot;alice&quot;,
+        receipt_id: &quot;5e73d4&quot;
+        receipt: ActionReceipt {
+            input_data_ids: [&quot;e5fa44&quot;, &quot;7448d8&quot;]
+        }
+    }
+)
+pending_data_receipt_store[&quot;alice,e5fa44&quot;] = &quot;5e73d4&quot;
+pending_data_receipt_store[&quot;alice,7448d8&quot;] = &quot;5e73d4&quot;
+pending_data_receipt_count = 2
+</code></pre>
+<p><em>Note: the subsequent Receipts could arrived in the current block or next, that's why we save <a href="#postponed-actionreceipt">Postponed ActionReceipt</a> in the storage</em></p>
+<p>Then the first pending <code>Pending DataReceipt</code> arrives:</p>
+<pre><code class="language-python"># Non-relevant fields are omitted.
+Receipt {
+    receiver_id: &quot;alice&quot;,
+    receipt: DataReceipt {
+        data_id: &quot;e5fa44&quot;,
+        data: &quot;some data for alice&quot;,
+    }
+}
+</code></pre>
+<pre><code class="language-python">data_receipts[&quot;alice,e5fa44&quot;] = borsh_serialize(Receipt{
+    receiver_id: &quot;alice&quot;,
+    receipt: DataReceipt {
+        data_id: &quot;e5fa44&quot;,
+        data: &quot;some data for alice&quot;,
+    }
+};
+pending_data_receipt_count[&quot;alice,5e73d4&quot;] = 1`
+del pending_data_receipt_store[&quot;alice,e5fa44&quot;]
+</code></pre>
+<p>And finally the last <code>Pending DataReceipt</code> arrives:</p>
+<pre><code class="language-python"># Non-relevant fields are omitted.
+Receipt{
+    receiver_id: &quot;alice&quot;,
+    receipt: DataReceipt {
+        data_id: &quot;7448d8&quot;,
+        data: &quot;some more data for alice&quot;,
+    }
+}
+</code></pre>
+<pre><code class="language-python">data_receipts[&quot;alice,7448d8&quot;] = borsh_serialize(Receipt{
+    receiver_id: &quot;alice&quot;,
+    receipt: DataReceipt {
+        data_id: &quot;7448d8&quot;,
+        data: &quot;some more data for alice&quot;,
+    }
+};
+postponed_receipt_id = pending_data_receipt_store[&quot;alice,5e73d4&quot;]
+postponed_receipt = postponed_receipts[postponed_receipt_id]
+del postponed_receipts[postponed_receipt_id]
+del pending_data_receipt_count[&quot;alice,5e73d4&quot;]
+del pending_data_receipt_store[&quot;alice,7448d8&quot;]
+apply_receipt(postponed_receipt)
+</code></pre>
+<h2 id="receipt-validation-error"><a class="header" href="#receipt-validation-error">Receipt Validation Error</a></h2>
+<p>Some postprocessing validation is done after an action receipt is applied. The validation includes:</p>
+<ul>
+<li>
+<p>Whether the generated receipts are valid. A generated receipt can be invalid, if, for example, a function call
+generates a receipt to call another function on some other contract, but the contract name is invalid. Here there are
+mainly two types of errors:</p>
+</li>
+<li>
+<p>account id is invalid. If the receiver id of the receipt is invalid, a</p>
+</li>
+</ul>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>/// The `receiver_id` of a Receipt is not valid.
+InvalidReceiverId { account_id: AccountId },
+<span class="boring">}
+</span></code></pre></pre>
+<p>error is returned.</p>
+<ul>
+<li>some action is invalid. The errors returned here are the same as the validation errors mentioned in <a href="Actions.html">actions</a>.</li>
+<li>Whether the account still has enough balance to pay for storage. If, for example, the execution of one function call
+action leads to some receipts that require transfer to be generated as a result, the account may no longer have enough
+balance after the transferred amount is deducted. In this case, a</li>
+</ul>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>/// ActionReceipt can't be completed, because the remaining balance will not be enough to cover storage.
+LackBalanceForState {
+    /// An account which needs balance
+    account_id: AccountId,
+    /// Balance required to complete an action.
+    amount: Balance,
+},
+<span class="boring">}
+</span></code></pre></pre>
+
+                    </main>
+
+                    <nav class="nav-wrapper" aria-label="Page navigation">
+                        <!-- Mobile navigation buttons -->
+                            <a rel="prev" href="../RuntimeSpec/Preparation.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                                <i class="fa fa-angle-left"></i>
+                            </a>
+                            <a rel="next" href="../RuntimeSpec/Refunds.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                                <i class="fa fa-angle-right"></i>
+                            </a>
+                        <div style="clear: both"></div>
+                    </nav>
+                </div>
+            </div>
+
+            <nav class="nav-wide-wrapper" aria-label="Page navigation">
+                    <a rel="prev" href="../RuntimeSpec/Preparation.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                        <i class="fa fa-angle-left"></i>
+                    </a>
+                    <a rel="next" href="../RuntimeSpec/Refunds.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                        <i class="fa fa-angle-right"></i>
+                    </a>
+            </nav>
+
+        </div>
+
+        <script type="text/javascript">
+            window.playground_copyable = true;
+        </script>
+        <script src="../elasticlunr.min.js" type="text/javascript" charset="utf-8"></script>
+        <script src="../mark.min.js" type="text/javascript" charset="utf-8"></script>
+        <script src="../searcher.js" type="text/javascript" charset="utf-8"></script>
+        <script src="../clipboard.min.js" type="text/javascript" charset="utf-8"></script>
+        <script src="../highlight.js" type="text/javascript" charset="utf-8"></script>
+        <script src="../book.js" type="text/javascript" charset="utf-8"></script>
+
+        <!-- Custom JS scripts -->
+    </body>
+</html>
