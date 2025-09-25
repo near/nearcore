@@ -602,12 +602,15 @@ pub fn validate_chunk_state_witness_impl(
             let cell_arc = {
                 let mut shard_cache = main_state_transition_cache.lock();
                 let cache = shard_cache.entry(witness_chunk_shard_uid).or_insert_with(|| {
+                    tracing::debug!(target: "chunk_validation", "Creating cache for shard {:?}", witness_chunk_shard_uid);
                     LruCache::new(NonZeroUsize::new(NUM_WITNESS_RESULT_CACHE_ENTRIES).unwrap())
                 });
                 if let Some(existing) = cache.get(&key) {
+                    tracing::debug!(target: "chunk_validation", "Cache hit");
                     existing.clone()
                 } else {
                     let cell = Arc::new(OnceLock::new());
+                    tracing::debug!(target: "chunk_validation", "Creating cell");
                     cache.put(key, cell.clone());
                     cell
                 }
@@ -618,6 +621,7 @@ pub fn validate_chunk_state_witness_impl(
             let start_wait = Instant::now();
             let we_initialized = Cell::new(false);
             let init_result = cell_arc.get_or_init(|| {
+                tracing::debug!(target: "chunk_validation", "Initializing cell");
                 we_initialized.set(true);
                 // if is_optimistic {
                 //     std::thread::sleep(std::time::Duration::from_millis(5));
@@ -638,6 +642,7 @@ pub fn validate_chunk_state_witness_impl(
                         height_created, shard_id, prev_hash, key
                     );
                 }
+                tracing::debug!(target: "chunk_validation", "Initialized cell");
                 Ok(ChunkStateWitnessValidationResult { chunk_extra, outgoing_receipts })
             });
             let waited = start_wait.elapsed();
@@ -649,11 +654,13 @@ pub fn validate_chunk_state_witness_impl(
                     "PESSIMISTIC WAITED on OnceLock {} {:?} {:?} {:?}, waited {:?}",
                     height_created, shard_id, prev_hash, key, waited
                 );
+                tracing::debug!(target: "chunk_validation", "Waited on OnceLock");
             }
             let res = match init_result {
                 Ok(val) => val,
                 Err(err) => return Err(Error::Other(err.to_string())),
             };
+            tracing::debug!(target: "chunk_validation", "Got result");
             (res.chunk_extra.clone(), res.outgoing_receipts.clone())
         }
     };
