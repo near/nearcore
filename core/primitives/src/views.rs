@@ -1270,6 +1270,26 @@ impl ChunkView {
     }
 }
 
+#[derive(
+    BorshSerialize,
+    BorshDeserialize,
+    Clone,
+    Debug,
+    PartialEq,
+    Eq,
+    serde::Serialize,
+    serde::Deserialize,
+)]
+#[serde(untagged, rename_all = "snake_case")]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[borsh(use_discriminant = true)]
+#[repr(u8)]
+pub enum GlobalContractIdentifierView {
+    #[serde(rename = "hash")]
+    CodeHash(CryptoHash) = 0,
+    AccountId(AccountId) = 1,
+}
+
 #[serde_as]
 #[derive(
     BorshSerialize,
@@ -1344,21 +1364,13 @@ pub enum ActionView {
         account_id: AccountId,
     } = 12,
     DeterministicStateInit {
-        code_hash: CryptoHash,
+        code: GlobalContractIdentifierView,
         #[serde_as(as = "BTreeMap<Base64, Base64>")]
         #[cfg_attr(feature = "schemars", schemars(with = "BTreeMap<String, String>"))]
         data: BTreeMap<Vec<u8>, Vec<u8>>,
         deposit: Balance,
         version: u32,
     } = 13,
-    DeterministicStateInitByAccountId {
-        account_id: AccountId,
-        #[serde_as(as = "BTreeMap<Base64, Base64>")]
-        #[cfg_attr(feature = "schemars", schemars(with = "BTreeMap<String, String>"))]
-        data: BTreeMap<Vec<u8>, Vec<u8>>,
-        deposit: Balance,
-        version: u32,
-    } = 14,
 }
 
 impl From<Action> for ActionView {
@@ -1414,15 +1426,15 @@ impl From<Action> for ActionView {
                 match code {
                     GlobalContractIdentifier::CodeHash(code_hash) => {
                         ActionView::DeterministicStateInit {
-                            code_hash,
+                            code: GlobalContractIdentifierView::CodeHash(code_hash),
                             data,
                             deposit: action.deposit,
                             version,
                         }
                     }
                     GlobalContractIdentifier::AccountId(account_id) => {
-                        ActionView::DeterministicStateInitByAccountId {
-                            account_id,
+                        ActionView::DeterministicStateInit {
+                            code: GlobalContractIdentifierView::AccountId(account_id),
                             data,
                             deposit: action.deposit,
                             version,
@@ -1489,43 +1501,26 @@ impl TryFrom<ActionView> for Action {
                     contract_identifier: GlobalContractIdentifier::AccountId(account_id),
                 }))
             }
-            ActionView::DeterministicStateInit { code_hash, data, deposit, version } => {
+            ActionView::DeterministicStateInit { code, data, deposit, version } => {
                 if version != 1 {
                     return Err(
                         format!("Unsupported deterministic account id version {version}").into()
                     );
                 }
+                let code = match code {
+                    GlobalContractIdentifierView::CodeHash(code_hash) => {
+                        GlobalContractIdentifier::CodeHash(code_hash)
+                    }
+                    GlobalContractIdentifierView::AccountId(account_id) => {
+                        GlobalContractIdentifier::AccountId(account_id)
+                    }
+                };
                 Action::DeterministicStateInit(Box::new(DeterministicStateInitAction {
                     state_init: DeterministicAccountStateInit::V1(
-                        DeterministicAccountStateInitV1 {
-                            code: GlobalContractIdentifier::CodeHash(code_hash),
-                            data,
-                        },
+                        DeterministicAccountStateInitV1 { code, data },
                     ),
                     deposit,
                 }))
-            }
-            ActionView::DeterministicStateInitByAccountId {
-                account_id,
-                data,
-                deposit,
-                version,
-            } => {
-                if version == 1 {
-                    Action::DeterministicStateInit(Box::new(DeterministicStateInitAction {
-                        state_init: DeterministicAccountStateInit::V1(
-                            DeterministicAccountStateInitV1 {
-                                code: GlobalContractIdentifier::AccountId(account_id),
-                                data,
-                            },
-                        ),
-                        deposit,
-                    }))
-                } else {
-                    return Err(
-                        format!("Unsupported deterministic account id version {version}").into()
-                    );
-                }
             }
         })
     }
