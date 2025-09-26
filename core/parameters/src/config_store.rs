@@ -3,7 +3,7 @@ use crate::config::{
 };
 use crate::parameter_table::{ParameterTable, ParameterTableDiff};
 use crate::vm;
-use near_primitives_core::types::ProtocolVersion;
+use near_primitives_core::types::{Balance, ProtocolVersion};
 use near_primitives_core::version::{PROTOCOL_VERSION, ProtocolFeature};
 use std::collections::BTreeMap;
 use std::ops::Bound;
@@ -59,6 +59,7 @@ static CONFIG_DIFFS: &[(ProtocolVersion, &str)] = &[
     (79, include_config!("79.yaml")),
     (81, include_config!("81.yaml")),
     (129, include_config!("129.yaml")),
+    (150, include_config!("150.yaml")),
 ];
 
 /// Testnet parameters for versions <= 29, which (incorrectly) differed from mainnet parameters
@@ -106,7 +107,7 @@ impl RuntimeConfigStore {
                 )
             });
             let fees = Arc::make_mut(&mut initial_config.fees);
-            fees.storage_usage_config.storage_amount_per_byte = 0;
+            fees.storage_usage_config.storage_amount_per_byte = Balance::ZERO;
             store.insert(0, Arc::new(initial_config));
         }
 
@@ -142,14 +143,15 @@ impl RuntimeConfigStore {
                     )
                 });
                 let fees = Arc::make_mut(&mut runtime_config.fees);
-                fees.storage_usage_config.storage_amount_per_byte = 0;
+                fees.storage_usage_config.storage_amount_per_byte = Balance::ZERO;
                 store.insert(*protocol_version, Arc::new(runtime_config));
             }
         }
 
         if let Some(runtime_config) = genesis_runtime_config {
             let mut fees = crate::RuntimeFeesConfig::clone(&runtime_config.fees);
-            fees.storage_usage_config.storage_amount_per_byte = 10u128.pow(19);
+            fees.storage_usage_config.storage_amount_per_byte =
+                Balance::from_yoctonear(10u128.pow(19));
             store.insert(
                 42,
                 Arc::new(RuntimeConfig {
@@ -426,7 +428,7 @@ mod tests {
     fn test_calimero_storage_costs_zero() {
         let store = RuntimeConfigStore::new(None);
         for (_, config) in &store.store {
-            assert_eq!(config.storage_amount_per_byte(), 0u128);
+            assert!(config.storage_amount_per_byte().is_zero());
         }
     }
 

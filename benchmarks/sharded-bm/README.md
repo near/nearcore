@@ -191,7 +191,7 @@ gcloud compute instances list --project=nearone-mocknet --filter <UNIQUE ID>
 
 <!-- cspell:words BENCHNET -->
 ```sh
-export CASE=cases/forknet/realistic_20_cp_1_rpc_20_shard/
+export CASE=cases/forknet/20-shards/
 export FORKNET_NAME=<unique name of forknet> 
 export FORKNET_START_HEIGHT=<forknet start height>
 
@@ -260,7 +260,7 @@ To benchmark a custom `neard` binary:
 
 Follow these steps to determine the maximum TPS (transactions per second) the network can handle, to build a report similar to [this example](https://github.com/near/nearcore/issues/13130#issuecomment-2797211286):
 
-1. **Setup:** Initialize the nodes and network for benchmarking using the realistic scenario: `CASE=cases/forknet/realistic_20_cp_1_rpc_20_shard/`.
+1. **Setup:** Initialize the nodes and network for benchmarking using the realistic scenario: `CASE=cases/forknet/20-shards/`.
 2. **Start Low:** In `params.json`, set `tx_generator.tps` to about 90% of the previously measured max TPS, or to a conservative low value if unknown.
 3. **Iterative Testing:** Repeat the following steps:
     - Run `./bench.sh native-transfers`.

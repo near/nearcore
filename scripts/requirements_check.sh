@@ -5,7 +5,7 @@ set -e
 npm --version
 # if that's the issue use
 # yarn config set ignore-engines true
-npm current node -v
+node -v
 yarn --version
 python3 --version
 cargo --version

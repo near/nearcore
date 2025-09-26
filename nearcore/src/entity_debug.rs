@@ -264,6 +264,35 @@ impl EntityDebugHandlerImpl {
                     .ok_or_else(|| anyhow!("Outcome not found"))?;
                 Ok(serialize_entity(&ExecutionOutcomeView::from(outcome.outcome)))
             }
+            EntityQuery::OutcomeIdsByBlockHash { block_hash } => {
+                // Get all shard IDs for the epoch of this block
+                let block = store
+                    .caching_get_ser::<Block>(DBCol::Block, &borsh::to_vec(&block_hash).unwrap())?
+                    .ok_or_else(|| anyhow!("Block not found"))?;
+                let epoch_id = block.header().epoch_id();
+                let shard_layout = self.epoch_manager.get_shard_layout(&epoch_id)?;
+
+                let mut all_outcome_ids = Vec::new();
+                for shard_id in shard_layout.shard_ids() {
+                    let outcome_ids = store
+                        .get_ser::<Vec<CryptoHash>>(
+                            DBCol::OutcomeIds,
+                            &get_block_shard_id(&block_hash, shard_id),
+                        )?
+                        .unwrap_or_default();
+                    all_outcome_ids.extend(outcome_ids);
+                }
+                Ok(serialize_entity(&all_outcome_ids))
+            }
+            EntityQuery::OutcomeIdsByBlockHashAndShardId { block_hash, shard_id } => {
+                let outcome_ids = store
+                    .get_ser::<Vec<CryptoHash>>(
+                        DBCol::OutcomeIds,
+                        &get_block_shard_id(&block_hash, shard_id),
+                    )?
+                    .unwrap_or_default();
+                Ok(serialize_entity(&outcome_ids))
+            }
             EntityQuery::RawTrieNodeByHash { trie_node_hash, shard_uid } => {
                 let node = store
                     .trie_store()

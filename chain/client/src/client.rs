@@ -38,8 +38,8 @@ use near_chain::state_snapshot_actor::SnapshotCallbacks;
 use near_chain::test_utils::format_hash;
 use near_chain::types::{ChainConfig, LatestKnown, RuntimeAdapter};
 use near_chain::{
-    ApplyChunksSpawner, BlockProcessingArtifact, BlockStatus, Chain, ChainGenesis,
-    ChainStoreAccess, ChunksReadiness, Doomslug, DoomslugThresholdMode, Provenance,
+    ApplyChunksIterationMode, ApplyChunksSpawner, BlockProcessingArtifact, BlockStatus, Chain,
+    ChainGenesis, ChainStoreAccess, ChunksReadiness, Doomslug, DoomslugThresholdMode, Provenance,
 };
 use near_chain_configs::{ClientConfig, MutableValidatorSigner, UpdatableClientConfig};
 use near_chunks::adapter::ShardsManagerRequestFromClient;
@@ -260,6 +260,7 @@ impl Client {
         rng_seed: RngSeed,
         snapshot_callbacks: Option<SnapshotCallbacks>,
         multi_spawner: AsyncComputationMultiSpawner,
+        apply_chunks_iteration_mode: ApplyChunksIterationMode,
         partial_witness_adapter: PartialWitnessSenderForClient,
         resharding_sender: ReshardingSender,
         state_sync_future_spawner: Arc<dyn FutureSpawner>,
@@ -291,6 +292,7 @@ impl Client {
             chain_config,
             snapshot_callbacks,
             multi_spawner.apply_chunks,
+            apply_chunks_iteration_mode,
             validator_signer.clone(),
             resharding_sender.clone(),
             spice_core_processor.clone(),
@@ -1352,8 +1354,17 @@ impl Client {
         self.block_production_info
             .record_chunk_collected(partial_chunk.height_created(), shard_index);
 
+        // Filter the parts if we don't need full storage for untracked shards
+        let filtered_partial_chunk = if !self.config.save_untracked_partial_chunks_parts
+            && !self.shard_tracker.cares_about_shard_this_or_next_epoch(&parent_hash, shard_id)
+        {
+            partial_chunk.clone_without_parts()
+        } else {
+            partial_chunk
+        };
+
         // TODO(#10569) We would like a proper error handling here instead of `expect`.
-        persist_chunk(Arc::new(partial_chunk), shard_chunk, self.chain.mut_chain_store())
+        persist_chunk(Arc::new(filtered_partial_chunk), shard_chunk, self.chain.mut_chain_store())
             .expect("Could not persist chunk");
         // We're marking chunk as accepted.
         self.chain.blocks_with_missing_chunks.accept_chunk(&chunk_header.chunk_hash());
@@ -1448,17 +1459,14 @@ impl Client {
         Duration::nanoseconds(ns)
     }
 
-    pub fn send_block_approval(
+    fn send_block_approval_to_account(
         &mut self,
-        parent_hash: &CryptoHash,
         approval: Approval,
-    ) -> Result<(), Error> {
-        let next_epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(parent_hash)?;
-        let next_block_producer =
-            self.epoch_manager.get_block_producer(&next_epoch_id, approval.target_height)?;
-        let signer = self.validator_signer.get();
-        let next_block_producer_id = signer.as_ref().map(|x| x.validator_id());
-        if Some(&next_block_producer) == next_block_producer_id {
+        next_block_producer: AccountId,
+    ) {
+        let validator_signer = self.validator_signer.get();
+        let my_account_id = validator_signer.as_ref().map(|x| x.validator_id());
+        if Some(&next_block_producer) == my_account_id {
             self.collect_block_approval(&approval, ApprovalType::SelfApproval);
         } else {
             debug!(target: "client",
@@ -1473,6 +1481,42 @@ impl Client {
                 NetworkRequests::Approval { approval_message },
             ));
         }
+    }
+
+    pub fn send_block_approval(
+        &mut self,
+        parent_hash: &CryptoHash,
+        approval: Approval,
+    ) -> Result<(), Error> {
+        let next_epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(parent_hash)?;
+
+        // If epoch transition is not final there may be a fork which is still in the previous epoch
+        // as of the approval's target height.
+        let final_head_epoch_id = self.chain.final_head()?.epoch_id;
+        if final_head_epoch_id != next_epoch_id {
+            match approval.inner {
+                ApprovalInner::Endorsement(_) => {
+                    // Endorsement is an approval specifically on the parent hash block and has no
+                    // relevance for forks which do not contain it.
+                }
+                ApprovalInner::Skip(_) => {
+                    // Skip approval isn't built on top of a particular block, but rather specifies
+                    // only start and target heights. It must be sent to the other possible producer
+                    // for the target height to ensure liveness.
+                    let prev_epoch_next_block_producer = self
+                        .epoch_manager
+                        .get_block_producer(&final_head_epoch_id, approval.target_height)?;
+                    self.send_block_approval_to_account(
+                        approval.clone(),
+                        prev_epoch_next_block_producer,
+                    );
+                }
+            };
+        }
+
+        let next_block_producer =
+            self.epoch_manager.get_block_producer(&next_epoch_id, approval.target_height)?;
+        self.send_block_approval_to_account(approval, next_block_producer);
 
         Ok(())
     }
@@ -2153,9 +2197,6 @@ impl Client {
 
             debug!(target: "catchup", ?sync_hash, progress_per_shard = ?status.sync_status, "Catchup");
 
-            // Initialize the new shard sync to contain the shards to split at
-            // first. It will get updated with the shard sync download status
-            // for other shards later.
             match state_sync.run(sync_hash, status, state_sync_info.shards())? {
                 StateSyncResult::InProgress => {}
                 StateSyncResult::Completed => {

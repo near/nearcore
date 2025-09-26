@@ -167,7 +167,6 @@ impl VMKindExt for VMKind {
             Self::Wasmer2 => false,
             Self::Wasmtime => cfg!(feature = "wasmtime_vm"),
             Self::NearVm => cfg!(all(feature = "near_vm", target_arch = "x86_64")),
-            Self::NearVm2 => cfg!(all(feature = "near_vm", target_arch = "x86_64")),
         }
     }
     fn runtime(&self, config: std::sync::Arc<Config>) -> Option<Box<dyn VM>> {
@@ -176,8 +175,6 @@ impl VMKindExt for VMKind {
             Self::Wasmtime => Some(Box::new(crate::wasmtime_runner::WasmtimeVM::new(config))),
             #[cfg(all(feature = "near_vm", target_arch = "x86_64"))]
             Self::NearVm => Some(Box::new(crate::near_vm_runner::NearVM::new(config))),
-            #[cfg(all(feature = "near_vm", target_arch = "x86_64"))]
-            Self::NearVm2 => Some(Box::new(crate::near_vm_2_runner::NearVM::new(config))),
             #[allow(unreachable_patterns)] // reachable when some of the VMs are disabled.
             _ => {
                 let _ = config;

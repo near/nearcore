@@ -10,7 +10,7 @@ use near_primitives::test_utils::account_new;
 use near_primitives::transaction::{
     Action, SignedTransaction, Transaction, TransactionV0, TransferAction,
 };
-use near_primitives::types::{EpochId, Gas, ShardId, StateRoot};
+use near_primitives::types::{Balance, EpochId, Gas, ShardId, StateRoot};
 use near_primitives::validator_signer::InMemoryValidatorSigner;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives_core::types::MerkleHash;
@@ -20,7 +20,9 @@ use num_rational::Rational32;
 fn create_transaction() -> SignedTransaction {
     let mut actions = vec![];
     for _ in 0..10 {
-        actions.push(Action::Transfer(TransferAction { deposit: 1_000_000_000 }));
+        actions.push(Action::Transfer(TransferAction {
+            deposit: Balance::from_yoctonear(1_000_000_000),
+        }));
     }
     SignedTransaction::new(
         Signature::empty(KeyType::ED25519),
@@ -50,8 +52,8 @@ fn create_block() -> Block {
         genesis_chunks.into_iter().map(|chunk| chunk.take_header()).collect(),
         Clock::real().now_utc(),
         0,
-        1_000,
-        1_000,
+        Balance::from_yoctonear(1_000),
+        Balance::from_yoctonear(1_000),
         &vec![],
     );
     let signer = InMemoryValidatorSigner::from_random("test".parse().unwrap(), KeyType::ED25519);
@@ -67,9 +69,9 @@ fn create_block() -> Block {
         None,
         vec![],
         Rational32::from_integer(0),
-        0,
-        0,
-        Some(0),
+        Balance::ZERO,
+        Balance::ZERO,
+        Some(Balance::ZERO),
         &signer,
         CryptoHash::default(),
         CryptoHash::default(),
@@ -81,7 +83,7 @@ fn create_block() -> Block {
 }
 
 fn create_account() -> Account {
-    account_new(0, CryptoHash::default())
+    account_new(Balance::ZERO, CryptoHash::default())
 }
 
 fn serialize_tx(bench: &mut Bencher) {

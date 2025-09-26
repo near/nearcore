@@ -325,6 +325,8 @@ pub enum ProtocolFeature {
     SaturatingFloatToInt,
     ChunkPartChecks,
     StatePartsCompression,
+    /// NEP: https://github.com/near/NEPs/pull/616
+    DeterministicAccountIds,
 }
 
 impl ProtocolFeature {
@@ -430,6 +432,7 @@ impl ProtocolFeature {
             // that always enables this for mocknet (see config_mocknet function).
             ProtocolFeature::ShuffleShardAssignments => 143,
             ProtocolFeature::ExcludeExistingCodeFromWitnessForCodeLen => 148,
+            ProtocolFeature::DeterministicAccountIds => 150,
             // Place features that are not yet in Nightly below this line.
         }
     }

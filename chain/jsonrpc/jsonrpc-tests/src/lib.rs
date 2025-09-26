@@ -5,8 +5,12 @@ use axum_test::TestServer;
 use near_async::ActorSystem;
 use near_async::messaging::{IntoMultiSender, IntoSender, noop};
 use near_chain::ChainGenesis;
+use near_chain::spice_core::CoreStatementsProcessor;
+use near_chain::types::RuntimeAdapter as _;
+use near_chain_configs::test_utils::TestClientConfigParams;
 use near_chain_configs::{ClientConfig, Genesis, MutableConfigValue, TrackedShardsConfig};
 use near_client::adversarial::Controls;
+use near_client::client_actor::SpiceClientConfig;
 use near_client::{RpcHandlerConfig, ViewClientActorInner, spawn_rpc_handler_actor, start_client};
 use near_crypto::{KeyType, PublicKey};
 use near_epoch_manager::{EpochManager, shard_tracker::ShardTracker};
@@ -17,6 +21,7 @@ use near_primitives::epoch_info::RngSeed;
 use near_primitives::network::PeerId;
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::types::{AccountId, NumSeats};
+use near_store::adapter::StoreAdapter as _;
 use near_store::genesis::initialize_genesis_state;
 use near_store::test_utils::create_test_store;
 use near_time::Clock;
@@ -109,15 +114,16 @@ pub fn create_test_setup_with_accounts_and_validity(
         ShardTracker::new(TrackedShardsConfig::AllShards, epoch_manager.clone(), signer.clone());
 
     // 5. Create shared client config
-    let client_config = ClientConfig::test(
-        true, // skip_sync_wait
-        100,  // min_block_prod_time
-        200,  // max_block_prod_time
-        num_validator_seats,
-        false, // archive
-        true,  // save_trie_changes
-        true,  // state_sync_enabled
-    );
+    let client_config = ClientConfig::test(TestClientConfigParams {
+        skip_sync_wait: true,
+        min_block_prod_time: 100,
+        max_block_prod_time: 200,
+        num_block_producer_seats: num_validator_seats,
+        enable_split_store: false,
+        enable_cloud_archival_writer: false,
+        save_trie_changes: true,
+        state_sync_enabled: true,
+    });
 
     // 6. Create ViewClientActor
     let adv = Controls::default();
@@ -157,6 +163,15 @@ pub fn create_test_setup_with_accounts_and_validity(
         true,
         Some(TEST_SEED),
         noop().into_multi_sender(),
+        SpiceClientConfig {
+            core_processor: CoreStatementsProcessor::new_with_noop_senders(
+                runtime.store().chain_store(),
+                epoch_manager.clone(),
+            ),
+            chunk_executor_sender: noop().into_sender(),
+            spice_chunk_validator_sender: noop().into_sender(),
+            spice_data_distributor_sender: noop().into_sender(),
+        },
     );
 
     // 8. Create RpcHandlerActor

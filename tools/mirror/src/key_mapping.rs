@@ -123,5 +123,6 @@ pub fn map_account(
         // TODO(eth-implicit) map to a new ETH address
         AccountType::EthImplicitAccount => account_id.clone(),
         AccountType::NamedAccount => account_id.clone(),
+        AccountType::NearDeterministicAccount => account_id.clone(),
     }
 }

@@ -51,16 +51,17 @@ impl ChunkEndorsement {
         epoch_id: EpochId,
         execution_result: ChunkExecutionResult,
         block_hash: CryptoHash,
-        chunk_header: &ShardChunkHeader,
+        shard_id: ShardId,
+        height: BlockHeight,
         signer: &ValidatorSigner,
     ) -> ChunkEndorsement {
         assert!(cfg!(feature = "protocol_feature_spice"));
 
         let metadata = ChunkEndorsementMetadata {
             account_id: signer.validator_id().clone(),
-            shard_id: chunk_header.shard_id(),
+            shard_id,
             epoch_id,
-            height_created: chunk_header.height_created(),
+            height_created: height,
         };
         let metadata_signature = signer.sign_bytes(&borsh::to_vec(&metadata).unwrap());
         let inner = SpiceChunkEndorsementInnerV2::new(block_hash, execution_result);
@@ -238,6 +239,9 @@ pub struct SpiceChunkEndorsementV3 {
     // Signature of the signed inner derivable from inner.
     signature: Signature,
     // This consists of the metadata for chunk endorsement used in validation
+    // TODO(spice): In metadata include only SpiceChunkId and AccountId. With spice endorsement are
+    // always for older existing blocks so we can derive all other information required for
+    // processing of endorsements from SpiceChunkId.
     metadata: ChunkEndorsementMetadata,
     // Metadata signature is used to validate that the metadata is produced by the expected validator
     metadata_signature: Signature,
@@ -255,6 +259,7 @@ impl SpiceChunkEndorsementV3 {
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
 struct SpiceChunkEndorsementInnerV2 {
     // Hash of the block that contains the chunk with specified execution results.
+    // TODO(spice): Move block hash to ChunkEndorsementMetadata
     block_hash: CryptoHash,
     execution_result: ChunkExecutionResult,
 }

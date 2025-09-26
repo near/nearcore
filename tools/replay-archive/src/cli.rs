@@ -320,7 +320,10 @@ impl ReplayController {
                 vec![true; chunk.to_transactions().len()],
             );
             ShardUpdateReason::NewChunk(NewChunkData {
-                chunk_header: chunk_header.clone(),
+                gas_limit: chunk_header.gas_limit(),
+                prev_state_root: chunk_header.prev_state_root(),
+                prev_validator_proposals: chunk_header.prev_validator_proposals().collect(),
+                chunk_hash: Some(chunk_header.chunk_hash().clone()),
                 transactions,
                 receipts,
                 block: block_context,
@@ -344,7 +347,8 @@ impl ReplayController {
                 apply_result,
             }) => {
                 let outgoing_receipts = apply_result.outgoing_receipts.clone();
-                let chunk_extra = apply_result_to_chunk_extra(apply_result, &chunk_header).into();
+                let chunk_extra =
+                    apply_result_to_chunk_extra(apply_result, chunk_header.gas_limit()).into();
                 ReplayChunkOutput { chunk_extra, outgoing_receipts }
             }
             ShardUpdateResult::OldChunk(OldChunkResult { shard_uid: _, apply_result }) => {

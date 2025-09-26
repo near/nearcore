@@ -181,6 +181,7 @@ fn run_estimation(cli_args: CliArgs) -> anyhow::Result<Option<CostTable>> {
             None,
             None,
             None,
+            None,
         )
         .expect("failed to init config");
 
@@ -190,7 +191,7 @@ fn run_estimation(cli_args: CliArgs) -> anyhow::Result<Option<CostTable>> {
             &state_dump_path,
             &near_config.config.store,
             near_config.config.cold_store.as_ref(),
-            near_config.config.cloud_storage.as_ref(),
+            near_config.config.cloud_storage_config(),
         )
         .open()
         .unwrap()

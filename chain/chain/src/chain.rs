@@ -107,7 +107,7 @@ use std::num::NonZeroUsize;
 use std::sync::Arc;
 use time::OffsetDateTime;
 use time::ext::InstantExt as _;
-use tracing::{Span, debug, debug_span, error, info, warn};
+use tracing::{Span, debug, error, info, instrument, warn};
 
 pub const APPLY_CHUNK_RESULTS_CACHE_SIZE: usize = 100;
 
@@ -127,9 +127,6 @@ const NUM_PARENTS_TO_CHECK_FINALITY: usize = 20;
 /// Refuse blocks more than this many block intervals in the future (as in bitcoin).
 #[cfg(not(feature = "sandbox"))]
 const ACCEPTABLE_TIME_DIFFERENCE: i64 = 12 * 10;
-
-/// Private constant for 1 NEAR (copy from near/config.rs) used for reporting.
-const NEAR_BASE: Balance = 1_000_000_000_000_000_000_000_000;
 
 /// `ApplyChunksDoneMessage` is a message that signals the finishing of applying chunks of a block.
 /// Upon receiving this message, ClientActors know that it's time to finish processing the blocks that
@@ -178,14 +175,14 @@ impl ApplyChunksResultCache {
         }
     }
 
-    pub fn peek(
-        &self,
+    pub fn pop(
+        &mut self,
         key: &CachedShardUpdateKey,
         shard_id: ShardId,
         record_metric: bool,
-    ) -> Option<&ShardUpdateResult> {
+    ) -> Option<ShardUpdateResult> {
         let shard_id_label = shard_id.to_string();
-        if let Some(result) = self.cache.peek(key) {
+        if let Some(result) = self.cache.pop(key) {
             self.hits.set(self.hits.get() + 1);
             if record_metric {
                 metrics::APPLY_CHUNK_RESULTS_CACHE_HITS
@@ -224,6 +221,15 @@ impl ApplyChunksResultCache {
 type BlockApplyChunksResult =
     (BlockToApply, Vec<(ShardId, CachedShardUpdateKey, Result<ShardUpdateResult, Error>)>);
 
+/// Parallel or sequential applying of chunks for tracked shards.
+/// Default behavior uses Rayon, but can be configured to use sequential processing for testing.
+#[derive(Clone, Copy, Debug, Default)]
+pub enum ApplyChunksIterationMode {
+    #[default]
+    Rayon,
+    Sequential,
+}
+
 /// Facade to the blockchain block processing and storage.
 /// Provides current view on the state according to the chain state.
 pub struct Chain {
@@ -254,6 +260,8 @@ pub struct Chain {
     apply_chunks_receiver: Receiver<BlockApplyChunksResult>,
     /// Used to spawn the apply chunks jobs.
     apply_chunks_spawner: Arc<dyn AsyncComputationSpawner>,
+    /// Used to decide whether to parallelize shard updates when applying chunks.
+    apply_chunks_iteration_mode: ApplyChunksIterationMode,
     pub apply_chunk_results_cache: ApplyChunksResultCache,
     /// Time when head was updated most recently.
     last_time_head_updated: Instant,
@@ -382,6 +390,7 @@ impl Chain {
             apply_chunks_sender: sc,
             apply_chunks_receiver: rc,
             apply_chunks_spawner: ApplyChunksSpawner::default().into_spawner(num_shards),
+            apply_chunks_iteration_mode: ApplyChunksIterationMode::default(),
             apply_chunk_results_cache: ApplyChunksResultCache::new(APPLY_CHUNK_RESULTS_CACHE_SIZE),
             last_time_head_updated: clock.now(),
             processed_hashes: LruCache::new(NonZeroUsize::new(PROCESSED_HASHES_POOL_SIZE).unwrap()),
@@ -405,6 +414,7 @@ impl Chain {
         chain_config: ChainConfig,
         snapshot_callbacks: Option<SnapshotCallbacks>,
         apply_chunks_spawner: ApplyChunksSpawner,
+        apply_chunks_iteration_mode: ApplyChunksIterationMode,
         validator_signer: MutableValidatorSigner,
         resharding_sender: ReshardingSender,
         spice_core_processor: CoreStatementsProcessor,
@@ -549,6 +559,7 @@ impl Chain {
             apply_chunks_sender: sc,
             apply_chunks_receiver: rc,
             apply_chunks_spawner,
+            apply_chunks_iteration_mode,
             apply_chunk_results_cache: ApplyChunksResultCache::new(APPLY_CHUNK_RESULTS_CACHE_SIZE),
             last_time_head_updated: clock.now(),
             pending_state_patch: Default::default(),
@@ -947,11 +958,11 @@ impl Chain {
         // content is not tampered
         let block_body_hash = block.compute_block_body_hash();
         if block_body_hash.is_none() {
-            tracing::warn!("Block version too old for block: {:?}", block.hash());
+            warn!(block_hash = %block.hash(), "block version too old for block");
             return Ok(VerifyBlockHashAndSignatureResult::Incorrect);
         }
         if block.header().block_body_hash() != block_body_hash {
-            tracing::warn!("Invalid block body hash for block: {:?}", block.hash());
+            warn!(block_hash = %block.hash(), "invalid block body hash for block");
             return Ok(VerifyBlockHashAndSignatureResult::Incorrect);
         }
 
@@ -961,7 +972,7 @@ impl Chain {
             self.epoch_manager.as_ref(),
             block.header(),
         )? {
-            tracing::error!("wrong signature");
+            error!(block_hash = %block.hash(), "wrong signature");
             return Ok(VerifyBlockHashAndSignatureResult::Incorrect);
         }
         Ok(VerifyBlockHashAndSignatureResult::Correct)
@@ -1137,6 +1148,12 @@ impl Chain {
     ///              (so it also happens asynchronously in the rayon thread pool). Callers can
     ///              use this sender as a way to receive notifications when apply chunks are done
     ///              so it can call postprocess_ready_blocks.
+    #[instrument(
+        level = "debug",
+        target = "chain",
+        skip_all,
+        fields(?provenance, height=block.header().height())
+    )]
     pub fn start_process_block_async(
         &mut self,
         block: MaybeValidated<Arc<Block>>,
@@ -1145,8 +1162,6 @@ impl Chain {
         apply_chunks_done_sender: Option<ApplyChunksDoneSender>,
     ) -> Result<(), Error> {
         let block_height = block.header().height();
-        let _span =
-            debug_span!(target: "chain", "start_process_block_async", ?provenance, height=block_height).entered();
         let block_received_time = self.clock.now();
         metrics::BLOCK_PROCESSING_ATTEMPTS_TOTAL.inc();
 
@@ -1233,22 +1248,23 @@ impl Chain {
         }
     }
 
+    #[instrument(
+        level = "debug",
+        target = "chain",
+        skip_all,
+        fields(
+            hash = %block.hash(),
+            height = block.height(),
+            tag_block_production = true,
+            tag_optimistic = true
+        )
+    )]
     pub fn process_optimistic_block(
         &mut self,
         block: OptimisticBlock,
         chunk_headers: Vec<ShardChunkHeader>,
         apply_chunks_done_sender: Option<ApplyChunksDoneSender>,
     ) -> Result<(), Error> {
-        let _span = debug_span!(
-            target: "chain",
-            "process_optimistic_block",
-            hash = ?block.hash(),
-            height = ?block.height(),
-            tag_block_production = true,
-            tag_optimistic = true
-        )
-        .entered();
-
         if cfg!(feature = "protocol_feature_spice") {
             return Ok(());
         }
@@ -1348,12 +1364,12 @@ impl Chain {
     /// If there are no blocks that are ready to be postprocessed, it returns immediately
     /// with an empty list. Even if there are blocks being processed, it does not wait
     /// for these blocks to be ready.
+    #[instrument(level = "debug", target = "chain", skip_all)]
     pub fn postprocess_ready_blocks(
         &mut self,
         block_processing_artifacts: &mut BlockProcessingArtifact,
         apply_chunks_done_sender: Option<ApplyChunksDoneSender>,
     ) -> (Vec<AcceptedBlock>, HashMap<CryptoHash, Error>) {
-        let _span = debug_span!(target: "chain", "postprocess_ready_blocks_chain").entered();
         let mut accepted_blocks = vec![];
         let mut errors = HashMap::new();
         while let Ok((block, apply_result)) = self.apply_chunks_receiver.try_recv() {
@@ -1492,14 +1508,18 @@ impl Chain {
 
     /// Set the new head after state sync was completed if it is indeed newer.
     /// Check for potentially unlocked orphans after this update.
+    #[instrument(
+        level = "debug",
+        target = "sync",
+        skip_all,
+        fields(%sync_hash)
+    )]
     pub fn reset_heads_post_state_sync(
         &mut self,
         sync_hash: CryptoHash,
         block_processing_artifacts: &mut BlockProcessingArtifact,
         apply_chunks_done_sender: Option<ApplyChunksDoneSender>,
     ) -> Result<(), Error> {
-        let _span = tracing::debug_span!(target: "sync", "reset_heads_post_state_sync", ?sync_hash)
-            .entered();
         // Get header we were syncing into.
         let header = self.get_block_header(&sync_hash)?;
         let prev_hash = *header.prev_hash();
@@ -1516,7 +1536,7 @@ impl Chain {
 
         let new_tail = tail_block.header().height();
         let new_chunk_tail = tail_block.chunks().min_height_included().unwrap();
-        tracing::debug!(target: "sync", ?new_tail, ?new_chunk_tail, "adjusting tail for sync blocks");
+        debug!(target: "sync", ?new_tail, ?new_chunk_tail, "adjusting tail for sync blocks");
 
         let tip = Tip::from_header(prev_block.header());
         let final_head = Tip::from_header(self.genesis.header());
@@ -1540,6 +1560,12 @@ impl Chain {
 
     // Unlike start_process_block() this function doesn't update metrics for
     // successful blocks processing.
+    #[instrument(
+        level = "debug",
+        target = "chain",
+        skip_all,
+        fields(block_height=block.header().height())
+    )]
     fn start_process_block_impl(
         &mut self,
         block: MaybeValidated<Arc<Block>>,
@@ -1549,8 +1575,6 @@ impl Chain {
         block_received_time: Instant,
     ) -> Result<(), Error> {
         let block_height = block.header().height();
-        let _span =
-            debug_span!(target: "chain", "start_process_block_impl", block_height).entered();
         // 0) Before we proceed with any further processing, we first check that the block
         // hash and signature matches to make sure the block is indeed produced by the assigned
         // block producer. If not, we drop the block immediately
@@ -1665,7 +1689,7 @@ impl Chain {
 
         // 2) Start creating snapshot if needed.
         if let Err(err) = self.process_snapshot() {
-            tracing::error!(target: "state_snapshot", ?err, "Failed to make a state snapshot");
+            error!(target: "state_snapshot", ?err, "failed to make a state snapshot");
         }
 
         let block = block.into_inner();
@@ -1698,10 +1722,11 @@ impl Chain {
     ) {
         let sc = self.apply_chunks_sender.clone();
         let clock = self.clock.clone();
+        let iteration_mode = self.apply_chunks_iteration_mode;
         self.apply_chunks_spawner.spawn("apply_chunks", move || {
             let apply_all_chunks_start_time = clock.now();
             // do_apply_chunks runs `work` in parallel, but still waits for all of them to finish
-            let res = do_apply_chunks(block.clone(), block_height, work);
+            let res = do_apply_chunks(iteration_mode, block.clone(), block_height, work);
             // If we encounter an error here, that means the receiver is deallocated and the client
             // thread is already shut down. The node is already crashed, so we can unwrap here
             metrics::APPLY_ALL_CHUNKS_TIME.with_label_values(&[block.as_ref()]).observe(
@@ -1715,7 +1740,7 @@ impl Chain {
         });
     }
 
-    #[tracing::instrument(level = "debug", target = "chain", "postprocess_block_only", skip_all)]
+    #[instrument(level = "debug", target = "chain", skip_all)]
     fn postprocess_block_only(
         &mut self,
         block: Arc<Block>,
@@ -1745,6 +1770,12 @@ impl Chain {
     /// Run postprocessing on this block, which stores the block on chain.
     /// Check that if accepting the block unlocks any orphans in the orphan pool and start
     /// the processing of those blocks.
+    #[instrument(
+        level = "debug",
+        target = "chain",
+        skip_all,
+        fields(height, tag_block_production = true)
+    )]
     fn postprocess_ready_block(
         &mut self,
         block_hash: CryptoHash,
@@ -1760,16 +1791,7 @@ impl Chain {
                     block_hash
                 )
             });
-        // We want to include block height here, so we didn't put this line at the beginning of the
-        // function.
-        let _span = tracing::debug_span!(
-            target: "chain",
-            "postprocess_ready_block",
-            height = block.header().height(),
-            tag_block_production = true
-        )
-        .entered();
-
+        Span::current().record("height", block.header().height());
         let epoch_id = block.header().epoch_id();
         let shard_layout = self.epoch_manager.get_shard_layout(&epoch_id)?;
 
@@ -1825,7 +1847,7 @@ impl Chain {
                 // during catchup of this block.
                 cares_about_shard
             };
-            tracing::debug!(target: "chain", %shard_id, need_storage_update, "Updating storage");
+            debug!(target: "chain", %shard_id, need_storage_update, "update storage");
 
             if need_storage_update {
                 self.resharding_manager.start_resharding(
@@ -1858,7 +1880,7 @@ impl Chain {
             let mut block_producers_count = 0;
             let mut chunk_producers_count = 0;
             let mut chunk_validators_count = 0;
-            let mut stake = 0;
+            let mut stake = Balance::ZERO;
 
             // Get block producers count
             if let Ok(block_producers) =
@@ -1869,7 +1891,10 @@ impl Chain {
 
             // Get chunk producers count and total stake
             if let Ok(producers) = self.epoch_manager.get_epoch_chunk_producers(&tip.epoch_id) {
-                stake += producers.iter().map(|info| info.stake()).sum::<Balance>();
+                let cumulative_producers_stake = producers
+                    .iter()
+                    .fold(Balance::ZERO, |sum, info| sum.checked_add(info.stake()).unwrap());
+                stake = stake.checked_add(cumulative_producers_stake).unwrap();
                 chunk_producers_count += producers.len();
             }
 
@@ -1879,8 +1904,8 @@ impl Chain {
                 chunk_validators_count = epoch_info.validators_len();
             }
 
-            stake /= NEAR_BASE;
-            metrics::VALIDATOR_AMOUNT_STAKED.set(i64::try_from(stake).unwrap_or(i64::MAX));
+            metrics::VALIDATOR_AMOUNT_STAKED
+                .set(i64::try_from(stake.as_near()).unwrap_or(i64::MAX));
             metrics::VALIDATOR_ACTIVE_TOTAL
                 .set(i64::try_from(chunk_producers_count).unwrap_or(i64::MAX));
             metrics::VALIDATOR_BLOCK_PRODUCERS_TOTAL
@@ -2020,9 +2045,9 @@ impl Chain {
         // If the full block is not available, skip getting candidate.
         // This is possible if the node just went through state sync.
         let Ok(last_final_block) = self.get_block(&last_final_block_hash) else {
-            tracing::warn!(
-                "get_new_flat_storage_head could not get last final block {}",
-                last_final_block_hash
+            warn!(
+                %last_final_block_hash,
+                "get_new_flat_storage_head could not get last final block",
             );
             return Ok(None);
         };
@@ -2166,22 +2191,23 @@ impl Chain {
     /// Preprocess a block before applying chunks, verify that we have the necessary information
     /// to process the block and the block is valid.
     /// Note that this function does NOT introduce any changes to chain state.
+    #[instrument(
+        level = "debug",
+        target = "chain",
+        skip_all,
+        fields(
+            height = block.header().height(),
+            tag_block_production = true
+        )
+    )]
     fn preprocess_block(
-        &self,
+        &mut self,
         block: &MaybeValidated<Arc<Block>>,
         provenance: &Provenance,
         invalid_chunks: &mut Vec<ShardChunkHeader>,
         block_received_time: Instant,
         state_patch: SandboxStatePatch,
     ) -> Result<PreprocessBlockResult, Error> {
-        let _span = tracing::debug_span!(
-            target: "chain",
-            "preprocess_block",
-            height = block.header().height(),
-            tag_block_production = true
-        )
-        .entered();
-
         let header = block.header();
 
         // see if the block is already in processing or if there are too many blocks being processed
@@ -2452,12 +2478,17 @@ impl Chain {
     ///
     /// The first chunk, the one at height included, is a new chunk. The
     /// remaining ones are old (missing) chunks.
+    #[instrument(
+        level = "debug",
+        target = "sync",
+        skip_all,
+        fields(%shard_id, %sync_hash)
+    )]
     pub fn set_state_finalize(
         &mut self,
         shard_id: ShardId,
         sync_hash: CryptoHash,
     ) -> Result<(), Error> {
-        let _span = tracing::debug_span!(target: "sync", "set_state_finalize").entered();
         let shard_state_header = self.state_sync_adapter.get_state_header(shard_id, sync_hash)?;
         let mut height = shard_state_header.chunk_height_included();
         let mut chain_update = self.chain_update();
@@ -2500,7 +2531,7 @@ impl Chain {
 
     /// Drop all downloaded or generated state parts and headers.
     pub fn clear_all_downloaded_parts(&mut self) -> Result<(), Error> {
-        tracing::debug!(target: "state_sync", "Clear old state parts");
+        debug!(target: "state_sync", "Clear old state parts");
         let mut store_update = self.chain_store.store().store_update();
         store_update.delete_all(DBCol::StateParts);
         store_update.delete_all(DBCol::StateHeaders);
@@ -2514,7 +2545,7 @@ impl Chain {
         blocks_catch_up_state: &mut BlocksCatchUpState,
         block_catch_up_scheduler: &near_async::messaging::Sender<BlockCatchUpRequest>,
     ) -> Result<(), Error> {
-        tracing::debug!(
+        debug!(
             target: "catchup",
             pending_blocks = ?blocks_catch_up_state.pending_blocks,
             processed_blocks = ?blocks_catch_up_state.processed_blocks.keys().collect::<Vec<_>>(),
@@ -2948,8 +2979,14 @@ impl Chain {
 
     /// Creates jobs which will update shards for the given block and incoming
     /// receipts aggregated for it.
+    #[instrument(
+        level = "debug",
+        target = "chain",
+        skip_all,
+        fields(block_hash=%block.header().hash())
+    )]
     fn apply_chunks_preprocessing(
-        &self,
+        &mut self,
         block: &Block,
         prev_block: &Block,
         incoming_receipts: &HashMap<ShardId, Vec<ReceiptProof>>,
@@ -2957,8 +2994,6 @@ impl Chain {
         mut state_patch: SandboxStatePatch,
         invalid_chunks: &mut Vec<ShardChunkHeader>,
     ) -> Result<Vec<UpdateShardJob>, Error> {
-        let _span = tracing::debug_span!(target: "chain", "apply_chunks_preprocessing").entered();
-
         if cfg!(feature = "protocol_feature_spice") {
             return Ok(vec![]);
         }
@@ -3103,8 +3138,14 @@ impl Chain {
     }
 
     /// This method returns the closure that is responsible for updating a shard.
+    #[instrument(
+        level = "debug",
+        target = "chain",
+        skip_all,
+        fields(prev_hash=%prev_block.hash(), block_height=block.height)
+    )]
     fn get_update_shard_job(
-        &self,
+        &mut self,
         cached_shard_update_key: CachedShardUpdateKey,
         block: ApplyChunkBlockContext,
         chunk_headers: &Chunks,
@@ -3117,10 +3158,6 @@ impl Chain {
     ) -> Result<Option<UpdateShardJob>, Error> {
         let prev_hash = prev_block.hash();
         let block_height = block.height;
-        let _span =
-            tracing::debug_span!(target: "chain", "get_update_shard_job", ?prev_hash, block_height)
-                .entered();
-
         let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(prev_hash)?;
         let shard_layout = self.epoch_manager.get_shard_layout(&epoch_id)?;
         let shard_id = shard_layout.get_shard_id(shard_index)?;
@@ -3133,13 +3170,12 @@ impl Chain {
         let is_new_chunk = chunk_header.is_new_chunk(block_height);
 
         if !cfg!(feature = "sandbox") {
-            if let Some(result) = self.apply_chunk_results_cache.peek(
+            if let Some(result) = self.apply_chunk_results_cache.pop(
                 &cached_shard_update_key,
                 shard_id,
                 matches!(block.block_type, BlockType::Normal),
             ) {
                 debug!(target: "chain", %shard_id, ?cached_shard_update_key, "Using cached ShardUpdate result");
-                let result = result.clone();
                 return Ok(Some((
                     shard_id,
                     cached_shard_update_key,
@@ -3200,7 +3236,10 @@ impl Chain {
                 SignedValidPeriodTransactions::new(chunk.into_transactions(), tx_valid_list);
 
             ShardUpdateReason::NewChunk(NewChunkData {
-                chunk_header: chunk_header.clone(),
+                gas_limit: chunk_header.gas_limit(),
+                prev_state_root: chunk_header.prev_state_root(),
+                prev_validator_proposals: chunk_header.prev_validator_proposals().collect(),
+                chunk_hash: Some(chunk_header.chunk_hash().clone()),
                 transactions,
                 receipts,
                 block,
@@ -3696,20 +3735,34 @@ impl Chain {
     }
 }
 
+#[instrument(
+    level = "debug",
+    target = "chain",
+    skip_all,
+    fields(%block_height, ?block)
+)]
 pub fn do_apply_chunks(
+    iteration_mode: ApplyChunksIterationMode,
     block: BlockToApply,
     block_height: BlockHeight,
     work: Vec<UpdateShardJob>,
 ) -> Vec<(ShardId, CachedShardUpdateKey, Result<ShardUpdateResult, Error>)> {
-    let parent_span =
-        tracing::debug_span!(target: "chain", "do_apply_chunks", block_height, ?block).entered();
-    work.into_par_iter()
-        .map(|(shard_id, cached_shard_update_key, task)| {
-            // As chunks can be processed in parallel, make sure they are all tracked as children of
-            // a single span.
-            (shard_id, cached_shard_update_key, task(&parent_span))
-        })
-        .collect()
+    // Track all children using `parent_span`, as they may be processed in parallel.
+    let parent_span = Span::current();
+    match iteration_mode {
+        ApplyChunksIterationMode::Sequential => work
+            .into_iter()
+            .map(|(shard_id, cached_shard_update_key, task)| {
+                (shard_id, cached_shard_update_key, task(&parent_span))
+            })
+            .collect(),
+        ApplyChunksIterationMode::Rayon => work
+            .into_par_iter()
+            .map(|(shard_id, cached_shard_update_key, task)| {
+                (shard_id, cached_shard_update_key, task(&parent_span))
+            })
+            .collect(),
+    }
 }
 
 pub fn collect_receipts<'a, T>(receipt_proofs: T) -> Vec<Receipt>

@@ -1,7 +1,6 @@
 use crate::config::{CongestionControlConfig, WitnessConfig};
 use crate::{ActionCosts, ExtCosts, Fee, ParameterCost};
 use near_account_id::AccountId;
-use near_primitives_core::serialize::dec_format;
 use near_primitives_core::types::Balance;
 use near_primitives_core::types::Gas;
 use num_rational::Rational32;
@@ -12,8 +11,6 @@ use num_rational::Rational32;
 pub struct RuntimeConfigView {
     /// Amount of yN per byte required to have on the account.  See
     /// <https://nomicon.io/Economics/Economic#state-stake> for details.
-    #[serde(with = "dec_format")]
-    #[cfg_attr(feature = "schemars", schemars(with = "String"))]
     pub storage_amount_per_byte: Balance,
     /// Costs of different actions that need to be performed when sending and
     /// processing transaction and receipts.
@@ -234,6 +231,8 @@ pub struct VMConfigView {
     pub global_contract_host_fns: bool,
     /// See [VMConfig::reftypes_bulk_memory](crate::vm::Config::reftypes_bulk_memory).
     pub reftypes_bulk_memory: bool,
+    /// See [VMConfig::deterministic_account_ids](crate::vm::Config::deterministic_account_ids).
+    pub deterministic_account_ids: bool,
 
     /// See [VMConfig::storage_get_mode](crate::vm::Config::storage_get_mode).
     pub storage_get_mode: crate::vm::StorageGetMode,
@@ -267,6 +266,7 @@ impl From<crate::vm::Config> for VMConfigView {
             saturating_float_to_int: config.saturating_float_to_int,
             global_contract_host_fns: config.global_contract_host_fns,
             reftypes_bulk_memory: config.reftypes_bulk_memory,
+            deterministic_account_ids: config.deterministic_account_ids,
         }
     }
 }
@@ -287,6 +287,7 @@ impl From<VMConfigView> for crate::vm::Config {
             saturating_float_to_int: view.saturating_float_to_int,
             global_contract_host_fns: view.global_contract_host_fns,
             reftypes_bulk_memory: view.reftypes_bulk_memory,
+            deterministic_account_ids: view.deterministic_account_ids,
         }
     }
 }

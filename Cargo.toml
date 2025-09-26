@@ -67,14 +67,6 @@ members = [
     "runtime/near-vm/types",
     "runtime/near-vm/wast",
     "runtime/near-vm/compiler-test-derive",
-    "runtime/near-vm-2/test-api",
-    "runtime/near-vm-2/compiler",
-    "runtime/near-vm-2/compiler-singlepass",
-    "runtime/near-vm-2/engine",
-    "runtime/near-vm-2/vm",
-    "runtime/near-vm-2/types",
-    "runtime/near-vm-2/wast",
-    "runtime/near-vm-2/compiler-test-derive",
     "runtime/near-vm-runner",
     "runtime/near-wallet-contract",
     "runtime/runtime",
@@ -85,7 +77,6 @@ members = [
     "test-utils/store-validator",
     "test-utils/testlib",
     "tools/database",
-    "tools/chainsync-loadtest",
     "tools/congestion-model",
     "tools/fork-network",
     "tools/indexer/example",
@@ -230,17 +221,17 @@ itertools = "0.14.0"
 itoa = "1.0"
 json_comments = "0.2.1"
 libc = "0.2.81"
-log = "0.4"
 lru = "0.12.3"
 memoffset = "0.8"
 merlin = { version = "3", default-features = false }
 more-asserts = "0.2"
-near-account-id = { version = "1.1.3", features = [
+near-account-id = { version = "2.0.0", features = [
     "internal_unstable",
     "serde",
     "borsh",
 ] }
 near-gas = { version = "0.3.2" }
+near-token = { version = "0.3.2" }
 near-actix-test-utils = { path = "test-utils/actix-test-utils" }
 near-amend-genesis = { path = "tools/amend-genesis" }
 near-database-tool = { path = "tools/database" }
@@ -309,15 +300,6 @@ near-vm-test-generator = { path = "runtime/near-vm/test-generator" }
 near-vm-types = { path = "runtime/near-vm/types" }
 near-vm-vm = { path = "runtime/near-vm/vm" }
 near-vm-wast = { path = "runtime/near-vm/wast" }
-near-vm-2-test-api = { path = "runtime/near-vm-2/test-api" }
-near-vm-2-compiler = { path = "runtime/near-vm-2/compiler" }
-near-vm-2-compiler-singlepass = { path = "runtime/near-vm-2/compiler-singlepass" }
-near-vm-2-compiler-test-derive = { path = "runtime/near-vm-2/compiler-test-derive" }
-near-vm-2-engine = { path = "runtime/near-vm-2/engine" }
-near-vm-2-test-generator = { path = "runtime/near-vm-2/test-generator" }
-near-vm-2-types = { path = "runtime/near-vm-2/types" }
-near-vm-2-vm = { path = "runtime/near-vm-2/vm" }
-near-vm-2-wast = { path = "runtime/near-vm-2/wast" }
 near-wallet-contract = { path = "runtime/near-wallet-contract" }
 nix = "0.24"
 node-runtime = { path = "runtime/runtime" }
@@ -333,7 +315,7 @@ openssl-probe = "0.1.4"
 opentelemetry = { version = "0.30", features = ["trace"] }
 opentelemetry_sdk = { version = "0.30", features = ["rt-tokio"] }
 opentelemetry-otlp = { version = "0.30", default-features = false, features = ["grpc-tonic", "trace"] }
-opentelemetry-semantic-conventions = "0.30" 
+opentelemetry-semantic-conventions = "0.30"
 ordered-float = { version = "4.2.0", features = ["serde", "borsh"] }
 parking_lot = "0.12.1"
 percent-encoding = "2.2.0"
@@ -424,6 +406,7 @@ utoipa = "5.4"
 utoipa-swagger-ui = "9"
 wasm-encoder = "0.236"
 wasmparser = "0.78" # TODO: unify at least the versions of wasmparser we have in our codebase
+wasmparser-236 = { package = "wasmparser", version = "0.236" }
 wasmprinter = "0.236"
 wasm-smith = "0.236"
 wasmtime = { version = "36", default-features = false, features = [

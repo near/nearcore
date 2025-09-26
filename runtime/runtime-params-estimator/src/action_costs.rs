@@ -15,7 +15,7 @@ use near_primitives::account::{AccessKey, AccessKeyPermission, FunctionCallPermi
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptV0};
 use near_primitives::transaction::Action;
-use near_primitives::types::{AccountId, Gas};
+use near_primitives::types::{AccountId, Balance, Gas};
 use std::iter;
 
 const GAS_1_MICROSECOND: Gas = Gas::from_gigagas(1);
@@ -259,7 +259,7 @@ impl ActionEstimation {
         let action_receipt = ActionReceipt {
             signer_id,
             signer_public_key,
-            gas_price: 100_000_000,
+            gas_price: Balance::from_yoctonear(100_000_000),
             output_data_receivers: vec![],
             input_data_ids: vec![],
             actions,
@@ -682,12 +682,14 @@ fn create_account_action() -> Action {
 }
 
 fn create_transfer_action() -> Action {
-    Action::Transfer(near_primitives::transaction::TransferAction { deposit: 10u128.pow(24) })
+    Action::Transfer(near_primitives::transaction::TransferAction {
+        deposit: Balance::from_near(1),
+    })
 }
 
 fn stake_action() -> Action {
     Action::Stake(Box::new(near_primitives::transaction::StakeAction {
-        stake: 5u128.pow(28), // some arbitrary positive number
+        stake: Balance::from_near(50_000), // some arbitrary positive number
         public_key: PublicKey::from_seed(KeyType::ED25519, "seed"),
     }))
 }
@@ -721,7 +723,7 @@ fn add_fn_access_key_action(size: ActionSize) -> Action {
         access_key: AccessKey {
             nonce: 0,
             permission: AccessKeyPermission::FunctionCall(FunctionCallPermission {
-                allowance: Some(1),
+                allowance: Some(Balance::from_yoctonear(1)),
                 receiver_id,
                 method_names,
             }),
@@ -736,7 +738,9 @@ fn delete_key_action() -> Action {
 }
 
 fn transfer_action() -> Action {
-    Action::Transfer(near_primitives::transaction::TransferAction { deposit: 77 })
+    Action::Transfer(near_primitives::transaction::TransferAction {
+        deposit: Balance::from_yoctonear(77),
+    })
 }
 
 fn function_call_action(size: ActionSize) -> Action {
@@ -748,7 +752,7 @@ fn function_call_action(size: ActionSize) -> Action {
         method_name,
         args: vec![1u8; arg_len],
         gas: Gas::from_teragas(3), // 3 Tgas, to allow 100 copies in the same receipt
-        deposit: 10u128.pow(24),
+        deposit: Balance::from_near(1),
     }))
 }
 

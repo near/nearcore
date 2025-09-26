@@ -11,7 +11,7 @@ use near_chain_configs::{
 use near_client::{GetBlock, ProcessTxResponse};
 use near_client_primitives::types::GetValidatorInfo;
 use near_crypto::InMemorySigner;
-use near_network::client::{StateRequestHeader, StateRequestPart, StateResponse};
+use near_network::client::{StatePartOrHeader, StateRequestHeader, StateRequestPart};
 use near_network::tcp;
 use near_network::test_utils::{WaitOrTimeoutActor, convert_boot_nodes, wait_or_timeout};
 use near_o11y::testonly::{init_integration_logger, init_test_logger};
@@ -19,7 +19,7 @@ use near_primitives::shard_layout::ShardUId;
 use near_primitives::state_part::{PartId, StatePart};
 use near_primitives::state_sync::StatePartKey;
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{BlockId, BlockReference, EpochId, EpochReference, ShardId};
+use near_primitives::types::{Balance, BlockId, BlockReference, EpochId, EpochReference, ShardId};
 use near_primitives::utils::MaybeValidated;
 use near_store::DBCol;
 use near_store::adapter::StoreUpdateAdapter;
@@ -530,7 +530,7 @@ fn ultra_slow_test_dump_epoch_missing_chunk_in_last_block() {
                     "test0".parse().unwrap(),
                     "test1".parse().unwrap(),
                     &signer,
-                    1,
+                    Balance::from_yoctonear(1),
                     *genesis_block.hash(),
                 );
                 assert_eq!(
@@ -760,7 +760,9 @@ fn slow_test_state_sync_headers() {
                         .send_async(StateRequestHeader { shard_id, sync_hash })
                         .await
                     {
-                        Ok(Some(StateResponse(state_response_info))) => Some(state_response_info),
+                        Ok(Some(StatePartOrHeader(state_response_info))) => {
+                            Some(state_response_info)
+                        }
                         _ => None,
                     };
                     let state_response_info = match state_response_info {
@@ -782,7 +784,9 @@ fn slow_test_state_sync_headers() {
                         .send_async(StateRequestPart { shard_id, sync_hash, part_id: 0 })
                         .await
                     {
-                        Ok(Some(StateResponse(state_response_info))) => Some(state_response_info),
+                        Ok(Some(StatePartOrHeader(state_response_info))) => {
+                            Some(state_response_info)
+                        }
                         _ => None,
                     };
                     let state_response_info = match state_response_info {
@@ -926,7 +930,9 @@ fn slow_test_state_sync_headers_no_tracked_shards() {
                         .send_async(StateRequestHeader { shard_id, sync_hash })
                         .await
                     {
-                        Ok(Some(StateResponse(state_response_info))) => Some(state_response_info),
+                        Ok(Some(StatePartOrHeader(state_response_info))) => {
+                            Some(state_response_info)
+                        }
                         _ => None,
                     };
                     let state_response_info = match state_response_info {
@@ -943,7 +949,9 @@ fn slow_test_state_sync_headers_no_tracked_shards() {
                         .send_async(StateRequestPart { shard_id, sync_hash, part_id: 0 })
                         .await
                     {
-                        Ok(Some(StateResponse(state_response_info))) => Some(state_response_info),
+                        Ok(Some(StatePartOrHeader(state_response_info))) => {
+                            Some(state_response_info)
+                        }
                         _ => None,
                     };
                     let state_response_info = match state_response_info {

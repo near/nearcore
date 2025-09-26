@@ -27,14 +27,13 @@ use crate::sync_jobs_actor::{ClientSenderForSyncJobs, SyncJobsActor};
 use crate::{AsyncComputationMultiSpawner, StatusResponse, metrics};
 use near_async::futures::{DelayedActionRunner, DelayedActionRunnerExt, FutureSpawner};
 use near_async::messaging::{
-    self, CanSend, Handler, IntoMultiSender, IntoSender as _, LateBoundSender, Sender, noop,
+    self, CanSend, Handler, IntoMultiSender, IntoSender as _, LateBoundSender, Sender,
 };
 use near_async::multithread::MultithreadRuntimeHandle;
 use near_async::time::{Clock, Utc};
 use near_async::time::{Duration, Instant};
 use near_async::tokio::TokioRuntimeHandle;
 use near_async::{ActorSystem, MultiSend, MultiSenderFrom};
-use near_chain::ApplyChunksSpawner;
 #[cfg(feature = "test_features")]
 use near_chain::ChainStoreAccess;
 use near_chain::chain::{ApplyChunksDoneMessage, BlockCatchUpRequest, BlockCatchUpResponse};
@@ -43,6 +42,7 @@ use near_chain::spice_core::CoreStatementsProcessor;
 use near_chain::state_snapshot_actor::SnapshotCallbacks;
 use near_chain::test_utils::format_hash;
 use near_chain::types::RuntimeAdapter;
+use near_chain::{ApplyChunksIterationMode, ApplyChunksSpawner};
 use near_chain::{
     Block, BlockHeader, ChainGenesis, Provenance, byzantine_assert, near_chain_primitives,
 };
@@ -58,7 +58,7 @@ use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_network::client::{
     BlockApproval, BlockHeadersResponse, BlockResponse, OptimisticBlockMessage, SetNetworkInfo,
-    StateResponseReceived,
+    StateResponse, StateResponseReceived,
 };
 use near_network::types::ReasonForBan;
 use near_network::types::{
@@ -79,7 +79,6 @@ use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature, get_protocol_u
 use near_primitives::views::{DetailedDebugStatus, ValidatorInfo};
 #[cfg(feature = "test_features")]
 use near_store::DBCol;
-use near_store::adapter::StoreAdapter;
 use near_telemetry::TelemetryEvent;
 use parking_lot::Mutex;
 use rand::seq::SliceRandom;
@@ -126,6 +125,13 @@ pub struct StartClientResult {
     pub chunk_validation_actor: MultithreadRuntimeHandle<ChunkValidationActorInner>,
 }
 
+pub struct SpiceClientConfig {
+    pub core_processor: CoreStatementsProcessor,
+    pub chunk_executor_sender: Sender<ProcessedBlock>,
+    pub spice_chunk_validator_sender: Sender<ProcessedBlock>,
+    pub spice_data_distributor_sender: Sender<ProcessedBlock>,
+}
+
 /// Starts client in a separate tokio runtime (thread).
 pub fn start_client(
     clock: Clock,
@@ -149,6 +155,7 @@ pub fn start_client(
     enable_doomslug: bool,
     seed: Option<RngSeed>,
     resharding_sender: ReshardingSender,
+    spice_client_config: SpiceClientConfig,
 ) -> StartClientResult {
     wait_until_genesis(&chain_genesis.time);
 
@@ -156,16 +163,10 @@ pub fn start_client(
     let client_sender_for_client = LateBoundSender::<ClientSenderForClient>::new();
     let protocol_upgrade_schedule = get_protocol_upgrade_schedule(client_config.chain_id.as_str());
     let multi_spawner = AsyncComputationMultiSpawner::default();
+    let apply_chunks_iteration_mode = ApplyChunksIterationMode::default();
 
     let chunk_validation_adapter = LateBoundSender::<ChunkValidationSender>::new();
 
-    // TODO(spice): Initialize CoreStatementsProcessor properly.
-    let spice_core_processor = CoreStatementsProcessor::new(
-        runtime.store().chain_store(),
-        epoch_manager.clone(),
-        noop().into_sender(),
-        noop().into_sender(),
-    );
     let client = Client::new(
         clock.clone(),
         client_config,
@@ -180,6 +181,7 @@ pub fn start_client(
         seed.unwrap_or_else(random_seed_from_thread),
         snapshot_callbacks,
         multi_spawner,
+        apply_chunks_iteration_mode,
         partial_witness_adapter,
         resharding_sender,
         state_sync_future_spawner,
@@ -187,12 +189,15 @@ pub fn start_client(
         client_sender_for_client.as_multi_sender(),
         chunk_validation_adapter.as_multi_sender(),
         protocol_upgrade_schedule,
-        spice_core_processor,
+        spice_client_config.core_processor,
     )
     .unwrap();
 
     let client_sender_for_sync_jobs = LateBoundSender::<ClientSenderForSyncJobs>::new();
-    let sync_jobs_actor = SyncJobsActor::new(client_sender_for_sync_jobs.as_multi_sender());
+    let sync_jobs_actor = SyncJobsActor::new(
+        client_sender_for_sync_jobs.as_multi_sender(),
+        apply_chunks_iteration_mode,
+    );
     let sync_jobs_actor_addr = actor_system.spawn_tokio_actor(sync_jobs_actor);
 
     // Create chunk validation actor
@@ -232,10 +237,9 @@ pub fn start_client(
         adv,
         config_updater,
         sync_jobs_actor_addr.into_multi_sender(),
-        // TODO(spice): Pass in chunk_executor_sender.
-        noop().into_sender(),
-        // TODO(spice): Pass in spice_chunk_validator_sender.
-        noop().into_sender(),
+        spice_client_config.chunk_executor_sender,
+        spice_client_config.spice_chunk_validator_sender,
+        spice_client_config.spice_data_distributor_sender,
     )
     .unwrap();
     let tx_pool = client_actor_inner.client.chunk_producer.sharded_tx_pool.clone();
@@ -312,6 +316,11 @@ pub struct ClientActorInner {
     /// needs to be aware of new blocks.
     /// Without spice should be a noop sender.
     spice_chunk_validator_sender: Sender<ProcessedBlock>,
+
+    /// With spice spice data distributor receives spice data; for that it requires block
+    /// information. Since data may arrive before blocks it needs to be aware of new blocks.
+    /// Without spice should be a noop sender.
+    spice_data_distributor_sender: Sender<ProcessedBlock>,
 }
 
 impl messaging::Actor for ClientActorInner {
@@ -387,6 +396,7 @@ impl ClientActorInner {
         sync_jobs_sender: SyncJobsSenderForClient,
         chunk_executor_sender: Sender<ProcessedBlock>,
         spice_chunk_validator_sender: Sender<ProcessedBlock>,
+        spice_data_distributor_sender: Sender<ProcessedBlock>,
     ) -> Result<Self, Error> {
         if let Some(vs) = &client.validator_signer.get() {
             info!(target: "client", "Starting validator node: {}", vs.validator_id());
@@ -427,6 +437,7 @@ impl ClientActorInner {
             sync_jobs_sender,
             chunk_executor_sender,
             spice_chunk_validator_sender,
+            spice_data_distributor_sender,
         })
     }
 }
@@ -626,16 +637,29 @@ impl Handler<SpanWrapped<BlockApproval>> for ClientActorInner {
 /// It contains either StateSync header information (that tells us how many parts there are etc) or a single part.
 impl Handler<SpanWrapped<StateResponseReceived>> for ClientActorInner {
     fn handle(&mut self, msg: SpanWrapped<StateResponseReceived>) {
-        let StateResponseReceived { peer_id, state_response_info } = msg.span_unwrap();
-        let shard_id = state_response_info.shard_id();
-        let hash = state_response_info.sync_hash();
-        let state_response = state_response_info.take_state_response();
+        let StateResponseReceived { peer_id, state_response } = msg.span_unwrap();
+        let hash = state_response.sync_hash();
+        let shard_id = state_response.shard_id();
 
-        trace!(target: "sync", "Received state response shard_id: {} sync_hash: {:?} part(id/size): {:?}",
-               shard_id,
-               hash,
-               state_response.part_id().zip(state_response.payload_length()),
-        );
+        match state_response {
+            StateResponse::Ack(ref ack) => {
+                trace!(target: "sync", "Received state request ack shard_id: {} sync_hash: {:?} part_id: {:?} ack: {:?}",
+                    shard_id,
+                    hash,
+                    state_response.part_id_or_header(),
+                    ack.body,
+                );
+            }
+            StateResponse::State(ref state) => {
+                trace!(target: "sync", "Received state response shard_id: {} sync_hash: {:?} part_id: {:?} size: {:?}",
+                    shard_id,
+                    hash,
+                    state_response.part_id_or_header(),
+                    state.payload_length(),
+                );
+            }
+        }
+
         // Get the download that matches the shard_id and hash
 
         // ... It could be that the state was requested by the state sync
@@ -643,12 +667,9 @@ impl Handler<SpanWrapped<StateResponseReceived>> for ClientActorInner {
             &mut self.client.sync_handler.sync_status
         {
             if hash == *sync_hash {
-                if let Err(err) = self.client.sync_handler.state_sync.apply_peer_message(
-                    peer_id,
-                    shard_id,
-                    *sync_hash,
-                    state_response,
-                ) {
+                if let Err(err) =
+                    self.client.sync_handler.state_sync.apply_peer_message(peer_id, state_response)
+                {
                     tracing::error!(?err, "Error applying state sync response");
                 }
                 return;
@@ -659,8 +680,7 @@ impl Handler<SpanWrapped<StateResponseReceived>> for ClientActorInner {
         if let Some(CatchupState { state_sync, .. }) =
             self.client.catchup_state_syncs.get_mut(&hash)
         {
-            if let Err(err) = state_sync.apply_peer_message(peer_id, shard_id, hash, state_response)
-            {
+            if let Err(err) = state_sync.apply_peer_message(peer_id, state_response) {
                 tracing::error!(?err, "Error applying catchup state sync response");
             }
             return;
@@ -1502,6 +1522,7 @@ impl ClientActorInner {
             self.check_send_announce_account(*block.header().last_final_block());
             self.chunk_executor_sender.send(ProcessedBlock { block_hash: accepted_block });
             self.spice_chunk_validator_sender.send(ProcessedBlock { block_hash: accepted_block });
+            self.spice_data_distributor_sender.send(ProcessedBlock { block_hash: accepted_block });
             self.client.chain.spice_core_processor.send_execution_result_endorsements(&block);
         }
     }

@@ -10,13 +10,16 @@ use near_chain::state_snapshot_actor::{
     SnapshotCallbacks, StateSnapshotActor, get_delete_snapshot_callback, get_make_snapshot_callback,
 };
 use near_chain::types::RuntimeAdapter;
-use near_chain::{ApplyChunksSpawner, ChainGenesis};
-use near_chain_configs::{MutableConfigValue, ReshardingHandle};
+use near_chain::{ApplyChunksIterationMode, ApplyChunksSpawner, ChainGenesis};
+use near_chain_configs::{CloudArchivalHandle, MutableConfigValue, ReshardingHandle};
 use near_chunks::shards_manager_actor::ShardsManagerActor;
+use near_client::archive::cloud_archival_actor::CloudArchivalActor;
+use near_client::archive::cold_store_actor::create_cold_store_actor;
 use near_client::chunk_executor_actor::ChunkExecutorActor;
 use near_client::client_actor::ClientActorInner;
 use near_client::gc_actor::GCActor;
 use near_client::spice_chunk_validator_actor::SpiceChunkValidatorActor;
+use near_client::spice_data_distributor_actor::SpiceDataDistributorActor;
 use near_client::sync_jobs_actor::SyncJobsActor;
 use near_client::{
     AsyncComputationMultiSpawner, Client, PartialWitnessActor, RpcHandler, RpcHandlerConfig,
@@ -31,6 +34,7 @@ use near_primitives::genesis::GenesisId;
 use near_primitives::network::PeerId;
 use near_primitives::test_utils::create_test_signer;
 use near_store::adapter::StoreAdapter;
+use near_store::config::SplitStorageConfig;
 use near_store::{StoreConfig, TrieConfig};
 use near_vm_runner::{ContractRuntimeCache, FilesystemContractRuntimeCache};
 use nearcore::state_sync::StateSyncDumper;
@@ -47,7 +51,7 @@ pub fn setup_client(
     node_state: NodeSetupState,
     shared_state: &SharedState,
 ) -> NodeExecutionData {
-    let NodeSetupState { account_id, client_config, store, split_store } = node_state;
+    let NodeSetupState { account_id, client_config, storage } = node_state;
     let SharedState {
         genesis,
         tempdir,
@@ -69,9 +73,10 @@ pub fn setup_client(
     let sync_jobs_adapter = LateBoundSender::new();
     let resharding_sender = LateBoundSender::new();
     let chunk_executor_adapter = LateBoundSender::new();
+    let spice_data_distributor_adapter = LateBoundSender::new();
     let spice_chunk_validator_adapter = LateBoundSender::new();
 
-    let homedir = tempdir.path().join(format!("{}", identifier));
+    let homedir = NodeExecutionData::homedir(tempdir, identifier);
     std::fs::create_dir_all(&homedir).expect("Unable to create homedir");
 
     let store_config = StoreConfig {
@@ -80,10 +85,12 @@ pub fn setup_client(
         ..Default::default()
     };
 
-    let sync_jobs_actor = SyncJobsActor::new(client_adapter.as_multi_sender());
+    let apply_chunks_iteration_mode = ApplyChunksIterationMode::Sequential;
+    let sync_jobs_actor =
+        SyncJobsActor::new(client_adapter.as_multi_sender(), apply_chunks_iteration_mode);
     let chain_genesis = ChainGenesis::new(&genesis.config);
     let epoch_manager = EpochManager::new_arc_handle_from_epoch_config_store(
-        store.clone(),
+        storage.hot_store.clone(),
         &genesis.config,
         epoch_config_store.clone(),
     );
@@ -91,7 +98,7 @@ pub fn setup_client(
     let contract_cache = FilesystemContractRuntimeCache::test().expect("filesystem contract cache");
     let runtime_adapter = NightshadeRuntime::test_with_trie_config(
         &homedir,
-        store.clone(),
+        storage.hot_store.clone(),
         ContractRuntimeCache::handle(&contract_cache),
         &genesis.config,
         epoch_manager.clone(),
@@ -160,6 +167,7 @@ pub fn setup_client(
         [0; 32],
         Some(snapshot_callbacks),
         multi_spawner,
+        apply_chunks_iteration_mode,
         partial_witness_adapter.as_multi_sender(),
         resharding_sender.as_multi_sender(),
         Arc::new(test_loop.future_spawner(identifier)),
@@ -175,7 +183,7 @@ pub fn setup_client(
     // versions of EpochManager, ShardTracker and RuntimeAdapter and use them to initialize the
     // ViewClientActorInner. Otherwise, we use the regular versions created above.
     let (view_epoch_manager, view_shard_tracker, view_runtime_adapter) =
-        if let Some(split_store) = &split_store {
+        if let Some(split_store) = &storage.split_store {
             let view_epoch_manager = EpochManager::new_arc_handle_from_epoch_config_store(
                 split_store.clone(),
                 &genesis.config,
@@ -231,7 +239,7 @@ pub fn setup_client(
         shard_tracker.clone(),
         network_adapter.as_sender(),
         client_adapter.as_sender(),
-        store.chunk_store(),
+        storage.hot_store.chunk_store(),
         <_>::clone(&head),
         <_>::clone(&header_head),
         Duration::milliseconds(100),
@@ -261,6 +269,11 @@ pub fn setup_client(
     } else {
         noop().into_sender()
     };
+    let spice_data_distributor_sender = if cfg!(feature = "protocol_feature_spice") {
+        spice_data_distributor_adapter.as_sender()
+    } else {
+        noop().into_sender()
+    };
     let client_actor = ClientActorInner::new(
         test_loop.clock(),
         client,
@@ -273,6 +286,7 @@ pub fn setup_client(
         sync_jobs_adapter.as_multi_sender(),
         chunk_executor_sender,
         spice_chunk_validator_sender,
+        spice_data_distributor_sender,
     )
     .unwrap();
 
@@ -326,10 +340,45 @@ pub fn setup_client(
         epoch_manager.clone(),
         shard_tracker.clone(),
         client_config.gc.clone(),
-        client_config.archive,
+        // In testloop, we do not use legacy archival node.
+        storage.cold_db.is_some(),
     );
     // We don't send messages to `GCActor` so adapter is not needed.
     test_loop.data.register_actor(identifier, gc_actor, None);
+
+    let cold_store_sender = if storage.split_store.is_some() {
+        let (cold_store_actor, _) = create_cold_store_actor(
+            Some(client_config.save_trie_changes),
+            &SplitStorageConfig::default(),
+            genesis.config.genesis_height,
+            runtime_adapter.store().clone(),
+            storage.cold_db.as_ref(),
+            epoch_manager.clone(),
+            shard_tracker.clone(),
+        )
+        .unwrap()
+        .unwrap();
+        let sender = LateBoundSender::new();
+        let sender = test_loop.data.register_actor(identifier, cold_store_actor, Some(sender));
+        Some(sender)
+    } else {
+        None
+    };
+
+    let cloud_archival_sender = if let Some(config) = &client_config.cloud_archival_writer {
+        let cloud_archival_actor = CloudArchivalActor::new(
+            config.clone(),
+            genesis.config.genesis_height,
+            storage.hot_store,
+            genesis.config.genesis_height,
+            CloudArchivalHandle::new(),
+        );
+        let sender = LateBoundSender::new();
+        let sender = test_loop.data.register_actor(identifier, cloud_archival_actor, Some(sender));
+        Some(sender)
+    } else {
+        None
+    };
 
     let resharding_actor = ReshardingActor::new(
         epoch_manager.clone(),
@@ -338,10 +387,20 @@ pub fn setup_client(
         client_config.resharding_config.clone(),
     );
 
+    let spice_data_distributor_actor = SpiceDataDistributorActor::new(
+        epoch_manager.clone(),
+        runtime_adapter.store().chain_store(),
+        spice_core_processor.clone(),
+        validator_signer.clone(),
+        network_adapter.as_multi_sender(),
+        chunk_executor_adapter.as_sender(),
+        spice_chunk_validator_adapter.as_sender(),
+    );
+
+    let apply_chunks_iteration_mode = ApplyChunksIterationMode::Sequential;
     let chunk_executor_actor = ChunkExecutorActor::new(
         runtime_adapter.store().clone(),
         &chain_genesis,
-        *client_actor.client.chain.genesis().hash(),
         runtime_adapter.clone(),
         epoch_manager.clone(),
         shard_tracker.clone(),
@@ -350,15 +409,18 @@ pub fn setup_client(
         spice_core_processor.clone(),
         client_actor.client.chunk_endorsement_tracker.clone(),
         Arc::new(test_loop.async_computation_spawner(identifier, |_| Duration::milliseconds(80))),
+        apply_chunks_iteration_mode,
         chunk_executor_adapter.as_sender(),
-        client_config.save_latest_witnesses,
+        spice_data_distributor_adapter.as_multi_sender(),
     );
 
-    let chunk_executor_sender = test_loop.data.register_actor(
+    let spice_data_distributor_sender = test_loop.data.register_actor(
         identifier,
-        chunk_executor_actor,
-        Some(chunk_executor_adapter),
+        spice_data_distributor_actor,
+        Some(spice_data_distributor_adapter),
     );
+
+    test_loop.data.register_actor(identifier, chunk_executor_actor, Some(chunk_executor_adapter));
 
     let spice_chunk_validator_actor = SpiceChunkValidatorActor::new(
         runtime_adapter.store().clone(),
@@ -372,11 +434,9 @@ pub fn setup_client(
         ApplyChunksSpawner::Custom(Arc::new(
             test_loop.async_computation_spawner(identifier, |_| Duration::milliseconds(80)),
         )),
-        client_config.save_latest_witnesses,
-        client_config.save_invalid_witnesses,
     );
 
-    let spice_chunk_validator_sender = test_loop.data.register_actor(
+    test_loop.data.register_actor(
         identifier,
         spice_chunk_validator_actor,
         Some(spice_chunk_validator_adapter),
@@ -452,8 +512,9 @@ pub fn setup_client(
         peer_manager_sender,
         resharding_sender,
         state_sync_dumper_handle,
-        chunk_executor_sender,
-        spice_chunk_validator_sender,
+        spice_data_distributor_sender,
+        cold_store_sender,
+        cloud_archival_sender,
     };
 
     // Add the client to the network shared state before returning data

@@ -91,7 +91,6 @@ test_features = [
     "near-vm-runner/test_features",
 ]
 nightly = [
-    "near-async/nightly",
     "near-chain-configs/nightly",
     "near-chain/nightly",
     "near-chunks/nightly",

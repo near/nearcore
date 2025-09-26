@@ -36,8 +36,6 @@ pub enum VMKind {
     Wasmer2,
     /// NearVM.
     NearVm,
-    /// NearVM. Exists temporarily while bulk memory and reftypes are getting enabled.
-    NearVm2,
 }
 
 impl VMKind {
@@ -185,6 +183,9 @@ pub struct Config {
 
     /// Whether to enable saturating reference types and bulk memory wasm extensions.
     pub reftypes_bulk_memory: bool,
+
+    /// Whether to host functions introduced with deterministic account ids.
+    pub deterministic_account_ids: bool,
 
     /// Describes limits for VM and Runtime.
     pub limit_config: LimitConfig,

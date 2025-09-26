@@ -92,7 +92,6 @@ test_features = [
 
 nightly = [
   "near-actix-test-utils/nightly",
-  "near-async/nightly",
   "near-chain-configs/nightly",
   "near-chain/nightly",
   "near-chunks/nightly",

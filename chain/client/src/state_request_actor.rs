@@ -6,7 +6,7 @@ use near_async::time::{Clock, Duration, Instant};
 use near_chain::state_sync::ChainStateSyncAdapter;
 use near_chain::types::RuntimeAdapter;
 use near_epoch_manager::EpochManagerAdapter;
-use near_network::client::{StateRequestHeader, StateRequestPart, StateResponse};
+use near_network::client::{StatePartOrHeader, StateRequestHeader, StateRequestPart};
 use near_network::types::{StateResponseInfo, StateResponseInfoV2};
 use near_performance_metrics_macros::perf;
 use near_primitives::errors::EpochError;
@@ -156,22 +156,22 @@ fn new_header_response(
     sync_hash: CryptoHash,
     header: ShardStateSyncResponseHeaderV2,
     protocol_version: ProtocolVersion,
-) -> StateResponse {
+) -> StatePartOrHeader {
     let state_response = ShardStateSyncResponse::new_from_header(Some(header), protocol_version);
     let state_response_info = StateResponseInfoV2 { shard_id, sync_hash, state_response };
     let info = StateResponseInfo::V2(Box::new(state_response_info));
-    StateResponse(Box::new(info))
+    StatePartOrHeader(Box::new(info))
 }
 
 fn new_header_response_empty(
     shard_id: ShardId,
     sync_hash: CryptoHash,
     protocol_version: ProtocolVersion,
-) -> StateResponse {
+) -> StatePartOrHeader {
     let state_response = ShardStateSyncResponse::new_from_header(None, protocol_version);
     let state_response_info = StateResponseInfoV2 { shard_id, sync_hash, state_response };
     let info = StateResponseInfo::V2(Box::new(state_response_info));
-    StateResponse(Box::new(info))
+    StatePartOrHeader(Box::new(info))
 }
 
 fn new_part_response(
@@ -180,28 +180,28 @@ fn new_part_response(
     part_id: u64,
     part: Option<StatePart>,
     protocol_version: ProtocolVersion,
-) -> StateResponse {
+) -> StatePartOrHeader {
     let part = part.map(|part| (part_id, part));
     let state_response = ShardStateSyncResponse::new_from_part(part, protocol_version);
     let state_response_info = StateResponseInfoV2 { shard_id, sync_hash, state_response };
     let info = StateResponseInfo::V2(Box::new(state_response_info));
-    StateResponse(Box::new(info))
+    StatePartOrHeader(Box::new(info))
 }
 
 fn new_part_response_empty(
     shard_id: ShardId,
     sync_hash: CryptoHash,
     protocol_version: ProtocolVersion,
-) -> StateResponse {
+) -> StatePartOrHeader {
     let state_response = ShardStateSyncResponse::new_from_part(None, protocol_version);
     let state_response_info = StateResponseInfoV2 { shard_id, sync_hash, state_response };
     let info = StateResponseInfo::V2(Box::new(state_response_info));
-    StateResponse(Box::new(info))
+    StatePartOrHeader(Box::new(info))
 }
 
-impl Handler<StateRequestHeader, Option<StateResponse>> for StateRequestActor {
+impl Handler<StateRequestHeader, Option<StatePartOrHeader>> for StateRequestActor {
     #[perf]
-    fn handle(&mut self, msg: StateRequestHeader) -> Option<StateResponse> {
+    fn handle(&mut self, msg: StateRequestHeader) -> Option<StatePartOrHeader> {
         let StateRequestHeader { shard_id, sync_hash } = msg;
         let _timer = metrics::STATE_SYNC_REQUEST_TIME
             .with_label_values(&["StateRequestHeader"])
@@ -252,9 +252,9 @@ impl Handler<StateRequestHeader, Option<StateResponse>> for StateRequestActor {
     }
 }
 
-impl Handler<StateRequestPart, Option<StateResponse>> for StateRequestActor {
+impl Handler<StateRequestPart, Option<StatePartOrHeader>> for StateRequestActor {
     #[perf]
-    fn handle(&mut self, msg: StateRequestPart) -> Option<StateResponse> {
+    fn handle(&mut self, msg: StateRequestPart) -> Option<StatePartOrHeader> {
         let StateRequestPart { shard_id, sync_hash, part_id } = msg;
         let _timer =
             metrics::STATE_SYNC_REQUEST_TIME.with_label_values(&["StateRequestPart"]).start_timer();

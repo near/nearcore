@@ -2,7 +2,7 @@ use crate::accounts_data::{AccountDataCache, AccountDataError};
 use crate::announce_accounts::AnnounceAccountCache;
 use crate::client::{
     BlockApproval, ChunkEndorsementMessage, ClientSenderForNetwork, ProcessTxRequest,
-    TxStatusRequest, TxStatusResponse,
+    StateResponse, StateResponseReceived, TxStatusRequest, TxStatusResponse,
 };
 use crate::concurrency::demux;
 use crate::concurrency::runtime::Runtime;
@@ -23,6 +23,9 @@ use crate::routing::NetworkTopologyChange;
 use crate::routing::route_back_cache::RouteBackCache;
 use crate::shards_manager::ShardsManagerRequestFromNetwork;
 use crate::snapshot_hosts::{SnapshotHostInfoError, SnapshotHostsCache};
+use crate::spice_data_distribution::{
+    SpiceDataDistributorSenderForNetwork, SpiceIncomingPartialData,
+};
 use crate::state_witness::{
     ChunkContractAccessesMessage, ChunkStateWitnessAckMessage, ContractCodeRequestMessage,
     ContractCodeResponseMessage, PartialEncodedContractDeploysMessage,
@@ -38,8 +41,9 @@ use crate::types::{
 };
 use anyhow::Context;
 use arc_swap::ArcSwap;
+use near_async::futures::FutureSpawner;
 use near_async::messaging::{CanSend, SendAsync, Sender};
-use near_async::time;
+use near_async::{ActorSystem, time};
 use near_o11y::span_wrapped_msg::SpanWrappedMessageExt;
 use near_primitives::genesis::GenesisId;
 use near_primitives::hash::CryptoHash;
@@ -98,10 +102,8 @@ pub(crate) struct NetworkState {
     /// Async methods of NetworkState are not cancellable,
     /// so calling them from, for example, PeerActor is dangerous because
     /// PeerActor can be stopped at any moment.
-    /// WARNING: DO NOT spawn infinite futures/background loops on this arbiter,
+    /// WARNING: DO NOT spawn infinite futures/background loops on this runtime,
     /// as it will be automatically closed only when the NetworkState is dropped.
-    /// WARNING: actix actors can be spawned only when actix::System::current() is set.
-    /// DO NOT spawn actors from a task on this runtime.
     runtime: Runtime,
     /// PeerManager config.
     pub config: config::VerifiedConfig,
@@ -114,6 +116,7 @@ pub(crate) struct NetworkState {
     pub peer_manager_adapter: PeerManagerSenderForNetwork,
     pub shards_manager_adapter: Sender<ShardsManagerRequestFromNetwork>,
     pub partial_witness_adapter: PartialWitnessSenderForNetwork,
+    pub spice_data_distributor_adapter: SpiceDataDistributorSenderForNetwork,
 
     /// Network-related info about the chain.
     pub chain_info: ArcSwap<Option<ChainInfo>>,
@@ -181,6 +184,7 @@ pub(crate) struct NetworkState {
 impl NetworkState {
     pub fn new(
         clock: &time::Clock,
+        future_spawner: &dyn FutureSpawner,
         store: store::Store,
         peer_store: peer_store::PeerStore,
         config: config::VerifiedConfig,
@@ -191,6 +195,7 @@ impl NetworkState {
         shards_manager_adapter: Sender<ShardsManagerRequestFromNetwork>,
         partial_witness_adapter: PartialWitnessSenderForNetwork,
         whitelist_nodes: Vec<WhitelistNode>,
+        spice_data_distributor_adapter: SpiceDataDistributorSenderForNetwork,
     ) -> Self {
         Self {
             runtime: Runtime::new(),
@@ -229,13 +234,17 @@ impl NetworkState {
             )),
             txns_since_last_block: AtomicUsize::new(0),
             whitelist_nodes,
-            add_edges_demux: demux::Demux::new(config.routing_table_update_rate_limit),
+            add_edges_demux: demux::Demux::new(
+                config.routing_table_update_rate_limit,
+                future_spawner,
+            ),
             #[cfg(feature = "distance_vector_routing")]
             update_routes_demux: demux::Demux::new(config.routing_table_update_rate_limit),
             set_chain_info_mutex: Mutex::new(()),
             config,
             created_at: clock.now(),
             tier1_advertise_proxies_mutex: tokio::sync::Mutex::new(()),
+            spice_data_distributor_adapter,
         }
     }
 
@@ -467,6 +476,7 @@ impl NetworkState {
     pub async fn reconnect(
         self: &Arc<Self>,
         clock: time::Clock,
+        actor_system: ActorSystem,
         peer_info: PeerInfo,
         max_attempts: usize,
     ) {
@@ -479,9 +489,15 @@ impl NetworkState {
                     tcp::Stream::connect(&peer_info, tcp::Tier::T2, &self.config.socket_options)
                         .await
                         .context("tcp::Stream::connect()")?;
-                PeerActor::spawn_and_handshake(clock.clone(), stream, None, self.clone())
-                    .await
-                    .context("PeerActor::spawn()")?;
+                PeerActor::spawn_and_handshake(
+                    clock.clone(),
+                    actor_system.clone(),
+                    stream,
+                    None,
+                    self.clone(),
+                )
+                .await
+                .context("PeerActor::spawn()")?;
                 anyhow::Ok(())
             }
             .await;
@@ -635,7 +651,7 @@ impl NetworkState {
                 &clock,
                 RawRoutedMessage { target: PeerIdOrHash::PeerId(my_peer_id.clone()), body: msg },
             );
-            actix::spawn(async move {
+            self.spawn(async move {
                 let hash = msg.hash();
                 this.receive_routed_message(
                     &clock,
@@ -765,6 +781,11 @@ impl NetworkState {
                     self.partial_witness_adapter.send(ContractCodeResponseMessage(response));
                     None
                 }
+                T1MessageBody::SpicePartialData(spice_partial_data) => {
+                    self.spice_data_distributor_adapter
+                        .send(SpiceIncomingPartialData { data: spice_partial_data });
+                    None
+                }
             },
             TieredMessageBody::T2(body) => match *body {
                 T2MessageBody::TxStatusRequest(account_id, tx_hash) => self
@@ -845,6 +866,19 @@ impl NetworkState {
                 T2MessageBody::PartialEncodedContractDeploys(deploys) => {
                     self.partial_witness_adapter
                         .send(PartialEncodedContractDeploysMessage(deploys));
+                    None
+                }
+                T2MessageBody::StateRequestAck(ack) => {
+                    self.client
+                        .send_async(
+                            StateResponseReceived {
+                                peer_id: msg_author,
+                                state_response: StateResponse::Ack(ack),
+                            }
+                            .span_wrap(),
+                        )
+                        .await
+                        .ok();
                     None
                 }
                 body => {

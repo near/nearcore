@@ -31,7 +31,7 @@ use std::sync::Arc;
 pub fn account_new(amount: Balance, code_hash: CryptoHash) -> Account {
     Account::new(
         amount,
-        0,
+        Balance::ZERO,
         AccountContract::from_local_code_hash(code_hash),
         std::mem::size_of::<Account>() as u64,
     )
@@ -856,9 +856,9 @@ impl TestBlockBuilder {
             None,
             self.approvals,
             num_rational::Ratio::new(0, 1),
-            0,
-            0,
-            Some(0),
+            Balance::ZERO,
+            Balance::ZERO,
+            Some(Balance::ZERO),
             self.signer.as_ref(),
             self.next_bp_hash,
             self.block_merkle_root,
@@ -973,11 +973,14 @@ impl EpochInfoProvider for MockEpochInfoProvider {
     }
 
     fn validator_total_stake(&self, _epoch_id: &EpochId) -> Result<Balance, EpochError> {
-        Ok(self.validators.values().sum())
+        Ok(self
+            .validators
+            .values()
+            .fold(Balance::ZERO, |sum, item| sum.checked_add(*item).unwrap()))
     }
 
     fn minimum_stake(&self, _prev_block_hash: &CryptoHash) -> Result<Balance, EpochError> {
-        Ok(0)
+        Ok(Balance::ZERO)
     }
 
     fn chain_id(&self) -> String {
@@ -1067,7 +1070,12 @@ impl FinalExecutionOutcomeView {
 
     /// Calculates how much NEAR was burnt for gas, after refunds.
     pub fn tokens_burnt(&self) -> Balance {
-        self.transaction_outcome.outcome.tokens_burnt
-            + self.receipts_outcome.iter().map(|r| r.outcome.tokens_burnt).sum::<u128>()
+        self.transaction_outcome
+            .outcome
+            .tokens_burnt
+            .checked_add(self.receipts_outcome.iter().fold(Balance::ZERO, |sum, item| {
+                sum.checked_add(item.outcome.tokens_burnt).unwrap()
+            }))
+            .unwrap()
     }
 }
