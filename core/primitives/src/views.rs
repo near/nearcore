@@ -1369,7 +1369,6 @@ pub enum ActionView {
         #[cfg_attr(feature = "schemars", schemars(with = "BTreeMap<String, String>"))]
         data: BTreeMap<Vec<u8>, Vec<u8>>,
         deposit: Balance,
-        version: u32,
     } = 13,
 }
 
@@ -1421,7 +1420,6 @@ impl From<Action> for ActionView {
                 }
             },
             Action::DeterministicStateInit(action) => {
-                let version = action.state_init.version();
                 let (code, data) = action.state_init.take();
                 match code {
                     GlobalContractIdentifier::CodeHash(code_hash) => {
@@ -1429,7 +1427,6 @@ impl From<Action> for ActionView {
                             code: GlobalContractIdentifierView::CodeHash(code_hash),
                             data,
                             deposit: action.deposit,
-                            version,
                         }
                     }
                     GlobalContractIdentifier::AccountId(account_id) => {
@@ -1437,7 +1434,6 @@ impl From<Action> for ActionView {
                             code: GlobalContractIdentifierView::AccountId(account_id),
                             data,
                             deposit: action.deposit,
-                            version,
                         }
                     }
                 }
@@ -1501,12 +1497,7 @@ impl TryFrom<ActionView> for Action {
                     contract_identifier: GlobalContractIdentifier::AccountId(account_id),
                 }))
             }
-            ActionView::DeterministicStateInit { code, data, deposit, version } => {
-                if version != 1 {
-                    return Err(
-                        format!("Unsupported deterministic account id version {version}").into()
-                    );
-                }
+            ActionView::DeterministicStateInit { code, data, deposit } => {
                 let code = match code {
                     GlobalContractIdentifierView::CodeHash(code_hash) => {
                         GlobalContractIdentifier::CodeHash(code_hash)
