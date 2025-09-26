@@ -184,12 +184,10 @@ pub fn spice_validate_chunk_state_witness(
     let epoch_id = epoch_manager.get_epoch_id(block_hash)?;
     let shard_uid = shard_id_to_uid(epoch_manager, shard_id, &epoch_id)?;
 
-    assert_eq!(shard_id, pre_validation_output.new_chunk_data.chunk_header.shard_id());
-
     // TODO(spice): Similar to non-spice validation consider using cache to avoid re-evaluating
     // the same witnesses.
     let (chunk_extra, outgoing_receipts) = {
-        let chunk_header = pre_validation_output.new_chunk_data.chunk_header.clone();
+        let gas_limit = pre_validation_output.new_chunk_data.gas_limit;
         let NewChunkResult { apply_result: mut main_apply_result, .. } = apply_new_chunk(
             ApplyChunkReason::ValidateChunkStateWitness,
             &Span::current(),
@@ -198,7 +196,7 @@ pub fn spice_validate_chunk_state_witness(
             runtime_adapter,
         )?;
         let outgoing_receipts = std::mem::take(&mut main_apply_result.outgoing_receipts);
-        let chunk_extra = apply_result_to_chunk_extra(main_apply_result, &chunk_header);
+        let chunk_extra = apply_result_to_chunk_extra(main_apply_result, gas_limit);
 
         (chunk_extra, outgoing_receipts)
     };
@@ -1038,7 +1036,7 @@ mod tests {
 
             let prev_execution_result =
                 prev_execution_results.0.get(&prev_chunk_header.shard_id()).unwrap();
-            let prev_chunk_chunk_extra = prev_execution_result.chunk_extra;
+            let prev_chunk_chunk_extra = &prev_execution_result.chunk_extra;
             let transactions = self.transactions();
             let txs_validity = std::iter::repeat_n(true, transactions.len()).collect_vec();
             let new_chunk_data = NewChunkData {
