@@ -2609,10 +2609,7 @@ pub fn promise_batch_action_state_init(
     state_init_ptr: u64,
     amount_ptr: u64,
 ) -> Result<()> {
-    let memory = caller.data().memory;
-    let Some(Extern::Memory(memory)) = caller.get_module_export(&memory) else {
-        return Err(HostError::MemoryAccessViolation.into());
-    };
+    let memory = get_memory(caller)?;
     let (memory, ctx) = memory.data_and_store_mut(caller);
     ctx.result_state.gas_counter.pay_base(base)?;
     if ctx.context.is_view() {
@@ -2622,7 +2619,8 @@ pub fn promise_batch_action_state_init(
         .into());
     }
 
-    let amount = get_u128(&mut ctx.result_state.gas_counter, memory, amount_ptr)?;
+    let amount =
+        Balance::from_yoctonear(get_u128(&mut ctx.result_state.gas_counter, memory, amount_ptr)?);
 
     let serialized = get_memory_or_register(
         &mut ctx.result_state.gas_counter,

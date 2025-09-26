@@ -2481,7 +2481,9 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
             .into());
         }
 
-        let amount = self.memory.get_u128(&mut self.result_state.gas_counter, amount_ptr)?;
+        let amount = Balance::from_yoctonear(
+            self.memory.get_u128(&mut self.result_state.gas_counter, amount_ptr)?,
+        );
 
         let serialized = get_memory_or_register!(self, state_init_ptr, state_init_len)?;
         let (receipt_idx, sir) = self.promise_idx_to_receipt_idx_with_sir(promise_idx)?;
