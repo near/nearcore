@@ -1,10 +1,22 @@
 use borsh::{BorshDeserialize, BorshSerialize};
+use bytesize::MIB;
 use near_primitives_core::types::ProtocolVersion;
 use near_primitives_core::version::ProtocolFeature;
 use near_schema_checker_lib::ProtocolSchema;
 
 use crate::state::PartialState;
-use crate::state_sync::STATE_PART_MEMORY_LIMIT;
+
+/// Upper bound for a decompressed part size.
+///
+/// Historically, state parts were sent uncompressed and were therefore bounded by
+/// `NETWORK_MESSAGE_MAX_SIZE_BYTES` (512 MB), which makes this limit valid.
+///
+/// `crate::state_sync::STATE_PART_MEMORY_LIMIT` did not work in rare cases, because
+/// `find_state_part_boundary()` is only approximate due to limited granularity (it must pick a range of
+/// nodes). Therefore, the real limit is `crate::state_sync::STATE_PART_MEMORY_LIMIT` plus the maximum trie
+/// node size.
+// TODO(#14340): Try to lower the upper bound, e.g. determine the maximum trie node size.
+const PART_SIZE_LIMIT: u64 = 512 * MIB;
 
 // to specify a part we always specify both part_id and num_parts together
 #[derive(Copy, Clone, Debug)]
@@ -61,14 +73,13 @@ impl StatePartV1 {
     }
 
     fn to_partial_state(&self) -> borsh::io::Result<PartialState> {
-        let part_size_limit = STATE_PART_MEMORY_LIMIT.as_u64();
         let decoder = zstd::stream::read::Decoder::new(self.bytes_compressed.as_slice())?;
         // We add +1 so we can detect when decompressed size exceeds the limit
-        let mut decoder_with_limit = std::io::Read::take(decoder, part_size_limit + 1);
+        let mut decoder_with_limit = std::io::Read::take(decoder, PART_SIZE_LIMIT + 1);
 
         let mut decoded = Vec::new();
         std::io::Read::read_to_end(&mut decoder_with_limit, &mut decoded)?;
-        if decoded.len() > part_size_limit as usize {
+        if decoded.len() > PART_SIZE_LIMIT as usize {
             return Err(borsh::io::Error::new(
                 borsh::io::ErrorKind::InvalidData,
                 "decompression limit exceeded",
@@ -138,8 +149,7 @@ mod tests {
     use near_primitives_core::version::ProtocolFeature;
 
     use crate::state::PartialState;
-    use crate::state_part::StatePart;
-    use crate::state_sync::STATE_PART_MEMORY_LIMIT;
+    use crate::state_part::{PART_SIZE_LIMIT, StatePart};
 
     // Some values with low entropy, to benefit from compression.
     fn dummy_partial_state() -> PartialState {
@@ -201,13 +211,12 @@ mod tests {
 
     #[test]
     fn test_state_part_compression_bomb() {
-        let part_size_limit = STATE_PART_MEMORY_LIMIT.as_u64() as usize;
         let protocol_version = ProtocolFeature::StatePartsCompression.protocol_version();
-        let big_value = Arc::from(vec![b'a'; 2 * part_size_limit].into_boxed_slice());
+        let big_value = Arc::from(vec![b'a'; 2 * PART_SIZE_LIMIT as usize].into_boxed_slice());
         let partial_state = PartialState::TrieValues(vec![big_value]);
 
         let state_part = StatePart::from_partial_state(partial_state, protocol_version, 1);
-        assert!(state_part.payload_length() < part_size_limit / 2);
+        assert!(state_part.payload_length() < PART_SIZE_LIMIT as usize / 2);
 
         let decompression_result = state_part.to_partial_state();
         // Although the compressed size is less than half of the limit, after decompression is twice the limit.
