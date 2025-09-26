@@ -20,7 +20,7 @@ use std::time::Duration;
 use tokio::task::{self, JoinSet};
 
 pub mod account;
-pub mod actix_actor;
+pub mod actor;
 
 // Number of tasks to run producing and sending transactions
 // We need several tasks to not get blocked by the sending latency.

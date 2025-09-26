@@ -1,4 +1,4 @@
-use crate::actix::AutoStopActor;
+use crate::auto_stop::AutoStopActor;
 use crate::broadcast;
 use crate::client::{ClientSenderForNetworkInput, ClientSenderForNetworkMessage};
 use crate::config::NetworkConfig;
@@ -10,7 +10,7 @@ use crate::peer::peer_actor::PeerActor;
 use crate::peer_manager::network_state::NetworkState;
 use crate::peer_manager::peer_manager_actor;
 use crate::peer_manager::peer_store;
-use crate::private_actix::SendMessage;
+use crate::private_messages::SendMessage;
 use crate::shards_manager::ShardsManagerRequestFromNetwork;
 use crate::spice_data_distribution::{
     SpiceDataDistributorSenderForNetworkInput, SpiceDataDistributorSenderForNetworkMessage,
@@ -60,14 +60,14 @@ pub(crate) enum Event {
 
 pub(crate) struct PeerHandle {
     pub cfg: Arc<PeerConfig>,
-    actix: AutoStopActor<PeerActor>,
+    actor: AutoStopActor<PeerActor>,
     pub events: broadcast::Receiver<Event>,
     pub edge: Option<Edge>,
 }
 
 impl PeerHandle {
     pub async fn send(&self, message: PeerMessage) {
-        self.actix
+        self.actor
             .send_async(SendMessage { message: Arc::new(message) }.span_wrap())
             .await
             .unwrap();
@@ -170,11 +170,11 @@ impl PeerHandle {
             vec![],
             spice_data_distribution_sender.break_apart().into_multi_sender(),
         ));
-        let actix = AutoStopActor(
+        let actor = AutoStopActor(
             PeerActor::spawn(clock, actor_system, stream, cfg.force_encoding, network_state)
                 .unwrap()
                 .0,
         );
-        Self { actix, cfg, events: recv, edge: None }
+        Self { actor, cfg, events: recv, edge: None }
     }
 }

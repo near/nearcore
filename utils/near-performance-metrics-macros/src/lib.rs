@@ -20,12 +20,9 @@ use quote::quote;
 /// }
 ///
 /// pub struct ExampleResponse {}
-/// use actix::Context;
-/// impl Handler<NetworkClientMessages> for ClientActor {
-///    type Result = ExampleResponse;
-///
+/// impl Handler<NetworkClientMessages, ExampleResponse> for ClientActor {
 ///    #[perf]
-///    fn handle(&mut self, msg: NetworkClientMessages, ctx: &mut Self::Context<Self>) -> Self::Result {
+///    fn handle(&mut self, msg: NetworkClientMessages) -> Self::Result {
 ///        ExampleResponse{}
 ///    }
 /// }

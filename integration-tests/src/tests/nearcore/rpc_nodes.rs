@@ -1,7 +1,7 @@
 use crate::tests::nearcore::node_cluster::NodeCluster;
 use crate::utils::genesis_helpers::genesis_block;
-use actix::clock::sleep;
 use assert_matches::assert_matches;
+use tokio::time::sleep;
 
 use futures::TryFutureExt;
 use futures::future::join_all;

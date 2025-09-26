@@ -21,7 +21,7 @@ use near_primitives::views::{FinalExecutionStatus, QueryRequest};
 use near_jsonrpc_tests::{NodeType, create_test_setup_with_node_type};
 
 /// Retrieve blocks via json rpc
-#[actix::test]
+#[tokio::test]
 async fn test_block_by_id_height() {
     let setup = create_test_setup_with_node_type(NodeType::NonValidator);
     let client = new_client(&setup.server_addr);
@@ -41,7 +41,7 @@ async fn test_block_by_id_height() {
 }
 
 /// Retrieve blocks via json rpc
-#[actix::test]
+#[tokio::test]
 async fn test_block_by_id_hash() {
     let setup = create_test_setup_with_node_type(NodeType::NonValidator);
     let client = new_client(&setup.server_addr);
@@ -53,7 +53,7 @@ async fn test_block_by_id_hash() {
 }
 
 /// Retrieve blocks via json rpc
-#[actix::test]
+#[tokio::test]
 async fn test_block_query() {
     let setup = create_test_setup_with_node_type(NodeType::NonValidator);
     let client = new_client(&setup.server_addr);
@@ -97,7 +97,7 @@ async fn test_block_query() {
 }
 
 /// Retrieve chunk via json rpc
-#[actix::test]
+#[tokio::test]
 async fn test_chunk_by_hash() {
     let setup = create_test_setup_with_node_type(NodeType::NonValidator);
     let client = new_client(&setup.server_addr);
@@ -127,7 +127,7 @@ async fn test_chunk_by_hash() {
 }
 
 /// Retrieve chunk via json rpc
-#[actix::test]
+#[tokio::test]
 async fn test_chunk_invalid_shard_id() {
     let setup = create_test_setup_with_node_type(NodeType::NonValidator);
     let client = new_client(&setup.server_addr);
@@ -143,7 +143,7 @@ async fn test_chunk_invalid_shard_id() {
 }
 
 /// Connect to json rpc and query account info with soft-deprecated query API.
-#[actix::test]
+#[tokio::test]
 async fn test_query_by_path_account() {
     let setup = create_test_setup_with_node_type(NodeType::NonValidator);
     let client = new_client(&setup.server_addr);
@@ -167,7 +167,7 @@ async fn test_query_by_path_account() {
 }
 
 /// Connect to json rpc and query account info.
-#[actix::test]
+#[tokio::test]
 async fn test_query_account() {
     let setup = create_test_setup_with_node_type(NodeType::NonValidator);
     let client = new_client(&setup.server_addr);
@@ -219,7 +219,7 @@ async fn test_query_account() {
 }
 
 /// Connect to json rpc and query account info with soft-deprecated query API.
-#[actix::test]
+#[tokio::test]
 async fn test_query_by_path_access_keys() {
     let setup = create_test_setup_with_node_type(NodeType::NonValidator);
     let client = new_client(&setup.server_addr);
@@ -242,7 +242,7 @@ async fn test_query_by_path_access_keys() {
 
 // here
 /// Connect to json rpc and query account info.
-#[actix::test]
+#[tokio::test]
 async fn test_query_access_keys() {
     let setup = create_test_setup_with_node_type(NodeType::NonValidator);
     let client = new_client(&setup.server_addr);
@@ -268,7 +268,7 @@ async fn test_query_access_keys() {
 }
 
 /// Connect to json rpc and query account info with soft-deprecated query API.
-#[actix::test]
+#[tokio::test]
 async fn test_query_by_path_access_key() {
     let setup = create_test_setup_with_node_type(NodeType::NonValidator);
     let client = new_client(&setup.server_addr);
@@ -291,7 +291,7 @@ async fn test_query_by_path_access_key() {
 }
 
 /// Connect to json rpc and query account info.
-#[actix::test]
+#[tokio::test]
 async fn test_query_access_key() {
     let setup = create_test_setup_with_node_type(NodeType::NonValidator);
     let client = new_client(&setup.server_addr);
@@ -320,7 +320,7 @@ async fn test_query_access_key() {
 }
 
 /// Connect to json rpc and query state.
-#[actix::test]
+#[tokio::test]
 async fn test_query_state() {
     let setup = create_test_setup_with_node_type(NodeType::NonValidator);
     let client = new_client(&setup.server_addr);
@@ -347,7 +347,7 @@ async fn test_query_state() {
 }
 
 /// Connect to json rpc and call function
-#[actix::test]
+#[tokio::test]
 async fn test_query_call_function() {
     let setup = create_test_setup_with_node_type(NodeType::Validator);
     let client = new_client(&setup.server_addr);
@@ -380,7 +380,7 @@ async fn test_query_call_function() {
 }
 
 /// query contract code
-#[actix::test]
+#[tokio::test]
 async fn test_query_contract_code() {
     let setup = create_test_setup_with_node_type(NodeType::Validator);
     let client = new_client(&setup.server_addr);
@@ -419,7 +419,7 @@ async fn deploy_contract(client: &JsonRpcClient, account: &AccountId, code: Vec<
 }
 
 /// Retrieve client status via JSON RPC.
-#[actix::test]
+#[tokio::test]
 async fn test_status() {
     let setup = create_test_setup_with_node_type(NodeType::NonValidator);
     let client = new_client(&setup.server_addr);
@@ -434,7 +434,7 @@ async fn test_status() {
 }
 
 /// Retrieve client status failed.
-#[actix::test]
+#[tokio::test]
 async fn test_status_fail() {
     init_test_logger();
     let setup = create_test_setup_with_node_type(NodeType::NonValidator);
@@ -455,7 +455,7 @@ async fn test_status_fail() {
 }
 
 /// Check health fails when node is absent.
-#[actix::test]
+#[tokio::test]
 async fn test_health_fail() {
     init_test_logger();
 
@@ -466,7 +466,7 @@ async fn test_health_fail() {
 }
 
 /// Health fails when node doesn't produce block for period of time.
-#[actix::test]
+#[tokio::test]
 async fn test_health_fail_no_blocks() {
     init_test_logger();
     let setup = create_test_setup_with_node_type(NodeType::NonValidator);
@@ -484,7 +484,7 @@ async fn test_health_fail_no_blocks() {
 }
 
 /// Retrieve client health.
-#[actix::test]
+#[tokio::test]
 async fn test_health_ok() {
     let setup = create_test_setup_with_node_type(NodeType::NonValidator);
     let client = new_client(&setup.server_addr);
@@ -493,7 +493,7 @@ async fn test_health_ok() {
     assert_eq!(health, Ok(()));
 }
 
-#[actix::test]
+#[tokio::test]
 async fn test_validators_ordered() {
     let setup = create_test_setup_with_node_type(NodeType::Validator);
     let client = new_client(&setup.server_addr);
@@ -510,7 +510,7 @@ async fn test_validators_ordered() {
 
 /// Retrieve genesis config via JSON RPC.
 /// WARNING: Be mindful about changing genesis structure as it is part of the public protocol!
-#[actix::test]
+#[tokio::test]
 async fn test_genesis_config() {
     let setup = create_test_setup_with_node_type(NodeType::NonValidator);
     let client = new_client(&setup.server_addr);
@@ -527,7 +527,7 @@ async fn test_genesis_config() {
 }
 
 /// Retrieve gas price
-#[actix::test]
+#[tokio::test]
 async fn test_gas_price_by_height() {
     let setup = create_test_setup_with_node_type(NodeType::NonValidator);
     let client = new_client(&setup.server_addr);
@@ -537,7 +537,7 @@ async fn test_gas_price_by_height() {
 }
 
 /// Retrieve gas price
-#[actix::test]
+#[tokio::test]
 async fn test_gas_price_by_hash() {
     let setup = create_test_setup_with_node_type(NodeType::NonValidator);
     let client = new_client(&setup.server_addr);
@@ -548,7 +548,7 @@ async fn test_gas_price_by_hash() {
 }
 
 /// Retrieve gas price
-#[actix::test]
+#[tokio::test]
 async fn test_gas_price() {
     let setup = create_test_setup_with_node_type(NodeType::NonValidator);
     let client = new_client(&setup.server_addr);
@@ -557,7 +557,7 @@ async fn test_gas_price() {
     assert!(gas_price.gas_price > Balance::ZERO);
 }
 
-#[actix::test]
+#[tokio::test]
 async fn test_invalid_methods() {
     let setup = create_test_setup_with_node_type(NodeType::NonValidator);
     let client = new_client(&setup.server_addr);
@@ -600,7 +600,7 @@ async fn test_invalid_methods() {
     }
 }
 
-#[actix::test]
+#[tokio::test]
 async fn test_parse_error_status_code() {
     // cspell:ignore badtx frolik
     let setup = create_test_setup_with_node_type(NodeType::NonValidator);
@@ -628,7 +628,7 @@ async fn test_parse_error_status_code() {
     assert_eq!(response.status(), StatusCode::BAD_REQUEST);
 }
 
-#[actix::test]
+#[tokio::test]
 async fn slow_test_bad_handler_error_status_code() {
     let setup = create_test_setup_with_node_type(NodeType::NonValidator);
     let client = new_client(&setup.server_addr);
@@ -655,7 +655,7 @@ async fn slow_test_bad_handler_error_status_code() {
     assert_eq!(response.status(), StatusCode::REQUEST_TIMEOUT);
 }
 
-#[actix::test]
+#[tokio::test]
 async fn test_good_handler_error_status_code() {
     let setup = create_test_setup_with_node_type(NodeType::NonValidator);
     let client = new_client(&setup.server_addr);
@@ -679,7 +679,7 @@ async fn test_good_handler_error_status_code() {
     assert_eq!(response.status(), StatusCode::OK);
 }
 
-#[actix::test]
+#[tokio::test]
 async fn test_get_chunk_with_object_in_params() {
     let setup = create_test_setup_with_node_type(NodeType::NonValidator);
     let client = new_client(&setup.server_addr);
@@ -708,12 +708,12 @@ async fn test_get_chunk_with_object_in_params() {
     assert_eq!(chunk.header.chunk_hash, same_chunk.header.chunk_hash);
 }
 
-#[actix::test]
+#[tokio::test]
 async fn test_query_global_contract_code_by_hash() {
     test_query_global_contract_code(GlobalContractDeployMode::CodeHash).await;
 }
 
-#[actix::test]
+#[tokio::test]
 async fn test_query_global_contract_code_by_account_id() {
     test_query_global_contract_code(GlobalContractDeployMode::AccountId).await;
 }
