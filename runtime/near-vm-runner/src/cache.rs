@@ -7,9 +7,7 @@ use crate::logic::Config;
 use crate::logic::errors::{CacheError, CompilationError};
 use crate::runner::VMKindExt;
 use borsh::{BorshDeserialize, BorshSerialize};
-use near_parameters::vm::VMKind;
 use near_primitives_core::hash::CryptoHash;
-use near_schema_checker_lib::ProtocolSchema;
 use parking_lot::Mutex;
 
 use std::any::Any;
@@ -23,7 +21,9 @@ use rand::Rng as _;
 #[cfg(not(windows))]
 use std::io::{Read, Write};
 
-#[derive(Debug, Clone, BorshSerialize, ProtocolSchema)]
+#[cfg(any(feature = "wasmtime_vm", all(feature = "near_vm", target_arch = "x86_64")))]
+// FIXME(ProtocolSchema): this isn't really part of the protocol schema??
+#[derive(Debug, Clone, BorshSerialize, near_schema_checker_lib::ProtocolSchema)]
 enum ContractCacheKey {
     _Version1,
     _Version2,
@@ -32,12 +32,12 @@ enum ContractCacheKey {
     Version5 {
         code_hash: CryptoHash,
         vm_config_non_crypto_hash: u64,
-        vm_kind: VMKind,
+        vm_kind: near_parameters::vm::VMKind,
         vm_hash: u64,
     },
 }
 
-#[tracing::instrument(level = "trace", target = "vm", "get_key", skip_all)]
+#[cfg(any(feature = "wasmtime_vm", all(feature = "near_vm", target_arch = "x86_64")))]
 pub(crate) fn get_contract_cache_key(
     code_hash: CryptoHash,
     config: &Config,
