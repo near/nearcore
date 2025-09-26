@@ -17,6 +17,7 @@ use near_crypto::Secp256K1Signature;
 use near_parameters::{
     ActionCosts, ExtCosts, RuntimeFeesConfig, transfer_exec_fee, transfer_send_fee,
 };
+use near_primitives_core::account::AccountContract;
 use near_primitives_core::config::INLINE_DISK_VALUE_THRESHOLD;
 use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::types::{AccountId, Balance, EpochHeight, Gas, GasWeight, StorageUsage};
@@ -2822,30 +2823,6 @@ pub fn set_state_init_data_entry(
     Ok(())
 }
 
-// TODO(sharded_contracts): copy-paste the final implementation of the host
-// functions and adjust to wasmtime runner
-
-pub fn promise_result_length(_caller: &mut Caller<'_, Ctx>, _result_idx: u64) -> Result<u64> {
-    // TODO(sharded_contracts)
-    todo!()
-}
-pub fn current_contract_code(_caller: &mut Caller<'_, Ctx>, _register_id: u64) -> Result<u64> {
-    // TODO(sharded_contracts)
-    todo!()
-}
-pub fn storage_config_byte_cost(_caller: &mut Caller<'_, Ctx>, _balance_ptr: u64) -> Result<()> {
-    // TODO(sharded_contracts)
-    todo!()
-}
-pub fn storage_config_num_bytes_account(_caller: &mut Caller<'_, Ctx>) -> Result<u64> {
-    // TODO(sharded_contracts)
-    todo!()
-}
-pub fn storage_config_num_extra_bytes_record(_caller: &mut Caller<'_, Ctx>) -> Result<u64> {
-    // TODO(sharded_contracts)
-    todo!()
-}
-
 /// Appends `FunctionCall` action to the batch of actions for the given promise pointed by
 /// `promise_idx`.
 ///
@@ -3580,6 +3557,46 @@ pub fn promise_results_count(caller: &mut Caller<'_, Ctx>) -> Result<u64> {
     Ok(ctx.context.promise_results.len() as _)
 }
 
+/// A method to check how much memory [`Self::promise_result()`] would return.
+///
+/// If the current function is invoked by a callback, we can access the length of execution
+/// results of the promises that caused the callback. It can be used to prevent out-of-gas
+/// failures when reading too long execution result via [`Self::promise_result()`].
+///
+/// # Returns
+///
+/// * If promise result is complete and successful returns the length in bytes of the promise result;
+/// * If promise result is not complete or failed returns `0`;
+///
+/// # Errors
+///
+/// * If `result_idx` does not correspond to an existing result returns [`HostError::InvalidPromiseResultIndex`];
+/// * If called as view function returns [`HostError::ProhibitedInView`].
+///
+/// # Cost
+///
+/// `base` - the base cost for a simple host function call
+pub fn promise_result_length(caller: &mut Caller<'_, Ctx>, result_idx: u64) -> Result<u64> {
+    let ctx = caller.data_mut();
+    ctx.result_state.gas_counter.pay_base(base)?;
+    if ctx.context.is_view() {
+        return Err(HostError::ProhibitedInView {
+            method_name: "promise_result_length".to_string(),
+        }
+        .into());
+    }
+    match ctx
+        .context
+        .promise_results
+        .get(result_idx as usize)
+        .ok_or(HostError::InvalidPromiseResultIndex { result_idx })?
+    {
+        PromiseResult::Successful(data) => Ok(data.len() as u64),
+        PromiseResult::NotReady => Ok(0),
+        PromiseResult::Failed => Ok(0),
+    }
+}
+
 /// If the current function is invoked by a callback we can access the execution results of the
 /// promises that caused the callback. This function returns the result in blob format and
 /// places it into the register.
@@ -3862,6 +3879,60 @@ pub fn abort(
     ctx.result_state.checked_push_log(format!("ABORT: {}", message))?;
 
     Err(HostError::GuestPanic { panic_msg: message }.into())
+}
+
+/// Writes the code deployed on current contract being executed to the register.
+///
+/// The output data in the register will either be empty, `CryptoHash`, or `AccountId`,
+/// depending on the return value.
+///
+/// # Returns
+///
+/// Returns a different number depending on the type of contract that is stored on the account
+///  (and has been written to the register).
+///
+/// * 0 if the contract code is None
+/// * 1 if the contract code is Local(CryptoHash)
+/// * 2 if the contract code is Global(CryptoHash)
+/// * 3 if the contract code is GlobalByAccount(AccountId)
+///
+/// # Cost
+///
+/// `base` - the base cost for a simple host function call `write_memory_base` + 16 *
+/// `write_memory_byte` - the cost of writing the data to the register
+pub fn current_contract_code(caller: &mut Caller<'_, Ctx>, register_id: u64) -> Result<u64> {
+    let ctx = caller.data_mut();
+    ctx.result_state.gas_counter.pay_base(base)?;
+    match &ctx.context.account_contract {
+        AccountContract::None => Ok(0),
+        AccountContract::Local(crypto_hash) => {
+            ctx.registers.set(
+                &mut ctx.result_state.gas_counter,
+                &ctx.config.limit_config,
+                register_id,
+                crypto_hash.0,
+            )?;
+            Ok(1)
+        }
+        AccountContract::Global(crypto_hash) => {
+            ctx.registers.set(
+                &mut ctx.result_state.gas_counter,
+                &ctx.config.limit_config,
+                register_id,
+                crypto_hash.0,
+            )?;
+            Ok(2)
+        }
+        AccountContract::GlobalByAccount(account_id) => {
+            ctx.registers.set(
+                &mut ctx.result_state.gas_counter,
+                &ctx.config.limit_config,
+                register_id,
+                account_id.as_bytes(),
+            )?;
+            Ok(3)
+        }
+    }
 }
 
 // ###############
@@ -4193,6 +4264,45 @@ pub fn storage_has_key(caller: &mut Caller<'_, Ctx>, key_len: u64, key_ptr: u64)
 
     ctx.recorded_storage_counter.observe_size(ctx.ext.get_recorded_storage_size())?;
     Ok(res? as u64)
+}
+
+/// Write the protocol storage configuration parameter value for `storage_amount_per_byte` to
+/// the location defined by `balance_ptr`.
+///
+/// # Cost
+///
+/// `base` - the base cost for a simple host function call
+/// `write_memory_base` + 16 * `write_memory_byte` - the cost of writing a `u128` to guest memory
+pub fn storage_config_byte_cost(caller: &mut Caller<'_, Ctx>, balance_ptr: u64) -> Result<()> {
+    let memory = get_memory(caller)?;
+    let (memory, ctx) = memory.data_and_store_mut(caller);
+    ctx.result_state.gas_counter.pay_base(base)?;
+    let cost_per_byte = ctx.fees_config.storage_usage_config.storage_amount_per_byte;
+    set_u128(&mut ctx.result_state.gas_counter, memory, balance_ptr, cost_per_byte.as_yoctonear())
+}
+
+/// Returns the protocol storage configuration parameter value for `num_bytes_account`.
+///
+/// # Cost
+///
+/// `base` - the base cost for a simple host function call
+pub fn storage_config_num_bytes_account(caller: &mut Caller<'_, Ctx>) -> Result<u64> {
+    let ctx = caller.data_mut();
+    ctx.result_state.gas_counter.pay_base(base)?;
+    let bytes = ctx.fees_config.storage_usage_config.num_bytes_account;
+    Ok(bytes)
+}
+
+/// Returns the protocol storage configuration parameter value for `num_extra_bytes_record`.
+///
+/// # Cost
+///
+/// `base` - the base cost for a simple host function call
+pub fn storage_config_num_extra_bytes_record(caller: &mut Caller<'_, Ctx>) -> Result<u64> {
+    let ctx = caller.data_mut();
+    ctx.result_state.gas_counter.pay_base(base)?;
+    let bytes = ctx.fees_config.storage_usage_config.num_extra_bytes_record;
+    Ok(bytes)
 }
 
 /// Debug print given utf-8 string to node log. It's only available in Sandbox node
