@@ -47,7 +47,9 @@ def expensive_tests_in_file(path: pathlib.Path) -> typing.Iterable[str]:
                 pass
             elif line.startswith("#"):
                 is_test = is_test or line in TEST_DIRECTIVES
-            elif any(line.startswith(directive) for directive in EXPENSIVE_DIRECTIVES):
+            elif any(
+                    line.startswith(directive)
+                    for directive in EXPENSIVE_DIRECTIVES):
                 if is_test:
                     match = re.search(r"\bfn\s+([A-Za-z_][A-Za-z_0-9]*)\b",
                                       line)
