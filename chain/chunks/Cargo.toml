@@ -12,7 +12,6 @@ publish = false
 workspace = true
 
 [dependencies]
-actix.workspace = true
 lru.workspace = true
 parking_lot.workspace = true
 rand.workspace = true

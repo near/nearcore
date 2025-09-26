@@ -8,14 +8,14 @@ mod announce_accounts;
 mod network_protocol;
 mod peer;
 mod peer_manager;
-mod private_actix;
+mod private_messages;
 mod rate_limits;
 mod snapshot_hosts;
 mod stats;
 mod store;
 mod stun;
 
-pub mod actix;
+pub mod auto_stop;
 pub mod blacklist;
 pub mod client;
 pub mod concurrency;
