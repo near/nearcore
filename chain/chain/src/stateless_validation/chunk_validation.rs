@@ -22,6 +22,7 @@ use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_assignment::shard_id_to_uid;
 use near_primitives::apply::ApplyChunkReason;
 use near_primitives::block::{Block, BlockHeader};
+use near_primitives::gas::Gas;
 use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::merkle::merklize;
 use near_primitives::receipt::Receipt;
@@ -48,8 +49,17 @@ use std::time::Instant;
 
 #[allow(clippy::large_enum_variant)]
 pub enum MainTransition {
-    Genesis { chunk_extra: ChunkExtra, block_hash: CryptoHash, shard_id: ShardId },
-    NewChunk { new_chunk_data: NewChunkData, block_hash: CryptoHash },
+    Genesis {
+        chunk_extra: ChunkExtra,
+        block_hash: CryptoHash,
+        shard_id: ShardId,
+    },
+    NewChunk {
+        new_chunk_data: NewChunkData,
+        block_hash: CryptoHash,
+        // ShardId from the new chunk.
+        shard_id: ShardId,
+    },
 }
 
 impl MainTransition {
@@ -63,9 +73,7 @@ impl MainTransition {
     pub fn shard_id(&self) -> ShardId {
         match self {
             Self::Genesis { shard_id, .. } => *shard_id,
-            // It is ok to use the shard id from the header because it is a new
-            // chunk. An old chunk may have the shard id from the parent shard.
-            Self::NewChunk { new_chunk_data, .. } => new_chunk_data.chunk_header.shard_id(),
+            Self::NewChunk { shard_id, .. } => *shard_id,
         }
     }
 }
@@ -385,13 +393,15 @@ pub fn pre_validate_chunk_state_witness(
             transaction_validity_check_results,
         );
         let header = store.get_block_header(last_chunk_block.header().prev_hash())?;
+
+        let last_chunk_block_chunks = last_chunk_block.chunks();
+        let chunk_header = last_chunk_block_chunks.get(last_chunk_shard_index).unwrap();
         MainTransition::NewChunk {
             new_chunk_data: NewChunkData {
-                chunk_header: last_chunk_block
-                    .chunks()
-                    .get(last_chunk_shard_index)
-                    .unwrap()
-                    .clone(),
+                gas_limit: chunk_header.gas_limit(),
+                prev_state_root: chunk_header.prev_state_root(),
+                prev_validator_proposals: chunk_header.prev_validator_proposals().collect(),
+                chunk_hash: Some(chunk_header.chunk_hash().clone()),
                 transactions,
                 receipts: receipts_to_apply,
                 block: Chain::get_apply_chunk_block_context(last_chunk_block, &header, true)?,
@@ -402,6 +412,7 @@ pub fn pre_validate_chunk_state_witness(
                     state_patch: Default::default(),
                 },
             },
+            shard_id: chunk_header.shard_id(),
             block_hash: *last_chunk_block.hash(),
         }
     };
@@ -568,7 +579,7 @@ pub fn validate_chunk_state_witness_impl(
         match (pre_validation_output.main_transition_params, cache_result) {
             (MainTransition::Genesis { chunk_extra, .. }, _) => (chunk_extra, vec![]),
             (MainTransition::NewChunk { new_chunk_data, .. }, None) => {
-                let chunk_header = new_chunk_data.chunk_header.clone();
+                let chunk_gas_limit = new_chunk_data.gas_limit;
                 let NewChunkResult { apply_result: mut main_apply_result, .. } = apply_new_chunk(
                     ApplyChunkReason::ValidateChunkStateWitness,
                     &span,
@@ -577,7 +588,7 @@ pub fn validate_chunk_state_witness_impl(
                     runtime_adapter,
                 )?;
                 let outgoing_receipts = std::mem::take(&mut main_apply_result.outgoing_receipts);
-                let chunk_extra = apply_result_to_chunk_extra(main_apply_result, &chunk_header);
+                let chunk_extra = apply_result_to_chunk_extra(main_apply_result, chunk_gas_limit);
 
                 (chunk_extra, outgoing_receipts)
             }
@@ -791,7 +802,7 @@ pub fn validate_chunk_state_witness(
 
 pub fn apply_result_to_chunk_extra(
     apply_result: ApplyChunkResult,
-    chunk: &ShardChunkHeader,
+    chunk_gas_limit: Gas,
 ) -> ChunkExtra {
     let (outcome_root, _) = ApplyChunkResult::compute_outcomes_proof(&apply_result.outcomes);
     ChunkExtra::new(
@@ -799,7 +810,7 @@ pub fn apply_result_to_chunk_extra(
         outcome_root,
         apply_result.validator_proposals,
         apply_result.total_gas_burnt,
-        chunk.gas_limit(),
+        chunk_gas_limit,
         apply_result.total_balance_burnt,
         apply_result.congestion_info,
         apply_result.bandwidth_requests,
