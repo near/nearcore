@@ -3,7 +3,7 @@ use lru::LruCache;
 use near_async::futures::{AsyncComputationSpawner, AsyncComputationSpawnerExt};
 use near_async::messaging::{Actor, CanSend, Handler, Sender};
 use near_async::time::Clock;
-use near_async::{MultiSend, MultiSenderFrom};
+use near_async::{Message, MultiSend, MultiSenderFrom};
 use near_chain::Error;
 use near_chain::types::RuntimeAdapter;
 use near_chain_configs::MutableValidatorSigner;
@@ -91,8 +91,7 @@ pub struct PartialWitnessActor {
 
 impl Actor for PartialWitnessActor {}
 
-#[derive(actix::Message, Debug)]
-#[rtype(result = "()")]
+#[derive(Message, Debug)]
 pub struct DistributeStateWitnessRequest {
     pub state_witness: ChunkStateWitness,
     pub contract_updates: ContractUpdates,

@@ -12,6 +12,7 @@ publish = true
 workspace = true
 
 [dependencies]
+near-async.workspace = true
 near-crypto.workspace = true
 near-fmt = { workspace = true, optional = true }
 near-primitives-core.workspace = true

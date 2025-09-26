@@ -4280,6 +4280,7 @@ name = "near-client-primitives"
 version = "0.0.0"
 dependencies = [
  "actix",
+ "near-async",
  "near-chain-configs",
  "near-chain-primitives",
  "near-chunks-primitives",
@@ -4738,6 +4739,7 @@ dependencies = [
  "bencher",
  "clap",
  "itoa",
+ "near-async",
  "near-crypto",
  "near-fmt",
  "near-primitives-core",
