@@ -1,5 +1,5 @@
 use super::{NearVmMemory, VM_CONFIG, near_vm_vm_hash};
-use crate::cache::{get_contract_cache_key, CompiledContractInfo};
+use crate::cache::{CompiledContractInfo, get_contract_cache_key};
 use crate::errors::ContractPrecompilatonResult;
 use crate::logic::errors::{
     CacheError, CompilationError, FunctionCallError, MethodResolveError, VMRunnerError, WasmTrap,

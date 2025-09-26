@@ -33,7 +33,7 @@ pub use cache::{
 pub use metrics::{report_metrics, reset_metrics};
 pub use near_primitives_core::code::ContractCode;
 pub use profile::ProfileDataV3;
-pub use runner::{Contract, PreparedContract, VM, prepare, run, contract_cached};
+pub use runner::{Contract, PreparedContract, VM, contract_cached, prepare, run};
 
 #[cfg(any(feature = "prepare", feature = "wasmtime_vm"))]
 pub(crate) const MEMORY_EXPORT: &str = "memory";
