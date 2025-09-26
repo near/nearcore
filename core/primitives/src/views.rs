@@ -1421,21 +1421,18 @@ impl From<Action> for ActionView {
             },
             Action::DeterministicStateInit(action) => {
                 let (code, data) = action.state_init.take();
-                match code {
+                let identifier = match code {
                     GlobalContractIdentifier::CodeHash(code_hash) => {
-                        ActionView::DeterministicStateInit {
-                            code: GlobalContractIdentifierView::CodeHash(code_hash),
-                            data,
-                            deposit: action.deposit,
-                        }
+                        GlobalContractIdentifierView::CodeHash(code_hash)
                     }
                     GlobalContractIdentifier::AccountId(account_id) => {
-                        ActionView::DeterministicStateInit {
-                            code: GlobalContractIdentifierView::AccountId(account_id),
-                            data,
-                            deposit: action.deposit,
-                        }
+                        GlobalContractIdentifierView::AccountId(account_id)
                     }
+                };
+                ActionView::DeterministicStateInit {
+                    code: identifier,
+                    data,
+                    deposit: action.deposit,
                 }
             }
         }
