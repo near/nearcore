@@ -238,11 +238,11 @@ impl ApplyChunksDoneWaiter {
             if let Ok(_) = self.0.try_lock() {
                 return;
             }
-            std::thread::sleep(std::time::Duration::from_millis(100));
-            if i % 100 == 0 {
+            if i % 1000 == 0 {
                 // If a node or test is somehow deadlocked on this for some reason, log it to help debugging.
                 tracing::error!("Still waiting for chunks application to complete...");
             }
+            std::thread::sleep(std::time::Duration::from_millis(1));
         }
     }
 }

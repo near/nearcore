@@ -747,7 +747,7 @@ async fn slow_test_state_sync_headers() {
 #[tokio::test]
 // Tests StateRequestHeader and StateRequestPart.
 async fn slow_test_state_sync_headers_no_tracked_shards() {
-    // Huh. The compiler complains about typesystem cycle if this async move is stripped.
+    // Huh. The compiler complains about type system cycle if this async move is stripped.
     Box::pin(async move {
         init_test_logger();
 

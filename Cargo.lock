@@ -4101,7 +4101,6 @@ dependencies = [
  "crossbeam-channel",
  "easy-ext",
  "enum-map",
- "futures",
  "insta",
  "itertools 0.14.0",
  "lru 0.12.3",
