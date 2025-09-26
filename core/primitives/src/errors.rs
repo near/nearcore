@@ -334,25 +334,50 @@ pub enum ActionsValidationError {
     /// The delete action must be a final action in transaction
     DeleteActionMustBeFinal = 0,
     /// The total prepaid gas (for all given actions) exceeded the limit.
-    TotalPrepaidGasExceeded { total_prepaid_gas: Gas, limit: Gas } = 1,
+    TotalPrepaidGasExceeded {
+        total_prepaid_gas: Gas,
+        limit: Gas,
+    } = 1,
     /// The number of actions exceeded the given limit.
-    TotalNumberOfActionsExceeded { total_number_of_actions: u64, limit: u64 } = 2,
+    TotalNumberOfActionsExceeded {
+        total_number_of_actions: u64,
+        limit: u64,
+    } = 2,
     /// The total number of bytes of the method names exceeded the limit in a Add Key action.
-    AddKeyMethodNamesNumberOfBytesExceeded { total_number_of_bytes: u64, limit: u64 } = 3,
+    AddKeyMethodNamesNumberOfBytesExceeded {
+        total_number_of_bytes: u64,
+        limit: u64,
+    } = 3,
     /// The length of some method name exceeded the limit in a Add Key action.
-    AddKeyMethodNameLengthExceeded { length: u64, limit: u64 } = 4,
+    AddKeyMethodNameLengthExceeded {
+        length: u64,
+        limit: u64,
+    } = 4,
     /// Integer overflow during a compute.
     IntegerOverflow = 5,
     /// Invalid account ID.
-    InvalidAccountId { account_id: String } = 6,
+    InvalidAccountId {
+        account_id: String,
+    } = 6,
     /// The size of the contract code exceeded the limit in a DeployContract action.
-    ContractSizeExceeded { size: u64, limit: u64 } = 7,
+    ContractSizeExceeded {
+        size: u64,
+        limit: u64,
+    } = 7,
     /// The length of the method name exceeded the limit in a Function Call action.
-    FunctionCallMethodNameLengthExceeded { length: u64, limit: u64 } = 8,
+    FunctionCallMethodNameLengthExceeded {
+        length: u64,
+        limit: u64,
+    } = 8,
     /// The length of the arguments exceeded the limit in a Function Call action.
-    FunctionCallArgumentsLengthExceeded { length: u64, limit: u64 } = 9,
+    FunctionCallArgumentsLengthExceeded {
+        length: u64,
+        limit: u64,
+    } = 9,
     /// An attempt to stake with a public key that is not convertible to ristretto.
-    UnsuitableStakingKey { public_key: Box<PublicKey> } = 10,
+    UnsuitableStakingKey {
+        public_key: Box<PublicKey>,
+    } = 10,
     /// The attached amount of gas in a FunctionCall action has to be a positive number.
     FunctionCallZeroAttachedGas = 11,
     /// There should be the only one DelegateAction
@@ -363,7 +388,22 @@ pub enum ActionsValidationError {
     /// Note: we stringify the protocol feature name instead of using
     /// `ProtocolFeature` here because we don't want to leak the internals of
     /// that type into observable borsh serialization.
-    UnsupportedProtocolFeature { protocol_feature: String, version: ProtocolVersion } = 13,
+    UnsupportedProtocolFeature {
+        protocol_feature: String,
+        version: ProtocolVersion,
+    } = 13,
+    InvalidDeterministicStateInitReceiver {
+        receiver_id: AccountId,
+        derived_id: AccountId,
+    } = 14,
+    DeterministicStateInitKeyLengthExceeded {
+        length: u64,
+        limit: u64,
+    } = 15,
+    DeterministicStateInitValueLengthExceeded {
+        length: u64,
+        limit: u64,
+    } = 16,
 }
 
 /// Describes the error for validating a receipt.
@@ -514,6 +554,27 @@ impl Display for ActionsValidationError {
                     f,
                     "Transaction requires protocol feature {} / version {} which is not supported by the current protocol version",
                     protocol_feature, version,
+                )
+            }
+            ActionsValidationError::InvalidDeterministicStateInitReceiver {
+                receiver_id,
+                derived_id,
+            } => {
+                write!(
+                    f,
+                    "DeterministicStateInit action payload is invalid for account {receiver_id}, derived id is {derived_id}",
+                )
+            }
+            ActionsValidationError::DeterministicStateInitKeyLengthExceeded { length, limit } => {
+                write!(
+                    f,
+                    "DeterministicStateInit contains key of length {length} but at most {limit} is allowed",
+                )
+            }
+            ActionsValidationError::DeterministicStateInitValueLengthExceeded { length, limit } => {
+                write!(
+                    f,
+                    "DeterministicStateInit contains value of length {length} but at most {limit} is allowed",
                 )
             }
         }

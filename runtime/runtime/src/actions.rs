@@ -1,6 +1,7 @@
 use crate::config::{
     safe_add_compute, total_prepaid_exec_fees, total_prepaid_gas, total_prepaid_send_fees,
 };
+use crate::deterministic_account_id::create_deterministic_account;
 use crate::ext::{ExternalError, RuntimeExt};
 use crate::receipt_manager::ReceiptManager;
 use crate::{ActionResult, ApplyState, metrics};
@@ -559,6 +560,9 @@ pub(crate) fn action_implicit_account_creation_transfer(
             )
             .ok();
         }
+        AccountType::NearDeterministicAccount => {
+            create_deterministic_account(account, &apply_state.config.fees.storage_usage_config);
+        }
         // This panic is unreachable as this is an implicit account creation transfer.
         // `check_account_existence` would fail because `account_is_implicit` would return false for a Named account.
         AccountType::NamedAccount => panic!("must be implicit"),
@@ -1034,6 +1038,7 @@ pub(crate) fn check_actor_permissions(
         }
         Action::CreateAccount(_) | Action::FunctionCall(_) | Action::Transfer(_) => (),
         Action::Delegate(_) => (),
+        Action::DeterministicStateInit(_) => (),
     };
     Ok(())
 }
@@ -1081,6 +1086,12 @@ pub(crate) fn check_account_existence(
                     implicit_account_creation_eligible,
                 );
             }
+        }
+        Action::DeterministicStateInit(_) => {
+            // Existing and non existing is valid for DeterministicStateInit.
+            // Does not exist => The account will be created by the action.
+            // Does exist => Nothing happens but the receipt is not aborted to
+            // allow optional init before other actions.
         }
         Action::DeployContract(_)
         | Action::FunctionCall(_)
