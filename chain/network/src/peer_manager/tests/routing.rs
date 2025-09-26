@@ -12,7 +12,7 @@ use crate::peer_manager;
 use crate::peer_manager::peer_manager_actor::Event as PME;
 use crate::peer_manager::testonly::Event;
 use crate::peer_manager::testonly::start as start_pm;
-use crate::private_actix::RegisterPeerError;
+use crate::private_messages::RegisterPeerError;
 use crate::tcp;
 use crate::testonly::{Rng, abort_on_panic, make_rng};
 use crate::types::{Edge, PeerMessage};

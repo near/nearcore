@@ -17,7 +17,7 @@ use crate::peer::peer_actor::PeerActor;
 use crate::peer_manager::connection;
 use crate::peer_manager::connection_store;
 use crate::peer_manager::peer_store;
-use crate::private_actix::RegisterPeerError;
+use crate::private_messages::RegisterPeerError;
 #[cfg(feature = "distance_vector_routing")]
 use crate::routing::NetworkTopologyChange;
 use crate::routing::route_back_cache::RouteBackCache;
@@ -1066,7 +1066,7 @@ impl NetworkState {
         let _mutex = self.set_chain_info_mutex.lock();
 
         // We set state.chain_info and call accounts_data.set_keys
-        // synchronously, therefore, assuming actix in-order delivery, there
+        // synchronously, therefore, assuming actors deliver messages in order, there
         // will be no race condition between subsequent SetChainInfo calls.
         self.chain_info.store(Arc::new(Some(info.clone())));
 

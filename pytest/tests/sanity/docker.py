@@ -118,8 +118,7 @@ def docker_run(shell_cmd: typing.Optional[str] = None,
     cmd.extend(('-u', f'{os.getuid()}:{os.getgid()}', '--userns=host'))
 
     # Set environment variables.
-    rust_log = ('actix_web=warn,mio=warn,tokio_util=warn,'
-                'actix_server=warn,actix_http=warn,' +
+    rust_log = ('mio=warn,tokio_util=warn,' +
                 os.environ.get('RUST_LOG', 'debug'))
     cmd.extend(('-eRUST_BACKTRACE=1', f'-eRUST_LOG={rust_log}'))
     for key, value in env.items():
