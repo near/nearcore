@@ -1124,7 +1124,9 @@
         "type": "object"
       },
       "AccountId": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
         "description": "NEAR Account Identifier.\n\nThis is a unique, syntactically valid, human-readable account identifier on the NEAR network.\n\n[See the crate-level docs for information about validation.](index.html#account-id-rules)\n\nAlso see [Error kind precedence](AccountId#error-kind-precedence).\n\n## Examples\n\n```\nuse near_account_id::AccountId;\n\nlet alice: AccountId = \"alice.near\".parse().unwrap();\n\nassert!(\"ƒelicia.near\".parse::<AccountId>().is_err()); // (ƒ is not f)\n```",
+        "title": "AccountId",
         "type": "string"
       },
       "AccountIdValidityRulesVersion": {
@@ -2144,6 +2146,37 @@
               "UseGlobalContractByAccountId"
             ],
             "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "DeterministicStateInit": {
+                "properties": {
+                  "code": {
+                    "$ref": "#/components/schemas/GlobalContractIdentifierView"
+                  },
+                  "data": {
+                    "additionalProperties": {
+                      "type": "string"
+                    },
+                    "type": "object"
+                  },
+                  "deposit": {
+                    "$ref": "#/components/schemas/NearToken"
+                  }
+                },
+                "required": [
+                  "code",
+                  "data",
+                  "deposit"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "DeterministicStateInit"
+            ],
+            "type": "object"
           }
         ]
       },
@@ -2443,6 +2476,86 @@
             },
             "required": [
               "UnsupportedProtocolFeature"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "InvalidDeterministicStateInitReceiver": {
+                "properties": {
+                  "derived_id": {
+                    "$ref": "#/components/schemas/AccountId"
+                  },
+                  "receiver_id": {
+                    "$ref": "#/components/schemas/AccountId"
+                  }
+                },
+                "required": [
+                  "receiver_id",
+                  "derived_id"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "InvalidDeterministicStateInitReceiver"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "DeterministicStateInitKeyLengthExceeded": {
+                "properties": {
+                  "length": {
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "limit": {
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "length",
+                  "limit"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "DeterministicStateInitKeyLengthExceeded"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "DeterministicStateInitValueLengthExceeded": {
+                "properties": {
+                  "length": {
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "limit": {
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "length",
+                  "limit"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "DeterministicStateInitValueLengthExceeded"
             ],
             "type": "object"
           }
@@ -3706,6 +3819,55 @@
           "current_head_status",
           "current_header_head_status",
           "block_production_delay_millis"
+        ],
+        "type": "object"
+      },
+      "DeterministicAccountStateInit": {
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "properties": {
+              "V1": {
+                "$ref": "#/components/schemas/DeterministicAccountStateInitV1"
+              }
+            },
+            "required": [
+              "V1"
+            ],
+            "type": "object"
+          }
+        ]
+      },
+      "DeterministicAccountStateInitV1": {
+        "properties": {
+          "code": {
+            "$ref": "#/components/schemas/GlobalContractIdentifier"
+          },
+          "data": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object"
+          }
+        },
+        "required": [
+          "code",
+          "data"
+        ],
+        "type": "object"
+      },
+      "DeterministicStateInitAction": {
+        "properties": {
+          "deposit": {
+            "$ref": "#/components/schemas/NearToken"
+          },
+          "state_init": {
+            "$ref": "#/components/schemas/DeterministicAccountStateInit"
+          }
+        },
+        "required": [
+          "state_init",
+          "deposit"
         ],
         "type": "object"
       },
@@ -5580,6 +5742,16 @@
               "AccountId"
             ],
             "type": "object"
+          }
+        ]
+      },
+      "GlobalContractIdentifierView": {
+        "anyOf": [
+          {
+            "$ref": "#/components/schemas/CryptoHash"
+          },
+          {
+            "$ref": "#/components/schemas/AccountId"
           }
         ]
       },
@@ -8973,6 +9145,18 @@
             },
             "required": [
               "UseGlobalContract"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "DeterministicStateInit": {
+                "$ref": "#/components/schemas/DeterministicStateInitAction"
+              }
+            },
+            "required": [
+              "DeterministicStateInit"
             ],
             "type": "object"
           }

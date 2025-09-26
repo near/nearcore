@@ -631,13 +631,16 @@ impl ChunkExecutorActor {
             let receipts = collect_receipts(incoming_receipts);
 
             let shard_uid = &shard_context.shard_uid;
-            let chunk_extra = self.chain_store.get_chunk_extra(prev_block_hash, shard_uid)?;
-            let chunk_header = chunk_header.clone().into_spice_chunk_execution_header(&chunk_extra);
+            let prev_chunk_chunk_extra =
+                self.chain_store.get_chunk_extra(prev_block_hash, shard_uid)?;
 
             let transactions =
                 SignedValidPeriodTransactions::new(chunk.into_transactions(), tx_valid_list);
             ShardUpdateReason::NewChunk(NewChunkData {
-                chunk_header,
+                gas_limit: prev_chunk_chunk_extra.gas_limit(),
+                prev_state_root: *prev_chunk_chunk_extra.state_root(),
+                prev_validator_proposals: prev_chunk_chunk_extra.validator_proposals().collect(),
+                chunk_hash: Some(chunk_header.chunk_hash().clone()),
                 transactions,
                 receipts,
                 block,

@@ -80,7 +80,7 @@ if __name__ == '__main__':
     parser.add_argument('--public-key', required=True)
     parser.add_argument('--private-key', required=True)
     parser.add_argument('--rpc-server-addr', required=True)
-    parser.add_argument('--rpc-server-port', required=True)
+    parser.add_argument('--rpc-server-port', type=int, required=True)
     parser.add_argument('--metrics-port', type=int, required=True)
 
     args = parser.parse_args()

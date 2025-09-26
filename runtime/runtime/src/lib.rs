@@ -95,6 +95,7 @@ mod bandwidth_scheduler;
 pub mod config;
 mod congestion_control;
 mod conversions;
+mod deterministic_account_id;
 pub mod ext;
 mod global_contracts;
 pub mod metrics;
@@ -395,6 +396,17 @@ impl Runtime {
                     account,
                     use_global_contract,
                     apply_state.current_protocol_version,
+                    &mut result,
+                )?;
+            }
+            Action::DeterministicStateInit(deterministic_state_init_action) => {
+                deterministic_account_id::action_deterministic_state_init(
+                    state_update,
+                    apply_state,
+                    account,
+                    account_id,
+                    receipt,
+                    deterministic_state_init_action,
                     &mut result,
                 )?;
             }

@@ -224,7 +224,7 @@ memoffset = "0.8"
 merlin = { version = "3", default-features = false }
 more-asserts = "0.2"
 named-lock = "0.4.1"
-near-account-id = { version = "1.1.3", features = [
+near-account-id = { version = "2.0.0", features = [
     "internal_unstable",
     "serde",
     "borsh",

@@ -52,18 +52,12 @@ pub(crate) enum Error {
     SenderIsNotProducer,
     #[error("node is not in the set of recipients")]
     NodeIsNotRecipient,
-    #[error("data is already decoded")]
-    DataIsAlreadyDecoded,
-    #[error("receipts are already known")]
-    ReceiptsAreKnown,
     #[error("witness id shard_id in invalid")]
     InvalidWitnessShardId,
     #[error("decoded witness shard_id in invalid")]
     InvalidDecodedWitnessShardId,
     #[error("decoded witness block hash in invalid")]
     InvalidDecodedWitnessBlockHash,
-    #[error("witness is already validated")]
-    WitnessAlreadyValidated,
     #[error("part doesn't match commitment root")]
     InvalidCommitmentRoot,
     #[error("decoded data doesn't match commitment hash")]
@@ -80,6 +74,8 @@ pub(crate) enum Error {
     PartsIsEmpty,
     #[error("decoded data doesn't match id")]
     IdAndDataMismatch,
+    #[error(transparent)]
+    DataIsKnown(#[from] DataIsKnownError),
     #[error("error decoding the data: {0}")]
     DecodeError(std::io::Error),
     #[error("other error: {0}")]
@@ -89,6 +85,40 @@ pub(crate) enum Error {
 impl From<EpochError> for Error {
     fn from(value: EpochError) -> Self {
         Error::NearChainError(near_chain::Error::from(value))
+    }
+}
+
+#[derive(Debug, thiserror::Error)]
+pub(crate) enum DataIsKnownError {
+    #[error("witness is already validated")]
+    WitnessValidated,
+    #[error("receipts are already known")]
+    ReceiptsKnown,
+    #[error("data is already decoded")]
+    DataDecoded,
+}
+
+#[derive(Debug, thiserror::Error)]
+pub(crate) enum ReceiveDataError {
+    #[error("failed receiving data with relevant block available")]
+    ReceivingDataWithBlock(Error),
+    #[error("failed receiving data with no block available")]
+    ReceivingDataWithoutBlock(Error),
+    #[error("Near chain error: {0}")]
+    NearChainError(#[from] near_chain::Error),
+}
+
+impl ReceiveDataError {
+    fn data_is_known_error(&self) -> Option<&DataIsKnownError> {
+        let inner = match self {
+            ReceiveDataError::ReceivingDataWithBlock(error)
+            | ReceiveDataError::ReceivingDataWithoutBlock(error) => error,
+            ReceiveDataError::NearChainError(_) => return None,
+        };
+        let Error::DataIsKnown(err) = &inner else {
+            return None;
+        };
+        Some(err)
     }
 }
 
@@ -194,10 +224,15 @@ impl Handler<SpiceIncomingPartialData> for SpiceDataDistributorActor {
         let data_id = data.id.clone();
         let commitment = data.commitment.clone();
         if let Err(err) = self.receive_data(data) {
+            if let Some(err) = err.data_is_known_error() {
+                tracing::debug!(target: "spice_data_distribution", ?err, ?data_id, ?commitment, "received data we already have");
+                return;
+            }
             // TODO(spice): Implement banning or de-prioritization of nodes from which we receive
             // invalid data.
             tracing::error!(target: "spice_data_distribution", ?err, ?data_id, ?commitment, "failed to handle receiving partial data");
-        }
+            return;
+        };
     }
 }
 
@@ -345,16 +380,18 @@ impl SpiceDataDistributorActor {
         Ok((recipients_set, producers))
     }
 
-    pub(crate) fn receive_data(&mut self, data: SpicePartialData) -> Result<(), Error> {
+    pub(crate) fn receive_data(&mut self, data: SpicePartialData) -> Result<(), ReceiveDataError> {
         let block_hash = data.id.block_hash();
         let block = match self.chain_store.get_block(block_hash) {
             Ok(block) => block,
             Err(near_chain::Error::DBNotFoundErr(_)) => {
-                return self.add_pending_partial_data(data);
+                return self
+                    .add_pending_partial_data(data)
+                    .map_err(ReceiveDataError::ReceivingDataWithoutBlock);
             }
             Err(err) => return Err(err.into()),
         };
-        self.receive_data_with_block(data, &block)
+        self.receive_data_with_block(data, &block).map_err(ReceiveDataError::ReceivingDataWithBlock)
     }
 
     fn add_pending_partial_data(&mut self, data: SpicePartialData) -> Result<(), Error> {
@@ -499,7 +536,7 @@ impl SpiceDataDistributorActor {
     ) -> Result<(), Error> {
         if let Some(entry) = self.data_parts.get(&data_parts_key) {
             if entry.decoded {
-                return Err(Error::DataIsAlreadyDecoded);
+                return Err(DataIsKnownError::DataDecoded.into());
             }
         }
         let id = &data_parts_key.0;
@@ -514,7 +551,7 @@ impl SpiceDataDistributorActor {
                 )
                 .map_err(near_chain::Error::from)?
                 {
-                    return Err(Error::ReceiptsAreKnown);
+                    return Err(DataIsKnownError::ReceiptsKnown.into());
                 }
             }
             SpiceDataIdentifier::Witness { block_hash, shard_id } => {
@@ -525,7 +562,7 @@ impl SpiceDataDistributorActor {
                     .endorsement_exists(block_hash, *shard_id, me)
                     .map_err(near_chain::Error::from)?
                 {
-                    return Err(Error::WitnessAlreadyValidated);
+                    return Err(DataIsKnownError::WitnessValidated.into());
                 }
             }
         }

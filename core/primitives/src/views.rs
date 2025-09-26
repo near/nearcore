@@ -6,8 +6,8 @@
 use crate::account::{AccessKey, AccessKeyPermission, Account, FunctionCallPermission};
 use crate::action::delegate::{DelegateAction, SignedDelegateAction};
 use crate::action::{
-    DeployGlobalContractAction, GlobalContractDeployMode, GlobalContractIdentifier,
-    UseGlobalContractAction,
+    DeployGlobalContractAction, DeterministicStateInitAction, GlobalContractDeployMode,
+    GlobalContractIdentifier, UseGlobalContractAction,
 };
 use crate::bandwidth_scheduler::BandwidthRequests;
 use crate::block::{Block, BlockHeader, Tip};
@@ -49,12 +49,15 @@ use near_parameters::config::CongestionControlConfig;
 use near_parameters::view::CongestionControlConfigView;
 use near_parameters::{ActionCosts, ExtCosts};
 use near_primitives_core::account::{AccountContract, GasKey};
+use near_primitives_core::deterministic_account_id::{
+    DeterministicAccountStateInit, DeterministicAccountStateInitV1,
+};
 use near_primitives_core::types::NonceIndex;
 use near_schema_checker_lib::ProtocolSchema;
 use near_time::Utc;
 use serde_with::base64::Base64;
 use serde_with::serde_as;
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::fmt;
 use std::ops::Range;
 use std::sync::Arc;
@@ -1267,6 +1270,52 @@ impl ChunkView {
     }
 }
 
+#[derive(
+    BorshSerialize,
+    BorshDeserialize,
+    Clone,
+    Debug,
+    PartialEq,
+    Eq,
+    serde::Serialize,
+    serde::Deserialize,
+)]
+#[serde(untagged, rename_all = "snake_case")]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[borsh(use_discriminant = true)]
+#[repr(u8)]
+pub enum GlobalContractIdentifierView {
+    #[serde(rename = "hash")]
+    CodeHash(CryptoHash) = 0,
+    AccountId(AccountId) = 1,
+}
+
+impl From<GlobalContractIdentifier> for GlobalContractIdentifierView {
+    fn from(code: GlobalContractIdentifier) -> Self {
+        match code {
+            GlobalContractIdentifier::CodeHash(code_hash) => {
+                GlobalContractIdentifierView::CodeHash(code_hash)
+            }
+            GlobalContractIdentifier::AccountId(account_id) => {
+                GlobalContractIdentifierView::AccountId(account_id)
+            }
+        }
+    }
+}
+
+impl From<GlobalContractIdentifierView> for GlobalContractIdentifier {
+    fn from(code: GlobalContractIdentifierView) -> Self {
+        match code {
+            GlobalContractIdentifierView::CodeHash(code_hash) => {
+                GlobalContractIdentifier::CodeHash(code_hash)
+            }
+            GlobalContractIdentifierView::AccountId(account_id) => {
+                GlobalContractIdentifier::AccountId(account_id)
+            }
+        }
+    }
+}
+
 #[serde_as]
 #[derive(
     BorshSerialize,
@@ -1340,6 +1389,13 @@ pub enum ActionView {
     UseGlobalContractByAccountId {
         account_id: AccountId,
     } = 12,
+    DeterministicStateInit {
+        code: GlobalContractIdentifierView,
+        #[serde_as(as = "BTreeMap<Base64, Base64>")]
+        #[cfg_attr(feature = "schemars", schemars(with = "BTreeMap<String, String>"))]
+        data: BTreeMap<Vec<u8>, Vec<u8>>,
+        deposit: Balance,
+    } = 13,
 }
 
 impl From<Action> for ActionView {
@@ -1389,6 +1445,15 @@ impl From<Action> for ActionView {
                     ActionView::UseGlobalContractByAccountId { account_id }
                 }
             },
+            Action::DeterministicStateInit(action) => {
+                let (code, data) = action.state_init.take();
+                let identifier = GlobalContractIdentifierView::from(code);
+                ActionView::DeterministicStateInit {
+                    code: identifier,
+                    data,
+                    deposit: action.deposit,
+                }
+            }
         }
     }
 }
@@ -1446,6 +1511,15 @@ impl TryFrom<ActionView> for Action {
             ActionView::UseGlobalContractByAccountId { account_id } => {
                 Action::UseGlobalContract(Box::new(UseGlobalContractAction {
                     contract_identifier: GlobalContractIdentifier::AccountId(account_id),
+                }))
+            }
+            ActionView::DeterministicStateInit { code, data, deposit } => {
+                let code = GlobalContractIdentifier::from(code);
+                Action::DeterministicStateInit(Box::new(DeterministicStateInitAction {
+                    state_init: DeterministicAccountStateInit::V1(
+                        DeterministicAccountStateInitV1 { code, data },
+                    ),
+                    deposit,
                 }))
             }
         })

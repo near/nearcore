@@ -23,7 +23,7 @@ const LIBS_THRESHOLDS: [(&str, usize); 9] = [
     ("near-chain-configs", 130),
     ("near-chain-primitives", 130),
     ("near-client-primitives", 152),
-    ("near-parameters", 65),
+    ("near-parameters", 66),
     ("near-crypto", 75),
     ("near-primitives-core", 60),
     ("near-time", 30),
