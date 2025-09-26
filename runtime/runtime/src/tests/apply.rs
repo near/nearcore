@@ -175,6 +175,7 @@ fn setup_runtime_for_shard(
         congestion_info,
         bandwidth_requests: BlockBandwidthRequests::empty(),
         trie_access_tracker_state: Default::default(),
+        on_post_state_ready: None,
     };
 
     (runtime, tries, root, apply_state, signers)
