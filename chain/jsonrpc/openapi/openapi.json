@@ -2150,76 +2150,29 @@
             "properties": {
               "DeterministicStateInit": {
                 "properties": {
-                  "code_hash": {
-                    "$ref": "#/components/schemas/CryptoHash"
+                  "code": {
+                    "$ref": "#/components/schemas/GlobalContractIdentifierView"
                   },
                   "data": {
                     "additionalProperties": {
-                      "$ref": "#/components/schemas/Base64Data"
+                      "type": "string"
                     },
                     "type": "object"
                   },
                   "deposit": {
-                    "format": "uint128",
-                    "minimum": 0,
-                    "type": "integer"
-                  },
-                  "version": {
-                    "format": "uint32",
-                    "minimum": 0,
-                    "type": "integer"
+                    "$ref": "#/components/schemas/NearToken"
                   }
                 },
                 "required": [
-                  "code_hash",
+                  "code",
                   "data",
-                  "deposit",
-                  "version"
+                  "deposit"
                 ],
                 "type": "object"
               }
             },
             "required": [
               "DeterministicStateInit"
-            ],
-            "type": "object"
-          },
-          {
-            "additionalProperties": false,
-            "properties": {
-              "DeterministicStateInitByAccountId": {
-                "properties": {
-                  "account_id": {
-                    "$ref": "#/components/schemas/AccountId"
-                  },
-                  "data": {
-                    "additionalProperties": {
-                      "$ref": "#/components/schemas/Base64Data"
-                    },
-                    "type": "object"
-                  },
-                  "deposit": {
-                    "format": "uint128",
-                    "minimum": 0,
-                    "type": "integer"
-                  },
-                  "version": {
-                    "format": "uint32",
-                    "minimum": 0,
-                    "type": "integer"
-                  }
-                },
-                "required": [
-                  "account_id",
-                  "data",
-                  "deposit",
-                  "version"
-                ],
-                "type": "object"
-              }
-            },
-            "required": [
-              "DeterministicStateInitByAccountId"
             ],
             "type": "object"
           }
@@ -2708,10 +2661,6 @@
           "requests"
         ],
         "type": "object"
-      },
-      "Base64Data": {
-        "format": "bytes",
-        "type": "string"
       },
       "BlockHeaderInnerLiteView": {
         "description": "A part of a state for the current head of a light client. More info [here](https://nomicon.io/ChainSpec/LightClient).",
@@ -3894,13 +3843,7 @@
           },
           "data": {
             "additionalProperties": {
-              "items": {
-                "format": "uint8",
-                "maximum": 255,
-                "minimum": 0,
-                "type": "integer"
-              },
-              "type": "array"
+              "type": "string"
             },
             "type": "object"
           }
@@ -3914,9 +3857,7 @@
       "DeterministicStateInitAction": {
         "properties": {
           "deposit": {
-            "format": "uint128",
-            "minimum": 0,
-            "type": "integer"
+            "$ref": "#/components/schemas/NearToken"
           },
           "state_init": {
             "$ref": "#/components/schemas/DeterministicAccountStateInit"
@@ -5799,6 +5740,16 @@
               "AccountId"
             ],
             "type": "object"
+          }
+        ]
+      },
+      "GlobalContractIdentifierView": {
+        "anyOf": [
+          {
+            "$ref": "#/components/schemas/CryptoHash"
+          },
+          {
+            "$ref": "#/components/schemas/AccountId"
           }
         ]
       },
