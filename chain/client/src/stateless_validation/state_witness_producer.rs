@@ -104,7 +104,7 @@ impl Client {
         let shard_id = context.chunk_header.shard_id();
 
         // Record that we sent chunk apply witness for this (prev_block_hash, shard_id) pair
-        self.chunk_apply_witness_sent_cache.put((*prev_block_hash, shard_id), ());
+        self.chunk_apply_witness_sent_cache.put((prev_block_hash, shard_id), ());
 
         let main_state_transition = ChunkStateTransition {
             block_hash: Default::default(),
