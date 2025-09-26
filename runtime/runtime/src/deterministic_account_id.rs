@@ -20,7 +20,7 @@ enum AccountState {
     /// There were no accepted receipts on this account, so it doesn't have any
     /// data (or the contract was deleted). Initially all deterministic accounts
     /// are in this state.
-    NonExist,
+    NonExisting,
     /// Account exists and contains balance and meta info but no contract has
     /// been deployed. An account enters this state, for example, when it was in
     /// a non-exist state, and another account sent native transfer to it.
@@ -34,7 +34,7 @@ enum AccountState {
 impl AccountState {
     fn of(maybe_account: Option<&Account>) -> AccountState {
         let Some(account) = maybe_account else {
-            return AccountState::NonExist;
+            return AccountState::NonExisting;
         };
 
         if account.contract().is_none() {
@@ -56,7 +56,7 @@ pub(crate) fn action_deterministic_state_init(
 ) -> Result<(), RuntimeError> {
     let current_protocol_version = apply_state.current_protocol_version;
     match AccountState::of(account.as_ref()) {
-        AccountState::NonExist => {
+        AccountState::NonExisting => {
             let storage_usage_config = &apply_state.config.fees.storage_usage_config;
             create_deterministic_account(account, storage_usage_config);
             deploy_deterministic_account(
