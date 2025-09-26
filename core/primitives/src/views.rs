@@ -1290,6 +1290,32 @@ pub enum GlobalContractIdentifierView {
     AccountId(AccountId) = 1,
 }
 
+impl From<GlobalContractIdentifier> for GlobalContractIdentifierView {
+    fn from(code: GlobalContractIdentifier) -> Self {
+        match code {
+            GlobalContractIdentifier::CodeHash(code_hash) => {
+                GlobalContractIdentifierView::CodeHash(code_hash)
+            }
+            GlobalContractIdentifier::AccountId(account_id) => {
+                GlobalContractIdentifierView::AccountId(account_id)
+            }
+        }
+    }
+}
+
+impl From<GlobalContractIdentifierView> for GlobalContractIdentifier {
+    fn from(code: GlobalContractIdentifierView) -> Self {
+        match code {
+            GlobalContractIdentifierView::CodeHash(code_hash) => {
+                GlobalContractIdentifier::CodeHash(code_hash)
+            }
+            GlobalContractIdentifierView::AccountId(account_id) => {
+                GlobalContractIdentifier::AccountId(account_id)
+            }
+        }
+    }
+}
+
 #[serde_as]
 #[derive(
     BorshSerialize,
@@ -1421,14 +1447,7 @@ impl From<Action> for ActionView {
             },
             Action::DeterministicStateInit(action) => {
                 let (code, data) = action.state_init.take();
-                let identifier = match code {
-                    GlobalContractIdentifier::CodeHash(code_hash) => {
-                        GlobalContractIdentifierView::CodeHash(code_hash)
-                    }
-                    GlobalContractIdentifier::AccountId(account_id) => {
-                        GlobalContractIdentifierView::AccountId(account_id)
-                    }
-                };
+                let identifier = GlobalContractIdentifierView::from(code);
                 ActionView::DeterministicStateInit {
                     code: identifier,
                     data,
@@ -1495,14 +1514,7 @@ impl TryFrom<ActionView> for Action {
                 }))
             }
             ActionView::DeterministicStateInit { code, data, deposit } => {
-                let code = match code {
-                    GlobalContractIdentifierView::CodeHash(code_hash) => {
-                        GlobalContractIdentifier::CodeHash(code_hash)
-                    }
-                    GlobalContractIdentifierView::AccountId(account_id) => {
-                        GlobalContractIdentifier::AccountId(account_id)
-                    }
-                };
+                let code = GlobalContractIdentifier::from(code);
                 Action::DeterministicStateInit(Box::new(DeterministicStateInitAction {
                     state_init: DeterministicAccountStateInit::V1(
                         DeterministicAccountStateInitV1 { code, data },
