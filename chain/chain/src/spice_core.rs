@@ -1,3 +1,4 @@
+use near_async::Message;
 use near_async::messaging::{IntoSender as _, Sender, noop};
 use near_cache::SyncLruCache;
 use near_chain_primitives::Error;
@@ -24,8 +25,7 @@ use std::num::NonZeroUsize;
 use std::sync::Arc;
 
 /// Message that should be sent once executions results for all chunks in a block are endorsed.
-#[derive(actix::Message, Debug, Clone, PartialEq)]
-#[rtype(result = "()")]
+#[derive(Message, Debug, Clone, PartialEq)]
 pub struct ExecutionResultEndorsed {
     pub block_hash: CryptoHash,
 }

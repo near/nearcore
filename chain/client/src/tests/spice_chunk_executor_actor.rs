@@ -3,6 +3,7 @@ use itertools::Itertools as _;
 use near_async::futures::AsyncComputationSpawner;
 use near_async::messaging::Handler;
 use near_async::messaging::IntoSender;
+use near_async::messaging::Message;
 use near_async::messaging::Sender;
 use near_async::time::Clock;
 use near_chain::ApplyChunksIterationMode;
@@ -72,7 +73,7 @@ struct TestActor {
 
 impl<M> Handler<M> for TestActor
 where
-    M: actix::Message,
+    M: Message,
     ChunkExecutorActor: Handler<M>,
 {
     fn handle(&mut self, msg: M) {
@@ -191,7 +192,7 @@ impl TestActor {
 
     fn handle_with_internal_events<M>(&mut self, msg: M)
     where
-        M: actix::Message,
+        M: Message,
         ChunkExecutorActor: Handler<M>,
     {
         self.actor.handle(msg);

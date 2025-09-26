@@ -1,10 +1,11 @@
 use crate::PeerManagerActor;
 use crate::network_protocol::PeerInfo;
 use crate::types::{
-    NetworkInfo, NetworkResponses, PeerManagerMessageRequest, PeerManagerMessageResponse,
-    SetChainInfo, StateSyncEvent, Tier3Request,
+    NetworkResponses, PeerManagerMessageRequest, PeerManagerMessageResponse, SetChainInfo,
+    StateSyncEvent, Tier3Request,
 };
 use futures::{Future, FutureExt};
+use near_async::Message;
 use near_async::messaging::{self, CanSend, MessageWithCallback};
 use near_crypto::{KeyType, SecretKey};
 use near_primitives::hash::hash;
@@ -103,8 +104,7 @@ pub fn expected_routing_tables(
 }
 
 /// `GetInfo` gets `NetworkInfo` from `PeerManager`.
-#[derive(actix::Message, Debug)]
-#[rtype(result = "NetworkInfo")]
+#[derive(Message, Debug)]
 pub struct GetInfo {}
 
 impl messaging::Handler<GetInfo, crate::types::NetworkInfo> for PeerManagerActor {
@@ -114,8 +114,7 @@ impl messaging::Handler<GetInfo, crate::types::NetworkInfo> for PeerManagerActor
 }
 
 // `StopSignal is used to stop PeerManagerActor for unit tests
-#[derive(actix::Message, Default, Debug)]
-#[rtype(result = "()")]
+#[derive(Message, Default, Debug)]
 pub struct StopSignal {
     pub should_panic: bool,
 }
@@ -217,8 +216,7 @@ impl MockPeerManagerAdapter {
     }
 }
 
-#[derive(actix::Message, Clone, Debug)]
-#[rtype(result = "()")]
+#[derive(Message, Clone, Debug)]
 pub struct SetAdvOptions {
     pub set_max_peers: Option<u64>,
 }

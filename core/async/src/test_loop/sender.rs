@@ -4,7 +4,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use crate::futures::DelayedActionRunner;
-use crate::messaging::{Actor, CanSend, HandlerWithContext, MessageWithCallback};
+use crate::messaging::{Actor, CanSend, HandlerWithContext, Message, MessageWithCallback};
 use crate::time::Duration;
 
 use super::PendingEventsSender;
@@ -78,9 +78,8 @@ where
 
 impl<M, A> CanSend<M> for TestLoopSender<A>
 where
-    M: actix::Message + Debug + Send + 'static,
+    M: Message + Debug + Send + 'static,
     A: Actor + HandlerWithContext<M> + 'static,
-    M::Result: Send,
 {
     fn send(&self, msg: M) {
         let mut this = self.clone();
@@ -99,7 +98,7 @@ where
 
 impl<M, R, A> CanSend<MessageWithCallback<M, R>> for TestLoopSender<A>
 where
-    M: actix::Message<Result = R> + Debug + Send + 'static,
+    M: Message + Debug + Send + 'static,
     A: Actor + HandlerWithContext<M, R> + 'static,
     R: 'static + Send,
 {

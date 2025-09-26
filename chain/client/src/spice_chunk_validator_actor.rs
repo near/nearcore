@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use near_async::futures::{AsyncComputationSpawner, AsyncComputationSpawnerExt as _};
 use near_async::messaging::{Handler, IntoSender as _, Sender};
-use near_async::{MultiSend, MultiSenderFrom};
+use near_async::{Message, MultiSend, MultiSenderFrom};
 use near_chain::spice_core::{CoreStatementsProcessor, ExecutionResultEndorsed};
 use near_chain::stateless_validation::spice_chunk_validation::{
     spice_pre_validate_chunk_state_witness, spice_validate_chunk_state_witness,
@@ -43,8 +43,7 @@ pub struct SpiceChunkValidatorActor {
     validation_spawner: Arc<dyn AsyncComputationSpawner>,
 }
 
-#[derive(actix::Message, Debug)]
-#[rtype(result = "()")]
+#[derive(Message, Debug)]
 pub struct SpiceChunkStateWitnessMessage {
     pub witness: SpiceChunkStateWitness,
     pub raw_witness_size: ChunkStateWitnessSize,
