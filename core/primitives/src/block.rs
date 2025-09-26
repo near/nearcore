@@ -1,7 +1,7 @@
 use crate::bandwidth_scheduler::BlockBandwidthRequests;
 use crate::block::BlockValidityError::{
-    InvalidChunkHeaderRoot, InvalidChunkMask, InvalidOutcomeRoot, InvalidReceiptRoot, InvalidStateRoot,
-    InvalidTransactionRoot,
+    InvalidChunkHeaderRoot, InvalidChunkMask, InvalidOutcomeRoot, InvalidReceiptRoot,
+    InvalidStateRoot, InvalidTransactionRoot,
 };
 use crate::block_body::SpiceCoreStatement;
 use crate::block_body::{BlockBody, BlockBodyV1, ChunkEndorsementSignatures};
