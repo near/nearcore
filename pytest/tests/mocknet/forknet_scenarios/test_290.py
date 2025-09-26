@@ -7,6 +7,32 @@ import copy
 from utils import ScheduleMode
 
 
+class TestOnly290(TestSetup):
+    """
+    Test case:
+    - only 2.9.0 from the top of the forknet. no upgrade.
+    - shard shuffle for chunk producers
+    """
+
+    def __init__(self, args):
+        super().__init__(args)
+        self.start_height = 160684617
+        self.args.start_height = self.start_height
+        self.node_hardware_config = NodeHardware.SameConfig(
+            num_chunk_producer_seats=19, num_chunk_validator_seats=24)
+        self.epoch_len = 15000  # 15000 blocks / 2 bps / 60 / 60 = 2h 5m
+        self.has_state_dumper = False
+        self.genesis_protocol_version = 80
+        self.has_archival = True
+        self.regions = "us-east1,europe-west4,asia-east1,us-west1"
+        self.neard_binary_url = 'https://s3-us-west-1.amazonaws.com/build.nearprotocol.com/nearcore/Linux-x86_64/2.9.0_forknet/neard'
+
+    def amend_epoch_config(self):
+        super().amend_epoch_config()
+        self._amend_epoch_config(
+            ".shuffle_shard_assignment_for_chunk_producers = true")
+
+
 class Test290(TestSetup):
     """
     Test case:
