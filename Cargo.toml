@@ -225,8 +225,7 @@ lru = "0.12.3"
 memoffset = "0.8"
 merlin = { version = "3", default-features = false }
 more-asserts = "0.2"
-# TODO: merge in on near-account-id first before this gets into nearcore, then set this back to the original source
-near-account-id = { git = "https://github.com/jakmeier/near-account-id-rs.git", rev="20ef5c6cbd10c3ed11bc655fa0edfd9467326cd5", features = [
+near-account-id = { version = "2.0.0", features = [
     "internal_unstable",
     "serde",
     "borsh",
