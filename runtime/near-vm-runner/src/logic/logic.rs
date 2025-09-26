@@ -3779,7 +3779,11 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
     pub fn storage_config_byte_cost(&mut self, balance_ptr: u64) -> Result<()> {
         self.result_state.gas_counter.pay_base(base)?;
         let cost_per_byte = self.fees_config.storage_usage_config.storage_amount_per_byte;
-        self.memory.set_u128(&mut self.result_state.gas_counter, balance_ptr, cost_per_byte)
+        self.memory.set_u128(
+            &mut self.result_state.gas_counter,
+            balance_ptr,
+            cost_per_byte.as_yoctonear(),
+        )
     }
 
     /// Returns the protocol storage configuration parameter value for `num_bytes_account`.
