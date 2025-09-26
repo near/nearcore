@@ -35,7 +35,9 @@ use near_primitives::stateless_validation::state_witness::{
     ChunkStateWitness, ChunkStateWitnessAck, EncodedChunkStateWitness,
 };
 use near_primitives::stateless_validation::stored_chunk_state_transition_data::StoredChunkStateTransitionData;
-use near_primitives::stateless_validation::{ChunkProductionKey, WitnessProductionKey};
+use near_primitives::stateless_validation::{
+    ChunkProductionKey, WitnessProductionKey, WitnessType,
+};
 use near_primitives::types::{AccountId, ShardId};
 use near_primitives::validator_signer::ValidatorSigner;
 use near_store::adapter::trie_store::TrieStoreAdapter;
@@ -215,11 +217,11 @@ impl PartialWitnessActor {
             main_transition_shard_id,
         } = msg;
 
-        let WitnessProductionKey { chunk: key, is_optimistic } = state_witness.production_key();
+        let WitnessProductionKey { chunk: key, witness_type } = state_witness.production_key();
         let _span = tracing::debug_span!(
             target: "client",
             "distribute_chunk_state_witness",
-            is_optimistic,
+            witness_type=%witness_type,
             chunk_hash=?state_witness.latest_chunk_header().chunk_hash(),
             height=state_witness.latest_chunk_header().height_created(),
             shard_id=%state_witness.latest_chunk_header().shard_id(),
@@ -241,7 +243,8 @@ impl PartialWitnessActor {
             .expect("Chunk validators must be defined")
             .ordered_chunk_validators();
 
-        if !contract_accesses.is_empty() {
+        // is that correct type check??
+        if witness_type != WitnessType::Validate && !contract_accesses.is_empty() {
             self.send_contract_accesses_to_chunk_validators(
                 key.clone(),
                 contract_accesses,
@@ -684,8 +687,9 @@ impl PartialWitnessActor {
         if missing_contract_hashes.is_empty() {
             return Ok(());
         }
-        // is it necessary to support optimistic witness?
-        let witness_key = WitnessProductionKey { chunk: key.clone(), is_optimistic: false };
+        // is it necessary to support optimistic witness? where should it go?
+        let witness_key =
+            WitnessProductionKey { chunk: key.clone(), witness_type: WitnessType::Optimistic };
         self.partial_witness_tracker
             .store_accessed_contract_hashes(witness_key, missing_contract_hashes.clone())?;
         let random_chunk_producer = {
@@ -855,7 +859,7 @@ impl PartialWitnessActor {
     fn handle_contract_code_response(&self, response: ContractCodeResponse) -> Result<(), Error> {
         let key = WitnessProductionKey {
             chunk: response.chunk_production_key().clone(),
-            is_optimistic: false,
+            witness_type: WitnessType::Optimistic,
         };
         let contracts = response.decompress_contracts()?;
         self.partial_witness_tracker.store_accessed_contract_codes(key, contracts)

@@ -106,7 +106,7 @@ impl Client {
 
         self.partial_witness_adapter.send(DistributeStateWitnessRequest {
             state_witness: ChunkStateWitness::V3(ChunkStateWitnessV3 {
-                chunk_apply_witness: ChunkApplyWitness {
+                chunk_apply_witness: Some(ChunkApplyWitness {
                     epoch_id: prev_block_epoch_id,
                     chunk_header: context.chunk_header.clone(),
                     block_context,
@@ -115,7 +115,7 @@ impl Client {
                     receipts: context.receipts,
                     applied_receipts_hash,
                     transactions: context.transactions,
-                },
+                }),
                 chunk_validate_witness: None,
             }),
             contract_updates,

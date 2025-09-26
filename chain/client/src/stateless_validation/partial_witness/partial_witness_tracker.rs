@@ -20,7 +20,9 @@ use near_primitives::stateless_validation::partial_witness::PartialEncodedStateW
 use near_primitives::stateless_validation::state_witness::{
     ChunkStateWitness, ChunkStateWitnessSize, EncodedChunkStateWitness,
 };
-use near_primitives::stateless_validation::{ChunkProductionKey, WitnessProductionKey};
+use near_primitives::stateless_validation::{
+    ChunkProductionKey, WitnessProductionKey, WitnessType,
+};
 use near_primitives::types::ShardId;
 use near_primitives::utils::compression::CompressedData;
 use near_primitives::version::ProtocolFeature;
@@ -488,18 +490,20 @@ impl PartialEncodedStateWitnessTracker {
                 .entered();
                 self.decode_state_witness(&encoded_witness, protocol_version)?
             };
-            if witness.production_key() != key {
+            let witness_key = witness.production_key();
+            if witness_key != key {
                 return Err(Error::InvalidPartialChunkStateWitness(format!(
                     "Decoded witness key {:?} doesn't match partial witness {:?}",
-                    witness.production_key(),
-                    key,
+                    witness_key, key,
                 )));
             }
 
             // Merge accessed contracts into the main transition's partial state.
-            let PartialState::TrieValues(values) =
-                &mut witness.mut_main_state_transition().base_state;
-            values.extend(accessed_contracts.into_iter().map(|code| code.0.into()));
+            if witness_key.witness_type != WitnessType::Validate {
+                let PartialState::TrieValues(values) =
+                    &mut witness.mut_main_state_transition().base_state;
+                values.extend(accessed_contracts.into_iter().map(|code| code.0.into()));
+            }
 
             tracing::debug!(target: "client", ?key, "Sending encoded witness to chunk validation actor.");
             let _span = tracing::debug_span!(

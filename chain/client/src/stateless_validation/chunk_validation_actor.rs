@@ -10,13 +10,15 @@
 use crate::stateless_validation::chunk_validator::orphan_witness_pool::OrphanStateWitnessPool;
 use crate::stateless_validation::chunk_validator::send_chunk_endorsement_to_block_producers;
 use itertools::Itertools;
+use lru::LruCache;
 use near_async::futures::{AsyncComputationSpawner, AsyncComputationSpawnerExt};
 use near_async::messaging::{Actor, Handler, Sender};
 use near_async::multithread::MultithreadRuntimeHandle;
 use near_async::{ActorSystem, MultiSend, MultiSenderFrom};
 use near_chain::chain::{ChunkStateWitnessMessage, NewChunkData, StorageContext};
 use near_chain::stateless_validation::chunk_validation::{
-    self, MainStateTransitionCache, MainTransition, PreValidationOutput,
+    self, MainStateTransitionCache, MainTransition, PendingValidateWitnessCache,
+    PreValidationOutput,
 };
 use near_chain::stateless_validation::metrics::CHUNK_WITNESS_VALIDATION_FAILED_TOTAL;
 use near_chain::stateless_validation::processing_tracker::ProcessingDoneTracker;
@@ -30,16 +32,17 @@ use near_network::types::{NetworkRequests, PeerManagerMessageRequest};
 use near_performance_metrics_macros::perf;
 use near_primitives::block::Block;
 use near_primitives::hash::CryptoHash;
-use near_primitives::stateless_validation::WitnessProductionKey;
 use near_primitives::stateless_validation::state_witness::{
-    ChunkStateWitness, ChunkStateWitnessAck, ChunkStateWitnessSize,
+    ChunkStateWitness, ChunkStateWitnessAck, ChunkStateWitnessSize, ChunkStateWitnessV3,
 };
+use near_primitives::stateless_validation::{WitnessProductionKey, WitnessType};
 use near_primitives::types::BlockHeight;
 use near_primitives::validator_signer::ValidatorSigner;
 use near_store::PartialStorage;
 use node_runtime::SignedValidPeriodTransactions;
 use parking_lot::Mutex;
 use reed_solomon_erasure::galois_8::ReedSolomon;
+use std::num::NonZeroUsize;
 use std::ops::Range;
 use std::sync::Arc;
 
@@ -90,6 +93,7 @@ pub struct ChunkValidationActorInner {
     save_invalid_witnesses: bool,
     validation_spawner: Arc<dyn AsyncComputationSpawner>,
     main_state_transition_result_cache: MainStateTransitionCache,
+    pending_validate_witness_cache: PendingValidateWitnessCache,
     orphan_witness_pool: Arc<Mutex<OrphanStateWitnessPool>>,
     max_orphan_witness_size: u64,
     rs: Arc<ReedSolomon>,
@@ -125,6 +129,7 @@ impl ChunkValidationActorInner {
             save_invalid_witnesses,
             validation_spawner,
             main_state_transition_result_cache: MainStateTransitionCache::default(),
+            pending_validate_witness_cache: PendingValidateWitnessCache::default(),
             orphan_witness_pool: Arc::new(Mutex::new(OrphanStateWitnessPool::new(
                 orphan_witness_pool_size,
             ))),
@@ -146,6 +151,7 @@ impl ChunkValidationActorInner {
         validation_spawner: Arc<dyn AsyncComputationSpawner>,
         shared_orphan_pool: Arc<Mutex<OrphanStateWitnessPool>>,
         main_state_transition_result_cache: MainStateTransitionCache,
+        pending_validate_witness_cache: PendingValidateWitnessCache,
         max_orphan_witness_size: u64,
     ) -> Self {
         let data_parts = epoch_manager.num_data_parts();
@@ -162,6 +168,7 @@ impl ChunkValidationActorInner {
             save_invalid_witnesses,
             validation_spawner,
             main_state_transition_result_cache,
+            pending_validate_witness_cache,
             orphan_witness_pool: shared_orphan_pool,
             max_orphan_witness_size,
             rs,
@@ -188,6 +195,7 @@ impl ChunkValidationActorInner {
         let shared_orphan_pool =
             Arc::new(Mutex::new(OrphanStateWitnessPool::new(orphan_witness_pool_size)));
         let main_state_transition_result_cache = MainStateTransitionCache::default();
+        let pending_validate_witness_cache = PendingValidateWitnessCache::default();
 
         actor_system.spawn_multithread_actor(num_actors, move || {
             ChunkValidationActorInner::new_with_shared_pool(
@@ -202,6 +210,7 @@ impl ChunkValidationActorInner {
                 validation_spawner.clone(),
                 shared_orphan_pool.clone(),
                 main_state_transition_result_cache.clone(),
+                pending_validate_witness_cache.clone(),
                 max_orphan_witness_size,
             )
         })
@@ -364,6 +373,77 @@ impl ChunkValidationActorInner {
             return Err(Error::Other("No validator signer available".to_string()));
         };
 
+        // brand new caching logic
+        let shard_uid = shard_id_to_uid(
+            self.epoch_manager.as_ref(),
+            chunk_header.shard_id(),
+            &witness.epoch_id(),
+        )?;
+        let witness = {
+            let witness_key = witness.production_key();
+            let witness_type = witness_key.witness_type;
+            if witness_type == WitnessType::Validate {
+                // Check if we received the Apply witness for this Validate witness
+                let mut apply_witness_key = witness_key.clone();
+                apply_witness_key.witness_type = WitnessType::Optimistic;
+                let mut shard_cache = self.pending_validate_witness_cache.lock();
+                let cache = shard_cache
+                    .entry(shard_uid)
+                    .or_insert_with(|| LruCache::new(NonZeroUsize::new(20).unwrap()));
+                if cache.contains(&apply_witness_key) {
+                    // well very likely apply chunk is in processing so we are good to go
+                    witness
+                } else {
+                    // Store Validate witness as pending
+                    cache.put(witness_key, witness);
+                    return Ok(());
+                }
+            } else if witness_type == WitnessType::Optimistic {
+                // Check if we received the Validate witness for this Optimistic witness
+                let mut validate_witness_key = witness_key.clone();
+                validate_witness_key.witness_type = WitnessType::Validate;
+                let mut shard_cache = self.pending_validate_witness_cache.lock();
+                let cache = shard_cache
+                    .entry(shard_uid)
+                    .or_insert_with(|| LruCache::new(NonZeroUsize::new(20).unwrap()));
+                if let Some(validate_witness) = cache.pop(&validate_witness_key) {
+                    // We have both witnesses, combine them
+                    let ChunkStateWitness::V3(ChunkStateWitnessV3 {
+                        chunk_apply_witness: Some(chunk_apply_witness),
+                        ..
+                    }) = witness
+                    else {
+                        return Err(Error::Other("Invalid apply witness".to_string()));
+                    };
+                    let ChunkStateWitness::V3(ChunkStateWitnessV3 {
+                        chunk_validate_witness: Some(chunk_validate_witness),
+                        ..
+                    }) = validate_witness
+                    else {
+                        return Err(Error::Other("Invalid validate witness".to_string()));
+                    };
+                    ChunkStateWitness::V3(ChunkStateWitnessV3 {
+                        chunk_apply_witness: Some(chunk_apply_witness),
+                        chunk_validate_witness: Some(chunk_validate_witness),
+                    })
+                } else {
+                    // put whatever. we don't need real value.
+                    cache.put(
+                        witness_key,
+                        ChunkStateWitness::new_dummy(
+                            chunk_header.height_created(),
+                            chunk_header.shard_id(),
+                            *chunk_header.prev_block_hash(),
+                        ),
+                    );
+                    // and process witness right away
+                    witness
+                }
+            } else {
+                witness
+            }
+        };
+
         self.start_validating_chunk(
             witness,
             &signer,
@@ -386,7 +466,7 @@ impl ChunkValidationActorInner {
         // creates chunk extra for new shard uid.
 
         let witness_production_key = state_witness.production_key();
-        if witness_production_key.is_optimistic {
+        if witness_production_key.witness_type == WitnessType::Optimistic {
             // Don't bother trying to find block hash for chunk extra.
             return Ok(false);
         }
@@ -454,7 +534,7 @@ impl ChunkValidationActorInner {
         save_witness_if_invalid: bool,
         processing_done_tracker: Option<ProcessingDoneTracker>,
     ) -> Result<(), Error> {
-        let WitnessProductionKey { chunk: chunk_production_key, is_optimistic } =
+        let WitnessProductionKey { chunk: chunk_production_key, witness_type } =
             state_witness.production_key();
         let _span = tracing::debug_span!(
             target: "chunk_validation",
@@ -474,7 +554,7 @@ impl ChunkValidationActorInner {
         let chunk_producer_name =
             self.epoch_manager.get_chunk_producer_info(&chunk_production_key)?.take_account_id();
 
-        let pre_validation_result = if !is_optimistic {
+        let pre_validation_result = if witness_type != WitnessType::Optimistic {
             let expected_epoch_id =
                 self.epoch_manager.get_epoch_id_from_prev_block(&prev_block_hash)?;
             if expected_epoch_id != chunk_production_key.epoch_id {
@@ -550,9 +630,9 @@ impl ChunkValidationActorInner {
             }
         };
 
-        if self.try_validate_chunk_with_chunk_extra(state_witness.clone(), signer)? {
-            return Ok(());
-        }
+        // if self.try_validate_chunk_with_chunk_extra(state_witness.clone(), signer)? {
+        //     return Ok(());
+        // }
 
         let epoch_manager = self.epoch_manager.clone();
         let runtime_adapter = self.runtime_adapter.clone();
@@ -590,15 +670,15 @@ impl ChunkValidationActorInner {
                 return;
             }
 
-            if !is_optimistic {
+            println!("SUCCESSFULLY VALIDATED WITNESS: {:?}", witness_type);
+            if witness_type != WitnessType::Optimistic {
+                println!("SENDING ENDORSEMENT FOR WITNESS: {:?}", witness_type);
                 send_chunk_endorsement_to_block_producers(
                     &chunk_header,
                     epoch_manager.as_ref(),
                     signer.as_ref(),
                     &network_adapter,
                 );
-            } else {
-                // println!("SUCCESSFULLY VALIDATED OPTIMISTIC WITNESS");
             }
         });
 
@@ -636,8 +716,8 @@ impl ChunkValidationActorInner {
 
         // Check if previous block exists to know whether or not this witness is an orphan
         // new: do separate orphan check for OW and W
-        let is_optimistic = witness.production_key().is_optimistic;
-        let can_process = if !is_optimistic {
+        let witness_type = witness.production_key().witness_type;
+        let can_process = if witness_type != WitnessType::Optimistic {
             let prev_block_hash = *witness.latest_chunk_header().prev_block_hash();
             if let Err(err) = self.chain_store.get_block(&prev_block_hash) {
                 tracing::error!(target: "chunk_validation", ?err, "Error getting previous block");
@@ -647,13 +727,6 @@ impl ChunkValidationActorInner {
             }
         } else {
             Ok(())
-            // let block_height = witness.latest_chunk_header().height_created();
-            // if let Err(err) = self.chain_store.get_block_by_height(block_height) {
-            //     tracing::error!(target: "chunk_validation", ?err, "Error getting block by height");
-            //     Err(err)
-            // } else {
-            //     Ok(())
-            // }
         };
 
         match can_process {

@@ -5,7 +5,7 @@ use super::ChunkProductionKey;
 use crate::block::ApplyChunkBlockContext;
 #[cfg(feature = "solomon")]
 use crate::reed_solomon::{ReedSolomonEncoderDeserialize, ReedSolomonEncoderSerialize};
-use crate::stateless_validation::WitnessProductionKey;
+use crate::stateless_validation::{WitnessProductionKey, WitnessType};
 use crate::transaction::SignedTransaction;
 use crate::types::{EpochId, SignatureDifferentiator};
 use crate::utils::compression::CompressedData;
@@ -300,7 +300,10 @@ pub struct ChunkValidateWitness {
     /// This field, `source_receipt_proofs`, is a (non-strict) superset of the
     /// receipts that must be applied, along with information that allows these
     /// receipts to be verifiable against the blockchain history.
+    /// todo: move to apply witness?
     pub source_receipt_proofs: HashMap<ChunkHash, ReceiptProof>,
+    /// todo: remove
+    pub applied_receipts_hash: CryptoHash,
     /// For each missing chunk after the last new chunk of the shard, we need
     /// to carry out an implicit state transition. Mostly, this is for
     /// distributing validator rewards. This list contains one for each such
@@ -315,8 +318,7 @@ pub struct ChunkValidateWitness {
 /// doc me
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
 pub struct ChunkStateWitnessV3 {
-    // todo(slavas): make the `chunk_apply_witness` field optional
-    pub chunk_apply_witness: ChunkApplyWitness,
+    pub chunk_apply_witness: Option<ChunkApplyWitness>,
     pub chunk_validate_witness: Option<ChunkValidateWitness>,
 }
 
@@ -390,7 +392,15 @@ impl ChunkStateWitness {
         match self {
             ChunkStateWitness::V1(witness) => &witness.epoch_id,
             ChunkStateWitness::V2(witness) => &witness.epoch_id,
-            ChunkStateWitness::V3(witness) => &witness.chunk_apply_witness.epoch_id,
+            ChunkStateWitness::V3(witness) => {
+                if let Some(chunk_apply_witness) = &witness.chunk_apply_witness {
+                    &chunk_apply_witness.epoch_id
+                } else if let Some(chunk_validate_witness) = &witness.chunk_validate_witness {
+                    &chunk_validate_witness.epoch_id
+                } else {
+                    panic!("ChunkApplyWitness and ChunkValidateWitness are not given");
+                }
+            }
         }
     }
 
@@ -417,34 +427,27 @@ impl ChunkStateWitness {
         if let ChunkStateWitness::V3(witness) = self {
             return if let Some(chunk_validate_witness) = &witness.chunk_validate_witness {
                 &chunk_validate_witness.chunk_header
+            } else if let Some(chunk_apply_witness) = &witness.chunk_apply_witness {
+                &chunk_apply_witness.chunk_header
             } else {
-                &witness.chunk_apply_witness.chunk_header
+                panic!("ChunkValidateWitness and ChunkApplyWitness are not given");
             };
         }
 
         self.chunk_header()
     }
 
-    /// Latest necessary block to process the witness.
-    pub fn base_block_hash(&self) -> &CryptoHash {
-        match self {
-            ChunkStateWitness::V1(witness) => &witness.chunk_header.prev_block_hash(),
-            ChunkStateWitness::V2(witness) => &witness.chunk_header.prev_block_hash(),
-            ChunkStateWitness::V3(witness) => {
-                if let Some(chunk_validate_witness) = &witness.chunk_validate_witness {
-                    &chunk_validate_witness.chunk_header.prev_block_hash()
-                } else {
-                    &witness.chunk_apply_witness.main_state_transition.block_hash
-                }
-            }
-        }
-    }
-
     pub fn main_state_transition(&self) -> &ChunkStateTransition {
         match self {
             ChunkStateWitness::V1(witness) => &witness.main_state_transition,
             ChunkStateWitness::V2(witness) => &witness.main_state_transition,
-            ChunkStateWitness::V3(witness) => &witness.chunk_apply_witness.main_state_transition,
+            ChunkStateWitness::V3(witness) => {
+                if let Some(chunk_apply_witness) = &witness.chunk_apply_witness {
+                    &chunk_apply_witness.main_state_transition
+                } else {
+                    panic!("ChunkApplyWitness is not given");
+                }
+            }
         }
     }
 
@@ -453,7 +456,11 @@ impl ChunkStateWitness {
             ChunkStateWitness::V1(witness) => &mut witness.main_state_transition,
             ChunkStateWitness::V2(witness) => &mut witness.main_state_transition,
             ChunkStateWitness::V3(witness) => {
-                &mut witness.chunk_apply_witness.main_state_transition
+                if let Some(chunk_apply_witness) = &mut witness.chunk_apply_witness {
+                    &mut chunk_apply_witness.main_state_transition
+                } else {
+                    panic!("ChunkApplyWitness is not given");
+                }
             }
         }
     }
@@ -463,7 +470,11 @@ impl ChunkStateWitness {
             ChunkStateWitness::V1(witness) => &witness.source_receipt_proofs,
             ChunkStateWitness::V2(witness) => &witness.source_receipt_proofs,
             ChunkStateWitness::V3(witness) => {
-                &witness.chunk_validate_witness.as_ref().unwrap().source_receipt_proofs
+                if let Some(chunk_validate_witness) = &witness.chunk_validate_witness {
+                    &chunk_validate_witness.source_receipt_proofs
+                } else {
+                    panic!("ChunkValidateWitness is not given");
+                }
             }
         }
     }
@@ -472,7 +483,15 @@ impl ChunkStateWitness {
         match self {
             ChunkStateWitness::V1(witness) => &witness.applied_receipts_hash,
             ChunkStateWitness::V2(witness) => &witness.applied_receipts_hash,
-            ChunkStateWitness::V3(witness) => &witness.chunk_apply_witness.applied_receipts_hash,
+            ChunkStateWitness::V3(witness) => {
+                if let Some(chunk_validate_witness) = &witness.chunk_validate_witness {
+                    &chunk_validate_witness.applied_receipts_hash
+                } else if let Some(chunk_apply_witness) = &witness.chunk_apply_witness {
+                    &chunk_apply_witness.applied_receipts_hash
+                } else {
+                    panic!("ChunkValidateWitness and ChunkApplyWitness are not given");
+                }
+            }
         }
     }
 
@@ -480,7 +499,13 @@ impl ChunkStateWitness {
         match self {
             ChunkStateWitness::V1(witness) => &witness.transactions,
             ChunkStateWitness::V2(witness) => &witness.transactions,
-            ChunkStateWitness::V3(witness) => &witness.chunk_apply_witness.transactions,
+            ChunkStateWitness::V3(witness) => {
+                if let Some(chunk_apply_witness) = &witness.chunk_apply_witness {
+                    &chunk_apply_witness.transactions
+                } else {
+                    panic!("ChunkApplyWitness is not given");
+                }
+            }
         }
     }
 
@@ -513,27 +538,33 @@ impl ChunkStateWitness {
     }
 
     pub fn block_context(&self) -> &ApplyChunkBlockContext {
-        if let ChunkStateWitness::V3(witness) = self {
-            &witness.chunk_apply_witness.block_context
-        } else {
-            panic!("Block context is not available");
-        }
+        let ChunkStateWitness::V3(witness) = self else {
+            panic!("ChunkStateWitness is not V3");
+        };
+        let Some(chunk_apply_witness) = &witness.chunk_apply_witness else {
+            panic!("ChunkApplyWitness is not given");
+        };
+        &chunk_apply_witness.block_context
     }
 
     pub fn chunks(&self) -> &Vec<ShardChunkHeader> {
-        if let ChunkStateWitness::V3(witness) = self {
-            &witness.chunk_apply_witness.chunks
-        } else {
-            panic!("Chunks are not available");
-        }
+        let ChunkStateWitness::V3(witness) = self else {
+            panic!("ChunkStateWitness is not V3");
+        };
+        let Some(chunk_apply_witness) = &witness.chunk_apply_witness else {
+            panic!("ChunkApplyWitness is not given");
+        };
+        &chunk_apply_witness.chunks
     }
 
     pub fn raw_receipts(&self) -> &Vec<Receipt> {
-        if let ChunkStateWitness::V3(witness) = self {
-            &witness.chunk_apply_witness.receipts
-        } else {
-            panic!("Raw receipts are not available");
-        }
+        let ChunkStateWitness::V3(witness) = self else {
+            panic!("ChunkStateWitness is not V3");
+        };
+        let Some(chunk_apply_witness) = &witness.chunk_apply_witness else {
+            panic!("ChunkApplyWitness is not given");
+        };
+        &chunk_apply_witness.receipts
     }
 }
 
@@ -551,7 +582,7 @@ impl ChunkStateWitnessV2 {
                 epoch_id: self.epoch_id,
                 height_created: self.chunk_header.height_created(),
             },
-            is_optimistic: false,
+            witness_type: WitnessType::Full,
         }
     }
 }
@@ -567,22 +598,24 @@ impl ChunkStateWitnessV3 {
                     epoch_id: chunk_validate_witness.epoch_id,
                     height_created: chunk_validate_witness.chunk_header.height_created(),
                 },
-                is_optimistic: false,
+                witness_type: WitnessType::Validate,
             }
-        } else {
+        } else if let Some(chunk_apply_witness) = &self.chunk_apply_witness {
             // Otherwise we just do optimistic execution and speculate on chunk
             // production key!
             WitnessProductionKey {
                 chunk: ChunkProductionKey {
-                    shard_id: self.chunk_apply_witness.chunk_header.shard_id(),
-                    epoch_id: self.chunk_apply_witness.epoch_id,
+                    shard_id: chunk_apply_witness.chunk_header.shard_id(),
+                    epoch_id: chunk_apply_witness.epoch_id,
                     // speculative! the witness will verify the NEXT chunk!
                     // if there is a fork, it won't work, but optimism
                     // doesn't work too.
-                    height_created: self.chunk_apply_witness.chunk_header.height_created() + 1,
+                    height_created: chunk_apply_witness.chunk_header.height_created() + 1,
                 },
-                is_optimistic: true,
+                witness_type: WitnessType::Optimistic,
             }
+        } else {
+            panic!("ChunkValidateWitness and ChunkApplyWitness are not given");
         }
     }
 }

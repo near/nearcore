@@ -28,10 +28,13 @@ use near_primitives::optimistic_block::CachedShardUpdateKey;
 use near_primitives::receipt::Receipt;
 use near_primitives::shard_layout::{ShardLayout, ShardUId};
 use near_primitives::sharding::{ChunkHash, ReceiptProof, ShardChunkHeader};
+use near_primitives::state::PartialState;
 use near_primitives::stateless_validation::state_witness::{
     ChunkStateWitness, ChunkStateWitnessV1, EncodedChunkStateWitness,
 };
-use near_primitives::stateless_validation::{ChunkProductionKey, WitnessProductionKey};
+use near_primitives::stateless_validation::{
+    ChunkProductionKey, WitnessProductionKey, WitnessType,
+};
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{AccountId, ChunkExecutionResult, ShardId, ShardIndex};
 use near_primitives::utils::compression::CompressedData;
@@ -92,9 +95,17 @@ type CachedOnceCell = Arc<OnceLock<Result<ChunkStateWitnessValidationResult, Err
 pub type MainStateTransitionCache =
     Arc<Mutex<HashMap<ShardUId, LruCache<CachedShardUpdateKey, CachedOnceCell>>>>;
 
+/// Cache for storing pending Validate witnesses that arrived before their Apply witness
+/// Shared among chunk validation actors
+pub type PendingValidateWitnessCache =
+    Arc<Mutex<HashMap<ShardUId, LruCache<WitnessProductionKey, ChunkStateWitness>>>>;
+
 /// The number of state witness validation results to cache per shard.
 /// This number needs to be small because result contains outgoing receipts, which can be large.
 const NUM_WITNESS_RESULT_CACHE_ENTRIES: usize = 20;
+
+/// The number of pending Validate witnesses to cache per shard.
+const NUM_PENDING_VALIDATE_WITNESS_CACHE_ENTRIES: usize = 20;
 
 /// Parameters of implicit state transition, which is not resulted by
 /// application of new chunk.
@@ -311,9 +322,9 @@ pub fn pre_validate_chunk_state_witness(
     genesis: Arc<Block>,
     epoch_manager: &dyn EpochManagerAdapter,
 ) -> Result<PreValidationOutput, Error> {
-    let WitnessProductionKey { chunk: ChunkProductionKey { epoch_id, .. }, is_optimistic } =
+    let WitnessProductionKey { chunk: ChunkProductionKey { epoch_id, .. }, witness_type } =
         state_witness.production_key();
-    if is_optimistic {
+    if witness_type == WitnessType::Optimistic {
         panic!("Attempted to pre-validate optimistic chunk state witness");
     }
 
@@ -346,39 +357,53 @@ pub fn pre_validate_chunk_state_witness(
             state_witness.applied_receipts_hash()
         )));
     }
-    let (tx_root_from_state_witness, _) = merklize(&state_witness.transactions());
+
     let last_chunk_block = blocks_after_last_last_chunk.first().ok_or_else(|| {
         Error::Other("blocks_after_last_last_chunk is empty, this should be impossible!".into())
     })?;
-    let last_chunk_block_chunks = last_chunk_block.chunks();
-    let last_new_chunk_tx_root =
-        last_chunk_block_chunks.get(last_chunk_shard_index).unwrap().tx_root();
-    if last_new_chunk_tx_root != &tx_root_from_state_witness {
-        return Err(Error::InvalidChunkStateWitness(format!(
-            "Transaction root {:?} does not match expected transaction root {:?}",
-            tx_root_from_state_witness, last_new_chunk_tx_root
-        )));
-    }
 
-    let transaction_validity_check_results = {
-        if last_chunk_block.header().is_genesis() {
-            vec![true; state_witness.transactions().len()]
-        } else {
-            let prev_block_header =
-                store.get_block_header(last_chunk_block.header().prev_hash())?;
-            state_witness
-                .transactions()
-                .iter()
-                .map(|t| {
-                    store
-                        .check_transaction_validity_period(
-                            &prev_block_header,
-                            t.transaction.block_hash(),
-                        )
-                        .is_ok()
-                })
-                .collect_vec()
+    let (base_state, signed_valid_period_transactions) = if witness_type != WitnessType::Validate {
+        let (tx_root_from_state_witness, _) = merklize(&state_witness.transactions());
+        let last_chunk_block_chunks = last_chunk_block.chunks();
+        let last_new_chunk_tx_root =
+            last_chunk_block_chunks.get(last_chunk_shard_index).unwrap().tx_root();
+        if last_new_chunk_tx_root != &tx_root_from_state_witness {
+            return Err(Error::InvalidChunkStateWitness(format!(
+                "Transaction root {:?} does not match expected transaction root {:?}",
+                tx_root_from_state_witness, last_new_chunk_tx_root
+            )));
         }
+
+        let transaction_validity_check_results = {
+            if last_chunk_block.header().is_genesis() {
+                vec![true; state_witness.transactions().len()]
+            } else {
+                let prev_block_header =
+                    store.get_block_header(last_chunk_block.header().prev_hash())?;
+                state_witness
+                    .transactions()
+                    .iter()
+                    .map(|t| {
+                        store
+                            .check_transaction_validity_period(
+                                &prev_block_header,
+                                t.transaction.block_hash(),
+                            )
+                            .is_ok()
+                    })
+                    .collect_vec()
+            }
+        };
+
+        (
+            state_witness.main_state_transition().base_state.clone(),
+            SignedValidPeriodTransactions::new(
+                state_witness.transactions().clone(),
+                transaction_validity_check_results,
+            ),
+        )
+    } else {
+        (PartialState::default(), SignedValidPeriodTransactions::empty())
     };
 
     let main_transition_params = if last_chunk_block.header().is_genesis() {
@@ -392,10 +417,6 @@ pub fn pre_validate_chunk_state_witness(
             shard_id: last_chunk_shard_id,
         }
     } else {
-        let transactions = SignedValidPeriodTransactions::new(
-            state_witness.transactions().clone(),
-            transaction_validity_check_results,
-        );
         let header = store.get_block_header(last_chunk_block.header().prev_hash())?;
         MainTransition::NewChunk {
             new_chunk_data: NewChunkData {
@@ -404,12 +425,12 @@ pub fn pre_validate_chunk_state_witness(
                     .get(last_chunk_shard_index)
                     .unwrap()
                     .clone(),
-                transactions,
+                transactions: signed_valid_period_transactions,
                 receipts: receipts_to_apply,
                 block: Chain::get_apply_chunk_block_context(last_chunk_block, &header, true)?,
                 storage_context: StorageContext {
                     storage_data_source: StorageDataSource::Recorded(PartialStorage {
-                        nodes: state_witness.main_state_transition().base_state.clone(),
+                        nodes: base_state,
                     }),
                     state_patch: Default::default(),
                 },
@@ -564,11 +585,10 @@ pub fn validate_chunk_state_witness_impl(
 ) -> Result<ChunkExecutionResult, Error> {
     let WitnessProductionKey {
         chunk: ChunkProductionKey { shard_id: witness_chunk_shard_id, epoch_id, height_created },
-        is_optimistic,
+        witness_type,
     } = state_witness.production_key();
-    let type_str = if is_optimistic { "optimistic" } else { "full" };
     let _timer = crate::stateless_validation::metrics::CHUNK_STATE_WITNESS_VALIDATION_TIME
-        .with_label_values(&[&witness_chunk_shard_id.to_string(), type_str])
+        .with_label_values(&[&witness_chunk_shard_id.to_string(), witness_type.as_str()])
         .start_timer();
     let key = pre_validation_output.cached_shard_update_key;
     let span = tracing::debug_span!(
@@ -577,7 +597,7 @@ pub fn validate_chunk_state_witness_impl(
         key = ?key,
         height = height_created,
         shard_id = %witness_chunk_shard_id,
-        is_optimistic = is_optimistic,
+        witness_type = %witness_type,
         tag_block_production = true,
         tag_witness_distribution = true,
     )
@@ -618,6 +638,18 @@ pub fn validate_chunk_state_witness_impl(
 
             // Initialize or wait for the result
             let already_initialized = cell_arc.get().is_some();
+
+            // Check if this is a Validate witness that arrived before Apply witness
+            if !already_initialized && witness_type == WitnessType::Validate {
+                println!(
+                    "VALIDATE WITNESS ARRIVED BEFORE APPLY WITNESS {} {:?} {:?} {:?}",
+                    height_created, shard_id, prev_hash, key
+                );
+                return Err(Error::Other(
+                    "Validate witness arrived before Apply witness - no storage proof available"
+                        .to_string(),
+                ));
+            }
             let start_wait = Instant::now();
             let we_initialized = Cell::new(false);
             tracing::debug!(target: "chunk_validation", "Using cell: ptr={:p}, already_initialized={}", Arc::as_ptr(&cell_arc), already_initialized);
@@ -637,17 +669,20 @@ pub fn validate_chunk_state_witness_impl(
                 )?;
                 let outgoing_receipts = std::mem::take(&mut main_apply_result.outgoing_receipts);
                 let chunk_extra = apply_result_to_chunk_extra(main_apply_result, &chunk_header);
-                if !is_optimistic {
+                if witness_type != WitnessType::Optimistic {
                     println!(
-                        "HAD TO APPLY NEW CHUNK PESSIMISTICALLY {} {:?} {:?} {:?}",
-                        height_created, shard_id, prev_hash, key
+                        "HAD TO APPLY NEW CHUNK PESSIMISTICALLY {} {} {:?} {:?} {:?}",
+                        witness_type, height_created, shard_id, prev_hash, key
                     );
                 }
                 tracing::debug!(target: "chunk_validation", "Initialized cell");
                 Ok(ChunkStateWitnessValidationResult { chunk_extra, outgoing_receipts })
             });
             let waited = start_wait.elapsed();
-            if !is_optimistic && !we_initialized.get() && !already_initialized {
+            if witness_type != WitnessType::Optimistic
+                && !we_initialized.get()
+                && !already_initialized
+            {
                 crate::stateless_validation::metrics::CHUNK_STATE_WITNESS_WAIT_TIME
                     .with_label_values(&[&witness_chunk_shard_id.to_string()])
                     .observe(waited.as_secs_f64());
@@ -666,7 +701,10 @@ pub fn validate_chunk_state_witness_impl(
         }
     };
 
-    if chunk_extra.state_root() != &state_witness.main_state_transition().post_state_root {
+    println!("WITNESS TYPE: {:?}", witness_type);
+    if witness_type != WitnessType::Validate
+        && chunk_extra.state_root() != &state_witness.main_state_transition().post_state_root
+    {
         // This is an early check, it's not for correctness, only for better
         // error reporting in case of an invalid state witness due to a bug.
         // Only the final state root check against the chunk header is required.
@@ -692,7 +730,7 @@ pub fn validate_chunk_state_witness_impl(
         Chain::build_receipts_hashes(&outgoing_receipts, &witness_shard_layout)?
     };
     // No explicit save needed; OnceLock cell was inserted before initialization.
-    if is_optimistic {
+    if witness_type == WitnessType::Optimistic {
         // we're not using it anyway
         return Ok(ChunkExecutionResult {
             chunk_extra,
@@ -794,7 +832,7 @@ pub fn validate_chunk_state_witness_impl(
         let (res_receipts_root, res_encoded_merkle_check) = rayon::join(
             || -> Result<CryptoHash, Error> {
                 let (outgoing_receipts_root, _) = merklize(&outgoing_receipts_hashes);
-                if !is_optimistic {
+                if witness_type != WitnessType::Optimistic {
                     validate_chunk_with_chunk_extra_and_receipts_root(
                         &chunk_extra,
                         &state_witness.chunk_header(),
@@ -804,7 +842,9 @@ pub fn validate_chunk_state_witness_impl(
                 Ok(outgoing_receipts_root)
             },
             || {
-                if !is_optimistic && ProtocolFeature::ChunkPartChecks.enabled(protocol_version) {
+                if witness_type != WitnessType::Optimistic
+                    && ProtocolFeature::ChunkPartChecks.enabled(protocol_version)
+                {
                     let new_transactions = &state_witness.new_transactions().expect(
                         "should only be called with the `ValidateChunkStateWitness` available",
                     );

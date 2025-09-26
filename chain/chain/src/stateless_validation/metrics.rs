@@ -3,6 +3,7 @@ use near_o11y::metrics::{
     try_create_histogram_vec, try_create_int_counter, try_create_int_counter_vec,
     try_create_int_gauge,
 };
+use near_primitives::stateless_validation::WitnessType;
 use near_primitives::stateless_validation::state_witness::ChunkStateWitness;
 use std::sync::LazyLock;
 
@@ -223,19 +224,21 @@ fn record_witness_size_metrics_fallible(
     witness: &ChunkStateWitness,
 ) -> Result<(), std::io::Error> {
     let shard_id = witness.latest_chunk_header().shard_id().to_string();
-    let is_optimistic = witness.production_key().is_optimistic;
-    // todo: validate-only type
-    let type_str = if is_optimistic { "optimistic" } else { "full" };
+    let witness_type = witness.production_key().witness_type;
+    let type_str = witness_type.as_str();
     CHUNK_STATE_WITNESS_RAW_SIZE
         .with_label_values(&[shard_id.as_str(), type_str])
         .observe(decoded_size as f64);
     CHUNK_STATE_WITNESS_TOTAL_SIZE
         .with_label_values(&[&shard_id.as_str(), type_str])
         .observe(encoded_size as f64);
-    CHUNK_STATE_WITNESS_MAIN_STATE_TRANSITION_SIZE
-        .with_label_values(&[shard_id.as_str(), type_str])
-        .observe(borsh::object_length(&witness.main_state_transition())? as f64);
-    if !is_optimistic {
+    if witness_type != WitnessType::Validate {
+        // this is wrong, should be has_apply
+        CHUNK_STATE_WITNESS_MAIN_STATE_TRANSITION_SIZE
+            .with_label_values(&[shard_id.as_str(), type_str])
+            .observe(borsh::object_length(&witness.main_state_transition())? as f64);
+    }
+    if witness_type != WitnessType::Optimistic {
         CHUNK_STATE_WITNESS_SOURCE_RECEIPT_PROOFS_SIZE
             .with_label_values(&[&shard_id.as_str()])
             .observe(borsh::object_length(&witness.source_receipt_proofs())? as f64);

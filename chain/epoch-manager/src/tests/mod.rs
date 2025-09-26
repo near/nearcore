@@ -22,7 +22,9 @@ use near_primitives::shard_layout::ShardLayout;
 use near_primitives::sharding::{ShardChunkHeader, ShardChunkHeaderV3};
 use near_primitives::stateless_validation::chunk_endorsements_bitmap::ChunkEndorsementsBitmap;
 use near_primitives::stateless_validation::partial_witness::PartialEncodedStateWitness;
-use near_primitives::stateless_validation::{ChunkProductionKey, WitnessProductionKey};
+use near_primitives::stateless_validation::{
+    ChunkProductionKey, WitnessProductionKey, WitnessType,
+};
 use near_primitives::types::ValidatorKickoutReason::{
     NotEnoughBlocks, NotEnoughChunkEndorsements, NotEnoughChunks, ProtocolVersionTooOld,
 };
@@ -2924,7 +2926,7 @@ fn test_verify_partial_witness_signature() {
                 height_created: chunk_header.height_created(),
                 shard_id: chunk_header.shard_id(),
             },
-            is_optimistic: false,
+            witness_type: WitnessType::Full,
         },
         0,
         "witness".bytes().collect(),
@@ -2948,7 +2950,7 @@ fn test_verify_partial_witness_signature() {
                 height_created: chunk_header.height_created(),
                 shard_id: chunk_header.shard_id(),
             },
-            is_optimistic: false,
+            witness_type: WitnessType::Full,
         },
         0,
         "witness".bytes().collect(),

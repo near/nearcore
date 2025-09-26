@@ -9,7 +9,9 @@ use std::io::ErrorKind;
 
 use near_primitives::hash::CryptoHash;
 use near_primitives::stateless_validation::state_witness::ChunkStateWitness;
-use near_primitives::stateless_validation::{ChunkProductionKey, WitnessProductionKey};
+use near_primitives::stateless_validation::{
+    ChunkProductionKey, WitnessProductionKey, WitnessType,
+};
 use near_primitives::types::EpochId;
 use near_primitives::types::ShardId;
 use near_store::{DBCol, Store};
@@ -150,9 +152,9 @@ impl ChainStore {
         let start_time = std::time::Instant::now();
         let WitnessProductionKey {
             chunk: ChunkProductionKey { shard_id, epoch_id, height_created },
-            is_optimistic,
+            witness_type,
         } = witness.production_key();
-        if is_optimistic {
+        if witness_type != WitnessType::Optimistic {
             // Don't save for simplicity for now.
             return Ok(());
         }
