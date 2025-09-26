@@ -185,6 +185,7 @@ fn setup_orphan_witness_test() -> OrphanWitnessTestEnv {
             block1.header(),
             &block1.chunks()[0],
             &chunk2,
+            false,
         )
         .unwrap()
         .state_witness;

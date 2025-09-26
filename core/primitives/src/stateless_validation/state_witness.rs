@@ -592,13 +592,22 @@ impl ChunkStateWitnessV3 {
         if let Some(chunk_validate_witness) = &self.chunk_validate_witness {
             // If validate witness is provided, we can perform full validation
             // and have unique identifier.
+            let witness_type = if let Some(chunk_apply_witness) = &self.chunk_apply_witness {
+                assert!(
+                    chunk_apply_witness.chunk_header.height_created() + 1
+                        == chunk_validate_witness.chunk_header.height_created()
+                );
+                WitnessType::Full
+            } else {
+                WitnessType::Validate
+            };
             WitnessProductionKey {
                 chunk: ChunkProductionKey {
                     shard_id: chunk_validate_witness.chunk_header.shard_id(),
                     epoch_id: chunk_validate_witness.epoch_id,
                     height_created: chunk_validate_witness.chunk_header.height_created(),
                 },
-                witness_type: WitnessType::Validate,
+                witness_type,
             }
         } else if let Some(chunk_apply_witness) = &self.chunk_apply_witness {
             // Otherwise we just do optimistic execution and speculate on chunk

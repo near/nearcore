@@ -392,9 +392,14 @@ impl ChunkValidationActorInner {
                     .or_insert_with(|| LruCache::new(NonZeroUsize::new(20).unwrap()));
                 if cache.contains(&apply_witness_key) {
                     // well very likely apply chunk is in processing so we are good to go
+                    println!(
+                        "Validate - found Optimistic, height: {}",
+                        chunk_header.height_created()
+                    );
                     witness
                 } else {
                     // Store Validate witness as pending
+                    println!("Validate - pending, height: {}", chunk_header.height_created());
                     cache.put(witness_key, witness);
                     return Ok(());
                 }
@@ -408,6 +413,7 @@ impl ChunkValidationActorInner {
                     .or_insert_with(|| LruCache::new(NonZeroUsize::new(20).unwrap()));
                 if let Some(validate_witness) = cache.pop(&validate_witness_key) {
                     // We have both witnesses, combine them
+                    println!("Optimistic - merging, height: {}", chunk_header.height_created());
                     let ChunkStateWitness::V3(ChunkStateWitnessV3 {
                         chunk_apply_witness: Some(chunk_apply_witness),
                         ..
@@ -422,12 +428,14 @@ impl ChunkValidationActorInner {
                     else {
                         return Err(Error::Other("Invalid validate witness".to_string()));
                     };
+                    println!("Optimistic - merged");
                     ChunkStateWitness::V3(ChunkStateWitnessV3 {
                         chunk_apply_witness: Some(chunk_apply_witness),
                         chunk_validate_witness: Some(chunk_validate_witness),
                     })
                 } else {
                     // put whatever. we don't need real value.
+                    println!("Optimistic - executing, height: {}", chunk_header.height_created());
                     cache.put(
                         witness_key,
                         ChunkStateWitness::new_dummy(
@@ -440,6 +448,7 @@ impl ChunkValidationActorInner {
                     witness
                 }
             } else {
+                println!("Full - executing, height: {}", chunk_header.height_created());
                 witness
             }
         };

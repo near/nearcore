@@ -50,6 +50,7 @@ impl ChainStore {
         prev_block_header: &BlockHeader,
         prev_chunk_header: &ShardChunkHeader,
         chunk: &ShardChunk,
+        apply_witness_sent: bool,
     ) -> Result<CreateWitnessResult, Error> {
         let chunk_header = chunk.cloned_header();
         let _span = tracing::debug_span!(
@@ -78,7 +79,7 @@ impl ChainStore {
             prev_chunk_header,
         )?;
 
-        if prev_chunk.height_created() + 1 == chunk_header.height_created() {
+        if apply_witness_sent && prev_chunk.height_created() + 1 == chunk_header.height_created() {
             // We assume that we distributed execution witness.
             // Let's just distribute validation witness.
             println!(

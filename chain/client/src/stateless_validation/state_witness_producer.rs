@@ -27,6 +27,8 @@ impl Client {
         let chunk_header = chunk.cloned_header();
         let shard_id = chunk_header.shard_id();
         let height = chunk_header.height_created();
+        let prev_block_hash = prev_block_header.hash();
+
         let _span = tracing::debug_span!(
             target: "client",
             "send_chunk_state_witness",
@@ -42,6 +44,8 @@ impl Client {
         let my_signer = validator_signer
             .as_ref()
             .ok_or_else(|| Error::NotAValidator(format!("send state witness")))?;
+        let apply_witness_sent =
+            self.chunk_apply_witness_sent_cache.contains(&(*prev_block_hash, shard_id));
         let CreateWitnessResult { state_witness, main_transition_shard_id, contract_updates } =
             self.chain.chain_store().create_state_witness(
                 self.epoch_manager.as_ref(),
@@ -49,6 +53,7 @@ impl Client {
                 prev_block_header,
                 prev_chunk_header,
                 chunk,
+                apply_witness_sent,
             )?;
 
         if self.config.save_latest_witnesses {
@@ -97,6 +102,9 @@ impl Client {
             return Ok(());
         }
         let shard_id = context.chunk_header.shard_id();
+
+        // Record that we sent chunk apply witness for this (prev_block_hash, shard_id) pair
+        self.chunk_apply_witness_sent_cache.put((*prev_block_hash, shard_id), ());
 
         let main_state_transition = ChunkStateTransition {
             block_hash: Default::default(),

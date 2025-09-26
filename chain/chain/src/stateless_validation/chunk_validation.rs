@@ -639,20 +639,41 @@ pub fn validate_chunk_state_witness_impl(
             // Initialize or wait for the result
             let already_initialized = cell_arc.get().is_some();
 
-            // Check if this is a Validate witness that arrived before Apply witness
-            if !already_initialized && witness_type == WitnessType::Validate {
-                println!(
-                    "VALIDATE WITNESS ARRIVED BEFORE APPLY WITNESS {} {:?} {:?} {:?}",
-                    height_created, shard_id, prev_hash, key
-                );
-                return Err(Error::Other(
-                    "Validate witness arrived before Apply witness - no storage proof available"
-                        .to_string(),
-                ));
-            }
             let start_wait = Instant::now();
             let we_initialized = Cell::new(false);
             tracing::debug!(target: "chunk_validation", "Using cell: ptr={:p}, already_initialized={}", Arc::as_ptr(&cell_arc), already_initialized);
+
+            // Handle the case where Validate witness arrives before Optimistic witness
+            if !already_initialized && witness_type == WitnessType::Validate {
+                println!(
+                    "VALIDATE WITNESS ARRIVED BEFORE APPLY WITNESS - WAITING {} {:?} {:?} {:?}",
+                    height_created, shard_id, prev_hash, key
+                );
+                // Poll every 10ms for up to 1 second to see if Optimistic witness arrives
+                let poll_start = std::time::Instant::now();
+                let poll_timeout = std::time::Duration::from_secs(1);
+                let poll_interval = std::time::Duration::from_millis(10);
+
+                loop {
+                    if cell_arc.get().is_some() {
+                        println!(
+                            "VALIDATE WITNESS - Optimistic witness arrived during wait after {:?}",
+                            poll_start.elapsed()
+                        );
+                        break;
+                    }
+
+                    if poll_start.elapsed() >= poll_timeout {
+                        return Err(Error::Other(
+                            "Validate witness arrived before Optimistic witness - no storage proof available after 1s timeout"
+                                .to_string(),
+                        ));
+                    }
+
+                    std::thread::sleep(poll_interval);
+                }
+            }
+
             let init_result = cell_arc.get_or_init(|| {
                 tracing::debug!(target: "chunk_validation", "Initializing cell: ptr={:p}", Arc::as_ptr(&cell_arc));
                 we_initialized.set(true);

@@ -170,6 +170,7 @@ impl GenerateWitnessesCmd {
                     prev_block.header(),
                     prev_chunk_header,
                     &chunk,
+                    false,
                 )
                 .unwrap();
             let processing_done_tracker = ProcessingDoneTracker::new();
