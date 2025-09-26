@@ -2236,7 +2236,7 @@ mod tests {
                 &test_limit_config(),
                 &[Action::DeterministicStateInit(Box::new(DeterministicStateInitAction {
                     state_init,
-                    deposit: 0,
+                    deposit: Balance::ZERO,
                 }))],
                 &receiver,
                 protocol_version,
