@@ -9,10 +9,8 @@ use near_chain::ApplyChunksIterationMode;
 use near_chain::ChainStoreAccess;
 use near_chain::spice_core::CoreStatementsProcessor;
 use near_chain::spice_core::ExecutionResultEndorsed;
-use near_chain::stateless_validation::chunk_validation::{
-    MainStateTransitionCache, validate_chunk_state_witness,
-};
 use near_chain::stateless_validation::spice_chunk_validation::spice_pre_validate_chunk_state_witness;
+use near_chain::stateless_validation::spice_chunk_validation::spice_validate_chunk_state_witness;
 use near_chain::test_utils::{
     get_chain_with_genesis, get_fake_next_block_chunk_headers, process_block_sync,
 };
@@ -35,7 +33,6 @@ use near_primitives::types::{
 };
 use near_store::ShardUId;
 use near_store::adapter::StoreAdapter as _;
-use reed_solomon_erasure::ReedSolomon;
 use std::collections::HashMap;
 use std::str::FromStr as _;
 use std::sync::Arc;
@@ -121,7 +118,6 @@ impl TestActor {
         ));
 
         let (spawner, tasks_rc) = FakeSpawner::new();
-        let save_latest_witnesses = false;
         let (actor_sc, actor_rc) = unbounded();
         let chunk_executor_adapter = Sender::from_fn(move |event: ExecutorApplyChunksDone| {
             actor_sc.unbounded_send(event).unwrap();
@@ -172,7 +168,6 @@ impl TestActor {
             ApplyChunksIterationMode::Sequential,
             chunk_executor_adapter,
             data_distributor_adapter,
-            save_latest_witnesses,
         );
         TestActor { chain, actor, actor_rc, tasks_rc }
     }
@@ -398,7 +393,8 @@ fn record_endorsements(actors: &mut [TestActor], block: &Block) {
                 *epoch_id,
                 execution_result.clone(),
                 *block.header().hash(),
-                chunk,
+                chunk.shard_id(),
+                chunk.height_created(),
                 &signer,
             );
             for actor in actors.iter() {
@@ -769,17 +765,12 @@ fn test_witness_is_valid() {
         )
         .unwrap();
 
-        let save_witness_if_invalid = false;
         assert!(
-            validate_chunk_state_witness(
+            spice_validate_chunk_state_witness(
                 state_witness,
                 pre_validation_result,
                 actor.actor.epoch_manager.as_ref(),
                 actor.actor.runtime_adapter.as_ref(),
-                &MainStateTransitionCache::default(),
-                actor.actor.chain_store.store(),
-                save_witness_if_invalid,
-                Arc::new(ReedSolomon::new(1, 1).unwrap()),
             )
             .is_ok()
         );

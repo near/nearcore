@@ -260,15 +260,9 @@ fn new_spice_client_config(
     spice_client_config
 }
 
-struct SpiceActorsConfig {
-    validator_signer: MutableValidatorSigner,
-    save_latest_witnesses: bool,
-    save_invalid_witnesses: bool,
-}
-
 fn spawn_spice_actors(
     actor_system: &ActorSystem,
-    config: SpiceActorsConfig,
+    validator_signer: MutableValidatorSigner,
     chain_genesis: &ChainGenesis,
     epoch_manager: Arc<dyn EpochManagerAdapter>,
     shard_tracker: ShardTracker,
@@ -288,7 +282,7 @@ fn spawn_spice_actors(
         epoch_manager.clone(),
         runtime.store().chain_store(),
         core_processor.clone(),
-        config.validator_signer.clone(),
+        validator_signer.clone(),
         network_adapter.clone(),
         chunk_executor_adapter.as_sender(),
         spice_chunk_validator_adapter.as_sender(),
@@ -303,7 +297,7 @@ fn spawn_spice_actors(
         epoch_manager.clone(),
         shard_tracker,
         network_adapter.clone(),
-        config.validator_signer.clone(),
+        validator_signer.clone(),
         core_processor.clone(),
         chunk_endorsement_tracker.clone(),
         {
@@ -313,7 +307,6 @@ fn spawn_spice_actors(
         Default::default(),
         chunk_executor_adapter.as_sender(),
         spice_data_distributor_adapter.as_multi_sender(),
-        config.save_latest_witnesses,
     );
     let chunk_executor_addr = actor_system.spawn_tokio_actor(chunk_executor_actor);
     chunk_executor_adapter.bind(chunk_executor_addr);
@@ -324,12 +317,10 @@ fn spawn_spice_actors(
         runtime,
         epoch_manager,
         network_adapter,
-        config.validator_signer,
+        validator_signer,
         core_processor,
         chunk_endorsement_tracker,
         ApplyChunksSpawner::default(),
-        config.save_latest_witnesses,
-        config.save_invalid_witnesses,
     );
     let spice_chunk_validator_addr = actor_system.spawn_tokio_actor(spice_chunk_validator_actor);
     spice_chunk_validator_adapter.bind(spice_chunk_validator_addr);
@@ -629,11 +620,7 @@ pub fn start_with_config_and_synchronization(
     if cfg!(feature = "protocol_feature_spice") {
         spawn_spice_actors(
             &actor_system,
-            SpiceActorsConfig {
-                validator_signer: config.validator_signer.clone(),
-                save_latest_witnesses: config.client_config.save_latest_witnesses,
-                save_invalid_witnesses: config.client_config.save_invalid_witnesses,
-            },
+            config.validator_signer.clone(),
             &chain_genesis,
             epoch_manager.clone(),
             shard_tracker.clone(),

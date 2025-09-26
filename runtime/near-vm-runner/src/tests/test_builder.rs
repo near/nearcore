@@ -30,7 +30,7 @@ pub(crate) fn test_builder() -> TestBuilder {
         output_data_receivers: vec![],
     };
     let mut skip = HashSet::new();
-    for kind in [VMKind::NearVm, VMKind::NearVm2, VMKind::Wasmtime] {
+    for kind in [VMKind::NearVm, VMKind::Wasmtime] {
         if !kind.is_available() {
             skip.insert(kind);
         }
@@ -103,7 +103,6 @@ impl TestBuilder {
     #[allow(dead_code)]
     pub(crate) fn skip_near_vm(mut self) -> Self {
         self.skip.insert(VMKind::NearVm);
-        self.skip.insert(VMKind::NearVm2);
         self
     }
 
@@ -186,7 +185,7 @@ impl TestBuilder {
 
         for (want, &protocol_version) in wants.zip(&self.protocol_versions) {
             let mut results = vec![];
-            for vm_kind in [VMKind::NearVm, VMKind::NearVm2, VMKind::Wasmtime] {
+            for vm_kind in [VMKind::NearVm, VMKind::Wasmtime] {
                 if self.skip.contains(&vm_kind) {
                     println!("Skipping {:?}", vm_kind);
                     continue;

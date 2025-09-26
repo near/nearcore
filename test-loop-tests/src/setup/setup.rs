@@ -412,7 +412,6 @@ pub fn setup_client(
         apply_chunks_iteration_mode,
         chunk_executor_adapter.as_sender(),
         spice_data_distributor_adapter.as_multi_sender(),
-        client_config.save_latest_witnesses,
     );
 
     let spice_data_distributor_sender = test_loop.data.register_actor(
@@ -435,8 +434,6 @@ pub fn setup_client(
         ApplyChunksSpawner::Custom(Arc::new(
             test_loop.async_computation_spawner(identifier, |_| Duration::milliseconds(80)),
         )),
-        client_config.save_latest_witnesses,
-        client_config.save_invalid_witnesses,
     );
 
     test_loop.data.register_actor(
