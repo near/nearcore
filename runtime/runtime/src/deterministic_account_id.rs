@@ -61,7 +61,7 @@ pub(crate) fn action_deterministic_state_init(
             create_deterministic_account(account, storage_usage_config);
             deploy_deterministic_account(
                 state_update,
-                account.as_mut().expect("account must exists now"),
+                account.as_mut().expect("account must exist now"),
                 account_id,
                 &action.state_init,
                 result,
@@ -71,7 +71,7 @@ pub(crate) fn action_deterministic_state_init(
         AccountState::Uninit => {
             deploy_deterministic_account(
                 state_update,
-                account.as_mut().expect("account must exists in uninit"),
+                account.as_mut().expect("account must exist in uninit"),
                 account_id,
                 &action.state_init,
                 result,
@@ -106,7 +106,8 @@ pub(crate) fn action_deterministic_state_init(
                     .expect("just checked missing_amount <= action.deposit")
             } else {
                 // not enough balance at this point -> no refund
-                // (following actions might be able to fix the balance  requirements but these will no affect this refund)
+                // (following actions might be able to fix the balance
+                // requirements but these will not affect this refund)
                 let new_balance = safe_add_balance(account.amount(), action.deposit)?;
                 account.set_amount(new_balance);
                 Balance::ZERO
