@@ -1,3 +1,4 @@
+use crate::cache::get_contract_cache_key;
 use crate::errors::ContractPrecompilatonResult;
 use crate::logic::errors::{
     CacheError, CompilationError, FunctionCallError, MethodResolveError, VMLogicError,
@@ -11,7 +12,7 @@ use crate::runner::VMResult;
 use crate::{
     CompiledContract, CompiledContractInfo, Contract, ContractCode, ContractRuntimeCache,
     EXPORT_PREFIX, MEMORY_EXPORT, NoContractRuntimeCache, REMAINING_GAS_EXPORT, START_EXPORT,
-    get_contract_cache_key, imports, prepare,
+    imports, prepare,
 };
 use core::mem::transmute;
 use core::ops::Deref;
@@ -21,6 +22,7 @@ use near_parameters::vm::{LimitConfig, VMKind};
 use near_primitives_core::gas::Gas;
 use near_primitives_core::types::Balance;
 use std::collections::HashMap;
+use std::hash::{Hash, Hasher};
 use std::sync::{Arc, LazyLock};
 use tracing::warn;
 use wasmtime::{
@@ -327,11 +329,6 @@ impl IntoVMError for anyhow::Error {
     }
 }
 
-pub(crate) fn wasmtime_vm_hash() -> u64 {
-    // TODO: take into account compiler and engine used to compile the contract.
-    64
-}
-
 #[derive(Clone)]
 pub(crate) struct WasmtimeVM {
     config: Arc<Config>,
@@ -434,6 +431,14 @@ impl WasmtimeVM {
             .clone()
     }
 
+    pub(crate) fn vm_hash(&self) -> u64 {
+        let mut hasher = std::hash::DefaultHasher::new();
+        self.engine.precompile_compatibility_hash().hash(&mut hasher);
+        hasher.write_u16(65); // increment the 65 or something when making modifications that affect
+        // the artifact compatibility.
+        hasher.finish()
+    }
+
     #[tracing::instrument(target = "vm", level = "debug", "WasmtimeVM::compile_uncached", skip_all)]
     pub(crate) fn compile_uncached(
         &self,
@@ -456,7 +461,7 @@ impl WasmtimeVM {
         cache: &dyn ContractRuntimeCache,
     ) -> Result<Result<Vec<u8>, CompilationError>, CacheError> {
         let serialized_or_error = self.compile_uncached(code);
-        let key = get_contract_cache_key(*code.hash(), &self.config);
+        let key = get_contract_cache_key(*code.hash(), &self.config, self.vm_hash());
         let record = CompiledContractInfo {
             wasm_bytes: code.code().len() as u64,
             compiled: match &serialized_or_error {
@@ -482,7 +487,7 @@ impl WasmtimeVM {
         type MemoryCacheType =
             (u64, Result<Result<PreparedModule, FunctionCallError>, CompilationError>);
         let to_any = |v: MemoryCacheType| -> Box<dyn std::any::Any + Send> { Box::new(v) };
-        let key = get_contract_cache_key(contract.hash(), &self.config);
+        let key = get_contract_cache_key(contract.hash(), &self.config, self.vm_hash());
         let (wasm_bytes, pre_result) = cache.memory_cache().try_lookup(
             key,
             || {
@@ -583,6 +588,16 @@ impl WasmtimeVM {
 }
 
 impl crate::runner::VM for WasmtimeVM {
+    fn contract_cached(
+        &self,
+        cache: &dyn ContractRuntimeCache,
+        hash: near_primitives_core::hash::CryptoHash,
+    ) -> Result<bool, crate::logic::errors::CacheError> {
+        let key = get_contract_cache_key(hash, &self.config, self.vm_hash());
+        // Check if we already cached with such a key.
+        cache.has(&key).map_err(CacheError::ReadError)
+    }
+
     fn precompile(
         &self,
         code: &ContractCode,
@@ -591,6 +606,9 @@ impl crate::runner::VM for WasmtimeVM {
         Result<ContractPrecompilatonResult, CompilationError>,
         crate::logic::errors::CacheError,
     > {
+        if self.contract_cached(cache, *code.hash())? {
+            return Ok(Ok(ContractPrecompilatonResult::ContractAlreadyInCache));
+        }
         Ok(self
             .compile_and_cache(code, cache)?
             .map(|_| ContractPrecompilatonResult::ContractCompiled))
