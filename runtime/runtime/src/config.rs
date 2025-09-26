@@ -162,12 +162,8 @@ pub fn total_send_fees(
             }
             DeterministicStateInit(action) => {
                 let num_entries = action.state_init.data().len() as u64;
-                let num_bytes = action.state_init.data().iter().fold(0u64, |acc, (key, value)| {
-                    acc.checked_add(key.len() as u64)
-                        .unwrap()
-                        .checked_add(value.len() as u64)
-                        .unwrap()
-                });
+                let num_bytes =
+                    borsh::object_length(action.state_init.data()).expect("borsh must not fail");
                 let base_fee = fees
                     .fee(ActionCosts::deterministic_state_init_base)
                     .send_fee(sender_is_receiver);
@@ -178,7 +174,7 @@ pub fn total_send_fees(
                 let byte_fee = fees
                     .fee(ActionCosts::deterministic_state_init_byte)
                     .send_fee(sender_is_receiver);
-                let all_bytes_fee = byte_fee.checked_mul(num_bytes).unwrap();
+                let all_bytes_fee = byte_fee.checked_mul(num_bytes as u64).unwrap();
 
                 base_fee.checked_add(all_bytes_fee).unwrap().checked_add(all_entries_fee).unwrap()
             }
@@ -291,14 +287,13 @@ pub fn exec_fee(config: &RuntimeConfig, action: &Action, receiver_id: &AccountId
         }
         DeterministicStateInit(action) => {
             let num_entries = action.state_init.data().len() as u64;
-            let num_bytes = action.state_init.data().iter().fold(0u64, |acc, (key, value)| {
-                acc.checked_add(key.len() as u64).unwrap().checked_add(value.len() as u64).unwrap()
-            });
+            let num_bytes =
+                borsh::object_length(action.state_init.data()).expect("borsh must not fail");
             let base_fee = fees.fee(ActionCosts::deterministic_state_init_base).exec_fee();
             let entry_fee = fees.fee(ActionCosts::deterministic_state_init_entry).exec_fee();
             let all_entries_fee = entry_fee.checked_mul(num_entries).unwrap();
             let byte_fee = fees.fee(ActionCosts::deterministic_state_init_byte).exec_fee();
-            let all_bytes_fee = byte_fee.checked_mul(num_bytes).unwrap();
+            let all_bytes_fee = byte_fee.checked_mul(num_bytes as u64).unwrap();
 
             base_fee.checked_add(all_bytes_fee).unwrap().checked_add(all_entries_fee).unwrap()
         }
