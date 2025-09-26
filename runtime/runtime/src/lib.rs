@@ -1760,13 +1760,8 @@ impl Runtime {
                     id: tx.get_hash(),
                     outcome: ExecutionOutcome {
                         status: ExecutionStatus::Failure(TxExecutionError::InvalidTxError(err)),
-                        logs: vec![],
-                        receipt_ids: vec![],
-                        gas_burnt: Gas::ZERO,
-                        compute_usage: None,
-                        tokens_burnt: Balance::ZERO,
                         executor_id: tx.transaction.signer_id().clone(),
-                        metadata: ExecutionMetadata::V1,
+                        ..Default::default()
                     },
                 };
                 Self::register_outcome(processing_state, outcome);
@@ -1798,13 +1793,8 @@ impl Runtime {
                             status: ExecutionStatus::Failure(TxExecutionError::InvalidTxError(
                                 tx_error,
                             )),
-                            logs: vec![],
-                            receipt_ids: vec![],
-                            gas_burnt: Gas::ZERO,
-                            compute_usage: None,
-                            tokens_burnt: Balance::ZERO,
                             executor_id: tx.transaction.signer_id().clone(),
-                            metadata: ExecutionMetadata::V1,
+                            ..Default::default()
                         },
                     };
                     let error = &error as &dyn std::error::Error;
@@ -1829,13 +1819,8 @@ impl Runtime {
                                         signer_id: signer_id.to_string(),
                                     },
                                 )),
-                                logs: vec![],
-                                receipt_ids: vec![],
-                                gas_burnt: Gas::ZERO,
-                                compute_usage: None,
-                                tokens_burnt: Balance::ZERO,
                                 executor_id: tx.transaction.signer_id().clone(),
-                                metadata: ExecutionMetadata::V1,
+                                ..Default::default()
                             },
                         };
                         Self::register_outcome(processing_state, outcome);
@@ -1861,13 +1846,8 @@ impl Runtime {
                                         },
                                     ),
                                 )),
-                                logs: vec![],
-                                receipt_ids: vec![],
-                                gas_burnt: Gas::ZERO,
-                                compute_usage: None,
-                                tokens_burnt: Balance::ZERO,
                                 executor_id: tx.transaction.signer_id().clone(),
-                                metadata: ExecutionMetadata::V1,
+                                ..Default::default()
                             },
                         };
                         Self::register_outcome(processing_state, outcome);
@@ -1894,13 +1874,8 @@ impl Runtime {
                                 status: ExecutionStatus::Failure(TxExecutionError::InvalidTxError(
                                     error,
                                 )),
-                                logs: vec![],
-                                receipt_ids: vec![],
-                                gas_burnt: Gas::ZERO,
-                                compute_usage: None,
-                                tokens_burnt: Balance::ZERO,
                                 executor_id: tx.transaction.signer_id().clone(),
-                                metadata: ExecutionMetadata::V1,
+                                ..Default::default()
                             },
                         };
                         Self::register_outcome(processing_state, outcome);
@@ -1969,13 +1944,10 @@ impl Runtime {
                             status: ExecutionStatus::Failure(TxExecutionError::InvalidTxError(
                                 InvalidTxError::CostOverflow,
                             )),
-                            logs: vec![],
-                            receipt_ids: vec![],
                             gas_burnt: verification_result.gas_burnt,
-                            compute_usage: None,
                             tokens_burnt: verification_result.burnt_amount,
                             executor_id: tx.transaction.signer_id().clone(),
-                            metadata: ExecutionMetadata::V1,
+                            ..Default::default()
                         },
                     };
                     processing_state.outcomes.push(outcome);
