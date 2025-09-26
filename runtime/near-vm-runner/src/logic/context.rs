@@ -21,6 +21,10 @@ pub struct VMContext {
     /// If this execution is the result of direct execution of transaction then it
     /// is equal to `signer_account_id`.
     pub predecessor_account_id: AccountId,
+    /// Where balance refunds after failure should go. Usually the same as
+    /// `predecessor_account_id` but may have been changed by the predecessor
+    /// via host function `promise_set_refund_to`.
+    pub refund_to_account_id: AccountId,
     /// The input to the contract call.
     /// Encoded as base64 string to be able to pass input in borsh binary format.
     pub input: Vec<u8>,

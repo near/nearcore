@@ -15,6 +15,7 @@ pub(crate) fn test_builder() -> TestBuilder {
         signer_account_id: "bob".parse().unwrap(),
         signer_account_pk: vec![0, 1, 2],
         predecessor_account_id: "carol".parse().unwrap(),
+        refund_to_account_id: "david".parse().unwrap(),
         input: Vec::new(),
         promise_results: Vec::new().into(),
         block_height: 10,

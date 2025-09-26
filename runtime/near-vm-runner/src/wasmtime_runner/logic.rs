@@ -655,6 +655,35 @@ pub fn predecessor_account_id(caller: &mut Caller<'_, Ctx>, register_id: u64) ->
     )
 }
 
+/// Saves the account id that was set for the current receipt by its
+/// predecessor via [`Self::promise_set_refund_to()`], or
+/// [`Self::predecessor_account_id()`] otherwise, into the register.
+///
+/// # Errors
+///
+/// If the registers exceed the memory limit returns `MemoryAccessViolation`.
+///
+/// # Cost
+///
+/// `base + write_register_base + write_register_byte * num_bytes`
+pub fn refund_to_account_id(caller: &mut Caller<'_, Ctx>, register_id: u64) -> Result<()> {
+    let ctx = caller.data_mut();
+    ctx.result_state.gas_counter.pay_base(base)?;
+
+    if ctx.context.is_view() {
+        return Err(HostError::ProhibitedInView {
+            method_name: "refund_to_account_id".to_string(),
+        }
+        .into());
+    }
+    ctx.registers.set(
+        &mut ctx.result_state.gas_counter,
+        &ctx.config.limit_config,
+        register_id,
+        ctx.context.refund_to_account_id.as_bytes(),
+    )
+}
+
 /// Reads input to the contract call into the register. Input is expected to be in JSON-format.
 /// If input is provided saves the bytes (potentially zero) of input into register. If input is
 /// not provided writes 0 bytes into the register.
