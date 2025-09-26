@@ -160,6 +160,12 @@ pub fn total_send_fees(
 
                 base_fee.checked_add(all_bytes_fee).unwrap()
             }
+            DeterministicStateInit(_deterministic_state_init_action) => {
+                // TODO(sharded_contracts):
+                // Need to implement the rest first to identify an appropriate cost.
+                // probably something like CreateAccount + UseGlobalContract + also bytes of data and maybe number of entries + transfer cost for refund"
+                Gas::ZERO
+            }
         };
         result = result.checked_add_result(delta)?;
     }
@@ -266,6 +272,13 @@ pub fn exec_fee(config: &RuntimeConfig, action: &Action, receiver_id: &AccountId
             let all_bytes_fee = byte_fee.checked_mul(num_bytes).unwrap();
 
             base_fee.checked_add(all_bytes_fee).unwrap()
+        }
+        DeterministicStateInit(_deterministic_state_init_action) => {
+            // Need to implement the rest first to identify an appropriate cost
+            // TODO(sharded_contracts):
+            // Need to implement the rest first to identify an appropriate cost.
+            // probably something like CreateAccount + UseGlobalContract + also bytes of data and maybe number of entries + transfer cost for refund"
+            Gas::ZERO
         }
     }
 }

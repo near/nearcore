@@ -116,16 +116,15 @@ pub fn spice_pre_validate_chunk_state_witness(
 
     let new_chunk_data = {
         // For correct application we need to convert chunk_header into spice_chunk_header.
-        let spice_chunk_header = if prev_block_header.is_genesis() {
+        let prev_chunk_chunk_extra = if prev_block_header.is_genesis() {
             let prev_block_epoch_id = prev_block_header.epoch_id();
             let prev_block_shard_layout = epoch_manager.get_shard_layout(&prev_block_epoch_id)?;
-            let chunk_extra = Chain::build_genesis_chunk_extra(
+            &Chain::build_genesis_chunk_extra(
                 &store.store(),
                 &prev_block_shard_layout,
                 shard_id,
                 &prev_block,
-            )?;
-            chunk_header.clone().into_spice_chunk_execution_header(&chunk_extra)
+            )?
         } else {
             let (_, prev_shard_id, _prev_shard_index) =
                 epoch_manager.get_prev_shard_id_from_prev_hash(prev_block.hash(), shard_id)?;
@@ -133,9 +132,7 @@ pub fn spice_pre_validate_chunk_state_witness(
                 .0
                 .get(&prev_shard_id)
                 .expect("execution results for all prev_block chunks should be available");
-            chunk_header
-                .clone()
-                .into_spice_chunk_execution_header(&prev_execution_result.chunk_extra)
+            &prev_execution_result.chunk_extra
         };
 
         let storage_context = StorageContext {
@@ -146,7 +143,10 @@ pub fn spice_pre_validate_chunk_state_witness(
         };
         let is_new_chunk = true;
         NewChunkData {
-            chunk_header: spice_chunk_header,
+            gas_limit: prev_chunk_chunk_extra.gas_limit(),
+            prev_state_root: *prev_chunk_chunk_extra.state_root(),
+            prev_validator_proposals: prev_chunk_chunk_extra.validator_proposals().collect(),
+            chunk_hash: Some(chunk_header.chunk_hash().clone()),
             transactions: SignedValidPeriodTransactions::new(
                 state_witness.transactions().to_vec(),
                 transaction_validity_check_results,
@@ -184,12 +184,10 @@ pub fn spice_validate_chunk_state_witness(
     let epoch_id = epoch_manager.get_epoch_id(block_hash)?;
     let shard_uid = shard_id_to_uid(epoch_manager, shard_id, &epoch_id)?;
 
-    assert_eq!(shard_id, pre_validation_output.new_chunk_data.chunk_header.shard_id());
-
     // TODO(spice): Similar to non-spice validation consider using cache to avoid re-evaluating
     // the same witnesses.
     let (chunk_extra, outgoing_receipts) = {
-        let chunk_header = pre_validation_output.new_chunk_data.chunk_header.clone();
+        let gas_limit = pre_validation_output.new_chunk_data.gas_limit;
         let NewChunkResult { apply_result: mut main_apply_result, .. } = apply_new_chunk(
             ApplyChunkReason::ValidateChunkStateWitness,
             &Span::current(),
@@ -198,7 +196,7 @@ pub fn spice_validate_chunk_state_witness(
             runtime_adapter,
         )?;
         let outgoing_receipts = std::mem::take(&mut main_apply_result.outgoing_receipts);
-        let chunk_extra = apply_result_to_chunk_extra(main_apply_result, &chunk_header);
+        let chunk_extra = apply_result_to_chunk_extra(main_apply_result, gas_limit);
 
         (chunk_extra, outgoing_receipts)
     };
@@ -299,6 +297,7 @@ fn validate_source_receipts_proofs(
 
 #[cfg(test)]
 mod tests {
+    use itertools::Itertools as _;
     use near_primitives::types::Balance;
     use std::str::FromStr as _;
 
@@ -344,10 +343,16 @@ mod tests {
 
         let prev_execution_results = test_chain.prev_execution_results();
         let prev_chunk_header = test_chain.prev_chunk_header();
-        let spice_chunk_header = test_chain.chunk_header().into_spice_chunk_execution_header(
-            &prev_execution_results.0.get(&prev_chunk_header.shard_id()).unwrap().chunk_extra,
+        let chunk_header = test_chain.chunk_header();
+        let prev_chunk_chunk_extra =
+            &prev_execution_results.0.get(&prev_chunk_header.shard_id()).unwrap().chunk_extra;
+        assert_eq!(new_chunk_data.gas_limit, prev_chunk_chunk_extra.gas_limit());
+        assert_eq!(&new_chunk_data.prev_state_root, prev_chunk_chunk_extra.state_root());
+        assert_eq!(
+            new_chunk_data.prev_validator_proposals,
+            prev_chunk_chunk_extra.validator_proposals().collect_vec()
         );
-        assert_eq!(new_chunk_data.chunk_header, spice_chunk_header);
+        assert_eq!(new_chunk_data.chunk_hash, Some(chunk_header.chunk_hash().clone()));
 
         let receipts = test_chain.receipts_for_shard(prev_chunk_header.shard_id());
         assert_eq!(new_chunk_data.receipts, receipts);
@@ -1015,11 +1020,6 @@ mod tests {
             let block = self.block();
             let prev_block = self.prev_block();
             let prev_chunk_header = self.prev_chunk_header();
-            let prev_execution_result =
-                prev_execution_results.0.get(&prev_chunk_header.shard_id()).unwrap();
-            let spice_chunk_header = chunk_header
-                .clone()
-                .into_spice_chunk_execution_header(&prev_execution_result.chunk_extra);
             let receipts = self.receipts_for_shard(chunk_header.shard_id());
             let is_new_chunk = true;
             let storage_context = StorageContext {
@@ -1034,10 +1034,16 @@ mod tests {
             )
             .unwrap();
 
+            let prev_execution_result =
+                prev_execution_results.0.get(&prev_chunk_header.shard_id()).unwrap();
+            let prev_chunk_chunk_extra = &prev_execution_result.chunk_extra;
             let transactions = self.transactions();
             let txs_validity = std::iter::repeat_n(true, transactions.len()).collect_vec();
             let new_chunk_data = NewChunkData {
-                chunk_header: spice_chunk_header,
+                gas_limit: prev_chunk_chunk_extra.gas_limit(),
+                prev_state_root: *prev_chunk_chunk_extra.state_root(),
+                prev_validator_proposals: prev_chunk_chunk_extra.validator_proposals().collect(),
+                chunk_hash: Some(chunk_header.chunk_hash().clone()),
                 transactions: SignedValidPeriodTransactions::new(transactions, txs_validity),
                 receipts,
                 block: Chain::get_apply_chunk_block_context(

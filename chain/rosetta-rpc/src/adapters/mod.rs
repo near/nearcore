@@ -485,6 +485,9 @@ impl From<NearActions> for Vec<crate::models::Operation> {
                 | near_primitives::transaction::Action::UseGlobalContract(_) => {
                     // TODO(#12639): Implement global contracts support, ignored for now.
                 }
+                near_primitives::transaction::Action::DeterministicStateInit(_) => {
+                    // TODO(#14073): Implement rosetta adapter, probably first requires global contracts, too
+                }
             }
         }
         operations

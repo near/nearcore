@@ -64,12 +64,6 @@ near-vm-engine = { workspace = true, optional = true }
 near-vm-types = { workspace = true, optional = true }
 near-vm-vm = { workspace = true, optional = true }
 
-near-vm-2-compiler = { workspace = true, optional = true }
-near-vm-2-compiler-singlepass = { workspace = true, optional = true }
-near-vm-2-engine = { workspace = true, optional = true }
-near-vm-2-types = { workspace = true, optional = true }
-near-vm-2-vm = { workspace = true, optional = true }
-
 [dev-dependencies]
 arbitrary.workspace = true
 ark-bls12-381.workspace = true
@@ -97,11 +91,6 @@ near_vm = [
     "near-vm-engine",
     "near-vm-types",
     "near-vm-vm",
-    "near-vm-2-compiler",
-    "near-vm-2-compiler-singlepass",
-    "near-vm-2-engine",
-    "near-vm-2-types",
-    "near-vm-2-vm",
     "memoffset",
     "prepare",
 ]

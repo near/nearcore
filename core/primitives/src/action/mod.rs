@@ -1,11 +1,16 @@
 pub mod delegate;
 
-use crate::trie_key::GlobalContractCodeIdentifier;
+// This type used to be defined here, then moved to core primitives to give access to the vm
+// runtime. Reexporting it here avoids breakage on depending crates.
+pub use near_primitives_core::global_contract::GlobalContractIdentifier;
+
+use crate::{
+    deterministic_account_id::DeterministicAccountStateInit, trie_key::GlobalContractCodeIdentifier,
+};
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::PublicKey;
 use near_primitives_core::{
-    account::{AccessKey, AccountContract},
-    hash::CryptoHash,
+    account::AccessKey,
     types::{AccountId, Balance, Gas},
 };
 use near_schema_checker_lib::ProtocolSchema;
@@ -170,26 +175,6 @@ impl fmt::Debug for DeployGlobalContractAction {
     }
 }
 
-#[derive(
-    BorshSerialize,
-    BorshDeserialize,
-    serde::Serialize,
-    serde::Deserialize,
-    Hash,
-    PartialEq,
-    Eq,
-    Clone,
-    ProtocolSchema,
-    Debug,
-)]
-#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-#[borsh(use_discriminant = true)]
-#[repr(u8)]
-pub enum GlobalContractIdentifier {
-    CodeHash(CryptoHash) = 0,
-    AccountId(AccountId) = 1,
-}
-
 impl From<GlobalContractCodeIdentifier> for GlobalContractIdentifier {
     fn from(identifier: GlobalContractCodeIdentifier) -> Self {
         match identifier {
@@ -199,49 +184,6 @@ impl From<GlobalContractCodeIdentifier> for GlobalContractIdentifier {
             GlobalContractCodeIdentifier::AccountId(account_id) => {
                 GlobalContractIdentifier::AccountId(account_id)
             }
-        }
-    }
-}
-
-impl GlobalContractIdentifier {
-    pub fn len(&self) -> usize {
-        match self {
-            GlobalContractIdentifier::CodeHash(_) => 32,
-            GlobalContractIdentifier::AccountId(account_id) => account_id.len(),
-        }
-    }
-}
-
-#[derive(Debug)]
-pub enum ContractIsLocalError {
-    NotDeployed,
-    Deployed(CryptoHash),
-}
-
-impl std::error::Error for ContractIsLocalError {}
-
-impl fmt::Display for ContractIsLocalError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(match self {
-            ContractIsLocalError::NotDeployed => "contract is not deployed",
-            ContractIsLocalError::Deployed(_) => "a locally deployed contract is deployed",
-        })
-    }
-}
-
-/// Extract [`GlobalContractIdentifier`] out of [`AccountContract`] if it represents a global
-/// contract.
-///
-/// If conversion is not possible, the conversion error can be inspected to obtain information
-/// about the local error.
-impl TryFrom<AccountContract> for GlobalContractIdentifier {
-    type Error = ContractIsLocalError;
-    fn try_from(value: AccountContract) -> Result<Self, Self::Error> {
-        match value {
-            AccountContract::None => Err(ContractIsLocalError::NotDeployed),
-            AccountContract::Local(h) => Err(ContractIsLocalError::Deployed(h)),
-            AccountContract::Global(h) => Ok(GlobalContractIdentifier::CodeHash(h)),
-            AccountContract::GlobalByAccount(a) => Ok(GlobalContractIdentifier::AccountId(a)),
         }
     }
 }
@@ -261,6 +203,24 @@ impl TryFrom<AccountContract> for GlobalContractIdentifier {
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct UseGlobalContractAction {
     pub contract_identifier: GlobalContractIdentifier,
+}
+
+#[serde_as]
+#[derive(
+    BorshSerialize,
+    BorshDeserialize,
+    serde::Serialize,
+    serde::Deserialize,
+    PartialEq,
+    Eq,
+    Clone,
+    ProtocolSchema,
+    Debug,
+)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+pub struct DeterministicStateInitAction {
+    pub state_init: DeterministicAccountStateInit,
+    pub deposit: Balance,
 }
 
 #[serde_as]
@@ -362,6 +322,7 @@ pub enum Action {
     Delegate(Box<delegate::SignedDelegateAction>) = 8,
     DeployGlobalContract(DeployGlobalContractAction) = 9,
     UseGlobalContract(Box<UseGlobalContractAction>) = 10,
+    DeterministicStateInit(Box<DeterministicStateInitAction>) = 11,
 }
 
 const _: () = assert!(
@@ -383,6 +344,7 @@ impl Action {
         match self {
             Action::FunctionCall(a) => a.deposit,
             Action::Transfer(a) => a.deposit,
+            Action::DeterministicStateInit(a) => a.deposit,
             _ => Balance::ZERO,
         }
     }

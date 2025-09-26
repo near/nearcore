@@ -9,9 +9,10 @@ use near_primitives::apply::ApplyChunkReason;
 use near_primitives::receipt::Receipt;
 use near_primitives::sandbox::state_patch::SandboxStatePatch;
 use near_primitives::shard_layout::ShardUId;
-use near_primitives::sharding::ShardChunkHeader;
-use near_primitives::types::Gas;
+use near_primitives::sharding::ChunkHash;
 use near_primitives::types::chunk_extra::ChunkExtra;
+use near_primitives::types::validator_stake::{ValidatorStake, ValidatorStakeIter};
+use near_primitives::types::{Gas, StateRoot};
 use node_runtime::SignedValidPeriodTransactions;
 
 /// Result of updating a shard for some block when it has a new chunk for this
@@ -41,7 +42,12 @@ pub enum ShardUpdateResult {
 }
 
 pub struct NewChunkData {
-    pub chunk_header: ShardChunkHeader,
+    pub gas_limit: Gas,
+    pub prev_state_root: StateRoot,
+    pub prev_validator_proposals: Vec<ValidatorStake>,
+    /// chunk_hash is used only for debugging and may be none when running with spice which treats
+    /// missing chunks as empty chunks.
+    pub chunk_hash: Option<ChunkHash>,
     pub transactions: SignedValidPeriodTransactions,
     pub receipts: Vec<Receipt>,
     pub block: ApplyChunkBlockContext,
@@ -116,7 +122,16 @@ pub fn apply_new_chunk(
     shard_context: ShardContext,
     runtime: &dyn RuntimeAdapter,
 ) -> Result<NewChunkResult, Error> {
-    let NewChunkData { chunk_header, transactions, block, receipts, storage_context } = data;
+    let NewChunkData {
+        gas_limit,
+        prev_state_root,
+        prev_validator_proposals,
+        chunk_hash,
+        transactions,
+        block,
+        receipts,
+        storage_context,
+    } = data;
     let shard_id = shard_context.shard_uid.shard_id();
     let _span = tracing::debug_span!(
         target: "chain",
@@ -124,18 +139,17 @@ pub fn apply_new_chunk(
         "apply_new_chunk",
         height = block.height,
         %shard_id,
-        chunk_hash = ?chunk_header.chunk_hash(),
+        ?chunk_hash,
         block_type = ?block.block_type,
         ?apply_reason,
         transactions_num = transactions.len(),
         incoming_receipts_num = receipts.len(),
         tag_block_production = true)
     .entered();
-    let gas_limit = chunk_header.gas_limit();
 
-    let _timer = CryptoHashTimer::new(Clock::real(), chunk_header.chunk_hash().0);
+    let _timer = chunk_hash.map(|chunk_hash| CryptoHashTimer::new(Clock::real(), chunk_hash.0));
     let storage_config = RuntimeStorageConfig {
-        state_root: chunk_header.prev_state_root(),
+        state_root: prev_state_root,
         use_flat_storage: true,
         source: storage_context.storage_data_source,
         state_patch: storage_context.state_patch,
@@ -145,7 +159,7 @@ pub fn apply_new_chunk(
         apply_reason,
         ApplyChunkShardContext {
             shard_id,
-            last_validator_proposals: chunk_header.prev_validator_proposals(),
+            last_validator_proposals: ValidatorStakeIter::new(&prev_validator_proposals),
             gas_limit,
             is_new_chunk: true,
         },

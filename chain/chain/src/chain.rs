@@ -3236,7 +3236,10 @@ impl Chain {
                 SignedValidPeriodTransactions::new(chunk.into_transactions(), tx_valid_list);
 
             ShardUpdateReason::NewChunk(NewChunkData {
-                chunk_header: chunk_header.clone(),
+                gas_limit: chunk_header.gas_limit(),
+                prev_state_root: chunk_header.prev_state_root(),
+                prev_validator_proposals: chunk_header.prev_validator_proposals().collect(),
+                chunk_hash: Some(chunk_header.chunk_hash().clone()),
                 transactions,
                 receipts,
                 block,

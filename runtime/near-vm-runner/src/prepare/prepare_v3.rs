@@ -385,7 +385,7 @@ pub(crate) fn prepare_contract(
     let lightly_steamed = PrepareContext::new(original_code, features, config).run()?;
 
     match kind {
-        VMKind::NearVm | VMKind::NearVm2 => return Ok(lightly_steamed),
+        VMKind::NearVm => return Ok(lightly_steamed),
         VMKind::Wasmer0 | VMKind::Wasmtime | VMKind::Wasmer2 => {}
     }
 
@@ -589,31 +589,6 @@ mod test {
             // pass our validation step!
             if let Ok(_) = validate_contract(input, features, &config) {
                 match super::prepare_contract(input, features, &config, VMKind::Wasmtime) {
-                    Err(_e) => (), // TODO: this should be a panic, but for now it’d actually trigger
-                    Ok(code) => {
-                        let mut validator = wp::Validator::new_with_features(features.into());
-                        match validator.validate_all(&code) {
-                            Ok(_) => (),
-                            Err(e) => panic!(
-                                "prepared code failed validation: {e:?}\ncontract: {}",
-                                hex::encode(input),
-                            ),
-                        }
-                    }
-                }
-            }
-        });
-    }
-
-    #[test]
-    fn v3_preparation_near_vm_generates_valid_contract_fuzzer() {
-        let config = test_vm_config(Some(VMKind::NearVm2));
-        let features = crate::features::WasmFeatures::new(&config);
-        bolero::check!().for_each(|input: &[u8]| {
-            // DO NOT use ArbitraryModule. We do want modules that may be invalid here, if they
-            // pass our validation step!
-            if let Ok(_) = validate_contract(input, features, &config) {
-                match super::prepare_contract(input, features, &config, VMKind::NearVm2) {
                     Err(_e) => (), // TODO: this should be a panic, but for now it’d actually trigger
                     Ok(code) => {
                         let mut validator = wp::Validator::new_with_features(features.into());

@@ -51,8 +51,8 @@ use crate::chunk_executor_actor::{
 };
 use crate::spice_chunk_validator_actor::SpiceChunkStateWitnessMessage;
 use crate::spice_data_distributor_actor::{
-    Error, SpiceDataDistributorActor, SpiceDistributorOutgoingReceipts,
-    SpiceDistributorStateWitness,
+    DataIsKnownError, Error, ReceiveDataError, SpiceDataDistributorActor,
+    SpiceDistributorOutgoingReceipts, SpiceDistributorStateWitness,
 };
 
 fn build_block(epoch_manager: &dyn EpochManagerAdapter, prev_block: &Block) -> Arc<Block> {
@@ -612,7 +612,7 @@ macro_rules! test_invalid_incoming_partial_data {
                         let SpiceIncomingPartialData { data } = $incoming_data;
                         let result = actor.receive_data(data);
                         assert_matches!(outgoing_rc.try_recv(), Err(TryRecvError::Empty));
-                        assert_matches!(result, Err($error));
+                        assert_matches!(result, Err(ReceiveDataError::ReceivingDataWithBlock($error)));
                     }
                     actor.handle(incoming_data);
                     assert_matches!(outgoing_rc.try_recv(), Ok(_));
@@ -698,7 +698,12 @@ fn test_incoming_partial_data_is_already_decoded() {
     let SpiceIncomingPartialData { data } = incoming_data;
     let result = actor.receive_data(data);
     assert_matches!(outgoing_rc.try_recv(), Err(TryRecvError::Empty));
-    assert_matches!(result, Err(Error::DataIsAlreadyDecoded));
+    assert_matches!(
+        result,
+        Err(ReceiveDataError::ReceivingDataWithBlock(Error::DataIsKnown(
+            DataIsKnownError::DataDecoded
+        )))
+    );
 }
 
 #[test]
@@ -718,7 +723,12 @@ fn test_incoming_partial_data_for_already_known_receipts() {
     let SpiceIncomingPartialData { data } = incoming_data;
     let result = actor.receive_data(data);
     assert_matches!(outgoing_rc.try_recv(), Err(TryRecvError::Empty));
-    assert_matches!(result, Err(Error::ReceiptsAreKnown));
+    assert_matches!(
+        result,
+        Err(ReceiveDataError::ReceivingDataWithBlock(Error::DataIsKnown(
+            DataIsKnownError::ReceiptsKnown
+        )))
+    );
 }
 
 #[test]
@@ -749,7 +759,12 @@ fn test_incoming_partial_data_for_already_endorsed_witness() {
     let SpiceIncomingPartialData { data } = incoming_data;
     let result = actor.receive_data(data);
     assert_matches!(outgoing_rc.try_recv(), Err(TryRecvError::Empty));
-    assert_matches!(result, Err(Error::WitnessAlreadyValidated));
+    assert_matches!(
+        result,
+        Err(ReceiveDataError::ReceivingDataWithBlock(Error::DataIsKnown(
+            DataIsKnownError::WitnessValidated
+        )))
+    );
 }
 
 #[test]
@@ -768,7 +783,10 @@ fn test_incoming_partial_data_for_witness_with_receipt_id() {
         let SpiceIncomingPartialData { data } = incoming_data;
         let result = actor.receive_data(data);
         assert_matches!(outgoing_rc.try_recv(), Err(TryRecvError::Empty));
-        assert_matches!(result, Err(Error::IdAndDataMismatch));
+        assert_matches!(
+            result,
+            Err(ReceiveDataError::ReceivingDataWithBlock(Error::IdAndDataMismatch))
+        );
     }
     actor.handle(incoming_data);
     assert_matches!(outgoing_rc.try_recv(), Ok(_));
@@ -800,7 +818,10 @@ fn test_incoming_partial_data_for_receipts_with_non_matching_from_shard_id() {
         let SpiceIncomingPartialData { data } = incoming_data;
         let result = actor.receive_data(data);
         assert_matches!(outgoing_rc.try_recv(), Err(TryRecvError::Empty));
-        assert_matches!(result, Err(Error::InvalidDecodedReceiptFromShardId));
+        assert_matches!(
+            result,
+            Err(ReceiveDataError::ReceivingDataWithBlock(Error::InvalidDecodedReceiptFromShardId))
+        );
     }
     actor.handle(incoming_data);
     assert_matches!(outgoing_rc.try_recv(), Ok(_));
@@ -832,7 +853,10 @@ fn test_incoming_partial_data_for_receipts_with_non_matching_to_shard_id() {
         let SpiceIncomingPartialData { data } = incoming_data;
         let result = actor.receive_data(data);
         assert_matches!(outgoing_rc.try_recv(), Err(TryRecvError::Empty));
-        assert_matches!(result, Err(Error::InvalidDecodedReceiptToShardId));
+        assert_matches!(
+            result,
+            Err(ReceiveDataError::ReceivingDataWithBlock(Error::InvalidDecodedReceiptToShardId))
+        );
     }
     actor.handle(incoming_data);
     assert_matches!(outgoing_rc.try_recv(), Ok(_));
@@ -854,7 +878,10 @@ fn test_incoming_partial_data_for_receipt_with_witness_id() {
         let SpiceIncomingPartialData { data } = incoming_data;
         let result = actor.receive_data(data);
         assert_matches!(outgoing_rc.try_recv(), Err(TryRecvError::Empty));
-        assert_matches!(result, Err(Error::IdAndDataMismatch));
+        assert_matches!(
+            result,
+            Err(ReceiveDataError::ReceivingDataWithBlock(Error::IdAndDataMismatch))
+        );
     }
     actor.handle(incoming_data);
     assert_matches!(outgoing_rc.try_recv(), Ok(_));
@@ -898,7 +925,10 @@ fn test_incoming_partial_data_for_witness_with_wrong_shard_id() {
         let SpiceIncomingPartialData { data } = incoming_data;
         let result = actor.receive_data(data);
         assert_matches!(outgoing_rc.try_recv(), Err(TryRecvError::Empty));
-        assert_matches!(result, Err(Error::InvalidDecodedWitnessShardId));
+        assert_matches!(
+            result,
+            Err(ReceiveDataError::ReceivingDataWithBlock(Error::InvalidDecodedWitnessShardId))
+        );
     }
     actor.handle(incoming_data);
     assert_matches!(outgoing_rc.try_recv(), Ok(_));
@@ -927,7 +957,10 @@ fn test_incoming_partial_data_for_witness_with_wrong_block_hash() {
         let SpiceIncomingPartialData { data } = incoming_data;
         let result = actor.receive_data(data);
         assert_matches!(outgoing_rc.try_recv(), Err(TryRecvError::Empty));
-        assert_matches!(result, Err(Error::InvalidDecodedWitnessBlockHash));
+        assert_matches!(
+            result,
+            Err(ReceiveDataError::ReceivingDataWithBlock(Error::InvalidDecodedWitnessBlockHash))
+        );
     }
     actor.handle(incoming_data);
     assert_matches!(outgoing_rc.try_recv(), Ok(_));
@@ -967,7 +1000,7 @@ macro_rules! test_invalid_incoming_partial_data_without_block {
                         let result = actor.receive_data(data);
                         assert_eq!(actor.pending_partial_data_size(), 0);
                         assert_matches!(outgoing_rc.try_recv(), Err(TryRecvError::Empty));
-                        assert_matches!(result, Err($error));
+                        assert_matches!(result, Err(ReceiveDataError::ReceivingDataWithoutBlock($error)));
                     }
                 }
             )+
