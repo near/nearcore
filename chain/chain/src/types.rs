@@ -1,3 +1,7 @@
+use std::collections::HashSet;
+use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
+
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_async::time::{Duration, Utc};
 use near_chain_configs::GenesisConfig;
@@ -20,6 +24,7 @@ use near_primitives::congestion_info::ExtendedCongestionInfo;
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{MerklePath, merklize};
+use near_primitives::optimistic_block::OptimisticBlockKeySource;
 use near_primitives::receipt::{PromiseYieldTimeout, Receipt};
 use near_primitives::sandbox::state_patch::SandboxStatePatch;
 use near_primitives::shard_layout::ShardLayout;
@@ -38,10 +43,12 @@ use near_primitives::version::PROD_GENESIS_PROTOCOL_VERSION;
 use near_primitives::version::{MIN_GAS_PRICE_NEP_92_FIX, ProtocolVersion};
 use near_primitives::views::{QueryRequest, QueryResponse};
 use near_schema_checker_lib::ProtocolSchema;
+use near_store::TrieUpdate;
 use near_store::flat::FlatStorageManager;
 use near_store::{PartialStorage, ShardTries, Store, Trie, WrappedTrieChanges};
 use near_vm_runner::ContractCode;
 use near_vm_runner::ContractRuntimeCache;
+use node_runtime::PostStateReadyCallback;
 use node_runtime::SignedValidPeriodTransactions;
 use num_rational::Rational32;
 use tracing::instrument;
@@ -293,6 +300,24 @@ impl RuntimeStorageConfig {
     }
 }
 
+/// State to use for preparing transactions.
+pub enum PrepareTransactionsState {
+    StorageConfig(RuntimeStorageConfig),
+    TrieUpdate(TrieUpdate),
+}
+
+impl From<TrieUpdate> for PrepareTransactionsState {
+    fn from(update: TrieUpdate) -> Self {
+        PrepareTransactionsState::TrieUpdate(update)
+    }
+}
+
+impl From<RuntimeStorageConfig> for PrepareTransactionsState {
+    fn from(config: RuntimeStorageConfig) -> Self {
+        PrepareTransactionsState::StorageConfig(config)
+    }
+}
+
 #[derive(Clone, Debug)]
 pub enum BlockType {
     Normal,
@@ -329,6 +354,15 @@ impl ApplyChunkBlockContext {
             bandwidth_requests,
         }
     }
+
+    pub fn to_key_source(&self) -> OptimisticBlockKeySource {
+        OptimisticBlockKeySource {
+            height: self.height,
+            prev_block_hash: self.prev_block_hash,
+            block_timestamp: self.block_timestamp,
+            random_seed: self.random_seed,
+        }
+    }
 }
 
 pub struct ApplyChunkShardContext<'a> {
@@ -336,6 +370,7 @@ pub struct ApplyChunkShardContext<'a> {
     pub last_validator_proposals: ValidatorStakeIter<'a>,
     pub gas_limit: Gas,
     pub is_new_chunk: bool,
+    pub on_post_state_ready: Option<PostStateReadyCallback>,
 }
 
 /// Contains transactions that were fetched from the transaction pool
@@ -344,8 +379,17 @@ pub struct ApplyChunkShardContext<'a> {
 pub struct PreparedTransactions {
     /// Prepared transactions
     pub transactions: Vec<ValidatedTransaction>,
+    /// Transactions that were taken out of the pool in prepare_transactions,
+    /// but should be skipped because they were in skip_tx_hashes.
+    pub skipped: Vec<ValidatedTransaction>,
     /// Describes which limit was hit when preparing the transactions.
     pub limited_by: Option<PrepareTransactionsLimit>,
+}
+
+impl PreparedTransactions {
+    pub fn empty() -> Self {
+        Self { transactions: Vec::new(), skipped: Vec::new(), limited_by: None }
+    }
 }
 
 /// Chunk producer prepares transactions from the transaction pool
@@ -358,24 +402,30 @@ pub enum PrepareTransactionsLimit {
     Time,
     ReceiptCount,
     StorageProofSize,
+    Cancelled,
 }
 
+/// Information taken from the previous block
+/// (Taken from block H for preparing transactions at height H+1)
+#[derive(Clone, Eq, PartialEq, Debug)]
 pub struct PrepareTransactionsBlockContext {
     pub next_gas_price: Balance,
+    /// Height of the previous block
     pub height: BlockHeight,
-    pub block_hash: CryptoHash,
+    /// Epoch id of the block after the previous block
+    pub next_epoch_id: EpochId,
     pub congestion_info: BlockCongestionInfo,
 }
 
-impl From<&Block> for PrepareTransactionsBlockContext {
-    fn from(block: &Block) -> Self {
-        let header = block.header();
-        Self {
+impl PrepareTransactionsBlockContext {
+    pub fn new(prev_block: &Block, epoch_manager: &dyn EpochManagerAdapter) -> Result<Self, Error> {
+        let header = prev_block.header();
+        Ok(Self {
             next_gas_price: header.next_gas_price(),
             height: header.height(),
-            block_hash: *header.hash(),
-            congestion_info: block.block_congestion_info(),
-        }
+            next_epoch_id: epoch_manager.get_epoch_id_from_prev_block(&header.hash())?,
+            congestion_info: prev_block.block_congestion_info(),
+        })
     }
 }
 
@@ -437,14 +487,19 @@ pub trait RuntimeAdapter: Send + Sync {
     /// update is preserved for validation of next transactions.
     /// Throws an `Error` with `ErrorKind::StorageError` in case the runtime throws
     /// `RuntimeError::StorageError`.
+    /// * storage - defines the state to use for preparing transactions (can use TrieUpdate or RuntimeStorageConfig)
+    /// * skip_tx_hashes - defines which transactions should be skipped. Used to skip transactions that were included in previous chunks.
+    /// * cancel - can be used to cancel the preparation
     fn prepare_transactions(
         &self,
-        storage: RuntimeStorageConfig,
+        storage: PrepareTransactionsState,
         shard_id: ShardId,
         prev_block: PrepareTransactionsBlockContext,
         transaction_groups: &mut dyn TransactionGroupIterator,
         chain_validate: &dyn Fn(&SignedTransaction) -> bool,
         time_limit: Option<Duration>,
+        skip_tx_hashes: HashSet<CryptoHash>,
+        cancel: Option<Arc<AtomicBool>>,
     ) -> Result<PreparedTransactions, Error>;
 
     /// Returns true if the shard layout will change in the next epoch

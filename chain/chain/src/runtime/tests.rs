@@ -244,6 +244,7 @@ impl TestEnv {
                     ),
                     gas_limit,
                     is_new_chunk: true,
+                    on_post_state_ready: None,
                 },
                 ApplyChunkBlockContext {
                     block_type: BlockType::Normal,
@@ -1555,6 +1556,7 @@ fn get_test_env_with_chain_and_pool() -> (TestEnv, Chain, TransactionPool) {
             env.runtime.store().chain_store(),
             env.epoch_manager.clone(),
         ),
+        None,
     )
     .unwrap();
 
@@ -1580,14 +1582,15 @@ fn prepare_transactions(
     let shard_id = shard_layout.shard_ids().next().unwrap();
     let block = chain.get_block(&prev_hash).unwrap();
     let congestion_info = block.block_congestion_info();
+    let next_epoch_id = env.epoch_manager.get_epoch_id_from_prev_block(&prev_hash)?;
 
     env.runtime.prepare_transactions(
-        storage_config,
+        storage_config.into(),
         shard_id,
         PrepareTransactionsBlockContext {
             next_gas_price: env.runtime.genesis_config.min_gas_price,
             height: env.head.height,
-            block_hash: env.head.last_block_hash,
+            next_epoch_id,
             congestion_info,
         },
         transaction_groups,
@@ -1598,6 +1601,8 @@ fn prepare_transactions(
                 .is_ok()
         },
         default_produce_chunk_add_transactions_time_limit(),
+        Default::default(),
+        None,
     )
 }
 

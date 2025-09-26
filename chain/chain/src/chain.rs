@@ -25,13 +25,16 @@ use crate::stateless_validation::chunk_endorsement::{
     validate_chunk_endorsements_in_block, validate_chunk_endorsements_in_header,
 };
 use crate::stateless_validation::processing_tracker::ProcessingDoneTracker;
-use crate::store::utils::{get_chunk_clone_from_header, get_incoming_receipts_for_shard};
+use crate::store::utils::{
+    early_prepare_txs_check_validity_period, get_chunk_clone_from_header,
+    get_incoming_receipts_for_shard,
+};
 use crate::store::{
     ChainStore, ChainStoreAccess, ChainStoreUpdate, MerkleProofAccess, ReceiptFilter,
 };
 use crate::types::{
     AcceptedBlock, ApplyChunkBlockContext, BlockEconomicsConfig, BlockType, ChainConfig,
-    RuntimeAdapter, StorageDataSource,
+    PrepareTransactionsBlockContext, RuntimeAdapter, StorageDataSource,
 };
 pub use crate::update_shard::{
     NewChunkData, NewChunkResult, OldChunkData, OldChunkResult, ShardContext, StorageContext,
@@ -79,6 +82,7 @@ use near_primitives::sharding::{
     StateSyncInfo,
 };
 use near_primitives::state_sync::ReceiptProofResponse;
+use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::stateless_validation::state_witness::{
     ChunkStateWitness, ChunkStateWitnessSize,
 };
@@ -98,7 +102,7 @@ use near_store::adapter::StoreAdapter;
 use near_store::adapter::chain_store::ChainStoreAdapter;
 use near_store::get_genesis_state_roots;
 use near_store::{DBCol, StateSnapshotConfig};
-use node_runtime::SignedValidPeriodTransactions;
+use node_runtime::{PostState, PostStateReadyCallback, SignedValidPeriodTransactions};
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use std::cell::Cell;
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -136,6 +140,23 @@ const ACCEPTABLE_TIME_DIFFERENCE: i64 = 12 * 10;
 pub struct ApplyChunksDoneMessage;
 
 pub type ApplyChunksDoneSender = near_async::messaging::Sender<SpanWrapped<ApplyChunksDoneMessage>>;
+
+/// `PostStateReadyMessage` is a message that contains the post state after processing a chunk.
+/// This message is sent from a callback in the runtime to the Client actor before the post-state,
+/// is finalized. Client actor may use this information to start other tasks earlier, e.g.
+/// preparing transactions for inclusion in the next chunk.
+#[derive(actix::Message, Debug)]
+#[rtype(result = "()")]
+pub struct PostStateReadyMessage {
+    pub post_state: PostState,
+    pub shard_uid: ShardUId,
+    pub prev_prev_block_header: BlockHeader,
+    pub prev_block_context: PrepareTransactionsBlockContext,
+    pub key: CachedShardUpdateKey,
+    pub prev_chunk_tx_hashes: HashSet<CryptoHash>,
+}
+
+pub type PostStateReadySender = near_async::messaging::Sender<SpanWrapped<PostStateReadyMessage>>;
 
 /// Contains information for missing chunks in a block
 pub struct BlockMissingChunks {
@@ -293,6 +314,8 @@ pub struct Chain {
     /// Determines whether client should exit if the protocol version is not supported
     /// in the next or next next epoch.
     protocol_version_check: ProtocolVersionCheckConfig,
+    /// Used to receive `PostStateReady` messages from the runtime.
+    on_post_state_ready_sender: Option<PostStateReadySender>,
 }
 
 impl Drop for Chain {
@@ -401,6 +424,7 @@ impl Chain {
             validator_signer,
             spice_core_processor,
             protocol_version_check: Default::default(),
+            on_post_state_ready_sender: None,
         })
     }
 
@@ -418,6 +442,7 @@ impl Chain {
         validator_signer: MutableValidatorSigner,
         resharding_sender: ReshardingSender,
         spice_core_processor: CoreStatementsProcessor,
+        on_post_state_ready_sender: Option<PostStateReadySender>,
     ) -> Result<Chain, Error> {
         let state_roots = get_genesis_state_roots(runtime_adapter.store())?
             .expect("genesis should be initialized.");
@@ -568,6 +593,7 @@ impl Chain {
             validator_signer,
             spice_core_processor,
             protocol_version_check: chain_config.protocol_version_check,
+            on_post_state_ready_sender,
         })
     }
 
@@ -1307,8 +1333,11 @@ impl Chain {
                 state_patch: SandboxStatePatch::default(),
             };
 
-            let cached_shard_update_key =
-                Self::get_cached_shard_update_key(&block_context, &chunks, shard_id)?;
+            let cached_shard_update_key = Self::get_cached_shard_update_key(
+                &block_context.to_key_source(),
+                &chunks,
+                shard_id,
+            )?;
             shard_update_keys.push(cached_shard_update_key);
             let job = self.get_update_shard_job(
                 cached_shard_update_key,
@@ -2643,6 +2672,25 @@ impl Chain {
         }
     }
 
+    pub fn early_prepare_transaction_validity_check(
+        &self,
+        prev_block_height: BlockHeight,
+        prev_prev_block_header: BlockHeader,
+    ) -> impl Fn(&SignedTransaction) -> bool + Send + 'static {
+        let chain_store = self.chain_store.clone();
+        let validity_period = self.transaction_validity_period();
+        move |tx: &SignedTransaction| -> bool {
+            early_prepare_txs_check_validity_period(
+                &chain_store,
+                prev_block_height,
+                &prev_prev_block_header,
+                tx.transaction.block_hash(),
+                validity_period,
+            )
+            .is_ok()
+        }
+    }
+
     /// For a given previous block header and current block, return information
     /// about block necessary for processing shard update.
     /// TODO(#10584): implement the same method for OptimisticBlock.
@@ -3016,8 +3064,11 @@ impl Chain {
                 chunk_header.is_new_chunk(),
             )?;
 
-            let cached_shard_update_key =
-                Self::get_cached_shard_update_key(&block_context, chunk_headers, shard_id)?;
+            let cached_shard_update_key = Self::get_cached_shard_update_key(
+                &block_context.to_key_source(),
+                chunk_headers,
+                shard_id,
+            )?;
             update_shard_args.push((block_context, cached_shard_update_key));
         }
 
@@ -3114,7 +3165,7 @@ impl Chain {
     /// Get a key which can uniquely define result of applying a chunk based on
     /// block execution context and other chunks.
     pub fn get_cached_shard_update_key(
-        block_context: &ApplyChunkBlockContext,
+        block: &OptimisticBlockKeySource,
         chunk_headers: &Chunks,
         shard_id: ShardId,
     ) -> Result<CachedShardUpdateKey, Error> {
@@ -3122,12 +3173,6 @@ impl Chain {
             size_of::<CryptoHash>() + size_of::<CryptoHash>() + size_of::<u64>();
 
         let mut bytes: Vec<u8> = Vec::with_capacity(BYTES_LEN);
-        let block = OptimisticBlockKeySource {
-            height: block_context.height,
-            prev_block_hash: block_context.prev_block_hash,
-            block_timestamp: block_context.block_timestamp,
-            random_seed: block_context.random_seed,
-        };
         bytes.extend_from_slice(&hash(&borsh::to_vec(&block)?).0);
 
         let chunks_key_source: Vec<_> = chunk_headers.iter_raw().map(|c| c.chunk_hash()).collect();
@@ -3161,6 +3206,7 @@ impl Chain {
         let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(prev_hash)?;
         let shard_layout = self.epoch_manager.get_shard_layout(&epoch_id)?;
         let shard_id = shard_layout.get_shard_id(shard_index)?;
+        let shard_uid = ShardUId::from_shard_id_and_layout(shard_id, &shard_layout);
         let shard_context = self.get_shard_context(prev_hash, &epoch_id, shard_id, mode)?;
         if !shard_context.should_apply_chunk {
             return Ok(None);
@@ -3184,6 +3230,25 @@ impl Chain {
             }
         }
         debug!(target: "chain", %shard_id, ?cached_shard_update_key, "Creating ShardUpdate job");
+
+        let mut tx_hashes = HashSet::new();
+        let next_chunk_prepare_context = {
+            let gas_used = chunk_headers.compute_gas_used();
+            let gas_limit = chunk_headers.compute_gas_limit();
+            PrepareTransactionsBlockContext {
+                next_gas_price: Block::compute_next_gas_price(
+                    prev_block.header().next_gas_price(),
+                    gas_used,
+                    gas_limit,
+                    self.block_economics_config.gas_price_adjustment_rate(),
+                    self.block_economics_config.min_gas_price(),
+                    self.block_economics_config.max_gas_price(),
+                ),
+                height: block.height,
+                next_epoch_id: epoch_id, // todo - that might be wrong, but we probably can't predict it reliably.
+                congestion_info: block.congestion_info.clone(),
+            }
+        };
 
         let shard_update_reason = if is_new_chunk {
             // Validate new chunk and collect incoming receipts for it.
@@ -3232,8 +3297,10 @@ impl Chain {
             )?;
             let old_receipts = collect_receipts_from_response(&old_receipts);
             let receipts = [new_receipts, old_receipts].concat();
+            let chunk_transactions = chunk.into_transactions();
+            tx_hashes = chunk_transactions.iter().map(|tx| tx.get_hash()).collect();
             let transactions =
-                SignedValidPeriodTransactions::new(chunk.into_transactions(), tx_valid_list);
+                SignedValidPeriodTransactions::new(chunk_transactions, tx_valid_list);
 
             ShardUpdateReason::NewChunk(NewChunkData {
                 chunk_header: chunk_header.clone(),
@@ -3252,6 +3319,45 @@ impl Chain {
             })
         };
 
+        // If `post_state_ready_sender` is set, create a callback to send
+        // `PostStateReadyMessage` when the state is ready. Runtime cannot
+        // directly send the message because it doesn't have access to the
+        // near-async crate.
+        let callback = self.on_post_state_ready_sender.as_ref().and_then(|sender| {
+            // Check if we are chunk producer for this height and shard.
+            let cpk = ChunkProductionKey {
+                shard_id: shard_uid.shard_id(),
+                epoch_id: next_chunk_prepare_context.next_epoch_id,
+                height_created: next_chunk_prepare_context.height + 1,
+            };
+            let Some(signer) = self.validator_signer.get() else {
+                return None;
+            };
+            let Ok(producer) = self.epoch_manager.get_chunk_producer_info(&cpk) else {
+                return None;
+            };
+            if signer.validator_id() != producer.account_id() {
+                return None;
+            }
+
+            let sender = sender.clone();
+            let prev_block_header = prev_block.header().clone();
+            let closure = move |state: PostState| {
+                sender.send(
+                    PostStateReadyMessage {
+                        post_state: state,
+                        shard_uid,
+                        prev_block_context: next_chunk_prepare_context.clone(),
+                        prev_prev_block_header: prev_block_header.clone(),
+                        key: cached_shard_update_key,
+                        prev_chunk_tx_hashes: tx_hashes.clone(),
+                    }
+                    .into(),
+                );
+            };
+            Some(PostStateReadyCallback::new(Box::new(closure)))
+        });
+
         let runtime = self.runtime_adapter.clone();
         Ok(Some((
             shard_id,
@@ -3262,6 +3368,7 @@ impl Chain {
                     runtime.as_ref(),
                     shard_update_reason,
                     shard_context,
+                    callback,
                 )?)
             }),
         )))

@@ -7,7 +7,7 @@ use near_crypto::PublicKey;
 use near_network::client::{ProcessTxRequest, ProcessTxResponse};
 use near_primitives::hash::CryptoHash;
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{AccountId, Balance, BlockReference};
+use near_primitives::types::{AccountId, Balance, BlockReference, Finality};
 use near_primitives::views::{BlockView, QueryRequest, QueryResponse, QueryResponseKind};
 use node_runtime::metrics::TRANSACTION_PROCESSED_FAILED_TOTAL;
 use rand::SeedableRng;
@@ -293,7 +293,7 @@ impl TxGenerator {
     ) -> anyhow::Result<(CryptoHash, u64)> {
         match view_client_sender
             .block_request_sender
-            .send_async(GetBlock(BlockReference::latest()))
+            .send_async(GetBlock(Finality::Final.into()))
             .await
         {
             Ok(rsp) => {
