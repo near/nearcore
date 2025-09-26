@@ -1572,13 +1572,14 @@ impl Runtime {
     /// insert the outcome into the processing state depending on whether the protocol feature
     /// `InvalidTxOutcome` is enabled or not
     fn register_outcome(
-        processing_state: &mut ApplyProcessingReceiptState,
+        protocol_version: ProtocolVersion,
+        outcomes: &mut Vec<ExecutionOutcomeWithId>,
         outcome: ExecutionOutcomeWithId,
     ) {
-        if ProtocolFeature::InvalidTxGenerateOutcomes.enabled(processing_state.protocol_version) {
-            processing_state.outcomes.push(outcome);
+        if ProtocolFeature::InvalidTxGenerateOutcomes.enabled(protocol_version) {
+            outcomes.push(outcome);
         } else if let ExecutionStatus::SuccessReceiptId(_) = outcome.outcome.status {
-            processing_state.outcomes.push(outcome);
+            outcomes.push(outcome);
         }
     }
 
@@ -1612,7 +1613,7 @@ impl Runtime {
         /// We are populating the validations chunks in parallel. To avoid cache line conflicts
         /// between the threads, we want to ensure that each chunk size is at least (and proportional to)
         /// the gcd of Option<InvalidTxError> and a cache line sizes (8 at the time of writing).
-        const CACHE_LINE_SIZE: usize = 64;
+        const CACHE_LINE_SIZE: usize = size_of::<crossbeam_utils::CachePadded<u8>>();
         let min_chunk_size: usize = size_of::<Option<InvalidTxError>>().gcd(&CACHE_LINE_SIZE);
         /// Avoid splitting transactions into just $NUM_THREADS chunks, as that can result in an
         /// increased tail latency when one of the threads is slower at processing its chunk
@@ -1620,8 +1621,6 @@ impl Runtime {
         /// allows the load to be distributed across threads more evenly and any tail latency
         /// reduced due to the last chunk(s) being smaller.
         const TARGET_CHUNKS_PER_THREAD: usize = 4;
-        // let apply_state = &mut processing_state.apply_state;
-        // let state_update = &mut processing_state.state_update;
         let num_transactions = signed_txs.len();
         let chunk_count_target = rayon::current_num_threads() * TARGET_CHUNKS_PER_THREAD;
         let chunk_size =
@@ -1699,7 +1698,7 @@ impl Runtime {
                                 // to avoid re-parsing the public key here if batch verification fails?
                                 validate_transaction(
                                     &processing_state.apply_state.config,
-                                    tx.clone().clone(),
+                                    tx.clone(),
                                     protocol_version,
                                 )
                                 .map_err(|(err, _)| err)
@@ -1756,20 +1755,12 @@ impl Runtime {
             metrics::TRANSACTION_PROCESSED_TOTAL.inc();
             if let Some(err) = maybe_validation_error {
                 metrics::TRANSACTION_PROCESSED_FAILED_TOTAL.inc();
-                let outcome = ExecutionOutcomeWithId {
-                    id: tx.get_hash(),
-                    outcome: ExecutionOutcome {
-                        status: ExecutionStatus::Failure(TxExecutionError::InvalidTxError(err)),
-                        logs: vec![],
-                        receipt_ids: vec![],
-                        gas_burnt: Gas::ZERO,
-                        compute_usage: None,
-                        tokens_burnt: Balance::ZERO,
-                        executor_id: tx.transaction.signer_id().clone(),
-                        metadata: ExecutionMetadata::V1,
-                    },
-                };
-                Self::register_outcome(processing_state, outcome);
+                let outcome = ExecutionOutcomeWithId::failed(tx, err);
+                Self::register_outcome(
+                    processing_state.protocol_version,
+                    &mut processing_state.outcomes,
+                    outcome,
+                );
                 continue;
             }
 
@@ -1792,24 +1783,14 @@ impl Runtime {
                     let tx_error = match error {
                         IntegerOverflowError => InvalidTxError::CostOverflow,
                     };
-                    let outcome = ExecutionOutcomeWithId {
-                        id: tx.get_hash(),
-                        outcome: ExecutionOutcome {
-                            status: ExecutionStatus::Failure(TxExecutionError::InvalidTxError(
-                                tx_error,
-                            )),
-                            logs: vec![],
-                            receipt_ids: vec![],
-                            gas_burnt: Gas::ZERO,
-                            compute_usage: None,
-                            tokens_burnt: Balance::ZERO,
-                            executor_id: tx.transaction.signer_id().clone(),
-                            metadata: ExecutionMetadata::V1,
-                        },
-                    };
+                    let outcome = ExecutionOutcomeWithId::failed(tx, tx_error);
                     let error = &error as &dyn std::error::Error;
                     tracing::debug!(%tx_hash, error, "transaction cost calculation failed");
-                    Self::register_outcome(processing_state, outcome);
+                    Self::register_outcome(
+                        processing_state.protocol_version,
+                        &mut processing_state.outcomes,
+                        outcome,
+                    );
                     continue;
                 }
             };
@@ -1821,24 +1802,15 @@ impl Runtime {
                     Some(Ok(None)) => {
                         metrics::TRANSACTION_PROCESSED_FAILED_TOTAL.inc();
                         tracing::debug!(%tx_hash, "transaction signed by unknown account");
-                        let outcome = ExecutionOutcomeWithId {
-                            id: tx.get_hash(),
-                            outcome: ExecutionOutcome {
-                                status: ExecutionStatus::Failure(TxExecutionError::InvalidTxError(
-                                    InvalidTxError::InvalidSignerId {
-                                        signer_id: signer_id.to_string(),
-                                    },
-                                )),
-                                logs: vec![],
-                                receipt_ids: vec![],
-                                gas_burnt: Gas::ZERO,
-                                compute_usage: None,
-                                tokens_burnt: Balance::ZERO,
-                                executor_id: tx.transaction.signer_id().clone(),
-                                metadata: ExecutionMetadata::V1,
-                            },
-                        };
-                        Self::register_outcome(processing_state, outcome);
+                        let outcome = ExecutionOutcomeWithId::failed(
+                            tx,
+                            InvalidTxError::InvalidSignerId { signer_id: signer_id.to_string() },
+                        );
+                        Self::register_outcome(
+                            processing_state.protocol_version,
+                            &mut processing_state.outcomes,
+                            outcome,
+                        );
                         continue;
                     }
                     Some(Err(e)) => return Err(e.clone().into()),
@@ -1850,27 +1822,21 @@ impl Runtime {
                     Some(Ok(None)) => {
                         metrics::TRANSACTION_PROCESSED_FAILED_TOTAL.inc();
                         tracing::debug!(%tx_hash, "transaction signed by unknown signing key");
-                        let outcome = ExecutionOutcomeWithId {
-                            id: tx.get_hash(),
-                            outcome: ExecutionOutcome {
-                                status: ExecutionStatus::Failure(TxExecutionError::InvalidTxError(
-                                    InvalidTxError::InvalidAccessKeyError(
-                                        InvalidAccessKeyError::AccessKeyNotFound {
-                                            account_id: signer_id.clone(),
-                                            public_key: Box::new(pubkey.clone()),
-                                        },
-                                    ),
-                                )),
-                                logs: vec![],
-                                receipt_ids: vec![],
-                                gas_burnt: Gas::ZERO,
-                                compute_usage: None,
-                                tokens_burnt: Balance::ZERO,
-                                executor_id: tx.transaction.signer_id().clone(),
-                                metadata: ExecutionMetadata::V1,
-                            },
-                        };
-                        Self::register_outcome(processing_state, outcome);
+                        let outcome = ExecutionOutcomeWithId::failed(
+                            tx,
+                            InvalidTxError::InvalidAccessKeyError(
+                                InvalidAccessKeyError::AccessKeyNotFound {
+                                    account_id: signer_id.clone(),
+                                    public_key: Box::new(pubkey.clone()),
+                                },
+                            ),
+                        );
+
+                        Self::register_outcome(
+                            processing_state.protocol_version,
+                            &mut processing_state.outcomes,
+                            outcome,
+                        );
                         continue;
                     }
                     Some(Err(e)) => return Err(e.clone().into()),
@@ -1888,22 +1854,13 @@ impl Runtime {
                     Err(error) => {
                         metrics::TRANSACTION_PROCESSED_FAILED_TOTAL.inc();
                         tracing::debug!(%tx_hash, error=&error as &dyn std::error::Error, "transaction failed verify/charge");
-                        let outcome = ExecutionOutcomeWithId {
-                            id: tx.get_hash(),
-                            outcome: ExecutionOutcome {
-                                status: ExecutionStatus::Failure(TxExecutionError::InvalidTxError(
-                                    error,
-                                )),
-                                logs: vec![],
-                                receipt_ids: vec![],
-                                gas_burnt: Gas::ZERO,
-                                compute_usage: None,
-                                tokens_burnt: Balance::ZERO,
-                                executor_id: tx.transaction.signer_id().clone(),
-                                metadata: ExecutionMetadata::V1,
-                            },
-                        };
-                        Self::register_outcome(processing_state, outcome);
+                        let outcome = ExecutionOutcomeWithId::failed(tx, error);
+
+                        Self::register_outcome(
+                            processing_state.protocol_version,
+                            &mut processing_state.outcomes,
+                            outcome,
+                        );
                         continue;
                     }
                 }
@@ -1956,29 +1913,16 @@ impl Runtime {
                     processing_state.stats.balance.tx_burnt_amount = new_balance;
                 }
                 Err(err) => {
+                    // We just drop the transaction here and do not produce any outcome for it.
+                    // This should never happen unless there is a bug in the code.
                     metrics::TRANSACTION_PROCESSED_FAILED_TOTAL.inc();
-                    tracing::debug!(
+                    tracing::error!(
                         target: "runtime",
                         tx_hash=?tx.hash(),
+                        tx_burnt_amount=?verification_result.burnt_amount,
                         ?err,
-                        "total burnt gas overflow",
+                        "chunk total burnt gas overflow",
                     );
-                    let outcome = ExecutionOutcomeWithId {
-                        id: tx.get_hash(),
-                        outcome: ExecutionOutcome {
-                            status: ExecutionStatus::Failure(TxExecutionError::InvalidTxError(
-                                InvalidTxError::CostOverflow,
-                            )),
-                            logs: vec![],
-                            receipt_ids: vec![],
-                            gas_burnt: verification_result.gas_burnt,
-                            compute_usage: None,
-                            tokens_burnt: verification_result.burnt_amount,
-                            executor_id: tx.transaction.signer_id().clone(),
-                            metadata: ExecutionMetadata::V1,
-                        },
-                    };
-                    processing_state.outcomes.push(outcome);
                     continue;
                 }
             }

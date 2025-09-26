@@ -454,7 +454,7 @@ pub const MIN_SUPPORTED_PROTOCOL_VERSION: ProtocolVersion = 77;
 const STABLE_PROTOCOL_VERSION: ProtocolVersion = 81;
 
 // On nightly, pick big enough version to support all features.
-const NIGHTLY_PROTOCOL_VERSION: ProtocolVersion = 152;
+const NIGHTLY_PROTOCOL_VERSION: ProtocolVersion = 151;
 
 /// Largest protocol version supported by the current binary.
 pub const PROTOCOL_VERSION: ProtocolVersion =

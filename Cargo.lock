@@ -5513,6 +5513,7 @@ dependencies = [
  "base64 0.21.0",
  "borsh",
  "bytesize 1.1.0",
+ "crossbeam-utils",
  "dashmap",
  "ed25519-dalek",
  "enum-map",
