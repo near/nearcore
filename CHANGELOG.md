@@ -3,7 +3,8 @@
 ## [unreleased]
 
 ### Protocol Changes
-**No Changes**
+* The contract runtime has been upgraded to use the new Wasmtime-based runtime;
+* The contract runtime now allows for bulk memory instructions in Wasm code.
 
 ### Non-protocol Changes
 **No Changes**
@@ -95,7 +96,7 @@ since they're hard links to database files that get cleaned up on every epoch. [
 ## 2.3.0
 
 ### Protocol Changes
-* Sets `chunk_validator_only_kickout_threshold` to 70. Uses this kickout threshold as a cutoff threshold for contribution of endorsement ratio in rewards calculation: if endorsement ratio is above 70%, the contribution of endorsement ratio in average uptime calculation is 100%, otherwise it is 0%. Endorsements received are now included in `BlockHeader` to improve kickout and reward calculation for chunk validators. 
+* Sets `chunk_validator_only_kickout_threshold` to 70. Uses this kickout threshold as a cutoff threshold for contribution of endorsement ratio in rewards calculation: if endorsement ratio is above 70%, the contribution of endorsement ratio in average uptime calculation is 100%, otherwise it is 0%. Endorsements received are now included in `BlockHeader` to improve kickout and reward calculation for chunk validators.
 
 ### Non-protocol Changes
 * Added [documentation](./docs/misc/archival_data_recovery.md) and a [reference](./scripts/recover_missing_archival_data.sh) script to recover the data lost in archival nodes at the beginning of 2024.
@@ -163,7 +164,7 @@ After that the node should be able to recover and sync with the rest of the netw
 
 ### Protocol Changes
 
-* Use more precise gas costs for function calls [#10943](https://github.com/near/nearcore/pull/10943) that should lead to more efficient chunk utilization. 
+* Use more precise gas costs for function calls [#10943](https://github.com/near/nearcore/pull/10943) that should lead to more efficient chunk utilization.
 
 ### Non-protocol Changes
 

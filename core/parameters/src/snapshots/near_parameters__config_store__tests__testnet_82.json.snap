@@ -203,7 +203,7 @@ expression: config_view
     "reftypes_bulk_memory": true,
     "deterministic_account_ids": false,
     "storage_get_mode": "FlatStorage",
-    "fix_contract_loading_cost": true,
+    "fix_contract_loading_cost": false,
     "implicit_account_creation": true,
     "eth_implicit_accounts": true,
     "limit_config": {

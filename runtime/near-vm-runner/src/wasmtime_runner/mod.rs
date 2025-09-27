@@ -329,7 +329,7 @@ impl IntoVMError for anyhow::Error {
 
 pub(crate) fn wasmtime_vm_hash() -> u64 {
     // TODO: take into account compiler and engine used to compile the contract.
-    64
+    65
 }
 
 #[derive(Clone)]
