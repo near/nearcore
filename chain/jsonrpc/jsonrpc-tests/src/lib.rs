@@ -141,6 +141,10 @@ pub fn create_test_setup_with_accounts_and_validity(
     );
 
     // 7. Create ClientActor
+    let spice_core_processor = CoreStatementsProcessor::new_with_noop_senders(
+        runtime.store().chain_store(),
+        epoch_manager.clone(),
+    );
     let client_result = start_client(
         Clock::real(),
         actor_system.clone(),
@@ -164,10 +168,7 @@ pub fn create_test_setup_with_accounts_and_validity(
         Some(TEST_SEED),
         noop().into_multi_sender(),
         SpiceClientConfig {
-            core_processor: CoreStatementsProcessor::new_with_noop_senders(
-                runtime.store().chain_store(),
-                epoch_manager.clone(),
-            ),
+            core_processor: spice_core_processor.clone(),
             chunk_executor_sender: noop().into_sender(),
             spice_chunk_validator_sender: noop().into_sender(),
             spice_data_distributor_sender: noop().into_sender(),
@@ -192,6 +193,7 @@ pub fn create_test_setup_with_accounts_and_validity(
         signer,
         runtime,
         noop().into_multi_sender(),
+        spice_core_processor,
     );
 
     // 9. Create Axum Router

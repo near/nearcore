@@ -112,6 +112,10 @@ fn setup_network_node(
     let network_adapter = LateBoundSender::new();
     let shards_manager_adapter = LateBoundSender::new();
     let adv = near_client::adversarial::Controls::default();
+    let spice_core_processor = CoreStatementsProcessor::new_with_noop_senders(
+        runtime.store().chain_store(),
+        epoch_manager.clone(),
+    );
     let StartClientResult { client_actor, tx_pool, chunk_endorsement_tracker, .. } = start_client(
         Clock::real(),
         actor_system.clone(),
@@ -135,10 +139,7 @@ fn setup_network_node(
         None,
         noop().into_multi_sender(),
         SpiceClientConfig {
-            core_processor: CoreStatementsProcessor::new_with_noop_senders(
-                runtime.store().chain_store(),
-                epoch_manager.clone(),
-            ),
+            core_processor: spice_core_processor.clone(),
             chunk_executor_sender: noop().into_sender(),
             spice_chunk_validator_sender: noop().into_sender(),
             spice_data_distributor_sender: noop().into_sender(),
@@ -180,6 +181,7 @@ fn setup_network_node(
         validator_signer.clone(),
         runtime.clone(),
         network_adapter.as_multi_sender(),
+        spice_core_processor,
     );
     let shards_manager_actor = start_shards_manager(
         actor_system.clone(),

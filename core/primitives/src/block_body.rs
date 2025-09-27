@@ -1,12 +1,11 @@
 use crate::challenge::Challenge;
 use crate::sharding::ShardChunkHeader;
-use crate::stateless_validation::chunk_endorsement::SpiceEndorsementWithSignature;
+use crate::stateless_validation::spice_chunk_endorsement::SpiceEndorsementCoreStatement;
 use crate::types::{ChunkExecutionResult, SpiceChunkId};
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::Signature;
 use near_crypto::vrf::{Proof, Value};
 use near_primitives_core::hash::CryptoHash;
-use near_primitives_core::types::AccountId;
 use near_schema_checker_lib::ProtocolSchema;
 
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Eq, PartialEq, ProtocolSchema)]
@@ -66,15 +65,8 @@ pub struct SpiceBlockBodyV3 {
 
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Eq, PartialEq, ProtocolSchema)]
 pub enum SpiceCoreStatement {
-    Endorsement {
-        chunk_id: SpiceChunkId,
-        account_id: AccountId,
-        endorsement: SpiceEndorsementWithSignature,
-    },
-    ChunkExecutionResult {
-        chunk_id: SpiceChunkId,
-        execution_result: ChunkExecutionResult,
-    },
+    Endorsement(SpiceEndorsementCoreStatement),
+    ChunkExecutionResult { chunk_id: SpiceChunkId, execution_result: ChunkExecutionResult },
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Clone, PartialEq, Eq, Debug, ProtocolSchema)]

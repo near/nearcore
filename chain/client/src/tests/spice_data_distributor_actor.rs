@@ -1,5 +1,6 @@
 use near_chain::ChainStoreAccess;
 use near_chain::spice_core::CoreStatementsProcessor;
+use near_primitives::stateless_validation::spice_chunk_endorsement::SpiceChunkEndorsement;
 use near_primitives::stateless_validation::spice_state_witness::{
     SpiceChunkStateTransition, SpiceChunkStateWitness,
 };
@@ -36,7 +37,6 @@ use near_primitives::sharding::ReceiptProof;
 use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::sharding::ShardProof;
 use near_primitives::state::PartialState;
-use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsement;
 use near_primitives::test_utils::{TestBlockBuilder, create_test_signer};
 use near_primitives::types::ShardId;
 use near_primitives::types::chunk_extra::ChunkExtra;
@@ -749,12 +749,9 @@ fn test_incoming_partial_data_for_already_endorsed_witness() {
     };
     actor
         .core_processor
-        .record_chunk_endorsement(ChunkEndorsement::new_with_execution_result(
-            *block.header().epoch_id(),
+        .process_chunk_endorsement(SpiceChunkEndorsement::new(
+            witness.chunk_id().clone(),
             execution_result,
-            *block.hash(),
-            witness.chunk_id().shard_id,
-            witness_chunk_height_created(&block, &witness),
             &signer,
         ))
         .unwrap();

@@ -8,6 +8,7 @@ pub mod chunk_endorsement;
 pub mod chunk_endorsements_bitmap;
 pub mod contract_distribution;
 pub mod partial_witness;
+pub mod spice_chunk_endorsement;
 pub mod spice_state_witness;
 pub mod state_witness;
 pub mod stored_chunk_state_transition_data;

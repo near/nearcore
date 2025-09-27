@@ -1274,6 +1274,14 @@ impl PeerManagerActor {
                 }
                 NetworkResponses::NoResponse
             }
+            NetworkRequests::SpiceChunkEndorsement(target, endorsement) => {
+                self.state.send_message_to_account(
+                    &self.clock,
+                    &target,
+                    T1MessageBody::SpiceChunkEndorsement(endorsement).into(),
+                );
+                NetworkResponses::NoResponse
+            }
         }
     }
 
