@@ -42,7 +42,6 @@ jobs:
             type: nightly
             upload_profraws: true
             run_on_pr: true
-          # TODO(actix_migration): Enable the MacOS tests after jsonrpc migration is done
           - name: MacOS
             id: macos
             os: warp-macos-latest-arm64-6x
@@ -55,14 +54,14 @@ jobs:
         uses: actions/checkout@v4
 
       # Install all the required tools
-      - if: (github.event_name != 'pull_request' || matrix.run_on_pr) && matrix.id != 'macos'
+      - if: github.event_name != 'pull_request' || matrix.run_on_pr
         uses: taiki-e/install-action@7852930e42e73b6c323ae4435f5135b58754dfdd
         with:
           tool: just,cargo-nextest,cargo-llvm-cov
 
       # Run the tests
       - name: just nextest-slow ${{ matrix.type }} (with coverage)
-        if: (github.event_name != 'pull_request' || matrix.run_on_pr) && matrix.type != 'spice' && matrix.id != 'macos'
+        if: (github.event_name != 'pull_request' || matrix.run_on_pr) && matrix.type != 'spice'
         run: |
           mkdir -p coverage/profraw/{unit,binaries}
           just codecov-ci "nextest-slow ${{ matrix.type }}"
@@ -75,19 +74,19 @@ jobs:
           just codecov-ci "nextest-spice"
 
       # Upload the coverage files
-      - if: (github.event_name != 'pull_request' || matrix.run_on_pr) && matrix.id != 'macos'
+      - if: github.event_name != 'pull_request' || matrix.run_on_pr
         run: |
           mv coverage/codecov/{new,unit-${{matrix.id}}}.json
           mv coverage/profraw/{new,unit/${{matrix.id}}}.tar.zst
           just tar-bins-for-coverage-ci
           mv coverage/profraw/binaries/{new,${{matrix.id}}}.tar.zst
-      - if: matrix.upload_profraws && (github.event_name != 'pull_request' || matrix.run_on_pr) && matrix.id != 'macos'
+      - if: matrix.upload_profraws && (github.event_name != 'pull_request' || matrix.run_on_pr)
         uses: actions/upload-artifact@v4
         with:
           name: coverage-profraw-${{ github.sha }}-${{ matrix.name }}
           path: coverage/profraw
           retention-days: 2
-      - if: (github.event_name != 'pull_request' || matrix.run_on_pr) && matrix.id != 'macos'
+      - if: github.event_name != 'pull_request' || matrix.run_on_pr
         uses: actions/upload-artifact@v4
         with:
           name: coverage-codecov-${{ github.sha }}-cargo_nextest-${{ matrix.name }}
