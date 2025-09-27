@@ -7,9 +7,7 @@ use crate::logic::Config;
 use crate::logic::errors::{CacheError, CompilationError};
 use crate::runner::VMKindExt;
 use borsh::{BorshDeserialize, BorshSerialize};
-use near_parameters::vm::VMKind;
 use near_primitives_core::hash::CryptoHash;
-use near_schema_checker_lib::ProtocolSchema;
 use parking_lot::Mutex;
 
 use std::any::Any;
@@ -23,7 +21,9 @@ use rand::Rng as _;
 #[cfg(not(windows))]
 use std::io::{Read, Write};
 
-#[derive(Debug, Clone, BorshSerialize, ProtocolSchema)]
+#[cfg(any(feature = "wasmtime_vm", all(feature = "near_vm", target_arch = "x86_64")))]
+// FIXME(ProtocolSchema): this isn't really part of the protocol schema??
+#[derive(Debug, Clone, BorshSerialize, near_schema_checker_lib::ProtocolSchema)]
 enum ContractCacheKey {
     _Version1,
     _Version2,
@@ -32,33 +32,22 @@ enum ContractCacheKey {
     Version5 {
         code_hash: CryptoHash,
         vm_config_non_crypto_hash: u64,
-        vm_kind: VMKind,
+        vm_kind: near_parameters::vm::VMKind,
         vm_hash: u64,
     },
 }
 
-fn vm_hash(vm_kind: VMKind) -> u64 {
-    match vm_kind {
-        #[cfg(feature = "wasmtime_vm")]
-        VMKind::Wasmtime => crate::wasmtime_runner::wasmtime_vm_hash(),
-        #[cfg(not(feature = "wasmtime_vm"))]
-        VMKind::Wasmtime => panic!("Wasmtime is not enabled"),
-        #[cfg(all(feature = "near_vm", target_arch = "x86_64"))]
-        VMKind::NearVm => crate::near_vm_runner::near_vm_vm_hash(),
-        #[cfg(not(all(feature = "near_vm", target_arch = "x86_64")))]
-        VMKind::NearVm => panic!("NearVM is not enabled"),
-
-        VMKind::Wasmer0 | VMKind::Wasmer2 => unreachable!(),
-    }
-}
-
-#[tracing::instrument(level = "trace", target = "vm", "get_key", skip_all)]
-pub fn get_contract_cache_key(code_hash: CryptoHash, config: &Config) -> CryptoHash {
+#[cfg(any(feature = "wasmtime_vm", all(feature = "near_vm", target_arch = "x86_64")))]
+pub(crate) fn get_contract_cache_key(
+    code_hash: CryptoHash,
+    config: &Config,
+    vm_hash: u64,
+) -> CryptoHash {
     let key = ContractCacheKey::Version5 {
         code_hash,
         vm_config_non_crypto_hash: config.non_crypto_hash(),
         vm_kind: config.vm_kind,
-        vm_hash: vm_hash(config.vm_kind),
+        vm_hash,
     };
     CryptoHash::hash_borsh(key)
 }
@@ -605,11 +594,6 @@ pub fn precompile_contract(
         Some(it) => it,
         None => return Ok(Ok(ContractPrecompilatonResult::CacheNotAvailable)),
     };
-    let key = get_contract_cache_key(*code.hash(), &config);
-    // Check if we already cached with such a key.
-    if cache.has(&key).map_err(CacheError::ReadError)? {
-        return Ok(Ok(ContractPrecompilatonResult::ContractAlreadyInCache));
-    }
     runtime.precompile(code, cache)
 }
 

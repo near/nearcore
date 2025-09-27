@@ -1272,16 +1272,12 @@ fn test_contract_precompilation() {
     store_update.commit().unwrap();
 
     let contract_code = near_vm_runner::ContractCode::new(wasm_code, None);
-    let key = near_vm_runner::get_contract_cache_key(
+    let cached = near_vm_runner::contract_cached(
+        Arc::clone(&apply_state.config.wasm_config),
+        apply_state.cache.as_deref().unwrap(),
         *contract_code.hash(),
-        &apply_state.config.wasm_config,
     );
-    apply_state
-        .cache
-        .unwrap()
-        .get(&key)
-        .expect("Compiled contract should be cached")
-        .expect("Compilation result should be non-empty");
+    assert_matches!(cached, Ok(true), "compiled contract should be cached");
 }
 
 #[test]
