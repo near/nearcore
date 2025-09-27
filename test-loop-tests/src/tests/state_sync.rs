@@ -1,4 +1,4 @@
-use near_async::messaging::{Handler, SendAsync};
+use near_async::messaging::{CanSend, Handler};
 use near_async::test_loop::TestLoopV2;
 use near_async::time::Duration;
 use near_chain::ChainStoreAccess;
@@ -234,16 +234,10 @@ fn send_txs_between_shards(
         );
         *nonce += 1;
 
-        let future = get_wrapped(node_datas, client_idx)
+        get_wrapped(node_datas, client_idx)
             .rpc_handler_sender
-            .clone()
             //.with_delay(Duration::milliseconds(300 * txs_sent as i64))
-            .send_async(ProcessTxRequest {
-                transaction: tx,
-                is_forwarded: false,
-                check_only: false,
-            });
-        drop(future);
+            .send(ProcessTxRequest { transaction: tx, is_forwarded: false, check_only: false });
 
         txs_sent += 1;
         from_shard = (from_shard + 1) % num_shards;

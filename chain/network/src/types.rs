@@ -14,7 +14,7 @@ use crate::routing::routing_table_view::RoutingTableInfo;
 use crate::spice_data_distribution::SpicePartialData;
 pub use crate::state_sync::StateSyncResponse;
 use near_async::messaging::{AsyncSender, Sender};
-use near_async::{MultiSend, MultiSendMessage, MultiSenderFrom, time};
+use near_async::{Message, MultiSend, MultiSendMessage, MultiSenderFrom, time};
 use near_crypto::PublicKey;
 use near_primitives::block::{ApprovalMessage, Block};
 use near_primitives::epoch_sync::CompressedEpochSyncProof;
@@ -92,8 +92,7 @@ pub enum ReasonForBan {
 
 /// Banning signal sent from Peer instance to PeerManager
 /// just before Peer instance is stopped.
-#[derive(actix::Message, Debug)]
-#[rtype(result = "()")]
+#[derive(Message, Debug)]
 pub struct Ban {
     pub peer_id: PeerId,
     pub ban_reason: ReasonForBan,
@@ -171,13 +170,11 @@ pub struct ChainInfo {
     pub tier1_accounts: Arc<AccountKeys>,
 }
 
-#[derive(Debug, actix::Message)]
-#[rtype(result = "()")]
+#[derive(Debug, Message)]
 pub struct SetChainInfo(pub ChainInfo);
 
 /// Public actix interface of `PeerManagerActor`.
-#[derive(actix::Message, Debug, strum::IntoStaticStr)]
-#[rtype(result = "PeerManagerMessageResponse")]
+#[derive(Message, Debug, strum::IntoStaticStr)]
 #[allow(clippy::large_enum_variant)]
 pub enum PeerManagerMessageRequest {
     NetworkRequests(NetworkRequests),
@@ -213,7 +210,7 @@ impl PeerManagerMessageRequest {
 }
 
 /// List of all replies to messages to `PeerManager`. See `PeerManagerMessageRequest` for more details.
-#[derive(actix::MessageResponse, Debug)]
+#[derive(Debug)]
 pub enum PeerManagerMessageResponse {
     NetworkResponses(NetworkResponses),
     AdvertiseTier1Proxies,
@@ -323,8 +320,7 @@ pub enum NetworkRequests {
     SpicePartialData { partial_data: SpicePartialData, recipients: HashSet<AccountId> },
 }
 
-#[derive(Debug, actix::Message, strum::IntoStaticStr)]
-#[rtype(result = "()")]
+#[derive(Debug, Message, strum::IntoStaticStr)]
 pub enum StateSyncEvent {
     StatePartReceived(ShardId, u64),
 }
@@ -411,7 +407,7 @@ pub struct ConnectedPeerInfo {
     pub nonce: u64,
 }
 
-#[derive(Debug, Default, Clone, actix::MessageResponse, PartialEq, Eq)]
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct NetworkInfo {
     /// TIER2 connections.
     pub connected_peers: Vec<ConnectedPeerInfo>,
@@ -429,7 +425,7 @@ pub struct NetworkInfo {
     pub tier1_connections: Vec<ConnectedPeerInfo>,
 }
 
-#[derive(Debug, actix::MessageResponse, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum NetworkResponses {
     NoResponse,
     RouteNotFound,
@@ -567,8 +563,7 @@ pub struct AccountIdOrPeerTrackingShard {
     pub min_height: BlockHeight,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, actix::Message)]
-#[rtype(result = "()")]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Message)]
 /// An inbound request to which a response should be sent over Tier3
 pub struct Tier3Request {
     /// Target peer to send the response to
