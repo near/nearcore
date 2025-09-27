@@ -73,7 +73,6 @@ members = [
     "runtime/runtime-params-estimator",
     "runtime/runtime-params-estimator/estimator-warehouse",
     "test-loop-tests",
-    "test-utils/actix-test-utils",
     "test-utils/store-validator",
     "test-utils/testlib",
     "tools/database",
@@ -141,7 +140,6 @@ unexpected_cfgs = { level = "allow", check-cfg = ['cfg(enable_const_type_id)'] }
 
 [workspace.dependencies]
 actix = "0.13.0"
-actix-rt = "2"
 anyhow = "1.0.62"
 arbitrary = { version = "1.2.3", features = ["derive"] }
 arc-swap = "1.5"
@@ -225,6 +223,7 @@ lru = "0.12.3"
 memoffset = "0.8"
 merlin = { version = "3", default-features = false }
 more-asserts = "0.2"
+named-lock = "0.4.1"
 near-account-id = { version = "2.0.0", features = [
     "internal_unstable",
     "serde",
@@ -232,7 +231,6 @@ near-account-id = { version = "2.0.0", features = [
 ] }
 near-gas = { version = "0.3.2" }
 near-token = { version = "0.3.2" }
-near-actix-test-utils = { path = "test-utils/actix-test-utils" }
 near-amend-genesis = { path = "tools/amend-genesis" }
 near-database-tool = { path = "tools/database" }
 near-async = { path = "core/async" }

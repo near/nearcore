@@ -451,9 +451,9 @@ pub fn setup_client(
         runtime: runtime_adapter,
         validator: validator_signer,
         future_spawner: Arc::new(test_loop.future_spawner(identifier)),
-        handle: None,
     };
-    let state_sync_dumper_handle = test_loop.data.register_data(state_sync_dumper);
+    let state_sync_dumper_handle = state_sync_dumper.start().unwrap();
+    let state_sync_dumper_handle = test_loop.data.register_data(state_sync_dumper_handle);
 
     let client_sender =
         test_loop.data.register_actor(identifier, client_actor, Some(client_adapter));
@@ -488,12 +488,6 @@ pub fn setup_client(
 
     chunk_validation_adapter.bind(ChunkValidationSenderForPartialWitness {
         chunk_state_witness: chunk_validation_multi_sender.chunk_state_witness,
-    });
-
-    // State sync dumper is not an Actor, handle starting separately.
-    let state_sync_dumper_handle_clone = state_sync_dumper_handle.clone();
-    test_loop.send_adhoc_event("start_state_sync_dumper".to_owned(), move |test_loop_data| {
-        test_loop_data.get_mut(&state_sync_dumper_handle_clone).start().unwrap();
     });
 
     let peer_manager_sender =
