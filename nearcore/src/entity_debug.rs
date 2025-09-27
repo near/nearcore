@@ -874,6 +874,7 @@ impl BlockMiscData {
             cold_head: store.get_ser(DBCol::BlockMisc, COLD_HEAD_KEY)?,
             state_sync_dump: store.get_ser(DBCol::BlockMisc, STATE_SYNC_DUMP_KEY)?,
             state_snapshot: store.get_ser(DBCol::BlockMisc, STATE_SNAPSHOT_KEY)?,
+            // TODO(cloud_archival) Add `CLOUD_HEAD_KEY`
         })
     }
 }
