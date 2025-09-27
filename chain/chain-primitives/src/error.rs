@@ -114,6 +114,9 @@ pub enum Error {
     /// Invalid chunk headers root hash.
     #[error("Invalid Chunk Headers Root Hash")]
     InvalidChunkHeadersRoot,
+    /// Invalid outcome root hash.
+    #[error("Invalid Outcome Root Hash")]
+    InvalidOutcomeRoot,
     /// Invalid chunk tx root hash.
     #[error("Invalid Chunk Tx Root Hash")]
     InvalidChunkTxRoot,
@@ -319,6 +322,7 @@ impl Error {
             | Error::InvalidChunkReceiptsRoot
             | Error::InvalidOutcomesProof
             | Error::InvalidChunkHeadersRoot
+            | Error::InvalidOutcomeRoot
             | Error::InvalidChunkTxRoot
             | Error::InvalidReceiptsProof
             | Error::InvalidStatePayload
@@ -402,6 +406,7 @@ impl Error {
             Error::InvalidChunkReceiptsRoot => "invalid_chunk_receipts_root",
             Error::InvalidOutcomesProof => "invalid_outcomes_proof",
             Error::InvalidChunkHeadersRoot => "invalid_chunk_headers_root",
+            Error::InvalidOutcomeRoot => "invalid_outcome_root",
             Error::InvalidChunkTxRoot => "invalid_chunk_tx_root",
             Error::InvalidReceiptsProof => "invalid_receipts_proof",
             Error::InvalidStatePayload => "invalid_state_payload",
@@ -481,6 +486,7 @@ impl From<BlockValidityError> for Error {
             BlockValidityError::InvalidReceiptRoot => Error::InvalidChunkReceiptsRoot,
             BlockValidityError::InvalidTransactionRoot => Error::InvalidTxRoot,
             BlockValidityError::InvalidChunkHeaderRoot => Error::InvalidChunkHeadersRoot,
+            BlockValidityError::InvalidOutcomeRoot => Error::InvalidOutcomeRoot,
             BlockValidityError::InvalidChunkMask => Error::InvalidChunkMask,
         }
     }
