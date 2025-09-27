@@ -35,6 +35,7 @@ primitive-types.workspace = true
 rand = { workspace = true, optional = true }
 rand_chacha = { workspace = true, optional = true }
 reed-solomon-erasure = { workspace = true, optional = true }
+reed-solomon-simd.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 serde_with.workspace = true
