@@ -742,4 +742,143 @@ mod tests {
             assert_eq!(split.left_memory + split.right_memory, total_memory);
         }
     }
+
+    mod find_trie_split {
+        use super::*;
+        use crate::test_utils::TestTriesBuilder;
+        use crate::trie::mem::iter::MemTrieIteratorInner;
+        use crate::trie::ops::interface::GenericTrieInternalStorage;
+        use crate::trie::update::TrieUpdateResult;
+        use crate::{Trie, TrieUpdate, set_access_key, set_account};
+        use itertools::Itertools;
+        use near_crypto::{ED25519PublicKey, PublicKey};
+        use near_primitives::account::AccessKey;
+        use near_primitives::hash::CryptoHash;
+        use near_primitives::test_utils::account_new;
+        use near_primitives::types::{AccountId, Balance, StateChangeCause};
+        use rand::RngCore;
+        use rand::distributions::{Distribution, Uniform};
+        use rand::rngs::StdRng;
+        use rand::{Rng, SeedableRng};
+        use std::fmt::Debug;
+        use std::str::FromStr;
+
+        impl<NodePtr, Value, Storage> TrieDescent<NodePtr, Value, Storage>
+        where
+            NodePtr: Debug + Copy,
+            Storage: GenericTrieInternalStorage<NodePtr, Value>,
+        {
+            /// Helper method to check the split yielded by a pre-defined key.
+            fn check_split(mut self, key_bytes: &[u8]) -> TrieSplit {
+                let key_nibbles = key_bytes
+                    .iter()
+                    .flat_map(|byte| {
+                        let (nib1, nib2) = byte_to_nibbles(*byte);
+                        [nib1, nib2]
+                    })
+                    .collect_vec();
+
+                for nibble in key_nibbles {
+                    let children_mem_usage = self.aggregate_children_mem_usage();
+                    let child_mem_usage = children_mem_usage[nibble as usize];
+                    let left_mem_usage = children_mem_usage[..nibble as usize].iter().sum();
+                    self.descend_step(nibble, child_mem_usage, left_mem_usage);
+                }
+
+                TrieSplit::new(
+                    self.nibbles,
+                    self.left_memory,
+                    self.right_memory + self.middle_memory,
+                )
+            }
+        }
+
+        /// Helper function to get the split yielded by the given boundary account.
+        /// Assumes the trie is using memtries.
+        fn get_memtrie_split(trie: &Trie, boundary_account: &AccountId) -> TrieSplit {
+            let key_bytes = boundary_account.as_bytes();
+            let memtries = trie.lock_memtries().unwrap();
+            let trie_storage = MemTrieIteratorInner::new(&memtries, trie);
+            TrieDescent::new(trie_storage).check_split(key_bytes)
+        }
+
+        impl TrieSplit {
+            /// Get difference between right and left memory
+            fn mem_diff(&self) -> i64 {
+                self.right_memory as i64 - self.left_memory as i64
+            }
+        }
+
+        #[test]
+        fn big_random_trie() -> anyhow::Result<()> {
+            let num_accounts = 1000;
+            let lengths = Uniform::try_from(5..=15)?;
+            let chars = Uniform::try_from('a'..='z')?;
+            let balances = Uniform::from(10_u128..=1000);
+            let mut rng = StdRng::seed_from_u64(12345);
+            let mut rand_account = || -> anyhow::Result<AccountId> {
+                let length = lengths.sample(&mut rng);
+                let account_str: String = chars.sample_iter(&mut rng).take(length).collect();
+                Ok(account_str.parse()?)
+            };
+            let mut account_ids = (0..num_accounts)
+                .map(|_| rand_account())
+                .collect::<anyhow::Result<Vec<AccountId>>>()?;
+            account_ids.sort();
+
+            let (shard_tries, layout) =
+                TestTriesBuilder::new().with_in_memory_tries(true).with_flat_storage(true).build2();
+            let shard_uid = layout.get_shard_uid(0)?;
+            let trie = shard_tries.get_trie_for_shard(shard_uid, Trie::EMPTY_ROOT);
+
+            let mut trie_update = TrieUpdate::new(trie);
+            for account_id in &account_ids {
+                let balance = Balance::from_near(balances.sample(&mut rng));
+                let account = account_new(balance, CryptoHash::default());
+                set_account(&mut trie_update, account_id.clone(), &account);
+
+                // Randomly assign access keys to approx. half of the accounts
+                if rng.gen_bool(0.5) {
+                    let mut pub_key_bytes = [0u8; 32];
+                    rng.fill_bytes(&mut pub_key_bytes);
+                    let pub_key = PublicKey::from(ED25519PublicKey::from(pub_key_bytes));
+                    let access_key = AccessKey::full_access();
+                    set_access_key(&mut trie_update, account_id.clone(), pub_key, &access_key);
+                }
+            }
+
+            // TODO: Add some contract code and contract data
+
+            trie_update.commit(StateChangeCause::InitialState);
+            let TrieUpdateResult { trie_changes, .. } = trie_update.finalize()?;
+            let mut store_update = shard_tries.store_update();
+            let new_root = shard_tries.apply_all(&trie_changes, shard_uid, &mut store_update);
+            shard_tries.apply_memtrie_changes(&trie_changes, shard_uid, 0);
+            store_update.commit()?;
+            let trie = shard_tries.get_trie_for_shard(shard_uid, new_root);
+            let trie_split = find_trie_split(&trie);
+
+            // Assert that previous and next account give worse splits than the account found
+            // by `find_trie_split`. As the accounts are sorted, we don't need to check them all.
+            // If the split given by account at index `i` is better than the split given by accounts
+            // at `i-1` and `i+1`, it is also the best split of all the accounts.
+            let boundary_account =
+                AccountId::from_str(std::str::from_utf8(&trie_split.split_path_bytes())?)?;
+            let boundary_idx = account_ids.iter().position(|acc| acc == &boundary_account).unwrap();
+            let left_account = &account_ids[boundary_idx - 1];
+            let right_account = &account_ids[boundary_idx + 1];
+            let left_split = get_memtrie_split(&trie, left_account);
+            let right_split = get_memtrie_split(&trie, right_account);
+            println!("{left_split:?}");
+            println!("{trie_split:?}");
+            println!("{right_split:?}");
+            assert!(left_split.mem_diff() > trie_split.mem_diff());
+            // `find_trie_split` finds the best possible split for which `right_memory >= left_memory`.
+            // Hence, it is acceptable that the absolute `mem_diff` for `right_split` is lower, as
+            // long as the `right_memory >= left_memory` condition doesn't hold.
+            assert!(right_split.right_memory < right_split.left_memory);
+
+            Ok(())
+        }
+    }
 }
