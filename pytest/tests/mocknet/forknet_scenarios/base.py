@@ -34,10 +34,10 @@ class NodeHardware:
         num_chunk_validator_seats: int
 
         def chunk_producers_hosts(self) -> int:
-            pass
+            raise NotImplementedError
 
         def only_chunk_validators_hosts(self) -> int:
-            pass
+            raise NotImplementedError
 
     class SameConfig(Config):
         """
@@ -45,7 +45,7 @@ class NodeHardware:
         """
 
         def chunk_producers_hosts(self) -> int:
-            return self.num_chunk_validator_seats
+            return self.num_chunk_producer_seats
 
         def only_chunk_validators_hosts(self) -> int:
             return 0
@@ -91,6 +91,9 @@ class TestSetup:
         # The new binary url to be used for the nodes.
         self.neard_upgrade_binary_url = getattr(args,
                                                 'neard_upgrade_binary_url', '')
+        # Define epoch_len and genesis_protocol_version to avoid AttributeError
+        self.epoch_len = getattr(args, 'epoch_len', None)
+        self.genesis_protocol_version = getattr(args, 'genesis_protocol_version', None)
 
     def _needs_upgrade(self):
         """
@@ -144,7 +147,7 @@ class TestSetup:
 
         run_args = copy.deepcopy(self.args)
         run_args.host_filter = '.*archival.*'
-        run_args.cmd = "rm -rf /home/ubuntu/.near/cold /home/ubuntu/.near/validator_key.json && /home/ubuntu/.near/neard-runner/binaries/neard0 database change-db-kind --new-kind Hot change-hot"
+        run_args.cmd = "rm -rf /home/ubuntu/.near/cold /home/ubuntu/.near/validator_key.json && /home/ubuntu/.near/neard-runner/binaries/neard0 database change-db-kind --new-kind Hot"
         run_remote_cmd(CommandContext(run_args))
 
     def new_test(self):
@@ -210,7 +213,7 @@ class TestSetup:
         """
         Amend the epoch config with the given jq field.
         """
-        jq_cmd = f"""-type f -name "*.json" -exec sh -c 'jq "{jq_field}" $1 > $1.tmp && mv $1.tmp $1' _ {{}} \;"""
+        jq_cmd = f"-type f -name '*.json' -exec sh -c 'jq \"{jq_field}\" \"$1\" > \"$1.tmp\" && mv \"$1.tmp\" \"$1\"' sh {{}} \\;"
         cmd_node = f"find ~/.near/epoch_configs/ {jq_cmd}"
         cmd_traffic = f"find ~/.near/target/epoch_configs/ {jq_cmd}"
         run_cmd_args = copy.deepcopy(self.args)
@@ -243,7 +246,7 @@ class TestSetup:
         """
         start_nodes_args = copy.deepcopy(self.args)
         start_nodes_args.batch_interval_millis = None
-        start_traffic_cmd(CommandContext(start_nodes_args))
+        start_nodes_cmd(CommandContext(start_nodes_args))
 
     def _schedule_upgrade_nodes_every_n_minutes(self, minutes):
         """
