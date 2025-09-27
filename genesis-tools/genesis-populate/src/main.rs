@@ -19,7 +19,7 @@ fn main() {
             Arg::new("additional-accounts-num")
                 .long("additional-accounts-num")
                 .required(true)
-                .action(clap::ArgAction::Set)
+                .value_parser(clap::value_parser!(u64))
                 .help(
                     "Number of additional accounts per shard to add directly to the trie \
                      (TESTING ONLY)",
@@ -28,9 +28,8 @@ fn main() {
         .get_matches();
 
     let home_dir = matches.get_one::<PathBuf>("home").unwrap();
-    let additional_accounts_num = matches
-        .get_one::<String>("additional-accounts-num")
-        .map(|x| x.parse::<u64>().expect("Failed to parse number of additional accounts."))
+    let additional_accounts_num = *matches
+        .get_one::<u64>("additional-accounts-num")
         .unwrap();
     let near_config = load_config(home_dir, GenesisValidationMode::Full)
         .unwrap_or_else(|e| panic!("Error loading config: {:#}", e));
