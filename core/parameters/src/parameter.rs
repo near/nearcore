@@ -76,6 +76,9 @@ pub enum Parameter {
     ActionAddFunctionCallKeyPerByte,
     ActionDeleteKey,
     ActionDelegate,
+    ActionDeterministicStateInit,
+    ActionDeterministicStateInitPerEntry,
+    ActionDeterministicStateInitPerByte,
 
     // Smart contract dynamic gas costs
     WasmRegularOpCost,
@@ -240,6 +243,7 @@ pub enum Parameter {
     ActionUseGlobalContractPerIdentifierByte,
     GlobalContractHostFns,
 
+    // Flag to enabled deterministic account ids
     DeterministicAccountIds,
 }
 
@@ -277,6 +281,9 @@ pub enum FeeParameter {
     ActionDeployGlobalContractPerByte,
     ActionUseGlobalContract,
     ActionUseGlobalContractPerIdentifierByte,
+    ActionDeterministicStateInit,
+    ActionDeterministicStateInitPerByte,
+    ActionDeterministicStateInitPerEntry,
 }
 
 impl Parameter {
@@ -344,6 +351,11 @@ impl From<ActionCosts> for FeeParameter {
             ActionCosts::deploy_global_contract_byte => Self::ActionDeployGlobalContractPerByte,
             ActionCosts::use_global_contract_base => Self::ActionUseGlobalContract,
             ActionCosts::use_global_contract_byte => Self::ActionUseGlobalContractPerIdentifierByte,
+            ActionCosts::deterministic_state_init_base => Self::ActionDeterministicStateInit,
+            ActionCosts::deterministic_state_init_byte => Self::ActionDeterministicStateInitPerByte,
+            ActionCosts::deterministic_state_init_entry => {
+                Self::ActionDeterministicStateInitPerEntry
+            }
         }
     }
 }

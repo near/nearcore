@@ -11,6 +11,7 @@ use near_chain_configs::Genesis;
 use near_crypto::InMemorySigner;
 use near_epoch_manager::{EpochManager, EpochManagerAdapter, EpochManagerHandle};
 use near_primitives::account::{AccessKey, Account, AccountContract};
+use near_primitives::action::GlobalContractIdentifier;
 use near_primitives::bandwidth_scheduler::BandwidthRequests;
 use near_primitives::block::Tip;
 use near_primitives::congestion_info::CongestionInfo;
@@ -19,6 +20,7 @@ use near_primitives::genesis::{genesis_block, genesis_chunks};
 use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::state_record::StateRecord;
+use near_primitives::trie_key::TrieKey;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{
     AccountId, Balance, EpochId, Gas, ShardId, StateChangeCause, StateRoot,
@@ -83,6 +85,7 @@ pub struct GenesisBuilder {
     additional_accounts_num: u64,
     additional_accounts_code: Option<Vec<u8>>,
     additional_accounts_code_hash: CryptoHash,
+    global_contracts: Vec<(GlobalContractIdentifier, Vec<u8>)>,
 
     print_progress: bool,
 }
@@ -113,6 +116,7 @@ impl GenesisBuilder {
             additional_accounts_num: 0,
             additional_accounts_code: None,
             additional_accounts_code_hash: CryptoHash::default(),
+            global_contracts: Default::default(),
             print_progress: false,
         }
     }
@@ -130,6 +134,15 @@ impl GenesisBuilder {
     pub fn add_additional_accounts_contract(mut self, contract_code: Vec<u8>) -> Self {
         self.additional_accounts_code_hash = hash(&contract_code);
         self.additional_accounts_code = Some(contract_code);
+        self
+    }
+
+    pub fn add_additional_global_contract(
+        mut self,
+        id: GlobalContractIdentifier,
+        code: Vec<u8>,
+    ) -> Self {
+        self.global_contracts.push((id, code));
         self
     }
 
@@ -160,6 +173,12 @@ impl GenesisBuilder {
             .collect();
         self.unflushed_records =
             self.roots.keys().cloned().map(|shard_idx| (shard_idx, vec![])).collect();
+
+        // note: mem take avoids immutable borrow conflict with mutable borrow
+        // of the add_global_contract call
+        for (id, code) in std::mem::take(&mut self.global_contracts) {
+            self.add_global_contract(&id, &code);
+        }
 
         let shard_ids: Vec<_> = self.genesis.config.shard_layout.shard_ids().collect();
         let total_accounts_num = self.additional_accounts_num * shard_ids.len() as u64;
@@ -364,5 +383,15 @@ impl GenesisBuilder {
             self.flush_shard_records(shard_id)?;
         }
         Ok(())
+    }
+
+    fn add_global_contract(&mut self, id: &GlobalContractIdentifier, code: &[u8]) {
+        for shard_id in self.genesis.config.shard_layout.shard_ids() {
+            let state_update =
+                self.state_updates.get_mut(&shard_id).expect("State update should have been added");
+
+            let trie_key = TrieKey::GlobalContractCode { identifier: id.clone().into() };
+            state_update.set(trie_key, code.to_vec());
+        }
     }
 }
