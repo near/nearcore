@@ -27,22 +27,11 @@ dependencies = [
 ]
 
 [[package]]
-name = "actix-macros"
-version = "0.2.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e01ed3140b2f8d422c68afa1ed2e85d996ea619c988ac834d255db32138655cb"
-dependencies = [
- "quote",
- "syn 2.0.106",
-]
-
-[[package]]
 name = "actix-rt"
 version = "2.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7ea16c295198e958ef31930a6ef37d0fb64e9ca3b6116e6b93a8bdae96ee1000"
 dependencies = [
- "actix-macros",
  "futures-core",
  "tokio",
 ]
@@ -3070,7 +3059,7 @@ dependencies = [
  "iana-time-zone-haiku",
  "js-sys",
  "wasm-bindgen",
- "windows-core",
+ "windows-core 0.52.0",
 ]
 
 [[package]]
@@ -3379,7 +3368,6 @@ dependencies = [
  "hex",
  "insta",
  "itertools 0.14.0",
- "near-actix-test-utils",
  "near-async",
  "near-chain",
  "near-chain-configs",
@@ -4001,6 +3989,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "named-lock"
+version = "0.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "988ce9f7411c058a1d6788e60897a949dcdf5aa66202d789da045a03b4e4f406"
+dependencies = [
+ "libc",
+ "once_cell",
+ "parking_lot 0.12.1",
+ "thiserror 1.0.50",
+ "windows",
+]
+
+[[package]]
 name = "native-tls"
 version = "0.2.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4027,16 +4028,6 @@ dependencies = [
  "borsh",
  "schemars 1.0.3",
  "serde",
-]
-
-[[package]]
-name = "near-actix-test-utils"
-version = "0.0.0"
-dependencies = [
- "actix-rt",
- "near-async",
- "near-store",
- "parking_lot 0.12.1",
 ]
 
 [[package]]
@@ -4110,7 +4101,6 @@ dependencies = [
  "crossbeam-channel",
  "easy-ext",
  "enum-map",
- "futures",
  "insta",
  "itertools 0.14.0",
  "lru 0.12.3",
@@ -4704,6 +4694,7 @@ dependencies = [
  "im",
  "itertools 0.14.0",
  "lru 0.12.3",
+ "named-lock",
  "near-async",
  "near-chain-configs",
  "near-crypto",
@@ -9414,6 +9405,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "712e227841d057c1ee1cd2fb22fa7e5a5461ae8e48fa2ca79ec42cfc1931183f"
 
 [[package]]
+name = "windows"
+version = "0.53.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "efc5cf48f83140dcaab716eeaea345f9e93d0018fb81162753a3f76c3397b538"
+dependencies = [
+ "windows-core 0.53.0",
+ "windows-targets 0.52.6",
+]
+
+[[package]]
 name = "windows-core"
 version = "0.52.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -9423,10 +9424,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "windows-core"
+version = "0.53.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9dcc5b895a6377f1ab9fa55acedab1fd5ac0db66ad1e6c7f47e28a22e446a5dd"
+dependencies = [
+ "windows-result",
+ "windows-targets 0.52.6",
+]
+
+[[package]]
 name = "windows-link"
 version = "0.1.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5e6ad25900d524eaabdbbb96d20b4311e1e7ae1699af4fb28c17ae66c80d798a"
+
+[[package]]
+name = "windows-result"
+version = "0.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5e383302e8ec8515204254685643de10811af0ed97ea37210dc26fb0032647f8"
+dependencies = [
+ "windows-targets 0.52.6",
+]
 
 [[package]]
 name = "windows-sys"

@@ -1,18 +1,16 @@
 use crate::tests::nearcore::node_cluster::NodeCluster;
 use crate::utils::genesis_helpers::genesis_block;
-use actix::Actor;
 use actix::clock::sleep;
 use assert_matches::assert_matches;
 
+use futures::TryFutureExt;
 use futures::future::join_all;
-use futures::{FutureExt, TryFutureExt, future};
-use near_actix_test_utils::spawn_interruptible;
 use near_async::messaging::CanSendAsync;
 use near_client::{GetBlock, GetExecutionOutcome, GetValidatorInfo};
 use near_crypto::InMemorySigner;
 use near_jsonrpc::client::new_client;
 use near_jsonrpc_primitives::types::transactions::{RpcTransactionStatusRequest, TransactionInfo};
-use near_network::test_utils::WaitOrTimeoutActor;
+use near_network::test_utils::wait_or_timeout;
 use near_o11y::testonly::init_integration_logger;
 use near_parameters::{RuntimeConfigStore, RuntimeConfigView};
 use near_primitives::hash::{CryptoHash, hash};
@@ -24,10 +22,11 @@ use near_primitives::types::{
 };
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature, ProtocolVersion};
 use near_primitives::views::{ExecutionOutcomeView, ExecutionStatusView, TxExecutionStatus};
+use std::ops::ControlFlow;
 use std::time::Duration;
 
-#[test]
-fn test_get_validator_info_rpc() {
+#[tokio::test]
+async fn test_get_validator_info_rpc() {
     init_integration_logger();
 
     let cluster = NodeCluster::default()
@@ -37,16 +36,16 @@ fn test_get_validator_info_rpc() {
         .set_epoch_length(10)
         .set_genesis_height(0);
 
-    cluster.exec_until_stop(|_, rpc_addrs, clients| async move {
-        WaitOrTimeoutActor::new(
-            Box::new(move |_ctx| {
+    cluster
+        .run_and_then_shutdown(|_, rpc_addrs, clients| async move {
+            wait_or_timeout(100, 40000, move || {
                 let rpc_addrs_copy = rpc_addrs.clone();
                 let view_client = clients[0].1.clone();
-                spawn_interruptible(async move {
+                async move {
                     let block_view = view_client.send_async(GetBlock::latest()).await.unwrap();
                     if let Err(err) = block_view {
                         println!("Failed to get the latest block: {:?}", err);
-                        return;
+                        return ControlFlow::Continue(());
                     }
                     let block_view = block_view.unwrap();
                     if block_view.header.height > 1 {
@@ -59,15 +58,15 @@ fn test_get_validator_info_rpc() {
                         let res = client.validators(None).await.unwrap();
                         assert_eq!(res.current_validators.len(), 1);
                         assert!(res.current_validators.iter().any(|r| r.account_id == "near.0"));
-                        near_async::shutdown_all_actors();
+                        return ControlFlow::Break(());
                     }
-                });
-            }),
-            100,
-            40000,
-        )
-        .start();
-    });
+                    ControlFlow::Continue(())
+                }
+            })
+            .await
+            .unwrap();
+        })
+        .await;
 }
 
 fn outcome_view_to_hashes(outcome: &ExecutionOutcomeView) -> Vec<CryptoHash> {
@@ -90,7 +89,7 @@ fn outcome_view_to_hashes(outcome: &ExecutionOutcomeView) -> Vec<CryptoHash> {
     result
 }
 
-fn test_get_execution_outcome(is_tx_successful: bool) {
+async fn test_get_execution_outcome(is_tx_successful: bool) {
     init_integration_logger();
 
     let cluster = NodeCluster::default()
@@ -101,199 +100,198 @@ fn test_get_execution_outcome(is_tx_successful: bool) {
         .set_genesis_height(0)
         .set_save_tx_outcomes(true);
 
-    cluster.exec_until_stop(|genesis, rpc_addrs, clients| async move {
-        let view_client = clients[0].1.clone();
+    cluster
+        .run_and_then_shutdown(move |genesis, rpc_addrs, clients| async move {
+            let view_client = clients[0].1.clone();
 
-        let genesis_hash = *genesis_block(&genesis).hash();
-        let signer = InMemorySigner::test_signer(&"near.0".parse().unwrap());
-        let transaction = if is_tx_successful {
-            SignedTransaction::send_money(
-                1,
-                "near.0".parse().unwrap(),
-                "near.1".parse().unwrap(),
-                &signer,
-                Balance::from_yoctonear(10000),
-                genesis_hash,
-            )
-        } else {
-            SignedTransaction::create_account(
-                1,
-                "near.0".parse().unwrap(),
-                "near.1".parse().unwrap(),
-                Balance::from_yoctonear(10),
-                signer.public_key(),
-                &signer,
-                genesis_hash,
-            )
-        };
+            let genesis_hash = *genesis_block(&genesis).hash();
+            let signer = InMemorySigner::test_signer(&"near.0".parse().unwrap());
+            let transaction = if is_tx_successful {
+                SignedTransaction::send_money(
+                    1,
+                    "near.0".parse().unwrap(),
+                    "near.1".parse().unwrap(),
+                    &signer,
+                    Balance::from_yoctonear(10000),
+                    genesis_hash,
+                )
+            } else {
+                SignedTransaction::create_account(
+                    1,
+                    "near.0".parse().unwrap(),
+                    "near.1".parse().unwrap(),
+                    Balance::from_yoctonear(10),
+                    signer.public_key(),
+                    &signer,
+                    genesis_hash,
+                )
+            };
 
-        WaitOrTimeoutActor::new(
-            Box::new(move |_ctx| {
-                let client = new_client(&format!("http://{}", rpc_addrs[0]));
-                let bytes = borsh::to_vec(&transaction).unwrap();
-                let view_client1 = view_client.clone();
-                spawn_interruptible(client.broadcast_tx_commit(to_base64(&bytes)).then(
-                    move |res| {
-                        let final_transaction_outcome = match res {
-                            Ok(outcome) => outcome.final_execution_outcome.unwrap().into_outcome(),
-                            Err(_) => return future::ready(()),
-                        };
-                        spawn_interruptible(sleep(Duration::from_secs(1)).then(move |_| {
-                            let mut futures = vec![];
-                            for id in vec![TransactionOrReceiptId::Transaction {
-                                transaction_hash: final_transaction_outcome.transaction_outcome.id,
-                                sender_id: "near.0".parse().unwrap(),
-                            }]
-                            .into_iter()
-                            .chain(
-                                final_transaction_outcome.receipts_outcome.into_iter().map(|r| {
-                                    TransactionOrReceiptId::Receipt {
-                                        receipt_id: r.id,
-                                        receiver_id: "near.1".parse().unwrap(),
-                                    }
-                                }),
-                            ) {
-                                let view_client2 = view_client1.clone();
-                                let fut = view_client1.send_async(GetExecutionOutcome { id });
-                                let fut = fut.then(move |res| {
-                                    let execution_outcome_response = res.unwrap().unwrap();
-                                    view_client2
-                                        .send_async(GetBlock(BlockReference::BlockId(
-                                            BlockId::Hash(
-                                                execution_outcome_response.outcome_proof.block_hash,
-                                            ),
-                                        )))
-                                        .then(move |res| {
-                                            let res = res.unwrap().unwrap();
-                                            let mut outcome_with_id_to_hash =
-                                                vec![execution_outcome_response.outcome_proof.id];
-                                            outcome_with_id_to_hash.extend(outcome_view_to_hashes(
-                                                &execution_outcome_response.outcome_proof.outcome,
-                                            ));
-                                            let chunk_outcome_root =
-                                                compute_root_from_path_and_item(
-                                                    &execution_outcome_response.outcome_proof.proof,
-                                                    &outcome_with_id_to_hash,
-                                                );
-                                            assert!(verify_path(
-                                                res.header.outcome_root,
-                                                &execution_outcome_response.outcome_root_proof,
-                                                &chunk_outcome_root
-                                            ));
-                                            future::ready(())
-                                        })
-                                });
-                                futures.push(fut);
+            wait_or_timeout(100, 40000, move || {
+                let value = rpc_addrs.clone();
+                let view_client = view_client.clone();
+                let transaction = transaction.clone();
+                async move {
+                    let client = new_client(&format!("http://{}", value[0]));
+                    let bytes = borsh::to_vec(&transaction).unwrap();
+                    let view_client1 = view_client.clone();
+                    let res = client.broadcast_tx_commit(to_base64(&bytes)).await;
+                    let final_transaction_outcome = match res {
+                        Ok(outcome) => outcome.final_execution_outcome.unwrap().into_outcome(),
+                        Err(_) => return ControlFlow::Continue(()),
+                    };
+                    sleep(Duration::from_secs(1)).await;
+                    let mut futures = vec![];
+                    for id in vec![TransactionOrReceiptId::Transaction {
+                        transaction_hash: final_transaction_outcome.transaction_outcome.id,
+                        sender_id: "near.0".parse().unwrap(),
+                    }]
+                    .into_iter()
+                    .chain(
+                        final_transaction_outcome.receipts_outcome.into_iter().map(|r| {
+                            TransactionOrReceiptId::Receipt {
+                                receipt_id: r.id,
+                                receiver_id: "near.1".parse().unwrap(),
                             }
-                            spawn_interruptible(join_all(futures).then(|_| {
-                                near_async::shutdown_all_actors();
-                                future::ready(())
-                            }));
-                            future::ready(())
-                        }));
-
-                        future::ready(())
-                    },
-                ));
-            }),
-            100,
-            40000,
-        )
-        .start();
-    });
-}
-
-#[test]
-fn ultra_slow_test_get_execution_outcome_tx_success() {
-    test_get_execution_outcome(true);
-}
-
-#[test]
-fn ultra_slow_test_get_execution_outcome_tx_failure() {
-    test_get_execution_outcome(false);
-}
-
-#[test]
-fn test_protocol_config_rpc() {
-    init_integration_logger();
-
-    let cluster = NodeCluster::default()
-        .set_num_shards(1)
-        .set_num_validator_seats(1)
-        .set_num_lightclients(0)
-        .set_epoch_length(10)
-        .set_genesis_height(0);
-
-    cluster.exec_until_stop(|_, rpc_addrs, _| async move {
-        let client = new_client(&format!("http://{}", rpc_addrs[0]));
-        let config_response = client
-            .EXPERIMENTAL_protocol_config(
-                near_jsonrpc_primitives::types::config::RpcProtocolConfigRequest {
-                    block_reference: near_primitives::types::BlockReference::Finality(
-                        Finality::None,
-                    ),
-                },
-            )
-            .await
-            .unwrap();
-
-        let runtime_config_store = RuntimeConfigStore::new(None);
-        let initial_runtime_config = runtime_config_store.get_config(ProtocolVersion::MIN);
-        let latest_runtime_config =
-            runtime_config_store.get_config(near_primitives::version::PROTOCOL_VERSION);
-        assert_ne!(
-            config_response.config_view.runtime_config.storage_amount_per_byte,
-            initial_runtime_config.storage_amount_per_byte()
-        );
-        // compare JSON view
-        assert_eq!(
-            serde_json::json!(config_response.config_view.runtime_config),
-            serde_json::json!(RuntimeConfigView::from(latest_runtime_config.as_ref().clone()))
-        );
-        near_async::shutdown_all_actors();
-    });
-}
-
-#[test]
-fn test_query_rpc_account_view_must_succeed() {
-    init_integration_logger();
-
-    let cluster = NodeCluster::default()
-        .set_num_shards(1)
-        .set_num_validator_seats(1)
-        .set_num_lightclients(0)
-        .set_epoch_length(10)
-        .set_genesis_height(0);
-
-    cluster.exec_until_stop(|_, rpc_addrs, _| async move {
-        let client = new_client(&format!("http://{}", rpc_addrs[0]));
-        let query_response = client
-            .query(near_jsonrpc_primitives::types::query::RpcQueryRequest {
-                block_reference: near_primitives::types::BlockReference::Finality(Finality::Final),
-                request: near_primitives::views::QueryRequest::ViewAccount {
-                    account_id: "near.0".parse().unwrap(),
-                },
+                        }),
+                    ) {
+                        let view_client2 = view_client1.clone();
+                        let fut = async move {
+                            let execution_outcome_response = view_client2
+                                .send_async(GetExecutionOutcome { id })
+                                .await
+                                .unwrap()
+                                .unwrap();
+                            let res = view_client2
+                                .send_async(GetBlock(BlockReference::BlockId(BlockId::Hash(
+                                    execution_outcome_response.outcome_proof.block_hash,
+                                ))))
+                                .await
+                                .unwrap()
+                                .unwrap();
+                            let mut outcome_with_id_to_hash =
+                                vec![execution_outcome_response.outcome_proof.id];
+                            outcome_with_id_to_hash.extend(outcome_view_to_hashes(
+                                &execution_outcome_response.outcome_proof.outcome,
+                            ));
+                            let chunk_outcome_root = compute_root_from_path_and_item(
+                                &execution_outcome_response.outcome_proof.proof,
+                                &outcome_with_id_to_hash,
+                            );
+                            assert!(verify_path(
+                                res.header.outcome_root,
+                                &execution_outcome_response.outcome_root_proof,
+                                &chunk_outcome_root
+                            ));
+                        };
+                        futures.push(fut);
+                    }
+                    join_all(futures).await;
+                    ControlFlow::Break(())
+                }
             })
             .await
             .unwrap();
-        let account =
-            if let near_jsonrpc_primitives::types::query::QueryResponseKind::ViewAccount(account) =
-                query_response.kind
-            {
-                account
-            } else {
-                panic!(
-                    "expected a account view result, but received something else: {:?}",
-                    query_response.kind
-                );
-            };
-        assert_matches!(account, near_primitives::views::AccountView { .. });
-        near_async::shutdown_all_actors();
-    });
+        })
+        .await;
 }
 
-#[test]
-fn test_query_rpc_account_view_account_does_not_exist_must_return_error() {
+#[tokio::test]
+async fn ultra_slow_test_get_execution_outcome_tx_success() {
+    test_get_execution_outcome(true).await;
+}
+
+#[tokio::test]
+async fn ultra_slow_test_get_execution_outcome_tx_failure() {
+    test_get_execution_outcome(false).await;
+}
+
+#[tokio::test]
+async fn test_protocol_config_rpc() {
+    init_integration_logger();
+
+    let cluster = NodeCluster::default()
+        .set_num_shards(1)
+        .set_num_validator_seats(1)
+        .set_num_lightclients(0)
+        .set_epoch_length(10)
+        .set_genesis_height(0);
+
+    cluster
+        .run_and_then_shutdown(|_, rpc_addrs, _| async move {
+            let client = new_client(&format!("http://{}", rpc_addrs[0]));
+            let config_response = client
+                .EXPERIMENTAL_protocol_config(
+                    near_jsonrpc_primitives::types::config::RpcProtocolConfigRequest {
+                        block_reference: near_primitives::types::BlockReference::Finality(
+                            Finality::None,
+                        ),
+                    },
+                )
+                .await
+                .unwrap();
+
+            let runtime_config_store = RuntimeConfigStore::new(None);
+            let initial_runtime_config = runtime_config_store.get_config(ProtocolVersion::MIN);
+            let latest_runtime_config =
+                runtime_config_store.get_config(near_primitives::version::PROTOCOL_VERSION);
+            assert_ne!(
+                config_response.config_view.runtime_config.storage_amount_per_byte,
+                initial_runtime_config.storage_amount_per_byte()
+            );
+            // compare JSON view
+            assert_eq!(
+                serde_json::json!(config_response.config_view.runtime_config),
+                serde_json::json!(RuntimeConfigView::from(latest_runtime_config.as_ref().clone()))
+            );
+        })
+        .await;
+}
+
+#[tokio::test]
+async fn test_query_rpc_account_view_must_succeed() {
+    init_integration_logger();
+
+    let cluster = NodeCluster::default()
+        .set_num_shards(1)
+        .set_num_validator_seats(1)
+        .set_num_lightclients(0)
+        .set_epoch_length(10)
+        .set_genesis_height(0);
+
+    cluster
+        .run_and_then_shutdown(|_, rpc_addrs, _| async move {
+            let client = new_client(&format!("http://{}", rpc_addrs[0]));
+            let query_response = client
+                .query(near_jsonrpc_primitives::types::query::RpcQueryRequest {
+                    block_reference: near_primitives::types::BlockReference::Finality(
+                        Finality::Final,
+                    ),
+                    request: near_primitives::views::QueryRequest::ViewAccount {
+                        account_id: "near.0".parse().unwrap(),
+                    },
+                })
+                .await
+                .unwrap();
+            let account =
+                if let near_jsonrpc_primitives::types::query::QueryResponseKind::ViewAccount(
+                    account,
+                ) = query_response.kind
+                {
+                    account
+                } else {
+                    panic!(
+                        "expected a account view result, but received something else: {:?}",
+                        query_response.kind
+                    );
+                };
+            assert_matches!(account, near_primitives::views::AccountView { .. });
+        })
+        .await;
+}
+
+#[tokio::test]
+async fn test_query_rpc_account_view_account_does_not_exist_must_return_error() {
     init_integration_logger();
 
     let cluster = NodeCluster::default()
@@ -304,7 +302,7 @@ fn test_query_rpc_account_view_account_does_not_exist_must_return_error() {
         .set_genesis_height(0);
 
     // cspell:ignore accountdoesntexist
-    cluster.exec_until_stop(|_, rpc_addrs, _| async move {
+    cluster.run_and_then_shutdown(|_, rpc_addrs, _| async move {
         let client = new_client(&format!("http://{}", rpc_addrs[0]));
         let error_message = loop {
             let query_response = client
@@ -337,13 +335,11 @@ fn test_query_rpc_account_view_account_does_not_exist_must_return_error() {
             "{}",
             error_message
         );
-
-        near_async::shutdown_all_actors();
-    });
+    }).await;
 }
 
-#[test]
-fn slow_test_tx_not_enough_balance_must_return_error() {
+#[tokio::test]
+async fn slow_test_tx_not_enough_balance_must_return_error() {
     init_integration_logger();
 
     let cluster = NodeCluster::default()
@@ -353,24 +349,24 @@ fn slow_test_tx_not_enough_balance_must_return_error() {
         .set_epoch_length(10)
         .set_genesis_height(0);
 
-    cluster.exec_until_stop(|genesis, rpc_addrs, clients| async move {
-        let view_client = clients[0].1.clone();
+    cluster
+        .run_and_then_shutdown(|genesis, rpc_addrs, clients| async move {
+            let view_client = clients[0].1.clone();
 
-        let genesis_hash = *genesis_block(&genesis).hash();
-        let signer = InMemorySigner::test_signer(&"near.0".parse().unwrap());
-        let transaction = SignedTransaction::send_money(
-            1,
-            "near.0".parse().unwrap(),
-            "near.1".parse().unwrap(),
-            &signer,
-            Balance::from_near(1100000000),
-            genesis_hash,
-        );
+            let genesis_hash = *genesis_block(&genesis).hash();
+            let signer = InMemorySigner::test_signer(&"near.0".parse().unwrap());
+            let transaction = SignedTransaction::send_money(
+                1,
+                "near.0".parse().unwrap(),
+                "near.1".parse().unwrap(),
+                &signer,
+                Balance::from_near(1100000000),
+                genesis_hash,
+            );
 
-        let client = new_client(&format!("http://{}", rpc_addrs[0]));
-        let bytes = borsh::to_vec(&transaction).unwrap();
+            let client = new_client(&format!("http://{}", rpc_addrs[0]));
+            let bytes = borsh::to_vec(&transaction).unwrap();
 
-        spawn_interruptible(async move {
             loop {
                 let res = view_client.send_async(GetBlock::latest()).await;
                 if let Ok(Ok(block)) = res {
@@ -385,9 +381,10 @@ fn slow_test_tx_not_enough_balance_must_return_error() {
             } else {
                 "1100000000000045306060187500000000"
             };
-            let _ = client
-                .broadcast_tx_commit(to_base64(&bytes))
-                .map_err(|err| {
+            let res = client.broadcast_tx_commit(to_base64(&bytes)).await;
+            match res {
+                Ok(_) => panic!("Transaction must not succeed"),
+                Err(err) => {
                     println!("testing: {:?}", err.data);
                     assert_eq!(
                         *err.data.unwrap(),
@@ -401,16 +398,14 @@ fn slow_test_tx_not_enough_balance_must_return_error() {
                             }
                         }})
                     );
-                    near_async::shutdown_all_actors();
-                })
-                .map_ok(|_| panic!("Transaction must not succeed"))
-                .await;
-        });
-    });
+                }
+            }
+        })
+        .await;
 }
 
-#[test]
-fn slow_test_check_unknown_tx_must_return_error() {
+#[tokio::test]
+async fn slow_test_check_unknown_tx_must_return_error() {
     init_integration_logger();
 
     let cluster = NodeCluster::default()
@@ -421,24 +416,24 @@ fn slow_test_check_unknown_tx_must_return_error() {
         .set_epoch_length(10)
         .set_genesis_height(0);
 
-    cluster.exec_until_stop(|genesis, rpc_addrs, clients| async move {
-        let view_client = clients[0].1.clone();
+    cluster
+        .run_and_then_shutdown(|genesis, rpc_addrs, clients| async move {
+            let view_client = clients[0].1.clone();
 
-        let genesis_hash = *genesis_block(&genesis).hash();
-        let signer = InMemorySigner::test_signer(&"near.0".parse().unwrap());
-        let transaction = SignedTransaction::send_money(
-            1,
-            "near.0".parse().unwrap(),
-            "near.0".parse().unwrap(),
-            &signer,
-            Balance::from_yoctonear(10000),
-            genesis_hash,
-        );
+            let genesis_hash = *genesis_block(&genesis).hash();
+            let signer = InMemorySigner::test_signer(&"near.0".parse().unwrap());
+            let transaction = SignedTransaction::send_money(
+                1,
+                "near.0".parse().unwrap(),
+                "near.0".parse().unwrap(),
+                &signer,
+                Balance::from_yoctonear(10000),
+                genesis_hash,
+            );
 
-        let client = new_client(&format!("http://{}", rpc_addrs[0]));
-        let tx_hash = transaction.get_hash();
+            let client = new_client(&format!("http://{}", rpc_addrs[0]));
+            let tx_hash = transaction.get_hash();
 
-        spawn_interruptible(async move {
             loop {
                 let res = view_client.send_async(GetBlock::latest()).await;
                 if let Ok(Ok(block)) = res {
@@ -468,13 +463,13 @@ fn slow_test_check_unknown_tx_must_return_error() {
                 }
                 sleep(std::time::Duration::from_millis(500)).await;
             }
-        });
-    });
+        })
+        .await;
 }
 
-#[test]
+#[tokio::test]
 #[ignore = "Need to implement forwarding and fix the test"]
-fn test_tx_status_on_lightclient_must_return_does_not_track_shard() {
+async fn test_tx_status_on_lightclient_must_return_does_not_track_shard() {
     init_integration_logger();
 
     let cluster = NodeCluster::default()
@@ -484,7 +479,7 @@ fn test_tx_status_on_lightclient_must_return_does_not_track_shard() {
         .set_epoch_length(10)
         .set_genesis_height(0);
 
-    cluster.exec_until_stop(|genesis, rpc_addrs, clients| async move {
+    cluster.run_and_then_shutdown(|genesis, rpc_addrs, clients| async move {
         let view_client = clients[0].1.clone();
 
         let genesis_hash = *genesis_block(&genesis).hash();
@@ -500,37 +495,35 @@ fn test_tx_status_on_lightclient_must_return_does_not_track_shard() {
 
         let client = new_client(&format!("http://{}", rpc_addrs[1]));
 
-        spawn_interruptible(async move {
-            loop {
-                let res = view_client.send_async(GetBlock::latest()).await;
-                if let Ok(Ok(block)) = res {
-                    if block.header.height > 10 {
-                        let request = RpcTransactionStatusRequest {
-                            transaction_info: TransactionInfo::from_signed_tx(transaction),
-                            wait_until: TxExecutionStatus::None,
-                        };
-                        let _ = client
-                            .tx(request)
-                            .map_err(|err| {
-                                assert_eq!(
-                                    *err.data.unwrap(),
-                                    serde_json::json!("Node doesn't track this shard. Cannot determine whether the transaction is valid")
-                                );
-                                near_async::shutdown_all_actors();
-                            })
-                            .map_ok(|_| panic!("Must not track shard"))
-                            .await;
-                        break;
-                    }
+        loop {
+            let res = view_client.send_async(GetBlock::latest()).await;
+            if let Ok(Ok(block)) = res {
+                if block.header.height > 10 {
+                    let request = RpcTransactionStatusRequest {
+                        transaction_info: TransactionInfo::from_signed_tx(transaction),
+                        wait_until: TxExecutionStatus::None,
+                    };
+                    let _ = client
+                        .tx(request)
+                        .map_err(|err| {
+                            assert_eq!(
+                                *err.data.unwrap(),
+                                serde_json::json!("Node doesn't track this shard. Cannot determine whether the transaction is valid")
+                            );
+                            near_async::shutdown_all_actors();
+                        })
+                        .map_ok(|_| panic!("Must not track shard"))
+                        .await;
+                    break;
                 }
-                sleep(std::time::Duration::from_millis(500)).await;
             }
-        });
-    });
+            sleep(std::time::Duration::from_millis(500)).await;
+        }
+    }).await;
 }
 
-#[test]
-fn test_validators_by_epoch_id_current_epoch_not_fails() {
+#[tokio::test]
+async fn test_validators_by_epoch_id_current_epoch_not_fails() {
     init_integration_logger();
 
     let cluster = NodeCluster::default()
@@ -540,10 +533,10 @@ fn test_validators_by_epoch_id_current_epoch_not_fails() {
         .set_epoch_length(10)
         .set_genesis_height(0);
 
-    cluster.exec_until_stop(|_genesis, _rpc_addrs, clients| async move {
-        let view_client = clients[0].1.clone();
+    cluster
+        .run_and_then_shutdown(|_genesis, _rpc_addrs, clients| async move {
+            let view_client = clients[0].1.clone();
 
-        spawn_interruptible(async move {
             let final_block = loop {
                 let res = view_client.send_async(GetBlock::latest()).await;
                 if let Ok(Ok(block)) = res {
@@ -566,6 +559,6 @@ fn test_validators_by_epoch_id_current_epoch_not_fails() {
                 }
                 err => panic!("Validators list by EpochId must succeed: {:?}", err),
             }
-        });
-    });
+        })
+        .await;
 }

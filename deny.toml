@@ -60,6 +60,7 @@ skip = [
     { name = "windows-sys", version = "<0.60" },
     { name = "windows_x86_64_msvc", version = "<0.60" },
     { name = "windows-targets", version = "<0.53" },
+    { name = "windows-core", version = "<0.53" },
 
     # ed25519-dalek, bolero uses older versions of rand and rand_core
     { name = "rand", version = "<0.9" },

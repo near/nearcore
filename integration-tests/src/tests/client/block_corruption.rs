@@ -248,7 +248,7 @@ fn check_process_flipped_block_fails_on_bit(
 /// This vector should include various validation errors that correspond to data changed with a bit flip.
 #[test]
 fn ultra_slow_test_check_process_flipped_block_fails() {
-    init_test_logger();
+    // Note: intentionally not initializing logging because otherwise this test logs too much and is too slow.
     let mut corrupted_bit_idx = 0;
     // List of reasons `check_process_flipped_block_fails_on_bit` returned `Err`.
     // Should be empty.
@@ -272,6 +272,9 @@ fn ultra_slow_test_check_process_flipped_block_fails() {
             env = create_env();
         }
 
+        if corrupted_bit_idx % 100 == 0 {
+            eprintln!("Progress: {} bits", corrupted_bit_idx);
+        }
         let res = check_process_flipped_block_fails_on_bit(&mut env, corrupted_bit_idx);
         if let Ok(res) = &res {
             if res.to_string() == "End" {

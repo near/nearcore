@@ -24,7 +24,7 @@ use near_primitives::network::PeerId;
 use near_primitives::types::AccountId;
 use near_primitives::upgrade_schedule::ProtocolUpgradeVotingSchedule;
 use near_store::test_utils::TestNodeStorage;
-use nearcore::state_sync::StateSyncDumper;
+use nearcore::state_sync::StateSyncDumpHandle;
 use parking_lot::Mutex;
 use tempfile::TempDir;
 
@@ -83,7 +83,7 @@ pub struct NodeExecutionData {
     pub partial_witness_sender: TestLoopSender<PartialWitnessActor>,
     pub peer_manager_sender: TestLoopSender<TestLoopPeerManagerActor>,
     pub resharding_sender: TestLoopSender<ReshardingActor>,
-    pub state_sync_dumper_handle: TestLoopDataHandle<StateSyncDumper>,
+    pub state_sync_dumper_handle: TestLoopDataHandle<Arc<StateSyncDumpHandle>>,
     pub spice_data_distributor_sender: TestLoopSender<SpiceDataDistributorActor>,
     pub cold_store_sender: Option<TestLoopSender<ColdStoreActor>>,
     pub cloud_archival_sender: Option<TestLoopSender<CloudArchivalActor>>,
