@@ -448,13 +448,19 @@ impl InfoHelper {
             format!(" CPU: {:.0}%, Mem: {}", cpu, PrettyNumber::bytes(mem * 1024))
         });
 
+        // TODO: tracing-subscriber force escapes all ansi in the log message.
+        // As a workaround, the content is displayed in the `stats` field.
+        // https://github.com/tokio-rs/tracing/issues/3369
         info!(
-            target: "stats", "{}{}{}{}{}",
-            paint(yansi::Color::Yellow, sync_status_log),
-            paint(yansi::Color::White, validator_info_log),
-            paint(yansi::Color::Cyan, network_info_log),
-            paint(yansi::Color::Green, blocks_info_log),
-            paint(yansi::Color::Blue, machine_info_log),
+            target: "stats",
+            stats =% format!("{}{}{}{}{}",
+                paint(yansi::Color::Yellow, sync_status_log),
+                paint(yansi::Color::White, validator_info_log),
+                paint(yansi::Color::Cyan, network_info_log),
+                paint(yansi::Color::Green, blocks_info_log),
+                paint(yansi::Color::Blue, machine_info_log),
+            ),
+            "",
         );
         log_catchup_status(catchup_status);
         if let Some(config_updater) = &config_updater {
