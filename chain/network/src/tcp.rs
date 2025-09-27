@@ -230,8 +230,6 @@ impl ListenerAddr {
             // without releasing it, and then allow the test to re-use the port by specifying set_reuseport. However,
             // somehow this leads to flaky tests. It's not clear why, but the port reuse trick feels fragile.
             let port = rand::thread_rng().gen_range(20000..65536);
-            // ensure /tmp exists for the named lock, for docker containers.
-            std::fs::create_dir_all("/tmp").ok();
             let lock =
                 named_lock::NamedLock::create(&format!("nearcore_test_reserved_port_{}", port))
                     .unwrap();
