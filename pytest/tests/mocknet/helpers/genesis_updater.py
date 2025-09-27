@@ -23,7 +23,7 @@ def str_to_bool(arg):
 
 def main(argv):
     logger.info(argv)
-    assert len(argv) == 17
+    assert len(argv) == 18
 
     genesis_filename_in = argv[1]
     records_filename_in = argv[2]
