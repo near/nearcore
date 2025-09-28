@@ -5,37 +5,37 @@ use schemars::transform::transform_subschemas;
 use serde_json::json;
 
 use near_jsonrpc_primitives::types::{
-    blocks::{RpcBlockRequest, RpcBlockResponse},
+    blocks::{RpcBlockRequest, RpcBlockResponse, RpcBlockError},
     changes::{
         RpcStateChangesInBlockByTypeRequest, RpcStateChangesInBlockByTypeResponse,
-        RpcStateChangesInBlockRequest,
+        RpcStateChangesInBlockRequest, RpcStateChangesError
     },
-    chunks::{RpcChunkRequest, RpcChunkResponse},
-    client_config::RpcClientConfigResponse,
-    config::{RpcProtocolConfigRequest, RpcProtocolConfigResponse},
-    congestion::{RpcCongestionLevelRequest, RpcCongestionLevelResponse},
-    gas_price::{RpcGasPriceRequest, RpcGasPriceResponse},
+    chunks::{RpcChunkRequest, RpcChunkResponse, RpcChunkError},
+    client_config::{RpcClientConfigResponse, RpcClientConfigError},
+    config::{RpcProtocolConfigRequest, RpcProtocolConfigResponse, RpcProtocolConfigError},
+    congestion::{RpcCongestionLevelRequest, RpcCongestionLevelResponse, RpcCongestionLevelError},
+    gas_price::{RpcGasPriceRequest, RpcGasPriceResponse, RpcGasPriceError},
     light_client::{
         RpcLightClientBlockProofRequest, RpcLightClientBlockProofResponse,
         RpcLightClientExecutionProofResponse, RpcLightClientNextBlockRequest,
-        RpcLightClientNextBlockResponse,
+        RpcLightClientNextBlockResponse, RpcLightClientProofError, RpcLightClientNextBlockError
     },
-    maintenance::{RpcMaintenanceWindowsRequest, RpcMaintenanceWindowsResponse},
-    network_info::RpcNetworkInfoResponse,
-    query::{RpcQueryRequest, RpcQueryResponse},
-    receipts::{RpcReceiptRequest, RpcReceiptResponse},
-    split_storage::{RpcSplitStorageInfoRequest, RpcSplitStorageInfoResponse},
-    status::{RpcHealthResponse, RpcStatusResponse},
+    maintenance::{RpcMaintenanceWindowsRequest, RpcMaintenanceWindowsResponse, RpcMaintenanceWindowsError},
+    network_info::{RpcNetworkInfoResponse, RpcNetworkInfoError},
+    query::{RpcQueryRequest, RpcQueryResponse, RpcQueryError},
+    receipts::{RpcReceiptRequest, RpcReceiptResponse, RpcReceiptError},
+    split_storage::{RpcSplitStorageInfoRequest, RpcSplitStorageInfoResponse, RpcSplitStorageInfoError},
+    status::{RpcHealthResponse, RpcStatusResponse, RpcStatusError},
     transactions::{
-        RpcSendTransactionRequest, RpcTransactionResponse, RpcTransactionStatusRequest,
+        RpcSendTransactionRequest, RpcTransactionResponse, RpcTransactionStatusRequest, RpcTransactionError
     },
     validator::{
         RpcValidatorRequest, RpcValidatorResponse, RpcValidatorsOrderedRequest,
-        RpcValidatorsOrderedResponse,
+        RpcValidatorsOrderedResponse, RpcValidatorError
     },
 };
 use near_jsonrpc_primitives::{
-    errors::RpcError,
+    errors::{RpcError, RpcRequestValidationErrorKind},
     types::{
         changes::RpcStateChangesInBlockResponse, light_client::RpcLightClientExecutionProofRequest,
     },
@@ -53,13 +53,28 @@ pub enum ResponseEither<T, E> {
 }
 
 #[derive(JsonSchema)]
+#[serde(tag = "name", content = "cause", rename_all = "SCREAMING_SNAKE_CASE")]
+#[schemars(rename = "ErrorWrapper_for_{E}")]
+pub enum ErrorWrapper<E> {
+    RequestValidationError(RpcRequestValidationErrorKind),
+    HandlerError(E),
+    InternalError(InternalError),
+}
+
+#[derive(JsonSchema)]
+pub struct InternalError {
+    name: String,
+    info: String,
+}
+
+#[derive(JsonSchema)]
 #[allow(dead_code)]
 #[schemars(rename = "JsonRpcResponse_for_{T}_and_{E}")]
 struct JsonRpcResponse<T, E> {
     jsonrpc: String,
     id: String,
     #[serde(flatten)]
-    response_or_error: ResponseEither<T, E>,
+    response_or_error: ResponseEither<T, ErrorWrapper<E>>,
 }
 
 type SchemasMap = serde_json::Value;
@@ -530,13 +545,13 @@ fn add_spec_for_path_internal<RequestType: JsonSchema, ResponseType: JsonSchema>
     all_paths.extend(paths);
 }
 
-fn add_spec_for_path<Request: JsonSchema, Response: JsonSchema>(
+fn add_spec_for_path<Request: JsonSchema, Response: JsonSchema, Error: JsonSchema>(
     all_schemas: &mut SchemasMap,
     all_paths: &mut PathsMap,
     method_name: String,
     doc: String,
 ) {
-    add_spec_for_path_internal::<Request, JsonRpcResponse<Response, RpcError>>(
+    add_spec_for_path_internal::<Request, JsonRpcResponse<Response, Error>>(
         all_schemas,
         all_paths,
         method_name,
@@ -580,188 +595,188 @@ fn main() {
     let mut all_schemas = json!({});
     let mut all_paths = PathsMap::new();
 
-    add_spec_for_path::<RpcBlockRequest, RpcBlockResponse>(
+    add_spec_for_path::<RpcBlockRequest, RpcBlockResponse, RpcBlockError>(
         &mut all_schemas,
         &mut all_paths,
         "block".to_string(),
         "Returns block details for given height or hash".to_string(),
     );
-    add_spec_for_path::<RpcStateChangesInBlockRequest, RpcStateChangesInBlockByTypeResponse>(
+    add_spec_for_path::<RpcStateChangesInBlockRequest, RpcStateChangesInBlockByTypeResponse, RpcStateChangesError>(
         &mut all_schemas,
         &mut all_paths,
         "block_effects".to_string(),
         "Returns changes in block for given block height or hash over all transactions for all the types. Includes changes like account_touched, access_key_touched, data_touched, contract_code_touched.".to_string(),
     );
-    add_spec_for_path::<RpcSendTransactionRequest, CryptoHash>(
+    add_spec_for_path::<RpcSendTransactionRequest, CryptoHash, RpcTransactionError>(
         &mut all_schemas,
         &mut all_paths,
         "broadcast_tx_async".to_string(),
         "[Deprecated] Sends a transaction and immediately returns transaction hash. Consider using send_tx instead.".to_string(),
     );
-    add_spec_for_path::<RpcSendTransactionRequest, RpcTransactionResponse>(
+    add_spec_for_path::<RpcSendTransactionRequest, RpcTransactionResponse, RpcTransactionError>(
         &mut all_schemas,
         &mut all_paths,
         "broadcast_tx_commit".to_string(),
         "[Deprecated] Sends a transaction and waits until transaction is fully complete. (Has a 10 second timeout). Consider using send_tx instead.".to_string(),
     );
-    add_spec_for_path::<RpcStateChangesInBlockByTypeRequest, RpcStateChangesInBlockResponse>(
+    add_spec_for_path::<RpcStateChangesInBlockByTypeRequest, RpcStateChangesInBlockResponse, RpcStateChangesError>(
         &mut all_schemas,
         &mut all_paths,
         "changes".to_string(),
         "Returns changes for a given account, contract or contract code for given block height or hash.".to_string(),
     );
-    add_spec_for_path::<RpcChunkRequest, RpcChunkResponse>(
+    add_spec_for_path::<RpcChunkRequest, RpcChunkResponse, RpcChunkError>(
         &mut all_schemas,
         &mut all_paths,
         "chunk".to_string(),
         "Returns details of a specific chunk. You can run a block details query to get a valid chunk hash.".to_string(),
     );
-    add_spec_for_path::<RpcGasPriceRequest, RpcGasPriceResponse>(
+    add_spec_for_path::<RpcGasPriceRequest, RpcGasPriceResponse, RpcGasPriceError>(
         &mut all_schemas,
         &mut all_paths,
         "gas_price".to_string(),
         "Returns gas price for a specific block_height or block_hash. Using [null] will return the most recent block's gas price.".to_string(),
     );
-    add_spec_for_path::<GenesisConfigRequest, GenesisConfig>(
+    add_spec_for_path::<GenesisConfigRequest, GenesisConfig, RpcError>(
         &mut all_schemas,
         &mut all_paths,
         "genesis_config".to_string(),
         "Get initial state and parameters for the genesis block".to_string(),
     );
-    add_spec_for_path::<RpcHealthRequest, Option<RpcHealthResponse>>(
+    add_spec_for_path::<RpcHealthRequest, Option<RpcHealthResponse>, RpcStatusError>(
         &mut all_schemas,
         &mut all_paths,
         "health".to_string(),
         "Returns the current health status of the RPC node the client connects to.".to_string(),
     );
-    add_spec_for_path::<RpcLightClientExecutionProofRequest, RpcLightClientExecutionProofResponse>(
+    add_spec_for_path::<RpcLightClientExecutionProofRequest, RpcLightClientExecutionProofResponse, RpcLightClientProofError>(
         &mut all_schemas,
         &mut all_paths,
         "light_client_proof".to_string(),
         "Returns the proofs for a transaction execution.".to_string(),
     );
-    add_spec_for_path::<RpcMaintenanceWindowsRequest, RpcMaintenanceWindowsResponse>(
+    add_spec_for_path::<RpcMaintenanceWindowsRequest, RpcMaintenanceWindowsResponse, RpcMaintenanceWindowsError>(
         &mut all_schemas,
         &mut all_paths,
         "maintenance_windows".to_string(),
         "Returns the future windows for maintenance in current epoch for the specified account. In the maintenance windows, the node will not be block producer or chunk producer.".to_string(),
     );
-    add_spec_for_path::<RpcLightClientNextBlockRequest, RpcLightClientNextBlockResponse>(
+    add_spec_for_path::<RpcLightClientNextBlockRequest, RpcLightClientNextBlockResponse, RpcLightClientNextBlockError>(
         &mut all_schemas,
         &mut all_paths,
         "next_light_client_block".to_string(),
         "Returns the next light client block.".to_string(),
     );
-    add_spec_for_path::<RpcNetworkInfoRequest, RpcNetworkInfoResponse>(
+    add_spec_for_path::<RpcNetworkInfoRequest, RpcNetworkInfoResponse, RpcNetworkInfoError>(
         &mut all_schemas,
         &mut all_paths,
         "network_info".to_string(),
         "Queries the current state of node network connections. This includes information about active peers, transmitted data, known producers, etc.".to_string(),
     );
-    add_spec_for_path::<RpcSendTransactionRequest, RpcTransactionResponse>(
+    add_spec_for_path::<RpcSendTransactionRequest, RpcTransactionResponse, RpcTransactionError>(
         &mut all_schemas,
         &mut all_paths,
         "send_tx".to_string(),
         "Sends transaction. Returns the guaranteed execution status and the results the blockchain can provide at the moment.".to_string(),
     );
-    add_spec_for_path::<RpcStatusRequest, RpcStatusResponse>(
+    add_spec_for_path::<RpcStatusRequest, RpcStatusResponse, RpcStatusError>(
         &mut all_schemas,
         &mut all_paths,
         "status".to_string(),
         "Requests the status of the connected RPC node. This includes information about sync status, nearcore node version, protocol version, the current set of validators, etc.".to_string(),
     );
-    add_spec_for_path::<RpcTransactionStatusRequest, RpcTransactionResponse>(
+    add_spec_for_path::<RpcTransactionStatusRequest, RpcTransactionResponse, RpcTransactionError>(
         &mut all_schemas,
         &mut all_paths,
         "tx".to_string(),
         "Queries status of a transaction by hash and returns the final transaction result."
             .to_string(),
     );
-    add_spec_for_path::<RpcValidatorRequest, RpcValidatorResponse>(
+    add_spec_for_path::<RpcValidatorRequest, RpcValidatorResponse, RpcValidatorError>(
         &mut all_schemas,
         &mut all_paths,
         "validators".to_string(),
         "Queries active validators on the network. Returns details and the state of validation on the blockchain.".to_string(),
     );
-    add_spec_for_path::<RpcClientConfigRequest, RpcClientConfigResponse>(
+    add_spec_for_path::<RpcClientConfigRequest, RpcClientConfigResponse, RpcClientConfigError>(
         &mut all_schemas,
         &mut all_paths,
         "client_config".to_string(),
         "Queries client node configuration".to_string(),
     );
-    add_spec_for_path::<RpcStateChangesInBlockByTypeRequest, RpcStateChangesInBlockResponse>(
+    add_spec_for_path::<RpcStateChangesInBlockByTypeRequest, RpcStateChangesInBlockResponse, RpcStateChangesError>(
         &mut all_schemas,
         &mut all_paths,
         "EXPERIMENTAL_changes".to_string(),
         "[Deprecated] Returns changes for a given account, contract or contract code for given block height or hash. Consider using changes instead.".to_string(),
     );
-    add_spec_for_path::<RpcStateChangesInBlockRequest, RpcStateChangesInBlockByTypeResponse>(
+    add_spec_for_path::<RpcStateChangesInBlockRequest, RpcStateChangesInBlockByTypeResponse, RpcStateChangesError>(
         &mut all_schemas,
         &mut all_paths,
         "EXPERIMENTAL_changes_in_block".to_string(),
         "[Deprecated] Returns changes in block for given block height or hash over all transactions for all the types. Includes changes like account_touched, access_key_touched, data_touched, contract_code_touched. Consider using block_effects instead".to_string(),
     );
-    add_spec_for_path::<RpcCongestionLevelRequest, RpcCongestionLevelResponse>(
+    add_spec_for_path::<RpcCongestionLevelRequest, RpcCongestionLevelResponse, RpcCongestionLevelError>(
         &mut all_schemas,
         &mut all_paths,
         "EXPERIMENTAL_congestion_level".to_string(),
         "Queries the congestion level of a shard. More info about congestion [here](https://near.github.io/nearcore/architecture/how/receipt-congestion.html?highlight=congestion#receipt-congestion)".to_string(),
     );
-    add_spec_for_path::<GenesisConfigRequest, GenesisConfig>(
+    add_spec_for_path::<GenesisConfigRequest, GenesisConfig, RpcError>(
         &mut all_schemas,
         &mut all_paths,
         "EXPERIMENTAL_genesis_config".to_string(),
         "[Deprecated] Get initial state and parameters for the genesis block. Consider genesis_config instead.".to_string(),
     );
-    add_spec_for_path::<RpcLightClientExecutionProofRequest, RpcLightClientExecutionProofResponse>(
+    add_spec_for_path::<RpcLightClientExecutionProofRequest, RpcLightClientExecutionProofResponse, RpcLightClientProofError>(
         &mut all_schemas,
         &mut all_paths,
         "EXPERIMENTAL_light_client_proof".to_string(),
         "Returns the proofs for a transaction execution.".to_string(),
     );
-    add_spec_for_path::<RpcLightClientBlockProofRequest, RpcLightClientBlockProofResponse>(
+    add_spec_for_path::<RpcLightClientBlockProofRequest, RpcLightClientBlockProofResponse, RpcLightClientProofError>(
         &mut all_schemas,
         &mut all_paths,
         "EXPERIMENTAL_light_client_block_proof".to_string(),
         "Returns the proofs for a transaction execution.".to_string(),
     );
-    add_spec_for_path::<RpcProtocolConfigRequest, RpcProtocolConfigResponse>(
+    add_spec_for_path::<RpcProtocolConfigRequest, RpcProtocolConfigResponse, RpcProtocolConfigError>(
         &mut all_schemas,
         &mut all_paths,
         "EXPERIMENTAL_protocol_config".to_string(),
         "A configuration that defines the protocol-level parameters such as gas/storage costs, limits, feature flags, other settings".to_string(),
     );
-    add_spec_for_path::<RpcReceiptRequest, RpcReceiptResponse>(
+    add_spec_for_path::<RpcReceiptRequest, RpcReceiptResponse, RpcReceiptError>(
         &mut all_schemas,
         &mut all_paths,
         "EXPERIMENTAL_receipt".to_string(),
         "Fetches a receipt by its ID (as is, without a status or execution outcome)".to_string(),
     );
-    add_spec_for_path::<RpcTransactionStatusRequest, RpcTransactionResponse>(
+    add_spec_for_path::<RpcTransactionStatusRequest, RpcTransactionResponse, RpcTransactionError>(
         &mut all_schemas,
         &mut all_paths,
         "EXPERIMENTAL_tx_status".to_string(),
         "Queries status of a transaction by hash, returning the final transaction result and details of all receipts.".to_string(),
     );
-    add_spec_for_path::<RpcValidatorsOrderedRequest, RpcValidatorsOrderedResponse>(
+    add_spec_for_path::<RpcValidatorsOrderedRequest, RpcValidatorsOrderedResponse, RpcValidatorError>(
         &mut all_schemas,
         &mut all_paths,
         "EXPERIMENTAL_validators_ordered".to_string(),
         "Returns the current epoch validators ordered in the block producer order with repetition. This endpoint is solely used for bridge currently and is not intended for other external use cases.".to_string(),
     );
-    add_spec_for_path::<RpcMaintenanceWindowsRequest, RpcMaintenanceWindowsResponse>(
+    add_spec_for_path::<RpcMaintenanceWindowsRequest, RpcMaintenanceWindowsResponse, RpcMaintenanceWindowsError>(
         &mut all_schemas,
         &mut all_paths,
         "EXPERIMENTAL_maintenance_windows".to_string(),
         "[Deprecated] Returns the future windows for maintenance in current epoch for the specified account. In the maintenance windows, the node will not be block producer or chunk producer. Consider using maintenance_windows instead.".to_string(),
     );
-    add_spec_for_path::<RpcSplitStorageInfoRequest, RpcSplitStorageInfoResponse>(
+    add_spec_for_path::<RpcSplitStorageInfoRequest, RpcSplitStorageInfoResponse, RpcSplitStorageInfoError>(
         &mut all_schemas,
         &mut all_paths,
         "EXPERIMENTAL_split_storage_info".to_string(),
         "Contains the split storage information. More info on split storage [here](https://near-nodes.io/archival/split-storage-archival)".to_string(),
     );
-    add_spec_for_path::<RpcQueryRequest, RpcQueryResponse>(
+    add_spec_for_path::<RpcQueryRequest, RpcQueryResponse, RpcQueryError>(
         &mut all_schemas,
         &mut all_paths,
         "query".to_string(),
