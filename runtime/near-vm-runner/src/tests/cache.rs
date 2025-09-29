@@ -169,7 +169,7 @@ fn test_near_vm_artifact_output_stability() {
         let contract = ContractCode::new(near_test_contracts::arbitrary_contract(seed), None);
 
         let mut config = test_vm_config(Some(VMKind::NearVm));
-        config.reftypes_bulk_memory = false; // FIXME: ProtocolFeature::RefTypesBulkMemory
+        config.reftypes_bulk_memory = false; // NearVM cannot support this feature.
         let prepared_code =
             prepare::prepare_contract(contract.code(), &config, VMKind::NearVm).unwrap();
         let this_hash = crate::utils::stable_hash((&contract.code(), &prepared_code));
@@ -207,6 +207,82 @@ fn test_near_vm_artifact_output_stability() {
     assert!(
         got_compiled_hashes == compiled_hashes,
         "VM output hashes have changed to {:#?}",
+        got_compiled_hashes
+    );
+    // Once it has been confirmed that these steps have been done, the expected hashes in this test
+    // can be adjusted.
+}
+
+#[test]
+#[cfg(all(feature = "wasmtime", target_arch = "x86_64"))]
+fn test_wasmtime_artifact_output_stability() {
+    use crate::prepare;
+    use crate::wasmtime_runner::WasmtimeVM;
+    // If this test has failed, you want to adjust the necessary constants so that `cache::vm_hash`
+    // changes (and only then the hashes here).
+    //
+    // Note that this test is a best-effort fish net. Some changes that should modify the hash will
+    // fall through the cracks here, but hopefully it should catch most of the fish just fine.
+    //
+    // Additionally, note that changing some dependencies can change the hashes here without
+    // needing to update the VM hash (such as updating the version of wasm-smith,) but updating the
+    // vm_hash version is relatively harmless and safe thing to do regardless.
+    let seeds = [2, 3, 5, 7, 11, 13, 17];
+    let prepared_hashes = [
+        // See the above comment if you want to change this
+        12449640751251113238,
+        6667984442121282965,
+        5326763896713807329,
+        7732431717957140339,
+        3109521814084239259,
+        10353595027846323532,
+        10277454382572670711,
+    ];
+    let compiled_hashes = [
+        // See the above comment if you want to change this
+        8788790580750317432,
+        6964032191615619423,
+        18153903377894387934,
+        16385772818392134057,
+        5564327094398057371,
+        383215414917889712,
+        13727755390200692040,
+    ];
+    let mut got_prepared_hashes = Vec::with_capacity(seeds.len());
+    let mut got_compiled_hashes = Vec::with_capacity(seeds.len());
+    for seed in seeds {
+        let contract = ContractCode::new(near_test_contracts::arbitrary_contract(seed), None);
+        let config = test_vm_config(Some(VMKind::Wasmtime));
+        let prepared_code =
+            prepare::prepare_contract(contract.code(), &config, VMKind::Wasmtime).unwrap();
+        let this_hash = crate::utils::stable_hash((&contract.code(), &prepared_code));
+        got_prepared_hashes.push(this_hash);
+        if std::env::var_os("NEAR_STABILITY_TEST_WRITE").is_some() {
+            std::fs::write(format!("prepared{}", this_hash), prepared_code).unwrap();
+        }
+        let vm = WasmtimeVM::new_for_target(Arc::new(config), Some("x86_64-unknown-none".into()))
+            .unwrap();
+        let serialized = vm.compile_uncached(&contract).unwrap();
+        let this_hash = crate::utils::stable_hash(&serialized);
+        got_compiled_hashes.push(this_hash);
+
+        if std::env::var_os("NEAR_STABILITY_TEST_WRITE").is_some() {
+            let _ = std::fs::write(format!("artifact{}", this_hash), serialized);
+        }
+    }
+
+    // These asserts have failed as a result of some change and the following text describes what
+    // the implications of the change.
+    //
+    // Changes to `prepared_hashes` need a protocol version change, and definitely wants a
+    // `wasmtime_vm_hash()` version update too. Maybe something else too.
+    //
+    // If only `compiled_hashes` change you will only need to adjust the `wasmtime_vm_hash()`
+    // version so that the previously cached contracts are evicted from the contract cache.
+    assert!(
+        got_prepared_hashes == prepared_hashes && got_compiled_hashes == compiled_hashes,
+        "let prepared_hashes = {:#?};\nlet compiled_hashes = {:#?};",
+        got_prepared_hashes,
         got_compiled_hashes
     );
     // Once it has been confirmed that these steps have been done, the expected hashes in this test
