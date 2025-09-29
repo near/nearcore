@@ -20,7 +20,7 @@ pub(crate) struct TransactionBuilder {
 }
 
 /// Define how accounts should be generated.
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 pub(crate) enum AccountRequirement {
     /// Use a different random account on every iteration, account exists and
     /// has estimator contract deployed.
@@ -34,6 +34,10 @@ pub(crate) enum AccountRequirement {
     /// Usage: Delegate actions are signed by the sender, so it can't be
     /// replaced with a random account.
     ConstantAccount0,
+    /// Must be one specific account id, which may or may not exist.
+    ///
+    /// Usage: For deterministic account ids, for which the state init action implies the only valid account id.
+    SpecificAccount(AccountId),
 }
 
 impl TransactionBuilder {
@@ -135,7 +139,7 @@ impl TransactionBuilder {
 
     pub(crate) fn account_by_requirement(
         &mut self,
-        src: AccountRequirement,
+        src: &AccountRequirement,
         signer_id: Option<&AccountId>,
     ) -> AccountId {
         match src {
@@ -145,6 +149,7 @@ impl TransactionBuilder {
                 format!("sub.{}", signer_id.expect("no signer_id")).parse().unwrap()
             }
             AccountRequirement::ConstantAccount0 => self.account(0),
+            AccountRequirement::SpecificAccount(account) => account.clone(),
         }
     }
 

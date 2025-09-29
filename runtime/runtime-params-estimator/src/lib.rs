@@ -83,6 +83,7 @@ mod function_call;
 mod gas_metering;
 mod trie;
 
+use crate::action_costs::det_state_init_action;
 use crate::config::Config;
 pub use crate::cost::Cost;
 pub use crate::cost_table::CostTable;
@@ -106,7 +107,7 @@ use near_primitives::transaction::{
     DeployContractAction, SignedTransaction, StakeAction, TransferAction,
 };
 use near_primitives::types::{AccountId, Balance, Gas};
-use near_primitives::version::PROTOCOL_VERSION;
+use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_vm_runner::ContractCode;
 use near_vm_runner::MockContractRuntimeCache;
 use near_vm_runner::internal::VMKindExt;
@@ -211,6 +212,42 @@ static ALL_COSTS: &[(Cost, fn(&mut EstimatorContext) -> GasCost)] = &[
     (Cost::ActionDelegateSendNotSir, action_costs::delegate_send_not_sir),
     (Cost::ActionDelegateSendSir, action_costs::delegate_send_sir),
     (Cost::ActionDelegateExec, action_costs::delegate_exec),
+    (Cost::ActionDeterministicStateInitBase, action_deterministic_state_init_base),
+    (Cost::ActionDeterministicStateInitBaseExec, action_costs::deterministic_state_init_base_exec),
+    (
+        Cost::ActionDeterministicStateInitBaseSendSir,
+        action_costs::deterministic_state_init_base_send,
+    ),
+    (
+        Cost::ActionDeterministicStateInitBaseSendNotSir,
+        action_costs::deterministic_state_init_base_send,
+    ),
+    (Cost::ActionDeterministicStateInitPerEntry, action_deterministic_state_init_per_entry),
+    (
+        Cost::ActionDeterministicStateInitPerEntryExec,
+        action_costs::deterministic_state_init_entry_exec,
+    ),
+    (
+        Cost::ActionDeterministicStateInitPerEntrySendSir,
+        action_costs::deterministic_state_init_entry_send,
+    ),
+    (
+        Cost::ActionDeterministicStateInitPerEntrySendNotSir,
+        action_costs::deterministic_state_init_entry_send,
+    ),
+    (Cost::ActionDeterministicStateInitPerByte, action_deterministic_state_init_per_byte),
+    (
+        Cost::ActionDeterministicStateInitPerByteExec,
+        action_costs::deterministic_state_init_byte_exec,
+    ),
+    (
+        Cost::ActionDeterministicStateInitPerByteSendSir,
+        action_costs::deterministic_state_init_byte_send,
+    ),
+    (
+        Cost::ActionDeterministicStateInitPerByteSendNotSir,
+        action_costs::deterministic_state_init_byte_send,
+    ),
     (Cost::HostFunctionCall, host_function_call),
     (Cost::WasmInstruction, wasm_instruction),
     (Cost::DataReceiptCreationBase, data_receipt_creation_base),
@@ -886,6 +923,84 @@ fn action_delegate_base(ctx: &mut EstimatorContext) -> GasCost {
     let base_cost = action_receipt_creation(ctx) * 3 / 2;
 
     total_cost.saturating_sub(&base_cost, &NonNegativeTolerance::PER_MILLE)
+}
+
+fn action_deterministic_state_init_base(ctx: &mut EstimatorContext) -> GasCost {
+    let (base, _per_entry, _per_byte) =
+        action_deterministic_state_init_base_per_entry_per_byte(ctx);
+    base
+}
+fn action_deterministic_state_init_per_byte(ctx: &mut EstimatorContext) -> GasCost {
+    let (_base, _per_entry, per_byte) =
+        action_deterministic_state_init_base_per_entry_per_byte(ctx);
+    per_byte
+}
+fn action_deterministic_state_init_per_entry(ctx: &mut EstimatorContext) -> GasCost {
+    let (_base, per_entry, _per_byte) =
+        action_deterministic_state_init_base_per_entry_per_byte(ctx);
+    per_entry
+}
+fn action_deterministic_state_init_base_per_entry_per_byte(
+    ctx: &mut EstimatorContext,
+) -> (GasCost, GasCost, GasCost) {
+    if !ProtocolFeature::DeterministicAccountIds.enabled(PROTOCOL_VERSION) {
+        return (GasCost::zero(), GasCost::zero(), GasCost::zero());
+    }
+    if let Some(base_byte_cost) =
+        ctx.cached.action_deterministic_state_init_base_per_entry_per_byte.clone()
+    {
+        return base_byte_cost;
+    }
+
+    let block_size = 100;
+    let base = deterministic_state_init_cost(ctx, block_size, 0, 0, 0);
+
+    let per_byte = {
+        // reduce number of receipts per block to stay within one block
+        let block_size = 30;
+        let num_entries = 1;
+        let key_size = 1000;
+        let value_size = 100_000;
+        let one_large_entry_cost =
+            deterministic_state_init_cost(ctx, block_size, num_entries, key_size, value_size);
+        one_large_entry_cost / (num_entries * (key_size + value_size)) as u64
+    };
+
+    let per_entry = {
+        let block_size = 20;
+        let num_entries = 10_000;
+        let key_size = 7;
+        let value_size = 1;
+        let many_entries_cost =
+            deterministic_state_init_cost(ctx, block_size, num_entries, key_size, value_size);
+        many_entries_cost / num_entries as u64
+    };
+
+    ctx.cached.action_deterministic_state_init_base_per_entry_per_byte =
+        Some((base.clone(), per_entry.clone(), per_byte.clone()));
+    (base, per_entry, per_byte)
+}
+
+fn deterministic_state_init_cost(
+    ctx: &mut EstimatorContext<'_>,
+    block_size: usize,
+    num_entries: usize,
+    key_size: usize,
+    value_size: usize,
+) -> GasCost {
+    let mut seed = 0;
+    let mut make_transaction = |tb: &mut TransactionBuilder| -> SignedTransaction {
+        let sender = tb.random_unused_account();
+        let (receiver, action) = det_state_init_action(seed, num_entries, key_size, value_size);
+        seed += 1;
+
+        tb.transaction_from_actions(sender, receiver, vec![action])
+    };
+    // send -> exec -> refund (3 blocks => delay is 2)
+    let block_latency = 2;
+    let (gas_cost, _ext_costs) =
+        transaction_cost_ext(ctx, block_size, &mut make_transaction, block_latency);
+    gas_cost
 }
 
 fn host_function_call(ctx: &mut EstimatorContext) -> GasCost {
