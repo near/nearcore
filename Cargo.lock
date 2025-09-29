@@ -3354,6 +3354,7 @@ dependencies = [
 name = "integration-tests"
 version = "0.0.0"
 dependencies = [
+ "actix",
  "anyhow",
  "assert_matches",
  "aurora-engine-transactions",
@@ -4591,6 +4592,7 @@ dependencies = [
 name = "near-jsonrpc-tests"
 version = "0.0.0"
 dependencies = [
+ "actix",
  "axum",
  "axum-test",
  "borsh",
@@ -5026,6 +5028,7 @@ version = "0.0.0"
 name = "near-store"
 version = "0.0.0"
 dependencies = [
+ "actix",
  "anyhow",
  "assert_matches",
  "bencher",
