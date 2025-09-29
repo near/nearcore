@@ -456,9 +456,10 @@ pub fn start_with_config_and_synchronization(
     let result = create_cloud_archival_actor(
         config.config.cloud_archival_writer,
         config.genesis.config.genesis_height,
-        &storage,
+        storage.get_hot_store(),
     )?;
-    let cloud_archival_handle = if let Some((actor, handle)) = result {
+    let cloud_archival_handle = if let Some(actor) = result {
+        let handle = actor.get_handle();
         let _cloud_archival_addr = actor_system.spawn_tokio_actor(actor);
         Some(handle)
     } else {

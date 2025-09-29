@@ -116,6 +116,21 @@ action_delegate: {
   send_not_sir: 2_319_861_500_000,
   execution: 2_319_861_500_000,
 }
+action_deterministic_state_init: {
+  send_sir: 3_850_000_000_000,
+  send_not_sir: 3_850_000_000_000,
+  execution: 4_080_000_000_000,
+}
+action_deterministic_state_init_per_entry: {
+  send_sir: 0,
+  send_not_sir: 0,
+  execution: 200_000_000_000,
+}
+action_deterministic_state_init_per_byte: {
+  send_sir: 72_000_000,
+  send_not_sir: 72_000_000,
+  execution: 70_000_000,
+}
 
 # Smart contract dynamic gas costs
 wasm_regular_op_cost: 3_856_371

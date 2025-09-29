@@ -228,6 +228,7 @@ fn format_block_misc_value<'a>(key: &'a [u8], value: &'a [u8]) -> Box<dyn Debug 
         || key == near_store::FINAL_HEAD_KEY
         || key == near_store::COLD_HEAD_KEY
         || key == b"SYNC_HEAD"
+    // TODO(cloud_archival) Consider the case of cloud head
     {
         Box::new(Tip::try_from_slice(value).unwrap())
     } else if key == near_store::TAIL_KEY
