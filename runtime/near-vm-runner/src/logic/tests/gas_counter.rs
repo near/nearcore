@@ -7,8 +7,13 @@ use crate::tests::test_builder::test_builder;
 use crate::tests::test_vm_config;
 use expect_test::expect;
 use near_parameters::{ActionCosts, ExtCosts, Fee};
+use near_primitives_core::deterministic_account_id::{
+    DeterministicAccountStateInit, DeterministicAccountStateInitV1,
+};
+use near_primitives_core::global_contract::GlobalContractIdentifier;
 use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::version::ProtocolFeature;
+use std::collections::BTreeMap;
 
 #[test]
 fn test_dont_burn_gas_when_exceeding_attached_gas_limit() {
@@ -825,6 +830,51 @@ fn out_of_gas_delete_key() {
         logic.promise_batch_action_delete_key(idx, pk.len, pk.ptr)?;
         Ok(())
     }
+}
+
+/// see longer comment above for how this test works
+#[test]
+fn out_of_gas_deterministic_state_init() {
+    check_action_gas_exceeds_limit(
+        ActionCosts::deterministic_state_init_base,
+        1,
+        deterministic_state_init,
+    );
+
+    check_action_gas_exceeds_attached(
+        ActionCosts::deterministic_state_init_entry,
+        1,
+        expect!["3975054311850 burnt 10000000000000 used"],
+        deterministic_state_init,
+    );
+    check_action_gas_exceeds_attached(
+        ActionCosts::deterministic_state_init_byte,
+        37,
+        expect!["3972390312210 burnt 10000000000000 used"],
+        deterministic_state_init,
+    );
+}
+
+/// function to trigger promise batch deterministic state init
+///
+/// charges 1 entry and 37 bytes
+fn deterministic_state_init(logic: &mut TestVMLogic) -> Result<(), VMLogicError> {
+    let account_id = "rick.test";
+    let idx = promise_batch_create(logic, account_id)?;
+
+    let state_init = DeterministicAccountStateInit::V1(DeterministicAccountStateInitV1 {
+        code: GlobalContractIdentifier::AccountId("global.near".parse().unwrap()),
+        data: BTreeMap::from_iter([(b"key".to_vec(), b"value".to_vec())]),
+    });
+    let serialized_state_init = logic.internal_mem_write(&borsh::to_vec(&state_init).unwrap());
+    let serialized_amount = logic.internal_mem_write(&110u128.to_le_bytes());
+
+    logic.promise_batch_action_state_init(
+        idx,
+        serialized_state_init.len,
+        serialized_state_init.ptr,
+        serialized_amount.ptr,
+    )
 }
 
 /// function to trigger action + data receipt action costs
