@@ -5,33 +5,38 @@ use schemars::transform::transform_subschemas;
 use serde_json::json;
 
 use near_jsonrpc_primitives::types::{
-    blocks::{RpcBlockRequest, RpcBlockResponse, RpcBlockError},
+    blocks::{RpcBlockError, RpcBlockRequest, RpcBlockResponse},
     changes::{
-        RpcStateChangesInBlockByTypeRequest, RpcStateChangesInBlockByTypeResponse,
-        RpcStateChangesInBlockRequest, RpcStateChangesError
+        RpcStateChangesError, RpcStateChangesInBlockByTypeRequest,
+        RpcStateChangesInBlockByTypeResponse, RpcStateChangesInBlockRequest,
     },
-    chunks::{RpcChunkRequest, RpcChunkResponse, RpcChunkError},
-    client_config::{RpcClientConfigResponse, RpcClientConfigError},
-    config::{RpcProtocolConfigRequest, RpcProtocolConfigResponse, RpcProtocolConfigError},
-    congestion::{RpcCongestionLevelRequest, RpcCongestionLevelResponse, RpcCongestionLevelError},
-    gas_price::{RpcGasPriceRequest, RpcGasPriceResponse, RpcGasPriceError},
+    chunks::{RpcChunkError, RpcChunkRequest, RpcChunkResponse},
+    client_config::{RpcClientConfigError, RpcClientConfigResponse},
+    config::{RpcProtocolConfigError, RpcProtocolConfigRequest, RpcProtocolConfigResponse},
+    congestion::{RpcCongestionLevelError, RpcCongestionLevelRequest, RpcCongestionLevelResponse},
+    gas_price::{RpcGasPriceError, RpcGasPriceRequest, RpcGasPriceResponse},
     light_client::{
         RpcLightClientBlockProofRequest, RpcLightClientBlockProofResponse,
-        RpcLightClientExecutionProofResponse, RpcLightClientNextBlockRequest,
-        RpcLightClientNextBlockResponse, RpcLightClientProofError, RpcLightClientNextBlockError
+        RpcLightClientExecutionProofResponse, RpcLightClientNextBlockError,
+        RpcLightClientNextBlockRequest, RpcLightClientNextBlockResponse, RpcLightClientProofError,
     },
-    maintenance::{RpcMaintenanceWindowsRequest, RpcMaintenanceWindowsResponse, RpcMaintenanceWindowsError},
-    network_info::{RpcNetworkInfoResponse, RpcNetworkInfoError},
-    query::{RpcQueryRequest, RpcQueryResponse, RpcQueryError},
-    receipts::{RpcReceiptRequest, RpcReceiptResponse, RpcReceiptError},
-    split_storage::{RpcSplitStorageInfoRequest, RpcSplitStorageInfoResponse, RpcSplitStorageInfoError},
-    status::{RpcHealthResponse, RpcStatusResponse, RpcStatusError},
+    maintenance::{
+        RpcMaintenanceWindowsError, RpcMaintenanceWindowsRequest, RpcMaintenanceWindowsResponse,
+    },
+    network_info::{RpcNetworkInfoError, RpcNetworkInfoResponse},
+    query::{RpcQueryError, RpcQueryRequest, RpcQueryResponse},
+    receipts::{RpcReceiptError, RpcReceiptRequest, RpcReceiptResponse},
+    split_storage::{
+        RpcSplitStorageInfoError, RpcSplitStorageInfoRequest, RpcSplitStorageInfoResponse,
+    },
+    status::{RpcHealthResponse, RpcStatusError, RpcStatusResponse},
     transactions::{
-        RpcSendTransactionRequest, RpcTransactionResponse, RpcTransactionStatusRequest, RpcTransactionError
+        RpcSendTransactionRequest, RpcTransactionError, RpcTransactionResponse,
+        RpcTransactionStatusRequest,
     },
     validator::{
-        RpcValidatorRequest, RpcValidatorResponse, RpcValidatorsOrderedRequest,
-        RpcValidatorsOrderedResponse, RpcValidatorError
+        RpcValidatorError, RpcValidatorRequest, RpcValidatorResponse, RpcValidatorsOrderedRequest,
+        RpcValidatorsOrderedResponse,
     },
 };
 use near_jsonrpc_primitives::{
@@ -64,7 +69,7 @@ pub enum ErrorWrapper<E> {
 #[derive(JsonSchema)]
 #[serde(tag = "name", content = "info", rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum InternalError {
-    InternalError {error_message: String}
+    InternalError { error_message: String },
 }
 
 #[derive(JsonSchema)]
@@ -652,7 +657,11 @@ fn main() {
         "health".to_string(),
         "Returns the current health status of the RPC node the client connects to.".to_string(),
     );
-    add_spec_for_path::<RpcLightClientExecutionProofRequest, RpcLightClientExecutionProofResponse, RpcLightClientProofError>(
+    add_spec_for_path::<
+        RpcLightClientExecutionProofRequest,
+        RpcLightClientExecutionProofResponse,
+        RpcLightClientProofError,
+    >(
         &mut all_schemas,
         &mut all_paths,
         "light_client_proof".to_string(),
@@ -664,7 +673,11 @@ fn main() {
         "maintenance_windows".to_string(),
         "Returns the future windows for maintenance in current epoch for the specified account. In the maintenance windows, the node will not be block producer or chunk producer.".to_string(),
     );
-    add_spec_for_path::<RpcLightClientNextBlockRequest, RpcLightClientNextBlockResponse, RpcLightClientNextBlockError>(
+    add_spec_for_path::<
+        RpcLightClientNextBlockRequest,
+        RpcLightClientNextBlockResponse,
+        RpcLightClientNextBlockError,
+    >(
         &mut all_schemas,
         &mut all_paths,
         "next_light_client_block".to_string(),
@@ -731,13 +744,21 @@ fn main() {
         "EXPERIMENTAL_genesis_config".to_string(),
         "[Deprecated] Get initial state and parameters for the genesis block. Consider genesis_config instead.".to_string(),
     );
-    add_spec_for_path::<RpcLightClientExecutionProofRequest, RpcLightClientExecutionProofResponse, RpcLightClientProofError>(
+    add_spec_for_path::<
+        RpcLightClientExecutionProofRequest,
+        RpcLightClientExecutionProofResponse,
+        RpcLightClientProofError,
+    >(
         &mut all_schemas,
         &mut all_paths,
         "EXPERIMENTAL_light_client_proof".to_string(),
         "Returns the proofs for a transaction execution.".to_string(),
     );
-    add_spec_for_path::<RpcLightClientBlockProofRequest, RpcLightClientBlockProofResponse, RpcLightClientProofError>(
+    add_spec_for_path::<
+        RpcLightClientBlockProofRequest,
+        RpcLightClientBlockProofResponse,
+        RpcLightClientProofError,
+    >(
         &mut all_schemas,
         &mut all_paths,
         "EXPERIMENTAL_light_client_block_proof".to_string(),
