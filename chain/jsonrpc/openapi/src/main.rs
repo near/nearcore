@@ -35,7 +35,7 @@ use near_jsonrpc_primitives::types::{
     },
 };
 use near_jsonrpc_primitives::{
-    errors::{RpcError, RpcRequestValidationErrorKind},
+    errors::RpcRequestValidationErrorKind,
     types::{
         changes::RpcStateChangesInBlockResponse, light_client::RpcLightClientExecutionProofRequest,
     },
@@ -62,9 +62,9 @@ pub enum ErrorWrapper<E> {
 }
 
 #[derive(JsonSchema)]
-pub struct InternalError {
-    name: String,
-    info: String,
+#[serde(tag = "name", content = "info", rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum InternalError {
+    InternalError {error_message: String}
 }
 
 #[derive(JsonSchema)]
@@ -591,6 +591,9 @@ struct RpcClientConfigRequest;
 #[derive(JsonSchema)]
 struct GenesisConfigRequest;
 
+#[derive(JsonSchema)]
+struct GenesisConfigError;
+
 fn main() {
     let mut all_schemas = json!({});
     let mut all_paths = PathsMap::new();
@@ -637,7 +640,7 @@ fn main() {
         "gas_price".to_string(),
         "Returns gas price for a specific block_height or block_hash. Using [null] will return the most recent block's gas price.".to_string(),
     );
-    add_spec_for_path::<GenesisConfigRequest, GenesisConfig, RpcError>(
+    add_spec_for_path::<GenesisConfigRequest, GenesisConfig, GenesisConfigError>(
         &mut all_schemas,
         &mut all_paths,
         "genesis_config".to_string(),
@@ -722,7 +725,7 @@ fn main() {
         "EXPERIMENTAL_congestion_level".to_string(),
         "Queries the congestion level of a shard. More info about congestion [here](https://near.github.io/nearcore/architecture/how/receipt-congestion.html?highlight=congestion#receipt-congestion)".to_string(),
     );
-    add_spec_for_path::<GenesisConfigRequest, GenesisConfig, RpcError>(
+    add_spec_for_path::<GenesisConfigRequest, GenesisConfig, GenesisConfigError>(
         &mut all_schemas,
         &mut all_paths,
         "EXPERIMENTAL_genesis_config".to_string(),

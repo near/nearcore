@@ -109,7 +109,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/JsonRpcResponse_for_GenesisConfig_and_RpcError"
+                  "$ref": "#/components/schemas/JsonRpcResponse_for_GenesisConfig_and_GenesisConfigError"
                 }
               }
             }
@@ -585,7 +585,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/JsonRpcResponse_for_GenesisConfig_and_RpcError"
+                  "$ref": "#/components/schemas/JsonRpcResponse_for_GenesisConfig_and_GenesisConfigError"
                 }
               }
             }
@@ -4023,6 +4023,64 @@
         ],
         "type": "object"
       },
+      "ErrorWrapper_for_GenesisConfigError": {
+        "oneOf": [
+          {
+            "properties": {
+              "cause": {
+                "$ref": "#/components/schemas/RpcRequestValidationErrorKind"
+              },
+              "name": {
+                "enum": [
+                  "REQUEST_VALIDATION_ERROR"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "cause"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "cause": {
+                "$ref": "#/components/schemas/GenesisConfigError"
+              },
+              "name": {
+                "enum": [
+                  "HANDLER_ERROR"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "cause"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "cause": {
+                "$ref": "#/components/schemas/InternalError"
+              },
+              "name": {
+                "enum": [
+                  "INTERNAL_ERROR"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "cause"
+            ],
+            "type": "object"
+          }
+        ]
+      },
       "ErrorWrapper_for_RpcBlockError": {
         "oneOf": [
           {
@@ -4163,64 +4221,6 @@
             "properties": {
               "cause": {
                 "$ref": "#/components/schemas/RpcClientConfigError"
-              },
-              "name": {
-                "enum": [
-                  "HANDLER_ERROR"
-                ],
-                "type": "string"
-              }
-            },
-            "required": [
-              "name",
-              "cause"
-            ],
-            "type": "object"
-          },
-          {
-            "properties": {
-              "cause": {
-                "$ref": "#/components/schemas/InternalError"
-              },
-              "name": {
-                "enum": [
-                  "INTERNAL_ERROR"
-                ],
-                "type": "string"
-              }
-            },
-            "required": [
-              "name",
-              "cause"
-            ],
-            "type": "object"
-          }
-        ]
-      },
-      "ErrorWrapper_for_RpcError": {
-        "oneOf": [
-          {
-            "properties": {
-              "cause": {
-                "$ref": "#/components/schemas/RpcRequestValidationErrorKind"
-              },
-              "name": {
-                "enum": [
-                  "REQUEST_VALIDATION_ERROR"
-                ],
-                "type": "string"
-              }
-            },
-            "required": [
-              "name",
-              "cause"
-            ],
-            "type": "object"
-          },
-          {
-            "properties": {
-              "cause": {
-                "$ref": "#/components/schemas/RpcError"
               },
               "name": {
                 "enum": [
@@ -6721,6 +6721,12 @@
         ],
         "type": "object"
       },
+      "GenesisConfigError": {
+        "enum": [
+          null
+        ],
+        "nullable": true
+      },
       "GenesisConfigRequest": {
         "enum": [
           null
@@ -7370,19 +7376,34 @@
         ]
       },
       "InternalError": {
-        "properties": {
-          "info": {
-            "type": "string"
-          },
-          "name": {
-            "type": "string"
+        "oneOf": [
+          {
+            "properties": {
+              "info": {
+                "properties": {
+                  "error_message": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "error_message"
+                ],
+                "type": "object"
+              },
+              "name": {
+                "enum": [
+                  "INTERNAL_ERROR"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "info"
+            ],
+            "type": "object"
           }
-        },
-        "required": [
-          "name",
-          "info"
-        ],
-        "type": "object"
+        ]
       },
       "InvalidAccessKeyError": {
         "oneOf": [
@@ -8822,7 +8843,7 @@
         "title": "JsonRpcResponse_for_CryptoHash_and_RpcTransactionError",
         "type": "object"
       },
-      "JsonRpcResponse_for_GenesisConfig_and_RpcError": {
+      "JsonRpcResponse_for_GenesisConfig_and_GenesisConfigError": {
         "oneOf": [
           {
             "properties": {
@@ -8838,7 +8859,7 @@
           {
             "properties": {
               "error": {
-                "$ref": "#/components/schemas/ErrorWrapper_for_RpcError"
+                "$ref": "#/components/schemas/ErrorWrapper_for_GenesisConfigError"
               }
             },
             "required": [
@@ -8859,7 +8880,7 @@
           "jsonrpc",
           "id"
         ],
-        "title": "JsonRpcResponse_for_GenesisConfig_and_RpcError",
+        "title": "JsonRpcResponse_for_GenesisConfig_and_GenesisConfigError",
         "type": "object"
       },
       "JsonRpcResponse_for_Nullable_RpcHealthResponse_and_RpcStatusError": {
@@ -11732,83 +11753,6 @@
         },
         "required": [
           "congestion_level"
-        ],
-        "type": "object"
-      },
-      "RpcError": {
-        "additionalProperties": false,
-        "description": "This struct may be returned from JSON RPC server in case of error\nIt is expected that this struct has impl From<_> all other RPC errors\nlike [RpcBlockError](crate::types::blocks::RpcBlockError)",
-        "oneOf": [
-          {
-            "properties": {
-              "cause": {
-                "$ref": "#/components/schemas/RpcRequestValidationErrorKind"
-              },
-              "name": {
-                "enum": [
-                  "REQUEST_VALIDATION_ERROR"
-                ],
-                "type": "string"
-              }
-            },
-            "required": [
-              "name",
-              "cause"
-            ],
-            "type": "object"
-          },
-          {
-            "properties": {
-              "cause": {},
-              "name": {
-                "enum": [
-                  "HANDLER_ERROR"
-                ],
-                "type": "string"
-              }
-            },
-            "required": [
-              "name",
-              "cause"
-            ],
-            "type": "object"
-          },
-          {
-            "properties": {
-              "cause": {},
-              "name": {
-                "enum": [
-                  "INTERNAL_ERROR"
-                ],
-                "type": "string"
-              }
-            },
-            "required": [
-              "name",
-              "cause"
-            ],
-            "type": "object"
-          }
-        ],
-        "properties": {
-          "cause": {},
-          "code": {
-            "description": "Deprecated please use the `error_struct` instead",
-            "format": "int64",
-            "type": "integer"
-          },
-          "data": {
-            "description": "Deprecated please use the `error_struct` instead"
-          },
-          "message": {
-            "description": "Deprecated please use the `error_struct` instead",
-            "type": "string"
-          },
-          "name": {}
-        },
-        "required": [
-          "code",
-          "message"
         ],
         "type": "object"
       },
