@@ -7,17 +7,17 @@ use near_async::messaging::Actor;
 use near_chain::types::Tip;
 use near_chain_configs::{CloudArchivalHandle, CloudArchivalWriterConfig};
 use near_primitives::types::BlockHeight;
-use near_store::{DBCol, FINAL_HEAD_KEY, NodeStorage, Store};
+use near_store::{DBCol, FINAL_HEAD_KEY, Store};
 use time::Duration;
 
 /// Result of a single archiving attempt.
 #[derive(Debug)]
 enum CloudArchivingResult {
-    // Cloud head is at least the hot final head; nothing to do.
-    // Contains the current cloud head.
+    // Cloud head is at least the hot final head; nothing to do. Contains the current
+    // cloud head.
     NoHeightArchived(BlockHeight),
-    // Archived the current final head height; now up to date until a new block is finalized.
-    // Contains the target (final) height that was archived.
+    // Archived the current final head height; now up to date until a new block is
+    // finalized. Contains the target (final) height that was archived.
     LatestHeightArchived(BlockHeight),
     // Archived a height below the final head; more heights are immediately available.
     // Contains (archived_height, target_height).
@@ -37,7 +37,8 @@ impl From<std::io::Error> for CloudArchivingError {
     }
 }
 
-/// Actor responsible for copying finalized blocks to cloud storage and tracking the cloud head.
+/// Actor responsible for copying finalized blocks to cloud storage and tracking the cloud
+/// head.
 pub struct CloudArchivalActor {
     config: CloudArchivalWriterConfig,
     genesis_height: BlockHeight,
@@ -46,26 +47,22 @@ pub struct CloudArchivalActor {
     handle: CloudArchivalHandle,
 }
 
-/// Creates the cloud archival actor with handle if cloud archival writer is configured.
+/// Creates the cloud archival actor if cloud archival writer is configured.
 pub fn create_cloud_archival_actor(
     cloud_archival_config: Option<CloudArchivalWriterConfig>,
     genesis_height: BlockHeight,
-    storage: &NodeStorage,
-) -> anyhow::Result<Option<(CloudArchivalActor, CloudArchivalHandle)>> {
+    hot_store: Store,
+) -> anyhow::Result<Option<CloudArchivalActor>> {
     let Some(config) = cloud_archival_config else {
-        tracing::debug!(target : "cloud_archival", "Not creating the cloud archival actor because cloud archival writer is not configured");
+        tracing::debug!(target: "cloud_archival", "Not creating the cloud archival actor because cloud archival writer is not configured");
         return Ok(None);
     };
-    let hot_store = storage.get_hot_store();
-
     // TODO(cloud_archival) Retrieve the `cloud_head` from the external storage
-    let cloud_head = hot_final_head_height(&hot_store, genesis_height)?;
+    let cloud_head = get_hot_final_head_height(&hot_store, genesis_height)?;
 
-    tracing::info!(target: "cloud_archival", "Creating the cloud archival actor");
-    let handle = CloudArchivalHandle::new();
-    let actor =
-        CloudArchivalActor::new(config, genesis_height, hot_store, cloud_head, handle.clone());
-    Ok(Some((actor, handle)))
+    tracing::info!(target: "cloud_archival", cloud_head, "Creating the cloud archival actor");
+    let actor = CloudArchivalActor::new(config, genesis_height, hot_store, cloud_head);
+    Ok(Some(actor))
 }
 
 impl Actor for CloudArchivalActor {
@@ -76,18 +73,26 @@ impl Actor for CloudArchivalActor {
 }
 
 impl CloudArchivalActor {
-    pub fn new(
+    fn new(
         config: CloudArchivalWriterConfig,
         genesis_height: BlockHeight,
         hot_store: Store,
         cloud_head: BlockHeight,
-        handle: CloudArchivalHandle,
     ) -> Self {
+        let handle = CloudArchivalHandle::new();
         Self { config, genesis_height, hot_store, cloud_head, handle }
     }
 
-    /// Main loop: archive as fast as possible until `cloud_head == hot_final_head`, then sleep for
-    /// `polling_interval` before trying again.
+    pub fn get_cloud_head(&self) -> BlockHeight {
+        self.cloud_head
+    }
+
+    pub fn get_handle(&self) -> CloudArchivalHandle {
+        self.handle.clone()
+    }
+
+    /// Main loop: archive as fast as possible until `cloud_head == hot_final_head`, then
+    /// sleep for `polling_interval` before trying again.
     fn cloud_archival_loop(&mut self, ctx: &mut dyn DelayedActionRunner<Self>) {
         if self.handle.is_cancelled() {
             tracing::debug!(target: "cloud_archival", "Stopping the cloud archival loop");
@@ -108,12 +113,12 @@ impl CloudArchivalActor {
     }
 
     /// Tries to archive one height and logs the outcome.
-    fn try_archive_data(&mut self) -> anyhow::Result<CloudArchivingResult, CloudArchivingError> {
+    fn try_archive_data(&mut self) -> Result<CloudArchivingResult, CloudArchivingError> {
         // TODO(cloud_archival) Add metrics
         let result = self.try_archive_data_impl();
 
         let Ok(result) = result else {
-            tracing::error!(target : "cloud_archival", ?result, "Archiving data to cloud failed");
+            tracing::error!(target: "cloud_archival", ?result, "Archiving data to cloud failed");
             return result;
         };
 
@@ -144,19 +149,18 @@ impl CloudArchivalActor {
         Ok(result)
     }
 
-    /// If the cloud head lags the hot final head, archive the next height. Updates `cloud_head` on success.
-    fn try_archive_data_impl(
-        &mut self,
-    ) -> anyhow::Result<CloudArchivingResult, CloudArchivingError> {
+    /// If the cloud head lags the hot final head, archive the next height. Updates
+    /// `cloud_head` on success.
+    fn try_archive_data_impl(&mut self) -> Result<CloudArchivingResult, CloudArchivingError> {
         let _span = tracing::debug_span!(target: "cloud_archival", "cloud_archive").entered();
 
-        let target_height = hot_final_head_height(&self.hot_store, self.genesis_height)?;
+        let target_height = get_hot_final_head_height(&self.hot_store, self.genesis_height)?;
         if self.cloud_head >= target_height {
             return Ok(CloudArchivingResult::NoHeightArchived(self.cloud_head));
         }
         let height_to_archive = self.cloud_head + 1;
         self.archive_data(height_to_archive)?;
-        self.update_cloud_archival_head(height_to_archive)?;
+        self.update_cloud_head(height_to_archive)?;
 
         let result = if height_to_archive == target_height {
             Ok(CloudArchivingResult::LatestHeightArchived(target_height))
@@ -169,28 +173,21 @@ impl CloudArchivalActor {
 
     /// Persist finalized data for `height` to cloud storage.
     // TODO(cloud_archival): Implement
-    fn archive_data(&self, _height: BlockHeight) -> anyhow::Result<(), CloudArchivingError> {
+    fn archive_data(&self, _height: BlockHeight) -> Result<(), CloudArchivingError> {
         Ok(())
     }
 
     /// Advance the cloud archival head to `new_head` after a successful upload.
-    // TODO(cloud_archival) Update cloud head in the external storage
-    fn update_cloud_archival_head(
-        &mut self,
-        new_head: BlockHeight,
-    ) -> anyhow::Result<(), CloudArchivingError> {
+    fn update_cloud_head(&mut self, new_head: BlockHeight) -> Result<(), CloudArchivingError> {
         debug_assert_eq!(new_head, self.cloud_head + 1);
+        // TODO(cloud_archival): Update cloud head in both local and external storage.
         self.cloud_head = new_head;
         Ok(())
     }
-
-    pub fn get_cloud_head(&self) -> BlockHeight {
-        self.cloud_head
-    }
 }
 
-/// Read the hot store's final head height, defaulting to `genesis_height` if unset.
-fn hot_final_head_height(
+/// Reads the hot final head height; falls back to `genesis_height` if unset.
+fn get_hot_final_head_height(
     hot_store: &Store,
     genesis_height: BlockHeight,
 ) -> io::Result<BlockHeight> {
