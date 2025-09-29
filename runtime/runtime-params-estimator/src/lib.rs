@@ -107,7 +107,7 @@ use near_primitives::transaction::{
     DeployContractAction, SignedTransaction, StakeAction, TransferAction,
 };
 use near_primitives::types::{AccountId, Balance, Gas};
-use near_primitives::version::PROTOCOL_VERSION;
+use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_vm_runner::ContractCode;
 use near_vm_runner::MockContractRuntimeCache;
 use near_vm_runner::internal::VMKindExt;
@@ -943,6 +943,9 @@ fn action_deterministic_state_init_per_entry(ctx: &mut EstimatorContext) -> GasC
 fn action_deterministic_state_init_base_per_entry_per_byte(
     ctx: &mut EstimatorContext,
 ) -> (GasCost, GasCost, GasCost) {
+    if !ProtocolFeature::DeterministicAccountIds.enabled(PROTOCOL_VERSION) {
+        return (GasCost::zero(), GasCost::zero(), GasCost::zero());
+    }
     if let Some(base_byte_cost) =
         ctx.cached.action_deterministic_state_init_base_per_entry_per_byte.clone()
     {
