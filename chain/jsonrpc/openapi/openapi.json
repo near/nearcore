@@ -10794,15 +10794,6 @@
           {
             "properties": {
               "info": {
-                "properties": {
-                  "error_message": {
-                    "type": "string",
-                    "writeOnly": true
-                  }
-                },
-                "required": [
-                  "error_message"
-                ],
                 "type": "object"
               },
               "name": {
