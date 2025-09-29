@@ -162,8 +162,7 @@ pub fn total_send_fees(
             }
             DeterministicStateInit(action) => {
                 let num_entries = action.state_init.data().len() as u64;
-                let num_bytes =
-                    borsh::object_length(&action.state_init).expect("borsh must not fail");
+                let num_bytes = action.state_init.len_bytes();
                 let base_fee = fees
                     .fee(ActionCosts::deterministic_state_init_base)
                     .send_fee(sender_is_receiver);
@@ -287,7 +286,7 @@ pub fn exec_fee(config: &RuntimeConfig, action: &Action, receiver_id: &AccountId
         }
         DeterministicStateInit(action) => {
             let num_entries = action.state_init.data().len() as u64;
-            let num_bytes = borsh::object_length(&action.state_init).expect("borsh must not fail");
+            let num_bytes = action.state_init.len_bytes();
             let base_fee = fees.fee(ActionCosts::deterministic_state_init_base).exec_fee();
             let entry_fee = fees.fee(ActionCosts::deterministic_state_init_entry).exec_fee();
             let all_entries_fee = entry_fee.checked_mul(num_entries).unwrap();
