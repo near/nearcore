@@ -1,5 +1,5 @@
-//! Cloud archival actor: moves finalized data from the hot store to the cloud storage. Runs in a loop until
-//! the cloud head catches up with the hot final head.
+//! Cloud archival actor: moves finalized data from the hot store to the cloud storage.
+//! Runs in a loop until the cloud head catches up with the hot final head.
 use std::io;
 
 use near_async::futures::{DelayedActionRunner, DelayedActionRunnerExt};
@@ -13,13 +13,14 @@ use time::Duration;
 /// Result of a single archiving attempt.
 #[derive(Debug)]
 enum CloudArchivingResult {
-    // Cloud head is at least the hot final head; nothing to do. Contains the current cloud head.
+    // Cloud head is at least the hot final head; nothing to do. Contains the current
+    // cloud head.
     NoHeightArchived(BlockHeight),
-    // Archived the current final head height; now up to date until a new block is finalized. Contains the
-    // target (final) height that was archived.
+    // Archived the current final head height; now up to date until a new block is
+    // finalized. Contains the target (final) height that was archived.
     LatestHeightArchived(BlockHeight),
-    // Archived a height below the final head; more heights are immediately available. Contains
-    // (archived_height, target_height).
+    // Archived a height below the final head; more heights are immediately available.
+    // Contains (archived_height, target_height).
     OlderHeightArchived(BlockHeight, BlockHeight),
 }
 
@@ -36,7 +37,8 @@ impl From<std::io::Error> for CloudArchivingError {
     }
 }
 
-/// Actor responsible for copying finalized blocks to cloud storage and tracking the cloud head.
+/// Actor responsible for copying finalized blocks to cloud storage and tracking the cloud
+/// head.
 pub struct CloudArchivalActor {
     config: CloudArchivalWriterConfig,
     genesis_height: BlockHeight,
@@ -88,8 +90,8 @@ impl CloudArchivalActor {
         self.handle.clone()
     }
 
-    /// Main loop: archive as fast as possible until `cloud_head == hot_final_head`, then sleep for
-    /// `polling_interval` before trying again.
+    /// Main loop: archive as fast as possible until `cloud_head == hot_final_head`, then
+    /// sleep for `polling_interval` before trying again.
     fn cloud_archival_loop(&mut self, ctx: &mut dyn DelayedActionRunner<Self>) {
         if self.handle.is_cancelled() {
             tracing::debug!(target: "cloud_archival", "Stopping the cloud archival loop");
@@ -146,7 +148,8 @@ impl CloudArchivalActor {
         Ok(result)
     }
 
-    /// If the cloud head lags the hot final head, archive the next height. Updates `cloud_head` on success.
+    /// If the cloud head lags the hot final head, archive the next height. Updates
+    /// `cloud_head` on success.
     fn try_archive_data_impl(&mut self) -> Result<CloudArchivingResult, CloudArchivingError> {
         let _span = tracing::debug_span!(target: "cloud_archival", "cloud_archive").entered();
 

@@ -21,7 +21,8 @@ const MINIMUM_NUM_EPOCHS_TO_WAIT: u64 = GC_NUM_EPOCHS_TO_KEEP + 1;
 #[derive(derive_builder::Builder)]
 #[builder(pattern = "owned", build_fn(skip))]
 struct TestCloudArchivalParameters {
-    /// Number of epochs the test should run; must be at least `MINIMUM_NUM_EPOCHS_TO_WAIT`.
+    /// Number of epochs the test should run; must be at least
+    /// `MINIMUM_NUM_EPOCHS_TO_WAIT`.
     num_epochs_to_wait: u64,
     /// Whether to run the cold-store loop.
     enable_split_store: bool,
@@ -109,14 +110,16 @@ fn test_cloud_archival_with_split_store() {
     );
 }
 
-/// Verifies that while the cloud writer is paused, GC stop never exceeds `cloud_head`; after resuming, the
-/// writer catches up, and the cold-store loop keeps progressing throughout.
+/// Verifies that while the cloud writer is paused, GC stop never exceeds `cloud_head`;
+/// after resuming, the writer catches up, and the cold-store loop keeps progressing
+/// throughout.
 #[test]
 // TODO(cloud_archival): Enable once cloud head is persisted to external storage.
 #[cfg(ignore)]
 fn test_cloud_archival_delayed_start() {
     let gc_period_num_blocks = GC_NUM_EPOCHS_TO_KEEP * EPOCH_LENGTH;
-    // Pause the cloud writer long enough that, if it were possible, GC could overtake `cloud_head`.
+    // Pause the cloud writer long enough that, if it were possible, GC could overtake
+    // `cloud_head`.
     let start_writer_height = 2 * gc_period_num_blocks;
     // After resuming writer, wait one more GC window to expose potential crash.
     let num_epochs_to_wait = 3 * GC_NUM_EPOCHS_TO_KEEP;
