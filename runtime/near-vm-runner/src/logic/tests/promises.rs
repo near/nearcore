@@ -2,8 +2,15 @@ use crate::logic::mocks::mock_external::MockedExternal;
 use crate::logic::tests::helpers::*;
 use crate::logic::tests::vm_logic_builder::VMLogicBuilder;
 use crate::logic::types::PromiseResult;
+use crate::map;
+use std::collections::BTreeMap;
 
 use near_crypto::PublicKey;
+use near_parameters::{ActionCosts, ExtCosts};
+use near_primitives_core::deterministic_account_id::{
+    DeterministicAccountStateInit, DeterministicAccountStateInitV1,
+};
+use near_primitives_core::global_contract::GlobalContractIdentifier;
 use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::types::Gas;
 use serde_json;
@@ -785,6 +792,116 @@ fn test_promise_batch_then() {
                 0
               ],
               "receiver_id": "rick.test"
+            }
+          }
+        ]"#]]
+    .assert_eq(&serde_json::to_string_pretty(&vm_receipts(&logic_builder.ext)).unwrap());
+}
+
+#[test]
+fn test_promise_batch_action_state_init() {
+    let mut logic_builder = VMLogicBuilder::default();
+    logic_builder.config.deterministic_account_ids = true;
+
+    let mut logic = logic_builder.build();
+
+    // Note: Sending to an invalid receiver here, "rick.test" is not a
+    // deterministic account id. On the VM level, that won't be caught. But the
+    // outgoing receipt will fail validation. Tests for that case are in
+    // `runtime/runtime/src/verifier.rs`.
+    let receiver = "rick.test";
+    let index = promise_batch_create(&mut logic, &receiver).expect("should create a promise");
+
+    // check setup costs are as expected and reset the counter (reset happens inside `assert_costs`)
+    assert_costs(map! {
+      ExtCosts::base: 1,
+      ExtCosts::read_memory_base: 1,
+      ExtCosts::read_memory_byte: receiver.len() as u64,
+      ExtCosts::utf8_decoding_base: 1,
+      ExtCosts::utf8_decoding_byte: receiver.len() as u64,
+    });
+
+    let state_init = DeterministicAccountStateInit::V1(DeterministicAccountStateInitV1 {
+        code: GlobalContractIdentifier::AccountId("global.near".parse().unwrap()),
+        data: BTreeMap::from_iter([(b"key".to_vec(), b"value".to_vec())]),
+    });
+    let serialized_state_init = logic.internal_mem_write(&borsh::to_vec(&state_init).unwrap());
+    let serialized_amount = logic.internal_mem_write(&110u128.to_le_bytes());
+
+    logic
+        .promise_batch_action_state_init(
+            index,
+            serialized_state_init.len,
+            serialized_state_init.ptr,
+            serialized_amount.ptr,
+        )
+        .expect("should successfully add state init action");
+
+    assert_costs(map! {
+      ExtCosts::base: 1,
+      ExtCosts::read_memory_base: 2,
+      ExtCosts::read_memory_byte: serialized_state_init.len + serialized_amount.len,
+    });
+
+    let profile = logic.gas_counter().profile_data();
+    assert_eq!(logic.used_gas().unwrap(), 8_365_968_579_951, "unexpected gas usage {profile:?}");
+
+    // Check that all send costs have been charged as expected
+
+    // action_deterministic_state_init
+    //    send 3.85 Tgas
+    //    exec 4.00 Tgas
+    assert_eq!(
+        profile.actions_profile[ActionCosts::deterministic_state_init_base].as_gigagas(),
+        3850,
+        "unexpected action gas usage {profile:?}"
+    );
+    // action_deterministic_state_init_per_entry
+    //    exec 0.20 Tgas
+    assert_eq!(
+        profile.actions_profile[ActionCosts::deterministic_state_init_entry].as_gigagas(),
+        0,
+        "unexpected action gas usage {profile:?}"
+    );
+    // action_deterministic_state_init_per_byte
+    //    send 0.000_072 per byte
+    //    exec 0.000_070 per byte
+    assert_eq!(
+        profile.actions_profile[ActionCosts::deterministic_state_init_byte].as_gas(),
+        2_664_000_000,
+        "unexpected action gas usage {profile:?}"
+    );
+    // action_receipt_creation
+    //    send 0.108 Tgas
+    //    exec 0.108 Tgas
+    assert_eq!(
+        profile.actions_profile[ActionCosts::new_action_receipt].as_gigagas(),
+        108,
+        "unexpected action gas usage {profile:?}"
+    );
+
+    expect_test::expect![[r#"
+        [
+          {
+            "CreateReceipt": {
+              "receipt_indices": [],
+              "receiver_id": "rick.test"
+            }
+          },
+          {
+            "DeterministicStateInit": {
+              "receipt_index": 0,
+              "state_init": {
+                "V1": {
+                  "code": {
+                    "AccountId": "global.near"
+                  },
+                  "data": {
+                    "a2V5": "dmFsdWU="
+                  }
+                }
+              },
+              "amount": "110"
             }
           }
         ]"#]]
