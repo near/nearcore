@@ -29,6 +29,7 @@ pub struct TestLoopNode<'a> {
 
 impl<'a> TestLoopNode<'a> {
     pub fn for_account(node_datas: &'a [NodeExecutionData], account_id: &AccountId) -> Self {
+        // cspell:ignore rfind
         // Uses `rfind` because `TestLoopEnv::restart_node()` appends a new copy to `node_datas`.
         let data = node_datas
             .iter()
