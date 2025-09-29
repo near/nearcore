@@ -21,6 +21,7 @@ use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptV0};
 use near_primitives::transaction::Action;
 use near_primitives::types::{AccountId, Balance, Gas};
 use near_primitives::utils::derive_near_deterministic_account_id;
+use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use std::collections::BTreeMap;
 use std::iter;
 
@@ -690,6 +691,9 @@ pub(crate) fn delegate_exec(ctx: &mut EstimatorContext) -> GasCost {
 
 /// Base cost: Send with a 0 byte initial state
 pub(crate) fn deterministic_state_init_base_send(ctx: &mut EstimatorContext) -> GasCost {
+    if !ProtocolFeature::DeterministicAccountIds.enabled(PROTOCOL_VERSION) {
+        return GasCost::zero();
+    }
     // This framework doesn't really allow dynamic actions :S
     // One single measurement has to be enough. (Better than nothing.)
     let seed = 0;
@@ -705,6 +709,9 @@ pub(crate) fn deterministic_state_init_base_send(ctx: &mut EstimatorContext) -> 
 
 /// Base cost: Execute with a 0 byte initial state
 pub(crate) fn deterministic_state_init_base_exec(ctx: &mut EstimatorContext) -> GasCost {
+    if !ProtocolFeature::DeterministicAccountIds.enabled(PROTOCOL_VERSION) {
+        return GasCost::zero();
+    }
     let seed = 0;
     let (receiver, action) = det_state_init_action(seed, 0, 0, 0);
     ActionEstimation::new(ctx)
@@ -716,6 +723,9 @@ pub(crate) fn deterministic_state_init_base_exec(ctx: &mut EstimatorContext) -> 
         .apply_cost(&mut ctx.testbed())
 }
 pub(crate) fn deterministic_state_init_entry_send(ctx: &mut EstimatorContext) -> GasCost {
+    if !ProtocolFeature::DeterministicAccountIds.enabled(PROTOCOL_VERSION) {
+        return GasCost::zero();
+    }
     let seed = 0;
     let num_entries = 100_000;
     let (receiver, action) = det_state_init_action(seed, num_entries, 7, 0);
@@ -729,6 +739,9 @@ pub(crate) fn deterministic_state_init_entry_send(ctx: &mut EstimatorContext) ->
         / num_entries as u64
 }
 pub(crate) fn deterministic_state_init_entry_exec(ctx: &mut EstimatorContext) -> GasCost {
+    if !ProtocolFeature::DeterministicAccountIds.enabled(PROTOCOL_VERSION) {
+        return GasCost::zero();
+    }
     let seed = 0;
     let num_entries = 100_000;
     let (receiver, action) = det_state_init_action(seed, num_entries, 7, 0);
@@ -742,6 +755,9 @@ pub(crate) fn deterministic_state_init_entry_exec(ctx: &mut EstimatorContext) ->
         / num_entries as u64
 }
 pub(crate) fn deterministic_state_init_byte_send(ctx: &mut EstimatorContext) -> GasCost {
+    if !ProtocolFeature::DeterministicAccountIds.enabled(PROTOCOL_VERSION) {
+        return GasCost::zero();
+    }
     let seed = 0;
     let bytes = 1_000_000;
     let (receiver, action) = det_state_init_action(seed, 1, 1, bytes);
@@ -755,6 +771,9 @@ pub(crate) fn deterministic_state_init_byte_send(ctx: &mut EstimatorContext) -> 
         / bytes as u64
 }
 pub(crate) fn deterministic_state_init_byte_exec(ctx: &mut EstimatorContext) -> GasCost {
+    if !ProtocolFeature::DeterministicAccountIds.enabled(PROTOCOL_VERSION) {
+        return GasCost::zero();
+    }
     let seed = 0;
     let bytes = 1_000_000;
     let (receiver, action) = det_state_init_action(seed, 1, 1, bytes);
