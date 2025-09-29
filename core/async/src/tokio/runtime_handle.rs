@@ -1,8 +1,10 @@
 use std::sync::Arc;
+use std::time::Duration;
 
 use tokio::sync::mpsc;
 
 use crate::futures::{DelayedActionRunner, FutureSpawner};
+use crate::instrumentation::writer::InstrumentedThreadWriter;
 use crate::messaging::Actor;
 use crate::tokio::runtime::AsyncDroppableRuntime;
 use tokio::runtime::Runtime;
@@ -11,6 +13,7 @@ use tokio_util::sync::CancellationToken;
 /// TokioRuntimeMessage is a type alias for a boxed function that can be sent to the Tokio runtime.
 pub(super) struct TokioRuntimeMessage<A> {
     pub(super) seq: u64,
+    pub(super) name: &'static str,
     pub(super) function: Box<dyn FnOnce(&mut A, &mut dyn DelayedActionRunner<A>) + Send>,
 }
 
@@ -128,6 +131,10 @@ impl<A: Actor + Send + 'static> TokioRuntimeBuilder<A> {
             // the same tokio runtime.
             let _runtime = AsyncDroppableRuntime::new(runtime);
             let mut actor = CallStopWhenDropping { actor };
+            let mut instrumentation = InstrumentedThreadWriter::new_from_global(
+                std::any::type_name::<A>().to_string()
+            );
+            let mut window_update_timer = tokio::time::interval(Duration::from_secs(1));
             loop {
                 tokio::select! {
                     _ = self.system_cancellation_signal.cancelled() => {
@@ -138,10 +145,15 @@ impl<A: Actor + Send + 'static> TokioRuntimeBuilder<A> {
                         tracing::debug!(target: "tokio_runtime", "Shutting down Tokio runtime due to targeted cancellation");
                         break;
                     }
+                    _ = window_update_timer.tick() => {
+                        instrumentation.advance_window_if_needed();
+                    }
                     Some(message) = receiver.recv() => {
                         let seq = message.seq;
                         tracing::debug!(target: "tokio_runtime", seq, "Executing message");
+                        instrumentation.start_event(message.name);
                         (message.function)(&mut actor.actor, &mut runtime_handle);
+                        instrumentation.end_event();
                     }
                     // Note: If the sender is closed, that stops being a selectable option.
                     // This is valid: we can spawn a tokio runtime without a handle, just to keep
