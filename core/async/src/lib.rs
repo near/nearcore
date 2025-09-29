@@ -4,6 +4,7 @@ pub mod actix;
 pub mod break_apart;
 mod functional;
 pub mod futures;
+pub mod instrumentation;
 pub mod messaging;
 pub mod multithread;
 pub mod test_loop;
