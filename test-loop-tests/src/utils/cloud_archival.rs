@@ -3,26 +3,32 @@ use near_client::archive::cloud_archival_actor::CloudArchivalActor;
 use near_primitives::types::{AccountId, BlockHeight, BlockHeightDelta};
 use near_store::adapter::StoreAdapter;
 use near_store::db::CLOUD_HEAD_KEY;
-use near_store::{DBCol, COLD_HEAD_KEY};
+use near_store::{COLD_HEAD_KEY, DBCol};
 
 use crate::setup::env::TestLoopEnv;
 use crate::utils::node::TestLoopNode;
 
+/// Stops a node and restarts it with a new identifier `<old>-restart`.
 pub(crate) fn stop_and_restart_node(env: &mut TestLoopEnv, node_identifier: &str) {
     let node_state = env.kill_node(node_identifier);
     let new_identifier = format!("{}-restart", node_identifier);
     env.restart_node(&new_identifier, node_state);
 }
 
-pub(crate) fn get_cloud_writer<'a>(env: &'a TestLoopEnv, archival_id: &AccountId) -> &'a CloudArchivalActor {
+/// Returns the cloud archival actor for `archival_id`.
+pub(crate) fn get_cloud_writer<'a>(
+    env: &'a TestLoopEnv,
+    archival_id: &AccountId,
+) -> &'a CloudArchivalActor {
     let archival_node = TestLoopNode::for_account(&env.node_datas, archival_id);
     let writer_testloop_handle =
         archival_node.data().cloud_archival_sender.as_ref().unwrap().actor_handle();
     env.test_loop.data.get(&writer_testloop_handle)
 }
 
+/// Sanity checks: heads alignment, GC tail bounds, and optional minimum GC progress.
 pub(crate) fn gc_and_heads_sanity_checks(
-    env: &mut TestLoopEnv,
+    env: &TestLoopEnv,
     archival_id: &AccountId,
     split_store_enabled: bool,
     num_gced_blocks: Option<BlockHeightDelta>,

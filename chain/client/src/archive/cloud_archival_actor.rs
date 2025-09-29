@@ -1,5 +1,5 @@
-//! Cloud archival actor: moves finalized data from the hot store to the cloud storage.
-//! Runs in a loop until the cloud head catches up with the hot final head.
+//! Cloud archival actor: moves finalized data from the hot store to the cloud storage. Runs in a loop until
+//! the cloud head catches up with the hot final head.
 use std::io;
 
 use near_async::futures::{DelayedActionRunner, DelayedActionRunnerExt};
@@ -15,14 +15,13 @@ use time::Duration;
 /// Result of a single archiving attempt.
 #[derive(Debug)]
 enum CloudArchivingResult {
-    // Cloud head is at least the hot final head; nothing to do.
-    // Contains the current cloud head.
+    // Cloud head is at least the hot final head; nothing to do. Contains the current cloud head.
     NoHeightArchived(BlockHeight),
-    // Archived the current final head height; now up to date until a new block is finalized.
-    // Contains the target (final) height that was archived.
+    // Archived the current final head height; now up to date until a new block is finalized. Contains the
+    // target (final) height that was archived.
     LatestHeightArchived(BlockHeight),
-    // Archived a height below the final head; more heights are immediately available.
-    // Contains (archived_height, target_height).
+    // Archived a height below the final head; more heights are immediately available. Contains
+    // (archived_height, target_height).
     OlderHeightArchived(BlockHeight, BlockHeight),
 }
 
@@ -218,6 +217,9 @@ impl CloudArchivalActor {
     }
 }
 
+/// Initializes and reconciles the cloud head between local and external state. If both are missing – creates
+/// a new archive; if local is missing – sets from external; if external is missing – returns an error; if
+/// they differ – uses external and updates local.
 fn initialize_cloud_head(
     hot_store: &Store,
     genesis_height: BlockHeight,
@@ -269,8 +271,8 @@ fn initialize_cloud_head(
     Ok(cloud_head)
 }
 
-/// Set up new cloud archive and cloud archival writer. The initial cloud head is `hot_final_height` so no
-/// need to check for GC tail.
+/// Sets up a new external cloud archive and local cloud writer starting at `hot_final_height`. No GC-tail
+/// check is needed because we start from the current hot final head.
 fn initialize_new_cloud_archive_and_writer(
     hot_store: &Store,
     cloud_storage_config: &CloudStorageConfig,
@@ -280,6 +282,7 @@ fn initialize_new_cloud_archive_and_writer(
     set_cloud_head_local(hot_store, hot_final_height)
 }
 
+/// Updates the local cloud writer head to `cloud_head_external` after validating GC constraints.
 fn update_cloud_writer_head(
     hot_store: &Store,
     runtime_adapter: &dyn RuntimeAdapter,
@@ -290,6 +293,7 @@ fn update_cloud_writer_head(
     Ok(())
 }
 
+/// Ensures `cloud_head` is not older than GC stop; returns `CloudHeadTooOld` otherwise.
 fn ensure_cloud_head_available_for_archiving(
     hot_store: &Store,
     runtime_adapter: &dyn RuntimeAdapter,
@@ -308,7 +312,7 @@ fn ensure_cloud_head_available_for_archiving(
     Ok(())
 }
 
-/// Read the hot store's final head height, defaulting to `genesis_height` if unset.
+/// Reads the hot final head height; falls back to `genesis_height` if unset.
 fn get_hot_final_head_height(
     hot_store: &Store,
     genesis_height: BlockHeight,
@@ -318,6 +322,7 @@ fn get_hot_final_head_height(
     Ok(hot_final_head_height)
 }
 
+/// Returns the cloud head from external storage, if any.
 #[allow(unused)]
 fn get_cloud_head_external(
     cloud_storage_config: &CloudStorageConfig,
@@ -326,6 +331,7 @@ fn get_cloud_head_external(
     Ok(None)
 }
 
+/// Persists the cloud head to external storage.
 #[allow(unused)]
 fn set_cloud_head_external(
     cloud_storage_config: &CloudStorageConfig,
@@ -335,11 +341,12 @@ fn set_cloud_head_external(
     Ok(())
 }
 
+/// Returns the locally stored cloud head, if any.
 fn get_cloud_head_local(hot_store: &Store) -> io::Result<Option<BlockHeight>> {
     hot_store.get_ser::<BlockHeight>(DBCol::BlockMisc, CLOUD_HEAD_KEY)
 }
 
-// Write CLOUD_HEAD to the hot db.
+/// Writes the local CLOUD_HEAD in the hot DB.
 fn set_cloud_head_local(hot_store: &Store, new_head: BlockHeight) -> io::Result<()> {
     let mut transaction = DBTransaction::new();
     transaction.set(DBCol::BlockMisc, CLOUD_HEAD_KEY.to_vec(), borsh::to_vec(&new_head)?);

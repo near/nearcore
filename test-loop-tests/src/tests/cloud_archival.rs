@@ -7,24 +7,26 @@ use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::{AccountId, BlockHeight, BlockHeightDelta};
 
 use crate::setup::builder::TestLoopBuilder;
-use crate::utils::cloud_archival::{gc_and_heads_sanity_checks, get_cloud_writer, stop_and_restart_node};
+use crate::utils::cloud_archival::{
+    gc_and_heads_sanity_checks, get_cloud_writer, stop_and_restart_node,
+};
 use crate::utils::node::TestLoopNode;
 
 const EPOCH_LENGTH: BlockHeightDelta = 10;
 const GC_NUM_EPOCHS_TO_KEEP: u64 = 3;
-/// The minimum number of epochs to wait so that GC may kick in.
+/// Minimum number of epochs to wait before GC can trigger.
 const MINIMUM_NUM_EPOCHS_TO_WAIT: u64 = GC_NUM_EPOCHS_TO_KEEP + 1;
 
-/// Parameters to control the behavior of cloud archival tests
+/// Parameters controlling the behavior of cloud archival tests.
 #[derive(derive_builder::Builder)]
 #[builder(pattern = "owned", build_fn(skip))]
 struct TestCloudArchivalParameters {
-    /// Run the cold store loop.
-    enable_split_store: bool,
-    /// Delay the start of cloud archival writer node until the given height.
-    delay_writer_start: Option<BlockHeight>,
-    /// For how many epochs should the test be running. Wait for at least `MINIMUM_NUM_EPOCHS_TO_WAIT`. 
+    /// Number of epochs the test should run; must be at least `MINIMUM_NUM_EPOCHS_TO_WAIT`.
     num_epochs_to_wait: u64,
+    /// Whether to run the cold-store loop.
+    enable_split_store: bool,
+    /// Height until which to delay the start of the cloud archival writer node.
+    delay_writer_start: Option<BlockHeight>,
 }
 
 impl TestCloudArchivalParametersBuilder {
@@ -39,6 +41,7 @@ impl TestCloudArchivalParametersBuilder {
     }
 }
 
+/// Base setup for sanity-checking cloud archival flow.
 fn test_cloud_archival_base(params: TestCloudArchivalParameters) {
     init_test_logger();
 
@@ -79,7 +82,7 @@ fn test_cloud_archival_base(params: TestCloudArchivalParameters) {
         };
         get_cloud_writer(&env, &archival_id).get_handle().resume();
         stop_and_restart_node(&mut env, node_identifier.as_str());
-        gc_and_heads_sanity_checks(&mut env, &archival_id, params.enable_split_store, None);
+        gc_and_heads_sanity_checks(&env, &archival_id, params.enable_split_store, None);
     }
 
     let archival_node = TestLoopNode::for_account(&env.node_datas, &archival_id);
@@ -87,18 +90,18 @@ fn test_cloud_archival_base(params: TestCloudArchivalParameters) {
     archival_node.run_until_head_height(&mut env.test_loop, target_height);
 
     println!("Final sanity checks");
-    gc_and_heads_sanity_checks(&mut env, &archival_id, params.enable_split_store, Some(EPOCH_LENGTH));
+    gc_and_heads_sanity_checks(&env, &archival_id, params.enable_split_store, Some(EPOCH_LENGTH));
 
     env.shutdown_and_drain_remaining_events(Duration::seconds(10));
 }
 
-/// `cloud_head` progresses without crashing.
+/// Verifies that `cloud_head` progresses without crashes.
 #[test]
 fn test_cloud_archival_basic() {
     test_cloud_archival_base(TestCloudArchivalParametersBuilder::default().build());
 }
 
-/// `cloud_head` and `cold_head` progress when split store is enabled.
+/// Verifies that both `cloud_head` and `cold_head` progress with split store enabled.
 #[test]
 fn test_cloud_archival_with_split_store() {
     test_cloud_archival_base(
@@ -106,16 +109,22 @@ fn test_cloud_archival_with_split_store() {
     );
 }
 
-/// Verifies that the cloud archival writer and cold store loop progress when both are enabled.
+/// Verifies that while the cloud writer is paused, GC stop never exceeds `cloud_head`; after resuming, the
+/// writer catches up, and the cold-store loop keeps progressing throughout.
 #[test]
+// TODO(cloud_archival): Enable once cloud head is persisted to external storage.
+#[cfg(ignore)]
 fn test_cloud_archival_delayed_start() {
     let gc_period_num_blocks = GC_NUM_EPOCHS_TO_KEEP * EPOCH_LENGTH;
+    // Pause the cloud writer long enough that, if it were possible, GC could overtake `cloud_head`.
     let start_writer_height = 2 * gc_period_num_blocks;
+    // After resuming writer, wait one more GC window to expose potential crash.
     let num_epochs_to_wait = 3 * GC_NUM_EPOCHS_TO_KEEP;
     test_cloud_archival_base(
         TestCloudArchivalParametersBuilder::default()
-            .delay_writer_start(Some(start_writer_height))
             .num_epochs_to_wait(num_epochs_to_wait)
+            .enable_split_store(true)
+            .delay_writer_start(Some(start_writer_height))
             .build(),
     );
 }

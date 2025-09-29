@@ -29,8 +29,7 @@ pub struct TestLoopNode<'a> {
 
 impl<'a> TestLoopNode<'a> {
     pub fn for_account(node_datas: &'a [NodeExecutionData], account_id: &AccountId) -> Self {
-        // Note that `TestLoopEnv::restart_node(N)` appends a copy of N to `node_datas`.
-        // Therefore, we use `rfind` here.
+        // Uses `rfind` because `TestLoopEnv::restart_node()` appends a new copy to `node_datas`.
         let data = node_datas
             .iter()
             .rfind(|data| &data.account_id == account_id)
