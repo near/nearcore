@@ -10,7 +10,7 @@ pub enum RpcBlockError {
         // until we can provide useful struct like block_height or block_hash
         // that was requested
         #[serde(skip_serializing)]
-        #[schemars(skip)]
+        #[cfg_attr(feature = "schemars", schemars(skip))]
         error_message: String,
     },
     #[error("There are no fully synchronized blocks yet")]

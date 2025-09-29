@@ -21,6 +21,7 @@ pub enum RpcProtocolConfigError {
     #[error("Block has never been observed: {error_message}")]
     UnknownBlock {
         #[serde(skip_serializing)]
+        #[cfg_attr(feature = "schemars", schemars(skip))]
         error_message: String,
     },
     #[error("The node reached its limits. Try again later. More details: {error_message}")]

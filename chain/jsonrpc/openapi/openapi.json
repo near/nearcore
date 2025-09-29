@@ -2,7 +2,7 @@
   "openapi": "3.0.0",
   "info": {
     "title": "NEAR Protocol JSON RPC API",
-    "version": "1.1.2"
+    "version": "1.2.0"
   },
   "paths": {
     "/EXPERIMENTAL_changes": {
@@ -10948,15 +10948,6 @@
           {
             "properties": {
               "info": {
-                "properties": {
-                  "error_message": {
-                    "type": "string",
-                    "writeOnly": true
-                  }
-                },
-                "required": [
-                  "error_message"
-                ],
                 "type": "object"
               },
               "name": {
@@ -11778,15 +11769,6 @@
           {
             "properties": {
               "info": {
-                "properties": {
-                  "error_message": {
-                    "type": "string",
-                    "writeOnly": true
-                  }
-                },
-                "required": [
-                  "error_message"
-                ],
                 "type": "object"
               },
               "name": {
@@ -12018,15 +12000,6 @@
           {
             "properties": {
               "info": {
-                "properties": {
-                  "error_message": {
-                    "type": "string",
-                    "writeOnly": true
-                  }
-                },
-                "required": [
-                  "error_message"
-                ],
                 "type": "object"
               },
               "name": {
@@ -12133,15 +12106,6 @@
           {
             "properties": {
               "info": {
-                "properties": {
-                  "error_message": {
-                    "type": "string",
-                    "writeOnly": true
-                  }
-                },
-                "required": [
-                  "error_message"
-                ],
                 "type": "object"
               },
               "name": {
@@ -12457,15 +12421,6 @@
           {
             "properties": {
               "info": {
-                "properties": {
-                  "error_message": {
-                    "type": "string",
-                    "writeOnly": true
-                  }
-                },
-                "required": [
-                  "error_message"
-                ],
                 "type": "object"
               },
               "name": {
@@ -14367,15 +14322,6 @@
           {
             "properties": {
               "info": {
-                "properties": {
-                  "error_message": {
-                    "type": "string",
-                    "writeOnly": true
-                  }
-                },
-                "required": [
-                  "error_message"
-                ],
                 "type": "object"
               },
               "name": {
@@ -15556,19 +15502,6 @@
           {
             "properties": {
               "info": {
-                "properties": {
-                  "context": {
-                    "allOf": [
-                      {
-                        "$ref": "#/components/schemas/InvalidTxError"
-                      }
-                    ],
-                    "writeOnly": true
-                  }
-                },
-                "required": [
-                  "context"
-                ],
                 "type": "object"
               },
               "name": {
