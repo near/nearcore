@@ -138,6 +138,7 @@ pub(crate) enum ActionType {
     Delegate,
     DeployGlobalContract,
     UseGlobalContract,
+    DeterministicStateInit,
 }
 
 impl ContractAccount {
@@ -368,6 +369,7 @@ fn map_action(action: &Action) -> ActionType {
         Action::Delegate(_) => ActionType::Delegate,
         Action::DeployGlobalContract(_) => ActionType::DeployGlobalContract,
         Action::UseGlobalContract(_) => ActionType::UseGlobalContract,
+        Action::DeterministicStateInit(_) => ActionType::DeterministicStateInit,
     }
 }
 

@@ -570,19 +570,15 @@ impl RunCmd {
                 UpdatableConfigLoader::new(updatable_configs.clone(), tx_config_update);
             let config_updater = ConfigUpdater::new(rx_config_update);
 
-            let nearcore::NearNode {
-                cold_store_loop_handle,
-                mut state_sync_dumper,
-                resharding_handle,
-                ..
-            } = nearcore::start_with_config_and_synchronization(
-                home_dir,
-                near_config,
-                ActorSystem::new(),
-                Some(tx_crash),
-                Some(config_updater),
-            )
-            .expect("start_with_config");
+            let nearcore::NearNode { cold_store_loop_handle, resharding_handle, .. } =
+                nearcore::start_with_config_and_synchronization(
+                    home_dir,
+                    near_config,
+                    ActorSystem::new(),
+                    Some(tx_crash),
+                    Some(config_updater),
+                )
+                .expect("start_with_config");
 
             let sig = loop {
                 let sig = wait_for_interrupt_signal(home_dir, &mut rx_crash).await;
@@ -598,7 +594,6 @@ impl RunCmd {
             if let Some(handle) = cold_store_loop_handle {
                 handle.store(false, std::sync::atomic::Ordering::Relaxed);
             }
-            state_sync_dumper.stop_and_await();
             resharding_handle.stop();
             near_async::shutdown_all_actors();
             // Disable the subscriber to properly shutdown the tracer.

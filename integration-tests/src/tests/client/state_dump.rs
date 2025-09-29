@@ -63,7 +63,7 @@ fn slow_test_state_dump() {
     let tokio_runtime = Arc::new(
         tokio::runtime::Builder::new_multi_thread().enable_all().worker_threads(1).build().unwrap(),
     );
-    let mut state_sync_dumper = StateSyncDumper {
+    let state_sync_dumper = StateSyncDumper {
         clock: Clock::real(),
         client_config: config,
         chain_genesis: ChainGenesis::new(&genesis.config),
@@ -72,7 +72,6 @@ fn slow_test_state_dump() {
         runtime,
         validator,
         future_spawner: Arc::new(TokioRuntimeFutureSpawner(tokio_runtime)),
-        handle: None,
     };
     state_sync_dumper.start().unwrap();
 
@@ -175,7 +174,7 @@ fn run_state_sync_with_dumped_parts(
     let tokio_runtime = Arc::new(
         tokio::runtime::Builder::new_multi_thread().enable_all().worker_threads(1).build().unwrap(),
     );
-    let mut state_sync_dumper = StateSyncDumper {
+    let state_sync_dumper = StateSyncDumper {
         clock: Clock::real(),
         client_config: config.clone(),
         chain_genesis: ChainGenesis::new(&genesis.config),
@@ -184,7 +183,6 @@ fn run_state_sync_with_dumped_parts(
         runtime,
         validator,
         future_spawner: Arc::new(TokioRuntimeFutureSpawner(tokio_runtime)),
-        handle: None,
     };
     state_sync_dumper.start().unwrap();
 

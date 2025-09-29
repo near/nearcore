@@ -341,8 +341,6 @@ pub struct NearNode {
     /// The `cloud_archival_handle` will only be set if the cloud archival writer is configured. It's a handle
     /// to control the cloud archival actor that archives data from the hot store to the cloud archival.
     pub cloud_archival_handle: Option<CloudArchivalHandle>,
-    /// Contains handles to background threads that may be dumping state to S3.
-    pub state_sync_dumper: StateSyncDumper,
     // A handle that allows the main process to interrupt resharding if needed.
     // This typically happens when the main process is interrupted.
     pub resharding_handle: ReshardingHandle,
@@ -665,7 +663,7 @@ pub fn start_with_config_and_synchronization(
         network_adapter.as_multi_sender(),
     );
 
-    let mut state_sync_dumper = StateSyncDumper {
+    let state_sync_dumper = StateSyncDumper {
         clock: Clock::real(),
         client_config: config.client_config.clone(),
         chain_genesis,
@@ -674,7 +672,6 @@ pub fn start_with_config_and_synchronization(
         runtime,
         validator: config.validator_signer.clone(),
         future_spawner: state_sync_spawner,
-        handle: None,
     };
     state_sync_dumper.start()?;
 
@@ -761,7 +758,6 @@ pub fn start_with_config_and_synchronization(
         tx_generator,
         cold_store_loop_handle,
         cloud_archival_handle,
-        state_sync_dumper,
         resharding_handle,
         shard_tracker,
     })

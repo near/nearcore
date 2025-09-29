@@ -1,17 +1,13 @@
+use std::ops::ControlFlow;
 use std::str::FromStr;
-
-use actix::Actor;
-
-use futures::{FutureExt, TryFutureExt, future};
 
 use crate::tests::nearcore::node_cluster::NodeCluster;
 use crate::utils::genesis_helpers::genesis_block;
-use near_actix_test_utils::spawn_interruptible;
 use near_async::messaging::CanSendAsync;
 use near_client::GetBlock;
 use near_crypto::InMemorySigner;
 use near_jsonrpc::client::new_client;
-use near_network::test_utils::WaitOrTimeoutActor;
+use near_network::test_utils::wait_or_timeout;
 use near_o11y::testonly::init_integration_logger;
 use near_primitives::hash::CryptoHash;
 use near_primitives::serialize::to_base64;
@@ -20,8 +16,8 @@ use near_primitives::types::{Balance, BlockId};
 
 // Queries json-rpc block that doesn't exists
 // Checks if the struct is expected and contains the proper data
-#[test]
-fn slow_test_block_unknown_block_error() {
+#[tokio::test]
+async fn slow_test_block_unknown_block_error() {
     init_integration_logger();
 
     let cluster = NodeCluster::default()
@@ -31,56 +27,53 @@ fn slow_test_block_unknown_block_error() {
         .set_epoch_length(10)
         .set_genesis_height(0);
 
-    cluster.exec_until_stop(|_genesis, rpc_addrs, clients| async move {
-        let view_client = clients[0].1.clone();
+    cluster
+        .run_and_then_shutdown(|_genesis, rpc_addrs, clients| async move {
+            let view_client = clients[0].1.clone();
 
-        WaitOrTimeoutActor::new(
-            Box::new(move |_ctx| {
+            wait_or_timeout(100, 40000, move || {
                 let rpc_addrs_copy = rpc_addrs.clone();
-
-                // We are sending this tx unstop, just to get over the warm up period.
-                // Probably make sense to stop after 1 time though.
-                let actor = view_client.send_async(GetBlock::latest());
-                let actor = actor.then(move |res| {
-                    if let Ok(Ok(block)) = res {
+                let view_client = view_client.clone();
+                async move {
+                    // We are sending this tx unstop, just to get over the warm up period.
+                    // Probably make sense to stop after 1 time though.
+                    if let Ok(Ok(block)) = view_client.send_async(GetBlock::latest()).await {
                         if block.header.height > 1 {
                             let client = new_client(&format!("http://{}", rpc_addrs_copy[2]));
-                            spawn_interruptible(
-                                client
-                                    .block_by_id(BlockId::Height(block.header.height + 100))
-                                    .map_err(|err| {
-                                        let error_json = serde_json::to_value(err).unwrap();
-                                        assert_eq!(
-                                            error_json["name"],
-                                            serde_json::json!("HANDLER_ERROR")
-                                        );
-                                        assert_eq!(
-                                            error_json["cause"]["name"],
-                                            serde_json::json!("UNKNOWN_BLOCK")
-                                        );
-                                        near_async::shutdown_all_actors();
-                                    })
-                                    .map_ok(|_| panic!("The block mustn't be found"))
-                                    .map(drop),
-                            );
+                            match client
+                                .block_by_id(BlockId::Height(block.header.height + 100))
+                                .await
+                            {
+                                Err(err) => {
+                                    let error_json = serde_json::to_value(err).unwrap();
+                                    assert_eq!(
+                                        error_json["name"],
+                                        serde_json::json!("HANDLER_ERROR")
+                                    );
+                                    assert_eq!(
+                                        error_json["cause"]["name"],
+                                        serde_json::json!("UNKNOWN_BLOCK")
+                                    );
+                                    return ControlFlow::Break(());
+                                }
+                                Ok(_) => panic!("The block mustn't be found"),
+                            }
                         }
                     }
-                    future::ready(())
-                });
-                spawn_interruptible(actor);
-            }),
-            100,
-            40000,
-        )
-        .start();
-    });
+                    ControlFlow::Continue(())
+                }
+            })
+            .await
+            .unwrap();
+        })
+        .await;
 }
 
 // Queries json-rpc chunk that doesn't exists
 // (random-ish chunk hash, we hope it won't happen in test case)
 // Checks if the struct is expected and contains the proper data
-#[test]
-fn slow_test_chunk_unknown_chunk_error() {
+#[tokio::test]
+async fn slow_test_chunk_unknown_chunk_error() {
     init_integration_logger();
 
     let cluster = NodeCluster::default()
@@ -90,66 +83,63 @@ fn slow_test_chunk_unknown_chunk_error() {
         .set_epoch_length(10)
         .set_genesis_height(0);
 
-    cluster.exec_until_stop(|_genesis, rpc_addrs, clients| async move {
-        let view_client = clients[0].1.clone();
+    cluster
+        .run_and_then_shutdown(|_genesis, rpc_addrs, clients| async move {
+            let view_client = clients[0].1.clone();
 
-        WaitOrTimeoutActor::new(
-            Box::new(move |_ctx| {
+            wait_or_timeout(100, 40000, move || {
                 let rpc_addrs_copy = rpc_addrs.clone();
-
-                // We are sending this tx unstop, just to get over the warm up period.
-                // Probably make sense to stop after 1 time though.
-                let actor = view_client.send_async(GetBlock::latest());
-                let actor = actor.then(move |res| {
-                    if let Ok(Ok(block)) = res {
+                let view_client = view_client.clone();
+                async move {
+                    // We are sending this tx unstop, just to get over the warm up period.
+                    // Probably make sense to stop after 1 time though.
+                    if let Ok(Ok(block)) = view_client.send_async(GetBlock::latest()).await {
                         if block.header.height > 1 {
                             let client = new_client(&format!("http://{}", rpc_addrs_copy[2]));
-                            spawn_interruptible(
-                                client
-                                    .chunk(near_jsonrpc::client::ChunkId::Hash(
-                                        CryptoHash::from_str(
-                                            "3tMcx4KU2KvkwJPMWPXqK2MUU1FDVbigPFNiAeuVa7Tu",
+                            match client
+                                .chunk(near_jsonrpc::client::ChunkId::Hash(
+                                    CryptoHash::from_str(
+                                        "3tMcx4KU2KvkwJPMWPXqK2MUU1FDVbigPFNiAeuVa7Tu",
+                                    )
+                                    .unwrap(),
+                                ))
+                                .await
+                            {
+                                Err(err) => {
+                                    let error_json = serde_json::to_value(err).unwrap();
+                                    assert_eq!(
+                                        error_json["name"],
+                                        serde_json::json!("HANDLER_ERROR")
+                                    );
+                                    assert_eq!(
+                                        error_json["cause"]["name"],
+                                        serde_json::json!("UNKNOWN_CHUNK")
+                                    );
+                                    assert_eq!(
+                                        error_json["cause"]["info"]["chunk_hash"],
+                                        serde_json::json!(
+                                            "3tMcx4KU2KvkwJPMWPXqK2MUU1FDVbigPFNiAeuVa7Tu"
                                         )
-                                        .unwrap(),
-                                    ))
-                                    .map_err(|err| {
-                                        let error_json = serde_json::to_value(err).unwrap();
-                                        assert_eq!(
-                                            error_json["name"],
-                                            serde_json::json!("HANDLER_ERROR")
-                                        );
-                                        assert_eq!(
-                                            error_json["cause"]["name"],
-                                            serde_json::json!("UNKNOWN_CHUNK")
-                                        );
-                                        assert_eq!(
-                                            error_json["cause"]["info"]["chunk_hash"],
-                                            serde_json::json!(
-                                                "3tMcx4KU2KvkwJPMWPXqK2MUU1FDVbigPFNiAeuVa7Tu"
-                                            )
-                                        );
-                                        near_async::shutdown_all_actors();
-                                    })
-                                    .map_ok(|_| panic!("The chunk mustn't be found"))
-                                    .map(drop),
-                            );
+                                    );
+                                    return ControlFlow::Break(());
+                                }
+                                Ok(_) => panic!("The chunk mustn't be found"),
+                            }
                         }
                     }
-                    future::ready(())
-                });
-                spawn_interruptible(actor);
-            }),
-            100,
-            40000,
-        )
-        .start();
-    });
+                    ControlFlow::Continue(())
+                }
+            })
+            .await
+            .unwrap();
+        })
+        .await;
 }
 
 // Queries json-rpc EXPERIMENTAL_protocol_config that doesn't exists
 // Checks if the struct is expected and contains the proper data
-#[test]
-fn slow_test_protocol_config_unknown_block_error() {
+#[tokio::test]
+async fn slow_test_protocol_config_unknown_block_error() {
     init_integration_logger();
 
     let cluster = NodeCluster::default()
@@ -159,60 +149,57 @@ fn slow_test_protocol_config_unknown_block_error() {
         .set_epoch_length(10)
         .set_genesis_height(0);
 
-    cluster.exec_until_stop(|_genesis, rpc_addrs, clients| async move {
-        let view_client = clients[0].1.clone();
+    cluster
+        .run_and_then_shutdown(|_genesis, rpc_addrs, clients| async move {
+            let view_client = clients[0].1.clone();
 
-        WaitOrTimeoutActor::new(
-            Box::new(move |_ctx| {
+            wait_or_timeout(100, 40000, move || {
                 let rpc_addrs_copy = rpc_addrs.clone();
-
-                // We are sending this tx unstop, just to get over the warm up period.
-                // Probably make sense to stop after 1 time though.
-                let actor = view_client.send_async(GetBlock::latest());
-                let actor = actor.then(move |res| {
-                    if let Ok(Ok(block)) = res {
+                let view_client = view_client.clone();
+                async move {
+                    // We are sending this tx unstop, just to get over the warm up period.
+                    // Probably make sense to stop after 1 time though.
+                    if let Ok(Ok(block)) = view_client.send_async(GetBlock::latest()).await {
                         if block.header.height > 1 {
                             let client = new_client(&format!("http://{}", rpc_addrs_copy[2]));
-                            spawn_interruptible(
-                                client
-                                    .EXPERIMENTAL_protocol_config(
-                                        near_jsonrpc_primitives::types::config::RpcProtocolConfigRequest {
-                                            block_reference: near_primitives::types::BlockReference::BlockId(BlockId::Height(block.header.height + 100))
-                                        }
-                                    )
-                                    .map_err(|err| {
-                                        let error_json = serde_json::to_value(err).unwrap();
+                            match client
+                            .EXPERIMENTAL_protocol_config(
+                                near_jsonrpc_primitives::types::config::RpcProtocolConfigRequest {
+                                    block_reference:
+                                        near_primitives::types::BlockReference::BlockId(
+                                            BlockId::Height(block.header.height + 100),
+                                        ),
+                                },
+                            )
+                            .await
+                        {
+                            Err(err) => {
+                                let error_json = serde_json::to_value(err).unwrap();
 
-                                        assert_eq!(
-                                            error_json["name"],
-                                            serde_json::json!("HANDLER_ERROR")
-                                        );
-                                        assert_eq!(
-                                            error_json["cause"]["name"],
-                                            serde_json::json!("UNKNOWN_BLOCK")
-                                        );
-                                        near_async::shutdown_all_actors();
-                                    })
-                                    .map_ok(|_| panic!("The block mustn't be found"))
-                                    .map(drop),
-                            );
+                                assert_eq!(error_json["name"], serde_json::json!("HANDLER_ERROR"));
+                                assert_eq!(
+                                    error_json["cause"]["name"],
+                                    serde_json::json!("UNKNOWN_BLOCK")
+                                );
+                                return ControlFlow::Break(());
+                            }
+                            Ok(_) => panic!("The block mustn't be found"),
+                        }
                         }
                     }
-                    future::ready(())
-                });
-                spawn_interruptible(actor);
-            }),
-            100,
-            40000,
-        )
-        .start();
-    });
+                    ControlFlow::Continue(())
+                }
+            })
+            .await
+            .unwrap();
+        })
+        .await;
 }
 
 // Queries json-rpc gas_price that doesn't exists
 // Checks if the struct is expected and contains the proper data
-#[test]
-fn slow_test_gas_price_unknown_block_error() {
+#[tokio::test]
+async fn slow_test_gas_price_unknown_block_error() {
     init_integration_logger();
 
     let cluster = NodeCluster::default()
@@ -222,56 +209,53 @@ fn slow_test_gas_price_unknown_block_error() {
         .set_epoch_length(10)
         .set_genesis_height(0);
 
-    cluster.exec_until_stop(|_genesis, rpc_addrs, clients| async move {
-        let view_client = clients[0].1.clone();
+    cluster
+        .run_and_then_shutdown(|_genesis, rpc_addrs, clients| async move {
+            let view_client = clients[0].1.clone();
 
-        WaitOrTimeoutActor::new(
-            Box::new(move |_ctx| {
+            wait_or_timeout(100, 40000, move || {
                 let rpc_addrs_copy = rpc_addrs.clone();
-
-                // We are sending this tx unstop, just to get over the warm up period.
-                // Probably make sense to stop after 1 time though.
-                let actor = view_client.send_async(GetBlock::latest());
-                let actor = actor.then(move |res| {
-                    if let Ok(Ok(block)) = res {
+                let view_client = view_client.clone();
+                async move {
+                    // We are sending this tx unstop, just to get over the warm up period.
+                    // Probably make sense to stop after 1 time though.
+                    if let Ok(Ok(block)) = view_client.send_async(GetBlock::latest()).await {
                         if block.header.height > 1 {
                             let client = new_client(&format!("http://{}", rpc_addrs_copy[2]));
-                            spawn_interruptible(
-                                client
-                                    .gas_price(Some(BlockId::Height(block.header.height + 100)))
-                                    .map_err(|err| {
-                                        let error_json = serde_json::to_value(err).unwrap();
+                            match client
+                                .gas_price(Some(BlockId::Height(block.header.height + 100)))
+                                .await
+                            {
+                                Err(err) => {
+                                    let error_json = serde_json::to_value(err).unwrap();
 
-                                        assert_eq!(
-                                            error_json["name"],
-                                            serde_json::json!("HANDLER_ERROR")
-                                        );
-                                        assert_eq!(
-                                            error_json["cause"]["name"],
-                                            serde_json::json!("UNKNOWN_BLOCK")
-                                        );
-                                        near_async::shutdown_all_actors();
-                                    })
-                                    .map_ok(|_| panic!("The block mustn't be found"))
-                                    .map(drop),
-                            );
+                                    assert_eq!(
+                                        error_json["name"],
+                                        serde_json::json!("HANDLER_ERROR")
+                                    );
+                                    assert_eq!(
+                                        error_json["cause"]["name"],
+                                        serde_json::json!("UNKNOWN_BLOCK")
+                                    );
+                                    return ControlFlow::Break(());
+                                }
+                                Ok(_) => panic!("The block mustn't be found"),
+                            }
                         }
                     }
-                    future::ready(())
-                });
-                spawn_interruptible(actor);
-            }),
-            100,
-            40000,
-        )
-        .start();
-    });
+                    ControlFlow::Continue(())
+                }
+            })
+            .await
+            .unwrap();
+        })
+        .await;
 }
 
 // Queries json-rpc EXPERIMENTAL_receipt that doesn't exists
 // Checks if the struct is expected and contains the proper data
-#[test]
-fn slow_test_receipt_id_unknown_receipt_error() {
+#[tokio::test]
+async fn slow_test_receipt_id_unknown_receipt_error() {
     init_integration_logger();
 
     let cluster = NodeCluster::default()
@@ -281,70 +265,68 @@ fn slow_test_receipt_id_unknown_receipt_error() {
         .set_epoch_length(10)
         .set_genesis_height(0);
 
-    cluster.exec_until_stop(|_genesis, rpc_addrs, clients| async move {
-        let view_client = clients[0].1.clone();
+    cluster
+        .run_and_then_shutdown(|_genesis, rpc_addrs, clients| async move {
+            let view_client = clients[0].1.clone();
 
-        WaitOrTimeoutActor::new(
-            Box::new(move |_ctx| {
+            wait_or_timeout(100, 40000, move || {
                 let rpc_addrs_copy = rpc_addrs.clone();
-
-                // We are sending this tx unstop, just to get over the warm up period.
-                // Probably make sense to stop after 1 time though.
-                let actor = view_client.send_async(GetBlock::latest());
-                let actor = actor.then(move |res| {
-                    if let Ok(Ok(block)) = res {
+                let view_client = view_client.clone();
+                async move {
+                    // We are sending this tx unstop, just to get over the warm up period.
+                    // Probably make sense to stop after 1 time though.
+                    if let Ok(Ok(block)) = view_client.send_async(GetBlock::latest()).await {
                         if block.header.height > 1 {
                             let client = new_client(&format!("http://{}", rpc_addrs_copy[2]));
-                            spawn_interruptible(
-                                client
-                                    .EXPERIMENTAL_receipt(
-                                        near_jsonrpc_primitives::types::receipts::RpcReceiptRequest {
-                                            receipt_reference: near_jsonrpc_primitives::types::receipts::ReceiptReference {
-                                            receipt_id: CryptoHash::from_str("3tMcx4KU2KvkwJPMWPXqK2MUU1FDVbigPFNiAeuVa7Tu").unwrap()
-                                        }
-                                        }
-                                    )
-                                    .map_err(|err| {
-                                        let error_json = serde_json::to_value(err).unwrap();
-
-                                        assert_eq!(
-                                            error_json["name"],
-                                            serde_json::json!("HANDLER_ERROR")
-                                        );
-                                        assert_eq!(
-                                            error_json["cause"]["name"],
-                                            serde_json::json!("UNKNOWN_RECEIPT")
-                                        );
-                                        assert_eq!(
-                                            error_json["cause"]["info"]["receipt_id"],
-                                            serde_json::json!(
-                                                "3tMcx4KU2KvkwJPMWPXqK2MUU1FDVbigPFNiAeuVa7Tu"
+                            match client
+                            .EXPERIMENTAL_receipt(
+                                near_jsonrpc_primitives::types::receipts::RpcReceiptRequest {
+                                    receipt_reference:
+                                        near_jsonrpc_primitives::types::receipts::ReceiptReference {
+                                            receipt_id: CryptoHash::from_str(
+                                                "3tMcx4KU2KvkwJPMWPXqK2MUU1FDVbigPFNiAeuVa7Tu",
                                             )
-                                        );
-                                        near_async::shutdown_all_actors();
-                                    })
-                                    .map_ok(|_| panic!("The block mustn't be found"))
-                                    .map(drop),
-                            );
+                                            .unwrap(),
+                                        },
+                                },
+                            )
+                            .await
+                        {
+                            Err(err) => {
+                                let error_json = serde_json::to_value(err).unwrap();
+
+                                assert_eq!(error_json["name"], serde_json::json!("HANDLER_ERROR"));
+                                assert_eq!(
+                                    error_json["cause"]["name"],
+                                    serde_json::json!("UNKNOWN_RECEIPT")
+                                );
+                                assert_eq!(
+                                    error_json["cause"]["info"]["receipt_id"],
+                                    serde_json::json!(
+                                        "3tMcx4KU2KvkwJPMWPXqK2MUU1FDVbigPFNiAeuVa7Tu"
+                                    )
+                                );
+                                return ControlFlow::Break(());
+                            }
+                            Ok(_) => panic!("The block mustn't be found"),
+                        }
                         }
                     }
-                    future::ready(())
-                });
-                spawn_interruptible(actor);
-            }),
-            100,
-            40000,
-        )
-        .start();
-    });
+                    ControlFlow::Continue(())
+                }
+            })
+            .await
+            .unwrap();
+        })
+        .await;
 }
 
 /// Starts 2 validators and 2 light clients (not tracking anything).
 /// Sends tx to first light client through `broadcast_tx_commit` and checks that the transaction has failed.
 /// Checks if the struct is expected and contains the proper data
-#[test]
+#[tokio::test]
 #[ignore = "Invalid test setup. broadcast_tx_commit times out because we haven't implemented forwarding logic. Fix and reenable."]
-fn test_tx_invalid_tx_error() {
+async fn test_tx_invalid_tx_error() {
     init_integration_logger();
 
     let cluster = NodeCluster::default()
@@ -354,70 +336,65 @@ fn test_tx_invalid_tx_error() {
         .set_epoch_length(1000)
         .set_genesis_height(0);
 
-    cluster.exec_until_stop(|genesis, rpc_addrs, clients| async move {
-        let view_client = clients[0].1.clone();
+    cluster
+        .run_and_then_shutdown(|genesis, rpc_addrs, clients| async move {
+            let view_client = clients[0].1.clone();
 
-        let genesis_hash = *genesis_block(&genesis).hash();
-        let signer = InMemorySigner::test_signer(&"near.5".parse().unwrap());
-        let transaction = SignedTransaction::send_money(
-            1,
-            "near.5".parse().unwrap(),
-            "near.2".parse().unwrap(),
-            &signer,
-            Balance::from_yoctonear(10000),
-            genesis_hash,
-        );
+            let genesis_hash = *genesis_block(&genesis).hash();
+            let signer = InMemorySigner::test_signer(&"near.5".parse().unwrap());
+            let transaction = SignedTransaction::send_money(
+                1,
+                "near.5".parse().unwrap(),
+                "near.2".parse().unwrap(),
+                &signer,
+                Balance::from_yoctonear(10000),
+                genesis_hash,
+            );
 
-        WaitOrTimeoutActor::new(
-            Box::new(move |_ctx| {
+            wait_or_timeout(100, 40000, move || {
                 let rpc_addrs_copy = rpc_addrs.clone();
                 let transaction_copy = transaction.clone();
-                let tx_hash = transaction_copy.get_hash();
+                let view_client = view_client.clone();
+                async move {
+                    let tx_hash = transaction_copy.get_hash();
 
-                let actor = view_client.send_async(GetBlock::latest());
-                let actor = actor.then(move |res| {
-                    if let Ok(Ok(block)) = res {
+                    if let Ok(Ok(block)) = view_client.send_async(GetBlock::latest()).await {
                         if block.header.height > 10 {
                             let client = new_client(&format!("http://{}", rpc_addrs_copy[2]));
                             let bytes = borsh::to_vec(&transaction_copy).unwrap();
-                            spawn_interruptible(
-                                client
-                                    .broadcast_tx_commit(to_base64(&bytes))
-                                    .map_err(move |err| {
-                                        let error_json = serde_json::to_value(err).unwrap();
+                            match client.broadcast_tx_commit(to_base64(&bytes)).await {
+                                Err(err) => {
+                                    let error_json = serde_json::to_value(err).unwrap();
 
-                                        assert_eq!(
-                                            error_json["name"],
-                                            serde_json::json!("HANDLER_ERROR")
-                                        );
-                                        assert_eq!(
-                                            error_json["cause"]["name"],
-                                            serde_json::json!("REQUEST_ROUTED")
-                                        );
-                                        assert_eq!(
-                                            error_json["cause"]["info"]["transaction_hash"],
-                                            serde_json::json!(tx_hash)
-                                        );
-                                        near_async::shutdown_all_actors();
-                                    })
-                                    .map_ok(|_| panic!("The transaction mustn't succeed"))
-                                    .map(drop),
-                            );
+                                    assert_eq!(
+                                        error_json["name"],
+                                        serde_json::json!("HANDLER_ERROR")
+                                    );
+                                    assert_eq!(
+                                        error_json["cause"]["name"],
+                                        serde_json::json!("REQUEST_ROUTED")
+                                    );
+                                    assert_eq!(
+                                        error_json["cause"]["info"]["transaction_hash"],
+                                        serde_json::json!(tx_hash)
+                                    );
+                                    return ControlFlow::Break(());
+                                }
+                                Ok(_) => panic!("The transaction mustn't succeed"),
+                            }
                         }
                     }
-                    future::ready(())
-                });
-                spawn_interruptible(actor);
-            }),
-            100,
-            40000,
-        )
-        .start();
-    });
+                    ControlFlow::Continue(())
+                }
+            })
+            .await
+            .unwrap();
+        })
+        .await;
 }
 
-#[test]
-fn test_query_rpc_account_view_unknown_block_must_return_error() {
+#[tokio::test]
+async fn test_query_rpc_account_view_unknown_block_must_return_error() {
     init_integration_logger();
 
     let cluster = NodeCluster::default()
@@ -427,25 +404,26 @@ fn test_query_rpc_account_view_unknown_block_must_return_error() {
         .set_epoch_length(10)
         .set_genesis_height(0);
 
-    cluster.exec_until_stop(|_, rpc_addrs, _| async move {
-        let client = new_client(&format!("http://{}", rpc_addrs[0]));
-        let query_response = client
-            .query(near_jsonrpc_primitives::types::query::RpcQueryRequest {
-                block_reference: near_primitives::types::BlockReference::BlockId(BlockId::Height(
-                    1,
-                )),
-                request: near_primitives::views::QueryRequest::ViewAccount {
-                    account_id: "near.0".parse().unwrap(),
-                },
-            })
-            .await;
+    cluster
+        .run_and_then_shutdown(|_, rpc_addrs, _| async move {
+            let client = new_client(&format!("http://{}", rpc_addrs[0]));
+            let query_response = client
+                .query(near_jsonrpc_primitives::types::query::RpcQueryRequest {
+                    block_reference: near_primitives::types::BlockReference::BlockId(
+                        BlockId::Height(1),
+                    ),
+                    request: near_primitives::views::QueryRequest::ViewAccount {
+                        account_id: "near.0".parse().unwrap(),
+                    },
+                })
+                .await;
 
-        let error = match query_response {
-            Ok(result) => panic!("expected error but received Ok: {:?}", result.kind),
-            Err(err) => serde_json::to_value(err).unwrap(),
-        };
+            let error = match query_response {
+                Ok(result) => panic!("expected error but received Ok: {:?}", result.kind),
+                Err(err) => serde_json::to_value(err).unwrap(),
+            };
 
-        assert_eq!(error["cause"]["name"], serde_json::json!("UNKNOWN_BLOCK"),);
-        near_async::shutdown_all_actors();
-    });
+            assert_eq!(error["cause"]["name"], serde_json::json!("UNKNOWN_BLOCK"),);
+        })
+        .await;
 }

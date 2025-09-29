@@ -4,7 +4,6 @@ use crate::types::{
     NetworkInfo, NetworkResponses, PeerManagerMessageRequest, PeerManagerMessageResponse,
     SetChainInfo, StateSyncEvent, Tier3Request,
 };
-use actix::{Actor, AsyncContext, Context};
 use futures::{Future, FutureExt};
 use near_async::messaging::{self, CanSend, MessageWithCallback};
 use near_crypto::{KeyType, SecretKey};
@@ -33,72 +32,6 @@ pub fn convert_boot_nodes(boot_nodes: Vec<(&str, std::net::SocketAddr)>) -> Vec<
         result.push(PeerInfo::new(id, addr));
     }
     result
-}
-
-/// Waits until condition or timeouts with panic.
-/// Use in tests to check for a condition and stop or fail otherwise.
-///
-/// Prefer using [`wait_or_timeout`], which is not specific to actix.
-///
-/// # Example
-///
-/// ```rust,ignore
-/// use actix::{System, Actor};
-/// use near_network::test_utils::WaitOrTimeoutActor;
-/// use std::time::{Instant, Duration};
-///
-/// near_actix_test_utils::run_actix(async {
-///     let start = Instant::now();
-///     WaitOrTimeoutActor::new(
-///         Box::new(move |ctx| {
-///             if start.elapsed() > Duration::from_millis(10) {
-///                 near_async::shutdown_all_actors();
-///             }
-///         }),
-///         1000,
-///         60000,
-///     ).start();
-/// });
-/// ```
-pub struct WaitOrTimeoutActor {
-    f: Box<dyn FnMut(&mut Context<WaitOrTimeoutActor>)>,
-    check_interval_ms: u64,
-    max_wait_ms: u64,
-    ms_slept: u64,
-}
-
-impl WaitOrTimeoutActor {
-    pub fn new(
-        f: Box<dyn FnMut(&mut Context<WaitOrTimeoutActor>)>,
-        check_interval_ms: u64,
-        max_wait_ms: u64,
-    ) -> Self {
-        WaitOrTimeoutActor { f, check_interval_ms, max_wait_ms, ms_slept: 0 }
-    }
-
-    fn wait_or_timeout(&mut self, ctx: &mut Context<Self>) {
-        (self.f)(ctx);
-
-        ctx.run_later(
-            tokio::time::Duration::from_millis(self.check_interval_ms),
-            move |act, ctx| {
-                act.ms_slept += act.check_interval_ms;
-                if act.ms_slept > act.max_wait_ms {
-                    println!("BBBB Slept {}; max_wait_ms {}", act.ms_slept, act.max_wait_ms);
-                    panic!("Timed out waiting for the condition");
-                }
-                act.wait_or_timeout(ctx);
-            },
-        );
-    }
-}
-
-impl Actor for WaitOrTimeoutActor {
-    type Context = Context<Self>;
-
-    fn started(&mut self, ctx: &mut Context<Self>) {
-        self.wait_or_timeout(ctx);
-    }
 }
 
 /// Blocks until `cond` returns `ControlFlow::Break`, checking it every
