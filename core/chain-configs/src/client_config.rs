@@ -284,8 +284,22 @@ impl CloudArchivalHandle {
         !self.get()
     }
 
+    pub fn stop(&self) -> () {
+        debug_assert!(!self.is_cancelled());
+        self.set(false);
+    }
+
+    pub fn resume(&self) -> () {
+        debug_assert!(self.is_cancelled());
+        self.set(true);
+    }
+
     fn get(&self) -> bool {
         self.keep_going.load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    fn set(&self, keep_going: bool) -> () {
+        self.keep_going.store(keep_going, std::sync::atomic::Ordering::Relaxed);
     }
 }
 
