@@ -57,9 +57,10 @@ pub fn create_cloud_archival_actor(
         tracing::debug!(target: "cloud_archival", "Not creating the cloud archival actor because cloud archival writer is not configured");
         return Ok(None);
     };
+    // TODO(cloud_archival) Retrieve the `cloud_head` from the external storage
     let cloud_head = get_hot_final_head_height(&hot_store, genesis_height)?;
 
-    tracing::info!(target: "cloud_archival", "Creating the cloud archival actor");
+    tracing::info!(target: "cloud_archival", cloud_head, "Creating the cloud archival actor");
     let actor = CloudArchivalActor::new(config, genesis_height, hot_store, cloud_head);
     Ok(Some(actor))
 }
