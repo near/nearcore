@@ -1,7 +1,9 @@
 use std::fmt::Debug;
 
 use crate::block_body::SpiceCoreStatement;
-use crate::types::{ChunkExecutionResult, ChunkExecutionResultHash, SpiceChunkId};
+use crate::types::{
+    ChunkExecutionResult, ChunkExecutionResultHash, SpiceChunkId, StaticSignatureDifferentiator,
+};
 use crate::validator_signer::ValidatorSigner;
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::{PublicKey, Signature};
@@ -31,7 +33,7 @@ impl SpiceChunkEndorsement {
             execution_result_hash: execution_result.compute_hash(),
             chunk_id,
         };
-        let signature = signer.sign_bytes(&borsh::to_vec(&signed_data).unwrap());
+        let signature = signer.sign_bytes(&signed_data.serialize_data_for_signing());
         Self::V1(SpiceChunkEndorsementV1 {
             chunk_id: signed_data.chunk_id,
             account_id: signer.validator_id().clone(),
@@ -72,7 +74,7 @@ pub struct SpiceChunkEndorsementV1 {
 
 impl SpiceChunkEndorsementV1 {
     fn into_verified(self, public_key: &PublicKey) -> Option<SpiceVerifiedEndorsement> {
-        let data = &borsh::to_vec(&self.to_signed_data()).unwrap();
+        let data = &self.to_signed_data().serialize_data_for_signing();
         if !self.signature.verify(data, public_key) {
             return None;
         }
@@ -148,7 +150,7 @@ impl SpiceEndorsementCoreStatement {
         &self,
         public_key: &PublicKey,
     ) -> Option<(&SpiceEndorsementSignedData, &Signature)> {
-        let data = &borsh::to_vec(&self.signed_data).unwrap();
+        let data = &self.signed_data.serialize_data_for_signing();
         if !self.signature.verify(data, public_key) {
             return None;
         }
@@ -169,6 +171,14 @@ impl SpiceEndorsementCoreStatement {
 pub struct SpiceEndorsementSignedData {
     pub execution_result_hash: ChunkExecutionResultHash,
     pub chunk_id: SpiceChunkId,
+}
+
+impl SpiceEndorsementSignedData {
+    fn serialize_data_for_signing(&self) -> Vec<u8> {
+        static SIGNATURE_DIFFERENTIATOR: StaticSignatureDifferentiator = "SpiceChunkEndorsement";
+        let data_for_signing = (self, SIGNATURE_DIFFERENTIATOR);
+        borsh::to_vec(&data_for_signing).unwrap()
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
