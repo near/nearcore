@@ -648,7 +648,7 @@ impl RuntimeAdapter for NightshadeRuntime {
             HashSet::new(),
             time_limit,
             None,
-        )
+        ) // skip_tx_hashes is empty, so there will be no skipped transactions
         .map(|(prepared, _skipped)| prepared)
     }
 
