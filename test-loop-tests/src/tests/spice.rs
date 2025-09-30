@@ -1,10 +1,12 @@
 use std::collections::{HashMap, HashSet};
+use std::str::FromStr as _;
 use std::sync::Arc;
 
 use itertools::Itertools;
 use near_async::messaging::{CanSend as _, Handler as _};
 use near_async::test_loop::data::TestLoopData;
 use near_async::time::Duration;
+use near_chain_configs::TrackedShardsConfig;
 use near_chain_configs::test_genesis::{TestEpochConfigBuilder, ValidatorsSpec};
 use near_client::{ProcessTxRequest, Query};
 use near_o11y::testonly::init_test_logger;
@@ -158,8 +160,142 @@ fn test_spice_chain() {
         .shutdown_and_drain_remaining_events(Duration::seconds(20));
 }
 
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_spice_chain_with_missing_chunks() {
+    init_test_logger();
+    let accounts: Vec<AccountId> =
+        (0..100).map(|i| format!("account{}", i).parse().unwrap()).collect_vec();
+
+    // We should still have at least one executor per shard with one of them dying.
+    let num_producers = 4;
+    let num_validators = 5;
+    let shard_layout =
+        ShardLayout::multi_shard_custom(vec![accounts[accounts.len() / 2].clone()], 1);
+
+    let producers = (0..num_producers).map(|i| format!("account{i}")).collect_vec();
+    let producers = producers.iter().map(String::as_str).collect_vec();
+    let producer_accounts =
+        producers.iter().cloned().map(AccountId::from_str).map(Result::unwrap).collect_vec();
+
+    let validators = (0..num_validators).map(|i| format!("validator{i}")).collect_vec();
+    let validators = validators.iter().map(String::as_str).collect_vec();
+    let validator_accounts =
+        validators.iter().cloned().map(AccountId::from_str).map(Result::unwrap).collect_vec();
+    let validators_spec = ValidatorsSpec::desired_roles(&producers, &validators);
+
+    const INITIAL_BALANCE: Balance = Balance::from_near(1_000_000);
+    let genesis = TestLoopBuilder::new_genesis_builder()
+        .shard_layout(shard_layout)
+        .validators_spec(validators_spec)
+        .add_user_accounts_simple(&accounts, INITIAL_BALANCE)
+        .build();
+    let epoch_config_store = TestEpochConfigBuilder::build_store_from_genesis(&genesis);
+
+    let killed_producer_index = 0;
+    let producer_tracking_all_shards_index = 1;
+    let mut env = TestLoopBuilder::new()
+        .genesis(genesis)
+        .epoch_config_store(epoch_config_store)
+        .clients(producer_accounts.iter().cloned().chain(validator_accounts).collect_vec())
+        .config_modifier({
+            let producer_tracking_all_shards_index = producer_tracking_all_shards_index;
+            move |client_config, client_index| {
+                // Note: we are not tracking all shards with all clients to make sure tests don't pass
+                // with witness validation broken.
+                if client_index == producer_tracking_all_shards_index {
+                    client_config.tracked_shards_config = TrackedShardsConfig::AllShards;
+                }
+            }
+        })
+        .build()
+        .warmup();
+
+    let killed_node = &producer_accounts[killed_producer_index];
+    let node_identifier = env.get_node_data_by_account_id(killed_node).unwrap().identifier.clone();
+    env.kill_node(&node_identifier);
+
+    let node_data_with_all_shards = env
+        .get_node_data_by_account_id(&producer_accounts[producer_tracking_all_shards_index])
+        .unwrap()
+        .clone();
+    let client_handle = node_data_with_all_shards.client_sender.actor_handle();
+    let view_client_handle = node_data_with_all_shards.view_client_sender.actor_handle();
+
+    let get_balance = |test_loop_data: &mut TestLoopData, account: &AccountId| {
+        let view_client = test_loop_data.get_mut(&view_client_handle);
+        let query_response = view_client.handle(Query::new(
+            BlockReference::Finality(near_primitives::types::Finality::Final),
+            QueryRequest::ViewAccount { account_id: account.clone() },
+        ));
+        let QueryResponseKind::ViewAccount(view_account_result) = query_response.unwrap().kind
+        else {
+            panic!();
+        };
+        view_account_result.amount
+    };
+
+    for account in &accounts {
+        let got_balance = get_balance(&mut env.test_loop.data, account);
+        assert_eq!(got_balance, INITIAL_BALANCE);
+    }
+
+    let (_, balance_changes) =
+        schedule_send_money_txs(&[node_data_with_all_shards], &accounts, &env.test_loop);
+
+    env.test_loop.run_until(
+        |test_loop_data| {
+            let client = &test_loop_data.get(&client_handle).client;
+            client.chain.head().unwrap().height > 30
+        },
+        Duration::seconds(35),
+    );
+
+    let client = &env.test_loop.data.get(&client_handle).client;
+    let mut block =
+        client.chain.get_block(&client.chain.final_head().unwrap().last_block_hash).unwrap();
+    let mut missed = false;
+    let mut have_missed_chunks = false;
+    while !block.header().is_genesis() {
+        for chunk in block.chunks().iter_raw() {
+            if !chunk.is_new_chunk(block.header().height()) {
+                have_missed_chunks = true;
+            }
+        }
+
+        if !client.chain.spice_core_processor.all_execution_results_exist(&block).unwrap() {
+            let execution_results = client
+                .chain
+                .spice_core_processor
+                .get_execution_results_by_shard_id(&block)
+                .unwrap();
+            missed = true;
+            println!(
+                "not all execution result for block at height: {}; execution_results: {:?}",
+                block.header().height(),
+                execution_results
+            );
+        }
+        block = client.chain.get_block(block.header().prev_hash()).unwrap();
+    }
+
+    assert!(!missed, "some of the blocks are missing execution results");
+    assert!(have_missed_chunks);
+
+    assert!(!balance_changes.is_empty());
+    for (account, balance_change) in &balance_changes {
+        let got_balance = get_balance(&mut env.test_loop.data, account);
+        let want_balance = Balance::from_yoctonear(
+            (INITIAL_BALANCE.as_yoctonear() as i128 + balance_change).try_into().unwrap(),
+        );
+        assert_eq!(got_balance, want_balance);
+        assert_ne!(*balance_change, 0);
+    }
+    env.shutdown_and_drain_remaining_events(Duration::seconds(20));
+}
+
 fn schedule_send_money_txs(
-    node_datas: &Vec<crate::setup::state::NodeExecutionData>,
+    node_datas: &[crate::setup::state::NodeExecutionData],
     accounts: &[AccountId],
     test_loop: &near_async::test_loop::TestLoopV2,
 ) -> (Arc<Mutex<HashSet<near_primitives::hash::CryptoHash>>>, HashMap<AccountId, i128>) {
