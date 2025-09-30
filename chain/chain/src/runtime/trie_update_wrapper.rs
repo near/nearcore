@@ -56,7 +56,7 @@ impl TrieUpdateWitnessSizeWrapper {
 }
 
 impl TrieAccess for TrieUpdateWitnessSizeWrapper {
-    // Intercept reads to the TrieUpdate and do storage proof size accounting
+    /// Intercept reads to the TrieUpdate and do storage proof size accounting
     fn get(&self, key: &TrieKey, opts: AccessOptions) -> Result<Option<Vec<u8>>, StorageError> {
         let mut key_bytes = SmallKeyVec::new_const();
         key.append_into(&mut key_bytes);
