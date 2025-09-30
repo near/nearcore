@@ -634,9 +634,8 @@ impl RuntimeAdapter for NightshadeRuntime {
             ),
         };
 
-        // StateWitnessSizeLimit: We need to start recording reads if the stateless validation is
-        // enabled in the next epoch. We need to save the state transition data in the current epoch
-        // to be able to produce the state witness in the next epoch.
+        // Start recording trie reads to enforce storage proof size limits and potentially provide a
+        // proof that the prepared transactions are valid.
         trie = trie.recording_reads_new_recorder();
         let state_update = TrieUpdate::new(trie);
 
