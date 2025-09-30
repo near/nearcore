@@ -49,7 +49,7 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use std::io;
 use std::ops::Deref;
 use std::sync::Arc;
-use utils::check_transaction_validity_period;
+use utils::{check_transaction_validity_period, early_prepare_txs_check_validity_period};
 
 pub mod latest_witnesses;
 mod merkle_proof;
@@ -470,6 +470,23 @@ impl ChainStore {
         check_transaction_validity_period(
             &self.store,
             prev_block_header,
+            base_block_hash,
+            self.transaction_validity_period,
+        )
+    }
+
+    /// Similar to `check_transaction_validity_period`, used in early transaction preparation where
+    /// prev_block_header is not available.
+    pub fn early_prepare_txs_check_validity_period(
+        &self,
+        prev_block_height: BlockHeight,
+        prev_prev_block_header: &BlockHeader,
+        base_block_hash: &CryptoHash,
+    ) -> Result<(), InvalidTxError> {
+        early_prepare_txs_check_validity_period(
+            &self.store,
+            prev_block_height,
+            prev_prev_block_header,
             base_block_hash,
             self.transaction_validity_period,
         )
