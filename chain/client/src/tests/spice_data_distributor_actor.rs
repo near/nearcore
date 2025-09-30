@@ -1,5 +1,10 @@
 use near_chain::ChainStoreAccess;
 use near_chain::spice_core::CoreStatementsProcessor;
+use near_crypto::Signature;
+use near_primitives::spice_partial_data::{
+    SpiceDataCommitment, SpiceDataIdentifier, SpiceDataPart, SpicePartialData,
+    SpiceVerifiedPartialData, testonly_create_spice_partial_data,
+};
 use near_primitives::stateless_validation::spice_state_witness::{
     SpiceChunkStateTransition, SpiceChunkStateWitness,
 };
@@ -21,9 +26,6 @@ use near_chain::{BlockProcessingArtifact, Chain, Provenance};
 use near_chain_configs::test_genesis::{TestGenesisBuilder, ValidatorsSpec};
 use near_chain_configs::{Genesis, MutableConfigValue};
 use near_epoch_manager::EpochManagerAdapter;
-use near_network::spice_data_distribution::SpiceDataCommitment;
-use near_network::spice_data_distribution::SpiceDataIdentifier;
-use near_network::spice_data_distribution::SpiceDataPart;
 use near_network::spice_data_distribution::SpiceIncomingPartialData;
 use near_network::types::{NetworkRequests, PeerManagerAdapter, PeerManagerMessageRequest};
 use near_o11y::span_wrapped_msg::SpanWrapped;
@@ -287,6 +289,63 @@ fn receipt_recipients_accounts(
         .epoch_manager
         .get_epoch_chunk_producers_for_shard(block.header().epoch_id(), to_shard_id)
         .unwrap()
+}
+
+struct SpicePartialDataBuilder {
+    id: SpiceDataIdentifier,
+    commitment: SpiceDataCommitment,
+    parts: Vec<SpiceDataPart>,
+    sender: AccountId,
+}
+
+macro_rules! builder_setter {
+    ($field: ident, $type: ty) => {
+        fn $field(mut self, value: $type) -> Self {
+            self.$field = value;
+            self
+        }
+    };
+}
+
+impl SpicePartialDataBuilder {
+    builder_setter!(id, SpiceDataIdentifier);
+    builder_setter!(commitment, SpiceDataCommitment);
+    builder_setter!(parts, Vec<SpiceDataPart>);
+    builder_setter!(sender, AccountId);
+
+    fn from_default(default: SpicePartialData) -> Self {
+        Self::from_verified(data_into_verified(default))
+    }
+
+    fn from_verified(
+        SpiceVerifiedPartialData { id, commitment, parts, sender }: SpiceVerifiedPartialData,
+    ) -> Self {
+        Self { id, commitment, parts, sender }
+    }
+
+    fn build(self) -> SpicePartialData {
+        SpicePartialData::new(
+            self.id,
+            self.commitment,
+            self.parts,
+            &create_test_signer(self.sender.as_str()),
+        )
+    }
+
+    fn build_with_signature(self, signature: Signature) -> SpicePartialData {
+        testonly_create_spice_partial_data(
+            self.id,
+            self.commitment,
+            self.parts,
+            signature,
+            self.sender,
+        )
+    }
+}
+
+fn data_into_verified(data: SpicePartialData) -> SpiceVerifiedPartialData {
+    let signer = create_test_signer(data.sender().as_str());
+    data.into_verified(&signer.public_key()).unwrap()
 }
 
 fn test_witness_can_be_reconstructed_impl(num_chunk_producers: usize, num_validators: usize) {
@@ -592,7 +651,7 @@ fn witness_incoming_data(chain: &Chain, block: &Block) -> (SpiceIncomingPartialD
 }
 
 macro_rules! test_invalid_incoming_partial_data {
-    ($($name:ident ( $error:pat,  $partial_data_func:ident, $incoming_data:ident , $update_block:block ) )+) => {
+    ($($name:ident ( $error:pat,  $partial_data_func:ident, $default:ident , $build_block:block ) )+) => {
         mod test_invalid_incoming_partial_data {
             use super::*;
             $(
@@ -607,10 +666,9 @@ macro_rules! test_invalid_incoming_partial_data {
                     let (outgoing_sc, mut outgoing_rc) = unbounded_channel();
                     let mut actor = new_actor(outgoing_sc, &chain, &recipient);
                     {
-                        let mut $incoming_data = incoming_data.clone();
-                        $update_block
-                        let SpiceIncomingPartialData { data } = $incoming_data;
-                        let result = actor.receive_data(data);
+                        let $default = data_into_verified(incoming_data.data.clone());
+                        let partial_data = $build_block;
+                        let result = actor.receive_data(partial_data);
                         assert_matches!(outgoing_rc.try_recv(), Err(TryRecvError::Empty));
                         assert_matches!(result, Err(ReceiveDataError::ReceivingDataWithBlock($error)));
                     }
@@ -623,44 +681,80 @@ macro_rules! test_invalid_incoming_partial_data {
 }
 
 test_invalid_incoming_partial_data! {
-    invalid_receipt_proof_from_shard_id(Error::InvalidReceiptFromShardId, receipt_proof_incoming_data, incoming_data, {
-        let SpiceDataIdentifier::ReceiptProof { from_shard_id, .. } = &mut incoming_data.data.id else {
+    invalid_receipt_proof_from_shard_id(Error::InvalidReceiptFromShardId, receipt_proof_incoming_data, default, {
+        let SpiceDataIdentifier::ReceiptProof { from_shard_id: _, block_hash, to_shard_id } =
+            default.id
+        else {
             panic!();
         };
-        *from_shard_id = ShardId::new(42);
+        let from_shard_id = ShardId::new(42);
+        SpicePartialDataBuilder::from_verified(default)
+            .id(SpiceDataIdentifier::ReceiptProof { from_shard_id, block_hash, to_shard_id })
+            .build()
     })
-    invalid_receipt_proof_to_shard_id(Error::InvalidReceiptToShardId, receipt_proof_incoming_data, incoming_data, {
-        let SpiceDataIdentifier::ReceiptProof { to_shard_id, .. } = &mut incoming_data.data.id else {
+    invalid_receipt_proof_to_shard_id(Error::InvalidReceiptToShardId, receipt_proof_incoming_data, default, {
+        let SpiceDataIdentifier::ReceiptProof { from_shard_id, block_hash, to_shard_id: _ } =
+            default.id
+        else {
             panic!();
         };
-        *to_shard_id = ShardId::new(42);
+        let to_shard_id = ShardId::new(42);
+        SpicePartialDataBuilder::from_verified(default)
+            .id(SpiceDataIdentifier::ReceiptProof { from_shard_id, block_hash, to_shard_id })
+            .build()
     })
-    invalid_witness_shard_id(Error::InvalidWitnessShardId, witness_incoming_data, incoming_data, {
-        let SpiceDataIdentifier::Witness { shard_id, .. } = &mut incoming_data.data.id else {
+    invalid_witness_shard_id(Error::InvalidWitnessShardId, witness_incoming_data, default, {
+        let SpiceDataIdentifier::Witness { shard_id: _, block_hash } = default.id else {
             panic!();
         };
-        *shard_id = ShardId::new(42);
+        let shard_id = ShardId::new(42);
+        SpicePartialDataBuilder::from_verified(default)
+            .id(SpiceDataIdentifier::Witness { block_hash, shard_id })
+            .build()
     })
-    sender_is_not_producer(Error::SenderIsNotProducer, receipt_proof_incoming_data, incoming_data, {
-        incoming_data.data.sender = AccountId::from_str("invalid-sender").unwrap();
+    sender_is_not_validator(Error::SenderIsNotValidator, receipt_proof_incoming_data, default, {
+        SpicePartialDataBuilder::from_verified(default)
+            .sender(AccountId::from_str("invalid-sender").unwrap())
+            .build()
     })
-    node_is_not_recipient(Error::NodeIsNotRecipient, receipt_proof_incoming_data, incoming_data, {
-        let SpiceDataIdentifier::ReceiptProof { from_shard_id, to_shard_id, .. } =
-            &mut incoming_data.data.id else {
+    sender_is_not_producer(Error::SenderIsNotProducer, receipt_proof_incoming_data, default, {
+        let SpiceDataIdentifier::ReceiptProof { from_shard_id: _, block_hash, to_shard_id }
+            = default.id
+        else {
             panic!();
         };
-        *to_shard_id = *from_shard_id;
+        let from_shard_id = to_shard_id;
+        SpicePartialDataBuilder::from_verified(default)
+            .id(SpiceDataIdentifier::ReceiptProof { from_shard_id, block_hash, to_shard_id })
+            .build()
     })
-    merkle_path_does_not_match_commitment_root(Error::InvalidCommitmentRoot, receipt_proof_incoming_data, incoming_data, {
-        incoming_data.data.commitment.root = CryptoHash::default();
+    node_is_not_recipient(Error::NodeIsNotRecipient, receipt_proof_incoming_data, default, {
+        let SpiceDataIdentifier::ReceiptProof { from_shard_id, to_shard_id: _, block_hash } =
+            default.id
+        else {
+                panic!();
+        };
+        let to_shard_id = from_shard_id;
+        SpicePartialDataBuilder::from_verified(default)
+            .id(SpiceDataIdentifier::ReceiptProof { from_shard_id, block_hash, to_shard_id })
+            .build()
     })
-    data_does_not_match_commitment_hash(Error::InvalidCommitmentHash, receipt_proof_incoming_data, incoming_data, {
-        incoming_data.data.commitment.hash = CryptoHash::default();
+    merkle_path_does_not_match_commitment_root(Error::InvalidCommitmentRoot, receipt_proof_incoming_data, default, {
+        let mut commitment = default.commitment.clone();
+        commitment.root = CryptoHash::default();
+        SpicePartialDataBuilder::from_verified(default).commitment(commitment).build()
     })
-    invalid_part_ord(Error::InvalidCommitmentRoot, receipt_proof_incoming_data, incoming_data, {
-        incoming_data.data.parts[0].part_ord = 42;
+    data_does_not_match_commitment_hash(Error::InvalidCommitmentHash, receipt_proof_incoming_data, default, {
+        let mut commitment = default.commitment.clone();
+        commitment.hash = CryptoHash::default();
+        SpicePartialDataBuilder::from_verified(default).commitment(commitment).build()
     })
-    undecodable_part(Error::DecodeError(_), receipt_proof_incoming_data, incoming_data, {
+    invalid_part_ord(Error::InvalidCommitmentRoot, receipt_proof_incoming_data, default, {
+        let mut parts = default.parts.clone();
+        parts[0].part_ord = 42;
+        SpicePartialDataBuilder::from_verified(default).parts(parts).build()
+    })
+    undecodable_part(Error::DecodeError(_), receipt_proof_incoming_data, default, {
         let data = "bad data";
         let parts = vec![borsh::to_vec(&data).unwrap()];
         let mut boxed_parts: Vec<Box<[u8]>> =
@@ -669,18 +763,23 @@ test_invalid_incoming_partial_data! {
         let (merkle_root, mut merkle_proofs) = merklize(&boxed_parts);
         assert_eq!(boxed_parts.len(), 1);
         assert_eq!(merkle_proofs.len(), 1);
-        incoming_data.data.commitment = SpiceDataCommitment {
-            hash: data_hash,
-            root: merkle_root,
-            encoded_length: data.len() as u64,
-        };
-        incoming_data.data.parts = vec![SpiceDataPart {
-            part_ord: 0,
-            part: boxed_parts.swap_remove(0),
-            merkle_proof: merkle_proofs.swap_remove(0),
-        }];
+        SpicePartialDataBuilder::from_verified(default)
+            .commitment(SpiceDataCommitment {
+                hash: data_hash,
+                root: merkle_root,
+                encoded_length: data.len() as u64,
+            })
+            .parts(vec![SpiceDataPart {
+                part_ord: 0,
+                part: boxed_parts.swap_remove(0),
+                merkle_proof: merkle_proofs.swap_remove(0),
+            }])
+            .build()
     })
-
+    invalid_signature(Error::InvalidPartialDataSignature, receipt_proof_incoming_data, default, {
+        SpicePartialDataBuilder::from_verified(default)
+            .build_with_signature(Signature::default())
+    })
 }
 
 #[test]
@@ -726,7 +825,7 @@ fn test_incoming_partial_data_for_already_known_receipts() {
     assert_matches!(
         result,
         Err(ReceiveDataError::ReceivingDataWithBlock(Error::DataIsKnown(
-            DataIsKnownError::ReceiptsKnown
+            DataIsKnownError::ReceiptsKnown { .. }
         )))
     );
 }
@@ -765,7 +864,7 @@ fn test_incoming_partial_data_for_already_endorsed_witness() {
     assert_matches!(
         result,
         Err(ReceiveDataError::ReceivingDataWithBlock(Error::DataIsKnown(
-            DataIsKnownError::WitnessValidated
+            DataIsKnownError::WitnessValidated(..)
         )))
     );
 }
@@ -779,11 +878,13 @@ fn test_incoming_partial_data_for_witness_with_receipt_id() {
     let (outgoing_sc, mut outgoing_rc) = unbounded_channel();
     let mut actor = new_actor(outgoing_sc, &chain, &recipient);
     {
-        let mut incoming_data = incoming_data.clone();
         let (witness_partial_data, _) = witness_incoming_data(&chain, &block);
-        incoming_data.data.commitment = witness_partial_data.data.commitment;
-        incoming_data.data.parts = witness_partial_data.data.parts;
-        let SpiceIncomingPartialData { data } = incoming_data;
+        let witness_partial_data = data_into_verified(witness_partial_data.data);
+
+        let data = SpicePartialDataBuilder::from_default(incoming_data.data.clone())
+            .commitment(witness_partial_data.commitment)
+            .parts(witness_partial_data.parts)
+            .build();
         let result = actor.receive_data(data);
         assert_matches!(outgoing_rc.try_recv(), Err(TryRecvError::Empty));
         assert_matches!(
@@ -815,10 +916,12 @@ fn test_incoming_partial_data_for_receipts_with_non_matching_from_shard_id() {
                 receipt_proofs: vec![receipt_proof],
             },
         );
-        let mut incoming_data = incoming_data.clone();
-        incoming_data.data.commitment = different_incoming_data.data.commitment;
-        incoming_data.data.parts = different_incoming_data.data.parts;
-        let SpiceIncomingPartialData { data } = incoming_data;
+        let different_incoming_data = data_into_verified(different_incoming_data.data);
+
+        let data = SpicePartialDataBuilder::from_default(incoming_data.data.clone())
+            .commitment(different_incoming_data.commitment)
+            .parts(different_incoming_data.parts)
+            .build();
         let result = actor.receive_data(data);
         assert_matches!(outgoing_rc.try_recv(), Err(TryRecvError::Empty));
         assert_matches!(
@@ -850,10 +953,12 @@ fn test_incoming_partial_data_for_receipts_with_non_matching_to_shard_id() {
                 receipt_proofs: vec![receipt_proof],
             },
         );
-        let mut incoming_data = incoming_data.clone();
-        incoming_data.data.commitment = different_incoming_data.data.commitment;
-        incoming_data.data.parts = different_incoming_data.data.parts;
-        let SpiceIncomingPartialData { data } = incoming_data;
+        let different_incoming_data = data_into_verified(different_incoming_data.data);
+
+        let data = SpicePartialDataBuilder::from_default(incoming_data.data.clone())
+            .commitment(different_incoming_data.commitment)
+            .parts(different_incoming_data.parts)
+            .build();
         let result = actor.receive_data(data);
         assert_matches!(outgoing_rc.try_recv(), Err(TryRecvError::Empty));
         assert_matches!(
@@ -874,11 +979,13 @@ fn test_incoming_partial_data_for_receipt_with_witness_id() {
     let (outgoing_sc, mut outgoing_rc) = unbounded_channel();
     let mut actor = new_actor(outgoing_sc, &chain, &recipient);
     {
-        let mut incoming_data = incoming_data.clone();
         let (receipt_partial_data, _) = receipt_proof_incoming_data(&chain, &block);
-        incoming_data.data.commitment = receipt_partial_data.data.commitment;
-        incoming_data.data.parts = receipt_partial_data.data.parts;
-        let SpiceIncomingPartialData { data } = incoming_data;
+        let receipt_partial_data = data_into_verified(receipt_partial_data.data);
+
+        let data = SpicePartialDataBuilder::from_default(incoming_data.data.clone())
+            .commitment(receipt_partial_data.commitment)
+            .parts(receipt_partial_data.parts)
+            .build();
         let result = actor.receive_data(data);
         assert_matches!(outgoing_rc.try_recv(), Err(TryRecvError::Empty));
         assert_matches!(
@@ -922,10 +1029,12 @@ fn test_incoming_partial_data_for_witness_with_wrong_shard_id() {
             &chain,
             SpiceDistributorStateWitness { state_witness: witness_with_different_shard },
         );
-        let mut incoming_data = incoming_data.clone();
-        incoming_data.data.commitment = incoming_data_for_different_witness.data.commitment;
-        incoming_data.data.parts = incoming_data_for_different_witness.data.parts;
-        let SpiceIncomingPartialData { data } = incoming_data;
+        let incoming_data_for_different_witness =
+            data_into_verified(incoming_data_for_different_witness.data);
+        let data = SpicePartialDataBuilder::from_default(incoming_data.data.clone())
+            .commitment(incoming_data_for_different_witness.commitment)
+            .parts(incoming_data_for_different_witness.parts)
+            .build();
         let result = actor.receive_data(data);
         assert_matches!(outgoing_rc.try_recv(), Err(TryRecvError::Empty));
         assert_matches!(
@@ -954,10 +1063,12 @@ fn test_incoming_partial_data_for_witness_with_wrong_block_hash() {
         let prev_block = chain.chain_store.get_block(block.header().prev_hash()).unwrap();
         let (incoming_data_for_different_witness, _recipient) =
             witness_incoming_data(&chain, &prev_block);
-        let mut incoming_data = incoming_data.clone();
-        incoming_data.data.commitment = incoming_data_for_different_witness.data.commitment;
-        incoming_data.data.parts = incoming_data_for_different_witness.data.parts;
-        let SpiceIncomingPartialData { data } = incoming_data;
+        let incoming_data_for_different_witness =
+            data_into_verified(incoming_data_for_different_witness.data);
+        let data = SpicePartialDataBuilder::from_default(incoming_data.data.clone())
+            .commitment(incoming_data_for_different_witness.commitment)
+            .parts(incoming_data_for_different_witness.parts)
+            .build();
         let result = actor.receive_data(data);
         assert_matches!(outgoing_rc.try_recv(), Err(TryRecvError::Empty));
         assert_matches!(
@@ -970,7 +1081,7 @@ fn test_incoming_partial_data_for_witness_with_wrong_block_hash() {
 }
 
 macro_rules! test_invalid_incoming_partial_data_without_block {
-    ($($name:ident ( $error:pat, $partial_data_func:ident, $incoming_data:ident , $update_block:block ) )+) => {
+    ($($name:ident ( $error:pat, $partial_data_func:ident, $default:ident , $build_block:block ) )+) => {
         mod test_invalid_incoming_partial_data_without_block {
             use super::*;
             $(
@@ -997,10 +1108,9 @@ macro_rules! test_invalid_incoming_partial_data_without_block {
                     let (outgoing_sc, mut outgoing_rc) = unbounded_channel();
                     let mut actor = new_actor(outgoing_sc, &receiver_chain, &recipient);
                     {
-                        let mut $incoming_data = incoming_data.clone();
-                        $update_block
-                        let SpiceIncomingPartialData { data } = $incoming_data;
-                        let result = actor.receive_data(data);
+                        let $default = data_into_verified(incoming_data.data.clone());
+                        let partial_data = $build_block;
+                        let result = actor.receive_data(partial_data);
                         assert_eq!(actor.pending_partial_data_size(), 0);
                         assert_matches!(outgoing_rc.try_recv(), Err(TryRecvError::Empty));
                         assert_matches!(result, Err(ReceiveDataError::ReceivingDataWithoutBlock($error)));
@@ -1012,41 +1122,76 @@ macro_rules! test_invalid_incoming_partial_data_without_block {
 }
 
 test_invalid_incoming_partial_data_without_block! {
-    invalid_sender_of_receipts(Error::SenderIsNotProducer, receipt_proof_incoming_data, incoming_data, {
-        incoming_data.data.sender = AccountId::from_str("invalid-sender").unwrap();
+    invalid_sender_of_receipts(Error::SenderIsNotValidator, receipt_proof_incoming_data, default, {
+        SpicePartialDataBuilder::from_verified(default)
+            .sender(AccountId::from_str("invalid-sender").unwrap())
+            .build()
     })
-    invalid_sender_of_witness(Error::SenderIsNotProducer, witness_incoming_data, incoming_data, {
-        incoming_data.data.sender = AccountId::from_str("invalid-sender").unwrap();
+    invalid_sender_of_witness(Error::SenderIsNotValidator, witness_incoming_data, default, {
+        SpicePartialDataBuilder::from_verified(default)
+            .sender(AccountId::from_str("invalid-sender").unwrap())
+            .build()
     })
-    node_is_not_recipient(Error::NodeIsNotRecipient, receipt_proof_incoming_data, incoming_data, {
-        let SpiceDataIdentifier::ReceiptProof { from_shard_id, to_shard_id, .. } =
-            &mut incoming_data.data.id else {
-                panic!();
-        };
-        *to_shard_id = *from_shard_id;
-    })
-    invalid_receipts_from_shard(Error::NearChainError(_), receipt_proof_incoming_data, incoming_data, {
-        let SpiceDataIdentifier::ReceiptProof { from_shard_id, .. } =
-            &mut incoming_data.data.id else {
-                panic!();
-        };
-        *from_shard_id = ShardId::new(42);
-    })
-    invalid_receipts_to_shard(Error::NearChainError(_), receipt_proof_incoming_data, incoming_data, {
-        let SpiceDataIdentifier::ReceiptProof { to_shard_id, .. } =
-            &mut incoming_data.data.id else {
-                panic!();
-        };
-        *to_shard_id = ShardId::new(42);
-    })
-    invalid_witness_shard_id(Error::NearChainError(_), witness_incoming_data, incoming_data, {
-        let SpiceDataIdentifier::Witness { shard_id, .. } = &mut incoming_data.data.id else {
+    sender_is_not_producer(Error::SenderIsNotProducer, receipt_proof_incoming_data, default, {
+        let SpiceDataIdentifier::ReceiptProof { from_shard_id: _, block_hash, to_shard_id } =
+            default.id
+        else {
             panic!();
         };
-        *shard_id = ShardId::new(42);
+        let from_shard_id = to_shard_id;
+        SpicePartialDataBuilder::from_verified(default)
+            .id(SpiceDataIdentifier::ReceiptProof { from_shard_id, block_hash, to_shard_id })
+            .build()
     })
-    empty_parts(Error::PartsIsEmpty, receipt_proof_incoming_data, incoming_data, {
-        incoming_data.data.parts = vec![];
+    node_is_not_recipient(Error::NodeIsNotRecipient, receipt_proof_incoming_data, default, {
+        let SpiceDataIdentifier::ReceiptProof { from_shard_id, to_shard_id: _, block_hash } =
+            default.id
+        else {
+                panic!();
+        };
+        let to_shard_id = from_shard_id;
+        SpicePartialDataBuilder::from_verified(default)
+            .id(SpiceDataIdentifier::ReceiptProof { from_shard_id, block_hash, to_shard_id })
+            .build()
+    })
+    invalid_receipts_from_shard(Error::NearChainError(_), receipt_proof_incoming_data, default, {
+        let SpiceDataIdentifier::ReceiptProof { from_shard_id: _, block_hash, to_shard_id } =
+            default.id
+        else {
+                panic!();
+        };
+        let from_shard_id = ShardId::new(42);
+        SpicePartialDataBuilder::from_verified(default)
+            .id(SpiceDataIdentifier::ReceiptProof { from_shard_id, block_hash, to_shard_id })
+            .build()
+    })
+    invalid_receipts_to_shard(Error::NearChainError(_), receipt_proof_incoming_data, default, {
+        let SpiceDataIdentifier::ReceiptProof { to_shard_id: _, block_hash, from_shard_id } =
+            default.id
+        else {
+                panic!();
+        };
+        let to_shard_id = ShardId::new(42);
+        SpicePartialDataBuilder::from_verified(default)
+            .id(SpiceDataIdentifier::ReceiptProof { from_shard_id, block_hash, to_shard_id })
+            .build()
+    })
+    invalid_witness_shard_id(Error::NearChainError(_), witness_incoming_data, default, {
+        let SpiceDataIdentifier::Witness { shard_id: _, block_hash } = default.id
+        else {
+            panic!();
+        };
+        let shard_id = ShardId::new(42);
+        SpicePartialDataBuilder::from_verified(default)
+            .id(SpiceDataIdentifier::Witness { block_hash, shard_id })
+            .build()
+    })
+    empty_parts(Error::PartsIsEmpty, receipt_proof_incoming_data, default, {
+        SpicePartialDataBuilder::from_verified(default).parts(vec![]).build()
+    })
+    invalid_signature(Error::InvalidPartialDataSignature, receipt_proof_incoming_data, default, {
+        SpicePartialDataBuilder::from_verified(default)
+            .build_with_signature(Signature::default())
     })
 }
 
