@@ -1,7 +1,6 @@
 use itertools::Itertools;
 use near_async::time::Duration;
 use near_chain::Provenance;
-use near_chain_configs::ExternalStorageLocation::Filesystem;
 use near_chain_configs::{
     DumpConfig, ExternalStorageConfig, Genesis, SyncConfig, TrackedShardsConfig,
 };

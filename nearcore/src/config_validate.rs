@@ -1,5 +1,6 @@
-use near_chain_configs::{DumpConfig, ExternalStorageLocation, SyncConfig};
+use near_chain_configs::{DumpConfig, SyncConfig};
 use near_config_utils::{ValidationError, ValidationErrors};
+use near_primitives::external::ExternalStorageLocation;
 use std::collections::HashSet;
 use std::path::Path;
 

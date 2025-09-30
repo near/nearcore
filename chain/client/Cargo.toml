@@ -21,7 +21,6 @@ itertools.workspace = true
 lru.workspace = true
 num-rational.workspace = true
 parking_lot.workspace = true
-percent-encoding.workspace = true
 rand.workspace = true
 rayon.workspace = true
 reed-solomon-erasure.workspace = true

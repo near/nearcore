@@ -8,7 +8,7 @@ use near_async::futures::{FutureSpawner, respawn_for_parallelism};
 use near_async::time::{Clock, Duration, Interval};
 use near_chain::types::RuntimeAdapter;
 use near_chain::{Chain, ChainGenesis, DoomslugThresholdMode};
-use near_chain_configs::{ClientConfig, ExternalStorageLocation, MutableValidatorSigner};
+use near_chain_configs::{ClientConfig, MutableValidatorSigner};
 use near_client::sync::external::{
     ExternalConnection, external_storage_location_directory, get_part_id_from_filename,
     is_part_filename,
@@ -19,6 +19,7 @@ use near_client::sync::external::{
 use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_primitives::block::BlockHeader;
+use near_primitives::external::{ExternalConnection, ExternalStorageLocation};
 use near_primitives::hash::CryptoHash;
 use near_primitives::state_part::PartId;
 use near_primitives::state_sync::StateSyncDumpProgress;
@@ -65,31 +66,8 @@ impl StateSyncDumper {
             return Ok(Arc::new(StateSyncDumpHandle::new()));
         };
         tracing::info!(target: "state_sync_dump", "Spawning the state sync dump loop");
-
-        let external = match dump_config.location {
-            ExternalStorageLocation::S3 { bucket, region } => ExternalConnection::S3 {
-                bucket: Arc::new(create_bucket_read_write(&bucket, &region, std::time::Duration::from_secs(30), dump_config.credentials_file).expect(
-                    "Failed to authenticate connection to S3. Please either provide AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY in the environment, or create a credentials file and link it in config.json as 's3_credentials_file'."))
-            },
-            ExternalStorageLocation::Filesystem { root_dir } => ExternalConnection::Filesystem { root_dir },
-            ExternalStorageLocation::GCS { bucket } => {
-                if let Some(credentials_file) = dump_config.credentials_file {
-                    if let Ok(var) = std::env::var("SERVICE_ACCOUNT") {
-                        tracing::warn!(target: "state_sync_dump", "Environment variable 'SERVICE_ACCOUNT' is set to {var}, but 'credentials_file' in config.json overrides it to '{credentials_file:?}'");
-                        println!("Environment variable 'SERVICE_ACCOUNT' is set to {var}, but 'credentials_file' in config.json overrides it to '{credentials_file:?}'");
-                    }
-                    // SAFE: no threads *yet*.
-                    unsafe { std::env::set_var("SERVICE_ACCOUNT", &credentials_file) };
-                    tracing::info!(target: "state_sync_dump", "Set the environment variable 'SERVICE_ACCOUNT' to '{credentials_file:?}'");
-                }
-                ExternalConnection::GCS {
-                    gcs_client: Arc::new(object_store::gcp::GoogleCloudStorageBuilder::from_env().with_bucket_name(&bucket).build().unwrap()),
-                    reqwest_client: Arc::new(reqwest::Client::default()),
-                    bucket,
-                }
-            }
-        };
-
+        let external_timeout = Duration::from_secs(30);
+        let external = ExternalConnection::new(&dump_config.location, external_timeout, true, dump_config.credentials_file);
         let chain_id = self.client_config.chain_id.clone();
         let handle = Arc::new(StateSyncDumpHandle::new());
 
