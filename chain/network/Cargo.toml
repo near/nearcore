@@ -16,7 +16,6 @@ anyhow.workspace = true
 protobuf-codegen.workspace = true
 
 [dependencies]
-actix.workspace = true
 anyhow.workspace = true
 arc-swap.workspace = true
 borsh.workspace = true

@@ -455,13 +455,13 @@ This section describes different protocols of sending messages currently used in
 `Near` is built on `Actix`'s `actor`
 [framework](https://actix.rs/docs/actix/actor). Usually each actor
 runs on its own dedicated thread. Some, like `PeerActor` have one thread per
-each instance. Only messages implementing `actix::Message`, can be sent
+each instance. Only messages implementing `Message`, can be sent
 using between threads. Each actor has its own queue; Processing of messages
 happens asynchronously.
 
 We should not leak implementation details into the spec.
 
-Actix messages can be found by looking for `impl actix::Message`.
+Actix messages can be found by looking for `impl Message`.
 
 ## 10.2 Messages sent through TCP
 

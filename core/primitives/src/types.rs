@@ -31,6 +31,7 @@ pub type StateRoot = CryptoHash;
 ///
 /// This is a messy workaround until we know what to do with NEP 483.
 pub(crate) type SignatureDifferentiator = String;
+pub(crate) type StaticSignatureDifferentiator = &'static str;
 
 /// Different types of finality.
 #[derive(

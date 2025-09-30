@@ -307,6 +307,7 @@ pub fn setup_client(
         validator_signer.clone(),
         runtime_adapter.clone(),
         network_adapter.as_multi_sender(),
+        spice_core_processor.clone(),
     );
 
     let chunk_validation_adapter = LateBoundSender::<ChunkValidationSenderForPartialWitness>::new();
@@ -410,7 +411,6 @@ pub fn setup_client(
         network_adapter.as_multi_sender(),
         validator_signer.clone(),
         spice_core_processor.clone(),
-        client_actor.client.chunk_endorsement_tracker.clone(),
         Arc::new(test_loop.async_computation_spawner(identifier, |_| Duration::milliseconds(80))),
         apply_chunks_iteration_mode,
         chunk_executor_adapter.as_sender(),
@@ -433,7 +433,6 @@ pub fn setup_client(
         network_adapter.as_multi_sender(),
         validator_signer.clone(),
         spice_core_processor,
-        client_actor.client.chunk_endorsement_tracker.clone(),
         ApplyChunksSpawner::Custom(Arc::new(
             test_loop.async_computation_spawner(identifier, |_| Duration::milliseconds(80)),
         )),
