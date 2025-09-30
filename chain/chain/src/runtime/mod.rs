@@ -9,7 +9,7 @@ use near_async::time::{Duration, Instant};
 use near_chain_configs::{GenesisConfig, MIN_GC_NUM_EPOCHS_TO_KEEP, ProtocolConfig};
 use near_crypto::PublicKey;
 use near_epoch_manager::shard_assignment::account_id_to_shard_id;
-use near_epoch_manager::{EpochManagerAdapter, EpochManagerHandle};
+use near_epoch_manager::{EpochManager, EpochManagerAdapter, EpochManagerHandle};
 use near_parameters::{RuntimeConfig, RuntimeConfigStore};
 use near_pool::types::TransactionGroupIterator;
 use near_primitives::account::{AccessKey, Account};
@@ -35,6 +35,7 @@ use near_primitives::views::{
     QueryResponseKind, ViewStateResult,
 };
 use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
+use near_store::db::CLOUD_HEAD_KEY;
 use near_store::db::metadata::DbKind;
 use near_store::flat::FlatStorageManager;
 use near_store::{
@@ -75,6 +76,7 @@ pub struct NightshadeRuntime {
     epoch_manager: Arc<EpochManagerHandle>,
     gc_num_epochs_to_keep: u64,
     state_parts_compression_lvl: i32,
+    is_cloud_archival_writer: bool,
 }
 
 impl NightshadeRuntime {
@@ -90,6 +92,7 @@ impl NightshadeRuntime {
         trie_config: TrieConfig,
         state_snapshot_config: StateSnapshotConfig,
         state_parts_compression_lvl: i32,
+        is_cloud_archival_writer: bool,
     ) -> Arc<Self> {
         let runtime_config_store = match runtime_config_store {
             Some(store) => store,
@@ -128,6 +131,7 @@ impl NightshadeRuntime {
             epoch_manager,
             gc_num_epochs_to_keep: gc_num_epochs_to_keep.max(MIN_GC_NUM_EPOCHS_TO_KEEP),
             state_parts_compression_lvl,
+            is_cloud_archival_writer,
         })
     }
 
@@ -354,30 +358,46 @@ impl NightshadeRuntime {
             epoch_start_height = epoch_first_block_info.height();
             last_block_in_prev_epoch = *epoch_first_block_info.prev_hash();
         }
+        let mut gc_stop_height = epoch_start_height;
 
         // An archival node with split storage should perform garbage collection
         // on the hot storage but not beyond the COLD_HEAD. In order to determine
         // if split storage is enabled *and* that the migration to split storage
         // is finished we can check the store kind. It's only set to hot after the
-        // migration is finished.
+        // migration is finished. If the migration has not finished yet, we expect
+        // the GC not to run regardless of what we return here.
         let kind = self.store.get_db_kind()?;
-        let cold_head = self.store.get_ser::<Tip>(DBCol::BlockMisc, COLD_HEAD_KEY)?;
-
         if let Some(DbKind::Hot) = kind {
-            if let Some(cold_head) = cold_head {
-                let cold_head_hash = cold_head.last_block_hash;
-                let cold_epoch_first_block =
-                    *epoch_manager.get_block_info(&cold_head_hash)?.epoch_first_block();
-                let cold_epoch_first_block_info =
-                    epoch_manager.get_block_info(&cold_epoch_first_block)?;
-                return Ok(std::cmp::min(epoch_start_height, cold_epoch_first_block_info.height()));
-            } else {
+            let Some(cold_head_epoch_start_height) = get_epoch_start_height_from_archival_head(
+                &self.store,
+                &epoch_manager,
+                COLD_HEAD_KEY,
+            )?
+            else {
                 // If kind is DbKind::Hot but cold_head is not set, it means the initial cold storage
                 // migration has not finished yet, in which case we should not garbage collect anything.
                 return Ok(self.genesis_config.genesis_height);
-            }
+            };
+            gc_stop_height = gc_stop_height.min(cold_head_epoch_start_height);
         }
-        Ok(epoch_start_height)
+
+        // Analogous to split storage cold DB: if the cloud archival writer is enabled, we check the cloud
+        // archival head and update `gc_stop_height` to the minimum.
+        if self.is_cloud_archival_writer {
+            let Some(cloud_head_epoch_start_height) = get_epoch_start_height_from_archival_head(
+                &self.store,
+                &epoch_manager,
+                CLOUD_HEAD_KEY,
+            )?
+            else {
+                return Err(Error::DBNotFoundErr(
+                    "Cloud archival writer is configured, but CLOUD_HEAD is missing".into(),
+                ));
+            };
+            gc_stop_height = gc_stop_height.min(cloud_head_epoch_start_height);
+        }
+
+        Ok(gc_stop_height)
     }
 
     fn obtain_state_part_impl(
@@ -472,6 +492,20 @@ impl NightshadeRuntime {
             block_hash: *block_hash,
         })
     }
+}
+
+fn get_epoch_start_height_from_archival_head(
+    store: &Store,
+    epoch_manager: &EpochManager,
+    archival_head_key: &[u8],
+) -> Result<Option<BlockHeight>, Error> {
+    let archival_head = store.get_ser::<Tip>(DBCol::BlockMisc, archival_head_key)?;
+    let Some(archival_head) = archival_head else {
+        return Ok(None);
+    };
+    let archival_head_hash = archival_head.last_block_hash;
+    let epoch_start_height = epoch_manager.get_epoch_start_height(&archival_head_hash)?;
+    Ok(Some(epoch_start_height))
 }
 
 fn format_total_gas_burnt(gas: Gas) -> String {
