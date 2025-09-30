@@ -31,8 +31,9 @@ pub(crate) fn next_message_sequence_num() -> u64 {
 // Quick and dirty way of getting the type name without the module path.
 // Does not work for more complex types like std::sync::Arc<std::sync::atomic::AtomicBool<...>>
 // example near_chunks::shards_manager_actor::ShardsManagerActor -> ShardsManagerActor
+// To support using it with "SpanWrapped<>" types, we trim the trailing '>' characters.
 fn pretty_type_name<T>() -> &'static str {
-    type_name::<T>().split("::").last().unwrap()
+    type_name::<T>().rsplit("::").next().unwrap().trim_end_matches('>')
 }
 
 /// Actor that doesn't handle any messages and does nothing. It's used to host a runtime that can

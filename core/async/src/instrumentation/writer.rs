@@ -46,6 +46,7 @@ impl InstrumentedThreadWriter {
         } else {
             let id = self.type_name_registry.len() as u32;
             self.type_name_registry.insert(message_type.to_string(), id);
+            self.target.message_type_registry.push_type(message_type.to_string());
             id
         };
         self.advance_window_if_needed_internal(start_time_ns);

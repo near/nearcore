@@ -17,7 +17,7 @@ where
 {
     fn send(&self, message: M) {
         let seq = next_message_sequence_num();
-        let message_type = pretty_type_name::<A>();
+        let message_type = pretty_type_name::<M>();
         tracing::trace!(target: "tokio_runtime", seq, message_type, ?message, "sending sync message");
 
         let function = |actor: &mut A, ctx: &mut dyn DelayedActionRunner<A>| {
@@ -40,7 +40,7 @@ where
 {
     fn send(&self, message: MessageWithCallback<M, R>) {
         let seq = next_message_sequence_num();
-        let message_type = pretty_type_name::<A>();
+        let message_type = pretty_type_name::<M>();
         tracing::trace!(
             target: "tokio_runtime",
             seq,
@@ -69,7 +69,7 @@ where
 {
     fn send_async(&self, message: M) -> BoxFuture<'static, Result<R, AsyncSendError>> {
         let seq = next_message_sequence_num();
-        let message_type = pretty_type_name::<A>();
+        let message_type = pretty_type_name::<M>();
         tracing::trace!(target: "tokio_runtime", seq, message_type, ?message, "sending async message");
         let (sender, receiver) = tokio::sync::oneshot::channel();
         let future = async move { receiver.await.map_err(|_| AsyncSendError::Dropped) };

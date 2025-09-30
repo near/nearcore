@@ -6,19 +6,19 @@ use serde::Serialize;
 use crate::instrumentation::{
     NUM_WINDOWS,
     data::{
-        ALL_ACTOR_INSTRUMENTATIONS, AggregatedMessageTypeStats, AllActorInstrumentations,
-        InstrumentedEvent, InstrumentedEventBuffer, InstrumentedThread, InstrumentedWindow,
-        InstrumentedWindowSummary, MessageTypeRegistry,
+        AggregatedMessageTypeStats, AllActorInstrumentations, InstrumentedEvent,
+        InstrumentedEventBuffer, InstrumentedThread, InstrumentedWindow, InstrumentedWindowSummary,
+        MessageTypeRegistry,
     },
 };
 
-#[derive(Serialize)]
+#[derive(Serialize, Debug)]
 pub struct InstrumentedThreadsView {
     pub threads: Vec<InstrumentedThreadView>,
     pub current_time_unix_ms: u64,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Debug)]
 pub struct InstrumentedThreadView {
     pub thread_name: String,
     pub active_time_ns: u64,
@@ -27,21 +27,21 @@ pub struct InstrumentedThreadView {
     pub active_event: Option<InstrumentedActiveEventView>,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Debug)]
 pub struct InstrumentedActiveEventView {
     pub message_type: u32,
     /// Nanoseconds active, as of current_time_ms in InstrumentedThreadsView.
     pub active_for_ns: u64,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Debug)]
 pub struct InstrumentedWindowView {
     pub start_time_ms: u64,
     pub events: Vec<InstrumentedEventView>,
     pub summary: InstrumentedWindowSummaryView,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Debug)]
 pub struct InstrumentedEventView {
     pub message_type: u32,
     pub is_start: bool,
@@ -49,12 +49,12 @@ pub struct InstrumentedEventView {
     pub relative_timestamp_ns: u64,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Debug)]
 pub struct InstrumentedWindowSummaryView {
     pub message_stats_by_type: Vec<MessageStatsForTypeView>,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Debug)]
 pub struct MessageStatsForTypeView {
     /// Index into InstrumentedThreadView.message_types.
     /// May be -1 for unknown message types (if the type registry temporarily overflowed).
@@ -155,8 +155,8 @@ impl InstrumentedThread {
         };
         let current_window_index = self.current_window_index.load(Ordering::Acquire);
         let mut windows = Vec::new();
-        for i in 0..NUM_WINDOWS {
-            let window_index = current_window_index - NUM_WINDOWS + 1 - i;
+        for i in 0..NUM_WINDOWS.min(current_window_index) {
+            let window_index = current_window_index - i;
             let window = &self.windows[window_index % self.windows.len()];
             windows.push(window.read().to_view());
         }
