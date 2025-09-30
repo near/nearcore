@@ -473,7 +473,7 @@ pub struct RuntimeFeesConfig {
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub struct StorageUsageConfig {
     /// Amount of yN per byte required to have on the account. See
-    /// <https://nomicon.io/Economics/README.html#state-stake> for details.
+    /// <https://nomicon.io/Economics/Economic#state-stake> for details.
     pub storage_amount_per_byte: Balance,
     /// Number of bytes for an account record, including rounding up for account id.
     pub num_bytes_account: u64,
