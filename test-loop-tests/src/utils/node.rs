@@ -29,15 +29,21 @@ pub struct TestLoopNode<'a> {
 
 impl<'a> TestLoopNode<'a> {
     pub fn for_account(node_datas: &'a [NodeExecutionData], account_id: &AccountId) -> Self {
+        // cspell:ignore rfind
+        // Uses `rfind` because `TestLoopEnv::restart_node()` appends a new copy to `node_datas`.
         let data = node_datas
             .iter()
-            .find(|data| &data.account_id == account_id)
+            .rfind(|data| &data.account_id == account_id)
             .unwrap_or_else(|| panic!("client with account id {account_id} not found"));
         Self { data }
     }
 
     pub fn all(node_datas: &'a [NodeExecutionData]) -> Vec<Self> {
         node_datas.iter().map(|data| Self { data }).collect()
+    }
+
+    pub fn data(&self) -> &NodeExecutionData {
+        &self.data
     }
 
     pub fn client<'b>(&self, test_loop_data: &'b TestLoopData) -> &'b Client {

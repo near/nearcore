@@ -116,7 +116,7 @@ impl ColdStoreCommand {
             home_dir,
             &near_config.config.store,
             near_config.config.cold_store.as_ref(),
-            near_config.config.cloud_storage.as_ref(),
+            near_config.config.cloud_storage_config(),
         );
 
         match self.subcmd {
@@ -139,7 +139,7 @@ impl ColdStoreCommand {
             home_dir,
             &near_config.config.store,
             near_config.config.cold_store.as_ref(),
-            near_config.config.cloud_storage.as_ref(),
+            near_config.config.cloud_storage_config(),
         )
     }
 }
@@ -168,6 +168,7 @@ fn check_open(store: &NodeStorage) -> anyhow::Result<()> {
 fn print_heads(store: &NodeStorage) -> anyhow::Result<()> {
     let hot_store = store.get_hot_store();
     let cold_store = store.get_cold_store();
+    // TODO(cloud_archival) Handle cloud head
 
     // hot store
     {

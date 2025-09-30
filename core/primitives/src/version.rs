@@ -22,10 +22,10 @@ pub use near_primitives_core::version::PROTOCOL_VERSION;
 pub use near_primitives_core::version::ProtocolFeature;
 
 /// Minimum gas price proposed in NEP 92 and the associated protocol version
-pub const MIN_GAS_PRICE_NEP_92: Balance = 1_000_000_000;
+pub const MIN_GAS_PRICE_NEP_92: Balance = Balance::from_yoctonear(1_000_000_000);
 
 /// Minimum gas price proposed in NEP 92 (fixed) and the associated protocol version
-pub const MIN_GAS_PRICE_NEP_92_FIX: Balance = 100_000_000;
+pub const MIN_GAS_PRICE_NEP_92_FIX: Balance = Balance::from_yoctonear(100_000_000);
 
 /// The protocol version for the block header v3. This is also when we started using
 /// versioned block producer hash format.

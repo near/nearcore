@@ -183,7 +183,7 @@ fn get_validator_summary(
     let mut validator_to_summary = HashMap::new();
     for validator in &validator_info.current_validators {
         let summary = ValidatorSummary {
-            stake: validator.stake.try_into().unwrap(),
+            stake: validator.stake.as_yoctonear().try_into().unwrap(),
             block_production_percent: (100.0 * (validator.num_produced_blocks as f64)
                 / (validator.num_expected_blocks as f64))
                 .floor() as i64,
@@ -274,7 +274,7 @@ fn create_replay_store(home_dir: &Path, near_config: &NearConfig) -> Store {
         home_dir,
         &near_config.config.store,
         near_config.config.cold_store.as_ref(),
-        near_config.config.cloud_storage.as_ref(),
+        near_config.config.cloud_storage_config(),
     );
     let storage = store_opener.open_in_mode(Mode::ReadOnly).unwrap();
 

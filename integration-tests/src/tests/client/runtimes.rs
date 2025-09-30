@@ -9,6 +9,7 @@ use near_primitives::block_header::ApprovalType;
 use near_primitives::hash::hash;
 use near_primitives::network::PeerId;
 use near_primitives::test_utils::create_test_signer;
+use near_primitives::types::Balance;
 use near_primitives::validator_signer::InMemoryValidatorSigner;
 use near_primitives::version::PROTOCOL_VERSION;
 use std::collections::HashMap;
@@ -63,8 +64,8 @@ fn test_cap_max_gas_price() {
     use near_chain::Provenance;
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     let epoch_length = 5;
-    genesis.config.min_gas_price = 1_000;
-    genesis.config.max_gas_price = 1_000_000;
+    genesis.config.min_gas_price = Balance::from_yoctonear(1_000);
+    genesis.config.max_gas_price = Balance::from_yoctonear(1_000_000);
     genesis.config.protocol_version = PROTOCOL_VERSION;
     genesis.config.epoch_length = epoch_length;
     let mut env = TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build();
@@ -76,5 +77,5 @@ fn test_cap_max_gas_price() {
 
     let min_gas_price = env.clients[0].chain.block_economics_config.min_gas_price();
     let max_gas_price = env.clients[0].chain.block_economics_config.max_gas_price();
-    assert!(max_gas_price <= 20 * min_gas_price);
+    assert!(max_gas_price <= min_gas_price.checked_mul(20).unwrap());
 }

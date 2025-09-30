@@ -408,7 +408,7 @@ mod test {
     use near_primitives::merkle::PartialMerkleTree;
     use near_primitives::network::PeerId;
     use near_primitives::test_utils::TestBlockBuilder;
-    use near_primitives::types::EpochId;
+    use near_primitives::types::{Balance, EpochId};
     use near_primitives::version::PROTOCOL_VERSION;
     use num_rational::Ratio;
     use std::sync::Arc;
@@ -805,9 +805,9 @@ mod test {
                     })
                     .collect(),
                 Ratio::new(0, 1),
-                0,
-                100,
-                Some(0),
+                Balance::ZERO,
+                Balance::from_yoctonear(100),
+                Some(Balance::ZERO),
                 signer2.as_ref(),
                 *last_block.header().next_bp_hash(),
                 block_merkle_tree.root(),

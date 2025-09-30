@@ -135,7 +135,7 @@ if __name__ == '__main__':
         2,
         config,
         [
-            ["min_gas_price", 0],
+            ["min_gas_price", "0"],
             ["max_inflation_rate", [0, 1]],
             ["epoch_length", EPOCH_LENGTH],
             ['num_block_producer_seats', 4],

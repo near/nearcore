@@ -12,7 +12,6 @@ publish = false
 workspace = true
 
 [dependencies]
-actix.workspace = true
 anyhow.workspace = true
 async-trait.workspace = true
 borsh.workspace = true
@@ -54,7 +53,6 @@ near-crypto.workspace = true
 
 [features]
 nightly = [
-    "near-async/nightly",
     "near-chain-configs/nightly",
     "near-chain/nightly",
     "near-client-primitives/nightly",

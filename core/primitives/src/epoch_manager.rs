@@ -7,7 +7,6 @@ use crate::types::{
 };
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_primitives_core::hash::CryptoHash;
-use near_primitives_core::serialize::dec_format;
 use near_primitives_core::version::PROTOCOL_VERSION;
 use near_schema_checker_lib::ProtocolSchema;
 use std::collections::{BTreeMap, HashMap};
@@ -45,7 +44,6 @@ pub struct EpochConfig {
     /// Online maximum threshold above which validator gets full reward.
     pub online_max_threshold: Rational32,
     /// Stake threshold for becoming a fisherman.
-    #[serde(with = "dec_format")]
     pub fishermen_threshold: Balance,
     /// The minimum stake required for staking is last seat price divided by this number.
     pub minimum_stake_divisor: u64,
@@ -141,7 +139,7 @@ impl EpochConfig {
             validator_max_kickout_stake_perc: 0,
             online_min_threshold: 0.into(),
             online_max_threshold: 0.into(),
-            fishermen_threshold: 0,
+            fishermen_threshold: Balance::ZERO,
             minimum_stake_divisor: 0,
             protocol_upgrade_stake_threshold: 0.into(),
             shard_layout: ShardLayout::single_shard(),
@@ -168,7 +166,7 @@ impl EpochConfig {
             validator_max_kickout_stake_perc: 0,
             online_min_threshold: Rational32::new(1i32, 4i32),
             online_max_threshold: Rational32::new(3i32, 4i32),
-            fishermen_threshold: 1,
+            fishermen_threshold: Balance::from_yoctonear(1),
             minimum_stake_divisor: 1,
             protocol_upgrade_stake_threshold: Rational32::new(3i32, 4i32),
             shard_layout,

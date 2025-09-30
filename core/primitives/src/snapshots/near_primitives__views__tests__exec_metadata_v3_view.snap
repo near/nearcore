@@ -62,6 +62,21 @@ expression: view
     },
     {
       "cost_category": "ACTION_COST",
+      "cost": "DETERMINISTIC_STATE_INIT_BASE",
+      "gas_used": "1020"
+    },
+    {
+      "cost_category": "ACTION_COST",
+      "cost": "DETERMINISTIC_STATE_INIT_BYTE",
+      "gas_used": "1021"
+    },
+    {
+      "cost_category": "ACTION_COST",
+      "cost": "DETERMINISTIC_STATE_INIT_ENTRY",
+      "gas_used": "1022"
+    },
+    {
+      "cost_category": "ACTION_COST",
       "cost": "FUNCTION_CALL_BASE",
       "gas_used": "1004"
     },

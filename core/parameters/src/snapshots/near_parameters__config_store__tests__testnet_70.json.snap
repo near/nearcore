@@ -201,6 +201,7 @@ expression: config_view
     "saturating_float_to_int": false,
     "global_contract_host_fns": false,
     "reftypes_bulk_memory": false,
+    "deterministic_account_ids": false,
     "storage_get_mode": "FlatStorage",
     "fix_contract_loading_cost": false,
     "implicit_account_creation": true,

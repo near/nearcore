@@ -93,6 +93,8 @@ imports! {
     @in internal: finite_wasm_table_init<[cnt: u32, lin: u64, constant: u64] -> [u32]>,
     @in internal: finite_wasm_stack<[operand_size: u64, frame_size: u64] -> []>,
     @in internal: finite_wasm_unstack<[operand_size: u64, frame_size: u64] -> []>,
+    @in internal: finite_wasm_gas_exhausted<[] -> []>,
+    @in internal: finite_wasm_stack_exhausted<[] -> []>,
     // #############
     // # Registers #
     // #############
@@ -171,6 +173,7 @@ imports! {
     promise_and<[promise_idx_ptr: u64, promise_idx_count: u64] -> [u64]>,
     promise_batch_create<[account_id_len: u64, account_id_ptr: u64] -> [u64]>,
     promise_batch_then<[promise_index: u64, account_id_len: u64, account_id_ptr: u64] -> [u64]>,
+    #[deterministic_account_ids] promise_set_refund_to<[promise_index: u64, account_id_len: u64, account_id_ptr: u64] -> []>,
     // #######################
     // # Promise API actions #
     // #######################

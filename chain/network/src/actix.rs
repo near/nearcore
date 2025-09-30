@@ -1,55 +1,20 @@
-use anyhow::anyhow;
+use near_async::messaging;
+use near_async::tokio::TokioRuntimeHandle;
+use std::ops::Deref;
 
-// A system thread which is joined on drop.
-// TODO: replace with std::thread::ScopedJoinHandle once it is stable.
-pub struct Thread(Option<std::thread::JoinHandle<anyhow::Result<()>>>);
+/// Just a simple structure that when dropped, stops the actor. It's for testing only.
+pub struct AutoStopActor<A: messaging::Actor + 'static>(pub TokioRuntimeHandle<A>);
 
-impl Thread {
-    pub fn spawn<F: Send + 'static + FnOnce() -> anyhow::Result<()>>(f: F) -> Self {
-        Self(Some(std::thread::spawn(f)))
+impl<A: messaging::Actor> Deref for AutoStopActor<A> {
+    type Target = TokioRuntimeHandle<A>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
     }
 }
 
-impl Drop for Thread {
+impl<A: messaging::Actor + 'static> Drop for AutoStopActor<A> {
     fn drop(&mut self) {
-        let res = self.0.take().unwrap().join();
-        // Panic, unless we are in test and are already panicking.
-        // A double panic prevents "cargo test" from displaying error message.
-        if !std::thread::panicking() {
-            res.unwrap().unwrap();
-        }
-    }
-}
-
-pub struct ActixSystem<A: actix::Actor> {
-    pub addr: actix::Addr<A>,
-    system: actix::System,
-    // dropping _thread has a side effect of joining the system thread.
-    // Still, linter considers it a dead_code, so "_" is needed to silence it.
-    _thread: Thread,
-}
-
-impl<A: actix::Actor> ActixSystem<A> {
-    pub async fn spawn<F: Send + 'static + FnOnce() -> actix::Addr<A>>(f: F) -> Self {
-        let (send, recv) = tokio::sync::oneshot::channel();
-        let thread = Thread::spawn(move || {
-            let s = actix::System::new();
-            s.block_on(async move {
-                let system = actix::System::current();
-                let addr = f();
-                send.send((system, addr)).map_err(|_| anyhow!("send failed"))
-            })
-            .unwrap();
-            s.run().unwrap();
-            Ok(())
-        });
-        let (system, addr) = recv.await.unwrap();
-        Self { addr, system, _thread: thread }
-    }
-}
-
-impl<A: actix::Actor> Drop for ActixSystem<A> {
-    fn drop(&mut self) {
-        self.system.stop();
+        self.0.stop();
     }
 }

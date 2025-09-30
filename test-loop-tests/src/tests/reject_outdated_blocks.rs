@@ -1,6 +1,5 @@
 use crate::setup::builder::TestLoopBuilder;
 use crate::setup::env::TestLoopEnv;
-use crate::utils::ONE_NEAR;
 use itertools::Itertools;
 use near_async::time::Duration;
 use near_chain::{Block, Error, Provenance};
@@ -12,8 +11,7 @@ use near_o11y::testonly::init_test_logger;
 use near_primitives::epoch_manager::EpochConfigStore;
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::AccountId;
-use near_primitives::types::AccountInfo;
+use near_primitives::types::{AccountId, AccountInfo, Balance};
 use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives_core::num_rational::Rational32;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -34,7 +32,7 @@ fn create_tx(latest_block: &Block, origin: &AccountId, receiver: &AccountId) -> 
         origin.clone(),
         receiver.clone(),
         &signer.into(),
-        10,
+        Balance::from_yoctonear(10),
         *latest_block.hash(),
     )
 }
@@ -47,14 +45,14 @@ fn slow_test_reject_blocks_with_outdated_protocol_version() {
     let epoch_config_store = EpochConfigStore::for_chain_id("mainnet", None).unwrap();
     let epoch_length = 10;
 
-    let initial_balance = 1_000_000 * ONE_NEAR;
+    let initial_balance = Balance::from_near(1_000_000);
     let accounts =
         (0..5).map(|i| format!("account{}", i).parse().unwrap()).collect::<Vec<AccountId>>();
     let clients = accounts.iter().cloned().collect_vec();
     let validators = vec![AccountInfo {
         account_id: accounts[0].clone(),
         public_key: create_test_signer(accounts[0].as_str()).public_key(),
-        amount: 62_500 * ONE_NEAR,
+        amount: Balance::from_near(62_500),
     }];
 
     let genesis = TestGenesisBuilder::new()

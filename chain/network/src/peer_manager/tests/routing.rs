@@ -17,7 +17,7 @@ use crate::tcp;
 use crate::testonly::{Rng, abort_on_panic, make_rng};
 use crate::types::{Edge, PeerMessage};
 use crate::types::{PeerInfo, ReasonForBan};
-use near_async::time;
+use near_async::{ActorSystem, time};
 use near_primitives::network::PeerId;
 use near_store::db::TestDB;
 use pretty_assertions::assert_eq;
@@ -907,7 +907,8 @@ async fn ttl_and_num_hops() {
     let stream = tcp::Stream::connect(&pm.peer_info(), tcp::Tier::T2, &SocketOptions::default())
         .await
         .unwrap();
-    let mut peer = peer::testonly::PeerHandle::start_endpoint(clock.clock(), cfg, stream).await;
+    let mut peer =
+        peer::testonly::PeerHandle::start_endpoint(clock.clock(), ActorSystem::new(), cfg, stream);
     peer.complete_handshake().await;
     pm.wait_for_routing_table(&[(peer.cfg.id(), vec![peer.cfg.id()])]).await;
 
@@ -965,7 +966,8 @@ async fn repeated_data_in_sync_routing_table() {
     let stream = tcp::Stream::connect(&pm.peer_info(), tcp::Tier::T2, &SocketOptions::default())
         .await
         .unwrap();
-    let mut peer = peer::testonly::PeerHandle::start_endpoint(clock.clock(), cfg, stream).await;
+    let mut peer =
+        peer::testonly::PeerHandle::start_endpoint(clock.clock(), ActorSystem::new(), cfg, stream);
     peer.complete_handshake().await;
 
     let mut edges_got = HashSet::new();

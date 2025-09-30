@@ -97,7 +97,9 @@ impl EpochInfoProvider for EpochManagerHandle {
     fn validator_total_stake(&self, epoch_id: &EpochId) -> Result<Balance, EpochError> {
         let epoch_manager = self.read();
         let epoch_info = epoch_manager.get_epoch_info(epoch_id)?;
-        Ok(epoch_info.validators_iter().map(|info| info.stake()).sum())
+        Ok(epoch_info
+            .validators_iter()
+            .fold(Balance::ZERO, |sum, info| sum.checked_add(info.stake()).unwrap()))
     }
 
     fn minimum_stake(&self, prev_block_hash: &CryptoHash) -> Result<Balance, EpochError> {
@@ -306,19 +308,22 @@ impl EpochManager {
         // Later when we perform the check to kick out validators, we don't kick out validators in
         // exempted_validators.
         let mut exempted_validators = HashSet::new();
-        let min_keep_stake = (U256::from(total_stake) * U256::from(exempt_perc as u128)
-            / U256::from(100u128))
-        .as_u128();
-        let mut exempted_stake: Balance = 0;
+        let min_keep_stake = Balance::from_yoctonear(
+            (U256::from(total_stake.as_yoctonear()) * U256::from(exempt_perc as u128)
+                / U256::from(100u128))
+            .as_u128(),
+        );
+        let mut exempted_stake = Balance::ZERO;
         for account_id in accounts_sorted_by_online_ratio.into_iter().rev() {
             if exempted_stake >= min_keep_stake {
                 break;
             }
             if !prev_validator_kickout.contains_key(account_id) {
-                exempted_stake += epoch_info
+                let validator_stake = epoch_info
                     .get_validator_by_account(account_id)
                     .map(|v| v.stake())
                     .unwrap_or_default();
+                exempted_stake = exempted_stake.checked_add(validator_stake).unwrap();
                 exempted_validators.insert(account_id.clone());
             }
         }
@@ -357,7 +362,7 @@ impl EpochManager {
         let chunk_producer_kickout_threshold = config.chunk_producer_kickout_threshold;
         let chunk_validator_only_kickout_threshold = config.chunk_validator_only_kickout_threshold;
         let mut validator_block_chunk_stats = HashMap::new();
-        let mut total_stake: Balance = 0;
+        let mut total_stake = Balance::ZERO;
         let mut maximum_block_prod = 0;
         let mut max_validator = None;
 
@@ -378,7 +383,7 @@ impl EpochManager {
                         stat.endorsement_stats().expected;
                 }
             }
-            total_stake += v.stake();
+            total_stake = total_stake.checked_add(v.stake()).unwrap();
             let is_already_kicked_out = prev_validator_kickout.contains_key(account_id);
             if (max_validator.is_none() || block_stats.produced > maximum_block_prod)
                 && !is_already_kicked_out
@@ -499,14 +504,15 @@ impl EpochManager {
         } = self.get_epoch_info_aggregator_upto_last(last_block_hash)?;
         let mut proposals = vec![];
 
-        let total_block_producer_stake: u128 = epoch_info
+        let total_block_producer_stake: Balance = epoch_info
             .block_producers_settlement()
             .iter()
             .copied()
             .collect::<HashSet<_>>()
             .iter()
-            .map(|&id| epoch_info.validator_stake(id))
-            .sum();
+            .fold(Balance::ZERO, |sum, &id| {
+                sum.checked_add(epoch_info.validator_stake(id)).unwrap()
+            });
 
         // Next protocol version calculation.
         // Implements https://github.com/near/NEPs/blob/master/specs/ChainSpec/Upgradability.md
@@ -514,12 +520,13 @@ impl EpochManager {
         for (validator_id, version) in &version_tracker {
             let (validator_id, version) = (*validator_id, *version);
             let stake = epoch_info.validator_stake(validator_id);
-            *versions.entry(version).or_insert(0) += stake;
+            let version_entry = versions.entry(version).or_insert(Balance::ZERO);
+            *version_entry = version_entry.checked_add(stake).unwrap();
         }
         PROTOCOL_VERSION_VOTES.reset();
         for (version, stake) in &versions {
-            let stake_percent = (U256::from(*stake) * U256::from(100u128)
-                / U256::from(total_block_producer_stake))
+            let stake_percent = (U256::from(stake.as_yoctonear()) * U256::from(100u128)
+                / U256::from(total_block_producer_stake.as_yoctonear()))
             .as_u128() as i64;
             PROTOCOL_VERSION_VOTES.with_label_values(&[&version.to_string()]).set(stake_percent);
             tracing::info!(target: "epoch_manager", ?version, ?stake_percent, "Protocol version voting.");
@@ -535,9 +542,11 @@ impl EpochManager {
         {
             let numer = *config.protocol_upgrade_stake_threshold.numer() as u128;
             let denom = *config.protocol_upgrade_stake_threshold.denom() as u128;
-            let threshold = (U256::from(total_block_producer_stake) * U256::from(numer)
-                / U256::from(denom))
-            .as_u128();
+            let threshold = Balance::from_yoctonear(
+                (U256::from(total_block_producer_stake.as_yoctonear()) * U256::from(numer)
+                    / U256::from(denom))
+                .as_u128(),
+            );
             if stake > threshold { version } else { protocol_version }
         } else {
             protocol_version
@@ -565,8 +574,12 @@ impl EpochManager {
 
         // Kickout unstaked validators.
         for (account_id, proposal) in all_proposals {
-            if proposal.stake() == 0
-                && *next_epoch_info.stake_change().get(&account_id).unwrap_or(&0) != 0
+            if proposal.stake().is_zero()
+                && !next_epoch_info
+                    .stake_change()
+                    .get(&account_id)
+                    .unwrap_or(&Balance::ZERO)
+                    .is_zero()
             {
                 validator_kickout.insert(account_id.clone(), ValidatorKickoutReason::Unstaked);
             }
@@ -1013,9 +1026,9 @@ impl EpochManager {
 
         let mut stake_info = HashMap::new();
         for account_id in all_keys {
-            let new_stake = *stake_change.get(account_id).unwrap_or(&0);
-            let prev_stake = *prev_stake_change.get(account_id).unwrap_or(&0);
-            let prev_prev_stake = *prev_prev_stake_change.get(account_id).unwrap_or(&0);
+            let new_stake = *stake_change.get(account_id).unwrap_or(&Balance::ZERO);
+            let prev_stake = *prev_stake_change.get(account_id).unwrap_or(&Balance::ZERO);
+            let prev_prev_stake = *prev_prev_stake_change.get(account_id).unwrap_or(&Balance::ZERO);
             let max_of_stakes =
                 vec![prev_prev_stake, prev_stake, new_stake].into_iter().max().unwrap();
             stake_info.insert(account_id.clone(), max_of_stakes);
@@ -1295,8 +1308,8 @@ impl EpochManager {
             (epoch_info.protocol_version(), epoch_info.seat_price())
         };
         let config = self.config.for_protocol_version(protocol_version);
-        let stake_divisor = { config.minimum_stake_divisor as Balance };
-        Ok(seat_price / stake_divisor)
+        let stake_divisor = { config.minimum_stake_divisor };
+        Ok(seat_price.checked_div(u128::from(stake_divisor)).unwrap())
     }
 }
 

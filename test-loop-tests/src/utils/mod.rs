@@ -8,6 +8,7 @@ use crate::setup::state::NodeExecutionData;
 
 pub(crate) mod account;
 pub(crate) mod client_queries;
+pub(crate) mod cloud_archival;
 pub(crate) mod contract_distribution;
 pub(crate) mod loop_action;
 pub(crate) mod network;
@@ -21,9 +22,6 @@ pub(crate) mod sharding;
 pub(crate) mod transactions;
 pub(crate) mod trie_sanity;
 pub(crate) mod validators;
-
-pub(crate) const ONE_NEAR: u128 = 1_000_000_000_000_000_000_000_000;
-pub(crate) const TGAS: u64 = 1_000_000_000_000;
 
 pub(crate) fn get_node_client<'a>(
     env: &'a TestLoopEnv,

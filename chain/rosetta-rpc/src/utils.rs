@@ -9,6 +9,7 @@ use near_async::multithread::MultithreadRuntimeHandle;
 use near_chain_configs::ProtocolConfigView;
 use near_client::ViewClientActorInner;
 use near_primitives::borsh::{self, BorshDeserialize, BorshSerialize};
+use near_primitives::types::Balance;
 
 #[derive(Debug, Clone, PartialEq, derive_more::AsRef, derive_more::From)]
 pub(crate) struct BorshInHexString<T: BorshSerialize + BorshDeserialize>(T);
@@ -141,6 +142,7 @@ impl From<i64> for SignedDiff<u128> {
         Self { is_positive: value >= 0, absolute_difference: value.unsigned_abs() as u128 }
     }
 }
+
 impl<T> SignedDiff<T>
 where
     T: Copy + PartialEq + std::ops::Sub<Output = T> + std::cmp::Ord,
@@ -255,26 +257,26 @@ fn is_zero_balance_account(account: &near_primitives::account::Account) -> bool 
 /// Tokens not locked due to staking (=liquid) but reserved for state.
 fn get_liquid_balance_for_storage(
     account: &near_primitives::account::Account,
-    storage_amount_per_byte: near_primitives::types::Balance,
-) -> near_primitives::types::Balance {
+    storage_amount_per_byte: Balance,
+) -> Balance {
     let staked_for_storage = if is_zero_balance_account(account) {
-        0
+        Balance::ZERO
     } else {
-        near_primitives::types::Balance::from(account.storage_usage()) * storage_amount_per_byte
+        storage_amount_per_byte.checked_mul(u128::from(account.storage_usage())).unwrap()
     };
 
     staked_for_storage.saturating_sub(account.locked())
 }
 
 pub(crate) struct RosettaAccountBalances {
-    pub liquid: near_primitives::types::Balance,
-    pub liquid_for_storage: near_primitives::types::Balance,
-    pub locked: near_primitives::types::Balance,
+    pub liquid: Balance,
+    pub liquid_for_storage: Balance,
+    pub locked: Balance,
 }
 
 impl RosettaAccountBalances {
     pub fn zero() -> Self {
-        Self { liquid: 0, liquid_for_storage: 0, locked: 0 }
+        Self { liquid: Balance::ZERO, liquid_for_storage: Balance::ZERO, locked: Balance::ZERO }
     }
 
     pub fn from_account<T: Into<near_primitives::account::Account>>(

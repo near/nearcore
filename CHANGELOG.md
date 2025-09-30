@@ -6,6 +6,14 @@
 **No Changes**
 
 ### Non-protocol Changes
+**No Changes**
+
+## [2.9.0]
+
+### Protocol Changes
+**No Changes**
+
+### Non-protocol Changes
 * Moved Tier1 configuration from experimental to top level config. No action is necessary as the default values are the recommended ones. ([#13575](https://github.com/near/nearcore/pull/13575))
 * Add a new configuration option `save_tx_outcomes` ([#13610](https://github.com/near/nearcore/pull/13610)). When set to `false`, per-transaction outcomes are not written to the db to improve validator throughput. Disabling this config means transactions processed by the node will not be queryable by transaction hash, however this is not needed for validators to perform their duties. The default for archive and RPC nodes is `true`.
 * Updated the recommended operating system network settings for running `neard` ([#14012](https://github.com/near/nearcore/pull/14012)).

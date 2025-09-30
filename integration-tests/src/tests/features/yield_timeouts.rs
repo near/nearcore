@@ -4,12 +4,13 @@ use near_crypto::InMemorySigner;
 use near_o11y::testonly::init_test_logger;
 use near_parameters::config::TEST_CONFIG_YIELD_TIMEOUT_LENGTH;
 use near_primitives::hash::CryptoHash;
-use near_primitives::receipt::ReceiptEnum::{PromiseResume, PromiseYield};
+use near_primitives::receipt::ReceiptEnum::PromiseResume;
+use near_primitives::receipt::VersionedReceiptEnum::PromiseYield;
 use near_primitives::transaction::{
     Action, DeployContractAction, FunctionCallAction, SignedTransaction,
 };
 use near_primitives::types::AccountId;
-use near_primitives::types::Gas;
+use near_primitives::types::{Balance, Gas};
 use near_primitives::views::FinalExecutionStatus;
 
 use crate::env::nightshade_setup::TestEnvNightshadeSetupExt;
@@ -42,8 +43,8 @@ fn find_yield_data_ids_from_latest_block(env: &TestEnv) -> Vec<CryptoHash> {
         .get_outgoing_receipts_for_shard(last_block_hash, shard_id, last_block_height)
         .unwrap()
     {
-        if let PromiseYield(action_receipt) = receipt.receipt() {
-            result.push(action_receipt.input_data_ids[0]);
+        if let PromiseYield(action_receipt) = receipt.versioned_receipt() {
+            result.push(action_receipt.input_data_ids()[0]);
         }
         if let PromiseResume(data_receipt) = receipt.receipt() {
             result.push(data_receipt.data_id);
@@ -102,7 +103,7 @@ fn prepare_env_with_yield(
             method_name: "call_yield_create_return_promise".to_string(),
             args: anticipated_yield_payload,
             gas: Gas::from_teragas(300),
-            deposit: 0,
+            deposit: Balance::ZERO,
         }))],
         *genesis_block.hash(),
         0,
@@ -141,7 +142,7 @@ fn invoke_yield_resume(env: &TestEnv, data_id: CryptoHash, yield_payload: Vec<u8
             method_name: "call_yield_resume".to_string(),
             args: yield_payload.into_iter().chain(data_id.as_bytes().iter().cloned()).collect(),
             gas: Gas::from_teragas(300),
-            deposit: 0,
+            deposit: Balance::ZERO,
         }))],
         *genesis_block.hash(),
         0,
@@ -174,7 +175,7 @@ fn create_congestion(env: &TestEnv) {
                 method_name: "epoch_height".to_string(),
                 args: vec![],
                 gas: Gas::from_gas(100),
-                deposit: 0,
+                deposit: Balance::ZERO,
             }))],
             *genesis_block.hash(),
             0,

@@ -1440,6 +1440,7 @@ impl Handler<GetMaintenanceWindows, Result<MaintenanceWindowsView, GetMaintenanc
     }
 }
 
+// TODO(cloud_archival) Consider the case of cloud head
 impl Handler<GetSplitStorageInfo, Result<SplitStorageInfoView, GetSplitStorageInfoError>>
     for ViewClientActorInner
 {

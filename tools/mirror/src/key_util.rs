@@ -51,11 +51,10 @@ pub(crate) fn keys_from_source_db(
 ) -> anyhow::Result<Vec<SecretAccessKey>> {
     let account_id: AccountId = account_id.parse().context("bad account ID")?;
 
-    let mut config =
-        nearcore::config::load_config(home.as_ref(), GenesisValidationMode::UnsafeFast)
-            .with_context(|| format!("Error loading config from {}", home.display()))?;
+    let config = nearcore::config::load_config(home.as_ref(), GenesisValidationMode::UnsafeFast)
+        .with_context(|| format!("Error loading config from {}", home.display()))?;
     let node_storage =
-        nearcore::open_storage(home.as_ref(), &mut config).context("failed opening storage")?;
+        nearcore::open_storage(home.as_ref(), &config).context("failed opening storage")?;
     let store = node_storage.get_hot_store();
     let chain = ChainStore::new(
         store.clone(),

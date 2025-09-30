@@ -1,8 +1,9 @@
 use super::ValidatedOperation;
+use near_primitives::types::Balance;
 
 pub(crate) struct StakeOperation {
     pub(crate) account: crate::models::AccountIdentifier,
-    pub(crate) amount: near_primitives::types::Balance,
+    pub(crate) amount: Balance,
     pub(crate) public_key: crate::models::PublicKey,
 }
 
@@ -17,7 +18,7 @@ impl ValidatedOperation for StakeOperation {
             operation_identifier,
 
             account: self.account,
-            amount: Some(crate::models::Amount::from_yoctonear(self.amount)),
+            amount: Some(crate::models::Amount::from_balance(self.amount)),
             metadata: Some(crate::models::OperationMetadata {
                 public_key: Some(self.public_key),
                 ..Default::default()
@@ -43,8 +44,13 @@ impl TryFrom<crate::models::Operation> for StakeOperation {
     fn try_from(operation: crate::models::Operation) -> Result<Self, Self::Error> {
         Self::validate_operation_type(operation.type_)?;
         let amount = operation.amount.ok_or_else(required_fields_error)?;
+        if !amount.currency.is_near() {
+            return Err(crate::errors::ErrorKind::InvalidInput(
+                "STAKE operations must have NEAR currency".to_string(),
+            ));
+        }
         let amount = if amount.value.is_positive() {
-            amount.value.absolute_difference()
+            Balance::from_yoctonear(amount.value.absolute_difference())
         } else {
             return Err(required_fields_error());
         };

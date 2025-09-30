@@ -15,7 +15,7 @@ use near_primitives::block::{Block, BlockHeader};
 use near_primitives::merkle::PartialMerkleTree;
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{BlockReference, EpochId, ShardId};
+use near_primitives::types::{Balance, BlockReference, EpochId, ShardId};
 use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::{QueryRequest, QueryResponseKind};
 use num_rational::Ratio;
@@ -79,8 +79,8 @@ async fn query_status_not_crash() {
         None,
         vec![],
         Ratio::from_integer(0),
-        0,
-        100,
+        Balance::ZERO,
+        Balance::from_yoctonear(100),
         None,
         &signer,
         block.header.next_bp_hash,
@@ -144,7 +144,7 @@ async fn test_execution_outcome_for_chunk() {
         "test".parse().unwrap(),
         "near".parse().unwrap(),
         &signer,
-        10,
+        Balance::from_yoctonear(10),
         block_hash,
     );
     let tx_hash = transaction.get_hash();

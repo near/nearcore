@@ -1,7 +1,6 @@
 use crate::setup::builder::TestLoopBuilder;
 use crate::setup::drop_condition::DropCondition;
 use crate::setup::env::TestLoopEnv;
-use crate::utils::ONE_NEAR;
 use crate::utils::validators::get_epoch_all_validators;
 use itertools::Itertools;
 use near_async::test_loop::data::TestLoopData;
@@ -9,7 +8,7 @@ use near_async::time::Duration;
 use near_chain_configs::test_genesis::{TestEpochConfigBuilder, ValidatorsSpec};
 use near_o11y::testonly::init_test_logger;
 use near_primitives::shard_layout::ShardLayout;
-use near_primitives::types::AccountId;
+use near_primitives::types::{AccountId, Balance};
 
 const NUM_ACCOUNTS: usize = 8;
 const NUM_PRODUCER_ACCOUNTS: usize = 6;
@@ -71,7 +70,7 @@ fn run_test_chunk_validator_kickout(accounts: Vec<AccountId>, test_case: TestCas
         .epoch_length(epoch_length)
         .shard_layout(shard_layout)
         .validators_spec(validators_spec)
-        .add_user_accounts_simple(&accounts, 1_000_000 * ONE_NEAR)
+        .add_user_accounts_simple(&accounts, Balance::from_near(1_000_000))
         .build();
     let epoch_config_store = TestEpochConfigBuilder::from_genesis(&genesis)
         // Set up config to kick out only chunk validators for low performance.

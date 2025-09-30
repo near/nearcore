@@ -1,10 +1,12 @@
 use crate::concurrency::arc_mutex::ArcMutex;
 use crate::concurrency::demux;
 use crate::concurrency::rate;
+use near_async::futures::DirectTokioFutureSpawnerForTest;
 
 #[tokio::test]
 async fn test_demux() {
-    let demux = demux::Demux::new(rate::Limit { qps: 50., burst: 1 });
+    let demux =
+        demux::Demux::new(rate::Limit { qps: 50., burst: 1 }, &DirectTokioFutureSpawnerForTest);
     for _ in 0..5 {
         let mut handles = vec![];
         for i in 0..1000 {
@@ -27,7 +29,9 @@ async fn test_demux() {
 fn demux_runtime_dropped_before_call() {
     let r1 = tokio::runtime::Runtime::new().unwrap();
     let r2 = tokio::runtime::Runtime::new().unwrap();
-    let demux = r1.block_on(async { demux::Demux::new(rate::Limit { qps: 1., burst: 1000 }) });
+    let demux = r1.block_on(async {
+        demux::Demux::new(rate::Limit { qps: 1., burst: 1000 }, &DirectTokioFutureSpawnerForTest)
+    });
     drop(r1);
     let call = demux.call(0, |is: Vec<u64>| async { is });
     assert_eq!(Err(demux::ServiceStoppedError), r2.block_on(call));
@@ -37,7 +41,9 @@ fn demux_runtime_dropped_before_call() {
 fn demux_runtime_dropped_during_call() {
     let r1 = tokio::runtime::Runtime::new().unwrap();
     let r2 = tokio::runtime::Runtime::new().unwrap();
-    let demux = r1.block_on(async { demux::Demux::new(rate::Limit { qps: 1., burst: 1000 }) });
+    let demux = r1.block_on(async {
+        demux::Demux::new(rate::Limit { qps: 1., burst: 1000 }, &DirectTokioFutureSpawnerForTest)
+    });
 
     // Start the call and pause.
     let (send, recv) = tokio::sync::oneshot::channel();

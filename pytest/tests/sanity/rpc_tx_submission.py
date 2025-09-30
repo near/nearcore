@@ -12,7 +12,7 @@ from utils import TxContext
 from transaction import sign_payment_tx
 
 nodes = start_cluster(
-    2, 1, 1, None, [["min_gas_price", 0], ['max_inflation_rate', [0, 1]],
+    2, 1, 1, None, [["min_gas_price", "0"], ['max_inflation_rate', [0, 1]],
                     ["epoch_length", 100], ['transaction_validity_period', 200],
                     ["block_producer_kickout_threshold", 70]], {})
 

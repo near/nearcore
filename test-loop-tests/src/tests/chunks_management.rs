@@ -13,11 +13,10 @@ use near_network::types::{AccountIdOrPeerTrackingShard, NetworkRequests};
 use near_o11y::testonly::init_test_logger;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
-use near_primitives::types::{AccountId, BlockId, BlockReference, EpochId, NumSeats};
+use near_primitives::types::{AccountId, Balance, BlockId, BlockReference, EpochId, NumSeats};
 use parking_lot::RwLock;
 
 use crate::setup::builder::TestLoopBuilder;
-use crate::utils::ONE_NEAR;
 use crate::utils::rotating_validators_runner::RotatingValidatorsRunner;
 
 /// Configuration for `test4` validator in tests.
@@ -57,7 +56,7 @@ impl Test {
                 .collect();
         let seats: NumSeats = validators[0].len().try_into().unwrap();
 
-        let stake = ONE_NEAR;
+        let stake = Balance::from_near(1);
         let epoch_length: u64 = 10;
         let mut runner = RotatingValidatorsRunner::new(stake, validators);
         runner.set_max_epoch_duration(self.block_timeout * 3 * (epoch_length + 1) as i32);

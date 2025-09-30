@@ -6,26 +6,27 @@ use crate::logic::mocks::mock_external::MockedExternal;
 use crate::runner::{VMKindExt, VMResult};
 use near_parameters::RuntimeFeesConfig;
 use near_parameters::vm::VMKind;
+use near_primitives_core::types::Balance;
 use near_test_contracts::ArbitraryModule;
 use std::sync::Arc;
 
 /// Finds a no-parameter exported function, something like `(func (export "entry-point"))`.
 #[cfg(feature = "prepare")]
 pub fn find_entry_point(contract: &ContractCode) -> Option<String> {
-    use crate::internal::wasmparser::{Export, ExternalKind, Parser, Payload, TypeDef};
+    use wasmparser_236::{Export, ExternalKind, Parser, Payload};
     let mut tys = Vec::new();
     let mut fns = Vec::new();
     for payload in Parser::default().parse_all(contract.code()) {
         match payload {
             Ok(Payload::FunctionSection(rdr)) => fns.extend(rdr),
-            Ok(Payload::TypeSection(rdr)) => tys.extend(rdr),
+            Ok(Payload::TypeSection(rdr)) => tys.extend(rdr.into_iter_err_on_gc_types()),
             Ok(Payload::ExportSection(rdr)) => {
                 for export in rdr {
-                    if let Ok(Export { field, kind: ExternalKind::Function, index }) = export {
+                    if let Ok(Export { name, kind: ExternalKind::Func, index }) = export {
                         if let Some(&Ok(ty_index)) = fns.get(index as usize) {
-                            if let Some(Ok(TypeDef::Func(func_type))) = tys.get(ty_index as usize) {
-                                if func_type.params.is_empty() && func_type.returns.is_empty() {
-                                    return Some(field.to_string());
+                            if let Some(Ok(func_type)) = tys.get(ty_index as usize) {
+                                if func_type.params().is_empty() && func_type.results().is_empty() {
+                                    return Some(name.to_string());
                                 }
                             }
                         }
@@ -49,10 +50,10 @@ pub fn create_context(input: Vec<u8>) -> VMContext {
         block_height: 10,
         block_timestamp: 42,
         epoch_height: 1,
-        account_balance: 2u128,
-        account_locked_balance: 0,
+        account_balance: Balance::from_yoctonear(2),
+        account_locked_balance: Balance::ZERO,
         storage_usage: 12,
-        attached_deposit: 2u128,
+        attached_deposit: Balance::from_yoctonear(2),
         prepaid_gas: near_primitives_core::types::Gas::from_teragas(100),
         random_seed: vec![0, 1, 2],
         view_config: None,

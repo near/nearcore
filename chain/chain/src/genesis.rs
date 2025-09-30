@@ -18,7 +18,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::sharding::ShardChunk;
 use near_primitives::types::chunk_extra::{ChunkExtra, ChunkExtraV2};
-use near_primitives::types::{EpochId, Gas, ShardId, StateRoot};
+use near_primitives::types::{Balance, EpochId, Gas, ShardId, StateRoot};
 use near_primitives::version::PROD_GENESIS_PROTOCOL_VERSION;
 use near_store::adapter::StoreUpdateAdapter;
 use near_store::{Store, get_genesis_state_roots};
@@ -173,7 +173,7 @@ impl Chain {
             vec![],
             Gas::ZERO,
             gas_limit,
-            0,
+            Balance::ZERO,
             congestion_info,
             BandwidthRequests::empty(),
         )
@@ -186,7 +186,7 @@ impl Chain {
             validator_proposals: vec![],
             gas_used: Gas::ZERO,
             gas_limit,
-            balance_burnt: 0,
+            balance_burnt: Balance::ZERO,
         })
     }
 
@@ -368,12 +368,12 @@ mod test {
             .genesis_height(9820210)
             .genesis_time_from_clock(&FakeClock::default().clock())
             .epoch_length(43200)
-            .gas_prices(1e9 as Balance, 1e22 as Balance)
+            .gas_prices(Balance::from_yoctonear(1_000_000_000), Balance::from_millinear(10))
             .gas_limit_one_petagas()
             .transaction_validity_period(86400)
             .max_inflation_rate(Rational32::new(0, 1))
             .protocol_reward_rate(Rational32::new(0, 1))
-            .add_user_account_simple("alice".parse().unwrap(), 1_000_000)
+            .add_user_account_simple("alice".parse().unwrap(), Balance::from_yoctonear(1_000_000))
             .build();
 
         let epoch_config_store = TestEpochConfigBuilder::from_genesis(&genesis)

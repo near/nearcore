@@ -286,6 +286,17 @@ fn derive_multi_send_message_impl(input: proc_macro2::TokenStream) -> proc_macro
     }
 }
 
+/// Simply derives `impl Message for X` for any type `X`.
+#[proc_macro_derive(Message)]
+pub fn derive_message(input: TokenStream) -> TokenStream {
+    let ast: syn::DeriveInput = syn::parse(input).unwrap();
+    let struct_name = ast.ident;
+    quote! {
+        impl near_async::messaging::Message for #struct_name {}
+    }
+    .into()
+}
+
 #[cfg(test)]
 mod tests {
     use quote::quote;

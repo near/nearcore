@@ -26,7 +26,7 @@ use near_store::test_utils::create_test_store;
 use num_rational::Ratio;
 use std::collections::{BTreeMap, HashMap};
 
-pub const DEFAULT_TOTAL_SUPPLY: u128 = 1_000_000_000_000;
+pub const DEFAULT_TOTAL_SUPPLY: Balance = Balance::from_yoctonear(1_000_000_000_000);
 pub const TEST_SEED: RngSeed = [3; 32];
 
 /// Returns the hash of height (as le_bytes) for use as a fake block hash in tests.
@@ -59,7 +59,7 @@ pub fn epoch_info(
         Default::default(),
         Default::default(),
         Default::default(),
-        0,
+        Balance::ZERO,
         num_seats,
         protocol_version,
     )
@@ -100,9 +100,10 @@ pub fn epoch_info_with_num_seats(
     let validator_mandates = {
         let num_shards = chunk_producers_settlement.len();
         let total_stake =
-            all_validators.iter().fold(0_u128, |acc, v| acc.saturating_add(v.stake()));
+            all_validators.iter().fold(Balance::ZERO, |sum, item| sum.saturating_add(item.stake()));
         // For tests we estimate the target number of seats based on the seat price of the old algorithm.
-        let target_mandates_per_shard = (total_stake / seat_price) as usize;
+        let target_mandates_per_shard =
+            (total_stake.as_yoctonear() / seat_price.as_yoctonear()) as usize;
         let config = ValidatorMandatesConfig::new(target_mandates_per_shard, num_shards);
         ValidatorMandates::new(config, &all_validators)
     };
@@ -144,7 +145,7 @@ pub fn epoch_config(
         chunk_producer_kickout_threshold,
         chunk_validator_only_kickout_threshold,
         target_validator_mandates_per_shard: 68,
-        fishermen_threshold: 0,
+        fishermen_threshold: Balance::ZERO,
         online_min_threshold: Ratio::new(90, 100),
         online_max_threshold: Ratio::new(99, 100),
         protocol_upgrade_stake_threshold: Ratio::new(80, 100),
@@ -253,23 +254,30 @@ pub fn setup_epoch_manager_with_block_and_chunk_producers(
     epoch_length: BlockHeightDelta,
 ) -> EpochManager {
     let num_block_producers = block_producers.len() as u64;
-    let block_producer_stake = 1_000_000 as u128;
-    let mut total_stake = 0;
+    let block_producer_stake = Balance::from_yoctonear(1_000_000);
+    let mut total_stake = Balance::ZERO;
     let mut validators = vec![];
     for block_producer in &block_producers {
         validators.push((block_producer.clone(), block_producer_stake));
-        total_stake += block_producer_stake;
+        total_stake = total_stake.checked_add(block_producer_stake).unwrap();
     }
     for chunk_only_producer in &chunk_only_producers {
-        let minimum_stake_to_ensure_election =
-            total_stake * 160 / 1_000_000 / num_shards as u128 + 1;
-        let stake = block_producer_stake - 1;
+        let minimum_stake_to_ensure_election = total_stake
+            .checked_mul(160)
+            .unwrap()
+            .checked_div(1_000_000)
+            .unwrap()
+            .checked_div(u128::from(num_shards))
+            .unwrap()
+            .checked_add(Balance::from_yoctonear(1))
+            .unwrap();
+        let stake = block_producer_stake.checked_sub(Balance::from_yoctonear(1)).unwrap();
         assert!(
             stake >= minimum_stake_to_ensure_election,
             "Could not honor the specified list of producers"
         );
         validators.push((chunk_only_producer.clone(), stake));
-        total_stake += stake;
+        total_stake = total_stake.checked_add(stake).unwrap();
     }
     let config = epoch_config(epoch_length, num_shards, num_block_producers, 100, 0, 0, 0);
     let epoch_manager = EpochManager::new(

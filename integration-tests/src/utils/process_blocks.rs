@@ -9,7 +9,7 @@ use near_primitives::action::{Action, DeployContractAction, FunctionCallAction};
 use near_primitives::hash::CryptoHash;
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{AccountId, BlockHeight, Gas};
+use near_primitives::types::{AccountId, Balance, BlockHeight, Gas};
 use near_primitives::version::PROTOCOL_VERSION;
 use near_vm_runner::logic::ProtocolVersion;
 use node_runtime::config::Rational32;
@@ -69,7 +69,7 @@ pub fn create_account(
         height,
         old_account_id,
         new_account_id,
-        10u128.pow(24),
+        Balance::from_near(1),
         signer.public_key(),
         &signer,
         *block.hash(),
@@ -182,7 +182,7 @@ pub fn prepare_env_with_congestion(
                 method_name: "call_promise".to_string(),
                 args: serde_json::to_vec(&data).unwrap(),
                 gas: Gas::from_gas(gas_1),
-                deposit: 0,
+                deposit: Balance::ZERO,
             }))],
             *genesis_block.hash(),
             0,

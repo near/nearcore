@@ -6,8 +6,6 @@ pub fn timestamp_ms() -> u64 {
     SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis() as u64
 }
 
-const TGAS: u64 = 1024 * 1024 * 1024 * 1024;
-
 pub fn default_indicatif(len: Option<u64>) -> indicatif::ProgressBar {
     indicatif::ProgressBar::with_draw_target(
         len,
@@ -42,7 +40,7 @@ impl ProgressReporter {
             empty_blocks.fetch_add(1, Ordering::Relaxed);
         } else {
             non_empty_blocks.fetch_add(1, Ordering::Relaxed);
-            tgas_burned.fetch_add(gas_burnt.checked_div(TGAS).unwrap().as_gas(), Ordering::Relaxed);
+            tgas_burned.fetch_add(gas_burnt.as_teragas(), Ordering::Relaxed);
         }
 
         const PRINT_PER: u64 = 100;

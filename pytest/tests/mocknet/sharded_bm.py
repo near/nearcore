@@ -175,7 +175,6 @@ def handle_init(args):
         new_chain_id=args.unique_id,
         genesis_protocol_version=None,
         gcs_state_sync=False,
-        stateless_setup=True,
         yes=True,
         **vars(args),
     )

@@ -11,7 +11,7 @@ use crate::testonly::stream::Stream;
 use crate::types::{Edge, PartialEncodedChunkRequestMsg, PartialEncodedChunkResponseMsg};
 use anyhow::Context as _;
 use assert_matches::assert_matches;
-use near_async::time;
+use near_async::{ActorSystem, time};
 use near_o11y::testonly::init_test_logger;
 use near_primitives::version::{MIN_SUPPORTED_PROTOCOL_VERSION, PROTOCOL_VERSION};
 use std::sync::Arc;
@@ -39,9 +39,15 @@ async fn test_peer_communication(
     };
     let (outbound_stream, inbound_stream) =
         tcp::Stream::loopback(inbound_cfg.id(), tcp::Tier::T2).await;
-    let mut inbound = PeerHandle::start_endpoint(clock.clock(), inbound_cfg, inbound_stream).await;
+    let actor_system = ActorSystem::new();
+    let mut inbound = PeerHandle::start_endpoint(
+        clock.clock(),
+        actor_system.clone(),
+        inbound_cfg,
+        inbound_stream,
+    );
     let mut outbound =
-        PeerHandle::start_endpoint(clock.clock(), outbound_cfg, outbound_stream).await;
+        PeerHandle::start_endpoint(clock.clock(), actor_system, outbound_cfg, outbound_stream);
 
     outbound.complete_handshake().await;
     inbound.complete_handshake().await;
@@ -197,7 +203,8 @@ async fn test_handshake(outbound_encoding: Option<Encoding>, inbound_encoding: O
     };
     let (outbound_stream, inbound_stream) =
         tcp::Stream::loopback(inbound_cfg.id(), tcp::Tier::T2).await;
-    let inbound = PeerHandle::start_endpoint(clock.clock(), inbound_cfg, inbound_stream).await;
+    let inbound =
+        PeerHandle::start_endpoint(clock.clock(), ActorSystem::new(), inbound_cfg, inbound_stream);
     let outbound_port = outbound_stream.local_addr.port();
     let mut outbound = Stream::new(outbound_encoding, outbound_stream);
 

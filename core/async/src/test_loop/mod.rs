@@ -73,6 +73,7 @@ use serde::Serialize;
 use std::collections::{BinaryHeap, HashSet};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::thread::panicking;
 use time::ext::InstantExt;
 
 /// Main struct for the Test Loop framework.
@@ -444,11 +445,13 @@ impl Drop for TestLoopV2 {
             // Drop any references that may be held by the event callbacks. This can help
             // with destruction of the data.
             self.events.clear();
-            panic!(
-                "Event scheduled at {} is not handled at the end of the test: {}.
+            if !panicking() {
+                panic!(
+                    "Event scheduled at {} is not handled at the end of the test: {}.
                      Consider calling `test.shutdown_and_drain_remaining_events(...)`.",
-                event.due, event.event.description
-            );
+                    event.due, event.event.description
+                );
+            }
         }
         // Needed for the log visualizer to know when the test loop ends.
         tracing::info!(target: "test_loop", "TEST_LOOP_SHUTDOWN");

@@ -1,11 +1,11 @@
 mod metrics;
 
 use futures::FutureExt;
-use near_async::ActorSystem;
 use near_async::futures::FutureSpawnerExt;
 use near_async::messaging::{Actor, Handler};
 use near_async::time::{Duration, Instant};
 use near_async::tokio::TokioRuntimeHandle;
+use near_async::{ActorSystem, Message};
 use near_performance_metrics as _; // Suppress cargo machete
 use near_performance_metrics_macros::perf;
 use reqwest::Client;
@@ -34,8 +34,7 @@ impl Default for TelemetryConfig {
 }
 
 /// Event to send over telemetry.
-#[derive(actix::Message, Debug)]
-#[rtype(result = "()")]
+#[derive(Message, Debug)]
 pub struct TelemetryEvent {
     pub content: serde_json::Value,
 }

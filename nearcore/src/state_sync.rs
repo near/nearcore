@@ -24,7 +24,7 @@ use near_primitives::state_part::PartId;
 use near_primitives::state_sync::StateSyncDumpProgress;
 use near_primitives::types::{EpochHeight, EpochId, ShardId, StateRoot};
 use near_primitives::version::ProtocolVersion;
-use parking_lot::{Condvar, Mutex, RwLock};
+use parking_lot::RwLock;
 use rand::seq::SliceRandom;
 use rand::thread_rng;
 use std::collections::{HashMap, HashSet};
@@ -51,21 +51,18 @@ pub struct StateSyncDumper {
     /// Please note that the locked value should not be stored anywhere or passed through the thread boundary.
     pub validator: MutableValidatorSigner,
     pub future_spawner: Arc<dyn FutureSpawner>,
-    pub handle: Option<Arc<StateSyncDumpHandle>>,
 }
 
 impl StateSyncDumper {
     /// Starts a thread that periodically checks whether any new parts need to be uploaded, and then spawns
     /// futures to generate and upload them
-    pub fn start(&mut self) -> anyhow::Result<()> {
-        assert!(self.handle.is_none(), "StateSyncDumper already started");
-
+    pub fn start(self) -> anyhow::Result<Arc<StateSyncDumpHandle>> {
         let dump_config = if let Some(dump_config) = self.client_config.state_sync.dump.clone() {
             dump_config
         } else {
             // Dump is not configured, and therefore not enabled.
             tracing::debug!(target: "state_sync_dump", "Not spawning the state sync dump loop");
-            return Ok(());
+            return Ok(Arc::new(StateSyncDumpHandle::new()));
         };
         tracing::info!(target: "state_sync_dump", "Spawning the state sync dump loop");
 
@@ -130,65 +127,25 @@ impl StateSyncDumper {
             .boxed(),
         );
 
-        self.handle = Some(handle);
-        Ok(())
-    }
-
-    pub fn stop(&mut self) {
-        self.handle.take();
-    }
-
-    // Tell the dumper to stop and wait until it's finished
-    pub fn stop_and_await(&mut self) {
-        let Some(handle) = self.handle.take() else {
-            return;
-        };
-        handle.stop_and_await();
+        Ok(handle)
     }
 }
 
-/// Cancels the dumper when dropped and allows waiting for the dumper task to finish
+/// Used to cancel the state sync dumper. This isn't actually needed except in TestLoop-based
+/// tests. Normally, cancellation of the dumper is done via ActorSystem shutdown.
 pub struct StateSyncDumpHandle {
     keep_running: AtomicBool,
-    task_running: Mutex<bool>,
-    await_task: Condvar,
-}
-
-impl Drop for StateSyncDumpHandle {
-    fn drop(&mut self) {
-        self.stop()
-    }
 }
 
 impl StateSyncDumpHandle {
     fn new() -> Self {
-        Self {
-            keep_running: AtomicBool::new(true),
-            task_running: Mutex::new(true),
-            await_task: Condvar::new(),
-        }
+        Self { keep_running: AtomicBool::new(true) }
     }
 
     // Tell the dumper to stop
-    fn stop(&self) {
+    pub fn stop(&self) {
         tracing::warn!(target: "state_sync_dump", "Stopping state dumper");
         self.keep_running.store(false, Ordering::Relaxed);
-    }
-
-    // Tell the dumper to stop and wait until it's finished
-    fn stop_and_await(&self) {
-        self.stop();
-        let mut running = self.task_running.lock();
-        while *running {
-            self.await_task.wait(&mut running);
-        }
-    }
-
-    // Called by the dumper when it's finished, and wakes up any threads waiting on it
-    fn task_finished(&self) {
-        let mut running = self.task_running.lock();
-        *running = false;
-        self.await_task.notify_all();
     }
 }
 
@@ -1070,7 +1027,6 @@ async fn do_state_sync_dump(
 ) {
     // TODO(spice): Make state sync work with spice.
     if cfg!(feature = "protocol_feature_spice") {
-        handle.task_finished();
         return;
     }
 
@@ -1090,5 +1046,4 @@ async fn do_state_sync_dump(
     {
         tracing::error!(target: "state_sync_dump", ?error, "State dumper failed");
     }
-    handle.task_finished();
 }

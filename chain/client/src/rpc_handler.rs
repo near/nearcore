@@ -2,6 +2,7 @@ use near_async::messaging::CanSend;
 use near_async::messaging::Handler;
 use near_async::{ActorSystem, messaging};
 use near_chain::check_transaction_validity_period;
+use near_chain::spice_core::CoreStatementsProcessor;
 use near_chain::types::RuntimeAdapter;
 use near_chain::types::Tip;
 use near_chain_configs::MutableValidatorSigner;
@@ -12,6 +13,7 @@ use near_epoch_manager::shard_tracker::ShardTracker;
 use near_network::client::ChunkEndorsementMessage;
 use near_network::client::ProcessTxRequest;
 use near_network::client::ProcessTxResponse;
+use near_network::client::SpiceChunkEndorsementMessage;
 use near_network::types::NetworkRequests;
 use near_network::types::PeerManagerAdapter;
 use near_network::types::PeerManagerMessageRequest;
@@ -55,6 +57,15 @@ impl Handler<ChunkEndorsementMessage> for RpcHandler {
     }
 }
 
+impl Handler<SpiceChunkEndorsementMessage> for RpcHandler {
+    #[perf]
+    fn handle(&mut self, msg: SpiceChunkEndorsementMessage) {
+        if let Err(err) = self.spice_core_processor.process_chunk_endorsement(msg.0) {
+            tracing::error!(target: "spice_core", ?err, "Error processing spice chunk endorsement");
+        }
+    }
+}
+
 impl messaging::Actor for RpcHandler {}
 
 pub fn spawn_rpc_handler_actor(
@@ -67,6 +78,7 @@ pub fn spawn_rpc_handler_actor(
     validator_signer: MutableValidatorSigner,
     runtime: Arc<dyn RuntimeAdapter>,
     network_adapter: PeerManagerAdapter,
+    spice_core_processor: CoreStatementsProcessor,
 ) -> MultithreadRuntimeHandle<RpcHandler> {
     let actor = RpcHandler::new(
         config.clone(),
@@ -77,6 +89,7 @@ pub fn spawn_rpc_handler_actor(
         validator_signer,
         runtime,
         network_adapter,
+        spice_core_processor,
     );
     actor_system.spawn_multithread_actor(config.handler_threads, move || actor.clone())
 }
@@ -106,6 +119,7 @@ pub struct RpcHandler {
     validator_signer: MutableValidatorSigner,
     runtime: Arc<dyn RuntimeAdapter>,
     network_adapter: PeerManagerAdapter,
+    spice_core_processor: CoreStatementsProcessor,
 }
 
 impl RpcHandler {
@@ -118,6 +132,7 @@ impl RpcHandler {
         validator_signer: MutableValidatorSigner,
         runtime: Arc<dyn RuntimeAdapter>,
         network_adapter: PeerManagerAdapter,
+        spice_core_processor: CoreStatementsProcessor,
     ) -> Self {
         let chain_store = runtime.store().chain_store();
 
@@ -131,6 +146,7 @@ impl RpcHandler {
             runtime,
             shard_tracker,
             network_adapter,
+            spice_core_processor,
         }
     }
 

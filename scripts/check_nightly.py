@@ -27,8 +27,8 @@ import nayduck
 
 IGNORED_SUBDIRS = ("target", "target_expensive", "sandbox")
 
-EXPENSIVE_DIRECTIVE = "ultra_slow_test_"
-TEST_DIRECTIVE = "#[test]"
+EXPENSIVE_DIRECTIVES = ["fn ultra_slow_test_", "async fn ultra_slow_test_"]
+TEST_DIRECTIVES = ["#[test]", "#[tokio::test]"]
 
 
 def expensive_tests_in_file(path: pathlib.Path) -> typing.Iterable[str]:
@@ -46,8 +46,10 @@ def expensive_tests_in_file(path: pathlib.Path) -> typing.Iterable[str]:
             if not line:
                 pass
             elif line.startswith("#"):
-                is_test = is_test or line == TEST_DIRECTIVE
-            elif line.startswith(f"fn {EXPENSIVE_DIRECTIVE}"):
+                is_test = is_test or line in TEST_DIRECTIVES
+            elif any(
+                    line.startswith(directive)
+                    for directive in EXPENSIVE_DIRECTIVES):
                 if is_test:
                     match = re.search(r"\bfn\s+([A-Za-z_][A-Za-z_0-9]*)\b",
                                       line)

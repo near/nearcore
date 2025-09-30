@@ -18,7 +18,7 @@ use near_o11y::span_wrapped_msg::SpanWrappedMessageExt;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::AccountId;
+use near_primitives::types::{AccountId, Balance};
 use parking_lot::RwLock;
 use rand::{Rng as _, thread_rng};
 
@@ -119,7 +119,7 @@ fn slow_test_repro_1183() {
                                     from.clone(),
                                     to.clone(),
                                     &InMemorySigner::test_signer(&from),
-                                    1,
+                                    Balance::from_yoctonear(1),
                                     *block.header().prev_hash(),
                                 ),
                                 is_forwarded: false,
@@ -183,7 +183,7 @@ fn slow_test_sync_from_archival_node() {
         .genesis(genesis)
         .epoch_config_store(epoch_config_store)
         .clients(clients.clone())
-        .archival_clients([clients[0].clone()].into())
+        .split_store_archival_clients([clients[0].clone()].into())
         .config_modifier(move |config, idx| {
             config.min_block_production_delay = block_prod_time;
             config.max_block_production_delay = 3 * block_prod_time;

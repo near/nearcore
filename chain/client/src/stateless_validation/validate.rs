@@ -151,16 +151,6 @@ pub fn validate_chunk_endorsement(
         store,
     )?);
     validate_chunk_endorsement_signature(epoch_manager, endorsement)?;
-    if cfg!(feature = "protocol_feature_spice") {
-        if endorsement.execution_result().is_none() {
-            tracing::error!(
-                target: "stateless_validation",
-                chunk_production_key=?endorsement.chunk_production_key(),
-                "Received endorsement without execution result",
-            );
-            return Err(Error::InvalidChunkEndorsement);
-        }
-    }
 
     Ok(ChunkRelevance::Relevant)
 }
@@ -259,22 +249,20 @@ fn validate_chunk_relevant(
     let head = store.get_ser::<Tip>(DBCol::BlockMisc, HEAD_KEY)?;
     let final_head = store.get_ser::<Tip>(DBCol::BlockMisc, FINAL_HEAD_KEY)?;
 
-    if !cfg!(feature = "protocol_feature_spice") {
-        // Avoid processing state witness for old chunks.
-        // In particular it is impossible for a chunk created at a height
-        // that doesn't exceed the height of the current final block to be
-        // included in the chain. This addresses both network-delayed messages
-        // as well as malicious behavior of a chunk producer.
-        if let Some(final_head) = final_head {
-            if height_created <= final_head.height {
-                tracing::debug!(
-                    target: "stateless_validation",
-                    ?chunk_production_key,
-                    final_head_height = final_head.height,
-                    "Skipping because height created is not greater than final head height",
-                );
-                return Ok(ChunkRelevance::TooLate);
-            }
+    // Avoid processing state witness for old chunks.
+    // In particular it is impossible for a chunk created at a height
+    // that doesn't exceed the height of the current final block to be
+    // included in the chain. This addresses both network-delayed messages
+    // as well as malicious behavior of a chunk producer.
+    if let Some(final_head) = final_head {
+        if height_created <= final_head.height {
+            tracing::debug!(
+                target: "stateless_validation",
+                ?chunk_production_key,
+                final_head_height = final_head.height,
+                "Skipping because height created is not greater than final head height",
+            );
+            return Ok(ChunkRelevance::TooLate);
         }
     }
     if let Some(head) = head {

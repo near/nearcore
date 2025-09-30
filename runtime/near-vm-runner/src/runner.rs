@@ -4,6 +4,7 @@ use crate::logic::{External, VMContext, VMOutcome};
 use crate::{ContractCode, ContractRuntimeCache};
 use near_parameters::RuntimeFeesConfig;
 use near_parameters::vm::{Config, VMKind};
+use near_primitives_core::hash::CryptoHash;
 use std::sync::Arc;
 
 /// Returned by VM::run method.
@@ -22,6 +23,18 @@ use std::sync::Arc;
 /// Similarly, the gas values on `VMOutcome` must be the exact same on all
 /// validators, even when a guest error occurs, or else their state will diverge.
 pub(crate) type VMResult<T = VMOutcome> = Result<T, VMRunnerError>;
+
+pub fn contract_cached(
+    config: Arc<Config>,
+    cache: &dyn ContractRuntimeCache,
+    hash: CryptoHash,
+) -> Result<bool, CacheError> {
+    let vm_kind = config.vm_kind;
+    let runtime = vm_kind.runtime(config).unwrap_or_else(|| {
+        panic!("the {vm_kind:?} runtime has not been enabled at compile time or has been removed")
+    });
+    runtime.contract_cached(cache, hash)
+}
 
 /// Prepare the contract for execution.
 ///
@@ -119,6 +132,15 @@ pub trait Contract {
 }
 
 pub trait VM {
+    /// Determine if the machine code for the contract is already cached.
+    ///
+    /// If this returns `true`, `VM::precompile` **will** return `Ok(Ok(ContractAlreadyInCache))`.
+    fn contract_cached(
+        &self,
+        cache: &dyn ContractRuntimeCache,
+        hash: near_primitives_core::hash::CryptoHash,
+    ) -> Result<bool, crate::logic::errors::CacheError>;
+
     /// Prepare a contract for execution.
     ///
     /// Work that goes into the preparation is runtime implementation specific, and depending on
@@ -167,7 +189,6 @@ impl VMKindExt for VMKind {
             Self::Wasmer2 => false,
             Self::Wasmtime => cfg!(feature = "wasmtime_vm"),
             Self::NearVm => cfg!(all(feature = "near_vm", target_arch = "x86_64")),
-            Self::NearVm2 => cfg!(all(feature = "near_vm", target_arch = "x86_64")),
         }
     }
     fn runtime(&self, config: std::sync::Arc<Config>) -> Option<Box<dyn VM>> {
@@ -176,8 +197,6 @@ impl VMKindExt for VMKind {
             Self::Wasmtime => Some(Box::new(crate::wasmtime_runner::WasmtimeVM::new(config))),
             #[cfg(all(feature = "near_vm", target_arch = "x86_64"))]
             Self::NearVm => Some(Box::new(crate::near_vm_runner::NearVM::new(config))),
-            #[cfg(all(feature = "near_vm", target_arch = "x86_64"))]
-            Self::NearVm2 => Some(Box::new(crate::near_vm_2_runner::NearVM::new(config))),
             #[allow(unreachable_patterns)] // reachable when some of the VMs are disabled.
             _ => {
                 let _ = config;

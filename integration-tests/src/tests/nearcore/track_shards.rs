@@ -12,8 +12,8 @@ use near_primitives::types::ShardId;
 use crate::tests::nearcore::node_cluster::NodeCluster;
 use near_async::messaging::CanSendAsync;
 
-#[test]
-fn slow_test_track_shards() {
+#[tokio::test]
+async fn slow_test_track_shards() {
     init_integration_logger();
 
     let cluster = NodeCluster::default()
@@ -24,37 +24,39 @@ fn slow_test_track_shards() {
         .set_epoch_length(10)
         .set_genesis_height(0);
 
-    cluster.exec_until_stop(|_, _, clients| async move {
-        let view_client = clients[clients.len() - 1].1.clone();
-        let last_block_hash: Arc<RwLock<Option<CryptoHash>>> = Arc::new(RwLock::new(None));
-        wait_or_timeout(100, 30000, || async {
-            let bh = *last_block_hash.read();
-            if let Some(block_hash) = bh {
-                let msg = GetChunk::BlockHash(block_hash, ShardId::new(3));
-                let res = view_client.send_async(msg).await;
-                match &res {
-                    Ok(Ok(_)) => {
-                        return ControlFlow::Break(());
+    cluster
+        .run_and_then_shutdown(|_, _, clients| async move {
+            let view_client = clients[clients.len() - 1].1.clone();
+            let last_block_hash: Arc<RwLock<Option<CryptoHash>>> = Arc::new(RwLock::new(None));
+            wait_or_timeout(100, 30000, || async {
+                let bh = *last_block_hash.read();
+                if let Some(block_hash) = bh {
+                    let msg = GetChunk::BlockHash(block_hash, ShardId::new(3));
+                    let res = view_client.send_async(msg).await;
+                    match &res {
+                        Ok(Ok(_)) => {
+                            return ControlFlow::Break(());
+                        }
+                        _ => {
+                            return ControlFlow::Continue(());
+                        }
                     }
-                    _ => {
-                        return ControlFlow::Continue(());
-                    }
+                } else {
+                    let last_block_hash1 = last_block_hash.clone();
+                    let res = view_client.send_async(GetBlock::latest()).await;
+                    match &res {
+                        Ok(Ok(b)) if b.header.height > 10 => {
+                            *last_block_hash1.write() = Some(b.header.hash);
+                        }
+                        Err(_) => return ControlFlow::Continue(()),
+                        _ => {}
+                    };
+                    ControlFlow::Continue(())
                 }
-            } else {
-                let last_block_hash1 = last_block_hash.clone();
-                let res = view_client.send_async(GetBlock::latest()).await;
-                match &res {
-                    Ok(Ok(b)) if b.header.height > 10 => {
-                        *last_block_hash1.write() = Some(b.header.hash);
-                    }
-                    Err(_) => return ControlFlow::Continue(()),
-                    _ => {}
-                };
-                ControlFlow::Continue(())
-            }
+            })
+            .await
+            .unwrap();
+            near_async::shutdown_all_actors();
         })
-        .await
-        .unwrap();
-        near_async::shutdown_all_actors();
-    });
+        .await;
 }

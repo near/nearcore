@@ -3,7 +3,7 @@ use crate::logic::mocks::mock_memory::MockedMemory;
 use crate::logic::{Config, ExecutionResultState, MemSlice, VMContext, VMLogic};
 use crate::tests::test_vm_config;
 use near_parameters::RuntimeFeesConfig;
-use near_primitives_core::types::Gas;
+use near_primitives_core::types::{Balance, Gas};
 use std::sync::Arc;
 
 pub(super) struct VMLogicBuilder {
@@ -76,10 +76,10 @@ fn get_context() -> VMContext {
         block_height: 10,
         block_timestamp: 42,
         epoch_height: 1,
-        account_balance: 100,
+        account_balance: Balance::from_yoctonear(100),
         storage_usage: 0,
-        account_locked_balance: 50,
-        attached_deposit: 10,
+        account_locked_balance: Balance::from_yoctonear(50),
+        attached_deposit: Balance::from_yoctonear(10),
         prepaid_gas: Gas::from_teragas(100),
         random_seed: vec![0, 1, 2],
         view_config: None,

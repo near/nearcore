@@ -848,6 +848,23 @@ impl PartialEncodedChunk {
             Self::V2(chunk) => chunk.header.shard_id(),
         }
     }
+
+    /// Creates a clone of this partial chunk without the parts, keeping only
+    /// the header and receipts.
+    pub fn clone_without_parts(&self) -> Self {
+        match self {
+            Self::V1(chunk) => Self::V1(PartialEncodedChunkV1 {
+                header: chunk.header.clone(),
+                parts: Vec::new(),
+                prev_outgoing_receipts: chunk.prev_outgoing_receipts.clone(),
+            }),
+            Self::V2(chunk) => Self::V2(PartialEncodedChunkV2 {
+                header: chunk.header.clone(),
+                parts: Vec::new(),
+                prev_outgoing_receipts: chunk.prev_outgoing_receipts.clone(),
+            }),
+        }
+    }
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Eq, PartialEq, ProtocolSchema)]
@@ -1613,7 +1630,7 @@ mod tests {
     use crate::transaction::SignedTransaction;
     use near_crypto::{KeyType, PublicKey};
     use near_primitives_core::hash::CryptoHash;
-    use near_primitives_core::types::ShardId;
+    use near_primitives_core::types::{Balance, ShardId};
 
     fn get_receipt() -> Receipt {
         let receipt_v0 = Receipt::V0(ReceiptV0 {
@@ -1623,10 +1640,10 @@ mod tests {
             receipt: ReceiptEnum::Action(ActionReceipt {
                 signer_id: "signer_id".parse().unwrap(),
                 signer_public_key: PublicKey::empty(KeyType::ED25519),
-                gas_price: 0,
+                gas_price: Balance::ZERO,
                 output_data_receivers: vec![],
                 input_data_ids: vec![],
-                actions: vec![Action::Transfer(TransferAction { deposit: 0 })],
+                actions: vec![Action::Transfer(TransferAction { deposit: Balance::ZERO })],
             }),
         });
         receipt_v0

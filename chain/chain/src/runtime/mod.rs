@@ -27,7 +27,7 @@ use near_primitives::state_part::{PartId, StatePart};
 use near_primitives::transaction::{SignedTransaction, ValidatedTransaction};
 use near_primitives::types::{
     AccountId, Balance, BlockHeight, EpochHeight, EpochId, EpochInfoProvider, Gas, MerkleHash,
-    ShardId, StateChangeCause, StateRoot, StateRootNode,
+    ShardId, StateRoot, StateRootNode,
 };
 use near_primitives::version::ProtocolVersion;
 use near_primitives::views::{
@@ -39,7 +39,7 @@ use near_store::db::metadata::DbKind;
 use near_store::flat::FlatStorageManager;
 use near_store::{
     ApplyStatePartResult, COLD_HEAD_KEY, DBCol, ShardTries, StateSnapshotConfig, Store, Trie,
-    TrieConfig, TrieUpdate, WrappedTrieChanges,
+    TrieConfig, TrieUpdate, WrappedTrieChanges, get_access_key, get_account, set_account,
 };
 use near_vm_runner::ContractCode;
 use near_vm_runner::{ContractRuntimeCache, precompile_contract};
@@ -48,8 +48,7 @@ use node_runtime::config::tx_cost;
 use node_runtime::state_viewer::{TrieViewer, ViewApplyState};
 use node_runtime::{
     ApplyState, Runtime, SignedValidPeriodTransactions, ValidatorAccountsUpdate,
-    get_signer_and_access_key, set_tx_state_changes, validate_transaction,
-    verify_and_charge_tx_ephemeral,
+    get_signer_and_access_key, validate_transaction, verify_and_charge_tx_ephemeral,
 };
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -577,8 +576,8 @@ impl RuntimeAdapter for NightshadeRuntime {
             tx_cost(runtime_config, &validated_tx.to_tx(), gas_price, current_protocol_version)?;
         let shard_uid = shard_layout
             .account_id_to_shard_uid(validated_tx.to_signed_tx().transaction.signer_id());
-        let state_update = self.tries.new_trie_update(shard_uid, state_root);
-        let (mut signer, mut access_key) = get_signer_and_access_key(&state_update, &validated_tx)?;
+        let trie = self.tries.get_trie_for_shard(shard_uid, state_root);
+        let (mut signer, mut access_key) = get_signer_and_access_key(&trie, &validated_tx)?;
         verify_and_charge_tx_ephemeral(
             runtime_config,
             &mut signer,
@@ -648,7 +647,6 @@ impl RuntimeAdapter for NightshadeRuntime {
         let proof_size_limit =
             runtime_config.witness_config.new_transactions_validation_state_size_soft_limit;
         trie = trie.recording_reads_with_proof_size_limit(proof_size_limit);
-
         let mut state_update = TrieUpdate::new(trie);
 
         // Total amount of gas burnt for converting transactions towards receipts.
@@ -692,6 +690,8 @@ impl RuntimeAdapter for NightshadeRuntime {
                 break;
             }
 
+            let mut signer_access_key = None;
+
             // Take a single transaction from this transaction group
             while let Some(tx_peek) = transaction_group_iter.peek_next() {
                 // Stop adding transactions if the size limit would be exceeded
@@ -728,9 +728,24 @@ impl RuntimeAdapter for NightshadeRuntime {
                     continue;
                 }
 
-                let (mut signer, mut access_key) =
-                    get_signer_and_access_key(&state_update, &validated_tx)
-                        .map_err(|_| Error::InvalidTransactions)?;
+                let signer_id = validated_tx.signer_id();
+                let (signer, access_key) = if let Some((id, signer, key)) = &mut signer_access_key {
+                    debug_assert_eq!(signer_id, id);
+                    (signer, key)
+                } else {
+                    let signer = get_account(&state_update, signer_id);
+                    let signer = signer.transpose().and_then(|v| v.ok());
+                    let access_key =
+                        get_access_key(&state_update, signer_id, validated_tx.public_key());
+                    let access_key = access_key.transpose().and_then(|v| v.ok());
+                    let inserted = signer_access_key.insert((
+                        signer_id.clone(),
+                        signer.ok_or(Error::InvalidTransactions)?,
+                        access_key.ok_or(Error::InvalidTransactions)?,
+                    ));
+                    (&mut inserted.1, &mut inserted.2)
+                };
+
                 let verify_result = tx_cost(
                     runtime_config,
                     &validated_tx.to_tx(),
@@ -741,22 +756,17 @@ impl RuntimeAdapter for NightshadeRuntime {
                 .and_then(|cost| {
                     verify_and_charge_tx_ephemeral(
                         runtime_config,
-                        &mut signer,
-                        &mut access_key,
+                        signer,
+                        access_key,
                         validated_tx.to_tx(),
                         &cost,
                         Some(next_block_height),
                     )
-                })
-                .and_then(|verification_res| {
-                    set_tx_state_changes(&mut state_update, &validated_tx, &signer, &access_key);
-                    Ok(verification_res)
                 });
 
                 match verify_result {
                     Ok(cost) => {
                         tracing::trace!(target: "runtime", tx=?validated_tx.get_hash(), "including transaction that passed validation and verification");
-                        state_update.commit(StateChangeCause::NotWritableToDisk);
                         total_gas_burnt = total_gas_burnt.checked_add(cost.gas_burnt).unwrap();
                         total_size += validated_tx.get_size();
                         result.transactions.push(validated_tx);
@@ -766,11 +776,20 @@ impl RuntimeAdapter for NightshadeRuntime {
                     Err(err) => {
                         tracing::trace!(target: "runtime", tx=?validated_tx.get_hash(), ?err, "discarding transaction that failed verification or verification");
                         rejected_invalid_tx += 1;
-                        state_update.rollback();
                     }
                 }
             }
+
+            if let Some((signer_id, account, _)) = signer_access_key {
+                // NOTE: we don't need to remember the intermediate state of the access key between
+                // groups, but only because pool guarantees that iteration is grouped by account_id
+                // and its public keys. It does however also mean that we must remember the account
+                // state as this code might operate over multiple access keys for the account.
+                set_account(&mut state_update, signer_id, &account);
+            }
         }
+        // NOTE: this state update must not be committed or finalized!
+        drop(state_update);
         debug!(target: "runtime", limited_by=?result.limited_by, "Transaction filtering results {} valid out of {} pulled from the pool", result.transactions.len(), num_checked_transactions);
         let shard_label = shard_id.to_string();
         metrics::PREPARE_TX_SIZE.with_label_values(&[&shard_label]).observe(total_size as f64);

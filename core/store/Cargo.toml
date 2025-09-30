@@ -12,7 +12,6 @@ publish = false
 workspace = true
 
 [dependencies]
-actix.workspace = true
 anyhow.workspace = true
 borsh.workspace = true
 bytesize.workspace = true
@@ -56,6 +55,7 @@ near-time.workspace = true
 near-vm-runner.workspace = true
 
 [dev-dependencies]
+actix.workspace = true
 assert_matches.workspace = true
 bencher.workspace = true
 insta.workspace = true

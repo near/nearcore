@@ -1,24 +1,19 @@
-use actix::Message;
-use near_chain_configs::{ClientConfig, ProtocolConfigView};
+use near_async::Message;
 use near_primitives::hash::CryptoHash;
-use near_primitives::merkle::{MerklePath, PartialMerkleTree};
+use near_primitives::merkle::MerklePath;
 use near_primitives::network::PeerId;
-use near_primitives::sharding::{ChunkHash, ShardChunk};
+use near_primitives::sharding::ChunkHash;
 use near_primitives::types::{
     AccountId, BlockHeight, BlockReference, EpochId, EpochReference, MaybeBlockId, ShardId,
     TransactionOrReceiptId,
 };
-use near_primitives::views::validator_stake_view::ValidatorStakeView;
 use near_primitives::views::{
-    BlockView, ChunkView, EpochValidatorInfo, ExecutionOutcomeWithIdView, GasPriceView,
-    LightClientBlockLiteView, LightClientBlockView, MaintenanceWindowsView, QueryRequest,
-    QueryResponse, ReceiptView, SplitStorageInfoView, StateChangesKindsView,
-    StateChangesRequestView, StateChangesView, StateSyncStatusView, SyncStatusView, TxStatusView,
+    ExecutionOutcomeWithIdView, LightClientBlockLiteView, QueryRequest, StateChangesRequestView,
+    StateSyncStatusView, SyncStatusView,
 };
 pub use near_primitives::views::{StatusResponse, StatusSyncInfo};
 use near_time::Duration;
 use std::collections::HashMap;
-use std::sync::Arc;
 use tracing::debug_span;
 
 /// Combines errors coming from chain, tx pool and block producer.
@@ -231,7 +226,7 @@ impl From<SyncStatus> for SyncStatusView {
 }
 
 /// Actor message requesting block by id, hash or sync state.
-#[derive(Clone, Debug)]
+#[derive(Message, Clone, Debug)]
 pub struct GetBlock(pub BlockReference);
 
 #[derive(thiserror::Error, Debug)]
@@ -274,12 +269,8 @@ impl GetBlock {
     }
 }
 
-impl Message for GetBlock {
-    type Result = Result<BlockView, GetBlockError>;
-}
-
 /// Get block with the block merkle tree. Used for testing
-#[derive(Debug)]
+#[derive(Message, Debug)]
 pub struct GetBlockWithMerkleTree(pub BlockReference);
 
 impl GetBlockWithMerkleTree {
@@ -288,34 +279,22 @@ impl GetBlockWithMerkleTree {
     }
 }
 
-impl Message for GetBlockWithMerkleTree {
-    type Result = Result<(BlockView, Arc<PartialMerkleTree>), GetBlockError>;
-}
-
 /// Actor message requesting a chunk by chunk hash and block hash + shard id.
-#[derive(Clone, Debug)]
+#[derive(Message, Clone, Debug)]
 pub enum GetChunk {
     Height(BlockHeight, ShardId),
     BlockHash(CryptoHash, ShardId),
     ChunkHash(ChunkHash),
 }
 
-impl Message for GetChunk {
-    type Result = Result<ChunkView, GetChunkError>;
-}
-
 /// Actor message requesting a chunk by chunk hash and block hash + shard id.
 /// The difference between this and `GetChunk` is that it returns the actual `ShardChunk`
 /// instead of a `ChunkView`
-#[derive(Debug)]
+#[derive(Message, Debug)]
 pub enum GetShardChunk {
     Height(BlockHeight, ShardId),
     BlockHash(CryptoHash, ShardId),
     ChunkHash(ChunkHash),
-}
-
-impl Message for GetShardChunk {
-    type Result = Result<ShardChunk, GetChunkError>;
 }
 
 #[derive(thiserror::Error, Debug)]
@@ -361,7 +340,7 @@ impl From<near_chain_primitives::Error> for GetChunkError {
 }
 
 /// Queries client for given path / data.
-#[derive(Clone, Debug)]
+#[derive(Message, Clone, Debug)]
 pub struct Query {
     pub block_reference: BlockReference,
     pub request: QueryRequest,
@@ -371,10 +350,6 @@ impl Query {
     pub fn new(block_reference: BlockReference, request: QueryRequest) -> Self {
         Query { block_reference, request }
     }
-}
-
-impl Message for Query {
-    type Result = Result<QueryResponse, QueryError>;
 }
 
 #[derive(thiserror::Error, Debug)]
@@ -454,8 +429,7 @@ pub enum QueryError {
     Unreachable { error_message: String },
 }
 
-#[derive(actix::Message, Debug)]
-#[rtype(result = "Result<StatusResponse, StatusError>")]
+#[derive(Message, Debug)]
 pub struct Status {
     pub is_health_check: bool,
     // If true - return more detailed information about the current status (recent blocks etc).
@@ -500,7 +474,7 @@ impl From<near_chain_primitives::error::Error> for StatusError {
     }
 }
 
-#[derive(Debug)]
+#[derive(Message, Debug)]
 pub struct GetNextLightClientBlock {
     pub last_block_hash: CryptoHash,
 }
@@ -542,21 +516,12 @@ impl From<near_chain_primitives::error::Error> for GetNextLightClientBlockError 
     }
 }
 
-impl Message for GetNextLightClientBlock {
-    type Result = Result<Option<Arc<LightClientBlockView>>, GetNextLightClientBlockError>;
-}
-
-#[derive(actix::Message, Debug)]
-#[rtype(result = "Result<NetworkInfoResponse, String>")]
+#[derive(Message, Debug)]
 pub struct GetNetworkInfo {}
 
-#[derive(Debug)]
+#[derive(Message, Debug)]
 pub struct GetGasPrice {
     pub block_id: MaybeBlockId,
-}
-
-impl Message for GetGasPrice {
-    type Result = Result<GasPriceView, GetGasPriceError>;
 }
 
 #[derive(thiserror::Error, Debug)]
@@ -618,7 +583,7 @@ pub struct NetworkInfoResponse {
 }
 
 /// Status of given transaction including all the subsequent receipts.
-#[derive(Debug)]
+#[derive(Message, Debug)]
 pub struct TxStatus {
     pub tx_hash: CryptoHash,
     pub signer_account_id: AccountId,
@@ -639,17 +604,9 @@ impl From<near_chain_primitives::Error> for TxStatusError {
     }
 }
 
-impl Message for TxStatus {
-    type Result = Result<TxStatusView, TxStatusError>;
-}
-
-#[derive(Debug)]
+#[derive(Message, Debug)]
 pub struct GetValidatorInfo {
     pub epoch_reference: EpochReference,
-}
-
-impl Message for GetValidatorInfo {
-    type Result = Result<EpochValidatorInfo, GetValidatorInfoError>;
 }
 
 #[derive(thiserror::Error, Debug)]
@@ -681,16 +638,12 @@ impl From<near_chain_primitives::Error> for GetValidatorInfoError {
     }
 }
 
-#[derive(Debug)]
+#[derive(Message, Debug)]
 pub struct GetValidatorOrdered {
     pub block_id: MaybeBlockId,
 }
 
-impl Message for GetValidatorOrdered {
-    type Result = Result<Vec<ValidatorStakeView>, GetValidatorInfoError>;
-}
-
-#[derive(Debug)]
+#[derive(Message, Debug)]
 pub struct GetStateChanges {
     pub block_hash: CryptoHash,
     pub state_changes_request: StateChangesRequestView,
@@ -730,39 +683,23 @@ impl From<near_chain_primitives::Error> for GetStateChangesError {
     }
 }
 
-impl Message for GetStateChanges {
-    type Result = Result<StateChangesView, GetStateChangesError>;
-}
-
-#[derive(Debug)]
+#[derive(Message, Debug)]
 pub struct GetStateChangesInBlock {
     pub block_hash: CryptoHash,
 }
 
-impl Message for GetStateChangesInBlock {
-    type Result = Result<StateChangesKindsView, GetStateChangesError>;
-}
-
-#[derive(Debug)]
+#[derive(Message, Debug)]
 pub struct GetStateChangesWithCauseInBlock {
     pub block_hash: CryptoHash,
 }
 
-impl Message for GetStateChangesWithCauseInBlock {
-    type Result = Result<StateChangesView, GetStateChangesError>;
-}
-
-#[derive(Debug)]
+#[derive(Message, Debug)]
 pub struct GetStateChangesWithCauseInBlockForTrackedShards {
     pub block_hash: CryptoHash,
     pub epoch_id: EpochId,
 }
 
-impl Message for GetStateChangesWithCauseInBlockForTrackedShards {
-    type Result = Result<HashMap<ShardId, StateChangesView>, GetStateChangesError>;
-}
-
-#[derive(Debug)]
+#[derive(Message, Debug)]
 pub struct GetExecutionOutcome {
     pub id: TransactionOrReceiptId,
 }
@@ -826,26 +763,18 @@ impl From<near_chain_primitives::error::Error> for GetExecutionOutcomeError {
     }
 }
 
-#[derive(Debug)]
+#[derive(Message, Debug)]
 pub struct GetExecutionOutcomeResponse {
     pub outcome_proof: ExecutionOutcomeWithIdView,
     pub outcome_root_proof: MerklePath,
 }
 
-impl Message for GetExecutionOutcome {
-    type Result = Result<GetExecutionOutcomeResponse, GetExecutionOutcomeError>;
-}
-
-#[derive(Debug)]
+#[derive(Message, Debug)]
 pub struct GetExecutionOutcomesForBlock {
     pub block_hash: CryptoHash,
 }
 
-impl Message for GetExecutionOutcomesForBlock {
-    type Result = Result<HashMap<ShardId, Vec<ExecutionOutcomeWithIdView>>, String>;
-}
-
-#[derive(Debug)]
+#[derive(Message, Debug)]
 pub struct GetBlockProof {
     pub block_hash: CryptoHash,
     pub head_block_hash: CryptoHash,
@@ -888,11 +817,7 @@ impl From<near_chain_primitives::error::Error> for GetBlockProofError {
     }
 }
 
-impl Message for GetBlockProof {
-    type Result = Result<GetBlockProofResponse, GetBlockProofError>;
-}
-
-#[derive(Debug)]
+#[derive(Message, Debug)]
 pub struct GetReceipt {
     pub receipt_id: CryptoHash,
 }
@@ -922,16 +847,8 @@ impl From<near_chain_primitives::Error> for GetReceiptError {
     }
 }
 
-impl Message for GetReceipt {
-    type Result = Result<Option<ReceiptView>, GetReceiptError>;
-}
-
-#[derive(Debug)]
+#[derive(Message, Debug)]
 pub struct GetProtocolConfig(pub BlockReference);
-
-impl Message for GetProtocolConfig {
-    type Result = Result<ProtocolConfigView, GetProtocolConfigError>;
-}
 
 #[derive(thiserror::Error, Debug)]
 pub enum GetProtocolConfigError {
@@ -959,13 +876,9 @@ impl From<near_chain_primitives::Error> for GetProtocolConfigError {
     }
 }
 
-#[derive(Debug)]
+#[derive(Message, Debug)]
 pub struct GetMaintenanceWindows {
     pub account_id: AccountId,
-}
-
-impl Message for GetMaintenanceWindows {
-    type Result = Result<MaintenanceWindowsView, GetMaintenanceWindowsError>;
 }
 
 #[derive(thiserror::Error, Debug)]
@@ -987,8 +900,7 @@ impl From<near_chain_primitives::Error> for GetMaintenanceWindowsError {
     }
 }
 
-#[derive(actix::Message, Debug)]
-#[rtype(result = "Result<ClientConfig, GetClientConfigError>")]
+#[derive(Message, Debug)]
 pub struct GetClientConfig {}
 
 #[derive(thiserror::Error, Debug)]
@@ -1014,12 +926,8 @@ impl From<near_chain_primitives::Error> for GetClientConfigError {
     }
 }
 
-#[derive(Debug)]
+#[derive(Message, Debug)]
 pub struct GetSplitStorageInfo {}
-
-impl Message for GetSplitStorageInfo {
-    type Result = Result<SplitStorageInfoView, GetSplitStorageInfoError>;
-}
 
 #[derive(thiserror::Error, Debug)]
 pub enum GetSplitStorageInfoError {
@@ -1051,7 +959,7 @@ impl From<std::io::Error> for GetSplitStorageInfoError {
 }
 
 #[cfg(feature = "sandbox")]
-#[derive(Debug)]
+#[derive(Message, Debug)]
 pub enum SandboxMessage {
     SandboxPatchState(Vec<near_primitives::state_record::StateRecord>),
     SandboxPatchStateStatus,
@@ -1060,14 +968,10 @@ pub enum SandboxMessage {
 }
 
 #[cfg(feature = "sandbox")]
-#[derive(Eq, PartialEq, Debug, actix::MessageResponse)]
+#[derive(Eq, PartialEq, Debug)]
 pub enum SandboxResponse {
     SandboxPatchStateFinished(bool),
     SandboxFastForwardFinished(bool),
     SandboxFastForwardFailed(String),
     SandboxNoResponse,
-}
-#[cfg(feature = "sandbox")]
-impl Message for SandboxMessage {
-    type Result = SandboxResponse;
 }

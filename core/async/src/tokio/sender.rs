@@ -75,7 +75,7 @@ where
         let future = async move { receiver.await.map_err(|_| AsyncSendError::Dropped) };
         let function = move |actor: &mut A, ctx: &mut dyn DelayedActionRunner<A>| {
             let result = actor.handle(message, ctx);
-            sender.send(result).unwrap();
+            sender.send(result).ok(); // OK if the sender doesn't care about the result anymore.
         };
         let message = TokioRuntimeMessage { seq, function: Box::new(function) };
         if let Err(_) = self.sender.send(message) {

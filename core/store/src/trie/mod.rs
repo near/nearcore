@@ -25,8 +25,8 @@ pub use near_primitives::shard_layout::ShardUId;
 use near_primitives::state::PartialState;
 use near_primitives::state::{FlatStateValue, ValueRef};
 use near_primitives::state_record::StateRecord;
-use near_primitives::trie_key::TrieKey;
 use near_primitives::trie_key::trie_key_parsers::parse_account_id_prefix;
+use near_primitives::trie_key::{SmallKeyVec, TrieKey};
 use near_primitives::types::{AccountId, StateRoot, StateRootNode};
 use near_schema_checker_lib::ProtocolSchema;
 use near_vm_runner::ContractCode;
@@ -1571,9 +1571,12 @@ impl Trie {
         } else {
             &empty_set
         };
+        let mut key_buf = SmallKeyVec::new_const();
         for account_id in codes_to_record.iter() {
             let trie_key = TrieKey::ContractCode { account_id: account_id.clone() };
-            let _ = self.get(&trie_key.to_vec(), opts);
+            key_buf.clear();
+            trie_key.append_into(&mut key_buf);
+            let _ = self.get(&key_buf, opts);
         }
 
         if self.memtries.is_some() {
@@ -1800,11 +1803,15 @@ impl<'a> TrieWithReadLock<'a> {
 
 impl TrieAccess for Trie {
     fn get(&self, key: &TrieKey, opts: AccessOptions) -> Result<Option<Vec<u8>>, StorageError> {
-        Trie::get(self, &key.to_vec(), opts)
+        let mut key_buf = SmallKeyVec::new_const();
+        key.append_into(&mut key_buf);
+        Trie::get(self, &key_buf, opts)
     }
 
     fn contains_key(&self, key: &TrieKey, opts: AccessOptions) -> Result<bool, StorageError> {
-        Trie::contains_key(&self, &key.to_vec(), opts)
+        let mut key_buf = SmallKeyVec::new_const();
+        key.append_into(&mut key_buf);
+        Trie::contains_key(&self, &key_buf, opts)
     }
 }
 

@@ -1,9 +1,9 @@
 pub(super) mod opener;
 
 use crate::archive::cloud_storage::CloudStorage;
-use crate::config::CloudStorageConfig;
 use crate::db::{Database, SplitDB, metadata};
 use crate::{Store, StoreConfig};
+use near_chain_configs::CloudStorageConfig;
 use opener::StoreOpener;
 use std::io;
 use std::str::FromStr;
@@ -198,8 +198,8 @@ impl NodeStorage {
         self.cold_storage.is_some()
     }
 
-    /// Reads database metadata and returns whether the storage is archival.
-    pub fn is_archive(&self) -> io::Result<bool> {
+    /// Reads database metadata and returns `true` if it is split storage or legacy archival node.
+    pub fn is_local_archive(&self) -> io::Result<bool> {
         if self.cold_storage.is_some() {
             return Ok(true);
         }

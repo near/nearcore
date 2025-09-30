@@ -24,6 +24,17 @@ const chunkHash = stringField('chunk_hash');
 const epochId = stringField('epoch_id');
 const transactionHash = stringField('transaction_hash');
 const receiptId = stringField('receipt_id');
+const outcomeId: FieldSemantic = {
+    parser: (_, v) => {
+        // For outcome IDs, we'll try both transaction_hash and receipt_id
+        // The UI will show both options, but only the valid one will succeed
+        return [
+            new StringEntityKey('transaction_hash', v),
+            new StringEntityKey('receipt_id', v),
+        ];
+    },
+    display: 'outcome_id',
+};
 const trieNodeHash = stringField('trie_node_hash');
 const trieValueHash = stringField('trie_value_hash');
 const accountId = stringField('account_id');
@@ -191,6 +202,11 @@ const executionOutcome = {
     struct: {
         receipt_ids: { array: receiptId },
         executor_id: accountId,
+        status: {
+            struct: {
+                SuccessReceiptId: receiptId,
+            },
+        },
     },
 };
 
@@ -367,6 +383,7 @@ export const fieldSemantics: Record<EntityType, FieldSemantic> = {
     FlatStateChanges: flatStateChanges,
     FlatStateDeltaMetadata: flatStateDeltaMetadata,
     FlatStorageStatus: flatStorageStatus,
+    OutcomeIds: { array: outcomeId },
     RawTrieNode: rawTrieNode,
     Receipt: receipt,
     ShardId: shardId,

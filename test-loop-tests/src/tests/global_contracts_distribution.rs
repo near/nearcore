@@ -10,13 +10,12 @@ use near_primitives::action::{GlobalContractDeployMode, GlobalContractIdentifier
 use near_primitives::epoch_manager::EpochConfigStore;
 use near_primitives::receipt::ReceiptEnum;
 use near_primitives::shard_layout::ShardLayout;
-use near_primitives::types::{AccountId, BlockHeight, BlockHeightDelta};
+use near_primitives::types::{AccountId, Balance, BlockHeight, BlockHeightDelta};
 use near_primitives::version::PROTOCOL_VERSION;
 use near_vm_runner::ContractCode;
 
 use crate::setup::builder::TestLoopBuilder;
 use crate::setup::env::TestLoopEnv;
-use crate::utils::ONE_NEAR;
 use crate::utils::account::{
     create_account_id, create_account_ids, create_validators_spec, validators_spec_clients,
 };
@@ -139,7 +138,7 @@ impl GlobalContractsReshardingTestEnv {
             .validators_spec(validators_spec)
             .shard_layout(base_shard_layout.clone())
             .epoch_length(EPOCH_LENGTH)
-            .add_user_accounts_simple(&users, 1000_000 * ONE_NEAR)
+            .add_user_accounts_simple(&users, Balance::from_near(1000_000))
             .build();
 
         let base_epoch_config = TestEpochConfigBuilder::from_genesis(&genesis).build();

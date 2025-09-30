@@ -1,9 +1,8 @@
 use crate::action::GlobalContractIdentifier;
 use crate::hash::CryptoHash;
-use crate::serialize::dec_format;
 use crate::shard_layout::ShardLayoutError;
 use crate::sharding::ChunkHash;
-use crate::types::{AccountId, Balance, EpochId, Nonce};
+use crate::types::{AccountId, Balance, EpochId, Nonce, SpiceChunkId};
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::PublicKey;
 pub use near_primitives_core::errors::IntegerOverflowError;
@@ -11,6 +10,7 @@ use near_primitives_core::types::Gas;
 use near_primitives_core::types::{BlockHeight, ProtocolVersion, ShardId};
 use near_schema_checker_lib::ProtocolSchema;
 use std::fmt::{Debug, Display};
+use std::io;
 
 /// Error returned in the ExecutionOutcome in case of failure
 #[derive(
@@ -227,11 +227,7 @@ pub enum InvalidTxError {
     /// Account does not have enough balance to cover TX cost
     NotEnoughBalance {
         signer_id: AccountId,
-        #[serde(with = "dec_format")]
-        #[cfg_attr(feature = "schemars", schemars(with = "String"))]
         balance: Balance,
-        #[serde(with = "dec_format")]
-        #[cfg_attr(feature = "schemars", schemars(with = "String"))]
         cost: Balance,
     } = 7,
     /// Signer account doesn't have enough balance after transaction.
@@ -239,8 +235,6 @@ pub enum InvalidTxError {
         /// An account which doesn't have enough balance to cover storage.
         signer_id: AccountId,
         /// Required balance to cover the state.
-        #[serde(with = "dec_format")]
-        #[cfg_attr(feature = "schemars", schemars(with = "String"))]
         amount: Balance,
     } = 8,
     /// An integer overflow occurred during transaction cost estimation.
@@ -314,11 +308,7 @@ pub enum InvalidAccessKeyError {
     NotEnoughAllowance {
         account_id: AccountId,
         public_key: Box<PublicKey>,
-        #[serde(with = "dec_format")]
-        #[cfg_attr(feature = "schemars", schemars(with = "String"))]
         allowance: Balance,
-        #[serde(with = "dec_format")]
-        #[cfg_attr(feature = "schemars", schemars(with = "String"))]
         cost: Balance,
     } = 4,
     /// Having a deposit with a function call action is not allowed with a function call access key.
@@ -344,25 +334,50 @@ pub enum ActionsValidationError {
     /// The delete action must be a final action in transaction
     DeleteActionMustBeFinal = 0,
     /// The total prepaid gas (for all given actions) exceeded the limit.
-    TotalPrepaidGasExceeded { total_prepaid_gas: Gas, limit: Gas } = 1,
+    TotalPrepaidGasExceeded {
+        total_prepaid_gas: Gas,
+        limit: Gas,
+    } = 1,
     /// The number of actions exceeded the given limit.
-    TotalNumberOfActionsExceeded { total_number_of_actions: u64, limit: u64 } = 2,
+    TotalNumberOfActionsExceeded {
+        total_number_of_actions: u64,
+        limit: u64,
+    } = 2,
     /// The total number of bytes of the method names exceeded the limit in a Add Key action.
-    AddKeyMethodNamesNumberOfBytesExceeded { total_number_of_bytes: u64, limit: u64 } = 3,
+    AddKeyMethodNamesNumberOfBytesExceeded {
+        total_number_of_bytes: u64,
+        limit: u64,
+    } = 3,
     /// The length of some method name exceeded the limit in a Add Key action.
-    AddKeyMethodNameLengthExceeded { length: u64, limit: u64 } = 4,
+    AddKeyMethodNameLengthExceeded {
+        length: u64,
+        limit: u64,
+    } = 4,
     /// Integer overflow during a compute.
     IntegerOverflow = 5,
     /// Invalid account ID.
-    InvalidAccountId { account_id: String } = 6,
+    InvalidAccountId {
+        account_id: String,
+    } = 6,
     /// The size of the contract code exceeded the limit in a DeployContract action.
-    ContractSizeExceeded { size: u64, limit: u64 } = 7,
+    ContractSizeExceeded {
+        size: u64,
+        limit: u64,
+    } = 7,
     /// The length of the method name exceeded the limit in a Function Call action.
-    FunctionCallMethodNameLengthExceeded { length: u64, limit: u64 } = 8,
+    FunctionCallMethodNameLengthExceeded {
+        length: u64,
+        limit: u64,
+    } = 8,
     /// The length of the arguments exceeded the limit in a Function Call action.
-    FunctionCallArgumentsLengthExceeded { length: u64, limit: u64 } = 9,
+    FunctionCallArgumentsLengthExceeded {
+        length: u64,
+        limit: u64,
+    } = 9,
     /// An attempt to stake with a public key that is not convertible to ristretto.
-    UnsuitableStakingKey { public_key: Box<PublicKey> } = 10,
+    UnsuitableStakingKey {
+        public_key: Box<PublicKey>,
+    } = 10,
     /// The attached amount of gas in a FunctionCall action has to be a positive number.
     FunctionCallZeroAttachedGas = 11,
     /// There should be the only one DelegateAction
@@ -373,7 +388,22 @@ pub enum ActionsValidationError {
     /// Note: we stringify the protocol feature name instead of using
     /// `ProtocolFeature` here because we don't want to leak the internals of
     /// that type into observable borsh serialization.
-    UnsupportedProtocolFeature { protocol_feature: String, version: ProtocolVersion } = 13,
+    UnsupportedProtocolFeature {
+        protocol_feature: String,
+        version: ProtocolVersion,
+    } = 13,
+    InvalidDeterministicStateInitReceiver {
+        receiver_id: AccountId,
+        derived_id: AccountId,
+    } = 14,
+    DeterministicStateInitKeyLengthExceeded {
+        length: u64,
+        limit: u64,
+    } = 15,
+    DeterministicStateInitValueLengthExceeded {
+        length: u64,
+        limit: u64,
+    } = 16,
 }
 
 /// Describes the error for validating a receipt.
@@ -526,6 +556,27 @@ impl Display for ActionsValidationError {
                     protocol_feature, version,
                 )
             }
+            ActionsValidationError::InvalidDeterministicStateInitReceiver {
+                receiver_id,
+                derived_id,
+            } => {
+                write!(
+                    f,
+                    "DeterministicStateInit action payload is invalid for account {receiver_id}, derived id is {derived_id}",
+                )
+            }
+            ActionsValidationError::DeterministicStateInitKeyLengthExceeded { length, limit } => {
+                write!(
+                    f,
+                    "DeterministicStateInit contains key of length {length} but at most {limit} is allowed",
+                )
+            }
+            ActionsValidationError::DeterministicStateInitValueLengthExceeded { length, limit } => {
+                write!(
+                    f,
+                    "DeterministicStateInit contains value of length {length} but at most {limit} is allowed",
+                )
+            }
         }
     }
 }
@@ -615,8 +666,6 @@ pub enum ActionErrorKind {
         /// An account which needs balance
         account_id: AccountId,
         /// Balance required to complete an action.
-        #[serde(with = "dec_format")]
-        #[cfg_attr(feature = "schemars", schemars(with = "String"))]
         amount: Balance,
     } = 8,
     /// Account is not yet staked, but tries to unstake
@@ -626,23 +675,13 @@ pub enum ActionErrorKind {
     /// The account doesn't have enough balance to increase the stake.
     TriesToStake {
         account_id: AccountId,
-        #[serde(with = "dec_format")]
-        #[cfg_attr(feature = "schemars", schemars(with = "String"))]
         stake: Balance,
-        #[serde(with = "dec_format")]
-        #[cfg_attr(feature = "schemars", schemars(with = "String"))]
         locked: Balance,
-        #[serde(with = "dec_format")]
-        #[cfg_attr(feature = "schemars", schemars(with = "String"))]
         balance: Balance,
     } = 10,
     InsufficientStake {
         account_id: AccountId,
-        #[serde(with = "dec_format")]
-        #[cfg_attr(feature = "schemars", schemars(with = "String"))]
         stake: Balance,
-        #[serde(with = "dec_format")]
-        #[cfg_attr(feature = "schemars", schemars(with = "String"))]
         minimum_stake: Balance,
     } = 11,
     /// An error occurred during a `FunctionCall` Action, parameter is debug message.
@@ -1349,14 +1388,12 @@ impl std::error::Error for ChunkAccessError {}
 pub enum InvalidSpiceCoreStatementsError {
     /// Information about uncertified chunks for previous block is missing.
     NoPrevUncertifiedChunks,
-    /// Could not find validator for account_id from endorsement.
-    NoValidatorForAccountId { index: usize, error: EpochError },
     /// Could not find shard_ids for endorsement epoch.
     NoShardIdsForEpochId { index: usize, error: EpochError },
     /// Spice core statement is invalid.
     InvalidCoreStatement { index: usize, reason: &'static str },
     /// Spice core statements skipped over execution result for chunk.
-    SkippedExecutionResult { shard_id: ShardId, epoch_id: EpochId, height_created: BlockHeight },
+    SkippedExecutionResult { chunk_id: SpiceChunkId },
     /// Could not find validator assignment for chunk.
     NoValidatorAssignments {
         shard_id: ShardId,
@@ -1365,11 +1402,11 @@ pub enum InvalidSpiceCoreStatementsError {
         error: EpochError,
     },
     /// Execution results for endorsed chunk are missing from block.
-    NoExecutionResultForEndorsedChunk {
-        shard_id: ShardId,
-        epoch_id: EpochId,
-        height_created: BlockHeight,
-    },
+    NoExecutionResultForEndorsedChunk { chunk_id: SpiceChunkId },
+    /// Could not find block corresponding to endorsement.
+    UnknownBlock { block_hash: CryptoHash },
+    /// Encountered io error
+    IoError { error: io::Error },
 }
 
 impl std::fmt::Display for InvalidSpiceCoreStatementsError {

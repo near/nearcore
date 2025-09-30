@@ -11,7 +11,7 @@ use near_o11y::testonly::init_test_logger;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::test_utils::create_user_test_signer;
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{AccountId, BlockReference, NumSeats};
+use near_primitives::types::{AccountId, Balance, BlockReference, NumSeats};
 use near_primitives::views::{QueryRequest, QueryResponseKind};
 use parking_lot::RwLock;
 use rand::{Rng as _, thread_rng};
@@ -19,9 +19,9 @@ use rand::{Rng as _, thread_rng};
 use crate::setup::builder::TestLoopBuilder;
 use crate::setup::env::TestLoopEnv;
 use crate::setup::state::NodeExecutionData;
+use crate::utils::get_node_data;
 use crate::utils::rotating_validators_runner::RotatingValidatorsRunner;
 use crate::utils::transactions::get_anchor_hash;
-use crate::utils::{ONE_NEAR, get_node_data};
 
 struct Params {
     num_transfers: usize,
@@ -42,7 +42,7 @@ fn test_cross_shard_tx_common(Params { num_transfers, rotate_validators, drop_ch
     let rng: rand::rngs::StdRng = rand::SeedableRng::seed_from_u64(seed);
     let rng = Arc::new(RwLock::new(rng));
 
-    let stake = ONE_NEAR;
+    let stake = Balance::from_near(1);
 
     let (mut runner, validator_spec, validator_accounts) = if rotate_validators {
         let validators: Vec<Vec<AccountId>> = [
@@ -103,7 +103,7 @@ fn test_cross_shard_tx_common(Params { num_transfers, rotate_validators, drop_ch
     let mut balances = vec![];
 
     for (i, account) in test_accounts.iter().enumerate() {
-        let amount = 1000 + 100 * i as u128;
+        let amount = Balance::from_yoctonear((1000 + 100 * i).try_into().unwrap());
         genesis_builder = genesis_builder.add_user_account_simple(account.clone(), amount);
 
         balances.push(amount);
@@ -184,7 +184,7 @@ fn test_cross_shard_tx_common(Params { num_transfers, rotate_validators, drop_ch
 
             let from = finished_transfers % test_accounts.len();
             let to = (finished_transfers / test_accounts.len()) % test_accounts.len();
-            let amount = (5 + finished_transfers) as u128;
+            let amount = Balance::from_yoctonear((5 + finished_transfers).try_into().unwrap());
 
             nonce += 1;
             let tx = SignedTransaction::send_money(
@@ -201,8 +201,8 @@ fn test_cross_shard_tx_common(Params { num_transfers, rotate_validators, drop_ch
                 check_only: false,
             });
 
-            balances[from] -= amount;
-            balances[to] += amount;
+            balances[from] = balances[from].checked_sub(amount).unwrap();
+            balances[to] = balances[to].checked_add(amount).unwrap();
 
             false
         },
@@ -237,7 +237,7 @@ fn get_balances(
     test_loop_data: &mut TestLoopData,
     node_datas: &Vec<NodeExecutionData>,
     test_accounts: &Vec<AccountId>,
-) -> Vec<u128> {
+) -> Vec<Balance> {
     let client_handle = node_datas[0].client_sender.actor_handle();
     let client = &test_loop_data.get(&client_handle).client;
     let epoch_manager = client.chain.epoch_manager.clone();

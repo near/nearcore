@@ -12,7 +12,6 @@ publish = false
 workspace = true
 
 [dependencies]
-actix.workspace = true
 anyhow.workspace = true
 bytesize.workspace = true
 borsh.workspace = true
@@ -35,7 +34,6 @@ tokio-util.workspace = true
 tracing.workspace = true
 wat.workspace = true
 
-near-actix-test-utils.workspace = true
 near-async.workspace = true
 near-chain.workspace = true
 near-chain-configs.workspace = true
@@ -64,6 +62,7 @@ node-runtime.workspace = true
 testlib.workspace = true
 
 [dev-dependencies]
+actix.workspace = true
 near-primitives = { workspace = true, features = ["clock", "solomon", "rand"] }
 assert_matches.workspace = true
 aurora-engine-transactions.workspace = true
@@ -91,8 +90,6 @@ test_features = [
 ]
 
 nightly = [
-  "near-actix-test-utils/nightly",
-  "near-async/nightly",
   "near-chain-configs/nightly",
   "near-chain/nightly",
   "near-chunks/nightly",

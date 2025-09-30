@@ -20,7 +20,7 @@ borsh.workspace = true
 ed25519-dalek.workspace = true
 enum-map.workspace = true
 finite-wasm = { workspace = true, features = ["instrument"], optional = true }
-finite-wasm-6 = { workspace = true, features = ["instrument"], optional = true }
+finite-wasm-6 = { workspace = true, optional = true }
 lru.workspace = true
 memoffset = { workspace = true, optional = true }
 num-rational.workspace = true
@@ -39,9 +39,11 @@ strum.workspace = true
 tempfile.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
-wasm-encoder = { workspace = true, optional = true }
+wasm-encoder = { workspace = true, features = ["wasmparser"], optional = true }
 wasmparser = { workspace = true, optional = true }
+wasmparser-236 = { workspace = true, optional = true }
 wasmtime = { workspace = true, features = [
+    "call-hook",
     "parallel-compilation",
     "pooling-allocator",
     "runtime",
@@ -61,12 +63,6 @@ near-vm-compiler-singlepass = { workspace = true, optional = true }
 near-vm-engine = { workspace = true, optional = true }
 near-vm-types = { workspace = true, optional = true }
 near-vm-vm = { workspace = true, optional = true }
-
-near-vm-2-compiler = { workspace = true, optional = true }
-near-vm-2-compiler-singlepass = { workspace = true, optional = true }
-near-vm-2-engine = { workspace = true, optional = true }
-near-vm-2-types = { workspace = true, optional = true }
-near-vm-2-vm = { workspace = true, optional = true }
 
 [dev-dependencies]
 arbitrary.workspace = true
@@ -95,11 +91,6 @@ near_vm = [
     "near-vm-engine",
     "near-vm-types",
     "near-vm-vm",
-    "near-vm-2-compiler",
-    "near-vm-2-compiler-singlepass",
-    "near-vm-2-engine",
-    "near-vm-2-types",
-    "near-vm-2-vm",
     "memoffset",
     "prepare",
 ]
@@ -108,6 +99,7 @@ prepare = [
     "finite-wasm-6",
     "wasm-encoder",
     "wasmparser",
+    "wasmparser-236",
     "prefix-sum-vec",
     "metrics",
 ]

@@ -179,6 +179,8 @@ pub enum RateLimitedPeerMessageKey {
     PartialEncodedContractDeploys,
     EpochSyncRequest,
     OptimisticBlock,
+    SpicePartialData,
+    SpiceChunkEndorsement,
 }
 
 /// Given a `PeerMessage` returns a tuple containing the `RateLimitedPeerMessageKey`
@@ -221,6 +223,8 @@ fn get_key_and_token_cost(message: &PeerMessage) -> Option<(RateLimitedPeerMessa
                 T1MessageBody::ContractCodeRequest(_) => Some((ContractCodeRequest, 1)),
                 T1MessageBody::ContractCodeResponse(_) => Some((ContractCodeResponse, 1)),
                 T1MessageBody::VersionedChunkEndorsement(_) => Some((ChunkEndorsement, 1)),
+                T1MessageBody::SpicePartialData(_) => Some((SpicePartialData, 1)),
+                T1MessageBody::SpiceChunkEndorsement(_) => Some((SpiceChunkEndorsement, 1)),
             },
             TieredMessageBody::T2(msg) => match msg.as_ref() {
                 T2MessageBody::ForwardTx(_) => Some((ForwardTx, 1)),
@@ -238,6 +242,7 @@ fn get_key_and_token_cost(message: &PeerMessage) -> Option<(RateLimitedPeerMessa
                 }
                 T2MessageBody::StatePartRequest(_) => None, // TODO
                 T2MessageBody::StateHeaderRequest(_) => None, // TODO
+                T2MessageBody::StateRequestAck(_) => None,  // TODO
                 T2MessageBody::Ping(_) | T2MessageBody::Pong(_) => None,
             },
         },

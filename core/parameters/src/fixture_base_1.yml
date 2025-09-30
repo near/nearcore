@@ -6,7 +6,7 @@ min_allowed_top_level_account_length: 32
 
 # Note the quotes here, they are necessary as otherwise the value can't be parsed by `serde_yaml`
 # due to not fitting into u64 type.
-storage_amount_per_byte: "100000000000000000000"
+storage_amount_per_byte: "0.0001 N"
 storage_num_bytes_account: 100
 storage_num_extra_bytes_record   :   40  
 

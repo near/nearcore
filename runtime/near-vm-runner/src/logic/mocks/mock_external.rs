@@ -38,18 +38,18 @@ pub enum MockAction {
         receipt_index: ReceiptIndex,
         method_name: Vec<u8>,
         args: Vec<u8>,
-        attached_deposit: u128,
+        attached_deposit: Balance,
         prepaid_gas: Gas,
         #[serde(with = "GasWeightSer")]
         gas_weight: GasWeight,
     },
     Transfer {
         receipt_index: ReceiptIndex,
-        deposit: u128,
+        deposit: Balance,
     },
     Stake {
         receipt_index: ReceiptIndex,
-        stake: u128,
+        stake: Balance,
         public_key: near_crypto::PublicKey,
     },
     DeleteAccount {
@@ -64,7 +64,7 @@ pub enum MockAction {
         receipt_index: ReceiptIndex,
         public_key: near_crypto::PublicKey,
         nonce: u64,
-        allowance: Option<u128>,
+        allowance: Option<Balance>,
         receiver_id: AccountId,
         method_names: Vec<Vec<u8>>,
     },
@@ -80,6 +80,10 @@ pub enum MockAction {
     YieldResume {
         data_id: CryptoHash,
         data: Vec<u8>,
+    },
+    SetRefundTo {
+        receipt_index: ReceiptIndex,
+        refund_to: AccountId,
     },
 }
 
@@ -186,7 +190,10 @@ impl External for MockedExternal {
     }
 
     fn validator_total_stake(&self) -> Result<Balance> {
-        Ok(self.validators.values().sum())
+        Ok(self
+            .validators
+            .values()
+            .fold(Balance::ZERO, |sum, item| sum.checked_add(*item).unwrap()))
     }
 
     fn create_action_receipt(
@@ -354,6 +361,10 @@ impl External for MockedExternal {
             MockAction::CreateReceipt { receiver_id, .. } => receiver_id,
             _ => panic!("not a valid receipt index!"),
         }
+    }
+
+    fn set_refund_to(&mut self, receipt_index: ReceiptIndex, refund_to: AccountId) {
+        self.action_log.push(MockAction::SetRefundTo { receipt_index, refund_to });
     }
 }
 

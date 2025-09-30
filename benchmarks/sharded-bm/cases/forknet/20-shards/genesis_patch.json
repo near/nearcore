@@ -1,6 +1,6 @@
 {
   "chain_id": "benchmarknet",
-  "epoch_length": 15000,
+  "epoch_length": 500,
   "gas_limit": "20000000000000000",
   "shard_layout": {
     "V2": {

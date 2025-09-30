@@ -1,5 +1,5 @@
 # Global contracts
-global_contract_storage_amount_per_byte: { old: 999_999_999_999_999_999_999_999_999, new: 100_000_000_000_000_000_000 }
+global_contract_storage_amount_per_byte: { old: 999999999999999999999999999 yN, new: 0.0001 N }
 action_deploy_global_contract: {
   old: {
     send_sir: 999_999_999_999_999,

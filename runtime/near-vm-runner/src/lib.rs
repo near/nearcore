@@ -11,8 +11,6 @@ pub mod logic;
 #[cfg(feature = "metrics")]
 mod metrics;
 #[cfg(all(feature = "near_vm", target_arch = "x86_64"))]
-mod near_vm_2_runner;
-#[cfg(all(feature = "near_vm", target_arch = "x86_64"))]
 mod near_vm_runner;
 #[cfg(feature = "prepare")]
 pub mod prepare;
@@ -29,16 +27,25 @@ pub use crate::logic::with_ext_cost_counter;
 pub use cache::FilesystemContractRuntimeCache;
 pub use cache::{
     CompiledContract, CompiledContractInfo, ContractRuntimeCache, MockContractRuntimeCache,
-    NoContractRuntimeCache, get_contract_cache_key, precompile_contract,
+    NoContractRuntimeCache, precompile_contract,
 };
 #[cfg(feature = "metrics")]
 pub use metrics::{report_metrics, reset_metrics};
 pub use near_primitives_core::code::ContractCode;
 pub use profile::ProfileDataV3;
-pub use runner::{Contract, PreparedContract, VM, prepare, run};
+pub use runner::{Contract, PreparedContract, VM, contract_cached, prepare, run};
 
 #[cfg(any(feature = "prepare", feature = "wasmtime_vm"))]
-pub(crate) const MEMORY_EXPORT: &str = "\0nearcore_memory";
+pub(crate) const MEMORY_EXPORT: &str = "memory";
+
+#[cfg(any(feature = "prepare", feature = "wasmtime_vm"))]
+pub(crate) const REMAINING_GAS_EXPORT: &str = "remaining_gas";
+
+#[cfg(any(feature = "prepare", feature = "wasmtime_vm"))]
+pub(crate) const START_EXPORT: &str = "start";
+
+#[cfg(any(feature = "prepare", feature = "wasmtime_vm"))]
+pub(crate) const EXPORT_PREFIX: &str = "\0";
 
 /// This is public for internal experimentation use only, and should otherwise be considered an
 /// implementation detail of `near-vm-runner`.

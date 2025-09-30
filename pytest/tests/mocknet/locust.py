@@ -61,7 +61,7 @@ have the machine used for the master process in this list as well:''')
 
 
 def upload_key(node, filename):
-    node.machine.upload(args.funding_key,
+    node.machine.upload(filename,
                         '/home/ubuntu/locust/funding_key.json',
                         switch_user='ubuntu')
 

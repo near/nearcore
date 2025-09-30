@@ -8,14 +8,17 @@ use {
 /// this function computes the mandate price to use. It works by using a binary search.
 pub fn compute_mandate_price(config: ValidatorMandatesConfig, stakes: &[Balance]) -> Balance {
     let ValidatorMandatesConfig { target_mandates_per_shard, num_shards } = config;
-    let total_stake = saturating_sum(stakes.iter().copied());
+    let total_stake =
+        stakes.iter().copied().fold(Balance::ZERO, |sum, item| sum.saturating_add(item));
 
     // The target number of mandates cannot be larger than the total amount of stake.
     // In production the total stake is _much_ higher than
     // `num_shards * target_mandates_per_shard`, but in tests validators are given
     // low staked numbers, so we need to have this condition in place.
-    let target_mandates: u128 =
-        min(num_shards.saturating_mul(target_mandates_per_shard) as u128, total_stake);
+    let target_mandates: u128 = min(
+        num_shards.saturating_mul(target_mandates_per_shard) as u128,
+        total_stake.as_yoctonear(),
+    );
 
     // Note: the reason to have the binary search look for the largest mandate price
     // which obtains the target number of whole mandates is because the largest value
@@ -28,8 +31,10 @@ pub fn compute_mandate_price(config: ValidatorMandatesConfig, stakes: &[Balance]
     // are assuming is equal to our target value for some range of `m` values.
     // When we use a larger `m` value, `T / m` decreases but we need the LHS
     // to remain constant, therefore `\sum r_i` must also decrease.
-    binary_search(1, total_stake, target_mandates, |mandate_price| {
-        saturating_sum(stakes.iter().map(|s| *s / mandate_price))
+    binary_search(Balance::from_yoctonear(1), total_stake, target_mandates, |mandate_price| {
+        stakes.iter().fold(0, |sum, item| {
+            sum.saturating_add(item.as_yoctonear() / mandate_price.as_yoctonear())
+        })
     })
 }
 
@@ -54,8 +59,8 @@ where
         return high;
     }
 
-    while high - low > 1 {
-        let mid = low + (high - low) / 2;
+    while high.checked_sub(low).unwrap() > Balance::from_yoctonear(1) {
+        let mid = low.checked_add(high.checked_sub(low).unwrap().checked_div(2).unwrap()).unwrap();
         let f_mid = f(mid);
 
         match f_mid.cmp(&target) {
@@ -84,8 +89,8 @@ where
     let mut low = low;
     let mut high = high;
 
-    while high - low > 1 {
-        let mid = low + (high - low) / 2;
+    while high.checked_sub(low).unwrap() > Balance::from_yoctonear(1) {
+        let mid = low.checked_add(high.checked_sub(low).unwrap().checked_div(2).unwrap()).unwrap();
         let f_mid = f(mid);
 
         match f_mid.cmp(&target) {
@@ -96,10 +101,6 @@ where
     }
 
     low
-}
-
-fn saturating_sum<I: Iterator<Item = u128>>(iter: I) -> u128 {
-    iter.fold(0, |acc, x| acc.saturating_add(x))
 }
 
 #[cfg(test)]
@@ -113,18 +114,18 @@ mod tests {
     // low stake.
     #[test]
     fn test_small_total_stake() {
-        let stakes = [100_u128; 1];
+        let stakes = [Balance::from_yoctonear(100); 1];
         let num_shards = 1;
         let target_mandates_per_shard = 1000;
         let config = ValidatorMandatesConfig::new(target_mandates_per_shard, num_shards);
 
-        assert_eq!(compute_mandate_price(config, &stakes), 1);
+        assert_eq!(compute_mandate_price(config, &stakes), Balance::from_yoctonear(1));
     }
 
     // Test cases where all stakes are equal.
     #[test]
     fn test_constant_dist() {
-        let stakes = [11_u128; 13];
+        let stakes = [Balance::from_yoctonear(11); 13];
         let num_shards = 1;
         let target_mandates_per_shard = stakes.len();
         let config = ValidatorMandatesConfig::new(target_mandates_per_shard, num_shards);
@@ -136,7 +137,7 @@ mod tests {
         let config = ValidatorMandatesConfig::new(target_mandates_per_shard, num_shards);
 
         // Now each validator needs to take two mandates.
-        assert_eq!(compute_mandate_price(config, &stakes), stakes[0] / 2);
+        assert_eq!(compute_mandate_price(config, &stakes), stakes[0].checked_div(2).unwrap());
 
         let target_mandates_per_shard = stakes.len() - 1;
         let config = ValidatorMandatesConfig::new(target_mandates_per_shard, num_shards);
@@ -150,10 +151,10 @@ mod tests {
     #[test]
     fn test_step_dist() {
         let stakes = {
-            let mut buf = [11_u128; 13];
+            let mut buf = [Balance::from_yoctonear(11); 13];
             let n = buf.len() / 2;
             for s in buf.iter_mut().take(n) {
-                *s *= 5;
+                *s = s.checked_mul(5).unwrap();
             }
             buf
         };
@@ -180,10 +181,10 @@ mod tests {
     #[test]
     fn test_exp_dist() {
         let stakes = {
-            let mut buf = vec![1_000_000_000_u128; 210];
+            let mut buf = vec![Balance::from_yoctonear(1_000_000_000); 210];
             let mut last_stake = buf[0];
             for s in buf.iter_mut().skip(1) {
-                last_stake = last_stake * 97 / 100;
+                last_stake = last_stake.checked_mul(97).unwrap().checked_div(100).unwrap();
                 *s = last_stake;
             }
             buf
@@ -217,10 +218,10 @@ mod tests {
     #[test]
     fn test_rand_dist() {
         let stakes = {
-            let mut stakes = vec![0_u128; 1000];
+            let mut stakes = vec![Balance::ZERO; 1000];
             let mut rng = rand::rngs::StdRng::seed_from_u64(0xdeadbeef);
             for s in &mut stakes {
-                *s = rng.gen_range(1_u128..10_000u128);
+                *s = Balance::from_yoctonear(rng.gen_range(1..10_000));
             }
             stakes
         };
@@ -246,7 +247,9 @@ mod tests {
         assert_eq!(count_whole_mandates(&stakes, price), target_mandates_per_shard);
     }
 
-    fn count_whole_mandates(stakes: &[u128], mandate_price: u128) -> usize {
-        saturating_sum(stakes.iter().map(|s| *s / mandate_price)) as usize
+    fn count_whole_mandates(stakes: &[Balance], mandate_price: Balance) -> usize {
+        stakes.iter().fold(0u128, |sum, item| {
+            sum.saturating_add(item.as_yoctonear() / mandate_price.as_yoctonear())
+        }) as usize
     }
 }

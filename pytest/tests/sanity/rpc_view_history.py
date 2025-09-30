@@ -49,7 +49,7 @@ class TestRpcViewHistory(unittest.TestCase):
         }
 
         nodes: List[LocalNode] = start_cluster(3, 0, 1, None, [
-            ["min_gas_price", 0],
+            ["min_gas_price", "0"],
             ["epoch_length", 100],
         ], config)
 

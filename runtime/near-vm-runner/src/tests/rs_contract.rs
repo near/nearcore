@@ -28,7 +28,7 @@ fn test_contract(vm_kind: VMKind) -> ContractCode {
         VMKind::Wasmer0 => unreachable!(),
         VMKind::Wasmer2 => unreachable!(),
         // production and developer environment, use a cutting-edge WASM
-        VMKind::Wasmtime | VMKind::NearVm | VMKind::NearVm2 => near_test_contracts::rs_contract(),
+        VMKind::Wasmtime | VMKind::NearVm => near_test_contracts::rs_contract(),
     };
     ContractCode::new(code.to_vec(), None)
 }
@@ -183,21 +183,21 @@ def_test_ext!(
     "ext_validator_stake",
     &(100u128).to_le_bytes(),
     b"alice",
-    vec![("alice", 100), ("bob", 1)]
+    vec![("alice", Balance::from_yoctonear(100)), ("bob", Balance::from_yoctonear(1))]
 );
 def_test_ext!(
     ext_validator_stake_bob,
     "ext_validator_stake",
     &(1u128).to_le_bytes(),
     b"bob",
-    vec![("alice", 100), ("bob", 1)]
+    vec![("alice", Balance::from_yoctonear(100)), ("bob", Balance::from_yoctonear(1))]
 );
 def_test_ext!(
     ext_validator_stake_carol,
     "ext_validator_stake",
     &(0u128).to_le_bytes(),
     b"carol",
-    vec![("alice", 100), ("bob", 1)]
+    vec![("alice", Balance::from_yoctonear(100)), ("bob", Balance::from_yoctonear(1))]
 );
 
 def_test_ext!(
@@ -205,7 +205,7 @@ def_test_ext!(
     "ext_validator_total_stake",
     &(100u128 + 1).to_le_bytes(),
     &[],
-    vec![("alice", 100), ("bob", 1)]
+    vec![("alice", Balance::from_yoctonear(100)), ("bob", Balance::from_yoctonear(1))]
 );
 
 #[test]
@@ -233,7 +233,7 @@ pub fn test_out_of_memory() {
         assert_eq!(
             result.aborted,
             match vm_kind {
-                VMKind::NearVm | VMKind::NearVm2 | VMKind::Wasmtime =>
+                VMKind::NearVm | VMKind::Wasmtime =>
                     Some(FunctionCallError::WasmTrap(WasmTrap::Unreachable)),
                 VMKind::Wasmer2 | VMKind::Wasmer0 => unreachable!(),
             }

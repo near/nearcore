@@ -204,6 +204,7 @@ mod tests {
     use near_primitives::shard_layout::{ShardUId, get_block_shard_uid};
     use near_primitives::state::FlatStateValue;
     use near_primitives::trie_key::TrieKey;
+    use near_primitives::types::Balance;
     use near_primitives::types::Gas;
     use near_primitives::types::chunk_extra::ChunkExtra;
     use near_primitives::types::{StateChangeCause, StateRoot};
@@ -545,7 +546,7 @@ mod tests {
             Vec::new(),
             Gas::ZERO,
             Gas::ZERO,
-            0,
+            Balance::ZERO,
             Some(CongestionInfo::default()),
             BandwidthRequests::empty(),
         );

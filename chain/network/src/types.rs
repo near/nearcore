@@ -1,4 +1,4 @@
-use crate::client::{StateRequestHeader, StateRequestPart, StateResponse};
+use crate::client::{StatePartOrHeader, StateRequestHeader, StateRequestPart};
 /// Type that belong to the network protocol.
 pub use crate::network_protocol::{
     Disconnect, Encoding, Handshake, HandshakeFailureReason, PeerMessage, RoutingTableUpdate,
@@ -11,9 +11,10 @@ pub use crate::network_protocol::{
     StateResponseInfoV1, StateResponseInfoV2,
 };
 use crate::routing::routing_table_view::RoutingTableInfo;
+use crate::spice_data_distribution::SpicePartialData;
 pub use crate::state_sync::StateSyncResponse;
 use near_async::messaging::{AsyncSender, Sender};
-use near_async::{MultiSend, MultiSendMessage, MultiSenderFrom, time};
+use near_async::{Message, MultiSend, MultiSendMessage, MultiSenderFrom, time};
 use near_crypto::PublicKey;
 use near_primitives::block::{ApprovalMessage, Block};
 use near_primitives::epoch_sync::CompressedEpochSyncProof;
@@ -21,15 +22,15 @@ use near_primitives::genesis::GenesisId;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::optimistic_block::OptimisticBlock;
-use near_primitives::sharding::{PartialEncodedChunkWithArcReceipts, ReceiptProof};
+use near_primitives::sharding::PartialEncodedChunkWithArcReceipts;
+use near_primitives::state_sync::{PartIdOrHeader, StateRequestAckBody};
 use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsement;
 use near_primitives::stateless_validation::contract_distribution::{
     ChunkContractAccesses, ContractCodeRequest, ContractCodeResponse, PartialEncodedContractDeploys,
 };
 use near_primitives::stateless_validation::partial_witness::PartialEncodedStateWitness;
-use near_primitives::stateless_validation::state_witness::{
-    ChunkStateWitness, ChunkStateWitnessAck,
-};
+use near_primitives::stateless_validation::spice_chunk_endorsement::SpiceChunkEndorsement;
+use near_primitives::stateless_validation::state_witness::ChunkStateWitnessAck;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, BlockHeight, EpochHeight, ShardId};
 use near_schema_checker_lib::ProtocolSchema;
@@ -92,8 +93,7 @@ pub enum ReasonForBan {
 
 /// Banning signal sent from Peer instance to PeerManager
 /// just before Peer instance is stopped.
-#[derive(actix::Message, Debug)]
-#[rtype(result = "()")]
+#[derive(Message, Debug)]
 pub struct Ban {
     pub peer_id: PeerId,
     pub ban_reason: ReasonForBan,
@@ -171,13 +171,11 @@ pub struct ChainInfo {
     pub tier1_accounts: Arc<AccountKeys>,
 }
 
-#[derive(Debug, actix::Message)]
-#[rtype(result = "()")]
+#[derive(Debug, Message)]
 pub struct SetChainInfo(pub ChainInfo);
 
 /// Public actix interface of `PeerManagerActor`.
-#[derive(actix::Message, Debug, strum::IntoStaticStr)]
-#[rtype(result = "PeerManagerMessageResponse")]
+#[derive(Message, Debug, strum::IntoStaticStr)]
 #[allow(clippy::large_enum_variant)]
 pub enum PeerManagerMessageRequest {
     NetworkRequests(NetworkRequests),
@@ -213,7 +211,7 @@ impl PeerManagerMessageRequest {
 }
 
 /// List of all replies to messages to `PeerManager`. See `PeerManagerMessageRequest` for more details.
-#[derive(actix::MessageResponse, Debug)]
+#[derive(Debug)]
 pub enum PeerManagerMessageResponse {
     NetworkResponses(NetworkResponses),
     AdvertiseTier1Proxies,
@@ -260,6 +258,14 @@ pub enum NetworkRequests {
         sync_hash: CryptoHash,
         sync_prev_prev_hash: CryptoHash,
         part_id: u64,
+    },
+    /// Respond to state header request or state part request.
+    StateRequestAck {
+        shard_id: ShardId,
+        sync_hash: CryptoHash,
+        part_id_or_header: PartIdOrHeader,
+        body: StateRequestAckBody,
+        peer_id: PeerId,
     },
     /// Ban given peer.
     BanPeer { peer_id: PeerId, ban_reason: ReasonForBan },
@@ -311,16 +317,13 @@ pub enum NetworkRequests {
     /// Message originates from the chunk producer and distributed among other validators,
     /// containing the code of the newly-deployed contracts during the main state transition of the witness.
     PartialEncodedContractDeploys(Vec<AccountId>, PartialEncodedContractDeploys),
-    // TODO(spice): remove and depend on separate data distribution.
-    /// Mocked message to the chunk executor with block hash and relevant incoming receipts.
-    TestonlySpiceIncomingReceipts { block_hash: CryptoHash, receipt_proofs: Vec<ReceiptProof> },
-    /// Mocked message with state witness that will eventually be distributed by the spice
-    /// distribution layer.
-    TestonlySpiceStateWitness { state_witness: ChunkStateWitness },
+    /// Message containing spice partial data.
+    SpicePartialData { partial_data: SpicePartialData, recipients: HashSet<AccountId> },
+    /// Message for a spice chunk endorsement, sent by a chunk validator to all validators.
+    SpiceChunkEndorsement(AccountId, SpiceChunkEndorsement),
 }
 
-#[derive(Debug, actix::Message, strum::IntoStaticStr)]
-#[rtype(result = "()")]
+#[derive(Debug, Message, strum::IntoStaticStr)]
 pub enum StateSyncEvent {
     StatePartReceived(ShardId, u64),
 }
@@ -407,7 +410,7 @@ pub struct ConnectedPeerInfo {
     pub nonce: u64,
 }
 
-#[derive(Debug, Default, Clone, actix::MessageResponse, PartialEq, Eq)]
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct NetworkInfo {
     /// TIER2 connections.
     pub connected_peers: Vec<ConnectedPeerInfo>,
@@ -425,7 +428,7 @@ pub struct NetworkInfo {
     pub tier1_connections: Vec<ConnectedPeerInfo>,
 }
 
-#[derive(Debug, actix::MessageResponse, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum NetworkResponses {
     NoResponse,
     RouteNotFound,
@@ -457,8 +460,8 @@ pub struct PeerManagerSenderForNetwork {
 #[multi_send_message_derive(Debug)]
 #[multi_send_input_derive(Debug, Clone, PartialEq, Eq)]
 pub struct StateRequestSenderForNetwork {
-    pub state_request_header: AsyncSender<StateRequestHeader, Option<StateResponse>>,
-    pub state_request_part: AsyncSender<StateRequestPart, Option<StateResponse>>,
+    pub state_request_header: AsyncSender<StateRequestHeader, Option<StatePartOrHeader>>,
+    pub state_request_part: AsyncSender<StateRequestPart, Option<StatePartOrHeader>>,
 }
 
 #[cfg(test)]
@@ -563,8 +566,7 @@ pub struct AccountIdOrPeerTrackingShard {
     pub min_height: BlockHeight,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, actix::Message)]
-#[rtype(result = "()")]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Message)]
 /// An inbound request to which a response should be sent over Tier3
 pub struct Tier3Request {
     /// Target peer to send the response to

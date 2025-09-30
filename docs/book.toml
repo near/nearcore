@@ -4,6 +4,9 @@ multilingual = false
 src = "."
 title = "Guide to Nearcore Development"
 
+[preprocessor.katex]
+after = ["links"]
+
 [build]
 # Let's re-use the existing target dir for all build artifacts.
 build-dir = "../target/book"

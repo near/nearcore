@@ -41,7 +41,7 @@ class TestRpcFinality(unittest.TestCase):
         config = {node_id: {"consensus": consensus} for node_id in range(3)}
 
         nodes: List[LocalNode] = start_cluster(3, 0, 1, None, [
-            ["min_gas_price", 0],
+            ["min_gas_price", "0"],
             ["epoch_length", 100],
         ], config)
 

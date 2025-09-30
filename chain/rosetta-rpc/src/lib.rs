@@ -25,7 +25,7 @@ use near_chain_configs::Genesis;
 use near_client::client_actor::ClientActorInner;
 use near_client::{RpcHandler, ViewClientActorInner};
 use near_o11y::span_wrapped_msg::SpanWrappedMessageExt;
-use near_primitives::{account::AccountContract, borsh::BorshDeserialize};
+use near_primitives::{borsh::BorshDeserialize, types::Balance};
 
 mod adapters;
 mod config;
@@ -424,7 +424,13 @@ async fn account_balance(
             Err(crate::errors::ErrorKind::NotFound(_)) => (
                 block.header.hash,
                 block.header.height,
-                near_primitives::account::Account::new(0, 0, AccountContract::None, 0).into(),
+                near_primitives::account::Account::new(
+                    Balance::ZERO,
+                    Balance::ZERO,
+                    near_primitives::account::AccountContract::None,
+                    0,
+                )
+                .into(),
             ),
             Err(err) => return Err(err.into()),
         };
@@ -484,7 +490,7 @@ async fn account_balance(
             .await?;
             balances.push(models::Amount::from_fungible_token(ft_balance, currency))
         }
-        balances.push(models::Amount::from_yoctonear(balance));
+        balances.push(models::Amount::from_balance(balance));
         Ok(Json(models::AccountBalanceResponse {
             block_identifier: models::BlockIdentifier::new(block_height, &block_hash),
             balances,
@@ -493,7 +499,7 @@ async fn account_balance(
     } else {
         Ok(Json(models::AccountBalanceResponse {
             block_identifier: models::BlockIdentifier::new(block_height, &block_hash),
-            balances: vec![models::Amount::from_yoctonear(balance)],
+            balances: vec![models::Amount::from_balance(balance)],
             metadata: nonces,
         }))
     }

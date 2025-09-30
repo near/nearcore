@@ -84,7 +84,7 @@ impl HighLoadStatsCommand {
             home,
             &near_config.store,
             near_config.cold_store.as_ref(),
-            near_config.cloud_storage.as_ref(),
+            near_config.cloud_storage_config(),
         );
         let storage = opener.open()?;
         let store = std::sync::Arc::new(

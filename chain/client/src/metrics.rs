@@ -510,6 +510,16 @@ pub(crate) static STATE_SYNC_DOWNLOAD_RESULT: LazyLock<IntCounterVec> = LazyLock
     .unwrap()
 });
 
+pub(crate) static STATE_SYNC_PEER_MSGS: LazyLock<IntCounterVec> = LazyLock::new(|| {
+    try_create_int_counter_vec(
+        "near_state_sync_peer_msgs",
+        "Count of number of state sync peer messages by state type (header, part),
+               and message content (will_respond, busy, error, state)",
+        &["shard_id", "type", "content"],
+    )
+    .unwrap()
+});
+
 pub(crate) static STATE_SYNC_PARTS_TOTAL: LazyLock<IntGaugeVec> = LazyLock::new(|| {
     try_create_int_gauge_vec(
         "near_state_sync_parts_per_shard",

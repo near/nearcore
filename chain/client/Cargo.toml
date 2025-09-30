@@ -12,7 +12,6 @@ publish = false
 workspace = true
 
 [dependencies]
-actix.workspace = true
 anyhow.workspace = true
 borsh.workspace = true
 bytesize.workspace = true
@@ -91,7 +90,6 @@ test_features = [
     "near-vm-runner/test_features",
 ]
 nightly = [
-    "near-async/nightly",
     "near-chain-configs/nightly",
     "near-chain/nightly",
     "near-chunks/nightly",

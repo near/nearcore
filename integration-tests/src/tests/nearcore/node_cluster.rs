@@ -1,5 +1,4 @@
 use futures::future;
-use near_actix_test_utils::{run_actix, spawn_interruptible};
 use near_chain_configs::{Genesis, TrackedShardsConfig};
 use near_network::tcp;
 use near_network::test_utils::convert_boot_nodes;
@@ -7,12 +6,12 @@ use near_o11y::testonly::init_integration_logger;
 use near_primitives::types::{BlockHeight, BlockHeightDelta, NumSeats, NumShards};
 use nearcore::{load_test_config, start_with_config};
 
-use crate::utils::test_helpers::heavy_test;
-use near_async::ActorSystem;
 use near_async::multithread::MultithreadRuntimeHandle;
 use near_async::tokio::TokioRuntimeHandle;
+use near_async::{ActorSystem, shutdown_all_actors};
 use near_client::ViewClientActorInner;
 use near_client::client_actor::ClientActorInner;
+use near_store::db::RocksDB;
 
 fn start_nodes(
     temp_dir: &std::path::Path,
@@ -123,17 +122,18 @@ impl NodeCluster {
         self
     }
 
-    pub fn exec_until_stop<F, R>(self, f: F)
+    pub async fn run_and_then_shutdown<F, R>(self, f: F)
     where
         R: future::Future<Output = ()> + 'static,
         F: FnOnce(
-            near_chain_configs::Genesis,
-            Vec<String>,
-            Vec<(
-                TokioRuntimeHandle<ClientActorInner>,
-                MultithreadRuntimeHandle<ViewClientActorInner>,
-            )>,
-        ) -> R,
+                near_chain_configs::Genesis,
+                Vec<String>,
+                Vec<(
+                    TokioRuntimeHandle<ClientActorInner>,
+                    MultithreadRuntimeHandle<ViewClientActorInner>,
+                )>,
+            ) -> R
+            + 'static,
     {
         let (num_shards, num_validator_seats, num_lightclient, epoch_length, genesis_height) = (
             self.num_shards.expect("cluster config: [num_shards] undefined"),
@@ -148,21 +148,20 @@ impl NodeCluster {
             min_num_nodes <= num_nodes,
             "cluster config: [num_nodes] must be at least {min_num_nodes} but got {num_nodes}"
         );
-        heavy_test(|| {
-            let temp_dir = tempfile::tempdir().unwrap();
-            run_actix(async {
-                let (genesis, rpc_addrs, clients) = start_nodes(
-                    temp_dir.path(),
-                    num_shards,
-                    num_nodes,
-                    num_validator_seats,
-                    num_lightclient,
-                    epoch_length,
-                    genesis_height,
-                    self.save_tx_outcomes,
-                );
-                spawn_interruptible(f(genesis, rpc_addrs, clients));
-            });
-        });
+        let temp_dir = tempfile::tempdir().unwrap();
+
+        let (genesis, rpc_addrs, clients) = start_nodes(
+            temp_dir.path(),
+            num_shards,
+            num_nodes,
+            num_validator_seats,
+            num_lightclient,
+            epoch_length,
+            genesis_height,
+            self.save_tx_outcomes,
+        );
+        f(genesis, rpc_addrs, clients).await;
+        shutdown_all_actors();
+        RocksDB::block_until_all_instances_are_dropped();
     }
 }
