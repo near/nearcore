@@ -1943,6 +1943,10 @@ impl Runtime {
             metrics::TRANSACTION_PROCESSED_SUCCESSFULLY_TOTAL.inc();
         }
 
+        if ProtocolFeature::InvalidTxGenerateOutcomes.enabled(protocol_version) {
+            debug_assert!(processing_state.outcomes.len() == num_transactions);
+        }
+
         processing_state
             .metrics
             .tx_processing_done(processing_state.total.gas, processing_state.total.compute);
