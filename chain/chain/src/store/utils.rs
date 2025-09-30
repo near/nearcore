@@ -85,7 +85,7 @@ pub fn check_transaction_validity_period(
 /// Transaction validity period check used in early prepare transactions. It's different from the
 /// standard `check_transaction_validity_period` because early transaction preparation doesn't know
 /// what the previous block hash is, it only knows the one before that. Normal validity check uses
-/// `prev_block_header`, which is the previous block before the one which wil contain the
+/// `prev_block_header`, which is the previous block before the one which will contain the
 /// transactions. This check uses `prev_prev_block_header`, which is the block before the previous
 /// block and the same height as the normal check.
 pub fn early_prepare_txs_check_validity_period(
