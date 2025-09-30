@@ -788,7 +788,12 @@ impl NetworkState {
                     None
                 }
                 T1MessageBody::SpiceChunkEndorsement(endorsement) => {
-                    self.client.send_async(SpiceChunkEndorsementMessage(endorsement)).await.ok();
+                    if cfg!(feature = "protocol_feature_spice") {
+                        self.client
+                            .send_async(SpiceChunkEndorsementMessage(endorsement))
+                            .await
+                            .ok();
+                    }
                     None
                 }
             },
