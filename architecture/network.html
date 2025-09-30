@@ -515,11 +515,11 @@ validation in <code>EdgeVerifierActor</code>.</li>
 <p><code>Near</code> is built on <code>Actix</code>'s <code>actor</code>
 <a href="https://actix.rs/docs/actix/actor">framework</a>. Usually each actor
 runs on its own dedicated thread. Some, like <code>PeerActor</code> have one thread per
-each instance. Only messages implementing <code>actix::Message</code>, can be sent
+each instance. Only messages implementing <code>Message</code>, can be sent
 using between threads. Each actor has its own queue; Processing of messages
 happens asynchronously.</p>
 <p>We should not leak implementation details into the spec.</p>
-<p>Actix messages can be found by looking for <code>impl actix::Message</code>.</p>
+<p>Actix messages can be found by looking for <code>impl Message</code>.</p>
 <h2 id="102-messages-sent-through-tcp"><a class="header" href="#102-messages-sent-through-tcp">10.2 Messages sent through TCP</a></h2>
 <p>Near is using <code>borsh</code> serialization to exchange messages between nodes (See
 <a href="https://borsh.io/">borsh.io</a>). We should be careful when making changes to
