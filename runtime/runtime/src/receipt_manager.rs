@@ -325,7 +325,7 @@ impl ReceiptManager {
     /// # Arguments
     ///
     /// * `receipt_index` - an index of Receipt to append an action
-    /// * `contract_id` - identifier of the contract to use
+    /// * `contract_id`   - identifier of the contract to use
     /// * `amount`        - how much NEAR to attach to the initialization
     ///
     /// # Panics

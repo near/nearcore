@@ -2711,7 +2711,7 @@ fn promise_batch_action_state_init_impl(
     ctx.ext.append_action_deterministic_state_init(receipt_idx, code, amount)
 }
 
-/// Appends a data entry to an existing `DeterministicStateInit` action-
+/// Appends a data entry to an existing `DeterministicStateInit` action.
 ///
 /// # Errors
 ///

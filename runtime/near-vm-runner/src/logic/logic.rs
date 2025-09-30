@@ -2542,7 +2542,7 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
         self.ext.append_action_deterministic_state_init(receipt_idx, code, amount)
     }
 
-    /// Appends a data entry to an existing `DeterministicStateInit` action-
+    /// Appends a data entry to an existing `DeterministicStateInit` action.
     ///
     /// # Errors
     ///
