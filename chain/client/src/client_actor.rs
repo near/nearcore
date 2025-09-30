@@ -892,9 +892,9 @@ impl Handler<SpanWrapped<ApplyChunksDoneMessage>> for ClientActorInner {
 impl Handler<NewChunkAppliedMessage> for ClientActorInner {
     fn handle(&mut self, msg: NewChunkAppliedMessage) {
         if let Err(err) = self.client.send_chunk_apply_witness_to_chunk_validators(
-            // todo(slavas): epoch_id should be taken from the block, not from the head
-            self.client.chain.head().unwrap().epoch_id,
             msg.result,
+            msg.block_context,
+            msg.chunks,
         ) {
             tracing::error!(target: "client", ?err, "Failed to send chunk apply witness to chunk validators");
         }
@@ -1911,7 +1911,7 @@ impl ClientActorInner {
             let _ = self.client.start_process_block(
                 block.into(),
                 Provenance::PRODUCED,
-                Some(self.client.myself_sender.apply_chunks_done.clone()),
+                Some(self.client.myself_sender.clone().into_multi_sender()),
             );
             blocks_produced += 1;
             if blocks_produced == num_blocks {

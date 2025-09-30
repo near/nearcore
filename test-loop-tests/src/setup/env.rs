@@ -64,7 +64,12 @@ impl TestLoopEnv {
                 let block =
                     client_actor.client.chain.get_block_by_height(genesis_height + 3).unwrap();
                 let num_shards = block.header().chunk_mask().len();
-                assert_eq!(block.header().chunk_mask(), vec![true; num_shards]);
+                assert_eq!(
+                    block.header().chunk_mask(),
+                    vec![true; num_shards],
+                    "Missing chunks at height {}",
+                    block.header().height()
+                );
             };
             test_loop.send_adhoc_event("assertions".to_owned(), Box::new(event));
         }

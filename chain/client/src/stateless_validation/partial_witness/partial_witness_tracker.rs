@@ -15,11 +15,13 @@ use near_primitives::reed_solomon::{
     InsertPartResult, ReedSolomonEncoder, ReedSolomonEncoderCache, ReedSolomonPartsTracker,
 };
 use near_primitives::state::PartialState;
-use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::stateless_validation::contract_distribution::{CodeBytes, CodeHash};
 use near_primitives::stateless_validation::partial_witness::PartialEncodedStateWitness;
 use near_primitives::stateless_validation::state_witness::{
     ChunkStateWitness, ChunkStateWitnessSize, EncodedChunkStateWitness,
+};
+use near_primitives::stateless_validation::{
+    ChunkProductionKey, WitnessProductionKey, WitnessType,
 };
 use near_primitives::types::ShardId;
 use near_primitives::utils::compression::CompressedData;
@@ -326,9 +328,9 @@ impl CacheEntry {
 /// Per-shard state tracking for partial witness processing.
 struct ShardWitnessTracker {
     /// Cache of witness parts being assembled for this shard.
-    parts_cache: LruCache<ChunkProductionKey, CacheEntry>,
+    parts_cache: LruCache<WitnessProductionKey, CacheEntry>,
     /// Track processed witnesses to avoid duplicate processing for this shard.
-    processed_witnesses: SyncLruCache<ChunkProductionKey, ()>,
+    processed_witnesses: SyncLruCache<WitnessProductionKey, ()>,
 }
 
 impl ShardWitnessTracker {
@@ -377,15 +379,15 @@ impl PartialEncodedStateWitnessTracker {
         partial_witness: PartialEncodedStateWitness,
     ) -> Result<(), Error> {
         tracing::debug!(target: "client", ?partial_witness, "store_partial_encoded_state_witness");
-        let key = partial_witness.chunk_production_key();
-        let encoder = self.get_encoder(&key)?;
+        let key = partial_witness.production_key();
+        let encoder = self.get_encoder(&key.chunk)?;
         let update = CacheUpdate::WitnessPart(partial_witness, encoder);
         self.process_update(key, true, update)
     }
 
     pub fn store_accessed_contract_hashes(
         &self,
-        key: ChunkProductionKey,
+        key: WitnessProductionKey,
         hashes: HashSet<CodeHash>,
     ) -> Result<(), Error> {
         tracing::debug!(target: "client", ?key, ?hashes, "store_accessed_contract_hashes");
@@ -395,7 +397,7 @@ impl PartialEncodedStateWitnessTracker {
 
     pub fn store_accessed_contract_codes(
         &self,
-        key: ChunkProductionKey,
+        key: WitnessProductionKey,
         codes: Vec<CodeBytes>,
     ) -> Result<(), Error> {
         tracing::debug!(target: "client", ?key, codes_len = codes.len(), "store_accessed_contract_codes");
@@ -405,14 +407,14 @@ impl PartialEncodedStateWitnessTracker {
 
     fn process_update(
         &self,
-        key: ChunkProductionKey,
+        key: WitnessProductionKey,
         create_if_not_exists: bool,
         update: CacheUpdate,
     ) -> Result<(), Error> {
         let shard_tracker_mutex = {
             let mut map = self.shard_trackers.lock();
             Arc::clone(
-                map.entry(key.shard_id)
+                map.entry(key.chunk.shard_id)
                     .or_insert_with(|| Arc::new(Mutex::new(ShardWitnessTracker::new()))),
             )
         };
@@ -452,7 +454,7 @@ impl PartialEncodedStateWitnessTracker {
             // Record the time taken from receiving first part to decoding partial witness.
             let time_to_last_part = Instant::now().signed_duration_since(entry_created_at);
             metrics::PARTIAL_WITNESS_TIME_TO_LAST_PART
-                .with_label_values(&[key.shard_id.to_string().as_str()])
+                .with_label_values(&[key.chunk.shard_id.to_string().as_str()])
                 .observe(time_to_last_part.as_seconds_f64());
 
             let total_size = shard_tracker.total_size();
@@ -466,8 +468,8 @@ impl PartialEncodedStateWitnessTracker {
                     tracing::error!(
                         target: "client",
                         ?err,
-                        shard_id = %key.shard_id,
-                        height_created = key.height_created,
+                        shard_id = %key.chunk.shard_id,
+                        height_created = key.chunk.height_created,
                         "Failed to reed solomon decode witness parts. Maybe malicious or corrupt data."
                     );
                     return Err(Error::InvalidPartialChunkStateWitness(format!(
@@ -476,37 +478,40 @@ impl PartialEncodedStateWitnessTracker {
                 }
             };
 
-            let protocol_version = self.epoch_manager.get_epoch_protocol_version(&key.epoch_id)?;
+            let protocol_version =
+                self.epoch_manager.get_epoch_protocol_version(&key.chunk.epoch_id)?;
             let (mut witness, raw_witness_size) = {
                 let _span = tracing::debug_span!(
                     target: "client",
                     "decode_state_witness",
-                    height = key.height_created,
-                    shard_id = %key.shard_id,
+                    height = key.chunk.height_created,
+                    shard_id = %key.chunk.shard_id,
                     tag_witness_distribution = true)
                 .entered();
                 self.decode_state_witness(&encoded_witness, protocol_version)?
             };
-            if witness.chunk_production_key() != key {
+            let witness_key = witness.production_key();
+            if witness_key != key {
                 return Err(Error::InvalidPartialChunkStateWitness(format!(
                     "Decoded witness key {:?} doesn't match partial witness {:?}",
-                    witness.chunk_production_key(),
-                    key,
+                    witness_key, key,
                 )));
             }
 
             // Merge accessed contracts into the main transition's partial state.
-            let PartialState::TrieValues(values) =
-                &mut witness.mut_main_state_transition().base_state;
-            values.extend(accessed_contracts.into_iter().map(|code| code.0.into()));
+            if witness_key.witness_type != WitnessType::Validate {
+                let PartialState::TrieValues(values) =
+                    &mut witness.mut_main_state_transition().base_state;
+                values.extend(accessed_contracts.into_iter().map(|code| code.0.into()));
+            }
 
             tracing::debug!(target: "client", ?key, "Sending encoded witness to chunk validation actor.");
             let _span = tracing::debug_span!(
                 target: "client",
                 "send_witness_to_chunk_validation_actor",
-                chunk_hash = ?witness.chunk_header().chunk_hash(),
-                height = key.height_created,
-                shard_id = %key.shard_id,
+                chunk_hash = ?witness.latest_chunk_header().chunk_hash(),
+                height = key.chunk.height_created,
+                shard_id = %key.chunk.shard_id,
                 raw_witness_size = raw_witness_size,
                 encoded_witness_size = encoded_witness.size_bytes(),
                 tag_witness_distribution = true,
@@ -523,7 +528,7 @@ impl PartialEncodedStateWitnessTracker {
             shard_tracker.total_size()
         };
         metrics::PARTIAL_WITNESS_CACHE_SIZE
-            .with_label_values(&[key.shard_id.to_string().as_str()])
+            .with_label_values(&[key.chunk.shard_id.to_string().as_str()])
             .set(total_size as f64);
 
         Ok(())
@@ -542,12 +547,12 @@ impl PartialEncodedStateWitnessTracker {
     // Function to insert a new entry into the cache for the chunk hash if it does not already exist
     // We additionally check if an evicted entry has been fully decoded and processed.
     fn maybe_insert_new_entry_in_parts_cache(
-        parts_cache: &mut LruCache<ChunkProductionKey, CacheEntry>,
-        key: &ChunkProductionKey,
+        parts_cache: &mut LruCache<WitnessProductionKey, CacheEntry>,
+        key: &WitnessProductionKey,
     ) {
         if !parts_cache.contains(key) {
             if let Some((evicted_key, evicted_entry)) =
-                parts_cache.push(key.clone(), CacheEntry::new(key.shard_id))
+                parts_cache.push(key.clone(), CacheEntry::new(key.chunk.shard_id))
             {
                 tracing::debug!(
                     target: "client",
@@ -579,7 +584,7 @@ impl PartialEncodedStateWitnessTracker {
                 (ChunkStateWitness::V1(witness), raw_witness_size)
             };
         let decode_elapsed_seconds = decode_start.elapsed().as_secs_f64();
-        let witness_shard = witness.chunk_header().shard_id();
+        let witness_shard = witness.latest_chunk_header().shard_id();
 
         // Record metrics after validating the witness
         near_chain::stateless_validation::metrics::CHUNK_STATE_WITNESS_DECODE_TIME

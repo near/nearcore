@@ -1,13 +1,12 @@
 use std::fmt::{Debug, Formatter};
 
 use super::ChunkProductionKey;
-use crate::sharding::ShardChunkHeader;
-use crate::types::{EpochId, SignatureDifferentiator};
+use crate::stateless_validation::WitnessProductionKey;
+use crate::types::SignatureDifferentiator;
 use crate::validator_signer::ValidatorSigner;
 use borsh::{BorshDeserialize, BorshSerialize};
 use bytesize::ByteSize;
 use near_crypto::{PublicKey, Signature};
-use near_primitives_core::types::{BlockHeight, ShardId};
 use near_schema_checker_lib::ProtocolSchema;
 
 /// Represents max allowed size of the compressed state witness,
@@ -31,9 +30,9 @@ pub struct PartialEncodedStateWitness {
 impl Debug for PartialEncodedStateWitness {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("PartialEncodedStateWitness")
-            .field("epoch_id", &self.inner.epoch_id)
-            .field("shard_id", &self.inner.shard_id)
-            .field("height_created", &self.inner.height_created)
+            .field("epoch_id", &self.inner.key.chunk.epoch_id)
+            .field("shard_id", &self.inner.key.chunk.shard_id)
+            .field("height_created", &self.inner.key.chunk.height_created)
             .field("part_ord", &self.inner.part_ord)
             .finish()
     }
@@ -41,16 +40,18 @@ impl Debug for PartialEncodedStateWitness {
 
 impl PartialEncodedStateWitness {
     pub fn new(
-        epoch_id: EpochId,
-        chunk_header: ShardChunkHeader,
+        key: WitnessProductionKey,
+        // epoch_id: EpochId,
+        // chunk_header: ShardChunkHeader,
         part_ord: usize,
         part: Vec<u8>,
         encoded_length: usize,
         signer: &ValidatorSigner,
     ) -> Self {
         let inner = PartialEncodedStateWitnessInner::new(
-            epoch_id,
-            chunk_header,
+            key,
+            // epoch_id,
+            // chunk_header,
             part_ord,
             part,
             encoded_length,
@@ -59,12 +60,17 @@ impl PartialEncodedStateWitness {
         Self { inner, signature }
     }
 
+    pub fn production_key(&self) -> WitnessProductionKey {
+        self.inner.key.clone()
+    }
+
     pub fn chunk_production_key(&self) -> ChunkProductionKey {
-        ChunkProductionKey {
-            shard_id: self.inner.shard_id,
-            epoch_id: self.inner.epoch_id,
-            height_created: self.inner.height_created,
-        }
+        self.inner.key.chunk.clone()
+        // ChunkProductionKey {
+        //     shard_id: self.inner.key.chunk.shard_id,
+        //     epoch_id: self.inner.key.chunk.epoch_id,
+        //     height_created: self.inner.key.chunk.height_created,
+        // }
     }
 
     pub fn verify(&self, public_key: &PublicKey) -> bool {
@@ -91,9 +97,10 @@ impl PartialEncodedStateWitness {
 
 #[derive(Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
 pub struct PartialEncodedStateWitnessInner {
-    epoch_id: EpochId,
-    shard_id: ShardId,
-    height_created: BlockHeight,
+    key: WitnessProductionKey,
+    // epoch_id: EpochId,
+    // shard_id: ShardId,
+    // height_created: BlockHeight,
     part_ord: usize,
     part: Box<[u8]>,
     encoded_length: usize,
@@ -102,16 +109,18 @@ pub struct PartialEncodedStateWitnessInner {
 
 impl PartialEncodedStateWitnessInner {
     fn new(
-        epoch_id: EpochId,
-        chunk_header: ShardChunkHeader,
+        key: WitnessProductionKey,
+        // epoch_id: EpochId,
+        // chunk_header: ShardChunkHeader,
         part_ord: usize,
         part: Vec<u8>,
         encoded_length: usize,
     ) -> Self {
         Self {
-            epoch_id,
-            shard_id: chunk_header.shard_id(),
-            height_created: chunk_header.height_created(),
+            key,
+            // epoch_id,
+            // shard_id: chunk_header.shard_id(),
+            // height_created: chunk_header.height_created(),
             part_ord,
             part: part.into_boxed_slice(),
             encoded_length,

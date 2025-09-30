@@ -1345,7 +1345,7 @@ impl std::fmt::Display for ChunkAccessError {
 
 impl std::error::Error for ChunkAccessError {}
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum InvalidSpiceCoreStatementsError {
     /// Information about uncertified chunks for previous block is missing.
     NoPrevUncertifiedChunks,

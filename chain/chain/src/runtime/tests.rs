@@ -1,6 +1,6 @@
 use super::*;
 use crate::spice_core::CoreStatementsProcessor;
-use crate::types::{BlockType, ChainConfig, RuntimeStorageConfig};
+use crate::types::{ChainConfig, RuntimeStorageConfig};
 use crate::{Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode};
 use assert_matches::assert_matches;
 use borsh::BorshDeserialize;
@@ -20,7 +20,7 @@ use near_pool::{InsertTransactionResult, PoolIteratorWrapper, TransactionPool};
 use near_primitives::action::FunctionCallAction;
 use near_primitives::apply::ApplyChunkReason;
 use near_primitives::bandwidth_scheduler::BlockBandwidthRequests;
-use near_primitives::block::Tip;
+use near_primitives::block::{BlockType, Tip};
 use near_primitives::congestion_info::{BlockCongestionInfo, ExtendedCongestionInfo};
 use near_primitives::epoch_block_info::BlockInfo;
 use near_primitives::epoch_info::RngSeed;

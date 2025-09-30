@@ -1,7 +1,6 @@
 use std::sync::Arc;
 use std::task::Poll;
 
-use near_async::messaging::CanSend;
 use near_async::test_loop::TestLoopV2;
 use near_async::test_loop::data::TestLoopData;
 use near_async::time::Duration;
@@ -34,10 +33,6 @@ impl<'a> TestLoopNode<'a> {
             .find(|data| &data.account_id == account_id)
             .unwrap_or_else(|| panic!("client with account id {account_id} not found"));
         Self { data }
-    }
-
-    pub fn all(node_datas: &'a [NodeExecutionData]) -> Vec<Self> {
-        node_datas.iter().map(|data| Self { data }).collect()
     }
 
     pub fn client<'b>(&self, test_loop_data: &'b TestLoopData) -> &'b Client {

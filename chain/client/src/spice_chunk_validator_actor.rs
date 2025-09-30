@@ -18,6 +18,7 @@ use near_network::types::{NetworkRequests, PeerManagerAdapter, PeerManagerMessag
 use near_o11y::span_wrapped_msg::SpanWrapped;
 use near_performance_metrics_macros::perf;
 use near_primitives::hash::CryptoHash;
+use near_primitives::stateless_validation::WitnessProductionKey;
 use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsement;
 use near_primitives::stateless_validation::state_witness::{
     ChunkStateWitness, ChunkStateWitnessSize,
@@ -282,7 +283,7 @@ impl SpiceChunkValidatorActor {
             &self.chain_store,
         )?;
 
-        let chunk_production_key = witness.chunk_production_key();
+        let WitnessProductionKey { chunk: chunk_production_key, .. } = witness.production_key();
         let chunk_producer_name =
             self.epoch_manager.get_chunk_producer_info(&chunk_production_key)?.take_account_id();
 

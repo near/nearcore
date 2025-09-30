@@ -1,5 +1,6 @@
 use crate::bandwidth_scheduler::BandwidthRequests;
 use crate::congestion_info::CongestionInfo;
+use crate::sharding::ShardChunkHeader;
 use crate::types::StateRoot;
 use crate::types::validator_stake::{ValidatorStake, ValidatorStakeIter, ValidatorStakeV1};
 use borsh::{BorshDeserialize, BorshSerialize};
@@ -20,7 +21,6 @@ pub enum ShardChunkHeaderInner {
     V3(ShardChunkHeaderInnerV3) = 2,
     V4(ShardChunkHeaderInnerV4) = 3,
     V5(ShardChunkHeaderInnerV5SpiceTxOnly) = 4,
-    V6(ShardChunkApplyHeaderInner) = 5,
 }
 
 impl ShardChunkHeaderInner {
@@ -35,7 +35,6 @@ impl ShardChunkHeaderInner {
                 debug_assert!(false, "Transaction only header doesn't include prev_state_root");
                 DEFAULT_CRYPTO_HASH
             }
-            Self::V6(inner) => &inner.prev_state_root,
         }
     }
 
@@ -47,7 +46,6 @@ impl ShardChunkHeaderInner {
             Self::V3(inner) => &inner.prev_block_hash,
             Self::V4(inner) => &inner.prev_block_hash,
             Self::V5(inner) => &inner.prev_block_hash,
-            Self::V6(inner) => &inner.prev_block_hash,
         }
     }
 
@@ -63,7 +61,6 @@ impl ShardChunkHeaderInner {
                 // anymore.
                 Gas::ZERO
             }
-            Self::V6(inner) => inner.gas_limit,
         }
     }
 
@@ -77,11 +74,6 @@ impl ShardChunkHeaderInner {
             Self::V5(_) => {
                 // TODO(spice): debug_assert this is unreachable after verifying that nothing depend on this
                 // anymore.
-                Gas::ZERO
-            }
-            Self::V6(_) => {
-                // todo(slavas): debug_assert this is unreachable after verifying that nothing depend on this
-                debug_assert!(false, "`ChunkApply` header doesn't include prev_gas_used");
                 Gas::ZERO
             }
         }
@@ -99,7 +91,6 @@ impl ShardChunkHeaderInner {
                 // anymore.
                 ValidatorStakeIter::empty()
             }
-            Self::V6(inner) => ValidatorStakeIter::new(&inner.prev_validator_proposals),
         }
     }
 
@@ -111,7 +102,6 @@ impl ShardChunkHeaderInner {
             Self::V3(inner) => inner.height_created,
             Self::V4(inner) => inner.height_created,
             Self::V5(inner) => inner.height_created,
-            Self::V6(inner) => inner.height_created,
         }
     }
 
@@ -123,7 +113,6 @@ impl ShardChunkHeaderInner {
             Self::V3(inner) => inner.shard_id,
             Self::V4(inner) => inner.shard_id,
             Self::V5(inner) => inner.shard_id,
-            Self::V6(inner) => inner.shard_id,
         }
     }
 
@@ -139,11 +128,6 @@ impl ShardChunkHeaderInner {
                 // prev_outcome_root.
                 DEFAULT_CRYPTO_HASH
             }
-            Self::V6(_) => {
-                // todo(slavas): debug_assert this is unreachable after verifying that nothing depend on this
-                debug_assert!(false, "`ChunkApply` header doesn't include prev_outcome_root");
-                DEFAULT_CRYPTO_HASH
-            }
         }
     }
 
@@ -155,11 +139,6 @@ impl ShardChunkHeaderInner {
             Self::V3(inner) => &inner.encoded_merkle_root,
             Self::V4(inner) => &inner.encoded_merkle_root,
             Self::V5(inner) => &inner.encoded_merkle_root,
-            Self::V6(_) => {
-                // todo(slavas): debug_assert this is unreachable after verifying that nothing depend on this
-                debug_assert!(false, "`ChunkApply` header doesn't include encoded_merkle_root");
-                DEFAULT_CRYPTO_HASH
-            }
         }
     }
 
@@ -171,11 +150,6 @@ impl ShardChunkHeaderInner {
             Self::V3(inner) => inner.encoded_length,
             Self::V4(inner) => inner.encoded_length,
             Self::V5(inner) => inner.encoded_length,
-            Self::V6(_) => {
-                // todo(slavas): debug_assert this is unreachable after verifying that nothing depend on this
-                debug_assert!(false, "`ChunkApply` header doesn't include encoded_length");
-                0
-            }
         }
     }
 
@@ -191,11 +165,6 @@ impl ShardChunkHeaderInner {
                 // anymore.
                 0
             }
-            Self::V6(_) => {
-                // todo(slavas): debug_assert this is unreachable after verifying that nothing depend on this
-                debug_assert!(false, "`ChunkApply` header doesn't include prev_balance_burnt");
-                0
-            }
         }
     }
 
@@ -208,14 +177,6 @@ impl ShardChunkHeaderInner {
             Self::V4(inner) => &inner.prev_outgoing_receipts_root,
             // TODO(spice): debug_assert as unreachable. See comment on the field for more details.
             Self::V5(inner) => &inner.prev_outgoing_receipts_root,
-            Self::V6(_) => {
-                // todo(slavas): debug_assert this is unreachable after verifying that nothing depend on this
-                debug_assert!(
-                    false,
-                    "`ChunkApply` header doesn't include prev_outgoing_receipts_root"
-                );
-                DEFAULT_CRYPTO_HASH
-            }
         }
     }
 
@@ -227,11 +188,6 @@ impl ShardChunkHeaderInner {
             Self::V3(inner) => &inner.tx_root,
             Self::V4(inner) => &inner.tx_root,
             Self::V5(inner) => &inner.tx_root,
-            Self::V6(_) => {
-                // todo(slavas): debug_assert this is unreachable after verifying that nothing depend on this
-                debug_assert!(false, "`ChunkApply` header doesn't include tx_root");
-                DEFAULT_CRYPTO_HASH
-            }
         }
     }
 
@@ -247,11 +203,6 @@ impl ShardChunkHeaderInner {
             // TODO(spice): debug_assert this is unreachable after verifying that nothing depend on this
             // anymore.
             Self::V5(_) => CongestionInfo::default(),
-            Self::V6(_) => {
-                // todo(slavas): debug_assert this is unreachable after verifying that nothing depend on this
-                debug_assert!(false, "`ChunkApply` header doesn't include congestion_info");
-                CongestionInfo::default()
-            }
         }
     }
 
@@ -263,11 +214,6 @@ impl ShardChunkHeaderInner {
             // TODO(spice): debug_assert this is unreachable after verifying that nothing depend on this
             // anymore.
             Self::V5(_) => None,
-            Self::V6(_) => {
-                // todo(slavas): debug_assert this is unreachable after verifying that nothing depend on this
-                debug_assert!(false, "`ChunkApply` header doesn't include bandwidth_requests");
-                None
-            }
         }
     }
 
@@ -280,7 +226,6 @@ impl ShardChunkHeaderInner {
             Self::V3(_) => 3,
             Self::V4(_) => 4,
             Self::V5(_) => 5,
-            Self::V6(_) => 6,
         }
     }
 }
@@ -398,18 +343,6 @@ pub struct ShardChunkHeaderInnerV4 {
     pub bandwidth_requests: BandwidthRequests,
 }
 
-/// doc me
-/// Whatever field named `previous` here actually corresponds to the level of associated chunk
-#[derive(BorshSerialize, BorshDeserialize, Clone, PartialEq, Eq, Debug, ProtocolSchema)]
-pub struct ShardChunkApplyHeaderInner {
-    pub prev_block_hash: CryptoHash,
-    pub prev_state_root: StateRoot,
-    pub height_created: BlockHeight,
-    pub shard_id: ShardId,
-    pub gas_limit: Gas,
-    pub prev_validator_proposals: Vec<ValidatorStake>,
-}
-
 // V4 -> V5: a version for spice of a chunk header including only transactions (no previous
 // execution results).
 #[derive(BorshSerialize, BorshDeserialize, Clone, PartialEq, Eq, Debug, ProtocolSchema)]
@@ -430,16 +363,28 @@ pub struct ShardChunkHeaderInnerV5SpiceTxOnly {
     /// Tx merkle root.
     pub tx_root: CryptoHash,
 }
+/// Info enough to apply state witness.
+/// Whatever field named `previous` here actually corresponds to the level of associated chunk
+/// Currently unused.
+#[derive(BorshSerialize, BorshDeserialize, Clone, PartialEq, Eq, Debug, ProtocolSchema)]
+pub struct ShardChunkApplyHeader {
+    pub prev_block_hash: CryptoHash,
+    pub prev_state_root: StateRoot,
+    pub height_created: BlockHeight,
+    pub shard_id: ShardId,
+    pub gas_limit: Gas,
+    pub prev_validator_proposals: Vec<ValidatorStake>,
+}
 
-impl From<ShardChunkHeaderInnerV4> for ShardChunkApplyHeaderInner {
-    fn from(v4: ShardChunkHeaderInnerV4) -> Self {
+impl From<ShardChunkHeader> for ShardChunkApplyHeader {
+    fn from(chunk: ShardChunkHeader) -> Self {
         Self {
-            prev_block_hash: v4.prev_block_hash,
-            prev_state_root: v4.prev_state_root,
-            height_created: v4.height_created,
-            shard_id: v4.shard_id,
-            gas_limit: v4.gas_limit,
-            prev_validator_proposals: v4.prev_validator_proposals,
+            prev_block_hash: *chunk.prev_block_hash(),
+            prev_state_root: chunk.prev_state_root(),
+            height_created: chunk.height_created(),
+            shard_id: chunk.shard_id(),
+            gas_limit: chunk.gas_limit(),
+            prev_validator_proposals: chunk.prev_validator_proposals().collect(),
         }
     }
 }

@@ -30,8 +30,7 @@ use crate::store::{
     ChainStore, ChainStoreAccess, ChainStoreUpdate, MerkleProofAccess, ReceiptFilter,
 };
 use crate::types::{
-    AcceptedBlock, ApplyChunkBlockContext, BlockEconomicsConfig, BlockType, ChainConfig,
-    RuntimeAdapter, StorageDataSource,
+    AcceptedBlock, BlockEconomicsConfig, ChainConfig, RuntimeAdapter, StorageDataSource,
 };
 pub use crate::update_shard::{
     NewChunkData, NewChunkResult, OldChunkData, OldChunkResult, ShardContext, StorageContext,
@@ -61,7 +60,8 @@ use near_epoch_manager::shard_tracker::ShardTracker;
 use near_epoch_manager::validate::validate_optimistic_block_relevant;
 use near_o11y::span_wrapped_msg::{SpanWrapped, SpanWrappedMessageExt};
 use near_primitives::block::{
-    Block, BlockValidityError, ChunkType, Chunks, Tip, compute_bp_hash_from_validator_stakes,
+    ApplyChunkBlockContext, Block, BlockType, BlockValidityError, ChunkType, Chunks, Tip,
+    compute_bp_hash_from_validator_stakes,
 };
 use near_primitives::block_header::BlockHeader;
 use near_primitives::challenge::{ChunkProofs, MaybeEncodedShardChunk};
@@ -143,6 +143,8 @@ pub struct ApplyChunksDoneMessage;
 #[rtype(result = "()")]
 pub struct NewChunkAppliedMessage {
     pub result: NewChunkResult,
+    pub block_context: ApplyChunkBlockContext,
+    pub chunks: Vec<ShardChunkHeader>,
 }
 
 #[derive(Clone, MultiSend, MultiSenderFrom, MultiSendMessage)]
@@ -319,7 +321,12 @@ pub type UpdateShardJob = (
 /// PreprocessBlockResult is a tuple where the first element is a vector of jobs
 /// to update shards, the second element is BlockPreprocessInfo, and the third element shall be
 /// dropped when the chunks finish applying.
-type PreprocessBlockResult = (Vec<UpdateShardJob>, BlockPreprocessInfo, ApplyChunksStillApplying);
+type PreprocessBlockResult = (
+    Vec<UpdateShardJob>,
+    Option<ApplyChunkBlockContext>,
+    BlockPreprocessInfo,
+    ApplyChunksStillApplying,
+);
 
 // Used only for verify_block_hash_and_signature. See that method.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -1288,18 +1295,18 @@ impl Chain {
 
         let mut maybe_jobs = vec![];
         let mut shard_update_keys = vec![];
+        let block_context = ApplyChunkBlockContext {
+            block_type: BlockType::Optimistic,
+            height: block_height,
+            prev_block_hash: *block.prev_block_hash(),
+            block_timestamp: block.block_timestamp(),
+            gas_price: prev_block.header().next_gas_price(),
+            random_seed: *block.random_value(),
+            congestion_info: chunks.block_congestion_info(),
+            bandwidth_requests: chunks.block_bandwidth_requests(),
+        };
         for (shard_index, prev_chunk_header) in prev_chunk_headers.iter().enumerate() {
             let shard_id = shard_layout.get_shard_id(shard_index)?;
-            let block_context = ApplyChunkBlockContext {
-                block_type: BlockType::Optimistic,
-                height: block_height,
-                prev_block_hash: *block.prev_block_hash(),
-                block_timestamp: block.block_timestamp(),
-                gas_price: prev_block.header().next_gas_price(),
-                random_seed: *block.random_value(),
-                congestion_info: chunks.block_congestion_info(),
-                bandwidth_requests: chunks.block_bandwidth_requests(),
-            };
             let incoming_receipts = incoming_receipts.get(&shard_id);
             let storage_context = StorageContext {
                 storage_data_source: StorageDataSource::Db,
@@ -1307,11 +1314,11 @@ impl Chain {
             };
 
             let cached_shard_update_key =
-                Self::get_cached_shard_update_key(&block_context, &chunks, shard_id)?;
+                Self::get_cached_shard_update_key(&block_context, chunks.iter_raw(), shard_id)?;
             shard_update_keys.push(cached_shard_update_key);
             let job = self.get_update_shard_job(
                 cached_shard_update_key,
-                block_context,
+                block_context.clone(),
                 &chunks,
                 shard_index,
                 &prev_block,
@@ -1349,7 +1356,8 @@ impl Chain {
         // 3) schedule apply chunks, which will be executed in the rayon thread pool.
         self.schedule_apply_chunks(
             BlockToApply::Optimistic(block_height),
-            block_height,
+            Some(block_context),
+            chunks.iter_raw().cloned().collect_vec(),
             jobs,
             apply_chunks_still_applying,
             apply_chunks_done_sender,
@@ -1671,7 +1679,8 @@ impl Chain {
                 return Err(e);
             }
         };
-        let (apply_chunk_work, block_preprocess_info, apply_chunks_still_applying) = preprocess_res;
+        let (apply_chunk_work, block_context, block_preprocess_info, apply_chunks_still_applying) =
+            preprocess_res;
 
         if self.epoch_manager.is_next_block_epoch_start(block.header().prev_hash())? {
             // This is the end of the epoch. Next epoch we will generate new state parts. We can drop the old ones.
@@ -1683,15 +1692,16 @@ impl Chain {
             tracing::error!(target: "state_snapshot", ?err, "Failed to make a state snapshot");
         }
 
+        let chunks = block.chunks().iter_raw().cloned().collect_vec();
         let block = block.into_inner();
         let block_hash = *block.hash();
-        let block_height = block.header().height();
         self.blocks_in_processing.add(block, block_preprocess_info)?;
 
         // 3) schedule apply chunks, which will be executed in the rayon thread pool.
         self.schedule_apply_chunks(
             BlockToApply::Normal(block_hash),
-            block_height,
+            block_context,
+            chunks,
             apply_chunk_work,
             apply_chunks_still_applying,
             apply_chunks_done_sender,
@@ -1706,7 +1716,8 @@ impl Chain {
     fn schedule_apply_chunks(
         &self,
         block: BlockToApply,
-        block_height: BlockHeight,
+        block_context: Option<ApplyChunkBlockContext>,
+        chunks: Vec<ShardChunkHeader>,
         work: Vec<UpdateShardJob>,
         apply_chunks_still_applying: ApplyChunksStillApplying,
         apply_chunks_done_sender: Option<ApplyChunksDoneSender>,
@@ -1716,24 +1727,34 @@ impl Chain {
         self.apply_chunks_spawner.spawn("apply_chunks", move || {
             let apply_all_chunks_start_time = clock.now();
             // do_apply_chunks runs `work` in parallel, but still waits for all of them to finish
-            let res = do_apply_chunks(block.clone(), block_height, work);
+            let res = if let Some(block_context) = &block_context {
+                do_apply_chunks(block.clone(), block_context.height, work)
+            } else {
+                // seemingly spice block
+                vec![]
+            };
             // If we encounter an error here, that means the receiver is deallocated and the client
             // thread is already shut down. The node is already crashed, so we can unwrap here
             metrics::APPLY_ALL_CHUNKS_TIME.with_label_values(&[block.as_ref()]).observe(
                 (clock.now().signed_duration_since(apply_all_chunks_start_time)).as_seconds_f64(),
             );
-            drop(apply_chunks_still_applying);
-            if let Some(sender) = apply_chunks_done_sender {
-                for (_, _, shard_update_result) in res.iter() {
-                    if let Ok(ShardUpdateResult::NewChunk(res_new_chunk)) = shard_update_result {
-                        sender
-                            .new_chunk_apply
-                            .send(NewChunkAppliedMessage { result: res_new_chunk.clone() });
+            if let Some(block_context) = &block_context {
+                if let Some(sender) = apply_chunks_done_sender {
+                    for (_, _, shard_update_result) in &res {
+                        if let Ok(ShardUpdateResult::NewChunk(res_new_chunk)) = shard_update_result
+                        {
+                            sender.new_chunk_apply.send(NewChunkAppliedMessage {
+                                result: res_new_chunk.clone(),
+                                block_context: block_context.clone(),
+                                chunks: chunks.clone(),
+                            });
+                        }
                     }
+                    sender.apply_chunks_done.send(ApplyChunksDoneMessage {}.span_wrap());
                 }
-                sender.apply_chunks_done.send(ApplyChunksDoneMessage {}.span_wrap());
             }
             sc.send((block, res)).unwrap();
+            drop(apply_chunks_still_applying);
         });
     }
 
@@ -2351,7 +2372,7 @@ impl Chain {
             }
         }
 
-        let apply_chunk_work = self.apply_chunks_preprocessing(
+        let (apply_chunk_work, block_context) = self.apply_chunks_preprocessing(
             block,
             &prev_block,
             &incoming_receipts,
@@ -2367,6 +2388,7 @@ impl Chain {
 
         Ok((
             apply_chunk_work,
+            block_context,
             BlockPreprocessInfo {
                 is_caught_up,
                 state_sync_info,
@@ -2592,14 +2614,16 @@ impl Chain {
                 receipts_shuffle_salt,
             )?;
 
-            let work = self.apply_chunks_preprocessing(
-                &block,
-                &prev_block,
-                &receipts_by_shard,
-                ApplyChunksMode::CatchingUp,
-                Default::default(),
-                &mut Vec::new(),
-            )?;
+            let work = self
+                .apply_chunks_preprocessing(
+                    &block,
+                    &prev_block,
+                    &receipts_by_shard,
+                    ApplyChunksMode::CatchingUp,
+                    Default::default(),
+                    &mut Vec::new(),
+                )?
+                .0;
             metrics::SCHEDULED_CATCHUP_BLOCK.set(block.header().height() as i64);
             blocks_catch_up_state.scheduled_blocks.insert(pending_block);
             block_catch_up_scheduler.send(BlockCatchUpRequest {
@@ -2978,11 +3002,11 @@ impl Chain {
         mode: ApplyChunksMode,
         mut state_patch: SandboxStatePatch,
         invalid_chunks: &mut Vec<ShardChunkHeader>,
-    ) -> Result<Vec<UpdateShardJob>, Error> {
+    ) -> Result<(Vec<UpdateShardJob>, Option<ApplyChunkBlockContext>), Error> {
         let _span = tracing::debug_span!(target: "chain", "apply_chunks_preprocessing").entered();
 
         if cfg!(feature = "protocol_feature_spice") {
-            return Ok(vec![]);
+            return Ok((vec![], None));
         }
 
         let prev_chunk_headers = self.epoch_manager.get_prev_chunk_headers(prev_block)?;
@@ -2994,18 +3018,21 @@ impl Chain {
         let chunk_headers = &block.chunks();
         let mut update_shard_args = vec![];
 
-        for (shard_index, chunk_header) in chunk_headers.iter().enumerate() {
+        // it is fine since limited replayability
+        let block_context = Self::get_apply_chunk_block_context_from_block_header(
+            block.header(),
+            &chunk_headers,
+            prev_block.header(),
+            true,
+        )?;
+        for (shard_index, _) in chunk_headers.iter().enumerate() {
             let shard_id = shard_layout.get_shard_id(shard_index)?;
-            let block_context = Self::get_apply_chunk_block_context_from_block_header(
-                block.header(),
-                &chunk_headers,
-                prev_block.header(),
-                chunk_header.is_new_chunk(),
+            let cached_shard_update_key = Self::get_cached_shard_update_key(
+                &block_context,
+                chunk_headers.iter_raw(),
+                shard_id,
             )?;
-
-            let cached_shard_update_key =
-                Self::get_cached_shard_update_key(&block_context, chunk_headers, shard_id)?;
-            update_shard_args.push((block_context, cached_shard_update_key));
+            update_shard_args.push((block_context.clone(), cached_shard_update_key));
         }
 
         let cached_shard_update_keys = update_shard_args
@@ -3083,7 +3110,7 @@ impl Chain {
             }
         }
 
-        Ok(jobs)
+        Ok((jobs, Some(block_context)))
     }
 
     fn get_shard_context(
@@ -3100,9 +3127,9 @@ impl Chain {
 
     /// Get a key which can uniquely define result of applying a chunk based on
     /// block execution context and other chunks.
-    pub fn get_cached_shard_update_key(
+    pub fn get_cached_shard_update_key<'a>(
         block_context: &ApplyChunkBlockContext,
-        chunk_headers: &Chunks,
+        chunk_headers: impl Iterator<Item = &'a ShardChunkHeader>,
         shard_id: ShardId,
     ) -> Result<CachedShardUpdateKey, Error> {
         const BYTES_LEN: usize =
@@ -3117,7 +3144,7 @@ impl Chain {
         };
         bytes.extend_from_slice(&hash(&borsh::to_vec(&block)?).0);
 
-        let chunks_key_source: Vec<_> = chunk_headers.iter_raw().map(|c| c.chunk_hash()).collect();
+        let chunks_key_source: Vec<_> = chunk_headers.map(|c| c.chunk_hash()).collect();
         bytes.extend_from_slice(&hash(&borsh::to_vec(&chunks_key_source)?).0);
         bytes.extend_from_slice(&shard_id.to_le_bytes());
 
