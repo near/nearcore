@@ -362,8 +362,14 @@ mod tests {
         }
 
         // The estimation should be reasonably close to the actual recorded size.
-        assert_eq!(trie_read_wrapper.recorded_storage_size(), 10059);
-        assert_eq!(update_read_wrapper.recorded_storage_size(), 10700);
+        let trie_recorded_size = trie_read_wrapper.recorded_storage_size();
+        assert_eq!(trie_recorded_size, 10059);
+
+        let wrapper_recorded_size = update_read_wrapper.recorded_storage_size();
+        assert_eq!(wrapper_recorded_size, 10700);
+
+        // The difference should be less than 10%
+        assert!(trie_recorded_size.abs_diff(wrapper_recorded_size) < trie_recorded_size / 10);
     }
 
     /// Test the worst-case scenario that `TrieUpdateWitnessSizeWrapper` protects from.
