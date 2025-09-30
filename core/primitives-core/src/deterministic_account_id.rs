@@ -68,4 +68,12 @@ impl DeterministicAccountStateInit {
             DeterministicAccountStateInit::V1(inner) => (inner.code, inner.data),
         }
     }
+
+    /// The length of the serialized structure.
+    ///
+    /// This length is multiplied by `action_deterministic_state_init_per_byte`
+    /// for gas cost calculations of a state initialization.
+    pub fn len_bytes(&self) -> usize {
+        borsh::object_length(&self).expect("borsh must not fail")
+    }
 }

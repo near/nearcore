@@ -1,5 +1,5 @@
-use super::{NearVmMemory, VM_CONFIG};
-use crate::cache::CompiledContractInfo;
+use super::{NearVmMemory, VM_CONFIG, near_vm_vm_hash};
+use crate::cache::{CompiledContractInfo, get_contract_cache_key};
 use crate::errors::ContractPrecompilatonResult;
 use crate::logic::errors::{
     CacheError, CompilationError, FunctionCallError, MethodResolveError, VMRunnerError, WasmTrap,
@@ -10,10 +10,7 @@ use crate::logic::{
 };
 use crate::near_vm_runner::{NearVmCompiler, NearVmEngine};
 use crate::runner::VMResult;
-use crate::{
-    CompiledContract, Contract, ContractCode, ContractRuntimeCache, get_contract_cache_key,
-    imports, lazy_drop,
-};
+use crate::{CompiledContract, Contract, ContractCode, ContractRuntimeCache, imports, lazy_drop};
 use crate::{NoContractRuntimeCache, prepare};
 use memoffset::offset_of;
 use near_parameters::RuntimeFeesConfig;
@@ -186,7 +183,7 @@ impl NearVM {
         cache: &dyn ContractRuntimeCache,
     ) -> Result<Result<UniversalExecutable, CompilationError>, CacheError> {
         let executable_or_error = self.compile_uncached(code);
-        let key = get_contract_cache_key(*code.hash(), &self.config);
+        let key = get_contract_cache_key(*code.hash(), &self.config, near_vm_vm_hash());
         let record = CompiledContractInfo {
             wasm_bytes: code.code().len() as u64,
             compiled: match &executable_or_error {
@@ -223,7 +220,7 @@ impl NearVM {
         // To identify a cache hit from either in-memory and on-disk cache correctly, we first assume that we have a cache hit here,
         // and then we set it to false when we fail to find any entry and decide to compile (by calling compile_and_cache below).
         let mut is_cache_hit = true;
-        let key = get_contract_cache_key(contract.hash(), &self.config);
+        let key = get_contract_cache_key(contract.hash(), &self.config, near_vm_vm_hash());
         let (wasm_bytes, artifact_result) = cache.memory_cache().try_lookup(
             key,
             || {
@@ -571,6 +568,16 @@ impl<'a> finite_wasm::wasmparser::VisitOperator<'a> for GasCostCfg {
 }
 
 impl crate::runner::VM for NearVM {
+    fn contract_cached(
+        &self,
+        cache: &dyn ContractRuntimeCache,
+        hash: near_primitives_core::hash::CryptoHash,
+    ) -> Result<bool, crate::logic::errors::CacheError> {
+        let key = get_contract_cache_key(hash, &self.config, near_vm_vm_hash());
+        // Check if we already cached with such a key.
+        cache.has(&key).map_err(CacheError::ReadError)
+    }
+
     fn prepare(
         self: Box<Self>,
         contract: &dyn Contract,
@@ -618,6 +625,9 @@ impl crate::runner::VM for NearVM {
         Result<ContractPrecompilatonResult, CompilationError>,
         crate::logic::errors::CacheError,
     > {
+        if self.contract_cached(cache, *code.hash())? {
+            return Ok(Ok(ContractPrecompilatonResult::ContractAlreadyInCache));
+        }
         Ok(self
             .compile_and_cache(code, cache)?
             .map(|_| ContractPrecompilatonResult::ContractCompiled))

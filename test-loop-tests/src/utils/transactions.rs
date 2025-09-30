@@ -433,8 +433,7 @@ pub fn submit_tx(node_datas: &[NodeExecutionData], rpc_id: &AccountId, tx: Signe
     let rpc_node_data = get_node_data(node_datas, rpc_id);
     let rpc_node_data_sender = &rpc_node_data.rpc_handler_sender;
 
-    let future = rpc_node_data_sender.send_async(process_tx_request);
-    drop(future);
+    rpc_node_data_sender.send(process_tx_request);
 }
 
 /// Check the status of the transactions and assert that they are successful.

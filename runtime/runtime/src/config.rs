@@ -160,11 +160,22 @@ pub fn total_send_fees(
 
                 base_fee.checked_add(all_bytes_fee).unwrap()
             }
-            DeterministicStateInit(_deterministic_state_init_action) => {
-                // TODO(sharded_contracts):
-                // Need to implement the rest first to identify an appropriate cost.
-                // probably something like CreateAccount + UseGlobalContract + also bytes of data and maybe number of entries + transfer cost for refund"
-                Gas::ZERO
+            DeterministicStateInit(action) => {
+                let num_entries = action.state_init.data().len() as u64;
+                let num_bytes = action.state_init.len_bytes();
+                let base_fee = fees
+                    .fee(ActionCosts::deterministic_state_init_base)
+                    .send_fee(sender_is_receiver);
+                let entry_fee = fees
+                    .fee(ActionCosts::deterministic_state_init_entry)
+                    .send_fee(sender_is_receiver);
+                let all_entries_fee = entry_fee.checked_mul(num_entries).unwrap();
+                let byte_fee = fees
+                    .fee(ActionCosts::deterministic_state_init_byte)
+                    .send_fee(sender_is_receiver);
+                let all_bytes_fee = byte_fee.checked_mul(num_bytes as u64).unwrap();
+
+                base_fee.checked_add(all_bytes_fee).unwrap().checked_add(all_entries_fee).unwrap()
             }
         };
         result = result.checked_add_result(delta)?;
@@ -273,12 +284,16 @@ pub fn exec_fee(config: &RuntimeConfig, action: &Action, receiver_id: &AccountId
 
             base_fee.checked_add(all_bytes_fee).unwrap()
         }
-        DeterministicStateInit(_deterministic_state_init_action) => {
-            // Need to implement the rest first to identify an appropriate cost
-            // TODO(sharded_contracts):
-            // Need to implement the rest first to identify an appropriate cost.
-            // probably something like CreateAccount + UseGlobalContract + also bytes of data and maybe number of entries + transfer cost for refund"
-            Gas::ZERO
+        DeterministicStateInit(action) => {
+            let num_entries = action.state_init.data().len() as u64;
+            let num_bytes = action.state_init.len_bytes();
+            let base_fee = fees.fee(ActionCosts::deterministic_state_init_base).exec_fee();
+            let entry_fee = fees.fee(ActionCosts::deterministic_state_init_entry).exec_fee();
+            let all_entries_fee = entry_fee.checked_mul(num_entries).unwrap();
+            let byte_fee = fees.fee(ActionCosts::deterministic_state_init_byte).exec_fee();
+            let all_bytes_fee = byte_fee.checked_mul(num_bytes as u64).unwrap();
+
+            base_fee.checked_add(all_bytes_fee).unwrap().checked_add(all_entries_fee).unwrap()
         }
     }
 }

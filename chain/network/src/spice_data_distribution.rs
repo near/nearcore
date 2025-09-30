@@ -1,9 +1,8 @@
 use near_async::messaging::Sender;
-use near_async::{MultiSend, MultiSendMessage, MultiSenderFrom};
+use near_async::{Message, MultiSend, MultiSendMessage, MultiSenderFrom};
 use near_primitives::spice_partial_data::SpicePartialData;
 
-#[derive(actix::Message, Debug, Clone, PartialEq, Eq)]
-#[rtype(result = "()")]
+#[derive(Message, Debug, Clone, PartialEq, Eq)]
 pub struct SpiceIncomingPartialData {
     pub data: SpicePartialData,
 }

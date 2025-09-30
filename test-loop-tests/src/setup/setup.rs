@@ -11,9 +11,9 @@ use near_chain::state_snapshot_actor::{
 };
 use near_chain::types::RuntimeAdapter;
 use near_chain::{ApplyChunksIterationMode, ApplyChunksSpawner, ChainGenesis};
-use near_chain_configs::{CloudArchivalHandle, MutableConfigValue, ReshardingHandle};
+use near_chain_configs::{MutableConfigValue, ReshardingHandle};
 use near_chunks::shards_manager_actor::ShardsManagerActor;
-use near_client::archive::cloud_archival_actor::CloudArchivalActor;
+use near_client::archive::cloud_archival_actor::create_cloud_archival_actor;
 use near_client::archive::cold_store_actor::create_cold_store_actor;
 use near_client::chunk_executor_actor::ChunkExecutorActor;
 use near_client::client_actor::ClientActorInner;
@@ -351,7 +351,7 @@ pub fn setup_client(
             Some(client_config.save_trie_changes),
             &SplitStorageConfig::default(),
             genesis.config.genesis_height,
-            runtime_adapter.store().clone(),
+            storage.hot_store.clone(),
             storage.cold_db.as_ref(),
             epoch_manager.clone(),
             shard_tracker.clone(),
@@ -365,14 +365,14 @@ pub fn setup_client(
         None
     };
 
-    let cloud_archival_sender = if let Some(config) = &client_config.cloud_archival_writer {
-        let cloud_archival_actor = CloudArchivalActor::new(
-            config.clone(),
+    let cloud_archival_sender = if client_config.cloud_archival_writer.is_some() {
+        let cloud_archival_actor = create_cloud_archival_actor(
+            client_config.cloud_archival_writer.clone(),
             genesis.config.genesis_height,
             storage.hot_store,
-            genesis.config.genesis_height,
-            CloudArchivalHandle::new(),
-        );
+        )
+        .unwrap()
+        .unwrap();
         let sender = LateBoundSender::new();
         let sender = test_loop.data.register_actor(identifier, cloud_archival_actor, Some(sender));
         Some(sender)

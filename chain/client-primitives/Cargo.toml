@@ -12,22 +12,20 @@ publish = true
 workspace = true
 
 [dependencies]
-actix.workspace = true
 serde.workspace = true
 strum.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
 
+near-async.workspace = true
 near-time.workspace = true
 near-chain-primitives.workspace = true
-near-chain-configs.workspace = true
 near-chunks-primitives.workspace = true
 near-crypto.workspace = true
 near-primitives.workspace = true
 
 [features]
 nightly = [
-    "near-chain-configs/nightly",
     "near-primitives/nightly",
 ]
 sandbox = []

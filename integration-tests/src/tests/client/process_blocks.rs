@@ -3337,9 +3337,7 @@ mod contract_precompilation_tests {
     use super::*;
     use near_primitives::test_utils::MockEpochInfoProvider;
     use near_store::TrieUpdate;
-    use near_vm_runner::{
-        ContractCode, ContractRuntimeCache, FilesystemContractRuntimeCache, get_contract_cache_key,
-    };
+    use near_vm_runner::{ContractCode, FilesystemContractRuntimeCache};
     use node_runtime::state_viewer::TrieViewer;
     use node_runtime::state_viewer::ViewApplyState;
 
@@ -3411,14 +3409,13 @@ mod contract_precompilation_tests {
         let epoch_id =
             *env.clients[0].chain.get_block_by_height(height - 1).unwrap().header().epoch_id();
         let runtime_config = env.get_runtime_config(0, epoch_id);
-        let key = get_contract_cache_key(*contract_code.hash(), &runtime_config.wasm_config);
         for i in 0..num_clients {
-            caches[i]
-                .get(&key)
-                .unwrap_or_else(|_| panic!("Failed to get cached result for client {}", i))
-                .unwrap_or_else(|| {
-                    panic!("Compilation result should be non-empty for client {}", i)
-                });
+            let is_cached = near_vm_runner::contract_cached(
+                runtime_config.wasm_config.clone(),
+                &caches[i],
+                *contract_code.hash(),
+            );
+            assert_matches!(is_cached, Ok(true), "contract should be cached at this point");
         }
 
         // Check that contract function may be successfully called on the second client.
@@ -3517,22 +3514,25 @@ mod contract_precompilation_tests {
         let epoch_id =
             *env.clients[0].chain.get_block_by_height(sync_height).unwrap().header().epoch_id();
         let runtime_config = env.get_runtime_config(0, epoch_id);
-        let tiny_contract_key = get_contract_cache_key(
-            *ContractCode::new(tiny_wasm_code.clone(), None).hash(),
-            &runtime_config.wasm_config,
-        );
-        let test_contract_key = get_contract_cache_key(
-            *ContractCode::new(wasm_code.clone(), None).hash(),
-            &runtime_config.wasm_config,
-        );
+        let tiny_contract_hash = *ContractCode::new(tiny_wasm_code.clone(), None).hash();
+        let test_contract_hash = *ContractCode::new(wasm_code.clone(), None).hash();
+        let config = Arc::clone(&runtime_config.wasm_config);
 
         // Check that both deployed contracts are presented in cache for client 0.
-        assert!(caches[0].get(&tiny_contract_key).unwrap().is_some());
-        assert!(caches[0].get(&test_contract_key).unwrap().is_some());
-
+        assert!(
+            near_vm_runner::contract_cached(config.clone(), &caches[0], tiny_contract_hash)
+                .unwrap()
+        );
+        assert!(
+            near_vm_runner::contract_cached(config.clone(), &caches[0], test_contract_hash)
+                .unwrap()
+        );
         // Check that only last contract is presented in cache for client 1.
-        assert!(caches[1].get(&tiny_contract_key).unwrap().is_none());
-        assert!(caches[1].get(&test_contract_key).unwrap().is_some());
+        assert!(
+            !near_vm_runner::contract_cached(config.clone(), &caches[1], tiny_contract_hash)
+                .unwrap()
+        );
+        assert!(near_vm_runner::contract_cached(config, &caches[1], test_contract_hash).unwrap());
     }
 
     #[test]
@@ -3591,15 +3591,15 @@ mod contract_precompilation_tests {
         let epoch_id =
             *env.clients[0].chain.get_block_by_height(sync_height).unwrap().header().epoch_id();
         let runtime_config = env.get_runtime_config(0, epoch_id);
-        let contract_key = get_contract_cache_key(
-            *ContractCode::new(wasm_code.clone(), None).hash(),
-            &runtime_config.wasm_config,
-        );
-
+        let hash = *ContractCode::new(wasm_code.clone(), None).hash();
         // Check that contract is cached for client 0 despite account deletion.
-        assert!(caches[0].get(&contract_key).unwrap().is_some());
-
+        assert!(
+            near_vm_runner::contract_cached(runtime_config.wasm_config.clone(), &caches[0], hash)
+                .unwrap()
+        );
         // Check that contract is not cached for client 1 because of late state sync.
-        assert!(caches[1].get(&contract_key).unwrap().is_none());
+        assert!(
+            !near_vm_runner::contract_cached(runtime_config.wasm_config, &caches[1], hash).unwrap()
+        );
     }
 }

@@ -4053,7 +4053,6 @@ dependencies = [
 name = "near-async"
 version = "0.0.0"
 dependencies = [
- "actix",
  "crossbeam-channel",
  "futures",
  "near-async-derive",
@@ -4092,7 +4091,6 @@ dependencies = [
 name = "near-chain"
 version = "0.0.0"
 dependencies = [
- "actix",
  "anyhow",
  "assert_matches",
  "borsh",
@@ -4183,7 +4181,6 @@ dependencies = [
 name = "near-chunks"
 version = "0.0.0"
 dependencies = [
- "actix",
  "assert_matches",
  "itertools 0.14.0",
  "lru 0.12.3",
@@ -4220,7 +4217,6 @@ dependencies = [
 name = "near-client"
 version = "0.0.0"
 dependencies = [
- "actix",
  "anyhow",
  "assert_matches",
  "borsh",
@@ -4279,8 +4275,7 @@ dependencies = [
 name = "near-client-primitives"
 version = "0.0.0"
 dependencies = [
- "actix",
- "near-chain-configs",
+ "near-async",
  "near-chain-primitives",
  "near-chunks-primitives",
  "near-crypto",
@@ -4679,7 +4674,6 @@ dependencies = [
 name = "near-network"
 version = "0.0.0"
 dependencies = [
- "actix",
  "anyhow",
  "arc-swap",
  "assert_matches",
@@ -4733,11 +4727,11 @@ dependencies = [
 name = "near-o11y"
 version = "0.0.0"
 dependencies = [
- "actix",
  "base64 0.21.0",
  "bencher",
  "clap",
  "itoa",
+ "near-async",
  "near-crypto",
  "near-fmt",
  "near-primitives-core",
@@ -5088,7 +5082,6 @@ dependencies = [
 name = "near-telemetry"
 version = "0.0.0"
 dependencies = [
- "actix",
  "futures",
  "near-async",
  "near-o11y",
