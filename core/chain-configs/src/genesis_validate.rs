@@ -148,7 +148,7 @@ impl<'a> GenesisValidator<'a> {
 
         if self.genesis_config.online_max_threshold > Rational32::from_integer(1) {
             let error_message = format!(
-                "Online max threshold must be less or equal than 1, but current value is {}",
+                "Online max threshold must be less than or equal to 1, but current value is {}",
                 self.genesis_config.online_max_threshold
             );
             self.validation_errors.push_genesis_semantics_error(error_message)

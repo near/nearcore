@@ -520,7 +520,7 @@ impl Display for ActionsValidationError {
             }
             ActionsValidationError::ContractSizeExceeded { size, limit } => write!(
                 f,
-                "The length of the contract size {} exceeds the maximum allowed size {} in a DeployContract action",
+                "The contract size {} exceeds the maximum allowed size {} in a DeployContract action",
                 size, limit
             ),
             ActionsValidationError::FunctionCallMethodNameLengthExceeded { length, limit } => {
@@ -547,7 +547,7 @@ impl Display for ActionsValidationError {
                 "The attached amount of gas in a FunctionCall action has to be a positive number",
             ),
             ActionsValidationError::DelegateActionMustBeOnlyOne => {
-                write!(f, "The actions can contain the ony one DelegateAction")
+                write!(f, "The actions can contain only one DelegateAction")
             }
             ActionsValidationError::UnsupportedProtocolFeature { protocol_feature, version } => {
                 write!(
@@ -562,19 +562,22 @@ impl Display for ActionsValidationError {
             } => {
                 write!(
                     f,
-                    "DeterministicStateInit action payload is invalid for account {receiver_id}, derived id is {derived_id}",
+                    "DeterministicStateInit action payload is invalid for account {}, derived id is {}",
+                    receiver_id, derived_id
                 )
             }
             ActionsValidationError::DeterministicStateInitKeyLengthExceeded { length, limit } => {
                 write!(
                     f,
-                    "DeterministicStateInit contains key of length {length} but at most {limit} is allowed",
+                    "DeterministicStateInit contains key of length {} but at most {} is allowed",
+                    length, limit
                 )
             }
             ActionsValidationError::DeterministicStateInitValueLengthExceeded { length, limit } => {
                 write!(
                     f,
-                    "DeterministicStateInit contains value of length {length} but at most {limit} is allowed",
+                    "DeterministicStateInit contains value of length {} but at most {} is allowed",
+                    length, limit
                 )
             }
         }
