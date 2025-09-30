@@ -12,7 +12,6 @@ publish = false
 workspace = true
 
 [dependencies]
-actix.workspace = true
 futures.workspace = true
 reqwest = { workspace = true, features = ["json"] }
 serde.workspace = true

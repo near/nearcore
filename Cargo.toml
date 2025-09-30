@@ -186,6 +186,7 @@ criterion = { version = "0.7.0", default-features = false, features = [
 ] }
 crossbeam = "0.8"
 crossbeam-channel = "0.5.8"
+crossbeam-utils = "0.8"
 csv = "1.2.1"
 curve25519-dalek = { version = "4.1.3", default-features = false }
 dashmap = { version = "6", default-features = false }
@@ -305,6 +306,7 @@ num-bigint = "0.3"
 num_cpus = "1.11"
 num-rational = { version = "0.3.1", features = ["serde"] }
 num-traits = "0.2.15"
+num-integer = "0.1.46"
 
 okapi = { git = "https://github.com/near/near-okapi-fork.git", rev = "fd7de89e130ab99a546f04e3faefcd53044f98d0", features = ["schemars-alpha"] } # Upstream crate can be used as soon as schemars 1.0 is supported https://github.com/GREsau/okapi/pull/161
 object_store = { version = "0.12", features = ["gcp"] }

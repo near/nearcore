@@ -105,6 +105,7 @@ pub fn setup_client(
         runtime_config_store.clone(),
         TrieConfig::from_store_config(&store_config),
         client_config.gc.gc_num_epochs_to_keep,
+        client_config.cloud_archival_writer.is_some(),
     );
 
     let state_snapshot = StateSnapshotActor::new(
@@ -203,6 +204,7 @@ pub fn setup_client(
                 runtime_config_store.clone(),
                 TrieConfig::from_store_config(&store_config),
                 client_config.gc.gc_num_epochs_to_keep,
+                client_config.cloud_archival_writer.is_some(),
             );
             (view_epoch_manager, view_shard_tracker, view_runtime_adapter)
         } else {
@@ -305,6 +307,7 @@ pub fn setup_client(
         validator_signer.clone(),
         runtime_adapter.clone(),
         network_adapter.as_multi_sender(),
+        spice_core_processor.clone(),
     );
 
     let chunk_validation_adapter = LateBoundSender::<ChunkValidationSenderForPartialWitness>::new();
@@ -369,6 +372,7 @@ pub fn setup_client(
         let cloud_archival_actor = create_cloud_archival_actor(
             client_config.cloud_archival_writer.clone(),
             genesis.config.genesis_height,
+            runtime_adapter.as_ref(),
             storage.hot_store,
         )
         .unwrap()
@@ -407,7 +411,6 @@ pub fn setup_client(
         network_adapter.as_multi_sender(),
         validator_signer.clone(),
         spice_core_processor.clone(),
-        client_actor.client.chunk_endorsement_tracker.clone(),
         Arc::new(test_loop.async_computation_spawner(identifier, |_| Duration::milliseconds(80))),
         apply_chunks_iteration_mode,
         chunk_executor_adapter.as_sender(),
@@ -430,7 +433,6 @@ pub fn setup_client(
         network_adapter.as_multi_sender(),
         validator_signer.clone(),
         spice_core_processor,
-        client_actor.client.chunk_endorsement_tracker.clone(),
         ApplyChunksSpawner::Custom(Arc::new(
             test_loop.async_computation_spawner(identifier, |_| Duration::milliseconds(80)),
         )),

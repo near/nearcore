@@ -327,6 +327,7 @@ pub enum ProtocolFeature {
     StatePartsCompression,
     /// NEP: https://github.com/near/NEPs/pull/616
     DeterministicAccountIds,
+    InvalidTxGenerateOutcomes,
 }
 
 impl ProtocolFeature {
@@ -433,6 +434,7 @@ impl ProtocolFeature {
             ProtocolFeature::ShuffleShardAssignments => 143,
             ProtocolFeature::ExcludeExistingCodeFromWitnessForCodeLen => 148,
             ProtocolFeature::DeterministicAccountIds => 150,
+            ProtocolFeature::InvalidTxGenerateOutcomes => 151,
             // Place features that are not yet in Nightly below this line.
         }
     }
@@ -452,7 +454,7 @@ pub const MIN_SUPPORTED_PROTOCOL_VERSION: ProtocolVersion = 77;
 const STABLE_PROTOCOL_VERSION: ProtocolVersion = 81;
 
 // On nightly, pick big enough version to support all features.
-const NIGHTLY_PROTOCOL_VERSION: ProtocolVersion = 150;
+const NIGHTLY_PROTOCOL_VERSION: ProtocolVersion = 151;
 
 /// Largest protocol version supported by the current binary.
 pub const PROTOCOL_VERSION: ProtocolVersion =

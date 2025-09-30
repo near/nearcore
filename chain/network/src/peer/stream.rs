@@ -2,6 +2,7 @@ use crate::peer_manager::connection;
 use crate::stats::metrics;
 use crate::tcp;
 use bytesize::{GIB, MIB};
+use near_async::Message;
 use near_async::futures::{FutureSpawner, FutureSpawnerExt};
 use near_async::messaging::{self, MessageWithCallback};
 use std::io;
@@ -36,8 +37,7 @@ pub(crate) enum RecvError {
     MessageTooLarge { got_bytes: usize, want_max_bytes: usize },
 }
 
-#[derive(actix::Message, PartialEq, Eq, Clone, Debug)]
-#[rtype(result = "()")]
+#[derive(Message, PartialEq, Eq, Clone, Debug)]
 pub(crate) struct Frame(pub Vec<u8>);
 
 /// Stream critical error.
@@ -47,8 +47,7 @@ pub(crate) struct Frame(pub Vec<u8>);
 /// WARNING: send/recv loops might not get closed if Actor won't call ctx.stop()!.
 // TODO(gprusak): once we implement cancellation support for structured concurrency,
 // send/recv loops should be cancelled and return before the error is reported to Actor.
-#[derive(thiserror::Error, Debug, actix::Message)]
-#[rtype(result = "()")]
+#[derive(thiserror::Error, Debug, Message)]
 pub(crate) enum Error {
     #[error("send: {0}")]
     Send(#[source] SendError),

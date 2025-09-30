@@ -47,6 +47,7 @@ use crate::{DoomslugThresholdMode, metrics};
 use crossbeam_channel::{Receiver, Sender, unbounded};
 use itertools::Itertools;
 use lru::LruCache;
+use near_async::Message;
 use near_async::futures::AsyncComputationSpawner;
 use near_async::futures::AsyncComputationSpawnerExt;
 use near_async::messaging::{IntoMultiSender, noop};
@@ -131,8 +132,7 @@ const ACCEPTABLE_TIME_DIFFERENCE: i64 = 12 * 10;
 /// `ApplyChunksDoneMessage` is a message that signals the finishing of applying chunks of a block.
 /// Upon receiving this message, ClientActors know that it's time to finish processing the blocks that
 /// just finished applying chunks.
-#[derive(actix::Message, Debug)]
-#[rtype(result = "()")]
+#[derive(Message, Debug)]
 pub struct ApplyChunksDoneMessage;
 
 pub type ApplyChunksDoneSender = near_async::messaging::Sender<SpanWrapped<ApplyChunksDoneMessage>>;
@@ -141,8 +141,7 @@ pub type ApplyChunksDoneSender = near_async::messaging::Sender<SpanWrapped<Apply
 /// This message is sent from a callback in the runtime to the Client actor before the post-state,
 /// is finalized. Client actor may use this information to start other tasks earlier, e.g.
 /// preparing transactions for inclusion in the next chunk.
-#[derive(actix::Message, Debug)]
-#[rtype(result = "()")]
+#[derive(Message, Debug)]
 pub struct PostStateReadyMessage {
     pub post_state: PostState,
 }
@@ -3817,8 +3816,7 @@ pub fn collect_receipts_from_response(
     )
 }
 
-#[derive(actix::Message)]
-#[rtype(result = "()")]
+#[derive(Message)]
 pub struct BlockCatchUpRequest {
     pub sync_hash: CryptoHash,
     pub block_hash: CryptoHash,
@@ -3838,16 +3836,14 @@ impl Debug for BlockCatchUpRequest {
     }
 }
 
-#[derive(actix::Message, Debug)]
-#[rtype(result = "()")]
+#[derive(Message, Debug)]
 pub struct BlockCatchUpResponse {
     pub sync_hash: CryptoHash,
     pub block_hash: CryptoHash,
     pub results: Vec<(ShardId, Result<ShardUpdateResult, Error>)>,
 }
 
-#[derive(actix::Message, Debug)]
-#[rtype(result = "()")]
+#[derive(Message, Debug)]
 pub struct ChunkStateWitnessMessage {
     pub witness: ChunkStateWitness,
     pub raw_witness_size: ChunkStateWitnessSize,

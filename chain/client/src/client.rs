@@ -355,7 +355,6 @@ impl Client {
         let chunk_endorsement_tracker = Arc::new(ChunkEndorsementTracker::new(
             epoch_manager.clone(),
             chain.chain_store().store(),
-            spice_core_processor,
         ));
         let chunk_producer = ChunkProducer::new(
             clock.clone(),
