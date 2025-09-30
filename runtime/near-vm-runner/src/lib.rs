@@ -27,13 +27,13 @@ pub use crate::logic::with_ext_cost_counter;
 pub use cache::FilesystemContractRuntimeCache;
 pub use cache::{
     CompiledContract, CompiledContractInfo, ContractRuntimeCache, MockContractRuntimeCache,
-    NoContractRuntimeCache, get_contract_cache_key, precompile_contract,
+    NoContractRuntimeCache, precompile_contract,
 };
 #[cfg(feature = "metrics")]
 pub use metrics::{report_metrics, reset_metrics};
 pub use near_primitives_core::code::ContractCode;
 pub use profile::ProfileDataV3;
-pub use runner::{Contract, PreparedContract, VM, prepare, run};
+pub use runner::{Contract, PreparedContract, VM, contract_cached, prepare, run};
 
 #[cfg(any(feature = "prepare", feature = "wasmtime_vm"))]
 pub(crate) const MEMORY_EXPORT: &str = "memory";

@@ -9,7 +9,6 @@ publish = false
 workspace = true
 
 [dependencies]
-actix.workspace = true
 anyhow.workspace = true
 borsh.workspace = true
 bytesize.workspace = true
@@ -17,7 +16,6 @@ chrono.workspace = true
 crossbeam-channel.workspace = true
 easy-ext.workspace = true
 enum-map.workspace = true
-futures.workspace = true
 itertools.workspace = true
 lru.workspace = true
 num-rational.workspace = true

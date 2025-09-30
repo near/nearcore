@@ -92,7 +92,10 @@ def docker_run(shell_cmd: typing.Optional[str] = None,
     Returns:
         Command's stripped standard output if `detach` is true, None otherwise.
     """
-    cmd = ['docker', 'run', '--read-only', f'-v{volume[0]}:{volume[1]}']
+    cmd = [
+        'docker', 'run', '--read-only', '--tmpfs', '/tmp',
+        f'-v{volume[0]}:{volume[1]}'
+    ]
 
     # Either run detached or attach standard output and standard error so they
     # are visible.

@@ -11,9 +11,9 @@ use near_chain::state_snapshot_actor::{
 };
 use near_chain::types::RuntimeAdapter;
 use near_chain::{ApplyChunksIterationMode, ApplyChunksSpawner, ChainGenesis};
-use near_chain_configs::{CloudArchivalHandle, MutableConfigValue, ReshardingHandle};
+use near_chain_configs::{MutableConfigValue, ReshardingHandle};
 use near_chunks::shards_manager_actor::ShardsManagerActor;
-use near_client::archive::cloud_archival_actor::CloudArchivalActor;
+use near_client::archive::cloud_archival_actor::create_cloud_archival_actor;
 use near_client::archive::cold_store_actor::create_cold_store_actor;
 use near_client::chunk_executor_actor::ChunkExecutorActor;
 use near_client::client_actor::ClientActorInner;
@@ -352,7 +352,7 @@ pub fn setup_client(
             Some(client_config.save_trie_changes),
             &SplitStorageConfig::default(),
             genesis.config.genesis_height,
-            runtime_adapter.store().clone(),
+            storage.hot_store.clone(),
             storage.cold_db.as_ref(),
             epoch_manager.clone(),
             shard_tracker.clone(),
@@ -366,14 +366,14 @@ pub fn setup_client(
         None
     };
 
-    let cloud_archival_sender = if let Some(config) = &client_config.cloud_archival_writer {
-        let cloud_archival_actor = CloudArchivalActor::new(
-            config.clone(),
+    let cloud_archival_sender = if client_config.cloud_archival_writer.is_some() {
+        let cloud_archival_actor = create_cloud_archival_actor(
+            client_config.cloud_archival_writer.clone(),
             genesis.config.genesis_height,
             storage.hot_store,
-            genesis.config.genesis_height,
-            CloudArchivalHandle::new(),
-        );
+        )
+        .unwrap()
+        .unwrap();
         let sender = LateBoundSender::new();
         let sender = test_loop.data.register_actor(identifier, cloud_archival_actor, Some(sender));
         Some(sender)
@@ -450,9 +450,9 @@ pub fn setup_client(
         runtime: runtime_adapter,
         validator: validator_signer,
         future_spawner: Arc::new(test_loop.future_spawner(identifier)),
-        handle: None,
     };
-    let state_sync_dumper_handle = test_loop.data.register_data(state_sync_dumper);
+    let state_sync_dumper_handle = state_sync_dumper.start().unwrap();
+    let state_sync_dumper_handle = test_loop.data.register_data(state_sync_dumper_handle);
 
     let client_sender =
         test_loop.data.register_actor(identifier, client_actor, Some(client_adapter));
@@ -487,12 +487,6 @@ pub fn setup_client(
 
     chunk_validation_adapter.bind(ChunkValidationSenderForPartialWitness {
         chunk_state_witness: chunk_validation_multi_sender.chunk_state_witness,
-    });
-
-    // State sync dumper is not an Actor, handle starting separately.
-    let state_sync_dumper_handle_clone = state_sync_dumper_handle.clone();
-    test_loop.send_adhoc_event("start_state_sync_dumper".to_owned(), move |test_loop_data| {
-        test_loop_data.get_mut(&state_sync_dumper_handle_clone).start().unwrap();
     });
 
     let peer_manager_sender =

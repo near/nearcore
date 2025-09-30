@@ -5,6 +5,7 @@ use genesis_populate::GenesisBuilder;
 use near_chain_configs::GenesisValidationMode;
 use near_parameters::RuntimeConfigView;
 use near_parameters::vm::VMKind;
+use near_primitives::action::GlobalContractIdentifier;
 use replay::ReplayCmd;
 use runtime_params_estimator::config::{Config, GasMetric};
 use runtime_params_estimator::{
@@ -199,6 +200,10 @@ fn run_estimation(cli_args: CliArgs) -> anyhow::Result<Option<CostTable>> {
         GenesisBuilder::from_config_and_store(&state_dump_path, near_config, store)
             .add_additional_accounts(cli_args.additional_accounts_num)
             .add_additional_accounts_contract(contract_code.to_vec())
+            .add_additional_global_contract(
+                GlobalContractIdentifier::AccountId("minimal.global".parse().unwrap()),
+                Vec::new(),
+            )
             .print_progress()
             .build()
             .unwrap()

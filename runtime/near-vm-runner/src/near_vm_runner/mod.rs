@@ -43,6 +43,6 @@ const VM_CONFIG: NearVmConfig = NearVmConfig {
     compiler: NearVmCompiler::Singlepass,
 };
 
-pub(crate) fn near_vm_vm_hash() -> u64 {
+fn near_vm_vm_hash() -> u64 {
     VM_CONFIG.config_hash()
 }
