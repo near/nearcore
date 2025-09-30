@@ -1,8 +1,8 @@
 use crate::Error;
 use crate::types::{
-    ApplyChunkBlockContext, ApplyChunkResult, ApplyChunkShardContext,
-    PrepareTransactionsBlockContext, PrepareTransactionsLimit, PreparedTransactions,
-    RuntimeAdapter, RuntimeStorageConfig, SkippedTransactions, StorageDataSource, Tip,
+    ApplyChunkResult, ApplyChunkShardContext, PrepareTransactionsBlockContext,
+    PrepareTransactionsLimit, PreparedTransactions, RuntimeAdapter, RuntimeStorageConfig,
+    SkippedTransactions, StorageDataSource, Tip,
 };
 use errors::FromStateViewerErrors;
 use near_async::time::{Duration, Instant};
@@ -15,6 +15,7 @@ use near_pool::types::TransactionGroupIterator;
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::action::GlobalContractIdentifier;
 use near_primitives::apply::ApplyChunkReason;
+use near_primitives::block::ApplyChunkBlockContext;
 use near_primitives::congestion_info::{
     CongestionControl, ExtendedCongestionInfo, RejectTransactionReason, ShardAcceptsTransactions,
 };

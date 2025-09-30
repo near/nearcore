@@ -1,11 +1,12 @@
 use crate::crypto_hash_timer::CryptoHashTimer;
 use crate::types::{
-    ApplyChunkBlockContext, ApplyChunkResult, ApplyChunkShardContext, RuntimeAdapter,
-    RuntimeStorageConfig, StorageDataSource,
+    ApplyChunkResult, ApplyChunkShardContext, RuntimeAdapter, RuntimeStorageConfig,
+    StorageDataSource,
 };
 use near_async::time::Clock;
 use near_chain_primitives::Error;
 use near_primitives::apply::ApplyChunkReason;
+use near_primitives::block::ApplyChunkBlockContext;
 use near_primitives::receipt::Receipt;
 use near_primitives::sandbox::state_patch::SandboxStatePatch;
 use near_primitives::shard_layout::ShardUId;

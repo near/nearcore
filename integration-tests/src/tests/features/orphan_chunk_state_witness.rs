@@ -184,13 +184,14 @@ fn setup_orphan_witness_test() -> OrphanWitnessTestEnv {
             block1.header(),
             &block1.chunks()[0],
             &chunk2,
+            false,
         )
         .unwrap()
         .state_witness;
 
     // Process the manually created witness on all validators except for `excluded_validator`
     let raw_witness_size = borsh::object_length(&witness).unwrap();
-    let key = witness.chunk_production_key();
+    let key = witness.production_key().chunk;
     let chunk_validators = env
         .client(&block2_chunk_producer)
         .epoch_manager
@@ -215,7 +216,7 @@ fn setup_orphan_witness_test() -> OrphanWitnessTestEnv {
     }
 
     env.propagate_chunk_state_witnesses_and_endorsements(false);
-    assert_eq!(witness.chunk_header().chunk_hash(), block2.chunks()[0].chunk_hash());
+    assert_eq!(witness.latest_chunk_header().chunk_hash(), block2.chunks()[0].chunk_hash());
 
     for client_idx in clients_without_excluded {
         let blocks_processed = env.clients[client_idx]
@@ -312,7 +313,6 @@ fn test_orphan_witness_far_from_head() {
         ShardChunkHeaderInner::V3(inner) => inner.height_created = bad_height,
         ShardChunkHeaderInner::V4(inner) => inner.height_created = bad_height,
         ShardChunkHeaderInner::V5(inner) => inner.height_created = bad_height,
-        ShardChunkHeaderInner::V6(inner) => inner.height_created = bad_height,
     });
 
     let outcome = chunk_validation_actor.handle_orphan_witness(witness, 2000).unwrap();

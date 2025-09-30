@@ -9,7 +9,7 @@ use near_primitives::receipt::Receipt;
 use near_primitives::sharding::{ChunkHash, ReceiptProof, ShardChunk, ShardChunkHeader};
 use near_primitives::stateless_validation::contract_distribution::ContractUpdates;
 use near_primitives::stateless_validation::state_witness::{
-    ChunkStateTransition, ChunkStateWitness,
+    ChunkStateTransition, ChunkStateWitness, ChunkStateWitnessV3, ChunkValidateWitness,
 };
 use near_primitives::stateless_validation::stored_chunk_state_transition_data::{
     StoredChunkStateTransitionData, StoredChunkStateTransitionDataV1,
@@ -49,6 +49,7 @@ impl ChainStore {
         prev_block_header: &BlockHeader,
         prev_chunk_header: &ShardChunkHeader,
         chunk: &ShardChunk,
+        apply_witness_sent: bool,
     ) -> Result<CreateWitnessResult, Error> {
         let chunk_header = chunk.cloned_header();
         let _span = tracing::debug_span!(
@@ -57,6 +58,8 @@ impl ChainStore {
             chunk_hash = ?chunk_header.chunk_hash(),
             height = chunk_header.height_created(),
             shard_id = %chunk_header.shard_id(),
+            apply_witness_sent,
+            prev_chunk_height = prev_chunk_header.height_created(),
             tag_witness_distribution = true,
         )
         .entered();
@@ -64,6 +67,7 @@ impl ChainStore {
         let epoch_id =
             epoch_manager.get_epoch_id_from_prev_block(chunk_header.prev_block_hash())?;
         let prev_chunk = self.get_chunk(&prev_chunk_header.chunk_hash())?;
+        println!("PREV CHUNK: {}", prev_chunk.height_created());
         let StateTransitionData {
             main_transition,
             main_transition_shard_id,
@@ -71,12 +75,37 @@ impl ChainStore {
             applied_receipts_hash,
             contract_updates,
         } = self.collect_state_transition_data(epoch_manager, &chunk_header, prev_chunk_header)?;
-
+        println!("COLLECTED STATE TRANSITION DATA");
         let source_receipt_proofs = self.collect_source_receipt_proofs(
             epoch_manager,
             prev_block_header,
             prev_chunk_header,
         )?;
+
+        if apply_witness_sent && prev_chunk.height_created() + 1 == chunk_header.height_created() {
+            // We assume that we distributed execution witness.
+            // Let's just distribute validation witness.
+            println!(
+                "DISTRIBUTING VALIDATION WITNESS FOR HEIGHT {}",
+                chunk_header.height_created()
+            );
+            let state_witness = ChunkStateWitness::V3(ChunkStateWitnessV3 {
+                chunk_apply_witness: None,
+                chunk_validate_witness: Some(ChunkValidateWitness {
+                    epoch_id,
+                    chunk_header,
+                    source_receipt_proofs,
+                    applied_receipts_hash,
+                    implicit_transitions,
+                    new_transactions: chunk.to_transactions().to_vec(),
+                }),
+            });
+            return Ok(CreateWitnessResult {
+                state_witness,
+                contract_updates,
+                main_transition_shard_id,
+            });
+        }
 
         let protocol_version = epoch_manager.get_epoch_protocol_version(&epoch_id)?;
         let state_witness = ChunkStateWitness::new(

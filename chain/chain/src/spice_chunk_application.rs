@@ -3,11 +3,9 @@ use std::collections::BTreeMap;
 use near_chain_primitives::Error;
 use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::bandwidth_scheduler::BlockBandwidthRequests;
-use near_primitives::block::BlockHeader;
+use near_primitives::block::{ApplyChunkBlockContext, BlockHeader};
 use near_primitives::congestion_info::{BlockCongestionInfo, ExtendedCongestionInfo};
 use near_primitives::types::BlockExecutionResults;
-
-use crate::types::ApplyChunkBlockContext;
 
 pub fn build_spice_apply_chunk_block_context(
     block_header: &BlockHeader,

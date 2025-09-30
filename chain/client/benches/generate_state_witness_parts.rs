@@ -11,6 +11,9 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::reed_solomon::ReedSolomonEncoderCache;
 use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::stateless_validation::state_witness::EncodedChunkStateWitness;
+use near_primitives::stateless_validation::{
+    ChunkProductionKey, WitnessProductionKey, WitnessType,
+};
 use near_primitives::types::{AccountId, EpochId, ShardId};
 use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
 use std::hint::black_box;
@@ -53,7 +56,15 @@ fn bench_generate_state_witness_parts(c: &mut Criterion) {
         b.iter(|| {
             black_box(generate_state_witness_parts(
                 encoder.clone(),
-                epoch_id,
+                WitnessProductionKey {
+                    chunk: ChunkProductionKey {
+                        epoch_id,
+                        height_created: chunk_header.height_created(),
+                        shard_id: chunk_header.shard_id(),
+                    },
+                    witness_type: WitnessType::Full,
+                },
+                // epoch_id,
                 &chunk_header,
                 witness_bytes.clone(),
                 &chunk_validators,

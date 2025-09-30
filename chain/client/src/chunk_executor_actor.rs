@@ -20,7 +20,7 @@ use near_chain::spice_core_writer_actor::ExecutionResultEndorsed;
 use near_chain::spice_core_writer_actor::ProcessedBlock;
 use near_chain::types::ApplyChunkResult;
 use near_chain::types::Tip;
-use near_chain::types::{ApplyChunkBlockContext, RuntimeAdapter, StorageDataSource};
+use near_chain::types::{RuntimeAdapter, StorageDataSource};
 use near_chain::update_shard::{ShardUpdateReason, ShardUpdateResult, process_shard_update};
 use near_chain::{
     Block, Chain, ChainGenesis, ChainStore, ChainUpdate, DoomslugThresholdMode, Error,
@@ -33,6 +33,7 @@ use near_epoch_manager::shard_assignment::shard_id_to_uid;
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_network::client::SpiceChunkEndorsementMessage;
 use near_network::types::PeerManagerAdapter;
+use near_primitives::block::ApplyChunkBlockContext;
 use near_primitives::hash::CryptoHash;
 use near_primitives::sandbox::state_patch::SandboxStatePatch;
 use near_primitives::shard_layout::ShardLayout;
