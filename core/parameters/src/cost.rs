@@ -325,6 +325,9 @@ pub enum ActionCosts {
     deploy_global_contract_byte = 17,
     use_global_contract_base = 18,
     use_global_contract_byte = 19,
+    deterministic_state_init_base = 20,
+    deterministic_state_init_byte = 21,
+    deterministic_state_init_entry = 22,
 }
 
 impl ExtCosts {
@@ -470,7 +473,7 @@ pub struct RuntimeFeesConfig {
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub struct StorageUsageConfig {
     /// Amount of yN per byte required to have on the account. See
-    /// <https://nomicon.io/Economics/README.html#state-stake> for details.
+    /// <https://nomicon.io/Economics/Economic#state-stake> for details.
     pub storage_amount_per_byte: Balance,
     /// Number of bytes for an account record, including rounding up for account id.
     pub num_bytes_account: u64,
@@ -524,6 +527,9 @@ impl RuntimeFeesConfig {
                 ActionCosts::deploy_global_contract_byte => Fee::new(6_812_999, 6_812_999, 70_000_000),
                 ActionCosts::use_global_contract_base => Fee::test_value(184_765_750_000),
                 ActionCosts::use_global_contract_byte => Fee::new(6_812_999, 47_683_715, 64_572_944),
+                ActionCosts::deterministic_state_init_base => Fee::new(3_850_000_000_000, 3_850_000_000_000, 4_080_000_000_000),
+                ActionCosts::deterministic_state_init_byte => Fee::new(72_000_000, 72_000_000, 70_000_000),
+                ActionCosts::deterministic_state_init_entry => Fee::new(0, 0, 200_000_000_000),
             },
         }
     }
@@ -575,8 +581,10 @@ impl StorageUsageConfig {
         Self {
             num_bytes_account: 100,
             num_extra_bytes_record: 40,
-            storage_amount_per_byte: 909 * 100_000_000_000_000_000,
-            global_contract_storage_amount_per_byte: 100_000_000_000_000_000_000,
+            storage_amount_per_byte: Balance::from_yoctonear(909 * 100_000_000_000_000_000),
+            global_contract_storage_amount_per_byte: Balance::from_yoctonear(
+                100_000_000_000_000_000_000,
+            ),
         }
     }
 
@@ -584,8 +592,8 @@ impl StorageUsageConfig {
         Self {
             num_bytes_account: 0,
             num_extra_bytes_record: 0,
-            storage_amount_per_byte: 0,
-            global_contract_storage_amount_per_byte: 0,
+            storage_amount_per_byte: Balance::ZERO,
+            global_contract_storage_amount_per_byte: Balance::ZERO,
         }
     }
 }
@@ -619,6 +627,10 @@ pub fn transfer_exec_fee(
             .unwrap()
             .checked_add(cfg.fee(ActionCosts::add_full_access_key).exec_fee())
             .unwrap(),
+        // Extra fees for the implied CreateAccount action.
+        (true, _, AccountType::NearDeterministicAccount) => {
+            transfer_fee.checked_add(cfg.fee(ActionCosts::create_account).exec_fee()).unwrap()
+        }
     }
 }
 
@@ -647,6 +659,10 @@ pub fn transfer_send_fee(
             .checked_add(cfg.fee(ActionCosts::create_account).send_fee(sender_is_receiver))
             .unwrap()
             .checked_add(cfg.fee(ActionCosts::add_full_access_key).send_fee(sender_is_receiver))
+            .unwrap(),
+        // Extra fees for the implied  CreateAccount action.
+        (true, _, AccountType::NearDeterministicAccount) => transfer_fee
+            .checked_add(cfg.fee(ActionCosts::create_account).send_fee(sender_is_receiver))
             .unwrap(),
     }
 }

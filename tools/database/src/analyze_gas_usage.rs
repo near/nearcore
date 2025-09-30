@@ -50,8 +50,8 @@ impl AnalyzeGasUsageCommand {
         genesis_validation: GenesisValidationMode,
     ) -> anyhow::Result<()> {
         // Create a ChainStore and EpochManager that will be used to read blockchain data.
-        let mut near_config = load_config(home, genesis_validation).unwrap();
-        let node_storage = open_storage(&home, &mut near_config).unwrap();
+        let near_config = load_config(home, genesis_validation).unwrap();
+        let node_storage = open_storage(&home, &near_config).unwrap();
         let store = node_storage.get_split_store().unwrap_or_else(|| node_storage.get_hot_store());
         let chain_store = Rc::new(ChainStore::new(
             store.clone(),

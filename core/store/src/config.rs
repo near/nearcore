@@ -10,8 +10,6 @@ use near_primitives::version::{MIN_SUPPORTED_PROTOCOL_VERSION, PROTOCOL_VERSION}
 use near_time::Duration;
 use std::{collections::HashMap, str::FromStr};
 
-pub const STATE_SNAPSHOT_DIR: &str = "state_snapshot";
-
 // known cache access patterns per prominent contract account
 // used to derive config `per_account_max_bytes`
 const PER_ACCOUNT_CACHE_SIZE: &[(&'static str, bytesize::ByteSize)] = &[
@@ -122,6 +120,11 @@ pub struct StoreConfig {
 }
 
 impl StoreConfig {
+    /// StoreConfig used for state snapshot database.
+    pub fn state_snapshot_store_config() -> Self {
+        Self::default()
+    }
+
     pub fn enable_state_snapshot(&mut self) {
         self.state_snapshot_config.state_snapshot_type = StateSnapshotType::Enabled;
     }
@@ -660,30 +663,6 @@ pub struct PrefetchConfig {
     pub sender: String,
     /// Contract method name.
     pub method_name: String,
-}
-
-/// Configures the external storage used by the archival nodes.
-#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
-pub struct CloudStorageConfig {
-    /// The storage to persist the archival data.
-    pub storage: CloudStorageLocation,
-}
-
-// TODO(cloud_archival) Implement these options. Consider replacing this with `ExternalStorageLocation`.
-#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
-pub enum CloudStorageLocation {
-    /// Archival data is persisted in the filesystem.
-    /// NOTE: This option not implemented yet.
-    Filesystem {
-        /// Root directory containing the archival storage files.
-        _path: std::path::PathBuf,
-    },
-    /// Archival data is persisted in the Google Cloud Storage.
-    /// NOTE: This option not implemented yet.
-    GCS {
-        /// GCS bucket containing the archival storage objects.
-        _bucket: String,
-    },
 }
 
 #[cfg(test)]

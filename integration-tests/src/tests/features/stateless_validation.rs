@@ -18,7 +18,7 @@ use near_primitives::state_record::StateRecord;
 use near_primitives::stateless_validation::state_witness::ChunkStateWitness;
 use near_primitives::test_utils::{create_test_signer, create_user_test_signer};
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{AccountInfo, EpochId, Gas, ShardId};
+use near_primitives::types::{AccountInfo, Balance, EpochId, Gas, ShardId};
 use near_primitives::utils::derive_eth_implicit_account_id;
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolVersion};
 use near_primitives::views::FinalExecutionStatus;
@@ -33,8 +33,6 @@ use std::collections::{HashMap, HashSet};
 use crate::env::nightshade_setup::TestEnvNightshadeSetupExt;
 use crate::env::test_env::TestEnv;
 
-const ONE_NEAR: u128 = 1_000_000_000_000_000_000_000_000;
-
 fn run_chunk_validation_test(
     seed: u64,
     prob_missing_chunk: f64,
@@ -43,8 +41,8 @@ fn run_chunk_validation_test(
 ) {
     init_integration_logger();
 
-    let initial_balance = 100 * ONE_NEAR;
-    let validator_stake = 1000000 * ONE_NEAR;
+    let initial_balance = Balance::from_near(100);
+    let validator_stake = Balance::from_near(1000000);
     let blocks_to_produce = if prob_missing_block > 0.0 { 200 } else { 50 };
 
     let num_accounts = 9;
@@ -107,7 +105,7 @@ fn run_chunk_validation_test(
     let mut records = Vec::new();
     for (i, account) in accounts.iter().enumerate() {
         // The staked amount must be consistent with validators from genesis.
-        let staked = if i < num_validators { validator_stake } else { 0 };
+        let staked = if i < num_validators { validator_stake } else { Balance::ZERO };
         records.push(StateRecord::Account {
             account_id: account.clone(),
             account: Account::new(initial_balance, staked, AccountContract::None, 0),
@@ -118,7 +116,12 @@ fn run_chunk_validation_test(
             access_key: AccessKey::full_access(),
         });
         // The total supply must be correct to pass validation.
-        genesis_config.total_supply += initial_balance + staked;
+        genesis_config.total_supply = genesis_config
+            .total_supply
+            .checked_add(initial_balance)
+            .unwrap()
+            .checked_add(staked)
+            .unwrap();
     }
     let genesis = Genesis::new(genesis_config, GenesisRecords(records)).unwrap();
     let mut env = TestEnv::builder(&genesis.config)
@@ -160,7 +163,7 @@ fn run_chunk_validation_test(
                 sender_account,
                 receiver_account,
                 &signer,
-                ONE_NEAR,
+                Balance::from_near(1),
                 tip.last_block_hash,
             );
             tx_hashes.push(tx.get_hash());
@@ -264,7 +267,7 @@ fn test_chunk_validation_high_missing_chunks() {
 fn test_protocol_upgrade_81() {
     init_integration_logger();
 
-    let validator_stake = 1000000 * ONE_NEAR;
+    let validator_stake = Balance::from_near(1000000);
     let num_accounts = 9;
     let num_validators = 8;
 
@@ -396,7 +399,7 @@ fn test_eth_implicit_accounts() {
     let alice_eth_account = derive_eth_implicit_account_id(public_key.unwrap_as_secp256k1());
     let bob_eth_account: AccountId = "0x0000000000000000000000000000000000000b0b".parse().unwrap();
 
-    let alice_init_balance = 3 * ONE_NEAR;
+    let alice_init_balance = Balance::from_near(3);
     let create_alice_tx = SignedTransaction::send_money(
         1,
         signer.get_account_id(),
@@ -406,7 +409,7 @@ fn test_eth_implicit_accounts() {
         *genesis_block.hash(),
     );
 
-    let bob_init_balance = 0;
+    let bob_init_balance = Balance::ZERO;
     let create_bob_tx = SignedTransaction::send_money(
         2,
         signer.get_account_id(),
@@ -472,7 +475,7 @@ fn test_eth_implicit_accounts() {
     relayer_signer.account_id = &alice_eth_account;
 
     // 3. Use one implicit account to make a transfer to the other.
-    let transfer_amount = ONE_NEAR;
+    let transfer_amount = Balance::from_near(1);
     let action = Action::Transfer(TransferAction { deposit: transfer_amount });
     let signed_transaction = create_rlp_execute_tx(
         &bob_eth_account,
@@ -502,18 +505,24 @@ fn test_eth_implicit_accounts() {
     let gas_price = env.clients[0].chain.block_economics_config.min_gas_price();
 
     // Bob receives the transfer
-    assert_eq!(bob_final_balance, bob_init_balance + transfer_amount);
+    assert_eq!(bob_final_balance, bob_init_balance.checked_add(transfer_amount).unwrap());
 
     // The only tokens lost in the transaction are due to gas and refund penalty
-    let max_gas_cost = ONE_NEAR / 500;
-    let max_refund_cost =
-        u128::from(runtime_config.fees.gas_penalty_for_gas_refund(prepaid_gas).as_gas())
-            * gas_price;
-    let tx_cost =
-        (alice_init_balance + bob_init_balance) - (alice_final_balance + bob_final_balance);
-    assert_eq!(alice_final_balance, alice_init_balance - transfer_amount - tx_cost);
+    let max_gas_cost = Balance::from_near(1).checked_div(500).unwrap();
+    let max_refund_cost = gas_price
+        .checked_mul(u128::from(
+            runtime_config.fees.gas_penalty_for_gas_refund(prepaid_gas).as_gas(),
+        ))
+        .unwrap();
+    let tx_cost = (alice_init_balance.checked_add(bob_init_balance).unwrap())
+        .checked_sub(alice_final_balance.checked_add(bob_final_balance).unwrap())
+        .unwrap();
+    assert_eq!(
+        alice_final_balance,
+        alice_init_balance.checked_sub(transfer_amount).unwrap().checked_sub(tx_cost).unwrap()
+    );
     assert!(
-        tx_cost < max_refund_cost + max_gas_cost,
+        tx_cost < max_refund_cost.checked_add(max_gas_cost).unwrap(),
         "{tx_cost} < {max_refund_cost} + {max_gas_cost}"
     );
 }

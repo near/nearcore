@@ -22,6 +22,7 @@ use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_assignment::shard_id_to_uid;
 use near_primitives::apply::ApplyChunkReason;
 use near_primitives::block::{ApplyChunkBlockContext, Block, BlockHeader};
+use near_primitives::gas::Gas;
 use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::merkle::merklize;
 use near_primitives::optimistic_block::CachedShardUpdateKey;
@@ -36,7 +37,7 @@ use near_primitives::stateless_validation::{
     ChunkProductionKey, WitnessProductionKey, WitnessType,
 };
 use near_primitives::types::chunk_extra::ChunkExtra;
-use near_primitives::types::{AccountId, ChunkExecutionResult, ShardId, ShardIndex};
+use near_primitives::types::{AccountId, ShardId, ShardIndex};
 use near_primitives::utils::compression::CompressedData;
 use near_primitives::version::ProtocolFeature;
 use near_store::flat::BlockInfo;
@@ -54,8 +55,17 @@ use std::time::Instant;
 
 #[allow(clippy::large_enum_variant)]
 pub enum MainTransition {
-    Genesis { chunk_extra: ChunkExtra, prev_hash: CryptoHash, shard_id: ShardId },
-    NewChunk { new_chunk_data: NewChunkData, prev_hash: CryptoHash },
+    Genesis {
+        chunk_extra: ChunkExtra,
+        prev_hash: CryptoHash,
+        shard_id: ShardId,
+    },
+    NewChunk {
+        new_chunk_data: NewChunkData,
+        prev_hash: CryptoHash,
+        // ShardId from the new chunk.
+        shard_id: ShardId,
+    },
 }
 
 impl MainTransition {
@@ -69,9 +79,7 @@ impl MainTransition {
     pub fn shard_id(&self) -> ShardId {
         match self {
             Self::Genesis { shard_id, .. } => *shard_id,
-            // It is ok to use the shard id from the header because it is a new
-            // chunk. An old chunk may have the shard id from the parent shard.
-            Self::NewChunk { new_chunk_data, .. } => new_chunk_data.chunk_header.shard_id(),
+            Self::NewChunk { shard_id, .. } => *shard_id,
         }
     }
 }
@@ -103,9 +111,6 @@ pub type PendingValidateWitnessCache =
 /// The number of state witness validation results to cache per shard.
 /// This number needs to be small because result contains outgoing receipts, which can be large.
 const NUM_WITNESS_RESULT_CACHE_ENTRIES: usize = 20;
-
-/// The number of pending Validate witnesses to cache per shard.
-const NUM_PENDING_VALIDATE_WITNESS_CACHE_ENTRIES: usize = 20;
 
 /// Parameters of implicit state transition, which is not resulted by
 /// application of new chunk.
@@ -418,13 +423,15 @@ pub fn pre_validate_chunk_state_witness(
         }
     } else {
         let header = store.get_block_header(last_chunk_block.header().prev_hash())?;
+
+        let last_chunk_block_chunks = last_chunk_block.chunks();
+        let chunk_header = last_chunk_block_chunks.get(last_chunk_shard_index).unwrap();
         MainTransition::NewChunk {
             new_chunk_data: NewChunkData {
-                chunk_header: last_chunk_block
-                    .chunks()
-                    .get(last_chunk_shard_index)
-                    .unwrap()
-                    .clone(),
+                gas_limit: chunk_header.gas_limit(),
+                prev_state_root: chunk_header.prev_state_root(),
+                prev_validator_proposals: chunk_header.prev_validator_proposals().collect(),
+                chunk_hash: Some(chunk_header.chunk_hash().clone()),
                 transactions: signed_valid_period_transactions,
                 receipts: receipts_to_apply,
                 block: Chain::get_apply_chunk_block_context(last_chunk_block, &header, true)?,
@@ -434,18 +441,22 @@ pub fn pre_validate_chunk_state_witness(
                     }),
                     state_patch: Default::default(),
                 },
+                chunk: None,
             },
             prev_hash: *last_chunk_block.header().prev_hash(),
+            shard_id: chunk_header.shard_id(),
         }
     };
 
     let cached_shard_update_key = match &main_transition_params {
         MainTransition::Genesis { .. } => CachedShardUpdateKey::new(CryptoHash::default()),
-        MainTransition::NewChunk { new_chunk_data, .. } => Chain::get_cached_shard_update_key(
-            &new_chunk_data.block,
-            last_chunk_block.chunks().iter_raw(),
-            new_chunk_data.chunk_header.shard_id(),
-        )?,
+        MainTransition::NewChunk { new_chunk_data, shard_id, .. } => {
+            Chain::get_cached_shard_update_key(
+                &new_chunk_data.block,
+                last_chunk_block.chunks().iter_raw(),
+                *shard_id,
+            )?
+        }
     };
 
     Ok(PreValidationOutput {
@@ -582,7 +593,7 @@ pub fn validate_chunk_state_witness_impl(
     runtime_adapter: &dyn RuntimeAdapter,
     main_state_transition_cache: &MainStateTransitionCache,
     rs: Arc<ReedSolomon>,
-) -> Result<ChunkExecutionResult, Error> {
+) -> Result<(), Error> {
     let WitnessProductionKey {
         chunk: ChunkProductionKey { shard_id: witness_chunk_shard_id, epoch_id, height_created },
         witness_type,
@@ -680,7 +691,7 @@ pub fn validate_chunk_state_witness_impl(
                 // if is_optimistic {
                 //     std::thread::sleep(std::time::Duration::from_millis(5));
                 // }
-                let chunk_header = new_chunk_data.chunk_header.clone();
+                let chunk_gas_limit = new_chunk_data.gas_limit;
                 let NewChunkResult { apply_result: mut main_apply_result, .. } = apply_new_chunk(
                     ApplyChunkReason::ValidateChunkStateWitness,
                     &span,
@@ -689,7 +700,7 @@ pub fn validate_chunk_state_witness_impl(
                     runtime_adapter,
                 )?;
                 let outgoing_receipts = std::mem::take(&mut main_apply_result.outgoing_receipts);
-                let chunk_extra = apply_result_to_chunk_extra(main_apply_result, &chunk_header);
+                let chunk_extra = apply_result_to_chunk_extra(main_apply_result, chunk_gas_limit);
                 if witness_type != WitnessType::Optimistic {
                     println!(
                         "HAD TO APPLY NEW CHUNK PESSIMISTICALLY {} {} {:?} {:?} {:?}",
@@ -753,10 +764,7 @@ pub fn validate_chunk_state_witness_impl(
     // No explicit save needed; OnceLock cell was inserted before initialization.
     if witness_type == WitnessType::Optimistic {
         // we're not using it anyway
-        return Ok(ChunkExecutionResult {
-            chunk_extra,
-            outgoing_receipts_root: CryptoHash::default(),
-        });
+        return Ok(());
     }
 
     if pre_validation_output.implicit_transition_params.len()
@@ -846,54 +854,49 @@ pub fn validate_chunk_state_witness_impl(
             )));
         }
     }
-    let outgoing_receipts_root = if !cfg!(feature = "protocol_feature_spice") {
-        let protocol_version = epoch_manager.get_epoch_protocol_version(&epoch_id)?;
+    let protocol_version = epoch_manager.get_epoch_protocol_version(&epoch_id)?;
 
-        // Compute receipts root + header validation in parallel with encoded-merkle-root check.
-        let (res_receipts_root, res_encoded_merkle_check) = rayon::join(
-            || -> Result<CryptoHash, Error> {
-                let (outgoing_receipts_root, _) = merklize(&outgoing_receipts_hashes);
-                if witness_type != WitnessType::Optimistic {
-                    validate_chunk_with_chunk_extra_and_receipts_root(
-                        &chunk_extra,
-                        &state_witness.chunk_header(),
-                        &outgoing_receipts_root,
-                    )?;
+    // Compute receipts root + header validation in parallel with encoded-merkle-root check.
+    let (res_receipts_root, res_encoded_merkle_check) = rayon::join(
+        || -> Result<CryptoHash, Error> {
+            let (outgoing_receipts_root, _) = merklize(&outgoing_receipts_hashes);
+            if witness_type != WitnessType::Optimistic {
+                validate_chunk_with_chunk_extra_and_receipts_root(
+                    &chunk_extra,
+                    &state_witness.chunk_header(),
+                    &outgoing_receipts_root,
+                )?;
+            }
+            Ok(outgoing_receipts_root)
+        },
+        || {
+            if witness_type != WitnessType::Optimistic
+                && ProtocolFeature::ChunkPartChecks.enabled(protocol_version)
+            {
+                let new_transactions = &state_witness
+                    .new_transactions()
+                    .expect("should only be called with the `ValidateChunkStateWitness` available");
+                let (tx_root, _) = merklize(new_transactions);
+                if tx_root != *state_witness.chunk_header().tx_root() {
+                    return Err(Error::InvalidTxRoot);
                 }
-                Ok(outgoing_receipts_root)
-            },
-            || {
-                if witness_type != WitnessType::Optimistic
-                    && ProtocolFeature::ChunkPartChecks.enabled(protocol_version)
-                {
-                    let new_transactions = &state_witness.new_transactions().expect(
-                        "should only be called with the `ValidateChunkStateWitness` available",
-                    );
-                    let (tx_root, _) = merklize(new_transactions);
-                    if tx_root != *state_witness.chunk_header().tx_root() {
-                        return Err(Error::InvalidTxRoot);
-                    }
-                    validate_chunk_with_encoded_merkle_root(
-                        &state_witness.chunk_header(),
-                        &outgoing_receipts,
-                        new_transactions,
-                        rs.as_ref(),
-                        shard_id,
-                    )
-                } else {
-                    Ok(())
-                }
-            },
-        );
-        let outgoing_receipts_root = res_receipts_root?;
-        res_encoded_merkle_check?;
-        outgoing_receipts_root
-    } else {
-        let (root, _) = merklize(&outgoing_receipts_hashes);
-        root
-    };
+                validate_chunk_with_encoded_merkle_root(
+                    &state_witness.chunk_header(),
+                    &outgoing_receipts,
+                    new_transactions,
+                    rs.as_ref(),
+                    shard_id,
+                )
+            } else {
+                Ok(())
+            }
+        },
+    );
 
-    Ok(ChunkExecutionResult { chunk_extra, outgoing_receipts_root })
+    res_receipts_root?;
+    res_encoded_merkle_check?;
+
+    Ok(())
 }
 
 pub fn validate_chunk_state_witness(
@@ -905,7 +908,7 @@ pub fn validate_chunk_state_witness(
     store: Store,
     save_witness_if_invalid: bool,
     rs: Arc<ReedSolomon>,
-) -> Result<ChunkExecutionResult, Error> {
+) -> Result<(), Error> {
     // Avoid cloning the witness if possible
     if !save_witness_if_invalid {
         return validate_chunk_state_witness_impl(
@@ -940,7 +943,7 @@ pub fn validate_chunk_state_witness(
 
 pub fn apply_result_to_chunk_extra(
     apply_result: ApplyChunkResult,
-    chunk: &ShardChunkHeader,
+    chunk_gas_limit: Gas,
 ) -> ChunkExtra {
     let (outcome_root, _) = ApplyChunkResult::compute_outcomes_proof(&apply_result.outcomes);
     ChunkExtra::new(
@@ -948,7 +951,7 @@ pub fn apply_result_to_chunk_extra(
         outcome_root,
         apply_result.validator_proposals,
         apply_result.total_gas_burnt,
-        chunk.gas_limit(),
+        chunk_gas_limit,
         apply_result.total_balance_burnt,
         apply_result.congestion_info,
         apply_result.bandwidth_requests,

@@ -337,6 +337,9 @@ pub(super) struct InitCmd {
     /// from genesis configuration will be taken.
     #[clap(long)]
     max_gas_burnt_view: Option<Gas>,
+    /// Specify the cloud bucket to use for state sync.
+    #[clap(long)]
+    state_sync_bucket: Option<String>,
 }
 
 /// Warns if unsupported build of the executable is used on mainnet or testnet.
@@ -407,6 +410,7 @@ impl InitCmd {
             self.download_config_url.as_deref(),
             self.boot_nodes.as_deref(),
             self.max_gas_burnt_view,
+            self.state_sync_bucket.as_deref(),
         )
         .context("Failed to initialize configs")
     }
@@ -542,9 +546,13 @@ impl RunCmd {
         let (tx_crash, mut rx_crash) = broadcast::channel::<()>(16);
         let (tx_config_update, rx_config_update) =
             broadcast::channel::<Result<UpdatableConfigs, Arc<UpdatableConfigLoaderError>>>(16);
-        let sys = actix::System::new();
+        let tokio_runtime = tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .worker_threads(1)
+            .build()
+            .expect("Failed to create tokio runtime");
 
-        sys.block_on(async move {
+        tokio_runtime.block_on(async move {
             // Initialize the subscriber that takes care of both logging and tracing.
             let _subscriber_guard = default_subscriber_with_opentelemetry(
                 make_env_filter(verbose_target).unwrap(),
@@ -562,19 +570,15 @@ impl RunCmd {
                 UpdatableConfigLoader::new(updatable_configs.clone(), tx_config_update);
             let config_updater = ConfigUpdater::new(rx_config_update);
 
-            let nearcore::NearNode {
-                cold_store_loop_handle,
-                mut state_sync_dumper,
-                resharding_handle,
-                ..
-            } = nearcore::start_with_config_and_synchronization(
-                home_dir,
-                near_config,
-                ActorSystem::new(),
-                Some(tx_crash),
-                Some(config_updater),
-            )
-            .expect("start_with_config");
+            let nearcore::NearNode { cold_store_loop_handle, resharding_handle, .. } =
+                nearcore::start_with_config_and_synchronization(
+                    home_dir,
+                    near_config,
+                    ActorSystem::new(),
+                    Some(tx_crash),
+                    Some(config_updater),
+                )
+                .expect("start_with_config");
 
             let sig = loop {
                 let sig = wait_for_interrupt_signal(home_dir, &mut rx_crash).await;
@@ -590,13 +594,11 @@ impl RunCmd {
             if let Some(handle) = cold_store_loop_handle {
                 handle.store(false, std::sync::atomic::Ordering::Relaxed);
             }
-            state_sync_dumper.stop_and_await();
             resharding_handle.stop();
             near_async::shutdown_all_actors();
             // Disable the subscriber to properly shutdown the tracer.
             near_o11y::reload(Some("error"), None, Some("off"), None).unwrap();
         });
-        sys.run().unwrap();
         info!(target: "neard", "Waiting for RocksDB to gracefully shutdown");
         RocksDB::block_until_all_instances_are_dropped();
     }

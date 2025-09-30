@@ -12,8 +12,6 @@ publish = false
 workspace = true
 
 [dependencies]
-actix-rt.workspace = true
-actix.workspace = true
 anyhow.workspace = true
 borsh.workspace = true
 bytesize.workspace = true
@@ -44,6 +42,7 @@ thiserror.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 
+near-async.workspace = true
 near-chain-configs = { workspace = true, features = ["metrics"] }
 near-chain-primitives.workspace = true
 near-crypto.workspace = true
@@ -56,6 +55,7 @@ near-time.workspace = true
 near-vm-runner.workspace = true
 
 [dev-dependencies]
+actix.workspace = true
 assert_matches.workspace = true
 bencher.workspace = true
 insta.workspace = true

@@ -14,7 +14,7 @@ use lru::LruCache;
 use near_async::futures::{AsyncComputationSpawner, AsyncComputationSpawnerExt};
 use near_async::messaging::{Actor, Handler, Sender};
 use near_async::multithread::MultithreadRuntimeHandle;
-use near_async::{ActorSystem, MultiSend, MultiSenderFrom};
+use near_async::{ActorSystem, Message, MultiSend, MultiSenderFrom};
 use near_chain::chain::{ChunkStateWitnessMessage, NewChunkData, StorageContext};
 use near_chain::stateless_validation::chunk_validation::{
     self, MainStateTransitionCache, MainTransition, PendingValidateWitnessCache,
@@ -74,8 +74,7 @@ pub struct ChunkValidationSender {
 
 /// Message to notify the chunk validation actor about new blocks
 /// so it can process orphan witnesses that were waiting for these blocks.
-#[derive(actix::Message, Debug)]
-#[rtype(result = "()")]
+#[derive(Message, Debug)]
 pub struct BlockNotificationMessage {
     pub block: Arc<Block>,
 }
@@ -175,7 +174,7 @@ impl ChunkValidationActorInner {
         }
     }
 
-    /// Spawns multiple chunk validation actors using SyncArbiter.
+    /// Spawns multiple chunk validation actors using a multithreaded actor.
     pub fn spawn_multithread_actor(
         actor_system: ActorSystem,
         chain_store: ChainStore,
@@ -614,7 +613,10 @@ impl ChunkValidationActorInner {
             let receipts = state_witness.raw_receipts();
             let main_transition_params = MainTransition::NewChunk {
                 new_chunk_data: NewChunkData {
-                    chunk_header: chunk_header.clone(),
+                    gas_limit: chunk_header.gas_limit(),
+                    prev_state_root: chunk_header.prev_state_root(),
+                    prev_validator_proposals: chunk_header.prev_validator_proposals().collect(),
+                    chunk_hash: Some(chunk_header.chunk_hash().clone()),
                     transactions,
                     receipts: receipts.clone(),
                     block: block_context.clone(),
@@ -624,8 +626,10 @@ impl ChunkValidationActorInner {
                         }),
                         state_patch: Default::default(),
                     },
+                    chunk: None,
                 },
                 prev_hash: prev_block_hash,
+                shard_id: chunk_header.shard_id(),
             };
             let cached_shard_update_key = Chain::get_cached_shard_update_key(
                 &block_context,

@@ -15,12 +15,8 @@ use crate::ApplyState;
 
 mod apply;
 
-const GAS_PRICE: Balance = 5000;
+const GAS_PRICE: Balance = Balance::from_yoctonear(5000);
 const MAX_ATTACHED_GAS: Gas = Gas::from_teragas(300);
-
-fn to_yocto(near: Balance) -> Balance {
-    near * 10u128.pow(24)
-}
 
 fn create_receipt_with_actions(
     account_id: AccountId,
@@ -97,7 +93,7 @@ fn set_sha256_cost(
 fn test_get_and_set_accounts() {
     let tries = TestTriesBuilder::new().build();
     let mut state_update = tries.new_trie_update(ShardUId::single_shard(), MerkleHash::default());
-    let test_account = account_new(to_yocto(10), hash(&[]));
+    let test_account = account_new(Balance::from_near(10), hash(&[]));
     let account_id = bob_account();
     set_account(&mut state_update, account_id.clone(), &test_account);
     let get_res = get_account(&state_update, &account_id).unwrap().unwrap();
@@ -109,7 +105,7 @@ fn test_get_account_from_trie() {
     let tries = TestTriesBuilder::new().build();
     let root = MerkleHash::default();
     let mut state_update = tries.new_trie_update(ShardUId::single_shard(), root);
-    let test_account = account_new(to_yocto(10), hash(&[]));
+    let test_account = account_new(Balance::from_near(10), hash(&[]));
     let account_id = bob_account();
     set_account(&mut state_update, account_id.clone(), &test_account);
     state_update.commit(StateChangeCause::InitialState);

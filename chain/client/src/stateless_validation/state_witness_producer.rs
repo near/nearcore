@@ -27,7 +27,6 @@ impl Client {
         let chunk_header = chunk.cloned_header();
         let shard_id = chunk_header.shard_id();
         let height = chunk_header.height_created();
-        let prev_block_hash = prev_block_header.hash();
 
         let _span = tracing::debug_span!(
             target: "client",
@@ -101,7 +100,10 @@ impl Client {
             // Let's just skip it because I don't want to handle resharding yet.
             return Ok(());
         }
-        let shard_id = context.chunk_header.shard_id();
+        let Some(chunk_header) = context.chunk_header else {
+            return Err(Error::Other("Chunk header is missing".to_string()));
+        };
+        let shard_id = chunk_header.shard_id();
 
         // Record that we sent chunk apply witness for this (prev_block_hash, shard_id) pair
         self.chunk_apply_witness_sent_cache.put((block_context.height, shard_id), ());
@@ -116,7 +118,7 @@ impl Client {
             state_witness: ChunkStateWitness::V3(ChunkStateWitnessV3 {
                 chunk_apply_witness: Some(ChunkApplyWitness {
                     epoch_id: prev_block_epoch_id,
-                    chunk_header: context.chunk_header.clone(),
+                    chunk_header,
                     block_context,
                     chunks,
                     main_state_transition,

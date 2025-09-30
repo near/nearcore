@@ -1,5 +1,6 @@
 use crate::{logic::tests::vm_logic_builder::VMLogicBuilder, tests::test_vm_config};
 use near_primitives_core::config::ViewConfig;
+use near_primitives_core::types::Balance;
 
 macro_rules! decl_test_bytes {
     ($testname:ident, $method:ident, $ctx:ident, $want:expr) => {
@@ -74,26 +75,26 @@ decl_test_u128!(
     test_account_balance,
     account_balance,
     ctx,
-    ctx.account_balance + ctx.attached_deposit
+    ctx.account_balance.checked_add(ctx.attached_deposit).unwrap().as_yoctonear()
 );
 decl_test_u128!(
     test_account_locked_balance,
     account_locked_balance,
     ctx,
-    ctx.account_locked_balance
+    ctx.account_locked_balance.as_yoctonear()
 );
 
-decl_test_u128!(test_attached_deposit, attached_deposit, ctx, ctx.attached_deposit);
+decl_test_u128!(test_attached_deposit, attached_deposit, ctx, ctx.attached_deposit.as_yoctonear());
 
 #[test]
 fn test_attached_deposit_view() {
     #[track_caller]
-    fn test_view(amount: u128) {
+    fn test_view(amount: Balance) {
         let mut logic_builder = VMLogicBuilder::default();
         let context = &mut logic_builder.context;
         context.view_config =
             Some(ViewConfig { max_gas_burnt: test_vm_config(None).limit_config.max_gas_burnt });
-        context.account_balance = 0;
+        context.account_balance = Balance::ZERO;
         context.attached_deposit = amount;
         let mut logic = logic_builder.build();
 
@@ -101,11 +102,11 @@ fn test_attached_deposit_view() {
         let buf =
             logic.internal_mem_read(0, std::mem::size_of::<u128>() as u64).try_into().unwrap();
 
-        let res = u128::from_le_bytes(buf);
+        let res = Balance::from_yoctonear(u128::from_le_bytes(buf));
         assert_eq!(res, amount);
     }
 
-    test_view(0);
-    test_view(1);
-    test_view(u128::MAX);
+    test_view(Balance::ZERO);
+    test_view(Balance::from_yoctonear(1));
+    test_view(Balance::MAX);
 }

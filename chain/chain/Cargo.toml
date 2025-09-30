@@ -9,7 +9,6 @@ publish = false
 workspace = true
 
 [dependencies]
-actix.workspace = true
 anyhow.workspace = true
 borsh.workspace = true
 bytesize.workspace = true
@@ -83,7 +82,6 @@ protocol_feature_spice = [
 ]
 
 nightly = [
-    "near-async/nightly",
     "near-chain-configs/nightly",
     "near-client-primitives/nightly",
     "near-epoch-manager/nightly",

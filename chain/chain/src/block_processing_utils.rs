@@ -227,8 +227,28 @@ impl ApplyChunksDoneWaiter {
     }
 
     pub fn wait(&self) {
-        // This would only go through if the guard has been dropped.
-        drop(self.0.blocking_lock());
+        // TODO(#14005): Unfortunately we cannot block here because we may be in a tokio runtime.
+        // We also cannot use futures::executor::block_on to cheat around this, because a locking
+        // operation may actually block forever in certain situations. So we use this not very
+        // great approach.
+        // This is fine though, because this is only used when shutting down the node, and in
+        // TestEnv-based integration tests.
+        let start = Instant::now();
+        for i in 1u64.. {
+            // This would only go through if the guard has been dropped.
+            if let Ok(_) = self.0.try_lock() {
+                return;
+            }
+            if i % 1000 == 0 {
+                // If a node or test is somehow deadlocked on this for some reason, log it to help debugging.
+                tracing::error!("Still waiting for chunks application to complete...");
+                debug_assert!(
+                    start.elapsed().as_secs() < 30,
+                    "Chunk application didn't complete in 30 seconds; is there a deadlock?"
+                );
+            }
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        }
     }
 }
 

@@ -1,7 +1,7 @@
 use crate::env::nightshade_setup::TestEnvNightshadeSetupExt;
 use crate::env::test_env::TestEnv;
 use near_chain::{ChainStoreAccess, Provenance};
-use near_chain_configs::{Genesis, NEAR_BASE};
+use near_chain_configs::Genesis;
 use near_client::ProcessTxResponse;
 use near_crypto::{InMemorySigner, Signer};
 use near_o11y::testonly::init_test_logger;
@@ -9,10 +9,10 @@ use near_primitives::block::Block;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::transaction::SignedTransaction;
+use near_primitives::types::Balance;
 use near_store::adapter::StoreAdapter;
-use near_store::config::{STATE_SNAPSHOT_DIR, StateSnapshotType};
+use near_store::config::StateSnapshotType;
 use near_store::flat::FlatStorageManager;
-use near_store::trie::state_snapshots_dir;
 use near_store::{
     Mode, ShardTries, StateSnapshotConfig, StoreConfig, TrieConfig, config::TrieCacheConfig,
     test_utils::create_test_store,
@@ -61,11 +61,10 @@ fn set_up_test_env_for_state_snapshots(
 ) -> StateSnapshotTestEnv {
     let home_dir =
         tempfile::Builder::new().prefix("storage").tempdir().unwrap().path().to_path_buf();
-    let state_snapshots_dir = state_snapshots_dir(&home_dir, "data", STATE_SNAPSHOT_DIR);
+    let enabled_state_snapshot_config = StateSnapshotConfig::enabled(home_dir.join("data"));
+    let state_snapshots_dir = enabled_state_snapshot_config.state_snapshots_dir().unwrap().into();
     let state_snapshot_config = match snapshot_type {
-        StateSnapshotType::Enabled => {
-            StateSnapshotConfig::Enabled { state_snapshots_dir: state_snapshots_dir.clone() }
-        }
+        StateSnapshotType::Enabled => enabled_state_snapshot_config,
         StateSnapshotType::Disabled => StateSnapshotConfig::Disabled,
     };
 
@@ -247,7 +246,7 @@ fn slow_test_make_state_snapshot() {
             nonce,
             "test0".parse().unwrap(),
             new_account_id.parse().unwrap(),
-            NEAR_BASE,
+            Balance::from_near(1),
             signer.public_key(),
             &signer,
             genesis_hash,

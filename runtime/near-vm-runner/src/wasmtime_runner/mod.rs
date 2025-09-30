@@ -1,3 +1,4 @@
+use crate::cache::get_contract_cache_key;
 use crate::errors::ContractPrecompilatonResult;
 use crate::logic::errors::{
     CacheError, CompilationError, FunctionCallError, MethodResolveError, VMLogicError,
@@ -10,21 +11,24 @@ use crate::logic::{Config, ExecutionResultState, External, GasCounter, VMContext
 use crate::runner::VMResult;
 use crate::{
     CompiledContract, CompiledContractInfo, Contract, ContractCode, ContractRuntimeCache,
-    MEMORY_EXPORT, NoContractRuntimeCache, get_contract_cache_key, imports, prepare,
+    EXPORT_PREFIX, MEMORY_EXPORT, NoContractRuntimeCache, REMAINING_GAS_EXPORT, START_EXPORT,
+    imports, prepare,
 };
 use core::mem::transmute;
 use core::ops::Deref;
 use core::sync::atomic::{AtomicU64, Ordering};
 use near_parameters::RuntimeFeesConfig;
 use near_parameters::vm::{LimitConfig, VMKind};
+use near_primitives_core::gas::Gas;
 use near_primitives_core::types::Balance;
 use std::collections::HashMap;
+use std::hash::{Hash, Hasher};
 use std::sync::{Arc, LazyLock};
 use tracing::warn;
 use wasmtime::{
-    Engine, ExternType, Instance, InstanceAllocationStrategy, InstancePre, Linker, Module,
-    ModuleExport, PoolingAllocationConfig, ResourcesRequired, Store, StoreLimits,
-    StoreLimitsBuilder, Strategy, WasmBacktraceDetails,
+    CallHook, Engine, Extern, ExternType, Instance, InstanceAllocationStrategy, InstancePre,
+    Linker, Memory, Module, ModuleExport, PoolingAllocationConfig, ResourcesRequired, Store,
+    StoreLimits, StoreLimitsBuilder, Strategy, Val, WasmBacktraceDetails,
 };
 
 mod logic;
@@ -35,6 +39,11 @@ mod logic;
 /// Wasmtime will use this value to pre-allocate and pool resources internally.
 /// Wasmtime defaults to `1_000`
 const MAX_CONCURRENCY: u32 = 1_000;
+
+/// Value used for [PoolingAllocationConfig::decommit_batch_size]
+///
+/// Wasmtime defaults to `1`
+const DECOMMIT_BATCH_SIZE: usize = MAX_CONCURRENCY as usize / 2;
 
 /// The default maximum amount of tables per module.
 ///
@@ -53,7 +62,13 @@ const DEFAULT_MAX_ELEMENTS_PER_TABLE: usize = 10_000;
 /// Guest page size, in bytes
 const GUEST_PAGE_SIZE: usize = 1 << 16;
 
-static VMS: LazyLock<parking_lot::RwLock<HashMap<Arc<Config>, WasmtimeVM>>> =
+#[derive(Hash, PartialEq, Eq)]
+struct VMKey {
+    config: Arc<Config>,
+    target: Option<String>,
+}
+
+static VMS: LazyLock<parking_lot::RwLock<HashMap<VMKey, WasmtimeVM>>> =
     LazyLock::new(parking_lot::RwLock::default);
 
 fn guest_memory_size(pages: u32) -> Option<usize> {
@@ -185,8 +200,13 @@ impl ConcurrencySemaphore {
     }
 }
 
+enum Export<T> {
+    Unresolved(ModuleExport),
+    Resolved(T),
+}
+
 pub struct Ctx {
-    memory: ModuleExport,
+    memory: Export<Memory>,
     limits: StoreLimits,
     /// Provides access to the components outside the Wasm runtime for operations on the trie and
     /// receipts creation.
@@ -253,7 +273,7 @@ impl Ctx {
         );
         let remaining_stack = u64::from(result_state.config.limit_config.max_stack_height);
         Self {
-            memory,
+            memory: Export::Unresolved(memory),
             limits,
             ext,
             context,
@@ -315,11 +335,6 @@ impl IntoVMError for anyhow::Error {
     }
 }
 
-pub(crate) fn wasmtime_vm_hash() -> u64 {
-    // TODO: take into account compiler and engine used to compile the contract.
-    64
-}
-
 #[derive(Clone)]
 pub(crate) struct WasmtimeVM {
     config: Arc<Config>,
@@ -331,95 +346,112 @@ pub(crate) struct WasmtimeVM {
 struct PreparedModule {
     pre: InstancePre<Ctx>,
     memory: ModuleExport,
+    remaining_gas: Option<ModuleExport>,
+    start: Option<ModuleExport>,
     num_tables: u32,
 }
 
 impl WasmtimeVM {
     pub(crate) fn new(config: Arc<Config>) -> Self {
+        Self::new_for_target(config, None)
+            .expect("construction without target specified cannot fail")
+    }
+
+    pub(crate) fn new_for_target(
+        config: Arc<Config>,
+        target: Option<String>,
+    ) -> wasmtime::Result<Self> {
+        let vm_key = VMKey { config: Arc::clone(&config), target: target.clone() };
         {
-            if let Some(vm) = VMS.read().get(&config) {
-                return vm.clone();
+            if let Some(vm) = VMS.read().get(&vm_key) {
+                return Ok(vm.clone());
             }
         }
-        VMS.write()
-            .entry(config)
-            .or_insert_with_key(|config| {
-                let features = crate::features::WasmFeatures::new(config);
 
-                // NOTE: Configuration values are based on:
-                // - https://docs.wasmtime.dev/examples-fast-execution.html
-                // - https://docs.wasmtime.dev/examples-fast-instantiation.html
+        let features = crate::features::WasmFeatures::new(&config);
+        let mut engine_config = wasmtime::Config::from(features);
+        if let Some(target) = &target {
+            engine_config.target(&target)?;
+        }
+        let mut guard = VMS.write();
+        let vm = guard.entry(vm_key).or_insert_with_key(|vm_key| {
+            // NOTE: Configuration values are based on:
+            // - https://docs.wasmtime.dev/examples-fast-execution.html
+            // - https://docs.wasmtime.dev/examples-fast-instantiation.html
 
-                let LimitConfig {
-                    max_memory_pages,
-                    max_tables_per_contract,
-                    max_elements_per_contract_table,
-                    ..
-                } = config.limit_config;
+            let LimitConfig {
+                max_memory_pages,
+                max_tables_per_contract,
+                max_elements_per_contract_table,
+                ..
+            } = config.limit_config;
 
-                let max_memory_size = guest_memory_size(max_memory_pages).unwrap_or(usize::MAX);
-                let max_tables_per_contract =
-                    max_tables_per_contract.unwrap_or(DEFAULT_MAX_TABLES_PER_MODULE);
-                let max_elements_per_contract_table =
-                    max_elements_per_contract_table.unwrap_or(DEFAULT_MAX_ELEMENTS_PER_TABLE);
-                let max_tables = MAX_CONCURRENCY.saturating_mul(max_tables_per_contract);
+            let max_memory_size = guest_memory_size(max_memory_pages).unwrap_or(usize::MAX);
+            let max_tables_per_contract =
+                max_tables_per_contract.unwrap_or(DEFAULT_MAX_TABLES_PER_MODULE);
+            let max_elements_per_contract_table =
+                max_elements_per_contract_table.unwrap_or(DEFAULT_MAX_ELEMENTS_PER_TABLE);
+            let max_tables = MAX_CONCURRENCY.saturating_mul(max_tables_per_contract);
 
-                let mut pooling_config = PoolingAllocationConfig::default();
-                pooling_config
-                    .decommit_batch_size(
-                        MAX_CONCURRENCY.saturating_sub(2).try_into().unwrap_or(usize::MAX),
-                    )
-                    .max_memory_size(max_memory_size)
-                    .table_elements(max_elements_per_contract_table)
-                    .total_component_instances(0)
-                    .total_core_instances(MAX_CONCURRENCY)
-                    .total_memories(MAX_CONCURRENCY)
-                    .total_tables(max_tables)
-                    .max_memories_per_module(1)
-                    .max_tables_per_module(max_tables_per_contract)
-                    // keep 1 / (pointer size) of maximum table element count resident
-                    .table_keep_resident(max_elements_per_contract_table);
+            let mut pooling_config = PoolingAllocationConfig::default();
+            pooling_config
+                .decommit_batch_size(DECOMMIT_BATCH_SIZE)
+                .max_memory_size(max_memory_size)
+                .table_elements(max_elements_per_contract_table)
+                .total_component_instances(0)
+                .total_core_instances(MAX_CONCURRENCY)
+                .total_memories(MAX_CONCURRENCY)
+                .total_tables(max_tables)
+                .max_memories_per_module(1)
+                .max_tables_per_module(max_tables_per_contract)
+                .table_keep_resident(max_elements_per_contract_table);
 
-                let mut engine_config = wasmtime::Config::from(features);
-                engine_config
-                    .allocation_strategy(InstanceAllocationStrategy::Pooling(pooling_config))
-                    // From official documentation:
-                    // > Note that systems loading many modules may wish to disable this
-                    // > configuration option instead of leaving it on-by-default.
-                    // > Some platforms exhibit quadratic behavior when registering/unregistering
-                    // > unwinding information which can greatly slow down the module loading/unloading process.
-                    // https://docs.rs/wasmtime/latest/wasmtime/struct.Config.html#method.native_unwind_info
-                    .native_unwind_info(false)
-                    .wasm_backtrace(false)
-                    .wasm_backtrace_details(WasmBacktraceDetails::Disable)
-                    // Enable copy-on-write heap images.
-                    .memory_init_cow(true)
-                    // Wasm stack metering is implemented by instrumentation, we don't want wasmtime to trap before that
-                    .max_wasm_stack(1024 * 1024 * 1024)
-                    // Enable the Cranelift optimizing compiler.
-                    .strategy(Strategy::Cranelift)
-                    // Enable signals-based traps. This is required to elide explicit bounds-checking.
-                    .signals_based_traps(true)
-                    // Configure linear memories such that explicit bounds-checking can be elided.
-                    .force_memory_init_memfd(true)
-                    .memory_guaranteed_dense_image_size(
-                        max_memory_size.try_into().unwrap_or(u64::MAX),
-                    )
-                    .guard_before_linear_memory(false)
-                    .memory_guard_size(0)
-                    .memory_may_move(false)
-                    .memory_reservation(max_memory_size.try_into().unwrap_or(u64::MAX))
-                    .memory_reservation_for_growth(0)
-                    .compiler_inlining(true)
-                    .cranelift_nan_canonicalization(true);
+            let mut engine_config = wasmtime::Config::from(features);
+            engine_config
+                .allocation_strategy(InstanceAllocationStrategy::Pooling(pooling_config))
+                // From official documentation:
+                // > Note that systems loading many modules may wish to disable this
+                // > configuration option instead of leaving it on-by-default.
+                // > Some platforms exhibit quadratic behavior when registering/unregistering
+                // > unwinding information which can greatly slow down the module loading/unloading process.
+                // https://docs.rs/wasmtime/latest/wasmtime/struct.Config.html#method.native_unwind_info
+                .native_unwind_info(false)
+                .wasm_backtrace(false)
+                .wasm_backtrace_details(WasmBacktraceDetails::Disable)
+                // Enable copy-on-write heap images.
+                .memory_init_cow(true)
+                // Wasm stack metering is implemented by instrumentation, we don't want wasmtime to trap before that
+                .max_wasm_stack(1024 * 1024 * 1024)
+                // Enable the Cranelift optimizing compiler.
+                .strategy(Strategy::Cranelift)
+                // Enable signals-based traps. This is required to elide explicit bounds-checking.
+                .signals_based_traps(true)
+                // Configure linear memories such that explicit bounds-checking can be elided.
+                .force_memory_init_memfd(true)
+                .memory_guaranteed_dense_image_size(max_memory_size.try_into().unwrap_or(u64::MAX))
+                .guard_before_linear_memory(false)
+                .memory_guard_size(0)
+                .memory_may_move(false)
+                .memory_reservation(max_memory_size.try_into().unwrap_or(u64::MAX))
+                .memory_reservation_for_growth(0)
+                .compiler_inlining(true)
+                .cranelift_nan_canonicalization(true)
+                .wasm_wide_arithmetic(true);
 
-                let config = Arc::clone(config);
-                let engine =
-                    Engine::new(&engine_config).expect("failed to construct Wasmtime engine");
-                let concurrency = ConcurrencySemaphore::new(max_tables);
-                Self { config, engine, concurrency }
-            })
-            .clone()
+            let config = Arc::clone(&vm_key.config);
+            let engine = Engine::new(&engine_config).expect("failed to construct Wasmtime engine");
+            let concurrency = ConcurrencySemaphore::new(max_tables);
+            Self { config, engine, concurrency }
+        });
+        Ok(vm.clone())
+    }
+
+    pub(crate) fn vm_hash(&self) -> u64 {
+        let mut hasher = std::hash::DefaultHasher::new();
+        self.engine.precompile_compatibility_hash().hash(&mut hasher);
+        hasher.write_u16(65); // increment the 65 or something when making modifications that affect
+        // the artifact compatibility.
+        hasher.finish()
     }
 
     #[tracing::instrument(target = "vm", level = "debug", "WasmtimeVM::compile_uncached", skip_all)]
@@ -444,7 +476,7 @@ impl WasmtimeVM {
         cache: &dyn ContractRuntimeCache,
     ) -> Result<Result<Vec<u8>, CompilationError>, CacheError> {
         let serialized_or_error = self.compile_uncached(code);
-        let key = get_contract_cache_key(*code.hash(), &self.config);
+        let key = get_contract_cache_key(*code.hash(), &self.config, self.vm_hash());
         let record = CompiledContractInfo {
             wasm_bytes: code.code().len() as u64,
             compiled: match &serialized_or_error {
@@ -470,7 +502,7 @@ impl WasmtimeVM {
         type MemoryCacheType =
             (u64, Result<Result<PreparedModule, FunctionCallError>, CompilationError>);
         let to_any = |v: MemoryCacheType| -> Box<dyn std::any::Any + Send> { Box::new(v) };
-        let key = get_contract_cache_key(contract.hash(), &self.config);
+        let key = get_contract_cache_key(contract.hash(), &self.config, self.vm_hash());
         let (wasm_bytes, pre_result) = cache.memory_cache().try_lookup(
             key,
             || {
@@ -513,6 +545,8 @@ impl WasmtimeVM {
                         })),
                     )));
                 };
+                let remaining_gas = module.get_export_index(REMAINING_GAS_EXPORT);
+                let start = module.get_export_index(START_EXPORT);
                 let mut linker = Linker::new(&self.engine);
                 link(&mut linker, &self.config);
                 match linker.instantiate_pre(&module) {
@@ -522,7 +556,16 @@ impl WasmtimeVM {
                     }
                     Ok(pre) => {
                         let ResourcesRequired { num_tables, .. } = module.resources_required();
-                        Ok(to_any((wasm_bytes, Ok(Ok(PreparedModule { pre, memory, num_tables })))))
+                        Ok(to_any((
+                            wasm_bytes,
+                            Ok(Ok(PreparedModule {
+                                pre,
+                                memory,
+                                remaining_gas,
+                                start,
+                                num_tables,
+                            })),
+                        )))
                     }
                 }
             },
@@ -560,6 +603,16 @@ impl WasmtimeVM {
 }
 
 impl crate::runner::VM for WasmtimeVM {
+    fn contract_cached(
+        &self,
+        cache: &dyn ContractRuntimeCache,
+        hash: near_primitives_core::hash::CryptoHash,
+    ) -> Result<bool, crate::logic::errors::CacheError> {
+        let key = get_contract_cache_key(hash, &self.config, self.vm_hash());
+        // Check if we already cached with such a key.
+        cache.has(&key).map_err(CacheError::ReadError)
+    }
+
     fn precompile(
         &self,
         code: &ContractCode,
@@ -568,6 +621,9 @@ impl crate::runner::VM for WasmtimeVM {
         Result<ContractPrecompilatonResult, CompilationError>,
         crate::logic::errors::CacheError,
     > {
+        if self.contract_cached(cache, *code.hash())? {
+            return Ok(Ok(ContractPrecompilatonResult::ContractAlreadyInCache));
+        }
         Ok(self
             .compile_and_cache(code, cache)?
             .map(|_| ContractPrecompilatonResult::ContractCompiled))
@@ -585,8 +641,9 @@ impl crate::runner::VM for WasmtimeVM {
             self.with_compiled_and_loaded(cache, code, gas_counter, method, |gas_counter, pre| {
                 let config = Arc::clone(&self.config);
                 match pre {
-                    Ok(PreparedModule { pre, memory, num_tables }) => {
-                        let Some(ExternType::Func(func_type)) = pre.module().get_export(method)
+                    Ok(PreparedModule { pre, memory, remaining_gas, start, num_tables }) => {
+                        let method = format!("{EXPORT_PREFIX}{method}");
+                        let Some(ExternType::Func(func_type)) = pre.module().get_export(&method)
                         else {
                             let e = FunctionCallError::MethodResolveError(
                                 MethodResolveError::MethodNotFound,
@@ -605,6 +662,8 @@ impl crate::runner::VM for WasmtimeVM {
                         let result = PreparationResult::Ready(ReadyContract {
                             pre,
                             memory,
+                            remaining_gas,
+                            start,
                             num_tables,
                             method: method.into(),
                             concurrency: self.concurrency.clone(),
@@ -624,8 +683,10 @@ impl crate::runner::VM for WasmtimeVM {
 struct ReadyContract {
     pre: InstancePre<Ctx>,
     memory: ModuleExport,
-    num_tables: u32,
+    remaining_gas: Option<ModuleExport>,
+    start: Option<ModuleExport>,
     method: Box<str>,
+    num_tables: u32,
     concurrency: ConcurrencySemaphore,
 }
 
@@ -685,15 +746,16 @@ impl crate::PreparedContract for VMResult<PreparedContract> {
     ) -> VMResult {
         let PreparedContract { config, gas_counter, result } = (*self)?;
         let result_state = ExecutionResultState::new(&context, gas_counter, config);
-        let ReadyContract { pre, memory, method, num_tables, concurrency } = match result {
-            PreparationResult::Ready(r) => r,
-            PreparationResult::OutcomeAbortButNopInOldProtocol(e) => {
-                return Ok(VMOutcome::abort_but_nop_outcome_in_old_protocol(result_state, e));
-            }
-            PreparationResult::OutcomeAbort(e) => {
-                return Ok(VMOutcome::abort(result_state, e));
-            }
-        };
+        let ReadyContract { pre, memory, remaining_gas, start, method, num_tables, concurrency } =
+            match result {
+                PreparationResult::Ready(r) => r,
+                PreparationResult::OutcomeAbortButNopInOldProtocol(e) => {
+                    return Ok(VMOutcome::abort_but_nop_outcome_in_old_protocol(result_state, e));
+                }
+                PreparationResult::OutcomeAbort(e) => {
+                    return Ok(VMOutcome::abort(result_state, e));
+                }
+            };
 
         // SAFETY:
         // Although the 'static here is a lie, we are pretty confident that the `External` and
@@ -720,6 +782,47 @@ impl crate::PreparedContract for VMResult<PreparedContract> {
                 return Ok(VMOutcome::abort(result_state, err));
             }
         };
+        if let Some(global) = remaining_gas {
+            let Some(Extern::Global(global)) = instance.get_module_export(&mut store, &global)
+            else {
+                panic!("gas global export was present on the module, but not on the instance");
+            };
+            store.call_hook(move |mut store, hook| {
+                match hook {
+                    CallHook::CallingHost | CallHook::ReturningFromWasm => {
+                        let Val::I64(remaining_gas) = global.get(&mut store) else {
+                            panic!("gas global export is not i64");
+                        };
+                        let ctx = store.data_mut();
+                        let burned = ctx
+                            .result_state
+                            .gas_counter
+                            .remaining_gas()
+                            .saturating_sub(Gas::from_gas(remaining_gas as _));
+                        if burned.as_gas() > 0 {
+                            ctx.result_state.gas_counter.burn_gas(burned)?;
+                        }
+                    }
+                    CallHook::ReturningFromHost | CallHook::CallingWasm => {
+                        let remaining_gas = store.data().result_state.gas_counter.remaining_gas();
+                        global
+                            .set(&mut store, Val::I64(remaining_gas.as_gas() as _))
+                            .expect("failed to set gas global export")
+                    }
+                }
+                Ok(())
+            });
+        }
+        if let Some(start) = start {
+            let Some(Extern::Func(start)) = instance.get_module_export(&mut store, &start) else {
+                panic!("start function export was present on the module, but not on the instance");
+            };
+            if let Err(err) = start.call(&mut store, &[], &mut []) {
+                let err = err.into_vm_error()?;
+                let Ctx { result_state, .. } = store.into_data();
+                return Ok(VMOutcome::abort(result_state, err));
+            }
+        }
 
         let res = call(&mut store, instance, &method);
         let Ctx { result_state, .. } = store.into_data();

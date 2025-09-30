@@ -13,13 +13,11 @@ use near_time::Duration;
 #[cfg(feature = "schemars")]
 use near_time::{DurationAsStdSchemaProvider, DurationSchemarsProvider};
 use num_rational::Rational32;
-use std::cmp::{max, min};
+use std::cmp::max;
 use std::num::NonZero;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
-
-pub const TEST_STATE_SYNC_TIMEOUT: i64 = 5;
 
 #[derive(Debug, Copy, Clone, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
@@ -75,6 +73,18 @@ impl TrackedShardsConfig {
 
     pub fn tracks_all_shards(&self) -> bool {
         matches!(self, TrackedShardsConfig::AllShards)
+    }
+
+    pub fn tracks_non_empty_subset_of_shards(&self) -> bool {
+        match self {
+            TrackedShardsConfig::AllShards => true,
+            TrackedShardsConfig::Shards(shards) => !shards.is_empty(),
+            TrackedShardsConfig::NoShards
+            // The variants below do not guarantee that at least one shard will be continuously tracked.
+            | TrackedShardsConfig::Accounts(_)
+            | TrackedShardsConfig::Schedule(_)
+            | TrackedShardsConfig::ShadowValidator(_) => false,
+        }
     }
 
     pub fn tracks_any_account(&self) -> bool {
@@ -195,7 +205,7 @@ pub struct ExternalStorageConfig {
     pub external_storage_fallback_threshold: u64,
 }
 
-#[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, PartialEq)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub enum ExternalStorageLocation {
     S3 {
@@ -216,6 +226,83 @@ fn default_state_parts_compression_level() -> i32 {
     DEFAULT_STATE_PARTS_COMPRESSION_LEVEL
 }
 
+/// Configures the external storage used by the archival node.
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+pub struct CloudStorageConfig {
+    /// The storage to persist the archival data.
+    pub storage: ExternalStorageLocation,
+    /// Location of a json file with credentials allowing access to the bucket.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub credentials_file: Option<PathBuf>,
+}
+
+/// Configuration for a cloud-based archival reader.
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+pub struct CloudArchivalReaderConfig {
+    /// Configures the external storage used by the archival node.
+    pub cloud_storage: CloudStorageConfig,
+}
+
+pub fn default_archival_writer_polling_interval() -> Duration {
+    Duration::seconds(1)
+}
+
+/// Configuration for a cloud-based archival writer. If this config is present, the writer is enabled and
+/// writes chunk-related data based on the tracked shards. This config also controls additional archival
+/// behavior such as block data and polling interval.
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+pub struct CloudArchivalWriterConfig {
+    /// Configures the external storage used by the archival node.
+    pub cloud_storage: CloudStorageConfig,
+
+    /// Determines whether block-related data should be written to cloud storage.
+    #[serde(default)]
+    pub archive_block_data: bool,
+
+    /// Interval at which the system checks for new blocks or chunks to archive.
+    #[serde(with = "near_time::serde_duration_as_std")]
+    #[cfg_attr(feature = "schemars", schemars(with = "DurationAsStdSchemaProvider"))]
+    #[serde(default = "default_archival_writer_polling_interval")]
+    pub polling_interval: Duration,
+}
+
+// A handle that allows the main process to interrupt cloud archival actor if needed.
+#[derive(Clone)]
+pub struct CloudArchivalHandle {
+    keep_going: Arc<AtomicBool>,
+}
+
+impl CloudArchivalHandle {
+    pub fn new() -> Self {
+        Self { keep_going: Arc::new(AtomicBool::new(true)) }
+    }
+
+    pub fn is_cancelled(&self) -> bool {
+        !self.get()
+    }
+
+    pub fn stop(&self) -> () {
+        debug_assert!(!self.is_cancelled());
+        self.set(false);
+    }
+
+    pub fn resume(&self) -> () {
+        debug_assert!(self.is_cancelled());
+        self.set(true);
+    }
+
+    fn get(&self) -> bool {
+        self.keep_going.load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    fn set(&self, keep_going: bool) -> () {
+        self.keep_going.store(keep_going, std::sync::atomic::Ordering::Relaxed);
+    }
+}
+
 /// Configures how to dump state to external storage.
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
@@ -233,7 +320,7 @@ pub struct DumpConfig {
     #[serde(with = "near_time::serde_opt_duration_as_std")]
     #[cfg_attr(feature = "schemars", schemars(with = "Option<DurationAsStdSchemaProvider>"))]
     pub iteration_delay: Option<Duration>,
-    /// Location of a json file with credentials allowing write access to the bucket.
+    /// Location of a json file with credentials allowing access to the bucket.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub credentials_file: Option<PathBuf>,
 }
@@ -322,10 +409,10 @@ pub struct StateSyncConfig {
 }
 
 impl StateSyncConfig {
-    pub fn gcs_default() -> Self {
+    pub fn gcs_with_bucket(bucket: String) -> Self {
         Self {
             sync: SyncConfig::ExternalStorage(ExternalStorageConfig {
-                location: GCS { bucket: "state-parts".to_string() },
+                location: GCS { bucket },
                 num_concurrent_requests: DEFAULT_STATE_SYNC_NUM_CONCURRENT_REQUESTS_EXTERNAL,
                 num_concurrent_requests_during_catchup:
                     DEFAULT_STATE_SYNC_NUM_CONCURRENT_REQUESTS_ON_CATCHUP_EXTERNAL,
@@ -724,6 +811,11 @@ pub struct ClientConfig {
     pub tracked_shards_config: TrackedShardsConfig,
     /// Not clear old data, set `true` for archive nodes.
     pub archive: bool,
+    /// Configuration for a cloud-based archival reader.
+    pub cloud_archival_reader: Option<CloudArchivalReaderConfig>,
+    /// Configuration for a cloud-based archival writer. If this config is present, the writer is enabled and
+    /// writes chunk-related data based on the tracked shards.
+    pub cloud_archival_writer: Option<CloudArchivalWriterConfig>,
     /// save_trie_changes should be set to true iff
     /// - archive if false - non-archival nodes need trie changes to perform garbage collection
     /// - archive is true, cold_store is configured and migration to split_storage is finished - node
@@ -731,6 +823,8 @@ pub struct ClientConfig {
     pub save_trie_changes: bool,
     /// Whether to persist transaction outcomes to disk or not.
     pub save_tx_outcomes: bool,
+    /// Whether to persist partial chunk parts for untracked shards or not.
+    pub save_untracked_partial_chunks_parts: bool,
     /// Number of threads for ViewClientActor pool.
     pub view_client_threads: usize,
     /// Number of threads for ChunkValidationActor pool.
@@ -808,98 +902,9 @@ pub struct ClientConfig {
 }
 
 impl ClientConfig {
-    pub fn test(
-        skip_sync_wait: bool,
-        min_block_prod_time: u64,
-        max_block_prod_time: u64,
-        num_block_producer_seats: NumSeats,
-        archive: bool,
-        save_trie_changes: bool,
-        state_sync_enabled: bool,
-    ) -> Self {
-        assert!(
-            archive || save_trie_changes,
-            "Configuration with archive = false and save_trie_changes = false is not supported \
-            because non-archival nodes must save trie changes in order to do garbage collection."
-        );
-
-        Self {
-            version: Default::default(),
-            chain_id: "unittest".to_string(),
-            rpc_addr: Some("0.0.0.0:3030".to_string()),
-            expected_shutdown: MutableConfigValue::new(None, "expected_shutdown"),
-            block_production_tracking_delay: Duration::milliseconds(std::cmp::max(
-                10,
-                min_block_prod_time / 5,
-            ) as i64),
-            min_block_production_delay: Duration::milliseconds(min_block_prod_time as i64),
-            max_block_production_delay: Duration::milliseconds(max_block_prod_time as i64),
-            max_block_wait_delay: Duration::milliseconds(3 * min_block_prod_time as i64),
-            chunk_wait_mult: Rational32::new(1, 6),
-            skip_sync_wait,
-            sync_check_period: Duration::milliseconds(100),
-            sync_step_period: Duration::milliseconds(10),
-            sync_height_threshold: 1,
-            sync_max_block_requests: 10,
-            header_sync_initial_timeout: Duration::seconds(10),
-            header_sync_progress_timeout: Duration::seconds(2),
-            header_sync_stall_ban_timeout: Duration::seconds(30),
-            state_sync_external_timeout: Duration::seconds(TEST_STATE_SYNC_TIMEOUT),
-            state_sync_p2p_timeout: Duration::seconds(TEST_STATE_SYNC_TIMEOUT),
-            state_sync_retry_backoff: Duration::seconds(TEST_STATE_SYNC_TIMEOUT),
-            state_sync_external_backoff: Duration::seconds(TEST_STATE_SYNC_TIMEOUT),
-            header_sync_expected_height_per_second: 1,
-            min_num_peers: 1,
-            log_summary_period: Duration::seconds(10),
-            produce_empty_blocks: true,
-            epoch_length: 10,
-            num_block_producer_seats,
-            ttl_account_id_router: Duration::seconds(60 * 60),
-            block_fetch_horizon: 50,
-            catchup_step_period: Duration::milliseconds(100),
-            chunk_request_retry_period: min(
-                Duration::milliseconds(100),
-                Duration::milliseconds(min_block_prod_time as i64 / 5),
-            ),
-            doomslug_step_period: Duration::milliseconds(100),
-            block_header_fetch_horizon: 50,
-            gc: GCConfig { gc_blocks_limit: 100, ..GCConfig::default() },
-            tracked_shards_config: TrackedShardsConfig::NoShards,
-            archive,
-            save_trie_changes,
-            save_tx_outcomes: true,
-            log_summary_style: LogSummaryStyle::Colored,
-            view_client_threads: 1,
-            chunk_validation_threads: 1,
-            state_request_throttle_period: Duration::seconds(1),
-            state_requests_per_throttle_period: 30,
-            state_request_server_threads: 1,
-            trie_viewer_state_size_limit: None,
-            max_gas_burnt_view: None,
-            enable_statistics_export: true,
-            client_background_migration_threads: 1,
-            state_sync_enabled,
-            state_sync: StateSyncConfig::default(),
-            epoch_sync: EpochSyncConfig::default(),
-            transaction_pool_size_limit: None,
-            enable_multiline_logging: false,
-            resharding_config: MutableConfigValue::new(
-                ReshardingConfig::default(),
-                "resharding_config",
-            ),
-            tx_routing_height_horizon: 4,
-            produce_chunk_add_transactions_time_limit: MutableConfigValue::new(
-                default_produce_chunk_add_transactions_time_limit(),
-                "produce_chunk_add_transactions_time_limit",
-            ),
-            chunk_distribution_network: None,
-            orphan_state_witness_pool_size: default_orphan_state_witness_pool_size(),
-            orphan_state_witness_max_size: default_orphan_state_witness_max_size(),
-            save_latest_witnesses: false,
-            save_invalid_witnesses: false,
-            transaction_request_handler_threads: default_rpc_handler_thread_count(),
-            protocol_version_check: Default::default(),
-        }
+    /// Whether the node is configured as cloud reader or cloud writer archival node.
+    pub fn is_cloud_archive(&self) -> bool {
+        self.cloud_archival_reader.is_some() || self.cloud_archival_writer.is_some()
     }
 }
 

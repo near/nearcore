@@ -2,14 +2,13 @@ use super::*;
 use crate::spice_core::CoreStatementsProcessor;
 use crate::types::{ChainConfig, RuntimeStorageConfig};
 use crate::{Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode};
-use assert_matches::assert_matches;
 use borsh::BorshDeserialize;
 use near_async::messaging::{IntoMultiSender, noop};
 use near_async::time::Clock;
 use near_chain_configs::test_utils::{TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
 use near_chain_configs::{
     DEFAULT_GC_NUM_EPOCHS_TO_KEEP, DEFAULT_STATE_PARTS_COMPRESSION_LEVEL, Genesis,
-    MutableConfigValue, NEAR_BASE, default_produce_chunk_add_transactions_time_limit,
+    MutableConfigValue, default_produce_chunk_add_transactions_time_limit,
 };
 use near_crypto::{InMemorySigner, Signer};
 use near_epoch_manager::EpochManager;
@@ -45,9 +44,7 @@ use near_store::flat::{FlatStateChanges, FlatStateDelta, FlatStateDeltaMetadata}
 use near_store::genesis::initialize_genesis_state;
 use near_store::trie::AccessOptions;
 use near_store::{NodeStorage, PartialStorage, get_genesis_state_roots};
-use near_vm_runner::{
-    CompiledContract, CompiledContractInfo, FilesystemContractRuntimeCache, get_contract_cache_key,
-};
+use near_vm_runner::FilesystemContractRuntimeCache;
 use node_runtime::SignedValidPeriodTransactions;
 use num_rational::Ratio;
 use primitive_types::U256;
@@ -140,7 +137,7 @@ impl TestEnv {
             Some(runtime_config_store),
             DEFAULT_GC_NUM_EPOCHS_TO_KEEP,
             Default::default(),
-            StateSnapshotConfig::enabled(dir.path(), "data", "state_snapshot"),
+            StateSnapshotConfig::enabled(dir.path().join("data")),
             DEFAULT_STATE_PARTS_COMPRESSION_LEVEL,
         );
         let state_roots = get_genesis_state_roots(&store).unwrap().unwrap();
@@ -390,19 +387,29 @@ impl TestEnv {
     pub fn compute_reward(&self, num_validators: usize, epoch_duration: u64) -> (Balance, Balance) {
         let num_seconds_per_year = 60 * 60 * 24 * 365;
         let num_ns_in_second = 1_000_000_000;
-        let per_epoch_total_reward =
+        let per_epoch_total_reward = Balance::from_yoctonear(
             (U256::from(*self.runtime.genesis_config.max_inflation_rate.numer() as u64)
-                * U256::from(self.runtime.genesis_config.total_supply)
+                * U256::from(self.runtime.genesis_config.total_supply.as_yoctonear())
                 * U256::from(epoch_duration)
                 / (U256::from(num_seconds_per_year)
                     * U256::from(*self.runtime.genesis_config.max_inflation_rate.denom() as u128)
                     * U256::from(num_ns_in_second)))
-            .as_u128();
+            .as_u128(),
+        );
         let per_epoch_protocol_treasury = per_epoch_total_reward
-            * *self.runtime.genesis_config.protocol_reward_rate.numer() as u128
-            / *self.runtime.genesis_config.protocol_reward_rate.denom() as u128;
-        let per_epoch_per_validator_reward =
-            (per_epoch_total_reward - per_epoch_protocol_treasury) / num_validators as u128;
+            .checked_mul(
+                (*self.runtime.genesis_config.protocol_reward_rate.numer()).try_into().unwrap(),
+            )
+            .unwrap()
+            .checked_div(
+                (*self.runtime.genesis_config.protocol_reward_rate.denom()).try_into().unwrap(),
+            )
+            .unwrap();
+        let per_epoch_per_validator_reward = per_epoch_total_reward
+            .checked_sub(per_epoch_protocol_treasury)
+            .unwrap()
+            .checked_div(num_validators.try_into().unwrap())
+            .unwrap();
         (per_epoch_per_validator_reward, per_epoch_protocol_treasury)
     }
 }
@@ -425,7 +432,8 @@ fn test_validator_rotation() {
         validators.iter().map(|id| create_test_signer(id.as_str())).collect();
     let signer = InMemorySigner::test_signer(&validators[0]);
     // test1 doubles stake and the new account stakes the same, so test2 will be kicked out.`
-    let staking_transaction = stake(1, &signer, &block_producers[0], TESTING_INIT_STAKE * 2);
+    let staking_transaction =
+        stake(1, &signer, &block_producers[0], TESTING_INIT_STAKE.checked_mul(2).unwrap());
     let new_account = AccountId::try_from(format!("test{}", num_nodes + 1)).unwrap();
     let new_validator = create_test_signer(new_account.as_str());
     let new_signer: Signer = InMemorySigner::test_signer(&new_account);
@@ -433,12 +441,12 @@ fn test_validator_rotation() {
         2,
         block_producers[0].validator_id().clone(),
         new_account,
-        TESTING_INIT_STAKE * 3,
+        TESTING_INIT_STAKE.checked_mul(3).unwrap(),
         new_signer.public_key(),
         &signer,
         CryptoHash::default(),
     );
-    let test2_stake_amount = 3600 * NEAR_BASE;
+    let test2_stake_amount = Balance::from_near(3600);
     let transactions = {
         // With the new validator selection algorithm, test2 needs to have less stake to
         // become a fisherman.
@@ -452,11 +460,18 @@ fn test_validator_rotation() {
     env.step_default(transactions);
     env.step_default(vec![]);
     let account = env.view_account(block_producers[0].validator_id());
-    assert_eq!(account.locked, 2 * TESTING_INIT_STAKE);
-    assert_eq!(account.amount, TESTING_INIT_BALANCE - TESTING_INIT_STAKE * 5);
+    assert_eq!(account.locked, TESTING_INIT_STAKE.checked_mul(2).unwrap());
+    assert_eq!(
+        account.amount,
+        TESTING_INIT_BALANCE.checked_sub(TESTING_INIT_STAKE.checked_mul(5).unwrap()).unwrap()
+    );
 
-    let stake_transaction =
-        stake(env.head.height * 1_000_000, &new_signer, &new_validator, TESTING_INIT_STAKE * 2);
+    let stake_transaction = stake(
+        env.head.height * 1_000_000,
+        &new_signer,
+        &new_validator,
+        TESTING_INIT_STAKE.checked_mul(2).unwrap(),
+    );
     env.step_default(vec![stake_transaction]);
     env.step_default(vec![]);
 
@@ -483,14 +498,20 @@ fn test_validator_rotation() {
     // Staked 2 * X, sent 3 * X to test3.
     assert_eq!(
         (test1_acc.amount, test1_acc.locked),
-        (TESTING_INIT_BALANCE - 5 * TESTING_INIT_STAKE, 2 * TESTING_INIT_STAKE)
+        (
+            TESTING_INIT_BALANCE.checked_sub(TESTING_INIT_STAKE.checked_mul(5).unwrap()).unwrap(),
+            TESTING_INIT_STAKE.checked_mul(2).unwrap()
+        )
     );
     let test2_acc = env.view_account(&"test2".parse().unwrap());
     // Become fishermen instead
-    assert_eq!((test2_acc.amount, test2_acc.locked), (TESTING_INIT_BALANCE, 0));
+    assert_eq!((test2_acc.amount, test2_acc.locked), (TESTING_INIT_BALANCE, Balance::ZERO));
     let test3_acc = env.view_account(&"test3".parse().unwrap());
     // Got 3 * X, staking 2 * X of them.
-    assert_eq!((test3_acc.amount, test3_acc.locked), (TESTING_INIT_STAKE, 2 * TESTING_INIT_STAKE));
+    assert_eq!(
+        (test3_acc.amount, test3_acc.locked),
+        (TESTING_INIT_STAKE, TESTING_INIT_STAKE.checked_mul(2).unwrap())
+    );
 }
 
 /// One validator tries to decrease their stake in epoch T. Make sure that the stake return happens in epoch T+3.
@@ -505,18 +526,18 @@ fn test_validator_stake_change() {
         validators.iter().map(|id| create_test_signer(id.as_str())).collect();
     let signer = InMemorySigner::test_signer(&validators[0]);
 
-    let desired_stake = 2 * TESTING_INIT_STAKE / 3;
+    let desired_stake = TESTING_INIT_STAKE.checked_mul(2).unwrap().checked_div(3).unwrap();
     let staking_transaction = stake(1, &signer, &block_producers[0], desired_stake);
     env.step_default(vec![staking_transaction]);
     let account = env.view_account(block_producers[0].validator_id());
-    assert_eq!(account.amount, TESTING_INIT_BALANCE - TESTING_INIT_STAKE);
+    assert_eq!(account.amount, TESTING_INIT_BALANCE.checked_sub(TESTING_INIT_STAKE).unwrap());
     assert_eq!(account.locked, TESTING_INIT_STAKE);
     for _ in 2..=4 {
         env.step_default(vec![]);
     }
 
     let account = env.view_account(block_producers[0].validator_id());
-    assert_eq!(account.amount, TESTING_INIT_BALANCE - TESTING_INIT_STAKE);
+    assert_eq!(account.amount, TESTING_INIT_BALANCE.checked_sub(TESTING_INIT_STAKE).unwrap());
     assert_eq!(account.locked, TESTING_INIT_STAKE);
 
     for _ in 5..=7 {
@@ -524,7 +545,7 @@ fn test_validator_stake_change() {
     }
 
     let account = env.view_account(block_producers[0].validator_id());
-    assert_eq!(account.amount, TESTING_INIT_BALANCE - desired_stake);
+    assert_eq!(account.amount, TESTING_INIT_BALANCE.checked_sub(desired_stake).unwrap());
     assert_eq!(account.locked, desired_stake);
 }
 
@@ -540,18 +561,53 @@ fn test_validator_stake_change_multiple_times() {
         validators.iter().map(|id| create_test_signer(id.as_str())).collect();
     let signers: Vec<_> = validators.iter().map(|id| InMemorySigner::test_signer(&id)).collect();
 
-    let staking_transaction = stake(1, &signers[0], &block_producers[0], TESTING_INIT_STAKE - 1);
-    let staking_transaction1 = stake(2, &signers[0], &block_producers[0], TESTING_INIT_STAKE - 2);
-    let staking_transaction2 = stake(1, &signers[1], &block_producers[1], TESTING_INIT_STAKE + 1);
+    let staking_transaction = stake(
+        1,
+        &signers[0],
+        &block_producers[0],
+        TESTING_INIT_STAKE.checked_sub(Balance::from_yoctonear(1)).unwrap(),
+    );
+    let staking_transaction1 = stake(
+        2,
+        &signers[0],
+        &block_producers[0],
+        TESTING_INIT_STAKE.checked_sub(Balance::from_yoctonear(2)).unwrap(),
+    );
+    let staking_transaction2 = stake(
+        1,
+        &signers[1],
+        &block_producers[1],
+        TESTING_INIT_STAKE.checked_add(Balance::from_yoctonear(1)).unwrap(),
+    );
     env.step_default(vec![staking_transaction, staking_transaction1, staking_transaction2]);
     let account = env.view_account(block_producers[0].validator_id());
-    assert_eq!(account.amount, TESTING_INIT_BALANCE - TESTING_INIT_STAKE);
+    assert_eq!(account.amount, TESTING_INIT_BALANCE.checked_sub(TESTING_INIT_STAKE).unwrap());
     assert_eq!(account.locked, TESTING_INIT_STAKE);
 
-    let staking_transaction = stake(3, &signers[0], &block_producers[0], TESTING_INIT_STAKE + 1);
-    let staking_transaction1 = stake(2, &signers[1], &block_producers[1], TESTING_INIT_STAKE + 2);
-    let staking_transaction2 = stake(3, &signers[1], &block_producers[1], TESTING_INIT_STAKE - 1);
-    let staking_transaction3 = stake(1, &signers[3], &block_producers[3], TESTING_INIT_STAKE - 1);
+    let staking_transaction = stake(
+        3,
+        &signers[0],
+        &block_producers[0],
+        TESTING_INIT_STAKE.checked_add(Balance::from_yoctonear(1)).unwrap(),
+    );
+    let staking_transaction1 = stake(
+        2,
+        &signers[1],
+        &block_producers[1],
+        TESTING_INIT_STAKE.checked_add(Balance::from_yoctonear(2)).unwrap(),
+    );
+    let staking_transaction2 = stake(
+        3,
+        &signers[1],
+        &block_producers[1],
+        TESTING_INIT_STAKE.checked_sub(Balance::from_yoctonear(1)).unwrap(),
+    );
+    let staking_transaction3 = stake(
+        1,
+        &signers[3],
+        &block_producers[3],
+        TESTING_INIT_STAKE.checked_sub(Balance::from_yoctonear(1)).unwrap(),
+    );
     env.step_default(vec![
         staking_transaction,
         staking_transaction1,
@@ -564,19 +620,26 @@ fn test_validator_stake_change_multiple_times() {
     }
 
     let account = env.view_account(block_producers[0].validator_id());
-    assert_eq!(account.amount, TESTING_INIT_BALANCE - TESTING_INIT_STAKE - 1);
-    assert_eq!(account.locked, TESTING_INIT_STAKE + 1);
+    assert_eq!(
+        account.amount,
+        TESTING_INIT_BALANCE
+            .checked_sub(TESTING_INIT_STAKE)
+            .unwrap()
+            .checked_sub(Balance::from_yoctonear(1))
+            .unwrap()
+    );
+    assert_eq!(account.locked, TESTING_INIT_STAKE.checked_add(Balance::from_yoctonear(1)).unwrap());
 
     let account = env.view_account(block_producers[1].validator_id());
-    assert_eq!(account.amount, TESTING_INIT_BALANCE - TESTING_INIT_STAKE);
+    assert_eq!(account.amount, TESTING_INIT_BALANCE.checked_sub(TESTING_INIT_STAKE).unwrap());
     assert_eq!(account.locked, TESTING_INIT_STAKE);
 
     let account = env.view_account(block_producers[2].validator_id());
-    assert_eq!(account.amount, TESTING_INIT_BALANCE - TESTING_INIT_STAKE);
+    assert_eq!(account.amount, TESTING_INIT_BALANCE.checked_sub(TESTING_INIT_STAKE).unwrap());
     assert_eq!(account.locked, TESTING_INIT_STAKE);
 
     let account = env.view_account(block_producers[3].validator_id());
-    assert_eq!(account.amount, TESTING_INIT_BALANCE - TESTING_INIT_STAKE);
+    assert_eq!(account.amount, TESTING_INIT_BALANCE.checked_sub(TESTING_INIT_STAKE).unwrap());
     assert_eq!(account.locked, TESTING_INIT_STAKE);
 
     for _ in 9..=12 {
@@ -584,19 +647,26 @@ fn test_validator_stake_change_multiple_times() {
     }
 
     let account = env.view_account(block_producers[0].validator_id());
-    assert_eq!(account.amount, TESTING_INIT_BALANCE - TESTING_INIT_STAKE - 1);
-    assert_eq!(account.locked, TESTING_INIT_STAKE + 1);
+    assert_eq!(
+        account.amount,
+        TESTING_INIT_BALANCE
+            .checked_sub(TESTING_INIT_STAKE)
+            .unwrap()
+            .checked_sub(Balance::from_yoctonear(1))
+            .unwrap()
+    );
+    assert_eq!(account.locked, TESTING_INIT_STAKE.checked_add(Balance::from_yoctonear(1)).unwrap());
 
     let account = env.view_account(block_producers[1].validator_id());
-    assert_eq!(account.amount, TESTING_INIT_BALANCE - TESTING_INIT_STAKE);
+    assert_eq!(account.amount, TESTING_INIT_BALANCE.checked_sub(TESTING_INIT_STAKE).unwrap());
     assert_eq!(account.locked, TESTING_INIT_STAKE);
 
     let account = env.view_account(block_producers[2].validator_id());
-    assert_eq!(account.amount, TESTING_INIT_BALANCE - TESTING_INIT_STAKE);
+    assert_eq!(account.amount, TESTING_INIT_BALANCE.checked_sub(TESTING_INIT_STAKE).unwrap());
     assert_eq!(account.locked, TESTING_INIT_STAKE);
 
     let account = env.view_account(block_producers[3].validator_id());
-    assert_eq!(account.amount, TESTING_INIT_BALANCE - TESTING_INIT_STAKE);
+    assert_eq!(account.amount, TESTING_INIT_BALANCE.checked_sub(TESTING_INIT_STAKE).unwrap());
     assert_eq!(account.locked, TESTING_INIT_STAKE);
 
     for _ in 13..=16 {
@@ -604,20 +674,41 @@ fn test_validator_stake_change_multiple_times() {
     }
 
     let account = env.view_account(block_producers[0].validator_id());
-    assert_eq!(account.amount, TESTING_INIT_BALANCE - TESTING_INIT_STAKE - 1);
-    assert_eq!(account.locked, TESTING_INIT_STAKE + 1);
+    assert_eq!(
+        account.amount,
+        TESTING_INIT_BALANCE
+            .checked_sub(TESTING_INIT_STAKE)
+            .unwrap()
+            .checked_sub(Balance::from_yoctonear(1))
+            .unwrap()
+    );
+    assert_eq!(account.locked, TESTING_INIT_STAKE.checked_add(Balance::from_yoctonear(1)).unwrap());
 
     let account = env.view_account(block_producers[1].validator_id());
-    assert_eq!(account.amount, TESTING_INIT_BALANCE - TESTING_INIT_STAKE + 1);
-    assert_eq!(account.locked, TESTING_INIT_STAKE - 1);
+    assert_eq!(
+        account.amount,
+        TESTING_INIT_BALANCE
+            .checked_sub(TESTING_INIT_STAKE)
+            .unwrap()
+            .checked_add(Balance::from_yoctonear(1))
+            .unwrap()
+    );
+    assert_eq!(account.locked, TESTING_INIT_STAKE.checked_sub(Balance::from_yoctonear(1)).unwrap());
 
     let account = env.view_account(block_producers[2].validator_id());
-    assert_eq!(account.amount, TESTING_INIT_BALANCE - TESTING_INIT_STAKE);
+    assert_eq!(account.amount, TESTING_INIT_BALANCE.checked_sub(TESTING_INIT_STAKE).unwrap());
     assert_eq!(account.locked, TESTING_INIT_STAKE);
 
     let account = env.view_account(block_producers[3].validator_id());
-    assert_eq!(account.amount, TESTING_INIT_BALANCE - TESTING_INIT_STAKE + 1);
-    assert_eq!(account.locked, TESTING_INIT_STAKE - 1);
+    assert_eq!(
+        account.amount,
+        TESTING_INIT_BALANCE
+            .checked_sub(TESTING_INIT_STAKE)
+            .unwrap()
+            .checked_add(Balance::from_yoctonear(1))
+            .unwrap()
+    );
+    assert_eq!(account.locked, TESTING_INIT_STAKE.checked_sub(Balance::from_yoctonear(1)).unwrap());
 }
 
 #[test]
@@ -631,14 +722,22 @@ fn test_stake_in_last_block_of_an_epoch() {
     let block_producers: Vec<_> =
         validators.iter().map(|id| create_test_signer(id.as_str())).collect();
     let signers: Vec<_> = validators.iter().map(|id| InMemorySigner::test_signer(&id)).collect();
-    let staking_transaction =
-        stake(1, &signers[0], &block_producers[0], TESTING_INIT_STAKE + TESTING_INIT_STAKE / 6);
+    let staking_transaction = stake(
+        1,
+        &signers[0],
+        &block_producers[0],
+        TESTING_INIT_STAKE.checked_add(TESTING_INIT_STAKE.checked_div(6).unwrap()).unwrap(),
+    );
     env.step_default(vec![staking_transaction]);
     for _ in 2..10 {
         env.step_default(vec![]);
     }
-    let staking_transaction =
-        stake(2, &signers[0], &block_producers[0], TESTING_INIT_STAKE + TESTING_INIT_STAKE / 2);
+    let staking_transaction = stake(
+        2,
+        &signers[0],
+        &block_producers[0],
+        TESTING_INIT_STAKE.checked_add(TESTING_INIT_STAKE.checked_div(2).unwrap()).unwrap(),
+    );
     env.step_default(vec![staking_transaction]);
     env.step_default(vec![]);
     let staking_transaction = stake(3, &signers[0], &block_producers[0], TESTING_INIT_STAKE);
@@ -647,13 +746,31 @@ fn test_stake_in_last_block_of_an_epoch() {
         env.step_default(vec![]);
     }
     let account = env.view_account(block_producers[0].validator_id());
-    let return_stake = (TESTING_INIT_STAKE + TESTING_INIT_STAKE / 2)
-        - (TESTING_INIT_STAKE + TESTING_INIT_STAKE / 6);
+    let return_stake = TESTING_INIT_STAKE
+        .checked_add(TESTING_INIT_STAKE.checked_div(2).unwrap())
+        .unwrap()
+        .checked_sub(
+            TESTING_INIT_STAKE.checked_add(TESTING_INIT_STAKE.checked_div(6).unwrap()).unwrap(),
+        )
+        .unwrap();
     assert_eq!(
         account.amount,
-        TESTING_INIT_BALANCE - (TESTING_INIT_STAKE + TESTING_INIT_STAKE / 2) + return_stake
+        TESTING_INIT_BALANCE
+            .checked_sub(
+                TESTING_INIT_STAKE.checked_add(TESTING_INIT_STAKE.checked_div(2).unwrap()).unwrap()
+            )
+            .unwrap()
+            .checked_add(return_stake)
+            .unwrap()
     );
-    assert_eq!(account.locked, TESTING_INIT_STAKE + TESTING_INIT_STAKE / 2 - return_stake);
+    assert_eq!(
+        account.locked,
+        TESTING_INIT_STAKE
+            .checked_add(TESTING_INIT_STAKE.checked_div(2).unwrap())
+            .unwrap()
+            .checked_sub(return_stake)
+            .unwrap()
+    );
 }
 
 #[test]
@@ -684,7 +801,12 @@ fn test_state_sync() {
     let block_producers: Vec<_> =
         validators.iter().map(|id| create_test_signer(id.as_str())).collect();
     let signer = InMemorySigner::test_signer(&validators[0]);
-    let staking_transaction = stake(1, &signer, &block_producers[0], TESTING_INIT_STAKE + 1);
+    let staking_transaction = stake(
+        1,
+        &signer,
+        &block_producers[0],
+        TESTING_INIT_STAKE.checked_add(Balance::from_yoctonear(1)).unwrap(),
+    );
     env.step_default(vec![staking_transaction]);
     env.step_default(vec![]);
     let block_hash = hash(&[env.head.height as u8]);
@@ -706,7 +828,7 @@ fn test_state_sync() {
             vec![ValidatorStake::new(
                 block_producers[0].validator_id().clone(),
                 block_producers[0].public_key(),
-                TESTING_INIT_STAKE + 1,
+                TESTING_INIT_STAKE.checked_add(Balance::from_yoctonear(1)).unwrap(),
             )]
         } else {
             vec![]
@@ -767,11 +889,18 @@ fn test_state_sync() {
     }
 
     let account = new_env.view_account(block_producers[0].validator_id());
-    assert_eq!(account.amount, TESTING_INIT_BALANCE - TESTING_INIT_STAKE - 1);
-    assert_eq!(account.locked, TESTING_INIT_STAKE + 1);
+    assert_eq!(
+        account.amount,
+        TESTING_INIT_BALANCE
+            .checked_sub(TESTING_INIT_STAKE)
+            .unwrap()
+            .checked_sub(Balance::from_yoctonear(1))
+            .unwrap()
+    );
+    assert_eq!(account.locked, TESTING_INIT_STAKE.checked_add(Balance::from_yoctonear(1)).unwrap());
 
     let account = new_env.view_account(block_producers[1].validator_id());
-    assert_eq!(account.amount, TESTING_INIT_BALANCE - TESTING_INIT_STAKE);
+    assert_eq!(account.amount, TESTING_INIT_BALANCE.checked_sub(TESTING_INIT_STAKE).unwrap());
     assert_eq!(account.locked, TESTING_INIT_STAKE);
 }
 
@@ -785,7 +914,7 @@ fn test_get_validator_info() {
     let block_producers: Vec<_> =
         validators.iter().map(|id| create_test_signer(id.as_str())).collect();
     let signer = InMemorySigner::test_signer(&validators[0]);
-    let staking_transaction = stake(1, &signer, &block_producers[0], 0);
+    let staking_transaction = stake(1, &signer, &block_producers[0], Balance::ZERO);
     let mut expected_blocks = [0, 0];
     let mut expected_chunks = [0, 0];
     let mut expected_endorsements = [0, 0];
@@ -915,8 +1044,12 @@ fn test_get_validator_info() {
             current_fishermen: vec![],
             next_fishermen: vec![],
             current_proposals: vec![
-                ValidatorStake::new("test1".parse().unwrap(), block_producers[0].public_key(), 0,)
-                    .into()
+                ValidatorStake::new(
+                    "test1".parse().unwrap(),
+                    block_producers[0].public_key(),
+                    Balance::ZERO,
+                )
+                .into()
             ],
             prev_epoch_kickout: Default::default(),
             epoch_start_height: 1,
@@ -1010,19 +1143,19 @@ fn test_fishermen_stake() {
     let block_producers: Vec<_> =
         validators.iter().map(|id| create_test_signer(id.as_str())).collect();
     let signers: Vec<_> = validators.iter().map(|id| InMemorySigner::test_signer(&id)).collect();
-    let fishermen_stake = 3300 * NEAR_BASE + 1;
+    let fishermen_stake = Balance::from_near(3300).checked_add(Balance::from_yoctonear(1)).unwrap();
 
     let staking_transaction = stake(1, &signers[0], &block_producers[0], fishermen_stake);
     let staking_transaction1 = stake(1, &signers[1], &block_producers[1], fishermen_stake);
     env.step_default(vec![staking_transaction, staking_transaction1]);
     let account = env.view_account(block_producers[0].validator_id());
-    assert_eq!(account.amount, TESTING_INIT_BALANCE - TESTING_INIT_STAKE);
+    assert_eq!(account.amount, TESTING_INIT_BALANCE.checked_sub(TESTING_INIT_STAKE).unwrap());
     assert_eq!(account.locked, TESTING_INIT_STAKE);
     for _ in 2..=13 {
         env.step_default(vec![]);
     }
     let account0 = env.view_account(block_producers[0].validator_id());
-    assert_eq!(account0.locked, 0);
+    assert!(account0.locked.is_zero());
     assert_eq!(account0.amount, TESTING_INIT_BALANCE);
     let response = env
         .epoch_manager
@@ -1030,7 +1163,7 @@ fn test_fishermen_stake() {
         .unwrap();
     assert!(response.current_fishermen.is_empty());
     let staking_transaction = stake(2, &signers[0], &block_producers[0], TESTING_INIT_STAKE);
-    let staking_transaction2 = stake(2, &signers[1], &block_producers[1], 0);
+    let staking_transaction2 = stake(2, &signers[1], &block_producers[1], Balance::ZERO);
     env.step_default(vec![staking_transaction, staking_transaction2]);
 
     for _ in 13..=25 {
@@ -1039,10 +1172,10 @@ fn test_fishermen_stake() {
 
     let account0 = env.view_account(block_producers[0].validator_id());
     assert_eq!(account0.locked, TESTING_INIT_STAKE);
-    assert_eq!(account0.amount, TESTING_INIT_BALANCE - TESTING_INIT_STAKE);
+    assert_eq!(account0.amount, TESTING_INIT_BALANCE.checked_sub(TESTING_INIT_STAKE).unwrap());
 
     let account1 = env.view_account(block_producers[1].validator_id());
-    assert_eq!(account1.locked, 0);
+    assert!(account1.locked.is_zero());
     assert_eq!(account1.amount, TESTING_INIT_BALANCE);
     let response = env
         .epoch_manager
@@ -1074,7 +1207,7 @@ fn test_fishermen_unstake() {
     let block_producers: Vec<_> =
         validators.iter().map(|id| create_test_signer(id.as_str())).collect();
     let signers: Vec<_> = validators.iter().map(|id| InMemorySigner::test_signer(&id)).collect();
-    let fishermen_stake = 3300 * NEAR_BASE + 1;
+    let fishermen_stake = Balance::from_near(3300).checked_add(Balance::from_yoctonear(1)).unwrap();
 
     let staking_transaction = stake(1, &signers[0], &block_producers[0], fishermen_stake);
     env.step_default(vec![staking_transaction]);
@@ -1083,21 +1216,21 @@ fn test_fishermen_unstake() {
     }
 
     let account0 = env.view_account(block_producers[0].validator_id());
-    assert_eq!(account0.locked, 0);
+    assert!(account0.locked.is_zero());
     assert_eq!(account0.amount, TESTING_INIT_BALANCE);
     let response = env
         .epoch_manager
         .get_validator_info(ValidatorInfoIdentifier::BlockHash(env.head.last_block_hash))
         .unwrap();
     assert!(response.current_fishermen.is_empty());
-    let staking_transaction = stake(2, &signers[0], &block_producers[0], 0);
+    let staking_transaction = stake(2, &signers[0], &block_producers[0], Balance::ZERO);
     env.step_default(vec![staking_transaction]);
     for _ in 10..17 {
         env.step_default(vec![]);
     }
 
     let account0 = env.view_account(block_producers[0].validator_id());
-    assert_eq!(account0.locked, 0);
+    assert!(account0.locked.is_zero());
     assert_eq!(account0.amount, TESTING_INIT_BALANCE);
     let response = env
         .epoch_manager
@@ -1126,12 +1259,15 @@ fn test_validator_reward() {
         env.compute_reward(num_nodes, epoch_length * 10u64.pow(9));
     for i in 0..4 {
         let account = env.view_account(block_producers[i].validator_id());
-        assert_eq!(account.locked, TESTING_INIT_STAKE + validator_reward);
+        assert_eq!(account.locked, TESTING_INIT_STAKE.checked_add(validator_reward).unwrap());
     }
 
     let protocol_treasury_account =
         env.view_account(&env.runtime.genesis_config.protocol_treasury_account);
-    assert_eq!(protocol_treasury_account.amount, TESTING_INIT_BALANCE + protocol_treasury_reward);
+    assert_eq!(
+        protocol_treasury_account.amount,
+        TESTING_INIT_BALANCE.checked_add(protocol_treasury_reward).unwrap()
+    );
 }
 
 #[test]
@@ -1146,21 +1282,22 @@ fn test_delete_account_after_unstake() {
         validators.iter().map(|id| create_test_signer(id.as_str())).collect();
     let signers: Vec<_> = validators.iter().map(|id| InMemorySigner::test_signer(&id)).collect();
 
-    let staking_transaction1 = stake(1, &signers[1], &block_producers[1], 0);
+    let staking_transaction1 = stake(1, &signers[1], &block_producers[1], Balance::ZERO);
     env.step_default(vec![staking_transaction1]);
     let account = env.view_account(block_producers[1].validator_id());
-    assert_eq!(account.amount, TESTING_INIT_BALANCE - TESTING_INIT_STAKE);
+    assert_eq!(account.amount, TESTING_INIT_BALANCE.checked_sub(TESTING_INIT_STAKE).unwrap());
     assert_eq!(account.locked, TESTING_INIT_STAKE);
     for _ in 2..=5 {
         env.step_default(vec![]);
     }
-    let staking_transaction2 = stake(2, &signers[1], &block_producers[1], 1);
+    let staking_transaction2 =
+        stake(2, &signers[1], &block_producers[1], Balance::from_yoctonear(1));
     env.step_default(vec![staking_transaction2]);
     for _ in 7..=13 {
         env.step_default(vec![]);
     }
     let account = env.view_account(block_producers[1].validator_id());
-    assert_eq!(account.locked, 0);
+    assert!(account.locked.is_zero());
 
     let delete_account_transaction = SignedTransaction::from_actions(
         4,
@@ -1191,11 +1328,24 @@ fn test_proposal_deduped() {
         validators.iter().map(|id| create_test_signer(id.as_str())).collect();
     let signers: Vec<_> = validators.iter().map(|id| InMemorySigner::test_signer(&id)).collect();
 
-    let staking_transaction1 = stake(1, &signers[1], &block_producers[1], TESTING_INIT_STAKE - 100);
-    let staking_transaction2 = stake(2, &signers[1], &block_producers[1], TESTING_INIT_STAKE - 10);
+    let staking_transaction1 = stake(
+        1,
+        &signers[1],
+        &block_producers[1],
+        TESTING_INIT_STAKE.checked_sub(Balance::from_yoctonear(100)).unwrap(),
+    );
+    let staking_transaction2 = stake(
+        2,
+        &signers[1],
+        &block_producers[1],
+        TESTING_INIT_STAKE.checked_sub(Balance::from_yoctonear(10)).unwrap(),
+    );
     env.step_default(vec![staking_transaction1, staking_transaction2]);
     assert_eq!(env.last_proposals.len(), 1);
-    assert_eq!(env.last_proposals[0].stake(), TESTING_INIT_STAKE - 10);
+    assert_eq!(
+        env.last_proposals[0].stake(),
+        TESTING_INIT_STAKE.checked_sub(Balance::from_yoctonear(10)).unwrap()
+    );
 }
 
 #[test]
@@ -1209,14 +1359,15 @@ fn test_insufficient_stake() {
         validators.iter().map(|id| create_test_signer(id.as_str())).collect();
     let signers: Vec<_> = validators.iter().map(|id| InMemorySigner::test_signer(&id)).collect();
 
-    let staking_transaction1 = stake(1, &signers[1], &block_producers[1], 100);
-    let staking_transaction2 = stake(2, &signers[1], &block_producers[1], 100 * NEAR_BASE);
+    let staking_transaction1 =
+        stake(1, &signers[1], &block_producers[1], Balance::from_yoctonear(100));
+    let staking_transaction2 = stake(2, &signers[1], &block_producers[1], Balance::from_near(100));
     env.step_default(vec![staking_transaction1, staking_transaction2]);
     assert!(env.last_proposals.is_empty());
-    let staking_transaction3 = stake(3, &signers[1], &block_producers[1], 0);
+    let staking_transaction3 = stake(3, &signers[1], &block_producers[1], Balance::ZERO);
     env.step_default(vec![staking_transaction3]);
     assert_eq!(env.last_proposals.len(), 1);
-    assert_eq!(env.last_proposals[0].stake(), 0);
+    assert!(env.last_proposals[0].stake().is_zero());
 }
 
 /// Check that flat state is included into trie and is not included into view trie, because we can't apply flat
@@ -1251,7 +1402,7 @@ fn test_trie_and_flat_state_equality() {
         signers[0].get_account_id(),
         validators[1].clone(),
         &signers[0],
-        vec![Action::Transfer(TransferAction { deposit: 10 })],
+        vec![Action::Transfer(TransferAction { deposit: Balance::from_yoctonear(10) })],
         // runtime does not validate block history
         CryptoHash::default(),
         0,
@@ -1276,7 +1427,14 @@ fn test_trie_and_flat_state_equality() {
 
     let state_value = state.get(&key, AccessOptions::DEFAULT).unwrap().unwrap();
     let account = Account::try_from_slice(&state_value).unwrap();
-    assert_eq!(account.amount(), TESTING_INIT_BALANCE - TESTING_INIT_STAKE + 10);
+    assert_eq!(
+        account.amount(),
+        TESTING_INIT_BALANCE
+            .checked_sub(TESTING_INIT_STAKE)
+            .unwrap()
+            .checked_add(Balance::from_yoctonear(10))
+            .unwrap()
+    );
 
     let view_state_value = view_state.get(&key, AccessOptions::DEFAULT).unwrap().unwrap();
     assert_eq!(state_value, view_state_value);
@@ -1344,7 +1502,7 @@ fn generate_transaction_pool(signers: &Vec<Signer>, block_hash: CryptoHash) -> T
                 signers[i].get_account_id(),
                 signers[(i + round) % signer_count].get_account_id(),
                 &signers[i],
-                round.try_into().unwrap(),
+                Balance::from_yoctonear(round.try_into().unwrap()),
                 block_hash,
             );
             let validated_tx = ValidatedTransaction::new_for_test(transaction);
@@ -1386,6 +1544,7 @@ fn get_test_env_with_chain_and_pool() -> (TestEnv, Chain, TransactionPool) {
         DoomslugThresholdMode::NoApprovals,
         ChainConfig::test(),
         None,
+        Default::default(),
         Default::default(),
         MutableConfigValue::new(None, "validator_signer"),
         noop().into_multi_sender(),
@@ -1506,7 +1665,7 @@ fn test_storage_proof_garbage() {
                     method_name: format!("internal_record_storage_garbage_{garbage_size_mb}"),
                     args: vec![],
                     gas: Gas::from_teragas(300),
-                    deposit: 300000000000000,
+                    deposit: Balance::from_yoctonear(300000000000000),
                 }
                 .into(),
             )],
@@ -1522,7 +1681,6 @@ fn test_storage_proof_garbage() {
 /// Tests that precompiling a set of contracts updates the compiled contract cache.
 #[test]
 fn test_precompile_contracts_updates_cache() {
-    struct FakeTestCompiledContractType; // For testing AnyCache.
     let genesis = Genesis::test(vec!["test0".parse().unwrap()], 1);
     let store = near_store::test_utils::create_test_store();
     let tempdir = tempfile::tempdir().unwrap();
@@ -1549,43 +1707,16 @@ fn test_precompile_contracts_updates_cache() {
     let code_hashes: Vec<CryptoHash> = contracts.iter().map(|c| c.hash()).cloned().collect();
 
     // First check that the cache does not have the contracts.
+    let config = Arc::clone(&runtime.get_runtime_config(PROTOCOL_VERSION).wasm_config);
     for code_hash in &code_hashes {
-        let cache_key = get_contract_cache_key(
-            *code_hash,
-            &runtime.get_runtime_config(PROTOCOL_VERSION).wasm_config,
-        );
-        let contract = contract_cache.get(&cache_key).unwrap();
-        assert!(contract.is_none());
+        let config = Arc::clone(&config);
+        assert!(!near_vm_runner::contract_cached(config, &contract_cache, *code_hash).unwrap());
     }
-
     runtime.precompile_contracts(&EpochId::default(), contracts).unwrap();
-
-    // Check that the persistent cache contains the compiled contract after precompilation,
-    // but it does not populate the in-memory cache (so that the value is generated by try_lookup call).
+    // Check that the persistent cache contains the compiled contract after precompilation.
     for code_hash in code_hashes {
-        let cache_key = get_contract_cache_key(
-            code_hash,
-            &runtime.get_runtime_config(PROTOCOL_VERSION).wasm_config,
-        );
-
-        let contract = contract_cache.get(&cache_key).unwrap();
-        assert_matches!(
-            contract,
-            Some(CompiledContractInfo { compiled: CompiledContract::Code(_), .. })
-        );
-
-        let result = contract_cache
-            .memory_cache()
-            .try_lookup(
-                cache_key,
-                || Ok::<_, ()>(Box::new(FakeTestCompiledContractType)),
-                |v| {
-                    assert!(v.is::<FakeTestCompiledContractType>());
-                    "compiled code"
-                },
-            )
-            .unwrap();
-        assert_eq!(result, "compiled code");
+        let config = Arc::clone(&config);
+        assert!(near_vm_runner::contract_cached(config, &contract_cache, code_hash).unwrap());
     }
 }
 

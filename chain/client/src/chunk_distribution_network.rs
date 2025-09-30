@@ -17,18 +17,18 @@ use std::fmt;
 use tracing::{debug, error};
 
 /// Basic interface for the chunk distribution network.
-pub trait ChunkDistributionClient {
+pub trait ChunkDistributionClient: Send {
     type Error;
     type Response;
 
     /// Attempt to lookup a chunk from the chunk distribution network
     /// given the parent block hash (`prev_block_hash`) and the `shard_id`
     /// for that chunk.
-    async fn lookup_chunk(
+    fn lookup_chunk(
         &self,
         prev_block_hash: CryptoHash,
         shard_id: ShardId,
-    ) -> Result<Option<PartialEncodedChunk>, Self::Error>;
+    ) -> impl Future<Output = Result<Option<PartialEncodedChunk>, Self::Error>> + Send;
 
     /// Publish a chunk to the chunk distribution network.
     async fn publish_chunk(
@@ -99,7 +99,8 @@ fn request_missing_chunk<C>(
 {
     let shard_id = header.shard_id();
     debug!(target: "client", %shard_id, chunk_hash=?header.chunk_hash(), "request_missing_chunk");
-    near_performance_metrics::actix::spawn("ChunkDistributionNetwork", async move {
+    // TODO(#14005): Use a TokioRuntimeHandle to spawn this future.
+    tokio::spawn(async move {
         match client.lookup_chunk(prev_hash, shard_id).await {
             Ok(Some(chunk)) => {
                 adapter.send(ShardsManagerRequestFromClient::ProcessOrRequestChunk {
@@ -137,7 +138,8 @@ fn request_orphan_chunk<C>(
 {
     let shard_id = header.shard_id();
     let thread_local_shards_manager_adapter = adapter.clone();
-    near_performance_metrics::actix::spawn("ChunkDistributionNetwork", async move {
+    // TODO(#14005): Use a TokioRuntimeHandle to spawn this future.
+    tokio::spawn(async move {
         match client.lookup_chunk(ancestor_hash, shard_id).await {
             Ok(Some(chunk)) => {
                 thread_local_shards_manager_adapter.send(
@@ -228,6 +230,7 @@ mod tests {
             PartialEncodedChunkV2, ShardChunkHeaderInner, ShardChunkHeaderV3,
             shard_chunk_header_inner::ShardChunkHeaderInnerV4,
         },
+        types::Balance,
         validator_signer::EmptyValidatorSigner,
     };
     use std::{collections::HashMap, convert::Infallible, future::Future};
@@ -242,10 +245,11 @@ mod tests {
         let shards_manager = MockSender::new(mock_sender);
         let shards_manager_adapter = shards_manager.into_sender();
 
-        let system = actix::System::new();
+        let tokio_runtime =
+            tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
 
         // Empty input is a noop
-        system.block_on(async {
+        tokio_runtime.block_on(async {
             request_missing_chunks(
                 Vec::new(),
                 Vec::new(),
@@ -264,7 +268,7 @@ mod tests {
             prev_hash: *missing_chunk.prev_block(),
             missing_chunks: vec![missing_chunk.cloned_header()],
         }];
-        system.block_on(async {
+        tokio_runtime.block_on(async {
             request_missing_chunks(
                 blocks_missing_chunks,
                 Vec::new(),
@@ -289,7 +293,7 @@ mod tests {
             epoch_id: EpochId::default(),
             ancestor_hash: *missing_chunk.prev_block(),
         }];
-        system.block_on(async {
+        tokio_runtime.block_on(async {
             request_missing_chunks(
                 Vec::new(),
                 orphans_missing_chunks,
@@ -324,7 +328,7 @@ mod tests {
             epoch_id: EpochId::default(),
             ancestor_hash: *known_chunk_2.prev_block(),
         }];
-        system.block_on(async {
+        tokio_runtime.block_on(async {
             request_missing_chunks(
                 blocks_missing_chunks,
                 orphans_missing_chunks,
@@ -365,7 +369,7 @@ mod tests {
             epoch_id: EpochId::default(),
             ancestor_hash: *known_chunk_2.prev_block(),
         }];
-        system.block_on(async {
+        tokio_runtime.block_on(async {
             request_missing_chunks(
                 blocks_missing_chunks,
                 orphans_missing_chunks,
@@ -410,7 +414,7 @@ mod tests {
             shard_id,
             prev_gas_used: Gas::ZERO,
             gas_limit: Gas::ZERO,
-            prev_balance_burnt: 0,
+            prev_balance_burnt: Balance::ZERO,
             prev_outgoing_receipts_root: mock_hashes.next().unwrap(),
             tx_root: mock_hashes.next().unwrap(),
             prev_validator_proposals: Vec::new(),

@@ -1,5 +1,5 @@
 use near_primitives_core::hash::CryptoHash;
-use near_primitives_core::types::{BlockHeight, Gas, ProtocolVersion, ShardId};
+use near_primitives_core::types::{Balance, BlockHeight, Gas, ProtocolVersion, ShardId};
 use near_primitives_core::version::PROD_GENESIS_PROTOCOL_VERSION;
 
 use crate::bandwidth_scheduler::BandwidthRequests;
@@ -75,7 +75,7 @@ fn genesis_chunk(
         shard_id,
         Gas::ZERO,
         initial_gas_limit,
-        0u128,
+        Balance::ZERO,
         vec![],
         vec![],
         vec![],
@@ -95,7 +95,7 @@ fn genesis_chunk(
             vec![],
             Gas::ZERO,
             initial_gas_limit,
-            0u128,
+            Balance::ZERO,
             Some(congestion_info),
             BandwidthRequests::empty(),
         ))
@@ -129,7 +129,7 @@ pub fn prod_genesis_chunks(
         shard_ids[0],
         Gas::ZERO,
         initial_gas_limit,
-        0,
+        Balance::ZERO,
         CryptoHash::default(),
         CryptoHash::default(),
         vec![],
