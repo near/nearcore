@@ -960,7 +960,7 @@ mod tests {
             // at `i-1` and `i+1`, it is also the best split of all the accounts.
             account_ids.sort();
             let (left_account, right_account) =
-                find_neighbour_accounts(&account_ids, &boundary_account);
+                find_neighbor_accounts(&account_ids, &boundary_account);
 
             if let Some(left_account) = left_account {
                 let left_split = get_memtrie_split(&trie, left_account);
@@ -983,9 +983,9 @@ mod tests {
             Ok(())
         }
 
-        /// Find neighbours of `boundary_account` in `account_ids` array.
+        /// Find neighbors of `boundary_account` in `account_ids` array.
         /// Assumes that the array is sorted.
-        fn find_neighbour_accounts<'a>(
+        fn find_neighbor_accounts<'a>(
             account_ids: &'a [AccountId],
             boundary_account: &AccountId,
         ) -> (Option<&'a AccountId>, Option<&'a AccountId>) {
@@ -1001,7 +1001,7 @@ mod tests {
                     return (left_account, right_account);
                 }
             }
-            unreachable!("neighbour accounts not found")
+            unreachable!("neighbor accounts not found")
         }
     }
 }
