@@ -1,6 +1,6 @@
 use near_chain::types::Tip;
 use near_client::archive::cloud_archival_actor::CloudArchivalActor;
-use near_primitives::types::{AccountId, BlockHeightDelta};
+use near_primitives::types::{AccountId, BlockHeight, BlockHeightDelta};
 use near_store::adapter::StoreAdapter;
 use near_store::{COLD_HEAD_KEY, DBCol};
 
@@ -25,6 +25,11 @@ pub fn get_cloud_writer<'a>(
     env.test_loop.data.get(&writer_testloop_handle)
 }
 
+pub fn run_node_until(env: &mut TestLoopEnv, account_id: &AccountId, target_height: BlockHeight) {
+    let node = TestLoopNode::for_account(&env.node_datas, account_id);
+    node.run_until_head_height(&mut env.test_loop, target_height);
+}
+
 /// Sanity checks: heads alignment, GC tail bounds, and optional minimum GC progress.
 pub fn gc_and_heads_sanity_checks(
     env: &TestLoopEnv,
@@ -34,9 +39,16 @@ pub fn gc_and_heads_sanity_checks(
 ) {
     let cloud_head = get_cloud_writer(&env, &archival_id).get_cloud_head();
     let archival_node = TestLoopNode::for_account(&env.node_datas, &archival_id);
-    let chain_store = archival_node.client(env.test_loop_data()).chain.chain_store();
-    let gc_tail = chain_store.tail().unwrap();
+    let client = archival_node.client(env.test_loop_data());
+    let chain_store = client.chain.chain_store();
+    let epoch_store = chain_store.epoch_store();
 
+    // Check if the first block of the epoch containing `cloud_head` is not gc-ed.
+    let cloud_head_hash = chain_store.get_block_hash_by_height(cloud_head).unwrap();
+    let cloud_head_block_info = epoch_store.get_block_info(&cloud_head_hash).unwrap();
+    epoch_store.get_block_info(cloud_head_block_info.epoch_first_block()).unwrap();
+
+    let gc_tail = chain_store.tail().unwrap();
     if split_store_enabled {
         let cold_head = chain_store.store().get_ser::<Tip>(DBCol::BlockMisc, COLD_HEAD_KEY);
         let cold_head_height = cold_head.unwrap().unwrap().height;
@@ -48,4 +60,33 @@ pub fn gc_and_heads_sanity_checks(
     } else {
         assert_eq!(gc_tail, 1);
     }
+}
+
+/// Pauses the archival writer, runs sanity checks, then resumes it.
+pub fn pause_and_resume_writer_with_sanity_checks(
+    mut env: &mut TestLoopEnv,
+    resume_height: BlockHeight,
+    epoch_length: BlockHeightDelta,
+    archival_id: &AccountId,
+    split_store_enabled: bool,
+) {
+    // Run the node so that the cloud head advances a bit, but remains within the first epoch.
+    run_node_until(&mut env, &archival_id, epoch_length);
+    let cloud_head = get_cloud_writer(&env, &archival_id).get_cloud_head();
+    assert!(2 < cloud_head && cloud_head + 1 < epoch_length);
+
+    // Stop the writer and let the node reach `resume_height` while the writer is paused.
+    get_cloud_writer(&env, &archival_id).get_handle().stop();
+    let node_identifier = {
+        let archival_node = TestLoopNode::for_account(&env.node_datas, &archival_id);
+        archival_node.run_until_head_height(&mut env.test_loop, resume_height);
+        archival_node.data().identifier.clone()
+    };
+
+    // Run sanity checks.
+    gc_and_heads_sanity_checks(&env, &archival_id, split_store_enabled, None);
+
+    // Resume the writer and restart the node.
+    get_cloud_writer(&env, &archival_id).get_handle().resume();
+    stop_and_restart_node(&mut env, node_identifier.as_str());
 }

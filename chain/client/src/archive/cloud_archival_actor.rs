@@ -31,11 +31,19 @@ enum CloudArchivingResult {
 enum CloudArchivingError {
     #[error("Cloud archiving IO error: {message}")]
     IOError { message: String },
+    #[error("Cloud archiving chain error: {error}")]
+    ChainError { error: near_chain_primitives::Error },
 }
 
 impl From<std::io::Error> for CloudArchivingError {
     fn from(error: std::io::Error) -> Self {
         CloudArchivingError::IOError { message: error.to_string() }
+    }
+}
+
+impl From<near_chain_primitives::Error> for CloudArchivingError {
+    fn from(error: near_chain_primitives::Error) -> Self {
+        CloudArchivingError::ChainError { error }
     }
 }
 
@@ -283,9 +291,10 @@ fn initialize_new_cloud_archive_and_writer(
     hot_store: &Store,
     cloud_storage_config: &CloudStorageConfig,
     hot_final_height: BlockHeight,
-) -> io::Result<()> {
+) -> Result<(), CloudArchivalInitializationError> {
     set_cloud_head_external(cloud_storage_config, hot_final_height)?;
-    set_cloud_head_local(hot_store, hot_final_height)
+    set_cloud_head_local(hot_store, hot_final_height)?;
+    Ok(())
 }
 
 /// Updates the local cloud writer head to `cloud_head_external` after validating GC
@@ -350,12 +359,20 @@ fn set_cloud_head_external(
 
 /// Returns the locally stored cloud head, if any.
 fn get_cloud_head_local(hot_store: &Store) -> io::Result<Option<BlockHeight>> {
-    hot_store.get_ser::<BlockHeight>(DBCol::BlockMisc, CLOUD_HEAD_KEY)
+    let cloud_head_tip = hot_store.get_ser::<Tip>(DBCol::BlockMisc, CLOUD_HEAD_KEY)?;
+    let cloud_head = cloud_head_tip.map(|tip| tip.height);
+    Ok(cloud_head)
 }
 
 /// Writes the local CLOUD_HEAD in the hot DB.
-fn set_cloud_head_local(hot_store: &Store, new_head: BlockHeight) -> io::Result<()> {
+fn set_cloud_head_local(
+    hot_store: &Store,
+    new_head: BlockHeight,
+) -> Result<(), near_chain_primitives::Error> {
+    let cloud_head_header = hot_store.chain_store().get_block_header_by_height(new_head)?;
+    let cloud_head_tip = Tip::from_header(&cloud_head_header);
     let mut transaction = DBTransaction::new();
-    transaction.set(DBCol::BlockMisc, CLOUD_HEAD_KEY.to_vec(), borsh::to_vec(&new_head)?);
-    hot_store.database().write(transaction)
+    transaction.set(DBCol::BlockMisc, CLOUD_HEAD_KEY.to_vec(), borsh::to_vec(&cloud_head_tip)?);
+    hot_store.database().write(transaction)?;
+    Ok(())
 }
