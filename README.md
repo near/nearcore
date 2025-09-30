@@ -19,7 +19,7 @@
 [![Twitter][twitter-badge]][twitter-url]
 [![Telegram Group][telegram-badge]][telegram-url]
 
-[build-badge]: https://img.shields.io/endpoint.svg?url=https%3A%2F%2Factions-badge.atrox.dev%2Fnear%2Fnear-api-js%2Fbadge&style=flat&label=Build
+[build-badge]: https://github.com/near/nearcore/actions/workflows/ci.yml/badge.svg?branch=master
 [build-url]: https://github.com/near/nearcore/actions
 [stable-release]: https://img.shields.io/github/v/release/nearprotocol/nearcore?label=stable
 [prerelease]: https://img.shields.io/github/v/release/nearprotocol/nearcore?include_prereleases&label=prerelease
