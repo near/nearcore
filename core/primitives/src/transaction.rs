@@ -568,6 +568,17 @@ pub struct ExecutionOutcomeWithId {
 }
 
 impl ExecutionOutcomeWithId {
+    pub fn failed(transaction: &SignedTransaction, error: InvalidTxError) -> Self {
+        Self {
+            id: transaction.get_hash(),
+            outcome: ExecutionOutcome {
+                executor_id: transaction.transaction.signer_id().clone(),
+                status: ExecutionStatus::Failure(TxExecutionError::InvalidTxError(error)),
+                ..Default::default()
+            },
+        }
+    }
+
     pub fn to_hashes(&self) -> Vec<CryptoHash> {
         let mut result = Vec::with_capacity(2 + self.outcome.logs.len());
         result.push(self.id);

@@ -38,7 +38,8 @@ use near_primitives::bandwidth_scheduler::{BandwidthRequests, BlockBandwidthRequ
 use near_primitives::chunk_apply_stats::ChunkApplyStatsV0;
 use near_primitives::congestion_info::{BlockCongestionInfo, CongestionInfo};
 use near_primitives::errors::{
-    ActionError, ActionErrorKind, EpochError, IntegerOverflowError, RuntimeError, TxExecutionError,
+    ActionError, ActionErrorKind, EpochError, IntegerOverflowError, InvalidAccessKeyError,
+    InvalidTxError, RuntimeError, TxExecutionError,
 };
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{
@@ -63,7 +64,7 @@ use near_primitives::utils::{
     create_action_hash_from_receipt_id, create_receipt_id_from_receipt_id,
     create_receipt_id_from_transaction,
 };
-use near_primitives::version::ProtocolVersion;
+use near_primitives::version::{ProtocolFeature, ProtocolVersion};
 use near_primitives_core::apply::ApplyChunkReason;
 use near_store::trie::AccessOptions;
 use near_store::trie::receipts_column_helper::DelayedReceiptQueue;
@@ -80,6 +81,7 @@ use near_vm_runner::ProfileDataV3;
 use near_vm_runner::logic::ReturnData;
 use near_vm_runner::logic::types::PromiseResult;
 pub use near_vm_runner::with_ext_cost_counter;
+use num_integer::Integer;
 use pipelining::ReceiptPreparationPipeline;
 use rayon::prelude::*;
 use smallvec::SmallVec;
@@ -1567,6 +1569,20 @@ impl Runtime {
         state_update.commit(StateChangeCause::Migration);
     }
 
+    /// insert the outcome into the processing state depending on whether the protocol feature
+    /// `InvalidTxOutcome` is enabled or not
+    fn register_outcome(
+        protocol_version: ProtocolVersion,
+        outcomes: &mut Vec<ExecutionOutcomeWithId>,
+        outcome: ExecutionOutcomeWithId,
+    ) {
+        if ProtocolFeature::InvalidTxGenerateOutcomes.enabled(protocol_version) {
+            outcomes.push(outcome);
+        } else if let ExecutionStatus::SuccessReceiptId(_) = outcome.outcome.status {
+            outcomes.push(outcome);
+        }
+    }
+
     /// Processes a collection of transactions.
     ///
     /// Fills the `processing_state` with local receipts generated during processing of the
@@ -1594,27 +1610,36 @@ impl Runtime {
         /// Avoid the overhead of inter-thread scheduling by processing at least this many
         /// transactions for each instance of this overhead. This can reduce the number of
         /// transaction chunks for smaller lists of transactions, however.
-        const MIN_CHUNK_SIZE: usize = 8;
+        /// We are populating the validations chunks in parallel. To avoid cache line conflicts
+        /// between the threads, we want to ensure that each chunk size is at least (and proportional to)
+        /// the gcd of Option<InvalidTxError> and a cache line sizes (8 at the time of writing).
+        const CACHE_LINE_SIZE: usize = size_of::<crossbeam_utils::CachePadded<u8>>();
+        let min_chunk_size: usize = size_of::<Option<InvalidTxError>>().gcd(&CACHE_LINE_SIZE);
         /// Avoid splitting transactions into just $NUM_THREADS chunks, as that can result in an
         /// increased tail latency when one of the threads is slower at processing its chunk
         /// compared to others (whatever reason may be for that.) Splitting into smaller chunks
         /// allows the load to be distributed across threads more evenly and any tail latency
         /// reduced due to the last chunk(s) being smaller.
         const TARGET_CHUNKS_PER_THREAD: usize = 4;
-        let total = &mut processing_state.total;
-        let apply_state = &mut processing_state.apply_state;
-        let state_update = &mut processing_state.state_update;
-        let tx_vec = signed_txs.into_nonexpired_transactions();
-        let len = tx_vec.len();
+        let num_transactions = signed_txs.len();
         let chunk_count_target = rayon::current_num_threads() * TARGET_CHUNKS_PER_THREAD;
         let chunk_size =
-            (tx_vec.len() / chunk_count_target).clamp(MIN_CHUNK_SIZE, ValidBitmask::BITS as _);
+            (num_transactions / chunk_count_target).clamp(min_chunk_size, ValidBitmask::BITS as _);
+        let chunk_size = (chunk_size / min_chunk_size) * min_chunk_size;
         let protocol_version = processing_state.protocol_version;
-        let (valid_masks, (accounts, access_keys)) = rayon::join(
+
+        let mut validations: Vec<Option<InvalidTxError>> = vec![None; num_transactions];
+
+        let ((), (accounts, access_keys)) = rayon::join(
             || {
-                tx_vec
+                let validation_chunks = validations.par_chunks_mut(chunk_size);
+                let (maybe_expired_txs, tx_expiration_flags) =
+                    signed_txs.get_potentially_expired_transactions_and_expiration_flags();
+                maybe_expired_txs
                     .par_chunks(chunk_size)
-                    .map(|txs| {
+                    .zip(tx_expiration_flags.par_chunks(chunk_size))
+                    .zip(validation_chunks)
+                    .for_each(|((txs, expiration_flags), validations)| {
                         // Prepare signatures, public keys and messages (tx hash) for batch verification.
                         let mut batched_tx_mask: ValidBitmask = 0;
                         let mut signatures =
@@ -1624,7 +1649,11 @@ impl Runtime {
                         let mut messages =
                             SmallVec::<[_; MAX_BATCH_SIZE]>::with_capacity(txs.len());
 
-                        for (idx, tx) in txs.iter().enumerate() {
+                        for (idx, (tx, non_expired)) in txs.iter().zip(expiration_flags).enumerate()
+                        {
+                            if !non_expired {
+                                continue;
+                            }
                             if let Some((signature, public_key)) =
                                 get_batchable_signature_and_public_key(tx)
                             {
@@ -1649,14 +1678,18 @@ impl Runtime {
                             0
                         };
 
-                        let mut result: ValidBitmask = 0;
-                        for (idx, tx) in txs.iter().enumerate() {
+                        for (idx, (tx, non_expired)) in txs.iter().zip(expiration_flags).enumerate()
+                        {
+                            if !non_expired {
+                                validations[idx] = Some(InvalidTxError::Expired);
+                                continue;
+                            }
                             let tx_hash = tx.hash();
                             let signature_already_verified = (valid_signatures >> idx) & 1 == 1;
 
                             let v = if signature_already_verified {
                                 validate_transaction_well_formed(
-                                    &apply_state.config,
+                                    &processing_state.apply_state.config,
                                     tx,
                                     protocol_version,
                                 )
@@ -1664,7 +1697,7 @@ impl Runtime {
                                 // TODO(perf): Can we use the VerifyingKey constructed for batch verification
                                 // to avoid re-parsing the public key here if batch verification fails?
                                 validate_transaction(
-                                    &apply_state.config,
+                                    &processing_state.apply_state.config,
                                     tx.clone(),
                                     protocol_version,
                                 )
@@ -1672,66 +1705,95 @@ impl Runtime {
                                 .map(|_| ())
                             };
                             if let Err(err) = v {
-                                tracing::debug!(?tx_hash, ?err, "transaction invalid");
-                                continue;
+                                tracing::debug!(?tx_hash, error=?&err, "transaction invalid");
+                                validations[idx] = Some(err);
                             }
-                            result |= 1 << idx;
                         }
-                        result
-                    })
-                    .collect::<Vec<_>>()
+                    });
             },
             || {
                 type AccountV = Result<Option<Account>, StorageError>;
                 type AccessKeyV = Result<Option<AccessKey>, StorageError>;
-                let accounts = dashmap::DashMap::<&AccountId, AccountV>::with_capacity(len);
+                let accounts =
+                    dashmap::DashMap::<&AccountId, AccountV>::with_capacity(num_transactions);
                 let access_keys =
-                    dashmap::DashMap::<(&AccountId, &PublicKey), AccessKeyV>::with_capacity(len);
-                tx_vec.par_chunks(chunk_size).for_each(|txs| {
-                    for tx in txs {
-                        let signer_id = tx.transaction.signer_id();
-                        let pubkey = tx.transaction.public_key();
-                        accounts
-                            .entry(signer_id)
-                            .or_insert_with(|| get_account(state_update, signer_id));
-                        access_keys
-                            .entry((signer_id, pubkey))
-                            .or_insert_with(|| get_access_key(state_update, signer_id, pubkey));
-                    }
-                });
+                    dashmap::DashMap::<(&AccountId, &PublicKey), AccessKeyV>::with_capacity(
+                        num_transactions,
+                    );
+
+                let (maybe_expired_txs, tx_expiration_flags) =
+                    signed_txs.get_potentially_expired_transactions_and_expiration_flags();
+
+                maybe_expired_txs
+                    .par_chunks(chunk_size)
+                    .zip(tx_expiration_flags.par_chunks(chunk_size))
+                    .for_each(|(txs, expiration_flags)| {
+                        for (tx, non_expired) in txs.iter().zip(expiration_flags) {
+                            if !non_expired {
+                                continue;
+                            }
+                            let signer_id = tx.transaction.signer_id();
+                            let pubkey = tx.transaction.public_key();
+                            accounts.entry(signer_id).or_insert_with(|| {
+                                get_account(&processing_state.state_update, signer_id)
+                            });
+                            access_keys.entry((signer_id, pubkey)).or_insert_with(|| {
+                                get_access_key(&processing_state.state_update, signer_id, pubkey)
+                            });
+                        }
+                    });
                 (accounts, access_keys)
             },
         );
 
-        let valid_mask_iterator = valid_masks
-            .into_iter()
-            .flat_map(|mask| (0..chunk_size).map(move |idx| ((mask >> idx) & 1) == 1));
-
         let default_hash = CryptoHash::default();
         let mut last_tx_hash = &default_hash;
-        for (tx, is_valid) in tx_vec.iter().zip(valid_mask_iterator) {
+        let (maybe_expired_txs, _) =
+            signed_txs.get_potentially_expired_transactions_and_expiration_flags();
+
+        for (tx, maybe_validation_error) in maybe_expired_txs.iter().zip(validations) {
             metrics::TRANSACTION_PROCESSED_TOTAL.inc();
-            if !is_valid {
+            if let Some(err) = maybe_validation_error {
                 metrics::TRANSACTION_PROCESSED_FAILED_TOTAL.inc();
+                let outcome = ExecutionOutcomeWithId::failed(tx, err);
+                Self::register_outcome(
+                    processing_state.protocol_version,
+                    &mut processing_state.outcomes,
+                    outcome,
+                );
                 continue;
             }
+
             last_tx_hash = tx.hash();
             let signer_id = tx.transaction.signer_id();
             let pubkey = tx.transaction.public_key();
-            let gas_price = apply_state.gas_price;
+            let gas_price = processing_state.apply_state.gas_price;
             let tx_hash = tx.hash();
-            let block_height = apply_state.block_height;
+            let block_height = processing_state.apply_state.block_height;
 
-            let cost =
-                match tx_cost(&apply_state.config, &tx.transaction, gas_price, protocol_version) {
-                    Ok(c) => c,
-                    Err(error) => {
-                        metrics::TRANSACTION_PROCESSED_FAILED_TOTAL.inc();
-                        let error = &error as &dyn std::error::Error;
-                        tracing::debug!(%tx_hash, error, "transaction cost calculation failed");
-                        continue;
-                    }
-                };
+            let cost = match tx_cost(
+                &processing_state.apply_state.config,
+                &tx.transaction,
+                gas_price,
+                protocol_version,
+            ) {
+                Ok(c) => c,
+                Err(error) => {
+                    metrics::TRANSACTION_PROCESSED_FAILED_TOTAL.inc();
+                    let tx_error = match error {
+                        IntegerOverflowError => InvalidTxError::CostOverflow,
+                    };
+                    let outcome = ExecutionOutcomeWithId::failed(tx, tx_error);
+                    let error = &error as &dyn std::error::Error;
+                    tracing::debug!(%tx_hash, error, "transaction cost calculation failed");
+                    Self::register_outcome(
+                        processing_state.protocol_version,
+                        &mut processing_state.outcomes,
+                        outcome,
+                    );
+                    continue;
+                }
+            };
 
             let verification_result = {
                 let mut account = accounts.get_mut(signer_id);
@@ -1740,6 +1802,15 @@ impl Runtime {
                     Some(Ok(None)) => {
                         metrics::TRANSACTION_PROCESSED_FAILED_TOTAL.inc();
                         tracing::debug!(%tx_hash, "transaction signed by unknown account");
+                        let outcome = ExecutionOutcomeWithId::failed(
+                            tx,
+                            InvalidTxError::InvalidSignerId { signer_id: signer_id.to_string() },
+                        );
+                        Self::register_outcome(
+                            processing_state.protocol_version,
+                            &mut processing_state.outcomes,
+                            outcome,
+                        );
                         continue;
                     }
                     Some(Err(e)) => return Err(e.clone().into()),
@@ -1751,13 +1822,28 @@ impl Runtime {
                     Some(Ok(None)) => {
                         metrics::TRANSACTION_PROCESSED_FAILED_TOTAL.inc();
                         tracing::debug!(%tx_hash, "transaction signed by unknown signing key");
+                        let outcome = ExecutionOutcomeWithId::failed(
+                            tx,
+                            InvalidTxError::InvalidAccessKeyError(
+                                InvalidAccessKeyError::AccessKeyNotFound {
+                                    account_id: signer_id.clone(),
+                                    public_key: Box::new(pubkey.clone()),
+                                },
+                            ),
+                        );
+
+                        Self::register_outcome(
+                            processing_state.protocol_version,
+                            &mut processing_state.outcomes,
+                            outcome,
+                        );
                         continue;
                     }
                     Some(Err(e)) => return Err(e.clone().into()),
                     None => unreachable!("access keys should've been prefetched"),
                 };
                 match verify_and_charge_tx_ephemeral(
-                    &apply_state.config,
+                    &processing_state.apply_state.config,
                     &mut account,
                     &mut access_key,
                     &tx.transaction,
@@ -1767,16 +1853,24 @@ impl Runtime {
                     Ok(v) => v,
                     Err(error) => {
                         metrics::TRANSACTION_PROCESSED_FAILED_TOTAL.inc();
-                        let error = &error as &dyn std::error::Error;
-                        tracing::debug!(%tx_hash, error, "transaction failed verify/charge");
+                        tracing::debug!(%tx_hash, error=&error as &dyn std::error::Error, "transaction failed verify/charge");
+                        let outcome = ExecutionOutcomeWithId::failed(tx, error);
+
+                        Self::register_outcome(
+                            processing_state.protocol_version,
+                            &mut processing_state.outcomes,
+                            outcome,
+                        );
                         continue;
                     }
                 }
             };
 
             let (receipt, outcome) = {
-                let receipt_id =
-                    create_receipt_id_from_transaction(tx_hash, apply_state.block_height);
+                let receipt_id = create_receipt_id_from_transaction(
+                    tx_hash,
+                    processing_state.apply_state.block_height,
+                );
                 let receipt = Receipt::V0(ReceiptV0 {
                     predecessor_id: signer_id.clone(),
                     receiver_id: tx.transaction.receiver_id().clone(),
@@ -1819,12 +1913,15 @@ impl Runtime {
                     processing_state.stats.balance.tx_burnt_amount = new_balance;
                 }
                 Err(err) => {
+                    // We just drop the transaction here and do not produce any outcome for it.
+                    // This should never happen unless there is a bug in the code.
                     metrics::TRANSACTION_PROCESSED_FAILED_TOTAL.inc();
-                    tracing::debug!(
+                    tracing::error!(
                         target: "runtime",
                         tx_hash=?tx.hash(),
+                        tx_burnt_amount=?verification_result.burnt_amount,
                         ?err,
-                        "invalid transaction ignored (burnt gas overflow)",
+                        "chunk total burnt gas overflow",
                     );
                     continue;
                 }
@@ -1833,29 +1930,41 @@ impl Runtime {
             if receipt.receiver_id() == signer_id {
                 processing_state.local_receipts.push_back(receipt);
             } else {
-                receipt_sink.forward_or_buffer_receipt(receipt, apply_state, state_update)?;
+                receipt_sink.forward_or_buffer_receipt(
+                    receipt,
+                    &processing_state.apply_state,
+                    &mut processing_state.state_update,
+                )?;
             }
             let compute = outcome.outcome.compute_usage;
             let compute = compute.expect("`process_transaction` must populate compute usage");
-            total.add(outcome.outcome.gas_burnt.as_gas(), compute)?;
+            processing_state.total.add(outcome.outcome.gas_burnt.as_gas(), compute)?;
             processing_state.outcomes.push(outcome);
             metrics::TRANSACTION_PROCESSED_SUCCESSFULLY_TOTAL.inc();
         }
 
-        processing_state.metrics.tx_processing_done(total.gas, total.compute);
+        if ProtocolFeature::InvalidTxGenerateOutcomes.enabled(protocol_version) {
+            debug_assert!(processing_state.outcomes.len() == num_transactions);
+        }
+
+        processing_state
+            .metrics
+            .tx_processing_done(processing_state.total.gas, processing_state.total.compute);
 
         for (id, account) in accounts {
             if let Ok(Some(account)) = account {
-                set_account(state_update, id.clone(), &account);
+                set_account(&mut processing_state.state_update, id.clone(), &account);
             }
         }
         for ((id, pk), ak) in access_keys {
             if let Ok(Some(ak)) = ak {
-                set_access_key(state_update, id.clone(), pk.clone(), &ak);
+                set_access_key(&mut processing_state.state_update, id.clone(), pk.clone(), &ak);
             }
         }
 
-        state_update.commit(StateChangeCause::TransactionProcessing { tx_hash: *last_tx_hash });
+        processing_state
+            .state_update
+            .commit(StateChangeCause::TransactionProcessing { tx_hash: *last_tx_hash });
 
         Ok(())
     }
