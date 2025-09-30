@@ -11,6 +11,7 @@ use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::optimistic_block::OptimisticBlock;
 use near_primitives::state_sync::{PartIdOrHeader, StateRequestAck};
 use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsement;
+use near_primitives::stateless_validation::spice_chunk_endorsement::SpiceChunkEndorsement;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, EpochId, ShardId};
 use near_primitives::views::FinalExecutionOutcomeView;
@@ -143,6 +144,9 @@ pub struct AnnounceAccountRequest(pub Vec<(AnnounceAccount, Option<EpochId>)>);
 pub struct ChunkEndorsementMessage(pub ChunkEndorsement);
 
 #[derive(Message, Debug, Clone, PartialEq, Eq)]
+pub struct SpiceChunkEndorsementMessage(pub SpiceChunkEndorsement);
+
+#[derive(Message, Debug, Clone, PartialEq, Eq)]
 pub struct EpochSyncRequestMessage {
     pub from_peer: PeerId,
 }
@@ -176,6 +180,7 @@ pub struct ClientSenderForNetwork {
     pub announce_account:
         AsyncSender<AnnounceAccountRequest, Result<Vec<AnnounceAccount>, ReasonForBan>>,
     pub chunk_endorsement: AsyncSender<ChunkEndorsementMessage, ()>,
+    pub spice_chunk_endorsement: AsyncSender<SpiceChunkEndorsementMessage, ()>,
     pub epoch_sync_request: Sender<EpochSyncRequestMessage>,
     pub epoch_sync_response: Sender<EpochSyncResponseMessage>,
     pub optimistic_block_receiver: Sender<SpanWrapped<OptimisticBlockMessage>>,

@@ -39,13 +39,14 @@ use near_primitives::sharding::ReceiptProof;
 use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::sharding::ShardProof;
 use near_primitives::state::PartialState;
-use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsement;
 use near_primitives::stateless_validation::contract_distribution::ContractUpdates;
+use near_primitives::stateless_validation::spice_chunk_endorsement::SpiceChunkEndorsement;
 use near_primitives::stateless_validation::spice_state_witness::SpiceChunkStateTransition;
 use near_primitives::stateless_validation::spice_state_witness::SpiceChunkStateWitness;
 use near_primitives::types::ChunkExecutionResult;
 use near_primitives::types::ChunkExecutionResultHash;
 use near_primitives::types::EpochId;
+use near_primitives::types::SpiceChunkId;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{Gas, ShardId, ShardIndex};
 use near_primitives::utils::get_receipt_proof_key;
@@ -64,7 +65,6 @@ use crate::spice_chunk_validator_actor::send_spice_chunk_endorsement;
 use crate::spice_data_distributor_actor::SpiceDataDistributorAdapter;
 use crate::spice_data_distributor_actor::SpiceDistributorOutgoingReceipts;
 use crate::spice_data_distributor_actor::SpiceDistributorStateWitness;
-use crate::stateless_validation::chunk_endorsement::ChunkEndorsementTracker;
 
 pub struct ChunkExecutorActor {
     pub(crate) chain_store: ChainStore,
@@ -82,7 +82,6 @@ pub struct ChunkExecutorActor {
 
     pub(crate) validator_signer: MutableValidatorSigner,
     pub(crate) core_processor: CoreStatementsProcessor,
-    chunk_endorsement_tracker: Arc<ChunkEndorsementTracker>,
 }
 
 impl ChunkExecutorActor {
@@ -95,7 +94,6 @@ impl ChunkExecutorActor {
         network_adapter: PeerManagerAdapter,
         validator_signer: MutableValidatorSigner,
         core_processor: CoreStatementsProcessor,
-        chunk_endorsement_tracker: Arc<ChunkEndorsementTracker>,
         apply_chunks_spawner: Arc<dyn AsyncComputationSpawner>,
         apply_chunks_iteration_mode: ApplyChunksIterationMode,
         myself_sender: Sender<ExecutorApplyChunksDone>,
@@ -113,7 +111,6 @@ impl ChunkExecutorActor {
             blocks_in_execution: HashSet::new(),
             validator_signer,
             core_processor,
-            chunk_endorsement_tracker,
             data_distributor_adapter,
             pending_unverified_receipts: HashMap::new(),
         }
@@ -507,12 +504,9 @@ impl ChunkExecutorActor {
             .contains(my_signer.validator_id())
         {
             // If we're validator we can send endorsement without witness validation.
-            let endorsement = ChunkEndorsement::new_with_execution_result(
-                *epoch_id,
+            let endorsement = SpiceChunkEndorsement::new(
+                SpiceChunkId { block_hash: *block.hash(), shard_id },
                 execution_result,
-                *block.header().hash(),
-                chunk_header.shard_id(),
-                chunk_header.height_created(),
                 &my_signer,
             );
             send_spice_chunk_endorsement(
@@ -521,7 +515,7 @@ impl ChunkExecutorActor {
                 &self.network_adapter.clone().into_sender(),
                 &my_signer,
             );
-            self.chunk_endorsement_tracker
+            self.core_processor
                 .process_chunk_endorsement(endorsement)
                 .expect("Node should always be able to record it's own endorsement");
         }

@@ -16,7 +16,7 @@ use near_client::{BlockApproval, BlockResponse, SetNetworkInfo};
 use near_network::client::{
     BlockHeadersRequest, BlockHeadersResponse, BlockRequest, ChunkEndorsementMessage,
     EpochSyncRequestMessage, EpochSyncResponseMessage, OptimisticBlockMessage, ProcessTxRequest,
-    ProcessTxResponse,
+    ProcessTxResponse, SpiceChunkEndorsementMessage,
 };
 use near_network::shards_manager::ShardsManagerRequestFromNetwork;
 use near_network::spice_data_distribution::SpiceIncomingPartialData;
@@ -55,6 +55,7 @@ pub struct ClientSenderForTestLoopNetwork {
 pub struct TxRequestHandleSenderForTestLoopNetwork {
     pub transaction: AsyncSender<ProcessTxRequest, ProcessTxResponse>,
     pub chunk_endorsement: AsyncSender<ChunkEndorsementMessage, ()>,
+    pub spice_chunk_endorsement: AsyncSender<SpiceChunkEndorsementMessage, ()>,
 }
 
 #[derive(Clone, MultiSend, MultiSenderFrom)]
@@ -497,6 +498,14 @@ fn network_message_to_client_handler(
                 .senders_for_account(&my_account_id, &target)
                 .rpc_handler_sender
                 .send_async(ChunkEndorsementMessage(endorsement));
+            drop(future);
+            None
+        }
+        NetworkRequests::SpiceChunkEndorsement(target, endorsement) => {
+            let future = shared_state
+                .senders_for_account(&my_account_id, &target)
+                .rpc_handler_sender
+                .send_async(SpiceChunkEndorsementMessage(endorsement));
             drop(future);
             None
         }

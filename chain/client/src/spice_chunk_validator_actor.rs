@@ -1,4 +1,5 @@
 use std::collections::{HashMap, HashSet};
+use std::iter::repeat_n;
 use std::sync::Arc;
 
 use near_async::futures::{AsyncComputationSpawner, AsyncComputationSpawnerExt as _};
@@ -16,8 +17,7 @@ use near_network::types::{NetworkRequests, PeerManagerAdapter, PeerManagerMessag
 use near_o11y::span_wrapped_msg::SpanWrapped;
 use near_performance_metrics_macros::perf;
 use near_primitives::hash::CryptoHash;
-use near_primitives::sharding::ShardChunkHeader;
-use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsement;
+use near_primitives::stateless_validation::spice_chunk_endorsement::SpiceChunkEndorsement;
 use near_primitives::stateless_validation::spice_state_witness::SpiceChunkStateWitness;
 use near_primitives::stateless_validation::state_witness::ChunkStateWitnessSize;
 use near_primitives::types::BlockExecutionResults;
@@ -26,7 +26,6 @@ use near_primitives::version::PROTOCOL_VERSION;
 use near_store::Store;
 
 use crate::chunk_executor_actor::ProcessedBlock;
-use crate::stateless_validation::chunk_endorsement::ChunkEndorsementTracker;
 
 pub struct SpiceChunkValidatorActor {
     chain_store: ChainStore,
@@ -36,7 +35,6 @@ pub struct SpiceChunkValidatorActor {
 
     validator_signer: MutableValidatorSigner,
     core_processor: CoreStatementsProcessor,
-    chunk_endorsement_tracker: Arc<ChunkEndorsementTracker>,
 
     /// Map holding witnesses we cannot process yet keyed by the block hash witness is for.
     pending_witnesses: HashMap<CryptoHash, Vec<SpiceChunkStateWitness>>,
@@ -60,7 +58,6 @@ impl SpiceChunkValidatorActor {
         network_adapter: PeerManagerAdapter,
         validator_signer: MutableValidatorSigner,
         core_processor: CoreStatementsProcessor,
-        chunk_endorsement_tracker: Arc<ChunkEndorsementTracker>,
         validation_spawner: ApplyChunksSpawner,
     ) -> Self {
         // TODO(spice): Assess if this limit still makes sense for spice.
@@ -75,7 +72,6 @@ impl SpiceChunkValidatorActor {
             network_adapter,
             validator_signer,
             core_processor,
-            chunk_endorsement_tracker,
             validation_spawner: validation_spawner.into_spawner(validation_thread_limit),
         }
     }
@@ -272,19 +268,10 @@ impl SpiceChunkValidatorActor {
             &self.chain_store,
         )?;
 
-        // TODO(spice): Adjust logic to work when chunk may be missing.
-        let chunk_height_created = block
-            .chunks()
-            .iter_raw()
-            .find(|chunk| chunk.shard_id() == chunk_id.shard_id)
-            .map(ShardChunkHeader::height_created)
-            .unwrap();
-
-        let epoch_id = self.epoch_manager.get_epoch_id(&block_hash)?;
         let epoch_manager = self.epoch_manager.clone();
         let runtime_adapter = self.runtime_adapter.clone();
         let network_sender = self.network_adapter.clone().into_sender();
-        let chunk_endorsement_tracker = self.chunk_endorsement_tracker.clone();
+        let core_processor = self.core_processor.clone();
         self.validation_spawner.spawn("spice_stateless_validation", move || {
             // TODO(spice): Implement saving of invalid witnesses.
             let chunk_execution_result = match spice_validate_chunk_state_witness(
@@ -308,12 +295,9 @@ impl SpiceChunkValidatorActor {
                 }
             };
 
-            let endorsement = ChunkEndorsement::new_with_execution_result(
-                epoch_id,
+            let endorsement = SpiceChunkEndorsement::new(
+                chunk_id,
                 chunk_execution_result,
-                block_hash,
-                chunk_id.shard_id,
-                chunk_height_created,
                 &signer,
             );
             send_spice_chunk_endorsement(
@@ -322,7 +306,7 @@ impl SpiceChunkValidatorActor {
                 &network_sender,
                 &signer,
             );
-            chunk_endorsement_tracker
+            core_processor
                 .process_chunk_endorsement(endorsement)
                 .expect("Node should always be able to record it's own endorsement");
         });
@@ -331,12 +315,12 @@ impl SpiceChunkValidatorActor {
 }
 
 pub fn send_spice_chunk_endorsement(
-    endorsement: ChunkEndorsement,
+    endorsement: SpiceChunkEndorsement,
     epoch_manager: &dyn EpochManagerAdapter,
     network_sender: &Sender<PeerManagerMessageRequest>,
     signer: &ValidatorSigner,
 ) {
-    let block_hash = endorsement.block_hash().unwrap();
+    let block_hash = endorsement.block_hash();
     let epoch_id = epoch_manager.get_epoch_id(block_hash).unwrap();
     let next_epoch_id = epoch_manager.get_next_epoch_id(block_hash).unwrap();
 
@@ -353,12 +337,13 @@ pub fn send_spice_chunk_endorsement(
         .map(|stake| stake.take_account_id())
         .collect::<HashSet<_>>();
 
-    for account in validators {
+    let endorsements = repeat_n(endorsement, validators.len());
+    for (account, endorsement) in validators.into_iter().zip(endorsements) {
         if &account == signer.validator_id() {
             continue;
         }
         network_sender.send(PeerManagerMessageRequest::NetworkRequests(
-            NetworkRequests::ChunkEndorsement(account, endorsement.clone()),
+            NetworkRequests::SpiceChunkEndorsement(account, endorsement),
         ));
     }
 }

@@ -29,7 +29,6 @@ use near_client::chunk_executor_actor::ChunkExecutorActor;
 use near_client::gc_actor::GCActor;
 use near_client::spice_chunk_validator_actor::SpiceChunkValidatorActor;
 use near_client::spice_data_distributor_actor::SpiceDataDistributorActor;
-use near_client::stateless_validation::chunk_endorsement::ChunkEndorsementTracker;
 use near_client::{
     ChunkValidationSenderForPartialWitness, ConfigUpdater, PartialWitnessActor, RpcHandler,
     RpcHandlerConfig, StartClientResult, StateRequestActor, ViewClientActorInner,
@@ -269,7 +268,6 @@ fn spawn_spice_actors(
     runtime: Arc<NightshadeRuntime>,
     network_adapter: PeerManagerAdapter,
     core_processor: CoreStatementsProcessor,
-    chunk_endorsement_tracker: Arc<ChunkEndorsementTracker>,
     chunk_executor_adapter: &Arc<LateBoundSender<TokioRuntimeHandle<ChunkExecutorActor>>>,
     spice_chunk_validator_adapter: &Arc<
         LateBoundSender<TokioRuntimeHandle<SpiceChunkValidatorActor>>,
@@ -299,7 +297,6 @@ fn spawn_spice_actors(
         network_adapter.clone(),
         validator_signer.clone(),
         core_processor.clone(),
-        chunk_endorsement_tracker.clone(),
         {
             let thread_limit = runtime.get_shard_layout(PROTOCOL_VERSION).num_shards() as usize;
             ApplyChunksSpawner::default().into_spawner(thread_limit)
@@ -319,7 +316,6 @@ fn spawn_spice_actors(
         network_adapter,
         validator_signer,
         core_processor,
-        chunk_endorsement_tracker,
         ApplyChunksSpawner::default(),
     );
     let spice_chunk_validator_addr = actor_system.spawn_tokio_actor(spice_chunk_validator_actor);
@@ -580,7 +576,7 @@ pub fn start_with_config_and_synchronization(
         &spice_chunk_validator_adapter,
         &spice_data_distributor_adapter,
     );
-    let core_processor = spice_client_config.core_processor.clone();
+    let spice_core_processor = spice_client_config.core_processor.clone();
 
     let StartClientResult {
         client_actor,
@@ -625,8 +621,7 @@ pub fn start_with_config_and_synchronization(
             shard_tracker.clone(),
             runtime.clone(),
             network_adapter.as_multi_sender(),
-            core_processor,
-            chunk_endorsement_tracker.clone(),
+            spice_core_processor.clone(),
             &chunk_executor_adapter,
             &spice_chunk_validator_adapter,
             &spice_data_distributor_adapter,
@@ -662,6 +657,7 @@ pub fn start_with_config_and_synchronization(
         config.validator_signer.clone(),
         view_runtime.clone(),
         network_adapter.as_multi_sender(),
+        spice_core_processor,
     );
 
     let state_sync_dumper = StateSyncDumper {

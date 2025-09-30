@@ -29,6 +29,7 @@ use near_primitives::stateless_validation::contract_distribution::{
     ChunkContractAccesses, ContractCodeRequest, ContractCodeResponse, PartialEncodedContractDeploys,
 };
 use near_primitives::stateless_validation::partial_witness::PartialEncodedStateWitness;
+use near_primitives::stateless_validation::spice_chunk_endorsement::SpiceChunkEndorsement;
 use near_primitives::stateless_validation::state_witness::ChunkStateWitnessAck;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, BlockHeight, EpochHeight, ShardId};
@@ -318,6 +319,8 @@ pub enum NetworkRequests {
     PartialEncodedContractDeploys(Vec<AccountId>, PartialEncodedContractDeploys),
     /// Message containing spice partial data.
     SpicePartialData { partial_data: SpicePartialData, recipients: HashSet<AccountId> },
+    /// Message for a spice chunk endorsement, sent by a chunk validator to all validators.
+    SpiceChunkEndorsement(AccountId, SpiceChunkEndorsement),
 }
 
 #[derive(Debug, Message, strum::IntoStaticStr)]

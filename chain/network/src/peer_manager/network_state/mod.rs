@@ -2,7 +2,8 @@ use crate::accounts_data::{AccountDataCache, AccountDataError};
 use crate::announce_accounts::AnnounceAccountCache;
 use crate::client::{
     BlockApproval, ChunkEndorsementMessage, ClientSenderForNetwork, ProcessTxRequest,
-    StateResponse, StateResponseReceived, TxStatusRequest, TxStatusResponse,
+    SpiceChunkEndorsementMessage, StateResponse, StateResponseReceived, TxStatusRequest,
+    TxStatusResponse,
 };
 use crate::concurrency::demux;
 use crate::concurrency::runtime::Runtime;
@@ -784,6 +785,15 @@ impl NetworkState {
                 T1MessageBody::SpicePartialData(spice_partial_data) => {
                     self.spice_data_distributor_adapter
                         .send(SpiceIncomingPartialData { data: spice_partial_data });
+                    None
+                }
+                T1MessageBody::SpiceChunkEndorsement(endorsement) => {
+                    if cfg!(feature = "protocol_feature_spice") {
+                        self.client
+                            .send_async(SpiceChunkEndorsementMessage(endorsement))
+                            .await
+                            .ok();
+                    }
                     None
                 }
             },
