@@ -20,7 +20,9 @@ def test_deploy_global_contract():
     n = 2
     val_client_config_changes = {
         i: {
-            "tracked_shards_config": "NoShards"
+            "tracked_shards_config": {
+                "Accounts": [f"test{i}"]
+            },
         } for i in range(n)
     }
     rpc_client_config_changes = {n: {"tracked_shards_config": "AllShards"}}
@@ -71,7 +73,8 @@ def call_contract(rpc, node, contract_id, nonce):
     last_block_hash = node.get_latest_block().hash_bytes
     tx = sign_function_call_tx(node.signer_key, contract_id, 'log_something',
                                [], 150 * GGAS, 1, nonce, last_block_hash)
-    res = rpc.send_tx_and_wait(tx, 20)
+    res = rpc.send_tx_and_wait(tx, 10)
+    print("call", res)
     assert res['result']['receipts_outcome'][0]['outcome']['logs'][0] == 'hello'
 
 
@@ -79,16 +82,20 @@ def deploy_global_contract(node, contract, deploy_mode, nonce):
     last_block_hash = node.get_latest_block().hash_bytes
     tx = sign_deploy_global_contract_tx(node.signer_key, contract, deploy_mode,
                                         nonce, last_block_hash)
-    node.send_tx(tx)
-    time.sleep(3)
+    res = node.send_tx_and_wait_until(tx, "EXECUTED", 10)
+    print("deploy", res)
+    # transaction becoming "Executed" does not imply that the global contract distribution receipt
+    # has been executed on all nodes and therefore we can't use transaction execution as a cue that
+    # it can already be deployed to an account (used.)
+    time.sleep(5)
 
 
 def use_global_contract(node, identifier, nonce):
     last_block_hash = node.get_latest_block().hash_bytes
     tx = sign_use_global_contract_tx(node.signer_key, identifier, nonce,
                                      last_block_hash)
-    node.send_tx(tx)
-    time.sleep(3)
+    res = node.send_tx_and_wait(tx, 10)
+    print("use", res)
 
 
 if __name__ == '__main__':
