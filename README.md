@@ -11,7 +11,7 @@
 
 ## Reference implementation of NEAR Protocol
 
-[![Buildkite][buildkite-badge]][buildkite-url]
+[![Build][build-badge]][build-url]
 ![Stable Status][stable-release]
 ![Prerelease Status][prerelease]
 [![codecov][codecov-badge]][codecov-url]
@@ -19,8 +19,8 @@
 [![Twitter][twitter-badge]][twitter-url]
 [![Telegram Group][telegram-badge]][telegram-url]
 
-[buildkite-badge]: https://img.shields.io/endpoint.svg?url=https%3A%2F%2Factions-badge.atrox.dev%2Fnear%2Fnear-api-js%2Fbadge&style=flat&label=Build
-[buildkite-url]: https://github.com/near/nearcore/actions
+[build-badge]: https://img.shields.io/endpoint.svg?url=https%3A%2F%2Factions-badge.atrox.dev%2Fnear%2Fnear-api-js%2Fbadge&style=flat&label=Build
+[build-url]: https://github.com/near/nearcore/actions
 [stable-release]: https://img.shields.io/github/v/release/nearprotocol/nearcore?label=stable
 [prerelease]: https://img.shields.io/github/v/release/nearprotocol/nearcore?include_prereleases&label=prerelease
 [ci-badge-master]: https://badge.buildkite.com/a81147cb62c585cc434459eedd1d25e521453120ead9ee6c64.svg?branch=master
