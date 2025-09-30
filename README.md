@@ -27,7 +27,7 @@
 [codecov-badge]: https://codecov.io/gh/near/nearcore/branch/master/graph/badge.svg
 [codecov-url]: https://codecov.io/gh/near/nearcore
 [discord-badge]: https://img.shields.io/discord/490367152054992913.svg
-[discord-url]: https://near.chat
+[discord-url]: https://discord.com/invite/nearprotocol
 [twitter-badge]: https://img.shields.io/twitter/follow/NEARProtocol
 [twitter-url]: https://x.com/NEARProtocol
 [telegram-badge]: https://cdn.jsdelivr.net/gh/Patrolavia/telegram-badge@8fe3382b3fd3a1c533ba270e608035a27e430c2e/chat.svg
