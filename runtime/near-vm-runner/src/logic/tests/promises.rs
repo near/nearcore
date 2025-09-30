@@ -3,14 +3,9 @@ use crate::logic::tests::helpers::*;
 use crate::logic::tests::vm_logic_builder::VMLogicBuilder;
 use crate::logic::types::PromiseResult;
 use crate::map;
-use std::collections::BTreeMap;
 
 use near_crypto::PublicKey;
 use near_parameters::{ActionCosts, ExtCosts};
-use near_primitives_core::deterministic_account_id::{
-    DeterministicAccountStateInit, DeterministicAccountStateInitV1,
-};
-use near_primitives_core::global_contract::GlobalContractIdentifier;
 use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::types::Gas;
 use serde_json;
@@ -821,30 +816,40 @@ fn test_promise_batch_action_state_init() {
       ExtCosts::utf8_decoding_byte: receiver.len() as u64,
     });
 
-    let state_init = DeterministicAccountStateInit::V1(DeterministicAccountStateInitV1 {
-        code: GlobalContractIdentifier::AccountId("global.near".parse().unwrap()),
-        data: BTreeMap::from_iter([(b"key".to_vec(), b"value".to_vec())]),
-    });
-    let serialized_state_init = logic.internal_mem_write(&borsh::to_vec(&state_init).unwrap());
-    let serialized_amount = logic.internal_mem_write(&110u128.to_le_bytes());
+    let account_id = logic.internal_mem_write(b"global.near");
+    let key = logic.internal_mem_write(b"key");
+    let value = logic.internal_mem_write(b"value");
+    let amount = logic.internal_mem_write(&110u128.to_le_bytes());
 
-    logic
-        .promise_batch_action_state_init(
+    let action_index = logic
+        .promise_batch_action_state_init_by_account_id(
             index,
-            serialized_state_init.len,
-            serialized_state_init.ptr,
-            serialized_amount.ptr,
+            account_id.len,
+            account_id.ptr,
+            amount.ptr,
         )
         .expect("should successfully add state init action");
 
     assert_costs(map! {
       ExtCosts::base: 1,
       ExtCosts::read_memory_base: 2,
-      ExtCosts::read_memory_byte: serialized_state_init.len + serialized_amount.len,
+      ExtCosts::read_memory_byte: account_id.len + amount.len,
+      ExtCosts::utf8_decoding_base: 1,
+      ExtCosts::utf8_decoding_byte: account_id.len,
+    });
+
+    logic
+        .set_state_init_data_entry(index, action_index, key.len, key.ptr, value.len, value.ptr)
+        .expect("should successfully add data to state init action");
+
+    assert_costs(map! {
+      ExtCosts::base: 1,
+      ExtCosts::read_memory_base: 2,
+      ExtCosts::read_memory_byte: key.len + value.len,
     });
 
     let profile = logic.gas_counter().profile_data();
-    assert_eq!(logic.used_gas().unwrap(), 8_365_968_579_951, "unexpected gas usage {profile:?}");
+    assert_eq!(logic.used_gas().unwrap(), 8_373_585_814_798, "unexpected gas usage {profile:?}");
 
     // Check that all send costs have been charged as expected
 
@@ -868,7 +873,7 @@ fn test_promise_batch_action_state_init() {
     //    exec 0.000_070 per byte
     assert_eq!(
         profile.actions_profile[ActionCosts::deterministic_state_init_byte].as_gas(),
-        2_664_000_000,
+        576_000_000,
         "unexpected action gas usage {profile:?}"
     );
     // action_receipt_creation

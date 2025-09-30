@@ -9028,7 +9028,7 @@
         "oneOf": [
           {
             "additionalProperties": false,
-            "description": "Create an (sub)account using a transaction `receiver_id` as an ID for\na new account ID must pass validation rules described here\n<http://nomicon.io/Primitives/Account.html>.",
+            "description": "Create an (sub)account using a transaction `receiver_id` as an ID for\na new account ID must pass validation rules described here\n<https://nomicon.io/DataStructures/Account>.",
             "properties": {
               "CreateAccount": {
                 "$ref": "#/components/schemas/CreateAccountAction"
