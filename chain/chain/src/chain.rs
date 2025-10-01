@@ -2659,6 +2659,23 @@ impl Chain {
         }
     }
 
+    pub fn early_prepare_transaction_validity_check(
+        &self,
+        prev_block_height: BlockHeight,
+        prev_prev_block_header: BlockHeader,
+    ) -> impl Fn(&SignedTransaction) -> bool + Send + 'static {
+        let chain_store = self.chain_store.clone();
+        move |tx: &SignedTransaction| -> bool {
+            chain_store
+                .early_prepare_txs_check_validity_period(
+                    prev_block_height,
+                    &prev_prev_block_header,
+                    tx.transaction.block_hash(),
+                )
+                .is_ok()
+        }
+    }
+
     /// For a given previous block header and current block, return information
     /// about block necessary for processing shard update.
     /// TODO(#10584): implement the same method for OptimisticBlock.
