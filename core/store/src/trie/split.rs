@@ -341,7 +341,7 @@ fn find_middle_child(
 ///
 /// **NOTE: This is an artificial value calculated according to `TRIE_COST`. Hence, it does not
 /// represent actual memory allocation, but the split ratio should be roughly consistent with that.**
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub struct TrieSplit {
     /// Nibbles making up the path which splits the trie
     pub split_path_nibbles: SmallVec<[u8; MAX_NIBBLES]>,
@@ -868,8 +868,8 @@ mod tests {
             NodePtr: Debug + Copy,
             Storage: GenericTrieInternalStorage<NodePtr, Value>,
         {
-            /// Helper method to check the split yielded by a pre-defined key.
-            fn check_split(mut self, key_bytes: &[u8]) -> TrieSplit {
+            /// Helper method to get the split yielded by a pre-defined key.
+            fn get_split(mut self, key_bytes: &[u8]) -> TrieSplit {
                 let key_nibbles = key_bytes
                     .iter()
                     .flat_map(|byte| {
@@ -899,7 +899,7 @@ mod tests {
             let key_bytes = boundary_account.as_bytes();
             let memtries = trie.lock_memtries().unwrap();
             let trie_storage = MemTrieIteratorInner::new(&memtries, trie);
-            TrieDescent::new(trie_storage).check_split(key_bytes)
+            TrieDescent::new(trie_storage).get_split(key_bytes)
         }
 
         impl TrieSplit {
@@ -1005,11 +1005,18 @@ mod tests {
             store_update.commit()?;
 
             // Find the boundary account
-            let trie = shard_tries.get_trie_for_shard(shard_uid, new_root);
+            let trie =
+                shard_tries.get_trie_for_shard(shard_uid, new_root).recording_reads_new_recorder();
             let trie_split = find_trie_split(&trie);
             println!("Found trie split: {trie_split:?}");
             let boundary_account = trie_split.boundary_account();
             println!("Boundary account: {boundary_account:?}");
+
+            // Verify if running the algorithm on recorded storage gives the same result
+            let recorded_storage = trie.recorded_storage().unwrap();
+            let recorded_trie = Trie::from_recorded_storage(recorded_storage, new_root, true);
+            let recorded_trie_split = find_trie_split(&recorded_trie);
+            assert_eq!(trie_split, recorded_trie_split);
 
             // Assert that previous and next account gives worse splits than the account found
             // by `find_trie_split`. As the accounts are sorted, we don't need to check them all.
@@ -1018,6 +1025,7 @@ mod tests {
             account_ids.sort();
             let (left_account, right_account) =
                 find_neighbor_accounts(&account_ids, &boundary_account);
+            let trie = shard_tries.get_trie_for_shard(shard_uid, new_root);
 
             if let Some(left_account) = left_account {
                 let left_split = get_memtrie_split(&trie, left_account);
