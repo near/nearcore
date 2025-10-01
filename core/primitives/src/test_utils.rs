@@ -871,16 +871,6 @@ impl TestBlockBuilder {
             self.spice_core_statements,
         ))
     }
-
-    pub fn zip_with<U, F, R>(self, other: Option<U>, f: F) -> Option<R>
-    where
-        F: FnOnce(Vec<crate::block_body::SpiceCoreStatement>, U) -> R,
-    {
-        match (self.spice_core_statements, other) {
-            (Some(a), Some(b)) => Some(f(a, b)),
-            _ => None,
-        }
-    }
 }
 
 impl Block {
