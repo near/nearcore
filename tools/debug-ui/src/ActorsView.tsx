@@ -2,6 +2,7 @@ import './ActorsView.scss';
 import { useQuery } from '@tanstack/react-query';
 import { fetchInstrumentedThreadsView, InstrumentedThread, InstrumentedWindow } from './api';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, Legend } from "recharts";
+import { useState, useRef } from 'react';
 
 type ActorsViewProps = {
     addr: string;
@@ -14,27 +15,101 @@ const formatThreadName = (threadName: string): string => {
 };
 
 export const ActorsView = ({ addr }: ActorsViewProps) => {
+    const [loadedData, setLoadedData] = useState<any>(null);
+    const fileInputRef = useRef<HTMLInputElement>(null);
+
     const {
         data: instrumentedThreads,
         error: instrumentedThreadsError,
         isLoading: instrumentedThreadsIsLoading,
-    } = useQuery(['instrumentedThreads', addr], () => fetchInstrumentedThreadsView(addr));
-    if (instrumentedThreadsIsLoading) {
+    } = useQuery(['instrumentedThreads', addr], () => fetchInstrumentedThreadsView(addr), {
+        enabled: !loadedData, // Only fetch if no loaded data
+    });
+
+    // Use loaded data if available, otherwise use fetched data
+    const currentData = loadedData || instrumentedThreads;
+
+    const handleSaveData = () => {
+        if (!currentData) return;
+
+        const dataStr = JSON.stringify(currentData, null, 2);
+        const dataBlob = new Blob([dataStr], { type: 'application/json' });
+        const url = URL.createObjectURL(dataBlob);
+
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = `actors-view-${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.json`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+
+        URL.revokeObjectURL(url);
+    };
+
+    const handleLoadData = (event: React.ChangeEvent<HTMLInputElement>) => {
+        const file = event.target.files?.[0];
+        if (!file) return;
+
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            try {
+                const data = JSON.parse(e.target?.result as string);
+                setLoadedData(data);
+            } catch (error) {
+                alert('Error parsing JSON file: ' + error);
+            }
+        };
+        reader.readAsText(file);
+    };
+
+    const handleClearLoadedData = () => {
+        setLoadedData(null);
+        if (fileInputRef.current) {
+            fileInputRef.current.value = '';
+        }
+    };
+
+    if (instrumentedThreadsIsLoading && !loadedData) {
         return <div>Loading...</div>;
-    } else if (instrumentedThreadsError) {
+    } else if (instrumentedThreadsError && !loadedData) {
         return (
             <div className="actors-view">
                 <div className="error">{(instrumentedThreadsError as Error).stack}</div>
             </div>
         );
     }
-    let allThreads = instrumentedThreads?.status_response.InstrumentedThreads.threads || [];
-    let sortedThreads = allThreads.slice().sort((a, b) => a.thread_name.localeCompare(b.thread_name));
+    let allThreads = currentData?.status_response.InstrumentedThreads.threads || [];
+    let sortedThreads = allThreads.slice().sort((a: InstrumentedThread, b: InstrumentedThread) => a.thread_name.localeCompare(b.thread_name));
     let maxStartTime = getMaxStartTime(allThreads);
 
     return (
         <div className="actors-view">
-            <h2>Instrumented Threads</h2>
+            <div className="actors-controls">
+                <h2>Instrumented Threads</h2>
+                <div className="control-buttons">
+                    <button onClick={handleSaveData} disabled={!currentData} className="save-button">
+                        Save View
+                    </button>
+                    <input
+                        type="file"
+                        accept=".json"
+                        onChange={handleLoadData}
+                        ref={fileInputRef}
+                        style={{ display: 'none' }}
+                    />
+                    <button onClick={() => fileInputRef.current?.click()} className="load-button">
+                        Load View
+                    </button>
+                    {loadedData && (
+                        <button onClick={handleClearLoadedData} className="clear-button">
+                            Clear Loaded Data
+                        </button>
+                    )}
+                    {loadedData && (
+                        <span className="loaded-indicator">📁 Loaded from file</span>
+                    )}
+                </div>
+            </div>
             <table className="actors-table">
                 <thead>
                     <tr>
@@ -43,7 +118,7 @@ export const ActorsView = ({ addr }: ActorsViewProps) => {
                     </tr>
                 </thead>
                 <tbody>
-                    {sortedThreads?.map((thread, idx) => (
+                    {sortedThreads?.map((thread: InstrumentedThread, idx: number) => (
                         <tr key={idx}>
                             <td>{formatThreadName(thread.thread_name)}</td>
                             <td><BucketChart windows={thread.windows} max_start_time={maxStartTime} message_types={thread.message_types} /></td>

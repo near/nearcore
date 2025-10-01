@@ -2,6 +2,80 @@
     .error {
         color: red;
     }
+
+    .actors-controls {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 20px;
+        padding: 10px;
+        border-bottom: 1px solid #e0e0e0;
+
+        h2 {
+            margin: 0;
+        }
+
+        .control-buttons {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+
+            button {
+                padding: 8px 16px;
+                border: 1px solid #ccc;
+                border-radius: 4px;
+                background-color: #f8f9fa;
+                cursor: pointer;
+                font-size: 14px;
+                transition: background-color 0.2s;
+
+                &:hover:not(:disabled) {
+                    background-color: #e9ecef;
+                }
+
+                &:disabled {
+                    opacity: 0.6;
+                    cursor: not-allowed;
+                }
+
+                &.save-button {
+                    background-color: #28a745;
+                    color: white;
+                    border-color: #28a745;
+
+                    &:hover:not(:disabled) {
+                        background-color: #218838;
+                    }
+                }
+
+                &.load-button {
+                    background-color: #007bff;
+                    color: white;
+                    border-color: #007bff;
+
+                    &:hover:not(:disabled) {
+                        background-color: #0056b3;
+                    }
+                }
+
+                &.clear-button {
+                    background-color: #dc3545;
+                    color: white;
+                    border-color: #dc3545;
+
+                    &:hover:not(:disabled) {
+                        background-color: #c82333;
+                    }
+                }
+            }
+
+            .loaded-indicator {
+                font-size: 14px;
+                color: #28a745;
+                font-weight: 500;
+            }
+        }
+    }
 }
 
 .actors-table {
