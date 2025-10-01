@@ -12,8 +12,7 @@
 ## Reference implementation of NEAR Protocol
 
 [![Build][build-badge]][build-url]
-![Stable Status][stable-release]
-![Prerelease Status][prerelease]
+[![Stable Status][stable-release]][stable-url]
 [![codecov][codecov-badge]][codecov-url]
 [![Discord chat][discord-badge]][discord-url]
 [![Twitter][twitter-badge]][twitter-url]
@@ -22,9 +21,7 @@
 [build-badge]: https://github.com/near/nearcore/actions/workflows/ci.yml/badge.svg?branch=master
 [build-url]: https://github.com/near/nearcore/actions
 [stable-release]: https://img.shields.io/github/v/release/nearprotocol/nearcore?label=stable
-[prerelease]: https://img.shields.io/github/v/release/nearprotocol/nearcore?include_prereleases&label=prerelease
-[ci-badge-master]: https://badge.buildkite.com/a81147cb62c585cc434459eedd1d25e521453120ead9ee6c64.svg?branch=master
-[ci-url]: https://buildkite.com/nearprotocol/nearcore
+[stable-url]: https://github.com/near/nearcore/releases
 [codecov-badge]: https://codecov.io/gh/near/nearcore/branch/master/graph/badge.svg
 [codecov-url]: https://codecov.io/gh/near/nearcore
 [discord-badge]: https://img.shields.io/discord/490367152054992913.svg
