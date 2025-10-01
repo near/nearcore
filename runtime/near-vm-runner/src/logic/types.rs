@@ -67,16 +67,8 @@ impl From<GlobalContractIdentifier>
 {
     fn from(other: GlobalContractIdentifier) -> Self {
         match other {
-            GlobalContractIdentifier::CodeHash(crypto_hash) => {
-                near_primitives_core::global_contract::GlobalContractIdentifier::CodeHash(
-                    crypto_hash,
-                )
-            }
-            GlobalContractIdentifier::AccountId(account_id) => {
-                near_primitives_core::global_contract::GlobalContractIdentifier::AccountId(
-                    account_id,
-                )
-            }
+            GlobalContractIdentifier::CodeHash(crypto_hash) => Self::CodeHash(crypto_hash),
+            GlobalContractIdentifier::AccountId(account_id) => Self::AccountId(account_id),
         }
     }
 }

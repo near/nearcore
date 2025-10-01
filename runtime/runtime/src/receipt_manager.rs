@@ -319,7 +319,7 @@ impl ReceiptManager {
     ///
     /// Returns the ActionIndex of the newly created action.
     ///
-    /// Use [`External::append_action_deterministic_state_init`] to set initial
+    /// Use [`Self::set_deterministic_state_init_data_entry`] to set initial
     /// data key-value pairs.
     ///
     /// # Arguments
