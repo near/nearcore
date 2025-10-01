@@ -196,6 +196,8 @@ expression: config_view
     },
     "grow_mem_cost": 1,
     "regular_op_cost": 822756,
+    "linear_op_base_cost": 3856371,
+    "linear_op_unit_cost": 0,
     "vm_kind": "<REDACTED>",
     "discard_custom_sections": false,
     "saturating_float_to_int": false,

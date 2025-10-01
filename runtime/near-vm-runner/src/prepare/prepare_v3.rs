@@ -391,7 +391,11 @@ pub(crate) fn prepare_contract(
 
     let analysis = finite_wasm_6::Analysis::new()
         .with_stack(SimpleMaxStackCfg)
-        .with_gas(SimpleGasCostCfg(u64::from(config.regular_op_cost)))
+        .with_gas(SimpleGasCostCfg(
+            u64::from(config.regular_op_cost),
+            u64::from(config.linear_op_base_cost),
+            u64::from(config.linear_op_unit_cost),
+        ))
         .analyze(&lightly_steamed)
         .map_err(|err| {
             tracing::error!(?err, ?kind, "Analysis failed");
@@ -448,7 +452,7 @@ impl finite_wasm_6::max_stack::SizeConfig for SimpleMaxStackCfg {
     }
 }
 
-struct SimpleGasCostCfg(u64);
+struct SimpleGasCostCfg(u64, u64, u64);
 
 macro_rules! gas_cost {
     ($( @$proposal:ident $op:ident $({ $($arg:ident: $argty:ty),* })? => $visit:ident ($($ann:tt)*))*) => {
@@ -462,12 +466,12 @@ macro_rules! gas_cost {
     (@@$self:ident visit_block) => { Fee::ZERO };
     (@@$self:ident visit_end) => { Fee::ZERO };
     (@@$self:ident visit_else) => { Fee::ZERO };
-    (@@$self:ident visit_memory_init) => { Fee { linear: $self.0, constant: 32 * $self.0 } };
-    (@@$self:ident visit_memory_copy) => { Fee { linear: $self.0, constant: 32 * $self.0 } };
-    (@@$self:ident visit_memory_fill) => { Fee { linear: $self.0, constant: 32 * $self.0 } };
-    (@@$self:ident visit_table_init) => { Fee { linear: $self.0, constant: 32 * $self.0 } };
-    (@@$self:ident visit_table_copy) => { Fee { linear: $self.0, constant: 32 * $self.0 } };
-    (@@$self:ident visit_table_fill) => { Fee { linear: $self.0, constant: 32 * $self.0 } };
+    (@@$self:ident visit_memory_init) => { Fee { linear: $self.2, constant: $self.1 } };
+    (@@$self:ident visit_memory_copy) => { Fee { linear: $self.2, constant: $self.1 } };
+    (@@$self:ident visit_memory_fill) => { Fee { linear: $self.2, constant: $self.1 } };
+    (@@$self:ident visit_table_init) => { Fee { linear: $self.2, constant: $self.1 } };
+    (@@$self:ident visit_table_copy) => { Fee { linear: $self.2, constant: $self.1 } };
+    (@@$self:ident visit_table_fill) => { Fee { linear: $self.2, constant: $self.1 } };
     (@@$self:ident $visit:ident) => { Fee::constant($self.0) };
 }
 

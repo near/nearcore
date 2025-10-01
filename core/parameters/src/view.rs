@@ -220,6 +220,10 @@ pub struct VMConfigView {
     pub grow_mem_cost: u32,
     /// Gas cost of a regular operation.
     pub regular_op_cost: u32,
+    /// Base gas cost of a linear operation
+    pub linear_op_base_cost: u32,
+    /// Unit gas cost of a linear operation
+    pub linear_op_unit_cost: u32,
 
     /// See [VMConfig::vm_kind](crate::vm::Config::vm_kind).
     pub vm_kind: crate::vm::VMKind,
@@ -256,6 +260,8 @@ impl From<crate::vm::Config> for VMConfigView {
             ext_costs: ExtCostsConfigView::from(config.ext_costs),
             grow_mem_cost: config.grow_mem_cost,
             regular_op_cost: config.regular_op_cost,
+            linear_op_base_cost: config.linear_op_base_cost,
+            linear_op_unit_cost: config.linear_op_unit_cost,
             discard_custom_sections: config.discard_custom_sections,
             limit_config: config.limit_config,
             storage_get_mode: config.storage_get_mode,
@@ -277,6 +283,8 @@ impl From<VMConfigView> for crate::vm::Config {
             ext_costs: crate::ExtCostsConfig::from(view.ext_costs),
             grow_mem_cost: view.grow_mem_cost,
             regular_op_cost: view.regular_op_cost,
+            linear_op_base_cost: view.linear_op_base_cost,
+            linear_op_unit_cost: view.linear_op_unit_cost,
             discard_custom_sections: view.discard_custom_sections,
             limit_config: view.limit_config,
             storage_get_mode: view.storage_get_mode,
