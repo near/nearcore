@@ -16,7 +16,8 @@ use std::marker::PhantomData;
 const MAX_NIBBLES: usize = AccountId::MAX_LEN * 2;
 // The order of subtrees matters - accounts must go first (!)
 // We don't want to go deeper into other subtrees when reaching a leaf in the accounts' tree.
-// Chunks are split by account IDs, not arbitrary byte sequences.
+// Chunks are split by account IDs, not arbitrary byte sequences. Therefore, also make sure
+// not to add any subtrees here that do not use account ID as key (or key prefix).
 const SUBTREES: [u8; 4] = [ACCOUNT, CONTRACT_CODE, ACCESS_KEY, CONTRACT_DATA];
 
 /// This represents a descent stage of a single subtree (e.g. accounts or access keys)
@@ -283,7 +284,9 @@ where
     /// of the split path, even though further descent will not improve the memory usage balance.
     fn force_next_step(&mut self) {
         let children_mem_usage = self.aggregate_children_mem_usage();
-        let first_child = self.subtree_stages[0].first_child().expect("no child to force descend");
+        let first_child = self.subtree_stages[0]
+            .first_child()
+            .expect("no child to force descend – the keys are expected to be account IDs");
         let child_mem_usage = children_mem_usage[first_child as usize];
         let left_mem_usage = children_mem_usage[0..first_child as usize].iter().sum();
         self.descend_step(first_child, child_mem_usage, left_mem_usage);
@@ -309,6 +312,7 @@ where
 
 /// Find the lowest child index `i` for which `sum(children_mem_usage[..i+1]) > threshold`.
 /// Returns `Some(i, sum(children_mem_usage[..i])` if such `i` exists, otherwise `None`.
+/// If no such `i` exists, returns the highest `i` for which `children_mem_usage[i] > 0`.
 fn find_middle_child(
     children_mem_usage: &[u64; NUM_CHILDREN],
     threshold: u64,
@@ -320,6 +324,15 @@ fn find_middle_child(
         }
         left_memory += children_mem_usage[i];
     }
+
+    // If middle child cannot be found, pick the last child, to cut off as much as possible
+    for i in (0..NUM_CHILDREN).rev() {
+        if children_mem_usage[i] > 0 {
+            left_memory -= children_mem_usage[i];
+            return Some((i, left_memory));
+        }
+    }
+
     None
 }
 
@@ -402,11 +415,12 @@ mod tests {
         assert_eq!(find_middle_child(&children_mem_usage, threshold), None);
 
         let children_mem_usage = [100u64; NUM_CHILDREN];
-        let threshold = 2000;
-        assert_eq!(find_middle_child(&children_mem_usage, threshold), None);
-
-        let threshold = 1050;
+        let threshold = 1000;
         assert_eq!(find_middle_child(&children_mem_usage, threshold), Some((10, 1000)));
+
+        // If middle child cannot be found, the last child should be picked.
+        let threshold = 2000;
+        assert_eq!(find_middle_child(&children_mem_usage, threshold), Some((15, 1500)));
     }
 
     #[test]
@@ -730,6 +744,51 @@ mod tests {
         }
 
         #[test]
+        #[should_panic]
+        fn key_too_short() {
+            let mut arena = STArena::new("test".to_string());
+
+            // A single entry with 1-nibble key (not long enough for an account ID)
+            let mut subtrees = [new_leaf(&mut arena, &[], &[]); SUBTREES.len()];
+            subtrees[0] = new_leaf(&mut arena, &[1], &[1u8; 100]);
+            init(&mut arena, subtrees).find_mem_usage_split();
+        }
+
+        #[test]
+        #[should_panic]
+        fn odd_key_length() {
+            let mut arena = STArena::new("test".to_string());
+
+            // The keys in this subtree are long enough for an account ID, but each has an odd
+            // number of nibbles, hence cannot be correctly parsed as an account ID.
+            //
+            //    ROOT
+            //     │
+            //     1       <-- 4 nibbles extension (long enough for an account ID)
+            //     1
+            //     1
+            //     1
+            //     │
+            //  0  │  1    <-- branch (extra nibble here makes the keys odd-length)
+            //  ┌──┴──┐
+            //  │     │
+            //  X     X    <-- leaves with 100-byte values
+
+            let mut subtrees = [new_leaf(&mut arena, &[], &[]); SUBTREES.len()];
+            subtrees[0] = {
+                let leaf = new_leaf(&mut arena, &[], &[1u8; 100]);
+                let branch = {
+                    let mut children = [None; NUM_CHILDREN];
+                    children[0] = Some(leaf);
+                    children[1] = Some(leaf);
+                    new_branch(&mut arena, None, children)
+                };
+                new_extension(&mut arena, &[1, 1, 1, 1], branch)
+            };
+            init(&mut arena, subtrees).find_mem_usage_split();
+        }
+
+        #[test]
         fn search_trivial_accounts() {
             let mut arena = STArena::new("test".to_string());
 
@@ -743,7 +802,6 @@ mod tests {
             //  ┌──┴──┐   ┌──┴──┐
             //  │     │   │     │
             //  0     0   0     0   <-- extension zeroes to reach the minimum length (2 bytes)
-            //  │     │   │     │
             //  0     0   0     0
             //  │     │   │     │
             //  X     X   X     X    <-- leaves with 100-byte values
@@ -861,7 +919,6 @@ mod tests {
             big_random_trie_inner(369).unwrap();
         }
 
-        // #[test]
         fn big_random_trie_inner(seed: u64) -> anyhow::Result<()> {
             // Initialize an empty trie and start an update to populate it with some data
             let (shard_tries, layout) =
