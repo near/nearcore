@@ -2555,30 +2555,7 @@ fn promise_batch_action_use_global_contract_impl(
     if ctx.context.is_view() {
         return Err(HostError::ProhibitedInView { method_name: method_name.to_owned() }.into());
     }
-    let contract_id = match contract_id_ptr {
-        GlobalContractIdentifierPtrData::CodeHash { code_hash_len, code_hash_ptr } => {
-            let code_hash_bytes = get_memory_or_register(
-                &mut ctx.result_state.gas_counter,
-                memory,
-                &ctx.registers,
-                code_hash_ptr,
-                code_hash_len,
-            )?;
-            let code_hash: [_; CryptoHash::LENGTH] =
-                (&*code_hash_bytes).try_into().map_err(|_| HostError::ContractCodeHashMalformed)?;
-            GlobalContractIdentifier::CodeHash(CryptoHash(code_hash))
-        }
-        GlobalContractIdentifierPtrData::AccountId { account_id_len, account_id_ptr } => {
-            let account_id = read_and_parse_account_id(
-                &mut ctx.result_state.gas_counter,
-                memory,
-                &ctx.registers,
-                account_id_ptr,
-                account_id_len,
-            )?;
-            GlobalContractIdentifier::AccountId(account_id)
-        }
-    };
+    let contract_id = read_contract_id(contract_id_ptr, memory, ctx)?;
 
     let (receipt_idx, sir) = promise_idx_to_receipt_idx_with_sir(ctx, promise_idx)?;
 
@@ -2598,6 +2575,221 @@ fn promise_batch_action_use_global_contract_impl(
     )?;
 
     ctx.ext.append_action_use_global_contract(receipt_idx, contract_id)?;
+    Ok(())
+}
+
+fn read_contract_id(
+    contract_id_ptr: GlobalContractIdentifierPtrData,
+    memory: &[u8],
+    ctx: &mut Ctx,
+) -> Result<GlobalContractIdentifier, VMLogicError> {
+    match contract_id_ptr {
+        GlobalContractIdentifierPtrData::CodeHash { code_hash_len, code_hash_ptr } => {
+            let code_hash_bytes = get_memory_or_register(
+                &mut ctx.result_state.gas_counter,
+                memory,
+                &ctx.registers,
+                code_hash_ptr,
+                code_hash_len,
+            )?;
+            let code_hash: [_; CryptoHash::LENGTH] =
+                (&*code_hash_bytes).try_into().map_err(|_| HostError::ContractCodeHashMalformed)?;
+            Ok(GlobalContractIdentifier::CodeHash(CryptoHash(code_hash)))
+        }
+        GlobalContractIdentifierPtrData::AccountId { account_id_len, account_id_ptr } => {
+            let account_id = read_and_parse_account_id(
+                &mut ctx.result_state.gas_counter,
+                memory,
+                &ctx.registers,
+                account_id_ptr,
+                account_id_len,
+            )?;
+            Ok(GlobalContractIdentifier::AccountId(account_id))
+        }
+    }
+}
+
+/// Appends `DeterministicStateInit` action to the batch of actions for the given promise
+/// pointed by `promise_idx`.
+///
+/// # Errors
+///
+/// * If `promise_idx` does not correspond to an existing promise returns
+///   [`HostError::InvalidPromiseIndex`].
+/// * If the promise pointed by the `promise_idx` is an ephemeral promise created by
+/// `promise_and` returns [`HostError::CannotAppendActionToJointPromise`].
+/// * If called as view function returns [`HostError::ProhibitedInView`].
+/// * If `code_hash_len + code_hash_ptr` or `amount_ptr + 16` points outside the memory of the
+/// guest or host returns [`HostError::MemoryAccessViolation`].
+///
+/// # Cost
+///
+/// `burnt_gas` := base + dispatch action base fee
+///             + cost of reading code from memory
+///             + cost of reading amount from memory
+///
+/// `used_gas`  := burnt_gas + exec action base fee
+pub fn promise_batch_action_state_init(
+    caller: &mut Caller<'_, Ctx>,
+    promise_idx: u64,
+    code_hash_len: u64,
+    code_hash_ptr: u64,
+    amount_ptr: u64,
+) -> Result<u64> {
+    promise_batch_action_state_init_impl(
+        caller,
+        promise_idx,
+        GlobalContractIdentifierPtrData::CodeHash { code_hash_len, code_hash_ptr },
+        amount_ptr,
+        "promise_batch_action_state_init",
+    )
+}
+
+/// Appends `DeterministicStateInit` action to the batch of actions for the given promise
+/// pointed by `promise_idx`.
+///
+/// # Errors
+///
+/// * If `promise_idx` does not correspond to an existing promise returns
+///   [`HostError::InvalidPromiseIndex`].
+/// * If the promise pointed by the `promise_idx` is an ephemeral promise created by
+/// `promise_and` returns [`HostError::CannotAppendActionToJointPromise`].
+/// * If called as view function returns [`HostError::ProhibitedInView`].
+/// * If `account_id_len + account_id_ptr` or `amount_ptr + 16` points outside the memory of the
+/// guest or host returns [`HostError::MemoryAccessViolation`].
+/// * If account_id string is not UTF-8 returns `BadUtf8`.
+///
+/// # Cost
+///
+/// `burnt_gas` := base + dispatch action base fee
+///             + cost of reading account id from memory
+///             + cost of decoding account_id as UTF-8
+///             + cost of reading amount from memory
+///
+/// `used_gas`  := burnt_gas + exec action base fee
+pub fn promise_batch_action_state_init_by_account_id(
+    caller: &mut Caller<'_, Ctx>,
+    promise_idx: u64,
+    account_id_len: u64,
+    account_id_ptr: u64,
+    amount_ptr: u64,
+) -> Result<u64> {
+    promise_batch_action_state_init_impl(
+        caller,
+        promise_idx,
+        GlobalContractIdentifierPtrData::AccountId { account_id_len, account_id_ptr },
+        amount_ptr,
+        "promise_batch_action_state_init_by_account_id",
+    )
+}
+
+fn promise_batch_action_state_init_impl(
+    caller: &mut Caller<'_, Ctx>,
+    promise_idx: u64,
+    contract_id_ptr: GlobalContractIdentifierPtrData,
+    amount_ptr: u64,
+    method_name: &str,
+) -> Result<u64> {
+    let memory = get_memory(caller)?;
+    let (memory, ctx) = memory.data_and_store_mut(caller);
+    ctx.result_state.gas_counter.pay_base(base)?;
+    if ctx.context.is_view() {
+        return Err(HostError::ProhibitedInView { method_name: method_name.to_owned() }.into());
+    }
+    let code = read_contract_id(contract_id_ptr, memory, ctx)?;
+    let amount =
+        Balance::from_yoctonear(get_u128(&mut ctx.result_state.gas_counter, memory, amount_ptr)?);
+    let (receipt_idx, sir) = promise_idx_to_receipt_idx_with_sir(ctx, promise_idx)?;
+
+    pay_action_base(
+        &mut ctx.result_state.gas_counter,
+        &ctx.fees_config,
+        ActionCosts::deterministic_state_init_base,
+        sir,
+    )?;
+    ctx.result_state.deduct_balance(amount)?;
+    ctx.ext.append_action_deterministic_state_init(receipt_idx, code, amount)
+}
+
+/// Appends a data entry to an existing `DeterministicStateInit` action.
+///
+/// # Errors
+///
+/// * If `promise_idx` does not correspond to an existing promise returns
+///   [`HostError::InvalidPromiseIndex`].
+/// * If the promise pointed by the `promise_idx` is an ephemeral promise created by
+///   `promise_and` returns [`HostError::CannotAppendActionToJointPromise`].
+/// * If `action_idx` does not correspond to an existing action within the promise,
+///   returns [`HostError::InvalidActionIndex`].
+/// * If `key` has already been set returns [`HostError::DataEntryAlreadyExists`].
+/// * If called as view function returns [`HostError::ProhibitedInView`].
+///
+/// # Cost
+///
+/// `burnt_gas` := base +
+///             + deterministic_state_init_entry send fee
+///             + deterministic_state_init_byte send fee * (key_len + value_len)
+///             + cost of reading account id from memory
+///             + cost of decoding account_id as UTF-8
+///             + cost of reading amount from memory
+///
+/// `used_gas`  := burnt_gas +
+///             + deterministic_state_init_entry exec fee
+///             + deterministic_state_init_byte exec fee * (key_len + value_len)
+pub fn set_state_init_data_entry(
+    caller: &mut Caller<'_, Ctx>,
+    promise_idx: u64,
+    action_index: u64,
+    key_len: u64,
+    key_ptr: u64,
+    value_len: u64,
+    value_ptr: u64,
+) -> Result<()> {
+    let memory = get_memory(caller)?;
+    let (memory, ctx) = memory.data_and_store_mut(caller);
+    ctx.result_state.gas_counter.pay_base(base)?;
+    if ctx.context.is_view() {
+        return Err(HostError::ProhibitedInView {
+            method_name: "set_state_init_data_entry".to_string(),
+        }
+        .into());
+    }
+
+    let (receipt_idx, sir) = promise_idx_to_receipt_idx_with_sir(ctx, promise_idx)?;
+    let key = get_memory_or_register(
+        &mut ctx.result_state.gas_counter,
+        memory,
+        &ctx.registers,
+        key_ptr,
+        key_len,
+    )?;
+    let key = key.to_vec();
+    let value = get_memory_or_register(
+        &mut ctx.result_state.gas_counter,
+        memory,
+        &ctx.registers,
+        value_ptr,
+        value_len,
+    )?;
+    let value = value.to_vec();
+
+    pay_action_base(
+        &mut ctx.result_state.gas_counter,
+        &ctx.fees_config,
+        ActionCosts::deterministic_state_init_entry,
+        sir,
+    )?;
+    let bytes = key_len.checked_add(value_len).ok_or(HostError::IntegerOverflow)?;
+    pay_action_per_byte(
+        &mut ctx.result_state.gas_counter,
+        &ctx.fees_config,
+        ActionCosts::deterministic_state_init_byte,
+        bytes,
+        sir,
+    )?;
+
+    ctx.ext.set_deterministic_state_init_data_entry(receipt_idx, action_index, key, value)?;
+
     Ok(())
 }
 
