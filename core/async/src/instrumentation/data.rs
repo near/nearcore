@@ -308,7 +308,7 @@ impl InstrumentedEventBuffer {
 
 #[derive(Default)]
 pub struct InstrumentedEvent {
-    /// Encoded as message type id | is_start << 32 | is present << 33
+    /// Encoded as message type id | is_start << 32
     pub event: AtomicU64,
     pub relative_timestamp_ns: AtomicU64,
 }
