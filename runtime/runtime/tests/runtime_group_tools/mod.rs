@@ -116,6 +116,7 @@ impl StandaloneRuntime {
             congestion_info,
             bandwidth_requests: BlockBandwidthRequests::empty(),
             trie_access_tracker_state: Default::default(),
+            on_post_state_ready: None,
         };
 
         Self {

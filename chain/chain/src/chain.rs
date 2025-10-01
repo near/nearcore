@@ -99,7 +99,7 @@ use near_store::adapter::StoreAdapter;
 use near_store::adapter::chain_store::ChainStoreAdapter;
 use near_store::get_genesis_state_roots;
 use near_store::{DBCol, StateSnapshotConfig};
-use node_runtime::SignedValidPeriodTransactions;
+use node_runtime::{PostState, PostStateReadyCallback, SignedValidPeriodTransactions};
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use std::cell::Cell;
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -136,6 +136,17 @@ const ACCEPTABLE_TIME_DIFFERENCE: i64 = 12 * 10;
 pub struct ApplyChunksDoneMessage;
 
 pub type ApplyChunksDoneSender = near_async::messaging::Sender<SpanWrapped<ApplyChunksDoneMessage>>;
+
+/// `PostStateReadyMessage` is a message that contains the post state after processing a chunk.
+/// This message is sent from a callback in the runtime to the Client actor before the post-state,
+/// is finalized. Client actor may use this information to start other tasks earlier, e.g.
+/// preparing transactions for inclusion in the next chunk.
+#[derive(Message, Debug)]
+pub struct PostStateReadyMessage {
+    pub post_state: PostState,
+}
+
+pub type PostStateReadySender = near_async::messaging::Sender<SpanWrapped<PostStateReadyMessage>>;
 
 /// Contains information for missing chunks in a block
 pub struct BlockMissingChunks {
@@ -293,6 +304,8 @@ pub struct Chain {
     /// Determines whether client should exit if the protocol version is not supported
     /// in the next or next next epoch.
     protocol_version_check: ProtocolVersionCheckConfig,
+    /// Used to receive `PostStateReady` messages from the runtime.
+    on_post_state_ready_sender: Option<PostStateReadySender>,
 }
 
 impl Drop for Chain {
@@ -401,6 +414,7 @@ impl Chain {
             validator_signer,
             spice_core_processor,
             protocol_version_check: Default::default(),
+            on_post_state_ready_sender: None,
         })
     }
 
@@ -418,6 +432,7 @@ impl Chain {
         validator_signer: MutableValidatorSigner,
         resharding_sender: ReshardingSender,
         spice_core_processor: CoreStatementsProcessor,
+        on_post_state_ready_sender: Option<PostStateReadySender>,
     ) -> Result<Chain, Error> {
         let state_roots = get_genesis_state_roots(runtime_adapter.store())?
             .expect("genesis should be initialized.");
@@ -568,6 +583,7 @@ impl Chain {
             validator_signer,
             spice_core_processor,
             protocol_version_check: chain_config.protocol_version_check,
+            on_post_state_ready_sender,
         })
     }
 
@@ -3255,6 +3271,8 @@ impl Chain {
             })
         };
 
+        let on_post_state_ready = self.get_on_post_state_ready_callback();
+
         let runtime = self.runtime_adapter.clone();
         Ok(Some((
             shard_id,
@@ -3265,9 +3283,27 @@ impl Chain {
                     runtime.as_ref(),
                     shard_update_reason,
                     shard_context,
+                    on_post_state_ready,
                 )?)
             }),
         )))
+    }
+
+    /// Construct the callback that the runtime will call when the chunk's post-state becomes
+    /// available. runtime can send the post-state to client which will being transaction
+    /// preparation using it. Runtime cannot directly send the message because it doesn't have
+    /// access to the near-async crate.
+    fn get_on_post_state_ready_callback(&self) -> Option<PostStateReadyCallback> {
+        match &self.on_post_state_ready_sender {
+            Some(sender) => {
+                let sender = sender.clone();
+                let closure = move |state: PostState| {
+                    sender.send(PostStateReadyMessage { post_state: state }.into());
+                };
+                Some(PostStateReadyCallback::new(Box::new(closure)))
+            }
+            None => None,
+        }
     }
 
     fn min_chunk_prev_height(&self, block: &Block) -> Result<BlockHeight, Error> {

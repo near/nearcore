@@ -242,6 +242,7 @@ impl TestEnv {
                     ),
                     gas_limit,
                     is_new_chunk: true,
+                    on_post_state_ready: None,
                 },
                 ApplyChunkBlockContext {
                     block_type: BlockType::Normal,
@@ -1553,6 +1554,7 @@ fn get_test_env_with_chain_and_pool() -> (TestEnv, Chain, TransactionPool) {
             env.runtime.store().chain_store(),
             env.epoch_manager.clone(),
         ),
+        None,
     )
     .unwrap();
 

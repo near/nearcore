@@ -36,7 +36,9 @@ use near_async::tokio::TokioRuntimeHandle;
 use near_async::{ActorSystem, MultiSend, MultiSenderFrom};
 #[cfg(feature = "test_features")]
 use near_chain::ChainStoreAccess;
-use near_chain::chain::{ApplyChunksDoneMessage, BlockCatchUpRequest, BlockCatchUpResponse};
+use near_chain::chain::{
+    ApplyChunksDoneMessage, BlockCatchUpRequest, BlockCatchUpResponse, PostStateReadyMessage,
+};
 use near_chain::resharding::types::ReshardingSender;
 use near_chain::spice_core::CoreStatementsProcessor;
 use near_chain::state_snapshot_actor::SnapshotCallbacks;
@@ -263,6 +265,7 @@ pub fn start_client(
 #[derive(Clone, MultiSend, MultiSenderFrom)]
 pub struct ClientSenderForClient {
     pub apply_chunks_done: Sender<SpanWrapped<ApplyChunksDoneMessage>>,
+    pub on_post_state_ready: Sender<SpanWrapped<PostStateReadyMessage>>,
 }
 
 #[derive(Clone, MultiSend, MultiSenderFrom)]
@@ -905,6 +908,12 @@ impl Handler<SpanWrapped<ApplyChunksDoneMessage>> for ClientActorInner {
     }
 }
 
+impl Handler<SpanWrapped<PostStateReadyMessage>> for ClientActorInner {
+    fn handle(&mut self, msg: SpanWrapped<PostStateReadyMessage>) {
+        self.handle_on_post_state_ready(msg.span_unwrap());
+    }
+}
+
 #[derive(Debug)]
 enum SyncRequirement {
     SyncNeeded { peer_id: PeerId, highest_height: BlockHeight, head: Tip },
@@ -1312,6 +1321,12 @@ impl ClientActorInner {
         delay = core::cmp::min(delay, self.log_summary_timer_next_attempt - now);
         timer.observe_duration();
         delay
+    }
+
+    // TODO: Implement handling of PostStateReadyMessage, for now just log it.
+    #[allow(clippy::needless_pass_by_ref_mut)]
+    fn handle_on_post_state_ready(&mut self, msg: PostStateReadyMessage) {
+        tracing::trace!(target: "client", ?msg, "Received PostStateReadyMessage");
     }
 
     /// "Unfinished" blocks means that blocks that client has started the processing and haven't

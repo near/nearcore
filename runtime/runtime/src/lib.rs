@@ -87,6 +87,7 @@ use rayon::prelude::*;
 use smallvec::SmallVec;
 use std::cmp::max;
 use std::collections::{HashMap, HashSet, VecDeque};
+use std::fmt::Debug;
 use std::sync::Arc;
 use tracing::{debug, instrument};
 use verifier::ValidateReceiptMode;
@@ -111,6 +112,41 @@ mod types;
 mod verifier;
 
 const EXPECT_ACCOUNT_EXISTS: &str = "account exists, checked above";
+
+pub struct PostState {
+    pub trie_update: TrieUpdate,
+}
+
+impl Debug for PostState {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "PostState {{ trie_update: committed: {}, prospective: {} }}",
+            self.trie_update.committed_len(),
+            self.trie_update.prospective_len()
+        )
+    }
+}
+
+// Wrapper for the callback to implement Debug
+pub struct PostStateReadyCallback {
+    callback: Box<dyn Fn(PostState) + Send + Sync>,
+}
+
+impl Debug for PostStateReadyCallback {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "PostStateReadyCallback{{ callback: ... }}")
+    }
+}
+
+impl PostStateReadyCallback {
+    pub fn new<F>(callback: F) -> Self
+    where
+        F: Fn(PostState) + Send + Sync + 'static,
+    {
+        Self { callback: Box::new(callback) }
+    }
+}
 
 #[derive(Debug)]
 pub struct ApplyState {
@@ -156,6 +192,8 @@ pub struct ApplyState {
     /// Each shard requests some bandwidth to other shards and then the bandwidth scheduler
     /// decides how much each shard is allowed to send.
     pub bandwidth_requests: BlockBandwidthRequests,
+    /// Callback to be called when the post-state is ready.
+    pub on_post_state_ready: Option<PostStateReadyCallback>,
 }
 
 impl ApplyState {
@@ -2438,6 +2476,13 @@ impl Runtime {
         metrics::CHUNK_RECORDED_SIZE_UPPER_BOUND
             .with_label_values(&[shard_id_str.as_str()])
             .observe(chunk_recorded_size_upper_bound);
+
+        // Call `on_post_state_ready` with a clone of the `state_update` if requested.
+        if let Some(on_post_state_ready) = &apply_state.on_post_state_ready {
+            let post_state = PostState { trie_update: state_update.clone_for_tx_preparation() };
+            let callback = &on_post_state_ready.callback;
+            callback(post_state);
+        }
         let TrieUpdateResult { trie, trie_changes, state_changes, contract_updates } =
             state_update.finalize()?;
 
