@@ -25,7 +25,6 @@ use node_runtime::{ApplyState, Runtime, SignedValidPeriodTransactions};
 use std::collections::HashMap;
 
 /// Generates a realistic ChunkStateWitness from native token transfers.
-#[allow(unused)]
 pub fn generate_realistic_state_witness(target_size_bytes: usize) -> ChunkStateWitness {
     const GAS_PRICE: Balance = Balance::from_yoctonear(5000);
     const INITIAL_BALANCE: Balance = Balance::from_near(10_000); // 10k NEAR per account
