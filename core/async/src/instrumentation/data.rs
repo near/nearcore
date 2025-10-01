@@ -39,7 +39,7 @@ pub static ALL_ACTOR_INSTRUMENTATIONS: LazyLock<AllActorInstrumentations> =
 /// thread and debugging threads.
 ///
 /// Given that context, you may wonder why the design is so complex with atomics deep in
-/// the data structures; afterall, can't we just have the actor thread aggregate stats
+/// the data structures; after all, can't we just have the actor thread aggregate stats
 /// locally and then give them (as an Arc) to the common data structure when a window is
 /// complete, and that way we won't need any atomics inside the window structures? The
 /// problem is that as soon as we the actor thread gives away the Arc, it has no chance
