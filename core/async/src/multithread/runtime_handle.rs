@@ -1,10 +1,14 @@
+use crate::instrumentation::writer::InstrumentedThreadWriter;
 use crate::messaging::Actor;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::time::Duration;
 
 /// MultithreadRuntimeMessage is a type alias for a boxed function that can be sent to the multithread runtime,
 /// as well as a description for debugging purposes.
 pub(super) struct MultithreadRuntimeMessage<A> {
     pub(super) seq: u64,
+    pub(super) name: &'static str,
     pub(super) function: Box<dyn FnOnce(&mut A) + Send>,
 }
 
@@ -48,14 +52,22 @@ where
     let (sender, receiver) = crossbeam_channel::unbounded::<MultithreadRuntimeMessage<A>>();
     let handle = MultithreadRuntimeHandle { sender };
     let threads_clone = threads.clone();
+    let thread_index = Arc::new(AtomicUsize::new(0));
     threads.spawn_broadcast(move |_| {
         let _threads = threads_clone.clone();
+        let thread_id = thread_index.fetch_add(1, Ordering::Relaxed);
         let mut actor = make_actor_fn();
+        let mut instrumentation = InstrumentedThreadWriter::new_from_global
+            (format!("{}-{}", std::any::type_name::<A>(), thread_id));
+        let window_update_ticker = crossbeam_channel::tick(Duration::from_secs(1));
         loop {
             crossbeam_channel::select! {
                 recv(system_cancellation_signal) -> _ => {
                     tracing::info!(target: "multithread_runtime", "cancellation received, exiting loop.");
                     return;
+                }
+                recv(window_update_ticker) -> _ => {
+                    instrumentation.advance_window_if_needed();
                 }
                 recv(receiver) -> message => {
                     let Ok(message) = message else {
@@ -63,8 +75,10 @@ where
                         return;
                     };
                     let seq = message.seq;
+                    instrumentation.start_event(message.name);
                     tracing::debug!(target: "multithread_runtime", seq, "Executing message");
                     (message.function)(&mut actor);
+                    instrumentation.end_event();
                 }
             }
         }
