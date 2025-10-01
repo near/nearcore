@@ -2,7 +2,7 @@ import './ActorsView.scss';
 import { useQuery } from '@tanstack/react-query';
 import { fetchInstrumentedThreadsView, InstrumentedThread, InstrumentedWindow } from './api';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, Legend } from "recharts";
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 
 type ActorsViewProps = {
     addr: string;
@@ -16,18 +16,32 @@ const formatThreadName = (threadName: string): string => {
 
 export const ActorsView = ({ addr }: ActorsViewProps) => {
     const [loadedData, setLoadedData] = useState<any>(null);
+    const [hasInitiallyFetched, setHasInitiallyFetched] = useState<boolean>(false);
     const fileInputRef = useRef<HTMLInputElement>(null);
 
     const {
         data: instrumentedThreads,
         error: instrumentedThreadsError,
         isLoading: instrumentedThreadsIsLoading,
+        refetch: refetchInstrumentedThreads,
     } = useQuery(['instrumentedThreads', addr], () => fetchInstrumentedThreadsView(addr), {
-        enabled: !loadedData, // Only fetch if no loaded data
+        enabled: false, // Avoid auto-fetch
     });
+
+    // Fetch data only once on initial mount
+    useEffect(() => {
+        if (!hasInitiallyFetched && !loadedData) {
+            refetchInstrumentedThreads();
+            setHasInitiallyFetched(true);
+        }
+    }, [refetchInstrumentedThreads, hasInitiallyFetched, loadedData]);
 
     // Use loaded data if available, otherwise use fetched data
     const currentData = loadedData || instrumentedThreads;
+
+    const handleRefreshData = async () => {
+        await refetchInstrumentedThreads();
+    };
 
     const handleSaveData = () => {
         if (!currentData) return;
@@ -69,7 +83,7 @@ export const ActorsView = ({ addr }: ActorsViewProps) => {
         }
     };
 
-    if (instrumentedThreadsIsLoading && !loadedData) {
+    if ((instrumentedThreadsIsLoading && !hasInitiallyFetched) && !loadedData) {
         return <div>Loading...</div>;
     } else if (instrumentedThreadsError && !loadedData) {
         return (
@@ -87,6 +101,13 @@ export const ActorsView = ({ addr }: ActorsViewProps) => {
             <div className="actors-controls">
                 <h2>Instrumented Threads</h2>
                 <div className="control-buttons">
+                    <button
+                        onClick={handleRefreshData}
+                        disabled={instrumentedThreadsIsLoading || !!loadedData}
+                        className="refresh-button"
+                    >
+                        {instrumentedThreadsIsLoading ? 'Refreshing...' : 'Refresh Data'}
+                    </button>
                     <button onClick={handleSaveData} disabled={!currentData} className="save-button">
                         Save View
                     </button>
@@ -106,7 +127,7 @@ export const ActorsView = ({ addr }: ActorsViewProps) => {
                         </button>
                     )}
                     {loadedData && (
-                        <span className="loaded-indicator">📁 Loaded from file</span>
+                        <span className="loaded-indicator">Loaded from file</span>
                     )}
                 </div>
             </div>

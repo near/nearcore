@@ -48,6 +48,16 @@
                     }
                 }
 
+                &.refresh-button {
+                    background-color: #17a2b8;
+                    color: white;
+                    border-color: #17a2b8;
+
+                    &:hover:not(:disabled) {
+                        background-color: #138496;
+                    }
+                }
+
                 &.load-button {
                     background-color: #007bff;
                     color: white;
