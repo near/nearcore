@@ -33,7 +33,8 @@ use near_primitives::deterministic_account_id::{
     DeterministicAccountStateInit, DeterministicAccountStateInitV1,
 };
 use near_primitives::errors::{
-    ActionError, ActionErrorKind, ActionsValidationError, InvalidTxError, TxExecutionError,
+    ActionError, ActionErrorKind, ActionsValidationError, CompilationError, FunctionCallError,
+    InvalidTxError, TxExecutionError,
 };
 use near_primitives::test_utils::create_user_test_signer;
 use near_primitives::transaction::SignedTransaction;
@@ -146,6 +147,55 @@ fn test_repeated_deterministic_state_init() {
         deposit_after > deposit_between.checked_sub(required_for_storage).unwrap(),
         "signer should have been refunded the deposit cost and only spend gas cost on the second call"
     );
+
+    env.shutdown();
+}
+
+/// Ensure we can pre-pay the balance for a deterministic account.
+///
+/// It is a required feature that one can send a Transfer to a non-existing
+/// deterministic account first and later initialize it without adding balance,
+/// even if more storage than the ZBA limit is used.
+#[test]
+fn test_deterministic_state_init_prepay_for_storage() {
+    if !ProtocolFeature::DeterministicAccountIds.enabled(PROTOCOL_VERSION) {
+        return;
+    }
+    let mut env = TestEnv::setup(Balance::from_near(100));
+    env.parent.deploy_global_contract(GlobalContractDeployMode::AccountId);
+
+    let data = BTreeMap::from_iter([(b"key".to_vec(), vec![0u8; 100_000])]);
+    let (state_init, det_account) = env.new_deterministic_account_with_data(data.clone());
+
+    // Try once without pre-paying, must fail.
+    let outcome = env
+        .try_deploy_deterministic_account_with_data(data.clone(), Balance::ZERO)
+        .expect("should be able to send transaction");
+    assert_matches!(
+        outcome.status,
+        FinalExecutionStatus::Failure(TxExecutionError::ActionError(ActionError {
+            kind: ActionErrorKind::LackBalanceForState { .. },
+            index: _
+        }))
+    );
+
+    // Prepay
+    let required_for_storage = env.balance_for_storage(state_init);
+    env.fund_with_near_balance(det_account.clone(), required_for_storage);
+    assert_eq!(
+        required_for_storage,
+        env.parent.get_account_state(det_account.clone()).amount,
+        "account should have been created and funded now"
+    );
+
+    // Contract can't be called, yet.
+    env.assert_test_contract_not_usable_on_account(det_account.clone());
+
+    // Try creating again, with zero balance again. Must succeed this time.
+    env.try_deploy_deterministic_account_with_data(data, Balance::ZERO)
+        .expect("should be able to send transaction")
+        .assert_success();
+    env.assert_test_contract_usable_on_account(det_account);
 
     env.shutdown();
 }
@@ -372,10 +422,40 @@ impl TestEnv {
         )
     }
 
+    fn fund_with_near_balance(&mut self, receiver_id: AccountId, amount: Balance) {
+        let signer_id = self.independent_account();
+        let signer = create_user_test_signer(&signer_id);
+        let tx = SignedTransaction::send_money(
+            self.parent.next_nonce(),
+            signer_id,
+            receiver_id,
+            &signer,
+            amount,
+            self.parent.get_tx_block_hash(),
+        );
+        self.parent.execute_tx(tx).assert_success();
+    }
+
     fn assert_test_contract_usable_on_account(&mut self, account_with_contract: AccountId) {
         let tx =
             self.call_test_contract_tx(self.independent_account().clone(), account_with_contract);
         self.parent.run_tx(tx);
+    }
+
+    fn assert_test_contract_not_usable_on_account(&mut self, account_with_contract: AccountId) {
+        let tx =
+            self.call_test_contract_tx(self.independent_account().clone(), account_with_contract);
+        let outcome = self.parent.execute_tx(tx);
+
+        assert_matches!(
+            outcome.status,
+            FinalExecutionStatus::Failure(TxExecutionError::ActionError(ActionError {
+                kind: ActionErrorKind::FunctionCallError(FunctionCallError::CompilationError(
+                    CompilationError::CodeDoesNotExist { .. }
+                )),
+                index: _
+            }))
+        );
     }
 
     fn try_execute_tx(

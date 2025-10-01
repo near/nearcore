@@ -492,7 +492,7 @@ impl GlobalContractsTestEnv {
         transactions::get_shared_block_hash(&self.env.node_datas, &self.env.test_loop.data)
     }
 
-    fn execute_tx(&mut self, tx: SignedTransaction) -> FinalExecutionOutcomeView {
+    pub(crate) fn execute_tx(&mut self, tx: SignedTransaction) -> FinalExecutionOutcomeView {
         TestLoopNode::for_account(&self.env.node_datas, &rpc_account_id())
             .execute_tx(&mut self.env.test_loop, tx, Duration::seconds(5))
             .unwrap()
