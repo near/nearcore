@@ -82,6 +82,9 @@ pub(crate) fn action_deterministic_state_init(
             // Account already exists, do nothing.
         }
     }
+    if result.result.is_err() {
+        return Ok(());
+    }
     debug_assert!(
         matches!(AccountState::of(account.as_ref()), AccountState::Active),
         "account must be active now"
@@ -171,6 +174,9 @@ fn deploy_deterministic_account(
         current_protocol_version,
         result,
     )?;
+    if result.result.is_err() {
+        return Ok(());
+    }
 
     // Step 2: insert provided key-value pairs
     let mut required_storage_usage = account.storage_usage();
