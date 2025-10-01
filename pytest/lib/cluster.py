@@ -1196,7 +1196,8 @@ def apply_config_changes(node_dir: str,
     for k, v in client_config_change.items():
         if not (k in allowed_missing_configs or k in config_json):
             raise ValueError(f'Unknown configuration option: {k}')
-        if k in config_json and isinstance(v, dict):
+        if k in config_json and isinstance(config_json[k], dict) and isinstance(
+                v, dict):
             config_json[k].update(v)
         else:
             # Support keys in the form of "a.b.c".
