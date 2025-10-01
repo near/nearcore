@@ -8,6 +8,7 @@
     table {
         width: 100%;
         border-collapse: collapse;
+        table-layout: fixed;
     }
 
     table,
@@ -28,6 +29,17 @@
         padding: 8px;
         background-color: lightgrey;
     }
+
+    // Thread Name column (first column)
+    th:first-child,
+    td:first-child {
+        width: 25%;
+        word-wrap: break-word;
+        overflow-wrap: break-word;
+        hyphens: none;
+        white-space: normal;
+    }
+
 
     tr.active {
         background-color: #eff8bf;

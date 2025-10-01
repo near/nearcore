@@ -564,7 +564,7 @@ export interface InstrumentedWindowSummary {
 }
 
 export interface MessageStatsForType {
-    message_types: number;
+    message_type: number;
     count: number;
     total_time_ns: number;
 }
