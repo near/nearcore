@@ -1702,7 +1702,7 @@ fn test_prepare_transactions_extra() {
     assert!(skipped.0.is_empty());
 
     // Keep a list of all transactions, will be useful for checking things
-    let all_txs = prepared.transactions.clone();
+    let all_txs = prepared.transactions;
 
     // Reintroduce transactions
     for tx in &all_txs {
