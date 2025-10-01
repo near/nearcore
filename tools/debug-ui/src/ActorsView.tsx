@@ -17,6 +17,7 @@ const formatThreadName = (threadName: string): string => {
 export const ActorsView = ({ addr }: ActorsViewProps) => {
     const [loadedData, setLoadedData] = useState<any>(null);
     const [hasInitiallyFetched, setHasInitiallyFetched] = useState<boolean>(false);
+    const [yAxisMode, setYAxisMode] = useState<'auto' | 'fixed'>('auto');
     const fileInputRef = useRef<HTMLInputElement>(null);
 
     const {
@@ -100,6 +101,27 @@ export const ActorsView = ({ addr }: ActorsViewProps) => {
         <div className="actors-view">
             <div className="actors-controls">
                 <h2>Instrumented Threads</h2>
+                <div className="y-axis-controls">
+                    <span className="control-label">Y-Axis Scale:</span>
+                    <label className="radio-option">
+                        <input
+                            type="radio"
+                            value="auto"
+                            checked={yAxisMode === 'auto'}
+                            onChange={(e) => setYAxisMode(e.target.value as 'auto' | 'fixed')}
+                        />
+                        Auto
+                    </label>
+                    <label className="radio-option">
+                        <input
+                            type="radio"
+                            value="fixed"
+                            checked={yAxisMode === 'fixed'}
+                            onChange={(e) => setYAxisMode(e.target.value as 'auto' | 'fixed')}
+                        />
+                        Fixed (1000ms)
+                    </label>
+                </div>
                 <div className="control-buttons">
                     <button
                         onClick={handleRefreshData}
@@ -142,7 +164,7 @@ export const ActorsView = ({ addr }: ActorsViewProps) => {
                     {sortedThreads?.map((thread: InstrumentedThread, idx: number) => (
                         <tr key={idx}>
                             <td>{formatThreadName(thread.thread_name)}</td>
-                            <td><BucketChart windows={thread.windows} max_start_time={maxStartTime} message_types={thread.message_types} /></td>
+                            <td><BucketChart windows={thread.windows} max_start_time={maxStartTime} message_types={thread.message_types} yAxisMode={yAxisMode} /></td>
                         </tr>
                     ))}
                 </tbody>
@@ -175,9 +197,10 @@ type BucketChartProps = {
     windows: InstrumentedWindow[];
     max_start_time: number;
     message_types: string[];
+    yAxisMode: 'auto' | 'fixed';
 };
 
-function BucketChart({ windows, max_start_time, message_types }: BucketChartProps) {
+function BucketChart({ windows, max_start_time, message_types, yAxisMode }: BucketChartProps) {
     // First, we're going to go through the windows. We will add empty ones at the
     // beginning to make sure we start at max_start_time.
     // Assuming windows are given in reverse chronological order.
@@ -231,7 +254,7 @@ function BucketChart({ windows, max_start_time, message_types }: BucketChartProp
     return (
         <BarChart width={600} height={150} data={data}>
             <XAxis dataKey="bucket" />
-            <YAxis domain={[0, 'auto']} hide={true} />
+            <YAxis domain={[0, yAxisMode === 'auto' ? 'auto' : 1000]} hide={true} />
             <Tooltip />
             <Legend align={"right"} verticalAlign={"middle"} layout="vertical" iconSize={8} width={250} wrapperStyle={
                 { fontSize: "12px", paddingLeft: "10px" }
