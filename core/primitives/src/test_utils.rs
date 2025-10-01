@@ -1,7 +1,7 @@
 use crate::account::{AccessKey, AccessKeyPermission, Account};
 use crate::action::{
-    DeployGlobalContractAction, GlobalContractDeployMode, GlobalContractIdentifier,
-    UseGlobalContractAction,
+    DeployGlobalContractAction, DeterministicStateInitAction, GlobalContractDeployMode,
+    GlobalContractIdentifier, UseGlobalContractAction,
 };
 use crate::block::Block;
 use crate::block_body::{BlockBody, ChunkEndorsementSignatures, SpiceCoreStatement};
@@ -23,6 +23,7 @@ use crate::views::{ExecutionStatusView, FinalExecutionOutcomeView, FinalExecutio
 use near_crypto::vrf::Value;
 use near_crypto::{EmptySigner, PublicKey, SecretKey, Signature, Signer};
 use near_primitives_core::account::AccountContract;
+use near_primitives_core::deterministic_account_id::DeterministicAccountStateInit;
 use near_primitives_core::types::{BlockHeight, MerkleHash, ProtocolVersion};
 use std::collections::HashMap;
 #[cfg(feature = "clock")]
@@ -422,6 +423,29 @@ impl SignedTransaction {
             signer_id,
             signer,
             vec![Action::AddKey(Box::new(AddKeyAction { public_key, access_key }))],
+            block_hash,
+            0,
+        )
+    }
+
+    pub fn deterministic_state_init(
+        nonce: Nonce,
+        signer_id: AccountId,
+        receiver_id: AccountId,
+        signer: &Signer,
+        block_hash: CryptoHash,
+        state_init: DeterministicAccountStateInit,
+        deposit: Balance,
+    ) -> Self {
+        Self::from_actions(
+            nonce,
+            signer_id,
+            receiver_id,
+            signer,
+            vec![Action::DeterministicStateInit(Box::new(DeterministicStateInitAction {
+                state_init,
+                deposit,
+            }))],
             block_hash,
             0,
         )
