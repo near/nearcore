@@ -284,6 +284,16 @@ jobs:
           tool: just,cargo-udeps
       - run: just check-cargo-udeps
 
+  check_openapi:
+    name: "OpenAPI Spec"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: taiki-e/install-action@7852930e42e73b6c323ae4435f5135b58754dfdd
+        with:
+          tool: just
+      - run: just openapi-spec
+
   cargo_audit:
     name: "Cargo Audit"
     runs-on: ubuntu-latest
