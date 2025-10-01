@@ -1,6 +1,7 @@
 use std::sync::Arc;
 use std::task::Poll;
 
+#[cfg(feature = "test_features")]
 use near_async::messaging::CanSend;
 use near_async::test_loop::TestLoopV2;
 use near_async::test_loop::data::TestLoopData;
@@ -38,6 +39,7 @@ impl<'a> TestLoopNode<'a> {
         Self { data }
     }
 
+    #[allow(unused)]
     pub fn all(node_datas: &'a [NodeExecutionData]) -> Vec<Self> {
         node_datas.iter().map(|data| Self { data }).collect()
     }
