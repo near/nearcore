@@ -1327,6 +1327,13 @@ impl ClientActorInner {
     fn handle_on_post_state_ready(&mut self, msg: PostStateReadyMessage) {
         tracing::trace!(target: "client", ?msg, "Received PostStateReadyMessage");
 
+        // Do not run early transaction preparation when the node is syncing. It will not produce
+        // any chunks until it catches up with the chain. Running preparation on old state could
+        // reject new transactions from the pool.
+        if self.client.sync_handler.sync_status.is_syncing() {
+            return;
+        }
+
         let tx_validity_period_check = self.client.chain.early_prepare_transaction_validity_check(
             msg.prev_block_context.height,
             msg.prev_prev_block_header,
