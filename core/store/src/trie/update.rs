@@ -282,7 +282,7 @@ impl TrieUpdate {
         self.trie.get_root()
     }
 
-    fn get_from_updates(
+    pub fn get_from_updates(
         &self,
         key: &TrieKey,
         fallback: impl FnOnce(&[u8]) -> Result<Option<Vec<u8>>, StorageError>,

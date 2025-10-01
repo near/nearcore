@@ -1580,6 +1580,7 @@ fn prepare_transactions(
     let shard_id = shard_layout.shard_ids().next().unwrap();
     let block = chain.get_block(&prev_hash).unwrap();
     let congestion_info = block.block_congestion_info();
+    let next_epoch_id = env.epoch_manager.get_epoch_id_from_prev_block(&prev_hash)?;
 
     env.runtime.prepare_transactions(
         storage_config,
@@ -1587,7 +1588,7 @@ fn prepare_transactions(
         PrepareTransactionsBlockContext {
             next_gas_price: env.runtime.genesis_config.min_gas_price,
             height: env.head.height,
-            block_hash: env.head.last_block_hash,
+            next_epoch_id,
             congestion_info,
         },
         transaction_groups,
@@ -1598,6 +1599,47 @@ fn prepare_transactions(
                 .is_ok()
         },
         default_produce_chunk_add_transactions_time_limit(),
+    )
+}
+
+fn prepare_transactions_extra(
+    env: &TestEnv,
+    chain: &Chain,
+    transaction_groups: &mut dyn TransactionGroupIterator,
+    skip_tx_hashes: HashSet<CryptoHash>,
+    cancel: Option<Arc<AtomicBool>>,
+) -> Result<(PreparedTransactions, SkippedTransactions), Error> {
+    let prev_hash = env.head.prev_block_hash;
+    let shard_layout = env.epoch_manager.get_shard_layout_from_prev_block(&prev_hash).unwrap();
+    let shard_uid = shard_layout.shard_uids().next().unwrap();
+    let shard_id = shard_uid.shard_id();
+    let block = chain.get_block(&prev_hash).unwrap();
+    let congestion_info = block.block_congestion_info();
+    let next_epoch_id = env.epoch_manager.get_epoch_id_from_prev_block(&prev_hash)?;
+
+    let mut trie = env.runtime.tries.get_trie_for_shard(shard_uid, env.state_roots[0]);
+    trie = trie.recording_reads_new_recorder();
+    let state_update = TrieUpdate::new(trie);
+
+    env.runtime.prepare_transactions_extra(
+        state_update,
+        shard_id,
+        PrepareTransactionsBlockContext {
+            next_gas_price: env.runtime.genesis_config.min_gas_price,
+            height: env.head.height,
+            next_epoch_id,
+            congestion_info,
+        },
+        transaction_groups,
+        &mut |tx: &SignedTransaction| -> bool {
+            chain
+                .chain_store()
+                .check_transaction_validity_period(&block.header(), tx.transaction.block_hash())
+                .is_ok()
+        },
+        skip_tx_hashes,
+        default_produce_chunk_add_transactions_time_limit(),
+        cancel,
     )
 }
 
@@ -1644,6 +1686,84 @@ fn test_prepare_transactions_helper(
             }
         };
     Ok((transactions_count, prepared_transactions))
+}
+
+#[test]
+fn test_prepare_transactions_extra() {
+    let (env, chain, mut transaction_pool) = get_test_env_with_chain_and_pool();
+
+    // First run the preparation without any extra arguments
+    let (prepared, skipped) = prepare_transactions_extra(
+        &env,
+        &chain,
+        &mut PoolIteratorWrapper::new(&mut transaction_pool),
+        HashSet::new(),
+        None,
+    )
+    .unwrap();
+    assert_eq!(prepared.transactions.len(), 4 * 3); // 4 validators, a transaction between each pair.
+    assert!(skipped.0.is_empty());
+
+    // Keep a list of all transactions, will be useful for checking things
+    let all_txs = prepared.transactions;
+
+    // Reintroduce transactions
+    for tx in &all_txs {
+        transaction_pool.insert_transaction(tx.clone());
+    }
+
+    // Run with `cancel` set to Some(false)
+    // Should have no effect.
+    let (prepared, skipped) = prepare_transactions_extra(
+        &env,
+        &chain,
+        &mut PoolIteratorWrapper::new(&mut transaction_pool),
+        HashSet::new(),
+        Some(Arc::new(AtomicBool::new(false))),
+    )
+    .unwrap();
+    assert_eq!(prepared.transactions.len(), all_txs.len());
+    assert!(skipped.0.is_empty());
+
+    for tx in prepared.transactions {
+        transaction_pool.insert_transaction(tx);
+    }
+
+    // Run with `cancel` set to Some(true)
+    // Should stop immediately.
+    let (prepared, skipped) = prepare_transactions_extra(
+        &env,
+        &chain,
+        &mut PoolIteratorWrapper::new(&mut transaction_pool),
+        HashSet::new(),
+        Some(Arc::new(AtomicBool::new(true))),
+    )
+    .unwrap();
+    assert!(prepared.transactions.is_empty());
+    assert!(skipped.0.is_empty());
+
+    // Skip the first 4 transactions
+    let skip_num = 4;
+    let skip_tx_hashes: HashSet<CryptoHash> =
+        all_txs.iter().map(|tx| tx.get_hash()).take(skip_num).collect();
+    let (prepared, skipped) = prepare_transactions_extra(
+        &env,
+        &chain,
+        &mut PoolIteratorWrapper::new(&mut transaction_pool),
+        skip_tx_hashes.clone(),
+        None,
+    )
+    .unwrap();
+    assert_eq!(prepared.transactions.len(), all_txs.len() - skip_num);
+    assert_eq!(skipped.0.len(), skip_num);
+
+    for tx in prepared.transactions {
+        assert!(!skip_tx_hashes.contains(&tx.get_hash()));
+    }
+    let skipped_hashes: HashSet<CryptoHash> = skipped.0.iter().map(|tx| tx.get_hash()).collect();
+    assert_eq!(skipped_hashes, skip_tx_hashes);
+
+    assert_eq!(transaction_pool.len(), 0);
 }
 
 #[test]
