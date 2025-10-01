@@ -95,12 +95,17 @@ export const ActorsView = ({ addr }: ActorsViewProps) => {
     }
     let allThreads = currentData?.status_response.InstrumentedThreads.threads || [];
     let sortedThreads = allThreads.slice().sort((a: InstrumentedThread, b: InstrumentedThread) => a.thread_name.localeCompare(b.thread_name));
-    let maxStartTime = getMaxStartTime(allThreads);
+    let [minStartTime, maxStartTime] = [getMinStartTime(allThreads), getMaxStartTime(allThreads)];
+    let currentTimeUnixMs = currentData?.status_response.InstrumentedThreads.current_time_unix_ms || 0;
+    let startTimeUnixEstimatedMs = currentTimeUnixMs - (maxStartTime - minStartTime);
 
     return (
         <div className="actors-view">
             <div className="actors-controls">
                 <h2>Instrumented Threads</h2>
+                <div className="time-info">
+                    {`Showing data from ~${new Date(startTimeUnixEstimatedMs).toISOString()} to ${new Date(currentTimeUnixMs).toISOString()} (${((currentTimeUnixMs - startTimeUnixEstimatedMs) / 1000).toFixed(1)}s) `}
+                </div>
                 <div className="y-axis-controls">
                     <span className="control-label">Y-Axis Scale:</span>
                     <label className="radio-option">
@@ -164,7 +169,7 @@ export const ActorsView = ({ addr }: ActorsViewProps) => {
                     {sortedThreads?.map((thread: InstrumentedThread, idx: number) => (
                         <tr key={idx}>
                             <td>{formatThreadName(thread.thread_name)}</td>
-                            <td><BucketChart windows={thread.windows} max_start_time={maxStartTime} message_types={thread.message_types} yAxisMode={yAxisMode} /></td>
+                            <td><BucketChart windows={thread.windows} min_start_time={minStartTime} message_types={thread.message_types} yAxisMode={yAxisMode} /></td>
                         </tr>
                     ))}
                 </tbody>
@@ -183,44 +188,63 @@ const getFirstStartTime = (thread: InstrumentedThread): number => {
     return thread.windows[0].start_time_ms;
 }
 
+const getLastStartTime = (thread: InstrumentedThread): number => {
+    if (thread.windows.length === 0) {
+        return 0;
+    }
+    return thread.windows[thread.windows.length - 1].start_time_ms;
+}
+
+const getMinStartTime = (threads: InstrumentedThread[]): number => {
+    if (threads.length === 0) {
+        return 0;
+    }
+    return Math.min(...threads.map(t => getLastStartTime(t)));
+};
+
 const getMaxStartTime = (threads: InstrumentedThread[]): number => {
     if (threads.length === 0) {
         return 0;
     }
     return Math.max(...threads.map(t => getFirstStartTime(t)));
-};
+}
 
 const WINDOW_LEN_MS = 500;
 const MAX_BUCKETS_TO_DISPLAY = 15;
 
 type BucketChartProps = {
     windows: InstrumentedWindow[];
-    max_start_time: number;
+    min_start_time: number;
     message_types: string[];
     yAxisMode: 'auto' | 'fixed';
 };
 
-function BucketChart({ windows, max_start_time, message_types, yAxisMode }: BucketChartProps) {
-    // First, we're going to go through the windows. We will add empty ones at the
-    // beginning to make sure we start at max_start_time.
-    // Assuming windows are given in reverse chronological order.
-    while (windows.length == 0 || windows[0].start_time_ms < max_start_time) {
-        windows.unshift({
-            start_time_ms: windows.length == 0 ? max_start_time : windows[0].start_time_ms + WINDOW_LEN_MS,
+function BucketChart({ windows, min_start_time, message_types, yAxisMode }: BucketChartProps) {
+    // Create a copy of windows to avoid mutating the original
+    let processedWindows = [...windows];
+
+    // Add empty windows at the end to align all threads to start from min_start_time
+    // Windows are in reverse chronological order (newest first)
+    while (processedWindows.length == 0 || processedWindows[processedWindows.length - 1].start_time_ms > min_start_time) {
+        const lastWindow = processedWindows[processedWindows.length - 1];
+        processedWindows.push({
+            start_time_ms: processedWindows.length == 0 ? min_start_time : lastWindow.start_time_ms - WINDOW_LEN_MS,
             events: [],
             summary: {
                 message_stats_by_type: [],
             }
         });
-    };
-    // Now, we will truncate the list to MAX_BUCKETS_TO_DISPLAY
-    windows = windows.slice(0, MAX_BUCKETS_TO_DISPLAY);
+    }
 
-    // Now, we will convert windows to a format suitable for recharts.
-    // For each message type, we will create a field in the data.
-    // The value will be the total_time_ns for that message type in that window.
-    const data = windows.map(window => {
-        let entry: { [key: string]: number } = { bucket: window.start_time_ms };
+    // Reverse the array so oldest windows come first (chronological order)
+    processedWindows.reverse();
+
+    // Convert windows to recharts format with relative time from min_start_time
+    const data = processedWindows.map(window => {
+        // Calculate relative time from the global minimum start time
+        const relativeTime = window.start_time_ms - min_start_time;
+        let entry: { [key: string]: number } = { bucket: relativeTime };
+
         window.summary.message_stats_by_type.forEach((stat) => {
             entry[message_types[stat.message_type]] = stat.total_time_ns / 1_000_000; // convert to ms
         });
@@ -250,12 +274,16 @@ function BucketChart({ windows, max_start_time, message_types, yAxisMode }: Buck
         "#dbdb8d"  // light olive
     ];
 
+    // Custom formatter for X-axis to show relative time
+    const formatXAxisLabel = (value: number) => {
+        return `${(value / 1000).toFixed(1)}s`;
+    };
 
     return (
-        <BarChart width={600} height={150} data={data}>
-            <XAxis dataKey="bucket" />
+        <BarChart width={800} height={150} data={data}>
+            <XAxis dataKey="bucket" tickFormatter={formatXAxisLabel} />
             <YAxis domain={[0, yAxisMode === 'auto' ? 'auto' : 1000]} hide={true} />
-            <Tooltip />
+            <Tooltip labelFormatter={(value) => `Time: ${formatXAxisLabel(value as number)}`} />
             <Legend align={"right"} verticalAlign={"middle"} layout="vertical" iconSize={8} width={250} wrapperStyle={
                 { fontSize: "12px", paddingLeft: "10px" }
             } />
