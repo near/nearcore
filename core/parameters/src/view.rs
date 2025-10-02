@@ -221,9 +221,9 @@ pub struct VMConfigView {
     /// Gas cost of a regular operation.
     pub regular_op_cost: u32,
     /// Base gas cost of a linear operation
-    pub linear_op_base_cost: u32,
+    pub linear_op_base_cost: u64,
     /// Unit gas cost of a linear operation
-    pub linear_op_unit_cost: u32,
+    pub linear_op_unit_cost: u64,
 
     /// See [VMConfig::vm_kind](crate::vm::Config::vm_kind).
     pub vm_kind: crate::vm::VMKind,

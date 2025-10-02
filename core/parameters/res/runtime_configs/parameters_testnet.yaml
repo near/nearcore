@@ -134,8 +134,8 @@ action_deterministic_state_init_per_byte: {
 
 # Smart contract dynamic gas costs
 wasm_regular_op_cost: 3_856_371
-wasm_linear_op_base_cost: 3_856_371
-wasm_linear_op_unit_cost: 0
+wasm_linear_op_base_cost: 300_000_000_000_000
+wasm_linear_op_unit_cost: 300_000_000_000_000
 wasm_grow_mem_cost: 1
 wasm_base: 264_768_111
 wasm_contract_loading_base: 35_445_963

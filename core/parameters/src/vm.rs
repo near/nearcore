@@ -157,10 +157,10 @@ pub struct Config {
     pub regular_op_cost: u32,
 
     /// Base gas cost of a linear operation
-    pub linear_op_base_cost: u32,
+    pub linear_op_base_cost: u64,
 
     /// Unit gas cost of a linear operation
-    pub linear_op_unit_cost: u32,
+    pub linear_op_unit_cost: u64,
 
     /// The kind of the VM implementation to use
     pub vm_kind: VMKind,
