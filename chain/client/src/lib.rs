@@ -24,6 +24,8 @@ pub use crate::stateless_validation::chunk_validation_actor::{
 };
 pub use crate::view_client_actor::ViewClientActor;
 pub use chunk_producer::ProduceChunkResult;
+#[cfg(feature = "tx_generator")]
+pub use chunk_producer::{TX_GENERATOR_TARGET, TxGeneratorTarget};
 pub use near_chain::stateless_validation::processing_tracker::{
     ProcessingDoneTracker, ProcessingDoneWaiter,
 };

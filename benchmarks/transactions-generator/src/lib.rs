@@ -27,6 +27,8 @@ pub mod account;
 pub mod actor;
 mod choice;
 
+use near_client::{TX_GENERATOR_TARGET, TxGeneratorTarget};
+
 // Number of tasks to run producing and sending transactions
 // We need several tasks to not get blocked by the sending latency.
 // 4 is currently more than enough.
@@ -526,6 +528,10 @@ impl TxGenerator {
                             tracing::warn!(target: "transaction-generator", rate, "controller suggested tps is out of range, clamping");
                             rate = rate.clamp(1.0, 100000.0);
                         }
+                        if let Some(target) = &mut *TX_GENERATOR_TARGET.lock() {
+                            target.target_tps = rate;
+                        }
+
                         let _span = tracing::debug_span!(
                             "update_tx_generator_rate",
                             %height,
@@ -594,8 +600,12 @@ impl TxGenerator {
                         BlockHeaderView{hash: latest_block_hash, .. } = *rx_block.borrow();
                     }
                     _ = tx_rates.changed() => {
-                            tx_interval = tokio::time::interval(*tx_rates.borrow());
-                        }
+                        // Generate transactions at a 1.2x higher rate than TPS rate to ensure that
+                        // the transaction pool is always full. Number of transactions in a chunk is
+                        // limited by the values set in `TX_GENERATOR_TARGET`.
+                        let tx_generation_rate = *tx_rates.borrow() * 4 / 5;
+                        tx_interval = tokio::time::interval(tx_generation_rate);
+                    }
                     _ = tx_interval.tick() => {
                         let ok = Self::generate_send_transaction(
                             &mut rnd,
@@ -631,6 +641,11 @@ impl TxGenerator {
         let schedule = config.schedule.clone();
 
         let controller = if let Some(controller_config) = &config.controller {
+            *TX_GENERATOR_TARGET.lock() = Some(TxGeneratorTarget {
+                target_block_production_time_s: controller_config.target_block_production_time_s,
+                target_tps: schedule.first().map(|load| load.tps).unwrap_or(0) as f64,
+            });
+
             Some(FilteredRateController {
                 controller: pid_lite::Controller::new(
                     controller_config.target_block_production_time_s,
