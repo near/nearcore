@@ -38,7 +38,7 @@ impl InstrumentedThreadWriter {
         Self::new(clock, reference_instant, target)
     }
 
-    pub fn start_event(&mut self, message_type: &str) {
+    pub fn start_event(&mut self, message_type: &str, dequeue_time_ns: u64) {
         let start_time_ns =
             self.clock.now().duration_since(self.reference_instant).as_nanos() as u64;
         let message_type_id = if let Some(id) = self.type_name_registry.get(message_type) {
@@ -50,7 +50,7 @@ impl InstrumentedThreadWriter {
             id
         };
         self.advance_window_if_needed_internal(start_time_ns);
-        self.target.start_event(message_type_id, start_time_ns);
+        self.target.start_event(message_type_id, start_time_ns, dequeue_time_ns);
     }
 
     pub fn end_event(&mut self) {

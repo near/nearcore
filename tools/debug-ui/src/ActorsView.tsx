@@ -163,13 +163,15 @@ export const ActorsView = ({ addr }: ActorsViewProps) => {
                     <tr>
                         <th>Thread Name</th>
                         <th>Time buckets</th>
+                        <th>Dequeue Time</th>
                     </tr>
                 </thead>
                 <tbody>
                     {sortedThreads?.map((thread: InstrumentedThread, idx: number) => (
                         <tr key={idx}>
                             <td>{formatThreadName(thread.thread_name)}</td>
-                            <td><BucketChart windows={thread.windows} min_start_time={minStartTime} message_types={thread.message_types} yAxisMode={yAxisMode} /></td>
+                            <td><BucketChart windows={thread.windows} min_start_time={minStartTime} message_types={thread.message_types} yAxisMode={yAxisMode} is_dequeue_chart={false} /></td>
+                            <td><BucketChart windows={thread.windows} min_start_time={minStartTime} message_types={thread.message_types} yAxisMode={yAxisMode} is_dequeue_chart={true} /></td>
                         </tr>
                     ))}
                 </tbody>
@@ -217,9 +219,10 @@ type BucketChartProps = {
     min_start_time: number;
     message_types: string[];
     yAxisMode: 'auto' | 'fixed';
+    is_dequeue_chart: boolean;
 };
 
-function BucketChart({ windows, min_start_time, message_types, yAxisMode }: BucketChartProps) {
+function BucketChart({ windows, min_start_time, message_types, yAxisMode, is_dequeue_chart }: BucketChartProps) {
     // Create a copy of windows to avoid mutating the original
     let processedWindows = [...windows];
 
@@ -232,7 +235,10 @@ function BucketChart({ windows, min_start_time, message_types, yAxisMode }: Buck
             events: [],
             summary: {
                 message_stats_by_type: [],
-            }
+            },
+            dequeue_summary: {
+                message_stats_by_type: [],
+            },
         });
     }
 
@@ -245,7 +251,8 @@ function BucketChart({ windows, min_start_time, message_types, yAxisMode }: Buck
         const relativeTime = window.start_time_ms - min_start_time;
         let entry: { [key: string]: number } = { bucket: relativeTime };
 
-        window.summary.message_stats_by_type.forEach((stat) => {
+        const summary = is_dequeue_chart ? window.dequeue_summary : window.summary;
+        summary.message_stats_by_type.forEach((stat) => {
             entry[message_types[stat.message_type]] = stat.total_time_ns / 1_000_000; // convert to ms
             entry[message_types[stat.message_type] + '_count'] = stat.count;
         });

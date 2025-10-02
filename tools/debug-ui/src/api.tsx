@@ -551,6 +551,7 @@ export interface InstrumentedWindow {
     start_time_ms: number;
     events: InstrumentedEvent[];
     summary: InstrumentedWindowSummary;
+    dequeue_summary: InstrumentedWindowSummary;
 }
 
 export interface InstrumentedEvent {

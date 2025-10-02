@@ -24,7 +24,12 @@ where
             actor.handle(message, ctx);
         };
 
-        let message = TokioRuntimeMessage { seq, name: message_type, function: Box::new(function) };
+        let message = TokioRuntimeMessage {
+            seq,
+            enqueued_time_ns: self.get_time(),
+            name: message_type,
+            function: Box::new(function),
+        };
         if let Err(_) = self.sender.send(message) {
             tracing::info!(target: "tokio_runtime", seq, "Ignoring sync message, receiving actor is being shut down");
         }
@@ -54,7 +59,12 @@ where
             (message.callback)(std::future::ready(Ok(result)).boxed());
         };
 
-        let message = TokioRuntimeMessage { seq, name: message_type, function: Box::new(function) };
+        let message = TokioRuntimeMessage {
+            seq,
+            enqueued_time_ns: self.get_time(),
+            name: message_type,
+            function: Box::new(function),
+        };
         if let Err(_) = self.sender.send(message) {
             tracing::info!(target: "tokio_runtime", seq, "Ignoring sync message with callback, receiving actor is being shut down");
         }
@@ -77,7 +87,12 @@ where
             let result = actor.handle(message, ctx);
             sender.send(result).ok(); // OK if the sender doesn't care about the result anymore.
         };
-        let message = TokioRuntimeMessage { seq, name: message_type, function: Box::new(function) };
+        let message = TokioRuntimeMessage {
+            seq,
+            enqueued_time_ns: self.get_time(),
+            name: message_type,
+            function: Box::new(function),
+        };
         if let Err(_) = self.sender.send(message) {
             async { Err(AsyncSendError::Dropped) }.boxed()
         } else {
@@ -106,10 +121,16 @@ where
         let seq = next_message_sequence_num();
         tracing::debug!(target: "tokio_runtime", seq, name, "sending delayed action");
         let sender = self.sender.clone();
+        let handle = self.clone();
         self.runtime_handle.spawn(async move {
             tokio::time::sleep(dur.unsigned_abs()).await;
             let function = move |actor: &mut A, ctx: &mut dyn DelayedActionRunner<A>| f(actor, ctx);
-            let message = TokioRuntimeMessage { seq, name, function: Box::new(function) };
+            let message = TokioRuntimeMessage {
+                seq,
+                enqueued_time_ns: handle.get_time(),
+                name,
+                function: Box::new(function),
+            };
             // It's ok for this to fail; it means the runtime is shutting down already.
             sender.send(message).ok();
         });

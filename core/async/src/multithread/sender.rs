@@ -23,8 +23,12 @@ where
             actor.handle(message);
         };
 
-        let message =
-            MultithreadRuntimeMessage { seq, name: message_type, function: Box::new(function) };
+        let message = MultithreadRuntimeMessage {
+            seq,
+            enqueued_time_ns: self.get_time(),
+            name: message_type,
+            function: Box::new(function),
+        };
         if let Err(_) = self.sender.send(message) {
             tracing::info!(target: "multithread_runtime", seq, "Ignoring sync message, receiving actor is being shut down");
         }
@@ -48,8 +52,12 @@ where
             (message.callback)(std::future::ready(Ok(result)).boxed());
         };
 
-        let message =
-            MultithreadRuntimeMessage { seq, name: message_type, function: Box::new(function) };
+        let message = MultithreadRuntimeMessage {
+            seq,
+            enqueued_time_ns: self.get_time(),
+            name: message_type,
+            function: Box::new(function),
+        };
         if let Err(_) = self.sender.send(message) {
             tracing::info!(target: "multithread_runtime", seq, "Ignoring sync message with callback, receiving actor is being shut down");
         }
@@ -74,8 +82,12 @@ where
             sender.send(result).ok(); // OK if the sender doesn't care about the result anymore.
         };
 
-        let message =
-            MultithreadRuntimeMessage { seq, name: message_type, function: Box::new(function) };
+        let message = MultithreadRuntimeMessage {
+            seq,
+            enqueued_time_ns: self.get_time(),
+            name: message_type,
+            function: Box::new(function),
+        };
         if let Err(_) = self.sender.send(message) {
             async { Err(AsyncSendError::Dropped) }.boxed()
         } else {

@@ -1,13 +1,16 @@
+use near_time::Clock;
+
 use crate::instrumentation::writer::InstrumentedThreadWriter;
 use crate::messaging::Actor;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 /// MultithreadRuntimeMessage is a type alias for a boxed function that can be sent to the multithread runtime,
 /// as well as a description for debugging purposes.
 pub(super) struct MultithreadRuntimeMessage<A> {
     pub(super) seq: u64,
+    pub(super) enqueued_time_ns: u64,
     pub(super) name: &'static str,
     pub(super) function: Box<dyn FnOnce(&mut A) + Send>,
 }
@@ -16,11 +19,31 @@ pub(super) struct MultithreadRuntimeMessage<A> {
 /// for the messages that the actor can handle.
 pub struct MultithreadRuntimeHandle<A> {
     pub(super) sender: crossbeam_channel::Sender<MultithreadRuntimeMessage<A>>,
+    clock: Clock,
+    reference_instant: Instant,
+}
+
+impl<A> From<crossbeam_channel::Sender<MultithreadRuntimeMessage<A>>>
+    for MultithreadRuntimeHandle<A>
+{
+    fn from(sender: crossbeam_channel::Sender<MultithreadRuntimeMessage<A>>) -> Self {
+        Self { sender, clock: Clock::real(), reference_instant: Instant::now() }
+    }
+}
+
+impl<A> MultithreadRuntimeHandle<A> {
+    pub(super) fn get_time(&self) -> u64 {
+        self.clock.now().duration_since(self.reference_instant).as_nanos() as u64
+    }
 }
 
 impl<A> Clone for MultithreadRuntimeHandle<A> {
     fn clone(&self) -> Self {
-        Self { sender: self.sender.clone() }
+        Self {
+            sender: self.sender.clone(),
+            clock: self.clock.clone(),
+            reference_instant: self.reference_instant,
+        }
     }
 }
 
@@ -50,9 +73,10 @@ where
     let threads =
         Arc::new(rayon::ThreadPoolBuilder::new().num_threads(num_threads).build().unwrap());
     let (sender, receiver) = crossbeam_channel::unbounded::<MultithreadRuntimeMessage<A>>();
-    let handle = MultithreadRuntimeHandle { sender };
+    let handle = MultithreadRuntimeHandle::from(sender);
     let threads_clone = threads.clone();
     let thread_index = Arc::new(AtomicUsize::new(0));
+    let handle_clone = handle.clone();
     threads.spawn_broadcast(move |_| {
         let _threads = threads_clone.clone();
         let thread_id = thread_index.fetch_add(1, Ordering::Relaxed);
@@ -75,7 +99,8 @@ where
                         return;
                     };
                     let seq = message.seq;
-                    instrumentation.start_event(message.name);
+                    let dequeue_time_ns = handle_clone.get_time().saturating_sub(message.enqueued_time_ns);
+                    instrumentation.start_event(message.name, dequeue_time_ns);
                     tracing::debug!(target: "multithread_runtime", seq, "Executing message");
                     (message.function)(&mut actor);
                     instrumentation.end_event();

@@ -39,6 +39,7 @@ pub struct InstrumentedWindowView {
     pub start_time_ms: u64,
     pub events: Vec<InstrumentedEventView>,
     pub summary: InstrumentedWindowSummaryView,
+    pub dequeue_summary: InstrumentedWindowSummaryView,
 }
 
 #[derive(Serialize, Debug)]
@@ -130,6 +131,7 @@ impl InstrumentedWindow {
             start_time_ms: self.start_time_ns / 1_000_000,
             events: self.events.to_view(),
             summary: self.summary.to_view(self.index),
+            dequeue_summary: self.dequeue_summary.to_view(self.index),
         }
     }
 }
