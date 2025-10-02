@@ -406,7 +406,6 @@ impl WasmtimeVM {
                 .max_tables_per_module(max_tables_per_contract)
                 .table_keep_resident(max_elements_per_contract_table);
 
-            let mut engine_config = wasmtime::Config::from(features);
             engine_config
                 .allocation_strategy(InstanceAllocationStrategy::Pooling(pooling_config))
                 // From official documentation:

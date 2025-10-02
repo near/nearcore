@@ -296,6 +296,7 @@ impl Client {
             validator_signer.clone(),
             resharding_sender.clone(),
             spice_core_processor,
+            Some(myself_sender.on_post_state_ready.clone()),
         )?;
         chain.init_flat_storage()?;
         let epoch_sync = EpochSync::new(

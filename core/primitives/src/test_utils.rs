@@ -4,7 +4,7 @@ use crate::action::{
     UseGlobalContractAction,
 };
 use crate::block::Block;
-use crate::block_body::{BlockBody, ChunkEndorsementSignatures, SpiceCoreStatement};
+use crate::block_body::{BlockBody, ChunkEndorsementSignatures};
 use crate::block_header::BlockHeader;
 use crate::errors::EpochError;
 use crate::hash::CryptoHash;
@@ -771,7 +771,7 @@ pub struct TestBlockBuilder {
     block_merkle_root: CryptoHash,
     chunks: Vec<ShardChunkHeader>,
     /// Iff `Some` spice block will be created.
-    spice_core_statements: Option<Vec<SpiceCoreStatement>>,
+    spice_core_statements: Option<Vec<crate::block_body::SpiceCoreStatement>>,
 }
 
 #[cfg(feature = "clock")]
@@ -834,7 +834,10 @@ impl TestBlockBuilder {
         self
     }
 
-    pub fn spice_core_statements(mut self, spice_core_statements: Vec<SpiceCoreStatement>) -> Self {
+    pub fn spice_core_statements(
+        mut self,
+        spice_core_statements: Vec<crate::block_body::SpiceCoreStatement>,
+    ) -> Self {
         self.spice_core_statements = Some(spice_core_statements);
         self
     }

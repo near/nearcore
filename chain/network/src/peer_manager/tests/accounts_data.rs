@@ -312,6 +312,9 @@ async fn validator_node_restart() {
         drop(pm0);
         clock.set_utc(clock.now_utc() + downtime);
         cfg.node_key = data::make_secret_key(rng);
+        // The test is flaky when restarted on the same port because it can take some time
+        // after dropping pm0 before its listener is cleaned up. We use a new port instead.
+        cfg.node_addr = Some(tcp::ListenerAddr::reserve_for_test());
         let pm0 = start_pm(clock.clock(), TestDB::new(), cfg.clone(), chain.clone()).await;
         pm0.set_chain_info(chain_info.clone()).await;
 

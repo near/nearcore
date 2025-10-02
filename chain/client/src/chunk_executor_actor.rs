@@ -650,6 +650,7 @@ impl ChunkExecutorActor {
                     runtime.as_ref(),
                     shard_update_reason,
                     shard_context,
+                    None,
                 )?)
             }),
         )))

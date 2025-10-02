@@ -142,6 +142,8 @@ struct FilterRateWindow {
     data: std::collections::VecDeque<(u64, std::time::Instant)>,
 }
 
+/// Sliding window filter accepting the cumulative values and returning the rate estimate.
+/// Returns None until the window is filled.
 impl FilterRateWindow {
     pub fn new(window_len: usize) -> Self {
         Self {
@@ -174,7 +176,11 @@ impl FilteredRateController {
     /// given the latest cumulative measurement returns the suggested parameter correction.
     pub fn register(&mut self, block_height_sampled: u64) -> f64 {
         if let Some(bps) = self.filter.register(block_height_sampled) {
-            tracing::debug!(target: "transaction-generator", bps, "filtered measurement");
+            if bps < 0.1 {
+                tracing::warn!(target: "transaction-generator", bps, "filtered bps measurement is too low ");
+                // this will cause the controller to suggest a large decrease in tps
+                return self.controller.update(1000.0);
+            }
             return self.controller.update(1. / bps);
         }
 
@@ -435,15 +441,16 @@ impl TxGenerator {
         initial_rate: u64,
         mut rx_block: tokio::sync::watch::Receiver<(CryptoHash, u64)>,
     ) -> tokio::sync::watch::Receiver<tokio::time::Duration> {
-        let initial_rate = std::cmp::max(initial_rate, 1);
-        let mut rate = initial_rate as f64;
+        let mut rate = std::cmp::max(initial_rate, 1) as f64;
         let (tx_tps_values, rx_tps_values) = tokio::sync::watch::channel(
-            tokio::time::Duration::from_micros(1_000_000 * TX_GENERATOR_TASK_COUNT / initial_rate),
+            tokio::time::Duration::from_micros(1_000_000 * TX_GENERATOR_TASK_COUNT / rate as u64),
         );
-        tracing::debug!(target: "transaction-generator", initial_rate, "starting controller");
+        tracing::debug!(target: "transaction-generator", rate, "starting controller");
 
         let _ = rx_block.wait_for(|(hash, _)| *hash != CryptoHash::default()).await.is_ok();
         let (_, height) = *rx_block.borrow();
+
+        // initialize the controller with the current height
         controller.register(height);
 
         tokio::spawn(async move {
@@ -452,10 +459,11 @@ impl TxGenerator {
                     _ = rx_block.changed() => {
                         let (_, height) = *rx_block.borrow();
                         rate += controller.register(height);
-                        tracing::debug!(target: "transaction-generator", rate, "tps updated");
-                        let effective_rate = if rate.is_finite() && rate >= 1.0 { rate } else { 1.0 };
-                        let micros = ((1_000_000.0 * TX_GENERATOR_TASK_COUNT as f64) / effective_rate)
-                            .max(1.0) as u64;
+                        if rate < 1.0 || rate > 100000.0 {
+                            tracing::warn!(target: "transaction-generator", rate, "controller suggested tps is out of range, clamping");
+                            rate = rate.clamp(1.0, 100000.0);
+                        }
+                        let micros = ((1_000_000.0 * TX_GENERATOR_TASK_COUNT as f64) / rate) as u64;
                         tx_tps_values
                             .send(tokio::time::Duration::from_micros(micros))
                             .unwrap();

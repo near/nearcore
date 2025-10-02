@@ -344,13 +344,7 @@ ripemd = "0.1.1"
 rkyv = "0.8.0"
 rlimit = "0.7"
 rlp = "0.5.2"
-rocksdb = { version = "0.21.0", default-features = false, features = [
-    "snappy",
-    "lz4",
-    "zstd",
-    "zlib",
-    "jemalloc",
-] }
+rocksdb = { version = "0.21.0", default-features = false }
 rusqlite = { version = "0.29.0", features = ["bundled", "chrono", "functions"] }
 rustc-demangle = "0.1"
 rust-s3 = { version = "0.32.3", features = ["blocking"] }
