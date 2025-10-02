@@ -62,7 +62,7 @@ struct CliArgs {
     #[clap(long, default_value = "time", value_parser(["icount", "time"]))]
     metric: String,
     /// Which VM to test.
-    #[clap(long, value_enum, default_value_t = VMKind::NearVm)]
+    #[clap(long, value_enum, default_value_t = VMKind::Wasmtime)]
     vm_kind: VMKind,
     /// Render existing `costs.txt` as `RuntimeConfig`.
     #[clap(long)]
