@@ -105,6 +105,7 @@ pub fn setup_client(
         runtime_config_store.clone(),
         TrieConfig::from_store_config(&store_config),
         client_config.gc.gc_num_epochs_to_keep,
+        client_config.cloud_archival_writer.is_some(),
     );
 
     let state_snapshot = StateSnapshotActor::new(
@@ -203,6 +204,7 @@ pub fn setup_client(
                 runtime_config_store.clone(),
                 TrieConfig::from_store_config(&store_config),
                 client_config.gc.gc_num_epochs_to_keep,
+                client_config.cloud_archival_writer.is_some(),
             );
             (view_epoch_manager, view_shard_tracker, view_runtime_adapter)
         } else {
@@ -370,6 +372,7 @@ pub fn setup_client(
         let cloud_archival_actor = create_cloud_archival_actor(
             client_config.cloud_archival_writer.clone(),
             genesis.config.genesis_height,
+            runtime_adapter.as_ref(),
             storage.hot_store,
         )
         .unwrap()

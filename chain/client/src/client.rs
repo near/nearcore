@@ -297,6 +297,7 @@ impl Client {
             resharding_sender.clone(),
             partial_witness_adapter.clone(),
             spice_core_processor,
+            Some(myself_sender.on_post_state_ready.clone()),
         )?;
         chain.init_flat_storage()?;
         let epoch_sync = EpochSync::new(
@@ -1331,6 +1332,7 @@ impl Client {
         fields(
             hash = ?partial_chunk.chunk_hash(),
             height = ?partial_chunk.height_created(),
+            shard_id = %partial_chunk.shard_id(),
             tag_block_production = true
         )
     )]

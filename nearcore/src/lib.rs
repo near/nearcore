@@ -452,6 +452,7 @@ pub fn start_with_config_and_synchronization(
     let result = create_cloud_archival_actor(
         config.config.cloud_archival_writer,
         config.genesis.config.genesis_height,
+        runtime.as_ref(),
         storage.get_hot_store(),
     )?;
     let cloud_archival_handle = if let Some(actor) = result {

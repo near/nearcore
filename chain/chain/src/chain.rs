@@ -107,7 +107,7 @@ use near_store::adapter::StoreAdapter;
 use near_store::adapter::chain_store::ChainStoreAdapter;
 use near_store::get_genesis_state_roots;
 use near_store::{DBCol, StateSnapshotConfig};
-use node_runtime::SignedValidPeriodTransactions;
+use node_runtime::{PostState, PostStateReadyCallback, SignedValidPeriodTransactions};
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use std::cell::Cell;
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -158,6 +158,17 @@ pub struct ApplyChunksDoneSender {
 }
 
 // pub type ApplyChunksDoneSender = near_async::messaging::Sender<SpanWrapped<ApplyChunksDoneMessage>>;
+
+/// `PostStateReadyMessage` is a message that contains the post state after processing a chunk.
+/// This message is sent from a callback in the runtime to the Client actor before the post-state,
+/// is finalized. Client actor may use this information to start other tasks earlier, e.g.
+/// preparing transactions for inclusion in the next chunk.
+#[derive(Message, Debug)]
+pub struct PostStateReadyMessage {
+    pub post_state: PostState,
+}
+
+pub type PostStateReadySender = near_async::messaging::Sender<SpanWrapped<PostStateReadyMessage>>;
 
 /// Contains information for missing chunks in a block
 pub struct BlockMissingChunks {
@@ -319,6 +330,8 @@ pub struct Chain {
     /// LRU cache to track (prev_block_hash, shard_id) pairs for which chunk apply witness was sent.
     /// This helps avoid sending full state witnesses when apply witness was already sent.
     pub chunk_apply_witness_sent_cache: Arc<SyncLruCache<(BlockHeight, ShardId), ()>>,
+    /// Used to receive `PostStateReady` messages from the runtime.
+    on_post_state_ready_sender: Option<PostStateReadySender>,
 }
 
 impl Drop for Chain {
@@ -434,6 +447,7 @@ impl Chain {
             protocol_version_check: Default::default(),
             partial_witness_adapter: noop().into_multi_sender(),
             chunk_apply_witness_sent_cache: Arc::new(SyncLruCache::new(1000)),
+            on_post_state_ready_sender: None,
         })
     }
 
@@ -452,6 +466,7 @@ impl Chain {
         resharding_sender: ReshardingSender,
         partial_witness_adapter: PartialWitnessSenderForClient,
         spice_core_processor: CoreStatementsProcessor,
+        on_post_state_ready_sender: Option<PostStateReadySender>,
     ) -> Result<Chain, Error> {
         let state_roots = get_genesis_state_roots(runtime_adapter.store())?
             .expect("genesis should be initialized.");
@@ -604,6 +619,7 @@ impl Chain {
             protocol_version_check: chain_config.protocol_version_check,
             partial_witness_adapter,
             chunk_apply_witness_sent_cache: Arc::new(SyncLruCache::new(1000)),
+            on_post_state_ready_sender,
         })
     }
 
@@ -2792,6 +2808,23 @@ impl Chain {
         }
     }
 
+    pub fn early_prepare_transaction_validity_check(
+        &self,
+        prev_block_height: BlockHeight,
+        prev_prev_block_header: BlockHeader,
+    ) -> impl Fn(&SignedTransaction) -> bool + Send + 'static {
+        let chain_store = self.chain_store.clone();
+        move |tx: &SignedTransaction| -> bool {
+            chain_store
+                .early_prepare_txs_check_validity_period(
+                    prev_block_height,
+                    &prev_prev_block_header,
+                    tx.transaction.block_hash(),
+                )
+                .is_ok()
+        }
+    }
+
     /// For a given previous block header and current block, return information
     /// about block necessary for processing shard update.
     /// TODO(#10584): implement the same method for OptimisticBlock.
@@ -3408,6 +3441,8 @@ impl Chain {
             })
         };
 
+        let on_post_state_ready = self.get_on_post_state_ready_callback();
+
         let runtime = self.runtime_adapter.clone();
         Ok(Some((
             shard_id,
@@ -3418,9 +3453,27 @@ impl Chain {
                     runtime.as_ref(),
                     shard_update_reason,
                     shard_context,
+                    on_post_state_ready,
                 )?)
             }),
         )))
+    }
+
+    /// Construct the callback that the runtime will call when the chunk's post-state becomes
+    /// available. runtime can send the post-state to client which will being transaction
+    /// preparation using it. Runtime cannot directly send the message because it doesn't have
+    /// access to the near-async crate.
+    fn get_on_post_state_ready_callback(&self) -> Option<PostStateReadyCallback> {
+        match &self.on_post_state_ready_sender {
+            Some(sender) => {
+                let sender = sender.clone();
+                let closure = move |state: PostState| {
+                    sender.send(PostStateReadyMessage { post_state: state }.into());
+                };
+                Some(PostStateReadyCallback::new(Box::new(closure)))
+            }
+            None => None,
+        }
     }
 
     fn min_chunk_prev_height(&self, block: &Block) -> Result<BlockHeight, Error> {

@@ -2,14 +2,14 @@ use crate::Error;
 use crate::types::{
     ApplyChunkResult, ApplyChunkShardContext, PrepareTransactionsBlockContext,
     PrepareTransactionsLimit, PreparedTransactions, RuntimeAdapter, RuntimeStorageConfig,
-    StorageDataSource, Tip,
+    SkippedTransactions, StorageDataSource, Tip,
 };
 use errors::FromStateViewerErrors;
 use near_async::time::{Duration, Instant};
 use near_chain_configs::{GenesisConfig, MIN_GC_NUM_EPOCHS_TO_KEEP, ProtocolConfig};
 use near_crypto::PublicKey;
 use near_epoch_manager::shard_assignment::account_id_to_shard_id;
-use near_epoch_manager::{EpochManagerAdapter, EpochManagerHandle};
+use near_epoch_manager::{EpochManager, EpochManagerAdapter, EpochManagerHandle};
 use near_parameters::{RuntimeConfig, RuntimeConfigStore};
 use near_pool::types::TransactionGroupIterator;
 use near_primitives::account::{AccessKey, Account};
@@ -36,6 +36,7 @@ use near_primitives::views::{
     QueryResponseKind, ViewStateResult,
 };
 use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
+use near_store::db::CLOUD_HEAD_KEY;
 use near_store::db::metadata::DbKind;
 use near_store::flat::FlatStorageManager;
 use near_store::{
@@ -51,17 +52,19 @@ use node_runtime::{
     ApplyState, Runtime, SignedValidPeriodTransactions, ValidatorAccountsUpdate,
     get_signer_and_access_key, validate_transaction, verify_and_charge_tx_ephemeral,
 };
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 use tracing::{debug, error, info, instrument};
+use trie_update_wrapper::TrieUpdateWitnessSizeWrapper;
 
 pub mod errors;
 mod metrics;
 pub mod test_utils;
 #[cfg(test)]
 mod tests;
+mod trie_update_wrapper;
 
 /// Defines Nightshade state transition and validator rotation.
 /// TODO: this possibly should be merged with the runtime cargo or at least reconciled on the interfaces.
@@ -76,6 +79,7 @@ pub struct NightshadeRuntime {
     epoch_manager: Arc<EpochManagerHandle>,
     gc_num_epochs_to_keep: u64,
     state_parts_compression_lvl: i32,
+    is_cloud_archival_writer: bool,
 }
 
 impl NightshadeRuntime {
@@ -91,6 +95,7 @@ impl NightshadeRuntime {
         trie_config: TrieConfig,
         state_snapshot_config: StateSnapshotConfig,
         state_parts_compression_lvl: i32,
+        is_cloud_archival_writer: bool,
     ) -> Arc<Self> {
         let runtime_config_store = match runtime_config_store {
             Some(store) => store,
@@ -129,6 +134,7 @@ impl NightshadeRuntime {
             epoch_manager,
             gc_num_epochs_to_keep: gc_num_epochs_to_keep.max(MIN_GC_NUM_EPOCHS_TO_KEEP),
             state_parts_compression_lvl,
+            is_cloud_archival_writer,
         })
     }
 
@@ -174,8 +180,13 @@ impl NightshadeRuntime {
             congestion_info,
             bandwidth_requests,
         } = block;
-        let ApplyChunkShardContext { shard_id, last_validator_proposals, gas_limit, is_new_chunk } =
-            chunk;
+        let ApplyChunkShardContext {
+            shard_id,
+            last_validator_proposals,
+            gas_limit,
+            is_new_chunk,
+            on_post_state_ready,
+        } = chunk;
         let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(prev_block_hash)?;
         let validator_accounts_update = {
             let epoch_manager = self.epoch_manager.read();
@@ -255,6 +266,7 @@ impl NightshadeRuntime {
             congestion_info,
             bandwidth_requests,
             trie_access_tracker_state: Default::default(),
+            on_post_state_ready,
         };
 
         let instant = Instant::now();
@@ -355,30 +367,46 @@ impl NightshadeRuntime {
             epoch_start_height = epoch_first_block_info.height();
             last_block_in_prev_epoch = *epoch_first_block_info.prev_hash();
         }
+        let mut gc_stop_height = epoch_start_height;
 
         // An archival node with split storage should perform garbage collection
         // on the hot storage but not beyond the COLD_HEAD. In order to determine
         // if split storage is enabled *and* that the migration to split storage
         // is finished we can check the store kind. It's only set to hot after the
-        // migration is finished.
+        // migration is finished. If the migration has not finished yet, we expect
+        // the GC not to run regardless of what we return here.
         let kind = self.store.get_db_kind()?;
-        let cold_head = self.store.get_ser::<Tip>(DBCol::BlockMisc, COLD_HEAD_KEY)?;
-
         if let Some(DbKind::Hot) = kind {
-            if let Some(cold_head) = cold_head {
-                let cold_head_hash = cold_head.last_block_hash;
-                let cold_epoch_first_block =
-                    *epoch_manager.get_block_info(&cold_head_hash)?.epoch_first_block();
-                let cold_epoch_first_block_info =
-                    epoch_manager.get_block_info(&cold_epoch_first_block)?;
-                return Ok(std::cmp::min(epoch_start_height, cold_epoch_first_block_info.height()));
-            } else {
+            let Some(cold_head_epoch_start_height) = get_epoch_start_height_from_archival_head(
+                &self.store,
+                &epoch_manager,
+                COLD_HEAD_KEY,
+            )?
+            else {
                 // If kind is DbKind::Hot but cold_head is not set, it means the initial cold storage
                 // migration has not finished yet, in which case we should not garbage collect anything.
                 return Ok(self.genesis_config.genesis_height);
-            }
+            };
+            gc_stop_height = gc_stop_height.min(cold_head_epoch_start_height);
         }
-        Ok(epoch_start_height)
+
+        // Analogous to split storage cold DB: if the cloud archival writer is enabled, we check the cloud
+        // archival head and update `gc_stop_height` to the minimum.
+        if self.is_cloud_archival_writer {
+            let Some(cloud_head_epoch_start_height) = get_epoch_start_height_from_archival_head(
+                &self.store,
+                &epoch_manager,
+                CLOUD_HEAD_KEY,
+            )?
+            else {
+                return Err(Error::DBNotFoundErr(
+                    "Cloud archival writer is configured, but CLOUD_HEAD is missing".into(),
+                ));
+            };
+            gc_stop_height = gc_stop_height.min(cloud_head_epoch_start_height);
+        }
+
+        Ok(gc_stop_height)
     }
 
     fn obtain_state_part_impl(
@@ -473,6 +501,20 @@ impl NightshadeRuntime {
             block_hash: *block_hash,
         })
     }
+}
+
+fn get_epoch_start_height_from_archival_head(
+    store: &Store,
+    epoch_manager: &EpochManager,
+    archival_head_key: &[u8],
+) -> Result<Option<BlockHeight>, Error> {
+    let archival_head = store.get_ser::<Tip>(DBCol::BlockMisc, archival_head_key)?;
+    let Some(archival_head) = archival_head else {
+        return Ok(None);
+    };
+    let archival_head_hash = archival_head.last_block_hash;
+    let epoch_start_height = epoch_manager.get_epoch_start_height(&archival_head_hash)?;
+    Ok(Some(epoch_start_height))
 }
 
 fn format_total_gas_burnt(gas: Gas) -> String {
@@ -612,17 +654,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         chain_validate: &dyn Fn(&SignedTransaction) -> bool,
         time_limit: Option<Duration>,
     ) -> Result<PreparedTransactions, Error> {
-        let start_time = std::time::Instant::now();
-
-        let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(&prev_block.block_hash)?;
-        let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
-        let runtime_config = self.runtime_config_store.get_config(protocol_version);
-
-        let shard_uid = self.get_shard_uid_from_epoch_id(shard_id, &epoch_id)?;
-        // While the height of the next block that includes the chunk might not be prev_height + 1,
-        // using it will result in a more conservative check and will not accidentally allow
-        // invalid transactions to be included.
-        let next_block_height = prev_block.height + 1;
+        let shard_uid = self.get_shard_uid_from_epoch_id(shard_id, &prev_block.next_epoch_id)?;
 
         let mut trie = match storage_config.source {
             StorageDataSource::Db => {
@@ -642,13 +674,59 @@ impl RuntimeAdapter for NightshadeRuntime {
                 storage_config.use_flat_storage,
             ),
         };
-        // StateWitnessSizeLimit: We need to start recording reads if the stateless validation is
-        // enabled in the next epoch. We need to save the state transition data in the current epoch
-        // to be able to produce the state witness in the next epoch.
-        let proof_size_limit =
-            runtime_config.witness_config.new_transactions_validation_state_size_soft_limit;
-        trie = trie.recording_reads_with_proof_size_limit(proof_size_limit);
-        let mut state_update = TrieUpdate::new(trie);
+
+        // Start recording trie reads to enforce storage proof size limits and potentially provide a
+        // proof that the prepared transactions are valid.
+        trie = trie.recording_reads_new_recorder();
+        let state_update = TrieUpdate::new(trie);
+
+        self.prepare_transactions_extra(
+            state_update,
+            shard_id,
+            prev_block,
+            transaction_groups,
+            chain_validate,
+            HashSet::new(),
+            time_limit,
+            None,
+        ) // skip_tx_hashes is empty, so there will be no skipped transactions
+        .map(|(prepared, _skipped)| prepared)
+    }
+
+    #[instrument(
+        target = "runtime",
+        level = "debug",
+        "runtime_prepare_transactions_extra",
+        skip_all,
+        fields(
+            height = prev_block.height + 1,
+            shard_id = %shard_id,
+            tag_block_production = true
+        )
+    )]
+    fn prepare_transactions_extra(
+        &self,
+        storage: TrieUpdate,
+        shard_id: ShardId,
+        prev_block: PrepareTransactionsBlockContext,
+        transaction_groups: &mut dyn TransactionGroupIterator,
+        chain_validate: &dyn Fn(&SignedTransaction) -> bool,
+        skip_tx_hashes: HashSet<CryptoHash>,
+        time_limit: Option<Duration>,
+        cancel: Option<Arc<AtomicBool>>,
+    ) -> Result<(PreparedTransactions, SkippedTransactions), Error> {
+        let start_time = std::time::Instant::now();
+
+        let epoch_id = prev_block.next_epoch_id;
+        let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
+        let runtime_config = self.runtime_config_store.get_config(protocol_version);
+
+        // While the height of the next block that includes the chunk might not be prev_height + 1,
+        // using it will result in a more conservative check and will not accidentally allow
+        // invalid transactions to be included.
+        let next_block_height = prev_block.height + 1;
+
+        let mut state_update = TrieUpdateWitnessSizeWrapper::new(storage);
 
         // Total amount of gas burnt for converting transactions towards receipts.
         let mut total_gas_burnt = Gas::ZERO;
@@ -657,6 +735,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         let transactions_gas_limit = chunk_tx_gas_limit(runtime_config, &prev_block, shard_id);
 
         let mut result = PreparedTransactions { transactions: Vec::new(), limited_by: None };
+        let mut skipped_transactions = Vec::new();
         let mut num_checked_transactions = 0;
 
         let size_limit = runtime_config.witness_config.combined_transactions_size_limit as u64;
@@ -683,12 +762,18 @@ impl RuntimeAdapter for NightshadeRuntime {
                 }
             }
 
-            // FIXME(nagisa): why is this not using `check_proof_size_limit_exceed`? Comment.
-            if state_update.trie.recorded_storage_size() as u64
+            if state_update.recorded_storage_size() as u64
                 > runtime_config.witness_config.new_transactions_validation_state_size_soft_limit
             {
                 result.limited_by = Some(PrepareTransactionsLimit::StorageProofSize);
                 break;
+            }
+
+            if let Some(cancel) = &cancel {
+                if cancel.load(Ordering::Relaxed) {
+                    result.limited_by = Some(PrepareTransactionsLimit::Cancelled);
+                    break;
+                }
             }
 
             let mut signer_access_key = None;
@@ -709,6 +794,11 @@ impl RuntimeAdapter for NightshadeRuntime {
                     .next()
                     .expect("peek_next() returned Some, so next() should return Some as well");
                 num_checked_transactions += 1;
+
+                if skip_tx_hashes.contains(&validated_tx.get_hash()) {
+                    skipped_transactions.push(validated_tx);
+                    continue;
+                }
 
                 if !congestion_control_accepts_transaction(
                     self.epoch_manager.as_ref(),
@@ -786,7 +876,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                 // groups, but only because pool guarantees that iteration is grouped by account_id
                 // and its public keys. It does however also mean that we must remember the account
                 // state as this code might operate over multiple access keys for the account.
-                set_account(&mut state_update, signer_id, &account);
+                set_account(&mut state_update.trie_update, signer_id, &account);
             }
         }
         // NOTE: this state update must not be committed or finalized!
@@ -809,7 +899,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         metrics::CONGESTION_PREPARE_TX_GAS_LIMIT
             .with_label_values(&[&shard_label])
             .set(i64::try_from(transactions_gas_limit.as_gas()).unwrap_or(i64::MAX));
-        Ok(result)
+        Ok((result, SkippedTransactions(skipped_transactions)))
     }
 
     fn get_gc_stop_height(&self, block_hash: &CryptoHash) -> BlockHeight {

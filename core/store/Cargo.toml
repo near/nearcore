@@ -31,7 +31,13 @@ rand.workspace = true
 rayon.workspace = true
 reed-solomon-erasure.workspace = true
 rlimit.workspace = true
-rocksdb.workspace = true
+rocksdb = { workspace = true, features = [
+    "snappy",
+    "lz4",
+    "zstd",
+    "zlib",
+    "jemalloc",
+] }
 serde.workspace = true
 serde_json.workspace = true
 static_assertions.workspace = true

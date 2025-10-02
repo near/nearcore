@@ -4868,7 +4868,6 @@ dependencies = [
  "smart-default",
  "strum",
  "tempfile",
- "testlib",
  "thiserror 2.0.16",
  "tracing",
  "zstd",
@@ -5386,6 +5385,7 @@ dependencies = [
  "bencher",
  "borsh",
  "bytesize 1.1.0",
+ "criterion",
  "dirs",
  "easy-ext",
  "futures",
@@ -5414,6 +5414,7 @@ dependencies = [
  "near-rosetta-rpc",
  "near-store",
  "near-telemetry",
+ "near-time",
  "near-transactions-generator",
  "near-vm-runner",
  "node-runtime",
@@ -5435,6 +5436,7 @@ dependencies = [
  "url",
  "wiremock",
  "xz2",
+ "zstd",
 ]
 
 [[package]]
@@ -5514,6 +5516,7 @@ dependencies = [
  "base64 0.21.0",
  "borsh",
  "bytesize 1.1.0",
+ "crossbeam-utils",
  "dashmap",
  "ed25519-dalek",
  "enum-map",
@@ -5532,6 +5535,7 @@ dependencies = [
  "near-vm-runner",
  "near-wallet-contract",
  "num-bigint 0.3.3",
+ "num-integer",
  "num-traits",
  "parking_lot 0.12.1",
  "rand 0.8.5",

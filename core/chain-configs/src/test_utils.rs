@@ -13,9 +13,7 @@ use near_primitives::version::PROTOCOL_VERSION;
 use near_time::{Clock, Duration};
 use num_rational::{Ratio, Rational32};
 
-use crate::client_config::{
-    default_archival_writer_polling_interval, default_rpc_handler_thread_count,
-};
+use crate::client_config::default_archival_writer_polling_interval;
 use crate::{
     ClientConfig, CloudArchivalReaderConfig, CloudArchivalWriterConfig, CloudStorageConfig,
     EpochSyncConfig, ExternalStorageLocation, FAST_EPOCH_LENGTH, GAS_PRICE_ADJUSTMENT_RATE,
@@ -25,6 +23,14 @@ use crate::{
     TrackedShardsConfig, default_orphan_state_witness_max_size,
     default_orphan_state_witness_pool_size, default_produce_chunk_add_transactions_time_limit,
 };
+
+/// Returns the default value for the thread count associated with rpc-handler actor (currently
+/// handling incoming transactions and chunk endorsement validations).
+/// In the benchmarks no performance gains were observed when increasing the number of threads
+/// above half of available cores.
+pub fn default_rpc_handler_thread_count() -> usize {
+    std::thread::available_parallelism().map(|v| v.get()).unwrap_or(16) / 2
+}
 
 /// Initial balance used in tests.
 pub const TESTING_INIT_BALANCE: Balance = Balance::from_near(1_000_000_000);

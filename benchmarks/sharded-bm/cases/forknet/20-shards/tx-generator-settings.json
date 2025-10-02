@@ -3,12 +3,12 @@
 		"schedule": [
 			{ "tps": 1000, "duration_s": 180 },
 			{ "tps": 2000, "duration_s": 180 },
-			{ "tps": 4000, "duration_s": 60 }
+			{ "tps": 7500, "duration_s": 60 }
 		],
 		"controller": {
 			"target_block_production_time_s": 1.5,
 			"bps_filter_window_length": 40,
-			"gain_proportional": 15,
+			"gain_proportional": 60.0,
 			"gain_integral": 0.0,
 			"gain_derivative": 0.0
 		}

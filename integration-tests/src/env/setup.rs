@@ -580,6 +580,7 @@ pub fn setup_synchronous_shards_manager(
         noop().into_multi_sender(),
         noop().into_multi_sender(),
         CoreStatementsProcessor::new_with_noop_senders(chain_store, epoch_manager.clone()),
+        None,
     )
     .unwrap();
     let chain_head = chain.head().unwrap();

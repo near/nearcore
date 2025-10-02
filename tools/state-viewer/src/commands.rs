@@ -111,6 +111,7 @@ pub(crate) fn apply_block(
                     last_validator_proposals: chunk_inner.prev_validator_proposals(),
                     gas_limit: chunk_inner.gas_limit(),
                     is_new_chunk: true,
+                    on_post_state_ready: None,
                 },
                 ApplyChunkBlockContext::from_header(
                     block.header(),
@@ -136,6 +137,7 @@ pub(crate) fn apply_block(
                     last_validator_proposals: chunk_extra.validator_proposals(),
                     gas_limit: chunk_extra.gas_limit(),
                     is_new_chunk: false,
+                    on_post_state_ready: None,
                 },
                 ApplyChunkBlockContext::from_header(
                     block.header(),

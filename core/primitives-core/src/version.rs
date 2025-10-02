@@ -321,12 +321,13 @@ pub enum ProtocolFeature {
     /// are much less likely to get rejected with ShardStuck error.
     IncreaseMaxCongestionMissedChunks,
 
-    RefTypesBulkMemory,
+    Wasmtime,
     SaturatingFloatToInt,
     ChunkPartChecks,
     StatePartsCompression,
     /// NEP: https://github.com/near/NEPs/pull/616
     DeterministicAccountIds,
+    InvalidTxGenerateOutcomes,
 }
 
 impl ProtocolFeature {
@@ -424,7 +425,8 @@ impl ProtocolFeature {
             | ProtocolFeature::SaturatingFloatToInt
             | ProtocolFeature::ReducedGasRefunds => 78,
             ProtocolFeature::IncreaseMaxCongestionMissedChunks => 79,
-            ProtocolFeature::RefTypesBulkMemory | ProtocolFeature::StatePartsCompression => 81,
+            ProtocolFeature::StatePartsCompression => 81,
+            ProtocolFeature::Wasmtime => 82,
 
             // Nightly features:
             ProtocolFeature::FixContractLoadingCost => 129,
@@ -433,6 +435,7 @@ impl ProtocolFeature {
             ProtocolFeature::ShuffleShardAssignments => 143,
             ProtocolFeature::ExcludeExistingCodeFromWitnessForCodeLen => 148,
             ProtocolFeature::DeterministicAccountIds => 150,
+            ProtocolFeature::InvalidTxGenerateOutcomes => 151,
             // Place features that are not yet in Nightly below this line.
         }
     }
@@ -449,10 +452,10 @@ pub const PROD_GENESIS_PROTOCOL_VERSION: ProtocolVersion = 29;
 pub const MIN_SUPPORTED_PROTOCOL_VERSION: ProtocolVersion = 77;
 
 /// Current protocol version used on the mainnet with all stable features.
-const STABLE_PROTOCOL_VERSION: ProtocolVersion = 81;
+const STABLE_PROTOCOL_VERSION: ProtocolVersion = 82;
 
 // On nightly, pick big enough version to support all features.
-const NIGHTLY_PROTOCOL_VERSION: ProtocolVersion = 150;
+const NIGHTLY_PROTOCOL_VERSION: ProtocolVersion = 151;
 
 /// Largest protocol version supported by the current binary.
 pub const PROTOCOL_VERSION: ProtocolVersion =

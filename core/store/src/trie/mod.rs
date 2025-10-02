@@ -6,10 +6,10 @@ pub use crate::trie::config::TrieConfig;
 pub(crate) use crate::trie::config::{
     DEFAULT_SHARD_CACHE_DELETIONS_QUEUE_CAPACITY, DEFAULT_SHARD_CACHE_TOTAL_SIZE_LIMIT,
 };
-pub use crate::trie::mem::split::{TrieSplit, find_trie_split};
 pub use crate::trie::nibble_slice::NibbleSlice;
 pub use crate::trie::prefetching_trie_storage::{PrefetchApi, PrefetchError};
 pub use crate::trie::shard_tries::{KeyForStateChanges, ShardTries, WrappedTrieChanges};
+pub use crate::trie::split::{TrieSplit, find_trie_split};
 pub use crate::trie::state_snapshot::{
     STATE_SNAPSHOT_COLUMNS, SnapshotError, StateSnapshot, StateSnapshotConfig,
 };
@@ -58,6 +58,7 @@ mod prefetching_trie_storage;
 mod raw_node;
 pub mod receipts_column_helper;
 mod shard_tries;
+pub(crate) mod split;
 mod state_parts;
 mod state_snapshot;
 mod trie_recording;
