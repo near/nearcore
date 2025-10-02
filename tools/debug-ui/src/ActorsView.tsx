@@ -124,7 +124,7 @@ export const ActorsView = ({ addr }: ActorsViewProps) => {
                             checked={yAxisMode === 'fixed'}
                             onChange={(e) => setYAxisMode(e.target.value as 'auto' | 'fixed')}
                         />
-                        Fixed (1000ms)
+                        Fixed ({WINDOW_LEN_MS}ms)
                     </label>
                 </div>
                 <div className="control-buttons">
@@ -283,7 +283,7 @@ function BucketChart({ windows, min_start_time, message_types, yAxisMode }: Buck
     return (
         <BarChart width={800} height={150} data={data}>
             <XAxis dataKey="bucket" tickFormatter={formatXAxisLabel} />
-            <YAxis domain={[0, yAxisMode === 'auto' ? 'auto' : 1000]} hide={true} />
+            <YAxis domain={[0, yAxisMode === 'auto' ? 'auto' : WINDOW_LEN_MS]} hide={true} />
             <Tooltip content={<CustomTooltip />} />
             <Legend align={"right"} verticalAlign={"middle"} layout="vertical" iconSize={8} width={250} wrapperStyle={
                 { fontSize: "12px", paddingLeft: "10px" }
