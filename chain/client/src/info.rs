@@ -1029,6 +1029,7 @@ mod tests {
             validator.clone(),
             noop().into_multi_sender(),
             None,
+            noop().into_multi_sender(),
         )
         .unwrap();
 

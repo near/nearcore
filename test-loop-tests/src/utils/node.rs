@@ -52,7 +52,7 @@ impl<'a> TestLoopNode<'a> {
         Self::for_account(node_datas, &rpc_account_id())
     }
 
-    #[allow(unused)]
+    #[allow(dead_code)]
     pub fn all(node_datas: &'a [NodeExecutionData]) -> Vec<Self> {
         node_datas.iter().map(|data| Self { data }).collect()
     }

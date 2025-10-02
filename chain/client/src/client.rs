@@ -13,7 +13,6 @@ use crate::stateless_validation::chunk_endorsement::ChunkEndorsementTracker;
 use crate::stateless_validation::chunk_validation_actor::{
     BlockNotificationMessage, ChunkValidationSender,
 };
-use crate::stateless_validation::partial_witness::partial_witness_actor::PartialWitnessSenderForClient;
 use crate::sync::block::BlockSync;
 use crate::sync::epoch::EpochSync;
 use crate::sync::handler::SyncHandler;
@@ -22,7 +21,6 @@ use crate::sync::state::chain_requests::ChainSenderForStateSync;
 use crate::sync::state::{StateSync, StateSyncResult};
 use crate::{ProduceChunkResult, metrics};
 use itertools::Itertools;
-use lru::LruCache;
 use near_async::futures::{AsyncComputationSpawner, FutureSpawner};
 use near_async::messaging::IntoMultiSender;
 use near_async::messaging::{CanSend, IntoAsyncSender, Sender};
@@ -35,6 +33,7 @@ use near_chain::orphan::OrphanMissingChunks;
 use near_chain::rayon_spawner::RayonAsyncComputationSpawner;
 use near_chain::resharding::types::ReshardingSender;
 use near_chain::state_snapshot_actor::SnapshotCallbacks;
+use near_chain::stateless_validation::state_witness::PartialWitnessSenderForClient;
 use near_chain::test_utils::format_hash;
 use near_chain::types::{ChainConfig, LatestKnown, RuntimeAdapter};
 use near_chain::{
@@ -65,7 +64,7 @@ use near_primitives::sharding::{
 };
 use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::transaction::{SignedTransaction, ValidatedTransaction};
-use near_primitives::types::{AccountId, ApprovalStake, BlockHeight, EpochId, NumBlocks, ShardId};
+use near_primitives::types::{AccountId, ApprovalStake, BlockHeight, EpochId, NumBlocks};
 use near_primitives::unwrap_or_return;
 use near_primitives::upgrade_schedule::ProtocolUpgradeVotingSchedule;
 use near_primitives::utils::MaybeValidated;
@@ -178,9 +177,6 @@ pub struct Client {
     chunk_producer_accounts_cache: Option<(EpochId, Arc<Vec<AccountId>>)>,
     /// Reed-Solomon encoder for shadow chunk validation.
     shadow_validation_reed_solomon: OnceLock<Arc<ReedSolomon>>,
-    /// LRU cache to track (prev_block_hash, shard_id) pairs for which chunk apply witness was sent.
-    /// This helps avoid sending full state witnesses when apply witness was already sent.
-    pub chunk_apply_witness_sent_cache: LruCache<(BlockHeight, ShardId), ()>,
 }
 
 impl AsRef<Client> for Client {
@@ -305,6 +301,7 @@ impl Client {
             validator_signer.clone(),
             resharding_sender.clone(),
             Some(myself_sender.on_post_state_ready.clone()),
+            partial_witness_adapter.clone(),
         )?;
         chain.init_flat_storage()?;
         let epoch_sync = EpochSync::new(
@@ -423,9 +420,6 @@ impl Client {
             last_optimistic_block_produced: None,
             chunk_producer_accounts_cache: None,
             shadow_validation_reed_solomon: OnceLock::new(),
-            chunk_apply_witness_sent_cache: LruCache::new(
-                NonZeroUsize::new(1000).unwrap(), // Cache up to 1000 (prev_block_hash, shard_id) pairs
-            ),
         })
     }
 

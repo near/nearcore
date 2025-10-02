@@ -17,7 +17,6 @@ use crate::stateless_validation::chunk_endorsement::ChunkEndorsementTracker;
 use crate::stateless_validation::chunk_validation_actor::{
     ChunkValidationActorInner, ChunkValidationSender,
 };
-use crate::stateless_validation::partial_witness::partial_witness_actor::PartialWitnessSenderForClient;
 use crate::sync::handler::SyncHandlerRequest;
 use crate::sync::state::chain_requests::{
     ChainFinalizationRequest, ChainSenderForStateSync, StateHeaderValidationRequest,
@@ -36,12 +35,12 @@ use near_async::{ActorSystem, MultiSend, MultiSenderFrom};
 #[cfg(feature = "test_features")]
 use near_chain::ChainStoreAccess;
 use near_chain::chain::{
-    ApplyChunksDoneMessage, BlockCatchUpRequest, BlockCatchUpResponse, NewChunkAppliedMessage,
-    PostStateReadyMessage,
+    ApplyChunksDoneMessage, BlockCatchUpRequest, BlockCatchUpResponse, PostStateReadyMessage,
 };
 use near_chain::resharding::types::ReshardingSender;
 use near_chain::spice_core_writer_actor::ProcessedBlock;
 use near_chain::state_snapshot_actor::SnapshotCallbacks;
+use near_chain::stateless_validation::state_witness::PartialWitnessSenderForClient;
 use near_chain::test_utils::format_hash;
 use near_chain::types::RuntimeAdapter;
 use near_chain::{ApplyChunksIterationMode, ApplyChunksSpawner};
@@ -266,7 +265,6 @@ pub fn start_client(
 pub struct ClientSenderForClient {
     pub apply_chunks_done: Sender<SpanWrapped<ApplyChunksDoneMessage>>,
     pub on_post_state_ready: Sender<SpanWrapped<PostStateReadyMessage>>,
-    pub new_chunk_apply: Sender<NewChunkAppliedMessage>,
 }
 
 #[derive(Clone, MultiSend, MultiSenderFrom)]
@@ -916,18 +914,6 @@ impl Handler<SpanWrapped<PostStateReadyMessage>> for ClientActorInner {
     }
 }
 
-impl Handler<NewChunkAppliedMessage> for ClientActorInner {
-    fn handle(&mut self, msg: NewChunkAppliedMessage) {
-        if let Err(err) = self.client.send_chunk_apply_witness_to_chunk_validators(
-            msg.result,
-            msg.block_context,
-            msg.chunks,
-        ) {
-            tracing::error!(target: "client", ?err, "Failed to send chunk apply witness to chunk validators");
-        }
-    }
-}
-
 #[derive(Debug)]
 enum SyncRequirement {
     SyncNeeded { peer_id: PeerId, highest_height: BlockHeight, head: Tip },
@@ -1193,10 +1179,11 @@ impl ClientActorInner {
                 continue;
             }
 
+            debug!(target: "client", height, "Checking if ready to produce block");
             if self.client.doomslug.ready_to_produce_block(
                 height,
                 chunks_readiness,
-                log_block_production_info,
+                true, // log_block_production_info,
             ) {
                 let shard_ids = self.client.epoch_manager.shard_ids(&epoch_id)?;
                 self.client
@@ -1212,6 +1199,7 @@ impl ClientActorInner {
         }
 
         let optimistic_block_height = self.client.doomslug.get_timer_height();
+        debug!(target: "client", optimistic_block_height, "Checking if ready to produce optimistic block");
         if me != self.client.epoch_manager.get_block_producer(&epoch_id, optimistic_block_height)? {
             return Ok(());
         }
@@ -1471,6 +1459,7 @@ impl ClientActorInner {
     fn produce_optimistic_block(&mut self, next_height: BlockHeight) -> Result<(), Error> {
         // Check if optimistic block is already produced
         if self.client.is_optimistic_block_done(next_height) {
+            debug!(target: "client", next_height, "Optimistic block already produced");
             return Ok(());
         }
 

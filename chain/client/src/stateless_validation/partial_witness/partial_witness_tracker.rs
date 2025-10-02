@@ -160,6 +160,7 @@ impl CacheEntry {
             part_size = partial_witness.part_size(),
             part_encoded_length = partial_witness.encoded_length(),
             tag_witness_distribution = true,
+            witness_type = ?partial_witness.production_key().witness_type,
         )
         .entered();
         if matches!(self.witness_parts, WitnessPartsState::Empty) {
@@ -482,7 +483,9 @@ impl PartialEncodedStateWitnessTracker {
                     "decode_state_witness",
                     height = key.chunk.height_created,
                     shard_id = %key.chunk.shard_id,
-                    tag_witness_distribution = true)
+                    tag_witness_distribution = true,
+                    witness_type = ?key.witness_type,
+                )
                 .entered();
                 self.decode_state_witness(&encoded_witness)?
             };

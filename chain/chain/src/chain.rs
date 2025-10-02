@@ -25,13 +25,16 @@ use crate::stateless_validation::chunk_endorsement::{
     validate_chunk_endorsements_in_block, validate_chunk_endorsements_in_header,
 };
 use crate::stateless_validation::processing_tracker::ProcessingDoneTracker;
+use crate::stateless_validation::state_witness::{
+    DistributeStateWitnessRequest, PartialWitnessSenderForClient,
+};
 use crate::store::utils::{get_chunk_clone_from_header, get_incoming_receipts_for_shard};
 use crate::store::{
     ChainStore, ChainStoreAccess, ChainStoreUpdate, MerkleProofAccess, ReceiptFilter,
 };
 use crate::types::{
-    AcceptedBlock, BlockEconomicsConfig, ChainConfig, PrepareTransactionsBlockContext,
-    RuntimeAdapter, StorageDataSource,
+    AcceptedBlock, ApplyChunkResult, BlockEconomicsConfig, ChainConfig,
+    PrepareTransactionsBlockContext, RuntimeAdapter, StorageDataSource,
 };
 pub use crate::update_shard::{
     NewChunkData, NewChunkResult, OldChunkData, OldChunkResult, ShardContext, StorageContext,
@@ -52,6 +55,7 @@ use near_async::futures::AsyncComputationSpawnerExt;
 use near_async::messaging::{IntoMultiSender, noop};
 use near_async::time::{Clock, Duration, Instant};
 use near_async::{MultiSend, MultiSenderFrom};
+use near_cache::SyncLruCache;
 use near_chain_configs::{MutableValidatorSigner, ProtocolVersionCheckConfig};
 use near_chain_primitives::ApplyChunksMode;
 use near_chain_primitives::error::{BlockKnownError, Error};
@@ -81,10 +85,11 @@ use near_primitives::sharding::{
     StateSyncInfo,
 };
 use near_primitives::state_sync::ReceiptProofResponse;
-use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::stateless_validation::state_witness::{
-    ChunkStateWitness, ChunkStateWitnessSize,
+    ChunkApplyWitness, ChunkStateTransition, ChunkStateWitness, ChunkStateWitnessSize,
+    ChunkStateWitnessV3,
 };
+use near_primitives::stateless_validation::{ChunkProductionKey, WitnessType};
 use near_primitives::transaction::{ExecutionOutcomeWithIdAndProof, SignedTransaction};
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{
@@ -148,7 +153,6 @@ pub struct NewChunkAppliedMessage {
 // #[multi_send_input_derive(Debug, Clone, PartialEq, Eq)]
 pub struct ApplyChunksDoneSender {
     pub apply_chunks_done: near_async::messaging::Sender<SpanWrapped<ApplyChunksDoneMessage>>,
-    pub new_chunk_apply: near_async::messaging::Sender<NewChunkAppliedMessage>,
 }
 
 // pub type ApplyChunksDoneSender = near_async::messaging::Sender<SpanWrapped<ApplyChunksDoneMessage>>;
@@ -337,6 +341,10 @@ pub struct Chain {
     protocol_version_check: ProtocolVersionCheckConfig,
     /// Used to receive `PostStateReady` messages from the runtime.
     on_post_state_ready_sender: Option<PostStateReadySender>,
+    partial_witness_adapter: PartialWitnessSenderForClient,
+    /// LRU cache to track (prev_block_hash, shard_id) pairs for which chunk apply witness was sent.
+    /// This helps avoid sending full state witnesses when apply witness was already sent.
+    pub chunk_apply_witness_sent_cache: Arc<SyncLruCache<(BlockHeight, ShardId), ()>>,
 }
 
 impl Drop for Chain {
@@ -448,6 +456,8 @@ impl Chain {
             spice_core_reader,
             protocol_version_check: Default::default(),
             on_post_state_ready_sender: None,
+            partial_witness_adapter: noop().into_multi_sender(),
+            chunk_apply_witness_sent_cache: Arc::new(SyncLruCache::new(1000)),
         })
     }
 
@@ -465,6 +475,7 @@ impl Chain {
         validator_signer: MutableValidatorSigner,
         resharding_sender: ReshardingSender,
         on_post_state_ready_sender: Option<PostStateReadySender>,
+        partial_witness_adapter: PartialWitnessSenderForClient,
     ) -> Result<Chain, Error> {
         let state_roots = get_genesis_state_roots(runtime_adapter.store())?
             .expect("genesis should be initialized.");
@@ -618,6 +629,8 @@ impl Chain {
             spice_core_reader,
             protocol_version_check: chain_config.protocol_version_check,
             on_post_state_ready_sender,
+            partial_witness_adapter,
+            chunk_apply_witness_sent_cache: Arc::new(SyncLruCache::new(1000)),
         })
     }
 
@@ -1779,6 +1792,9 @@ impl Chain {
         let sc = self.apply_chunks_sender.clone();
         let clock = self.clock.clone();
         let iteration_mode = self.apply_chunks_iteration_mode;
+        let witness_sender = self.partial_witness_adapter.clone();
+        let cache = self.chunk_apply_witness_sent_cache.clone();
+        let epoch_manager = self.epoch_manager.clone();
         self.apply_chunks_spawner.spawn("apply_chunks", move || {
             let apply_all_chunks_start_time = clock.now();
             // do_apply_chunks runs `work` in parallel, but still waits for all of them to finish
@@ -1793,24 +1809,110 @@ impl Chain {
             metrics::APPLY_ALL_CHUNKS_TIME.with_label_values(&[block.as_ref()]).observe(
                 (clock.now().signed_duration_since(apply_all_chunks_start_time)).as_seconds_f64(),
             );
-            if let Some(block_context) = &block_context {
-                if let Some(sender) = apply_chunks_done_sender {
-                    for (_, _, shard_update_result) in &res {
-                        if let Ok(ShardUpdateResult::NewChunk(res_new_chunk)) = shard_update_result
-                        {
-                            sender.new_chunk_apply.send(NewChunkAppliedMessage {
-                                result: res_new_chunk.clone(),
-                                block_context: block_context.clone(),
-                                chunks: chunks.clone(),
-                            });
-                        }
-                    }
-                    sender.apply_chunks_done.send(ApplyChunksDoneMessage {}.span_wrap());
+
+            for (_, _, shard_update_result) in &res {
+                if let Err(err) = Self::send_chunk_apply_witness(
+                    cache.clone(),
+                    witness_sender.clone(),
+                    epoch_manager.clone(),
+                    shard_update_result,
+                    &block_context,
+                    &chunks,
+                ) {
+                    error!(target: "chain", ?err, "failed to handle new chunk applied message");
                 }
             }
+
+            if let Some(sender) = apply_chunks_done_sender {
+                sender.apply_chunks_done.send(ApplyChunksDoneMessage {}.span_wrap());
+            }
+
             sc.send((block, res)).unwrap();
             drop(apply_chunks_still_applying);
         });
+    }
+
+    fn send_chunk_apply_witness(
+        cache: Arc<SyncLruCache<(BlockHeight, ShardId), ()>>,
+        witness_sender: PartialWitnessSenderForClient,
+        epoch_manager: Arc<dyn EpochManagerAdapter>,
+        result: &Result<ShardUpdateResult, Error>,
+        block_context: &Option<ApplyChunkBlockContext>,
+        chunks: &Vec<ShardChunkHeader>,
+    ) -> Result<(), Error> {
+        let Ok(ShardUpdateResult::NewChunk(new_chunk)) = result else {
+            return Ok(());
+        };
+        let Some(block_context) = block_context else {
+            return Ok(());
+        };
+
+        let context = new_chunk.context.clone();
+        let Some(chunk_header) = context.chunk_header else {
+            return Err(Error::Other("Chunk header is missing".to_string()));
+        };
+        let shard_id = chunk_header.shard_id();
+        if cache.contains(&(block_context.height, shard_id)) {
+            return Ok(());
+        }
+
+        let ApplyChunkResult { proof, new_root, contract_updates, applied_receipts_hash, .. } =
+            new_chunk.apply_result.clone();
+        let prev_block_hash = context.block.prev_block_hash;
+        let prev_block_epoch_id = epoch_manager.get_epoch_id(&prev_block_hash)?;
+        let epoch_id = epoch_manager.get_epoch_id_from_prev_block(&prev_block_hash)?;
+        let prev_block_info = epoch_manager.get_block_info(&prev_block_hash)?;
+        let new_epoch_start_height =
+            epoch_manager.get_estimated_next_epoch_start(&prev_block_info)?;
+        if prev_block_epoch_id != epoch_id {
+            // Let's just skip it because I don't want to handle resharding yet.
+            return Ok(());
+        }
+        if block_context.height + 1 >= new_epoch_start_height {
+            // seems like epoch id must be properly updated?
+            return Ok(());
+        }
+
+        let _span = tracing::debug_span!(
+            target: "client",
+            "send_chunk_state_witness",
+            chunk_hash=?chunk_header.chunk_hash(),
+            height=chunk_header.height_created(),
+            %shard_id,
+            tag_block_production = true,
+            tag_witness_distribution = true,
+            witness_type = ?WitnessType::Optimistic,
+        )
+        .entered();
+
+        // Record that we sent chunk apply witness for this (prev_block_hash, shard_id) pair
+        assert_eq!(block_context.height, chunk_header.height_created());
+        cache.put((block_context.height, shard_id), ());
+
+        let main_state_transition = ChunkStateTransition {
+            block_hash: Default::default(),
+            base_state: proof.unwrap().nodes,
+            post_state_root: new_root,
+        };
+
+        witness_sender.distribute_chunk_state_witness.send(DistributeStateWitnessRequest {
+            state_witness: ChunkStateWitness::V3(ChunkStateWitnessV3 {
+                chunk_apply_witness: Some(ChunkApplyWitness {
+                    epoch_id: prev_block_epoch_id,
+                    chunk_header,
+                    block_context: block_context.clone(),
+                    chunks: chunks.clone(),
+                    main_state_transition,
+                    receipts: context.receipts,
+                    applied_receipts_hash,
+                    transactions: context.transactions,
+                }),
+                chunk_validate_witness: None,
+            }),
+            contract_updates,
+            main_transition_shard_id: shard_id,
+        });
+        Ok(())
     }
 
     #[instrument(level = "debug", target = "chain", skip_all)]

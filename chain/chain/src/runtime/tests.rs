@@ -1550,6 +1550,7 @@ fn get_test_env_with_chain_and_pool() -> (TestEnv, Chain, TransactionPool) {
         MutableConfigValue::new(None, "validator_signer"),
         noop().into_multi_sender(),
         None,
+        noop().into_multi_sender(),
     )
     .unwrap();
 

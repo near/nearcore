@@ -1,5 +1,7 @@
 use crate::store::ChainStoreAccess;
 use crate::{BlockHeader, ChainStore, ReceiptFilter, get_incoming_receipts_for_shard};
+use near_async::messaging::Sender;
+use near_async::{MultiSend, MultiSenderFrom};
 use near_chain_primitives::Error;
 use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_assignment::shard_id_to_uid;
@@ -7,6 +9,7 @@ use near_o11y::log_assert_fail;
 use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::receipt::Receipt;
 use near_primitives::sharding::{ChunkHash, ReceiptProof, ShardChunk, ShardChunkHeader};
+use near_primitives::stateless_validation::WitnessType;
 use near_primitives::stateless_validation::contract_distribution::ContractUpdates;
 use near_primitives::stateless_validation::state_witness::{
     ChunkStateTransition, ChunkStateWitness, ChunkStateWitnessV3, ChunkValidateWitness,
@@ -17,6 +20,18 @@ use near_primitives::stateless_validation::stored_chunk_state_transition_data::{
 use near_primitives::types::{EpochId, ShardId};
 use near_primitives::version::ProtocolFeature;
 use std::collections::HashMap;
+
+#[derive(Debug)]
+pub struct DistributeStateWitnessRequest {
+    pub state_witness: ChunkStateWitness,
+    pub contract_updates: ContractUpdates,
+    pub main_transition_shard_id: ShardId,
+}
+
+#[derive(Clone, MultiSend, MultiSenderFrom)]
+pub struct PartialWitnessSenderForClient {
+    pub distribute_chunk_state_witness: Sender<DistributeStateWitnessRequest>,
+}
 
 /// Result of collecting state transition data from the database to generate a state witness.
 /// Keep this private to this file.
@@ -52,13 +67,16 @@ impl ChainStore {
         apply_witness_sent: bool,
     ) -> Result<CreateWitnessResult, Error> {
         let chunk_header = chunk.cloned_header();
+        let witness_type =
+            if apply_witness_sent { WitnessType::Validate } else { WitnessType::Full };
+
         let _span = tracing::debug_span!(
             target: "client",
             "create_state_witness",
             chunk_hash = ?chunk_header.chunk_hash(),
             height = chunk_header.height_created(),
             shard_id = %chunk_header.shard_id(),
-            apply_witness_sent,
+            witness_type = ?witness_type,
             prev_chunk_height = prev_chunk_header.height_created(),
             tag_witness_distribution = true,
         )

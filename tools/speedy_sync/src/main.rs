@@ -273,6 +273,7 @@ fn load_snapshot(load_cmd: LoadCmd) {
         MutableConfigValue::new(None, "validator_signer"),
         noop().into_multi_sender(),
         None,
+        noop().into_multi_sender(),
     )
     .unwrap();
 
