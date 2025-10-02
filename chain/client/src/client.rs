@@ -1329,6 +1329,7 @@ impl Client {
         fields(
             hash = ?partial_chunk.chunk_hash(),
             height = ?partial_chunk.height_created(),
+            shard_id = %partial_chunk.shard_id(),
             tag_block_production = true
         )
     )]
