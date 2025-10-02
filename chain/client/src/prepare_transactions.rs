@@ -27,6 +27,7 @@ pub struct PrepareTransactionsJobInputs {
     pub tx_validity_period_check: Box<dyn Fn(&SignedTransaction) -> bool + Send + 'static>,
     pub prev_chunk_tx_hashes: HashSet<CryptoHash>,
     pub time_limit: Option<Duration>,
+    pub transaction_num_limit: Option<usize>,
 }
 
 impl PrepareTransactionsJobInputs {
@@ -53,6 +54,7 @@ impl PrepareTransactionsJobInputs {
             tx_validity_period_check: Box::new(|_| true),
             prev_chunk_tx_hashes: HashSet::new(),
             time_limit: None,
+            transaction_num_limit: None,
         }
     }
 }
@@ -137,6 +139,7 @@ impl PrepareTransactionsJob {
             &inputs.tx_validity_period_check,
             inputs.prev_chunk_tx_hashes,
             inputs.time_limit,
+            inputs.transaction_num_limit,
             Some((&self).cancel.clone()),
         );
         drop(iter);

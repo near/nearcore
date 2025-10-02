@@ -12,6 +12,7 @@ use near_primitives::views::{
     BlockHeaderView, BlockView, QueryRequest, QueryResponse, QueryResponseKind,
 };
 use node_runtime::metrics::TRANSACTION_PROCESSED_FAILED_TOTAL;
+use parking_lot::Mutex;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 use serde_with::serde_as;
@@ -28,6 +29,14 @@ pub mod actor;
 // We need several tasks to not get blocked by the sending latency.
 // 4 is currently more than enough.
 const TX_GENERATOR_TASK_COUNT: u64 = 8;
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct TxGeneratorTarget {
+    pub target_block_production_time_s: f64,
+    pub target_tps: u64,
+}
+
+pub static TARGET: Mutex<Option<TxGeneratorTarget>> = Mutex::new(None);
 
 #[serde_as]
 #[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
@@ -504,6 +513,10 @@ impl TxGenerator {
                             tracing::warn!(target: "transaction-generator", rate, "controller suggested tps is out of range, clamping");
                             rate = rate.clamp(1.0, 100000.0);
                         }
+                        if let Some(target) = &mut *TARGET.lock() {
+                            target.target_tps = rate as u64;
+                        }
+
                         let micros = ((1_000_000.0 * TX_GENERATOR_TASK_COUNT as f64) / rate) as u64;
                         tx_tps_values
                             .send(tokio::time::Duration::from_micros(micros))
@@ -599,6 +612,11 @@ impl TxGenerator {
         let schedule = config.schedule.clone();
 
         let controller = if let Some(controller_config) = &config.controller {
+            *TARGET.lock() = Some(TxGeneratorTarget {
+                target_block_production_time_s: controller_config.target_block_production_time_s,
+                target_tps: schedule.first().unwrap().tps,
+            });
+
             Some(FilteredRateController {
                 controller: pid_lite::Controller::new(
                     controller_config.target_block_production_time_s,
@@ -616,6 +634,10 @@ impl TxGenerator {
         tokio::spawn(async move {
             let accounts = rx_accounts.await.unwrap();
             for load in &schedule {
+                if let Some(target) = &mut *TARGET.lock() {
+                    target.target_tps = load.tps;
+                }
+
                 Self::run_load(
                     client_sender.clone(),
                     accounts.clone(),

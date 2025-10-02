@@ -5108,6 +5108,7 @@ dependencies = [
  "near-network",
  "near-primitives",
  "node-runtime",
+ "parking_lot 0.12.1",
  "pid-lite",
  "rand 0.8.5",
  "serde",
