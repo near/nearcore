@@ -166,3 +166,22 @@
         background-color: #eff8bf;
     }
 }
+
+.custom-tooltip {
+    background-color: white;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    padding: 8px;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    opacity: 1;
+
+    .label {
+        margin: 0 0 4px 0;
+        font-weight: bold;
+    }
+
+    p {
+        margin: 2px 0;
+        font-size: 14px;
+    }
+}

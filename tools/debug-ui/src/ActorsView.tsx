@@ -247,6 +247,7 @@ function BucketChart({ windows, min_start_time, message_types, yAxisMode }: Buck
 
         window.summary.message_stats_by_type.forEach((stat) => {
             entry[message_types[stat.message_type]] = stat.total_time_ns / 1_000_000; // convert to ms
+            entry[message_types[stat.message_type] + '_count'] = stat.count;
         });
         return entry;
     });
@@ -283,11 +284,7 @@ function BucketChart({ windows, min_start_time, message_types, yAxisMode }: Buck
         <BarChart width={800} height={150} data={data}>
             <XAxis dataKey="bucket" tickFormatter={formatXAxisLabel} />
             <YAxis domain={[0, yAxisMode === 'auto' ? 'auto' : 1000]} hide={true} />
-            <Tooltip labelFormatter={(value) => {
-                const startTime = (value as number) / 1000;
-                const endTime = ((value as number) + WINDOW_LEN_MS) / 1000;
-                return `Time: ${startTime.toFixed(1)}-${endTime.toFixed(1)}s`;
-            }} />
+            <Tooltip content={<CustomTooltip />} />
             <Legend align={"right"} verticalAlign={"middle"} layout="vertical" iconSize={8} width={250} wrapperStyle={
                 { fontSize: "12px", paddingLeft: "10px" }
             } />
@@ -297,3 +294,28 @@ function BucketChart({ windows, min_start_time, message_types, yAxisMode }: Buck
         </BarChart>
     );
 }
+
+const labelFormatter = (value: number) => {
+    const startTime = (value as number) / 1000;
+    const endTime = ((value as number) + WINDOW_LEN_MS) / 1000;
+    return `Time: ${startTime.toFixed(1)}-${endTime.toFixed(1)}s`;
+}
+
+
+const CustomTooltip = ({ active, payload, label }: any) => {
+    const isVisible = active && payload && payload.length;
+    console.log('Tooltip payload:', payload);
+    return (
+        <div className="custom-tooltip" style={{ visibility: isVisible ? 'visible' : 'hidden' }}>
+            {isVisible && (
+                <>
+                    <p className="label">{labelFormatter(label)}</p>
+                    {payload.map((item: any) => (
+                        <p style={{ color: item.color }} key={item.name}>{item.name}: {item.value.toFixed(2)} ms ({item.payload[item.name + '_count']} messages)</p>
+                    ))}
+                </>
+            )
+            }
+        </div>
+    );
+};
