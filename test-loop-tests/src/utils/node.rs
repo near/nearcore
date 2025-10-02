@@ -37,6 +37,7 @@ impl<'a> TestLoopNode<'a> {
         Self { data }
     }
 
+    #[allow(dead_code)]
     pub fn all(node_datas: &'a [NodeExecutionData]) -> Vec<Self> {
         node_datas.iter().map(|data| Self { data }).collect()
     }

@@ -10,6 +10,7 @@ use near_chain::resharding::resharding_actor::ReshardingActor;
 use near_chain::resharding::types::ReshardingSender;
 use near_chain::spice_core::CoreStatementsProcessor;
 use near_chain::state_snapshot_actor::SnapshotCallbacks;
+use near_chain::stateless_validation::state_witness::PartialWitnessSenderForClient;
 use near_chain::types::{ChainConfig, RuntimeAdapter};
 use near_chain::{ApplyChunksIterationMode, Chain, ChainGenesis, DoomslugThresholdMode};
 
@@ -31,9 +32,8 @@ use near_client::client_actor::{ClientActorInner, SpiceClientConfig};
 use near_client::spawn_rpc_handler_actor;
 use near_client::{
     AsyncComputationMultiSpawner, ChunkValidationActorInner, ChunkValidationSender,
-    ChunkValidationSenderForPartialWitness, Client, PartialWitnessActor,
-    PartialWitnessSenderForClient, RpcHandler, RpcHandlerConfig, StartClientResult, SyncStatus,
-    ViewClientActorInner, start_client,
+    ChunkValidationSenderForPartialWitness, Client, PartialWitnessActor, RpcHandler,
+    RpcHandlerConfig, StartClientResult, SyncStatus, ViewClientActorInner, start_client,
 };
 use near_crypto::{KeyType, PublicKey};
 use near_epoch_manager::shard_tracker::ShardTracker;
@@ -577,6 +577,7 @@ pub fn setup_synchronous_shards_manager(
         Default::default(),
         Default::default(),
         MutableConfigValue::new(None, "validator_signer"),
+        noop().into_multi_sender(),
         noop().into_multi_sender(),
         CoreStatementsProcessor::new_with_noop_senders(chain_store, epoch_manager.clone()),
     )

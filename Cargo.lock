@@ -4263,6 +4263,7 @@ dependencies = [
  "tempfile",
  "testlib",
  "thiserror 2.0.16",
+ "thread-priority",
  "time",
  "tokio",
  "tokio-stream",

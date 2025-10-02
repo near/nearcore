@@ -643,9 +643,9 @@ impl ChunkValidationActorInner {
             }
         };
 
-        // if self.try_validate_chunk_with_chunk_extra(state_witness.clone(), signer)? {
-        //     return Ok(());
-        // }
+        if self.try_validate_chunk_with_chunk_extra(state_witness.clone(), signer)? {
+            return Ok(());
+        }
 
         let epoch_manager = self.epoch_manager.clone();
         let runtime_adapter = self.runtime_adapter.clone();
