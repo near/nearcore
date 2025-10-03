@@ -103,6 +103,7 @@ impl<'a> TestLoopNode<'a> {
         );
     }
 
+    #[track_caller]
     pub fn run_tx(
         &self,
         test_loop: &mut TestLoopV2,
