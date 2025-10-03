@@ -125,6 +125,7 @@ impl ReceiptPreparationPipeline {
         }
         let actions = match receipt.receipt() {
             ReceiptEnum::Action(a) | ReceiptEnum::PromiseYield(a) => &a.actions,
+            ReceiptEnum::ActionV2(a) | ReceiptEnum::PromiseYieldV2(a) => &a.actions,
             ReceiptEnum::GlobalContractDistribution(global_contract_data) => {
                 self.block_global_contracts.insert(global_contract_data.id().clone());
                 return false;
@@ -136,7 +137,9 @@ impl ReceiptPreparationPipeline {
         for (action_index, action) in actions.iter().enumerate() {
             let account_id = account_id.clone();
             match action {
-                Action::DeployContract(_) | Action::UseGlobalContract(_) => {
+                Action::DeployContract(_)
+                | Action::UseGlobalContract(_)
+                | Action::DeterministicStateInit(_) => {
                     // FIXME: instead of blocking these accounts, move the handling of
                     // deploy action into here, so that the necessary data dependencies can be
                     // established.
@@ -264,6 +267,10 @@ impl ReceiptPreparationPipeline {
         let account_id = receipt.receiver_id();
         let action = match receipt.receipt() {
             ReceiptEnum::Action(r) | ReceiptEnum::PromiseYield(r) => r
+                .actions
+                .get(action_index)
+                .expect("indexing receipt actions by an action_index failed!"),
+            ReceiptEnum::ActionV2(r) | ReceiptEnum::PromiseYieldV2(r) => r
                 .actions
                 .get(action_index)
                 .expect("indexing receipt actions by an action_index failed!"),

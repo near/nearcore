@@ -231,7 +231,7 @@ fn load_snapshot(load_cmd: LoadCmd) {
         home_dir,
         &Default::default(),
         near_config.config.cold_store.as_ref(),
-        near_config.config.cloud_storage.as_ref(),
+        near_config.config.cloud_storage_config(),
     )
     .open()
     .unwrap()
@@ -271,9 +271,11 @@ fn load_snapshot(load_cmd: LoadCmd) {
         },
         None,
         Default::default(),
+        Default::default(),
         MutableConfigValue::new(None, "validator_signer"),
         noop().into_multi_sender(),
         CoreStatementsProcessor::new_with_noop_senders(store.chain_store(), epoch_manager),
+        None,
     )
     .unwrap();
 

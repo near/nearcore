@@ -523,6 +523,7 @@ impl<'a> ChainUpdate<'a> {
                 gas_limit,
                 last_validator_proposals: chunk_header.prev_validator_proposals(),
                 is_new_chunk: true,
+                on_post_state_ready: None,
             },
             ApplyChunkBlockContext {
                 block_type: BlockType::Normal,
@@ -641,6 +642,7 @@ impl<'a> ChainUpdate<'a> {
                 last_validator_proposals: chunk_extra.validator_proposals(),
                 gas_limit: chunk_extra.gas_limit(),
                 is_new_chunk: false,
+                on_post_state_ready: None,
             },
             ApplyChunkBlockContext::from_header(
                 &block_header,

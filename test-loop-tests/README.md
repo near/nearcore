@@ -77,7 +77,7 @@ Verify that the test produced the expected results.
 
 ```rust
 let account = validator_node.query_account(env.test_loop_data(), ..);
-assert_eq!(account.balance, 42 * ONE_NEAR);
+assert_eq!(account.balance, Balance::from_near(42));
 ```
 
 After that, properly shut down the test environment:

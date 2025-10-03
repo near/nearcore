@@ -11,11 +11,12 @@ use near_chain_configs::test_utils::{
 use near_chain_configs::{
     BLOCK_PRODUCER_KICKOUT_THRESHOLD, CHUNK_PRODUCER_KICKOUT_THRESHOLD,
     CHUNK_VALIDATOR_ONLY_KICKOUT_THRESHOLD, ChunkDistributionNetworkConfig, ClientConfig,
+    CloudArchivalReaderConfig, CloudArchivalWriterConfig, CloudStorageConfig,
     EXPECTED_EPOCH_LENGTH, EpochSyncConfig, FAST_EPOCH_LENGTH, FISHERMEN_THRESHOLD,
     GAS_PRICE_ADJUSTMENT_RATE, GCConfig, GENESIS_CONFIG_FILENAME, Genesis, GenesisConfig,
     GenesisValidationMode, INITIAL_GAS_LIMIT, LogSummaryStyle, MAX_INFLATION_RATE,
     MIN_BLOCK_PRODUCTION_DELAY, MIN_GAS_PRICE, MutableConfigValue, MutableValidatorSigner,
-    NEAR_BASE, NUM_BLOCK_PRODUCER_SEATS, NUM_BLOCKS_PER_YEAR, PROTOCOL_REWARD_RATE,
+    NUM_BLOCK_PRODUCER_SEATS, NUM_BLOCKS_PER_YEAR, PROTOCOL_REWARD_RATE,
     PROTOCOL_UPGRADE_STAKE_THRESHOLD, ProtocolVersionCheckConfig, ReshardingConfig,
     StateSyncConfig, TRANSACTION_VALIDITY_PERIOD, TrackedShardsConfig,
     default_chunk_validation_threads, default_chunk_wait_mult, default_enable_multiline_logging,
@@ -46,15 +47,14 @@ use near_primitives::network::PeerId;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::types::{
-    AccountId, AccountInfo, Balance, BlockHeight, BlockHeightDelta, Gas, NumSeats, NumShards,
-    ShardId,
+    AccountId, AccountInfo, BlockHeight, BlockHeightDelta, Gas, NumSeats, NumShards, ShardId,
 };
 use near_primitives::utils::{from_timestamp, get_num_seats_per_shard};
 use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
 use near_primitives::version::PROTOCOL_VERSION;
 #[cfg(feature = "rosetta_rpc")]
 use near_rosetta_rpc::RosettaRpcConfig;
-use near_store::config::{CloudStorageConfig, SplitStorageConfig, StateSnapshotType};
+use near_store::config::{SplitStorageConfig, StateSnapshotType};
 use near_store::{StateSnapshotConfig, Store, TrieConfig};
 use near_telemetry::TelemetryConfig;
 use near_vm_runner::{ContractRuntimeCache, FilesystemContractRuntimeCache};
@@ -66,9 +66,6 @@ use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tracing::{info, warn};
-
-/// Millinear, 1/1000 of NEAR.
-pub const MILLI_NEAR: Balance = NEAR_BASE / 1000;
 
 /// Block production tracking delay.
 pub const BLOCK_PRODUCTION_TRACKING_DELAY: i64 = 10;
@@ -274,6 +271,14 @@ pub struct Config {
 
     #[serde(skip_serializing_if = "is_false")]
     pub archive: bool,
+    /// Configuration for a cloud-based archival reader.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cloud_archival_reader: Option<CloudArchivalReaderConfig>,
+    /// Configuration for a cloud-based archival writer. If this config is present, the writer is enabled and
+    /// writes chunk-related data based on the tracked shards.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cloud_archival_writer: Option<CloudArchivalWriterConfig>,
+
     /// If save_trie_changes is not set it will get inferred from the `archive` field as follows:
     /// save_trie_changes = !archive
     /// save_trie_changes should be set to true iff
@@ -291,6 +296,10 @@ pub struct Config {
     /// - All shards are tracked (i.e. node is an RPC node).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub save_tx_outcomes: Option<bool>,
+    /// Whether to persist partial chunk parts for untracked shards in the database.
+    /// If `None`, defaults to true (persist).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub save_untracked_partial_chunks_parts: Option<bool>,
     pub log_summary_style: LogSummaryStyle,
     #[serde(with = "near_async::time::serde_duration_as_std")]
     pub log_summary_period: Duration,
@@ -318,14 +327,11 @@ pub struct Config {
     /// Different parameters to configure underlying storage.
     pub store: near_store::StoreConfig,
     /// Different parameters to configure underlying cold storage.
-    /// This feature is under development, do not use in production.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cold_store: Option<near_store::StoreConfig>,
     /// Configuration for the split storage.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub split_storage: Option<SplitStorageConfig>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub cloud_storage: Option<CloudStorageConfig>,
     /// The node will stop after the head exceeds this height.
     /// The node usually stops within several seconds after reaching the target height.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -432,8 +438,11 @@ impl Default for Config {
             tracked_shards: None,
             tracked_shard_schedule: None,
             archive: false,
+            cloud_archival_reader: None,
+            cloud_archival_writer: None,
             save_trie_changes: None,
             save_tx_outcomes: None,
+            save_untracked_partial_chunks_parts: None,
             log_summary_style: LogSummaryStyle::Colored,
             log_summary_period: default_log_summary_period(),
             gc: GCConfig::default(),
@@ -447,7 +456,6 @@ impl Default for Config {
             store,
             cold_store: None,
             split_storage: None,
-            cloud_storage: None,
             expected_shutdown: None,
             state_sync: None,
             epoch_sync: default_epoch_sync(),
@@ -598,6 +606,26 @@ impl Config {
         )
     }
 
+    /// Returns the cloud storage config. Checks if configs are equal if both cloud archival reader and
+    /// writers are enabled.
+    pub fn cloud_storage_config(&self) -> Option<&CloudStorageConfig> {
+        if let (Some(reader), Some(writer)) =
+            (&self.cloud_archival_reader, &self.cloud_archival_writer)
+        {
+            assert_eq!(
+                reader.cloud_storage, writer.cloud_storage,
+                "Cloud archival reader and writer storage configs are not equal."
+            );
+        }
+        if let Some(reader) = &self.cloud_archival_reader {
+            return Some(&reader.cloud_storage);
+        }
+        if let Some(writer) = &self.cloud_archival_writer {
+            return Some(&writer.cloud_storage);
+        }
+        None
+    }
+
     pub fn contract_cache_path(&self) -> PathBuf {
         if let Some(explicit) = &self.contract_cache_path {
             explicit.clone()
@@ -679,8 +707,13 @@ impl NearConfig {
                 doomslug_step_period: config.consensus.doomslug_step_period,
                 tracked_shards_config: config.tracked_shards_config(),
                 archive: config.archive,
+                cloud_archival_reader: config.cloud_archival_reader,
+                cloud_archival_writer: config.cloud_archival_writer,
                 save_trie_changes: config.save_trie_changes.unwrap_or(!config.archive),
                 save_tx_outcomes: config.save_tx_outcomes.unwrap_or(is_archive_or_rpc),
+                save_untracked_partial_chunks_parts: config
+                    .save_untracked_partial_chunks_parts
+                    .unwrap_or(true),
                 log_summary_style: config.log_summary_style,
                 gc: config.gc,
                 view_client_threads: config.view_client_threads,
@@ -796,7 +829,6 @@ impl NightshadeRuntime {
             &config.config.contract_cache_path(),
             config.config.max_loaded_contracts,
         )?;
-        let state_parts_compression_lvl = config.client_config.state_sync.parts_compression_lvl;
         Ok(NightshadeRuntime::new(
             store,
             ContractRuntimeCache::handle(&contract_cache),
@@ -808,7 +840,8 @@ impl NightshadeRuntime {
             config.config.gc.gc_num_epochs_to_keep(),
             TrieConfig::from_store_config(&config.config.store),
             state_snapshot_config,
-            state_parts_compression_lvl,
+            config.client_config.state_sync.parts_compression_lvl,
+            config.client_config.cloud_archival_writer.is_some(),
         ))
     }
 }
@@ -931,6 +964,7 @@ pub fn init_configs(
     download_config_url: Option<&str>,
     boot_nodes: Option<&str>,
     max_gas_burnt_view: Option<Gas>,
+    state_sync_bucket: Option<&str>,
 ) -> anyhow::Result<()> {
     fs::create_dir_all(dir).with_context(|| anyhow!("Failed to create directory {:?}", dir))?;
 
@@ -972,6 +1006,9 @@ pub fn init_configs(
             .context(format!("Failed to download the config file from {}", url))?;
         config = Config::from_file(&dir.join(CONFIG_FILENAME))?;
     }
+    if let Some(bucket) = state_sync_bucket {
+        config.state_sync = Some(StateSyncConfig::gcs_with_bucket(bucket.to_string()));
+    }
 
     if let Some(nodes) = boot_nodes {
         config.network.boot_nodes = nodes.to_string();
@@ -988,8 +1025,9 @@ pub fn init_configs(
             if test_seed.is_some() {
                 bail!("Test seed is not supported for {chain_id}");
             }
-            config.telemetry.endpoints.push(NETWORK_TELEMETRY_URL.to_string());
-            config.state_sync = Some(StateSyncConfig::gcs_default());
+            if !config.telemetry.endpoints.contains(&NETWORK_TELEMETRY_URL.to_string()) {
+                config.telemetry.endpoints.push(NETWORK_TELEMETRY_URL.to_string());
+            }
         }
         _ => {
             // Create new configuration, key files and genesis for one validator.
@@ -1683,6 +1721,7 @@ mod tests {
             None,
             None,
             None,
+            None,
         )
         .unwrap();
         let genesis = Genesis::from_file(
@@ -1740,6 +1779,7 @@ mod tests {
             None,
             None,
             None,
+            None,
         )
         .unwrap();
 
@@ -1767,6 +1807,7 @@ mod tests {
             false,
             None,
             false,
+            None,
             None,
             None,
             None,

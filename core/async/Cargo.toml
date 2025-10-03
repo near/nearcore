@@ -12,7 +12,6 @@ publish = true
 workspace = true
 
 [dependencies]
-actix.workspace = true
 crossbeam-channel.workspace = true
 futures.workspace = true
 parking_lot.workspace = true
@@ -25,15 +24,8 @@ tokio-util.workspace = true
 tracing.workspace = true
 
 near-async-derive.workspace = true
-# TODO(#11652): we use it only for logging. i think, it's a bit too much...
-near-o11y.workspace = true
-near-performance-metrics.workspace = true
 near-time = { workspace = true, features = ["clock"] }
 
 [dev-dependencies]
 tokio-util.workspace = true
 
-[features]
-nightly = [
-    "near-o11y/nightly",
-]

@@ -1,18 +1,19 @@
 use crate::config::SocketOptions;
 use crate::network_protocol::PeerInfo;
 use anyhow::{Context as _, anyhow};
+use named_lock::NamedLockGuard;
 use near_primitives::network::PeerId;
 use parking_lot::Mutex;
-use std::collections::HashMap;
+use rand::Rng;
 use std::fmt;
+use std::net::SocketAddr;
 
 const LISTENER_BACKLOG: u32 = 128;
 
 /// TEST-ONLY: guards ensuring that OS considers the given TCP listener port to be in use until
 /// this OS process is terminated.
-pub(crate) static RESERVED_LISTENER_ADDRS: std::sync::LazyLock<
-    Mutex<HashMap<std::net::SocketAddr, tokio::net::TcpSocket>>,
-> = std::sync::LazyLock::new(|| Mutex::new(HashMap::new()));
+pub(crate) static RESERVED_PORT_LOCKS: std::sync::LazyLock<Mutex<Vec<NamedLockGuard>>> =
+    std::sync::LazyLock::new(|| Mutex::new(Vec::new()));
 
 /// TCP connections established by a node belong to different logical networks (aka tiers),
 /// which serve different purpose.
@@ -215,13 +216,46 @@ impl ListenerAddr {
     /// TEST-ONLY: reserves a random port on localhost for a TCP listener.
     /// cspell:ignore REUSEADDR REUSEPORT
     pub fn reserve_for_test() -> Self {
-        let guard = tokio::net::TcpSocket::new_v6().unwrap();
-        guard.set_reuseaddr(true).unwrap();
-        guard.set_reuseport(true).unwrap();
-        guard.bind("[::1]:0".parse().unwrap()).unwrap();
-        let addr = guard.local_addr().unwrap();
-        RESERVED_LISTENER_ADDRS.lock().insert(addr, guard);
-        Self(addr)
+        for _ in 0..1000 {
+            // Randomize a port and then first check the named lock. We need a named lock instead of a mutex because
+            // tests are run in multiple processes. Once we obtain the lock, we try the port to see if we can listen on
+            // it. If we can't, then try again - the system may be using the port for other purposes. If we can, then
+            // we release the port and then use this port as the testing port.
+            // Why do we lock first and then check the port? This is because after we reserve a port, the test may not
+            // use it right away, and during this time, someone else may check the port and listen on it for a brief
+            // moment (before realizing the lock isn't available), but that brief moment may cause the test to fail if
+            // the listener cannot listen on that port.
+            //
+            // Note: an old implementation asked the OS for a port (by listening on port 0) and then held the socket
+            // without releasing it, and then allow the test to re-use the port by specifying set_reuseport. However,
+            // somehow this leads to flaky tests. It's not clear why, but the port reuse trick feels fragile.
+            let port = rand::thread_rng().gen_range(20000..65536);
+            let lock =
+                named_lock::NamedLock::create(&format!("nearcore_test_reserved_port_{}", port))
+                    .unwrap();
+            let try_lock = lock.try_lock();
+            let guard = match try_lock {
+                Ok(guard) => guard,
+                Err(named_lock::Error::WouldBlock) => {
+                    // this port is already reserved, try another one
+                    tracing::trace!(target: "network", "Port {} is already reserved, trying another one", port);
+                    continue;
+                }
+                Err(err) => {
+                    panic!("Failed to create a named lock for port {}: {}", port, err);
+                }
+            };
+            let addr: SocketAddr = format!("[::1]:{}", port).parse().unwrap();
+            let tcp_socket = std::net::TcpListener::bind(addr);
+            if tcp_socket.is_err() {
+                // this port is already in use, try another one
+                tracing::trace!(target: "network", "Port {} is already in use, trying another one", port);
+                continue;
+            }
+            RESERVED_PORT_LOCKS.lock().push(guard);
+            return Self(addr);
+        }
+        panic!("Failed to reserve a TCP port for a listener after 1000 attempts");
     }
 
     /// Constructs a std::net::TcpListener, for usage outside of near_network.
@@ -235,9 +269,6 @@ impl ListenerAddr {
             std::net::SocketAddr::V4(_) => tokio::net::TcpSocket::new_v4()?,
             std::net::SocketAddr::V6(_) => tokio::net::TcpSocket::new_v6()?,
         };
-        if RESERVED_LISTENER_ADDRS.lock().contains_key(&self.0) {
-            socket.set_reuseport(true)?;
-        }
         socket.set_reuseaddr(true)?;
         socket.bind(self.0)?;
         Ok(Listener(socket.listen(LISTENER_BACKLOG)?))

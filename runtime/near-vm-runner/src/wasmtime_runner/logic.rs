@@ -1,4 +1,4 @@
-use super::Ctx;
+use super::{Ctx, Export};
 use crate::logic::alt_bn128;
 use crate::logic::bls12381;
 use crate::logic::errors::InconsistentStateError;
@@ -12,15 +12,29 @@ use crate::logic::utils::split_method_names;
 use crate::logic::vmstate::Registers;
 use crate::logic::{HostError, VMLogicError};
 use ExtCosts::*;
+use core::mem::size_of;
 use near_crypto::Secp256K1Signature;
 use near_parameters::{
     ActionCosts, ExtCosts, RuntimeFeesConfig, transfer_exec_fee, transfer_send_fee,
 };
 use near_primitives_core::config::INLINE_DISK_VALUE_THRESHOLD;
 use near_primitives_core::hash::CryptoHash;
-use near_primitives_core::types::{AccountId, EpochHeight, Gas, GasWeight, StorageUsage};
-use std::mem::size_of;
-use wasmtime::{Caller, Extern};
+use near_primitives_core::types::{AccountId, Balance, EpochHeight, Gas, GasWeight, StorageUsage};
+use wasmtime::{Caller, Extern, Memory};
+
+// Lookup the memory export and cache it on success.
+fn get_memory(caller: &mut Caller<'_, Ctx>) -> Result<Memory> {
+    match caller.data().memory {
+        Export::Unresolved(memory) => {
+            let Some(Extern::Memory(memory)) = caller.get_module_export(&memory) else {
+                return Err(HostError::MemoryAccessViolation.into());
+            };
+            caller.data_mut().memory = Export::Resolved(memory);
+            Ok(memory)
+        }
+        Export::Resolved(memory) => Ok(memory),
+    }
+}
 
 macro_rules! bls12381_impl {
     (
@@ -38,10 +52,7 @@ macro_rules! bls12381_impl {
             value_ptr: u64,
             register_id: u64,
         ) -> Result<u64> {
-            let memory = caller.data().memory;
-            let Some(Extern::Memory(memory)) = caller.get_module_export(&memory) else {
-                return Err(HostError::MemoryAccessViolation.into());
-            };
+            let memory = get_memory(caller)?;
             let (memory, ctx) = memory.data_and_store_mut(caller);
 
             ctx.result_state.gas_counter.pay_base($bls12381_base)?;
@@ -265,6 +276,19 @@ pub fn finite_wasm_unstack(
     Ok(())
 }
 
+pub fn finite_wasm_gas_exhausted(caller: &mut Caller<'_, Ctx>) -> Result<()> {
+    let ctx = caller.data_mut();
+    // Burn all remaining gas
+    ctx.result_state.gas_counter.burn_gas(ctx.result_state.gas_counter.remaining_gas())?;
+    // This function will only ever be called by instrumentation on overflow, otherwise
+    // `finite_wasm_gas` will be called with the out-of-budget charge
+    Err(VMLogicError::HostError(HostError::IntegerOverflow))
+}
+
+pub fn finite_wasm_stack_exhausted(_caller: &mut Caller<'_, Ctx>) -> Result<()> {
+    Err(VMLogicError::HostError(HostError::MemoryAccessViolation))
+}
+
 // #################
 // # Registers API #
 // #################
@@ -290,10 +314,7 @@ pub fn finite_wasm_unstack(
 ///
 /// `base + read_register_base + read_register_byte * num_bytes + write_memory_base + write_memory_byte * num_bytes`
 pub fn read_register(caller: &mut Caller<'_, Ctx>, register_id: u64, ptr: u64) -> Result<()> {
-    let memory = caller.data().memory;
-    let Some(Extern::Memory(memory)) = caller.get_module_export(&memory) else {
-        return Err(HostError::MemoryAccessViolation.into());
-    };
+    let memory = get_memory(caller)?;
     let (memory, ctx) = memory.data_and_store_mut(caller);
 
     ctx.result_state.gas_counter.pay_base(base)?;
@@ -338,10 +359,7 @@ pub fn write_register(
     data_len: u64,
     data_ptr: u64,
 ) -> Result<()> {
-    let memory = caller.data().memory;
-    let Some(Extern::Memory(memory)) = caller.get_module_export(&memory) else {
-        return Err(HostError::MemoryAccessViolation.into());
-    };
+    let memory = get_memory(caller)?;
     let (memory, ctx) = memory.data_and_store_mut(caller);
     ctx.result_state.gas_counter.pay_base(base)?;
     let memory = read_memory(&mut ctx.result_state.gas_counter, memory, data_ptr, data_len)?;
@@ -417,10 +435,7 @@ fn get_utf8_string(
 /// * It's up to the caller to set correct len
 #[cfg(feature = "sandbox")]
 fn sandbox_get_utf8_string(caller: &mut Caller<'_, Ctx>, len: u64, ptr: u64) -> Result<String> {
-    let memory = caller.data().memory;
-    let Some(Extern::Memory(memory)) = caller.get_module_export(&memory) else {
-        return Err(HostError::MemoryAccessViolation.into());
-    };
+    let memory = get_memory(caller)?;
     let memory = memory.data(&caller);
     let buf = read_memory_for_free(memory, ptr, len)?;
     String::from_utf8(buf.into()).map_err(|_| HostError::BadUTF8.into())
@@ -707,10 +722,7 @@ pub fn validator_stake(
     account_id_ptr: u64,
     stake_ptr: u64,
 ) -> Result<()> {
-    let memory = caller.data().memory;
-    let Some(Extern::Memory(memory)) = caller.get_module_export(&memory) else {
-        return Err(HostError::MemoryAccessViolation.into());
-    };
+    let memory = get_memory(caller)?;
     let (memory, ctx) = memory.data_and_store_mut(caller);
     ctx.result_state.gas_counter.pay_base(base)?;
     let account_id = read_and_parse_account_id(
@@ -722,7 +734,7 @@ pub fn validator_stake(
     )?;
     ctx.result_state.gas_counter.pay_base(validator_stake_base)?;
     let balance = ctx.ext.validator_stake(&account_id)?.unwrap_or_default();
-    set_u128(&mut ctx.result_state.gas_counter, memory, stake_ptr, balance)
+    set_u128(&mut ctx.result_state.gas_counter, memory, stake_ptr, balance.as_yoctonear())
 }
 
 /// Get the total validator stake of the current epoch.
@@ -733,15 +745,12 @@ pub fn validator_stake(
 ///
 /// `base + memory_write_base + memory_write_size * 16 + validator_total_stake_base`
 pub fn validator_total_stake(caller: &mut Caller<'_, Ctx>, stake_ptr: u64) -> Result<()> {
-    let memory = caller.data().memory;
-    let Some(Extern::Memory(memory)) = caller.get_module_export(&memory) else {
-        return Err(HostError::MemoryAccessViolation.into());
-    };
+    let memory = get_memory(caller)?;
     let (memory, ctx) = memory.data_and_store_mut(caller);
     ctx.result_state.gas_counter.pay_base(base)?;
     ctx.result_state.gas_counter.pay_base(validator_total_stake_base)?;
     let total_stake = ctx.ext.validator_total_stake()?;
-    set_u128(&mut ctx.result_state.gas_counter, memory, stake_ptr, total_stake)
+    set_u128(&mut ctx.result_state.gas_counter, memory, stake_ptr, total_stake.as_yoctonear())
 }
 
 /// Returns the number of bytes used by the contract if it was saved to the trie as of the
@@ -771,17 +780,14 @@ pub fn storage_usage(caller: &mut Caller<'_, Ctx>) -> Result<StorageUsage> {
 ///
 /// `base + memory_write_base + memory_write_size * 16`
 pub fn account_balance(caller: &mut Caller<'_, Ctx>, balance_ptr: u64) -> Result<()> {
-    let memory = caller.data().memory;
-    let Some(Extern::Memory(memory)) = caller.get_module_export(&memory) else {
-        return Err(HostError::MemoryAccessViolation.into());
-    };
+    let memory = get_memory(caller)?;
     let (memory, ctx) = memory.data_and_store_mut(caller);
     ctx.result_state.gas_counter.pay_base(base)?;
     set_u128(
         &mut ctx.result_state.gas_counter,
         memory,
         balance_ptr,
-        ctx.result_state.current_account_balance,
+        ctx.result_state.current_account_balance.as_yoctonear(),
     )
 }
 
@@ -791,17 +797,14 @@ pub fn account_balance(caller: &mut Caller<'_, Ctx>, balance_ptr: u64) -> Result
 ///
 /// `base + memory_write_base + memory_write_size * 16`
 pub fn account_locked_balance(caller: &mut Caller<'_, Ctx>, balance_ptr: u64) -> Result<()> {
-    let memory = caller.data().memory;
-    let Some(Extern::Memory(memory)) = caller.get_module_export(&memory) else {
-        return Err(HostError::MemoryAccessViolation.into());
-    };
+    let memory = get_memory(caller)?;
     let (memory, ctx) = memory.data_and_store_mut(caller);
     ctx.result_state.gas_counter.pay_base(base)?;
     set_u128(
         &mut ctx.result_state.gas_counter,
         memory,
         balance_ptr,
-        ctx.current_account_locked_balance,
+        ctx.current_account_locked_balance.as_yoctonear(),
     )
 }
 
@@ -816,13 +819,15 @@ pub fn account_locked_balance(caller: &mut Caller<'_, Ctx>, balance_ptr: u64) ->
 ///
 /// `base + memory_write_base + memory_write_size * 16`
 pub fn attached_deposit(caller: &mut Caller<'_, Ctx>, balance_ptr: u64) -> Result<()> {
-    let memory = caller.data().memory;
-    let Some(Extern::Memory(memory)) = caller.get_module_export(&memory) else {
-        return Err(HostError::MemoryAccessViolation.into());
-    };
+    let memory = get_memory(caller)?;
     let (memory, ctx) = memory.data_and_store_mut(caller);
     ctx.result_state.gas_counter.pay_base(base)?;
-    set_u128(&mut ctx.result_state.gas_counter, memory, balance_ptr, ctx.context.attached_deposit)
+    set_u128(
+        &mut ctx.result_state.gas_counter,
+        memory,
+        balance_ptr,
+        ctx.context.attached_deposit.as_yoctonear(),
+    )
 }
 
 /// The amount of gas attached to the call that can be used to pay for the gas fees.
@@ -900,10 +905,7 @@ pub fn alt_bn128_g1_multiexp(
     value_ptr: u64,
     register_id: u64,
 ) -> Result<()> {
-    let memory = caller.data().memory;
-    let Some(Extern::Memory(memory)) = caller.get_module_export(&memory) else {
-        return Err(HostError::MemoryAccessViolation.into());
-    };
+    let memory = get_memory(caller)?;
     let (memory, ctx) = memory.data_and_store_mut(caller);
     ctx.result_state.gas_counter.pay_base(alt_bn128_g1_multiexp_base)?;
     let data = get_memory_or_register(
@@ -954,10 +956,7 @@ pub fn alt_bn128_g1_sum(
     value_ptr: u64,
     register_id: u64,
 ) -> Result<()> {
-    let memory = caller.data().memory;
-    let Some(Extern::Memory(memory)) = caller.get_module_export(&memory) else {
-        return Err(HostError::MemoryAccessViolation.into());
-    };
+    let memory = get_memory(caller)?;
     let (memory, ctx) = memory.data_and_store_mut(caller);
     ctx.result_state.gas_counter.pay_base(alt_bn128_g1_sum_base)?;
     let data = get_memory_or_register(
@@ -1008,10 +1007,7 @@ pub fn alt_bn128_pairing_check(
     value_len: u64,
     value_ptr: u64,
 ) -> Result<u64> {
-    let memory = caller.data().memory;
-    let Some(Extern::Memory(memory)) = caller.get_module_export(&memory) else {
-        return Err(HostError::MemoryAccessViolation.into());
-    };
+    let memory = get_memory(caller)?;
     let (memory, ctx) = memory.data_and_store_mut(caller);
     ctx.result_state.gas_counter.pay_base(alt_bn128_pairing_check_base)?;
     let data = get_memory_or_register(
@@ -1331,10 +1327,7 @@ pub fn bls12381_pairing_check(
     value_len: u64,
     value_ptr: u64,
 ) -> Result<u64> {
-    let memory = caller.data().memory;
-    let Some(Extern::Memory(memory)) = caller.get_module_export(&memory) else {
-        return Err(HostError::MemoryAccessViolation.into());
-    };
+    let memory = get_memory(caller)?;
     let (memory, ctx) = memory.data_and_store_mut(caller);
     ctx.result_state.gas_counter.pay_base(bls12381_pairing_base)?;
 
@@ -1484,10 +1477,7 @@ pub fn sha256(
     value_ptr: u64,
     register_id: u64,
 ) -> Result<()> {
-    let memory = caller.data().memory;
-    let Some(Extern::Memory(memory)) = caller.get_module_export(&memory) else {
-        return Err(HostError::MemoryAccessViolation.into());
-    };
+    let memory = get_memory(caller)?;
     let (memory, ctx) = memory.data_and_store_mut(caller);
     ctx.result_state.gas_counter.pay_base(sha256_base)?;
     let value = get_memory_or_register(
@@ -1526,10 +1516,7 @@ pub fn keccak256(
     value_ptr: u64,
     register_id: u64,
 ) -> Result<()> {
-    let memory = caller.data().memory;
-    let Some(Extern::Memory(memory)) = caller.get_module_export(&memory) else {
-        return Err(HostError::MemoryAccessViolation.into());
-    };
+    let memory = get_memory(caller)?;
     let (memory, ctx) = memory.data_and_store_mut(caller);
     ctx.result_state.gas_counter.pay_base(keccak256_base)?;
     let value = get_memory_or_register(
@@ -1568,10 +1555,7 @@ pub fn keccak512(
     value_ptr: u64,
     register_id: u64,
 ) -> Result<()> {
-    let memory = caller.data().memory;
-    let Some(Extern::Memory(memory)) = caller.get_module_export(&memory) else {
-        return Err(HostError::MemoryAccessViolation.into());
-    };
+    let memory = get_memory(caller)?;
     let (memory, ctx) = memory.data_and_store_mut(caller);
     ctx.result_state.gas_counter.pay_base(keccak512_base)?;
     let value = get_memory_or_register(
@@ -1612,10 +1596,7 @@ pub fn ripemd160(
     value_ptr: u64,
     register_id: u64,
 ) -> Result<()> {
-    let memory = caller.data().memory;
-    let Some(Extern::Memory(memory)) = caller.get_module_export(&memory) else {
-        return Err(HostError::MemoryAccessViolation.into());
-    };
+    let memory = get_memory(caller)?;
     let (memory, ctx) = memory.data_and_store_mut(caller);
     ctx.result_state.gas_counter.pay_base(ripemd160_base)?;
     let value = get_memory_or_register(
@@ -1673,10 +1654,7 @@ pub fn ecrecover(
     malleability_flag: u64,
     register_id: u64,
 ) -> Result<u64> {
-    let memory = caller.data().memory;
-    let Some(Extern::Memory(memory)) = caller.get_module_export(&memory) else {
-        return Err(HostError::MemoryAccessViolation.into());
-    };
+    let memory = get_memory(caller)?;
     let (memory, ctx) = memory.data_and_store_mut(caller);
     ctx.result_state.gas_counter.pay_base(ecrecover_base)?;
 
@@ -1793,10 +1771,7 @@ pub fn ed25519_verify(
 ) -> Result<u64> {
     use ed25519_dalek::Verifier;
 
-    let memory = caller.data().memory;
-    let Some(Extern::Memory(memory)) = caller.get_module_export(&memory) else {
-        return Err(HostError::MemoryAccessViolation.into());
-    };
+    let memory = get_memory(caller)?;
     let (memory, ctx) = memory.data_and_store_mut(caller);
 
     ctx.result_state.gas_counter.pay_base(ed25519_verify_base)?;
@@ -2057,10 +2032,7 @@ pub fn promise_and(
     promise_idx_ptr: u64,
     promise_idx_count: u64,
 ) -> Result<PromiseIndex> {
-    let memory = caller.data().memory;
-    let Some(Extern::Memory(memory)) = caller.get_module_export(&memory) else {
-        return Err(HostError::MemoryAccessViolation.into());
-    };
+    let memory = get_memory(caller)?;
     let (memory, ctx) = memory.data_and_store_mut(caller);
     ctx.result_state.gas_counter.pay_base(base)?;
     if ctx.context.is_view() {
@@ -2131,10 +2103,7 @@ pub fn promise_batch_create(
     account_id_len: u64,
     account_id_ptr: u64,
 ) -> Result<u64> {
-    let memory = caller.data().memory;
-    let Some(Extern::Memory(memory)) = caller.get_module_export(&memory) else {
-        return Err(HostError::MemoryAccessViolation.into());
-    };
+    let memory = get_memory(caller)?;
     let (memory, ctx) = memory.data_and_store_mut(caller);
     ctx.result_state.gas_counter.pay_base(base)?;
     if ctx.context.is_view() {
@@ -2184,10 +2153,7 @@ pub fn promise_batch_then(
     account_id_len: u64,
     account_id_ptr: u64,
 ) -> Result<u64> {
-    let memory = caller.data().memory;
-    let Some(Extern::Memory(memory)) = caller.get_module_export(&memory) else {
-        return Err(HostError::MemoryAccessViolation.into());
-    };
+    let memory = get_memory(caller)?;
     let (memory, ctx) = memory.data_and_store_mut(caller);
     ctx.result_state.gas_counter.pay_base(base)?;
     if ctx.context.is_view() {
@@ -2222,6 +2188,55 @@ pub fn promise_batch_then(
     let new_receipt_idx = ctx.ext.create_action_receipt(receipt_dependencies, account_id)?;
 
     checked_push_promise(ctx, Promise::Receipt(new_receipt_idx))
+}
+
+/// Sets the `refund_to` field on the promise
+///
+/// # Errors
+///
+/// * If `promise_idx` does not correspond to an existing promise returns `InvalidPromiseIndex`;
+/// * If `account_id_len + account_id_ptr` points outside the memory of the guest or host
+/// returns `MemoryAccessViolation`.
+/// * If called as view function returns `ProhibitedInView`.
+///
+/// # Cost
+///
+/// `base + cost of reading and decoding the account id`
+pub fn promise_set_refund_to(
+    caller: &mut Caller<'_, Ctx>,
+    promise_idx: u64,
+    account_id_len: u64,
+    account_id_ptr: u64,
+) -> Result<()> {
+    let memory = get_memory(caller)?;
+    let (memory, ctx) = memory.data_and_store_mut(caller);
+
+    ctx.result_state.gas_counter.pay_base(base)?;
+    if ctx.context.is_view() {
+        return Err(HostError::ProhibitedInView {
+            method_name: "promise_set_refund_to".to_string(),
+        }
+        .into());
+    }
+    let refund_to = read_and_parse_account_id(
+        &mut ctx.result_state.gas_counter,
+        memory,
+        &ctx.registers,
+        account_id_ptr,
+        account_id_len,
+    )?;
+    let promise = ctx
+        .promises
+        .get(promise_idx as usize)
+        .ok_or(HostError::InvalidPromiseIndex { promise_idx })?;
+
+    let receipt_idx = match &promise {
+        Promise::Receipt(receipt_idx) => Ok(*receipt_idx),
+        Promise::NotReceipt(_) => Err(HostError::CannotSetRefundToOnJointPromise),
+    }?;
+
+    ctx.ext.set_refund_to(receipt_idx, refund_to);
+    Ok(())
 }
 
 /// Helper function to return the receipt index corresponding to the given promise index.
@@ -2307,10 +2322,7 @@ pub fn promise_batch_action_deploy_contract(
     code_len: u64,
     code_ptr: u64,
 ) -> Result<()> {
-    let memory = caller.data().memory;
-    let Some(Extern::Memory(memory)) = caller.get_module_export(&memory) else {
-        return Err(HostError::MemoryAccessViolation.into());
-    };
+    let memory = get_memory(caller)?;
     let (memory, ctx) = memory.data_and_store_mut(caller);
     ctx.result_state.gas_counter.pay_base(base)?;
     if ctx.context.is_view() {
@@ -2427,10 +2439,7 @@ fn promise_batch_action_deploy_global_contract_impl(
     mode: GlobalContractDeployMode,
     method_name: &str,
 ) -> Result<()> {
-    let memory = caller.data().memory;
-    let Some(Extern::Memory(memory)) = caller.get_module_export(&memory) else {
-        return Err(HostError::MemoryAccessViolation.into());
-    };
+    let memory = get_memory(caller)?;
     let (memory, ctx) = memory.data_and_store_mut(caller);
 
     ctx.result_state.gas_counter.pay_base(base)?;
@@ -2540,39 +2549,13 @@ fn promise_batch_action_use_global_contract_impl(
     contract_id_ptr: GlobalContractIdentifierPtrData,
     method_name: &str,
 ) -> Result<()> {
-    let memory = caller.data().memory;
-    let Some(Extern::Memory(memory)) = caller.get_module_export(&memory) else {
-        return Err(HostError::MemoryAccessViolation.into());
-    };
+    let memory = get_memory(caller)?;
     let (memory, ctx) = memory.data_and_store_mut(caller);
     ctx.result_state.gas_counter.pay_base(base)?;
     if ctx.context.is_view() {
         return Err(HostError::ProhibitedInView { method_name: method_name.to_owned() }.into());
     }
-    let contract_id = match contract_id_ptr {
-        GlobalContractIdentifierPtrData::CodeHash { code_hash_len, code_hash_ptr } => {
-            let code_hash_bytes = get_memory_or_register(
-                &mut ctx.result_state.gas_counter,
-                memory,
-                &ctx.registers,
-                code_hash_ptr,
-                code_hash_len,
-            )?;
-            let code_hash: [_; CryptoHash::LENGTH] =
-                (&*code_hash_bytes).try_into().map_err(|_| HostError::ContractCodeHashMalformed)?;
-            GlobalContractIdentifier::CodeHash(CryptoHash(code_hash))
-        }
-        GlobalContractIdentifierPtrData::AccountId { account_id_len, account_id_ptr } => {
-            let account_id = read_and_parse_account_id(
-                &mut ctx.result_state.gas_counter,
-                memory,
-                &ctx.registers,
-                account_id_ptr,
-                account_id_len,
-            )?;
-            GlobalContractIdentifier::AccountId(account_id)
-        }
-    };
+    let contract_id = read_contract_id(contract_id_ptr, memory, ctx)?;
 
     let (receipt_idx, sir) = promise_idx_to_receipt_idx_with_sir(ctx, promise_idx)?;
 
@@ -2592,6 +2575,221 @@ fn promise_batch_action_use_global_contract_impl(
     )?;
 
     ctx.ext.append_action_use_global_contract(receipt_idx, contract_id)?;
+    Ok(())
+}
+
+fn read_contract_id(
+    contract_id_ptr: GlobalContractIdentifierPtrData,
+    memory: &[u8],
+    ctx: &mut Ctx,
+) -> Result<GlobalContractIdentifier, VMLogicError> {
+    match contract_id_ptr {
+        GlobalContractIdentifierPtrData::CodeHash { code_hash_len, code_hash_ptr } => {
+            let code_hash_bytes = get_memory_or_register(
+                &mut ctx.result_state.gas_counter,
+                memory,
+                &ctx.registers,
+                code_hash_ptr,
+                code_hash_len,
+            )?;
+            let code_hash: [_; CryptoHash::LENGTH] =
+                (&*code_hash_bytes).try_into().map_err(|_| HostError::ContractCodeHashMalformed)?;
+            Ok(GlobalContractIdentifier::CodeHash(CryptoHash(code_hash)))
+        }
+        GlobalContractIdentifierPtrData::AccountId { account_id_len, account_id_ptr } => {
+            let account_id = read_and_parse_account_id(
+                &mut ctx.result_state.gas_counter,
+                memory,
+                &ctx.registers,
+                account_id_ptr,
+                account_id_len,
+            )?;
+            Ok(GlobalContractIdentifier::AccountId(account_id))
+        }
+    }
+}
+
+/// Appends `DeterministicStateInit` action to the batch of actions for the given promise
+/// pointed by `promise_idx`.
+///
+/// # Errors
+///
+/// * If `promise_idx` does not correspond to an existing promise returns
+///   [`HostError::InvalidPromiseIndex`].
+/// * If the promise pointed by the `promise_idx` is an ephemeral promise created by
+/// `promise_and` returns [`HostError::CannotAppendActionToJointPromise`].
+/// * If called as view function returns [`HostError::ProhibitedInView`].
+/// * If `code_hash_len + code_hash_ptr` or `amount_ptr + 16` points outside the memory of the
+/// guest or host returns [`HostError::MemoryAccessViolation`].
+///
+/// # Cost
+///
+/// `burnt_gas` := base + dispatch action base fee
+///             + cost of reading code from memory
+///             + cost of reading amount from memory
+///
+/// `used_gas`  := burnt_gas + exec action base fee
+pub fn promise_batch_action_state_init(
+    caller: &mut Caller<'_, Ctx>,
+    promise_idx: u64,
+    code_hash_len: u64,
+    code_hash_ptr: u64,
+    amount_ptr: u64,
+) -> Result<u64> {
+    promise_batch_action_state_init_impl(
+        caller,
+        promise_idx,
+        GlobalContractIdentifierPtrData::CodeHash { code_hash_len, code_hash_ptr },
+        amount_ptr,
+        "promise_batch_action_state_init",
+    )
+}
+
+/// Appends `DeterministicStateInit` action to the batch of actions for the given promise
+/// pointed by `promise_idx`.
+///
+/// # Errors
+///
+/// * If `promise_idx` does not correspond to an existing promise returns
+///   [`HostError::InvalidPromiseIndex`].
+/// * If the promise pointed by the `promise_idx` is an ephemeral promise created by
+/// `promise_and` returns [`HostError::CannotAppendActionToJointPromise`].
+/// * If called as view function returns [`HostError::ProhibitedInView`].
+/// * If `account_id_len + account_id_ptr` or `amount_ptr + 16` points outside the memory of the
+/// guest or host returns [`HostError::MemoryAccessViolation`].
+/// * If account_id string is not UTF-8 returns `BadUtf8`.
+///
+/// # Cost
+///
+/// `burnt_gas` := base + dispatch action base fee
+///             + cost of reading account id from memory
+///             + cost of decoding account_id as UTF-8
+///             + cost of reading amount from memory
+///
+/// `used_gas`  := burnt_gas + exec action base fee
+pub fn promise_batch_action_state_init_by_account_id(
+    caller: &mut Caller<'_, Ctx>,
+    promise_idx: u64,
+    account_id_len: u64,
+    account_id_ptr: u64,
+    amount_ptr: u64,
+) -> Result<u64> {
+    promise_batch_action_state_init_impl(
+        caller,
+        promise_idx,
+        GlobalContractIdentifierPtrData::AccountId { account_id_len, account_id_ptr },
+        amount_ptr,
+        "promise_batch_action_state_init_by_account_id",
+    )
+}
+
+fn promise_batch_action_state_init_impl(
+    caller: &mut Caller<'_, Ctx>,
+    promise_idx: u64,
+    contract_id_ptr: GlobalContractIdentifierPtrData,
+    amount_ptr: u64,
+    method_name: &str,
+) -> Result<u64> {
+    let memory = get_memory(caller)?;
+    let (memory, ctx) = memory.data_and_store_mut(caller);
+    ctx.result_state.gas_counter.pay_base(base)?;
+    if ctx.context.is_view() {
+        return Err(HostError::ProhibitedInView { method_name: method_name.to_owned() }.into());
+    }
+    let code = read_contract_id(contract_id_ptr, memory, ctx)?;
+    let amount =
+        Balance::from_yoctonear(get_u128(&mut ctx.result_state.gas_counter, memory, amount_ptr)?);
+    let (receipt_idx, sir) = promise_idx_to_receipt_idx_with_sir(ctx, promise_idx)?;
+
+    pay_action_base(
+        &mut ctx.result_state.gas_counter,
+        &ctx.fees_config,
+        ActionCosts::deterministic_state_init_base,
+        sir,
+    )?;
+    ctx.result_state.deduct_balance(amount)?;
+    ctx.ext.append_action_deterministic_state_init(receipt_idx, code, amount)
+}
+
+/// Appends a data entry to an existing `DeterministicStateInit` action.
+///
+/// # Errors
+///
+/// * If `promise_idx` does not correspond to an existing promise returns
+///   [`HostError::InvalidPromiseIndex`].
+/// * If the promise pointed by the `promise_idx` is an ephemeral promise created by
+///   `promise_and` returns [`HostError::CannotAppendActionToJointPromise`].
+/// * If `action_idx` does not correspond to an existing action within the promise,
+///   returns [`HostError::InvalidActionIndex`].
+/// * If `key` has already been set returns [`HostError::DataEntryAlreadyExists`].
+/// * If called as view function returns [`HostError::ProhibitedInView`].
+///
+/// # Cost
+///
+/// `burnt_gas` := base +
+///             + deterministic_state_init_entry send fee
+///             + deterministic_state_init_byte send fee * (key_len + value_len)
+///             + cost of reading account id from memory
+///             + cost of decoding account_id as UTF-8
+///             + cost of reading amount from memory
+///
+/// `used_gas`  := burnt_gas +
+///             + deterministic_state_init_entry exec fee
+///             + deterministic_state_init_byte exec fee * (key_len + value_len)
+pub fn set_state_init_data_entry(
+    caller: &mut Caller<'_, Ctx>,
+    promise_idx: u64,
+    action_index: u64,
+    key_len: u64,
+    key_ptr: u64,
+    value_len: u64,
+    value_ptr: u64,
+) -> Result<()> {
+    let memory = get_memory(caller)?;
+    let (memory, ctx) = memory.data_and_store_mut(caller);
+    ctx.result_state.gas_counter.pay_base(base)?;
+    if ctx.context.is_view() {
+        return Err(HostError::ProhibitedInView {
+            method_name: "set_state_init_data_entry".to_string(),
+        }
+        .into());
+    }
+
+    let (receipt_idx, sir) = promise_idx_to_receipt_idx_with_sir(ctx, promise_idx)?;
+    let key = get_memory_or_register(
+        &mut ctx.result_state.gas_counter,
+        memory,
+        &ctx.registers,
+        key_ptr,
+        key_len,
+    )?;
+    let key = key.to_vec();
+    let value = get_memory_or_register(
+        &mut ctx.result_state.gas_counter,
+        memory,
+        &ctx.registers,
+        value_ptr,
+        value_len,
+    )?;
+    let value = value.to_vec();
+
+    pay_action_base(
+        &mut ctx.result_state.gas_counter,
+        &ctx.fees_config,
+        ActionCosts::deterministic_state_init_entry,
+        sir,
+    )?;
+    let bytes = key_len.checked_add(value_len).ok_or(HostError::IntegerOverflow)?;
+    pay_action_per_byte(
+        &mut ctx.result_state.gas_counter,
+        &ctx.fees_config,
+        ActionCosts::deterministic_state_init_byte,
+        bytes,
+        sir,
+    )?;
+
+    ctx.ext.set_deterministic_state_init_data_entry(receipt_idx, action_index, key, value)?;
+
     Ok(())
 }
 
@@ -2683,10 +2881,7 @@ pub fn promise_batch_action_function_call_weight(
     gas: u64,
     gas_weight: u64,
 ) -> Result<()> {
-    let memory = caller.data().memory;
-    let Some(Extern::Memory(memory)) = caller.get_module_export(&memory) else {
-        return Err(HostError::MemoryAccessViolation.into());
-    };
+    let memory = get_memory(caller)?;
     let (memory, ctx) = memory.data_and_store_mut(caller);
     ctx.result_state.gas_counter.pay_base(base)?;
     if ctx.context.is_view() {
@@ -2695,7 +2890,8 @@ pub fn promise_batch_action_function_call_weight(
         }
         .into());
     }
-    let amount = get_u128(&mut ctx.result_state.gas_counter, memory, amount_ptr)?;
+    let amount =
+        Balance::from_yoctonear(get_u128(&mut ctx.result_state.gas_counter, memory, amount_ptr)?);
     let method_name = get_memory_or_register(
         &mut ctx.result_state.gas_counter,
         memory,
@@ -2769,10 +2965,7 @@ pub fn promise_batch_action_transfer(
     promise_idx: u64,
     amount_ptr: u64,
 ) -> Result<()> {
-    let memory = caller.data().memory;
-    let Some(Extern::Memory(memory)) = caller.get_module_export(&memory) else {
-        return Err(HostError::MemoryAccessViolation.into());
-    };
+    let memory = get_memory(caller)?;
     let (memory, ctx) = memory.data_and_store_mut(caller);
     ctx.result_state.gas_counter.pay_base(base)?;
     if ctx.context.is_view() {
@@ -2781,7 +2974,8 @@ pub fn promise_batch_action_transfer(
         }
         .into());
     }
-    let amount = get_u128(&mut ctx.result_state.gas_counter, memory, amount_ptr)?;
+    let amount =
+        Balance::from_yoctonear(get_u128(&mut ctx.result_state.gas_counter, memory, amount_ptr)?);
 
     let (receipt_idx, sir) = promise_idx_to_receipt_idx_with_sir(ctx, promise_idx)?;
     let receiver_id = ctx.ext.get_receipt_receiver(receipt_idx);
@@ -2834,10 +3028,7 @@ pub fn promise_batch_action_stake(
     public_key_len: u64,
     public_key_ptr: u64,
 ) -> Result<()> {
-    let memory = caller.data().memory;
-    let Some(Extern::Memory(memory)) = caller.get_module_export(&memory) else {
-        return Err(HostError::MemoryAccessViolation.into());
-    };
+    let memory = get_memory(caller)?;
     let (memory, ctx) = memory.data_and_store_mut(caller);
     ctx.result_state.gas_counter.pay_base(base)?;
     if ctx.context.is_view() {
@@ -2846,7 +3037,8 @@ pub fn promise_batch_action_stake(
         }
         .into());
     }
-    let amount = get_u128(&mut ctx.result_state.gas_counter, memory, amount_ptr)?;
+    let amount =
+        Balance::from_yoctonear(get_u128(&mut ctx.result_state.gas_counter, memory, amount_ptr)?);
     let public_key = get_public_key(
         &mut ctx.result_state.gas_counter,
         memory,
@@ -2885,10 +3077,7 @@ pub fn promise_batch_action_add_key_with_full_access(
     public_key_ptr: u64,
     nonce: u64,
 ) -> Result<()> {
-    let memory = caller.data().memory;
-    let Some(Extern::Memory(memory)) = caller.get_module_export(&memory) else {
-        return Err(HostError::MemoryAccessViolation.into());
-    };
+    let memory = get_memory(caller)?;
     let (memory, ctx) = memory.data_and_store_mut(caller);
     ctx.result_state.gas_counter.pay_base(base)?;
     if ctx.context.is_view() {
@@ -2946,10 +3135,7 @@ pub fn promise_batch_action_add_key_with_function_call(
     method_names_len: u64,
     method_names_ptr: u64,
 ) -> Result<()> {
-    let memory = caller.data().memory;
-    let Some(Extern::Memory(memory)) = caller.get_module_export(&memory) else {
-        return Err(HostError::MemoryAccessViolation.into());
-    };
+    let memory = get_memory(caller)?;
     let (memory, ctx) = memory.data_and_store_mut(caller);
     ctx.result_state.gas_counter.pay_base(base)?;
     if ctx.context.is_view() {
@@ -2965,8 +3151,12 @@ pub fn promise_batch_action_add_key_with_function_call(
         public_key_ptr,
         public_key_len,
     )?;
-    let allowance = get_u128(&mut ctx.result_state.gas_counter, memory, allowance_ptr)?;
-    let allowance = if allowance > 0 { Some(allowance) } else { None };
+    let allowance = Balance::from_yoctonear(get_u128(
+        &mut ctx.result_state.gas_counter,
+        memory,
+        allowance_ptr,
+    )?);
+    let allowance = if allowance > Balance::ZERO { Some(allowance) } else { None };
     let receiver_id = read_and_parse_account_id(
         &mut ctx.result_state.gas_counter,
         memory,
@@ -3035,10 +3225,7 @@ pub fn promise_batch_action_delete_key(
     public_key_len: u64,
     public_key_ptr: u64,
 ) -> Result<()> {
-    let memory = caller.data().memory;
-    let Some(Extern::Memory(memory)) = caller.get_module_export(&memory) else {
-        return Err(HostError::MemoryAccessViolation.into());
-    };
+    let memory = get_memory(caller)?;
     let (memory, ctx) = memory.data_and_store_mut(caller);
     ctx.result_state.gas_counter.pay_base(base)?;
     if ctx.context.is_view() {
@@ -3087,10 +3274,7 @@ pub fn promise_batch_action_delete_account(
     beneficiary_id_len: u64,
     beneficiary_id_ptr: u64,
 ) -> Result<()> {
-    let memory = caller.data().memory;
-    let Some(Extern::Memory(memory)) = caller.get_module_export(&memory) else {
-        return Err(HostError::MemoryAccessViolation.into());
-    };
+    let memory = get_memory(caller)?;
     let (memory, ctx) = memory.data_and_store_mut(caller);
     ctx.result_state.gas_counter.pay_base(base)?;
     if ctx.context.is_view() {
@@ -3169,10 +3353,7 @@ pub fn promise_yield_create(
     gas_weight: u64,
     register_id: u64,
 ) -> Result<u64> {
-    let memory = caller.data().memory;
-    let Some(Extern::Memory(memory)) = caller.get_module_export(&memory) else {
-        return Err(HostError::MemoryAccessViolation.into());
-    };
+    let memory = get_memory(caller)?;
     let (memory, ctx) = memory.data_and_store_mut(caller);
     ctx.result_state.gas_counter.pay_base(base)?;
     if ctx.context.is_view() {
@@ -3233,7 +3414,7 @@ pub fn promise_yield_create(
         new_receipt_idx,
         method_name,
         arguments,
-        0,
+        Balance::ZERO,
         Gas::from_gas(gas),
         GasWeight(gas_weight),
     )?;
@@ -3280,10 +3461,7 @@ pub fn promise_yield_resume(
     payload_len: u64,
     payload_ptr: u64,
 ) -> Result<u32, VMLogicError> {
-    let memory = caller.data().memory;
-    let Some(Extern::Memory(memory)) = caller.get_module_export(&memory) else {
-        return Err(HostError::MemoryAccessViolation.into());
-    };
+    let memory = get_memory(caller)?;
     let (memory, ctx) = memory.data_and_store_mut(caller);
     ctx.result_state.gas_counter.pay_base(base)?;
     if ctx.context.is_view() {
@@ -3452,10 +3630,7 @@ pub fn promise_return(caller: &mut Caller<'_, Ctx>, promise_idx: u64) -> Result<
 /// # Cost
 /// `base + cost of reading return value from memory or register + dispatch&exec cost per byte of the data sent * num data receivers`
 pub fn value_return(caller: &mut Caller<'_, Ctx>, value_len: u64, value_ptr: u64) -> Result<()> {
-    let memory = caller.data().memory;
-    let Some(Extern::Memory(memory)) = caller.get_module_export(&memory) else {
-        return Err(HostError::MemoryAccessViolation.into());
-    };
+    let memory = get_memory(caller)?;
     let (memory, ctx) = memory.data_and_store_mut(caller);
     ctx.result_state.gas_counter.pay_base(base)?;
     let return_val = get_memory_or_register(
@@ -3527,10 +3702,7 @@ pub fn panic(caller: &mut Caller<'_, Ctx>) -> Result<()> {
 /// # Cost
 /// `base + cost of reading and decoding a utf8 string`
 pub fn panic_utf8(caller: &mut Caller<'_, Ctx>, len: u64, ptr: u64) -> Result<()> {
-    let memory = caller.data().memory;
-    let Some(Extern::Memory(memory)) = caller.get_module_export(&memory) else {
-        return Err(HostError::MemoryAccessViolation.into());
-    };
+    let memory = get_memory(caller)?;
     let (memory, ctx) = memory.data_and_store_mut(caller);
     ctx.result_state.gas_counter.pay_base(base)?;
     Err(HostError::GuestPanic {
@@ -3555,10 +3727,7 @@ pub fn panic_utf8(caller: &mut Caller<'_, Ctx>, len: u64, ptr: u64) -> Result<()
 ///
 /// `base + log_base + log_byte + num_bytes + utf8 decoding cost`
 pub fn log_utf8(caller: &mut Caller<'_, Ctx>, len: u64, ptr: u64) -> Result<()> {
-    let memory = caller.data().memory;
-    let Some(Extern::Memory(memory)) = caller.get_module_export(&memory) else {
-        return Err(HostError::MemoryAccessViolation.into());
-    };
+    let memory = get_memory(caller)?;
     let (memory, ctx) = memory.data_and_store_mut(caller);
     ctx.result_state.gas_counter.pay_base(base)?;
     ctx.result_state.check_can_add_a_log_message()?;
@@ -3584,10 +3753,7 @@ pub fn log_utf8(caller: &mut Caller<'_, Ctx>, len: u64, ptr: u64) -> Result<()> 
 ///
 /// `base + log_base + log_byte * num_bytes + utf16 decoding cost`
 pub fn log_utf16(caller: &mut Caller<'_, Ctx>, len: u64, ptr: u64) -> Result<()> {
-    let memory = caller.data().memory;
-    let Some(Extern::Memory(memory)) = caller.get_module_export(&memory) else {
-        return Err(HostError::MemoryAccessViolation.into());
-    };
+    let memory = get_memory(caller)?;
     let (memory, ctx) = memory.data_and_store_mut(caller);
     ctx.result_state.gas_counter.pay_base(base)?;
     ctx.result_state.check_can_add_a_log_message()?;
@@ -3620,10 +3786,7 @@ pub fn abort(
     line: u32,
     col: u32,
 ) -> Result<()> {
-    let memory = caller.data().memory;
-    let Some(Extern::Memory(memory)) = caller.get_module_export(&memory) else {
-        return Err(HostError::MemoryAccessViolation.into());
-    };
+    let memory = get_memory(caller)?;
     let (memory, ctx) = memory.data_and_store_mut(caller);
     ctx.result_state.gas_counter.pay_base(base)?;
     if msg_ptr < 4 || filename_ptr < 4 {
@@ -3717,10 +3880,7 @@ pub fn storage_write(
     value_ptr: u64,
     register_id: u64,
 ) -> Result<u64> {
-    let memory = caller.data().memory;
-    let Some(Extern::Memory(memory)) = caller.get_module_export(&memory) else {
-        return Err(HostError::MemoryAccessViolation.into());
-    };
+    let memory = get_memory(caller)?;
     let (memory, ctx) = memory.data_and_store_mut(caller);
     ctx.result_state.gas_counter.pay_base(base)?;
     if ctx.context.is_view() {
@@ -3819,10 +3979,7 @@ pub fn storage_read(
     key_ptr: u64,
     register_id: u64,
 ) -> Result<u64> {
-    let memory = caller.data().memory;
-    let Some(Extern::Memory(memory)) = caller.get_module_export(&memory) else {
-        return Err(HostError::MemoryAccessViolation.into());
-    };
+    let memory = get_memory(caller)?;
     let (memory, ctx) = memory.data_and_store_mut(caller);
     ctx.result_state.gas_counter.pay_base(base)?;
     ctx.result_state.gas_counter.pay_base(storage_read_base)?;
@@ -3898,10 +4055,7 @@ pub fn storage_remove(
     key_ptr: u64,
     register_id: u64,
 ) -> Result<u64> {
-    let memory = caller.data().memory;
-    let Some(Extern::Memory(memory)) = caller.get_module_export(&memory) else {
-        return Err(HostError::MemoryAccessViolation.into());
-    };
+    let memory = get_memory(caller)?;
     let (memory, ctx) = memory.data_and_store_mut(caller);
     ctx.result_state.gas_counter.pay_base(base)?;
     if ctx.context.is_view() {
@@ -3963,10 +4117,7 @@ pub fn storage_remove(
 ///
 /// `base + storage_has_key_base + storage_has_key_byte * num_bytes + cost of reading key`
 pub fn storage_has_key(caller: &mut Caller<'_, Ctx>, key_len: u64, key_ptr: u64) -> Result<u64> {
-    let memory = caller.data().memory;
-    let Some(Extern::Memory(memory)) = caller.get_module_export(&memory) else {
-        return Err(HostError::MemoryAccessViolation.into());
-    };
+    let memory = get_memory(caller)?;
     let (memory, ctx) = memory.data_and_store_mut(caller);
     ctx.result_state.gas_counter.pay_base(base)?;
     ctx.result_state.gas_counter.pay_base(storage_has_key_base)?;

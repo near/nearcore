@@ -366,6 +366,18 @@ impl<'a> VMLogic<'a> {
         Ok(())
     }
 
+    pub fn finite_wasm_gas_exhausted(&mut self) -> Result<()> {
+        // Burn all remaining gas
+        self.gas(self.result_state.gas_counter.remaining_gas())?;
+        // This function will only ever be called by instrumentation on overflow, otherwise
+        // `finite_wasm_gas` will be called with the out-of-budget charge
+        Err(VMLogicError::HostError(HostError::IntegerOverflow))
+    }
+
+    pub fn finite_wasm_stack_exhausted(&mut self) -> Result<()> {
+        Err(VMLogicError::HostError(HostError::MemoryAccessViolation))
+    }
+
     // #################
     // # Registers API #
     // #################
@@ -780,7 +792,7 @@ impl<'a> VMLogic<'a> {
         let account_id = self.read_and_parse_account_id(account_id_ptr, account_id_len)?;
         self.result_state.gas_counter.pay_base(validator_stake_base)?;
         let balance = self.ext.validator_stake(&account_id)?.unwrap_or_default();
-        self.memory.set_u128(&mut self.result_state.gas_counter, stake_ptr, balance)
+        self.memory.set_u128(&mut self.result_state.gas_counter, stake_ptr, balance.as_yoctonear())
     }
 
     /// Get the total validator stake of the current epoch.
@@ -794,7 +806,11 @@ impl<'a> VMLogic<'a> {
         self.result_state.gas_counter.pay_base(base)?;
         self.result_state.gas_counter.pay_base(validator_total_stake_base)?;
         let total_stake = self.ext.validator_total_stake()?;
-        self.memory.set_u128(&mut self.result_state.gas_counter, stake_ptr, total_stake)
+        self.memory.set_u128(
+            &mut self.result_state.gas_counter,
+            stake_ptr,
+            total_stake.as_yoctonear(),
+        )
     }
 
     /// Returns the number of bytes used by the contract if it was saved to the trie as of the
@@ -827,7 +843,7 @@ impl<'a> VMLogic<'a> {
         self.memory.set_u128(
             &mut self.result_state.gas_counter,
             balance_ptr,
-            self.result_state.current_account_balance,
+            self.result_state.current_account_balance.as_yoctonear(),
         )
     }
 
@@ -841,7 +857,7 @@ impl<'a> VMLogic<'a> {
         self.memory.set_u128(
             &mut self.result_state.gas_counter,
             balance_ptr,
-            self.current_account_locked_balance,
+            self.current_account_locked_balance.as_yoctonear(),
         )
     }
 
@@ -861,7 +877,7 @@ impl<'a> VMLogic<'a> {
         self.memory.set_u128(
             &mut self.result_state.gas_counter,
             balance_ptr,
-            self.context.attached_deposit,
+            self.context.attached_deposit.as_yoctonear(),
         )
     }
 
@@ -2098,6 +2114,46 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
         self.checked_push_promise(Promise::Receipt(new_receipt_idx))
     }
 
+    /// Sets the `refund_to` field on the promise
+    ///
+    /// # Errors
+    ///
+    /// * If `promise_idx` does not correspond to an existing promise returns `InvalidPromiseIndex`;
+    /// * If `account_id_len + account_id_ptr` points outside the memory of the guest or host
+    /// returns `MemoryAccessViolation`.
+    /// * If called as view function returns `ProhibitedInView`.
+    ///
+    /// # Cost
+    ///
+    /// `base + cost of reading and decoding the account id`
+    pub fn promise_set_refund_to(
+        &mut self,
+        promise_idx: u64,
+        account_id_len: u64,
+        account_id_ptr: u64,
+    ) -> Result<()> {
+        self.result_state.gas_counter.pay_base(base)?;
+        if self.context.is_view() {
+            return Err(HostError::ProhibitedInView {
+                method_name: "promise_set_refund_to".to_string(),
+            }
+            .into());
+        }
+        let refund_to = self.read_and_parse_account_id(account_id_ptr, account_id_len)?;
+        let promise = self
+            .promises
+            .get(promise_idx as usize)
+            .ok_or(HostError::InvalidPromiseIndex { promise_idx })?;
+
+        let receipt_idx = match &promise {
+            Promise::Receipt(receipt_idx) => Ok(*receipt_idx),
+            Promise::NotReceipt(_) => Err(HostError::CannotSetRefundToOnJointPromise),
+        }?;
+
+        self.ext.set_refund_to(receipt_idx, refund_to);
+        Ok(())
+    }
+
     /// Helper function to return the receipt index corresponding to the given promise index.
     /// It also pulls account ID for the given receipt and compares it with the current account ID
     /// to return whether the receipt's account ID is the same.
@@ -2360,19 +2416,7 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
         if self.context.is_view() {
             return Err(HostError::ProhibitedInView { method_name: method_name.to_owned() }.into());
         }
-        let contract_id = match contract_id_ptr {
-            GlobalContractIdentifierPtrData::CodeHash { code_hash_len, code_hash_ptr } => {
-                let code_hash_bytes = get_memory_or_register!(self, code_hash_ptr, code_hash_len)?;
-                let code_hash: [_; CryptoHash::LENGTH] = (&*code_hash_bytes)
-                    .try_into()
-                    .map_err(|_| HostError::ContractCodeHashMalformed)?;
-                GlobalContractIdentifier::CodeHash(CryptoHash(code_hash))
-            }
-            GlobalContractIdentifierPtrData::AccountId { account_id_len, account_id_ptr } => {
-                let account_id = self.read_and_parse_account_id(account_id_ptr, account_id_len)?;
-                GlobalContractIdentifier::AccountId(account_id)
-            }
-        };
+        let contract_id = self.read_contract_id(contract_id_ptr)?;
 
         let (receipt_idx, sir) = self.promise_idx_to_receipt_idx_with_sir(promise_idx)?;
 
@@ -2381,6 +2425,177 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
         self.pay_action_per_byte(ActionCosts::use_global_contract_byte, len, sir)?;
 
         self.ext.append_action_use_global_contract(receipt_idx, contract_id)?;
+        Ok(())
+    }
+
+    fn read_contract_id(
+        &mut self,
+        contract_id_ptr: GlobalContractIdentifierPtrData,
+    ) -> Result<GlobalContractIdentifier, VMLogicError> {
+        match contract_id_ptr {
+            GlobalContractIdentifierPtrData::CodeHash { code_hash_len, code_hash_ptr } => {
+                let code_hash_bytes = get_memory_or_register!(self, code_hash_ptr, code_hash_len)?;
+                let code_hash: [_; CryptoHash::LENGTH] = (&*code_hash_bytes)
+                    .try_into()
+                    .map_err(|_| HostError::ContractCodeHashMalformed)?;
+                Ok(GlobalContractIdentifier::CodeHash(CryptoHash(code_hash)))
+            }
+            GlobalContractIdentifierPtrData::AccountId { account_id_len, account_id_ptr } => {
+                let account_id = self.read_and_parse_account_id(account_id_ptr, account_id_len)?;
+                Ok(GlobalContractIdentifier::AccountId(account_id))
+            }
+        }
+    }
+
+    /// Appends `DeterministicStateInit` action to the batch of actions for the given promise
+    /// pointed by `promise_idx`.
+    ///
+    /// # Errors
+    ///
+    /// * If `promise_idx` does not correspond to an existing promise returns
+    ///   [`HostError::InvalidPromiseIndex`].
+    /// * If the promise pointed by the `promise_idx` is an ephemeral promise created by
+    /// `promise_and` returns [`HostError::CannotAppendActionToJointPromise`].
+    /// * If called as view function returns [`HostError::ProhibitedInView`].
+    /// * If `code_hash_len + code_hash_ptr` or `amount_ptr + 16` points outside the memory of the
+    /// guest or host returns [`HostError::MemoryAccessViolation`].
+    ///
+    /// # Cost
+    ///
+    /// `burnt_gas` := base + dispatch action base fee
+    ///             + cost of reading code from memory
+    ///             + cost of reading amount from memory
+    ///
+    /// `used_gas`  := burnt_gas + exec action base fee
+    pub fn promise_batch_action_state_init(
+        &mut self,
+        promise_idx: u64,
+        code_hash_len: u64,
+        code_hash_ptr: u64,
+        amount_ptr: u64,
+    ) -> Result<u64> {
+        self.promise_batch_action_state_init_impl(
+            promise_idx,
+            GlobalContractIdentifierPtrData::CodeHash { code_hash_len, code_hash_ptr },
+            amount_ptr,
+            "promise_batch_action_state_init",
+        )
+    }
+
+    /// Appends `DeterministicStateInit` action to the batch of actions for the given promise
+    /// pointed by `promise_idx`.
+    ///
+    /// # Errors
+    ///
+    /// * If `promise_idx` does not correspond to an existing promise returns
+    ///   [`HostError::InvalidPromiseIndex`].
+    /// * If the promise pointed by the `promise_idx` is an ephemeral promise created by
+    /// `promise_and` returns [`HostError::CannotAppendActionToJointPromise`].
+    /// * If called as view function returns [`HostError::ProhibitedInView`].
+    /// * If `account_id_len + account_id_ptr` or `amount_ptr + 16` points outside the memory of the
+    /// guest or host returns [`HostError::MemoryAccessViolation`].
+    /// * If account_id string is not UTF-8 returns `BadUtf8`.
+    ///
+    /// # Cost
+    ///
+    /// `burnt_gas` := base + dispatch action base fee
+    ///             + cost of reading account id from memory
+    ///             + cost of decoding account_id as UTF-8
+    ///             + cost of reading amount from memory
+    ///
+    /// `used_gas`  := burnt_gas + exec action base fee
+    pub fn promise_batch_action_state_init_by_account_id(
+        &mut self,
+        promise_idx: u64,
+        account_id_len: u64,
+        account_id_ptr: u64,
+        amount_ptr: u64,
+    ) -> Result<u64> {
+        self.promise_batch_action_state_init_impl(
+            promise_idx,
+            GlobalContractIdentifierPtrData::AccountId { account_id_len, account_id_ptr },
+            amount_ptr,
+            "promise_batch_action_state_init_by_account_id",
+        )
+    }
+
+    fn promise_batch_action_state_init_impl(
+        &mut self,
+        promise_idx: u64,
+        contract_id_ptr: GlobalContractIdentifierPtrData,
+        amount_ptr: u64,
+        method_name: &str,
+    ) -> Result<u64> {
+        self.result_state.gas_counter.pay_base(base)?;
+        if self.context.is_view() {
+            return Err(HostError::ProhibitedInView { method_name: method_name.to_string() }.into());
+        }
+        let code = self.read_contract_id(contract_id_ptr)?;
+        let amount = Balance::from_yoctonear(
+            self.memory.get_u128(&mut self.result_state.gas_counter, amount_ptr)?,
+        );
+        let (receipt_idx, sir) = self.promise_idx_to_receipt_idx_with_sir(promise_idx)?;
+
+        self.pay_action_base(ActionCosts::deterministic_state_init_base, sir)?;
+        self.result_state.deduct_balance(amount)?;
+
+        self.ext.append_action_deterministic_state_init(receipt_idx, code, amount)
+    }
+
+    /// Appends a data entry to an existing `DeterministicStateInit` action.
+    ///
+    /// # Errors
+    ///
+    /// * If `promise_idx` does not correspond to an existing promise returns
+    ///   [`HostError::InvalidPromiseIndex`].
+    /// * If the promise pointed by the `promise_idx` is an ephemeral promise created by
+    ///   `promise_and` returns [`HostError::CannotAppendActionToJointPromise`].
+    /// * If `action_idx` does not correspond to an existing action within the promise,
+    ///   returns [`HostError::InvalidActionIndex`].
+    /// * If `key` has already been set returns [`HostError::DataEntryAlreadyExists`].
+    /// * If called as view function returns [`HostError::ProhibitedInView`].
+    ///
+    /// # Cost
+    ///
+    /// `burnt_gas` := base +
+    ///             + deterministic_state_init_entry send fee
+    ///             + deterministic_state_init_byte send fee * (key_len + value_len)
+    ///             + cost of reading account id from memory
+    ///             + cost of decoding account_id as UTF-8
+    ///             + cost of reading amount from memory
+    ///
+    /// `used_gas`  := burnt_gas +
+    ///             + deterministic_state_init_entry exec fee
+    ///             + deterministic_state_init_byte exec fee * (key_len + value_len)
+    pub fn set_state_init_data_entry(
+        &mut self,
+        promise_idx: u64,
+        action_index: u64,
+        key_len: u64,
+        key_ptr: u64,
+        value_len: u64,
+        value_ptr: u64,
+    ) -> Result<()> {
+        self.result_state.gas_counter.pay_base(base)?;
+        if self.context.is_view() {
+            return Err(HostError::ProhibitedInView {
+                method_name: "set_state_init_data_entry".to_string(),
+            }
+            .into());
+        }
+
+        let (receipt_idx, sir) = self.promise_idx_to_receipt_idx_with_sir(promise_idx)?;
+        let key = get_memory_or_register!(self, key_ptr, key_len)?;
+        let key = key.into_owned();
+        let value = get_memory_or_register!(self, value_ptr, value_len)?;
+        let value = value.into_owned();
+
+        self.pay_action_base(ActionCosts::deterministic_state_init_entry, sir)?;
+        let bytes = key_len.checked_add(value_len).ok_or(HostError::IntegerOverflow)?;
+        self.pay_action_per_byte(ActionCosts::deterministic_state_init_byte, bytes, sir)?;
+
+        self.ext.set_deterministic_state_init_data_entry(receipt_idx, action_index, key, value)?;
+
         Ok(())
     }
 
@@ -2478,7 +2693,9 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
             }
             .into());
         }
-        let amount = self.memory.get_u128(&mut self.result_state.gas_counter, amount_ptr)?;
+        let amount = Balance::from_yoctonear(
+            self.memory.get_u128(&mut self.result_state.gas_counter, amount_ptr)?,
+        );
         let gas = Gas::from_gas(gas);
         let method_name = get_memory_or_register!(self, method_name_ptr, method_name_len)?;
         if method_name.is_empty() {
@@ -2535,7 +2752,9 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
             }
             .into());
         }
-        let amount = self.memory.get_u128(&mut self.result_state.gas_counter, amount_ptr)?;
+        let amount = Balance::from_yoctonear(
+            self.memory.get_u128(&mut self.result_state.gas_counter, amount_ptr)?,
+        );
 
         let (receipt_idx, sir) = self.promise_idx_to_receipt_idx_with_sir(promise_idx)?;
         let receiver_id = self.ext.get_receipt_receiver(receipt_idx);
@@ -2595,7 +2814,9 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
             }
             .into());
         }
-        let amount = self.memory.get_u128(&mut self.result_state.gas_counter, amount_ptr)?;
+        let amount = Balance::from_yoctonear(
+            self.memory.get_u128(&mut self.result_state.gas_counter, amount_ptr)?,
+        );
         let public_key = self.get_public_key(public_key_ptr, public_key_len)?;
         let (receipt_idx, sir) = self.promise_idx_to_receipt_idx_with_sir(promise_idx)?;
         self.pay_action_base(ActionCosts::stake, sir)?;
@@ -2680,8 +2901,10 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
             .into());
         }
         let public_key = self.get_public_key(public_key_ptr, public_key_len)?;
-        let allowance = self.memory.get_u128(&mut self.result_state.gas_counter, allowance_ptr)?;
-        let allowance = if allowance > 0 { Some(allowance) } else { None };
+        let allowance = Balance::from_yoctonear(
+            self.memory.get_u128(&mut self.result_state.gas_counter, allowance_ptr)?,
+        );
+        let allowance = if allowance > Balance::ZERO { Some(allowance) } else { None };
         let receiver_id = self.read_and_parse_account_id(receiver_id_ptr, receiver_id_len)?;
         let raw_method_names = get_memory_or_register!(self, method_names_ptr, method_names_len)?;
         let method_names = split_method_names(&raw_method_names)?;
@@ -2865,7 +3088,7 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
             new_receipt_idx,
             method_name,
             arguments,
-            0,
+            Balance::ZERO,
             Gas::from_gas(gas),
             GasWeight(gas_weight),
         )?;
@@ -3686,7 +3909,7 @@ impl VMOutcome {
     pub fn nop_outcome(error: FunctionCallError) -> VMOutcome {
         VMOutcome {
             // Note: Balance and storage fields are ignored on a failed outcome.
-            balance: 0,
+            balance: Balance::ZERO,
             storage_usage: 0,
             // Note: Fields below are added or merged when processing the
             // outcome. With 0 or the empty set, those are no-ops.
@@ -3724,7 +3947,11 @@ impl std::fmt::Debug for VMOutcome {
         write!(
             f,
             "VMOutcome: balance {} storage_usage {} return data {} burnt gas {} used gas {}",
-            self.balance, self.storage_usage, return_data_str, self.burnt_gas, self.used_gas
+            self.balance.as_yoctonear(),
+            self.storage_usage,
+            return_data_str,
+            self.burnt_gas.as_gas(),
+            self.used_gas.as_gas()
         )?;
         if let Some(err) = &self.aborted {
             write!(f, " failed with {err}")?;

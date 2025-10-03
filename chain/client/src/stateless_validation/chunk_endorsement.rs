@@ -1,7 +1,6 @@
 use super::validate::{ChunkRelevance, validate_chunk_endorsement};
 use crate::metrics;
 use near_cache::SyncLruCache;
-use near_chain::spice_core::CoreStatementsProcessor;
 use near_chain_primitives::Error;
 use near_crypto::Signature;
 use near_epoch_manager::EpochManagerAdapter;
@@ -27,20 +26,13 @@ pub struct ChunkEndorsementTracker {
     /// We store the validated chunk endorsements received from chunk validators.
     chunk_endorsements:
         SyncLruCache<ChunkProductionKey, HashMap<AccountId, (ChunkHash, Signature)>>,
-    /// With spice records endorsements as core statements.
-    spice_core_processor: CoreStatementsProcessor,
 }
 
 impl ChunkEndorsementTracker {
-    pub fn new(
-        epoch_manager: Arc<dyn EpochManagerAdapter>,
-        store: Store,
-        spice_core_processor: CoreStatementsProcessor,
-    ) -> Self {
+    pub fn new(epoch_manager: Arc<dyn EpochManagerAdapter>, store: Store) -> Self {
         Self {
             epoch_manager,
             store,
-            spice_core_processor,
             chunk_endorsements: SyncLruCache::new(
                 NonZeroUsize::new(NUM_CHUNKS_IN_CHUNK_ENDORSEMENTS_CACHE).unwrap().into(),
             ),
@@ -70,9 +62,6 @@ impl ChunkEndorsementTracker {
                     (endorsement.chunk_hash(), endorsement.signature()),
                 );
                 let shard_id = endorsement.shard_id();
-                if cfg!(feature = "protocol_feature_spice") {
-                    self.spice_core_processor.record_chunk_endorsement(endorsement)?;
-                }
                 metrics::CHUNK_ENDORSEMENTS_ACCEPTED
                     .with_label_values(&[&shard_id.to_string()])
                     .inc();

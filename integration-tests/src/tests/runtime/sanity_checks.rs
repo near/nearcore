@@ -2,7 +2,7 @@ use crate::node::{Node, RuntimeNode};
 use near_chain_configs::Genesis;
 use near_parameters::{ExtCosts, RuntimeConfig, RuntimeConfigStore};
 use near_primitives::serialize::to_base64;
-use near_primitives::types::{AccountId, Gas};
+use near_primitives::types::{AccountId, Balance, Gas};
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_primitives::views::{
     CostGasUsed, ExecutionOutcomeWithIdView, ExecutionStatusView, FinalExecutionStatus,
@@ -12,10 +12,7 @@ use std::mem::size_of;
 use testlib::runtime_utils::{add_test_contract, alice_account, bob_account};
 
 /// Initial balance used in tests.
-const TESTING_INIT_BALANCE: u128 = 1_000_000_000 * NEAR_BASE;
-
-/// One NEAR, divisible by 10^24.
-const NEAR_BASE: u128 = 1_000_000_000_000_000_000_000_000;
+const TESTING_INIT_BALANCE: Balance = Balance::from_near(1_000_000_000);
 
 /// Max prepaid amount of gas.
 const MAX_GAS: Gas = Gas::from_teragas(300);
@@ -56,7 +53,7 @@ fn setup_runtime_node_with_contract(wasm_binary: &[u8]) -> RuntimeNode {
             account_id,
             test_contract_account(),
             node.signer().public_key(),
-            TESTING_INIT_BALANCE / 2,
+            TESTING_INIT_BALANCE.checked_div(2).unwrap(),
         )
         .unwrap();
     assert_eq!(tx_result.status, FinalExecutionStatus::SuccessValue(Vec::new()));
@@ -122,7 +119,7 @@ fn test_cost_sanity() {
             "sanity_check",
             args.into_bytes(),
             MAX_GAS,
-            0,
+            Balance::ZERO,
         )
         .unwrap();
     assert_eq!(res.status, FinalExecutionStatus::SuccessValue(Vec::new()));
@@ -177,7 +174,14 @@ fn test_cost_sanity_nondeterministic() {
     let node = setup_runtime_node_with_contract(&contract);
     let res = node
         .user()
-        .function_call(alice_account(), test_contract_account(), "main", vec![], MAX_GAS, 0)
+        .function_call(
+            alice_account(),
+            test_contract_account(),
+            "main",
+            vec![],
+            MAX_GAS,
+            Balance::ZERO,
+        )
         .unwrap();
     assert_eq!(res.status, FinalExecutionStatus::SuccessValue(Vec::new()));
     assert_eq!(res.transaction_outcome.outcome.metadata.gas_profile, None);
@@ -232,7 +236,14 @@ fn test_sanity_used_gas() {
     let node = setup_runtime_node_with_contract(&contract_sanity_check_used_gas());
     let res = node
         .user()
-        .function_call(alice_account(), test_contract_account(), "main", vec![], MAX_GAS, 0)
+        .function_call(
+            alice_account(),
+            test_contract_account(),
+            "main",
+            vec![],
+            MAX_GAS,
+            Balance::ZERO,
+        )
         .unwrap();
 
     let num_return_values = 4;

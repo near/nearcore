@@ -18,7 +18,7 @@ EPOCH_LENGTH = 10
 TIMEOUT = 180
 
 genesis_change = [
-    ["minimum_validators_per_shard", 1], ["min_gas_price", 0],
+    ["minimum_validators_per_shard", 1], ["min_gas_price", "0"],
     ["max_inflation_rate", [0, 1]], ["epoch_length", EPOCH_LENGTH],
     ["block_producer_kickout_threshold", 60],
     ["chunk_producer_kickout_threshold", 60],

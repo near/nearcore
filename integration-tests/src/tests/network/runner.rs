@@ -1,16 +1,18 @@
-use actix::Addr;
 use anyhow::{Context, anyhow, bail};
 use near_async::ActorSystem;
-use near_async::actix::futures::ActixFutureSpawner;
-use near_async::messaging::{IntoMultiSender, IntoSender, LateBoundSender, noop};
+use near_async::messaging::{CanSendAsync, IntoMultiSender, IntoSender, LateBoundSender, noop};
 use near_async::time::{self, Clock};
+use near_async::tokio::TokioRuntimeHandle;
 use near_chain::rayon_spawner::RayonAsyncComputationSpawner;
+use near_chain::spice_core::CoreStatementsProcessor;
 use near_chain::types::RuntimeAdapter;
 use near_chain::{Chain, ChainGenesis, ChainStore};
+use near_chain_configs::test_utils::TestClientConfigParams;
 use near_chain_configs::{ClientConfig, Genesis, GenesisConfig, MutableConfigValue};
 use near_chunks::shards_manager_actor::start_shards_manager;
 use near_client::ChunkValidationActorInner;
 use near_client::adapter::client_sender_for_network;
+use near_client::client_actor::SpiceClientConfig;
 use near_client::{
     PartialWitnessActor, RpcHandlerConfig, StartClientResult, StateRequestActor,
     ViewClientActorInner, spawn_rpc_handler_actor, start_client,
@@ -18,7 +20,7 @@ use near_client::{
 use near_epoch_manager::EpochManager;
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_network::PeerManagerActor;
-use near_network::actix::ActixSystem;
+use near_network::actix::AutoStopActor;
 use near_network::blacklist;
 use near_network::config;
 use near_network::tcp;
@@ -31,7 +33,9 @@ use near_primitives::genesis::GenesisId;
 use near_primitives::network::PeerId;
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::types::{AccountId, ValidatorId};
+use near_store::adapter::StoreAdapter as _;
 use near_store::genesis::initialize_genesis_state;
+use near_store::test_utils::create_in_memory_rpc_node_storage;
 use near_telemetry::{TelemetryActor, TelemetryConfig};
 use nearcore::NightshadeRuntime;
 use std::collections::HashSet;
@@ -49,12 +53,13 @@ pub(crate) type ActionFn =
 
 /// Sets up a node with a valid Client, Peer
 fn setup_network_node(
+    actor_system: ActorSystem,
     account_id: AccountId,
     validators: Vec<AccountId>,
     chain_genesis: ChainGenesis,
     config: config::NetworkConfig,
-) -> Addr<PeerManagerActor> {
-    let node_storage = near_store::test_utils::create_test_node_storage_default();
+) -> TokioRuntimeHandle<PeerManagerActor> {
+    let node_storage = create_in_memory_rpc_node_storage();
     let num_validators = validators.len() as ValidatorId;
 
     let mut genesis = Genesis::test(validators, 1);
@@ -75,13 +80,20 @@ fn setup_network_node(
         "validator_signer",
     );
 
-    let actor_system = ActorSystem::new();
     let telemetry_actor =
         TelemetryActor::spawn_tokio_actor(actor_system.clone(), TelemetryConfig::default());
 
     let db = node_storage.into_inner(near_store::Temperature::Hot);
-    let mut client_config = ClientConfig::test(false, 100, 200, num_validators, false, true, true);
-    client_config.archive = config.archive;
+    let mut client_config = ClientConfig::test(TestClientConfigParams {
+        skip_sync_wait: false,
+        min_block_prod_time: 100,
+        max_block_prod_time: 200,
+        num_block_producer_seats: num_validators,
+        enable_split_store: config.archive,
+        enable_cloud_archival_writer: false,
+        save_trie_changes: true,
+        state_sync_enabled: true,
+    });
     client_config.ttl_account_id_router = config.ttl_account_id_router.try_into().unwrap();
     let state_roots = near_store::get_genesis_state_roots(runtime.store())
         .unwrap()
@@ -100,6 +112,10 @@ fn setup_network_node(
     let network_adapter = LateBoundSender::new();
     let shards_manager_adapter = LateBoundSender::new();
     let adv = near_client::adversarial::Controls::default();
+    let spice_core_processor = CoreStatementsProcessor::new_with_noop_senders(
+        runtime.store().chain_store(),
+        epoch_manager.clone(),
+    );
     let StartClientResult { client_actor, tx_pool, chunk_endorsement_tracker, .. } = start_client(
         Clock::real(),
         actor_system.clone(),
@@ -109,7 +125,7 @@ fn setup_network_node(
         shard_tracker.clone(),
         runtime.clone(),
         config.node_id(),
-        Arc::new(ActixFutureSpawner),
+        actor_system.new_future_spawner().into(),
         network_adapter.as_multi_sender(),
         shards_manager_adapter.as_sender(),
         validator_signer.clone(),
@@ -122,6 +138,12 @@ fn setup_network_node(
         true,
         None,
         noop().into_multi_sender(),
+        SpiceClientConfig {
+            core_processor: spice_core_processor.clone(),
+            chunk_executor_sender: noop().into_sender(),
+            spice_chunk_validator_sender: noop().into_sender(),
+            spice_data_distributor_sender: noop().into_sender(),
+        },
     );
     let view_client_addr = ViewClientActorInner::spawn_multithread_actor(
         Clock::real(),
@@ -159,6 +181,7 @@ fn setup_network_node(
         validator_signer.clone(),
         runtime.clone(),
         network_adapter.as_multi_sender(),
+        spice_core_processor,
     );
     let shards_manager_actor = start_shards_manager(
         actor_system.clone(),
@@ -202,6 +225,7 @@ fn setup_network_node(
     shards_manager_adapter.bind(shards_manager_actor);
     let peer_manager = PeerManagerActor::spawn(
         time::Clock::real(),
+        actor_system,
         db.clone(),
         config,
         client_sender_for_network(client_actor, view_client_addr, rpc_handler),
@@ -209,6 +233,7 @@ fn setup_network_node(
         network_adapter.as_multi_sender(),
         shards_manager_adapter.as_sender(),
         partial_witness_actor.into_multi_sender(),
+        noop().into_multi_sender(),
         genesis_id,
     )
     .unwrap();
@@ -249,8 +274,8 @@ async fn check_routing_table(
             (info.runner.test_config[target].peer_id(), peers)
         })
         .collect();
-    let pm = info.get_node(u)?.actix.addr.clone();
-    let resp = pm.send(PeerManagerMessageRequest::FetchRoutingTable).await?;
+    let pm = info.get_node(u)?.actix.clone();
+    let resp = pm.send_async(PeerManagerMessageRequest::FetchRoutingTable).await?;
     let rt = match resp {
         PeerManagerMessageResponse::FetchRoutingTable(rt) => rt,
         _ => bail!("bad response"),
@@ -277,17 +302,19 @@ impl StateMachine {
             Action::AddEdge { from, to, force } => {
                 self.actions.push(Box::new(move |info: &mut RunningInfo| Box::pin(async move {
                     debug!(target: "test", num_prev_actions, action = ?action_clone, "runner.rs: Action");
-                    let pm = info.get_node(from)?.actix.addr.clone();
+                    let pm = info.get_node(from)?.actix.clone();
                     let peer_info = info.runner.test_config[to].peer_info();
                     match tcp::Stream::connect(&peer_info, tcp::Tier::T2, &config::SocketOptions::default()).await {
-                        Ok(stream) => { pm.send(PeerManagerMessageRequest::OutboundTcpConnect(stream)).await?; },
+                        Ok(stream) => {
+                            let _: PeerManagerMessageResponse = pm.send_async(PeerManagerMessageRequest::OutboundTcpConnect(stream)).await?;
+                        },
                         Err(err) => tracing::debug!("tcp::Stream::connect({peer_info}): {err}"),
                     }
                     if !force {
                         return Ok(ControlFlow::Break(()))
                     }
                     let peer_id = peer_info.id.clone();
-                    let res = pm.send(GetInfo{}).await?;
+                    let res = pm.send_async(GetInfo{}).await?;
                     for peer in &res.connected_peers {
                         if peer.full_peer_info.peer_info.id==peer_id {
                             return Ok(ControlFlow::Break(()))
@@ -370,6 +397,7 @@ impl TestConfig {
 }
 
 pub(crate) struct Runner {
+    actor_system: ActorSystem,
     test_config: Vec<TestConfig>,
     state_machine: StateMachine,
     validators: Vec<AccountId>,
@@ -377,7 +405,7 @@ pub(crate) struct Runner {
 }
 
 struct NodeHandle {
-    actix: ActixSystem<PeerManagerActor>,
+    actix: AutoStopActor<PeerManagerActor>,
 }
 
 impl Runner {
@@ -386,7 +414,13 @@ impl Runner {
         let validators =
             test_config[0..num_validators].iter().map(|c| c.account_id.clone()).collect();
         let chain_genesis = ChainGenesis::new(&GenesisConfig::test(Clock::real()));
-        Self { test_config, validators, state_machine: StateMachine::new(), chain_genesis }
+        Self {
+            actor_system: ActorSystem::new(),
+            test_config,
+            validators,
+            state_machine: StateMachine::new(),
+            chain_genesis,
+        }
     }
 
     /// Add node `v` to the whitelist of node `u`.
@@ -466,7 +500,7 @@ impl Runner {
         }
     }
 
-    async fn setup_node(&self, node_id: usize) -> anyhow::Result<NodeHandle> {
+    fn setup_node(&self, node_id: usize) -> anyhow::Result<NodeHandle> {
         tracing::debug!("starting {node_id}");
         let config = &self.test_config[node_id];
 
@@ -511,17 +545,20 @@ impl Runner {
         let chain_genesis = self.chain_genesis.clone();
 
         Ok(NodeHandle {
-            actix: ActixSystem::spawn(|| {
-                setup_network_node(account_id, validators, chain_genesis, network_config)
-            })
-            .await,
+            actix: AutoStopActor(setup_network_node(
+                self.actor_system.clone(),
+                account_id,
+                validators,
+                chain_genesis,
+                network_config,
+            )),
         })
     }
 
-    async fn build(self) -> anyhow::Result<RunningInfo> {
+    fn build(self) -> anyhow::Result<RunningInfo> {
         let mut nodes = vec![];
         for node_id in 0..self.test_config.len() {
-            nodes.push(Some(self.setup_node(node_id).await?));
+            nodes.push(Some(self.setup_node(node_id)?));
         }
         Ok(RunningInfo { runner: self, nodes })
     }
@@ -534,7 +571,7 @@ pub(crate) fn start_test(runner: Runner) -> anyhow::Result<()> {
     init_test_logger();
     let r = tokio::runtime::Builder::new_current_thread().enable_all().build()?;
     r.block_on(async {
-        let mut info = runner.build().await?;
+        let mut info = runner.build()?;
         let actions = std::mem::take(&mut info.runner.state_machine.actions);
         let actions_count = actions.len();
 
@@ -572,9 +609,9 @@ impl RunningInfo {
         self.nodes[node_id].take();
     }
 
-    async fn start_node(&mut self, node_id: usize) -> anyhow::Result<()> {
+    fn start_node(&mut self, node_id: usize) -> anyhow::Result<()> {
         self.stop_node(node_id);
-        self.nodes[node_id] = Some(self.runner.setup_node(node_id).await?);
+        self.nodes[node_id] = Some(self.runner.setup_node(node_id)?);
         Ok(())
     }
     fn change_account_id(&mut self, node_id: usize, account_id: AccountId) {
@@ -586,8 +623,8 @@ pub(crate) fn assert_expected_peers(node_id: usize, peers: Vec<usize>) -> Action
     Box::new(move |info: &mut RunningInfo| {
         let peers = peers.clone();
         Box::pin(async move {
-            let pm = &info.get_node(node_id)?.actix.addr;
-            let network_info = pm.send(GetInfo {}).await?;
+            let pm = &info.get_node(node_id)?.actix;
+            let network_info = pm.send_async(GetInfo {}).await?;
             let got: HashSet<_> = network_info
                 .connected_peers
                 .into_iter()
@@ -614,8 +651,8 @@ pub(crate) fn check_expected_connections(
     Box::new(move |info: &mut RunningInfo| {
         Box::pin(async move {
             debug!(target: "test", node_id, expected_connections_lo, ?expected_connections_hi, "runner.rs: check_expected_connections");
-            let pm = &info.get_node(node_id)?.actix.addr;
-            let res = pm.send(GetInfo {}).await?;
+            let pm = &info.get_node(node_id)?.actix;
+            let res = pm.send_async(GetInfo {}).await?;
             if expected_connections_lo.is_some_and(|l| l > res.num_connected_peers) {
                 return Ok(ControlFlow::Continue(()));
             }
@@ -632,7 +669,7 @@ pub(crate) fn restart(node_id: usize) -> ActionFn {
     Box::new(move |info: &mut RunningInfo| {
         Box::pin(async move {
             debug!(target: "test", ?node_id, "runner.rs: restart");
-            info.start_node(node_id).await?;
+            info.start_node(node_id)?;
             Ok(ControlFlow::Break(()))
         })
     })

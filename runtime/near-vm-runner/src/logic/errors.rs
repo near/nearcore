@@ -184,6 +184,8 @@ pub enum HostError {
     CannotAppendActionToJointPromise,
     /// Returning joint promise is currently prohibited
     CannotReturnJointPromise,
+    /// Setting `refund_to` on a joint promise is prohibited
+    CannotSetRefundToOnJointPromise,
     /// Accessed invalid promise result index
     InvalidPromiseResultIndex {
         result_idx: u64,
@@ -201,6 +203,12 @@ pub enum HostError {
     /// Iterator index `iterator_index` does not exist
     InvalidIteratorIndex {
         iterator_index: u64,
+    },
+    /// Action index does not exist within the given receipt or does not hold
+    /// the expected type of action.
+    InvalidActionIndex {
+        receipt_index: u64,
+        action_index: u64,
     },
     /// VM Logic returned an invalid account id
     InvalidAccountId,
@@ -286,6 +294,8 @@ pub enum HostError {
     },
     /// Contract code hash is malformed.
     ContractCodeHashMalformed,
+    /// Data entry within DeterministicStateInit already exists.
+    DataEntryAlreadyExists,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -464,6 +474,9 @@ impl std::fmt::Display for HostError {
             CannotReturnJointPromise => {
                 write!(f, "Returning joint promise is currently prohibited.")
             }
+            CannotSetRefundToOnJointPromise => {
+                write!(f, "Setting refund_to on a joint promise is prohibited.")
+            }
             InvalidPromiseResultIndex { result_idx } => {
                 write!(f, "Accessed invalid promise result index: {:?}", result_idx)
             }
@@ -473,6 +486,12 @@ impl std::fmt::Display for HostError {
             MemoryAccessViolation => write!(f, "Accessed memory outside the bounds."),
             InvalidReceiptIndex { receipt_index } => {
                 write!(f, "VM Logic returned an invalid receipt index: {:?}", receipt_index)
+            }
+            InvalidActionIndex { receipt_index, action_index } => {
+                write!(
+                    f,
+                    "Action {action_index} in receipt {receipt_index} does not exist or has the wrong type of action."
+                )
             }
             InvalidAccountId => write!(f, "VM Logic returned an invalid account id"),
             InvalidMethodName => write!(f, "VM Logic returned an invalid method name"),
@@ -532,6 +551,7 @@ impl std::fmt::Display for HostError {
                 limit
             ),
             ContractCodeHashMalformed => write!(f, "contract code hash is malformed"),
+            DataEntryAlreadyExists => write!(f, "Data entry for given key already exists"),
         }
     }
 }

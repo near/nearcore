@@ -25,6 +25,7 @@ pub mod debug;
 pub mod raw;
 pub mod routing;
 pub mod shards_manager;
+pub mod spice_data_distribution;
 pub mod state_sync;
 pub mod state_witness;
 pub mod tcp;

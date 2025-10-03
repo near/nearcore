@@ -439,12 +439,14 @@ mod tests {
             ChainConfig::test(),
             None,
             Default::default(),
+            Default::default(),
             MutableConfigValue::new(None, "validator_signer"),
             noop().into_multi_sender(),
             CoreStatementsProcessor::new_with_noop_senders(
                 runtime.store().chain_store(),
                 epoch_manager.clone(),
             ),
+            None,
         )
         .unwrap();
         (

@@ -30,7 +30,6 @@ use near_store::{DBCol, HEAD_KEY, Mode, ShardTries, ShardUId, Temperature};
 use nearcore::{NightshadeRuntime, NightshadeRuntimeExt};
 use std::collections::VecDeque;
 use std::path::Path;
-use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -333,13 +332,10 @@ impl FindBoundaryAccountCommand {
         let chunk_extra = runtime.store().chain_store().get_chunk_extra(&block_hash, &shard_uid)?;
         let state_root = chunk_extra.state_root();
         let trie = shard_tries.get_trie_for_shard(shard_uid, *state_root);
-        let memtries = trie.lock_memtries().context("memtries not found")?;
-        let root_ptr = memtries.get_root(state_root)?;
         tracing::info!("Searching for boundary account...");
-        let trie_split = find_trie_split(root_ptr);
+        let trie_split = find_trie_split(&trie);
 
-        let boundary_account =
-            AccountId::from_str(std::str::from_utf8(&trie_split.split_path_bytes())?)?;
+        let boundary_account = trie_split.boundary_account();
         let left_memory = ByteSize::b(trie_split.left_memory);
         let right_memory = ByteSize::b(trie_split.right_memory);
         tracing::info!("Boundary account found");
@@ -376,10 +372,10 @@ impl ArchivalDataLossRecoveryCommand {
         let env_filter = EnvFilterBuilder::from_env().verbose(Some("memtrie")).finish()?;
         let _subscriber = default_subscriber(env_filter, &Default::default()).global();
 
-        let mut near_config =
+        let near_config =
             nearcore::config::load_config(&home, genesis_validation).expect("Error loading config");
 
-        let node_storage = nearcore::open_storage(&home, &mut near_config)?;
+        let node_storage = nearcore::open_storage(&home, &near_config)?;
         let store = node_storage.get_split_store().expect("SplitStore not found!");
         let cold_store = node_storage.get_cold_store().expect("ColdStore not found!");
         let cold_db = node_storage.cold_db().expect("ColdDB not found!");
@@ -476,7 +472,7 @@ impl ArchivalDataLossRecoveryCommand {
         let shard_tracker = ShardTracker::new(
             near_config.client_config.tracked_shards_config.clone(),
             epoch_manager.clone(),
-            near_config.validator_signer.clone(),
+            near_config.validator_signer,
         );
         let resharding_manager =
             ReshardingManager::new(store, epoch_manager, shard_tracker, sender);

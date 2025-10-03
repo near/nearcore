@@ -285,16 +285,11 @@ impl ShardTracker {
         self.tracked_shards_config.tracks_all_shards()
     }
 
-    /// Returns whether the tracker configuration is valid for an archival node.
-    pub fn is_valid_for_archival(&self) -> bool {
-        match &self.tracked_shards_config {
-            TrackedShardsConfig::AllShards => true,
-            TrackedShardsConfig::Shards(shards) => !shards.is_empty(),
-            // `Accounts` config is likely to work as well,
-            // but this hasn't been fully tested or verified yet.
-            // Consider enabling support after proper validation.
-            _ => false,
-        }
+    /// Returns whether the tracker configuration is valid for cold store. Currently it is only valid if it
+    /// tracks given non-empty subset of shards. Tracking based on `Accounts` is likely to work as well, but
+    /// this hasn't been fully tested or verified yet. Consider enabling support after proper validation.
+    pub fn is_valid_for_cold_store(&self) -> bool {
+        self.tracked_shards_config.tracks_non_empty_subset_of_shards()
     }
 
     /// We want to guarantee that transactions are only applied once for each shard,
@@ -543,14 +538,16 @@ mod tests {
     use near_primitives::hash::CryptoHash;
     use near_primitives::shard_layout::ShardLayout;
     use near_primitives::types::validator_stake::ValidatorStake;
-    use near_primitives::types::{AccountInfo, BlockHeight, EpochId, ProtocolVersion, ShardId};
+    use near_primitives::types::{
+        AccountInfo, Balance, BlockHeight, EpochId, ProtocolVersion, ShardId,
+    };
     use near_primitives::version::PROTOCOL_VERSION;
     use near_store::ShardUId;
     use near_store::test_utils::create_test_store;
     use std::collections::{BTreeMap, HashSet};
     use std::sync::Arc;
 
-    const DEFAULT_TOTAL_SUPPLY: u128 = 1_000_000_000_000;
+    const DEFAULT_TOTAL_SUPPLY: Balance = Balance::from_yoctonear(1_000_000_000_000);
     const EPOCH_LENGTH: usize = 5;
 
     // Initializes an epoch manager, optionally including epoch configs for two reshardings.
@@ -565,7 +562,7 @@ mod tests {
         genesis_config.validators = vec![AccountInfo {
             account_id: "test".parse().unwrap(),
             public_key: PublicKey::empty(KeyType::ED25519),
-            amount: 100,
+            amount: Balance::from_yoctonear(100),
         }];
         let base_shard_layout = ShardLayout::multi_shard(num_shards, 0);
         let base_epoch_config = TestEpochConfigBuilder::new()

@@ -1,12 +1,12 @@
 use crate::PeerManagerActor;
 use crate::network_protocol::PeerInfo;
 use crate::types::{
-    NetworkInfo, NetworkResponses, PeerManagerMessageRequest, PeerManagerMessageResponse,
-    SetChainInfo, StateSyncEvent, Tier3Request,
+    NetworkResponses, PeerManagerMessageRequest, PeerManagerMessageResponse, SetChainInfo,
+    StateSyncEvent, Tier3Request,
 };
-use actix::{Actor, ActorContext, Context, Handler};
 use futures::{Future, FutureExt};
-use near_async::messaging::{CanSend, MessageWithCallback};
+use near_async::Message;
+use near_async::messaging::{self, CanSend, MessageWithCallback};
 use near_crypto::{KeyType, SecretKey};
 use near_primitives::hash::hash;
 use near_primitives::network::PeerId;
@@ -33,73 +33,6 @@ pub fn convert_boot_nodes(boot_nodes: Vec<(&str, std::net::SocketAddr)>) -> Vec<
         result.push(PeerInfo::new(id, addr));
     }
     result
-}
-
-/// Waits until condition or timeouts with panic.
-/// Use in tests to check for a condition and stop or fail otherwise.
-///
-/// Prefer using [`wait_or_timeout`], which is not specific to actix.
-///
-/// # Example
-///
-/// ```rust,ignore
-/// use actix::{System, Actor};
-/// use near_network::test_utils::WaitOrTimeoutActor;
-/// use std::time::{Instant, Duration};
-///
-/// near_actix_test_utils::run_actix(async {
-///     let start = Instant::now();
-///     WaitOrTimeoutActor::new(
-///         Box::new(move |ctx| {
-///             if start.elapsed() > Duration::from_millis(10) {
-///                 near_async::shutdown_all_actors();
-///             }
-///         }),
-///         1000,
-///         60000,
-///     ).start();
-/// });
-/// ```
-pub struct WaitOrTimeoutActor {
-    f: Box<dyn FnMut(&mut Context<WaitOrTimeoutActor>)>,
-    check_interval_ms: u64,
-    max_wait_ms: u64,
-    ms_slept: u64,
-}
-
-impl WaitOrTimeoutActor {
-    pub fn new(
-        f: Box<dyn FnMut(&mut Context<WaitOrTimeoutActor>)>,
-        check_interval_ms: u64,
-        max_wait_ms: u64,
-    ) -> Self {
-        WaitOrTimeoutActor { f, check_interval_ms, max_wait_ms, ms_slept: 0 }
-    }
-
-    fn wait_or_timeout(&mut self, ctx: &mut Context<Self>) {
-        (self.f)(ctx);
-
-        near_performance_metrics::actix::run_later(
-            ctx,
-            tokio::time::Duration::from_millis(self.check_interval_ms),
-            move |act, ctx| {
-                act.ms_slept += act.check_interval_ms;
-                if act.ms_slept > act.max_wait_ms {
-                    println!("BBBB Slept {}; max_wait_ms {}", act.ms_slept, act.max_wait_ms);
-                    panic!("Timed out waiting for the condition");
-                }
-                act.wait_or_timeout(ctx);
-            },
-        );
-    }
-}
-
-impl Actor for WaitOrTimeoutActor {
-    type Context = Context<Self>;
-
-    fn started(&mut self, ctx: &mut Context<Self>) {
-        self.wait_or_timeout(ctx);
-    }
 }
 
 /// Blocks until `cond` returns `ControlFlow::Break`, checking it every
@@ -171,21 +104,17 @@ pub fn expected_routing_tables(
 }
 
 /// `GetInfo` gets `NetworkInfo` from `PeerManager`.
-#[derive(actix::Message, Debug)]
-#[rtype(result = "NetworkInfo")]
+#[derive(Message, Debug)]
 pub struct GetInfo {}
 
-impl Handler<GetInfo> for PeerManagerActor {
-    type Result = crate::types::NetworkInfo;
-
-    fn handle(&mut self, _msg: GetInfo, _ctx: &mut Context<Self>) -> Self::Result {
+impl messaging::Handler<GetInfo, crate::types::NetworkInfo> for PeerManagerActor {
+    fn handle(&mut self, _msg: GetInfo) -> crate::types::NetworkInfo {
         self.get_network_info()
     }
 }
 
 // `StopSignal is used to stop PeerManagerActor for unit tests
-#[derive(actix::Message, Default, Debug)]
-#[rtype(result = "()")]
+#[derive(Message, Default, Debug)]
 pub struct StopSignal {
     pub should_panic: bool,
 }
@@ -196,16 +125,14 @@ impl StopSignal {
     }
 }
 
-impl Handler<StopSignal> for PeerManagerActor {
-    type Result = ();
-
-    fn handle(&mut self, msg: StopSignal, ctx: &mut Self::Context) -> Self::Result {
+impl messaging::Handler<StopSignal> for PeerManagerActor {
+    fn handle(&mut self, msg: StopSignal) {
         debug!(target: "network", "Receive Stop Signal.");
 
         if msg.should_panic {
             panic!("Node crashed");
         } else {
-            ctx.stop();
+            self.handle.stop();
         }
     }
 }
@@ -289,8 +216,7 @@ impl MockPeerManagerAdapter {
     }
 }
 
-#[derive(actix::Message, Clone, Debug)]
-#[rtype(result = "()")]
+#[derive(Message, Clone, Debug)]
 pub struct SetAdvOptions {
     pub set_max_peers: Option<u64>,
 }

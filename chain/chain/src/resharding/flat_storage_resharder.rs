@@ -1062,12 +1062,14 @@ mod tests {
             ChainConfig::test(),
             None,
             Default::default(),
+            Default::default(),
             validator_signer,
             noop().into_multi_sender(),
             CoreStatementsProcessor::new_with_noop_senders(
                 runtime.store().chain_store(),
                 epoch_manager.clone(),
             ),
+            None,
         )
         .unwrap();
         for shard_uid in shard_layout.shard_uids() {

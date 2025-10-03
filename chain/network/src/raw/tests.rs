@@ -120,7 +120,7 @@ async fn test_raw_conn_state_parts() {
         .unwrap();
     }
 
-    let mut part_id_received = -1i64;
+    let mut parts_received = std::collections::HashSet::new();
     loop {
         match conn.recv().await {
             Ok((msg, _timestamp)) => {
@@ -130,16 +130,22 @@ async fn test_raw_conn_state_parts() {
                 {
                     let response = state_response.take_state_response();
                     let part_id = response.part_id();
-                    if part_id.is_none() || part_id.unwrap() as i64 != (part_id_received + 1) {
-                        panic!(
-                            "received out of order part_id {:?} when {} was expected",
-                            part_id,
-                            part_id_received + 1
-                        );
-                    }
-                    part_id_received = part_id.unwrap() as i64;
-                    if part_id_received + 1 == num_parts as i64 {
-                        break;
+                    if let Some(part_id) = part_id {
+                        if part_id >= num_parts {
+                            panic!(
+                                "received unexpected part_id {} (expected 0-{})",
+                                part_id,
+                                num_parts - 1
+                            );
+                        }
+                        if !parts_received.insert(part_id) {
+                            panic!("received duplicate part_id {}", part_id);
+                        }
+                        if parts_received.len() == num_parts as usize {
+                            break;
+                        }
+                    } else {
+                        panic!("received state response without part_id");
                     }
                 }
             }
@@ -148,6 +154,10 @@ async fn test_raw_conn_state_parts() {
             }
         }
     }
+
+    // Verify all expected parts were received
+    let expected_parts: std::collections::HashSet<u64> = (0..num_parts).collect();
+    assert_eq!(parts_received, expected_parts, "Did not receive all expected parts");
 }
 
 #[tokio::test]

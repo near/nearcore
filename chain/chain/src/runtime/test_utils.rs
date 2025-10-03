@@ -32,6 +32,7 @@ impl NightshadeRuntime {
             Default::default(),
             StateSnapshotConfig::enabled(home_dir.join("data")),
             DEFAULT_STATE_PARTS_COMPRESSION_LEVEL,
+            false,
         )
     }
 
@@ -44,6 +45,7 @@ impl NightshadeRuntime {
         runtime_config_store: Option<RuntimeConfigStore>,
         trie_config: TrieConfig,
         gc_num_epochs_to_keep: u64,
+        is_cloud_archival_writer: bool,
     ) -> Arc<Self> {
         Self::new(
             store,
@@ -57,6 +59,7 @@ impl NightshadeRuntime {
             trie_config,
             StateSnapshotConfig::enabled(home_dir.join("data")),
             DEFAULT_STATE_PARTS_COMPRESSION_LEVEL,
+            is_cloud_archival_writer,
         )
     }
 
