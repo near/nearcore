@@ -37,7 +37,7 @@ use ops::interface::{GenericTrieValue, UpdatedNodeId};
 use ops::resharding::{GenericTrieUpdateRetain, RetainMode};
 use parking_lot::{RwLock, RwLockReadGuard};
 pub use raw_node::{Children, RawTrieNode, RawTrieNodeWithSize};
-use std::collections::{BTreeMap, HashMap};
+use std::collections::HashMap;
 use std::fmt::Write;
 use std::hash::Hash;
 use std::str;
@@ -389,12 +389,12 @@ impl TrieRefcountSubtraction {
 /// Helps produce a list of additions and subtractions to the trie,
 /// especially in the case where deletions don't carry the full value.
 pub struct TrieRefcountDeltaMap {
-    map: BTreeMap<CryptoHash, (Option<Vec<u8>>, i32)>,
+    map: HashMap<CryptoHash, (Option<Vec<u8>>, i32)>,
 }
 
 impl TrieRefcountDeltaMap {
     pub fn new() -> Self {
-        Self { map: BTreeMap::new() }
+        Self { map: HashMap::new() }
     }
 
     pub fn add(&mut self, hash: CryptoHash, data: Vec<u8>, refcount: u32) {
