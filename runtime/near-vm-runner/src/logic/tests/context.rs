@@ -61,6 +61,12 @@ decl_test_bytes!(
     ctx.predecessor_account_id.as_bytes()
 );
 decl_test_bytes!(test_signer_account_pk, signer_account_pk, ctx, ctx.signer_account_pk);
+decl_test_bytes!(
+    test_refund_to_account_id,
+    refund_to_account_id,
+    ctx,
+    ctx.refund_to_account_id.as_bytes()
+);
 
 decl_test_bytes!(test_random_seed, random_seed, ctx, ctx.random_seed);
 

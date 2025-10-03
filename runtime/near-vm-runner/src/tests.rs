@@ -19,6 +19,7 @@ const CURRENT_ACCOUNT_ID: &str = "alice";
 const SIGNER_ACCOUNT_ID: &str = "bob";
 const SIGNER_ACCOUNT_PK: [u8; 3] = [0, 1, 2];
 const PREDECESSOR_ACCOUNT_ID: &str = "carol";
+const REFUND_TO_ACCOUNT_ID: &str = "david";
 
 pub(crate) fn test_vm_config(vm_kind: Option<VMKind>) -> near_parameters::vm::Config {
     let store = RuntimeConfigStore::test();
@@ -49,6 +50,7 @@ fn create_context(input: Vec<u8>) -> VMContext {
         signer_account_id: SIGNER_ACCOUNT_ID.parse().unwrap(),
         signer_account_pk: Vec::from(&SIGNER_ACCOUNT_PK[..]),
         predecessor_account_id: PREDECESSOR_ACCOUNT_ID.parse().unwrap(),
+        refund_to_account_id: REFUND_TO_ACCOUNT_ID.parse().unwrap(),
         input,
         promise_results: Vec::new().into(),
         block_height: 10,
@@ -57,6 +59,7 @@ fn create_context(input: Vec<u8>) -> VMContext {
         account_balance: Balance::from_yoctonear(2),
         account_locked_balance: Balance::ZERO,
         storage_usage: 12,
+        account_contract: near_primitives_core::account::AccountContract::None,
         attached_deposit: Balance::from_yoctonear(2),
         prepaid_gas: Gas::from_teragas(100),
         random_seed: vec![0, 1, 2],
