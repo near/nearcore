@@ -6465,13 +6465,7 @@ of nearcore, please refer to this <a href="architecture/how/../">document</a>.</
 <h2 id="high-level-overview-1"><a class="header" href="#high-level-overview-1">High level overview</a></h2>
 <p>On the high level, neard is a daemon that periodically receives messages from
 the network and sends messages to peers based on different triggers. Neard is
-implemented using an <a href="https://en.wikipedia.org/wiki/Actor_model">actor
-framework</a> called
-<a href="https://docs.rs/actix">actix</a>.</p>
-<p><strong>Note:</strong> Using actix was decided in the early days of the implementation of
-nearcore and by no means represents our confidence in actix. On the contrary, we
-have noticed a number of issues with actix and are considering implementing an
-actor framework in house.</p>
+implemented using an actor framework provided by near-async.</p>
 <p>There are several important actors in neard:</p>
 <ul>
 <li>
@@ -6827,7 +6821,7 @@ is cleared, which means that catchup process is finished.</li>
 </ul>
 <p>The catchup process is implemented through the function <code>Client::run_catchup</code>.
 <code>ClientActor</code> schedules a call to <code>run_catchup</code> every 100ms. However, the call
-can be delayed if ClientActor has a lot of messages in its actix queue.</p>
+can be delayed if ClientActor has a lot of messages in its actor queue.</p>
 <p>Every time <code>run_catchup</code> is called, it checks <code>DBCol::StateDlInfos</code> to see
 if there are any shard states that should be downloaded. If so, it
 initiates the syncing process for these shards. After the state is downloaded,
@@ -6851,7 +6845,7 @@ applying can be faster. Similar constraints happen to apply state parts.</p>
 block of an epoch, even when there are no new states to be downloaded for the
 new epoch. This is unnecessary.</p>
 <p>Second, even though <code>run_catchup</code> is scheduled to run every 100ms, the call can
-be delayed if ClientActor has messages in its actix queue. A better way to do
+be delayed if ClientActor has messages in its actor queue. A better way to do
 this is to move the scheduling of <code>run_catchup</code> to <code>check_triggers</code>.</p>
 <p>Third, because of how <code>run_catchup</code> interacts with <code>SyncJobsActor</code>, <code>run_catchup</code>
 can catch up at most one block every 100 ms. This is because we don’t want to
@@ -9059,8 +9053,8 @@ who join the network are represented by nodes and connections between them by ed
 package; and to be used as reference by future engineers to understand the network
 code without any prior knowledge.</p>
 <h1 id="2-code-structure"><a class="header" href="#2-code-structure">2. Code structure</a></h1>
-<p><code>near-network</code> runs on top of the <code>actor</code> framework called
-<a href="https://actix.rs/docs/"><code>Actix</code></a>. Code structure is split between 4 actors
+<p><code>near-network</code> runs on top of an <code>actor</code> framework provided by near-async.
+Code structure is split between 4 actors
 <code>PeerManagerActor</code>, <code>PeerActor</code>, <code>RoutingTableActor</code>, <code>EdgeValidatorActor</code></p>
 <h3 id="21-edgevalidatoractor-currently-called-edgeverifieractor-in-the-code"><a class="header" href="#21-edgevalidatoractor-currently-called-edgeverifieractor-in-the-code">2.1 <code>EdgeValidatorActor</code> (currently called <code>EdgeVerifierActor</code> in the code<!-- TODO: rename -->)</a></h3>
 <p><code>EdgeValidatorActor</code> runs on separate thread. The purpose of this <code>actor</code> is to
@@ -9420,14 +9414,13 @@ validation in <code>EdgeVerifierActor</code>.</li>
 <p>This section describes different protocols of sending messages currently used in
 <code>Near</code>.</p>
 <h2 id="101-messages-between-actors"><a class="header" href="#101-messages-between-actors">10.1 Messages between Actors</a></h2>
-<p><code>Near</code> is built on <code>Actix</code>'s <code>actor</code>
-<a href="https://actix.rs/docs/actix/actor">framework</a>. Usually each actor
+<p><code>Near</code> is built on an <code>actor</code>framework provided by near-async. Usually each actor
 runs on its own dedicated thread. Some, like <code>PeerActor</code> have one thread per
 each instance. Only messages implementing <code>Message</code>, can be sent
 using between threads. Each actor has its own queue; Processing of messages
 happens asynchronously.</p>
 <p>We should not leak implementation details into the spec.</p>
-<p>Actix messages can be found by looking for <code>impl Message</code>.</p>
+<p>Actor messages can be found by looking for <code>#[derive(Message)]</code>.</p>
 <h2 id="102-messages-sent-through-tcp"><a class="header" href="#102-messages-sent-through-tcp">10.2 Messages sent through TCP</a></h2>
 <p>Near is using <code>borsh</code> serialization to exchange messages between nodes (See
 <a href="https://borsh.io/">borsh.io</a>). We should be careful when making changes to
@@ -9435,7 +9428,7 @@ them. We have to maintain backward compatibility. Only messages implementing
 <code>BorshSerialize</code>, <code>BorshDeserialize</code> can be sent. We also use <code>borsh</code> for
 database storage.</p>
 <h2 id="103-messages-sentreceived-through-chainjsonrpc"><a class="header" href="#103-messages-sentreceived-through-chainjsonrpc">10.3 Messages sent/received through <code>chain/jsonrpc</code></a></h2>
-<p>Near runs a <code>json REST server</code>. (See <code>actix_web::HttpServer</code>). All messages sent
+<p>Near runs a <code>json REST server</code> using the axum framework. All messages sent
 and received must implement <code>serde::Serialize</code> and <code>serde::Deserialize</code>.</p>
 <h1 id="11-code-flow---routing-a-message"><a class="header" href="#11-code-flow---routing-a-message">11. Code flow - routing a message</a></h1>
 <p>This is the example of the message that is being sent between nodes
@@ -11587,37 +11580,14 @@ familiar with it.</p>
 automatically.</p>
 <p>However, a few corner cases exist.</p>
 <ul>
-<li>
-<p><code>do_apply_chunks()</code> starts 4 sub-tasks in parallel and waits for their completion. To make it
-work, the parent span is passed explicitly to the sub-tasks.</p>
-</li>
-<li>
-<p>Messages to actix workers. If you do nothing, that the traces are limited to work done in a
-single actor. But that is very restrictive and not useful enough. To workaround that, each actix
-message gets attached <code>opentelemetry::Context</code>. That context somehow represents the information
-about the parent span. This mechanism was the reason for <code>.with_span_context()</code> function calls when sending messages to actix Actors, which have now been removed.</p>
-</li>
-<li>
-<p>Inter-process tracing is theoretically available, but I have never tested it. The plan was to
+<li><code>do_apply_chunks()</code> starts 4 sub-tasks in parallel and waits for their completion. To make it
+work, the parent span is passed explicitly to the sub-tasks.</li>
+<li>Inter-process tracing is theoretically available, but I have never tested it. The plan was to
 test it as soon as the Canary images get updated 😭 Therefore it most likely doesn’t work. Each
 <code>PeerMessage</code> is injected with <code>TraceContext</code> (1, 2) and the receiving node extracts that context
-and all spans generated in handling that message should be parented to the trace from another node.</p>
-</li>
-<li>
-<p>Some spans are created using <code>info_span!()</code> but they are few and mostly for the logs. Exporting
-only info-level spans doesn’t give any useful tracing information in Grafana.</p>
-</li>
-<li>
-<p><code>actix::Actor::handle()</code> deserves a special note. The design choice was to provide a macro that
-lets us easily annotate every implementation of <code>actix::Actor::handle()</code>. This macro sets the
-following span attributes:</p>
-<ul>
-<li><code>actor</code> to the name of the struct that implements actix::Actor</li>
-<li><code>handler</code> to the name of the message struct</li>
-</ul>
-<p>And it lets you provide more span attributes. In the example, ClientActor specifies <code>msg_type</code>,
-which in all cases is identical to <code>handler</code>.</p>
-</li>
+and all spans generated in handling that message should be parented to the trace from another node.</li>
+<li>Some spans are created using <code>info_span!()</code> but they are few and mostly for the logs. Exporting
+only info-level spans doesn’t give any useful tracing information in Grafana.</li>
 </ul>
 <h2 id="configuration"><a class="header" href="#configuration">Configuration</a></h2>
 <p><a href="https://nearone.getoutline.com/doc/tracing-in-grafana-RgJUJZF2C0">The Tracing documentation page in nearone's

@@ -186,37 +186,14 @@ familiar with it.</p>
 automatically.</p>
 <p>However, a few corner cases exist.</p>
 <ul>
-<li>
-<p><code>do_apply_chunks()</code> starts 4 sub-tasks in parallel and waits for their completion. To make it
-work, the parent span is passed explicitly to the sub-tasks.</p>
-</li>
-<li>
-<p>Messages to actix workers. If you do nothing, that the traces are limited to work done in a
-single actor. But that is very restrictive and not useful enough. To workaround that, each actix
-message gets attached <code>opentelemetry::Context</code>. That context somehow represents the information
-about the parent span. This mechanism was the reason for <code>.with_span_context()</code> function calls when sending messages to actix Actors, which have now been removed.</p>
-</li>
-<li>
-<p>Inter-process tracing is theoretically available, but I have never tested it. The plan was to
+<li><code>do_apply_chunks()</code> starts 4 sub-tasks in parallel and waits for their completion. To make it
+work, the parent span is passed explicitly to the sub-tasks.</li>
+<li>Inter-process tracing is theoretically available, but I have never tested it. The plan was to
 test it as soon as the Canary images get updated 😭 Therefore it most likely doesn’t work. Each
 <code>PeerMessage</code> is injected with <code>TraceContext</code> (1, 2) and the receiving node extracts that context
-and all spans generated in handling that message should be parented to the trace from another node.</p>
-</li>
-<li>
-<p>Some spans are created using <code>info_span!()</code> but they are few and mostly for the logs. Exporting
-only info-level spans doesn’t give any useful tracing information in Grafana.</p>
-</li>
-<li>
-<p><code>actix::Actor::handle()</code> deserves a special note. The design choice was to provide a macro that
-lets us easily annotate every implementation of <code>actix::Actor::handle()</code>. This macro sets the
-following span attributes:</p>
-<ul>
-<li><code>actor</code> to the name of the struct that implements actix::Actor</li>
-<li><code>handler</code> to the name of the message struct</li>
-</ul>
-<p>And it lets you provide more span attributes. In the example, ClientActor specifies <code>msg_type</code>,
-which in all cases is identical to <code>handler</code>.</p>
-</li>
+and all spans generated in handling that message should be parented to the trace from another node.</li>
+<li>Some spans are created using <code>info_span!()</code> but they are few and mostly for the logs. Exporting
+only info-level spans doesn’t give any useful tracing information in Grafana.</li>
 </ul>
 <h2 id="configuration"><a class="header" href="#configuration">Configuration</a></h2>
 <p><a href="https://nearone.getoutline.com/doc/tracing-in-grafana-RgJUJZF2C0">The Tracing documentation page in nearone's

@@ -314,7 +314,7 @@ is cleared, which means that catchup process is finished.</li>
 </ul>
 <p>The catchup process is implemented through the function <code>Client::run_catchup</code>.
 <code>ClientActor</code> schedules a call to <code>run_catchup</code> every 100ms. However, the call
-can be delayed if ClientActor has a lot of messages in its actix queue.</p>
+can be delayed if ClientActor has a lot of messages in its actor queue.</p>
 <p>Every time <code>run_catchup</code> is called, it checks <code>DBCol::StateDlInfos</code> to see
 if there are any shard states that should be downloaded. If so, it
 initiates the syncing process for these shards. After the state is downloaded,
@@ -338,7 +338,7 @@ applying can be faster. Similar constraints happen to apply state parts.</p>
 block of an epoch, even when there are no new states to be downloaded for the
 new epoch. This is unnecessary.</p>
 <p>Second, even though <code>run_catchup</code> is scheduled to run every 100ms, the call can
-be delayed if ClientActor has messages in its actix queue. A better way to do
+be delayed if ClientActor has messages in its actor queue. A better way to do
 this is to move the scheduling of <code>run_catchup</code> to <code>check_triggers</code>.</p>
 <p>Third, because of how <code>run_catchup</code> interacts with <code>SyncJobsActor</code>, <code>run_catchup</code>
 can catch up at most one block every 100 ms. This is because we don’t want to

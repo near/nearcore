@@ -149,13 +149,7 @@ of nearcore, please refer to this <a href="../">document</a>.</p>
 <h2 id="high-level-overview"><a class="header" href="#high-level-overview">High level overview</a></h2>
 <p>On the high level, neard is a daemon that periodically receives messages from
 the network and sends messages to peers based on different triggers. Neard is
-implemented using an <a href="https://en.wikipedia.org/wiki/Actor_model">actor
-framework</a> called
-<a href="https://docs.rs/actix">actix</a>.</p>
-<p><strong>Note:</strong> Using actix was decided in the early days of the implementation of
-nearcore and by no means represents our confidence in actix. On the contrary, we
-have noticed a number of issues with actix and are considering implementing an
-actor framework in house.</p>
+implemented using an actor framework provided by near-async.</p>
 <p>There are several important actors in neard:</p>
 <ul>
 <li>
