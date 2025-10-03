@@ -665,15 +665,36 @@ def run_remote_upload_file(ctx: CommandContext):
          on_exception="")
 
 
-def run_remote_download_file(ctx: CommandContext):
+def add_node_name_to_path(node, path:str, prefix_if_path_is_dir: str)-> str:
+    '''
+    append the node name to the destination file as a suffix, before the extension if any
+    '''
+    node_full_name = node.name()
+    name_parts = node_full_name.rsplit('-', 1)
+    node_name = name_parts[1] if len(name_parts) == 2 else node_full_name
+
+    path = pathlib.Path(path)
+    if path.is_dir():
+        path = path / f'{prefix_if_path_is_dir}'
+
+    suffixes = ''.join(path.suffixes)
+    base = str(path)[:-len(suffixes)] if suffixes else str(path)
+    return f'{base}-{node_name}{suffixes}'
+
+
+def run_remote_download_file(ctx: CommandContext, include_node_name=False):
     targeted = ctx.get_targeted()
     logger.info(
         f'Downloading {ctx.args.src} to {ctx.args.dst} on {",".join([h.name() for h in targeted])}'
     )
+    
+    filename = os.path.basename(ctx.args.src)
     pmap(lambda node: print_result(
-        node, node.download_file(ctx.args.src, ctx.args.dst)),
-         targeted,
-         on_exception="")
+        node, node.download_file(
+            ctx.args.src,
+            add_node_name_to_path(node, path=ctx.args.dst, prefix_if_path_is_dir=filename) if include_node_name else ctx.args.dst)),
+        targeted,
+        on_exception="")
 
 
 def run_env_cmd(ctx: CommandContext):
