@@ -656,9 +656,11 @@ pub fn predecessor_account_id(caller: &mut Caller<'_, Ctx>, register_id: u64) ->
     )
 }
 
-/// Saves the account id that was set for the current receipt by its
+/// Populates a register with the ID of an account which would receive a refund.
+///
+/// This is the ID of an account set for the current receipt by its
 /// predecessor via [`Self::promise_set_refund_to()`], or
-/// [`Self::predecessor_account_id()`] otherwise, into the register.
+/// [`Self::predecessor_account_id()`] otherwise.
 ///
 /// # Errors
 ///
