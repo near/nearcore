@@ -397,6 +397,10 @@ impl TrieRefcountDeltaMap {
         Self { map: HashMap::new() }
     }
 
+    pub fn with_capacity(capacity: usize) -> Self {
+        Self { map: HashMap::with_capacity(capacity) }
+    }
+
     pub fn add(&mut self, hash: CryptoHash, data: Vec<u8>, refcount: u32) {
         let (old_value, old_rc) = self.map.entry(hash).or_insert((None, 0));
         *old_value = Some(data);
@@ -427,8 +431,8 @@ impl TrieRefcountDeltaMap {
             }
         }
         // Sort so that trie changes have unique representation.
-        insertions.sort();
-        deletions.sort();
+        insertions.sort_unstable();
+        deletions.sort_unstable();
         (insertions, deletions)
     }
 }
