@@ -45,32 +45,52 @@ use near_primitives::views::{FinalExecutionOutcomeView, FinalExecutionStatus};
 use std::collections::BTreeMap;
 
 #[test]
-fn test_deterministic_state_init() {
-    let empty = || BTreeMap::new();
-    let small = || BTreeMap::from_iter([(b"key".to_vec(), b"value".to_vec())]);
-    let big = || BTreeMap::from_iter([(b"key".to_vec(), vec![0u8; 100_000])]);
-
-    // These are zero-balance accounts and don't need a balance
+fn test_deterministic_state_init_by_id_no_data() {
     check_deterministic_state_init(GlobalContractDeployMode::AccountId, empty(), Balance::ZERO);
-    check_deterministic_state_init(GlobalContractDeployMode::CodeHash, empty(), Balance::ZERO);
-    check_deterministic_state_init(GlobalContractDeployMode::AccountId, small(), Balance::ZERO);
-    check_deterministic_state_init(GlobalContractDeployMode::CodeHash, small(), Balance::ZERO);
+}
 
-    // These are above zero-balance and require a balance. Using the exact
+#[test]
+fn test_deterministic_state_init_by_hash_no_data() {
+    check_deterministic_state_init(GlobalContractDeployMode::CodeHash, empty(), Balance::ZERO);
+}
+
+#[test]
+fn test_deterministic_state_init_by_id_zba() {
+    check_deterministic_state_init(GlobalContractDeployMode::AccountId, small(), Balance::ZERO);
+}
+
+#[test]
+fn test_deterministic_state_init_by_hash_zba() {
+    check_deterministic_state_init(GlobalContractDeployMode::CodeHash, small(), Balance::ZERO);
+}
+
+#[test]
+fn test_deterministic_state_init_by_id_above_zba() {
+    // This is above zero-balance and requires a balance. Using the exact
     // require balance here to ensure no accidental changes. If your change
     // causes this test to fail, this probably means you are changing how much
-    // state an empty account uses. Updating the numbers below to reflect that
+    // state an empty account uses. Updating the number below to reflect that
     // can be okay. But consider that existing contracts might rely on the
     // current ZBA limit.
     // To update, run with Balance::ZERO and copy the number from the error.
     let balance = Balance::from_yoctonear(1_001_500_000_000_000_000_000_000);
     check_deterministic_state_init(GlobalContractDeployMode::AccountId, big(), balance);
+}
+
+#[test]
+fn test_deterministic_state_init_by_hash_above_zba() {
+    // This is above zero-balance and requires a balance. Using the exact
+    // require balance here to ensure no accidental changes. If your change
+    // causes this test to fail, this probably means you are changing how much
+    // state an empty account uses. Updating the number below to reflect that
+    // can be okay. But consider that existing contracts might rely on the
+    // current ZBA limit.
+    // To update, run with Balance::ZERO and copy the number from the error.
     let balance = Balance::from_yoctonear(1_001_750_000_000_000_000_000_000);
     check_deterministic_state_init(GlobalContractDeployMode::CodeHash, big(), balance);
 }
 
 /// Create an account with deterministic ID and call a function on it.
-#[track_caller]
 fn check_deterministic_state_init(
     global_deploy_mode: GlobalContractDeployMode,
     data: BTreeMap<Vec<u8>, Vec<u8>>,
@@ -150,130 +170,168 @@ fn test_repeated_deterministic_state_init() {
     env.shutdown();
 }
 
-/// Ensure all possible errors in state initialization are returned in their
-/// respective failure conditions.
+/// Try using non-existing global contract
 #[test]
-fn test_deterministic_state_init_negative_cases() {
+fn test_deterministic_state_init_missing_global_contract() {
     if !ProtocolFeature::DeterministicAccountIds.enabled(PROTOCOL_VERSION) {
         return;
     }
     let mut env = TestEnv::setup(Balance::from_near(100));
 
-    // Try using non-existing global contract
-    {
-        let data = Default::default();
-        let balance = Balance::ZERO;
-        let outcome = env
-            .try_deploy_deterministic_account_with_data(data, balance)
-            .expect("should be able to send transaction");
-        assert_matches!(
-            outcome.status,
-            FinalExecutionStatus::Failure(TxExecutionError::ActionError(ActionError {
-                kind: ActionErrorKind::GlobalContractDoesNotExist { .. },
-                index: _
-            }))
-        );
-    }
+    let data = Default::default();
+    let balance = Balance::ZERO;
+    let outcome = env
+        .try_deploy_deterministic_account_with_data(data, balance)
+        .expect("should be able to send transaction");
+    assert_matches!(
+        outcome.status,
+        FinalExecutionStatus::Failure(TxExecutionError::ActionError(ActionError {
+            kind: ActionErrorKind::GlobalContractDoesNotExist { .. },
+            index: _
+        }))
+    );
 
-    // Now deploy the necessary global contract
+    env.shutdown();
+}
+
+/// Try creating an account above ZBA limit without attached balance
+#[test]
+fn test_deterministic_state_init_above_zba() {
+    if !ProtocolFeature::DeterministicAccountIds.enabled(PROTOCOL_VERSION) {
+        return;
+    }
+    let mut env = TestEnv::setup(Balance::from_near(100));
     env.parent.deploy_global_contract(GlobalContractDeployMode::AccountId);
 
-    // Try creating an account above ZBA limit without attached balance
-    {
-        let data = BTreeMap::from_iter([(b"key".to_vec(), vec![0u8; 100_000])]);
-        let balance = Balance::ZERO;
-        let outcome = env
-            .try_deploy_deterministic_account_with_data(data, balance)
-            .expect("should be able to send transaction");
-        assert_matches!(
-            outcome.status,
-            FinalExecutionStatus::Failure(TxExecutionError::ActionError(ActionError {
-                kind: ActionErrorKind::LackBalanceForState { .. },
-                index: _
-            }))
-        );
+    let data = big();
+    let balance = Balance::ZERO;
+    let outcome = env
+        .try_deploy_deterministic_account_with_data(data, balance)
+        .expect("should be able to send transaction");
+    assert_matches!(
+        outcome.status,
+        FinalExecutionStatus::Failure(TxExecutionError::ActionError(ActionError {
+            kind: ActionErrorKind::LackBalanceForState { .. },
+            index: _
+        }))
+    );
+
+    env.shutdown();
+}
+
+/// Try creating adding larger-than-allowed KEY to state
+#[test]
+fn test_deterministic_state_init_key_too_large() {
+    if !ProtocolFeature::DeterministicAccountIds.enabled(PROTOCOL_VERSION) {
+        return;
     }
+    let mut env = TestEnv::setup(Balance::from_near(100));
+    env.parent.deploy_global_contract(GlobalContractDeployMode::AccountId);
 
-    // Try creating adding larger-than-allowed KEY to state
-    {
-        let key = vec![1u8; 2049];
-        let data = BTreeMap::from_iter([(key, b"value".to_vec())]);
-        let balance = Balance::ZERO;
-        let outcome = env.try_deploy_deterministic_account_with_data(data, balance);
-        assert_matches!(
-            outcome,
-            Err(InvalidTxError::ActionsValidation(
-                ActionsValidationError::DeterministicStateInitKeyLengthExceeded { .. }
-            ))
-        );
+    let key = vec![1u8; 2049];
+    let data = BTreeMap::from_iter([(key, b"value".to_vec())]);
+    let balance = Balance::ZERO;
+    let outcome = env.try_deploy_deterministic_account_with_data(data, balance);
+    assert_matches!(
+        outcome,
+        Err(InvalidTxError::ActionsValidation(
+            ActionsValidationError::DeterministicStateInitKeyLengthExceeded { .. }
+        ))
+    );
+
+    env.shutdown();
+}
+
+/// Try creating adding larger-than-allowed VALUE to state
+#[test]
+fn test_deterministic_state_init_value_too_large() {
+    if !ProtocolFeature::DeterministicAccountIds.enabled(PROTOCOL_VERSION) {
+        return;
     }
+    let mut env = TestEnv::setup(Balance::from_near(100));
+    env.parent.deploy_global_contract(GlobalContractDeployMode::AccountId);
 
-    // Try creating adding larger-than-allowed VALUE to state
-    {
-        let key = b"key".to_vec();
-        let value = vec![1u8; 4_194_305];
-        let data = BTreeMap::from_iter([(key, value)]);
-        let balance = Balance::from_near(1000);
-        let outcome = env.try_deploy_deterministic_account_with_data(data, balance);
-        assert_matches!(
-            outcome,
-            Err(InvalidTxError::ActionsValidation(
-                ActionsValidationError::DeterministicStateInitValueLengthExceeded { .. }
-            ))
-        );
+    let key = b"key".to_vec();
+    let value = vec![1u8; 4_194_305];
+    let data = BTreeMap::from_iter([(key, value)]);
+    let balance = Balance::from_near(1000);
+    let outcome = env.try_deploy_deterministic_account_with_data(data, balance);
+    assert_matches!(
+        outcome,
+        Err(InvalidTxError::ActionsValidation(
+            ActionsValidationError::DeterministicStateInitValueLengthExceeded { .. }
+        ))
+    );
+
+    env.shutdown();
+}
+
+/// Try sending the action to an invalid receiver: wrong derived id
+#[test]
+fn test_deterministic_state_init_invalid_derived_id() {
+    if !ProtocolFeature::DeterministicAccountIds.enabled(PROTOCOL_VERSION) {
+        return;
     }
+    let mut env = TestEnv::setup(Balance::from_near(100));
+    env.parent.deploy_global_contract(GlobalContractDeployMode::AccountId);
 
-    // Try sending the action to an invalid receiver: wrong derived id
-    {
-        let key = b"key".to_vec();
-        let value = vec![1u8; 4_194_305];
-        let data = BTreeMap::from_iter([(key, value)]);
-        let balance = Balance::from_near(1000);
+    let key = b"key".to_vec();
+    let value = vec![1u8; 4_194_305];
+    let data = BTreeMap::from_iter([(key, value)]);
+    let balance = Balance::from_near(1000);
 
-        let user_signer = create_user_test_signer(&env.user_account());
-        let (state_init, _det_account) = env.new_deterministic_account_with_data(data);
-        let det_account = "0s1234567890123456789012345678901234567890".parse().unwrap();
-        let create_deterministic_account_tx = env.deterministic_account_state_init_tx(
-            state_init,
-            &det_account,
-            user_signer.clone(),
-            balance,
-        );
-        let outcome = env.try_execute_tx(create_deterministic_account_tx);
+    let user_signer = create_user_test_signer(&env.user_account());
+    let (state_init, _det_account) = env.new_deterministic_account_with_data(data);
+    let det_account = "0s1234567890123456789012345678901234567890".parse().unwrap();
+    let create_deterministic_account_tx = env.deterministic_account_state_init_tx(
+        state_init,
+        &det_account,
+        user_signer.clone(),
+        balance,
+    );
+    let outcome = env.try_execute_tx(create_deterministic_account_tx);
 
-        assert_matches!(
-            outcome,
-            Err(InvalidTxError::ActionsValidation(
-                ActionsValidationError::InvalidDeterministicStateInitReceiver { .. }
-            ))
-        );
+    assert_matches!(
+        outcome,
+        Err(InvalidTxError::ActionsValidation(
+            ActionsValidationError::InvalidDeterministicStateInitReceiver { .. }
+        ))
+    );
+
+    env.shutdown();
+}
+
+/// Try sending the action to an invalid receiver: named account
+#[test]
+fn test_deterministic_state_init_named_receiver() {
+    if !ProtocolFeature::DeterministicAccountIds.enabled(PROTOCOL_VERSION) {
+        return;
     }
+    let mut env = TestEnv::setup(Balance::from_near(100));
+    env.parent.deploy_global_contract(GlobalContractDeployMode::AccountId);
 
-    // Try sending the action to an invalid receiver: named account
-    {
-        let key = b"key".to_vec();
-        let value = vec![1u8; 4_194_305];
-        let data = BTreeMap::from_iter([(key, value)]);
-        let balance = Balance::from_near(1000);
+    let key = b"key".to_vec();
+    let value = vec![1u8; 4_194_305];
+    let data = BTreeMap::from_iter([(key, value)]);
+    let balance = Balance::from_near(1000);
 
-        let user_signer = create_user_test_signer(&env.user_account());
-        let (state_init, _det_account) = env.new_deterministic_account_with_data(data);
-        let det_account = "named.near".parse().unwrap();
-        let create_deterministic_account_tx = env.deterministic_account_state_init_tx(
-            state_init,
-            &det_account,
-            user_signer.clone(),
-            balance,
-        );
-        let outcome = env.try_execute_tx(create_deterministic_account_tx);
+    let user_signer = create_user_test_signer(&env.user_account());
+    let (state_init, _det_account) = env.new_deterministic_account_with_data(data);
+    let det_account = "named.near".parse().unwrap();
+    let create_deterministic_account_tx = env.deterministic_account_state_init_tx(
+        state_init,
+        &det_account,
+        user_signer.clone(),
+        balance,
+    );
+    let outcome = env.try_execute_tx(create_deterministic_account_tx);
 
-        assert_matches!(
-            outcome,
-            Err(InvalidTxError::ActionsValidation(
-                ActionsValidationError::InvalidDeterministicStateInitReceiver { .. }
-            ))
-        );
-    }
+    assert_matches!(
+        outcome,
+        Err(InvalidTxError::ActionsValidation(
+            ActionsValidationError::InvalidDeterministicStateInitReceiver { .. }
+        ))
+    );
 
     env.shutdown();
 }
@@ -401,4 +459,16 @@ impl TestEnv {
 
         storage_config.storage_amount_per_byte.checked_mul(num_bytes as u128).unwrap()
     }
+}
+
+fn empty() -> BTreeMap<Vec<u8>, Vec<u8>> {
+    BTreeMap::new()
+}
+
+fn small() -> BTreeMap<Vec<u8>, Vec<u8>> {
+    BTreeMap::from_iter([(b"key".to_vec(), b"value".to_vec())])
+}
+
+fn big() -> BTreeMap<Vec<u8>, Vec<u8>> {
+    BTreeMap::from_iter([(b"key".to_vec(), vec![0u8; 100_000])])
 }
