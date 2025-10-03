@@ -4,6 +4,7 @@ set -euo pipefail
 # 0. Get record duration (default: 10s)
 record_secs="${1:-10}"
 mode="${2:-simple}"
+output_file_suffix="${3:-''}"
 
 # 1. Remove old files
 rm -f "$HOME/perf."*
@@ -28,12 +29,16 @@ gather_simple_perf() {
       -p "$pid" -o "perf.data" -- sleep "${record_secs}"
 
   # 5. Convert to script
-  output_file="${HOME}/perf-$(hostname).script"
+  output_file="${HOME}/perf-$(hostname)$(output_file_suffix).script"
   echo "📜 Converting perf.data to ${output_file}"
   perf script -F +pid -i "perf.data" > "${output_file}" 2>/dev/null
 
   # 6. Compress
   gzip -f "${output_file}"
+ 
+  # 7. Remove the raw perf data
+  rm -f "perf.data" "${output_file}"
+
   echo "✅ Done: ${output_file}.gz"
 }
 
