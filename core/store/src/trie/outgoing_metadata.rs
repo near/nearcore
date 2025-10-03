@@ -367,10 +367,7 @@ impl ReceiptGroupsQueue {
 impl TrieQueue for ReceiptGroupsQueue {
     type Item = ReceiptGroup;
 
-    fn load_indices(
-        &self,
-        trie: &mut StateOperations,
-    ) -> Result<TrieQueueIndices, StorageError> {
+    fn load_indices(&self, trie: &mut StateOperations) -> Result<TrieQueueIndices, StorageError> {
         Ok(Self::load_data(trie, self.receiver_shard)?
             .map(|i| i.indices.clone())
             .unwrap_or_default())

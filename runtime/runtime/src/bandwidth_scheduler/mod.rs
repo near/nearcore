@@ -10,7 +10,7 @@ use near_primitives::errors::RuntimeError;
 use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{EpochInfoProvider, ShardId, ShardIndex, StateChangeCause};
-use near_store::state_update::{StateUpdate, StateOperations};
+use near_store::state_update::{StateOperations, StateUpdate};
 use scheduler::{BandwidthScheduler, GrantedBandwidth, ShardStatus};
 
 use crate::ApplyState;

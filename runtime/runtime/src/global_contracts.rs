@@ -89,7 +89,7 @@ pub(crate) fn use_global_contract(
     result: &mut ActionResult,
 ) -> Result<(), RuntimeError> {
     let key = TrieKey::GlobalContractCode { identifier: contract_identifier.clone().into() };
-    if !state_update.contains_key(&key)? {
+    if !state_update.contains_key(key)? {
         result.result = Err(ActionErrorKind::GlobalContractDoesNotExist {
             identifier: contract_identifier.clone(),
         }

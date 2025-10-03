@@ -170,7 +170,6 @@ impl StateValue {
         }
     }
 
-
     pub fn value_hash_len(&self) -> (CryptoHash, usize) {
         match self {
             StateValue::TrieValueRef(value_ref) => (value_ref.hash, value_ref.len()),
