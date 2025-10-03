@@ -9,7 +9,6 @@ mod logs;
 mod miscs;
 mod promises;
 mod registers;
-mod storage_config;
 mod storage_read_write;
 mod storage_usage;
 mod view_method;

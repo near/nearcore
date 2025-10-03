@@ -3808,45 +3808,6 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
         Ok(res? as u64)
     }
 
-    /// Write the protocol storage configuration parameter value for `storage_amount_per_byte` to
-    /// the location defined by `balance_ptr`.
-    ///
-    /// # Cost
-    ///
-    /// `base` - the base cost for a simple host function call
-    /// `write_memory_base` + 16 * `write_memory_byte` - the cost of writing a `u128` to guest memory
-    pub fn storage_config_byte_cost(&mut self, balance_ptr: u64) -> Result<()> {
-        self.result_state.gas_counter.pay_base(base)?;
-        let cost_per_byte = self.fees_config.storage_usage_config.storage_amount_per_byte;
-        self.memory.set_u128(
-            &mut self.result_state.gas_counter,
-            balance_ptr,
-            cost_per_byte.as_yoctonear(),
-        )
-    }
-
-    /// Returns the protocol storage configuration parameter value for `num_bytes_account`.
-    ///
-    /// # Cost
-    ///
-    /// `base` - the base cost for a simple host function call
-    pub fn storage_config_num_bytes_account(&mut self) -> Result<u64> {
-        self.result_state.gas_counter.pay_base(base)?;
-        let bytes = self.fees_config.storage_usage_config.num_bytes_account;
-        Ok(bytes)
-    }
-
-    /// Returns the protocol storage configuration parameter value for `num_extra_bytes_record`.
-    ///
-    /// # Cost
-    ///
-    /// `base` - the base cost for a simple host function call
-    pub fn storage_config_num_extra_bytes_record(&mut self) -> Result<u64> {
-        self.result_state.gas_counter.pay_base(base)?;
-        let bytes = self.fees_config.storage_usage_config.num_extra_bytes_record;
-        Ok(bytes)
-    }
-
     /// Debug print given utf-8 string to node log. It's only available in Sandbox node
     ///
     /// # Errors

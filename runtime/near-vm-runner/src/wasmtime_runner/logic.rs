@@ -4228,45 +4228,6 @@ pub fn storage_has_key(caller: &mut Caller<'_, Ctx>, key_len: u64, key_ptr: u64)
     Ok(res? as u64)
 }
 
-/// Write the protocol storage configuration parameter value for `storage_amount_per_byte` to
-/// the location defined by `balance_ptr`.
-///
-/// # Cost
-///
-/// `base` - the base cost for a simple host function call
-/// `write_memory_base` + 16 * `write_memory_byte` - the cost of writing a `u128` to guest memory
-pub fn storage_config_byte_cost(caller: &mut Caller<'_, Ctx>, balance_ptr: u64) -> Result<()> {
-    let memory = get_memory(caller)?;
-    let (memory, ctx) = memory.data_and_store_mut(caller);
-    ctx.result_state.gas_counter.pay_base(base)?;
-    let cost_per_byte = ctx.fees_config.storage_usage_config.storage_amount_per_byte;
-    set_u128(&mut ctx.result_state.gas_counter, memory, balance_ptr, cost_per_byte.as_yoctonear())
-}
-
-/// Returns the protocol storage configuration parameter value for `num_bytes_account`.
-///
-/// # Cost
-///
-/// `base` - the base cost for a simple host function call
-pub fn storage_config_num_bytes_account(caller: &mut Caller<'_, Ctx>) -> Result<u64> {
-    let ctx = caller.data_mut();
-    ctx.result_state.gas_counter.pay_base(base)?;
-    let bytes = ctx.fees_config.storage_usage_config.num_bytes_account;
-    Ok(bytes)
-}
-
-/// Returns the protocol storage configuration parameter value for `num_extra_bytes_record`.
-///
-/// # Cost
-///
-/// `base` - the base cost for a simple host function call
-pub fn storage_config_num_extra_bytes_record(caller: &mut Caller<'_, Ctx>) -> Result<u64> {
-    let ctx = caller.data_mut();
-    ctx.result_state.gas_counter.pay_base(base)?;
-    let bytes = ctx.fees_config.storage_usage_config.num_extra_bytes_record;
-    Ok(bytes)
-}
-
 /// Debug print given utf-8 string to node log. It's only available in Sandbox node
 ///
 /// # Errors
