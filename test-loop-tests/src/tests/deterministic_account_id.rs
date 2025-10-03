@@ -23,11 +23,17 @@
 //! - `storage_config_num_bytes_account`
 //! - `storage_config_num_extra_bytes_record`
 
-use crate::tests::global_contracts::GlobalContractsTestEnv;
-use crate::utils::account::rpc_account_id;
+use crate::setup::builder::TestLoopBuilder;
+use crate::setup::env::TestLoopEnv;
+use crate::utils::account::{
+    create_account_ids, create_validators_spec, rpc_account_id, validators_spec_clients_with_rpc,
+};
 use crate::utils::node::TestLoopNode;
+use crate::utils::transactions;
 use assert_matches::assert_matches;
 use near_async::time::Duration;
+use near_o11y::testonly::init_test_logger;
+use near_parameters::RuntimeConfigStore;
 use near_primitives::action::{GlobalContractDeployMode, GlobalContractIdentifier};
 use near_primitives::deterministic_account_id::{
     DeterministicAccountStateInit, DeterministicAccountStateInitV1,
@@ -35,14 +41,20 @@ use near_primitives::deterministic_account_id::{
 use near_primitives::errors::{
     ActionError, ActionErrorKind, ActionsValidationError, InvalidTxError, TxExecutionError,
 };
+use near_primitives::hash::CryptoHash;
+use near_primitives::shard_layout::ShardLayout;
 use near_primitives::test_utils::create_user_test_signer;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::Gas;
 use near_primitives::types::{AccountId, Balance};
 use near_primitives::utils::derive_near_deterministic_account_id;
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
+use near_primitives::views::{AccountView, QueryRequest, QueryResponse, QueryResponseKind};
 use near_primitives::views::{FinalExecutionOutcomeView, FinalExecutionStatus};
+use near_vm_runner::ContractCode;
 use std::collections::BTreeMap;
+
+const GAS_PRICE: Balance = Balance::from_yoctonear(1);
 
 #[test]
 fn test_deterministic_state_init_by_id_no_data() {
@@ -101,17 +113,17 @@ fn check_deterministic_state_init(
     }
     let mut env = TestEnv::setup(Balance::from_near(100));
 
-    env.parent.deploy_global_contract(global_deploy_mode.clone());
+    env.deploy_global_contract(global_deploy_mode.clone());
 
     let state_init = DeterministicAccountStateInit::V1(DeterministicAccountStateInitV1 {
-        code: env.parent.global_contract_identifier(&global_deploy_mode),
+        code: env.global_contract_identifier(&global_deploy_mode),
         data,
     });
     let det_account = derive_near_deterministic_account_id(&state_init);
     let user_signer = create_user_test_signer(&env.user_account());
     let create_deterministic_account_tx =
         env.deterministic_account_state_init_tx(state_init, &det_account, user_signer, balance);
-    env.parent.run_tx(create_deterministic_account_tx);
+    env.run_tx(create_deterministic_account_tx);
 
     env.assert_test_contract_usable_on_account(det_account);
 
@@ -128,7 +140,7 @@ fn test_repeated_deterministic_state_init() {
         return;
     }
     let mut env = TestEnv::setup(Balance::from_near(100));
-    env.parent.deploy_global_contract(GlobalContractDeployMode::AccountId);
+    env.deploy_global_contract(GlobalContractDeployMode::AccountId);
 
     let data = BTreeMap::from_iter([(b"key".to_vec(), vec![0u8; 100_000])]);
     let (state_init, det_account) = env.new_deterministic_account_with_data(data.clone());
@@ -137,17 +149,17 @@ fn test_repeated_deterministic_state_init() {
     let required_for_storage = env.balance_for_storage(state_init);
     let attached_balance = required_for_storage.checked_mul(10).unwrap();
 
-    let deposit_before = env.parent.get_account_state(env.user_account()).amount;
+    let deposit_before = env.get_account_state(env.user_account()).amount;
 
     // first init
     let outcome = env.try_deploy_deterministic_account_with_data(data.clone(), attached_balance);
     outcome.expect("should be able to send transaction").assert_success();
     assert_eq!(
         required_for_storage,
-        env.parent.get_account_state(det_account.clone()).amount,
+        env.get_account_state(det_account.clone()).amount,
         "exactly required balance should be on the created account"
     );
-    let deposit_between = env.parent.get_account_state(env.user_account()).amount;
+    let deposit_between = env.get_account_state(env.user_account()).amount;
     assert!(
         deposit_between <= deposit_before.checked_sub(required_for_storage).unwrap(),
         "signer should have been charged the deposit cost + gas cost"
@@ -158,10 +170,10 @@ fn test_repeated_deterministic_state_init() {
     outcome.expect("should be able to send transaction").assert_success();
     assert_eq!(
         required_for_storage,
-        env.parent.get_account_state(det_account.clone()).amount,
+        env.get_account_state(det_account).amount,
         "exactly attached balance should be on created account, nothing added on the second call"
     );
-    let deposit_after = env.parent.get_account_state(env.user_account()).amount;
+    let deposit_after = env.get_account_state(env.user_account()).amount;
     assert!(
         deposit_after > deposit_between.checked_sub(required_for_storage).unwrap(),
         "signer should have been refunded the deposit cost and only spend gas cost on the second call"
@@ -201,7 +213,7 @@ fn test_deterministic_state_init_above_zba() {
         return;
     }
     let mut env = TestEnv::setup(Balance::from_near(100));
-    env.parent.deploy_global_contract(GlobalContractDeployMode::AccountId);
+    env.deploy_global_contract(GlobalContractDeployMode::AccountId);
 
     let data = big();
     let balance = Balance::ZERO;
@@ -226,7 +238,7 @@ fn test_deterministic_state_init_key_too_large() {
         return;
     }
     let mut env = TestEnv::setup(Balance::from_near(100));
-    env.parent.deploy_global_contract(GlobalContractDeployMode::AccountId);
+    env.deploy_global_contract(GlobalContractDeployMode::AccountId);
 
     let key = vec![1u8; 2049];
     let data = BTreeMap::from_iter([(key, b"value".to_vec())]);
@@ -249,7 +261,7 @@ fn test_deterministic_state_init_value_too_large() {
         return;
     }
     let mut env = TestEnv::setup(Balance::from_near(100));
-    env.parent.deploy_global_contract(GlobalContractDeployMode::AccountId);
+    env.deploy_global_contract(GlobalContractDeployMode::AccountId);
 
     let key = b"key".to_vec();
     let value = vec![1u8; 4_194_305];
@@ -273,7 +285,7 @@ fn test_deterministic_state_init_invalid_derived_id() {
         return;
     }
     let mut env = TestEnv::setup(Balance::from_near(100));
-    env.parent.deploy_global_contract(GlobalContractDeployMode::AccountId);
+    env.deploy_global_contract(GlobalContractDeployMode::AccountId);
 
     let key = b"key".to_vec();
     let value = vec![1u8; 4_194_305];
@@ -283,12 +295,8 @@ fn test_deterministic_state_init_invalid_derived_id() {
     let user_signer = create_user_test_signer(&env.user_account());
     let (state_init, _det_account) = env.new_deterministic_account_with_data(data);
     let det_account = "0s1234567890123456789012345678901234567890".parse().unwrap();
-    let create_deterministic_account_tx = env.deterministic_account_state_init_tx(
-        state_init,
-        &det_account,
-        user_signer.clone(),
-        balance,
-    );
+    let create_deterministic_account_tx =
+        env.deterministic_account_state_init_tx(state_init, &det_account, user_signer, balance);
     let outcome = env.try_execute_tx(create_deterministic_account_tx);
 
     assert_matches!(
@@ -308,7 +316,7 @@ fn test_deterministic_state_init_named_receiver() {
         return;
     }
     let mut env = TestEnv::setup(Balance::from_near(100));
-    env.parent.deploy_global_contract(GlobalContractDeployMode::AccountId);
+    env.deploy_global_contract(GlobalContractDeployMode::AccountId);
 
     let key = b"key".to_vec();
     let value = vec![1u8; 4_194_305];
@@ -318,12 +326,8 @@ fn test_deterministic_state_init_named_receiver() {
     let user_signer = create_user_test_signer(&env.user_account());
     let (state_init, _det_account) = env.new_deterministic_account_with_data(data);
     let det_account = "named.near".parse().unwrap();
-    let create_deterministic_account_tx = env.deterministic_account_state_init_tx(
-        state_init,
-        &det_account,
-        user_signer.clone(),
-        balance,
-    );
+    let create_deterministic_account_tx =
+        env.deterministic_account_state_init_tx(state_init, &det_account, user_signer, balance);
     let outcome = env.try_execute_tx(create_deterministic_account_tx);
 
     assert_matches!(
@@ -337,30 +341,102 @@ fn test_deterministic_state_init_named_receiver() {
 }
 
 struct TestEnv {
-    /// Contains basic test setup with utilities for global contracts.
-    parent: GlobalContractsTestEnv,
+    env: TestLoopEnv,
+    runtime_config_store: RuntimeConfigStore,
+    contract: ContractCode,
+    global_contract_account: AccountId,
+    user_account: AccountId,
+    independent_account: AccountId,
+    nonce: u64,
 }
 
 impl TestEnv {
     fn setup(initial_balance: Balance) -> Self {
-        let parent = GlobalContractsTestEnv::setup(initial_balance);
-        Self { parent }
+        init_test_logger();
+
+        let [user_account, independent_account, global_contract_account] =
+            create_account_ids(["account0", "account2", "account"]);
+
+        let boundary_accounts = create_account_ids(["account1"]).to_vec();
+        let shard_layout = ShardLayout::multi_shard_custom(boundary_accounts, 1);
+        let validators_spec = create_validators_spec(2, 2);
+        let clients = validators_spec_clients_with_rpc(&validators_spec);
+
+        let genesis = TestLoopBuilder::new_genesis_builder()
+            .validators_spec(validators_spec)
+            .shard_layout(shard_layout)
+            .add_user_accounts_simple(
+                &[
+                    user_account.clone(),
+                    independent_account.clone(),
+                    global_contract_account.clone(),
+                ],
+                initial_balance,
+            )
+            .gas_prices(GAS_PRICE, GAS_PRICE)
+            .build();
+
+        let runtime_config_store = RuntimeConfigStore::new(None);
+        let env = TestLoopBuilder::new()
+            .genesis(genesis)
+            .epoch_config_store_from_genesis()
+            .clients(clients)
+            .runtime_config_store(runtime_config_store.clone())
+            .build()
+            .warmup();
+
+        Self {
+            env,
+            runtime_config_store,
+            user_account,
+            independent_account,
+            global_contract_account,
+            contract: ContractCode::new(near_test_contracts::rs_contract().to_vec(), None),
+            nonce: 1,
+        }
     }
 
     fn shutdown(self) {
-        self.parent.shutdown();
+        self.env.shutdown_and_drain_remaining_events(Duration::seconds(10));
     }
 
     fn global_contract_account(&self) -> AccountId {
-        self.parent.deploy_account.clone()
+        self.global_contract_account.clone()
     }
 
     fn user_account(&self) -> AccountId {
-        self.parent.account_shard_0.clone()
+        self.user_account.clone()
     }
 
     fn independent_account(&self) -> AccountId {
-        self.parent.account_shard_1.clone()
+        self.independent_account.clone()
+    }
+
+    fn deploy_global_contract_custom_tx(
+        &mut self,
+        deploy_mode: GlobalContractDeployMode,
+        contract_code: Vec<u8>,
+    ) -> SignedTransaction {
+        SignedTransaction::deploy_global_contract(
+            self.next_nonce(),
+            self.global_contract_account.clone(),
+            contract_code,
+            &create_user_test_signer(&self.global_contract_account),
+            self.get_tx_block_hash(),
+            deploy_mode,
+        )
+    }
+
+    fn deploy_global_contract_tx(
+        &mut self,
+        deploy_mode: GlobalContractDeployMode,
+    ) -> SignedTransaction {
+        self.deploy_global_contract_custom_tx(deploy_mode, self.contract.code().to_vec())
+    }
+
+    fn deploy_global_contract(&mut self, deploy_mode: GlobalContractDeployMode) {
+        let tx = self.deploy_global_contract_tx(deploy_mode);
+        self.run_tx(tx);
     }
 
     /// Assumes to use global_contract_account by account id as code.
@@ -384,11 +460,11 @@ impl TestEnv {
         balance: Balance,
     ) -> SignedTransaction {
         let create_deterministic_account_tx = SignedTransaction::deterministic_state_init(
-            self.parent.next_nonce(),
+            self.next_nonce(),
             user_signer.get_account_id(),
             det_account.clone(),
             &user_signer,
-            self.parent.get_tx_block_hash(),
+            self.get_tx_block_hash(),
             state_init,
             balance,
         );
@@ -405,7 +481,7 @@ impl TestEnv {
         let create_deterministic_account_tx = self.deterministic_account_state_init_tx(
             state_init,
             &det_account,
-            user_signer.clone(),
+            user_signer,
             balance,
         );
         self.try_execute_tx(create_deterministic_account_tx)
@@ -418,7 +494,7 @@ impl TestEnv {
     ) -> SignedTransaction {
         let signer = create_user_test_signer(&signer_id);
         SignedTransaction::call(
-            self.parent.next_nonce(),
+            self.next_nonce(),
             signer_id,
             receiver_id,
             &signer,
@@ -426,29 +502,28 @@ impl TestEnv {
             "log_something".to_owned(),
             vec![],
             Gas::from_teragas(300),
-            self.parent.get_tx_block_hash(),
+            self.get_tx_block_hash(),
         )
     }
 
     fn assert_test_contract_usable_on_account(&mut self, account_with_contract: AccountId) {
-        let tx =
-            self.call_test_contract_tx(self.independent_account().clone(), account_with_contract);
-        self.parent.run_tx(tx);
+        let tx = self.call_test_contract_tx(self.independent_account(), account_with_contract);
+        self.run_tx(tx);
     }
 
     fn try_execute_tx(
         &mut self,
         tx: SignedTransaction,
     ) -> Result<FinalExecutionOutcomeView, InvalidTxError> {
-        TestLoopNode::for_account(&self.parent.env.node_datas, &rpc_account_id()).execute_tx(
-            &mut self.parent.env.test_loop,
+        TestLoopNode::for_account(&self.env.node_datas, &rpc_account_id()).execute_tx(
+            &mut self.env.test_loop,
             tx,
             Duration::seconds(5),
         )
     }
 
     fn balance_for_storage(&self, state_init: DeterministicAccountStateInit) -> Balance {
-        let runtime_config = self.parent.runtime_config_store.get_config(PROTOCOL_VERSION);
+        let runtime_config = self.runtime_config_store.get_config(PROTOCOL_VERSION);
         let storage_config = &runtime_config.fees.storage_usage_config;
         let num_records = state_init.data().len() as u64;
 
@@ -458,6 +533,61 @@ impl TestEnv {
             + state_init.code().len() as u64;
 
         storage_config.storage_amount_per_byte.checked_mul(num_bytes as u128).unwrap()
+    }
+
+    fn next_nonce(&mut self) -> u64 {
+        let ret = self.nonce;
+        self.nonce += 1;
+        ret
+    }
+
+    fn get_tx_block_hash(&self) -> CryptoHash {
+        transactions::get_shared_block_hash(&self.env.node_datas, &self.env.test_loop.data)
+    }
+
+    #[track_caller]
+    fn run_tx(&mut self, tx: SignedTransaction) {
+        TestLoopNode::for_account(&self.env.node_datas, &rpc_account_id()).run_tx(
+            &mut self.env.test_loop,
+            tx,
+            Duration::seconds(5),
+        );
+    }
+
+    fn global_contract_identifier(
+        &self,
+        deploy_mode: &GlobalContractDeployMode,
+    ) -> GlobalContractIdentifier {
+        match deploy_mode {
+            GlobalContractDeployMode::CodeHash => {
+                GlobalContractIdentifier::CodeHash(*self.contract.hash())
+            }
+            GlobalContractDeployMode::AccountId => {
+                GlobalContractIdentifier::AccountId(self.global_contract_account.clone())
+            }
+        }
+    }
+
+    fn runtime_query(&self, account_id: &AccountId, query: QueryRequest) -> QueryResponse {
+        TestLoopNode::for_account(&self.env.node_datas, &rpc_account_id()).runtime_query(
+            self.env.test_loop_data(),
+            account_id,
+            query,
+        )
+    }
+
+    fn get_account_state(&mut self, account: AccountId) -> AccountView {
+        // Need to wait a bit for RPC node to catch up with the results
+        // of previously submitted txs
+        self.env.test_loop.run_for(Duration::seconds(2));
+        self.view_account(&account)
+    }
+
+    fn view_account(&self, account: &AccountId) -> AccountView {
+        let response =
+            self.runtime_query(account, QueryRequest::ViewAccount { account_id: account.clone() });
+        let QueryResponseKind::ViewAccount(account_view) = response.kind else { unreachable!() };
+        account_view
     }
 }
 

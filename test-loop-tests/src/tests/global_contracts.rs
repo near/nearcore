@@ -212,19 +212,19 @@ fn test_use_global_contract_delegate(deploy_mode: GlobalContractDeployMode) {
     env.shutdown();
 }
 
-pub(crate) struct GlobalContractsTestEnv {
-    pub(crate) env: TestLoopEnv,
-    pub(crate) runtime_config_store: RuntimeConfigStore,
-    pub(crate) contract: ContractCode,
-    pub(crate) deploy_account: AccountId,
-    pub(crate) zero_balance_account: AccountId,
-    pub(crate) account_shard_0: AccountId,
-    pub(crate) account_shard_1: AccountId,
-    pub(crate) nonce: u64,
+struct GlobalContractsTestEnv {
+    env: TestLoopEnv,
+    runtime_config_store: RuntimeConfigStore,
+    contract: ContractCode,
+    deploy_account: AccountId,
+    zero_balance_account: AccountId,
+    account_shard_0: AccountId,
+    account_shard_1: AccountId,
+    nonce: u64,
 }
 
 impl GlobalContractsTestEnv {
-    pub(crate) fn setup(initial_balance: Balance) -> Self {
+    fn setup(initial_balance: Balance) -> Self {
         init_test_logger();
 
         let [account_shard_0, account_shard_1, deploy_account, zero_balance_account] =
@@ -267,7 +267,7 @@ impl GlobalContractsTestEnv {
         }
     }
 
-    pub(crate) fn deploy_global_contract_custom_tx(
+    fn deploy_global_contract_custom_tx(
         &mut self,
         deploy_mode: GlobalContractDeployMode,
         contract_code: Vec<u8>,
@@ -289,7 +289,7 @@ impl GlobalContractsTestEnv {
         self.deploy_global_contract_custom_tx(deploy_mode, self.contract.code().to_vec())
     }
 
-    pub(crate) fn deploy_global_contract(&mut self, deploy_mode: GlobalContractDeployMode) {
+    fn deploy_global_contract(&mut self, deploy_mode: GlobalContractDeployMode) {
         let tx = self.deploy_global_contract_tx(deploy_mode);
         self.run_tx(tx);
     }
@@ -445,7 +445,7 @@ impl GlobalContractsTestEnv {
         fee.send_fee(true).checked_add(fee.exec_fee()).unwrap()
     }
 
-    pub(crate) fn get_account_state(&mut self, account: AccountId) -> AccountView {
+    fn get_account_state(&mut self, account: AccountId) -> AccountView {
         // Need to wait a bit for RPC node to catch up with the results
         // of previously submitted txs
         self.env.test_loop.run_for(Duration::seconds(2));
@@ -482,13 +482,13 @@ impl GlobalContractsTestEnv {
         contract_code_view
     }
 
-    pub(crate) fn next_nonce(&mut self) -> u64 {
+    fn next_nonce(&mut self) -> u64 {
         let ret = self.nonce;
         self.nonce += 1;
         ret
     }
 
-    pub(crate) fn get_tx_block_hash(&self) -> CryptoHash {
+    fn get_tx_block_hash(&self) -> CryptoHash {
         transactions::get_shared_block_hash(&self.env.node_datas, &self.env.test_loop.data)
     }
 
@@ -498,8 +498,7 @@ impl GlobalContractsTestEnv {
             .unwrap()
     }
 
-    #[track_caller]
-    pub(crate) fn run_tx(&mut self, tx: SignedTransaction) {
+    fn run_tx(&mut self, tx: SignedTransaction) {
         TestLoopNode::for_account(&self.env.node_datas, &rpc_account_id()).run_tx(
             &mut self.env.test_loop,
             tx,
@@ -507,7 +506,7 @@ impl GlobalContractsTestEnv {
         );
     }
 
-    pub(crate) fn global_contract_identifier(
+    fn global_contract_identifier(
         &self,
         deploy_mode: &GlobalContractDeployMode,
     ) -> GlobalContractIdentifier {
@@ -521,11 +520,7 @@ impl GlobalContractsTestEnv {
         }
     }
 
-    pub(crate) fn runtime_query(
-        &self,
-        account_id: &AccountId,
-        query: QueryRequest,
-    ) -> QueryResponse {
+    fn runtime_query(&self, account_id: &AccountId, query: QueryRequest) -> QueryResponse {
         TestLoopNode::for_account(&self.env.node_datas, &rpc_account_id()).runtime_query(
             self.env.test_loop_data(),
             account_id,
@@ -533,7 +528,7 @@ impl GlobalContractsTestEnv {
         )
     }
 
-    pub(crate) fn shutdown(self) {
+    fn shutdown(self) {
         self.env.shutdown_and_drain_remaining_events(Duration::seconds(10));
     }
 }
