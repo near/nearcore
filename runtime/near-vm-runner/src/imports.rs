@@ -177,6 +177,7 @@ imports! {
     #[deterministic_account_ids] promise_batch_action_state_init<[promise_idx: u64, code_len: u64, code_ptr: u64, amount_ptr: u64] -> [u64]>,
     #[deterministic_account_ids] promise_batch_action_state_init_by_account_id<[promise_idx: u64, account_id_len: u64, code_hash_ptr: u64, amount_ptr: u64] -> [u64]>,
     #[deterministic_account_ids] set_state_init_data_entry<[promise_idx: u64, action_index: u64, key_len: u64, key_ptr: u64, value_len: u64, value_ptr: u64] -> []>,
+    #[deterministic_account_ids] promise_result_length<[result_idx: u64] -> [u64]>,
     #[deterministic_account_ids] current_contract_code<[register_id: u64] -> [u64]>,
     #[deterministic_account_ids] refund_to_account_id<[register_id: u64] -> []>,
     // #######################

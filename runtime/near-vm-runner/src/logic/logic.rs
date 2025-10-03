@@ -3218,6 +3218,45 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
         Ok(self.context.promise_results.len() as _)
     }
 
+    /// A method to check how much memory [`Self::promise_result()`] would return.
+    ///
+    /// If the current function is invoked by a callback, we can access the length of execution
+    /// results of the promises that caused the callback. It can be used to prevent out-of-gas
+    /// failures when reading too long execution result via [`Self::promise_result()`].
+    ///
+    /// # Returns
+    ///
+    /// * If promise result is complete and successful returns the length in bytes of the promise result;
+    /// * If promise result is not complete or failed returns `0`;
+    ///
+    /// # Errors
+    ///
+    /// * If `result_idx` does not correspond to an existing result returns [`HostError::InvalidPromiseResultIndex`];
+    /// * If called as view function returns [`HostError::ProhibitedInView`].
+    ///
+    /// # Cost
+    ///
+    /// `base` - the base cost for a simple host function call
+    pub fn promise_result_length(&mut self, result_idx: u64) -> Result<u64> {
+        self.result_state.gas_counter.pay_base(base)?;
+        if self.context.is_view() {
+            return Err(HostError::ProhibitedInView {
+                method_name: "promise_result_length".to_string(),
+            }
+            .into());
+        }
+        match self
+            .context
+            .promise_results
+            .get(result_idx as usize)
+            .ok_or(HostError::InvalidPromiseResultIndex { result_idx })?
+        {
+            PromiseResult::Successful(data) => Ok(data.len() as u64),
+            PromiseResult::NotReady => Ok(0),
+            PromiseResult::Failed => Ok(0),
+        }
+    }
+
     /// If the current function is invoked by a callback we can access the execution results of the
     /// promises that caused the callback. This function returns the result in blob format and
     /// places it into the register.
