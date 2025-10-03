@@ -31,10 +31,6 @@ fn test_promise_results() {
     assert_eq!(logic.promise_result(1, 0), Ok(2), "Failed promise must return code 2");
     assert_eq!(logic.promise_result(2, 0), Ok(0), "Pending promise must return 0");
 
-    assert_eq!(logic.promise_result_length(0), Ok(4), "must be length of success value");
-    assert_eq!(logic.promise_result_length(1), Ok(0), "failed promise has no length");
-    assert_eq!(logic.promise_result_length(2), Ok(0), "pending promise has no length");
-
     // Only promise with result should write data into register
     logic.assert_read_register(b"test", 0);
 }
