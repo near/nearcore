@@ -331,13 +331,8 @@ impl messaging::Actor for ClientActorInner {
         self.start(ctx);
     }
 
-    /// Wrapper for processing actix message which must be called after receiving it.
-    ///
-    /// Due to a bug in Actix library, while there are messages in mailbox, Actix
-    /// will prioritize processing messages until mailbox is empty. In such case execution
-    /// of any other task scheduled with `run_later` will be delayed. At the same time,
-    /// we have several important functions which have to be called regularly, so we put
-    /// these calls into `check_triggers` and call it here as a quick hack.
+    /// Wrapper for processing an actor message which must be called after receiving it.
+    /// This calls check_triggers first; see the doc of check_triggers for details.
     fn wrap_handler<M, R>(
         &mut self,
         msg: M,
@@ -1225,11 +1220,11 @@ impl ClientActorInner {
     /// Triggers are important functions of client, like running single step of state sync or
     /// checking if we can produce a block.
     ///
-    /// It is called before processing Actix message and also in schedule_triggers.
-    /// This is to ensure all triggers enjoy higher priority than any actix message.
-    /// Otherwise due to a bug in Actix library Actix prioritizes processing messages
-    /// while there are messages in mailbox. Because of that we handle scheduling
-    /// triggers with custom `run_timer` function instead of `run_later` in Actix.
+    /// It is called before processing an actor message and also in schedule_triggers.
+    /// This is to ensure all triggers enjoy higher priority than any actor message.
+    /// Otherwise, due to FIFO message handling, these important triggers will be delayed
+    /// if there are still pending messages to handle. Because of that we handle scheduling
+    /// triggers with custom `run_timer` function instead of `run_later`.
     ///
     /// Returns the delay before the next time `check_triggers` should be called, which is
     /// min(time until the closest trigger, 1 second).
@@ -1337,7 +1332,7 @@ impl ClientActorInner {
     /// The job that executes applying chunks will send an ApplyChunkDoneMessage to ClientActor after
     /// applying chunks is done, so when receiving ApplyChunkDoneMessage messages, ClientActor
     /// calls this function to finish processing the unfinished blocks. ClientActor also calls
-    /// this function in `check_triggers`, because the actix queue may be blocked by other messages
+    /// this function in `check_triggers`, because the actor queue may be blocked by other messages
     /// and we want to prioritize block processing.
     fn try_process_unfinished_blocks(&mut self) {
         let _span = debug_span!(target: "client", "try_process_unfinished_blocks").entered();
