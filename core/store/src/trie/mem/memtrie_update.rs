@@ -91,10 +91,12 @@ pub enum TrackingMode<'a> {
 struct TrieChangesTracker<'a> {
     /// Counts hashes deleted so far.
     /// Includes hashes of both trie nodes and state values!
-    refcount_deleted_hashes: BTreeMap<CryptoHash, u32>,
+    refcount_deleted_hashes: HashMap<CryptoHash, u32>,
     /// Counts state values inserted so far.
     /// Separated from `refcount_deleted_hashes` to postpone hash computation
     /// as far as possible.
+    /// Using BTreeMap here because keys may be non small values; hashing them
+    /// can be more expensive than tree traversal.
     refcount_inserted_values: BTreeMap<Vec<u8>, u32>,
     /// Recorder for observed internal nodes.
     /// Note that negative `refcount_deleted_hashes` does not fully cover it,
@@ -106,7 +108,7 @@ struct TrieChangesTracker<'a> {
 impl<'a> TrieChangesTracker<'a> {
     fn with_recorder(recorder: Option<&'a TrieRecorder>) -> Self {
         Self {
-            refcount_deleted_hashes: BTreeMap::new(),
+            refcount_deleted_hashes: HashMap::new(),
             refcount_inserted_values: BTreeMap::new(),
             recorder,
         }
@@ -124,7 +126,8 @@ impl<'a> TrieChangesTracker<'a> {
 
     /// Prepare final refcount difference and also return all trie accesses.
     fn finalize(self) -> TrieRefcountDeltaMap {
-        let mut refcount_delta_map = TrieRefcountDeltaMap::new();
+        let capacity = self.refcount_inserted_values.len() + self.refcount_deleted_hashes.len();
+        let mut refcount_delta_map = TrieRefcountDeltaMap::with_capacity(capacity);
         for (value, rc) in self.refcount_inserted_values {
             refcount_delta_map.add(hash(&value), value, rc);
         }
