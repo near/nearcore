@@ -356,7 +356,7 @@ pub fn get_genesis_congestion_infos(store: &Store) -> io::Result<Option<Vec<Cong
 
 pub fn set_genesis_state_roots(store_update: &mut StoreUpdate, genesis_roots: &[StateRoot]) {
     store_update
-        .set_ser(DBCol::BlockMisc, GENESIS_STATE_ROOTS_KEY, genesis_roots)
+        .set_ser(DBCol::BlockMisc, GENESIS_STATE_ROOTS_KEY, &genesis_roots.to_vec())
         .expect("Borsh cannot fail");
 }
 
@@ -365,7 +365,7 @@ pub fn set_genesis_congestion_infos(
     congestion_infos: &[CongestionInfo],
 ) {
     store_update
-        .set_ser(DBCol::BlockMisc, GENESIS_CONGESTION_INFO_KEY, &congestion_infos)
+        .set_ser(DBCol::BlockMisc, GENESIS_CONGESTION_INFO_KEY, &congestion_infos.to_vec())
         .expect("Borsh cannot fail");
 }
 
