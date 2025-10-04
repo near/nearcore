@@ -2622,7 +2622,8 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
         let value = value.into_owned();
 
         self.pay_action_base(ActionCosts::deterministic_state_init_entry, sir)?;
-        let bytes = key_len.checked_add(value_len).ok_or(HostError::IntegerOverflow)?;
+        let bytes =
+            (key.len() as u64).checked_add(value.len() as u64).ok_or(HostError::IntegerOverflow)?;
         self.pay_action_per_byte(ActionCosts::deterministic_state_init_byte, bytes, sir)?;
 
         self.ext.set_deterministic_state_init_data_entry(receipt_idx, action_index, key, value)?;
