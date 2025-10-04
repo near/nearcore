@@ -1,3 +1,4 @@
+use near_async::instrumentation::reader::InstrumentedThreadsView;
 #[cfg(feature = "debug_types")]
 use near_client_primitives::debug::{
     DebugBlockStatusData, EpochInfoView, TrackedShardsView, ValidatorStatus,
@@ -40,6 +41,7 @@ pub enum DebugStatusResponse {
     Routes(NetworkRoutesView),
     SnapshotHosts(SnapshotHostsView),
     SplitStoreStatus(SplitStorageInfoView),
+    InstrumentedThreads(InstrumentedThreadsView),
 }
 
 #[cfg(feature = "debug_types")]
