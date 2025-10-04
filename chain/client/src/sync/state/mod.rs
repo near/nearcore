@@ -71,6 +71,13 @@ pub struct StateSync {
 
     /// Concurrency limits.
     concurrency_config: SyncConcurrency,
+
+    /// A minimum delay between attempts for the same state header/part.
+    /// Specifically important in the scenario that a node is configured
+    /// to sync only from external storage (no p2p requests). Usually a
+    /// failure there indicates the file is yet to be uploaded, in which
+    /// case we want to avoid spamming requests aggressively.
+    min_delay_before_reattempt: Duration,
 }
 
 impl StateSync {
@@ -149,7 +156,6 @@ impl StateSync {
                     chain_id: chain_id.to_string(),
                     conn: external,
                     timeout: external_timeout,
-                    backoff: external_backoff,
                 }) as Arc<dyn StateSyncDownloadSource>;
                 (
                     Some(fallback_source),
@@ -180,6 +186,14 @@ impl StateSync {
         };
         let computation_task_tracker = TaskTracker::new(usize::from(num_concurrent_computations));
 
+        let min_delay_before_reattempt = if num_attempts_before_fallback > 0 {
+            // No need to wait if p2p attempts are enabled
+            Duration::ZERO
+        } else {
+            // Avoid aggressively checking the external storage for requests which just failed
+            external_backoff
+        };
+
         Self {
             store,
             peer_source_state,
@@ -192,6 +206,7 @@ impl StateSync {
             chain_requests_sender,
             shard_syncs: HashMap::new(),
             concurrency_config: sync_config.concurrency,
+            min_delay_before_reattempt,
         }
     }
 
@@ -259,6 +274,7 @@ impl StateSync {
                         cancel.clone(),
                         self.future_spawner.clone(),
                         self.concurrency_config.per_shard,
+                        self.min_delay_before_reattempt,
                     );
                     let (sender, receiver) = oneshot::channel();
 
