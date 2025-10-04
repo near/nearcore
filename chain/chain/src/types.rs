@@ -24,6 +24,7 @@ use near_primitives::congestion_info::ExtendedCongestionInfo;
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{MerklePath, merklize};
+use near_primitives::optimistic_block::OptimisticBlockKeySource;
 use near_primitives::receipt::{PromiseYieldTimeout, Receipt};
 use near_primitives::sandbox::state_patch::SandboxStatePatch;
 use near_primitives::shard_layout::ShardLayout;
@@ -335,6 +336,15 @@ impl ApplyChunkBlockContext {
             bandwidth_requests,
         }
     }
+
+    pub fn to_key_source(&self) -> OptimisticBlockKeySource {
+        OptimisticBlockKeySource {
+            height: self.height,
+            prev_block_hash: self.prev_block_hash,
+            block_timestamp: self.block_timestamp,
+            random_seed: self.random_seed,
+        }
+    }
 }
 
 pub struct ApplyChunkShardContext<'a> {
@@ -375,6 +385,7 @@ pub enum PrepareTransactionsLimit {
 
 /// Information used to prepare transactions, based on the previous block.
 /// When preparing transactions for height H, H is the "current" block and H-1 is the "previous" block.
+#[derive(Clone, Eq, PartialEq, Debug)]
 pub struct PrepareTransactionsBlockContext {
     /// Gas price in the current block
     pub next_gas_price: Balance,
