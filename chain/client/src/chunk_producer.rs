@@ -420,6 +420,11 @@ impl ChunkProducer {
             };
             let prev_block_context =
                 PrepareTransactionsBlockContext::new(prev_block, &*self.epoch_manager)?;
+
+            let transaction_num_limit = None;
+            #[cfg(feature = "tx_generator")]
+            let transaction_num_limit = self.get_chunk_txs_num_limit();
+
             self.runtime_adapter.prepare_transactions(
                 storage_config,
                 shard_id,
@@ -427,6 +432,7 @@ impl ChunkProducer {
                 &mut iter,
                 chain_validate,
                 self.chunk_transactions_time_limit.get(),
+                transaction_num_limit,
             )?
         } else {
             PreparedTransactions { transactions: Vec::new(), limited_by: None }
@@ -519,5 +525,21 @@ impl ChunkProducer {
             );
         }
         should_skip
+    }
+
+    #[cfg(feature = "tx_generator")]
+    fn get_chunk_txs_num_limit(&self) -> Result<Option<usize>, Error> {
+        use near_transaction_generator::TxGeneratorTarget;
+
+        let target: TxGeneratorTarget = *near_transaction_generator::TARGET.lock()?;
+
+        let tip = self.chain.head()?;
+        let shard_layout = self.epoch_manager.get_shard_layout(&tip.epoch_id)?;
+
+        let target_txs_per_block =
+            (target.target_tps as f64 * target.target_block_production_time_s) as usize;
+        let target_txs_per_chunk = target_txs_per_block / shard_layout.num_shards() as usize;
+
+        Ok(Some(target_txs_per_chunk))
     }
 }
