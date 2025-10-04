@@ -34,6 +34,7 @@ strum.workspace = true
 sysinfo.workspace = true
 tempfile.workspace = true
 thiserror.workspace = true
+thread-priority.workspace = true
 time.workspace = true
 tokio.workspace = true
 tokio-stream.workspace = true

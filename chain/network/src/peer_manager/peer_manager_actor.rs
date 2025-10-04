@@ -1165,6 +1165,7 @@ impl PeerManagerActor {
                     shard_id = %partial_witness.chunk_production_key().shard_id,
                     part_owners_len = part_owners.len(),
                     tag_witness_distribution = true,
+                    witness_type = ?partial_witness.production_key().witness_type,
                 )
                 .entered();
 

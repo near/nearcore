@@ -3,6 +3,7 @@ use near_o11y::metrics::{
     try_create_histogram_vec, try_create_int_counter, try_create_int_counter_vec,
     try_create_int_gauge,
 };
+use near_primitives::stateless_validation::WitnessType;
 use near_primitives::stateless_validation::state_witness::ChunkStateWitness;
 use std::sync::LazyLock;
 
@@ -121,17 +122,27 @@ pub(crate) static CHUNK_STATE_WITNESS_VALIDATION_TIME: LazyLock<HistogramVec> =
         try_create_histogram_vec(
             "near_chunk_state_witness_validation_time",
             "State witness validation latency in seconds",
-            &["shard_id"],
+            &["shard_id", "type"],
             Some(exponential_buckets(0.01, 2.0, 12).unwrap()),
         )
         .unwrap()
     });
 
+pub(crate) static CHUNK_STATE_WITNESS_WAIT_TIME: LazyLock<HistogramVec> = LazyLock::new(|| {
+    try_create_histogram_vec(
+        "near_chunk_state_witness_wait_time",
+        "State witness wait time in seconds",
+        &["shard_id"],
+        Some(exponential_buckets(0.01, 2.0, 12).unwrap()),
+    )
+    .unwrap()
+});
+
 pub(crate) static CHUNK_STATE_WITNESS_TOTAL_SIZE: LazyLock<HistogramVec> = LazyLock::new(|| {
     try_create_histogram_vec(
         "near_chunk_state_witness_total_size",
         "Stateless validation compressed state witness size in bytes",
-        &["shard_id"],
+        &["shard_id", "type"],
         Some(exponential_buckets(100_000.0, 1.2, 32).unwrap()),
     )
     .unwrap()
@@ -141,7 +152,7 @@ pub(crate) static CHUNK_STATE_WITNESS_RAW_SIZE: LazyLock<HistogramVec> = LazyLoc
     try_create_histogram_vec(
         "near_chunk_state_witness_raw_size",
         "Stateless validation uncompressed (raw) state witness size in bytes",
-        &["shard_id"],
+        &["shard_id", "type"],
         Some(exponential_buckets(100_000.0, 1.2, 32).unwrap()),
     )
     .unwrap()
@@ -180,7 +191,7 @@ pub(crate) static CHUNK_STATE_WITNESS_MAIN_STATE_TRANSITION_SIZE: LazyLock<Histo
         try_create_histogram_vec(
             "near_chunk_state_witness_main_state_transition_size",
             "Size of ChunkStateWitness::main_state_transition (storage proof needed to execute receipts)",
-            &["shard_id"],
+            &["shard_id", "type"],
             Some(buckets_for_witness_field_size()),
         )
             .unwrap()
@@ -212,19 +223,26 @@ fn record_witness_size_metrics_fallible(
     encoded_size: usize,
     witness: &ChunkStateWitness,
 ) -> Result<(), std::io::Error> {
-    let shard_id = witness.chunk_header().shard_id().to_string();
+    let shard_id = witness.latest_chunk_header().shard_id().to_string();
+    let witness_type = witness.production_key().witness_type;
+    let type_str = witness_type.as_str();
     CHUNK_STATE_WITNESS_RAW_SIZE
-        .with_label_values(&[shard_id.as_str()])
+        .with_label_values(&[shard_id.as_str(), type_str])
         .observe(decoded_size as f64);
     CHUNK_STATE_WITNESS_TOTAL_SIZE
-        .with_label_values(&[&shard_id.as_str()])
+        .with_label_values(&[&shard_id.as_str(), type_str])
         .observe(encoded_size as f64);
-    CHUNK_STATE_WITNESS_MAIN_STATE_TRANSITION_SIZE
-        .with_label_values(&[shard_id.as_str()])
-        .observe(borsh::object_length(&witness.main_state_transition())? as f64);
-    CHUNK_STATE_WITNESS_SOURCE_RECEIPT_PROOFS_SIZE
-        .with_label_values(&[&shard_id.as_str()])
-        .observe(borsh::object_length(&witness.source_receipt_proofs())? as f64);
+    if witness_type != WitnessType::Validate {
+        // this is wrong, should be has_apply
+        CHUNK_STATE_WITNESS_MAIN_STATE_TRANSITION_SIZE
+            .with_label_values(&[shard_id.as_str(), type_str])
+            .observe(borsh::object_length(&witness.main_state_transition())? as f64);
+    }
+    if witness_type != WitnessType::Optimistic {
+        CHUNK_STATE_WITNESS_SOURCE_RECEIPT_PROOFS_SIZE
+            .with_label_values(&[&shard_id.as_str()])
+            .observe(borsh::object_length(&witness.source_receipt_proofs())? as f64);
+    }
     Ok(())
 }
 
