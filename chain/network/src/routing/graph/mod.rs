@@ -1,17 +1,16 @@
-use crate::concurrency;
-use crate::concurrency::runtime::Runtime;
 use crate::network_protocol::{Edge, EdgeState};
 use crate::routing::bfs;
 use crate::routing::routing_table_view::RoutingTableView;
 use crate::stats::metrics;
 use ::time::ext::InstantExt as _;
 use arc_swap::ArcSwap;
-use near_async::time;
+use near_async::messaging::{Actor, CanSendAsync, Handler, Message};
+use near_async::multithread::MultithreadRuntimeHandle;
+use near_async::time::Clock;
+use near_async::{new_owned_multithread_actor, time};
 use near_primitives::network::PeerId;
-use parking_lot::Mutex;
-use rayon::iter::ParallelBridge;
 use std::collections::{HashMap, HashSet};
-use std::sync::Arc;
+use std::sync::{Arc, Weak};
 
 #[cfg(test)]
 mod tests;
@@ -163,17 +162,25 @@ impl Inner {
             return true;
         });
 
-        // Verify the edges in parallel on rayon.
         // Stop at first invalid edge.
-        let (mut edges, ok) = concurrency::rayon::run_blocking(move || {
-            concurrency::rayon::try_map(edges.into_iter().par_bridge(), |e| {
-                if e.verify() { Some(e) } else { None }
-            })
-        });
+        let mut valid_edges = Vec::<Edge>::new();
+        let mut ok = true;
+        for edge in edges {
+            if !edge.verify() {
+                ok = false;
+                break;
+            }
+            if edge.key().0 == edge.key().1 {
+                // Skip self-loops. We don't reject them outright, because in T1 self-discovery we do
+                // create self-loop edges; we just don't want to add them to the graph.
+                continue;
+            }
+            valid_edges.push(edge);
+        }
 
         // Add the verified edges to the graph.
-        edges.retain(|e| self.update_edge(e.clone()));
-        (edges, ok)
+        valid_edges.retain(|e| self.update_edge(e.clone()));
+        (valid_edges, ok)
     }
 
     /// 1. Prunes expired edges.
@@ -226,28 +233,33 @@ impl Inner {
 }
 
 pub(crate) struct Graph {
-    inner: Arc<Mutex<Inner>>,
     snapshot: ArcSwap<GraphSnapshot>,
     unreliable_peers: ArcSwap<HashSet<PeerId>>,
     pub routing_table: RoutingTableView,
-
-    runtime: Runtime,
+    updater: MultithreadRuntimeHandle<GraphActor>,
 }
 
 impl Graph {
-    pub fn new(config: GraphConfig) -> Self {
-        Self {
-            routing_table: RoutingTableView::new(),
-            inner: Arc::new(Mutex::new(Inner {
-                graph: bfs::Graph::new(config.node_id.clone()),
-                config,
-                edges: Default::default(),
-                peer_reachable_at: HashMap::new(),
-            })),
-            unreliable_peers: ArcSwap::default(),
-            snapshot: ArcSwap::default(),
-            runtime: Runtime::new(),
-        }
+    pub fn new(clock: Clock, config: GraphConfig) -> Arc<Self> {
+        Arc::new_cyclic(|weak| {
+            let weak = weak.clone();
+            let updater = new_owned_multithread_actor(1, move || GraphActor {
+                clock: clock.clone(),
+                graph: weak.clone(),
+                inner: Inner {
+                    graph: bfs::Graph::new(config.node_id.clone()),
+                    config: config.clone(),
+                    edges: Default::default(),
+                    peer_reachable_at: HashMap::new(),
+                },
+            });
+            Self {
+                routing_table: RoutingTableView::new(),
+                unreliable_peers: ArcSwap::default(),
+                snapshot: ArcSwap::default(),
+                updater,
+            }
+        })
     }
 
     pub fn load(&self) -> Arc<GraphSnapshot> {
@@ -273,42 +285,39 @@ impl Graph {
     /// node. The node would then validate all the edges every time, then reject the whole set
     /// because just the last edge was invalid. Instead, we accept all the edges verified so
     /// far and return an error only afterwards.
-    pub async fn update(
-        self: &Arc<Self>,
-        clock: &time::Clock,
-        edges: Vec<Vec<Edge>>,
-    ) -> (Vec<Edge>, Vec<bool>) {
-        // Computation is CPU heavy and accesses DB so we execute it on a dedicated thread.
-        // TODO(gprusak): It would be better to move CPU heavy stuff to rayon and make DB calls async,
-        // but that will require further refactor. Or even better: get rid of the Graph all
-        // together.
-        let this = self.clone();
-        let clock = clock.clone();
-        let current_span = tracing::Span::current();
-        self.runtime
-            .handle
-            .spawn_blocking(move || {
-                let _span = tracing::debug_span!(
-                    target: "network::routing::graph",
-                    parent: current_span,
-                    "Graph::update"
-                )
-                .entered();
-                let mut inner = this.inner.lock();
-                let mut new_edges = vec![];
-                let mut oks = vec![];
-                for es in edges {
-                    let (es, ok) = inner.add_edges(&clock, es);
-                    oks.push(ok);
-                    new_edges.extend(es);
-                }
-                let snapshot = inner.update(&clock, &this.unreliable_peers.load());
-                let snapshot = Arc::new(snapshot);
-                this.routing_table.update(snapshot.next_hops.clone(), snapshot.distances.clone());
-                this.snapshot.store(snapshot);
-                (new_edges, oks)
-            })
-            .await
-            .unwrap()
+    pub async fn update(&self, edges: Vec<Vec<Edge>>) -> (Vec<Edge>, Vec<bool>) {
+        self.updater.send_async(UpdateEdges(edges)).await.unwrap()
+    }
+}
+
+struct GraphActor {
+    clock: Clock,
+    graph: Weak<Graph>,
+    inner: Inner,
+}
+
+impl Actor for GraphActor {}
+
+#[derive(Debug)]
+struct UpdateEdges(Vec<Vec<Edge>>);
+
+impl Message for UpdateEdges {}
+
+impl Handler<UpdateEdges, (Vec<Edge>, Vec<bool>)> for GraphActor {
+    fn handle(&mut self, msg: UpdateEdges) -> (Vec<Edge>, Vec<bool>) {
+        let mut new_edges = vec![];
+        let mut oks = vec![];
+        for es in msg.0 {
+            let (es, ok) = self.inner.add_edges(&self.clock, es);
+            oks.push(ok);
+            new_edges.extend(es);
+        }
+        if let Some(graph) = self.graph.upgrade() {
+            let snapshot = self.inner.update(&self.clock, &graph.unreliable_peers.load());
+            let snapshot = Arc::new(snapshot);
+            graph.routing_table.update(snapshot.next_hops.clone(), snapshot.distances.clone());
+            graph.snapshot.store(snapshot);
+        }
+        (new_edges, oks)
     }
 }

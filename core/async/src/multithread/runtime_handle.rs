@@ -12,11 +12,18 @@ pub(super) struct MultithreadRuntimeMessage<A> {
 /// for the messages that the actor can handle.
 pub struct MultithreadRuntimeHandle<A> {
     pub(super) sender: crossbeam_channel::Sender<MultithreadRuntimeMessage<A>>,
+    /// This is used in the case where the handle controls the lifetime of the runtime,
+    /// dropping (all of) which automatically stops the runtime, as an alterative of having
+    /// the ActorSystem control it.
+    cancellation_signal_holder: Option<crossbeam_channel::Sender<()>>,
 }
 
 impl<A> Clone for MultithreadRuntimeHandle<A> {
     fn clone(&self) -> Self {
-        Self { sender: self.sender.clone() }
+        Self {
+            sender: self.sender.clone(),
+            cancellation_signal_holder: self.cancellation_signal_holder.clone(),
+        }
     }
 }
 
@@ -30,10 +37,14 @@ where
 }
 
 /// See ActorSystem::spawn_multithread_actor.
+///
+/// The `system_cancellation_signal_preventer` is an optional sender that can be used to disable
+/// system-wide cancellation.
 pub(crate) fn spawn_multithread_actor<A>(
     num_threads: usize,
     make_actor_fn: impl Fn() -> A + Sync + Send + 'static,
-    system_cancellation_signal: crossbeam_channel::Receiver<()>,
+    cancellation_signal: crossbeam_channel::Receiver<()>,
+    cancellation_signal_holder: Option<crossbeam_channel::Sender<()>>,
 ) -> MultithreadRuntimeHandle<A>
 where
     A: Actor + Send + 'static,
@@ -46,14 +57,14 @@ where
     let threads =
         Arc::new(rayon::ThreadPoolBuilder::new().num_threads(num_threads).build().unwrap());
     let (sender, receiver) = crossbeam_channel::unbounded::<MultithreadRuntimeMessage<A>>();
-    let handle = MultithreadRuntimeHandle { sender };
+    let handle = MultithreadRuntimeHandle { sender, cancellation_signal_holder };
     let threads_clone = threads.clone();
     threads.spawn_broadcast(move |_| {
         let _threads = threads_clone.clone();
         let mut actor = make_actor_fn();
         loop {
             crossbeam_channel::select! {
-                recv(system_cancellation_signal) -> _ => {
+                recv(cancellation_signal) -> _ => {
                     tracing::info!(target: "multithread_runtime", "cancellation received, exiting loop.");
                     return;
                 }

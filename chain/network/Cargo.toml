@@ -66,6 +66,8 @@ turn.workspace = true
 webrtc-util.workspace = true
 serde_json.workspace = true
 
+near-primitives = { workspace = true, features = ["rand", "solomon", "clock", "test_utils"] }
+
 [package.metadata.cargo-machete]
 ignored = ["near-performance-metrics"]
 

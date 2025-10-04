@@ -283,7 +283,7 @@ impl EdgeCache {
     ///
     /// Returns None if no tree is stored.
     /// Returns None if for any edge in the tree, no nonce is available.
-    pub fn get_min_nonce(&mut self, peer_id: &PeerId) -> Option<u64> {
+    pub fn get_min_nonce(&self, peer_id: &PeerId) -> Option<u64> {
         let edge_keys = self.active_trees.get(peer_id)?;
 
         let mut min_nonce: Option<u64> = None;

@@ -6,7 +6,6 @@ use crate::client::{
     TxStatusResponse,
 };
 use crate::concurrency::demux;
-use crate::concurrency::runtime::Runtime;
 use crate::config;
 use crate::network_protocol::{
     Edge, EdgeState, PartialEdgeInfo, PeerIdOrHash, PeerInfo, PeerMessage, RawRoutedMessage,
@@ -42,9 +41,9 @@ use crate::types::{
 };
 use anyhow::Context;
 use arc_swap::ArcSwap;
-use near_async::futures::FutureSpawner;
+use near_async::futures::{FutureSpawner, FutureSpawnerExt};
 use near_async::messaging::{CanSend, SendAsync, Sender};
-use near_async::{ActorSystem, time};
+use near_async::{ActorSystem, new_owned_future_spawner, time};
 use near_o11y::span_wrapped_msg::SpanWrappedMessageExt;
 use near_primitives::genesis::GenesisId;
 use near_primitives::hash::CryptoHash;
@@ -55,7 +54,6 @@ use std::net::SocketAddr;
 use std::num::NonZeroUsize;
 use std::sync::Arc;
 use std::sync::atomic::AtomicUsize;
-use tracing::Instrument as _;
 
 mod routing;
 mod tier1;
@@ -99,13 +97,8 @@ pub(crate) struct WhitelistNode {
 }
 
 pub(crate) struct NetworkState {
-    /// Dedicated runtime for `NetworkState` which runs in a separate thread.
-    /// Async methods of NetworkState are not cancellable,
-    /// so calling them from, for example, PeerActor is dangerous because
-    /// PeerActor can be stopped at any moment.
-    /// WARNING: DO NOT spawn infinite futures/background loops on this runtime,
-    /// as it will be automatically closed only when the NetworkState is dropped.
-    runtime: Runtime,
+    /// Single-threaded tokio runtime for NetworkState operations
+    ops_spawner: Box<dyn FutureSpawner>,
     /// PeerManager config.
     pub config: config::VerifiedConfig,
     /// When network state has been constructed.
@@ -199,17 +192,23 @@ impl NetworkState {
         spice_data_distributor_adapter: SpiceDataDistributorSenderForNetwork,
     ) -> Self {
         Self {
-            runtime: Runtime::new(),
-            graph: Arc::new(crate::routing::Graph::new(crate::routing::GraphConfig {
-                node_id: config.node_id(),
-                prune_unreachable_peers_after: PRUNE_UNREACHABLE_PEERS_AFTER,
-                prune_edges_after: Some(PRUNE_EDGES_AFTER),
-            })),
+            ops_spawner: new_owned_future_spawner(),
+            graph: crate::routing::Graph::new(
+                clock.clone(),
+                crate::routing::GraphConfig {
+                    node_id: config.node_id(),
+                    prune_unreachable_peers_after: PRUNE_UNREACHABLE_PEERS_AFTER,
+                    prune_edges_after: Some(PRUNE_EDGES_AFTER),
+                },
+            ),
             #[cfg(feature = "distance_vector_routing")]
-            graph_v2: Arc::new(crate::routing::GraphV2::new(crate::routing::GraphConfigV2 {
-                node_id: config.node_id(),
-                prune_edges_after: Some(PRUNE_EDGES_AFTER),
-            })),
+            graph_v2: crate::routing::GraphV2::new(
+                clock.clone(),
+                crate::routing::GraphConfigV2 {
+                    node_id: config.node_id(),
+                    prune_edges_after: Some(PRUNE_EDGES_AFTER),
+                },
+            ),
             genesis_id,
             client,
             state_request_adapter,
@@ -259,9 +258,15 @@ impl NetworkState {
     /// the noncancellable logic will be run in the background anyway.
     fn spawn<R: 'static + Send>(
         &self,
+        description: &'static str,
         fut: impl std::future::Future<Output = R> + 'static + Send,
-    ) -> tokio::task::JoinHandle<R> {
-        self.runtime.handle.spawn(fut.in_current_span())
+    ) -> tokio::sync::oneshot::Receiver<R> {
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        self.ops_spawner.spawn(description, async move {
+            let res = fut.await;
+            let _ = tx.send(res);
+        });
+        rx
     }
 
     /// Stops peer instance if it is still connected,
@@ -324,7 +329,7 @@ impl NetworkState {
     ) -> Result<(), RegisterPeerError> {
         let this = self.clone();
         let clock = clock.clone();
-        self.spawn(async move {
+        self.spawn("register_connection", async move {
             let peer_info = &conn.peer_info;
             // Check if this is a blacklisted peer.
             if peer_info.addr.as_ref().map_or(true, |addr| this.peer_store.is_blacklisted(addr)) {
@@ -377,7 +382,7 @@ impl NetworkState {
                     this.tier2.insert_ready(conn.clone()).map_err(RegisterPeerError::PoolError)?;
                     // Update the V2 routing table
                     #[cfg(feature = "distance_vector_routing")]
-                    this.update_routes(&clock, NetworkTopologyChange::PeerConnected(peer_info.id.clone(), edge.clone()))
+                    this.update_routes(NetworkTopologyChange::PeerConnected(peer_info.id.clone(), edge.clone()))
                         .await.map_err(|_: ReasonForBan| RegisterPeerError::InvalidEdge)?;
                     // Write to the peer store
                     this.peer_store.peer_connected(&clock, peer_info);
@@ -413,7 +418,7 @@ impl NetworkState {
         let this = self.clone();
         let clock = clock.clone();
         let conn = conn.clone();
-        self.spawn(async move {
+        self.spawn("unregister_connection", async move {
             match conn.tier {
                 tcp::Tier::T1 => this.tier1.remove(&conn),
                 tcp::Tier::T2 => this.tier2.remove(&conn),
@@ -440,7 +445,7 @@ impl NetworkState {
 
             // Update the V2 routing table
             #[cfg(feature = "distance_vector_routing")]
-            this.update_routes(&clock, NetworkTopologyChange::PeerDisconnected(peer_id.clone()))
+            this.update_routes(NetworkTopologyChange::PeerDisconnected(peer_id.clone()))
                 .await
                 .unwrap();
 
@@ -652,7 +657,7 @@ impl NetworkState {
                 &clock,
                 RawRoutedMessage { target: PeerIdOrHash::PeerId(my_peer_id.clone()), body: msg },
             );
-            self.spawn(async move {
+            self.spawn("send_message_to_account", async move {
                 let hash = msg.hash();
                 this.receive_routed_message(
                     &clock,
@@ -906,7 +911,7 @@ impl NetworkState {
     ) -> Option<AccountDataError> {
         let this = self.clone();
         let clock = clock.clone();
-        self.spawn(async move {
+        self.spawn("add_accounts_data", async move {
             // Verify and add the new data to the internal state.
             let (new_data, err) = this.accounts_data.clone().insert(&clock, accounts_data).await;
             // Broadcast any new data we have found, even in presence of an error.
@@ -917,7 +922,9 @@ impl NetworkState {
                 let tasks: Vec<_> = tier2
                     .ready
                     .values()
-                    .map(|p| this.spawn(p.send_accounts_data(new_data.clone())))
+                    .map(|p| {
+                        this.spawn("send_accounts_data", p.send_accounts_data(new_data.clone()))
+                    })
                     .collect();
                 for t in tasks {
                     t.await.unwrap();
@@ -934,7 +941,7 @@ impl NetworkState {
         hosts: Vec<Arc<SnapshotHostInfo>>,
     ) -> Option<SnapshotHostInfoError> {
         let this = self.clone();
-        self.spawn(async move {
+        self.spawn("add_snapshot_hosts", async move {
             // Verify and add the new data to the internal state.
             let (new_data, err) = this.snapshot_hosts.clone().insert(hosts).await;
             // Broadcast any valid new data, even if an err was returned.
@@ -944,7 +951,9 @@ impl NetworkState {
                 let tasks: Vec<_> = tier2
                     .ready
                     .values()
-                    .map(|p| this.spawn(p.send_snapshot_hosts(new_data.clone())))
+                    .map(|p| {
+                        this.spawn("send_snapshot_hosts", p.send_snapshot_hosts(new_data.clone()))
+                    })
                     .collect();
                 for t in tasks {
                     t.await.unwrap();
@@ -963,7 +972,7 @@ impl NetworkState {
     pub async fn fix_local_edges(self: &Arc<Self>, clock: &time::Clock, timeout: time::Duration) {
         let this = self.clone();
         let clock = clock.clone();
-        self.spawn(async move {
+        self.spawn("fix_local_edges", async move {
             let graph = this.graph.load();
             let tier2 = this.tier2.load();
             let mut tasks = vec![];
@@ -973,33 +982,38 @@ impl NetworkState {
                 let other_peer = edge.other(&node_id).unwrap();
                 match (tier2.ready.get(other_peer), edge.edge_type()) {
                     // This is an active connection, while the edge indicates it shouldn't.
-                    (Some(conn), EdgeState::Removed) => tasks.push(this.spawn({
-                        let this = this.clone();
-                        let conn = conn.clone();
-                        let clock = clock.clone();
-                        async move {
-                            conn.send_message(Arc::new(PeerMessage::RequestUpdateNonce(
-                                PartialEdgeInfo::new(
-                                    &node_id,
-                                    &conn.peer_info.id,
-                                    std::cmp::max(Edge::create_fresh_nonce(&clock), edge.next()),
-                                    &this.config.node_key,
-                                ),
-                            )));
-                            // TODO(gprusak): here we should synchronically wait for the RequestUpdateNonce
-                            // response (with timeout). Until network round trips are implemented, we just
-                            // blindly wait for a while, then check again.
-                            clock.sleep(timeout).await;
-                            match this.graph.load().local_edges.get(&conn.peer_info.id) {
-                                Some(edge) if edge.edge_type() == EdgeState::Active => return,
-                                _ => conn.stop(None),
+                    (Some(conn), EdgeState::Removed) => {
+                        tasks.push(this.spawn("fix_local_edges", {
+                            let this = this.clone();
+                            let conn = conn.clone();
+                            let clock = clock.clone();
+                            async move {
+                                conn.send_message(Arc::new(PeerMessage::RequestUpdateNonce(
+                                    PartialEdgeInfo::new(
+                                        &node_id,
+                                        &conn.peer_info.id,
+                                        std::cmp::max(
+                                            Edge::create_fresh_nonce(&clock),
+                                            edge.next(),
+                                        ),
+                                        &this.config.node_key,
+                                    ),
+                                )));
+                                // TODO(gprusak): here we should synchronically wait for the RequestUpdateNonce
+                                // response (with timeout). Until network round trips are implemented, we just
+                                // blindly wait for a while, then check again.
+                                clock.sleep(timeout).await;
+                                match this.graph.load().local_edges.get(&conn.peer_info.id) {
+                                    Some(edge) if edge.edge_type() == EdgeState::Active => return,
+                                    _ => conn.stop(None),
+                                }
                             }
-                        }
-                    })),
+                        }))
+                    }
                     // We are not connected to this peer, but routing table contains
                     // information that we do. We should wait and remove that peer
                     // from routing table
-                    (None, EdgeState::Active) => tasks.push(this.spawn({
+                    (None, EdgeState::Active) => tasks.push(this.spawn("fix_local_edges", {
                         let this = this.clone();
                         let clock = clock.clone();
                         let other_peer = other_peer.clone();
@@ -1035,11 +1049,9 @@ impl NetworkState {
                     let other_peer = edge.other(&node_id).unwrap();
                     tasks.push(match edge.edge_type() {
                         EdgeState::Active => this.update_routes(
-                            &clock,
                             NetworkTopologyChange::PeerConnected(other_peer.clone(), edge.clone()),
                         ),
                         EdgeState::Removed => this.update_routes(
-                            &clock,
                             NetworkTopologyChange::PeerDisconnected(other_peer.clone()),
                         ),
                     });
