@@ -174,7 +174,7 @@ pub struct ChainInfo {
 #[derive(Debug, Message)]
 pub struct SetChainInfo(pub ChainInfo);
 
-/// Public actix interface of `PeerManagerActor`.
+/// Public actor interface of `PeerManagerActor`.
 #[derive(Message, Debug, strum::IntoStaticStr)]
 #[allow(clippy::large_enum_variant)]
 pub enum PeerManagerMessageRequest {
