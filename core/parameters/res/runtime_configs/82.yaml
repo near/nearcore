@@ -1,4 +1,4 @@
 reftypes_bulk_memory: { old: false, new: true }
 vm_kind: { old: "NearVm", new: "Wasmtime" }
-wasm_linear_op_base_cost: { old: 300_000_000_000_000, new: 123_403_872 }
-wasm_linear_op_unit_cost: { old: 300_000_000_000_000, new: 3_856_371 }
+wasm_linear_op_base_cost: { old: 300_000_000_000_000, new: 26_328_192 }
+wasm_linear_op_unit_cost: { old: 300_000_000_000_000, new: 822_756 }
