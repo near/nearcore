@@ -132,10 +132,12 @@ pub(super) async fn run_state_sync_for_shard(
             })
             .collect();
         // Wait before retrying the failed parts
-        let deadline = downloader.clock.now() + min_delay_before_reattempt;
-        tokio::select! {
-            _ = downloader.clock.sleep_until(deadline) => {}
-            _ = cancel.cancelled() => {}
+        if !parts_to_download.is_empty() {
+            let deadline = downloader.clock.now() + min_delay_before_reattempt;
+            tokio::select! {
+                _ = downloader.clock.sleep_until(deadline) => {}
+                _ = cancel.cancelled() => {}
+            }
         }
     }
 
