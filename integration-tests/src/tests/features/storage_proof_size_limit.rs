@@ -9,7 +9,8 @@ use near_primitives::errors::FunctionCallError;
 use near_primitives::errors::{ActionErrorKind, TxExecutionError};
 use near_primitives::receipt::{Receipt, ReceiptEnum};
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::AccountId;
+use near_primitives::types::Gas;
+use near_primitives::types::{AccountId, Balance};
 use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::FinalExecutionStatus;
 
@@ -58,8 +59,8 @@ fn test_storage_proof_size_limit() {
         let action = Action::FunctionCall(Box::new(FunctionCallAction {
             method_name: "write_one_megabyte".to_string(),
             args: vec![idx],
-            gas: 300_000_000_000_000,
-            deposit: 0,
+            gas: Gas::from_teragas(300),
+            deposit: Balance::ZERO,
         }));
 
         let tx = SignedTransaction::from_actions(
@@ -82,8 +83,8 @@ fn test_storage_proof_size_limit() {
         let action = Action::FunctionCall(Box::new(FunctionCallAction {
             method_name: "read_n_megabytes".to_string(),
             args: vec![from, to],
-            gas: 300_000_000_000_000,
-            deposit: 0,
+            gas: Gas::from_teragas(300),
+            deposit: Balance::ZERO,
         }));
         let tx = SignedTransaction::from_actions(
             nonce,

@@ -12,6 +12,7 @@ use near_primitives::sharding::ShardChunk;
 use near_primitives::transaction::{
     Action, DeployContractAction, FunctionCallAction, SignedTransaction,
 };
+use near_primitives::types::{Balance, Gas};
 use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::types::AccountId;
 use near_store::archive::cold_storage::{
@@ -70,7 +71,14 @@ fn test1() -> AccountId {
 }
 
 fn create_tx_send_money(nonce: u64, signer: &Signer, block_hash: CryptoHash) -> SignedTransaction {
-    SignedTransaction::send_money(nonce, test0(), test1(), signer, 1, block_hash)
+    SignedTransaction::send_money(
+        nonce,
+        test0(),
+        test1(),
+        signer,
+        Balance::from_yoctonear(1),
+        block_hash,
+    )
 }
 
 fn create_tx_deploy_contract(
@@ -92,8 +100,8 @@ fn create_tx_function_call(
     let action = Action::FunctionCall(Box::new(FunctionCallAction {
         method_name: "write_random_value".to_string(),
         args: vec![],
-        gas: 100_000_000_000_000,
-        deposit: 0,
+        gas: Gas::from_teragas(100),
+        deposit: Balance::ZERO,
     }));
     SignedTransaction::from_actions(nonce, test0(), test0(), signer, vec![action], block_hash, 0)
 }
@@ -113,7 +121,7 @@ fn test_storage_after_commit_of_cold_update() {
 
     let mut genesis = Genesis::test(vec![test0(), test1()], 1);
     genesis.config.epoch_length = epoch_length;
-    genesis.config.min_gas_price = 0;
+    genesis.config.min_gas_price = Balance::ZERO;
     let mut env = TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build();
 
     let (storage, ..) = create_test_node_storage_with_cold(DB_VERSION, DbKind::Hot);
@@ -268,7 +276,7 @@ fn test_cold_db_copy_with_height_skips() {
 
     let mut genesis = Genesis::test(vec![test0(), test1()], 1);
     genesis.config.epoch_length = epoch_length;
-    genesis.config.min_gas_price = 0;
+    genesis.config.min_gas_price = Balance::ZERO;
     let mut env = TestEnv::builder(&genesis.config)
         .nightshade_runtimes_congestion_control_disabled(&genesis)
         .build();
@@ -462,7 +470,7 @@ fn test_cold_loop_on_gc_boundary() {
     let hot_store = &storage.get_hot_store();
     let cold_store = &storage.get_cold_store().unwrap();
     let mut env = TestEnv::builder(&genesis.config)
-        .archive(true)
+        .enable_split_store(true)
         .save_trie_changes(true)
         .stores(vec![hot_store.clone()])
         .track_all_shards()
@@ -534,14 +542,14 @@ fn test_cold_loop_on_gc_boundary() {
     near_config.client_config = env.clients[0].config.clone();
     near_config.config.save_trie_changes = Some(true);
 
-    let epoch_manager =
-        EpochManager::new_arc_handle(storage.get_hot_store(), &genesis.config, None);
+    let epoch_manager = EpochManager::new_arc_handle(hot_store.clone(), &genesis.config, None);
     let shard_tracker = env.clients[0].shard_tracker.clone();
     let (actor, _keep_going) = create_cold_store_actor(
         near_config.config.save_trie_changes,
         &near_config.config.split_storage.clone().unwrap_or_default(),
         near_config.genesis.config.genesis_height,
-        &storage,
+        hot_store.clone(),
+        Some(cold_db),
         epoch_manager,
         shard_tracker,
     )

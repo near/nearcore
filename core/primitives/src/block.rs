@@ -131,17 +131,17 @@ impl Block {
         // Collect aggregate of validators and gas usage/limits from chunks.
 
         let mut prev_validator_proposals = vec![];
-        let mut gas_used = 0;
+        let mut gas_used = Gas::ZERO;
         // This computation of chunk_mask relies on the fact that chunks are ordered by shard_id.
         let mut chunk_mask = vec![];
-        let mut balance_burnt = 0;
-        let mut gas_limit = 0;
+        let mut balance_burnt = Balance::ZERO;
+        let mut gas_limit = Gas::ZERO;
         for chunk in &chunks {
             if chunk.height_included() == height {
                 prev_validator_proposals.extend(chunk.prev_validator_proposals());
-                gas_used += chunk.prev_gas_used();
-                gas_limit += chunk.gas_limit();
-                balance_burnt += chunk.prev_balance_burnt();
+                gas_used = gas_used.checked_add(chunk.prev_gas_used()).unwrap();
+                gas_limit = gas_limit.checked_add(chunk.gas_limit()).unwrap();
+                balance_burnt = balance_burnt.checked_add(chunk.prev_balance_burnt()).unwrap();
                 chunk_mask.push(true);
             } else {
                 chunk_mask.push(false);
@@ -156,7 +156,12 @@ impl Block {
             max_gas_price,
         );
 
-        let new_total_supply = prev.total_supply() + minted_amount.unwrap_or(0) - balance_burnt;
+        let new_total_supply = prev
+            .total_supply()
+            .checked_add(minted_amount.unwrap_or(Balance::ZERO))
+            .unwrap()
+            .checked_sub(balance_burnt)
+            .unwrap();
 
         // Use the optimistic block data if available, otherwise compute it.
         let (time, vrf_value, vrf_proof, random_value) = optimistic_block
@@ -269,13 +274,17 @@ impl Block {
         prev_total_supply: Balance,
         minted_amount: Option<Balance>,
     ) -> bool {
-        let mut balance_burnt = 0;
+        let mut balance_burnt = Balance::ZERO;
 
         for chunk in self.chunks().iter_new() {
-            balance_burnt += chunk.prev_balance_burnt();
+            balance_burnt = balance_burnt.checked_add(chunk.prev_balance_burnt()).unwrap();
         }
 
-        let new_total_supply = prev_total_supply + minted_amount.unwrap_or(0) - balance_burnt;
+        let new_total_supply = prev_total_supply
+            .checked_add(minted_amount.unwrap_or(Balance::ZERO))
+            .unwrap()
+            .checked_sub(balance_burnt)
+            .unwrap();
         self.header().total_supply() == new_total_supply
     }
 
@@ -311,12 +320,12 @@ impl Block {
         max_gas_price: Balance,
     ) -> Balance {
         // If block was skipped, the price does not change.
-        if gas_limit == 0 {
+        if gas_limit == Gas::ZERO {
             return gas_price;
         }
 
-        let gas_used = u128::from(gas_used);
-        let gas_limit = u128::from(gas_limit);
+        let gas_used = u128::from(gas_used.as_gas());
+        let gas_limit = u128::from(gas_limit.as_gas());
         let adjustment_rate_numer = *gas_price_adjustment_rate.numer() as u128;
         let adjustment_rate_denom = *gas_price_adjustment_rate.denom() as u128;
 
@@ -327,9 +336,16 @@ impl Block {
             - adjustment_rate_numer * gas_limit;
         let denominator = 2 * adjustment_rate_denom * gas_limit;
         let next_gas_price =
-            U256::from(gas_price) * U256::from(numerator) / U256::from(denominator);
+            U256::from(gas_price.as_yoctonear()) * U256::from(numerator) / U256::from(denominator);
 
-        next_gas_price.clamp(U256::from(min_gas_price), U256::from(max_gas_price)).as_u128()
+        Balance::from_yoctonear(
+            next_gas_price
+                .clamp(
+                    U256::from(min_gas_price.as_yoctonear()),
+                    U256::from(max_gas_price.as_yoctonear()),
+                )
+                .as_u128(),
+        )
     }
 
     pub fn validate_chunk_header_proof(
@@ -646,11 +662,12 @@ impl<'a> Chunks<'a> {
     }
 
     pub fn compute_gas_used(&self) -> Gas {
-        self.iter_new().fold(0, |acc, chunk| acc + chunk.prev_gas_used())
+        self.iter_new()
+            .fold(Gas::ZERO, |acc, chunk| acc.checked_add(chunk.prev_gas_used()).unwrap())
     }
 
     pub fn compute_gas_limit(&self) -> Gas {
-        self.iter_new().fold(0, |acc, chunk| acc + chunk.gas_limit())
+        self.iter_new().fold(Gas::ZERO, |acc, chunk| acc.checked_add(chunk.gas_limit()).unwrap())
     }
 }
 

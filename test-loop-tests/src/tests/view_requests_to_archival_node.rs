@@ -16,8 +16,8 @@ use near_o11y::testonly::init_test_logger;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::sharding::ChunkHash;
 use near_primitives::types::{
-    AccountId, BlockHeight, BlockId, BlockReference, EpochId, EpochReference, Finality,
-    SyncCheckpoint,
+    AccountId, Balance, BlockHeight, BlockId, BlockReference, EpochId, EpochReference, Finality,
+    Gas, SyncCheckpoint,
 };
 use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::{
@@ -28,7 +28,6 @@ use near_primitives::views::{
 use crate::setup::builder::TestLoopBuilder;
 use crate::setup::env::TestLoopEnv;
 use crate::setup::state::NodeExecutionData;
-use crate::utils::ONE_NEAR;
 use crate::utils::transactions::execute_money_transfers;
 
 const NUM_VALIDATORS: usize = 2;
@@ -70,7 +69,7 @@ fn slow_test_view_requests_to_archival_node() {
         .epoch_length(EPOCH_LENGTH)
         .shard_layout(shard_layout.clone())
         .validators_spec(ValidatorsSpec::desired_roles(&validators, &[]))
-        .add_user_accounts_simple(&accounts, 1_000_000 * ONE_NEAR)
+        .add_user_accounts_simple(&accounts, Balance::from_near(1_000_000))
         .genesis_height(GENESIS_HEIGHT)
         .build();
     let epoch_config_store = TestEpochConfigBuilder::build_store_from_genesis(&genesis);
@@ -78,7 +77,7 @@ fn slow_test_view_requests_to_archival_node() {
         .genesis(genesis)
         .epoch_config_store(epoch_config_store)
         .clients(all_clients)
-        .archival_clients(archival_clients)
+        .split_store_archival_clients(archival_clients)
         .gc_num_epochs_to_keep(GC_NUM_EPOCHS_TO_KEEP)
         .build()
         .warmup();
@@ -224,7 +223,7 @@ impl<'a> ViewClientTester<'a> {
 
         let mut get_and_check_chunk = |request: GetChunk| {
             let chunk = self.send(request, ARCHIVAL_CLIENT).unwrap();
-            assert_eq!(chunk.header.gas_limit, 1_000_000_000_000_000);
+            assert_eq!(chunk.header.gas_limit, Gas::from_teragas(1000));
             chunk
         };
 
@@ -249,7 +248,7 @@ impl<'a> ViewClientTester<'a> {
 
         let mut get_and_check_shard_chunk = |request: GetShardChunk| {
             let shard_chunk = self.send(request, ARCHIVAL_CLIENT).unwrap();
-            assert_eq!(shard_chunk.take_header().gas_limit(), 1_000_000_000_000_000);
+            assert_eq!(shard_chunk.take_header().gas_limit(), Gas::from_teragas(1000));
         };
 
         let chunk_by_height = GetShardChunk::Height(6, shard_id);

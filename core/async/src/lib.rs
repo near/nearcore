@@ -1,6 +1,5 @@
-pub use near_async_derive::{MultiSend, MultiSendMessage, MultiSenderFrom};
+pub use near_async_derive::{Message, MultiSend, MultiSendMessage, MultiSenderFrom};
 
-pub mod actix;
 pub mod break_apart;
 mod functional;
 pub mod futures;
@@ -69,6 +68,7 @@ impl ActorSystem {
     }
 
     pub fn stop(&self) {
+        tracing::info!("Stopping all actors in ActorSystem");
         self.tokio_cancellation_signal.cancel();
         self.multithread_cancellation_signal.lock().take();
     }
@@ -143,11 +143,9 @@ impl ActorSystem {
 /// the shutdown of each ActorSystem individually.
 static ACTOR_SYSTEMS: Mutex<Vec<ActorSystem>> = Mutex::new(Vec::new());
 
-/// Shutdown all actors in all supported actor runtimes, assuming there is only up to one actix::System
-/// and only up to one ActorSystem.
+/// Shutdown all actors, assuming at most one ActorSystem.
 /// TODO(#14005): Ideally, shutting down actors should not be done by calling a global function.
 pub fn shutdown_all_actors() {
-    ::actix::System::current().stop();
     {
         let systems = ACTOR_SYSTEMS.lock();
         if systems.len() > 1 {

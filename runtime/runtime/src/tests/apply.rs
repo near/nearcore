@@ -1,5 +1,4 @@
-use super::{GAS_PRICE, to_yocto};
-use crate::config::safe_add_gas;
+use super::GAS_PRICE;
 use crate::congestion_control::{compute_receipt_congestion_gas, compute_receipt_size};
 use crate::tests::{
     MAX_ATTACHED_GAS, create_receipt_for_create_account, create_receipt_with_actions,
@@ -20,7 +19,7 @@ use near_primitives::congestion_info::{
     BlockCongestionInfo, CongestionControl, CongestionInfo, ExtendedCongestionInfo,
 };
 use near_primitives::errors::{
-    ActionErrorKind, FunctionCallError, MissingTrieValue, TxExecutionError,
+    ActionErrorKind, FunctionCallError, InvalidTxError, MissingTrieValue, TxExecutionError,
 };
 use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum, ReceiptPriority, ReceiptV0};
@@ -53,6 +52,8 @@ use testlib::runtime_utils::{alice_account, bob_account};
 /***************/
 /* Apply tests */
 /***************/
+
+const DEFAULT_MINIMAL_GAS_ATTACHMENT: Gas = Gas::from_gas(1);
 
 fn setup_runtime(
     initial_accounts: Vec<AccountId>,
@@ -174,6 +175,7 @@ fn setup_runtime_for_shard(
         congestion_info,
         bandwidth_requests: BlockBandwidthRequests::empty(),
         trie_access_tracker_state: Default::default(),
+        on_post_state_ready: None,
     };
 
     (runtime, tries, root, apply_state, signers)
@@ -181,8 +183,12 @@ fn setup_runtime_for_shard(
 
 #[test]
 fn test_apply_no_op() {
-    let (runtime, tries, root, apply_state, _, epoch_info_provider) =
-        setup_runtime(vec![alice_account()], to_yocto(1_000_000), 0, 10u64.pow(15));
+    let (runtime, tries, root, apply_state, _, epoch_info_provider) = setup_runtime(
+        vec![alice_account()],
+        Balance::from_near(1_000_000),
+        Balance::ZERO,
+        Gas::from_teragas(1000),
+    );
     runtime
         .apply(
             tries.get_trie_for_shard(ShardUId::single_shard(), root),
@@ -198,11 +204,15 @@ fn test_apply_no_op() {
 
 #[test]
 fn test_apply_check_balance_validation_rewards() {
-    let initial_locked = to_yocto(500_000);
-    let reward = to_yocto(10_000_000);
-    let small_refund = to_yocto(500);
-    let (runtime, tries, root, apply_state, _, epoch_info_provider) =
-        setup_runtime(vec![alice_account()], to_yocto(1_000_000), initial_locked, 10u64.pow(15));
+    let initial_locked = Balance::from_near(500_000);
+    let reward = Balance::from_near(10_000_000);
+    let small_refund = Balance::from_near(500);
+    let (runtime, tries, root, apply_state, _, epoch_info_provider) = setup_runtime(
+        vec![alice_account()],
+        Balance::from_near(1_000_000),
+        initial_locked,
+        Gas::from_teragas(1000),
+    );
 
     let validator_accounts_update = ValidatorAccountsUpdate {
         stake_info: vec![(alice_account(), initial_locked)].into_iter().collect(),
@@ -230,12 +240,16 @@ fn test_apply_check_balance_validation_rewards() {
 
 #[test]
 fn test_apply_refund_receipts() {
-    let initial_balance = to_yocto(1_000_000);
-    let initial_locked = to_yocto(500_000);
-    let small_transfer = to_yocto(10_000);
+    let initial_balance = Balance::from_near(1_000_000);
+    let initial_locked = Balance::from_near(500_000);
+    let small_transfer = Balance::from_near(10_000);
     let gas_limit = 1;
-    let (runtime, tries, mut root, mut apply_state, _, epoch_info_provider) =
-        setup_runtime(vec![alice_account()], initial_balance, initial_locked, gas_limit);
+    let (runtime, tries, mut root, mut apply_state, _, epoch_info_provider) = setup_runtime(
+        vec![alice_account()],
+        initial_balance,
+        initial_locked,
+        Gas::from_gas(gas_limit),
+    );
 
     let n = 10;
     let receipts = generate_refund_receipts(small_transfer, n);
@@ -262,23 +276,25 @@ fn test_apply_refund_receipts() {
         assert_eq!(
             account.amount(),
             initial_balance
-                + small_transfer * Balance::from(capped_i)
-                + Balance::from(capped_i * (capped_i - 1) / 2)
+                .checked_add(small_transfer.checked_mul(u128::from(capped_i)).unwrap())
+                .unwrap()
+                .checked_add(Balance::from_yoctonear(u128::from(capped_i * (capped_i - 1) / 2)))
+                .unwrap()
         );
     }
 }
 
 #[test]
 fn test_apply_delayed_receipts_feed_all_at_once() {
-    let initial_balance = to_yocto(1_000_000);
-    let initial_locked = to_yocto(500_000);
-    let small_transfer = to_yocto(10_000);
+    let initial_balance = Balance::from_near(1_000_000);
+    let initial_locked = Balance::from_near(500_000);
+    let small_transfer = Balance::from_near(10_000);
     let gas_limit = 1;
     let (runtime, tries, mut root, mut apply_state, _, epoch_info_provider) = setup_runtime(
         vec![alice_account(), bob_account()],
         initial_balance,
         initial_locked,
-        gas_limit,
+        Gas::from_gas(gas_limit),
     );
 
     let n = 10;
@@ -307,23 +323,34 @@ fn test_apply_delayed_receipts_feed_all_at_once() {
         assert_eq!(
             account.amount(),
             initial_balance
-                + small_transfer * Balance::from(capped_i)
-                + Balance::from(capped_i * (capped_i - 1) / 2)
+                .checked_add(small_transfer.checked_mul(u128::from(capped_i)).unwrap())
+                .unwrap()
+                .checked_add(Balance::from_yoctonear(u128::from(capped_i * (capped_i - 1) / 2)))
+                .unwrap()
         );
     }
 }
 
 #[test]
 fn test_apply_delayed_receipts_add_more_using_chunks() {
-    let initial_balance = to_yocto(1_000_000);
-    let initial_locked = to_yocto(500_000);
-    let small_transfer = to_yocto(10_000);
-    let (runtime, tries, mut root, mut apply_state, _, epoch_info_provider) =
-        setup_runtime(vec![alice_account(), bob_account()], initial_balance, initial_locked, 1);
+    let initial_balance = Balance::from_near(1_000_000);
+    let initial_locked = Balance::from_near(500_000);
+    let small_transfer = Balance::from_near(10_000);
+    let (runtime, tries, mut root, mut apply_state, _, epoch_info_provider) = setup_runtime(
+        vec![alice_account(), bob_account()],
+        initial_balance,
+        initial_locked,
+        DEFAULT_MINIMAL_GAS_ATTACHMENT,
+    );
 
-    let receipt_gas_cost = apply_state.config.fees.fee(ActionCosts::new_action_receipt).exec_fee()
-        + apply_state.config.fees.fee(ActionCosts::transfer).exec_fee();
-    apply_state.gas_limit = Some(receipt_gas_cost * 3);
+    let receipt_gas_cost = apply_state
+        .config
+        .fees
+        .fee(ActionCosts::new_action_receipt)
+        .exec_fee()
+        .checked_add(apply_state.config.fees.fee(ActionCosts::transfer).exec_fee())
+        .unwrap();
+    apply_state.gas_limit = Some(receipt_gas_cost.checked_mul(3).unwrap());
 
     let n = 40;
     let receipts = generate_receipts(small_transfer, n);
@@ -351,22 +378,33 @@ fn test_apply_delayed_receipts_add_more_using_chunks() {
         assert_eq!(
             account.amount(),
             initial_balance
-                + small_transfer * Balance::from(capped_i)
-                + Balance::from(capped_i * (capped_i - 1) / 2)
+                .checked_add(small_transfer.checked_mul(u128::from(capped_i)).unwrap())
+                .unwrap()
+                .checked_add(Balance::from_yoctonear(u128::from(capped_i * (capped_i - 1) / 2)))
+                .unwrap()
         );
     }
 }
 
 #[test]
 fn test_apply_delayed_receipts_adjustable_gas_limit() {
-    let initial_balance = to_yocto(1_000_000);
-    let initial_locked = to_yocto(500_000);
-    let small_transfer = to_yocto(10_000);
-    let (runtime, tries, mut root, mut apply_state, _, epoch_info_provider) =
-        setup_runtime(vec![alice_account(), bob_account()], initial_balance, initial_locked, 1);
+    let initial_balance = Balance::from_near(1_000_000);
+    let initial_locked = Balance::from_near(500_000);
+    let small_transfer = Balance::from_near(10_000);
+    let (runtime, tries, mut root, mut apply_state, _, epoch_info_provider) = setup_runtime(
+        vec![alice_account(), bob_account()],
+        initial_balance,
+        initial_locked,
+        DEFAULT_MINIMAL_GAS_ATTACHMENT,
+    );
 
-    let receipt_gas_cost = apply_state.config.fees.fee(ActionCosts::new_action_receipt).exec_fee()
-        + apply_state.config.fees.fee(ActionCosts::transfer).exec_fee();
+    let receipt_gas_cost = apply_state
+        .config
+        .fees
+        .fee(ActionCosts::new_action_receipt)
+        .exec_fee()
+        .checked_add(apply_state.config.fees.fee(ActionCosts::transfer).exec_fee())
+        .unwrap();
 
     let n = 120;
     let receipts = generate_receipts(small_transfer, n);
@@ -383,7 +421,7 @@ fn test_apply_delayed_receipts_adjustable_gas_limit() {
         } else if num_receipts_per_block > 1 {
             num_receipts_per_block -= 1;
         }
-        apply_state.gas_limit = Some(num_receipts_per_block * receipt_gas_cost);
+        apply_state.gas_limit = Some(receipt_gas_cost.checked_mul(num_receipts_per_block).unwrap());
         let prev_receipts: &[Receipt] = receipt_chunks.next().unwrap_or_default();
         num_receipts_given += prev_receipts.len() as u64;
         let apply_result = runtime
@@ -404,8 +442,14 @@ fn test_apply_delayed_receipts_adjustable_gas_limit() {
         assert_eq!(
             account.amount(),
             initial_balance
-                + small_transfer * Balance::from(num_receipts_processed)
-                + Balance::from(num_receipts_processed * (num_receipts_processed - 1) / 2)
+                .checked_add(
+                    small_transfer.checked_mul(num_receipts_processed.try_into().unwrap()).unwrap()
+                )
+                .unwrap()
+                .checked_add(Balance::from_yoctonear(u128::from(
+                    num_receipts_processed * (num_receipts_processed - 1) / 2
+                )))
+                .unwrap()
         );
         let expected_queue_length = num_receipts_given - num_receipts_processed;
         println!(
@@ -420,7 +464,7 @@ fn test_apply_delayed_receipts_adjustable_gas_limit() {
     }
 }
 
-fn generate_receipts(small_transfer: u128, n: u64) -> Vec<Receipt> {
+fn generate_receipts(small_transfer: Balance, n: u64) -> Vec<Receipt> {
     let mut receipt_id = CryptoHash::default();
     (0..n)
         .map(|i| {
@@ -436,7 +480,9 @@ fn generate_receipts(small_transfer: u128, n: u64) -> Vec<Receipt> {
                     output_data_receivers: vec![],
                     input_data_ids: vec![],
                     actions: vec![Action::Transfer(TransferAction {
-                        deposit: small_transfer + Balance::from(i),
+                        deposit: small_transfer
+                            .checked_add(Balance::from_yoctonear(u128::from(i)))
+                            .unwrap(),
                     })],
                 }),
             })
@@ -444,21 +490,21 @@ fn generate_receipts(small_transfer: u128, n: u64) -> Vec<Receipt> {
         .collect()
 }
 
-fn generate_refund_receipts(small_transfer: u128, n: u64) -> Vec<Receipt> {
+fn generate_refund_receipts(small_transfer: Balance, n: u64) -> Vec<Receipt> {
     let mut receipt_id = CryptoHash::default();
     (0..n)
         .map(|i| {
             receipt_id = hash(receipt_id.as_ref());
             Receipt::new_balance_refund(
                 &alice_account(),
-                small_transfer + Balance::from(i),
+                small_transfer.checked_add(Balance::from_yoctonear(u128::from(i))).unwrap(),
                 ReceiptPriority::NoPriority,
             )
         })
         .collect()
 }
 
-fn generate_delegate_actions(deposit: u128, n: u64) -> Vec<Receipt> {
+fn generate_delegate_actions(deposit: Balance, n: u64) -> Vec<Receipt> {
     // Setup_runtime only creates alice_account() in state, hence we use the
     // id as relayer and sender. This allows the delegate action to execute
     // successfully. But the inner function call will fail, since the
@@ -473,7 +519,7 @@ fn generate_delegate_actions(deposit: u128, n: u64) -> Vec<Receipt> {
                 method_name: "foo".to_string(),
                 args: b"arg".to_vec(),
                 gas: MAX_ATTACHED_GAS,
-                deposit,
+                deposit: deposit,
             }))];
 
             let delegate_action = DelegateAction {
@@ -511,19 +557,23 @@ fn generate_delegate_actions(deposit: u128, n: u64) -> Vec<Receipt> {
 
 #[test]
 fn test_apply_delayed_receipts_local_tx() {
-    let initial_balance = to_yocto(1_000_000);
-    let initial_locked = to_yocto(500_000);
-    let small_transfer = to_yocto(10_000);
-    let (runtime, tries, mut root, mut apply_state, signers, epoch_info_provider) =
-        setup_runtime(vec![alice_account(), bob_account()], initial_balance, initial_locked, 1);
+    let initial_balance = Balance::from_near(1_000_000);
+    let initial_locked = Balance::from_near(500_000);
+    let small_transfer = Balance::from_near(10_000);
+    let (runtime, tries, mut root, mut apply_state, signers, epoch_info_provider) = setup_runtime(
+        vec![alice_account(), bob_account()],
+        initial_balance,
+        initial_locked,
+        DEFAULT_MINIMAL_GAS_ATTACHMENT,
+    );
 
-    let receipt_exec_gas_fee = 1000;
+    let receipt_exec_gas_fee = Gas::from_gas(1000);
     let mut free_config = RuntimeConfig::free();
     let fees = Arc::make_mut(&mut free_config.fees);
     fees.action_fees[ActionCosts::new_action_receipt].execution = receipt_exec_gas_fee;
     apply_state.config = Arc::new(free_config);
     // This allows us to execute 3 receipts per apply.
-    apply_state.gas_limit = Some(receipt_exec_gas_fee * 3);
+    apply_state.gas_limit = Some(receipt_exec_gas_fee.checked_mul(3).unwrap());
 
     let num_receipts = 6;
     let receipts = generate_receipts(small_transfer, num_receipts);
@@ -721,21 +771,21 @@ fn test_apply_delayed_receipts_local_tx() {
 
 #[test]
 fn test_apply_deficit_gas_for_transfer() {
-    let initial_balance = to_yocto(1_000_000);
-    let initial_locked = to_yocto(500_000);
-    let small_transfer = to_yocto(10_000);
+    let initial_balance = Balance::from_near(1_000_000);
+    let initial_locked = Balance::from_near(500_000);
+    let small_transfer = Balance::from_near(10_000);
     let gas_limit = 10u64.pow(15);
     let (runtime, tries, root, apply_state, _, epoch_info_provider) = setup_runtime(
         vec![alice_account(), bob_account()],
         initial_balance,
         initial_locked,
-        gas_limit,
+        Gas::from_gas(gas_limit),
     );
 
     let n = 1;
     let mut receipts = generate_receipts(small_transfer, n);
     if let ReceiptEnum::Action(action_receipt) = receipts.get_mut(0).unwrap().receipt_mut() {
-        action_receipt.gas_price = GAS_PRICE / 10;
+        action_receipt.gas_price = GAS_PRICE.checked_div(10).unwrap();
     }
 
     let result = runtime
@@ -749,24 +799,27 @@ fn test_apply_deficit_gas_for_transfer() {
             Default::default(),
         )
         .unwrap();
-    assert_eq!(result.stats.balance.gas_deficit_amount, result.stats.balance.tx_burnt_amount * 9)
+    assert_eq!(
+        result.stats.balance.gas_deficit_amount,
+        result.stats.balance.tx_burnt_amount.checked_mul(9).unwrap()
+    )
 }
 
 /// Apply a transfer receipt that was purchased at a higher gas price than
 /// current, then check that we burn the correct amount.
 #[test]
 fn test_apply_surplus_gas_for_transfer() {
-    let initial_balance = to_yocto(1_000_000);
-    let initial_locked = to_yocto(500_000);
-    let small_transfer = to_yocto(10_000);
+    let initial_balance = Balance::from_near(1_000_000);
+    let initial_locked = Balance::from_near(500_000);
+    let small_transfer = Balance::from_near(10_000);
     let gas_limit = 10u64.pow(15);
     let (runtime, tries, root, apply_state, _, epoch_info_provider) = setup_runtime(
         vec![alice_account(), bob_account()],
         initial_balance,
         initial_locked,
-        gas_limit,
+        Gas::from_gas(gas_limit),
     );
-    let gas_price = GAS_PRICE * 10;
+    let gas_price = GAS_PRICE.checked_mul(10).unwrap();
 
     let n = 1;
     let mut receipts = generate_receipts(small_transfer, n);
@@ -786,13 +839,16 @@ fn test_apply_surplus_gas_for_transfer() {
         )
         .unwrap();
     let fees = &apply_state.config.fees;
-    let exec_gas = fees.fee(ActionCosts::new_action_receipt).exec_fee()
-        + fees.fee(ActionCosts::transfer).exec_fee();
+    let exec_gas = fees
+        .fee(ActionCosts::new_action_receipt)
+        .exec_fee()
+        .checked_add(fees.fee(ActionCosts::transfer).exec_fee())
+        .unwrap();
 
     let expected_burnt_amount = if fees.refund_gas_price_changes {
-        Balance::from(exec_gas) * GAS_PRICE
+        GAS_PRICE.checked_mul(u128::from(exec_gas.as_gas())).unwrap()
     } else {
-        Balance::from(exec_gas) * gas_price
+        gas_price.checked_mul(u128::from(exec_gas.as_gas())).unwrap()
     };
     let expected_receipts = if fees.refund_gas_price_changes {
         // refund the surplus
@@ -802,37 +858,41 @@ fn test_apply_surplus_gas_for_transfer() {
         0
     };
 
-    assert_eq!(result.stats.balance.gas_deficit_amount, 0);
+    assert!(result.stats.balance.gas_deficit_amount.is_zero());
     assert_eq!(result.stats.balance.tx_burnt_amount, expected_burnt_amount);
     assert_eq!(result.outgoing_receipts.len(), expected_receipts);
 }
 
 #[test]
 fn test_apply_deficit_gas_for_function_call_covered() {
-    let initial_balance = to_yocto(1_000_000);
-    let initial_locked = to_yocto(500_000);
+    let initial_balance = Balance::from_near(1_000_000);
+    let initial_locked = Balance::from_near(500_000);
     let gas_limit = 10u64.pow(15);
     let (runtime, tries, root, apply_state, _, epoch_info_provider) = setup_runtime(
         vec![alice_account(), bob_account()],
         initial_balance,
         initial_locked,
-        gas_limit,
+        Gas::from_gas(gas_limit),
     );
 
     let gas = 2 * 10u64.pow(14);
-    let gas_price = GAS_PRICE / 10;
+    let gas_price = GAS_PRICE.checked_div(10).unwrap();
     let actions = vec![Action::FunctionCall(Box::new(FunctionCallAction {
         method_name: "hello".to_string(),
         args: b"world".to_vec(),
-        gas,
-        deposit: 0,
+        gas: Gas::from_gas(gas),
+        deposit: Balance::ZERO,
     }))];
 
-    let expected_gas_burnt = safe_add_gas(
-        apply_state.config.fees.fee(ActionCosts::new_action_receipt).exec_fee(),
-        total_prepaid_exec_fees(&apply_state.config, &actions, &alice_account()).unwrap(),
-    )
-    .unwrap();
+    let expected_gas_burnt = apply_state
+        .config
+        .fees
+        .fee(ActionCosts::new_action_receipt)
+        .exec_fee()
+        .checked_add(
+            total_prepaid_exec_fees(&apply_state.config, &actions, &alice_account()).unwrap(),
+        )
+        .unwrap();
     let receipts = vec![Receipt::V0(ReceiptV0 {
         predecessor_id: bob_account(),
         receiver_id: alice_account(),
@@ -846,17 +906,29 @@ fn test_apply_deficit_gas_for_function_call_covered() {
             actions,
         }),
     })];
-    let total_receipt_cost = Balance::from(gas + expected_gas_burnt) * gas_price;
+    let total_receipt_cost = gas_price
+        .checked_mul(u128::from(
+            Gas::from_gas(gas).checked_add(expected_gas_burnt).unwrap().as_gas(),
+        ))
+        .unwrap();
     let expected_gas_burnt_amount = if apply_state.config.fees.refund_gas_price_changes {
-        Balance::from(expected_gas_burnt) * GAS_PRICE
+        GAS_PRICE.checked_mul(u128::from(expected_gas_burnt.as_gas())).unwrap()
     } else {
-        Balance::from(expected_gas_burnt) * gas_price
+        gas_price.checked_mul(u128::from(expected_gas_burnt.as_gas())).unwrap()
     };
     // With gas refund penalties enabled, we should see a reduced refund value
-    let unspent_gas = (total_receipt_cost - expected_gas_burnt_amount) / gas_price;
-    let refund_penalty = apply_state.config.fees.gas_penalty_for_gas_refund(unspent_gas as u64);
-    let expected_refund =
-        total_receipt_cost - expected_gas_burnt_amount - Balance::from(refund_penalty) * gas_price;
+    let unspent_gas: Gas = Gas::from_gas(
+        (total_receipt_cost.checked_sub(expected_gas_burnt_amount).unwrap().as_yoctonear()
+            / gas_price.as_yoctonear())
+        .try_into()
+        .unwrap(),
+    );
+    let refund_penalty = apply_state.config.fees.gas_penalty_for_gas_refund(unspent_gas);
+    let expected_refund = total_receipt_cost
+        .checked_sub(expected_gas_burnt_amount)
+        .unwrap()
+        .checked_sub(gas_price.checked_mul(u128::from(refund_penalty.as_gas())).unwrap())
+        .unwrap();
 
     let result = runtime
         .apply(
@@ -871,11 +943,15 @@ fn test_apply_deficit_gas_for_function_call_covered() {
         .unwrap();
     if apply_state.config.fees.refund_gas_price_changes {
         // We used part of the prepaid gas to paying extra fees.
-        assert_eq!(result.stats.balance.gas_deficit_amount, 0);
+        assert!(result.stats.balance.gas_deficit_amount.is_zero());
     } else {
         assert_eq!(
             result.stats.balance.gas_deficit_amount,
-            Balance::from(expected_gas_burnt) * (GAS_PRICE - gas_price)
+            GAS_PRICE
+                .checked_sub(gas_price)
+                .unwrap()
+                .checked_mul(u128::from(expected_gas_burnt.as_gas()))
+                .unwrap()
         );
     }
     // The refund is less than the received amount.
@@ -891,30 +967,34 @@ fn test_apply_deficit_gas_for_function_call_covered() {
 
 #[test]
 fn test_apply_deficit_gas_for_function_call_partial() {
-    let initial_balance = to_yocto(1_000_000);
-    let initial_locked = to_yocto(500_000);
+    let initial_balance = Balance::from_near(1_000_000);
+    let initial_locked = Balance::from_near(500_000);
     let gas_limit = 10u64.pow(15);
     let (runtime, tries, root, apply_state, _, epoch_info_provider) = setup_runtime(
         vec![alice_account(), bob_account()],
         initial_balance,
         initial_locked,
-        gas_limit,
+        Gas::from_gas(gas_limit),
     );
 
     let gas = 1_000_000;
-    let gas_price = GAS_PRICE / 10;
+    let gas_price = GAS_PRICE.checked_div(10).unwrap();
     let actions = vec![Action::FunctionCall(Box::new(FunctionCallAction {
         method_name: "hello".to_string(),
         args: b"world".to_vec(),
-        gas,
-        deposit: 0,
+        gas: Gas::from_gas(gas),
+        deposit: Balance::ZERO,
     }))];
 
-    let expected_gas_burnt = safe_add_gas(
-        apply_state.config.fees.fee(ActionCosts::new_action_receipt).exec_fee(),
-        total_prepaid_exec_fees(&apply_state.config, &actions, &alice_account()).unwrap(),
-    )
-    .unwrap();
+    let expected_gas_burnt = apply_state
+        .config
+        .fees
+        .fee(ActionCosts::new_action_receipt)
+        .exec_fee()
+        .checked_add(
+            total_prepaid_exec_fees(&apply_state.config, &actions, &alice_account()).unwrap(),
+        )
+        .unwrap();
     let receipts = vec![Receipt::V0(ReceiptV0 {
         predecessor_id: bob_account(),
         receiver_id: alice_account(),
@@ -928,14 +1008,23 @@ fn test_apply_deficit_gas_for_function_call_partial() {
             actions,
         }),
     })];
-    let total_receipt_cost = Balance::from(gas + expected_gas_burnt) * gas_price;
+    let total_receipt_cost = gas_price
+        .checked_mul(u128::from(
+            Gas::from_gas(gas).checked_add(expected_gas_burnt).unwrap().as_gas(),
+        ))
+        .unwrap();
     let expected_deficit = if apply_state.config.fees.refund_gas_price_changes {
         // Used full prepaid gas, but it still not enough to cover deficit.
-        let expected_gas_burnt_amount = Balance::from(expected_gas_burnt) * GAS_PRICE;
-        expected_gas_burnt_amount - total_receipt_cost
+        let expected_gas_burnt_amount =
+            GAS_PRICE.checked_mul(u128::from(expected_gas_burnt.as_gas())).unwrap();
+        expected_gas_burnt_amount.checked_sub(total_receipt_cost).unwrap()
     } else {
         // The "deficit" is simply the value change due to gas price changes
-        Balance::from(expected_gas_burnt) * (GAS_PRICE - gas_price)
+        GAS_PRICE
+            .checked_sub(gas_price)
+            .unwrap()
+            .checked_mul(u128::from(expected_gas_burnt.as_gas()))
+            .unwrap()
     };
 
     let result = runtime
@@ -967,30 +1056,34 @@ fn test_apply_deficit_gas_for_function_call_partial() {
 
 #[test]
 fn test_apply_surplus_gas_for_function_call() {
-    let initial_balance = to_yocto(1_000_000);
-    let initial_locked = to_yocto(500_000);
+    let initial_balance = Balance::from_near(1_000_000);
+    let initial_locked = Balance::from_near(500_000);
     let gas_limit = 10u64.pow(15);
     let (runtime, tries, root, apply_state, _, epoch_info_provider) = setup_runtime(
         vec![alice_account(), bob_account()],
         initial_balance,
         initial_locked,
-        gas_limit,
+        Gas::from_gas(gas_limit),
     );
 
     let gas = 2 * 10u64.pow(14);
-    let gas_price = GAS_PRICE * 10;
+    let gas_price = GAS_PRICE.checked_mul(10).unwrap();
     let actions = vec![Action::FunctionCall(Box::new(FunctionCallAction {
         method_name: "hello".to_string(),
         args: b"world".to_vec(),
-        gas,
-        deposit: 0,
+        gas: Gas::from_gas(gas),
+        deposit: Balance::ZERO,
     }))];
 
-    let expected_gas_burnt = safe_add_gas(
-        apply_state.config.fees.fee(ActionCosts::new_action_receipt).exec_fee(),
-        total_prepaid_exec_fees(&apply_state.config, &actions, &alice_account()).unwrap(),
-    )
-    .unwrap();
+    let expected_gas_burnt = apply_state
+        .config
+        .fees
+        .fee(ActionCosts::new_action_receipt)
+        .exec_fee()
+        .checked_add(
+            total_prepaid_exec_fees(&apply_state.config, &actions, &alice_account()).unwrap(),
+        )
+        .unwrap();
     let receipts = vec![Receipt::V0(ReceiptV0 {
         predecessor_id: bob_account(),
         receiver_id: alice_account(),
@@ -1004,18 +1097,30 @@ fn test_apply_surplus_gas_for_function_call() {
             actions,
         }),
     })];
-    let total_receipt_cost = Balance::from(gas + expected_gas_burnt) * gas_price;
+    let total_receipt_cost = gas_price
+        .checked_mul(u128::from(
+            Gas::from_gas(gas).checked_add(expected_gas_burnt).unwrap().as_gas(),
+        ))
+        .unwrap();
     let expected_gas_burnt_amount = if apply_state.config.fees.refund_gas_price_changes {
-        Balance::from(expected_gas_burnt) * GAS_PRICE
+        GAS_PRICE.checked_mul(u128::from(expected_gas_burnt.as_gas())).unwrap()
     } else {
-        Balance::from(expected_gas_burnt) * gas_price
+        gas_price.checked_mul(u128::from(expected_gas_burnt.as_gas())).unwrap()
     };
 
     // With gas refund penalties enabled, we should see a reduced refund value
-    let unspent_gas = (total_receipt_cost - expected_gas_burnt_amount) / gas_price;
-    let refund_penalty = apply_state.config.fees.gas_penalty_for_gas_refund(unspent_gas as u64);
-    let expected_refund =
-        total_receipt_cost - expected_gas_burnt_amount - Balance::from(refund_penalty) * gas_price;
+    let unspent_gas = Gas::from_gas(
+        (total_receipt_cost.checked_sub(expected_gas_burnt_amount).unwrap().as_yoctonear()
+            / gas_price.as_yoctonear())
+        .try_into()
+        .unwrap(),
+    );
+    let refund_penalty = apply_state.config.fees.gas_penalty_for_gas_refund(unspent_gas);
+    let expected_refund = total_receipt_cost
+        .checked_sub(expected_gas_burnt_amount)
+        .unwrap()
+        .checked_sub(gas_price.checked_mul(u128::from(refund_penalty.as_gas())).unwrap())
+        .unwrap();
 
     let result = runtime
         .apply(
@@ -1028,7 +1133,7 @@ fn test_apply_surplus_gas_for_function_call() {
             Default::default(),
         )
         .unwrap();
-    assert_eq!(result.stats.balance.gas_deficit_amount, 0, "expected surplus");
+    assert_eq!(result.stats.balance.gas_deficit_amount, Balance::ZERO, "expected surplus");
     // The refund is less than the received amount.
     match result.outgoing_receipts[0].receipt() {
         ReceiptEnum::Action(ActionReceipt { actions, .. }) => {
@@ -1042,9 +1147,13 @@ fn test_apply_surplus_gas_for_function_call() {
 
 #[test]
 fn test_delete_key_add_key() {
-    let initial_locked = to_yocto(500_000);
-    let (runtime, tries, root, apply_state, signers, epoch_info_provider) =
-        setup_runtime(vec![alice_account()], to_yocto(1_000_000), initial_locked, 10u64.pow(15));
+    let initial_locked = Balance::from_near(500_000);
+    let (runtime, tries, root, apply_state, signers, epoch_info_provider) = setup_runtime(
+        vec![alice_account()],
+        Balance::from_near(1_000_000),
+        initial_locked,
+        Gas::from_teragas(1000),
+    );
 
     let state_update = tries.new_trie_update(ShardUId::single_shard(), root);
     let initial_account_state = get_account(&state_update, &alice_account()).unwrap().unwrap();
@@ -1083,9 +1192,13 @@ fn test_delete_key_add_key() {
 
 #[test]
 fn test_delete_key_underflow() {
-    let initial_locked = to_yocto(500_000);
-    let (runtime, tries, root, apply_state, signers, epoch_info_provider) =
-        setup_runtime(vec![alice_account()], to_yocto(1_000_000), initial_locked, 10u64.pow(15));
+    let initial_locked = Balance::from_near(500_000);
+    let (runtime, tries, root, apply_state, signers, epoch_info_provider) = setup_runtime(
+        vec![alice_account()],
+        Balance::from_near(1_000_000),
+        initial_locked,
+        Gas::from_teragas(1000),
+    );
 
     let mut state_update = tries.new_trie_update(ShardUId::single_shard(), root);
     let mut initial_account_state = get_account(&state_update, &alice_account()).unwrap().unwrap();
@@ -1129,11 +1242,15 @@ fn test_delete_key_underflow() {
 fn test_contract_precompilation() {
     use super::create_receipt_with_actions;
 
-    let initial_balance = to_yocto(1_000_000);
-    let initial_locked = to_yocto(500_000);
+    let initial_balance = Balance::from_near(1_000_000);
+    let initial_locked = Balance::from_near(500_000);
     let gas_limit = 10u64.pow(15);
-    let (runtime, tries, root, apply_state, signers, epoch_info_provider) =
-        setup_runtime(vec![alice_account()], initial_balance, initial_locked, gas_limit);
+    let (runtime, tries, root, apply_state, signers, epoch_info_provider) = setup_runtime(
+        vec![alice_account()],
+        initial_balance,
+        initial_locked,
+        Gas::from_gas(gas_limit),
+    );
 
     let wasm_code = near_test_contracts::rs_contract().to_vec();
     let actions = vec![Action::DeployContract(DeployContractAction { code: wasm_code.clone() })];
@@ -1156,28 +1273,28 @@ fn test_contract_precompilation() {
     store_update.commit().unwrap();
 
     let contract_code = near_vm_runner::ContractCode::new(wasm_code, None);
-    let key = near_vm_runner::get_contract_cache_key(
+    let cached = near_vm_runner::contract_cached(
+        Arc::clone(&apply_state.config.wasm_config),
+        apply_state.cache.as_deref().unwrap(),
         *contract_code.hash(),
-        &apply_state.config.wasm_config,
     );
-    apply_state
-        .cache
-        .unwrap()
-        .get(&key)
-        .expect("Compiled contract should be cached")
-        .expect("Compilation result should be non-empty");
+    assert_matches!(cached, Ok(true), "compiled contract should be cached");
 }
 
 #[test]
 fn test_compute_usage_limit() {
-    let (runtime, tries, mut root, mut apply_state, signers, epoch_info_provider) =
-        setup_runtime(vec![alice_account()], to_yocto(1_000_000), to_yocto(500_000), 1);
+    let (runtime, tries, mut root, mut apply_state, signers, epoch_info_provider) = setup_runtime(
+        vec![alice_account()],
+        Balance::from_near(1_000_000),
+        Balance::from_near(500_000),
+        DEFAULT_MINIMAL_GAS_ATTACHMENT,
+    );
 
     let shard_uid = ShardUId::single_shard();
 
     let sha256_cost = set_sha256_cost(&mut apply_state, 1_000_000u64, 10_000_000_000_000u64);
     // This allows us to execute 1 receipt with a function call per apply.
-    apply_state.gas_limit = Some(sha256_cost.compute);
+    apply_state.gas_limit = Some(Gas::from_gas(sha256_cost.compute));
 
     let deploy_contract_receipt = create_receipt_with_actions(
         alice_account(),
@@ -1194,7 +1311,7 @@ fn test_compute_usage_limit() {
             method_name: "ext_sha256".to_string(),
             args: b"first".to_vec(),
             gas: sha256_cost.gas,
-            deposit: 0,
+            deposit: Balance::ZERO,
         }))],
     );
 
@@ -1205,7 +1322,7 @@ fn test_compute_usage_limit() {
             method_name: "ext_sha256".to_string(),
             args: b"second".to_vec(),
             gas: sha256_cost.gas,
-            deposit: 0,
+            deposit: Balance::ZERO,
         }))],
     );
 
@@ -1258,8 +1375,12 @@ fn test_compute_usage_limit() {
 
 #[test]
 fn test_compute_usage_limit_with_failed_receipt() {
-    let (runtime, tries, root, apply_state, signers, epoch_info_provider) =
-        setup_runtime(vec![alice_account()], to_yocto(1_000_000), to_yocto(500_000), 10u64.pow(15));
+    let (runtime, tries, root, apply_state, signers, epoch_info_provider) = setup_runtime(
+        vec![alice_account()],
+        Balance::from_near(1_000_000),
+        Balance::from_near(500_000),
+        Gas::from_teragas(1000),
+    );
 
     let deploy_contract_receipt = create_receipt_with_actions(
         alice_account(),
@@ -1275,8 +1396,8 @@ fn test_compute_usage_limit_with_failed_receipt() {
         vec![Action::FunctionCall(Box::new(FunctionCallAction {
             method_name: "ext_sha256".to_string(),
             args: b"first".to_vec(),
-            gas: 1,
-            deposit: 0,
+            gas: DEFAULT_MINIMAL_GAS_ATTACHMENT,
+            deposit: Balance::ZERO,
         }))],
     );
 
@@ -1305,9 +1426,9 @@ fn test_compute_usage_limit_with_failed_receipt() {
 fn test_main_storage_proof_size_soft_limit() {
     let (runtime, tries, root, mut apply_state, signers, epoch_info_provider) = setup_runtime(
         vec![alice_account(), bob_account()],
-        to_yocto(1_000_000),
-        to_yocto(500_000),
-        10u64.pow(15),
+        Balance::from_near(1_000_000),
+        Balance::from_near(500_000),
+        Gas::from_teragas(1000),
     );
 
     apply_state.config = Arc::new(RuntimeConfig::free());
@@ -1363,8 +1484,8 @@ fn test_main_storage_proof_size_soft_limit() {
             vec![Action::FunctionCall(Box::new(FunctionCallAction {
                 method_name: "ext_sha256".to_string(),
                 args: b"first".to_vec(),
-                gas: 1,
-                deposit: 0,
+                gas: DEFAULT_MINIMAL_GAS_ATTACHMENT,
+                deposit: Balance::ZERO,
             }))],
         )
     };
@@ -1420,9 +1541,9 @@ fn test_main_storage_proof_size_soft_limit() {
 fn test_exclude_contract_code_from_witness() {
     let (runtime, tries, root, mut apply_state, signers, epoch_info_provider) = setup_runtime(
         vec![alice_account(), bob_account()],
-        to_yocto(1_000_000),
-        to_yocto(500_000),
-        10u64.pow(15),
+        Balance::from_near(1_000_000),
+        Balance::from_near(500_000),
+        Gas::from_teragas(1000),
     );
 
     const CONTRACT_SIZE: usize = 5000;
@@ -1480,8 +1601,8 @@ fn test_exclude_contract_code_from_witness() {
             vec![Action::FunctionCall(Box::new(FunctionCallAction {
                 method_name: "main".to_string(),
                 args: Vec::new(),
-                gas: 1,
-                deposit: 0,
+                gas: DEFAULT_MINIMAL_GAS_ATTACHMENT,
+                deposit: Balance::ZERO,
             }))],
         )
     };
@@ -1545,14 +1666,14 @@ fn test_exclude_contract_code_from_witness() {
 fn test_exclude_contract_code_from_witness_with_failed_call() {
     let (runtime, tries, root, mut apply_state, signers, epoch_info_provider) = setup_runtime(
         vec![alice_account(), bob_account()],
-        to_yocto(1_000_000),
-        to_yocto(500_000),
-        10u64.pow(15),
+        Balance::from_near(1_000_000),
+        Balance::from_near(500_000),
+        Gas::from_teragas(1000),
     );
 
     let sha256_cost = set_sha256_cost(&mut apply_state, 1_000_000u64, 10_000_000_000_000u64);
     // This allows us to execute 1 receipt with a function call per apply.
-    apply_state.gas_limit = Some(sha256_cost.compute);
+    apply_state.gas_limit = Some(Gas::from_gas(sha256_cost.compute));
 
     let contract_code = ContractCode::new(near_test_contracts::rs_contract().to_vec(), None);
     let create_acc_fn = |account_id: AccountId, signer: Arc<Signer>| {
@@ -1601,7 +1722,7 @@ fn test_exclude_contract_code_from_witness_with_failed_call() {
                 method_name: "ext_sha256".to_string(),
                 args: b"first".to_vec(),
                 gas: sha256_cost.gas,
-                deposit: 0,
+                deposit: Balance::ZERO,
             }))],
         )
     };
@@ -1656,9 +1777,9 @@ fn test_exclude_contract_code_from_witness_with_failed_call() {
 fn test_deploy_and_call_different_contracts() {
     let (runtime, tries, root, mut apply_state, signers, epoch_info_provider) = setup_runtime(
         vec![alice_account(), bob_account()],
-        to_yocto(1_000_000),
-        to_yocto(500_000),
-        1,
+        Balance::from_near(1_000_000),
+        Balance::from_near(500_000),
+        DEFAULT_MINIMAL_GAS_ATTACHMENT,
     );
 
     apply_state.config = Arc::new(RuntimeConfig::free());
@@ -1681,8 +1802,8 @@ fn test_deploy_and_call_different_contracts() {
         vec![Action::FunctionCall(Box::new(FunctionCallAction {
             method_name: "ext_sha256".to_string(),
             args: b"first".to_vec(),
-            gas: 1,
-            deposit: 0,
+            gas: DEFAULT_MINIMAL_GAS_ATTACHMENT,
+            deposit: Balance::ZERO,
         }))],
     );
 
@@ -1700,8 +1821,8 @@ fn test_deploy_and_call_different_contracts() {
         vec![Action::FunctionCall(Box::new(FunctionCallAction {
             method_name: "main".to_string(),
             args: Vec::new(),
-            gas: 1,
-            deposit: 0,
+            gas: DEFAULT_MINIMAL_GAS_ATTACHMENT,
+            deposit: Balance::ZERO,
         }))],
     );
 
@@ -1760,14 +1881,14 @@ fn test_deploy_and_call_different_contracts() {
 fn test_deploy_and_call_different_contracts_with_failed_call() {
     let (runtime, tries, root, mut apply_state, signers, epoch_info_provider) = setup_runtime(
         vec![alice_account(), bob_account()],
-        to_yocto(1_000_000),
-        to_yocto(500_000),
-        1,
+        Balance::from_near(1_000_000),
+        Balance::from_near(500_000),
+        DEFAULT_MINIMAL_GAS_ATTACHMENT,
     );
 
     let sha256_cost = set_sha256_cost(&mut apply_state, 1_000_000u64, 10_000_000_000_000u64);
     // This allows us to execute 1 receipt with a function call per apply.
-    apply_state.gas_limit = Some(sha256_cost.compute);
+    apply_state.gas_limit = Some(Gas::from_gas(sha256_cost.compute));
 
     // We use different contract to check the code hashes in the output.
     let first_contract_code = ContractCode::new(near_test_contracts::rs_contract().to_vec(), None);
@@ -1788,7 +1909,7 @@ fn test_deploy_and_call_different_contracts_with_failed_call() {
             method_name: "ext_sha256".to_string(),
             args: b"first".to_vec(),
             gas: sha256_cost.gas,
-            deposit: 0,
+            deposit: Balance::ZERO,
         }))],
     );
 
@@ -1806,8 +1927,8 @@ fn test_deploy_and_call_different_contracts_with_failed_call() {
         vec![Action::FunctionCall(Box::new(FunctionCallAction {
             method_name: "main".to_string(),
             args: Vec::new(),
-            gas: 1,
-            deposit: 0,
+            gas: DEFAULT_MINIMAL_GAS_ATTACHMENT,
+            deposit: Balance::ZERO,
         }))],
     );
 
@@ -1866,9 +1987,9 @@ fn test_deploy_and_call_different_contracts_with_failed_call() {
 fn test_deploy_and_call_in_apply() {
     let (runtime, tries, root, mut apply_state, signers, epoch_info_provider) = setup_runtime(
         vec![alice_account(), bob_account()],
-        to_yocto(1_000_000),
-        to_yocto(500_000),
-        1,
+        Balance::from_near(1_000_000),
+        Balance::from_near(500_000),
+        DEFAULT_MINIMAL_GAS_ATTACHMENT,
     );
 
     apply_state.config = Arc::new(RuntimeConfig::free());
@@ -1891,8 +2012,8 @@ fn test_deploy_and_call_in_apply() {
         vec![Action::FunctionCall(Box::new(FunctionCallAction {
             method_name: "ext_sha256".to_string(),
             args: b"first".to_vec(),
-            gas: 1,
-            deposit: 0,
+            gas: DEFAULT_MINIMAL_GAS_ATTACHMENT,
+            deposit: Balance::ZERO,
         }))],
     );
 
@@ -1910,8 +2031,8 @@ fn test_deploy_and_call_in_apply() {
         vec![Action::FunctionCall(Box::new(FunctionCallAction {
             method_name: "main".to_string(),
             args: Vec::new(),
-            gas: 1,
-            deposit: 0,
+            gas: DEFAULT_MINIMAL_GAS_ATTACHMENT,
+            deposit: Balance::ZERO,
         }))],
     );
 
@@ -1943,14 +2064,14 @@ fn test_deploy_and_call_in_apply() {
 fn test_deploy_and_call_in_apply_with_failed_call() {
     let (runtime, tries, root, mut apply_state, signers, epoch_info_provider) = setup_runtime(
         vec![alice_account(), bob_account()],
-        to_yocto(1_000_000),
-        to_yocto(500_000),
-        1,
+        Balance::from_near(1_000_000),
+        Balance::from_near(500_000),
+        DEFAULT_MINIMAL_GAS_ATTACHMENT,
     );
 
     let sha256_cost = set_sha256_cost(&mut apply_state, 1_000_000u64, 10_000_000_000_000u64);
     // This allows us to execute 1 receipt with a function call per apply.
-    apply_state.gas_limit = Some(sha256_cost.compute);
+    apply_state.gas_limit = Some(Gas::from_gas(sha256_cost.compute));
 
     // We use different contract to check the code hashes in the output.
     let first_contract_code = ContractCode::new(near_test_contracts::rs_contract().to_vec(), None);
@@ -1971,7 +2092,7 @@ fn test_deploy_and_call_in_apply_with_failed_call() {
             method_name: "ext_sha256".to_string(),
             args: b"first".to_vec(),
             gas: sha256_cost.gas,
-            deposit: 0,
+            deposit: Balance::ZERO,
         }))],
     );
 
@@ -1989,8 +2110,8 @@ fn test_deploy_and_call_in_apply_with_failed_call() {
         vec![Action::FunctionCall(Box::new(FunctionCallAction {
             method_name: "main".to_string(),
             args: Vec::new(),
-            gas: 1,
-            deposit: 0,
+            gas: DEFAULT_MINIMAL_GAS_ATTACHMENT,
+            deposit: Balance::ZERO,
         }))],
     );
 
@@ -2023,9 +2144,9 @@ fn test_deploy_and_call_in_apply_with_failed_call() {
 fn test_deploy_existing_contract_to_different_account() {
     let (runtime, tries, root, mut apply_state, signers, epoch_info_provider) = setup_runtime(
         vec![alice_account(), bob_account()],
-        to_yocto(1_000_000),
-        to_yocto(500_000),
-        10u64.pow(15),
+        Balance::from_near(1_000_000),
+        Balance::from_near(500_000),
+        Gas::from_teragas(1000),
     );
 
     apply_state.config = Arc::new(RuntimeConfig::free());
@@ -2044,8 +2165,8 @@ fn test_deploy_existing_contract_to_different_account() {
         vec![Action::FunctionCall(Box::new(FunctionCallAction {
             method_name: "ext_sha256".to_string(),
             args: b"first".to_vec(),
-            gas: 1,
-            deposit: 0,
+            gas: DEFAULT_MINIMAL_GAS_ATTACHMENT,
+            deposit: Balance::ZERO,
         }))],
     );
 
@@ -2086,8 +2207,8 @@ fn test_deploy_existing_contract_to_different_account() {
         vec![Action::FunctionCall(Box::new(FunctionCallAction {
             method_name: "ext_sha256".to_string(),
             args: b"first".to_vec(),
-            gas: 1,
-            deposit: 0,
+            gas: DEFAULT_MINIMAL_GAS_ATTACHMENT,
+            deposit: Balance::ZERO,
         }))],
     );
 
@@ -2118,9 +2239,9 @@ fn test_deploy_existing_contract_to_different_account() {
 fn test_deploy_and_call_in_same_receipt() {
     let (runtime, tries, root, mut apply_state, signers, epoch_info_provider) = setup_runtime(
         vec![alice_account(), bob_account()],
-        to_yocto(1_000_000),
-        to_yocto(500_000),
-        1,
+        Balance::from_near(1_000_000),
+        Balance::from_near(500_000),
+        DEFAULT_MINIMAL_GAS_ATTACHMENT,
     );
 
     apply_state.config = Arc::new(RuntimeConfig::free());
@@ -2134,8 +2255,8 @@ fn test_deploy_and_call_in_same_receipt() {
             Action::FunctionCall(Box::new(FunctionCallAction {
                 method_name: "ext_sha256".to_string(),
                 args: b"first".to_vec(),
-                gas: 1,
-                deposit: 0,
+                gas: DEFAULT_MINIMAL_GAS_ATTACHMENT,
+                deposit: Balance::ZERO,
             })),
         ],
     );
@@ -2165,14 +2286,14 @@ fn test_deploy_and_call_in_same_receipt() {
 fn test_deploy_and_call_in_same_receipt_with_failed_call() {
     let (runtime, tries, root, mut apply_state, signers, epoch_info_provider) = setup_runtime(
         vec![alice_account(), bob_account()],
-        to_yocto(1_000_000),
-        to_yocto(500_000),
-        1,
+        Balance::from_near(1_000_000),
+        Balance::from_near(500_000),
+        DEFAULT_MINIMAL_GAS_ATTACHMENT,
     );
 
     let sha256_cost = set_sha256_cost(&mut apply_state, 1_000_000u64, 10_000_000_000_000u64);
     // This allows us to execute 1 receipt with a function call per apply.
-    apply_state.gas_limit = Some(sha256_cost.compute);
+    apply_state.gas_limit = Some(Gas::from_gas(sha256_cost.compute));
 
     let contract_code = ContractCode::new(near_test_contracts::rs_contract().to_vec(), None);
     let receipt = create_receipt_with_actions(
@@ -2183,8 +2304,8 @@ fn test_deploy_and_call_in_same_receipt_with_failed_call() {
             Action::FunctionCall(Box::new(FunctionCallAction {
                 method_name: "ext_sha256".to_string(),
                 args: b"first".to_vec(),
-                gas: 1,
-                deposit: 0,
+                gas: DEFAULT_MINIMAL_GAS_ATTACHMENT,
+                deposit: Balance::ZERO,
             })),
         ],
     );
@@ -2209,8 +2330,12 @@ fn test_deploy_and_call_in_same_receipt_with_failed_call() {
 // Tests the case in which a function call is made to an account with no contract deployed.
 #[test]
 fn test_call_account_without_contract() {
-    let (runtime, tries, root, mut apply_state, signers, epoch_info_provider) =
-        setup_runtime(vec![alice_account()], to_yocto(1_000_000), to_yocto(500_000), 1);
+    let (runtime, tries, root, mut apply_state, signers, epoch_info_provider) = setup_runtime(
+        vec![alice_account()],
+        Balance::from_near(1_000_000),
+        Balance::from_near(500_000),
+        DEFAULT_MINIMAL_GAS_ATTACHMENT,
+    );
 
     apply_state.config = Arc::new(RuntimeConfig::free());
 
@@ -2220,8 +2345,8 @@ fn test_call_account_without_contract() {
         vec![Action::FunctionCall(Box::new(FunctionCallAction {
             method_name: "main".to_string(),
             args: vec![],
-            gas: 1,
-            deposit: 0,
+            gas: DEFAULT_MINIMAL_GAS_ATTACHMENT,
+            deposit: Balance::ZERO,
         }))],
     );
 
@@ -2245,8 +2370,12 @@ fn test_call_account_without_contract() {
 /// Tests that we do not record the contract accesses when validating the chunk.
 #[test]
 fn test_contract_accesses_when_validating_chunk() {
-    let (runtime, tries, root, mut apply_state, signers, epoch_info_provider) =
-        setup_runtime(vec![alice_account()], to_yocto(1_000_000), to_yocto(500_000), 1);
+    let (runtime, tries, root, mut apply_state, signers, epoch_info_provider) = setup_runtime(
+        vec![alice_account()],
+        Balance::from_near(1_000_000),
+        Balance::from_near(500_000),
+        DEFAULT_MINIMAL_GAS_ATTACHMENT,
+    );
 
     apply_state.config = Arc::new(RuntimeConfig::free());
 
@@ -2264,8 +2393,8 @@ fn test_contract_accesses_when_validating_chunk() {
         vec![Action::FunctionCall(Box::new(FunctionCallAction {
             method_name: "ext_sha256".to_string(),
             args: b"first".to_vec(),
-            gas: 1,
-            deposit: 0,
+            gas: DEFAULT_MINIMAL_GAS_ATTACHMENT,
+            deposit: Balance::ZERO,
         }))],
     );
 
@@ -2336,8 +2465,12 @@ fn test_contract_accesses_when_validating_chunk() {
 /// For this, it deploys two contracts to the same account and checks the storage proof size after the second deploy action.
 #[test]
 fn test_exclude_existing_contract_code_for_deploy_action() {
-    let (runtime, tries, root, mut apply_state, signers, epoch_info_provider) =
-        setup_runtime(vec![alice_account()], to_yocto(1_000_000), to_yocto(500_000), 10u64.pow(15));
+    let (runtime, tries, root, mut apply_state, signers, epoch_info_provider) = setup_runtime(
+        vec![alice_account()],
+        Balance::from_near(1_000_000),
+        Balance::from_near(500_000),
+        Gas::from_teragas(1000),
+    );
 
     apply_state.config = Arc::new(RuntimeConfig::free());
 
@@ -2430,8 +2563,12 @@ fn test_exclude_existing_contract_code_for_deploy_action() {
 /// the storage proof size after the delete-account action.
 #[test]
 fn test_exclude_existing_contract_code_for_delete_account_action() {
-    let (runtime, tries, root, mut apply_state, signers, epoch_info_provider) =
-        setup_runtime(vec![alice_account()], to_yocto(1_000_000), to_yocto(500_000), 10u64.pow(15));
+    let (runtime, tries, root, mut apply_state, signers, epoch_info_provider) = setup_runtime(
+        vec![alice_account()],
+        Balance::from_near(1_000_000),
+        Balance::from_near(500_000),
+        Gas::from_teragas(1000),
+    );
 
     apply_state.config = Arc::new(RuntimeConfig::free());
 
@@ -2450,7 +2587,7 @@ fn test_exclude_existing_contract_code_for_delete_account_action() {
         signers[0].clone(),
         test_account_id.clone(),
         test_account_signer.clone(),
-        to_yocto(100_000),
+        Balance::from_near(100_000),
     );
     let deploy_receipt = create_receipt_with_actions(
         test_account_id.clone(),
@@ -2531,11 +2668,15 @@ fn test_exclude_existing_contract_code_for_delete_account_action() {
 /// those are harder to root cause.
 #[test]
 fn test_empty_apply() {
-    let initial_balance = to_yocto(1_000_000);
-    let initial_locked = to_yocto(500_000);
+    let initial_balance = Balance::from_near(1_000_000);
+    let initial_locked = Balance::from_near(500_000);
     let gas_limit = 10u64.pow(15);
-    let (runtime, tries, root_before, apply_state, _signer, epoch_info_provider) =
-        setup_runtime(vec![alice_account()], initial_balance, initial_locked, gas_limit);
+    let (runtime, tries, root_before, apply_state, _signer, epoch_info_provider) = setup_runtime(
+        vec![alice_account()],
+        initial_balance,
+        initial_locked,
+        Gas::from_gas(gas_limit),
+    );
 
     let receipts = [];
 
@@ -2560,15 +2701,15 @@ fn test_empty_apply() {
 /// the ApplyResult.
 #[test]
 fn test_congestion_delayed_receipts_accounting() {
-    let initial_balance = to_yocto(10);
-    let initial_locked = to_yocto(0);
-    let deposit = to_yocto(1);
+    let initial_balance = Balance::from_near(10);
+    let initial_locked = Balance::from_near(0);
+    let deposit = Balance::from_near(1);
     let gas_limit = 1;
     let (runtime, tries, root, apply_state, _, epoch_info_provider) = setup_runtime(
         vec![alice_account(), bob_account()],
         initial_balance,
         initial_locked,
-        gas_limit,
+        Gas::from_gas(gas_limit),
     );
 
     let n = 10;
@@ -2588,11 +2729,13 @@ fn test_congestion_delayed_receipts_accounting() {
 
     assert_eq!(n - 1, apply_result.delayed_receipts_count);
     let congestion = apply_result.congestion_info.unwrap();
-    let expected_delayed_gas =
-        (n - 1) * compute_receipt_congestion_gas(&receipts[0], &apply_state.config).unwrap();
+    let expected_delayed_gas = Gas::from_gas(
+        (n - 1)
+            * compute_receipt_congestion_gas(&receipts[0], &apply_state.config).unwrap().as_gas(),
+    );
     let expected_receipts_bytes = (n - 1) * compute_receipt_size(&receipts[0]).unwrap() as u64;
 
-    assert_eq!(expected_delayed_gas as u128, congestion.delayed_receipts_gas());
+    assert_eq!(u128::from(expected_delayed_gas.as_gas()), congestion.delayed_receipts_gas());
     assert_eq!(expected_receipts_bytes, congestion.receipt_bytes());
 }
 
@@ -2621,9 +2764,9 @@ fn test_congestion_buffering() {
     let receiver_shard = shard_layout.account_id_to_shard_id(&bob_account());
     assert_ne!(local_shard, receiver_shard);
 
-    let initial_balance = to_yocto(1_000_000);
-    let initial_locked = to_yocto(500_000);
-    let deposit = to_yocto(10_000);
+    let initial_balance = Balance::from_near(1_000_000);
+    let initial_locked = Balance::from_near(500_000);
+    let deposit = Balance::from_near(10_000);
     // execute a single receipt per chunk
     let gas_limit = 1;
 
@@ -2639,7 +2782,7 @@ fn test_congestion_buffering() {
         accounts_with_keys,
         initial_balance,
         initial_locked,
-        gas_limit,
+        Gas::from_gas(gas_limit),
         local_shard_uid,
         &shard_layout,
     );
@@ -2714,7 +2857,7 @@ fn test_congestion_buffering() {
     // Check congestion is 1.0
     let congestion = apply_state.congestion_control(receiver_shard, 0);
     assert_eq!(congestion.congestion_level(), 1.0);
-    assert_eq!(congestion.outgoing_gas_limit(local_shard), 0);
+    assert_eq!(congestion.outgoing_gas_limit(local_shard), Gas::ZERO);
 
     // release congestion to just below 1.0, which should allow one receipt
     // to be forwarded per round
@@ -2723,7 +2866,7 @@ fn test_congestion_buffering() {
         .get_mut(&receiver_shard)
         .unwrap()
         .congestion_info
-        .remove_delayed_receipt_gas(100)
+        .remove_delayed_receipt_gas(Gas::from_gas(100))
         .unwrap();
 
     let min_outgoing_gas: Gas = apply_state.config.congestion_control_config.min_outgoing_gas;
@@ -2733,12 +2876,17 @@ fn test_congestion_buffering() {
     // this exact number does not matter but if it changes the test setup
     // needs to adapt to ensure the number of forwarded receipts is as expected
     assert!(
-        congestion.outgoing_gas_limit(local_shard) - min_outgoing_gas < 100 * 10u64.pow(9),
+        congestion
+            .outgoing_gas_limit(local_shard)
+            .as_gas()
+            .checked_sub(min_outgoing_gas.as_gas())
+            .unwrap()
+            < 100 * 10u64.pow(9),
         "allowed forwarding must be less than 100 GGas away from MIN_OUTGOING_GAS"
     );
 
     // Checking n receipts delayed by 1 + 3 extra
-    let forwarded_per_chunk = min_outgoing_gas / MAX_ATTACHED_GAS;
+    let forwarded_per_chunk = min_outgoing_gas.as_gas() / MAX_ATTACHED_GAS.as_gas();
     for i in 1..=n + 3 {
         let prev_receipts = &[];
         let apply_result = runtime
@@ -2809,11 +2957,15 @@ impl ApplyState {
 /// cross-shard congestion control is enabled, then check what congestion
 /// info is in the apply result.
 fn check_congestion_info_bootstrapping(is_new_chunk: bool, want: Option<CongestionInfo>) {
-    let initial_balance = to_yocto(1_000_000);
-    let initial_locked = to_yocto(500_000);
+    let initial_balance = Balance::from_near(1_000_000);
+    let initial_locked = Balance::from_near(500_000);
     let gas_limit = 10u64.pow(15);
-    let (runtime, tries, root, mut apply_state, _, epoch_info_provider) =
-        setup_runtime(vec![alice_account()], initial_balance, initial_locked, gas_limit);
+    let (runtime, tries, root, mut apply_state, _, epoch_info_provider) = setup_runtime(
+        vec![alice_account()],
+        initial_balance,
+        initial_locked,
+        Gas::from_gas(gas_limit),
+    );
 
     // Delete previous congestion info to trigger bootstrapping it. An empty
     // shards congestion info map is what we should see in the first chunk
@@ -2852,8 +3004,12 @@ fn test_congestion_info_bootstrapping() {
 
 #[test]
 fn test_deploy_and_call_local_receipt() {
-    let (runtime, tries, root, apply_state, signers, epoch_info_provider) =
-        setup_runtime(vec![alice_account()], to_yocto(1_000_000), to_yocto(500_000), 10u64.pow(15));
+    let (runtime, tries, root, apply_state, signers, epoch_info_provider) = setup_runtime(
+        vec![alice_account()],
+        Balance::from_near(1_000_000),
+        Balance::from_near(500_000),
+        Gas::from_teragas(1000),
+    );
 
     let tx = SignedTransaction::from_actions(
         1,
@@ -2867,8 +3023,8 @@ fn test_deploy_and_call_local_receipt() {
             Action::FunctionCall(Box::new(FunctionCallAction {
                 method_name: "log_something".to_string(),
                 args: vec![],
-                gas: MAX_ATTACHED_GAS / 2,
-                deposit: 0,
+                gas: MAX_ATTACHED_GAS.checked_div(2).unwrap(),
+                deposit: Balance::ZERO,
             })),
             Action::DeployContract(DeployContractAction {
                 code: near_test_contracts::trivial_contract().to_vec(),
@@ -2876,8 +3032,8 @@ fn test_deploy_and_call_local_receipt() {
             Action::FunctionCall(Box::new(FunctionCallAction {
                 method_name: "log_something".to_string(),
                 args: vec![],
-                gas: MAX_ATTACHED_GAS / 2,
-                deposit: 0,
+                gas: MAX_ATTACHED_GAS.checked_div(2).unwrap(),
+                deposit: Balance::ZERO,
             })),
         ],
         CryptoHash::default(),
@@ -2914,8 +3070,12 @@ fn test_deploy_and_call_local_receipt() {
 
 #[test]
 fn test_deploy_and_call_local_receipts() {
-    let (runtime, tries, root, apply_state, signers, epoch_info_provider) =
-        setup_runtime(vec![alice_account()], to_yocto(1_000_000), to_yocto(500_000), 10u64.pow(15));
+    let (runtime, tries, root, apply_state, signers, epoch_info_provider) = setup_runtime(
+        vec![alice_account()],
+        Balance::from_near(1_000_000),
+        Balance::from_near(500_000),
+        Gas::from_teragas(1000),
+    );
 
     let tx1 = SignedTransaction::from_actions(
         1,
@@ -2938,8 +3098,8 @@ fn test_deploy_and_call_local_receipts() {
             Action::FunctionCall(Box::new(FunctionCallAction {
                 method_name: "log_something".to_string(),
                 args: vec![],
-                gas: MAX_ATTACHED_GAS / 2,
-                deposit: 0,
+                gas: MAX_ATTACHED_GAS.checked_div(2).unwrap(),
+                deposit: Balance::ZERO,
             })),
             Action::DeployContract(DeployContractAction {
                 code: near_test_contracts::trivial_contract().to_vec(),
@@ -2947,8 +3107,8 @@ fn test_deploy_and_call_local_receipts() {
             Action::FunctionCall(Box::new(FunctionCallAction {
                 method_name: "log_something".to_string(),
                 args: vec![],
-                gas: MAX_ATTACHED_GAS / 2,
-                deposit: 0,
+                gas: MAX_ATTACHED_GAS.checked_div(2).unwrap(),
+                deposit: Balance::ZERO,
             })),
         ],
         CryptoHash::default(),
@@ -2998,7 +3158,7 @@ fn test_transaction_ordering_with_apply() {
         alice_account(),
         alice_account(),
         &alice_invalid_signer,
-        100,
+        Balance::from_yoctonear(100),
         CryptoHash::default(),
     );
     let alice_tx1 = SignedTransaction::send_money(
@@ -3006,7 +3166,7 @@ fn test_transaction_ordering_with_apply() {
         alice_account(),
         alice_account(),
         &alice_signer,
-        200,
+        Balance::from_yoctonear(200),
         CryptoHash::default(),
     );
     let alice_tx2 = SignedTransaction::send_money(
@@ -3014,7 +3174,7 @@ fn test_transaction_ordering_with_apply() {
         alice_account(),
         bob_account(),
         &alice_signer,
-        300,
+        Balance::from_yoctonear(300),
         CryptoHash::default(),
     );
     let bob_tx1 = SignedTransaction::send_money(
@@ -3022,7 +3182,7 @@ fn test_transaction_ordering_with_apply() {
         bob_account(),
         bob_account(),
         &bob_signer,
-        400,
+        Balance::from_yoctonear(400),
         CryptoHash::default(),
     );
     let bob_tx2 = SignedTransaction::send_money(
@@ -3030,7 +3190,7 @@ fn test_transaction_ordering_with_apply() {
         bob_account(),
         alice_account(),
         &bob_signer,
-        500,
+        Balance::from_yoctonear(500),
         CryptoHash::default(),
     );
     let bob_tx3 = SignedTransaction::send_money(
@@ -3038,13 +3198,13 @@ fn test_transaction_ordering_with_apply() {
         bob_account(),
         bob_account(),
         &bob_signer,
-        600,
+        Balance::from_yoctonear(600),
         CryptoHash::default(),
     );
 
     let txs = vec![
         bob_tx1.clone(),
-        alice_invalid_tx,
+        alice_invalid_tx.clone(),
         alice_tx1.clone(),
         bob_tx2.clone(),
         alice_tx2.clone(),
@@ -3053,9 +3213,9 @@ fn test_transaction_ordering_with_apply() {
 
     let (runtime, tries, root, apply_state, _signers, epoch_info_provider) = setup_runtime(
         vec![alice_account(), bob_account()],
-        to_yocto(1_000_000),
-        to_yocto(500_000),
-        10u64.pow(15),
+        Balance::from_near(1_000_000),
+        Balance::from_near(500_000),
+        Gas::from_teragas(1000),
     );
 
     let validity_flags = vec![true; txs.len()];
@@ -3072,22 +3232,35 @@ fn test_transaction_ordering_with_apply() {
         )
         .expect("apply should succeed");
 
-    let expected_order = vec![
-        bob_tx1.get_hash(),
-        alice_tx1.get_hash(),
-        bob_tx2.get_hash(),
-        alice_tx2.get_hash(),
-        bob_tx3.get_hash(),
-    ];
+    let expected_order = if ProtocolFeature::InvalidTxGenerateOutcomes.enabled(PROTOCOL_VERSION) {
+        vec![
+            bob_tx1.get_hash(),
+            alice_invalid_tx.get_hash(),
+            alice_tx1.get_hash(),
+            bob_tx2.get_hash(),
+            alice_tx2.get_hash(),
+            bob_tx3.get_hash(),
+        ]
+    } else {
+        vec![
+            bob_tx1.get_hash(),
+            alice_tx1.get_hash(),
+            bob_tx2.get_hash(),
+            alice_tx2.get_hash(),
+            bob_tx3.get_hash(),
+        ]
+    };
 
+    let num_outcomes = expected_order.len();
     // Note: The 3 local receipts are generated for valid transactions
     // where signer_id == receiver_id - tx2, tx4, tx6 (not for tx1 as it is dropped).
     assert_eq!(
         apply_result.outcomes.len(),
-        8,
-        "should have processed 5 transactions and 3 local receipts"
+        num_outcomes + 3,
+        "should have processed {num_outcomes} transactions and 3 local receipts"
     );
-    let tx_outcomes = apply_result.outcomes.iter().take(5).map(|o| o.id).collect::<Vec<_>>();
+    let tx_outcomes =
+        apply_result.outcomes.iter().take(num_outcomes).map(|o| o.id).collect::<Vec<_>>();
     assert_eq!(tx_outcomes, expected_order, "outcomes are not in expected sorted order");
 }
 
@@ -3107,7 +3280,7 @@ fn test_transaction_multiple_access_keys_with_apply() {
             alice_account(),
             bob_account(),
             key,
-            to_yocto(1000),
+            Balance::from_near(1000),
             CryptoHash::default(),
         )
     };
@@ -3132,9 +3305,9 @@ fn test_transaction_multiple_access_keys_with_apply() {
     let (runtime, tries, root, mut apply_state, _signers, epoch_info_provider) =
         setup_runtime_with_keys(
             accounts_with_keys,
-            to_yocto(1_000_000),
-            to_yocto(500_000),
-            10u64.pow(15),
+            Balance::from_near(1_000_000),
+            Balance::from_near(500_000),
+            Gas::from_teragas(1000),
         );
 
     let validity_flags = vec![true; txs.len()];
@@ -3162,8 +3335,8 @@ fn test_transaction_multiple_access_keys_with_apply() {
     let state = tries.new_trie_update(shard_uid, root);
     let account = get_account(&state, &alice_account()).unwrap().unwrap();
 
-    assert!(account.amount() < to_yocto(994_000));
-    assert!(account.amount() > to_yocto(993_000));
+    assert!(account.amount() < Balance::from_near(994_000));
+    assert!(account.amount() > Balance::from_near(993_000));
 }
 
 #[test]
@@ -3174,16 +3347,17 @@ fn test_expired_transaction() {
         alice_account(),
         alice_account(),
         &alice_signer,
-        1,
+        Balance::from_yoctonear(1),
         CryptoHash::default(),
     )];
     let (runtime, tries, root, apply_state, _signers, epoch_info_provider) = setup_runtime(
         vec![alice_account(), bob_account()],
-        to_yocto(1_000_000),
-        to_yocto(500_000),
-        10u64.pow(15),
+        Balance::from_near(1_000_000),
+        Balance::from_near(500_000),
+        Gas::from_teragas(1000),
     );
-    let signed_valid_period_txs = SignedValidPeriodTransactions::new(expired_tx, vec![false]);
+    let signed_valid_period_txs =
+        SignedValidPeriodTransactions::new(expired_tx.clone(), vec![false]);
     let apply_result = runtime
         .apply(
             tries.get_trie_for_shard(ShardUId::single_shard(), root),
@@ -3195,9 +3369,24 @@ fn test_expired_transaction() {
             Default::default(),
         )
         .expect("apply should succeed");
-    assert_eq!(
-        apply_result.outcomes.len(),
-        0,
-        "should have not produced any outcomes for the expired tx"
-    );
+
+    if ProtocolFeature::InvalidTxGenerateOutcomes.enabled(PROTOCOL_VERSION) {
+        assert_eq!(
+            apply_result.outcomes.len(),
+            1,
+            "should have produced one outcome for the expired tx"
+        );
+        let outcome = &apply_result.outcomes[0];
+        assert_eq!(outcome.id, expired_tx[0].get_hash());
+        assert_matches!(
+            &outcome.outcome.status,
+            ExecutionStatus::Failure(TxExecutionError::InvalidTxError(InvalidTxError::Expired))
+        );
+    } else {
+        assert_eq!(
+            apply_result.outcomes.len(),
+            0,
+            "should have not produced any outcomes for the expired tx"
+        );
+    }
 }

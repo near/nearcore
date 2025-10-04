@@ -80,6 +80,8 @@ pub enum EntityQuery {
     OutcomeByReceiptIdAndBlockHash { receipt_id: CryptoHash, block_hash: CryptoHash },
     OutcomeByTransactionHash { transaction_hash: CryptoHash },
     OutcomeByTransactionHashAndBlockHash { transaction_hash: CryptoHash, block_hash: CryptoHash },
+    OutcomeIdsByBlockHash { block_hash: CryptoHash },
+    OutcomeIdsByBlockHashAndShardId { block_hash: CryptoHash, shard_id: ShardId },
     RawTrieNodeByHash { trie_node_hash: CryptoHash, shard_uid: ShardUId },
     RawTrieRootByChunkHash { chunk_hash: CryptoHash },
     RawTrieValueByHash { trie_value_hash: CryptoHash, shard_uid: ShardUId },

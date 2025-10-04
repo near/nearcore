@@ -12,7 +12,7 @@ use near_primitives::test_utils::encode;
 use near_primitives::transaction::{
     Action, ExecutionMetadata, FunctionCallAction, SignedTransaction,
 };
-use near_primitives::types::{BlockHeightDelta, Gas};
+use near_primitives::types::{Balance, BlockHeightDelta, Gas};
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolVersion};
 use near_primitives::views::FinalExecutionStatus;
 use near_store::trie::TrieNodesCount;
@@ -40,14 +40,14 @@ fn process_transaction(
             Action::FunctionCall(Box::new(FunctionCallAction {
                 args: encode(&[0u64, 10u64]),
                 method_name: "write_key_value".to_string(),
-                gas,
-                deposit: 0,
+                gas: Gas::from_gas(gas),
+                deposit: Balance::ZERO,
             })),
             Action::FunctionCall(Box::new(FunctionCallAction {
                 args: encode(&[1u64, 20u64]),
                 method_name: "write_key_value".to_string(),
-                gas,
-                deposit: 0,
+                gas: Gas::from_gas(gas),
+                deposit: Balance::ZERO,
             })),
         ],
         last_block_hash,
@@ -131,13 +131,13 @@ fn compare_node_counts() {
                 ExecutionMetadata::V3(profile_data) => TrieNodesCount {
                     db_reads: {
                         let cost = profile_data.get_ext_cost(ExtCosts::touching_trie_node);
-                        assert_eq!(cost % touching_trie_node_cost, 0);
-                        cost / touching_trie_node_cost
+                        assert_eq!(cost.as_gas() % touching_trie_node_cost.as_gas(), 0);
+                        cost.checked_div(touching_trie_node_cost.as_gas()).unwrap().as_gas()
                     },
                     mem_reads: {
                         let cost = profile_data.get_ext_cost(ExtCosts::read_cached_trie_node);
-                        assert_eq!(cost % read_cached_trie_node_cost, 0);
-                        cost / read_cached_trie_node_cost
+                        assert_eq!(cost.as_gas() % read_cached_trie_node_cost.as_gas(), 0);
+                        cost.checked_div(read_cached_trie_node_cost.as_gas()).unwrap().as_gas()
                     },
                 },
             }

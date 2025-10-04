@@ -10,9 +10,9 @@ impl RunMigrationsCommand {
         home_dir: &Path,
         genesis_validation: GenesisValidationMode,
     ) -> anyhow::Result<()> {
-        let mut near_config = nearcore::config::load_config(&home_dir, genesis_validation)
+        let near_config = nearcore::config::load_config(&home_dir, genesis_validation)
             .unwrap_or_else(|e| panic!("Error loading config: {:#}", e));
-        nearcore::open_storage(home_dir, &mut near_config)?;
+        nearcore::open_storage(home_dir, &near_config)?;
         Ok(())
     }
 }

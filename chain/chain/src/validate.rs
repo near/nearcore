@@ -174,8 +174,9 @@ pub fn validate_chunk_with_chunk_extra_and_receipts_root(
     }
 
     let gas_limit = prev_chunk_extra.gas_limit();
-    if chunk_header.gas_limit() < gas_limit - gas_limit / GAS_LIMIT_ADJUSTMENT_FACTOR
-        || chunk_header.gas_limit() > gas_limit + gas_limit / GAS_LIMIT_ADJUSTMENT_FACTOR
+    let adjustment = gas_limit.checked_div(GAS_LIMIT_ADJUSTMENT_FACTOR).unwrap();
+    if chunk_header.gas_limit() < gas_limit.checked_sub(adjustment).unwrap()
+        || chunk_header.gas_limit() > gas_limit.checked_add(adjustment).unwrap()
     {
         return Err(Error::InvalidGasLimit);
     }
@@ -285,20 +286,20 @@ mod tests {
             signer.get_account_id(),
             receiver.clone(),
             &signer,
-            vec![Action::Transfer(TransferAction { deposit: 1 })],
+            vec![Action::Transfer(TransferAction { deposit: Balance::from_yoctonear(1) })],
             CryptoHash::default(),
             0,
         );
         let ar = ActionReceipt {
             signer_id: signer.get_account_id(),
             signer_public_key: signer.public_key(),
-            gas_price: 0 as Balance,
+            gas_price: Balance::ZERO,
             output_data_receivers: vec![DataReceiver {
                 data_id: CryptoHash::default(),
                 receiver_id: signer.get_account_id(),
             }],
             input_data_ids: vec![CryptoHash::default()],
-            actions: vec![Action::Transfer(TransferAction { deposit: 1 })],
+            actions: vec![Action::Transfer(TransferAction { deposit: Balance::from_yoctonear(1) })],
         };
         let receipt = Receipt::V1(ReceiptV1 {
             predecessor_id: signer.get_account_id(),

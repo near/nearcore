@@ -13,8 +13,8 @@ code without any prior knowledge.
 
 # 2. Code structure
 
-`near-network` runs on top of the `actor` framework called
-[`Actix`](https://actix.rs/docs/). Code structure is split between 4 actors
+`near-network` runs on top of an `actor` framework provided by near-async.
+Code structure is split between 4 actors
 `PeerManagerActor`, `PeerActor`, `RoutingTableActor`, `EdgeValidatorActor`
 
 ### 2.1 `EdgeValidatorActor` (currently called `EdgeVerifierActor` in the code<!-- TODO: rename -->)
@@ -452,16 +452,15 @@ This section describes different protocols of sending messages currently used in
 
 ## 10.1 Messages between Actors
 
-`Near` is built on `Actix`'s `actor`
-[framework](https://actix.rs/docs/actix/actor). Usually each actor
+`Near` is built on an `actor`framework provided by near-async. Usually each actor
 runs on its own dedicated thread. Some, like `PeerActor` have one thread per
-each instance. Only messages implementing `actix::Message`, can be sent
+each instance. Only messages implementing `Message`, can be sent
 using between threads. Each actor has its own queue; Processing of messages
 happens asynchronously.
 
 We should not leak implementation details into the spec.
 
-Actix messages can be found by looking for `impl actix::Message`.
+Actor messages can be found by looking for `#[derive(Message)]`.
 
 ## 10.2 Messages sent through TCP
 
@@ -473,7 +472,7 @@ database storage.
 
 ## 10.3 Messages sent/received through `chain/jsonrpc`
 
-Near runs a `json REST server`. (See `actix_web::HttpServer`). All messages sent
+Near runs a `json REST server` using the axum framework. All messages sent
 and received must implement `serde::Serialize` and `serde::Deserialize`.
 
 # 11. Code flow - routing a message

@@ -15,109 +15,109 @@ fn test_dont_burn_gas_when_exceeding_attached_gas_limit() {
     let gas_limit = 10u64.pow(14);
 
     let mut logic_builder = VMLogicBuilder::default();
-    logic_builder.config.limit_config.max_gas_burnt = gas_limit * 2;
-    logic_builder.context.prepaid_gas = gas_limit;
+    logic_builder.config.limit_config.max_gas_burnt = Gas::from_gas(gas_limit * 2);
+    logic_builder.context.prepaid_gas = Gas::from_gas(gas_limit);
     let mut logic = logic_builder.build();
 
     let index = promise_create(&mut logic, b"rick.test", 0, 0).expect("should create a promise");
-    promise_batch_action_function_call(&mut logic, index, 0, gas_limit * 2)
+    promise_batch_action_function_call(&mut logic, index, 0, Gas::from_gas(gas_limit * 2))
         .expect_err("should fail with gas limit");
     let outcome = logic.compute_outcome();
 
     // Just avoid hard-coding super-precise amount of gas burnt.
-    assert!(outcome.burnt_gas < gas_limit / 2);
-    assert_eq!(outcome.used_gas, gas_limit);
+    assert!(outcome.burnt_gas < Gas::from_gas(gas_limit / 2));
+    assert_eq!(outcome.used_gas, Gas::from_gas(gas_limit));
 }
 
 #[test]
 fn test_limit_wasm_gas_after_attaching_gas() {
     let gas_limit = 10u64.pow(14);
-    let op_limit = op_limit(gas_limit);
+    let op_limit = op_limit(Gas::from_gas(gas_limit));
 
     let mut logic_builder = VMLogicBuilder::default();
-    logic_builder.config.limit_config.max_gas_burnt = gas_limit * 2;
-    logic_builder.context.prepaid_gas = gas_limit;
+    logic_builder.config.limit_config.max_gas_burnt = Gas::from_gas(gas_limit * 2);
+    logic_builder.context.prepaid_gas = Gas::from_gas(gas_limit);
     let mut logic = logic_builder.build();
 
     let index = promise_create(&mut logic, b"rick.test", 0, 0).expect("should create a promise");
-    promise_batch_action_function_call(&mut logic, index, 0, gas_limit / 2)
+    promise_batch_action_function_call(&mut logic, index, 0, Gas::from_gas(gas_limit / 2))
         .expect("should add action to receipt");
     logic.gas_opcodes((op_limit / 2) as u32).expect_err("should fail with gas limit");
     let outcome = logic.compute_outcome();
 
-    assert_eq!(outcome.used_gas, gas_limit);
-    assert!(gas_limit / 2 < outcome.burnt_gas);
-    assert!(outcome.burnt_gas < gas_limit);
+    assert_eq!(outcome.used_gas, Gas::from_gas(gas_limit));
+    assert!(Gas::from_gas(gas_limit / 2) < outcome.burnt_gas);
+    assert!(outcome.burnt_gas < Gas::from_gas(gas_limit));
 }
 
 #[test]
 fn test_cant_burn_more_than_max_gas_burnt_gas() {
     let gas_limit = 10u64.pow(14);
-    let op_limit = op_limit(gas_limit);
+    let op_limit = op_limit(Gas::from_gas(gas_limit));
 
     let mut logic_builder = VMLogicBuilder::default();
-    logic_builder.config.limit_config.max_gas_burnt = gas_limit;
-    logic_builder.context.prepaid_gas = gas_limit * 2;
+    logic_builder.config.limit_config.max_gas_burnt = Gas::from_gas(gas_limit);
+    logic_builder.context.prepaid_gas = Gas::from_gas(gas_limit * 2);
     let mut logic = logic_builder.build();
 
     logic.gas_opcodes(op_limit * 3).expect_err("should fail with gas limit");
     let outcome = logic.compute_outcome();
 
-    assert_eq!(outcome.burnt_gas, gas_limit);
-    assert_eq!(outcome.used_gas, gas_limit * 2);
+    assert_eq!(outcome.burnt_gas, Gas::from_gas(gas_limit));
+    assert_eq!(outcome.used_gas, Gas::from_gas(gas_limit * 2));
 }
 
 #[test]
 fn test_cant_burn_more_than_prepaid_gas() {
     let gas_limit = 10u64.pow(14);
-    let op_limit = op_limit(gas_limit);
+    let op_limit = op_limit(Gas::from_gas(gas_limit));
 
     let mut logic_builder = VMLogicBuilder::default();
-    logic_builder.config.limit_config.max_gas_burnt = gas_limit * 2;
-    logic_builder.context.prepaid_gas = gas_limit;
+    logic_builder.config.limit_config.max_gas_burnt = Gas::from_gas(gas_limit * 2);
+    logic_builder.context.prepaid_gas = Gas::from_gas(gas_limit);
     let mut logic = logic_builder.build();
 
     logic.gas_opcodes(op_limit * 3).expect_err("should fail with gas limit");
     let outcome = logic.compute_outcome();
 
-    assert_eq!(outcome.burnt_gas, gas_limit);
-    assert_eq!(outcome.used_gas, gas_limit);
+    assert_eq!(outcome.burnt_gas, Gas::from_gas(gas_limit));
+    assert_eq!(outcome.used_gas, Gas::from_gas(gas_limit));
 }
 
 #[test]
 fn test_hit_max_gas_burnt_limit() {
     let gas_limit = 10u64.pow(14);
-    let op_limit = op_limit(gas_limit);
+    let op_limit = op_limit(Gas::from_gas(gas_limit));
 
     let mut logic_builder = VMLogicBuilder::default();
-    logic_builder.config.limit_config.max_gas_burnt = gas_limit;
-    logic_builder.context.prepaid_gas = gas_limit * 3;
+    logic_builder.config.limit_config.max_gas_burnt = Gas::from_gas(gas_limit);
+    logic_builder.context.prepaid_gas = Gas::from_gas(gas_limit * 3);
     let mut logic = logic_builder.build();
 
-    promise_create(&mut logic, b"rick.test", 0, gas_limit / 2).expect("should create a promise");
+    promise_create(&mut logic, b"brick.test", 0, gas_limit / 2).expect("should create a promise");
     logic.gas_opcodes(op_limit * 2).expect_err("should fail with gas limit");
     let outcome = logic.compute_outcome();
 
-    assert_eq!(outcome.burnt_gas, gas_limit);
-    assert!(outcome.used_gas > gas_limit * 2);
+    assert_eq!(outcome.burnt_gas, Gas::from_gas(gas_limit));
+    assert!(outcome.used_gas > Gas::from_gas(gas_limit * 2));
 }
 
 #[test]
 fn test_hit_prepaid_gas_limit() {
     let gas_limit = 10u64.pow(14);
-    let op_limit = op_limit(gas_limit);
+    let op_limit = op_limit(Gas::from_gas(gas_limit));
 
     let mut logic_builder = VMLogicBuilder::default();
-    logic_builder.config.limit_config.max_gas_burnt = gas_limit * 3;
-    logic_builder.context.prepaid_gas = gas_limit;
+    logic_builder.config.limit_config.max_gas_burnt = Gas::from_gas(gas_limit * 3);
+    logic_builder.context.prepaid_gas = Gas::from_gas(gas_limit);
     let mut logic = logic_builder.build();
 
-    promise_create(&mut logic, b"rick.test", 0, gas_limit / 2).expect("should create a promise");
+    promise_create(&mut logic, b"brick.test", 0, gas_limit / 2).expect("should create a promise");
     logic.gas_opcodes(op_limit * 2).expect_err("should fail with gas limit");
     let outcome = logic.compute_outcome();
 
-    assert_eq!(outcome.burnt_gas, gas_limit);
-    assert_eq!(outcome.used_gas, gas_limit);
+    assert_eq!(outcome.burnt_gas, Gas::from_gas(gas_limit));
+    assert_eq!(outcome.used_gas, Gas::from_gas(gas_limit));
 }
 
 #[test]
@@ -125,26 +125,26 @@ fn function_call_no_weight_refund() {
     let gas_limit = 10u64.pow(14);
 
     let mut logic_builder = VMLogicBuilder::default();
-    logic_builder.config.limit_config.max_gas_burnt = gas_limit;
-    logic_builder.context.prepaid_gas = gas_limit;
+    logic_builder.config.limit_config.max_gas_burnt = Gas::from_gas(gas_limit);
+    logic_builder.context.prepaid_gas = Gas::from_gas(gas_limit);
     let mut logic = logic_builder.build();
 
     let index = promise_batch_create(&mut logic, "rick.test").expect("should create a promise");
-    promise_batch_action_function_call_weight(&mut logic, index, 0, 1000, 0)
+    promise_batch_action_function_call_weight(&mut logic, index, 0, Gas::from_gas(1000), 0)
         .expect("batch action function call should succeed");
 
     let outcome = logic.compute_outcome();
 
     // Verify that unused gas was not allocated to function call
-    assert!(outcome.used_gas < gas_limit);
+    assert!(outcome.used_gas < Gas::from_gas(gas_limit));
 }
 
 #[test]
 fn test_overflowing_burn_gas_with_promises_gas() {
     let gas_limit = 3 * 10u64.pow(14);
     let mut logic_builder = VMLogicBuilder::default();
-    logic_builder.config.limit_config.max_gas_burnt = gas_limit;
-    logic_builder.context.prepaid_gas = gas_limit;
+    logic_builder.config.limit_config.max_gas_burnt = Gas::from_gas(gas_limit);
+    logic_builder.context.prepaid_gas = Gas::from_gas(gas_limit);
     let mut logic = logic_builder.build();
 
     let account_id = logic.internal_mem_write(b"rick.test");
@@ -156,9 +156,9 @@ fn test_overflowing_burn_gas_with_promises_gas() {
     logic.promise_batch_action_transfer(index, num_100u128.ptr).unwrap();
     let call_id = logic.promise_batch_then(index, account_id.len, account_id.ptr).unwrap();
 
-    let needed_gas_charge = u64::max_value() - logic.gas_counter().used_gas() - 1;
+    let needed_gas_charge = u64::max_value() - logic.gas_counter().used_gas().as_gas() - 1;
     let function_name_len =
-        needed_gas_charge / logic.config().ext_costs.gas_cost(ExtCosts::read_memory_byte);
+        needed_gas_charge / logic.config().ext_costs.gas_cost(ExtCosts::read_memory_byte).as_gas();
     let result = logic.promise_batch_action_function_call(
         call_id,
         function_name_len,
@@ -172,15 +172,15 @@ fn test_overflowing_burn_gas_with_promises_gas() {
         result,
         Err(crate::logic::VMLogicError::HostError(crate::logic::HostError::GasLimitExceeded))
     ));
-    assert_eq!(logic.gas_counter().used_gas(), gas_limit);
+    assert_eq!(logic.gas_counter().used_gas(), Gas::from_gas(gas_limit));
 }
 
 #[test]
 fn test_overflowing_burn_gas_with_promises_gas_2() {
     let gas_limit = 3 * 10u64.pow(14);
     let mut logic_builder = VMLogicBuilder::default();
-    logic_builder.config.limit_config.max_gas_burnt = gas_limit;
-    logic_builder.context.prepaid_gas = gas_limit / 2;
+    logic_builder.config.limit_config.max_gas_burnt = Gas::from_gas(gas_limit);
+    logic_builder.context.prepaid_gas = Gas::from_gas(gas_limit / 2);
     let mut logic = logic_builder.build();
 
     let account_id = logic.internal_mem_write(b"rick.test");
@@ -196,9 +196,9 @@ fn test_overflowing_burn_gas_with_promises_gas_2() {
     let index = promise_batch_create(&mut logic, "rick.test").expect("should create a promise");
     logic.promise_batch_action_transfer(index, num_100u128.ptr).unwrap();
     let call_id = logic.promise_batch_then(index, account_id.len, account_id.ptr).unwrap();
-    let needed_gas_charge = u64::max_value() - logic.gas_counter().used_gas() - 1;
+    let needed_gas_charge = u64::max_value() - logic.gas_counter().used_gas().as_gas() - 1;
     let function_name_len =
-        needed_gas_charge / logic.config().ext_costs.gas_cost(ExtCosts::read_memory_byte);
+        needed_gas_charge / logic.config().ext_costs.gas_cost(ExtCosts::read_memory_byte).as_gas();
     let result = logic.promise_batch_action_function_call(
         call_id,
         function_name_len,
@@ -240,15 +240,15 @@ fn check_action_gas_exceeds_limit(
     // Create a logic parametrized such that it will fail with out-of-gas when specified action is deducted.
     let gas_limit = 10u64.pow(13);
     let gas_attached = gas_limit;
-    let fee = Fee {
-        send_sir: gas_limit / num_action_paid + 1,
-        send_not_sir: gas_limit / num_action_paid + 10,
-        execution: 1, // exec part is `used`, make it small
-    };
+    let fee = Fee::new(
+        gas_limit / num_action_paid + 1,
+        gas_limit / num_action_paid + 10,
+        1, // exec part is `used`, make it small
+    );
     let mut logic_builder = VMLogicBuilder::default();
-    logic_builder.config.limit_config.max_gas_burnt = gas_limit;
+    logic_builder.config.limit_config.max_gas_burnt = Gas::from_gas(gas_limit);
     logic_builder.fees_config.action_fees[cost] = fee;
-    logic_builder.context.prepaid_gas = gas_attached;
+    logic_builder.context.prepaid_gas = Gas::from_gas(gas_attached);
     logic_builder.context.output_data_receivers = vec!["alice.test".parse().unwrap()];
     let mut logic = logic_builder.build();
 
@@ -258,12 +258,12 @@ fn check_action_gas_exceeds_limit(
 
     // When gas limit is exceeded, we always set burnt_gas := prepaid and then promise_gas := 0.
     assert_eq!(
-        gas_attached,
+        Gas::from_gas(gas_attached),
         logic.gas_counter().burnt_gas(),
         "burnt gas should be all attached gas",
     );
     assert_eq!(
-        gas_attached,
+        Gas::from_gas(gas_attached),
         logic.gas_counter().used_gas(),
         "used gas should be no more than burnt gas",
     );
@@ -292,15 +292,15 @@ fn check_action_gas_exceeds_attached(
     // Create a logic parametrized such that it will fail with out-of-gas when specified action is deducted.
     let gas_limit = 10u64.pow(14);
     let gas_attached = 10u64.pow(13);
-    let fee = Fee {
-        send_sir: 1,      // make burnt gas small
-        send_not_sir: 10, // make it easy to distinguish `sir` / `not_sir`
-        execution: gas_attached / num_action_paid + 1,
-    };
+    let fee = Fee::new(
+        1,  // make burnt gas small
+        10, // make it easy to distinguish `sir` / `not_sir`
+        gas_attached / num_action_paid + 1,
+    );
     let mut logic_builder = VMLogicBuilder::default();
-    logic_builder.config.limit_config.max_gas_burnt = gas_limit;
+    logic_builder.config.limit_config.max_gas_burnt = Gas::from_gas(gas_limit);
     logic_builder.fees_config.action_fees[cost] = fee;
-    logic_builder.context.prepaid_gas = gas_attached;
+    logic_builder.context.prepaid_gas = Gas::from_gas(gas_attached);
     logic_builder.context.output_data_receivers = vec!["alice.test".parse().unwrap()];
     let mut logic = logic_builder.build();
 
@@ -310,8 +310,8 @@ fn check_action_gas_exceeds_attached(
 
     let actual = format!(
         "{} burnt {} used",
-        logic.gas_counter().burnt_gas(),
-        logic.gas_counter().used_gas()
+        logic.gas_counter().burnt_gas().as_gas(),
+        logic.gas_counter().used_gas().as_gas()
     );
     expected.assert_eq(&actual);
 }
@@ -654,7 +654,14 @@ fn cross_contract_call(logic: &mut TestVMLogic) -> Result<(), VMLogicError> {
     let name = b"fn_with_len_14";
     let attached_balance = 1u128;
     let gas = 1; // attaching very little gas so it doesn't cause gas exceeded on its own
-    promise_batch_action_function_call_ext(logic, idx, name, arg, attached_balance, gas)?;
+    promise_batch_action_function_call_ext(
+        logic,
+        idx,
+        name,
+        arg,
+        attached_balance,
+        Gas::from_gas(gas),
+    )?;
     Ok(())
 }
 
@@ -820,6 +827,121 @@ fn out_of_gas_delete_key() {
     }
 }
 
+/// see longer comment above for how this test works
+#[test]
+fn out_of_gas_deterministic_state_init() {
+    check_action_gas_exceeds_limit(
+        ActionCosts::deterministic_state_init_base,
+        1,
+        deterministic_state_init,
+    );
+
+    check_action_gas_exceeds_limit(
+        ActionCosts::deterministic_state_init_base,
+        1,
+        deterministic_state_init_by_account_id,
+    );
+
+    check_action_gas_exceeds_limit(
+        ActionCosts::deterministic_state_init_entry,
+        1,
+        deterministic_state_init_bytes,
+    );
+
+    check_action_gas_exceeds_limit(
+        ActionCosts::deterministic_state_init_byte,
+        1,
+        deterministic_state_init_bytes,
+    );
+
+    check_action_gas_exceeds_attached(
+        ActionCosts::deterministic_state_init_base,
+        1,
+        expect!["122371305185 burnt 10000000000000 used"],
+        deterministic_state_init,
+    );
+
+    check_action_gas_exceeds_attached(
+        ActionCosts::deterministic_state_init_entry,
+        1,
+        expect!["3977886210360 burnt 10000000000000 used"],
+        deterministic_state_init_bytes,
+    );
+
+    check_action_gas_exceeds_attached(
+        ActionCosts::deterministic_state_init_byte,
+        8,
+        expect!["3977886210430 burnt 10000000000000 used"],
+        deterministic_state_init_bytes,
+    );
+}
+
+/// function to trigger promise batch deterministic state init
+fn deterministic_state_init(logic: &mut TestVMLogic) -> Result<(), VMLogicError> {
+    let account_id = "rick.test";
+    let idx = promise_batch_create(logic, account_id)?;
+
+    let code_hash = logic.internal_mem_write(CryptoHash::hash_bytes(b"some code").as_bytes());
+    let serialized_amount = logic.internal_mem_write(&110u128.to_le_bytes());
+
+    logic.promise_batch_action_state_init(
+        idx,
+        code_hash.len,
+        code_hash.ptr,
+        serialized_amount.ptr,
+    )?;
+    Ok(())
+}
+
+/// function to trigger promise batch deterministic state init by account id
+///
+/// charges 1 entry and 8 bytes
+fn deterministic_state_init_by_account_id(logic: &mut TestVMLogic) -> Result<(), VMLogicError> {
+    let account_id = "rick.test";
+    let idx = promise_batch_create(logic, account_id)?;
+
+    let account_id = logic.internal_mem_write(b"global.near");
+    let serialized_amount = logic.internal_mem_write(&110u128.to_le_bytes());
+
+    logic.promise_batch_action_state_init_by_account_id(
+        idx,
+        account_id.len,
+        account_id.ptr,
+        serialized_amount.ptr,
+    )?;
+    Ok(())
+}
+
+/// function to trigger promise batch deterministic state init with data
+///
+/// charges 1 entry and 8 bytes
+fn deterministic_state_init_bytes(logic: &mut TestVMLogic) -> Result<(), VMLogicError> {
+    let account_id = "rick.test";
+    let idx = promise_batch_create(logic, account_id)?;
+
+    let code_hash = logic.internal_mem_write(CryptoHash::hash_bytes(b"some code").as_bytes());
+    let serialized_amount = logic.internal_mem_write(&110u128.to_le_bytes());
+
+    let action_index = logic.promise_batch_action_state_init(
+        idx,
+        code_hash.len,
+        code_hash.ptr,
+        serialized_amount.ptr,
+    )?;
+
+    let serialized_key = logic.internal_mem_write(b"key");
+    let serialized_value = logic.internal_mem_write(b"value");
+
+    logic.set_state_init_data_entry(
+        idx,
+        action_index,
+        serialized_key.len,
+        serialized_key.ptr,
+        serialized_value.len,
+        serialized_value.ptr,
+    )
+}
+
 /// function to trigger action + data receipt action costs
 fn create_promise_dependency(logic: &mut TestVMLogic) -> Result<(), VMLogicError> {
     let account_id = "rick.test";
@@ -832,7 +954,7 @@ fn create_promise_dependency(logic: &mut TestVMLogic) -> Result<(), VMLogicError
 /// Given the limit in gas, compute the corresponding limit in wasm ops for use
 /// with [`VMLogic::gas`] function.
 fn op_limit(gas_limit: Gas) -> u32 {
-    (gas_limit / (test_vm_config(None).regular_op_cost as u64)) as u32
+    (gas_limit.as_gas() / (test_vm_config(None).regular_op_cost as u64)) as u32
 }
 
 fn test_pk() -> Vec<u8> {
@@ -862,15 +984,15 @@ fn test_memory_copy_aggregate_accounting() {
               )
             )"#,
         )
-        .gas(10u64.pow(10))
+        .gas(Gas::from_gigagas(10))
         .skip_near_vm()
-        .protocol_features(&[ProtocolFeature::RefTypesBulkMemory])
+        .protocol_features(&[ProtocolFeature::Wasmtime])
         .expects(&[expect![[r#"
             VMOutcome: balance 4 storage_usage 12 return data None burnt gas 0 used gas 0
             Err: PrepareError: Error happened while deserializing the module.
         "#]],
         expect![[r#"
-            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 121441980 used gas 121441980
+            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 146947416 used gas 146947416
         "#]]]);
 
     test_builder()
@@ -883,16 +1005,16 @@ fn test_memory_copy_aggregate_accounting() {
               )
             )"#,
         )
-        .gas(10u64.pow(10))
+        .gas(Gas::from_gigagas(10))
         .skip_near_vm()
-        .protocol_features(&[ProtocolFeature::RefTypesBulkMemory])
+        .protocol_features(&[ProtocolFeature::Wasmtime])
         .expects(&[expect![[r#"
             VMOutcome: balance 4 storage_usage 12 return data None burnt gas 0 used gas 0
             Err: PrepareError: Error happened while deserializing the module.
         "#]],
         // Gas use here should be roughly double that of the test above!
         expect![[r#"
-            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 142010880 used gas 142010880
+            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 167516316 used gas 167516316
         "#]]]);
 }
 
@@ -920,13 +1042,13 @@ fn test_memory_copy_full_memory() {
         )
         .gas(Gas::MAX)
         .skip_near_vm()
-        .protocol_features(&[ProtocolFeature::RefTypesBulkMemory])
+        .protocol_features(&[ProtocolFeature::Wasmtime])
         .expects(&[expect![[r#"
             VMOutcome: balance 4 storage_usage 12 return data None burnt gas 0 used gas 0
             Err: PrepareError: Error happened while deserializing the module.
         "#]],
         expect![[r#"
-            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 276071358793941 used gas 276071358793941
+            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 276071613848301 used gas 276071613848301
         "#]]]);
 }
 
@@ -954,9 +1076,9 @@ fn test_memory_copy_full_memory_out_of_gas() {
               )
             )"#,
         )
-        .gas(300_000_000_000_000)
+        .gas(Gas::from_teragas(300))
         .skip_near_vm()
-        .protocol_features(&[ProtocolFeature::RefTypesBulkMemory])
+        .protocol_features(&[ProtocolFeature::Wasmtime])
         .expects(&[expect![[r#"
             VMOutcome: balance 4 storage_usage 12 return data None burnt gas 0 used gas 0
             Err: PrepareError: Error happened while deserializing the module.

@@ -36,8 +36,6 @@ pub enum VMKind {
     Wasmer2,
     /// NearVM.
     NearVm,
-    /// NearVM. Exists temporarily while bulk memory and reftypes are getting enabled.
-    NearVm2,
 }
 
 impl VMKind {
@@ -89,10 +87,8 @@ pub struct LimitConfig {
     pub max_number_logs: u64,
     /// Maximum total length in bytes of all log messages.
     pub max_total_log_length: u64,
-
     /// Max total prepaid gas for all function call actions per receipt.
     pub max_total_prepaid_gas: Gas,
-
     /// Max number of actions per receipt.
     pub max_actions_per_receipt: u64,
     /// Max total length of all method names (including terminating character) for a function call
@@ -188,6 +184,9 @@ pub struct Config {
     /// Whether to enable saturating reference types and bulk memory wasm extensions.
     pub reftypes_bulk_memory: bool,
 
+    /// Whether to host functions introduced with deterministic account ids.
+    pub deterministic_account_ids: bool,
+
     /// Describes limits for VM and Runtime.
     pub limit_config: LimitConfig,
 }
@@ -204,12 +203,12 @@ impl Config {
     pub fn make_free(&mut self) {
         self.ext_costs = ExtCostsConfig {
             costs: near_primitives_core::enum_map::enum_map! {
-                _ => ParameterCost { gas: 0, compute: 0 }
+                _ => ParameterCost { gas: Gas::ZERO, compute: 0 }
             },
         };
         self.grow_mem_cost = 0;
         self.regular_op_cost = 0;
-        self.limit_config.max_gas_burnt = u64::MAX;
+        self.limit_config.max_gas_burnt = Gas::MAX;
     }
 
     pub fn enable_all_features(&mut self) {

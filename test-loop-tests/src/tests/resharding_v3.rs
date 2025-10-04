@@ -9,7 +9,7 @@ use near_primitives::action::{GlobalContractDeployMode, GlobalContractIdentifier
 use near_primitives::epoch_manager::EpochConfigStore;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::{ShardLayout, shard_uids_to_ids};
-use near_primitives::types::{AccountId, BlockHeightDelta, ShardId, ShardIndex};
+use near_primitives::types::{AccountId, Balance, BlockHeightDelta, Gas, ShardId, ShardIndex};
 use near_primitives::version::PROTOCOL_VERSION;
 use std::cell::Cell;
 use std::collections::{BTreeMap, HashMap};
@@ -40,7 +40,6 @@ use crate::utils::transactions::{
     use_global_contract,
 };
 use crate::utils::trie_sanity::{TrieSanityCheck, check_state_shard_uid_mapping_after_resharding};
-use crate::utils::{ONE_NEAR, TGAS};
 use near_parameters::{RuntimeConfig, RuntimeConfigStore, vm};
 
 /// Default and minimal epoch length used in resharding tests.
@@ -107,7 +106,7 @@ struct TestReshardingParameters {
     archivals: Vec<AccountId>,
     #[builder(setter(skip))]
     new_boundary_account: AccountId,
-    initial_balance: u128,
+    initial_balance: Balance,
     epoch_length: BlockHeightDelta,
     chunk_ranges_to_drop: HashMap<ShardIndex, std::ops::Range<i64>>,
     shuffle_shard_assignment_for_chunk_producers: bool,
@@ -267,7 +266,7 @@ impl TestReshardingParametersBuilder {
             client_index,
             archivals,
             new_boundary_account,
-            initial_balance: self.initial_balance.unwrap_or(1_000_000 * ONE_NEAR),
+            initial_balance: self.initial_balance.unwrap_or(Balance::from_near(1_000_000)),
             epoch_length,
             chunk_ranges_to_drop: self.chunk_ranges_to_drop.unwrap_or_default(),
             shuffle_shard_assignment_for_chunk_producers: self
@@ -472,8 +471,8 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
     if params.limit_outgoing_gas || params.short_yield_timeout {
         let mut runtime_config = RuntimeConfig::test();
         if params.limit_outgoing_gas {
-            runtime_config.congestion_control_config.max_outgoing_gas = 100 * TGAS;
-            runtime_config.congestion_control_config.min_outgoing_gas = 100 * TGAS;
+            runtime_config.congestion_control_config.max_outgoing_gas = Gas::from_teragas(100);
+            runtime_config.congestion_control_config.min_outgoing_gas = Gas::from_teragas(100);
         }
         if params.short_yield_timeout {
             let mut wasm_config = vm::Config::clone(&runtime_config.wasm_config);
@@ -493,7 +492,7 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
         .genesis(genesis)
         .epoch_config_store(epoch_config_store)
         .clients(params.clients)
-        .archival_clients(params.archivals.iter().cloned().collect())
+        .split_store_archival_clients(params.archivals.iter().cloned().collect())
         .load_memtries_for_tracked_shards(params.load_memtries_for_tracked_shards)
         .gc_num_epochs_to_keep(GC_NUM_EPOCHS_TO_KEEP)
         .build()
@@ -530,7 +529,7 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
             &client_account_id,
             &new_boundary_account,
             &params.temporary_account_id,
-            10 * ONE_NEAR,
+            Balance::from_near(10),
             2,
         );
         test_setup_transactions.push(create_account_tx);
@@ -1163,7 +1162,7 @@ fn slow_test_resharding_v3_delayed_receipts_left_child() {
         .add_loop_action(call_burn_gas_contract(
             vec![account.clone()],
             vec![account.clone()],
-            275 * TGAS,
+            Gas::from_teragas(275),
             DEFAULT_EPOCH_LENGTH,
         ))
         .add_loop_action(check_receipts_presence_at_resharding_block(
@@ -1211,7 +1210,7 @@ fn test_resharding_v3_global_contract_base(
         .add_loop_action(call_burn_gas_contract(
             caller_accounts,
             vec![global_contract_user.clone()],
-            275 * TGAS,
+            Gas::from_teragas(275),
             INCREASED_EPOCH_LENGTH,
         ))
         .epoch_length(INCREASED_EPOCH_LENGTH)
@@ -1232,7 +1231,7 @@ fn slow_test_resharding_v3_delayed_receipts_right_child() {
         .add_loop_action(call_burn_gas_contract(
             vec![account.clone()],
             vec![account.clone()],
-            275 * TGAS,
+            Gas::from_teragas(275),
             INCREASED_EPOCH_LENGTH,
         ))
         .add_loop_action(check_receipts_presence_at_resharding_block(
@@ -1257,7 +1256,7 @@ fn slow_test_resharding_v3_split_parent_buffered_receipts() {
         .add_loop_action(call_burn_gas_contract(
             vec![account_in_left_child.clone(), account_in_right_child],
             vec![receiver_account],
-            10 * TGAS,
+            Gas::from_teragas(10),
             INCREASED_EPOCH_LENGTH,
         ))
         .add_loop_action(check_receipts_presence_at_resharding_block(
@@ -1287,7 +1286,7 @@ fn slow_test_resharding_v3_buffered_receipts_towards_splitted_shard() {
         .add_loop_action(call_burn_gas_contract(
             vec![account_in_stable_shard.clone()],
             vec![account_in_left_child, account_in_right_child],
-            10 * TGAS,
+            Gas::from_teragas(10),
             DEFAULT_EPOCH_LENGTH,
         ))
         .add_loop_action(check_receipts_presence_at_resharding_block(
@@ -1344,7 +1343,7 @@ fn slow_test_resharding_v3_outgoing_receipts_towards_splitted_shard() {
         .add_loop_action(call_burn_gas_contract(
             vec![account_1_in_stable_shard, account_2_in_stable_shard],
             vec![receiver_account],
-            5 * TGAS,
+            Gas::from_teragas(5),
             DEFAULT_EPOCH_LENGTH,
         ))
         .build();
@@ -1362,7 +1361,7 @@ fn slow_test_resharding_v3_outgoing_receipts_from_splitted_shard() {
         .add_loop_action(call_burn_gas_contract(
             vec![account_in_left_child, account_in_right_child],
             vec![receiver_account],
-            5 * TGAS,
+            Gas::from_teragas(5),
             INCREASED_EPOCH_LENGTH,
         ))
         .epoch_length(INCREASED_EPOCH_LENGTH)

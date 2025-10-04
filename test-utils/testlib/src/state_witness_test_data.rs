@@ -16,7 +16,7 @@ use near_primitives::stateless_validation::state_witness::{
 use near_primitives::test_utils::{MockEpochInfoProvider, account_new};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::EpochId;
-use near_primitives::types::{Balance, EpochInfoProvider, StateChangeCause};
+use near_primitives::types::{Balance, EpochInfoProvider, Gas, StateChangeCause};
 use near_primitives::version::PROTOCOL_VERSION;
 use near_store::test_utils::TestTriesBuilder;
 use near_store::{set_access_key, set_account};
@@ -25,11 +25,10 @@ use node_runtime::{ApplyState, Runtime, SignedValidPeriodTransactions};
 use std::collections::HashMap;
 
 /// Generates a realistic ChunkStateWitness from native token transfers.
-#[allow(unused)]
 pub fn generate_realistic_state_witness(target_size_bytes: usize) -> ChunkStateWitness {
-    const GAS_PRICE: Balance = 5000;
-    const INITIAL_BALANCE: Balance = 10_000_000_000_000_000_000_000_000_000; // 10k NEAR per account
-    const TRANSFER_AMOUNT: Balance = 1_000_000_000_000_000_000_000_000; // 1 NEAR
+    const GAS_PRICE: Balance = Balance::from_yoctonear(5000);
+    const INITIAL_BALANCE: Balance = Balance::from_near(10_000); // 10k NEAR per account
+    const TRANSFER_AMOUNT: Balance = Balance::from_near(1); // 1 NEAR
 
     // Create many test accounts for realistic transaction load
     let num_accounts = 10000;
@@ -85,7 +84,7 @@ pub fn generate_realistic_state_witness(target_size_bytes: usize) -> ChunkStateW
         epoch_height: 0,
         gas_price: GAS_PRICE,
         block_timestamp: 100,
-        gas_limit: Some(10u64.pow(15)),
+        gas_limit: Some(Gas::from_teragas(1000)),
         random_seed: Default::default(),
         current_protocol_version: PROTOCOL_VERSION,
         config: Arc::new(RuntimeConfig::test()),
@@ -94,6 +93,7 @@ pub fn generate_realistic_state_witness(target_size_bytes: usize) -> ChunkStateW
         congestion_info,
         bandwidth_requests: BlockBandwidthRequests::empty(),
         trie_access_tracker_state: Default::default(),
+        on_post_state_ready: None,
     };
 
     // Collect data for building the witness
@@ -115,7 +115,8 @@ pub fn generate_realistic_state_witness(target_size_bytes: usize) -> ChunkStateW
             let from_idx = ((batch_num * batch_size + i) % (initial_accounts.len() - 1)) + 1;
             let to_idx = (from_idx % (initial_accounts.len() - 1)) + 1;
 
-            let amount = TRANSFER_AMOUNT + (i as u128 * 100_000_000_000_000_000_000_000); // Slightly different amounts
+            let amount =
+                TRANSFER_AMOUNT.checked_add(Balance::from_millinear(i as u128 * 100)).unwrap(); // Slightly different amounts
 
             let tx = SignedTransaction::send_money(
                 1 + batch_num as u64,

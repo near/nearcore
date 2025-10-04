@@ -22,7 +22,7 @@ use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::test_utils::create_user_test_signer;
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{AccountId, BlockHeight};
+use near_primitives::types::{AccountId, Balance, BlockHeight, Gas};
 use near_primitives::views::{
     FinalExecutionOutcomeView, FinalExecutionStatus, QueryRequest, QueryResponseKind,
 };
@@ -30,10 +30,9 @@ use parking_lot::Mutex;
 
 use crate::setup::env::TestLoopEnv;
 use crate::setup::state::NodeExecutionData;
-use crate::utils::TGAS;
 
 use super::client_queries::ClientQueries;
-use super::{ONE_NEAR, get_node_data};
+use super::get_node_data;
 
 /// See `execute_money_transfers`. Debug is implemented so .unwrap() can print
 /// the error.
@@ -42,9 +41,9 @@ pub(crate) struct BalanceMismatchError {
     #[allow(unused)]
     pub account: AccountId,
     #[allow(unused)]
-    pub expected: u128,
+    pub expected: Balance,
     #[allow(unused)]
-    pub actual: u128,
+    pub actual: Balance,
 }
 
 // Returns the head with the smallest height
@@ -115,12 +114,12 @@ pub(crate) fn execute_money_transfers(
     let node_data = Arc::new(node_datas.to_vec());
 
     for i in 0..accounts.len() {
-        let amount = ONE_NEAR * (i as u128 + 1);
+        let amount = Balance::from_near((i + 1).try_into().unwrap());
         let sender = accounts[i].clone();
         let receiver = accounts[(i + 1) % accounts.len()].clone();
         let node_data = node_data.clone();
-        *balances.get_mut(&sender).unwrap() -= amount;
-        *balances.get_mut(&receiver).unwrap() += amount;
+        *balances.get_mut(&sender).unwrap() = balances[&sender].checked_sub(amount).unwrap();
+        *balances.get_mut(&receiver).unwrap() = balances[&receiver].checked_add(amount).unwrap();
         test_loop.send_adhoc_event_with_delay(
             format!("transaction {}", i),
             Duration::milliseconds(300 * i as i64),
@@ -171,7 +170,7 @@ pub fn do_create_account(
     rpc_id: &AccountId,
     originator: &AccountId,
     new_account_id: &AccountId,
-    amount: u128,
+    amount: Balance,
 ) {
     tracing::info!(target: "test", "Creating account.");
     let nonce = get_next_nonce(&env.test_loop.data, &env.node_datas, originator);
@@ -235,7 +234,7 @@ pub fn create_account(
     rpc_id: &AccountId,
     originator: &AccountId,
     new_account_id: &AccountId,
-    amount: u128,
+    amount: Balance,
     nonce: u64,
 ) -> CryptoHash {
     let block_hash = get_shared_block_hash(&env.node_datas, &env.test_loop.data);
@@ -385,8 +384,8 @@ pub fn call_contract(
 ) -> CryptoHash {
     let block_hash = get_shared_block_hash(node_datas, &test_loop.data);
     let signer = create_user_test_signer(sender_id);
-    let attach_gas = 300 * TGAS;
-    let deposit = 0;
+    let attach_gas = Gas::from_teragas(300);
+    let deposit = Balance::ZERO;
 
     let tx = SignedTransaction::call(
         nonce,
@@ -410,7 +409,7 @@ pub fn prepare_transfer_tx(
     env: &TestLoopEnv,
     sender_id: &AccountId,
     receiver_id: &AccountId,
-    amount: u128,
+    amount: Balance,
 ) -> SignedTransaction {
     let block_hash = get_shared_block_hash(&env.node_datas, &env.test_loop.data);
     let nonce = get_next_nonce(&env.test_loop.data, &env.node_datas, sender_id);
@@ -434,8 +433,7 @@ pub fn submit_tx(node_datas: &[NodeExecutionData], rpc_id: &AccountId, tx: Signe
     let rpc_node_data = get_node_data(node_datas, rpc_id);
     let rpc_node_data_sender = &rpc_node_data.rpc_handler_sender;
 
-    let future = rpc_node_data_sender.send_async(process_tx_request);
-    drop(future);
+    rpc_node_data_sender.send(process_tx_request);
 }
 
 /// Check the status of the transactions and assert that they are successful.

@@ -257,7 +257,7 @@ impl schemars::transform::Transform for InterchangeOneOfsAndAllOfs {
 }
 
 /// Adds a title to the `allOf` object based on the first property of the first object and the enum value of the second object.
-/// For example, for the following object, the title will be `view_code_by_finality`:
+/// For example, for the following object, the title would be `view_code_by_finality`:
 ///            "allOf": [
 ///              {
 ///                "properties": {

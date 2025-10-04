@@ -1,4 +1,3 @@
-use actix_rt::System;
 use itertools::{Itertools, multizip};
 use near_async::messaging::{IntoMultiSender, IntoSender, noop};
 use near_async::time::Clock;
@@ -34,6 +33,7 @@ use super::setup::{
     setup_tx_request_handler,
 };
 use super::test_env::{AccountIndices, TestEnv};
+use near_async::ActorSystem;
 
 /// A builder for the TestEnv structure.
 pub struct TestEnvBuilder {
@@ -52,7 +52,7 @@ pub struct TestEnvBuilder {
     // random seed to be inject in each client according to AccountId
     // if not set, a default constant TEST_SEED will be injected
     seeds: HashMap<AccountId, RngSeed>,
-    archive: bool,
+    enable_split_store: bool,
     save_trie_changes: bool,
     save_tx_outcomes: bool,
     state_snapshot_enabled: bool,
@@ -64,9 +64,6 @@ pub struct TestEnvBuilder {
 impl TestEnvBuilder {
     /// Constructs a new builder.
     pub(crate) fn new(genesis_config: GenesisConfig) -> Self {
-        if let None = System::try_current() {
-            let _ = System::new();
-        }
         let clients = Self::make_accounts(1);
         let validators = clients.clone();
         let seeds: HashMap<AccountId, RngSeed> = HashMap::with_capacity(1);
@@ -84,7 +81,7 @@ impl TestEnvBuilder {
             runtimes: None,
             network_adapters: None,
             seeds,
-            archive: false,
+            enable_split_store: false,
             save_trie_changes: true,
             save_tx_outcomes: true,
             state_snapshot_enabled: false,
@@ -425,8 +422,8 @@ impl TestEnvBuilder {
         }
     }
 
-    pub fn archive(mut self, archive: bool) -> Self {
-        self.archive = archive;
+    pub fn enable_split_store(mut self, enable_split_store: bool) -> Self {
+        self.enable_split_store = enable_split_store;
         self
     }
 
@@ -521,6 +518,7 @@ impl TestEnvBuilder {
                 )
             })
             .collect_vec();
+        let actor_system = ActorSystem::new();
         let (clients, chunk_validation_actors): (Vec<Client>, Vec<ChunkValidationActorInner>) =
             (0..num_clients)
                 .map(|i| {
@@ -558,6 +556,7 @@ impl TestEnvBuilder {
                     };
                     setup_client_with_runtime(
                         clock.clone(),
+                        actor_system.clone(),
                         u64::try_from(num_validators).unwrap(),
                         false,
                         network_adapter.as_multi_sender(),
@@ -567,7 +566,7 @@ impl TestEnvBuilder {
                         shard_tracker,
                         runtime,
                         rng_seed,
-                        self.archive,
+                        self.enable_split_store,
                         self.save_trie_changes,
                         self.save_tx_outcomes,
                         self.protocol_version_check,
@@ -594,6 +593,7 @@ impl TestEnvBuilder {
 
         TestEnv {
             clock,
+            actor_system,
             chain_genesis,
             validators,
             network_adapters,
@@ -612,7 +612,7 @@ impl TestEnvBuilder {
             ),
             paused_blocks: Default::default(),
             seeds,
-            archive: self.archive,
+            enable_split_store: self.enable_split_store,
             save_trie_changes: self.save_trie_changes,
             save_tx_outcomes: self.save_tx_outcomes,
             protocol_version_check: self.protocol_version_check,

@@ -2,17 +2,17 @@ use crate::{
     ChainAccess, ChainError, LatestTargetNonce, MappedBlock, MappedTx, MappedTxProvenance,
     NonceUpdater, TargetChainTx, TargetNonce, TxBatch, TxRef,
 };
-use actix::Addr;
 use anyhow::Context;
-use near_client::ViewClientActor;
+use near_async::multithread::MultithreadRuntimeHandle;
+use near_client::ViewClientActorInner;
 use near_crypto::{PublicKey, SecretKey};
 use near_indexer::StreamerMessage;
 use near_indexer_primitives::{IndexerExecutionOutcomeWithReceipt, IndexerTransactionWithOutcome};
 use near_primitives::hash::CryptoHash;
 use near_primitives::transaction::Transaction;
-use near_primitives::types::{AccountId, BlockHeight};
+use near_primitives::types::{AccountId, Balance, BlockHeight};
 use near_primitives::views::{ActionView, ExecutionStatusView, ReceiptEnumView};
-use near_primitives_core::types::{Gas, Nonce};
+use near_primitives_core::types::Nonce;
 use parking_lot::Mutex;
 use rocksdb::DB;
 use std::cmp::Ordering;
@@ -91,20 +91,6 @@ impl PartialOrd for TxId {
 impl Ord for TxId {
     fn cmp(&self, other: &Self) -> Ordering {
         self.nonce.cmp(&other.nonce).then_with(|| self.hash.cmp(&other.hash))
-    }
-}
-
-fn gas_pretty(gas: Gas) -> String {
-    if gas < 1000 {
-        format!("{} gas", gas)
-    } else if gas < 1_000_000 {
-        format!("{} Kgas", gas / 1000)
-    } else if gas < 1_000_000_000 {
-        format!("{} Mgas", gas / 1_000_000)
-    } else if gas < 1_000_000_000_000 {
-        format!("{} Ggas", gas / 1_000_000_000)
-    } else {
-        format!("{} Tgas", gas / 1_000_000_000_000)
     }
 }
 
@@ -248,7 +234,7 @@ impl TxTracker {
     //
     // So this function must be called before calling initialize_target_nonce() for a given access key
     async fn store_target_nonce(
-        target_view_client: &Addr<ViewClientActor>,
+        target_view_client: &MultithreadRuntimeHandle<ViewClientActorInner>,
         db: &DB,
         access_key: &(AccountId, PublicKey),
     ) -> anyhow::Result<()> {
@@ -302,7 +288,7 @@ impl TxTracker {
 
     pub(crate) async fn next_nonce(
         lock: &Mutex<Self>,
-        target_view_client: &Addr<ViewClientActor>,
+        target_view_client: &MultithreadRuntimeHandle<ViewClientActorInner>,
         db: &DB,
         signer_id: &AccountId,
         public_key: &PublicKey,
@@ -330,7 +316,7 @@ impl TxTracker {
     pub(crate) async fn insert_nonce(
         lock: &Mutex<Self>,
         tx_block_queue: &Mutex<VecDeque<MappedBlock>>,
-        target_view_client: &Addr<ViewClientActor>,
+        target_view_client: &MultithreadRuntimeHandle<ViewClientActorInner>,
         db: &DB,
         signer_id: &AccountId,
         public_key: &PublicKey,
@@ -416,7 +402,7 @@ impl TxTracker {
 
     async fn store_access_key_updates(
         block: &MappedBlock,
-        target_view_client: &Addr<ViewClientActor>,
+        target_view_client: &MultithreadRuntimeHandle<ViewClientActorInner>,
         db: &DB,
     ) -> anyhow::Result<()> {
         for c in &block.chunks {
@@ -488,7 +474,7 @@ impl TxTracker {
         lock: &Mutex<Self>,
         tx_block_queue: &Mutex<VecDeque<MappedBlock>>,
         block: MappedBlock,
-        target_view_client: &Addr<ViewClientActor>,
+        target_view_client: &MultithreadRuntimeHandle<ViewClientActorInner>,
         db: &DB,
     ) -> anyhow::Result<()> {
         Self::store_access_key_updates(&block, target_view_client, db).await?;
@@ -569,8 +555,7 @@ impl TxTracker {
                     write!(
                         log_message,
                         "-------- shard {} gas used: {} ---------\n",
-                        s.shard_id,
-                        gas_pretty(c.header.gas_used)
+                        s.shard_id, c.header.gas_used
                     )
                     .unwrap();
                     for tx in &c.transactions {
@@ -815,7 +800,7 @@ impl TxTracker {
                 // so we want to reverse it.
                 for a in actions {
                     if let ActionView::Stake { public_key, stake } = a {
-                        if stake > 0 {
+                        if stake > Balance::ZERO {
                             staked_accounts.insert(
                                 (outcome.receipt.receiver_id.clone(), public_key),
                                 outcome.receipt.predecessor_id.clone(),

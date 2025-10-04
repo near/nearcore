@@ -87,10 +87,10 @@ impl GasCost {
             // is that the caller does not care about how the extra gas is
             // distributed. So we add it to the instruction counter and
             // don't touch the other values.
-            qemu.instructions += Ratio::from(to_add) / GAS_IN_INSTR;
+            qemu.instructions += Ratio::from(to_add.as_gas()) / GAS_IN_INSTR;
         } else {
             // Time is a single component that we can just set directly.
-            self.time_ns = Some(Ratio::from(gas) / GAS_IN_NS);
+            self.time_ns = Some(Ratio::from(gas.as_gas()) / GAS_IN_NS);
         }
         self
     }
@@ -286,10 +286,11 @@ impl NonNegativeTolerance {
 
     fn tolerates(&self, pos: &GasCost, neg: &GasCost) -> bool {
         match self {
-            NonNegativeTolerance::Strict => neg.to_gas() == 0,
+            NonNegativeTolerance::Strict => neg.to_gas() == Gas::ZERO,
             NonNegativeTolerance::RelativeTolerance(rel_tolerance) => {
-                pos.to_gas() > 0
-                    && Ratio::new(neg.to_gas(), pos.to_gas()).to_f64().unwrap() <= *rel_tolerance
+                pos.to_gas() > Gas::ZERO
+                    && Ratio::new(neg.to_gas().as_gas(), pos.to_gas().as_gas()).to_f64().unwrap()
+                        <= *rel_tolerance
             }
             NonNegativeTolerance::AbsoluteTolerance(gas_threshold) => {
                 neg.to_gas() <= *gas_threshold
@@ -320,7 +321,7 @@ fn least_squares_method_gas_cost_pos_neg(
     if let Some(first) = ys.get(0) {
         if first.qemu.is_some() {
             assert!(
-                ys.iter().all(|y| y.qemu.is_some() || y.to_gas() == 0),
+                ys.iter().all(|y| y.qemu.is_some() || y.to_gas() == Gas::ZERO),
                 "least square expects homogenous data"
             );
 
@@ -337,7 +338,7 @@ fn least_squares_method_gas_cost_pos_neg(
         }
         if first.time_ns.is_some() {
             assert!(
-                ys.iter().all(|y| y.time_ns.is_some() || y.to_gas() == 0),
+                ys.iter().all(|y| y.time_ns.is_some() || y.to_gas() == Gas::ZERO),
                 "least square expects homogenous data"
             );
             let time_ys =
@@ -350,7 +351,7 @@ fn least_squares_method_gas_cost_pos_neg(
         }
     }
 
-    if neg_base.to_gas() == 0 && neg_factor.to_gas() == 0 {
+    if neg_base.to_gas() == Gas::ZERO && neg_factor.to_gas() == Gas::ZERO {
         if verbose {
             eprintln!("Least-squares output: {pos_base:?} + N * {pos_factor:?}",);
         }
@@ -502,14 +503,16 @@ impl Ord for GasCost {
 impl GasCost {
     pub(crate) fn to_gas(&self) -> Gas {
         if let Some(qemu) = &self.qemu {
-            (GAS_IN_INSTR * qemu.instructions
-                + IO_READ_BYTE_COST * qemu.io_r_bytes
-                + IO_WRITE_BYTE_COST * qemu.io_w_bytes)
-                .to_integer()
+            Gas::from_gas(
+                (GAS_IN_INSTR * qemu.instructions
+                    + IO_READ_BYTE_COST * qemu.io_r_bytes
+                    + IO_WRITE_BYTE_COST * qemu.io_w_bytes)
+                    .to_integer(),
+            )
         } else if let Some(ns) = self.time_ns {
-            (GAS_IN_NS * ns).to_integer()
+            Gas::from_gas((GAS_IN_NS * ns).to_integer())
         } else {
-            0
+            Gas::ZERO
         }
     }
 }
@@ -522,6 +525,8 @@ mod tests {
     use near_primitives::types::Gas;
     use num_rational::Ratio;
     use num_traits::{ToPrimitive, Zero};
+
+    const DEFAULT_MINIMAL_GAS_ATTACHMENT: Gas = Gas::from_gas(1);
 
     #[track_caller]
     fn check_uncertainty(
@@ -590,7 +595,12 @@ mod tests {
 
         // Also check applied tolerance strategies, in  this case they should always be certain as the solution is positive
         check_uncertainty(&xs, &ys, Default::default(), false);
-        check_uncertainty(&xs, &ys, abs_tolerance(1, 1), false);
+        check_uncertainty(
+            &xs,
+            &ys,
+            abs_tolerance(DEFAULT_MINIMAL_GAS_ATTACHMENT, DEFAULT_MINIMAL_GAS_ATTACHMENT),
+            false,
+        );
         check_uncertainty(&xs, &ys, rel_tolerance(0.1, 0.1), false);
     }
 
@@ -625,8 +635,21 @@ mod tests {
         check_least_squares_method_gas_cost_pos_neg(&xs, &ys, expected);
 
         check_uncertainty(&xs, &ys, Default::default(), true);
-        check_uncertainty(&xs, &ys, abs_tolerance(1, 1), true);
-        check_uncertainty(&xs, &ys, abs_tolerance((GAS_IN_NS * 50).to_integer(), 1), false);
+        check_uncertainty(
+            &xs,
+            &ys,
+            abs_tolerance(DEFAULT_MINIMAL_GAS_ATTACHMENT, DEFAULT_MINIMAL_GAS_ATTACHMENT),
+            true,
+        );
+        check_uncertainty(
+            &xs,
+            &ys,
+            abs_tolerance(
+                Gas::from_gas((GAS_IN_NS * 50).to_integer()),
+                DEFAULT_MINIMAL_GAS_ATTACHMENT,
+            ),
+            false,
+        );
         check_uncertainty(&xs, &ys, rel_tolerance(0.1, 0.1), true);
     }
 
@@ -647,8 +670,18 @@ mod tests {
         check_least_squares_method_gas_cost_pos_neg(&xs, &ys, expected);
 
         check_uncertainty(&xs, &ys, Default::default(), true);
-        check_uncertainty(&xs, &ys, abs_tolerance(1, 1), true);
-        check_uncertainty(&xs, &ys, abs_tolerance(1, 1_000_000), false);
+        check_uncertainty(
+            &xs,
+            &ys,
+            abs_tolerance(DEFAULT_MINIMAL_GAS_ATTACHMENT, DEFAULT_MINIMAL_GAS_ATTACHMENT),
+            true,
+        );
+        check_uncertainty(
+            &xs,
+            &ys,
+            abs_tolerance(DEFAULT_MINIMAL_GAS_ATTACHMENT, Gas::from_gas(1_000_000)),
+            false,
+        );
         check_uncertainty(&xs, &ys, rel_tolerance(0.1, 0.1), true);
     }
 
@@ -669,7 +702,12 @@ mod tests {
         check_least_squares_method_gas_cost_pos_neg(&xs, &ys, expected);
 
         check_uncertainty(&xs, &ys, Default::default(), false);
-        check_uncertainty(&xs, &ys, abs_tolerance(1, 1), false);
+        check_uncertainty(
+            &xs,
+            &ys,
+            abs_tolerance(DEFAULT_MINIMAL_GAS_ATTACHMENT, DEFAULT_MINIMAL_GAS_ATTACHMENT),
+            false,
+        );
         check_uncertainty(&xs, &ys, rel_tolerance(0.1, 0.1), false);
     }
 
@@ -690,16 +728,23 @@ mod tests {
         check_least_squares_method_gas_cost_pos_neg(&xs, &ys, expected);
 
         check_uncertainty(&xs, &ys, Default::default(), true);
-        check_uncertainty(&xs, &ys, abs_tolerance(1, 1), true);
+        check_uncertainty(
+            &xs,
+            &ys,
+            abs_tolerance(DEFAULT_MINIMAL_GAS_ATTACHMENT, DEFAULT_MINIMAL_GAS_ATTACHMENT),
+            true,
+        );
         check_uncertainty(&xs, &ys, rel_tolerance(0.1, 0.1), true);
         check_uncertainty(
             &xs,
             &ys,
             abs_tolerance(
-                (GAS_IN_INSTR * 50 + IO_READ_BYTE_COST * 40 + IO_WRITE_BYTE_COST * 30)
-                    .ceil()
-                    .to_integer(),
-                0,
+                Gas::from_gas(
+                    (GAS_IN_INSTR * 50 + IO_READ_BYTE_COST * 40 + IO_WRITE_BYTE_COST * 30)
+                        .ceil()
+                        .to_integer(),
+                ),
+                Gas::ZERO,
             ),
             false,
         );
@@ -722,16 +767,23 @@ mod tests {
         check_least_squares_method_gas_cost_pos_neg(&xs, &ys, expected);
 
         check_uncertainty(&xs, &ys, Default::default(), true);
-        check_uncertainty(&xs, &ys, abs_tolerance(1, 1), true);
+        check_uncertainty(
+            &xs,
+            &ys,
+            abs_tolerance(DEFAULT_MINIMAL_GAS_ATTACHMENT, DEFAULT_MINIMAL_GAS_ATTACHMENT),
+            true,
+        );
         check_uncertainty(&xs, &ys, rel_tolerance(0.1, 0.1), true);
         check_uncertainty(
             &xs,
             &ys,
             abs_tolerance(
-                0,
-                (GAS_IN_INSTR * 1 + IO_READ_BYTE_COST * 2 + IO_WRITE_BYTE_COST * 3)
-                    .ceil()
-                    .to_integer(),
+                Gas::ZERO,
+                Gas::from_gas(
+                    (GAS_IN_INSTR * 1 + IO_READ_BYTE_COST * 2 + IO_WRITE_BYTE_COST * 3)
+                        .ceil()
+                        .to_integer(),
+                ),
             ),
             false,
         );
@@ -754,13 +806,18 @@ mod tests {
         check_least_squares_method_gas_cost_pos_neg(&xs, &ys, expected);
 
         check_uncertainty(&xs, &ys, Default::default(), true);
-        check_uncertainty(&xs, &ys, abs_tolerance(1, 1), true);
+        check_uncertainty(
+            &xs,
+            &ys,
+            abs_tolerance(DEFAULT_MINIMAL_GAS_ATTACHMENT, DEFAULT_MINIMAL_GAS_ATTACHMENT),
+            true,
+        );
         check_uncertainty(
             &xs,
             &ys,
             abs_tolerance(
-                (IO_WRITE_BYTE_COST * 10).ceil().to_integer(),
-                (GAS_IN_INSTR * 1).ceil().to_integer(),
+                Gas::from_gas((IO_WRITE_BYTE_COST * 10).ceil().to_integer()),
+                Gas::from_gas((GAS_IN_INSTR * 1).ceil().to_integer()),
             ),
             false,
         );

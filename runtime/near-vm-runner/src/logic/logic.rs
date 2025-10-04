@@ -18,6 +18,7 @@ use near_parameters::vm::Config;
 use near_parameters::{
     ActionCosts, ExtCosts, RuntimeFeesConfig, transfer_exec_fee, transfer_send_fee,
 };
+use near_primitives_core::account::AccountContract;
 use near_primitives_core::config::INLINE_DISK_VALUE_THRESHOLD;
 use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::types::{
@@ -284,13 +285,13 @@ impl<'a> VMLogic<'a> {
     // # Finite-wasm internals #
     // #########################
     pub fn finite_wasm_gas(&mut self, gas: u64) -> Result<()> {
-        self.gas(gas)
+        self.gas(Gas::from_gas(gas))
     }
 
     fn linear_gas(&mut self, count: u32, linear: u64, constant: u64) -> Result<u32> {
         let linear = u64::from(count).checked_mul(linear).ok_or(HostError::IntegerOverflow)?;
         let gas = constant.checked_add(linear).ok_or(HostError::IntegerOverflow)?;
-        self.gas(gas)?;
+        self.gas(Gas::from_gas(gas))?;
         Ok(count)
     }
 
@@ -354,7 +355,7 @@ impl<'a> VMLogic<'a> {
                 Some(s) => s,
                 None => return Err(VMLogicError::HostError(HostError::MemoryAccessViolation)),
             };
-        self.gas(((frame_size + 7) / 8) * u64::from(self.config.regular_op_cost))?;
+        self.gas(Gas::from_gas(((frame_size + 7) / 8) * u64::from(self.config.regular_op_cost)))?;
         Ok(())
     }
 
@@ -364,6 +365,18 @@ impl<'a> VMLogic<'a> {
             .checked_add(operand_size.saturating_add(frame_size))
             .expect("remaining stack integer overflow");
         Ok(())
+    }
+
+    pub fn finite_wasm_gas_exhausted(&mut self) -> Result<()> {
+        // Burn all remaining gas
+        self.gas(self.result_state.gas_counter.remaining_gas())?;
+        // This function will only ever be called by instrumentation on overflow, otherwise
+        // `finite_wasm_gas` will be called with the out-of-budget charge
+        Err(VMLogicError::HostError(HostError::IntegerOverflow))
+    }
+
+    pub fn finite_wasm_stack_exhausted(&mut self) -> Result<()> {
+        Err(VMLogicError::HostError(HostError::MemoryAccessViolation))
     }
 
     // #################
@@ -713,6 +726,36 @@ impl<'a> VMLogic<'a> {
         )
     }
 
+    /// Populates a register with the ID of an account which would receive a refund.
+    ///
+    /// This is the ID of an account set for the current receipt by its
+    /// predecessor via [`Self::promise_set_refund_to()`], or
+    /// [`Self::predecessor_account_id()`] otherwise.
+    ///
+    /// # Errors
+    ///
+    /// If the registers exceed the memory limit returns `MemoryAccessViolation`.
+    ///
+    /// # Cost
+    ///
+    /// `base + write_register_base + write_register_byte * num_bytes`
+    pub fn refund_to_account_id(&mut self, register_id: u64) -> Result<()> {
+        self.result_state.gas_counter.pay_base(base)?;
+
+        if self.context.is_view() {
+            return Err(HostError::ProhibitedInView {
+                method_name: "refund_to_account_id".to_string(),
+            }
+            .into());
+        }
+        self.registers.set(
+            &mut self.result_state.gas_counter,
+            &self.config.limit_config,
+            register_id,
+            self.context.refund_to_account_id.as_bytes(),
+        )
+    }
+
     /// Reads input to the contract call into the register. Input is expected to be in JSON-format.
     /// If input is provided saves the bytes (potentially zero) of input into register. If input is
     /// not provided writes 0 bytes into the register.
@@ -780,7 +823,7 @@ impl<'a> VMLogic<'a> {
         let account_id = self.read_and_parse_account_id(account_id_ptr, account_id_len)?;
         self.result_state.gas_counter.pay_base(validator_stake_base)?;
         let balance = self.ext.validator_stake(&account_id)?.unwrap_or_default();
-        self.memory.set_u128(&mut self.result_state.gas_counter, stake_ptr, balance)
+        self.memory.set_u128(&mut self.result_state.gas_counter, stake_ptr, balance.as_yoctonear())
     }
 
     /// Get the total validator stake of the current epoch.
@@ -794,7 +837,11 @@ impl<'a> VMLogic<'a> {
         self.result_state.gas_counter.pay_base(base)?;
         self.result_state.gas_counter.pay_base(validator_total_stake_base)?;
         let total_stake = self.ext.validator_total_stake()?;
-        self.memory.set_u128(&mut self.result_state.gas_counter, stake_ptr, total_stake)
+        self.memory.set_u128(
+            &mut self.result_state.gas_counter,
+            stake_ptr,
+            total_stake.as_yoctonear(),
+        )
     }
 
     /// Returns the number of bytes used by the contract if it was saved to the trie as of the
@@ -827,7 +874,7 @@ impl<'a> VMLogic<'a> {
         self.memory.set_u128(
             &mut self.result_state.gas_counter,
             balance_ptr,
-            self.result_state.current_account_balance,
+            self.result_state.current_account_balance.as_yoctonear(),
         )
     }
 
@@ -841,7 +888,7 @@ impl<'a> VMLogic<'a> {
         self.memory.set_u128(
             &mut self.result_state.gas_counter,
             balance_ptr,
-            self.current_account_locked_balance,
+            self.current_account_locked_balance.as_yoctonear(),
         )
     }
 
@@ -861,7 +908,7 @@ impl<'a> VMLogic<'a> {
         self.memory.set_u128(
             &mut self.result_state.gas_counter,
             balance_ptr,
-            self.context.attached_deposit,
+            self.context.attached_deposit.as_yoctonear(),
         )
     }
 
@@ -874,14 +921,14 @@ impl<'a> VMLogic<'a> {
     /// # Cost
     ///
     /// `base`
-    pub fn prepaid_gas(&mut self) -> Result<Gas> {
+    pub fn prepaid_gas(&mut self) -> Result<u64> {
         self.result_state.gas_counter.pay_base(base)?;
         if self.context.is_view() {
             return Err(
                 HostError::ProhibitedInView { method_name: "prepaid_gas".to_string() }.into()
             );
         }
-        Ok(self.context.prepaid_gas)
+        Ok(self.context.prepaid_gas.as_gas())
     }
 
     /// The gas that was already burnt during the contract execution (cannot exceed `prepaid_gas`)
@@ -893,12 +940,12 @@ impl<'a> VMLogic<'a> {
     /// # Cost
     ///
     /// `base`
-    pub fn used_gas(&mut self) -> Result<Gas> {
+    pub fn used_gas(&mut self) -> Result<u64> {
         self.result_state.gas_counter.pay_base(base)?;
         if self.context.is_view() {
             return Err(HostError::ProhibitedInView { method_name: "used_gas".to_string() }.into());
         }
-        Ok(self.result_state.gas_counter.used_gas())
+        Ok(self.result_state.gas_counter.used_gas().as_gas())
     }
 
     // ############
@@ -1765,16 +1812,16 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
     /// * If we exceed usage limit imposed on burnt gas returns `GasLimitExceeded`;
     /// * If we exceed the `prepaid_gas` then returns `GasExceeded`.
     pub fn gas(&mut self, gas: Gas) -> Result<()> {
-        self.result_state.gas_counter.burn_gas(Gas::from(gas))
+        self.result_state.gas_counter.burn_gas(gas)
     }
 
     pub fn gas_opcodes(&mut self, opcodes: u32) -> Result<()> {
-        self.gas(opcodes as u64 * self.config.regular_op_cost as u64)
+        self.gas(Gas::from_gas(opcodes as u64 * self.config.regular_op_cost as u64))
     }
 
     /// An alias for [`VMLogic::gas`].
-    pub fn burn_gas(&mut self, gas: Gas) -> Result<()> {
-        self.gas(gas)
+    pub fn burn_gas(&mut self, gas: u64) -> Result<()> {
+        self.gas(Gas::from_gas(gas))
     }
 
     /// This is the function that is exposed to WASM contracts under the name `gas`.
@@ -1862,7 +1909,7 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
         arguments_len: u64,
         arguments_ptr: u64,
         amount_ptr: u64,
-        gas: Gas,
+        gas: u64,
     ) -> Result<u64> {
         let new_promise_idx = self.promise_batch_create(account_id_len, account_id_ptr)?;
         self.promise_batch_action_function_call(
@@ -2096,6 +2143,46 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
         let new_receipt_idx = self.ext.create_action_receipt(receipt_dependencies, account_id)?;
 
         self.checked_push_promise(Promise::Receipt(new_receipt_idx))
+    }
+
+    /// Sets the `refund_to` field on the promise
+    ///
+    /// # Errors
+    ///
+    /// * If `promise_idx` does not correspond to an existing promise returns `InvalidPromiseIndex`;
+    /// * If `account_id_len + account_id_ptr` points outside the memory of the guest or host
+    /// returns `MemoryAccessViolation`.
+    /// * If called as view function returns `ProhibitedInView`.
+    ///
+    /// # Cost
+    ///
+    /// `base + cost of reading and decoding the account id`
+    pub fn promise_set_refund_to(
+        &mut self,
+        promise_idx: u64,
+        account_id_len: u64,
+        account_id_ptr: u64,
+    ) -> Result<()> {
+        self.result_state.gas_counter.pay_base(base)?;
+        if self.context.is_view() {
+            return Err(HostError::ProhibitedInView {
+                method_name: "promise_set_refund_to".to_string(),
+            }
+            .into());
+        }
+        let refund_to = self.read_and_parse_account_id(account_id_ptr, account_id_len)?;
+        let promise = self
+            .promises
+            .get(promise_idx as usize)
+            .ok_or(HostError::InvalidPromiseIndex { promise_idx })?;
+
+        let receipt_idx = match &promise {
+            Promise::Receipt(receipt_idx) => Ok(*receipt_idx),
+            Promise::NotReceipt(_) => Err(HostError::CannotSetRefundToOnJointPromise),
+        }?;
+
+        self.ext.set_refund_to(receipt_idx, refund_to);
+        Ok(())
     }
 
     /// Helper function to return the receipt index corresponding to the given promise index.
@@ -2360,19 +2447,7 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
         if self.context.is_view() {
             return Err(HostError::ProhibitedInView { method_name: method_name.to_owned() }.into());
         }
-        let contract_id = match contract_id_ptr {
-            GlobalContractIdentifierPtrData::CodeHash { code_hash_len, code_hash_ptr } => {
-                let code_hash_bytes = get_memory_or_register!(self, code_hash_ptr, code_hash_len)?;
-                let code_hash: [_; CryptoHash::LENGTH] = (&*code_hash_bytes)
-                    .try_into()
-                    .map_err(|_| HostError::ContractCodeHashMalformed)?;
-                GlobalContractIdentifier::CodeHash(CryptoHash(code_hash))
-            }
-            GlobalContractIdentifierPtrData::AccountId { account_id_len, account_id_ptr } => {
-                let account_id = self.read_and_parse_account_id(account_id_ptr, account_id_len)?;
-                GlobalContractIdentifier::AccountId(account_id)
-            }
-        };
+        let contract_id = self.read_contract_id(contract_id_ptr)?;
 
         let (receipt_idx, sir) = self.promise_idx_to_receipt_idx_with_sir(promise_idx)?;
 
@@ -2381,6 +2456,177 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
         self.pay_action_per_byte(ActionCosts::use_global_contract_byte, len, sir)?;
 
         self.ext.append_action_use_global_contract(receipt_idx, contract_id)?;
+        Ok(())
+    }
+
+    fn read_contract_id(
+        &mut self,
+        contract_id_ptr: GlobalContractIdentifierPtrData,
+    ) -> Result<GlobalContractIdentifier, VMLogicError> {
+        match contract_id_ptr {
+            GlobalContractIdentifierPtrData::CodeHash { code_hash_len, code_hash_ptr } => {
+                let code_hash_bytes = get_memory_or_register!(self, code_hash_ptr, code_hash_len)?;
+                let code_hash: [_; CryptoHash::LENGTH] = (&*code_hash_bytes)
+                    .try_into()
+                    .map_err(|_| HostError::ContractCodeHashMalformed)?;
+                Ok(GlobalContractIdentifier::CodeHash(CryptoHash(code_hash)))
+            }
+            GlobalContractIdentifierPtrData::AccountId { account_id_len, account_id_ptr } => {
+                let account_id = self.read_and_parse_account_id(account_id_ptr, account_id_len)?;
+                Ok(GlobalContractIdentifier::AccountId(account_id))
+            }
+        }
+    }
+
+    /// Appends `DeterministicStateInit` action to the batch of actions for the given promise
+    /// pointed by `promise_idx`.
+    ///
+    /// # Errors
+    ///
+    /// * If `promise_idx` does not correspond to an existing promise returns
+    ///   [`HostError::InvalidPromiseIndex`].
+    /// * If the promise pointed by the `promise_idx` is an ephemeral promise created by
+    /// `promise_and` returns [`HostError::CannotAppendActionToJointPromise`].
+    /// * If called as view function returns [`HostError::ProhibitedInView`].
+    /// * If `code_hash_len + code_hash_ptr` or `amount_ptr + 16` points outside the memory of the
+    /// guest or host returns [`HostError::MemoryAccessViolation`].
+    ///
+    /// # Cost
+    ///
+    /// `burnt_gas` := base + dispatch action base fee
+    ///             + cost of reading code from memory
+    ///             + cost of reading amount from memory
+    ///
+    /// `used_gas`  := burnt_gas + exec action base fee
+    pub fn promise_batch_action_state_init(
+        &mut self,
+        promise_idx: u64,
+        code_hash_len: u64,
+        code_hash_ptr: u64,
+        amount_ptr: u64,
+    ) -> Result<u64> {
+        self.promise_batch_action_state_init_impl(
+            promise_idx,
+            GlobalContractIdentifierPtrData::CodeHash { code_hash_len, code_hash_ptr },
+            amount_ptr,
+            "promise_batch_action_state_init",
+        )
+    }
+
+    /// Appends `DeterministicStateInit` action to the batch of actions for the given promise
+    /// pointed by `promise_idx`.
+    ///
+    /// # Errors
+    ///
+    /// * If `promise_idx` does not correspond to an existing promise returns
+    ///   [`HostError::InvalidPromiseIndex`].
+    /// * If the promise pointed by the `promise_idx` is an ephemeral promise created by
+    /// `promise_and` returns [`HostError::CannotAppendActionToJointPromise`].
+    /// * If called as view function returns [`HostError::ProhibitedInView`].
+    /// * If `account_id_len + account_id_ptr` or `amount_ptr + 16` points outside the memory of the
+    /// guest or host returns [`HostError::MemoryAccessViolation`].
+    /// * If account_id string is not UTF-8 returns `BadUtf8`.
+    ///
+    /// # Cost
+    ///
+    /// `burnt_gas` := base + dispatch action base fee
+    ///             + cost of reading account id from memory
+    ///             + cost of decoding account_id as UTF-8
+    ///             + cost of reading amount from memory
+    ///
+    /// `used_gas`  := burnt_gas + exec action base fee
+    pub fn promise_batch_action_state_init_by_account_id(
+        &mut self,
+        promise_idx: u64,
+        account_id_len: u64,
+        account_id_ptr: u64,
+        amount_ptr: u64,
+    ) -> Result<u64> {
+        self.promise_batch_action_state_init_impl(
+            promise_idx,
+            GlobalContractIdentifierPtrData::AccountId { account_id_len, account_id_ptr },
+            amount_ptr,
+            "promise_batch_action_state_init_by_account_id",
+        )
+    }
+
+    fn promise_batch_action_state_init_impl(
+        &mut self,
+        promise_idx: u64,
+        contract_id_ptr: GlobalContractIdentifierPtrData,
+        amount_ptr: u64,
+        method_name: &str,
+    ) -> Result<u64> {
+        self.result_state.gas_counter.pay_base(base)?;
+        if self.context.is_view() {
+            return Err(HostError::ProhibitedInView { method_name: method_name.to_string() }.into());
+        }
+        let code = self.read_contract_id(contract_id_ptr)?;
+        let amount = Balance::from_yoctonear(
+            self.memory.get_u128(&mut self.result_state.gas_counter, amount_ptr)?,
+        );
+        let (receipt_idx, sir) = self.promise_idx_to_receipt_idx_with_sir(promise_idx)?;
+
+        self.pay_action_base(ActionCosts::deterministic_state_init_base, sir)?;
+        self.result_state.deduct_balance(amount)?;
+
+        self.ext.append_action_deterministic_state_init(receipt_idx, code, amount)
+    }
+
+    /// Appends a data entry to an existing `DeterministicStateInit` action.
+    ///
+    /// # Errors
+    ///
+    /// * If `promise_idx` does not correspond to an existing promise returns
+    ///   [`HostError::InvalidPromiseIndex`].
+    /// * If the promise pointed by the `promise_idx` is an ephemeral promise created by
+    ///   `promise_and` returns [`HostError::CannotAppendActionToJointPromise`].
+    /// * If `action_idx` does not correspond to an existing action within the promise,
+    ///   returns [`HostError::InvalidActionIndex`].
+    /// * If `key` has already been set returns [`HostError::DataEntryAlreadyExists`].
+    /// * If called as view function returns [`HostError::ProhibitedInView`].
+    ///
+    /// # Cost
+    ///
+    /// `burnt_gas` := base +
+    ///             + deterministic_state_init_entry send fee
+    ///             + deterministic_state_init_byte send fee * (key_len + value_len)
+    ///             + cost of reading account id from memory
+    ///             + cost of decoding account_id as UTF-8
+    ///             + cost of reading amount from memory
+    ///
+    /// `used_gas`  := burnt_gas +
+    ///             + deterministic_state_init_entry exec fee
+    ///             + deterministic_state_init_byte exec fee * (key_len + value_len)
+    pub fn set_state_init_data_entry(
+        &mut self,
+        promise_idx: u64,
+        action_index: u64,
+        key_len: u64,
+        key_ptr: u64,
+        value_len: u64,
+        value_ptr: u64,
+    ) -> Result<()> {
+        self.result_state.gas_counter.pay_base(base)?;
+        if self.context.is_view() {
+            return Err(HostError::ProhibitedInView {
+                method_name: "set_state_init_data_entry".to_string(),
+            }
+            .into());
+        }
+
+        let (receipt_idx, sir) = self.promise_idx_to_receipt_idx_with_sir(promise_idx)?;
+        let key = get_memory_or_register!(self, key_ptr, key_len)?;
+        let key = key.into_owned();
+        let value = get_memory_or_register!(self, value_ptr, value_len)?;
+        let value = value.into_owned();
+
+        self.pay_action_base(ActionCosts::deterministic_state_init_entry, sir)?;
+        let bytes = key_len.checked_add(value_len).ok_or(HostError::IntegerOverflow)?;
+        self.pay_action_per_byte(ActionCosts::deterministic_state_init_byte, bytes, sir)?;
+
+        self.ext.set_deterministic_state_init_data_entry(receipt_idx, action_index, key, value)?;
+
         Ok(())
     }
 
@@ -2410,7 +2656,7 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
         arguments_len: u64,
         arguments_ptr: u64,
         amount_ptr: u64,
-        gas: Gas,
+        gas: u64,
     ) -> Result<()> {
         self.promise_batch_action_function_call_weight(
             promise_idx,
@@ -2468,7 +2714,7 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
         arguments_len: u64,
         arguments_ptr: u64,
         amount_ptr: u64,
-        gas: Gas,
+        gas: u64,
         gas_weight: u64,
     ) -> Result<()> {
         self.result_state.gas_counter.pay_base(base)?;
@@ -2478,7 +2724,10 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
             }
             .into());
         }
-        let amount = self.memory.get_u128(&mut self.result_state.gas_counter, amount_ptr)?;
+        let amount = Balance::from_yoctonear(
+            self.memory.get_u128(&mut self.result_state.gas_counter, amount_ptr)?,
+        );
+        let gas = Gas::from_gas(gas);
         let method_name = get_memory_or_register!(self, method_name_ptr, method_name_len)?;
         if method_name.is_empty() {
             return Err(HostError::EmptyMethodName.into());
@@ -2534,7 +2783,9 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
             }
             .into());
         }
-        let amount = self.memory.get_u128(&mut self.result_state.gas_counter, amount_ptr)?;
+        let amount = Balance::from_yoctonear(
+            self.memory.get_u128(&mut self.result_state.gas_counter, amount_ptr)?,
+        );
 
         let (receipt_idx, sir) = self.promise_idx_to_receipt_idx_with_sir(promise_idx)?;
         let receiver_id = self.ext.get_receipt_receiver(receipt_idx);
@@ -2594,7 +2845,9 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
             }
             .into());
         }
-        let amount = self.memory.get_u128(&mut self.result_state.gas_counter, amount_ptr)?;
+        let amount = Balance::from_yoctonear(
+            self.memory.get_u128(&mut self.result_state.gas_counter, amount_ptr)?,
+        );
         let public_key = self.get_public_key(public_key_ptr, public_key_len)?;
         let (receipt_idx, sir) = self.promise_idx_to_receipt_idx_with_sir(promise_idx)?;
         self.pay_action_base(ActionCosts::stake, sir)?;
@@ -2679,8 +2932,10 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
             .into());
         }
         let public_key = self.get_public_key(public_key_ptr, public_key_len)?;
-        let allowance = self.memory.get_u128(&mut self.result_state.gas_counter, allowance_ptr)?;
-        let allowance = if allowance > 0 { Some(allowance) } else { None };
+        let allowance = Balance::from_yoctonear(
+            self.memory.get_u128(&mut self.result_state.gas_counter, allowance_ptr)?,
+        );
+        let allowance = if allowance > Balance::ZERO { Some(allowance) } else { None };
         let receiver_id = self.read_and_parse_account_id(receiver_id_ptr, receiver_id_len)?;
         let raw_method_names = get_memory_or_register!(self, method_names_ptr, method_names_len)?;
         let method_names = split_method_names(&raw_method_names)?;
@@ -2824,7 +3079,7 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
         method_name_ptr: u64,
         arguments_len: u64,
         arguments_ptr: u64,
-        gas: Gas,
+        gas: u64,
         gas_weight: u64,
         register_id: u64,
     ) -> Result<u64> {
@@ -2849,7 +3104,7 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
         let num_bytes = method_name.len() as u64 + arguments.len() as u64;
         self.result_state.gas_counter.pay_per(yield_create_byte, num_bytes)?;
         // Prepay gas for the callback so that it cannot be used for this execution any longer.
-        self.result_state.gas_counter.prepay_gas(gas)?;
+        self.result_state.gas_counter.prepay_gas(Gas::from_gas(gas))?;
 
         // Here we are creating a receipt with a single data dependency which will then be
         // resolved by the resume call.
@@ -2864,8 +3119,8 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
             new_receipt_idx,
             method_name,
             arguments,
-            0,
-            gas,
+            Balance::ZERO,
+            Gas::from_gas(gas),
             GasWeight(gas_weight),
         )?;
 
@@ -3062,7 +3317,7 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
     pub fn value_return(&mut self, value_len: u64, value_ptr: u64) -> Result<()> {
         self.result_state.gas_counter.pay_base(base)?;
         let return_val = get_memory_or_register!(self, value_ptr, value_len)?;
-        let mut burn_gas: Gas = 0;
+        let mut burn_gas = Gas::ZERO;
         let num_bytes = return_val.len() as u64;
         if num_bytes > self.config.limit_config.max_length_returned_data {
             return Err(HostError::ReturnedValueLengthExceeded {
@@ -3215,6 +3470,59 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
         self.result_state.checked_push_log(format!("ABORT: {}", message))?;
 
         Err(HostError::GuestPanic { panic_msg: message }.into())
+    }
+
+    /// Writes the code deployed on current contract being executed to the register.
+    ///
+    /// The output data in the register will either be empty, `CryptoHash`, or `AccountId`,
+    /// depending on the return value.
+    ///
+    /// # Returns
+    ///
+    /// Returns a different number depending on the type of contract that is stored on the account
+    ///  (and has been written to the register).
+    ///
+    /// * 0 if the contract code is None
+    /// * 1 if the contract code is Local(CryptoHash)
+    /// * 2 if the contract code is Global(CryptoHash)
+    /// * 3 if the contract code is GlobalByAccount(AccountId)
+    ///
+    /// # Cost
+    ///
+    /// `base` - the base cost for a simple host function call `write_memory_base` + 16 *
+    /// `write_memory_byte` - the cost of writing the data to the register
+    pub fn current_contract_code(&mut self, register_id: u64) -> Result<u64> {
+        self.result_state.gas_counter.pay_base(base)?;
+        match &self.context.account_contract {
+            AccountContract::None => Ok(0),
+            AccountContract::Local(crypto_hash) => {
+                self.registers.set(
+                    &mut self.result_state.gas_counter,
+                    &self.config.limit_config,
+                    register_id,
+                    crypto_hash.0,
+                )?;
+                Ok(1)
+            }
+            AccountContract::Global(crypto_hash) => {
+                self.registers.set(
+                    &mut self.result_state.gas_counter,
+                    &self.config.limit_config,
+                    register_id,
+                    crypto_hash.0,
+                )?;
+                Ok(2)
+            }
+            AccountContract::GlobalByAccount(account_id) => {
+                self.registers.set(
+                    &mut self.result_state.gas_counter,
+                    &self.config.limit_config,
+                    register_id,
+                    account_id.as_bytes(),
+                )?;
+                Ok(3)
+            }
+        }
     }
 
     // ###############
@@ -3642,10 +3950,10 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
     ) -> Result<()> {
         let per_byte_fee = self.fees_config.fee(action);
         let burn_gas =
-            num_bytes.checked_mul(per_byte_fee.send_fee(sir)).ok_or(HostError::IntegerOverflow)?;
+            per_byte_fee.send_fee(sir).checked_mul(num_bytes).ok_or(HostError::IntegerOverflow)?;
         let use_gas = burn_gas
             .checked_add(
-                num_bytes.checked_mul(per_byte_fee.exec_fee()).ok_or(HostError::IntegerOverflow)?,
+                per_byte_fee.exec_fee().checked_mul(num_bytes).ok_or(HostError::IntegerOverflow)?,
             )
             .ok_or(HostError::IntegerOverflow)?;
         self.result_state.gas_counter.pay_action_accumulated(burn_gas, use_gas, action)
@@ -3685,13 +3993,13 @@ impl VMOutcome {
     pub fn nop_outcome(error: FunctionCallError) -> VMOutcome {
         VMOutcome {
             // Note: Balance and storage fields are ignored on a failed outcome.
-            balance: 0,
+            balance: Balance::ZERO,
             storage_usage: 0,
             // Note: Fields below are added or merged when processing the
             // outcome. With 0 or the empty set, those are no-ops.
             return_data: ReturnData::None,
-            burnt_gas: 0,
-            used_gas: 0,
+            burnt_gas: Gas::ZERO,
+            used_gas: Gas::ZERO,
             compute_usage: 0,
             logs: Vec::new(),
             profile: ProfileDataV3::default(),
@@ -3723,7 +4031,11 @@ impl std::fmt::Debug for VMOutcome {
         write!(
             f,
             "VMOutcome: balance {} storage_usage {} return data {} burnt gas {} used gas {}",
-            self.balance, self.storage_usage, return_data_str, self.burnt_gas, self.used_gas
+            self.balance.as_yoctonear(),
+            self.storage_usage,
+            return_data_str,
+            self.burnt_gas.as_gas(),
+            self.used_gas.as_gas()
         )?;
         if let Some(err) = &self.aborted {
             write!(f, " failed with {err}")?;

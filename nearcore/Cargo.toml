@@ -12,8 +12,6 @@ publish = false
 workspace = true
 
 [dependencies]
-actix-rt.workspace = true
-actix.workspace = true
 anyhow.workspace = true
 borsh.workspace = true
 bytesize.workspace = true
@@ -66,16 +64,29 @@ node-runtime.workspace = true
 near-config-utils.workspace = true
 
 [dev-dependencies]
+near-time.workspace = true
+zstd.workspace = true
 bencher.workspace = true
 primitive-types.workspace = true
 wiremock.workspace = true
-
-near-actix-test-utils.workspace = true
+criterion.workspace = true
 near-jsonrpc-primitives.workspace = true
 testlib.workspace = true
 
 [[bench]]
 name = "store"
+harness = false
+
+[[bench]]
+name = "serialization"
+harness = false
+
+[[bench]]
+name = "compression"
+harness = false
+
+[[bench]]
+name = "state_witness_borsh"
 harness = false
 
 [features]
@@ -103,8 +114,6 @@ protocol_feature_spice = [
 ]
 
 nightly = [
-    "near-actix-test-utils/nightly",
-    "near-async/nightly",
     "near-chain-configs/nightly",
     "near-chain/nightly",
     "near-chunks/nightly",

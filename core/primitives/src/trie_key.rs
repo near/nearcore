@@ -1,8 +1,7 @@
 use crate::types::AccountId;
 use crate::{action::GlobalContractIdentifier, hash::CryptoHash};
-use borsh::{BorshDeserialize, BorshSerialize, to_vec};
+use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::PublicKey;
-use near_primitives_core::account::AccountContract;
 use near_primitives_core::types::{NonceIndex, ShardId};
 use near_schema_checker_lib::ProtocolSchema;
 use std::mem::size_of;
@@ -127,8 +126,8 @@ impl GlobalContractCodeIdentifier {
         }
     }
 
-    pub fn append_into(&self, buf: &mut Vec<u8>) {
-        buf.extend(to_vec(self).unwrap());
+    pub fn append_into(&self, buf: &mut impl trie_key_buffer::TrieKeyBuffer) {
+        borsh::to_writer(buf.borsh_writer(), self).unwrap()
     }
 }
 
@@ -269,6 +268,9 @@ impl Byte for u8 {
     }
 }
 
+/// Convenience common alias for storage of encoded `TrieKey`s in `SmallVec`s.
+pub type SmallKeyVec = smallvec::SmallVec<[u8; 64]>;
+
 impl TrieKey {
     pub fn len(&self) -> usize {
         match self {
@@ -349,7 +351,7 @@ impl TrieKey {
         }
     }
 
-    pub fn append_into(&self, buf: &mut Vec<u8>) {
+    pub fn append_into(&self, buf: &mut impl trie_key_buffer::TrieKeyBuffer) {
         let expected_len = self.len();
         let start_len = buf.len();
         buf.reserve(self.len());
@@ -366,7 +368,7 @@ impl TrieKey {
                 buf.push(col::ACCESS_KEY);
                 buf.extend(account_id.as_bytes());
                 buf.push(ACCESS_KEY_SEPARATOR);
-                buf.extend(borsh::to_vec(&public_key).unwrap());
+                borsh::to_writer(buf.borsh_writer(), &public_key).unwrap();
             }
             TrieKey::ReceivedData { receiver_id, data_id } => {
                 buf.push(col::RECEIVED_DATA);
@@ -447,8 +449,8 @@ impl TrieKey {
                 buf.push(col::GAS_KEY);
                 buf.extend(account_id.as_bytes());
                 buf.push(ACCOUNT_DATA_SEPARATOR);
-                buf.extend(borsh::to_vec(&public_key).unwrap());
-                buf.extend(borsh::to_vec(&index).unwrap());
+                borsh::to_writer(buf.borsh_writer(), &public_key).unwrap();
+                borsh::to_writer(buf.borsh_writer(), &index).unwrap();
             }
         };
         debug_assert_eq!(expected_len, buf.len() - start_len);
@@ -487,22 +489,61 @@ impl TrieKey {
             TrieKey::GasKey { account_id, .. } => Some(account_id.clone()),
         }
     }
+}
 
-    pub fn for_account_contract_code(
-        account_id: &AccountId,
-        account_contract: &AccountContract,
-    ) -> Option<Self> {
-        let trie_key = match account_contract {
-            AccountContract::None => return None,
-            AccountContract::Local(_) => Self::ContractCode { account_id: account_id.clone() },
-            AccountContract::Global(code_hash) => Self::GlobalContractCode {
-                identifier: GlobalContractCodeIdentifier::CodeHash(*code_hash),
-            },
-            AccountContract::GlobalByAccount(account_id) => Self::GlobalContractCode {
-                identifier: GlobalContractCodeIdentifier::AccountId(account_id.clone()),
-            },
-        };
-        Some(trie_key)
+mod trie_key_buffer {
+    /// Buffers into which [`TrieKey`s](super::TrieKey) can be encoded.
+    pub trait TrieKeyBuffer {
+        fn len(&self) -> usize;
+        fn reserve(&mut self, additional: usize);
+        fn push(&mut self, byte: u8);
+        fn extend(&mut self, bytes: &[u8]);
+
+        type BorshWriter<'a>: borsh::io::Write
+        where
+            Self: 'a;
+        fn borsh_writer(&mut self) -> Self::BorshWriter<'_>;
+    }
+
+    impl TrieKeyBuffer for Vec<u8> {
+        fn len(&self) -> usize {
+            Self::len(self)
+        }
+        fn reserve(&mut self, additional: usize) {
+            Self::reserve(self, additional)
+        }
+        fn push(&mut self, byte: u8) {
+            Self::push(self, byte)
+        }
+        fn extend(&mut self, bytes: &[u8]) {
+            Self::extend_from_slice(self, bytes)
+        }
+        type BorshWriter<'a> = &'a mut Self;
+        fn borsh_writer(&mut self) -> Self::BorshWriter<'_> {
+            self
+        }
+    }
+
+    impl<A: smallvec::Array<Item = u8>> TrieKeyBuffer for smallvec::SmallVec<A> {
+        fn len(&self) -> usize {
+            Self::len(self)
+        }
+        fn reserve(&mut self, additional: usize) {
+            Self::reserve(self, additional)
+        }
+        fn push(&mut self, byte: u8) {
+            Self::push(self, byte)
+        }
+        fn extend(&mut self, bytes: &[u8]) {
+            Self::extend_from_slice(self, bytes)
+        }
+        type BorshWriter<'a>
+            = &'a mut Self
+        where
+            A: 'a;
+        fn borsh_writer(&mut self) -> Self::BorshWriter<'_> {
+            self
+        }
     }
 }
 
@@ -770,7 +811,7 @@ pub mod trie_key_parsers {
         res.push(col::GAS_KEY);
         res.extend(account_id.as_bytes());
         res.push(ACCOUNT_DATA_SEPARATOR);
-        res.extend(borsh::to_vec(public_key).unwrap());
+        borsh::to_writer(&mut res, public_key).unwrap();
         res
     }
 

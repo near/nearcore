@@ -1,6 +1,7 @@
 use std::sync::Arc;
 use std::task::Poll;
 
+#[cfg(feature = "test_features")]
 use near_async::messaging::CanSend;
 use near_async::test_loop::TestLoopV2;
 use near_async::test_loop::data::TestLoopData;
@@ -29,15 +30,22 @@ pub struct TestLoopNode<'a> {
 
 impl<'a> TestLoopNode<'a> {
     pub fn for_account(node_datas: &'a [NodeExecutionData], account_id: &AccountId) -> Self {
+        // cspell:ignore rfind
+        // Uses `rfind` because `TestLoopEnv::restart_node()` appends a new copy to `node_datas`.
         let data = node_datas
             .iter()
-            .find(|data| &data.account_id == account_id)
+            .rfind(|data| &data.account_id == account_id)
             .unwrap_or_else(|| panic!("client with account id {account_id} not found"));
         Self { data }
     }
 
+    #[allow(unused)]
     pub fn all(node_datas: &'a [NodeExecutionData]) -> Vec<Self> {
         node_datas.iter().map(|data| Self { data }).collect()
+    }
+
+    pub fn data(&self) -> &NodeExecutionData {
+        &self.data
     }
 
     pub fn client<'b>(&self, test_loop_data: &'b TestLoopData) -> &'b Client {
@@ -95,6 +103,7 @@ impl<'a> TestLoopNode<'a> {
         );
     }
 
+    #[track_caller]
     pub fn run_tx(
         &self,
         test_loop: &mut TestLoopV2,

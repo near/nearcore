@@ -36,7 +36,7 @@ mod ed25519_benches {
 
     fn safe_verify_batch_signatures(c: &mut Criterion) {
         // static BATCH_SIZES: [usize; 9] = [4, 8, 16, 32, 64, 96, 128, 256, 1024];
-        static BATCH_SIZES: [usize; 3] = [128, 256, 1024];
+        static BATCH_SIZES: [usize; 4] = [32, 128, 256, 1024];
 
         // Benchmark batch verification for all the above batch sizes
         let mut group = c.benchmark_group("Ed25519 safe batch signature verification");

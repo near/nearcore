@@ -412,10 +412,13 @@ class NeardRunner:
         config['log_summary_style'] = 'plain'
         config['network']['skip_sync_wait'] = False
         config['rpc']['enable_debug_rpc'] = True
-        config['consensus']['min_block_production_delay']['secs'] = 1
-        config['consensus']['min_block_production_delay']['nanos'] = 300000000
-        config['consensus']['max_block_production_delay']['secs'] = 3
-        config['consensus']['max_block_production_delay']['nanos'] = 0
+        config['consensus']['min_block_production_delay']['secs'] = 0
+        config['consensus']['min_block_production_delay']['nanos'] = 600000000
+        config['consensus']['max_block_production_delay']['secs'] = 1
+        config['consensus']['max_block_production_delay']['nanos'] = 800000000
+        config['consensus']['chunk_wait_mult'] = [1, 3]
+        config['consensus']['doomslug_step_period']['secs'] = 0
+        config['consensus']['doomslug_step_period']['nanos'] = 10000000
         with open(self.tmp_near_home_path('config.json'), 'w') as f:
             json.dump(config, f, indent=2)
 
@@ -1031,9 +1034,9 @@ class NeardRunner:
             self.set_state(TestState.RUNNING)
 
     # Configure the logs config file to control the level of rust and opentelemetry logs.
-    # Default config sets level to DEBUG for "client" and "chain" logs, WARN for tokio+actix, and INFO for everything else.
+    # Default config sets level to DEBUG for "client" and "chain" logs, WARN for tokio, and INFO for everything else.
     def configure_log_config(self):
-        default_log_filter = 'client=debug,chain=debug,mirror=debug,actix_web=warn,mio=warn,tokio_util=warn,actix_server=warn,actix_http=warn,info'
+        default_log_filter = 'client=debug,chain=debug,mirror=debug,mio=warn,tokio_util=warn,info'
         log_config_path = self.target_near_home_path('log_config.json')
 
         logging.info("Creating log_config.json with default log filter.")

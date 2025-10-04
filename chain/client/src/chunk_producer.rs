@@ -2,7 +2,9 @@ use crate::debug::PRODUCTION_TIMES_CACHE_SIZE;
 use crate::metrics;
 use itertools::Itertools;
 use near_async::time::{Clock, Duration, Instant};
-use near_chain::types::{PreparedTransactions, RuntimeAdapter, RuntimeStorageConfig};
+use near_chain::types::{
+    PrepareTransactionsBlockContext, PreparedTransactions, RuntimeAdapter, RuntimeStorageConfig,
+};
 use near_chain::{Block, Chain, ChainStore};
 use near_chain_configs::MutableConfigValue;
 use near_chunks::client::ShardedTransactionPool;
@@ -306,8 +308,11 @@ impl ChunkProducer {
         let outgoing_receipts_root = self.calculate_receipts_root(epoch_id, &outgoing_receipts)?;
         let gas_used = chunk_extra.gas_used();
         #[cfg(feature = "test_features")]
-        let gas_used =
-            if self.adversarial.produce_invalid_chunks { gas_used + 1 } else { gas_used };
+        let gas_used = if self.adversarial.produce_invalid_chunks {
+            gas_used.checked_add(near_primitives::types::Gas::from_gas(1)).unwrap()
+        } else {
+            gas_used
+        };
 
         let congestion_info = chunk_extra.congestion_info();
         let bandwidth_requests = chunk_extra.bandwidth_requests();
@@ -376,6 +381,17 @@ impl ChunkProducer {
     }
 
     /// Prepares an ordered list of valid transactions from the pool up the limits.
+    #[instrument(
+        target = "client",
+        level = "debug",
+        "producer_prepare_transactions",
+        skip_all,
+        fields(
+            height = prev_block.header().height() + 1,
+            shard_id = %shard_uid.shard_id(),
+            tag_block_production = true
+        )
+    )]
     fn prepare_transactions(
         &self,
         shard_uid: ShardUId,
@@ -402,10 +418,12 @@ impl ChunkProducer {
                 source: near_chain::types::StorageDataSource::Db,
                 state_patch: Default::default(),
             };
+            let prev_block_context =
+                PrepareTransactionsBlockContext::new(prev_block, &*self.epoch_manager)?;
             self.runtime_adapter.prepare_transactions(
                 storage_config,
                 shard_id,
-                prev_block.into(),
+                prev_block_context,
                 &mut iter,
                 chain_validate,
                 self.chunk_transactions_time_limit.get(),

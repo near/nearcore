@@ -113,6 +113,7 @@ pub(crate) fn apply_block(
                     last_validator_proposals: chunk_inner.prev_validator_proposals(),
                     gas_limit: chunk_inner.gas_limit(),
                     is_new_chunk: true,
+                    on_post_state_ready: None,
                 },
                 ApplyChunkBlockContext::from_header(
                     block.header(),
@@ -138,6 +139,7 @@ pub(crate) fn apply_block(
                     last_validator_proposals: chunk_extra.validator_proposals(),
                     gas_limit: chunk_extra.gas_limit(),
                     is_new_chunk: false,
+                    on_post_state_ready: None,
                 },
                 ApplyChunkBlockContext::from_header(
                     block.header(),
@@ -699,10 +701,10 @@ pub(crate) fn print_chain(
                             let chunk_hash = chunks[shard_index].chunk_hash();
                             if let Ok(chunk) = chain_store.get_chunk(chunk_hash) {
                                 chunk_debug_str.push(format!(
-                                    "{}: {} {: >3} Tgas {: >10}",
+                                    "{}: {} {: >3} {: >10}",
                                     shard_id,
                                     format_hash(chunk_hash.0, show_full_hashes),
-                                    chunk.cloned_header().prev_gas_used() / (1_000_000_000_000),
+                                    chunk.cloned_header().prev_gas_used(),
                                     chunk_producer
                                 ));
                             } else {
@@ -1144,7 +1146,8 @@ pub(crate) fn print_epoch_analysis(
             for validator_id in validator_ids {
                 let validator = next_next_epoch_info.get_validator(*validator_id);
                 let account_id = validator.account_id().clone();
-                *stakes.entry(i).or_insert(0) += validator.stake();
+                let entry: &mut Balance = stakes.entry(i).or_insert(Balance::ZERO);
+                *entry = entry.checked_add(validator.stake()).unwrap();
                 *validator_num.entry(i).or_insert(0) += 1;
                 if !next_validator_to_shard
                     .get(&account_id)
@@ -1180,8 +1183,9 @@ pub(crate) fn print_epoch_analysis(
                     validator_num.values().min().unwrap(),
                     validator_num.values().max().unwrap() - validator_num.values().min().unwrap(),
                     min_stake,
-                    max_stake - min_stake,
-                    ((max_stake - min_stake) as f64) / (*max_stake as f64)
+                    max_stake.checked_sub(*min_stake).unwrap(),
+                    ((max_stake.checked_sub(*min_stake).unwrap()).as_yoctonear() as f64)
+                        / (max_stake.as_yoctonear() as f64)
                 );
                 // Use the generated epoch info for the next iteration.
                 next_epoch_info = next_next_epoch_info;

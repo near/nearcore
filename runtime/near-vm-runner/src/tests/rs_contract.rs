@@ -6,6 +6,7 @@ use crate::logic::types::ReturnData;
 use crate::runner::VMKindExt;
 use near_parameters::RuntimeFeesConfig;
 use near_primitives_core::types::Balance;
+use near_primitives_core::types::Gas;
 use std::mem::size_of;
 use std::sync::Arc;
 
@@ -27,7 +28,7 @@ fn test_contract(vm_kind: VMKind) -> ContractCode {
         VMKind::Wasmer0 => unreachable!(),
         VMKind::Wasmer2 => unreachable!(),
         // production and developer environment, use a cutting-edge WASM
-        VMKind::Wasmtime | VMKind::NearVm | VMKind::NearVm2 => near_test_contracts::rs_contract(),
+        VMKind::Wasmtime | VMKind::NearVm => near_test_contracts::rs_contract(),
     };
     ContractCode::new(code.to_vec(), None)
 }
@@ -127,7 +128,7 @@ fn run_test_ext(
         .run(&mut fake_external, &context, Arc::clone(&fees))
         .unwrap_or_else(|err| panic!("Failed execution: {:?}", err));
 
-    assert_eq!(outcome.profile.action_gas(), 0);
+    assert_eq!(outcome.profile.action_gas(), Gas::ZERO);
 
     if let ReturnData::Value(value) = outcome.return_data {
         assert_eq!(&value, &expected);
@@ -182,21 +183,21 @@ def_test_ext!(
     "ext_validator_stake",
     &(100u128).to_le_bytes(),
     b"alice",
-    vec![("alice", 100), ("bob", 1)]
+    vec![("alice", Balance::from_yoctonear(100)), ("bob", Balance::from_yoctonear(1))]
 );
 def_test_ext!(
     ext_validator_stake_bob,
     "ext_validator_stake",
     &(1u128).to_le_bytes(),
     b"bob",
-    vec![("alice", 100), ("bob", 1)]
+    vec![("alice", Balance::from_yoctonear(100)), ("bob", Balance::from_yoctonear(1))]
 );
 def_test_ext!(
     ext_validator_stake_carol,
     "ext_validator_stake",
     &(0u128).to_le_bytes(),
     b"carol",
-    vec![("alice", 100), ("bob", 1)]
+    vec![("alice", Balance::from_yoctonear(100)), ("bob", Balance::from_yoctonear(1))]
 );
 
 def_test_ext!(
@@ -204,7 +205,7 @@ def_test_ext!(
     "ext_validator_total_stake",
     &(100u128 + 1).to_le_bytes(),
     &[],
-    vec![("alice", 100), ("bob", 1)]
+    vec![("alice", Balance::from_yoctonear(100)), ("bob", Balance::from_yoctonear(1))]
 );
 
 #[test]
@@ -232,7 +233,7 @@ pub fn test_out_of_memory() {
         assert_eq!(
             result.aborted,
             match vm_kind {
-                VMKind::NearVm | VMKind::NearVm2 | VMKind::Wasmtime =>
+                VMKind::NearVm | VMKind::Wasmtime =>
                     Some(FunctionCallError::WasmTrap(WasmTrap::Unreachable)),
                 VMKind::Wasmer2 | VMKind::Wasmer0 => unreachable!(),
             }
@@ -248,10 +249,10 @@ fn function_call_weight_contract() -> ContractCode {
 fn attach_unspent_gas_but_use_all_gas() {
     with_vm_variants(|vm_kind: VMKind| {
         let mut context = create_context(vec![]);
-        context.prepaid_gas = 100 * 10u64.pow(12);
+        context.prepaid_gas = Gas::from_teragas(100);
 
         let mut config = test_vm_config(Some(vm_kind));
-        config.limit_config.max_gas_burnt = context.prepaid_gas / 3;
+        config.limit_config.max_gas_burnt = context.prepaid_gas.checked_div(3).unwrap();
         let config = Arc::new(config);
         let code = function_call_weight_contract();
         let mut external = MockedExternal::with_code(code);
@@ -268,7 +269,9 @@ fn attach_unspent_gas_but_use_all_gas() {
         assert!(matches!(err, FunctionCallError::HostError(HostError::GasExceeded)));
 
         match &external.action_log[..] {
-            [_, MockAction::FunctionCallWeight { prepaid_gas: gas, .. }, _] => assert_eq!(*gas, 0),
+            [_, MockAction::FunctionCallWeight { prepaid_gas: gas, .. }, _] => {
+                assert_eq!(*gas, Gas::ZERO)
+            }
             other => panic!("unexpected actions: {other:?}"),
         }
     });

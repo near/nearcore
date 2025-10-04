@@ -1005,8 +1005,17 @@
               "FunctionCall": {
                 "properties": {
                   "allowance": {
-                    "nullable": true,
-                    "type": "string"
+                    "anyOf": [
+                      {
+                        "$ref": "#/components/schemas/NearToken"
+                      },
+                      {
+                        "enum": [
+                          null
+                        ],
+                        "nullable": true
+                      }
+                    ]
                   },
                   "method_names": {
                     "items": {
@@ -1115,7 +1124,9 @@
         "type": "object"
       },
       "AccountId": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
         "description": "NEAR Account Identifier.\n\nThis is a unique, syntactically valid, human-readable account identifier on the NEAR network.\n\n[See the crate-level docs for information about validation.](index.html#account-id-rules)\n\nAlso see [Error kind precedence](AccountId#error-kind-precedence).\n\n## Examples\n\n```\nuse near_account_id::AccountId;\n\nlet alice: AccountId = \"alice.near\".parse().unwrap();\n\nassert!(\"ƒelicia.near\".parse::<AccountId>().is_err()); // (ƒ is not f)\n```",
+        "title": "AccountId",
         "type": "string"
       },
       "AccountIdValidityRulesVersion": {
@@ -1131,7 +1142,7 @@
             "$ref": "#/components/schemas/AccountId"
           },
           "amount": {
-            "type": "string"
+            "$ref": "#/components/schemas/NearToken"
           },
           "public_key": {
             "$ref": "#/components/schemas/PublicKey"
@@ -1148,7 +1159,7 @@
         "description": "A view of the account",
         "properties": {
           "amount": {
-            "type": "string"
+            "$ref": "#/components/schemas/NearToken"
           },
           "code_hash": {
             "$ref": "#/components/schemas/CryptoHash"
@@ -1180,7 +1191,7 @@
             ]
           },
           "locked": {
-            "type": "string"
+            "$ref": "#/components/schemas/NearToken"
           },
           "storage_paid_at": {
             "default": 0,
@@ -1559,8 +1570,12 @@
                     "description": "An account which needs balance"
                   },
                   "amount": {
-                    "description": "Balance required to complete an action.",
-                    "type": "string"
+                    "allOf": [
+                      {
+                        "$ref": "#/components/schemas/NearToken"
+                      }
+                    ],
+                    "description": "Balance required to complete an action."
                   }
                 },
                 "required": [
@@ -1606,13 +1621,13 @@
                     "$ref": "#/components/schemas/AccountId"
                   },
                   "balance": {
-                    "type": "string"
+                    "$ref": "#/components/schemas/NearToken"
                   },
                   "locked": {
-                    "type": "string"
+                    "$ref": "#/components/schemas/NearToken"
                   },
                   "stake": {
-                    "type": "string"
+                    "$ref": "#/components/schemas/NearToken"
                   }
                 },
                 "required": [
@@ -1638,10 +1653,10 @@
                     "$ref": "#/components/schemas/AccountId"
                   },
                   "minimum_stake": {
-                    "type": "string"
+                    "$ref": "#/components/schemas/NearToken"
                   },
                   "stake": {
-                    "type": "string"
+                    "$ref": "#/components/schemas/NearToken"
                   }
                 },
                 "required": [
@@ -1895,12 +1910,10 @@
                     "$ref": "#/components/schemas/FunctionArgs"
                   },
                   "deposit": {
-                    "type": "string"
+                    "$ref": "#/components/schemas/NearToken"
                   },
                   "gas": {
-                    "format": "uint64",
-                    "minimum": 0,
-                    "type": "integer"
+                    "$ref": "#/components/schemas/NearGas"
                   },
                   "method_name": {
                     "type": "string"
@@ -1926,7 +1939,7 @@
               "Transfer": {
                 "properties": {
                   "deposit": {
-                    "type": "string"
+                    "$ref": "#/components/schemas/NearToken"
                   }
                 },
                 "required": [
@@ -1949,7 +1962,7 @@
                     "$ref": "#/components/schemas/PublicKey"
                   },
                   "stake": {
-                    "type": "string"
+                    "$ref": "#/components/schemas/NearToken"
                   }
                 },
                 "required": [
@@ -2133,6 +2146,37 @@
               "UseGlobalContractByAccountId"
             ],
             "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "DeterministicStateInit": {
+                "properties": {
+                  "code": {
+                    "$ref": "#/components/schemas/GlobalContractIdentifierView"
+                  },
+                  "data": {
+                    "additionalProperties": {
+                      "type": "string"
+                    },
+                    "type": "object"
+                  },
+                  "deposit": {
+                    "$ref": "#/components/schemas/NearToken"
+                  }
+                },
+                "required": [
+                  "code",
+                  "data",
+                  "deposit"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "DeterministicStateInit"
+            ],
+            "type": "object"
           }
         ]
       },
@@ -2153,14 +2197,10 @@
               "TotalPrepaidGasExceeded": {
                 "properties": {
                   "limit": {
-                    "format": "uint64",
-                    "minimum": 0,
-                    "type": "integer"
+                    "$ref": "#/components/schemas/NearGas"
                   },
                   "total_prepaid_gas": {
-                    "format": "uint64",
-                    "minimum": 0,
-                    "type": "integer"
+                    "$ref": "#/components/schemas/NearGas"
                   }
                 },
                 "required": [
@@ -2438,6 +2478,86 @@
               "UnsupportedProtocolFeature"
             ],
             "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "InvalidDeterministicStateInitReceiver": {
+                "properties": {
+                  "derived_id": {
+                    "$ref": "#/components/schemas/AccountId"
+                  },
+                  "receiver_id": {
+                    "$ref": "#/components/schemas/AccountId"
+                  }
+                },
+                "required": [
+                  "receiver_id",
+                  "derived_id"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "InvalidDeterministicStateInitReceiver"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "DeterministicStateInitKeyLengthExceeded": {
+                "properties": {
+                  "length": {
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "limit": {
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "length",
+                  "limit"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "DeterministicStateInitKeyLengthExceeded"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "DeterministicStateInitValueLengthExceeded": {
+                "properties": {
+                  "length": {
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "limit": {
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "length",
+                  "limit"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "DeterministicStateInitValueLengthExceeded"
+            ],
+            "type": "object"
           }
         ]
       },
@@ -2713,7 +2833,7 @@
             ]
           },
           "gas_price": {
-            "type": "string"
+            "$ref": "#/components/schemas/NearToken"
           },
           "hash": {
             "$ref": "#/components/schemas/CryptoHash"
@@ -2764,8 +2884,13 @@
             "$ref": "#/components/schemas/CryptoHash"
           },
           "rent_paid": {
-            "description": "TODO(2271): deprecated.",
-            "type": "string"
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/NearToken"
+              }
+            ],
+            "default": "0",
+            "description": "TODO(2271): deprecated."
           },
           "signature": {
             "allOf": [
@@ -2785,7 +2910,7 @@
             "type": "string"
           },
           "total_supply": {
-            "type": "string"
+            "$ref": "#/components/schemas/NearToken"
           },
           "validator_proposals": {
             "items": {
@@ -2794,8 +2919,13 @@
             "type": "array"
           },
           "validator_reward": {
-            "description": "TODO(2271): deprecated.",
-            "type": "string"
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/NearToken"
+              }
+            ],
+            "default": "0",
+            "description": "TODO(2271): deprecated."
           }
         },
         "required": [
@@ -2817,8 +2947,6 @@
           "validator_proposals",
           "chunk_mask",
           "gas_price",
-          "rent_paid",
-          "validator_reward",
           "total_supply",
           "challenges_result",
           "last_final_block",
@@ -2960,7 +3088,7 @@
         "description": "Contains main info about the chunk.",
         "properties": {
           "balance_burnt": {
-            "type": "string"
+            "$ref": "#/components/schemas/NearToken"
           },
           "bandwidth_requests": {
             "anyOf": [
@@ -3000,14 +3128,10 @@
             "$ref": "#/components/schemas/CryptoHash"
           },
           "gas_limit": {
-            "format": "uint64",
-            "minimum": 0,
-            "type": "integer"
+            "$ref": "#/components/schemas/NearGas"
           },
           "gas_used": {
-            "format": "uint64",
-            "minimum": 0,
-            "type": "integer"
+            "$ref": "#/components/schemas/NearGas"
           },
           "height_created": {
             "format": "uint64",
@@ -3032,8 +3156,13 @@
             "$ref": "#/components/schemas/CryptoHash"
           },
           "rent_paid": {
-            "description": "TODO(2271): deprecated.",
-            "type": "string"
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/NearToken"
+              }
+            ],
+            "default": "0",
+            "description": "TODO(2271): deprecated."
           },
           "shard_id": {
             "$ref": "#/components/schemas/ShardId"
@@ -3051,8 +3180,13 @@
             "type": "array"
           },
           "validator_reward": {
-            "description": "TODO(2271): deprecated.",
-            "type": "string"
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/NearToken"
+              }
+            ],
+            "default": "0",
+            "description": "TODO(2271): deprecated."
           }
         },
         "required": [
@@ -3067,13 +3201,84 @@
           "shard_id",
           "gas_used",
           "gas_limit",
-          "rent_paid",
-          "validator_reward",
           "balance_burnt",
           "outgoing_receipts_root",
           "tx_root",
           "validator_proposals",
           "signature"
+        ],
+        "type": "object"
+      },
+      "CloudArchivalReaderConfig": {
+        "description": "Configuration for a cloud-based archival reader.",
+        "properties": {
+          "cloud_storage": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/CloudStorageConfig"
+              }
+            ],
+            "description": "Configures the external storage used by the archival node."
+          }
+        },
+        "required": [
+          "cloud_storage"
+        ],
+        "type": "object"
+      },
+      "CloudArchivalWriterConfig": {
+        "description": "Configuration for a cloud-based archival writer. If this config is present, the writer is enabled and\nwrites chunk-related data based on the tracked shards. This config also controls additional archival\nbehavior such as block data and polling interval.",
+        "properties": {
+          "archive_block_data": {
+            "default": false,
+            "description": "Determines whether block-related data should be written to cloud storage.",
+            "type": "boolean"
+          },
+          "cloud_storage": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/CloudStorageConfig"
+              }
+            ],
+            "description": "Configures the external storage used by the archival node."
+          },
+          "polling_interval": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/DurationAsStdSchemaProvider"
+              }
+            ],
+            "default": {
+              "nanos": 0,
+              "secs": 1
+            },
+            "description": "Interval at which the system checks for new blocks or chunks to archive."
+          }
+        },
+        "required": [
+          "cloud_storage"
+        ],
+        "type": "object"
+      },
+      "CloudStorageConfig": {
+        "description": "Configures the external storage used by the archival node.",
+        "properties": {
+          "credentials_file": {
+            "description": "Location of a json file with credentials allowing access to the bucket.",
+            "nullable": true,
+            "type": "string"
+          },
+          "storage": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/ExternalStorageLocation"
+              }
+            ],
+            "description": "The storage to persist the archival data."
+          }
+        },
+        "required": [
+          "storage"
         ],
         "type": "object"
       },
@@ -3138,16 +3343,20 @@
         "description": "The configuration for congestion control. More info about congestion [here](https://near.github.io/nearcore/architecture/how/receipt-congestion.html?highlight=congestion#receipt-congestion)",
         "properties": {
           "allowed_shard_outgoing_gas": {
-            "description": "How much gas the chosen allowed shard can send to a 100% congested shard.\n\nSee [`CongestionControlConfig`] for more details.",
-            "format": "uint64",
-            "minimum": 0,
-            "type": "integer"
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/NearGas"
+              }
+            ],
+            "description": "How much gas the chosen allowed shard can send to a 100% congested shard.\n\nSee [`CongestionControlConfig`] for more details."
           },
           "max_congestion_incoming_gas": {
-            "description": "How much gas in delayed receipts of a shard is 100% incoming congestion.\n\nSee [`CongestionControlConfig`] for more details.",
-            "format": "uint64",
-            "minimum": 0,
-            "type": "integer"
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/NearGas"
+              }
+            ],
+            "description": "How much gas in delayed receipts of a shard is 100% incoming congestion.\n\nSee [`CongestionControlConfig`] for more details."
           },
           "max_congestion_memory_consumption": {
             "description": "How much memory space of all delayed and buffered receipts in a shard is\nconsidered 100% congested.\n\nSee [`CongestionControlConfig`] for more details.",
@@ -3162,34 +3371,44 @@
             "type": "integer"
           },
           "max_congestion_outgoing_gas": {
-            "description": "How much gas in outgoing buffered receipts of a shard is 100% congested.\n\nOutgoing congestion contributes to overall congestion, which reduces how\nmuch other shards are allowed to forward to this shard.",
-            "format": "uint64",
-            "minimum": 0,
-            "type": "integer"
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/NearGas"
+              }
+            ],
+            "description": "How much gas in outgoing buffered receipts of a shard is 100% congested.\n\nOutgoing congestion contributes to overall congestion, which reduces how\nmuch other shards are allowed to forward to this shard."
           },
           "max_outgoing_gas": {
-            "description": "The maximum amount of gas attached to receipts a shard can forward to\nanother shard per chunk.\n\nSee [`CongestionControlConfig`] for more details.",
-            "format": "uint64",
-            "minimum": 0,
-            "type": "integer"
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/NearGas"
+              }
+            ],
+            "description": "The maximum amount of gas attached to receipts a shard can forward to\nanother shard per chunk.\n\nSee [`CongestionControlConfig`] for more details."
           },
           "max_tx_gas": {
-            "description": "The maximum amount of gas in a chunk spent on converting new transactions to\nreceipts.\n\nSee [`CongestionControlConfig`] for more details.",
-            "format": "uint64",
-            "minimum": 0,
-            "type": "integer"
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/NearGas"
+              }
+            ],
+            "description": "The maximum amount of gas in a chunk spent on converting new transactions to\nreceipts.\n\nSee [`CongestionControlConfig`] for more details."
           },
           "min_outgoing_gas": {
-            "description": "The minimum gas each shard can send to a shard that is not fully congested.\n\nSee [`CongestionControlConfig`] for more details.",
-            "format": "uint64",
-            "minimum": 0,
-            "type": "integer"
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/NearGas"
+              }
+            ],
+            "description": "The minimum gas each shard can send to a shard that is not fully congested.\n\nSee [`CongestionControlConfig`] for more details."
           },
           "min_tx_gas": {
-            "description": "The minimum amount of gas in a chunk spent on converting new transactions\nto receipts, as long as the receiving shard is not congested.\n\nSee [`CongestionControlConfig`] for more details.",
-            "format": "uint64",
-            "minimum": 0,
-            "type": "integer"
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/NearGas"
+              }
+            ],
+            "description": "The minimum amount of gas in a chunk spent on converting new transactions\nto receipts, as long as the receiving shard is not congested.\n\nSee [`CongestionControlConfig`] for more details."
           },
           "outgoing_receipts_big_size_limit": {
             "description": "Large size limit for outgoing receipts to a shard, used when it's safe\nto send a lot of receipts without making the state witness too large.\nIt limits the total sum of outgoing receipts, not individual receipts.",
@@ -3398,7 +3617,7 @@
             "type": "array"
           },
           "stake": {
-            "type": "string"
+            "$ref": "#/components/schemas/NearToken"
           }
         },
         "required": [
@@ -3603,6 +3822,55 @@
         ],
         "type": "object"
       },
+      "DeterministicAccountStateInit": {
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "properties": {
+              "V1": {
+                "$ref": "#/components/schemas/DeterministicAccountStateInitV1"
+              }
+            },
+            "required": [
+              "V1"
+            ],
+            "type": "object"
+          }
+        ]
+      },
+      "DeterministicAccountStateInitV1": {
+        "properties": {
+          "code": {
+            "$ref": "#/components/schemas/GlobalContractIdentifier"
+          },
+          "data": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object"
+          }
+        },
+        "required": [
+          "code",
+          "data"
+        ],
+        "type": "object"
+      },
+      "DeterministicStateInitAction": {
+        "properties": {
+          "deposit": {
+            "$ref": "#/components/schemas/NearToken"
+          },
+          "state_init": {
+            "$ref": "#/components/schemas/DeterministicAccountStateInit"
+          }
+        },
+        "required": [
+          "state_init",
+          "deposit"
+        ],
+        "type": "object"
+      },
       "Direction": {
         "enum": [
           "Left",
@@ -3614,7 +3882,7 @@
         "description": "Configures how to dump state to external storage.",
         "properties": {
           "credentials_file": {
-            "description": "Location of a json file with credentials allowing write access to the bucket.",
+            "description": "Location of a json file with credentials allowing access to the bucket.",
             "nullable": true,
             "type": "string"
           },
@@ -3743,10 +4011,12 @@
             "description": "The id of the account on which the execution happens. For transaction this is signer_id,\nfor receipt this is receiver_id."
           },
           "gas_burnt": {
-            "description": "The amount of the gas burnt by the given transaction or receipt.",
-            "format": "uint64",
-            "minimum": 0,
-            "type": "integer"
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/NearGas"
+              }
+            ],
+            "description": "The amount of the gas burnt by the given transaction or receipt."
           },
           "logs": {
             "description": "Logs from this transaction or receipt.",
@@ -3782,8 +4052,12 @@
             "description": "Execution status. Contains the result in case of successful execution."
           },
           "tokens_burnt": {
-            "description": "The amount of tokens burnt corresponding to the burnt gas amount.\nThis value doesn't always equal to the `gas_burnt` multiplied by the gas price, because\nthe prepaid gas price might be lower than the actual gas price and it creates a deficit.\n`tokens_burnt` also contains the penalty subtracted from refunds, while\n`gas_burnt` only contains the gas that we actually burn for the execution.",
-            "type": "string"
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/NearToken"
+              }
+            ],
+            "description": "The amount of tokens burnt corresponding to the burnt gas amount.\nThis value doesn't always equal to the `gas_burnt` multiplied by the gas price, because\nthe prepaid gas price might be lower than the actual gas price and it creates a deficit.\n`tokens_burnt` also contains the penalty subtracted from refunds, while\n`gas_burnt` only contains the gas that we actually burn for the execution."
           }
         },
         "required": [
@@ -3876,506 +4150,600 @@
         "description": "Typed view of ExtCostsConfig to preserve JSON output field names in protocol\nconfig RPC output.",
         "properties": {
           "alt_bn128_g1_multiexp_base": {
-            "description": "Base cost for multiexp",
-            "format": "uint64",
-            "minimum": 0,
-            "type": "integer"
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/NearGas"
+              }
+            ],
+            "description": "Base cost for multiexp"
           },
           "alt_bn128_g1_multiexp_element": {
-            "description": "Per element cost for multiexp",
-            "format": "uint64",
-            "minimum": 0,
-            "type": "integer"
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/NearGas"
+              }
+            ],
+            "description": "Per element cost for multiexp"
           },
           "alt_bn128_g1_sum_base": {
-            "description": "Base cost for sum",
-            "format": "uint64",
-            "minimum": 0,
-            "type": "integer"
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/NearGas"
+              }
+            ],
+            "description": "Base cost for sum"
           },
           "alt_bn128_g1_sum_element": {
-            "description": "Per element cost for sum",
-            "format": "uint64",
-            "minimum": 0,
-            "type": "integer"
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/NearGas"
+              }
+            ],
+            "description": "Per element cost for sum"
           },
           "alt_bn128_pairing_check_base": {
-            "description": "Base cost for pairing check",
-            "format": "uint64",
-            "minimum": 0,
-            "type": "integer"
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/NearGas"
+              }
+            ],
+            "description": "Base cost for pairing check"
           },
           "alt_bn128_pairing_check_element": {
-            "description": "Per element cost for pairing check",
-            "format": "uint64",
-            "minimum": 0,
-            "type": "integer"
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/NearGas"
+              }
+            ],
+            "description": "Per element cost for pairing check"
           },
           "base": {
-            "description": "Base cost for calling a host function.",
-            "format": "uint64",
-            "minimum": 0,
-            "type": "integer"
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/NearGas"
+              }
+            ],
+            "description": "Base cost for calling a host function."
           },
           "bls12381_g1_multiexp_base": {
-            "format": "uint64",
-            "minimum": 0,
-            "type": "integer"
+            "$ref": "#/components/schemas/NearGas"
           },
           "bls12381_g1_multiexp_element": {
-            "format": "uint64",
-            "minimum": 0,
-            "type": "integer"
+            "$ref": "#/components/schemas/NearGas"
           },
           "bls12381_g2_multiexp_base": {
-            "format": "uint64",
-            "minimum": 0,
-            "type": "integer"
+            "$ref": "#/components/schemas/NearGas"
           },
           "bls12381_g2_multiexp_element": {
-            "format": "uint64",
-            "minimum": 0,
-            "type": "integer"
+            "$ref": "#/components/schemas/NearGas"
           },
           "bls12381_map_fp2_to_g2_base": {
-            "format": "uint64",
-            "minimum": 0,
-            "type": "integer"
+            "$ref": "#/components/schemas/NearGas"
           },
           "bls12381_map_fp2_to_g2_element": {
-            "format": "uint64",
-            "minimum": 0,
-            "type": "integer"
+            "$ref": "#/components/schemas/NearGas"
           },
           "bls12381_map_fp_to_g1_base": {
-            "format": "uint64",
-            "minimum": 0,
-            "type": "integer"
+            "$ref": "#/components/schemas/NearGas"
           },
           "bls12381_map_fp_to_g1_element": {
-            "format": "uint64",
-            "minimum": 0,
-            "type": "integer"
+            "$ref": "#/components/schemas/NearGas"
           },
           "bls12381_p1_decompress_base": {
-            "format": "uint64",
-            "minimum": 0,
-            "type": "integer"
+            "$ref": "#/components/schemas/NearGas"
           },
           "bls12381_p1_decompress_element": {
-            "format": "uint64",
-            "minimum": 0,
-            "type": "integer"
+            "$ref": "#/components/schemas/NearGas"
           },
           "bls12381_p1_sum_base": {
-            "format": "uint64",
-            "minimum": 0,
-            "type": "integer"
+            "$ref": "#/components/schemas/NearGas"
           },
           "bls12381_p1_sum_element": {
-            "format": "uint64",
-            "minimum": 0,
-            "type": "integer"
+            "$ref": "#/components/schemas/NearGas"
           },
           "bls12381_p2_decompress_base": {
-            "format": "uint64",
-            "minimum": 0,
-            "type": "integer"
+            "$ref": "#/components/schemas/NearGas"
           },
           "bls12381_p2_decompress_element": {
-            "format": "uint64",
-            "minimum": 0,
-            "type": "integer"
+            "$ref": "#/components/schemas/NearGas"
           },
           "bls12381_p2_sum_base": {
-            "format": "uint64",
-            "minimum": 0,
-            "type": "integer"
+            "$ref": "#/components/schemas/NearGas"
           },
           "bls12381_p2_sum_element": {
-            "format": "uint64",
-            "minimum": 0,
-            "type": "integer"
+            "$ref": "#/components/schemas/NearGas"
           },
           "bls12381_pairing_base": {
-            "format": "uint64",
-            "minimum": 0,
-            "type": "integer"
+            "$ref": "#/components/schemas/NearGas"
           },
           "bls12381_pairing_element": {
-            "format": "uint64",
-            "minimum": 0,
-            "type": "integer"
+            "$ref": "#/components/schemas/NearGas"
           },
           "contract_compile_base": {
-            "format": "uint64",
-            "minimum": 0,
-            "type": "integer"
+            "$ref": "#/components/schemas/NearGas"
           },
           "contract_compile_bytes": {
-            "format": "uint64",
-            "minimum": 0,
-            "type": "integer"
+            "$ref": "#/components/schemas/NearGas"
           },
           "contract_loading_base": {
-            "description": "Base cost of loading a pre-compiled contract",
-            "format": "uint64",
-            "minimum": 0,
-            "type": "integer"
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/NearGas"
+              }
+            ],
+            "description": "Base cost of loading a pre-compiled contract"
           },
           "contract_loading_bytes": {
-            "description": "Cost per byte of loading a pre-compiled contract",
-            "format": "uint64",
-            "minimum": 0,
-            "type": "integer"
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/NearGas"
+              }
+            ],
+            "description": "Cost per byte of loading a pre-compiled contract"
           },
           "ecrecover_base": {
-            "description": "Cost of calling ecrecover",
-            "format": "uint64",
-            "minimum": 0,
-            "type": "integer"
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/NearGas"
+              }
+            ],
+            "description": "Cost of calling ecrecover"
           },
           "ed25519_verify_base": {
-            "description": "Cost of getting ed25519 base",
-            "format": "uint64",
-            "minimum": 0,
-            "type": "integer"
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/NearGas"
+              }
+            ],
+            "description": "Cost of getting ed25519 base"
           },
           "ed25519_verify_byte": {
-            "description": "Cost of getting ed25519 per byte",
-            "format": "uint64",
-            "minimum": 0,
-            "type": "integer"
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/NearGas"
+              }
+            ],
+            "description": "Cost of getting ed25519 per byte"
           },
           "keccak256_base": {
-            "description": "Cost of getting sha256 base",
-            "format": "uint64",
-            "minimum": 0,
-            "type": "integer"
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/NearGas"
+              }
+            ],
+            "description": "Cost of getting sha256 base"
           },
           "keccak256_byte": {
-            "description": "Cost of getting sha256 per byte",
-            "format": "uint64",
-            "minimum": 0,
-            "type": "integer"
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/NearGas"
+              }
+            ],
+            "description": "Cost of getting sha256 per byte"
           },
           "keccak512_base": {
-            "description": "Cost of getting sha256 base",
-            "format": "uint64",
-            "minimum": 0,
-            "type": "integer"
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/NearGas"
+              }
+            ],
+            "description": "Cost of getting sha256 base"
           },
           "keccak512_byte": {
-            "description": "Cost of getting sha256 per byte",
-            "format": "uint64",
-            "minimum": 0,
-            "type": "integer"
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/NearGas"
+              }
+            ],
+            "description": "Cost of getting sha256 per byte"
           },
           "log_base": {
-            "description": "Cost for calling logging.",
-            "format": "uint64",
-            "minimum": 0,
-            "type": "integer"
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/NearGas"
+              }
+            ],
+            "description": "Cost for calling logging."
           },
           "log_byte": {
-            "description": "Cost for logging per byte",
-            "format": "uint64",
-            "minimum": 0,
-            "type": "integer"
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/NearGas"
+              }
+            ],
+            "description": "Cost for logging per byte"
           },
           "promise_and_base": {
-            "description": "Cost for calling `promise_and`",
-            "format": "uint64",
-            "minimum": 0,
-            "type": "integer"
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/NearGas"
+              }
+            ],
+            "description": "Cost for calling `promise_and`"
           },
           "promise_and_per_promise": {
-            "description": "Cost for calling `promise_and` for each promise",
-            "format": "uint64",
-            "minimum": 0,
-            "type": "integer"
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/NearGas"
+              }
+            ],
+            "description": "Cost for calling `promise_and` for each promise"
           },
           "promise_return": {
-            "description": "Cost for calling `promise_return`",
-            "format": "uint64",
-            "minimum": 0,
-            "type": "integer"
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/NearGas"
+              }
+            ],
+            "description": "Cost for calling `promise_return`"
           },
           "read_cached_trie_node": {
-            "description": "Cost for reading trie node from memory",
-            "format": "uint64",
-            "minimum": 0,
-            "type": "integer"
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/NearGas"
+              }
+            ],
+            "description": "Cost for reading trie node from memory"
           },
           "read_memory_base": {
-            "description": "Base cost for guest memory read",
-            "format": "uint64",
-            "minimum": 0,
-            "type": "integer"
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/NearGas"
+              }
+            ],
+            "description": "Base cost for guest memory read"
           },
           "read_memory_byte": {
-            "description": "Cost for guest memory read",
-            "format": "uint64",
-            "minimum": 0,
-            "type": "integer"
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/NearGas"
+              }
+            ],
+            "description": "Cost for guest memory read"
           },
           "read_register_base": {
-            "description": "Base cost for reading from register",
-            "format": "uint64",
-            "minimum": 0,
-            "type": "integer"
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/NearGas"
+              }
+            ],
+            "description": "Base cost for reading from register"
           },
           "read_register_byte": {
-            "description": "Cost for reading byte from register",
-            "format": "uint64",
-            "minimum": 0,
-            "type": "integer"
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/NearGas"
+              }
+            ],
+            "description": "Cost for reading byte from register"
           },
           "ripemd160_base": {
-            "description": "Cost of getting ripemd160 base",
-            "format": "uint64",
-            "minimum": 0,
-            "type": "integer"
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/NearGas"
+              }
+            ],
+            "description": "Cost of getting ripemd160 base"
           },
           "ripemd160_block": {
-            "description": "Cost of getting ripemd160 per message block",
-            "format": "uint64",
-            "minimum": 0,
-            "type": "integer"
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/NearGas"
+              }
+            ],
+            "description": "Cost of getting ripemd160 per message block"
           },
           "sha256_base": {
-            "description": "Cost of getting sha256 base",
-            "format": "uint64",
-            "minimum": 0,
-            "type": "integer"
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/NearGas"
+              }
+            ],
+            "description": "Cost of getting sha256 base"
           },
           "sha256_byte": {
-            "description": "Cost of getting sha256 per byte",
-            "format": "uint64",
-            "minimum": 0,
-            "type": "integer"
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/NearGas"
+              }
+            ],
+            "description": "Cost of getting sha256 per byte"
           },
           "storage_has_key_base": {
-            "description": "Storage trie check for key existence cost base",
-            "format": "uint64",
-            "minimum": 0,
-            "type": "integer"
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/NearGas"
+              }
+            ],
+            "description": "Storage trie check for key existence cost base"
           },
           "storage_has_key_byte": {
-            "description": "Storage trie check for key existence per key byte",
-            "format": "uint64",
-            "minimum": 0,
-            "type": "integer"
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/NearGas"
+              }
+            ],
+            "description": "Storage trie check for key existence per key byte"
           },
           "storage_iter_create_from_byte": {
-            "description": "Create trie range iterator cost per byte of from key.",
-            "format": "uint64",
-            "minimum": 0,
-            "type": "integer"
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/NearGas"
+              }
+            ],
+            "description": "Create trie range iterator cost per byte of from key."
           },
           "storage_iter_create_prefix_base": {
-            "description": "Create trie prefix iterator cost base",
-            "format": "uint64",
-            "minimum": 0,
-            "type": "integer"
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/NearGas"
+              }
+            ],
+            "description": "Create trie prefix iterator cost base"
           },
           "storage_iter_create_prefix_byte": {
-            "description": "Create trie prefix iterator cost per byte.",
-            "format": "uint64",
-            "minimum": 0,
-            "type": "integer"
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/NearGas"
+              }
+            ],
+            "description": "Create trie prefix iterator cost per byte."
           },
           "storage_iter_create_range_base": {
-            "description": "Create trie range iterator cost base",
-            "format": "uint64",
-            "minimum": 0,
-            "type": "integer"
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/NearGas"
+              }
+            ],
+            "description": "Create trie range iterator cost base"
           },
           "storage_iter_create_to_byte": {
-            "description": "Create trie range iterator cost per byte of to key.",
-            "format": "uint64",
-            "minimum": 0,
-            "type": "integer"
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/NearGas"
+              }
+            ],
+            "description": "Create trie range iterator cost per byte of to key."
           },
           "storage_iter_next_base": {
-            "description": "Trie iterator per key base cost",
-            "format": "uint64",
-            "minimum": 0,
-            "type": "integer"
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/NearGas"
+              }
+            ],
+            "description": "Trie iterator per key base cost"
           },
           "storage_iter_next_key_byte": {
-            "description": "Trie iterator next key byte cost",
-            "format": "uint64",
-            "minimum": 0,
-            "type": "integer"
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/NearGas"
+              }
+            ],
+            "description": "Trie iterator next key byte cost"
           },
           "storage_iter_next_value_byte": {
-            "description": "Trie iterator next key byte cost",
-            "format": "uint64",
-            "minimum": 0,
-            "type": "integer"
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/NearGas"
+              }
+            ],
+            "description": "Trie iterator next key byte cost"
           },
           "storage_large_read_overhead_base": {
-            "description": "Storage trie read key overhead base cost, when doing large reads",
-            "format": "uint64",
-            "minimum": 0,
-            "type": "integer"
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/NearGas"
+              }
+            ],
+            "description": "Storage trie read key overhead base cost, when doing large reads"
           },
           "storage_large_read_overhead_byte": {
-            "description": "Storage trie read key overhead  per-byte cost, when doing large reads",
-            "format": "uint64",
-            "minimum": 0,
-            "type": "integer"
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/NearGas"
+              }
+            ],
+            "description": "Storage trie read key overhead  per-byte cost, when doing large reads"
           },
           "storage_read_base": {
-            "description": "Storage trie read key base cost",
-            "format": "uint64",
-            "minimum": 0,
-            "type": "integer"
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/NearGas"
+              }
+            ],
+            "description": "Storage trie read key base cost"
           },
           "storage_read_key_byte": {
-            "description": "Storage trie read key per byte cost",
-            "format": "uint64",
-            "minimum": 0,
-            "type": "integer"
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/NearGas"
+              }
+            ],
+            "description": "Storage trie read key per byte cost"
           },
           "storage_read_value_byte": {
-            "description": "Storage trie read value cost per byte cost",
-            "format": "uint64",
-            "minimum": 0,
-            "type": "integer"
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/NearGas"
+              }
+            ],
+            "description": "Storage trie read value cost per byte cost"
           },
           "storage_remove_base": {
-            "description": "Remove key from trie base cost",
-            "format": "uint64",
-            "minimum": 0,
-            "type": "integer"
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/NearGas"
+              }
+            ],
+            "description": "Remove key from trie base cost"
           },
           "storage_remove_key_byte": {
-            "description": "Remove key from trie per byte cost",
-            "format": "uint64",
-            "minimum": 0,
-            "type": "integer"
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/NearGas"
+              }
+            ],
+            "description": "Remove key from trie per byte cost"
           },
           "storage_remove_ret_value_byte": {
-            "description": "Remove key from trie ret value byte cost",
-            "format": "uint64",
-            "minimum": 0,
-            "type": "integer"
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/NearGas"
+              }
+            ],
+            "description": "Remove key from trie ret value byte cost"
           },
           "storage_write_base": {
-            "description": "Storage trie write key base cost",
-            "format": "uint64",
-            "minimum": 0,
-            "type": "integer"
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/NearGas"
+              }
+            ],
+            "description": "Storage trie write key base cost"
           },
           "storage_write_evicted_byte": {
-            "description": "Storage trie write cost per byte of evicted value.",
-            "format": "uint64",
-            "minimum": 0,
-            "type": "integer"
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/NearGas"
+              }
+            ],
+            "description": "Storage trie write cost per byte of evicted value."
           },
           "storage_write_key_byte": {
-            "description": "Storage trie write key per byte cost",
-            "format": "uint64",
-            "minimum": 0,
-            "type": "integer"
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/NearGas"
+              }
+            ],
+            "description": "Storage trie write key per byte cost"
           },
           "storage_write_value_byte": {
-            "description": "Storage trie write value per byte cost",
-            "format": "uint64",
-            "minimum": 0,
-            "type": "integer"
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/NearGas"
+              }
+            ],
+            "description": "Storage trie write value per byte cost"
           },
           "touching_trie_node": {
-            "description": "Cost per reading trie node from DB",
-            "format": "uint64",
-            "minimum": 0,
-            "type": "integer"
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/NearGas"
+              }
+            ],
+            "description": "Cost per reading trie node from DB"
           },
           "utf16_decoding_base": {
-            "description": "Base cost of decoding utf16. It's used for `log_utf16`.",
-            "format": "uint64",
-            "minimum": 0,
-            "type": "integer"
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/NearGas"
+              }
+            ],
+            "description": "Base cost of decoding utf16. It's used for `log_utf16`."
           },
           "utf16_decoding_byte": {
-            "description": "Cost per byte of decoding utf16. It's used for `log_utf16`.",
-            "format": "uint64",
-            "minimum": 0,
-            "type": "integer"
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/NearGas"
+              }
+            ],
+            "description": "Cost per byte of decoding utf16. It's used for `log_utf16`."
           },
           "utf8_decoding_base": {
-            "description": "Base cost of decoding utf8. It's used for `log_utf8` and `panic_utf8`.",
-            "format": "uint64",
-            "minimum": 0,
-            "type": "integer"
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/NearGas"
+              }
+            ],
+            "description": "Base cost of decoding utf8. It's used for `log_utf8` and `panic_utf8`."
           },
           "utf8_decoding_byte": {
-            "description": "Cost per byte of decoding utf8. It's used for `log_utf8` and `panic_utf8`.",
-            "format": "uint64",
-            "minimum": 0,
-            "type": "integer"
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/NearGas"
+              }
+            ],
+            "description": "Cost per byte of decoding utf8. It's used for `log_utf8` and `panic_utf8`."
           },
           "validator_stake_base": {
-            "description": "Cost of calling `validator_stake`.",
-            "format": "uint64",
-            "minimum": 0,
-            "type": "integer"
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/NearGas"
+              }
+            ],
+            "description": "Cost of calling `validator_stake`."
           },
           "validator_total_stake_base": {
-            "description": "Cost of calling `validator_total_stake`.",
-            "format": "uint64",
-            "minimum": 0,
-            "type": "integer"
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/NearGas"
+              }
+            ],
+            "description": "Cost of calling `validator_total_stake`."
           },
           "write_memory_base": {
-            "description": "Base cost for guest memory write",
-            "format": "uint64",
-            "minimum": 0,
-            "type": "integer"
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/NearGas"
+              }
+            ],
+            "description": "Base cost for guest memory write"
           },
           "write_memory_byte": {
-            "description": "Cost for guest memory write per byte",
-            "format": "uint64",
-            "minimum": 0,
-            "type": "integer"
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/NearGas"
+              }
+            ],
+            "description": "Cost for guest memory write per byte"
           },
           "write_register_base": {
-            "description": "Base cost for writing into register",
-            "format": "uint64",
-            "minimum": 0,
-            "type": "integer"
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/NearGas"
+              }
+            ],
+            "description": "Base cost for writing into register"
           },
           "write_register_byte": {
-            "description": "Cost for writing byte into register",
-            "format": "uint64",
-            "minimum": 0,
-            "type": "integer"
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/NearGas"
+              }
+            ],
+            "description": "Cost for writing byte into register"
           },
           "yield_create_base": {
-            "description": "Base cost for creating a yield promise.",
-            "format": "uint64",
-            "minimum": 0,
-            "type": "integer"
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/NearGas"
+              }
+            ],
+            "description": "Base cost for creating a yield promise."
           },
           "yield_create_byte": {
-            "description": "Per byte cost of arguments and method name.",
-            "format": "uint64",
-            "minimum": 0,
-            "type": "integer"
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/NearGas"
+              }
+            ],
+            "description": "Per byte cost of arguments and method name."
           },
           "yield_resume_base": {
-            "description": "Base cost for resuming a yield receipt.",
-            "format": "uint64",
-            "minimum": 0,
-            "type": "integer"
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/NearGas"
+              }
+            ],
+            "description": "Base cost for resuming a yield receipt."
           },
           "yield_resume_byte": {
-            "description": "Per byte cost of resume payload.",
-            "format": "uint64",
-            "minimum": 0,
-            "type": "integer"
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/NearGas"
+              }
+            ],
+            "description": "Per byte cost of resume payload."
           }
         },
         "required": [
@@ -4582,22 +4950,28 @@
         "description": "Costs associated with an object that can only be sent over the network (and executed\nby the receiver).\nNOTE: `send_sir` or `send_not_sir` fees are usually burned when the item is being created.\nAnd `execution` fee is burned when the item is being executed.",
         "properties": {
           "execution": {
-            "description": "Fee for executing the object.",
-            "format": "uint64",
-            "minimum": 0,
-            "type": "integer"
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/NearGas"
+              }
+            ],
+            "description": "Fee for executing the object."
           },
           "send_not_sir": {
-            "description": "Fee for sending an object potentially across the shards.",
-            "format": "uint64",
-            "minimum": 0,
-            "type": "integer"
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/NearGas"
+              }
+            ],
+            "description": "Fee for sending an object potentially across the shards."
           },
           "send_sir": {
-            "description": "Fee for sending an object from the sender to itself, guaranteeing that it does not leave\nthe shard.",
-            "format": "uint64",
-            "minimum": 0,
-            "type": "integer"
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/NearGas"
+              }
+            ],
+            "description": "Fee for sending an object from the sender to itself, guaranteeing that it does not leave\nthe shard."
           }
         },
         "required": [
@@ -4765,12 +5139,10 @@
             "type": "string"
           },
           "deposit": {
-            "type": "string"
+            "$ref": "#/components/schemas/NearToken"
           },
           "gas": {
-            "format": "uint64",
-            "minimum": 0,
-            "type": "integer"
+            "$ref": "#/components/schemas/NearGas"
           },
           "method_name": {
             "type": "string"
@@ -4885,9 +5257,18 @@
         "description": "Grants limited permission to make transactions with FunctionCallActions\nThe permission can limit the allowed balance to be spent on the prepaid gas.\nIt also restrict the account ID of the receiver for this function call.\nIt also can restrict the method name for the allowed function calls.",
         "properties": {
           "allowance": {
-            "description": "Allowance is a balance limit to use by this access key to pay for function call gas and\ntransaction fees. When this access key is used, both account balance and the allowance is\ndecreased by the same value.\n`None` means unlimited allowance.\nNOTE: To change or increase the allowance, the old access key needs to be deleted and a new\naccess key should be created.",
-            "nullable": true,
-            "type": "string"
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/NearToken"
+              },
+              {
+                "enum": [
+                  null
+                ],
+                "nullable": true
+              }
+            ],
+            "description": "Allowance is a balance limit to use by this access key to pay for function call gas and\ntransaction fees. When this access key is used, both account balance and the allowance is\ndecreased by the same value.\n`None` means unlimited allowance.\nNOTE: To change or increase the allowance, the old access key needs to be deleted and a new\naccess key should be created."
           },
           "method_names": {
             "description": "A list of method names that can be used. The access key only allows transactions with the\nfunction call of one of the given method names.\nEmpty list means any method name can be used.",
@@ -4949,9 +5330,7 @@
       "GasKeyView": {
         "properties": {
           "balance": {
-            "format": "uint128",
-            "minimum": 0,
-            "type": "integer"
+            "$ref": "#/components/schemas/NearToken"
           },
           "num_nonces": {
             "format": "uint32",
@@ -5024,14 +5403,20 @@
             "type": "integer"
           },
           "fishermen_threshold": {
-            "description": "Fishermen stake threshold.",
-            "type": "string"
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/NearToken"
+              }
+            ],
+            "description": "Fishermen stake threshold."
           },
           "gas_limit": {
-            "description": "Initial gas limit.",
-            "format": "uint64",
-            "minimum": 0,
-            "type": "integer"
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/NearGas"
+              }
+            ],
+            "description": "Initial gas limit."
           },
           "gas_price_adjustment_rate": {
             "description": "Gas price adjustment rate",
@@ -5055,7 +5440,7 @@
             "type": "string"
           },
           "max_gas_price": {
-            "type": "string"
+            "$ref": "#/components/schemas/NearToken"
           },
           "max_inflation_rate": {
             "description": "Maximum inflation on the total supply every epoch.",
@@ -5076,8 +5461,12 @@
             "type": "integer"
           },
           "min_gas_price": {
-            "description": "Minimum gas price. It is also the initial gas price.",
-            "type": "string"
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/NearToken"
+              }
+            ],
+            "description": "Minimum gas price. It is also the initial gas price."
           },
           "minimum_stake_divisor": {
             "default": 10,
@@ -5250,8 +5639,12 @@
             "type": "integer"
           },
           "total_supply": {
-            "description": "Total supply of tokens at genesis.",
-            "type": "string"
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/NearToken"
+              }
+            ],
+            "description": "Total supply of tokens at genesis."
           },
           "transaction_validity_period": {
             "description": "Number of blocks for which a given transaction is valid",
@@ -5349,6 +5742,16 @@
               "AccountId"
             ],
             "type": "object"
+          }
+        ]
+      },
+      "GlobalContractIdentifierView": {
+        "anyOf": [
+          {
+            "$ref": "#/components/schemas/CryptoHash"
+          },
+          {
+            "$ref": "#/components/schemas/AccountId"
           }
         ]
       },
@@ -6027,10 +6430,10 @@
                     "$ref": "#/components/schemas/AccountId"
                   },
                   "allowance": {
-                    "type": "string"
+                    "$ref": "#/components/schemas/NearToken"
                   },
                   "cost": {
-                    "type": "string"
+                    "$ref": "#/components/schemas/NearToken"
                   },
                   "public_key": {
                     "$ref": "#/components/schemas/PublicKey"
@@ -6210,10 +6613,10 @@
               "NotEnoughBalance": {
                 "properties": {
                   "balance": {
-                    "type": "string"
+                    "$ref": "#/components/schemas/NearToken"
                   },
                   "cost": {
-                    "type": "string"
+                    "$ref": "#/components/schemas/NearToken"
                   },
                   "signer_id": {
                     "$ref": "#/components/schemas/AccountId"
@@ -6239,8 +6642,12 @@
               "LackBalanceForState": {
                 "properties": {
                   "amount": {
-                    "description": "Required balance to cover the state.",
-                    "type": "string"
+                    "allOf": [
+                      {
+                        "$ref": "#/components/schemas/NearToken"
+                      }
+                    ],
+                    "description": "Required balance to cover the state."
                   },
                   "signer_id": {
                     "allOf": [
@@ -8274,10 +8681,12 @@
             "type": "integer"
           },
           "max_gas_burnt": {
-            "description": "Max amount of gas that can be used, excluding gas attached to promises.",
-            "format": "uint64",
-            "minimum": 0,
-            "type": "integer"
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/NearGas"
+              }
+            ],
+            "description": "Max amount of gas that can be used, excluding gas attached to promises."
           },
           "max_length_method_name": {
             "description": "Max length of any method name (without terminating character).",
@@ -8378,10 +8787,12 @@
             "type": "integer"
           },
           "max_total_prepaid_gas": {
-            "description": "Max total prepaid gas for all function call actions per receipt.",
-            "format": "uint64",
-            "minimum": 0,
-            "type": "integer"
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/NearGas"
+              }
+            ],
+            "description": "Max total prepaid gas for all function call actions per receipt."
           },
           "max_transaction_size": {
             "description": "Max transaction size",
@@ -8524,6 +8935,14 @@
       "MutableConfigValue": {
         "type": "string"
       },
+      "NearGas": {
+        "format": "uint64",
+        "minimum": 0,
+        "type": "integer"
+      },
+      "NearToken": {
+        "type": "string"
+      },
       "NetworkInfoView": {
         "properties": {
           "connected_peers": {
@@ -8593,7 +9012,7 @@
             "type": "array"
           },
           "stake": {
-            "type": "string"
+            "$ref": "#/components/schemas/NearToken"
           }
         },
         "required": [
@@ -8609,7 +9028,7 @@
         "oneOf": [
           {
             "additionalProperties": false,
-            "description": "Create an (sub)account using a transaction `receiver_id` as an ID for\na new account ID must pass validation rules described here\n<http://nomicon.io/Primitives/Account.html>.",
+            "description": "Create an (sub)account using a transaction `receiver_id` as an ID for\na new account ID must pass validation rules described here\n<https://nomicon.io/DataStructures/Account>.",
             "properties": {
               "CreateAccount": {
                 "$ref": "#/components/schemas/CreateAccountAction"
@@ -8726,6 +9145,18 @@
             },
             "required": [
               "UseGlobalContract"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "DeterministicStateInit": {
+                "$ref": "#/components/schemas/DeterministicStateInitAction"
+              }
+            },
+            "required": [
+              "DeterministicStateInit"
             ],
             "type": "object"
           }
@@ -8968,7 +9399,7 @@
                     "type": "array"
                   },
                   "gas_price": {
-                    "type": "string"
+                    "$ref": "#/components/schemas/NearToken"
                   },
                   "input_data_ids": {
                     "items": {
@@ -9521,6 +9952,34 @@
             "minimum": 0,
             "type": "integer"
           },
+          "cloud_archival_reader": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CloudArchivalReaderConfig"
+              },
+              {
+                "enum": [
+                  null
+                ],
+                "nullable": true
+              }
+            ],
+            "description": "Configuration for a cloud-based archival reader."
+          },
+          "cloud_archival_writer": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CloudArchivalWriterConfig"
+              },
+              {
+                "enum": [
+                  null
+                ],
+                "nullable": true
+              }
+            ],
+            "description": "Configuration for a cloud-based archival writer. If this config is present, the writer is enabled and\nwrites chunk-related data based on the tracked shards."
+          },
           "doomslug_step_period": {
             "description": "Time between running doomslug timer.",
             "items": {
@@ -9650,11 +10109,18 @@
             "type": "array"
           },
           "max_gas_burnt_view": {
-            "description": "Max burnt gas per view method.  If present, overrides value stored in\ngenesis file.  The value only affects the RPCs without influencing the\nprotocol thus changing it per-node doesn’t affect the blockchain.",
-            "format": "uint64",
-            "minimum": 0,
-            "nullable": true,
-            "type": "integer"
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/NearGas"
+              },
+              {
+                "enum": [
+                  null
+                ],
+                "nullable": true
+              }
+            ],
+            "description": "Max burnt gas per view method.  If present, overrides value stored in\ngenesis file.  The value only affects the RPCs without influencing the\nprotocol thus changing it per-node doesn’t affect the blockchain."
           },
           "min_block_production_delay": {
             "description": "Minimum duration before producing block.",
@@ -9729,6 +10195,10 @@
           },
           "save_tx_outcomes": {
             "description": "Whether to persist transaction outcomes to disk or not.",
+            "type": "boolean"
+          },
+          "save_untracked_partial_chunks_parts": {
+            "description": "Whether to persist partial chunk parts for untracked shards or not.",
             "type": "boolean"
           },
           "skip_sync_wait": {
@@ -9941,6 +10411,7 @@
           "archive",
           "save_trie_changes",
           "save_tx_outcomes",
+          "save_untracked_partial_chunks_parts",
           "view_client_threads",
           "chunk_validation_threads",
           "state_request_throttle_period",
@@ -10109,7 +10580,7 @@
       "RpcGasPriceResponse": {
         "properties": {
           "gas_price": {
-            "type": "string"
+            "$ref": "#/components/schemas/NearToken"
           }
         },
         "required": [
@@ -10507,14 +10978,20 @@
             "type": "integer"
           },
           "fishermen_threshold": {
-            "description": "Fishermen stake threshold.",
-            "type": "string"
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/NearToken"
+              }
+            ],
+            "description": "Fishermen stake threshold."
           },
           "gas_limit": {
-            "description": "Initial gas limit.",
-            "format": "uint64",
-            "minimum": 0,
-            "type": "integer"
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/NearGas"
+              }
+            ],
+            "description": "Initial gas limit."
           },
           "gas_price_adjustment_rate": {
             "description": "Gas price adjustment rate",
@@ -10538,8 +11015,12 @@
             "type": "string"
           },
           "max_gas_price": {
-            "description": "Maximum gas price.",
-            "type": "string"
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/NearToken"
+              }
+            ],
+            "description": "Maximum gas price."
           },
           "max_inflation_rate": {
             "description": "Maximum inflation on the total supply every epoch.",
@@ -10559,8 +11040,12 @@
             "type": "integer"
           },
           "min_gas_price": {
-            "description": "Minimum gas price. It is also the initial gas price.",
-            "type": "string"
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/NearToken"
+              }
+            ],
+            "description": "Minimum gas price. It is also the initial gas price."
           },
           "minimum_stake_divisor": {
             "description": "The minimum stake required for staking is last seat price divided by this number.",
@@ -13013,8 +13498,12 @@
             "description": "The configuration for congestion control."
           },
           "storage_amount_per_byte": {
-            "description": "Amount of yN per byte required to have on the account.  See\n<https://nomicon.io/Economics/Economic#state-stake> for details.",
-            "type": "string"
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/NearToken"
+              }
+            ],
+            "description": "Amount of yN per byte required to have on the account.  See\n<https://nomicon.io/Economics/Economic#state-stake> for details."
           },
           "transaction_costs": {
             "allOf": [
@@ -13403,8 +13892,12 @@
             "description": "Validator key which will be used to sign transactions on behalf of signer_id"
           },
           "stake": {
-            "description": "Amount of tokens to stake.",
-            "type": "string"
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/NearToken"
+              }
+            ],
+            "description": "Amount of tokens to stake."
           }
         },
         "required": [
@@ -13680,7 +14173,7 @@
                     "$ref": "#/components/schemas/AccountId"
                   },
                   "amount": {
-                    "type": "string"
+                    "$ref": "#/components/schemas/NearToken"
                   },
                   "code_hash": {
                     "$ref": "#/components/schemas/CryptoHash"
@@ -13712,7 +14205,7 @@
                     ]
                   },
                   "locked": {
-                    "type": "string"
+                    "$ref": "#/components/schemas/NearToken"
                   },
                   "storage_paid_at": {
                     "default": 0,
@@ -14477,7 +14970,7 @@
       "TransferAction": {
         "properties": {
           "deposit": {
-            "type": "string"
+            "$ref": "#/components/schemas/NearToken"
           }
         },
         "required": [
@@ -14576,6 +15069,10 @@
       },
       "VMConfigView": {
         "properties": {
+          "deterministic_account_ids": {
+            "description": "See [VMConfig::deterministic_account_ids](crate::vm::Config::deterministic_account_ids).",
+            "type": "boolean"
+          },
           "discard_custom_sections": {
             "description": "See [VMConfig::discard_custom_sections](crate::vm::Config::discard_custom_sections).",
             "type": "boolean"
@@ -14658,6 +15155,7 @@
           "saturating_float_to_int",
           "global_contract_host_fns",
           "reftypes_bulk_memory",
+          "deterministic_account_ids",
           "storage_get_mode",
           "fix_contract_loading_cost",
           "implicit_account_creation",
@@ -14693,13 +15191,6 @@
             "description": "NearVM.",
             "enum": [
               "NearVm"
-            ],
-            "type": "string"
-          },
-          {
-            "description": "NearVM. Exists temporarily while bulk memory and reftypes are getting enabled.",
-            "enum": [
-              "NearVm2"
             ],
             "type": "string"
           }
@@ -14798,10 +15289,10 @@
               "NotEnoughStake": {
                 "properties": {
                   "stake_u128": {
-                    "type": "string"
+                    "$ref": "#/components/schemas/NearToken"
                   },
                   "threshold_u128": {
-                    "type": "string"
+                    "$ref": "#/components/schemas/NearToken"
                   }
                 },
                 "required": [
@@ -14930,7 +15421,7 @@
             "$ref": "#/components/schemas/PublicKey"
           },
           "stake": {
-            "type": "string"
+            "$ref": "#/components/schemas/NearToken"
           }
         },
         "required": [

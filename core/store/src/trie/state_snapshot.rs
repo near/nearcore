@@ -137,29 +137,15 @@ pub enum StateSnapshotConfig {
     Enabled { state_snapshots_dir: PathBuf },
 }
 
-pub fn state_snapshots_dir(
-    home_dir: impl AsRef<Path>,
-    hot_store_path: impl AsRef<Path>,
-    state_snapshots_subdir: impl AsRef<Path>,
-) -> PathBuf {
-    home_dir.as_ref().join(hot_store_path).join(state_snapshots_subdir)
-}
-
 impl StateSnapshotConfig {
-    pub fn enabled(
-        home_dir: impl AsRef<Path>,
-        hot_store_path: impl AsRef<Path>,
-        state_snapshots_subdir: impl AsRef<Path>,
-    ) -> Self {
+    const STATE_SNAPSHOT_DIR: &str = "state_snapshot";
+
+    pub fn enabled(hot_store_path: impl AsRef<Path>) -> Self {
         // Assumptions:
         // * RocksDB checkpoints are taken instantly and for free, because the filesystem supports hard links.
         // * The best place for checkpoints is within the `hot_store_path`, because that directory is often a separate disk.
         Self::Enabled {
-            state_snapshots_dir: state_snapshots_dir(
-                home_dir,
-                hot_store_path,
-                state_snapshots_subdir,
-            ),
+            state_snapshots_dir: hot_store_path.as_ref().join(Self::STATE_SNAPSHOT_DIR),
         }
     }
 
@@ -370,7 +356,7 @@ impl ShardTries {
             .ok_or_else(|| anyhow::anyhow!("{snapshot_path:?} needs to have a parent dir"))?;
         tracing::debug!(target: "state_snapshot", ?snapshot_path, ?parent_path);
 
-        let store_config = StoreConfig::default();
+        let store_config = StoreConfig::state_snapshot_store_config();
 
         let opener = NodeStorage::opener(&snapshot_path, &store_config, None, None);
         let storage = opener.open_in_mode(Mode::ReadOnly)?;

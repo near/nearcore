@@ -29,37 +29,45 @@ pub struct RpcUser {
     account_id: AccountId,
     signer: Arc<Signer>,
     addr: String,
+    runtime: tokio::runtime::Runtime,
 }
 
 impl RpcUser {
-    fn actix<F, Fut, R>(&self, f: F) -> R
+    fn client_query<F, Fut, R>(&self, f: F) -> R
     where
         Fut: Future<Output = R> + 'static,
         F: FnOnce(JsonRpcClient) -> Fut + 'static,
     {
-        let addr = self.addr.clone();
-        actix::System::new()
-            .block_on(async move { f(new_client(&format!("http://{}", addr))).await })
+        self.runtime.block_on(f(new_client(&format!("http://{}", self.addr))))
     }
 
     pub fn new(addr: &str, account_id: AccountId, signer: Arc<Signer>) -> RpcUser {
-        RpcUser { account_id, addr: addr.to_owned(), signer }
+        RpcUser {
+            account_id,
+            addr: addr.to_owned(),
+            signer,
+            runtime: tokio::runtime::Builder::new_multi_thread()
+                .enable_all()
+                .worker_threads(1)
+                .build()
+                .expect("Failed to create Tokio runtime"),
+        }
     }
 
     pub fn get_status(&self) -> Option<StatusResponse> {
-        self.actix(|client| client.status()).ok()
+        self.client_query(|client| client.status()).ok()
     }
 
     pub fn query(&self, request: QueryRequest) -> Result<RpcQueryResponse, String> {
         let request = RpcQueryRequest { request, block_reference: BlockReference::latest() };
-        self.actix(move |client| client.query(request).map_err(|err| err.to_string()))
+        self.client_query(move |client| client.query(request).map_err(|err| err.to_string()))
     }
 
     pub fn validators(
         &self,
         epoch_id_or_block_id: Option<EpochReference>,
     ) -> Result<EpochValidatorInfo, String> {
-        self.actix(move |client| {
+        self.client_query(move |client| {
             client.validators(epoch_id_or_block_id).map_err(|err| err.to_string())
         })
     }
@@ -145,14 +153,14 @@ impl User for RpcUser {
 
     fn add_transaction(&self, transaction: SignedTransaction) -> Result<(), ServerError> {
         let bytes = borsh::to_vec(&transaction).unwrap();
-        let _ = self.actix(move |client| client.broadcast_tx_async(to_base64(&bytes))).map_err(
-            |err| {
+        let _ = self
+            .client_query(move |client| client.broadcast_tx_async(to_base64(&bytes)))
+            .map_err(|err| {
                 serde_json::from_value::<ServerError>(
                     *err.data.expect("server error must carry data"),
                 )
                 .expect("deserialize server error must be ok")
-            },
-        )?;
+            })?;
         Ok(())
     }
 
@@ -161,7 +169,7 @@ impl User for RpcUser {
         transaction: SignedTransaction,
     ) -> Result<FinalExecutionOutcomeView, CommitError> {
         let result =
-            self.actix(move |client| client.send_tx(transaction, TxExecutionStatus::Final));
+            self.client_query(move |client| client.send_tx(transaction, TxExecutionStatus::Final));
         match result {
             Ok(outcome) => Ok(outcome.final_execution_outcome.unwrap().into_outcome()),
             Err(err) => Err(CommitError::Server(
@@ -188,17 +196,21 @@ impl User for RpcUser {
     }
 
     fn get_block_by_height(&self, height: BlockHeight) -> Option<BlockView> {
-        self.actix(move |client| client.block(BlockReference::BlockId(BlockId::Height(height))))
-            .ok()
+        self.client_query(move |client| {
+            client.block(BlockReference::BlockId(BlockId::Height(height)))
+        })
+        .ok()
     }
 
     fn get_block(&self, block_hash: CryptoHash) -> Option<BlockView> {
-        self.actix(move |client| client.block(BlockReference::BlockId(BlockId::Hash(block_hash))))
-            .ok()
+        self.client_query(move |client| {
+            client.block(BlockReference::BlockId(BlockId::Hash(block_hash)))
+        })
+        .ok()
     }
 
     fn get_chunk_by_height(&self, height: BlockHeight, shard_id: ShardId) -> Option<ChunkView> {
-        self.actix(move |client| {
+        self.client_query(move |client| {
             client.chunk(ChunkId::BlockShardId(BlockId::Height(height), shard_id))
         })
         .ok()
@@ -216,7 +228,7 @@ impl User for RpcUser {
             },
             wait_until: TxExecutionStatus::Final,
         };
-        self.actix(move |client| client.tx(request))
+        self.client_query(move |client| client.tx(request))
             .unwrap()
             .final_execution_outcome
             .map(|o| o.into_outcome())

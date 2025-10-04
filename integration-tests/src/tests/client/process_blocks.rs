@@ -6,24 +6,21 @@ use crate::utils::process_blocks::{
     deploy_test_contract, prepare_env_with_congestion, set_block_protocol_version,
 };
 use assert_matches::assert_matches;
-use futures::{FutureExt, future};
 use itertools::Itertools;
-use near_actix_test_utils::run_actix;
-use near_async::messaging::CanSend;
+use near_async::ActorSystem;
+use near_async::messaging::{CanSend, CanSendAsync};
 use near_async::time::{Clock, Duration};
 use near_chain::types::{LatestKnown, RuntimeAdapter};
 use near_chain::validate::validate_chunk_with_chunk_extra;
 use near_chain::{Block, BlockProcessingArtifact, ChainStoreAccess, Error, Provenance};
 use near_chain::{ChainStore, MerkleProofAccess};
 use near_chain_configs::test_utils::{TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
-use near_chain_configs::{
-    DEFAULT_GC_NUM_EPOCHS_TO_KEEP, Genesis, NEAR_BASE, ProtocolVersionCheckConfig,
-};
+use near_chain_configs::{DEFAULT_GC_NUM_EPOCHS_TO_KEEP, Genesis, ProtocolVersionCheckConfig};
 use near_client::test_utils::create_chunk_on_height;
 use near_client::{GetBlockWithMerkleTree, ProcessTxResponse, ProduceChunkResult};
 use near_crypto::{InMemorySigner, KeyType, Signature};
 use near_network::client::{BlockApproval, BlockResponse, SetNetworkInfo};
-use near_network::test_utils::{MockPeerManagerAdapter, wait_or_panic};
+use near_network::test_utils::MockPeerManagerAdapter;
 use near_network::types::{
     BlockInfo, ConnectedPeerInfo, HighestHeightPeerInfo, NetworkInfo, PeerChainInfo,
     PeerManagerMessageRequest, PeerManagerMessageResponse, PeerType,
@@ -57,7 +54,7 @@ use near_primitives::transaction::{
     Transaction, TransactionV0,
 };
 use near_primitives::trie_key::TrieKey;
-use near_primitives::types::{AccountId, BlockHeight, EpochId, NumBlocks};
+use near_primitives::types::{AccountId, Balance, BlockHeight, EpochId, Gas, NumBlocks};
 use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::{FinalExecutionStatus, QueryRequest, QueryResponseKind};
 use near_primitives_core::num_rational::Ratio;
@@ -74,479 +71,501 @@ use std::collections::{HashSet, VecDeque};
 use std::str::FromStr;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use tokio_util::sync::CancellationToken;
 
 /// Runs block producing client and stops after network mock received two blocks.
-#[test]
-fn produce_two_blocks() {
+#[tokio::test]
+async fn produce_two_blocks() {
     init_test_logger();
-    run_actix(async {
-        let count = Arc::new(AtomicUsize::new(0));
-        setup_mock(
-            Clock::real(),
-            vec!["test".parse().unwrap()],
-            "test".parse().unwrap(),
-            true,
-            false,
-            Box::new(move |msg, _ctx, _, _| {
-                if let NetworkRequests::Block { .. } = msg.as_network_requests_ref() {
-                    count.fetch_add(1, Ordering::Relaxed);
-                    if count.load(Ordering::Relaxed) >= 2 {
-                        near_async::shutdown_all_actors();
-                    }
+    let actor_system = ActorSystem::new();
+    let count = Arc::new(AtomicUsize::new(0));
+    let done = CancellationToken::new();
+    let done_clone = done.clone();
+    setup_mock(
+        Clock::real(),
+        actor_system.clone(),
+        vec!["test".parse().unwrap()],
+        "test".parse().unwrap(),
+        true,
+        false,
+        Box::new(move |msg, _, _| {
+            if let NetworkRequests::Block { .. } = msg.as_network_requests_ref() {
+                count.fetch_add(1, Ordering::Relaxed);
+                if count.load(Ordering::Relaxed) >= 2 {
+                    done_clone.cancel();
+                    actor_system.stop();
                 }
-                PeerManagerMessageResponse::NetworkResponses(NetworkResponses::NoResponse)
-            }),
-        );
-        near_network::test_utils::wait_or_panic(5000);
-    });
+            }
+            PeerManagerMessageResponse::NetworkResponses(NetworkResponses::NoResponse)
+        }),
+    );
+    let timeout = tokio::time::sleep(tokio::time::Duration::from_millis(5000));
+    tokio::select! {
+        _ = done.cancelled() => {},
+        _ = timeout => panic!("Timeout exceeded while waiting for blocks to be produced."),
+    }
 }
 
 /// Runs client that receives a block from network and announces header to the network with approval.
 /// Need 3 block producers, to receive approval.
-#[test]
-fn receive_network_block() {
+#[tokio::test]
+async fn receive_network_block() {
     init_test_logger();
-    run_actix(async {
-        // The first header announce will be when the block is received. We don't immediately endorse
-        // it. The second header announce will happen with the endorsement a little later.
-        let first_header_announce = Arc::new(RwLock::new(true));
-        let actor_handles = setup_mock(
-            Clock::real(),
-            vec!["test2".parse().unwrap(), "test1".parse().unwrap(), "test3".parse().unwrap()],
-            "test2".parse().unwrap(),
-            true,
-            false,
-            Box::new(move |msg, _ctx, _, _| {
-                if let NetworkRequests::Approval { .. } = msg.as_network_requests_ref() {
-                    let mut first_header_announce = first_header_announce.write();
-                    if *first_header_announce {
-                        *first_header_announce = false;
-                    } else {
-                        near_async::shutdown_all_actors();
-                    }
-                }
-                PeerManagerMessageResponse::NetworkResponses(NetworkResponses::NoResponse)
-            }),
-        );
-        let actor = actor_handles.view_client_actor.send(GetBlockWithMerkleTree::latest());
-        let actor = actor.then(move |res| {
-            let (last_block, block_merkle_tree) = res.unwrap().unwrap();
-            let mut block_merkle_tree = PartialMerkleTree::clone(&block_merkle_tree);
-            block_merkle_tree.insert(last_block.header.hash);
-            let signer = create_test_signer("test1");
-            let next_block_ordinal = last_block.header.block_ordinal.unwrap() + 1;
-            let block = Block::produce(
-                PROTOCOL_VERSION,
-                &last_block.header.clone().into(),
-                last_block.header.height + 1,
-                next_block_ordinal,
-                last_block.chunks.iter().cloned().map(Into::into).collect(),
-                vec![vec![]; last_block.chunks.len()],
-                EpochId::default(),
-                if last_block.header.prev_hash == CryptoHash::default() {
-                    EpochId(last_block.header.hash)
+    let actor_system = ActorSystem::new();
+    let done = CancellationToken::new();
+    let done_clone = done.clone();
+    // The first header announce will be when the block is received. We don't immediately endorse
+    // it. The second header announce will happen with the endorsement a little later.
+    let first_header_announce = Arc::new(RwLock::new(true));
+    let actor_handles = setup_mock(
+        Clock::real(),
+        actor_system.clone(),
+        vec!["test2".parse().unwrap(), "test1".parse().unwrap(), "test3".parse().unwrap()],
+        "test2".parse().unwrap(),
+        true,
+        false,
+        Box::new(move |msg, _, _| {
+            if let NetworkRequests::Approval { .. } = msg.as_network_requests_ref() {
+                let mut first_header_announce = first_header_announce.write();
+                if *first_header_announce {
+                    *first_header_announce = false;
                 } else {
-                    EpochId(last_block.header.next_epoch_id)
-                },
-                None,
-                vec![],
-                Ratio::from_integer(0),
-                0,
-                100,
-                None,
-                &signer,
-                last_block.header.next_bp_hash,
-                block_merkle_tree.root(),
-                Clock::real(),
-                None,
-                None,
-                None,
-            );
-            actor_handles.client_actor.send(
-                BlockResponse {
-                    block: block.into(),
-                    peer_id: PeerInfo::random().id,
-                    was_requested: false,
+                    done_clone.cancel();
+                    actor_system.stop();
                 }
-                .span_wrap(),
-            );
-            future::ready(())
-        });
-        actix::spawn(actor);
-        near_network::test_utils::wait_or_panic(5000);
-    });
+            }
+            PeerManagerMessageResponse::NetworkResponses(NetworkResponses::NoResponse)
+        }),
+    );
+    let res = actor_handles.view_client_actor.send_async(GetBlockWithMerkleTree::latest()).await;
+    let (last_block, block_merkle_tree) = res.unwrap().unwrap();
+    let mut block_merkle_tree = PartialMerkleTree::clone(&block_merkle_tree);
+    block_merkle_tree.insert(last_block.header.hash);
+    let signer = create_test_signer("test1");
+    let next_block_ordinal = last_block.header.block_ordinal.unwrap() + 1;
+    let block = Block::produce(
+        PROTOCOL_VERSION,
+        &last_block.header.clone().into(),
+        last_block.header.height + 1,
+        next_block_ordinal,
+        last_block.chunks.iter().cloned().map(Into::into).collect(),
+        vec![vec![]; last_block.chunks.len()],
+        EpochId::default(),
+        if last_block.header.prev_hash == CryptoHash::default() {
+            EpochId(last_block.header.hash)
+        } else {
+            EpochId(last_block.header.next_epoch_id)
+        },
+        None,
+        vec![],
+        Ratio::from_integer(0),
+        Balance::ZERO,
+        Balance::from_yoctonear(100),
+        None,
+        &signer,
+        last_block.header.next_bp_hash,
+        block_merkle_tree.root(),
+        Clock::real(),
+        None,
+        None,
+        None,
+    );
+    actor_handles.client_actor.send(
+        BlockResponse { block: block.into(), peer_id: PeerInfo::random().id, was_requested: false }
+            .span_wrap(),
+    );
+    tokio::select! {
+        _ = done.cancelled() => {},
+        _ = tokio::time::sleep(tokio::time::Duration::from_millis(5000)) => panic!("Timeout exceeded while waiting for block approval."),
+    }
 }
 
 /// Include approvals to the next block in newly produced block.
-#[test]
-fn produce_block_with_approvals() {
+#[tokio::test]
+async fn produce_block_with_approvals() {
     init_test_logger();
+    let actor_system = ActorSystem::new();
     let validators: Vec<_> =
         (1..=10).map(|i| AccountId::try_from(format!("test{}", i)).unwrap()).collect();
 
     // Which of validators is test producer depends on deterministic rng setup for the test.
     let block_producer = "test3";
-    run_actix(async {
-        let actor_handles = setup_mock(
-            Clock::real(),
-            validators.clone(),
-            block_producer.parse().unwrap(),
-            true,
-            false,
-            Box::new(move |msg, _ctx, _, _| {
-                if let NetworkRequests::Block { block } = msg.as_network_requests_ref() {
-                    // Below we send approvals from all the block producers except for test1 and test2
-                    // test1 will only create their approval for height 10 after their doomslug timer
-                    // runs 10 iterations, which is way further in the future than them producing the
-                    // block
-                    if block.header().num_approvals() == validators.len() as u64 - 2 {
-                        near_async::shutdown_all_actors();
-                    } else if block.header().height() == 10 {
-                        println!("{}", block.header().height());
-                        println!(
-                            "{} != {} -2 (height: {})",
-                            block.header().num_approvals(),
-                            validators.len(),
-                            block.header().height()
-                        );
+    let done = CancellationToken::new();
+    let done_clone = done.clone();
+    let actor_handles = setup_mock(
+        Clock::real(),
+        actor_system.clone(),
+        validators.clone(),
+        block_producer.parse().unwrap(),
+        true,
+        false,
+        Box::new(move |msg, _, _| {
+            if let NetworkRequests::Block { block } = msg.as_network_requests_ref() {
+                // Below we send approvals from all the block producers except for test1 and test2
+                // test1 will only create their approval for height 10 after their doomslug timer
+                // runs 10 iterations, which is way further in the future than them producing the
+                // block
+                if block.header().num_approvals() == validators.len() as u64 - 2 {
+                    done_clone.cancel();
+                    actor_system.stop();
+                } else if block.header().height() == 10 {
+                    println!("{}", block.header().height());
+                    println!(
+                        "{} != {} -2 (height: {})",
+                        block.header().num_approvals(),
+                        validators.len(),
+                        block.header().height()
+                    );
 
-                        assert!(false);
-                    }
+                    assert!(false);
                 }
-                PeerManagerMessageResponse::NetworkResponses(NetworkResponses::NoResponse)
-            }),
-        );
-        let actor = actor_handles.view_client_actor.send(GetBlockWithMerkleTree::latest());
-        let actor = actor.then(move |res| {
-            let (last_block, block_merkle_tree) = res.unwrap().unwrap();
-            let mut block_merkle_tree = PartialMerkleTree::clone(&block_merkle_tree);
-            block_merkle_tree.insert(last_block.header.hash);
-            let signer1 = create_test_signer(&block_producer);
-            let next_block_ordinal = last_block.header.block_ordinal.unwrap() + 1;
-
-            let chunks = last_block.chunks.into_iter().map(Into::into).collect_vec();
-            let chunk_endorsements = vec![vec![]; chunks.len()];
-            let block = Block::produce(
-                PROTOCOL_VERSION,
-                &last_block.header.clone().into(),
-                last_block.header.height + 1,
-                next_block_ordinal,
-                chunks,
-                chunk_endorsements,
-                EpochId::default(),
-                if last_block.header.prev_hash == CryptoHash::default() {
-                    EpochId(last_block.header.hash)
-                } else {
-                    EpochId(last_block.header.next_epoch_id)
-                },
-                None,
-                vec![],
-                Ratio::from_integer(0),
-                0,
-                100,
-                Some(0),
-                &signer1,
-                last_block.header.next_bp_hash,
-                block_merkle_tree.root(),
-                Clock::real(),
-                None,
-                None,
-                None,
-            );
-            actor_handles.client_actor.send(
-                BlockResponse {
-                    block: block.clone().into(),
-                    peer_id: PeerInfo::random().id,
-                    was_requested: false,
-                }
-                .span_wrap(),
-            );
-
-            for i in 3..11 {
-                let s = AccountId::try_from(if i > 10 {
-                    "test1".to_string()
-                } else {
-                    format!("test{}", i)
-                })
-                .unwrap();
-                let signer = create_test_signer(s.as_str());
-                let approval = Approval::new(
-                    *block.hash(),
-                    block.header().height(),
-                    10, // the height at which "test1" is producing
-                    &signer,
-                );
-                actor_handles
-                    .client_actor
-                    .send(BlockApproval(approval, PeerInfo::random().id).span_wrap());
             }
+            PeerManagerMessageResponse::NetworkResponses(NetworkResponses::NoResponse)
+        }),
+    );
+    let res = actor_handles.view_client_actor.send_async(GetBlockWithMerkleTree::latest()).await;
+    let (last_block, block_merkle_tree) = res.unwrap().unwrap();
+    let mut block_merkle_tree = PartialMerkleTree::clone(&block_merkle_tree);
+    block_merkle_tree.insert(last_block.header.hash);
+    let signer1 = create_test_signer(&block_producer);
+    let next_block_ordinal = last_block.header.block_ordinal.unwrap() + 1;
 
-            future::ready(())
-        });
-        actix::spawn(actor);
-        near_network::test_utils::wait_or_panic(5000);
-    });
+    let chunks = last_block.chunks.into_iter().map(Into::into).collect_vec();
+    let chunk_endorsements = vec![vec![]; chunks.len()];
+    let block = Block::produce(
+        PROTOCOL_VERSION,
+        &last_block.header.clone().into(),
+        last_block.header.height + 1,
+        next_block_ordinal,
+        chunks,
+        chunk_endorsements,
+        EpochId::default(),
+        if last_block.header.prev_hash == CryptoHash::default() {
+            EpochId(last_block.header.hash)
+        } else {
+            EpochId(last_block.header.next_epoch_id)
+        },
+        None,
+        vec![],
+        Ratio::from_integer(0),
+        Balance::ZERO,
+        Balance::from_yoctonear(100),
+        Some(Balance::ZERO),
+        &signer1,
+        last_block.header.next_bp_hash,
+        block_merkle_tree.root(),
+        Clock::real(),
+        None,
+        None,
+        None,
+    );
+    actor_handles.client_actor.send(
+        BlockResponse {
+            block: block.clone().into(),
+            peer_id: PeerInfo::random().id,
+            was_requested: false,
+        }
+        .span_wrap(),
+    );
+
+    for i in 3..11 {
+        let s =
+            AccountId::try_from(if i > 10 { "test1".to_string() } else { format!("test{}", i) })
+                .unwrap();
+        let signer = create_test_signer(s.as_str());
+        let approval = Approval::new(
+            *block.hash(),
+            block.header().height(),
+            10, // the height at which "test1" is producing
+            &signer,
+        );
+        actor_handles.client_actor.send(BlockApproval(approval, PeerInfo::random().id).span_wrap());
+    }
+
+    let timeout = tokio::time::sleep(tokio::time::Duration::from_millis(5000));
+    tokio::select! {
+        _ = done.cancelled() => {},
+        _ = timeout => panic!("Timeout exceeded while waiting for block with approvals."),
+    }
 }
 
 /// Sends one invalid block followed by one valid block, and checks that client announces only valid block.
 /// and that the node bans the peer for invalid block header.
-fn invalid_blocks_common(is_requested: bool) {
+async fn invalid_blocks_common(is_requested: bool) {
     init_test_logger();
-    run_actix(async move {
-        let mut ban_counter = 0;
-        let actor_handles = setup_mock(
-            Clock::real(),
-            vec!["test".parse().unwrap()],
-            "other".parse().unwrap(),
-            true,
-            false,
-            Box::new(move |msg, _ctx, _client_actor, _rpc_handler_actor| {
-                match msg.as_network_requests_ref() {
-                    NetworkRequests::Block { block } => {
-                        if is_requested {
-                            panic!("rebroadcasting requested block");
-                        } else {
-                            assert_eq!(block.header().height(), 1);
-                            assert_eq!(block.header().chunk_mask().len(), 1);
-                            assert_eq!(block.header().latest_protocol_version(), PROTOCOL_VERSION);
-                            assert_eq!(ban_counter, 3);
-                            near_async::shutdown_all_actors();
-                        }
+    let actor_system = ActorSystem::new();
+    let mut ban_counter = 0;
+    let done = CancellationToken::new();
+    let done_clone = done.clone();
+    let actor_handles = setup_mock(
+        Clock::real(),
+        actor_system.clone(),
+        vec!["test".parse().unwrap()],
+        "other".parse().unwrap(),
+        true,
+        false,
+        Box::new(move |msg, _client_actor, _rpc_handler_actor| {
+            match msg.as_network_requests_ref() {
+                NetworkRequests::Block { block } => {
+                    if is_requested {
+                        panic!("rebroadcasting requested block");
+                    } else {
+                        assert_eq!(block.header().height(), 1);
+                        assert_eq!(block.header().chunk_mask().len(), 1);
+                        assert_eq!(block.header().latest_protocol_version(), PROTOCOL_VERSION);
+                        assert_eq!(ban_counter, 3);
+                        done_clone.cancel();
+                        actor_system.stop();
                     }
-                    NetworkRequests::BanPeer { ban_reason, .. } => {
-                        assert_eq!(ban_reason, &ReasonForBan::BadBlockHeader);
-                        ban_counter += 1;
-                        let expected_ban_counter = 4;
-                        if ban_counter == expected_ban_counter && is_requested {
-                            near_async::shutdown_all_actors();
-                        }
+                }
+                NetworkRequests::BanPeer { ban_reason, .. } => {
+                    assert_eq!(ban_reason, &ReasonForBan::BadBlockHeader);
+                    ban_counter += 1;
+                    let expected_ban_counter = 4;
+                    if ban_counter == expected_ban_counter && is_requested {
+                        done_clone.cancel();
+                        actor_system.stop();
                     }
-                    _ => {}
-                };
-                PeerManagerMessageResponse::NetworkResponses(NetworkResponses::NoResponse)
-            }),
-        );
-        let actor = actor_handles.view_client_actor.send(GetBlockWithMerkleTree::latest());
-        let actor = actor.then(move |res| {
-            let (last_block, block_merkle_tree) = res.unwrap().unwrap();
-            let mut block_merkle_tree = PartialMerkleTree::clone(&block_merkle_tree);
-            block_merkle_tree.insert(last_block.header.hash);
-            let signer = create_test_signer("test");
-            let next_block_ordinal = last_block.header.block_ordinal.unwrap() + 1;
-            let valid_block = Block::produce(
-                PROTOCOL_VERSION,
-                &last_block.header.clone().into(),
-                last_block.header.height + 1,
-                next_block_ordinal,
-                last_block.chunks.iter().cloned().map(Into::into).collect(),
-                vec![vec![]; last_block.chunks.len()],
-                EpochId::default(),
-                if last_block.header.prev_hash == CryptoHash::default() {
-                    EpochId(last_block.header.hash)
-                } else {
-                    EpochId(last_block.header.next_epoch_id)
-                },
-                None,
-                vec![],
-                Ratio::from_integer(0),
-                0,
-                100,
-                Some(0),
-                &signer,
-                last_block.header.next_bp_hash,
-                block_merkle_tree.root(),
-                Clock::real(),
-                None,
-                None,
-                None,
-            );
-            // Send block with invalid chunk mask
-            let mut block = valid_block.clone();
-            block.mut_header().set_chunk_mask(vec![]);
-            block.mut_header().init();
-            actor_handles.client_actor.send(
-                BlockResponse {
-                    block: block.clone().into(),
-                    peer_id: PeerInfo::random().id,
-                    was_requested: is_requested,
                 }
-                .span_wrap(),
-            );
-
-            // Send blocks with invalid protocol version
-            let mut block = valid_block.clone();
-            block.mut_header().set_latest_protocol_version(PROTOCOL_VERSION - 1);
-            block.mut_header().init();
-            actor_handles.client_actor.send(
-                BlockResponse {
-                    block: block.clone().into(),
-                    peer_id: PeerInfo::random().id,
-                    was_requested: is_requested,
-                }
-                .span_wrap(),
-            );
-
-            // Send block with invalid chunk signature
-            let mut block = valid_block.clone();
-            let mut chunks: Vec<_> = block.chunks().iter_raw().cloned().collect();
-            let some_signature = Signature::from_parts(KeyType::ED25519, &[1; 64]).unwrap();
-            match &mut chunks[0] {
-                ShardChunkHeader::V1(chunk) => {
-                    chunk.signature = some_signature;
-                }
-                ShardChunkHeader::V2(chunk) => {
-                    chunk.signature = some_signature;
-                }
-                ShardChunkHeader::V3(chunk) => {
-                    chunk.signature = some_signature;
-                }
+                _ => {}
             };
-            block.set_chunks(chunks);
-            actor_handles.client_actor.send(
-                BlockResponse {
-                    block: block.clone().into(),
-                    peer_id: PeerInfo::random().id,
-                    was_requested: is_requested,
-                }
-                .span_wrap(),
-            );
+            PeerManagerMessageResponse::NetworkResponses(NetworkResponses::NoResponse)
+        }),
+    );
+    let res = actor_handles.view_client_actor.send_async(GetBlockWithMerkleTree::latest()).await;
+    let (last_block, block_merkle_tree) = res.unwrap().unwrap();
+    let mut block_merkle_tree = PartialMerkleTree::clone(&block_merkle_tree);
+    block_merkle_tree.insert(last_block.header.hash);
+    let signer = create_test_signer("test");
+    let next_block_ordinal = last_block.header.block_ordinal.unwrap() + 1;
+    let valid_block = Block::produce(
+        PROTOCOL_VERSION,
+        &last_block.header.clone().into(),
+        last_block.header.height + 1,
+        next_block_ordinal,
+        last_block.chunks.iter().cloned().map(Into::into).collect(),
+        vec![vec![]; last_block.chunks.len()],
+        EpochId::default(),
+        if last_block.header.prev_hash == CryptoHash::default() {
+            EpochId(last_block.header.hash)
+        } else {
+            EpochId(last_block.header.next_epoch_id)
+        },
+        None,
+        vec![],
+        Ratio::from_integer(0),
+        Balance::ZERO,
+        Balance::from_yoctonear(100),
+        Some(Balance::ZERO),
+        &signer,
+        last_block.header.next_bp_hash,
+        block_merkle_tree.root(),
+        Clock::real(),
+        None,
+        None,
+        None,
+    );
+    // Send block with invalid chunk mask
+    let mut block = valid_block.clone();
+    block.mut_header().set_chunk_mask(vec![]);
+    block.mut_header().init();
+    actor_handles.client_actor.send(
+        BlockResponse {
+            block: block.clone().into(),
+            peer_id: PeerInfo::random().id,
+            was_requested: is_requested,
+        }
+        .span_wrap(),
+    );
 
-            // Send proper block.
-            let block2 = valid_block;
-            actor_handles.client_actor.send(
-                BlockResponse {
-                    block: block2.clone().into(),
-                    peer_id: PeerInfo::random().id,
-                    was_requested: is_requested,
-                }
-                .span_wrap(),
-            );
-            if is_requested {
-                let mut block3 = block2;
-                block3.mut_header().set_chunk_headers_root(hash(&[1]));
-                block3.mut_header().init();
-                actor_handles.client_actor.send(
-                    BlockResponse {
-                        block: block3.clone().into(),
-                        peer_id: PeerInfo::random().id,
-                        was_requested: is_requested,
-                    }
-                    .span_wrap(),
-                );
+    // Send blocks with invalid protocol version
+    let mut block = valid_block.clone();
+    block.mut_header().set_latest_protocol_version(PROTOCOL_VERSION - 1);
+    block.mut_header().init();
+    actor_handles.client_actor.send(
+        BlockResponse {
+            block: block.clone().into(),
+            peer_id: PeerInfo::random().id,
+            was_requested: is_requested,
+        }
+        .span_wrap(),
+    );
+
+    // Send block with invalid chunk signature
+    let mut block = valid_block.clone();
+    let mut chunks: Vec<_> = block.chunks().iter_raw().cloned().collect();
+    let some_signature = Signature::from_parts(KeyType::ED25519, &[1; 64]).unwrap();
+    match &mut chunks[0] {
+        ShardChunkHeader::V1(chunk) => {
+            chunk.signature = some_signature;
+        }
+        ShardChunkHeader::V2(chunk) => {
+            chunk.signature = some_signature;
+        }
+        ShardChunkHeader::V3(chunk) => {
+            chunk.signature = some_signature;
+        }
+    };
+    block.set_chunks(chunks);
+    actor_handles.client_actor.send(
+        BlockResponse {
+            block: block.clone().into(),
+            peer_id: PeerInfo::random().id,
+            was_requested: is_requested,
+        }
+        .span_wrap(),
+    );
+
+    // Send proper block.
+    let block2 = valid_block;
+    actor_handles.client_actor.send(
+        BlockResponse {
+            block: block2.clone().into(),
+            peer_id: PeerInfo::random().id,
+            was_requested: is_requested,
+        }
+        .span_wrap(),
+    );
+    if is_requested {
+        let mut block3 = block2;
+        block3.mut_header().set_chunk_headers_root(hash(&[1]));
+        block3.mut_header().init();
+        actor_handles.client_actor.send(
+            BlockResponse {
+                block: block3.clone().into(),
+                peer_id: PeerInfo::random().id,
+                was_requested: is_requested,
             }
-            future::ready(())
-        });
-        actix::spawn(actor);
-        near_network::test_utils::wait_or_panic(5000);
-    });
+            .span_wrap(),
+        );
+    }
+    let timeout = tokio::time::sleep(tokio::time::Duration::from_millis(5000));
+    tokio::select! {
+        _ = done.cancelled() => {},
+        _ = timeout => panic!("Timeout exceeded while waiting for invalid blocks test."),
+    }
 }
 
-#[test]
-fn test_invalid_blocks_not_requested() {
-    invalid_blocks_common(false);
+#[tokio::test]
+async fn test_invalid_blocks_not_requested() {
+    invalid_blocks_common(false).await;
 }
 
-#[test]
-fn test_invalid_blocks_requested() {
-    invalid_blocks_common(true);
+#[tokio::test]
+async fn test_invalid_blocks_requested() {
+    invalid_blocks_common(true).await;
 }
 
 /// Runs two validators runtime with only one validator online.
 /// Present validator produces blocks on it's height after deadline.
-#[test]
-fn skip_block_production() {
+#[tokio::test]
+async fn skip_block_production() {
     init_test_logger();
-    run_actix(async {
-        setup_mock(
-            Clock::real(),
-            vec!["test1".parse().unwrap(), "test2".parse().unwrap()],
-            "test2".parse().unwrap(),
-            true,
-            false,
-            Box::new(move |msg, _ctx, _client_actor, _rpc_handler_actor| {
-                match msg.as_network_requests_ref() {
-                    NetworkRequests::Block { block } => {
-                        if block.header().height() > 3 {
-                            near_async::shutdown_all_actors();
-                        }
+    let actor_system = ActorSystem::new();
+    let done = CancellationToken::new();
+    let done_clone = done.clone();
+    setup_mock(
+        Clock::real(),
+        actor_system.clone(),
+        vec!["test1".parse().unwrap(), "test2".parse().unwrap()],
+        "test2".parse().unwrap(),
+        true,
+        false,
+        Box::new(move |msg, _client_actor, _rpc_handler_actor| {
+            match msg.as_network_requests_ref() {
+                NetworkRequests::Block { block } => {
+                    if block.header().height() > 3 {
+                        done_clone.cancel();
+                        actor_system.stop();
                     }
-                    _ => {}
-                };
-                PeerManagerMessageResponse::NetworkResponses(NetworkResponses::NoResponse)
-            }),
-        );
-        wait_or_panic(10000);
-    });
+                }
+                _ => {}
+            };
+            PeerManagerMessageResponse::NetworkResponses(NetworkResponses::NoResponse)
+        }),
+    );
+    let timeout = tokio::time::sleep(tokio::time::Duration::from_millis(10000));
+    tokio::select! {
+        _ = done.cancelled() => {},
+        _ = timeout => panic!("Timeout exceeded while waiting for block production to skip."),
+    }
 }
 
 /// Runs client that requests syncing headers from peers.
-#[test]
-fn client_sync_headers() {
+#[tokio::test]
+async fn client_sync_headers() {
     init_test_logger();
-    run_actix(async {
-        let peer_info1 = PeerInfo::random();
-        let peer_info2 = peer_info1.clone();
-        let actor_handles = setup_mock(
-            Clock::real(),
-            vec!["test".parse().unwrap()],
-            "other".parse().unwrap(),
-            false,
-            false,
-            Box::new(move |msg, _ctx, _client_actor, _rpc_handler_actor| {
-                match msg.as_network_requests_ref() {
-                    NetworkRequests::BlockHeadersRequest { hashes, peer_id } => {
-                        assert_eq!(*peer_id, peer_info1.id);
-                        assert_eq!(hashes.len(), 1);
-                        // TODO: check it requests correct hashes.
-                        near_async::shutdown_all_actors();
+    let actor_system = ActorSystem::new();
+    let peer_info1 = PeerInfo::random();
+    let peer_info2 = peer_info1.clone();
+    let done = CancellationToken::new();
+    let done_clone = done.clone();
+    let actor_handles = setup_mock(
+        Clock::real(),
+        actor_system.clone(),
+        vec!["test".parse().unwrap()],
+        "other".parse().unwrap(),
+        false,
+        false,
+        Box::new(move |msg, _client_actor, _rpc_handler_actor| {
+            match msg.as_network_requests_ref() {
+                NetworkRequests::BlockHeadersRequest { hashes, peer_id } => {
+                    assert_eq!(*peer_id, peer_info1.id);
+                    assert_eq!(hashes.len(), 1);
+                    // TODO: check it requests correct hashes.
+                    done_clone.cancel();
+                    actor_system.stop();
 
-                        PeerManagerMessageResponse::NetworkResponses(NetworkResponses::NoResponse)
-                    }
-                    _ => PeerManagerMessageResponse::NetworkResponses(NetworkResponses::NoResponse),
+                    PeerManagerMessageResponse::NetworkResponses(NetworkResponses::NoResponse)
                 }
-            }),
-        );
-        actor_handles.client_actor.send(
-            SetNetworkInfo(NetworkInfo {
-                connected_peers: vec![ConnectedPeerInfo {
-                    full_peer_info: FullPeerInfo {
-                        peer_info: peer_info2.clone(),
-                        chain_info: PeerChainInfo {
-                            genesis_id: Default::default(),
-                            last_block: Some(BlockInfo { height: 5, hash: hash(&[5]) }),
-                            tracked_shards: vec![],
-                            archival: false,
-                        },
+                _ => PeerManagerMessageResponse::NetworkResponses(NetworkResponses::NoResponse),
+            }
+        }),
+    );
+    actor_handles.client_actor.send(
+        SetNetworkInfo(NetworkInfo {
+            connected_peers: vec![ConnectedPeerInfo {
+                full_peer_info: FullPeerInfo {
+                    peer_info: peer_info2.clone(),
+                    chain_info: PeerChainInfo {
+                        genesis_id: Default::default(),
+                        last_block: Some(BlockInfo { height: 5, hash: hash(&[5]) }),
+                        tracked_shards: vec![],
+                        archival: false,
                     },
-                    received_bytes_per_sec: 0,
-                    sent_bytes_per_sec: 0,
-                    last_time_peer_requested: near_async::time::Instant::now(),
-                    last_time_received_message: near_async::time::Instant::now(),
-                    connection_established_time: near_async::time::Instant::now(),
-                    peer_type: PeerType::Outbound,
-                    nonce: 1,
-                }],
-                num_connected_peers: 1,
-                peer_max_count: 1,
-                highest_height_peers: vec![HighestHeightPeerInfo {
-                    peer_info: peer_info2,
-                    genesis_id: Default::default(),
-                    highest_block_height: 5,
-                    highest_block_hash: hash(&[5]),
-                    tracked_shards: vec![],
-                    archival: false,
-                }],
-                sent_bytes_per_sec: 0,
+                },
                 received_bytes_per_sec: 0,
-                known_producers: vec![],
-                tier1_connections: vec![],
-                tier1_accounts_keys: vec![],
-                tier1_accounts_data: vec![],
-            })
-            .span_wrap(),
-        );
-        wait_or_panic(2000);
-    });
+                sent_bytes_per_sec: 0,
+                last_time_peer_requested: near_async::time::Instant::now(),
+                last_time_received_message: near_async::time::Instant::now(),
+                connection_established_time: near_async::time::Instant::now(),
+                peer_type: PeerType::Outbound,
+                nonce: 1,
+            }],
+            num_connected_peers: 1,
+            peer_max_count: 1,
+            highest_height_peers: vec![HighestHeightPeerInfo {
+                peer_info: peer_info2,
+                genesis_id: Default::default(),
+                highest_block_height: 5,
+                highest_block_hash: hash(&[5]),
+                tracked_shards: vec![],
+                archival: false,
+            }],
+            sent_bytes_per_sec: 0,
+            received_bytes_per_sec: 0,
+            known_producers: vec![],
+            tier1_connections: vec![],
+            tier1_accounts_keys: vec![],
+            tier1_accounts_data: vec![],
+        })
+        .span_wrap(),
+    );
+    let timeout = tokio::time::sleep(tokio::time::Duration::from_millis(2000));
+    tokio::select! {
+        _ = done.cancelled() => {},
+        _ = timeout => panic!("Timeout exceeded while waiting for client sync headers."),
+    }
 }
 
 #[test]
@@ -624,14 +643,14 @@ fn test_no_double_sign() {
 fn test_invalid_gas_price() {
     init_test_logger();
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap()], 1);
-    genesis.config.min_gas_price = 100;
+    genesis.config.min_gas_price = Balance::from_yoctonear(100);
     let mut env = TestEnv::builder_from_genesis(&genesis).clients_count(1).build();
     let client = &mut env.clients[0];
     let signer = client.validator_signer.get().unwrap();
 
     let genesis = client.chain.get_block_by_height(0).unwrap();
     let mut b1 = TestBlockBuilder::new(Clock::real(), &genesis, signer.clone()).build();
-    Arc::make_mut(&mut b1).mut_header().set_next_gas_price(0);
+    Arc::make_mut(&mut b1).mut_header().set_next_gas_price(Balance::ZERO);
     Arc::make_mut(&mut b1).mut_header().resign(signer.as_ref());
 
     let res = client.process_block_test(b1.into(), Provenance::NONE);
@@ -871,7 +890,7 @@ fn test_bad_chunk_mask() {
 
 #[test]
 fn test_minimum_gas_price() {
-    let min_gas_price = 100;
+    let min_gas_price = Balance::from_yoctonear(100);
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap()], 1);
     genesis.config.min_gas_price = min_gas_price;
     genesis.config.gas_price_adjustment_rate = Ratio::new(1, 10);
@@ -944,7 +963,7 @@ fn test_gc_long_epoch() {
     test_gc_with_epoch_length_common(200);
 }
 
-/// Test that producing blocks works in archival mode with save_trie_changes enabled.
+/// Test that producing blocks works in split store archival mode with save_trie_changes enabled.
 /// In that case garbage collection should not happen but trie changes should be saved to the store.
 #[test]
 fn test_archival_save_trie_changes() {
@@ -952,10 +971,10 @@ fn test_archival_save_trie_changes() {
 
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     genesis.config.epoch_length = epoch_length;
-    genesis.config.total_supply = 1_000_000_000;
+    genesis.config.total_supply = Balance::from_yoctonear(1_000_000_000);
     let mut env = TestEnv::builder(&genesis.config)
         .nightshade_runtimes(&genesis)
-        .archive(true)
+        .enable_split_store(true)
         .save_trie_changes(true)
         .build();
 
@@ -1027,7 +1046,7 @@ fn test_archival_gc_common(
     let mut env = TestEnv::builder(&genesis.config)
         .stores(vec![hot_store.clone()])
         .nightshade_runtimes(&genesis)
-        .archive(true)
+        .enable_split_store(true)
         .save_trie_changes(true)
         .build();
 
@@ -1196,7 +1215,7 @@ fn test_gc_execution_outcome() {
         "test0".parse().unwrap(),
         "test1".parse().unwrap(),
         &signer,
-        100,
+        Balance::from_yoctonear(100),
         genesis_hash,
     );
     let tx_hash = tx.get_hash();
@@ -1432,7 +1451,7 @@ fn test_tx_forward_around_epoch_boundary() {
         "test1".parse().unwrap(),
         "test0".parse().unwrap(),
         &signer,
-        1,
+        Balance::from_yoctonear(1),
         genesis_hash,
     );
     assert_eq!(env.rpc_handlers[2].process_tx(tx, false, false), ProcessTxResponse::RequestRouted);
@@ -1570,19 +1589,29 @@ fn test_gc_tail_update() {
 fn test_gas_price_change() {
     init_test_logger();
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
-    let target_num_tokens_left = NEAR_BASE / 10 + 1;
+    let target_num_tokens_left = Balance::from_near(1)
+        .checked_div(10)
+        .unwrap()
+        .checked_add(Balance::from_yoctonear(1))
+        .unwrap();
     let transaction_costs = RuntimeConfig::test().fees;
 
-    let send_money_total_gas = transaction_costs.fee(ActionCosts::transfer).send_fee(false)
-        + transaction_costs.fee(ActionCosts::new_action_receipt).send_fee(false)
-        + transaction_costs.fee(ActionCosts::transfer).exec_fee()
-        + transaction_costs.fee(ActionCosts::new_action_receipt).exec_fee();
-    let min_gas_price = target_num_tokens_left / send_money_total_gas as u128;
+    let send_money_total_gas = transaction_costs
+        .fee(ActionCosts::transfer)
+        .send_fee(false)
+        .checked_add(transaction_costs.fee(ActionCosts::new_action_receipt).send_fee(false))
+        .unwrap()
+        .checked_add(transaction_costs.fee(ActionCosts::transfer).exec_fee())
+        .unwrap()
+        .checked_add(transaction_costs.fee(ActionCosts::new_action_receipt).exec_fee())
+        .unwrap();
+    let min_gas_price =
+        target_num_tokens_left.checked_div(u128::from(send_money_total_gas.as_gas())).unwrap();
     let gas_limit = 1000000000000;
     let gas_price_adjustment_rate = Ratio::new(1, 10);
 
     genesis.config.min_gas_price = min_gas_price;
-    genesis.config.gas_limit = gas_limit;
+    genesis.config.gas_limit = Gas::from_gas(gas_limit);
     genesis.config.gas_price_adjustment_rate = gas_price_adjustment_rate;
     let mut env = TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build();
 
@@ -1595,8 +1624,12 @@ fn test_gas_price_change() {
         "test0".parse().unwrap(),
         &signer,
         TESTING_INIT_BALANCE
-            - target_num_tokens_left
-            - send_money_total_gas as u128 * min_gas_price,
+            .checked_sub(target_num_tokens_left)
+            .unwrap()
+            .checked_sub(
+                min_gas_price.checked_mul(u128::from(send_money_total_gas.as_gas())).unwrap(),
+            )
+            .unwrap(),
         genesis_hash,
     );
     assert_eq!(env.rpc_handlers[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
@@ -1606,7 +1639,7 @@ fn test_gas_price_change() {
         "test1".parse().unwrap(),
         "test0".parse().unwrap(),
         &signer,
-        1,
+        Balance::from_yoctonear(1),
         genesis_hash,
     );
     assert_eq!(env.rpc_handlers[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
@@ -1618,12 +1651,12 @@ fn test_gas_price_change() {
 #[test]
 fn test_gas_price_overflow() {
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
-    let min_gas_price = 1000000;
-    let max_gas_price = 10_u128.pow(20);
+    let min_gas_price = Balance::from_yoctonear(1000000);
+    let max_gas_price = Balance::from_yoctonear(10_u128.pow(20));
     let gas_limit = 450000000000;
     let gas_price_adjustment_rate = Ratio::from_integer(1);
     genesis.config.min_gas_price = min_gas_price;
-    genesis.config.gas_limit = gas_limit;
+    genesis.config.gas_limit = Gas::from_gas(gas_limit);
     genesis.config.gas_price_adjustment_rate = gas_price_adjustment_rate;
     genesis.config.transaction_validity_period = 100000;
     genesis.config.epoch_length = 43200;
@@ -1639,7 +1672,7 @@ fn test_gas_price_overflow() {
             "test1".parse().unwrap(),
             "test0".parse().unwrap(),
             &signer,
-            1,
+            Balance::from_yoctonear(1),
             genesis_hash,
         );
         assert_eq!(env.rpc_handlers[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
@@ -1769,7 +1802,7 @@ fn test_data_reset_before_state_sync() {
         1,
         "test0".parse().unwrap(),
         "test_account".parse().unwrap(),
-        NEAR_BASE,
+        Balance::from_near(1),
         signer.public_key(),
         &signer,
         genesis_hash,
@@ -1873,7 +1906,7 @@ fn test_validate_chunk_extra() {
     let epoch_length = 5;
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     genesis.config.epoch_length = epoch_length;
-    genesis.config.min_gas_price = 0;
+    genesis.config.min_gas_price = Balance::ZERO;
     let mut env = TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build();
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
 
@@ -1906,8 +1939,8 @@ fn test_validate_chunk_extra() {
         vec![Action::FunctionCall(Box::new(FunctionCallAction {
             method_name: "write_block_height".to_string(),
             args: vec![],
-            gas: 100000000000000,
-            deposit: 0,
+            gas: Gas::from_teragas(100),
+            deposit: Balance::ZERO,
         }))],
         *last_block.hash(),
         0,
@@ -2033,11 +2066,11 @@ fn test_validate_chunk_extra() {
 fn slow_test_catchup_gas_price_change() {
     init_test_logger();
     let epoch_length = 8;
-    let min_gas_price = 10000;
+    let min_gas_price = Balance::from_yoctonear(10000);
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     genesis.config.epoch_length = epoch_length;
     genesis.config.min_gas_price = min_gas_price;
-    genesis.config.gas_limit = 1000000000000;
+    genesis.config.gas_limit = Gas::from_teragas(1);
 
     let mut env = TestEnv::builder(&genesis.config)
         .clients_count(2)
@@ -2061,7 +2094,7 @@ fn slow_test_catchup_gas_price_change() {
             "test0".parse().unwrap(),
             "test1".parse().unwrap(),
             &signer,
-            1,
+            Balance::from_yoctonear(1),
             *genesis_block.hash(),
         );
 
@@ -2185,11 +2218,11 @@ fn test_block_execution_outcomes() {
     init_test_logger();
 
     let epoch_length = 5;
-    let min_gas_price = 10000;
+    let min_gas_price = Balance::from_yoctonear(10000);
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     genesis.config.epoch_length = epoch_length;
     genesis.config.min_gas_price = min_gas_price;
-    genesis.config.gas_limit = 1000000000000;
+    genesis.config.gas_limit = Gas::from_teragas(1);
     let mut env = TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build();
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
     let signer = InMemorySigner::test_signer(&"test0".parse().unwrap());
@@ -2201,7 +2234,7 @@ fn test_block_execution_outcomes() {
             "test0".parse().unwrap(),
             "test0".parse().unwrap(),
             &signer,
-            1,
+            Balance::from_yoctonear(1),
             *genesis_block.hash(),
         );
         tx_hashes.push(tx.get_hash());
@@ -2267,11 +2300,11 @@ fn test_save_tx_outcomes_false() {
     init_test_logger();
 
     let epoch_length = 5;
-    let min_gas_price = 10000;
+    let min_gas_price = Balance::from_yoctonear(10000);
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     genesis.config.epoch_length = epoch_length;
     genesis.config.min_gas_price = min_gas_price;
-    genesis.config.gas_limit = 1000000000000;
+    genesis.config.gas_limit = Gas::from_teragas(1);
     let mut env = TestEnv::builder(&genesis.config)
         .save_tx_outcomes(false)
         .nightshade_runtimes(&genesis)
@@ -2287,7 +2320,7 @@ fn test_save_tx_outcomes_false() {
             "test0".parse().unwrap(),
             "test0".parse().unwrap(),
             &signer,
-            1,
+            Balance::from_yoctonear(1),
             *genesis_block.hash(),
         );
         tx_hashes.push(tx.get_hash());
@@ -2311,7 +2344,7 @@ fn test_refund_receipts_processing() {
     init_test_logger();
 
     let epoch_length = 5;
-    let min_gas_price = 10000;
+    let min_gas_price = Balance::from_yoctonear(10000);
     let mut genesis = Genesis::test_sharded_new_version(
         vec!["test0".parse().unwrap(), "test1".parse().unwrap()],
         1,
@@ -2321,7 +2354,7 @@ fn test_refund_receipts_processing() {
     genesis.config.min_gas_price = min_gas_price;
     // Set gas limit to be small enough to produce some delayed receipts, but large enough for
     // transactions to get through.
-    genesis.config.gas_limit = 100_000_000;
+    genesis.config.gas_limit = Gas::from_gas(100_000_000);
     let mut env = TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build();
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
     let signer = InMemorySigner::test_signer(&"test0".parse().unwrap());
@@ -2334,7 +2367,7 @@ fn test_refund_receipts_processing() {
             "test0".parse().unwrap(),
             "random_account".parse().unwrap(),
             &signer,
-            1,
+            Balance::from_yoctonear(1),
             *genesis_block.hash(),
         );
         tx_hashes.push(tx.get_hash());
@@ -2413,9 +2446,22 @@ fn test_execution_metadata() {
     let config = RuntimeConfigStore::test().get_config(PROTOCOL_VERSION).clone();
 
     // Total costs for creating a function call receipt.
-    let expected_receipt_cost = config.fees.fee(ActionCosts::new_action_receipt).execution
-        + config.fees.fee(ActionCosts::function_call_base).exec_fee()
-        + config.fees.fee(ActionCosts::function_call_byte).exec_fee() * "main".len() as u64;
+    let expected_receipt_cost = config
+        .fees
+        .fee(ActionCosts::new_action_receipt)
+        .execution
+        .checked_add(config.fees.fee(ActionCosts::function_call_base).exec_fee())
+        .unwrap()
+        .checked_add(
+            config
+                .fees
+                .fee(ActionCosts::function_call_byte)
+                .exec_fee()
+                .checked_mul("main".len() as u64)
+                .unwrap(),
+        )
+        .unwrap()
+        .as_gas();
 
     // We spend two wasm instructions (call & drop), plus 8 ops for initializing function
     // operand stack (8 bytes worth to hold the return value.)
@@ -2427,13 +2473,13 @@ fn test_execution_metadata() {
       {
         "cost_category": "WASM_HOST_COST",
         "cost": "BASE",
-        "gas_used": config.wasm_config.ext_costs.gas_cost(ExtCosts::base).to_string()
+        "gas_used": config.wasm_config.ext_costs.gas_cost(ExtCosts::base).as_gas().to_string()
       },
       // We include compilation costs into running the function.
       {
         "cost_category": "WASM_HOST_COST",
         "cost": "CONTRACT_LOADING_BASE",
-        "gas_used": config.wasm_config.ext_costs.gas_cost(ExtCosts::contract_loading_base).to_string()
+        "gas_used": config.wasm_config.ext_costs.gas_cost(ExtCosts::contract_loading_base).as_gas().to_string()
       },
       {
         "cost_category": "WASM_HOST_COST",
@@ -2452,14 +2498,19 @@ fn test_execution_metadata() {
     let actual_profile = serde_json::to_value(&metadata.gas_profile).unwrap();
     assert_eq!(expected_profile, actual_profile);
 
-    let actual_receipt_cost = outcome.gas_burnt
-        - metadata
-            .gas_profile
-            .clone()
-            .unwrap_or_default()
-            .into_iter()
-            .map(|it| it.gas_used)
-            .sum::<u64>();
+    let actual_receipt_cost = outcome
+        .gas_burnt
+        .checked_sub(
+            metadata
+                .gas_profile
+                .clone()
+                .unwrap_or_default()
+                .into_iter()
+                .map(|it| it.gas_used)
+                .fold(Gas::ZERO, |acc, gas| acc.checked_add(gas).unwrap()),
+        )
+        .unwrap()
+        .as_gas();
 
     assert_eq!(expected_receipt_cost, actual_receipt_cost)
 }
@@ -2791,7 +2842,7 @@ fn test_query_final_state() {
         "test0".parse().unwrap(),
         "test1".parse().unwrap(),
         &signer,
-        100,
+        Balance::from_yoctonear(100),
         *genesis_block.hash(),
     );
     assert_eq!(env.rpc_handlers[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
@@ -2852,7 +2903,7 @@ fn test_query_final_state() {
         query_final_state(&mut env.clients[0].chain, runtime.clone(), "test0".parse().unwrap());
 
     assert_eq!(account_state1, account_state2);
-    assert!(account_state1.amount < TESTING_INIT_BALANCE - TESTING_INIT_STAKE);
+    assert!(account_state1.amount < TESTING_INIT_BALANCE.checked_sub(TESTING_INIT_STAKE).unwrap());
 }
 
 // Check that if the same receipt is executed twice in forked chain, both outcomes are recorded
@@ -2990,7 +3041,7 @@ fn prepare_env_with_transaction() -> (TestEnv, CryptoHash) {
         "test0".parse().unwrap(),
         "test1".parse().unwrap(),
         &signer,
-        100,
+        Balance::from_yoctonear(100),
         *genesis_block.hash(),
     );
     let tx_hash = tx.get_hash();
@@ -3233,8 +3284,8 @@ fn test_validator_stake_host_function() {
         vec![Action::FunctionCall(Box::new(FunctionCallAction {
             method_name: "ext_validator_stake".to_string(),
             args: b"test0".to_vec(),
-            gas: 100_000_000_000_000,
-            deposit: 0,
+            gas: Gas::from_teragas(100),
+            deposit: Balance::ZERO,
         }))],
         *genesis_block.hash(),
         0,
@@ -3286,9 +3337,7 @@ mod contract_precompilation_tests {
     use super::*;
     use near_primitives::test_utils::MockEpochInfoProvider;
     use near_store::TrieUpdate;
-    use near_vm_runner::{
-        ContractCode, ContractRuntimeCache, FilesystemContractRuntimeCache, get_contract_cache_key,
-    };
+    use near_vm_runner::{ContractCode, FilesystemContractRuntimeCache};
     use node_runtime::state_viewer::TrieViewer;
     use node_runtime::state_viewer::ViewApplyState;
 
@@ -3360,14 +3409,13 @@ mod contract_precompilation_tests {
         let epoch_id =
             *env.clients[0].chain.get_block_by_height(height - 1).unwrap().header().epoch_id();
         let runtime_config = env.get_runtime_config(0, epoch_id);
-        let key = get_contract_cache_key(*contract_code.hash(), &runtime_config.wasm_config);
         for i in 0..num_clients {
-            caches[i]
-                .get(&key)
-                .unwrap_or_else(|_| panic!("Failed to get cached result for client {}", i))
-                .unwrap_or_else(|| {
-                    panic!("Compilation result should be non-empty for client {}", i)
-                });
+            let is_cached = near_vm_runner::contract_cached(
+                runtime_config.wasm_config.clone(),
+                &caches[i],
+                *contract_code.hash(),
+            );
+            assert_matches!(is_cached, Ok(true), "contract should be cached at this point");
         }
 
         // Check that contract function may be successfully called on the second client.
@@ -3466,22 +3514,25 @@ mod contract_precompilation_tests {
         let epoch_id =
             *env.clients[0].chain.get_block_by_height(sync_height).unwrap().header().epoch_id();
         let runtime_config = env.get_runtime_config(0, epoch_id);
-        let tiny_contract_key = get_contract_cache_key(
-            *ContractCode::new(tiny_wasm_code.clone(), None).hash(),
-            &runtime_config.wasm_config,
-        );
-        let test_contract_key = get_contract_cache_key(
-            *ContractCode::new(wasm_code.clone(), None).hash(),
-            &runtime_config.wasm_config,
-        );
+        let tiny_contract_hash = *ContractCode::new(tiny_wasm_code.clone(), None).hash();
+        let test_contract_hash = *ContractCode::new(wasm_code.clone(), None).hash();
+        let config = Arc::clone(&runtime_config.wasm_config);
 
         // Check that both deployed contracts are presented in cache for client 0.
-        assert!(caches[0].get(&tiny_contract_key).unwrap().is_some());
-        assert!(caches[0].get(&test_contract_key).unwrap().is_some());
-
+        assert!(
+            near_vm_runner::contract_cached(config.clone(), &caches[0], tiny_contract_hash)
+                .unwrap()
+        );
+        assert!(
+            near_vm_runner::contract_cached(config.clone(), &caches[0], test_contract_hash)
+                .unwrap()
+        );
         // Check that only last contract is presented in cache for client 1.
-        assert!(caches[1].get(&tiny_contract_key).unwrap().is_none());
-        assert!(caches[1].get(&test_contract_key).unwrap().is_some());
+        assert!(
+            !near_vm_runner::contract_cached(config.clone(), &caches[1], tiny_contract_hash)
+                .unwrap()
+        );
+        assert!(near_vm_runner::contract_cached(config, &caches[1], test_contract_hash).unwrap());
     }
 
     #[test]
@@ -3540,15 +3591,15 @@ mod contract_precompilation_tests {
         let epoch_id =
             *env.clients[0].chain.get_block_by_height(sync_height).unwrap().header().epoch_id();
         let runtime_config = env.get_runtime_config(0, epoch_id);
-        let contract_key = get_contract_cache_key(
-            *ContractCode::new(wasm_code.clone(), None).hash(),
-            &runtime_config.wasm_config,
-        );
-
+        let hash = *ContractCode::new(wasm_code.clone(), None).hash();
         // Check that contract is cached for client 0 despite account deletion.
-        assert!(caches[0].get(&contract_key).unwrap().is_some());
-
+        assert!(
+            near_vm_runner::contract_cached(runtime_config.wasm_config.clone(), &caches[0], hash)
+                .unwrap()
+        );
         // Check that contract is not cached for client 1 because of late state sync.
-        assert!(caches[1].get(&contract_key).unwrap().is_none());
+        assert!(
+            !near_vm_runner::contract_cached(runtime_config.wasm_config, &caches[1], hash).unwrap()
+        );
     }
 }

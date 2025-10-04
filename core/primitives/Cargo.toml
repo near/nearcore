@@ -40,6 +40,7 @@ serde_json.workspace = true
 serde_with.workspace = true
 schemars = { workspace = true, optional = true }
 sha3.workspace = true
+smallvec = { workspace = true, features = ["write"] }
 smart-default.workspace = true
 stdx.workspace = true
 strum.workspace = true
@@ -100,16 +101,3 @@ expect-test.workspace = true
 regex.workspace = true
 tempfile.workspace = true
 criterion.workspace = true
-testlib.workspace = true
-
-[[bench]]
-name = "serialization"
-harness = false
-
-[[bench]]
-name = "compression"
-harness = false
-
-[[bench]]
-name = "state_witness_borsh"
-harness = false

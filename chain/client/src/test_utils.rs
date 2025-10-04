@@ -5,12 +5,11 @@
 use crate::Client;
 use crate::chunk_producer::ProduceChunkResult;
 use crate::client::CatchupState;
-use actix_rt::System;
 use itertools::Itertools;
 use near_async::messaging::Sender;
 use near_chain::chain::{BlockCatchUpRequest, do_apply_chunks};
 use near_chain::test_utils::{wait_for_all_blocks_in_processing, wait_for_block_in_processing};
-use near_chain::{ChainStoreAccess, Provenance};
+use near_chain::{ApplyChunksIterationMode, ChainStoreAccess, Provenance};
 use near_client_primitives::types::Error;
 use near_primitives::bandwidth_scheduler::BandwidthRequests;
 use near_primitives::block::Block;
@@ -20,7 +19,7 @@ use near_primitives::optimistic_block::BlockToApply;
 use near_primitives::sharding::{EncodedShardChunk, ShardChunk, ShardChunkWithEncoding};
 use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsement;
 use near_primitives::transaction::ValidatedTransaction;
-use near_primitives::types::{BlockHeight, EpochId, ShardId};
+use near_primitives::types::{Balance, BlockHeight, EpochId, ShardId};
 use near_primitives::utils::MaybeValidated;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_store::ShardUId;
@@ -242,8 +241,8 @@ pub fn create_chunk(
         None,
         vec![],
         Ratio::new(0, 1),
-        0,
-        100,
+        Balance::ZERO,
+        Balance::from_yoctonear(100),
         None,
         &*client.validator_signer.get().unwrap(),
         *last_block.header().next_bp_hash(),
@@ -267,16 +266,19 @@ pub fn run_catchup(client: &mut Client) -> Result<(), Error> {
     let block_catch_up = Sender::from_fn(move |msg: BlockCatchUpRequest| {
         block_inside_messages.write().push(msg);
     });
-    let _ = System::new();
     loop {
         client.run_catchup(&block_catch_up, None)?;
         let mut catchup_done = true;
         for msg in block_messages.write().drain(..) {
-            let results =
-                do_apply_chunks(BlockToApply::Normal(msg.block_hash), msg.block_height, msg.work)
-                    .into_iter()
-                    .map(|res| res.2)
-                    .collect_vec();
+            let results = do_apply_chunks(
+                ApplyChunksIterationMode::Sequential,
+                BlockToApply::Normal(msg.block_hash),
+                msg.block_height,
+                msg.work,
+            )
+            .into_iter()
+            .map(|res| res.2)
+            .collect_vec();
             if let Some(CatchupState { catchup, .. }) =
                 client.catchup_state_syncs.get_mut(&msg.sync_hash)
             {
