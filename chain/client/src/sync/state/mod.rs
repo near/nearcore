@@ -76,7 +76,7 @@ pub struct StateSync {
     /// Specifically important in the scenario that a node is configured
     /// to sync only from external storage (no p2p requests). Usually a
     /// failure there indicates the file is yet to be uploaded, in which
-    /// case we want to avoid spamming requests aggresively.
+    /// case we want to avoid spamming requests aggressively.
     min_delay_before_reattempt: Duration,
 }
 
