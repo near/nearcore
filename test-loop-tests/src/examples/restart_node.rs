@@ -1,56 +1,63 @@
-use itertools::Itertools;
 use near_async::time::Duration;
-use near_chain_configs::test_genesis::{TestEpochConfigBuilder, ValidatorsSpec};
 use near_o11y::testonly::init_test_logger;
-use near_primitives::types::AccountId;
 
-use crate::setup::builder::{NodeStateBuilder, TestLoopBuilder};
-use crate::utils::ONE_NEAR;
-
-const NUM_CLIENTS: usize = 4;
+use crate::setup::builder::TestLoopBuilder;
+use crate::utils::account::{create_validators_spec, validators_spec_clients};
+use crate::utils::node::TestLoopNode;
 
 #[test]
 fn test_restart_node() {
     init_test_logger();
-    let builder = TestLoopBuilder::new();
 
-    let accounts =
-        (0..100).map(|i| format!("account{}", i).parse().unwrap()).collect::<Vec<AccountId>>();
-    let clients = accounts.iter().take(NUM_CLIENTS).cloned().collect_vec();
-
+    // 4 validators with equal stake means that with one unavailable node
+    // the chain can still make progress
+    let num_validators = 4;
+    let validators_spec = create_validators_spec(num_validators, 0);
+    let clients = validators_spec_clients(&validators_spec);
+    let client_to_restart = clients[0].clone();
+    let stable_client = clients[1].clone();
     let epoch_length = 4;
-    let validators_spec =
-        ValidatorsSpec::desired_roles(&clients.iter().map(|t| t.as_str()).collect_vec(), &[]);
-
     let genesis = TestLoopBuilder::new_genesis_builder()
         .epoch_length(epoch_length)
         .validators_spec(validators_spec)
-        .add_user_accounts_simple(&accounts, 1_000_000 * ONE_NEAR)
-        .gas_limit_one_petagas()
         .build();
-
-    let epoch_config_store = TestEpochConfigBuilder::from_genesis(&genesis)
-        .shuffle_shard_assignment_for_chunk_producers(true)
-        .build_store_for_genesis_protocol_version();
-
-    let mut env = builder
+    let mut env = TestLoopBuilder::new()
         .genesis(genesis)
-        .epoch_config_store(epoch_config_store)
+        .epoch_config_store_from_genesis()
         .clients(clients)
         .gc_num_epochs_to_keep(20)
         .build()
         .warmup();
 
-    env.test_loop.run_for(Duration::seconds(2 * epoch_length as i64));
+    let kill_height = 2 * epoch_length;
+    TestLoopNode::for_account(&env.node_datas, &client_to_restart)
+        .run_until_head_height(&mut env.test_loop, kill_height);
 
     // kill node
-    let killed_node_state = env.kill_node("account0");
-    env.test_loop.run_for(Duration::seconds(2 * epoch_length as i64));
+    let node_identifier = env.node_datas[0].identifier.clone();
+    let killed_node_state = env.kill_node(&node_identifier);
 
+    let restart_height = kill_height + 2 * epoch_length;
+    TestLoopNode::for_account(&env.node_datas, &stable_client)
+        .run_until_head_height(&mut env.test_loop, restart_height);
     // restart node
-    env.restart_node("account0-restart", killed_node_state);
-    env.test_loop.run_for(Duration::seconds(3 * epoch_length as i64));
+    let new_node_identifier = format!("{}-restart", node_identifier);
+    env.restart_node(&new_node_identifier, killed_node_state);
 
+    let restarted_node = TestLoopNode::for_account(&env.node_datas, &client_to_restart);
+    let stable_node = TestLoopNode::for_account(&env.node_datas, &stable_client);
+    assert_eq!(restarted_node.head(env.test_loop_data()).height, kill_height);
+
+    // Give a few blocks for the restarted node to catch up
+    stable_node.run_for_number_of_blocks(&mut env.test_loop, 5);
+
+    assert_eq!(
+        restarted_node.head(env.test_loop_data()).height,
+        stable_node.head(env.test_loop_data()).height,
+    );
+
+    /*
+    // TODO(pugachag): add a separate test for adding new node based on the code below
     // Add new node
     let genesis = env.shared_state.genesis.clone();
     let tempdir_path = env.shared_state.tempdir.path().to_path_buf();
@@ -59,6 +66,7 @@ fn test_restart_node() {
         .build();
     env.add_node(accounts[NUM_CLIENTS].as_str(), new_node_state);
     env.test_loop.run_for(Duration::seconds(3 * epoch_length as i64));
+    */
 
     // Give the test a chance to finish off remaining events in the event loop, which can
     // be important for properly shutting down the nodes.

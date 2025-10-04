@@ -31,7 +31,7 @@ min_allowed_top_level_account_length: 32
 registrar_account_id: "registrar"
 
 # Storage usage config
-storage_amount_per_byte: 100_000_000_000_000_000_000
+storage_amount_per_byte: 0.0001 N
 storage_num_bytes_account: 100
 storage_num_extra_bytes_record: 40
 
@@ -118,6 +118,21 @@ action_delegate: {
   send_sir: 200_000_000_000,
   send_not_sir: 200_000_000_000,
   execution: 200_000_000_000,
+}
+action_deterministic_state_init: {
+  send_sir: 3_850_000_000_000,
+  send_not_sir: 3_850_000_000_000,
+  execution: 4_080_000_000_000,
+}
+action_deterministic_state_init_per_entry: {
+  send_sir: 0,
+  send_not_sir: 0,
+  execution: 200_000_000_000,
+}
+action_deterministic_state_init_per_byte: {
+  send_sir: 72_000_000,
+  send_not_sir: 72_000_000,
+  execution: 70_000_000,
 }
 
 # Smart contract dynamic gas costs
@@ -248,6 +263,7 @@ discard_custom_sections: false
 saturating_float_to_int: false
 global_contract_host_fns: false
 reftypes_bulk_memory: false
+deterministic_account_ids: false
 
 
 # Congestion Control configuration
@@ -291,7 +307,7 @@ action_deploy_global_contract_per_byte: {
   send_not_sir: 999_999_999_999_999,
   execution: 999_999_999_999_999,
 }
-global_contract_storage_amount_per_byte: 999_999_999_999_999_999_999_999_999
+global_contract_storage_amount_per_byte: 999999999999999999999999999 yN
 
 action_use_global_contract: {
   send_sir: 999_999_999_999_999,

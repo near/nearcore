@@ -1,6 +1,6 @@
 use crate::config;
 use crate::network_protocol::testonly as data;
-use crate::network_protocol::{PeerAddr, PeerMessage, RoutedMessageBody};
+use crate::network_protocol::{PeerAddr, PeerMessage, T1MessageBody, TieredMessageBody};
 use crate::peer_manager;
 use crate::peer_manager::peer_manager_actor::Event as PME;
 use crate::peer_manager::testonly::Event;
@@ -54,11 +54,12 @@ async fn send_tier1_message(
     clock: &time::Clock,
     from: &peer_manager::testonly::ActorHandler,
     to: &peer_manager::testonly::ActorHandler,
-) -> Option<RoutedMessageBody> {
+) -> Option<TieredMessageBody> {
     let from_signer = from.cfg.validator.signer.get().unwrap();
     let to_signer = to.cfg.validator.signer.get().unwrap();
     let target = to_signer.validator_id().clone();
-    let want = RoutedMessageBody::BlockApproval(make_block_approval(rng, from_signer.as_ref()));
+    let want: TieredMessageBody =
+        T1MessageBody::BlockApproval(make_block_approval(rng, from_signer.as_ref())).into();
     let clock = clock.clone();
     from.with_state(move |s| async move {
         if s.send_message_to_account(&clock, &target, want.clone()) { Some(want) } else { None }

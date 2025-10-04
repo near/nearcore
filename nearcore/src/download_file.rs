@@ -1,5 +1,5 @@
-use hyper::{StatusCode, body::HttpBody};
 use indicatif::{ProgressBar, ProgressStyle};
+use reqwest::StatusCode;
 use std::path::{Path, PathBuf};
 use tokio::io::AsyncWriteExt;
 
@@ -8,7 +8,7 @@ pub enum FileDownloadError {
     #[error("Unsuccessful HTTP connection. Return code: {0}")]
     HttpResponseCode(StatusCode),
     #[error("{0}")]
-    HttpError(hyper::Error),
+    HttpError(#[from] reqwest::Error),
     #[error("Failed to open temporary file")]
     OpenError(#[source] std::io::Error),
     #[error("Failed to write to temporary file at {0:?}")]
@@ -20,7 +20,7 @@ pub enum FileDownloadError {
     #[error("Failed to rename temporary file {0:?} to {1:?}")]
     RenameError(PathBuf, PathBuf, #[source] std::io::Error),
     #[error("Invalid URI")]
-    UriError(#[from] hyper::http::uri::InvalidUri),
+    UriError(#[from] url::ParseError),
     #[error("Failed to remove temporary file: {0}. Download previously failed")]
     RemoveTemporaryFileError(std::io::Error, #[source] Box<FileDownloadError>),
 }
@@ -39,19 +39,18 @@ pub(crate) fn run_download_file(url: &str, path: &Path) -> Result<(), FileDownlo
 /// If the downloaded file is an XZ stream (i.e. starts with the XZ 6-byte magic
 /// number), transparently decompresses the file as it’s being downloaded.
 async fn download_file_impl(
-    uri: hyper::Uri,
+    uri: url::Url,
     path: &std::path::Path,
     file: tokio::fs::File,
 ) -> Result<(), FileDownloadError> {
     let mut out = AutoXzDecoder::new(path, file);
-    let https_connector = hyper_tls::HttpsConnector::new();
-    let client = hyper::Client::builder().build::<_, hyper::Body>(https_connector);
-    let mut resp = client.get(uri).await.map_err(FileDownloadError::HttpError)?;
+    let client = reqwest::Client::new();
+    let mut resp = client.get(uri).send().await?.error_for_status()?;
     let status_code = resp.status();
     if !status_code.is_success() {
         return Err(FileDownloadError::HttpResponseCode(status_code));
     }
-    let bar = if let Some(file_size) = resp.size_hint().upper() {
+    let bar = if let Some(file_size) = resp.content_length() {
         let bar = ProgressBar::new(file_size);
         bar.set_style(
             ProgressStyle::default_bar().template(
@@ -75,8 +74,7 @@ async fn download_file_impl(
         ProgressBar::hidden()
     };
 
-    while let Some(next_chunk_result) = resp.data().await {
-        let next_chunk = next_chunk_result.map_err(FileDownloadError::HttpError)?;
+    while let Some(next_chunk) = resp.chunk().await? {
         out.write_all(next_chunk.as_ref()).await?;
         bar.inc(next_chunk.len() as u64);
     }
@@ -249,7 +247,7 @@ impl<'a> AutoXzDecoder<'a> {
                 xz2::stream::Status::StreamEnd => (),
                 status => {
                     let status = format!("{:?}", status);
-                    tracing::error!(target: "near", "Got unexpected status ‘{}’ when decompressing downloaded file.", status);
+                    tracing::error!(target: "near", "Got unexpected status '{}' when decompressing downloaded file.", status);
                     return Err(FileDownloadError::XzStatusError(status));
                 }
             };
@@ -269,42 +267,32 @@ impl<'a> AutoXzDecoder<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use hyper::service::{make_service_fn, service_fn};
-    use hyper::{Body, Request, Response, Server};
-    use std::convert::Infallible;
-    use std::sync::Arc;
+    use wiremock::matchers::{method, path};
+    use wiremock::{Mock, MockServer, ResponseTemplate};
 
     async fn check_file_download(payload: &[u8], expected: Result<&[u8], &str>) {
-        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-        let port = listener.local_addr().unwrap().port();
-
-        let payload = Arc::new(payload.to_vec());
-        tokio::task::spawn(async move {
-            let make_svc = make_service_fn(move |_conn| {
-                let payload = Arc::clone(&payload);
-                let handle_request = move |_: Request<Body>| {
-                    let payload = Arc::clone(&payload);
-                    async move { Ok::<_, Infallible>(Response::new(Body::from(payload.to_vec()))) }
-                };
-                async move { Ok::<_, Infallible>(service_fn(handle_request)) }
-            });
-            let server = Server::from_tcp(listener).unwrap().serve(make_svc);
-            if let Err(e) = server.await {
-                eprintln!("server error: {}", e);
-            }
-        });
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/"))
+            .respond_with(ResponseTemplate::new(200).set_body_bytes(payload))
+            .mount(&server)
+            .await;
 
         let tmp_file = tempfile::NamedTempFile::new().unwrap();
+        let url = format!("{}/", server.uri());
 
-        let res = download_file(&format!("http://localhost:{}", port), tmp_file.path())
+        let res = download_file(&url, tmp_file.path())
             .await
             .map(|()| std::fs::read(tmp_file.path()).unwrap());
 
         match (res, expected) {
             (Ok(res), Ok(expected)) => assert_eq!(&res, expected),
             (Ok(_), Err(_)) => panic!("expected an error"),
-            (Err(res), Ok(_)) => panic!("unexpected error: {res}"),
-            (Err(res), Err(expected)) => assert_eq!(res.to_string(), expected),
+            (Err(res), Ok(_)) => panic!("unexpected error: {}", res),
+            (Err(res), Err(expected)) => {
+                let s = res.to_string();
+                assert!(s.contains(expected), "expected: {}, got: {}", expected, s)
+            }
         }
     }
 
@@ -333,37 +321,21 @@ mod tests {
 
     #[tokio::test]
     async fn test_file_download_bad_http_code() {
-        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-        let port = listener.local_addr().unwrap().port();
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/"))
+            .respond_with(ResponseTemplate::new(404))
+            .mount(&server)
+            .await;
+
         let tmp_file = tempfile::NamedTempFile::new().unwrap();
+        let url = format!("{}/", server.uri());
 
-        tokio::task::spawn(async move {
-            let make_svc = make_service_fn(move |_conn| {
-                let handle_request = move |_: Request<Body>| async move {
-                    Ok::<_, Infallible>(
-                        Response::builder()
-                            .status(StatusCode::NOT_FOUND)
-                            .body(Body::from(""))
-                            .unwrap(),
-                    )
-                };
-                async move { Ok::<_, Infallible>(service_fn(handle_request)) }
-            });
-            let server = Server::from_tcp(listener).unwrap().serve(make_svc);
-            if let Err(e) = server.await {
-                eprintln!("server error: {}", e);
-            }
-        });
-
-        let res = download_file(&format!("http://localhost:{}", port), tmp_file.path())
+        let res = download_file(&url, tmp_file.path())
             .await
             .map(|()| std::fs::read(tmp_file.path()).unwrap());
 
-        assert!(
-            matches!(res, Err(FileDownloadError::HttpResponseCode(StatusCode::NOT_FOUND))),
-            "got {:?}",
-            res
-        );
+        assert!(matches!(res, Err(FileDownloadError::HttpError(_))), "got {:?}", res);
     }
 
     fn auto_xz_test_write_file(
@@ -423,7 +395,7 @@ mod tests {
         }
     }
 
-    /// Tests [`AutoXzDecoder`]’s handling of corrupt XZ streams.  The data being
+    /// Tests [`AutoXzDecoder`]'s handling of corrupt XZ streams.  The data being
     /// processed starts with a proper XZ header but what follows is an invalid XZ
     /// data.  This should result in [`FileDownloadError::XzDecodeError`].
     #[test]

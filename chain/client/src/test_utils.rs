@@ -5,14 +5,12 @@
 use crate::Client;
 use crate::chunk_producer::ProduceChunkResult;
 use crate::client::CatchupState;
-use actix_rt::System;
 use itertools::Itertools;
 use near_async::messaging::Sender;
 use near_chain::chain::{BlockCatchUpRequest, do_apply_chunks};
 use near_chain::test_utils::{wait_for_all_blocks_in_processing, wait_for_block_in_processing};
-use near_chain::{ChainStoreAccess, Provenance};
+use near_chain::{ApplyChunksIterationMode, ChainStoreAccess, Provenance};
 use near_client_primitives::types::Error;
-use near_network::types::HighestHeightPeerInfo;
 use near_primitives::bandwidth_scheduler::BandwidthRequests;
 use near_primitives::block::Block;
 use near_primitives::hash::CryptoHash;
@@ -21,7 +19,7 @@ use near_primitives::optimistic_block::BlockToApply;
 use near_primitives::sharding::{EncodedShardChunk, ShardChunk, ShardChunkWithEncoding};
 use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsement;
 use near_primitives::transaction::ValidatedTransaction;
-use near_primitives::types::{BlockHeight, EpochId, ShardId};
+use near_primitives::types::{Balance, BlockHeight, EpochId, ShardId};
 use near_primitives::utils::MaybeValidated;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_store::ShardUId;
@@ -46,11 +44,9 @@ impl Client {
         should_produce_chunk: bool,
         allow_errors: bool,
     ) -> Result<Vec<CryptoHash>, near_chain::Error> {
-        let signer = self.validator_signer.get();
-        self.start_process_block(block, provenance, None, &signer)?;
+        self.start_process_block(block, provenance, None)?;
         wait_for_all_blocks_in_processing(&mut self.chain);
-        let (accepted_blocks, errors) =
-            self.postprocess_ready_blocks(None, should_produce_chunk, &signer);
+        let (accepted_blocks, errors) = self.postprocess_ready_blocks(None, should_produce_chunk);
         if !allow_errors {
             assert!(errors.is_empty(), "unexpected errors when processing blocks: {errors:#?}");
         }
@@ -83,10 +79,9 @@ impl Client {
 
     /// This function finishes processing all blocks that started being processed.
     pub fn finish_blocks_in_processing(&mut self) -> Vec<CryptoHash> {
-        let signer = self.validator_signer.get();
         let mut accepted_blocks = vec![];
         while wait_for_all_blocks_in_processing(&mut self.chain) {
-            accepted_blocks.extend(self.postprocess_ready_blocks(None, true, &signer).0);
+            accepted_blocks.extend(self.postprocess_ready_blocks(None, true).0);
         }
         accepted_blocks
     }
@@ -95,8 +90,7 @@ impl Client {
     /// has started.
     pub fn finish_block_in_processing(&mut self, hash: &CryptoHash) -> Vec<CryptoHash> {
         if let Ok(()) = wait_for_block_in_processing(&mut self.chain, hash) {
-            let signer = self.validator_signer.get();
-            let (accepted_blocks, _) = self.postprocess_ready_blocks(None, true, &signer);
+            let (accepted_blocks, _) = self.postprocess_ready_blocks(None, true);
             return accepted_blocks;
         }
         vec![]
@@ -123,7 +117,6 @@ impl Client {
             prev_block.header(),
             &prev_chunk_header,
             &shard_chunk,
-            &signer,
         )
         .unwrap();
         shard_chunk
@@ -248,13 +241,14 @@ pub fn create_chunk(
         None,
         vec![],
         Ratio::new(0, 1),
-        0,
-        100,
+        Balance::ZERO,
+        Balance::from_yoctonear(100),
         None,
         &*client.validator_signer.get().unwrap(),
         *last_block.header().next_bp_hash(),
         block_merkle_tree.root(),
         client.clock.clone(),
+        None,
         None,
         None,
     ));
@@ -266,26 +260,25 @@ pub fn create_chunk(
 /// Note that this function does not necessarily mean that all blocks are caught up.
 /// It's possible that some blocks that need to be caught up are still being processed
 /// and the catchup process can't catch up on these blocks yet.
-pub fn run_catchup(
-    client: &mut Client,
-    highest_height_peers: &[HighestHeightPeerInfo],
-) -> Result<(), Error> {
+pub fn run_catchup(client: &mut Client) -> Result<(), Error> {
     let block_messages = Arc::new(RwLock::new(vec![]));
     let block_inside_messages = block_messages.clone();
     let block_catch_up = Sender::from_fn(move |msg: BlockCatchUpRequest| {
         block_inside_messages.write().push(msg);
     });
-    let _ = System::new();
     loop {
-        let signer = client.validator_signer.get();
-        client.run_catchup(highest_height_peers, &block_catch_up, None, &signer)?;
+        client.run_catchup(&block_catch_up, None)?;
         let mut catchup_done = true;
         for msg in block_messages.write().drain(..) {
-            let results =
-                do_apply_chunks(BlockToApply::Normal(msg.block_hash), msg.block_height, msg.work)
-                    .into_iter()
-                    .map(|res| res.2)
-                    .collect_vec();
+            let results = do_apply_chunks(
+                ApplyChunksIterationMode::Sequential,
+                BlockToApply::Normal(msg.block_hash),
+                msg.block_height,
+                msg.work,
+            )
+            .into_iter()
+            .map(|res| res.2)
+            .collect_vec();
             if let Some(CatchupState { catchup, .. }) =
                 client.catchup_state_syncs.get_mut(&msg.sync_hash)
             {

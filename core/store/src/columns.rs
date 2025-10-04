@@ -118,6 +118,10 @@ pub enum DBCol {
     /// - *Rows*: StatePartKey (BlockHash || ShardId || PartId (u64))
     /// - *Content type*: state part (bytes)
     StateParts,
+    /// Contains information about which state parts we've applied.
+    /// - *Rows*: StatePartKey (BlockHash || ShardId || PartId (u64))
+    /// - *Content type*: bool (just a marker that we've applied this part)
+    StatePartsApplied,
     /// Contains mapping from epoch_id to epoch start (first block height of the epoch)
     /// - *Rows*: EpochId (CryptoHash)  -- TODO: where does the epoch_id come from? it looks like blockHash..
     /// - *Content type*: BlockHeight (int)
@@ -273,7 +277,7 @@ pub enum DBCol {
     FlatStorageStatus,
     /// Column to persist pieces of miscellaneous small data. Should only be used to store
     /// constant or small (for example per-shard) amount of data.
-    /// - *Rows*: arbitrary string, see `crate::db::FLAT_STATE_VALUES_INLINING_MIGRATION_STATUS_KEY` for example
+    /// - *Rows*: arbitrary string, see `crate::db::LATEST_WITNESSES_INFO` for example
     /// - *Column type*: arbitrary bytes
     Misc,
     /// Column to store data necessary to generate part of state witness
@@ -329,6 +333,35 @@ pub enum DBCol {
     /// - *Rows*: BlockShardId (BlockHash || ShardId) - 40 bytes
     /// - *Column type*: `ChunkApplyStats`
     ChunkApplyStats,
+    /// Mapping from Block Hash + Target Shard Id + Source Shard Id to Receipt Proof.
+    /// The receipts result from applying the chunk on the source shard of the corresponding block.
+    /// The key includes the target shard first to enable prefix queries for retrieving all incoming
+    /// receipts to the given shard.
+    /// - *Rows*: (BlockHash || ShardId || ShardId)
+    /// - *Content type*: `near_primitives::sharding::ReceiptProof`
+    #[cfg(feature = "protocol_feature_spice")]
+    ReceiptProofs,
+    /// All known processed next block hashes regardless of canonical chain.
+    /// - *Rows*: BlockHash (CryptoHash)
+    /// - *Content type*: next block: Vec<BlockHash (CryptoHash)>
+    #[cfg(feature = "protocol_feature_spice")]
+    AllNextBlockHashes,
+    /// For spice contains execution results endorsements.
+    /// - *Rows*: SpiceEndorsementKey (BlockHash || ShardId || AccountId)
+    /// - *Content type*: [near_primitives::stateless_validation::spice_chunk_endorsement::SpiceStoredVerifiedEndorsement]
+    #[cfg(feature = "protocol_feature_spice")]
+    Endorsements,
+    /// For spice contains execution results of applying the chunk.
+    /// Should only contain endorsed execution results.
+    /// - *Rows*: (BlockHash || ShardId)
+    /// - *Content type*: ([near_primitives::types::ChunkExecutionResult])
+    #[cfg(feature = "protocol_feature_spice")]
+    ExecutionResults,
+    /// For spice contains uncertified chunks for this block and all it's ancestry.
+    /// - *Rows*: BlockHash (CryptoHash)
+    /// - *Content type*: Vec<[near_primitives::types::SpiceUncertifiedChunkInfo]>
+    #[cfg(feature = "protocol_feature_spice")]
+    UncertifiedChunks,
 }
 
 /// Defines different logical parts of a db key.
@@ -343,7 +376,7 @@ pub enum DBKeyType {
     /// Set of predetermined strings. Used, for example, in DBCol::BlockMisc
     StringLiteral,
     BlockHash,
-    /// Hash of the previous block. Logically different from BlockHash. Used fro DBCol::NextBlockHashes.
+    /// Hash of the previous block. Logically different from BlockHash. Used for DBCol::NextBlockHashes.
     PreviousBlockHash,
     BlockHeight,
     BlockOrdinal,
@@ -366,6 +399,7 @@ pub enum DBKeyType {
     LatestWitnessIndex,
     InvalidWitnessesKey,
     InvalidWitnessIndex,
+    SpiceEndorsementKey,
 }
 
 impl DBCol {
@@ -392,6 +426,8 @@ impl DBCol {
             | DBCol::InvalidChunks
             | DBCol::PartialChunks
             | DBCol::TransactionResultForBlock => true,
+            #[cfg(feature = "protocol_feature_spice")]
+            DBCol::UncertifiedChunks | DBCol::ExecutionResults => true,
             _ => false,
         }
     }
@@ -476,7 +512,16 @@ impl DBCol {
             | DBCol::Transactions
             | DBCol::StateShardUIdMapping
             | DBCol::ChunkApplyStats => true,
-
+            #[cfg(feature = "protocol_feature_spice")]
+            | DBCol::ReceiptProofs => true,
+            #[cfg(feature = "protocol_feature_spice")]
+            | DBCol::AllNextBlockHashes => false,
+            #[cfg(feature = "protocol_feature_spice")]
+            | DBCol::Endorsements => false,
+            #[cfg(feature = "protocol_feature_spice")]
+            | DBCol::ExecutionResults => false,
+            #[cfg(feature = "protocol_feature_spice")]
+            | DBCol::UncertifiedChunks => false,
             // TODO
             DBCol::ChallengedBlocks => false,
             DBCol::Misc => false,
@@ -486,8 +531,8 @@ impl DBCol {
             DBCol::BlockRefCount => false,
             // InvalidChunks is only needed at head when accepting new chunks.
             DBCol::InvalidChunks => false,
-            // StateParts is only needed while syncing.
-            DBCol::StateParts => false,
+            // StateParts, StatePartsApplied is only needed while syncing.
+            DBCol::StateParts | DBCol::StatePartsApplied => false,
             // TrieChanges is only needed for GC.
             DBCol::TrieChanges => false,
             // StateDlInfos is only needed when syncing and it is not immutable.
@@ -574,7 +619,9 @@ impl DBCol {
             DBCol::InvalidChunks => &[DBKeyType::ChunkHash],
             DBCol::_BlockExtra => &[DBKeyType::BlockHash],
             DBCol::BlockPerHeight => &[DBKeyType::BlockHeight],
-            DBCol::StateParts => &[DBKeyType::BlockHash, DBKeyType::ShardId, DBKeyType::PartId],
+            DBCol::StateParts | DBCol::StatePartsApplied => {
+                &[DBKeyType::BlockHash, DBKeyType::ShardId, DBKeyType::PartId]
+            }
             DBCol::EpochStart => &[DBKeyType::EpochId],
             DBCol::AccountAnnouncements => &[DBKeyType::AccountId],
             DBCol::NextBlockHashes => &[DBKeyType::PreviousBlockHash],
@@ -617,7 +664,52 @@ impl DBCol {
             DBCol::StateSyncHashes => &[DBKeyType::EpochId],
             DBCol::StateSyncNewChunks => &[DBKeyType::BlockHash],
             DBCol::ChunkApplyStats => &[DBKeyType::BlockHash, DBKeyType::ShardId],
+            #[cfg(feature = "protocol_feature_spice")]
+            DBCol::ReceiptProofs => &[DBKeyType::BlockHash, DBKeyType::ShardId, DBKeyType::ShardId],
+            #[cfg(feature = "protocol_feature_spice")]
+            DBCol::AllNextBlockHashes => &[DBKeyType::BlockHash],
+            #[cfg(feature = "protocol_feature_spice")]
+            DBCol::Endorsements => &[DBKeyType::SpiceEndorsementKey],
+            #[cfg(feature = "protocol_feature_spice")]
+            DBCol::ExecutionResults => &[DBKeyType::BlockHash, DBKeyType::ShardId],
+            #[cfg(feature = "protocol_feature_spice")]
+            DBCol::UncertifiedChunks => &[DBKeyType::BlockHash],
         }
+    }
+
+    pub fn receipt_proofs() -> DBCol {
+        #[cfg(feature = "protocol_feature_spice")]
+        return DBCol::ReceiptProofs;
+        #[cfg(not(feature = "protocol_feature_spice"))]
+        panic!("Expected protocol_feature_spice to be enabled")
+    }
+
+    pub fn all_next_block_hashes() -> DBCol {
+        #[cfg(feature = "protocol_feature_spice")]
+        return DBCol::AllNextBlockHashes;
+        #[cfg(not(feature = "protocol_feature_spice"))]
+        panic!("Expected protocol_feature_spice to be enabled")
+    }
+
+    pub fn endorsements() -> DBCol {
+        #[cfg(feature = "protocol_feature_spice")]
+        return DBCol::Endorsements;
+        #[cfg(not(feature = "protocol_feature_spice"))]
+        panic!("Expected protocol_feature_spice to be enabled")
+    }
+
+    pub fn execution_results() -> DBCol {
+        #[cfg(feature = "protocol_feature_spice")]
+        return DBCol::ExecutionResults;
+        #[cfg(not(feature = "protocol_feature_spice"))]
+        panic!("Expected protocol_feature_spice to be enabled")
+    }
+
+    pub fn uncertified_chunks() -> DBCol {
+        #[cfg(feature = "protocol_feature_spice")]
+        return DBCol::UncertifiedChunks;
+        #[cfg(not(feature = "protocol_feature_spice"))]
+        panic!("Expected protocol_feature_spice to be enabled")
     }
 }
 

@@ -13,8 +13,10 @@ use crate::bandwidth_scheduler::{
 /// How many transactions and receipts were processed, buffered, forwarded, etc.
 /// Useful for debugging, metrics and sanity checks.
 #[derive(Debug, Clone, BorshSerialize, BorshDeserialize)]
+#[borsh(use_discriminant = true)]
+#[repr(u8)]
 pub enum ChunkApplyStats {
-    V0(ChunkApplyStatsV0),
+    V0(ChunkApplyStatsV0) = 0,
 }
 
 /// Information gathered during chunk application.
@@ -192,7 +194,7 @@ impl ReceiptsStats {
     pub fn add_receipt(&mut self, size: u64, gas: Gas) {
         self.num += 1;
         self.total_size += size;
-        let gas_u128: u128 = gas.into();
+        let gas_u128: u128 = gas.as_gas().into();
         self.total_gas += gas_u128;
     }
 }

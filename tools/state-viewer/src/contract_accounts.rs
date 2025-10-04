@@ -3,14 +3,14 @@
 
 use borsh::BorshDeserialize;
 use near_primitives::hash::CryptoHash;
-use near_primitives::receipt::{Receipt, ReceiptEnum};
+use near_primitives::receipt::{Receipt, VersionedReceiptEnum};
 use near_primitives::transaction::{Action, ExecutionOutcomeWithProof};
 use near_primitives::trie_key::TrieKey;
 use near_primitives::trie_key::trie_key_parsers::parse_account_id_from_contract_code_key;
 use near_primitives::types::AccountId;
 use near_store::trie::AccessOptions;
 use near_store::trie::ops::iter::TrieTraversalItem;
-use near_store::{DBCol, NibbleSlice, StorageError, Store, Trie};
+use near_store::{DBCol, StorageError, Store, Trie};
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 type Result<T> = std::result::Result<T, ContractAccountError>;
@@ -138,6 +138,7 @@ pub(crate) enum ActionType {
     Delegate,
     DeployGlobalContract,
     UseGlobalContract,
+    DeterministicStateInit,
 }
 
 impl ContractAccount {
@@ -193,6 +194,7 @@ impl ContractAccount {
 
 impl ContractAccountIterator {
     pub(crate) fn new(trie: Trie, filter: ContractAccountFilter) -> anyhow::Result<Self> {
+        // TODO(shreyan): Change this function to use standard iterator API with seek/seek_prefix.
         let mut trie_iter = trie.disk_iter()?;
         // TODO(#8376): Consider changing the interface to TrieKey to make this easier.
         // `TrieKey::ContractCode` requires a valid `AccountId`, we use "xx"
@@ -200,16 +202,14 @@ impl ContractAccountIterator {
         let (prefix, suffix) = key.split_at(key.len() - 2);
         assert_eq!(suffix, "xx".as_bytes());
 
-        // `visit_nodes_interval` wants nibbles stored in `Vec<u8>` as input
-        let nibbles_before: Vec<u8> = NibbleSlice::new(prefix).iter().collect();
-        let nibbles_after = {
-            let mut tmp = nibbles_before.clone();
+        let key_after = {
+            let mut tmp = prefix.to_vec();
             *tmp.last_mut().unwrap() += 1;
             tmp
         };
 
         // finally, use trie iterator to find all contract nodes
-        let vec_of_nodes = trie_iter.visit_nodes_interval(&nibbles_before, &nibbles_after)?;
+        let vec_of_nodes = trie_iter.visit_nodes_interval(Some(prefix), Some(&key_after))?;
         drop(trie_iter);
         let contract_nodes = VecDeque::from(vec_of_nodes);
         Ok(Self { contract_nodes, filter, trie })
@@ -330,44 +330,47 @@ fn try_find_actions_spawned_by_receipt(
                     let outgoing_receipt = maybe_outgoing_receipt.ok_or({
                         ContractAccountError::MissingOutgoingReceipt(*outgoing_receipt_id)
                     })?;
-                    match outgoing_receipt.receipt() {
-                        ReceiptEnum::Action(action_receipt)
-                        | ReceiptEnum::PromiseYield(action_receipt) => {
-                            for action in &action_receipt.actions {
-                                let action_type = match action {
-                                    Action::CreateAccount(_) => ActionType::CreateAccount,
-                                    Action::DeployContract(_) => ActionType::DeployContract,
-                                    Action::FunctionCall(_) => ActionType::FunctionCall,
-                                    Action::Transfer(_) => ActionType::Transfer,
-                                    Action::Stake(_) => ActionType::Stake,
-                                    Action::AddKey(_) => ActionType::AddKey,
-                                    Action::DeleteKey(_) => ActionType::DeleteKey,
-                                    Action::DeleteAccount(_) => ActionType::DeleteAccount,
-                                    Action::Delegate(_) => ActionType::Delegate,
-                                    Action::DeployGlobalContract(_) => {
-                                        ActionType::DeployGlobalContract
-                                    }
-                                    Action::UseGlobalContract(_) => ActionType::UseGlobalContract,
-                                };
+                    match outgoing_receipt.versioned_receipt() {
+                        VersionedReceiptEnum::Action(action_receipt)
+                        | VersionedReceiptEnum::PromiseYield(action_receipt) => {
+                            for action in action_receipt.actions() {
+                                let action_type = map_action(action);
                                 entry
                                     .actions
                                     .get_or_insert_with(Default::default)
                                     .insert(action_type);
                             }
                         }
-                        ReceiptEnum::Data(_) | ReceiptEnum::PromiseResume(_) => {
+                        VersionedReceiptEnum::Data(_) | VersionedReceiptEnum::PromiseResume(_) => {
                             entry
                                 .actions
                                 .get_or_insert_with(Default::default)
                                 .insert(ActionType::DataReceipt);
                         }
-                        ReceiptEnum::GlobalContractDistribution(_) => {}
+                        VersionedReceiptEnum::GlobalContractDistribution(_) => {}
                     }
                 }
             }
         }
     }
     Ok(())
+}
+
+fn map_action(action: &Action) -> ActionType {
+    match action {
+        Action::CreateAccount(_) => ActionType::CreateAccount,
+        Action::DeployContract(_) => ActionType::DeployContract,
+        Action::FunctionCall(_) => ActionType::FunctionCall,
+        Action::Transfer(_) => ActionType::Transfer,
+        Action::Stake(_) => ActionType::Stake,
+        Action::AddKey(_) => ActionType::AddKey,
+        Action::DeleteKey(_) => ActionType::DeleteKey,
+        Action::DeleteAccount(_) => ActionType::DeleteAccount,
+        Action::Delegate(_) => ActionType::Delegate,
+        Action::DeployGlobalContract(_) => ActionType::DeployGlobalContract,
+        Action::UseGlobalContract(_) => ActionType::UseGlobalContract,
+        Action::DeterministicStateInit(_) => ActionType::DeterministicStateInit,
+    }
 }
 
 impl Iterator for ContractAccountIterator {
@@ -501,7 +504,8 @@ mod tests {
         ExecutionOutcomeWithProof, ExecutionStatus, FunctionCallAction, TransferAction,
     };
     use near_primitives::trie_key::TrieKey;
-    use near_primitives::types::AccountId;
+    use near_primitives::types::Gas;
+    use near_primitives::types::{AccountId, Balance};
     use near_store::test_utils::{
         TestTriesBuilder, create_test_store, test_populate_store, test_populate_store_rc,
         test_populate_trie,
@@ -579,8 +583,8 @@ mod tests {
             vec![Action::FunctionCall(Box::new(FunctionCallAction {
                 method_name: "foo".to_owned(),
                 args: vec![],
-                gas: 1000,
-                deposit: 0,
+                gas: Gas::from_gas(1000),
+                deposit: Balance::ZERO,
             }))],
         );
 
@@ -592,7 +596,7 @@ mod tests {
             "bob.near",
             "alice.near",
             vec![
-                Action::Transfer(TransferAction { deposit: 20 }),
+                Action::Transfer(TransferAction { deposit: Balance::from_yoctonear(20) }),
                 Action::CreateAccount(CreateAccountAction {}),
                 Action::DeployContract(DeployContractAction { code: vec![] }),
             ],
@@ -686,9 +690,9 @@ mod tests {
             outcome: ExecutionOutcome {
                 logs: vec![],
                 receipt_ids,
-                gas_burnt: 100,
+                gas_burnt: Gas::from_gas(100),
                 compute_usage: Some(200),
-                tokens_burnt: 2000,
+                tokens_burnt: Balance::from_yoctonear(2000),
                 executor_id: "someone.near".parse().unwrap(),
                 status: ExecutionStatus::SuccessValue(vec![]),
                 metadata: ExecutionMetadata::default(),
@@ -729,7 +733,7 @@ mod tests {
             receipt: ReceiptEnum::Action(ActionReceipt {
                 signer_id: sender_id,
                 signer_public_key: signer.public_key(),
-                gas_price: 2,
+                gas_price: Balance::from_yoctonear(2),
                 output_data_receivers: vec![],
                 input_data_ids: vec![],
                 actions,

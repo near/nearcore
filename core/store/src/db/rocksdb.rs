@@ -1,11 +1,13 @@
-use crate::config::Mode;
+use crate::config::{Mode, RocksDbCfConfig, RocksDbConfig};
 use crate::db::{DBIterator, DBOp, DBSlice, DBTransaction, Database, StatsValue, refcount};
+use crate::metrics::{ROCKS_CURRENT_ITERATORS, ROCKS_ITERATOR_TIME_HISTOGRAM};
 use crate::{DBCol, StoreConfig, StoreStatistics, Temperature, deserialized_column, metrics};
 use ::rocksdb::{
     BlockBasedOptions, Cache, ColumnFamily, DB, Env, IteratorMode, Options, ReadOptions, WriteBatch,
 };
 use anyhow::Context;
 use itertools::Itertools;
+use near_time::Instant;
 use parking_lot::Mutex;
 use std::collections::BTreeMap;
 use std::io;
@@ -262,17 +264,43 @@ impl RocksDB {
             read_options.set_iterate_upper_bound(upper_bound);
         }
         let iter = self.db.iterator_cf_opt(cf_handle, read_options, IteratorMode::Start);
-        RocksDBIterator(iter)
+        RocksDBIterator::new(iter)
     }
 }
 
-struct RocksDBIterator<'a>(rocksdb::DBIteratorWithThreadMode<'a, DB>);
+struct RocksDBIterator<'a> {
+    creation_time: Instant,
+    iter: rocksdb::DBIteratorWithThreadMode<'a, DB>,
+}
+
+impl<'a> RocksDBIterator<'a> {
+    fn new(iter: rocksdb::DBIteratorWithThreadMode<'a, DB>) -> Self {
+        ROCKS_CURRENT_ITERATORS.inc();
+        Self { creation_time: Instant::now(), iter }
+    }
+}
+
+impl<'a> Drop for RocksDBIterator<'a> {
+    fn drop(&mut self) {
+        let elapsed = self.creation_time.elapsed().as_secs_f64();
+        if elapsed > 30.0 {
+            tracing::warn!(
+                target: "store::db::rocksdb",
+                elapsed,
+                backtrace = %std::backtrace::Backtrace::force_capture(),
+                "rocksdb iterator held open for a long time (may cause excessive disk usage)"
+            );
+        }
+        ROCKS_ITERATOR_TIME_HISTOGRAM.observe(elapsed);
+        ROCKS_CURRENT_ITERATORS.dec();
+    }
+}
 
 impl<'a> Iterator for RocksDBIterator<'a> {
     type Item = io::Result<(Box<[u8]>, Box<[u8]>)>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        Some(self.0.next()?.map_err(io::Error::other))
+        Some(self.iter.next()?.map_err(io::Error::other))
     }
 }
 
@@ -473,9 +501,11 @@ impl Database for RocksDB {
         let Some(columns_to_keep) = columns_to_keep else {
             return Ok(());
         };
-        let opts = common_rocksdb_options();
+        // For this operation (drop CF) we use the default RocksDB configuration.
+        let default_store_config = StoreConfig::default();
+        let opts = common_rocksdb_options(&default_store_config.rocksdb);
         let cfs =
-            cf_descriptors(&DBCol::iter().collect_vec(), &StoreConfig::default(), Temperature::Hot);
+            cf_descriptors(&DBCol::iter().collect_vec(), &default_store_config, Temperature::Hot);
         let mut db = DB::open_cf_descriptors(&opts, path, cfs)
             .with_context(|| format!("failed to open checkpoint at {}", path.display()))?;
         for col in DBCol::iter() {
@@ -524,15 +554,31 @@ fn cf_descriptors(
 }
 
 /// DB level options
-fn common_rocksdb_options() -> Options {
+fn common_rocksdb_options(rocksdb_config: &RocksDbConfig) -> Options {
+    let RocksDbConfig {
+        bytes_per_sync,
+        wal_bytes_per_sync,
+        enable_pipelined_write,
+        write_buffer_size,
+        max_bytes_for_level_base,
+        max_total_wal_size,
+        parallelism,
+        cf_high_load_overrides: _,
+        cf_medium_load_overrides: _,
+        cf_low_load_overrides: _,
+    } = rocksdb_config;
+
     let mut opts = Options::default();
 
     set_compression_options(&mut opts);
     opts.set_use_fsync(false);
     opts.set_keep_log_file_num(1);
-    opts.set_bytes_per_sync(bytesize::MIB);
-    opts.set_write_buffer_size(256 * bytesize::MIB as usize);
-    opts.set_max_bytes_for_level_base(256 * bytesize::MIB);
+    opts.set_bytes_per_sync(bytes_per_sync.as_u64());
+    opts.set_wal_bytes_per_sync(wal_bytes_per_sync.as_u64());
+    opts.set_enable_pipelined_write(*enable_pipelined_write);
+    opts.set_write_buffer_size(write_buffer_size.as_u64() as usize);
+    opts.set_max_bytes_for_level_base(max_bytes_for_level_base.as_u64());
+    opts.set_max_total_wal_size(max_total_wal_size.as_u64());
 
     if cfg!(feature = "single_thread_rocksdb") {
         opts.set_disable_auto_compactions(true);
@@ -543,14 +589,15 @@ fn common_rocksdb_options() -> Options {
         opts.set_level_zero_file_num_compaction_trigger(-1);
         opts.set_level_zero_stop_writes_trigger(100000000);
     } else {
-        opts.increase_parallelism(std::cmp::max(1, num_cpus::get() as i32 / 2));
-        opts.set_max_total_wal_size(bytesize::GIB);
+        let parallelism =
+            parallelism.unwrap_or_else(|| std::cmp::max(1, num_cpus::get() as i32 / 2));
+        opts.increase_parallelism(parallelism);
     }
     opts
 }
 
 fn rocksdb_options(store_config: &StoreConfig, mode: Mode) -> Options {
-    let mut opts = common_rocksdb_options();
+    let mut opts = common_rocksdb_options(&store_config.rocksdb);
     opts.create_missing_column_families(mode.read_write());
     opts.create_if_missing(mode.can_create());
     opts.set_max_open_files(store_config.max_open_files.try_into().unwrap_or(i32::MAX));
@@ -608,6 +655,23 @@ fn rocksdb_column_options(col: DBCol, store_config: &StoreConfig, temp: Temperat
     opts.set_level_compaction_dynamic_level_bytes(true);
     opts.set_block_based_table_factory(&rocksdb_block_based_options(store_config, col));
 
+    if temp == Temperature::Hot && col.is_rc() {
+        opts.set_merge_operator("refcount merge", RocksDB::refcount_merge, RocksDB::refcount_merge);
+        opts.set_compaction_filter("empty value filter", RocksDB::empty_value_compaction_filter);
+    }
+
+    // Column specific settings
+    let RocksDbCfConfig {
+        memtable_memory_budget,
+        level_zero_file_num_compaction_trigger,
+        level_zero_slowdown_writes_trigger,
+        level_zero_stop_writes_trigger,
+        max_subcompactions,
+        target_file_size_base,
+        max_write_buffer_number,
+        compaction_readahead_size,
+    } = RocksDbCfConfig::resolve_for_column(col, &store_config.rocksdb);
+
     // Note that this function changes a lot of RocksDB parameters including:
     //      write_buffer_size = memtable_memory_budget / 4
     //      min_write_buffer_number_to_merge = 2
@@ -620,14 +684,15 @@ fn rocksdb_column_options(col: DBCol, store_config: &StoreConfig, temp: Temperat
     // the rest use LZ4 compression.
     // See the implementation here:
     //      https://github.com/facebook/rocksdb/blob/c18c4a081c74251798ad2a1abf83bad417518481/options/options.cc#L588.
-    let memtable_memory_budget = 128 * bytesize::MIB as usize;
-    opts.optimize_level_style_compaction(memtable_memory_budget);
+    opts.optimize_level_style_compaction(memtable_memory_budget.as_u64() as usize);
+    opts.set_level_zero_file_num_compaction_trigger(level_zero_file_num_compaction_trigger);
+    opts.set_level_zero_slowdown_writes_trigger(level_zero_slowdown_writes_trigger);
+    opts.set_level_zero_stop_writes_trigger(level_zero_stop_writes_trigger);
+    opts.set_max_subcompactions(max_subcompactions);
+    opts.set_target_file_size_base(target_file_size_base.as_u64());
+    opts.set_max_write_buffer_number(max_write_buffer_number);
+    opts.set_compaction_readahead_size(compaction_readahead_size.as_u64() as usize);
 
-    opts.set_target_file_size_base(64 * bytesize::MIB);
-    if temp == Temperature::Hot && col.is_rc() {
-        opts.set_merge_operator("refcount merge", RocksDB::refcount_merge, RocksDB::refcount_merge);
-        opts.set_compaction_filter("empty value filter", RocksDB::empty_value_compaction_filter);
-    }
     opts
 }
 

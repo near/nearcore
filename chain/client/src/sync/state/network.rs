@@ -7,12 +7,16 @@ use futures::future::BoxFuture;
 use near_async::messaging::AsyncSender;
 use near_async::time::{Clock, Duration};
 use near_chain::BlockHeader;
+use near_network::client::StateResponse;
 use near_network::types::{
     NetworkRequests, NetworkResponses, PeerManagerMessageRequest, PeerManagerMessageResponse,
 };
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
-use near_primitives::state_sync::{ShardStateSyncResponse, ShardStateSyncResponseHeader};
+use near_primitives::state_part::StatePart;
+use near_primitives::state_sync::{
+    PartIdOrHeader, ShardStateSyncResponse, ShardStateSyncResponseHeader, StateRequestAckBody,
+};
 use near_primitives::types::ShardId;
 use near_store::{DBCol, Store};
 use parking_lot::Mutex;
@@ -34,7 +38,6 @@ pub(super) struct StateSyncDownloadSourcePeer {
 
 #[derive(Default)]
 pub(super) struct StateSyncDownloadSourcePeerSharedState {
-    highest_height_peers: Vec<PeerId>,
     /// Tracks pending requests we have sent to peers. The requests are indexed by
     /// (shard ID, sync hash, part ID or header), and the value is the peer ID we
     /// expect the response from, as well as a channel sender to complete the future
@@ -46,11 +49,11 @@ pub(super) struct StateSyncDownloadSourcePeerSharedState {
 struct PendingPeerRequestKey {
     shard_id: ShardId,
     sync_hash: CryptoHash,
-    kind: PartIdOrHeader,
+    part_id_or_header: PartIdOrHeader,
 }
 
 struct PendingPeerRequestValue {
-    peer_id: Option<PeerId>, // present for headers, not for parts
+    peer_id: PeerId,
     sender: oneshot::Sender<ShardStateSyncResponse>,
 }
 
@@ -58,45 +61,67 @@ impl StateSyncDownloadSourcePeerSharedState {
     pub fn receive_peer_message(
         &mut self,
         peer_id: PeerId,
-        shard_id: ShardId,
-        sync_hash: CryptoHash,
-        data: ShardStateSyncResponse,
+        msg: StateResponse,
     ) -> Result<(), near_chain::Error> {
-        let key = PendingPeerRequestKey {
-            shard_id,
-            sync_hash,
-            kind: match data.part_id() {
-                Some(part_id) => PartIdOrHeader::Part { part_id },
-                None => PartIdOrHeader::Header,
-            },
+        let shard_id = msg.shard_id();
+        let part_id_or_header = msg.part_id_or_header();
+
+        match msg {
+            StateResponse::Ack(ref ack) => {
+                metrics::STATE_SYNC_PEER_MSGS
+                    .with_label_values(&[
+                        &shard_id.to_string(),
+                        part_id_or_header.into(),
+                        ack.body.into(),
+                    ])
+                    .inc();
+            }
+            StateResponse::State(_) => {
+                metrics::STATE_SYNC_PEER_MSGS
+                    .with_label_values(&[&shard_id.to_string(), part_id_or_header.into(), "state"])
+                    .inc();
+            }
         };
 
-        let Some(request) = self.pending_requests.get(&key) else {
-            tracing::debug!(target: "sync", "Received {:?} expecting {:?}", key, self.pending_requests.keys());
-            return Err(near_chain::Error::Other("Unexpected state response".to_owned()));
+        let key = PendingPeerRequestKey { shard_id, sync_hash: msg.sync_hash(), part_id_or_header };
+
+        let Some(request) = self.pending_requests.get_mut(&key) else {
+            tracing::debug!(target: "sync", "Received {:?} from {}", key, peer_id);
+            return Err(near_chain::Error::Other(
+                "Unexpected state response (request may have timed out)".to_owned(),
+            ));
         };
 
-        if request.peer_id.as_ref().is_some_and(|expecting_peer_id| expecting_peer_id != &peer_id) {
+        if request.peer_id != peer_id {
             return Err(near_chain::Error::Other(
                 "Unexpected state response (wrong sender)".to_owned(),
             ));
         }
 
-        let value = self.pending_requests.remove(&key).unwrap();
-        let _ = value.sender.send(data);
+        match msg {
+            StateResponse::Ack(ack) => {
+                match ack.body {
+                    StateRequestAckBody::Busy | StateRequestAckBody::Error => {
+                        // We received a message indicating that the peer won't send a response.
+                        // Removing the entry from pending_requests drops the sender channel
+                        // so that the node will stop awaiting the state response.
+                        let _ = self.pending_requests.remove(&key).unwrap();
+                    }
+                    StateRequestAckBody::WillRespond => {
+                        // Do nothing with positive responses for now.
+                        // In a future release we could implement a separate deadline
+                        // for receiving WillRespond.
+                    }
+                }
+            }
+            StateResponse::State(state) => {
+                let value = self.pending_requests.remove(&key).unwrap();
+                let _ = value.sender.send(state.take_state_response());
+            }
+        };
+
         Ok(())
     }
-
-    /// Sets the peers that are eligible for querying state sync headers/parts.
-    pub fn set_highest_peers(&mut self, peers: Vec<PeerId>) {
-        self.highest_height_peers = peers;
-    }
-}
-
-#[derive(Clone, PartialEq, Eq, Hash, Debug)]
-enum PartIdOrHeader {
-    Part { part_id: u64 },
-    Header,
 }
 
 impl StateSyncDownloadSourcePeer {
@@ -131,7 +156,7 @@ impl StateSyncDownloadSourcePeer {
             })?
             .prev_hash();
 
-        let network_request = match &key.kind {
+        let network_request = match &key.part_id_or_header {
             PartIdOrHeader::Part { part_id } => {
                 PeerManagerMessageRequest::NetworkRequests(NetworkRequests::StateRequestPart {
                     shard_id: key.shard_id,
@@ -150,7 +175,7 @@ impl StateSyncDownloadSourcePeer {
         };
 
         let deadline = clock.now() + request_timeout;
-        let typ = match &key.kind {
+        let typ = match &key.part_id_or_header {
             PartIdOrHeader::Part { .. } => "part",
             PartIdOrHeader::Header => "header",
         };
@@ -188,7 +213,9 @@ impl StateSyncDownloadSourcePeer {
             }
         };
 
-        let state_value = PendingPeerRequestValue { peer_id: Some(request_sent_to_peer), sender };
+        tracing::debug!(target: "sync", ?key, ?request_sent_to_peer, "p2p request sent");
+
+        let state_value = PendingPeerRequestValue { peer_id: request_sent_to_peer.clone(), sender };
 
         // Ensures that the key is removed from the map of pending requests when this scope exits,
         // whether on success or timeout.
@@ -202,6 +229,7 @@ impl StateSyncDownloadSourcePeer {
         select! {
             _ = clock.sleep_until(deadline) => {
                 increment_download_count(key.shard_id, typ, "network", "timeout");
+                tracing::debug!(target: "sync", ?key, ?request_sent_to_peer, "p2p request timed out");
                 Err(near_chain::Error::Other("Timeout".to_owned()))
             }
             _ = cancel.cancelled() => {
@@ -211,6 +239,7 @@ impl StateSyncDownloadSourcePeer {
             result = receiver => {
                 match result {
                     Ok(result) => {
+                        tracing::debug!(target: "sync", ?key, ?request_sent_to_peer, "p2p request succeeded");
                         increment_download_count(key.shard_id, typ, "network", "success");
                         Ok(result)
                     }
@@ -245,7 +274,11 @@ impl StateSyncDownloadSource for StateSyncDownloadSourcePeer {
         handle: Arc<TaskHandle>,
         cancel: CancellationToken,
     ) -> BoxFuture<'static, Result<ShardStateSyncResponseHeader, near_chain::Error>> {
-        let key = PendingPeerRequestKey { shard_id, sync_hash, kind: PartIdOrHeader::Header };
+        let key = PendingPeerRequestKey {
+            shard_id,
+            sync_hash,
+            part_id_or_header: PartIdOrHeader::Header,
+        };
         let fut = Self::try_download(
             self.clock.clone(),
             self.request_sender.clone(),
@@ -274,9 +307,12 @@ impl StateSyncDownloadSource for StateSyncDownloadSourcePeer {
         part_id: u64,
         handle: Arc<TaskHandle>,
         cancel: CancellationToken,
-    ) -> BoxFuture<'static, Result<Vec<u8>, near_chain::Error>> {
-        let key =
-            PendingPeerRequestKey { shard_id, sync_hash, kind: PartIdOrHeader::Part { part_id } };
+    ) -> BoxFuture<'static, Result<StatePart, near_chain::Error>> {
+        let key = PendingPeerRequestKey {
+            shard_id,
+            sync_hash,
+            part_id_or_header: PartIdOrHeader::Part { part_id },
+        };
         let fut = Self::try_download(
             self.clock.clone(),
             self.request_sender.clone(),

@@ -12,9 +12,6 @@ publish = false
 workspace = true
 
 [dependencies]
-actix-rt.workspace = true
-actix-web.workspace = true
-actix.workspace = true
 anyhow.workspace = true
 borsh.workspace = true
 bytesize.workspace = true
@@ -22,8 +19,6 @@ dirs.workspace = true
 easy-ext.workspace = true
 futures.workspace = true
 hex.workspace = true
-hyper-tls.workspace = true
-hyper.workspace = true
 indicatif.workspace = true
 itertools.workspace = true
 num-rational.workspace = true
@@ -39,6 +34,7 @@ thiserror.workspace = true
 tokio.workspace = true
 tokio-stream.workspace = true
 tracing.workspace = true
+url.workspace = true
 xz2.workspace = true
 
 near-async.workspace = true
@@ -68,15 +64,29 @@ node-runtime.workspace = true
 near-config-utils.workspace = true
 
 [dev-dependencies]
+near-time.workspace = true
+zstd.workspace = true
 bencher.workspace = true
 primitive-types.workspace = true
-
-near-actix-test-utils.workspace = true
+wiremock.workspace = true
+criterion.workspace = true
 near-jsonrpc-primitives.workspace = true
 testlib.workspace = true
 
 [[bench]]
 name = "store"
+harness = false
+
+[[bench]]
+name = "serialization"
+harness = false
+
+[[bench]]
+name = "compression"
+harness = false
+
+[[bench]]
+name = "state_witness_borsh"
 harness = false
 
 [features]
@@ -100,11 +110,10 @@ json_rpc = ["near-jsonrpc", "near-jsonrpc-primitives"]
 protocol_feature_spice = [
     "near-epoch-manager/protocol_feature_spice",
     "near-primitives/protocol_feature_spice",
+    "near-store/protocol_feature_spice",
 ]
 
 nightly = [
-    "near-actix-test-utils/nightly",
-    "near-async/nightly",
     "near-chain-configs/nightly",
     "near-chain/nightly",
     "near-chunks/nightly",

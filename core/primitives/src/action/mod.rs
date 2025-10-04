@@ -1,11 +1,16 @@
 pub mod delegate;
 
+// This type used to be defined here, then moved to core primitives to give access to the vm
+// runtime. Reexporting it here avoids breakage on depending crates.
+pub use near_primitives_core::global_contract::GlobalContractIdentifier;
+
+use crate::{
+    deterministic_account_id::DeterministicAccountStateInit, trie_key::GlobalContractCodeIdentifier,
+};
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::PublicKey;
 use near_primitives_core::{
     account::AccessKey,
-    hash::CryptoHash,
-    serialize::dec_format,
     types::{AccountId, Balance, Gas},
 };
 use near_schema_checker_lib::ProtocolSchema;
@@ -14,13 +19,12 @@ use serde_with::serde_as;
 use std::fmt;
 use std::sync::Arc;
 
-use crate::trie_key::GlobalContractCodeIdentifier;
-
 pub fn base64(s: &[u8]) -> String {
     use base64::Engine;
     base64::engine::general_purpose::STANDARD.encode(s)
 }
 
+/// An action that adds key with public key associated
 #[derive(
     BorshSerialize,
     BorshDeserialize,
@@ -116,7 +120,6 @@ impl fmt::Debug for DeployContractAction {
     }
 }
 
-#[serde_as]
 #[derive(
     BorshSerialize,
     BorshDeserialize,
@@ -172,25 +175,6 @@ impl fmt::Debug for DeployGlobalContractAction {
     }
 }
 
-#[serde_as]
-#[derive(
-    BorshSerialize,
-    BorshDeserialize,
-    serde::Serialize,
-    serde::Deserialize,
-    Hash,
-    PartialEq,
-    Eq,
-    Clone,
-    ProtocolSchema,
-    Debug,
-)]
-#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-pub enum GlobalContractIdentifier {
-    CodeHash(CryptoHash),
-    AccountId(AccountId),
-}
-
 impl From<GlobalContractCodeIdentifier> for GlobalContractIdentifier {
     fn from(identifier: GlobalContractCodeIdentifier) -> Self {
         match identifier {
@@ -204,17 +188,7 @@ impl From<GlobalContractCodeIdentifier> for GlobalContractIdentifier {
     }
 }
 
-impl GlobalContractIdentifier {
-    pub fn len(&self) -> usize {
-        match self {
-            GlobalContractIdentifier::CodeHash(_) => 32,
-            GlobalContractIdentifier::AccountId(account_id) => account_id.len(),
-        }
-    }
-}
-
 /// Use global contract action
-#[serde_as]
 #[derive(
     BorshSerialize,
     BorshDeserialize,
@@ -241,6 +215,24 @@ pub struct UseGlobalContractAction {
     Eq,
     Clone,
     ProtocolSchema,
+    Debug,
+)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+pub struct DeterministicStateInitAction {
+    pub state_init: DeterministicAccountStateInit,
+    pub deposit: Balance,
+}
+
+#[serde_as]
+#[derive(
+    BorshSerialize,
+    BorshDeserialize,
+    serde::Serialize,
+    serde::Deserialize,
+    PartialEq,
+    Eq,
+    Clone,
+    ProtocolSchema,
 )]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct FunctionCallAction {
@@ -249,8 +241,6 @@ pub struct FunctionCallAction {
     #[cfg_attr(feature = "schemars", schemars(with = "String"))]
     pub args: Vec<u8>,
     pub gas: Gas,
-    #[serde(with = "dec_format")]
-    #[cfg_attr(feature = "schemars", schemars(with = "String"))]
     pub deposit: Balance,
 }
 
@@ -280,8 +270,6 @@ impl fmt::Debug for FunctionCallAction {
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct StakeAction {
     /// Amount of tokens to stake.
-    #[serde(with = "dec_format")]
-    #[cfg_attr(feature = "schemars", schemars(with = "String"))]
     pub stake: Balance,
     /// Validator key which will be used to sign transactions on behalf of signer_id
     pub public_key: PublicKey,
@@ -300,8 +288,6 @@ pub struct StakeAction {
 )]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct TransferAction {
-    #[serde(with = "dec_format")]
-    #[cfg_attr(feature = "schemars", schemars(with = "String"))]
     pub deposit: Balance,
 }
 
@@ -318,22 +304,25 @@ pub struct TransferAction {
     ProtocolSchema,
 )]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[borsh(use_discriminant = true)]
+#[repr(u8)]
 pub enum Action {
     /// Create an (sub)account using a transaction `receiver_id` as an ID for
     /// a new account ID must pass validation rules described here
-    /// <http://nomicon.io/Primitives/Account.html>.
-    CreateAccount(CreateAccountAction),
+    /// <https://nomicon.io/DataStructures/Account>.
+    CreateAccount(CreateAccountAction) = 0,
     /// Sets a Wasm code to a receiver_id
-    DeployContract(DeployContractAction),
-    FunctionCall(Box<FunctionCallAction>),
-    Transfer(TransferAction),
-    Stake(Box<StakeAction>),
-    AddKey(Box<AddKeyAction>),
-    DeleteKey(Box<DeleteKeyAction>),
-    DeleteAccount(DeleteAccountAction),
-    Delegate(Box<delegate::SignedDelegateAction>),
-    DeployGlobalContract(DeployGlobalContractAction),
-    UseGlobalContract(Box<UseGlobalContractAction>),
+    DeployContract(DeployContractAction) = 1,
+    FunctionCall(Box<FunctionCallAction>) = 2,
+    Transfer(TransferAction) = 3,
+    Stake(Box<StakeAction>) = 4,
+    AddKey(Box<AddKeyAction>) = 5,
+    DeleteKey(Box<DeleteKeyAction>) = 6,
+    DeleteAccount(DeleteAccountAction) = 7,
+    Delegate(Box<delegate::SignedDelegateAction>) = 8,
+    DeployGlobalContract(DeployGlobalContractAction) = 9,
+    UseGlobalContract(Box<UseGlobalContractAction>) = 10,
+    DeterministicStateInit(Box<DeterministicStateInitAction>) = 11,
 }
 
 const _: () = assert!(
@@ -348,14 +337,15 @@ impl Action {
     pub fn get_prepaid_gas(&self) -> Gas {
         match self {
             Action::FunctionCall(a) => a.gas,
-            _ => 0,
+            _ => Gas::ZERO,
         }
     }
     pub fn get_deposit_balance(&self) -> Balance {
         match self {
             Action::FunctionCall(a) => a.deposit,
             Action::Transfer(a) => a.deposit,
-            _ => 0,
+            Action::DeterministicStateInit(a) => a.deposit,
+            _ => Balance::ZERO,
         }
     }
 }

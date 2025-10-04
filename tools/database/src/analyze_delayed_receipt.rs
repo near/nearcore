@@ -43,8 +43,8 @@ impl AnalyzeDelayedReceiptCommand {
         home: &PathBuf,
         genesis_validation: GenesisValidationMode,
     ) -> anyhow::Result<()> {
-        let mut near_config = load_config(home, genesis_validation).unwrap();
-        let node_storage = open_storage(&home, &mut near_config).unwrap();
+        let near_config = load_config(home, genesis_validation).unwrap();
+        let node_storage = open_storage(&home, &near_config).unwrap();
         let store = node_storage.get_split_store().unwrap_or_else(|| node_storage.get_hot_store());
         let chain_store = Rc::new(ChainStore::new(
             store.clone(),
@@ -95,7 +95,7 @@ impl AnalyzeDelayedReceiptCommand {
             last_analyzed_block = Some((block.header().height(), *block.hash()));
             let shard_layout = epoch_manager.get_shard_layout(block.header().epoch_id()).unwrap();
 
-            for chunk_header in block.chunks().iter_deprecated() {
+            for chunk_header in block.chunks().iter() {
                 let state_root = chunk_header.prev_state_root();
                 let trie_update = shard_tries.get_trie_for_shard(
                     ShardUId::from_shard_id_and_layout(chunk_header.shard_id(), &shard_layout),

@@ -1,5 +1,5 @@
 use crate::ApplyState;
-use crate::congestion_control::ReceiptSink;
+use crate::congestion_control::{ReceiptSink, ReceiptSinkV2WithInfo};
 use near_o11y::metrics::{
     Counter, CounterVec, GaugeVec, HistogramVec, IntCounter, IntCounterVec, IntGaugeVec,
     exponential_buckets, linear_buckets, try_create_counter, try_create_counter_vec,
@@ -30,6 +30,26 @@ pub static TRANSACTION_APPLIED_TOTAL: LazyLock<IntCounter> = LazyLock::new(|| {
     )
     .unwrap()
 });
+
+pub static TRANSACTION_BATCH_SIGNATURE_VERIFY_SUCCESS_TOTAL: LazyLock<IntCounter> = LazyLock::new(
+    || {
+        try_create_int_counter(
+        "near_transaction_batch_signature_verify_success_total",
+        "The number of successful transaction batch signature verifications since starting this node",
+    )
+    .unwrap()
+    },
+);
+
+pub static TRANSACTION_BATCH_SIGNATURE_VERIFY_FAILURE_TOTAL: LazyLock<IntCounter> = LazyLock::new(
+    || {
+        try_create_int_counter(
+        "near_transaction_batch_signature_verify_failure_total",
+        "The number of transaction batch signature verifications that failed since starting this node",
+    )
+    .unwrap()
+    },
+);
 
 pub static TRANSACTION_PROCESSED_TOTAL: LazyLock<IntCounter> = LazyLock::new(|| {
     try_create_int_counter(
@@ -745,16 +765,16 @@ impl ApplyMetrics {
     }
 }
 
-pub fn report_congestion_metrics(
+pub(super) fn report_congestion_metrics(
     receipt_sink: &ReceiptSink,
     sender_shard_id: ShardId,
     config: &CongestionControlConfig,
 ) {
     match receipt_sink {
-        ReceiptSink::V2(inner) => {
+        ReceiptSink::V2(ReceiptSinkV2WithInfo { sink, info: _ }) => {
             let sender_shard_label = sender_shard_id.to_string();
-            report_congestion_indicators(&inner.own_congestion_info, &sender_shard_label, &config);
-            report_outgoing_buffers(inner, sender_shard_label);
+            report_congestion_indicators(&sink.own_congestion_info, &sender_shard_label, &config);
+            report_outgoing_buffers(sink, sender_shard_label);
         }
     }
 }
@@ -791,7 +811,7 @@ fn report_outgoing_buffers(
 
         CONGESTION_RECEIPT_FORWARDING_UNUSED_CAPACITY_GAS
             .with_label_values(&[&sender_shard_label, &receiver_shard_label])
-            .set(i64::try_from(unused_capacity.gas).unwrap_or(i64::MAX));
+            .set(i64::try_from(unused_capacity.gas.as_gas()).unwrap_or(i64::MAX));
 
         if let Some(len) = inner.outgoing_buffers.buffer_len(*receiver_shard_id) {
             CONGESTION_OUTGOING_RECEIPT_BUFFER_LEN
@@ -808,27 +828,30 @@ pub fn report_recorded_column_sizes(trie: &Trie, apply_state: &ApplyState) {
             shard_id = %apply_state.shard_id,
             block_height = apply_state.block_height)
     .entered();
+    if near_o11y::metrics::config::expensive_metrics() {
+        let Some(trie_recorder_stats) = trie.recorder_stats() else {
+            return;
+        };
+        let mut total_size = SubtreeSize::default();
+        let shard_id_str = apply_state.shard_id.to_string();
+        for column in &trie_recorder_stats.trie_column_sizes {
+            let column_size = column.size.nodes_size.saturating_add(column.size.values_size);
+            CHUNK_RECORDED_TRIE_COLUMN_SIZE
+                .with_label_values(&[shard_id_str.as_str(), column.column_name])
+                .observe(column_size as f64);
 
-    let Some(trie_recorder_stats) = trie.recorder_stats() else {
-        return;
-    };
-
-    let mut total_size = SubtreeSize::default();
-
-    let shard_id_str = apply_state.shard_id.to_string();
-    for column in &trie_recorder_stats.trie_column_sizes {
-        let column_size = column.size.nodes_size.saturating_add(column.size.values_size);
-        CHUNK_RECORDED_TRIE_COLUMN_SIZE
-            .with_label_values(&[shard_id_str.as_str(), column.column_name])
-            .observe(column_size as f64);
-
-        total_size = total_size.saturating_add(column.size);
+            total_size = total_size.saturating_add(column.size);
+        }
+        CHUNK_RECORDED_TRIE_NODES_VALUES_SIZE
+            .with_label_values(&[shard_id_str.as_str(), "nodes"])
+            .observe(total_size.nodes_size as f64);
+        CHUNK_RECORDED_TRIE_NODES_VALUES_SIZE
+            .with_label_values(&[shard_id_str.as_str(), "values"])
+            .observe(total_size.values_size as f64);
+    } else {
+        let shard_id_str = apply_state.shard_id.to_string();
+        CHUNK_RECORDED_TRIE_NODES_VALUES_SIZE
+            .with_label_values(&[shard_id_str.as_str(), "values"])
+            .observe(trie.recorded_storage_size() as f64);
     }
-
-    CHUNK_RECORDED_TRIE_NODES_VALUES_SIZE
-        .with_label_values(&[shard_id_str.as_str(), "nodes"])
-        .observe(total_size.nodes_size as f64);
-    CHUNK_RECORDED_TRIE_NODES_VALUES_SIZE
-        .with_label_values(&[shard_id_str.as_str(), "values"])
-        .observe(total_size.values_size as f64);
 }

@@ -25,6 +25,12 @@ def get_state_sync_config_p2p(tracked_shards_config):
     state_parts_dir = str(pathlib.Path(tempfile.gettempdir()) / "state_parts")
 
     config = {
+        # Throttle view clients aggressively so that some p2p requests will fail.
+        "state_requests_per_throttle_period": 1,
+        "state_request_throttle_period": {
+            "secs": 2,
+            "nanos": 0
+        },
         "consensus.state_sync_external_timeout": {
             "secs": 0,
             "nanos": 500000000

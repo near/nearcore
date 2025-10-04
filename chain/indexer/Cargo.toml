@@ -12,7 +12,6 @@ publish = false
 workspace = true
 
 [dependencies]
-actix.workspace = true
 anyhow.workspace = true
 futures.workspace = true
 parking_lot.workspace = true
@@ -21,7 +20,9 @@ tokio.workspace = true
 tracing.workspace = true
 
 nearcore.workspace = true
+near-async.workspace = true
 near-client.workspace = true
+near-client-primitives.workspace = true
 near-chain-configs.workspace = true
 near-config-utils.workspace = true
 near-dyn-configs.workspace = true

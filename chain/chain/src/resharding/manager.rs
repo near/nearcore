@@ -16,9 +16,15 @@ use near_store::adapter::trie_store::get_shard_uid_mapping;
 use near_store::flat::BlockInfo;
 use near_store::trie::ops::resharding::RetainMode;
 use near_store::trie::outgoing_metadata::ReceiptGroupsQueue;
-use near_store::{ShardTries, ShardUId, Store, TrieAccess};
+use near_store::{ShardTries, ShardUId, Store, TrieAccess, TrieChanges};
+use std::collections::BTreeMap;
 use std::io;
 use std::sync::Arc;
+
+#[derive(Default)]
+pub struct SplitShardTrieChanges {
+    pub trie_changes: BTreeMap<ShardUId, TrieChanges>,
+}
 
 pub struct ReshardingManager {
     store: Store,
@@ -82,7 +88,14 @@ impl ReshardingManager {
             ReshardingEventType::from_shard_layout(&next_shard_layout, block_info)?;
         match resharding_event_type {
             Some(ReshardingEventType::SplitShard(split_shard_event)) => {
-                self.split_shard(chain_store_update, block, shard_uid, tries, split_shard_event)?;
+                self.split_shard(
+                    chain_store_update,
+                    block,
+                    shard_uid,
+                    tries,
+                    split_shard_event,
+                    false,
+                )?;
             }
             None => {
                 tracing::warn!(target: "resharding", ?resharding_event_type, "unsupported resharding event type, skipping");
@@ -98,29 +111,48 @@ impl ReshardingManager {
         shard_uid: ShardUId,
         tries: ShardTries,
         split_shard_event: ReshardingSplitShardParams,
-    ) -> Result<(), Error> {
+        allow_resharding_without_memtries: bool,
+    ) -> Result<SplitShardTrieChanges, Error> {
         if split_shard_event.parent_shard != shard_uid {
             let parent_shard = split_shard_event.parent_shard;
             tracing::debug!(target: "resharding", ?parent_shard, "ShardUId does not match event parent shard, skipping");
-            return Ok(());
+            return Ok(Default::default());
+        }
+
+        let tracked_children_shards = split_shard_event
+            .children_shards()
+            .iter()
+            .filter(|child_shard_uid| {
+                self.shard_tracker.cares_about_shard_this_or_next_epoch(
+                    &split_shard_event.resharding_block.hash,
+                    child_shard_uid.shard_id(),
+                )
+            })
+            .copied()
+            .collect_vec();
+
+        if tracked_children_shards.is_empty() {
+            tracing::debug!(target: "resharding", "Not tracking any child shards, skipping");
+            return Ok(Default::default());
         }
 
         // Reshard the State column by setting ShardUId mapping from children to ancestor.
-        self.set_state_shard_uid_mapping(&split_shard_event)?;
+        self.set_state_shard_uid_mapping(&split_shard_event, &tracked_children_shards)?;
 
         // Create temporary children memtries by freezing parent memtrie and referencing it.
-        self.process_memtrie_resharding_storage_update(
+        let trie_changes = self.process_memtrie_resharding_storage_update(
             chain_store_update,
             block,
             tries,
             &split_shard_event,
+            allow_resharding_without_memtries,
         )?;
 
         // Trigger resharding by sending the event to the resharding actor.
         // This would subsequently trigger the resharding after resharding block is finalized.
         self.resharding_sender.send(ScheduleResharding { split_shard_event });
 
-        Ok(())
+        Ok(trie_changes)
     }
 
     /// Store in the database the mapping of ShardUId from children to the parent shard,
@@ -129,18 +161,13 @@ impl ReshardingManager {
     fn set_state_shard_uid_mapping(
         &self,
         split_shard_event: &ReshardingSplitShardParams,
+        tracked_children: &[ShardUId],
     ) -> io::Result<()> {
         let mut store_update = self.store.trie_store().store_update();
         let parent_shard_uid = split_shard_event.parent_shard;
         let parent_shard_uid_prefix = get_shard_uid_mapping(&self.store, parent_shard_uid);
-        for child_shard_uid in split_shard_event.children_shards() {
-            // Set the mapping only if we are tracking the child shard.
-            if self.shard_tracker.cares_about_shard_this_or_next_epoch(
-                &split_shard_event.resharding_block.hash,
-                child_shard_uid.shard_id(),
-            ) {
-                store_update.set_shard_uid_mapping(child_shard_uid, parent_shard_uid_prefix);
-            }
+        for &child_shard_uid in tracked_children {
+            store_update.set_shard_uid_mapping(child_shard_uid, parent_shard_uid_prefix);
         }
         store_update.commit()
     }
@@ -153,7 +180,8 @@ impl ReshardingManager {
         block: &Block,
         tries: ShardTries,
         split_shard_event: &ReshardingSplitShardParams,
-    ) -> Result<(), Error> {
+        allow_resharding_without_memtries: bool,
+    ) -> Result<SplitShardTrieChanges, Error> {
         let block_hash = block.hash();
         let block_height = block.header().height();
         let ReshardingSplitShardParams {
@@ -172,6 +200,8 @@ impl ReshardingManager {
             self.store.chain_store().get_chunk_extra(block_hash, parent_shard_uid)?;
         let mut store_update = self.store.trie_store().store_update();
 
+        let mut split_shard_trie_changes = SplitShardTrieChanges::default();
+
         for (new_shard_uid, retain_mode) in
             [(left_child_shard, RetainMode::Left), (right_child_shard, RetainMode::Right)]
         {
@@ -179,7 +209,7 @@ impl ReshardingManager {
                 .get_trie_for_shard(*parent_shard_uid, *parent_chunk_extra.state_root())
                 .recording_reads_new_recorder();
 
-            if !parent_trie.has_memtries() {
+            if !allow_resharding_without_memtries && !parent_trie.has_memtries() {
                 tracing::error!(
                     "Memtrie not loaded. Cannot process memtrie resharding storage
                      update for block {:?}, shard {:?}",
@@ -241,16 +271,23 @@ impl ReshardingManager {
             );
 
             tracing::info!(target: "resharding", ?new_shard_uid, ?trie_changes.new_root, "Child trie created");
+
+            split_shard_trie_changes.trie_changes.insert(*new_shard_uid, trie_changes);
         }
 
-        // After committing the split changes, the parent trie has the state root of both the children.
-        // Now we can freeze the parent memtrie and copy it to the children.
-        tries.freeze_parent_memtrie(*parent_shard_uid, split_shard_event.children_shards())?;
+        // After committing the split changes, the parent trie has the state
+        // root of both the children. Now we can freeze the parent memtrie and
+        // copy it to the children.
+        let parent_trie =
+            tries.get_trie_for_shard(*parent_shard_uid, *parent_chunk_extra.state_root());
+        if parent_trie.has_memtries() {
+            tries.freeze_parent_memtrie(*parent_shard_uid, split_shard_event.children_shards())?;
+        }
 
         chain_store_update.merge(store_update.into());
         chain_store_update.commit()?;
 
-        Ok(())
+        Ok(split_shard_trie_changes)
     }
 
     pub fn get_child_congestion_info(

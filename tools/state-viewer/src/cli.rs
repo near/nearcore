@@ -152,7 +152,8 @@ impl StateViewerSubCommand {
         let store_opener = NodeStorage::opener(
             home_dir,
             &near_config.config.store,
-            near_config.config.archival_config(),
+            near_config.config.cold_store.as_ref(),
+            near_config.config.cloud_storage_config(),
         );
 
         let storage = store_opener.open_in_mode(mode).unwrap();
@@ -216,6 +217,9 @@ pub enum StorageSource {
     FlatStorage,
     /// Implies flat storage and loads the memtries as well.
     Memtrie,
+    /// Recorded storage, as used during chunk validation.
+    /// Only available in "benchmark" mode.
+    Recorded,
 }
 
 impl StorageSource {
@@ -227,6 +231,11 @@ impl StorageSource {
             // This is the same as FlatStorage handling. That's because memtrie initialization
             // happens as part of `ShardTries::load_memtrie` function call.
             StorageSource::Memtrie => RuntimeStorageConfig::new(state_root, true),
+            StorageSource::Recorded => {
+                panic!(
+                    "For recorded storage the RuntimeStorageConfig has to be created from storage proof"
+                );
+            }
         }
     }
 }
@@ -293,8 +302,6 @@ impl ApplyChunkCmd {
 #[derive(clap::Parser, Copy, Clone, Debug, Eq, PartialEq)]
 pub enum ApplyRangeMode {
     /// Applies chunks one after another in order of increasing heights.
-    ///
-    /// Great for profiling.
     Sequential {
         /// If true, saves state transitions for state witness generation.
         #[clap(long)]
@@ -315,8 +322,9 @@ pub struct ApplyRangeCmd {
     start_index: Option<BlockHeight>,
     #[clap(long)]
     end_index: Option<BlockHeight>,
-    #[clap(long, default_value = "0")]
-    shard_id: ShardId,
+    /// All shards by default (if not specified.) Can be provided multiple times.
+    #[clap(long)]
+    shard_id: Vec<ShardId>,
     #[clap(long)]
     verbose_output: bool,
     #[clap(long, value_parser)]
@@ -484,7 +492,11 @@ impl DebugUICmd {
         if let Some(port) = self.port {
             rpc_config.addr = ListenerAddr::new(SocketAddr::new(rpc_config.addr.ip(), port));
         }
-        actix::System::new()
+        let tokio_runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("Failed to create Tokio runtime");
+        tokio_runtime
             .block_on(start_http_for_readonly_debug_querying(
                 rpc_config.addr,
                 Arc::new(debug_handler),

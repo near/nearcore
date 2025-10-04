@@ -1,7 +1,7 @@
 use crate::network_protocol::testonly as data;
 use crate::network_protocol::{
     Encoding, Handshake, HandshakeFailureReason, PartialEdgeInfo, PeerMessage, PeersRequest,
-    PeersResponse, RoutedMessageBody,
+    PeersResponse, T2MessageBody,
 };
 use crate::peer::testonly::{Event, PeerConfig, PeerHandle};
 use crate::peer_manager::peer_manager_actor::Event as PME;
@@ -11,7 +11,7 @@ use crate::testonly::stream::Stream;
 use crate::types::{Edge, PartialEncodedChunkRequestMsg, PartialEncodedChunkResponseMsg};
 use anyhow::Context as _;
 use assert_matches::assert_matches;
-use near_async::time;
+use near_async::{ActorSystem, time};
 use near_o11y::testonly::init_test_logger;
 use near_primitives::version::{MIN_SUPPORTED_PROTOCOL_VERSION, PROTOCOL_VERSION};
 use std::sync::Arc;
@@ -39,9 +39,15 @@ async fn test_peer_communication(
     };
     let (outbound_stream, inbound_stream) =
         tcp::Stream::loopback(inbound_cfg.id(), tcp::Tier::T2).await;
-    let mut inbound = PeerHandle::start_endpoint(clock.clock(), inbound_cfg, inbound_stream).await;
+    let actor_system = ActorSystem::new();
+    let mut inbound = PeerHandle::start_endpoint(
+        clock.clock(),
+        actor_system.clone(),
+        inbound_cfg,
+        inbound_stream,
+    );
     let mut outbound =
-        PeerHandle::start_endpoint(clock.clock(), outbound_cfg, outbound_stream).await;
+        PeerHandle::start_endpoint(clock.clock(), actor_system, outbound_cfg, outbound_stream);
 
     outbound.complete_handshake().await;
     inbound.complete_handshake().await;
@@ -111,16 +117,19 @@ async fn test_peer_communication(
 
     tracing::info!(target:"test","PartialEncodedChunkRequest");
     let mut events = inbound.events.from_now();
-    let want = PeerMessage::Routed(Box::new(outbound.routed_message(
-        RoutedMessageBody::PartialEncodedChunkRequest(PartialEncodedChunkRequestMsg {
-            chunk_hash: chain.blocks[5].chunks()[2].chunk_hash().clone(),
-            part_ords: vec![],
-            tracking_shards: Default::default(),
-        }),
-        inbound.cfg.id(),
-        1,    // ttl
-        None, // TODO(gprusak): this should be clock.now_utc(), once borsh support is dropped.
-    )));
+    let want = PeerMessage::Routed(Box::new(
+        outbound.routed_message(
+            T2MessageBody::PartialEncodedChunkRequest(PartialEncodedChunkRequestMsg {
+                chunk_hash: chain.blocks[5].chunks()[2].chunk_hash().clone(),
+                part_ords: vec![],
+                tracking_shards: Default::default(),
+            })
+            .into(),
+            inbound.cfg.id(),
+            1,    // ttl
+            None, // TODO(gprusak): this should be clock.now_utc(), once borsh support is dropped.
+        ),
+    ));
     outbound.send(want.clone()).await;
     events.recv_until(message_processed(want)).await;
 
@@ -128,16 +137,19 @@ async fn test_peer_communication(
     let mut events = inbound.events.from_now();
     let want_hash = chain.blocks[3].chunks()[0].chunk_hash().clone();
     let want_parts = data::make_chunk_parts(chain.chunks[&want_hash].clone());
-    let want = PeerMessage::Routed(Box::new(outbound.routed_message(
-        RoutedMessageBody::PartialEncodedChunkResponse(PartialEncodedChunkResponseMsg {
-            chunk_hash: want_hash,
-            parts: want_parts.clone(),
-            receipts: vec![],
-        }),
-        inbound.cfg.id(),
-        1,    // ttl
-        None, // TODO(gprusak): this should be clock.now_utc(), once borsh support is dropped.
-    )));
+    let want = PeerMessage::Routed(Box::new(
+        outbound.routed_message(
+            T2MessageBody::PartialEncodedChunkResponse(PartialEncodedChunkResponseMsg {
+                chunk_hash: want_hash,
+                parts: want_parts.clone(),
+                receipts: vec![],
+            })
+            .into(),
+            inbound.cfg.id(),
+            1,    // ttl
+            None, // TODO(gprusak): this should be clock.now_utc(), once borsh support is dropped.
+        ),
+    ));
     outbound.send(want.clone()).await;
     events.recv_until(message_processed(want)).await;
 
@@ -191,7 +203,8 @@ async fn test_handshake(outbound_encoding: Option<Encoding>, inbound_encoding: O
     };
     let (outbound_stream, inbound_stream) =
         tcp::Stream::loopback(inbound_cfg.id(), tcp::Tier::T2).await;
-    let inbound = PeerHandle::start_endpoint(clock.clock(), inbound_cfg, inbound_stream).await;
+    let inbound =
+        PeerHandle::start_endpoint(clock.clock(), ActorSystem::new(), inbound_cfg, inbound_stream);
     let outbound_port = outbound_stream.local_addr.port();
     let mut outbound = Stream::new(outbound_encoding, outbound_stream);
 

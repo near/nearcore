@@ -38,7 +38,7 @@ use near_primitives::utils::{
 use near_primitives::views::LightClientBlockView;
 use near_store::adapter::chain_store::ChainStoreAdapter;
 use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
-use near_store::db::{STATE_SYNC_DUMP_KEY, StoreStatistics};
+use near_store::db::{GC_STOP_HEIGHT_KEY, STATE_SYNC_DUMP_KEY, StoreStatistics};
 use near_store::{
     CHUNK_TAIL_KEY, DBCol, FINAL_HEAD_KEY, FORK_TAIL_KEY, HEAD_KEY, HEADER_HEAD_KEY,
     KeyForStateChanges, LARGEST_TARGET_HEIGHT_KEY, LATEST_KNOWN_KEY, PartialStorage, Store,
@@ -49,7 +49,7 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use std::io;
 use std::ops::Deref;
 use std::sync::Arc;
-use utils::check_transaction_validity_period;
+use utils::{check_transaction_validity_period, early_prepare_txs_check_validity_period};
 
 pub mod latest_witnesses;
 mod merkle_proof;
@@ -89,6 +89,8 @@ pub trait ChainStoreAccess {
     fn final_head(&self) -> Result<Arc<Tip>, Error>;
     /// Largest approval target height sent by us
     fn largest_target_height(&self) -> Result<BlockHeight, Error>;
+    /// Stop height observed during the last garbage collection iteration.
+    fn gc_stop_height(&self) -> Result<BlockHeight, Error>;
     /// Get full block.
     fn get_block(&self, h: &CryptoHash) -> Result<Arc<Block>, Error>;
     /// Get partial chunk.
@@ -97,6 +99,8 @@ pub trait ChainStoreAccess {
     fn block_exists(&self, h: &CryptoHash) -> Result<bool, Error>;
     /// Does this chunk exist?
     fn chunk_exists(&self, h: &ChunkHash) -> Result<bool, Error>;
+    /// Does this partial chunk exist?
+    fn partial_chunk_exists(&self, h: &ChunkHash) -> Result<bool, Error>;
     /// Get previous header.
     fn get_previous_header(&self, header: &BlockHeader) -> Result<Arc<BlockHeader>, Error>;
     /// Get chunk extra info for given block hash + shard id.
@@ -260,15 +264,16 @@ pub fn filter_incoming_receipts_for_shard(
 }
 
 /// All chain-related database operations.
+#[derive(Clone)]
 pub struct ChainStore {
     store: ChainStoreAdapter,
-    // TODO(store): Use std::cell::OnceCell once OnceCell::get_or_try_init stabilizes.
-    latest_known: std::cell::Cell<Option<LatestKnown>>,
     /// save_trie_changes should be set to true iff
     /// - archive is false - non-archival nodes need trie changes to perform garbage collection
     /// - archive is true, cold_store is configured and migration to split_storage is finished - node
     /// working in split storage mode needs trie changes in order to do garbage collection on hot.
     save_trie_changes: bool,
+    /// Whether to persist transaction outcomes on disk or not.
+    save_tx_outcomes: bool,
     /// The maximum number of blocks for which a transaction is valid since its creation.
     pub(super) transaction_validity_period: BlockHeightDelta,
 }
@@ -300,10 +305,14 @@ impl ChainStore {
     ) -> ChainStore {
         ChainStore {
             store: store.chain_store(),
-            latest_known: std::cell::Cell::new(None),
             save_trie_changes,
+            save_tx_outcomes: true,
             transaction_validity_period,
         }
+    }
+
+    pub fn with_save_tx_outcomes(self, save_tx_outcomes: bool) -> ChainStore {
+        ChainStore { save_tx_outcomes, ..self }
     }
 
     pub fn store_update(&mut self) -> ChainStoreUpdate<'_> {
@@ -466,6 +475,23 @@ impl ChainStore {
         )
     }
 
+    /// Similar to `check_transaction_validity_period`, used in early transaction preparation where
+    /// prev_block_header is not available.
+    pub fn early_prepare_txs_check_validity_period(
+        &self,
+        prev_block_height: BlockHeight,
+        prev_prev_block_header: &BlockHeader,
+        base_block_hash: &CryptoHash,
+    ) -> Result<(), InvalidTxError> {
+        early_prepare_txs_check_validity_period(
+            &self.store,
+            prev_block_height,
+            prev_prev_block_header,
+            base_block_hash,
+            self.transaction_validity_period,
+        )
+    }
+
     pub fn compute_transaction_validity(
         &self,
         prev_block_header: &BlockHeader,
@@ -519,7 +545,7 @@ impl ChainStore {
         block_hash: &CryptoHash,
     ) -> Result<HashMap<ShardId, Vec<ExecutionOutcomeWithIdAndProof>>, Error> {
         let block = self.get_block(block_hash)?;
-        let chunk_headers = block.chunks().iter_deprecated().cloned().collect::<Vec<_>>();
+        let chunk_headers = block.chunks().iter_raw().cloned().collect::<Vec<_>>();
 
         let mut res = HashMap::new();
         for chunk_header in chunk_headers {
@@ -548,15 +574,11 @@ impl ChainStore {
     /// Returns latest known height and time it was seen.
     /// TODO(store): What is this doing here? Cleanup
     pub fn get_latest_known(&self) -> Result<LatestKnown, Error> {
-        if let Some(latest_known) = self.latest_known.get() {
-            return Ok(latest_known);
-        }
         let latest_known: LatestKnown = option_to_not_found(
             self.store.store().caching_get_ser(DBCol::BlockMisc, LATEST_KNOWN_KEY),
             "LATEST_KNOWN_KEY",
         )
         .map(|v| *v)?;
-        self.latest_known.set(Some(latest_known));
         Ok(latest_known)
     }
 
@@ -565,7 +587,6 @@ impl ChainStore {
     pub fn save_latest_known(&mut self, latest_known: LatestKnown) -> Result<(), Error> {
         let mut store_update = self.store.store().store_update();
         store_update.set_ser(DBCol::BlockMisc, LATEST_KNOWN_KEY, &latest_known)?;
-        self.latest_known.set(Some(latest_known));
         store_update.commit().map_err(|err| err.into())
     }
 
@@ -854,6 +875,10 @@ impl ChainStoreAccess for ChainStore {
         ChainStoreAdapter::largest_target_height(self)
     }
 
+    fn gc_stop_height(&self) -> Result<BlockHeight, Error> {
+        ChainStoreAdapter::gc_stop_height(self)
+    }
+
     /// Head of the header chain (not the same thing as head_header).
     fn header_head(&self) -> Result<Arc<Tip>, Error> {
         ChainStoreAdapter::header_head(self)
@@ -881,6 +906,10 @@ impl ChainStoreAccess for ChainStore {
 
     fn chunk_exists(&self, h: &ChunkHash) -> Result<bool, Error> {
         ChainStoreAdapter::chunk_exists(self, h)
+    }
+
+    fn partial_chunk_exists(&self, h: &ChunkHash) -> Result<bool, Error> {
+        ChainStoreAdapter::partial_chunk_exists(self, h)
     }
 
     /// Get previous header.
@@ -1002,7 +1031,6 @@ pub(crate) struct ChainStoreCacheUpdate {
     chunk_extras: HashMap<(CryptoHash, ShardUId), Arc<ChunkExtra>>,
     chunks: HashMap<ChunkHash, Arc<ArcedShardChunk>>,
     partial_chunks: HashMap<ChunkHash, Arc<PartialEncodedChunk>>,
-    block_hash_per_height: HashMap<BlockHeight, HashMap<EpochId, HashSet<CryptoHash>>>,
     pub(crate) height_to_hashes: HashMap<BlockHeight, Option<CryptoHash>>,
     next_block_hashes: HashMap<CryptoHash, CryptoHash>,
     epoch_light_client_blocks: HashMap<CryptoHash, Arc<LightClientBlockView>>,
@@ -1033,6 +1061,7 @@ pub struct ChainStoreUpdate<'a> {
     header_head: Option<Arc<Tip>>,
     final_head: Option<Arc<Tip>>,
     largest_target_height: Option<BlockHeight>,
+    gc_stop_height: Option<BlockHeight>,
     trie_changes: Vec<(CryptoHash, WrappedTrieChanges)>,
     state_transition_data: HashMap<(CryptoHash, ShardId), StoredChunkStateTransitionData>,
     add_blocks_to_catchup: Vec<(CryptoHash, CryptoHash)>,
@@ -1058,6 +1087,7 @@ impl<'a> ChainStoreUpdate<'a> {
             header_head: None,
             final_head: None,
             largest_target_height: None,
+            gc_stop_height: None,
             trie_changes: vec![],
             state_transition_data: Default::default(),
             add_blocks_to_catchup: vec![],
@@ -1143,6 +1173,14 @@ impl<'a> ChainStoreAccess for ChainStoreUpdate<'a> {
         }
     }
 
+    fn gc_stop_height(&self) -> Result<BlockHeight, Error> {
+        if let Some(gc_stop_height) = &self.gc_stop_height {
+            Ok(*gc_stop_height)
+        } else {
+            self.chain_store.gc_stop_height()
+        }
+    }
+
     /// Header of the block at the head of the block chain (not the same thing as header_head).
     fn head_header(&self) -> Result<Arc<BlockHeader>, Error> {
         self.get_block_header(&(self.head()?.last_block_hash))
@@ -1171,6 +1209,11 @@ impl<'a> ChainStoreAccess for ChainStoreUpdate<'a> {
     fn chunk_exists(&self, h: &ChunkHash) -> Result<bool, Error> {
         Ok(self.chain_store_cache_update.chunks.contains_key(h)
             || self.chain_store.chunk_exists(h)?)
+    }
+
+    fn partial_chunk_exists(&self, h: &ChunkHash) -> Result<bool, Error> {
+        Ok(self.chain_store_cache_update.partial_chunks.contains_key(h)
+            || self.chain_store.partial_chunk_exists(h)?)
     }
 
     /// Get previous header.
@@ -1595,6 +1638,9 @@ impl<'a> ChainStoreUpdate<'a> {
         outcomes: Vec<ExecutionOutcomeWithId>,
         proofs: Vec<MerklePath>,
     ) {
+        if !self.chain_store.save_tx_outcomes {
+            return;
+        }
         let mut outcome_ids = Vec::with_capacity(outcomes.len());
         for (outcome_with_id, proof) in outcomes.into_iter().zip(proofs.into_iter()) {
             outcome_ids.push(outcome_with_id.id);
@@ -1724,6 +1770,10 @@ impl<'a> ChainStoreUpdate<'a> {
         self.chunk_tail = Some(height);
     }
 
+    pub fn update_gc_stop_height(&mut self, height: BlockHeight) {
+        self.gc_stop_height = Some(height);
+    }
+
     /// Merge another StoreUpdate into this one
     pub fn merge(&mut self, store_update: StoreUpdate) {
         self.store_updates.push(store_update);
@@ -1756,6 +1806,7 @@ impl<'a> ChainStoreUpdate<'a> {
                 LARGEST_TARGET_HEIGHT_KEY,
                 &mut self.largest_target_height,
             )?;
+            Self::write_col_misc(&mut store_update, GC_STOP_HEIGHT_KEY, &mut self.gc_stop_height)?;
         }
         {
             let _span = tracing::trace_span!(target: "store", "write_block").entered();
@@ -1773,10 +1824,18 @@ impl<'a> ChainStoreUpdate<'a> {
                     &index_to_bytes(block.header().height()),
                     &map,
                 )?;
-                self.chain_store_cache_update
-                    .block_hash_per_height
-                    .insert(block.header().height(), map);
                 store_update.insert_ser(DBCol::Block, block.hash().as_ref(), block)?;
+                if cfg!(feature = "protocol_feature_spice") {
+                    let prev_hash = block.header().prev_hash();
+                    let mut prev_next_hashes =
+                        self.chain_store.get_all_next_block_hashes(prev_hash)?;
+                    prev_next_hashes.push(*block.hash());
+                    store_update.set_ser(
+                        DBCol::all_next_block_hashes(),
+                        prev_hash.as_ref(),
+                        &prev_next_hashes,
+                    )?;
+                }
             }
             // This is a BTreeMap because the update_sync_hashes() calls below must be done in order of height
             let mut headers_by_height: BTreeMap<BlockHeight, Vec<&BlockHeader>> = BTreeMap::new();
@@ -2124,6 +2183,17 @@ mod tests {
                 .check_transaction_validity_period(&short_fork_head, genesis.hash(),)
                 .is_ok()
         );
+        assert!(
+            chain
+                .mut_chain_store()
+                .early_prepare_txs_check_validity_period(
+                    short_fork_head.height(),
+                    genesis.header(),
+                    genesis.hash(),
+                )
+                .is_ok()
+        );
+
         let mut long_fork = vec![];
         let mut prev_block = genesis;
         for i in 1..(chain.transaction_validity_period() + 3) {
@@ -2144,11 +2214,30 @@ mod tests {
                 .check_transaction_validity_period(cur_header, valid_base_hash)
                 .is_ok()
         );
+        assert!(
+            chain
+                .chain_store()
+                .early_prepare_txs_check_validity_period(
+                    cur_header.height(),
+                    long_fork[long_fork.len() - 2].header(),
+                    valid_base_hash
+                )
+                .is_ok()
+        );
+
         let invalid_base_hash = long_fork[0].hash();
         assert_eq!(
             chain
                 .mut_chain_store()
                 .check_transaction_validity_period(cur_header, invalid_base_hash),
+            Err(InvalidTxError::Expired)
+        );
+        assert_eq!(
+            chain.chain_store().early_prepare_txs_check_validity_period(
+                cur_header.height(),
+                long_fork[long_fork.len() - 2].header(),
+                invalid_base_hash
+            ),
             Err(InvalidTxError::Expired)
         );
     }
@@ -2179,6 +2268,16 @@ mod tests {
                 .check_transaction_validity_period(cur_header, valid_base_hash,)
                 .is_ok()
         );
+        assert!(
+            chain
+                .chain_store()
+                .early_prepare_txs_check_validity_period(
+                    cur_header.height(),
+                    blocks[blocks.len() - 2].header(),
+                    valid_base_hash
+                )
+                .is_ok()
+        );
         let new_block = TestBlockBuilder::new(Clock::real(), &blocks.last().unwrap(), signer)
             .height(chain.transaction_validity_period() + 3)
             .build();
@@ -2191,6 +2290,14 @@ mod tests {
             chain
                 .chain_store()
                 .check_transaction_validity_period(new_block.header(), valid_base_hash,),
+            Err(InvalidTxError::Expired)
+        );
+        assert_eq!(
+            chain.chain_store().early_prepare_txs_check_validity_period(
+                new_block.header().height(),
+                blocks.last().unwrap().header(),
+                valid_base_hash,
+            ),
             Err(InvalidTxError::Expired)
         );
     }
@@ -2221,6 +2328,15 @@ mod tests {
                 .check_transaction_validity_period(&short_fork_head, &genesis_hash),
             Err(InvalidTxError::Expired)
         );
+        assert_eq!(
+            chain.chain_store().early_prepare_txs_check_validity_period(
+                short_fork_head.height(),
+                short_fork[short_fork.len() - 2].header(),
+                &genesis_hash
+            ),
+            Err(InvalidTxError::Expired)
+        );
+
         let mut long_fork = vec![];
         let mut prev_block = genesis;
         for i in 1..(chain.transaction_validity_period() * 5) {
@@ -2237,6 +2353,14 @@ mod tests {
             chain
                 .mut_chain_store()
                 .check_transaction_validity_period(long_fork_head, &genesis_hash,),
+            Err(InvalidTxError::Expired)
+        );
+        assert_eq!(
+            chain.chain_store().early_prepare_txs_check_validity_period(
+                long_fork_head.height(),
+                long_fork[long_fork.len() - 2].header(),
+                &genesis_hash
+            ),
             Err(InvalidTxError::Expired)
         );
     }

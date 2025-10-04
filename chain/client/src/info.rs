@@ -4,7 +4,7 @@ use itertools::Itertools;
 use lru::LruCache;
 use near_async::messaging::Sender;
 use near_async::time::{Clock, Instant};
-use near_chain_configs::{ClientConfig, LogSummaryStyle, SyncConfig};
+use near_chain_configs::{ClientConfig, LogSummaryStyle};
 use near_client_primitives::types::StateSyncStatus;
 use near_epoch_manager::EpochManagerAdapter;
 use near_network::types::NetworkInfo;
@@ -58,7 +58,7 @@ pub struct InfoHelper {
     /// Total number of blocks processed.
     num_chunks_in_blocks_processed: u64,
     /// Total gas used during period.
-    gas_used: u64,
+    gas_used: Gas,
     /// Telemetry event sender.
     telemetry_sender: Sender<TelemetryEvent>,
     /// Log coloring enabled.
@@ -91,7 +91,7 @@ impl InfoHelper {
             started: clock.now(),
             num_blocks_processed: 0,
             num_chunks_in_blocks_processed: 0,
-            gas_used: 0,
+            gas_used: Gas::ZERO,
             telemetry_sender,
             log_summary_style: client_config.log_summary_style,
             boot_time_seconds: clock.now_utc().unix_timestamp(),
@@ -105,8 +105,8 @@ impl InfoHelper {
     pub fn chunk_processed(&self, shard_id: ShardId, gas_used: Gas, balance_burnt: Balance) {
         metrics::TGAS_USAGE_HIST
             .with_label_values(&[&shard_id.to_string()])
-            .observe(gas_used as f64 / TERAGAS);
-        metrics::BALANCE_BURNT.inc_by(balance_burnt as f64);
+            .observe(gas_used.as_gas() as f64 / TERAGAS);
+        metrics::BALANCE_BURNT.inc_by(balance_burnt.as_yoctonear() as f64);
     }
 
     pub fn chunk_skipped(&self, shard_id: ShardId) {
@@ -126,12 +126,12 @@ impl InfoHelper {
     ) {
         self.num_blocks_processed += 1;
         self.num_chunks_in_blocks_processed += num_chunks;
-        self.gas_used += gas_used;
-        metrics::GAS_USED.inc_by(gas_used as f64);
+        self.gas_used = self.gas_used.checked_add(gas_used).unwrap();
+        metrics::GAS_USED.inc_by(gas_used.as_gas() as f64);
         metrics::BLOCKS_PROCESSED.inc();
         metrics::CHUNKS_PROCESSED.inc_by(num_chunks);
-        metrics::GAS_PRICE.set(gas_price as f64);
-        metrics::TOTAL_SUPPLY.set(total_supply as f64);
+        metrics::GAS_PRICE.set(gas_price.as_yoctonear() as f64);
+        metrics::TOTAL_SUPPLY.set(total_supply.as_yoctonear() as f64);
         metrics::FINAL_BLOCK_HEIGHT.set(last_final_block_height as i64);
         metrics::FINAL_DOOMSLUG_BLOCK_HEIGHT.set(last_final_ds_block_height as i64);
         metrics::EPOCH_HEIGHT.set(epoch_height as i64);
@@ -148,11 +148,8 @@ impl InfoHelper {
         client: &crate::client::Client,
         shard_layout: &ShardLayout,
     ) {
-        let validator_signer = client.validator_signer.get();
-        let me = validator_signer.as_ref().map(|x| x.validator_id());
         for shard_id in shard_layout.shard_ids() {
-            let tracked =
-                client.shard_tracker.cares_about_shard(me, &head.prev_block_hash, shard_id, true);
+            let tracked = client.shard_tracker.cares_about_shard(&head.prev_block_hash, shard_id);
             metrics::TRACKED_SHARDS.with_label_values(&[&shard_id.to_string()]).set(if tracked {
                 1
             } else {
@@ -225,18 +222,19 @@ impl InfoHelper {
             let mut stake_per_bp = HashMap::<ValidatorId, Balance>::new();
 
             let stake_to_blocks = |stake: Balance, stake_sum: Balance| -> i64 {
-                if stake == 0 {
+                if stake.is_zero() {
                     0
                 } else {
-                    (((stake as f64) / (stake_sum as f64)) * (blocks_in_epoch as f64)) as i64
+                    (((stake.as_yoctonear() as f64) / (stake_sum.as_yoctonear() as f64))
+                        * (blocks_in_epoch as f64)) as i64
                 }
             };
 
-            let mut stake_sum = 0;
+            let mut stake_sum = Balance::ZERO;
             for &id in epoch_info.block_producers_settlement() {
                 let stake = epoch_info.validator_stake(id);
                 stake_per_bp.insert(id, stake);
-                stake_sum += stake;
+                stake_sum = stake_sum.checked_add(stake).unwrap();
             }
 
             stake_per_bp.iter().for_each(|(&id, &stake)| {
@@ -245,7 +243,7 @@ impl InfoHelper {
                         epoch_info.get_validator(id).account_id().as_str(),
                         &epoch_height,
                     ])
-                    .set((stake / 1e24 as u128) as i64);
+                    .set(stake.as_near() as i64);
                 metrics::VALIDATORS_BLOCKS_EXPECTED_IN_EPOCH
                     .with_label_values(&[
                         epoch_info.get_validator(id).account_id().as_str(),
@@ -257,7 +255,7 @@ impl InfoHelper {
             for shard_id in shard_ids {
                 let shard_index = shard_layout.get_shard_index(shard_id).unwrap();
                 let mut stake_per_cp = HashMap::<ValidatorId, Balance>::new();
-                stake_sum = 0;
+                stake_sum = Balance::ZERO;
                 let chunk_producers_settlement = &epoch_info.chunk_producers_settlement();
                 let chunk_producers = chunk_producers_settlement.get(shard_index);
                 let Some(chunk_producers) = chunk_producers else {
@@ -267,7 +265,7 @@ impl InfoHelper {
                 for &id in chunk_producers {
                     let stake = epoch_info.validator_stake(id);
                     stake_per_cp.insert(id, stake);
-                    stake_sum += stake;
+                    stake_sum = stake_sum.checked_add(stake).unwrap();
                 }
 
                 stake_per_cp.iter().for_each(|(&id, &stake)| {
@@ -413,8 +411,7 @@ impl InfoHelper {
 
         let s = |num| if num == 1 { "" } else { "s" };
 
-        let sync_status_log =
-            Some(display_sync_status(sync_status, head, &client_config.state_sync.sync));
+        let sync_status_log = Some(display_sync_status(sync_status, head));
         let validator_info_log = validator_info.as_ref().map(|info| {
             format!(
                 " {}{} validator{}",
@@ -436,7 +433,7 @@ impl InfoHelper {
         let avg_bls = (self.num_blocks_processed as f64)
             / (now.signed_duration_since(self.started).whole_milliseconds() as f64)
             * 1000.0;
-        let avg_gas_used = ((self.gas_used as f64)
+        let avg_gas_used = ((self.gas_used.as_gas() as f64)
             / (now.signed_duration_since(self.started).whole_milliseconds() as f64)
             * 1000.0) as u64;
         let blocks_info_log =
@@ -477,7 +474,7 @@ impl InfoHelper {
         self.started = self.clock.now();
         self.num_blocks_processed = 0;
         self.num_chunks_in_blocks_processed = 0;
-        self.gas_used = 0;
+        self.gas_used = Gas::ZERO;
 
         let telemetry_event = TelemetryEvent {
             content: self.telemetry_info(
@@ -705,11 +702,7 @@ pub fn log_catchup_status(catchup_status: Vec<CatchupStatusView>) {
     }
 }
 
-pub fn display_sync_status(
-    sync_status: &SyncStatus,
-    head: &Tip,
-    state_sync_config: &SyncConfig,
-) -> String {
+pub fn display_sync_status(sync_status: &SyncStatus, head: &Tip) -> String {
     metrics::SYNC_STATUS.set(sync_status.repr() as i64);
     match sync_status {
         SyncStatus::AwaitingPeers => format!("#{:>8} Waiting for peers", head.height),
@@ -722,14 +715,14 @@ pub fn display_sync_status(
             let percent = if highest_height <= start_height {
                 0.0
             } else {
-                (((min(current_height, highest_height) - start_height) * 100) as f64)
-                    / ((highest_height - start_height) as f64)
+                ((min(current_height, highest_height).saturating_sub(*start_height) * 100) as f64)
+                    / (highest_height.saturating_sub(*start_height) as f64)
             };
             format!(
                 "#{:>8} Downloading headers {:.2}% ({} left; at {})",
                 head.height,
                 percent,
-                highest_height - current_height,
+                highest_height.saturating_sub(*current_height),
                 current_height
             )
         }
@@ -744,7 +737,7 @@ pub fn display_sync_status(
                 "#{:>8} Downloading blocks {:.2}% ({} left; at {})",
                 head.height,
                 percent,
-                highest_height - current_height,
+                highest_height.saturating_sub(*current_height),
                 current_height
             )
         }
@@ -767,15 +760,6 @@ pub fn display_sync_status(
                 computation_tasks.len()
             )
             .unwrap();
-            if let SyncConfig::Peers = state_sync_config {
-                tracing::warn!(
-                    target: "stats",
-                    "The node is trying to sync its State from its peers. The current implementation of this mechanism is known to be unreliable. It may never complete, or fail randomly and corrupt the DB.\n\
-                     Suggestions:\n\
-                      * Try to state sync from GCS. See `\"state_sync\"` and `\"state_sync_enabled\"` options in the reference `config.json` file.
-                      or
-                      * Disable state sync in the config. Add `\"state_sync_enabled\": false` to `config.json`, then download a recent data snapshot and restart the node.");
-            };
             res
         }
         SyncStatus::StateSyncDone => "State sync done".to_string(),
@@ -976,13 +960,16 @@ mod tests {
     use near_async::messaging::{IntoMultiSender, IntoSender, noop};
     use near_async::time::Clock;
     use near_chain::runtime::NightshadeRuntime;
+    use near_chain::spice_core::CoreStatementsProcessor;
     use near_chain::types::ChainConfig;
     use near_chain::{Chain, ChainGenesis, DoomslugThresholdMode};
+    use near_chain_configs::test_utils::TestClientConfigParams;
     use near_chain_configs::{Genesis, MutableConfigValue};
     use near_epoch_manager::EpochManager;
     use near_epoch_manager::shard_tracker::ShardTracker;
     use near_epoch_manager::test_utils::*;
     use near_network::test_utils::peer_id_from_seed;
+    use near_store::adapter::StoreAdapter as _;
     use near_store::genesis::initialize_genesis_state;
 
     #[test]
@@ -1007,7 +994,16 @@ mod tests {
 
     #[test]
     fn test_telemetry_info() {
-        let config = ClientConfig::test(false, 1230, 2340, 50, false, true, true);
+        let config = ClientConfig::test(TestClientConfigParams {
+            skip_sync_wait: false,
+            min_block_prod_time: 1230,
+            max_block_prod_time: 2340,
+            num_block_producer_seats: 50,
+            enable_split_store: false,
+            enable_cloud_archival_writer: false,
+            save_trie_changes: true,
+            state_sync_enabled: true,
+        });
         let validator = MutableConfigValue::new(None, "validator_signer");
         let info_helper = InfoHelper::new(Clock::real(), noop().into_sender(), &config);
 
@@ -1018,13 +1014,17 @@ mod tests {
         initialize_genesis_state(store.clone(), &genesis, Some(tempdir.path()));
         let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config, None);
         let shard_tracker = ShardTracker::new_empty(epoch_manager.clone());
-        let runtime =
-            NightshadeRuntime::test(tempdir.path(), store, &genesis.config, epoch_manager.clone());
+        let runtime = NightshadeRuntime::test(
+            tempdir.path(),
+            store.clone(),
+            &genesis.config,
+            epoch_manager.clone(),
+        );
         let chain_genesis = ChainGenesis::new(&genesis.config);
         let doomslug_threshold_mode = DoomslugThresholdMode::TwoThirds;
         let chain = Chain::new(
             Clock::real(),
-            epoch_manager,
+            epoch_manager.clone(),
             shard_tracker,
             runtime,
             &chain_genesis,
@@ -1032,8 +1032,11 @@ mod tests {
             ChainConfig::test(),
             None,
             Default::default(),
+            Default::default(),
             validator.clone(),
             noop().into_multi_sender(),
+            CoreStatementsProcessor::new_with_noop_senders(store.chain_store(), epoch_manager),
+            None,
         )
         .unwrap();
 
@@ -1069,7 +1072,7 @@ mod tests {
     /// Tests that `num_validators` returns the number of all validators including both block and chunk producers.
     #[test]
     fn test_num_validators() {
-        let amount_staked = 1_000_000;
+        let amount_staked = Balance::from_yoctonear(1_000_000);
         let validators = vec![
             ("test1".parse().unwrap(), amount_staked),
             ("test2".parse().unwrap(), amount_staked),
@@ -1111,7 +1114,16 @@ mod tests {
         );
 
         // Then check that get_num_validators returns the correct number of validators.
-        let client_config = ClientConfig::test(false, 1230, 2340, 50, false, true, true);
+        let client_config = ClientConfig::test(TestClientConfigParams {
+            skip_sync_wait: false,
+            min_block_prod_time: 1230,
+            max_block_prod_time: 2340,
+            num_block_producer_seats: 50,
+            enable_split_store: false,
+            enable_cloud_archival_writer: false,
+            save_trie_changes: true,
+            state_sync_enabled: true,
+        });
         let mut info_helper = InfoHelper::new(Clock::real(), noop().into_sender(), &client_config);
         assert_eq!(
             num_validators,

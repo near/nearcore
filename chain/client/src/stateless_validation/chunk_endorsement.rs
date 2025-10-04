@@ -61,8 +61,9 @@ impl ChunkEndorsementTracker {
                     account_id.clone(),
                     (endorsement.chunk_hash(), endorsement.signature()),
                 );
+                let shard_id = endorsement.shard_id();
                 metrics::CHUNK_ENDORSEMENTS_ACCEPTED
-                    .with_label_values(&[&endorsement.shard_id().to_string()])
+                    .with_label_values(&[&shard_id.to_string()])
                     .inc();
             }
             irrelevant => {

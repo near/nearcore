@@ -4,11 +4,10 @@ use near_async::time::Duration;
 use near_chain_configs::test_genesis::{TestEpochConfigBuilder, ValidatorsSpec};
 use near_client::client_actor::ClientActorInner;
 use near_o11y::testonly::init_test_logger;
-use near_primitives::types::AccountId;
+use near_primitives::types::{AccountId, Balance};
 
 use crate::setup::builder::TestLoopBuilder;
 use crate::setup::env::TestLoopEnv;
-use crate::utils::ONE_NEAR;
 use crate::utils::transactions::{
     call_contract, check_txs, do_create_account, do_delete_account, do_deploy_contract,
     get_next_nonce,
@@ -76,7 +75,7 @@ fn test_create_delete_account() {
     let genesis = TestLoopBuilder::new_genesis_builder()
         .epoch_length(epoch_length)
         .validators_spec(ValidatorsSpec::desired_roles(&producers, &validators))
-        .add_user_accounts_simple(&accounts, 1_000_000 * ONE_NEAR)
+        .add_user_accounts_simple(&accounts, Balance::from_near(1_000_000))
         .build();
     let epoch_config_store = TestEpochConfigBuilder::build_store_from_genesis(&genesis);
     let mut env = builder
@@ -101,7 +100,7 @@ fn test_create_delete_account() {
     let contract_code = near_test_contracts::rs_contract().to_vec();
 
     // Create account.
-    do_create_account(&mut env, &rpc_id, &accounts[0], &new_account, 100 * ONE_NEAR);
+    do_create_account(&mut env, &rpc_id, &accounts[0], &new_account, Balance::from_near(100));
     // Deploy contract.
     do_deploy_contract(&mut env, &rpc_id, &new_account, contract_code);
     // Write a key-value pair to the contract storage.

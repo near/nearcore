@@ -85,8 +85,16 @@ imports! {
     // # Finite-wasm internals #
     // #########################
     @in internal: finite_wasm_gas<[gas: u64] -> []>,
+    @in internal: finite_wasm_memory_copy<[cnt: u32, lin: u64, constant: u64] -> [u32]>,
+    @in internal: finite_wasm_memory_fill<[cnt: u32, lin: u64, constant: u64] -> [u32]>,
+    @in internal: finite_wasm_memory_init<[cnt: u32, lin: u64, constant: u64] -> [u32]>,
+    @in internal: finite_wasm_table_copy<[cnt: u32, lin: u64, constant: u64] -> [u32]>,
+    @in internal: finite_wasm_table_fill<[cnt: u32, lin: u64, constant: u64] -> [u32]>,
+    @in internal: finite_wasm_table_init<[cnt: u32, lin: u64, constant: u64] -> [u32]>,
     @in internal: finite_wasm_stack<[operand_size: u64, frame_size: u64] -> []>,
     @in internal: finite_wasm_unstack<[operand_size: u64, frame_size: u64] -> []>,
+    @in internal: finite_wasm_gas_exhausted<[] -> []>,
+    @in internal: finite_wasm_stack_exhausted<[] -> []>,
     // #############
     // # Registers #
     // #############
@@ -165,6 +173,12 @@ imports! {
     promise_and<[promise_idx_ptr: u64, promise_idx_count: u64] -> [u64]>,
     promise_batch_create<[account_id_len: u64, account_id_ptr: u64] -> [u64]>,
     promise_batch_then<[promise_index: u64, account_id_len: u64, account_id_ptr: u64] -> [u64]>,
+    #[deterministic_account_ids] promise_set_refund_to<[promise_index: u64, account_id_len: u64, account_id_ptr: u64] -> []>,
+    #[deterministic_account_ids] promise_batch_action_state_init<[promise_idx: u64, code_len: u64, code_ptr: u64, amount_ptr: u64] -> [u64]>,
+    #[deterministic_account_ids] promise_batch_action_state_init_by_account_id<[promise_idx: u64, account_id_len: u64, code_hash_ptr: u64, amount_ptr: u64] -> [u64]>,
+    #[deterministic_account_ids] set_state_init_data_entry<[promise_idx: u64, action_index: u64, key_len: u64, key_ptr: u64, value_len: u64, value_ptr: u64] -> []>,
+    #[deterministic_account_ids] current_contract_code<[register_id: u64] -> [u64]>,
+    #[deterministic_account_ids] refund_to_account_id<[register_id: u64] -> []>,
     // #######################
     // # Promise API actions #
     // #######################

@@ -11,7 +11,7 @@
 
 ## Reference implementation of NEAR Protocol
 
-[![Buildkite](https://img.shields.io/buildkite/0eae07525f8e44a19b48fa937813e2c21ee04aa351361cd851)][buildkite]
+[![Build][build-badge]][build-url]
 ![Stable Status][stable-release]
 ![Prerelease Status][prerelease]
 [![codecov][codecov-badge]][codecov-url]
@@ -19,7 +19,8 @@
 [![Twitter][twitter-badge]][twitter-url]
 [![Telegram Group][telegram-badge]][telegram-url]
 
-[buildkite]: https://github.com/near/nearcore/actions
+[build-badge]: https://github.com/near/nearcore/actions/workflows/ci.yml/badge.svg?branch=master
+[build-url]: https://github.com/near/nearcore/actions
 [stable-release]: https://img.shields.io/github/v/release/nearprotocol/nearcore?label=stable
 [prerelease]: https://img.shields.io/github/v/release/nearprotocol/nearcore?include_prereleases&label=prerelease
 [ci-badge-master]: https://badge.buildkite.com/a81147cb62c585cc434459eedd1d25e521453120ead9ee6c64.svg?branch=master
@@ -27,7 +28,7 @@
 [codecov-badge]: https://codecov.io/gh/near/nearcore/branch/master/graph/badge.svg
 [codecov-url]: https://codecov.io/gh/near/nearcore
 [discord-badge]: https://img.shields.io/discord/490367152054992913.svg
-[discord-url]: https://near.chat
+[discord-url]: https://discord.com/invite/nearprotocol
 [twitter-badge]: https://img.shields.io/twitter/follow/NEARProtocol
 [twitter-url]: https://x.com/NEARProtocol
 [telegram-badge]: https://cdn.jsdelivr.net/gh/Patrolavia/telegram-badge@8fe3382b3fd3a1c533ba270e608035a27e430c2e/chat.svg

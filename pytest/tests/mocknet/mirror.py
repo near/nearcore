@@ -13,8 +13,9 @@ import re
 import sys
 import time
 import numpy as np
-from functools import wraps
 from typing import Optional
+import os
+import tempfile
 
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
@@ -23,7 +24,7 @@ import local_test_node
 import node_config
 import remote_node
 from node_handle import NodeHandle
-from utils import ScheduleContext
+from utils import ScheduleContext, ScheduleMode, build_stake_distribution
 
 
 def to_list(item):
@@ -96,7 +97,7 @@ class CommandContext:
         """
         Returns the nodes and traffic generator with the previous schedule context.
         """
-        return self.nodes + to_list(self.traffic_generator)
+        return list(self.nodes) + to_list(self.traffic_generator)
 
     def get_targeted_with_schedule_ctx(self) -> list[NodeHandle]:
         """
@@ -135,16 +136,14 @@ class CommandContext:
             sys.exit(
                 f'cannot give --chain-id, --start-height, --unique-id or --mocknet-id along with --local-test'
             )
-            traffic_generator, nodes = local_test_node.get_nodes()
-            node_config.configure_nodes(nodes + to_list(traffic_generator),
-                                        node_config.TEST_CONFIG)
+
+        traffic_generator, nodes = local_test_node.get_nodes()
+        node_config.configure_nodes(nodes + to_list(traffic_generator))
         self.traffic_generator = traffic_generator
         self.nodes = nodes
 
-    def _get_remote_nodes(self):
-        """
-        Get nodes in the remote infrastructure.
-        """
+    def get_mocknet_id(self):
+        mocknet_id = None
         if (self.args.chain_id is not None and
                 self.args.start_height is not None and
                 self.args.unique_id is not None):
@@ -156,9 +155,15 @@ class CommandContext:
             sys.exit(
                 f'must give all of --chain-id --start-height and --unique-id or --mocknet-id'
             )
+        return mocknet_id
+
+    def _get_remote_nodes(self):
+        """
+        Get nodes in the remote infrastructure.
+        """
+        mocknet_id = self.get_mocknet_id()
         traffic_generator, nodes = remote_node.get_nodes(mocknet_id)
-        node_config.configure_nodes(nodes + to_list(traffic_generator),
-                                    node_config.REMOTE_CONFIG)
+        node_config.configure_nodes(nodes + to_list(traffic_generator))
         self.traffic_generator = traffic_generator
         self.nodes = nodes
 
@@ -203,13 +208,15 @@ class CommandContext:
         """
         Make a schedule context if the command is scheduled.
         """
-        if getattr(self.args, 'schedule_in', None) is None:
+        schedule = getattr(self.args, 'on', None)
+        if schedule is None:
             return None
-
+        random_id = str(int(time.time() * 1000) % 100000000)
         context = ScheduleContext(
-            id=getattr(self.args, 'schedule_id', None),
-            time_spec=self.args.schedule_in,
+            id=getattr(self.args, 'schedule_id', None) or random_id,
+            schedule=schedule,
         )
+        logger.info(f'Schedule context: {context}')
         return context
 
 
@@ -217,53 +224,60 @@ def init_neard_runners(ctx: CommandContext, remove_home_dir=False):
     args = ctx.args
     nodes = ctx.nodes
     traffic_generator = ctx.traffic_generator
+    upgrade_by_epoch = getattr(args, 'upgrade_by_epoch', False)
     prompt_init_flags(args)
-    if args.neard_upgrade_binary_url is None or args.neard_upgrade_binary_url == '':
-        configs = [{
+
+    if args.neard_upgrade_binary_url is not None and args.neard_upgrade_binary_url != '':
+        neard_upgrade_binary_url = args.neard_upgrade_binary_url
+    else:
+        neard_upgrade_binary_url = None
+
+    run_id = datetime.datetime.now(datetime.UTC).strftime("%Y-%m-%dT%H-%M-%SZ")
+    all_nodes = []
+    all_configs = []
+
+    for node in nodes:
+        node_binaries = [{"url": args.neard_binary_url, "epoch_height": 0}]
+        if neard_upgrade_binary_url:
+            # Upgrade the binary at a random epoch.
+            # TODO: Consider upgrading specific portions of stake at every
+            # epoch.
+            node_binaries.append({
+                "url": neard_upgrade_binary_url,
+                "epoch_height": random.randint(1, 4),
+            })
+
+        node_config = {
+            "upgrade_by_epoch": upgrade_by_epoch,
+            "run_id": run_id,
             "is_traffic_generator": False,
-            "binaries": [{
-                "url": args.neard_binary_url,
-                "epoch_height": 0
-            }]
-        }] * len(nodes)
+            "binaries": node_binaries,
+        }
+        all_nodes.append(node)
+        all_configs.append(node_config)
+
+    if traffic_generator:
+        if neard_upgrade_binary_url:
+            # If our scenario upgrades the binary, use the latest binary for
+            # the traffic generator.
+            traffic_generator_binary = neard_upgrade_binary_url
+        else:
+            traffic_generator_binary = args.neard_binary_url
+
         traffic_generator_config = {
+            "run_id": run_id,
             "is_traffic_generator": True,
             "binaries": [{
-                "url": args.neard_binary_url,
-                "epoch_height": 0
-            }]
-        }
-    else:
-        # for now this test starts all validators with the same stake, so just make the upgrade
-        # epoch random. If we change the stakes, we should change this to choose how much stake
-        # we want to upgrade during each epoch
-        configs = []
-        for i in range(len(nodes)):
-            configs.append({
-                "is_traffic_generator":
-                    False,
-                "binaries": [{
-                    "url": args.neard_binary_url,
-                    "epoch_height": 0
-                }, {
-                    "url": args.neard_upgrade_binary_url,
-                    "epoch_height": random.randint(1, 4)
-                }]
-            })
-        traffic_generator_config = {
-            "is_traffic_generator":
-                True,
-            "binaries": [{
-                "url": args.neard_upgrade_binary_url,
+                "url": traffic_generator_binary,
                 "epoch_height": 0
             }]
         }
 
-    if traffic_generator is not None:
-        traffic_generator.init_neard_runner(traffic_generator_config,
-                                            remove_home_dir)
+        all_nodes.append(traffic_generator)
+        all_configs.append(traffic_generator_config)
+
     pmap(lambda x: x[0].init_neard_runner(x[1], remove_home_dir),
-         zip(nodes, configs))
+         zip(all_nodes, all_configs))
 
 
 def init_cmd(ctx: CommandContext):
@@ -271,13 +285,18 @@ def init_cmd(ctx: CommandContext):
 
 
 def hard_reset_cmd(ctx: CommandContext):
-    print("""
-        WARNING!!!!
-        WARNING!!!!
-        This will undo all chain state, which will force a restart from the beginning,
-        including the genesis state computation which takes several hours.
-        Continue? [yes/no]""")
-    if sys.stdin.readline().strip() != 'yes':
+    do_reset = getattr(ctx.args, 'yes', None)
+    if do_reset is None:
+        print("""
+            WARNING!!!!
+            WARNING!!!!
+            This will undo all chain state, which will force a restart from the beginning,
+            including the genesis state computation.
+            Continue? [yes/no]""")
+        do_reset = False
+        if sys.stdin.readline().strip() != 'yes':
+            do_reset = True
+    if not do_reset:
         return
     init_neard_runners(ctx, remove_home_dir=True)
     _clear_state_parts_if_exists(_get_state_parts_location(ctx.args), ctx.nodes)
@@ -297,30 +316,39 @@ def stop_runner_cmd(ctx: CommandContext):
 
 
 # returns boot nodes and validators we want for the new test network
-def get_network_nodes(new_test_rpc_responses, num_validators):
+def get_network_nodes(new_test_rpc_responses, num_validators,
+                      stake_distribution):
     validators = []
     non_validators = []
     boot_nodes = []
     for node, response in new_test_rpc_responses:
         if len(validators) < num_validators:
-            if node.can_validate and response[
-                    'validator_account_id'] is not None:
-                # we assume here that validator_account_id is not null, validator_public_key
-                # better not be null either
+            if node.can_validate:
+                # We assume that if node validates a chain, it has account id
+                # and public key.
+                amount = stake_distribution.get_stake(node)
+
                 validators.append({
                     'account_id': response['validator_account_id'],
                     'public_key': response['validator_public_key'],
-                    'amount': str(10**33),
+                    'amount': str(amount),
                 })
         else:
             non_validators.append(node.ip_addr())
-        if len(boot_nodes) < 20:
+
+        # We want to bootstrap chain data from nodes which have state
+        # initially, which is the case iff node is not a chunk validator.
+        if len(boot_nodes) < 20 and node.role() != 'validator':
             boot_nodes.append(
                 f'{response["node_key"]}@{node.ip_addr()}:{response["listen_port"]}'
             )
 
         if len(validators) >= num_validators and len(boot_nodes) >= 20:
             break
+
+    # Sort validators by decreasing amount (number) and then by increasing validator account id
+    validators.sort(key=lambda v: (-int(v['amount']), v['account_id']))
+
     # neither of these should happen, since we check the number of available nodes in new_test(), and
     # only the traffic generator will respond with null validator_account_id and validator_public_key
     if len(validators) == 0:
@@ -330,57 +358,6 @@ def get_network_nodes(new_test_rpc_responses, num_validators):
             f'wanted {num_validators} validators, but only {len(validators)} available'
         )
     return validators, boot_nodes
-
-
-def new_genesis_timestamp(node):
-    version = node.neard_runner_version()
-    err = version.get('error')
-    if err is not None:
-        if err['code'] != -32601:
-            sys.exit(
-                f'bad response calling version RPC on {node.name()}: {err}')
-        return None
-    genesis_time = None
-    result = version.get('result')
-    if result is not None:
-        if result.get('node_setup_version') == '1':
-            genesis_time = str(datetime.datetime.now(tz=datetime.timezone.utc))
-    return genesis_time
-
-
-def _apply_stateless_config(args, node):
-    """Applies configuration changes to the node for stateless validation,
-    including changing config.json file and updating TCP buffer size at OS level."""
-    # TODO: it should be possible to update multiple keys in one RPC call so we dont have to make multiple round trips
-    # TODO: Enable saving witness after fixing the performance problems.
-    do_update_config(node, 'save_latest_witnesses=false')
-    if not node.want_state_dump:
-        do_update_config(node, 'tracked_shards=[]')
-        do_update_config(node, 'store.load_mem_tries_for_tracked_shards=true')
-    if not args.local_test:
-        node.run_cmd(
-            "sudo sysctl -w net.core.rmem_max=8388608 && sudo sysctl -w net.core.wmem_max=8388608 && sudo sysctl -w net.ipv4.tcp_rmem='4096 87380 8388608' && sudo sysctl -w net.ipv4.tcp_wmem='4096 16384 8388608' && sudo sysctl -w net.ipv4.tcp_slow_start_after_idle=0"
-        )
-
-
-def _apply_config_changes(node, state_sync_location):
-    if state_sync_location is None:
-        changes = {'state_sync_enabled': False}
-    else:
-        changes = {
-            'state_sync.sync': {
-                'ExternalStorage': {
-                    'location': state_sync_location
-                }
-            }
-        }
-        if node.want_state_dump:
-            changes['state_sync.dump.location'] = state_sync_location
-            # TODO: Change this to Enabled once we remove support the for EveryEpoch alias.
-            changes[
-                'store.state_snapshot_config.state_snapshot_type'] = "EveryEpoch"
-    for key, change in changes.items():
-        do_update_config(node, f'{key}={json.dumps(change)}')
 
 
 def _clear_state_parts_if_exists(location, nodes):
@@ -440,20 +417,30 @@ def new_test_cmd(ctx: CommandContext):
             f'--num-validators is {args.num_validators} but only found {len(nodes)} under test'
         )
 
-    ref_node = traffic_generator if traffic_generator else nodes[0]
-    genesis_time = new_genesis_timestamp(ref_node)
+    genesis_time = datetime.datetime.now(
+        tz=datetime.timezone.utc).isoformat().replace("`+00:00", "Z")
 
     targeted = nodes + to_list(traffic_generator)
 
     logger.info(f'resetting/initializing home dirs')
-    test_keys = pmap(lambda node: node.neard_runner_new_test(), targeted)
 
+    if traffic_generator:
+        rpc_ip = traffic_generator.ip_addr()
+    else:
+        rpc_ip = '0.0.0.0'
+    test_keys = pmap(
+        lambda node: node.neard_runner_new_test(ctx.get_mocknet_id(), rpc_ip),
+        targeted)
+
+    stake_distribution = build_stake_distribution(
+        getattr(args, 'stake_distribution', None), args.num_seats)
     validators, boot_nodes = get_network_nodes(zip(nodes, test_keys),
-                                               args.num_validators)
+                                               args.num_validators,
+                                               stake_distribution)
     logger.info("""Setting validators: {0}
 Run `status` to check if the nodes are ready. After they're ready,
  you can run `start-nodes` and `start-traffic`""".format(validators))
-
+    location = _get_state_parts_location(args) if args.gcs_state_sync else None
     pmap(
         lambda node: node.neard_runner_network_init(
             validators,
@@ -465,16 +452,8 @@ Run `status` to check if the nodes are ready. After they're ready,
             args.new_chain_id,
             args.genesis_protocol_version,
             genesis_time=genesis_time,
+            state_sync_location=json.dumps(location),
         ), targeted)
-
-    location = None
-    if args.gcs_state_sync:
-        location = _get_state_parts_location(args)
-    logger.info('Applying default config changes')
-    pmap(lambda node: _apply_config_changes(node, location), targeted)
-    if args.stateless_setup:
-        logger.info('Configuring nodes for stateless protocol')
-        pmap(lambda node: _apply_stateless_config(args, node), nodes)
 
     _clear_state_parts_if_exists(location, nodes)
 
@@ -591,6 +570,7 @@ def update_config_cmd(ctx: CommandContext):
 
 def start_nodes_cmd(ctx: CommandContext):
     nodes = ctx.nodes
+    binary_idx = getattr(ctx.args, 'binary_idx', None)
     if not all(pmap(lambda node: node.neard_runner_ready(), nodes)):
         logger.warning(
             'not all nodes are ready to start yet. Run the `status` command to check their statuses'
@@ -598,7 +578,7 @@ def start_nodes_cmd(ctx: CommandContext):
         return
     pmap(
         lambda node: node.with_schedule_ctx(ctx.schedule_ctx).
-        neard_runner_start(), nodes)
+        neard_runner_start(binary_idx=binary_idx), nodes)
     # Wait for the nodes to be up if not scheduling
     if not ctx.is_scheduled():
         pmap(lambda node: node.wait_node_up(), nodes)
@@ -668,7 +648,9 @@ def _run_remote(hosts, cmd):
 
 def run_remote_cmd(ctx: CommandContext):
     targeted = ctx.get_targeted_with_schedule_ctx()
-    logger.info(f'Running cmd on {",".join([h.name() for h in targeted])}')
+    logger.info(
+        f'Running cmd `{ctx.args.cmd}` on {",".join([h.name() for h in targeted])}'
+    )
     _run_remote(targeted, ctx.args.cmd)
 
 
@@ -679,6 +661,17 @@ def run_remote_upload_file(ctx: CommandContext):
     )
     pmap(lambda node: print_result(
         node, node.upload_file(ctx.args.src, ctx.args.dst)),
+         targeted,
+         on_exception="")
+
+
+def run_remote_download_file(ctx: CommandContext):
+    targeted = ctx.get_targeted()
+    logger.info(
+        f'Downloading {ctx.args.src} to {ctx.args.dst} on {",".join([h.name() for h in targeted])}'
+    )
+    pmap(lambda node: print_result(
+        node, node.download_file(ctx.args.src, ctx.args.dst)),
          targeted,
          on_exception="")
 
@@ -709,7 +702,7 @@ def clear_scheduled_cmds(ctx: CommandContext):
     logger.info(
         f'Clearing scheduled commands matching "{filter}" from {",".join([h.name() for h in targeted])}'
     )
-    cmd = f'systemctl --user stop "{filter}"'
+    cmd = f'systemctl --user stop "{filter}"; systemctl --user reset-failed "{filter}"'
     _run_remote(targeted, cmd)
 
 
@@ -787,6 +780,16 @@ def build_parser():
     return parser
 
 
+class ScheduleModeParser(Action):
+
+    def __call__(self, parser, namespace, values, option_string=None):
+        try:
+            mode, value = values.split(' ', 1)
+            setattr(namespace, self.dest, ScheduleMode(mode=mode, value=value))
+        except ValueError as e:
+            parser.error(str(e))
+
+
 def register_schedule_subcommands(subparsers):
     schedule_parser = subparsers.add_parser('schedule',
                                             help='Manage scheduled commands.')
@@ -797,11 +800,17 @@ def register_schedule_subcommands(subparsers):
     cmd_subparsers = subparsers.add_parser(
         'cmd', help='Schedule commands to run in the future.')
     cmd_subparsers.add_argument(
-        '--schedule-in',
+        '--on',
+        action=ScheduleModeParser,
+        metavar="MODE VALUE",
         required=True,
-        type=str,
         help=
-        'Schedule the command to run after the specified time. Can be in the format of "10s", "10m", "10h", "10d"'
+        "Choose whether to schedule by calendar(date and time) or active(relative time). "
+        "Format: 'MODE VALUE' where MODE is 'calendar' or 'active'. VALUE can be any valid time specification. "
+        "Examples: 'calendar 2024-01-01 10:00:00' or 'active 1h 30m'. "
+        "Check https://man.archlinux.org/man/systemd.time.7.en#PARSING_TIMESTAMPS "
+        "and https://man.archlinux.org/man/systemd.time.7.en#PARSING_TIME_SPANS "
+        "for the format of the values.",
     )
     cmd_subparsers.add_argument(
         '--schedule-id',
@@ -847,6 +856,12 @@ def register_base_commands(subparsers):
     ''')
     init_parser.add_argument('--neard-binary-url', type=str)
     init_parser.add_argument('--neard-upgrade-binary-url', type=str)
+    init_parser.add_argument('--upgrade-by-epoch',
+                             action='store_true',
+                             help='''
+    If this is set, the upgrade binary will be started at a random epoch height between 1 and 4.
+    Otherwise, the upgrade needs to be triggered with the start-nodes command.
+    ''')
     init_parser.set_defaults(func=init_cmd)
 
     restart_parser = subparsers.add_parser(
@@ -864,6 +879,13 @@ def register_base_commands(subparsers):
         help='''Stops neard and clears all test state on all nodes.''')
     hard_reset_parser.add_argument('--neard-binary-url', type=str)
     hard_reset_parser.add_argument('--neard-upgrade-binary-url', type=str)
+    hard_reset_parser.add_argument('--upgrade-by-epoch',
+                                   action='store_true',
+                                   help='''
+    If this is set, the upgrade binary will be started at a random epoch height between 1 and 4.
+    Otherwise, the upgrade needs to be triggered with the start-nodes command.
+    ''')
+    hard_reset_parser.add_argument('--yes', action='store_true')
     hard_reset_parser.set_defaults(func=hard_reset_cmd)
 
     new_test_parser = subparsers.add_parser('new-test',
@@ -880,7 +902,6 @@ def register_base_commands(subparsers):
     new_test_parser.add_argument('--num-seats', type=int)
     new_test_parser.add_argument('--new-chain-id', type=str)
     new_test_parser.add_argument('--genesis-protocol-version', type=int)
-    new_test_parser.add_argument('--stateless-setup', action='store_true')
     new_test_parser.add_argument(
         '--gcs-state-sync',
         action='store_true',
@@ -888,6 +909,13 @@ def register_base_commands(subparsers):
         """Enable state dumper nodes to sync state to GCS. On localnet, it will dump locally."""
     )
     new_test_parser.add_argument('--yes', action='store_true')
+    new_test_parser.add_argument('--stake-distribution',
+                                 type=str,
+                                 default='static',
+                                 choices=['static', 'mainnet'],
+                                 help='''
+                                 Stake distribution to use for the mocknet.
+                                 ''')
     new_test_parser.set_defaults(func=new_test_cmd)
 
     status_parser = subparsers.add_parser(
@@ -969,6 +997,13 @@ def register_subcommands(subparsers):
     start_nodes_parser = subparsers.add_parser(
         'start-nodes',
         help='Starts all nodes, but does not start the traffic generator.')
+    start_nodes_parser.add_argument(
+        '--binary-idx',
+        type=int,
+        help='''The index of the neard binary to start.
+        If not provided, the current binary will be started.
+        If the binary index is different from the current binary index, the nodes will be restarted with the binary at the given index.
+        ''')
     start_nodes_parser.set_defaults(func=start_nodes_cmd)
 
     stop_parser = subparsers.add_parser('stop-nodes',

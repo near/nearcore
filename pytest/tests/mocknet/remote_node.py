@@ -7,8 +7,8 @@ import json
 import os
 import sys
 import re
-from functools import wraps
 from typing import Optional
+import tempfile
 
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
@@ -31,6 +31,9 @@ class RemoteNeardRunner:
     def name(self):
         return self.node.instance_name
 
+    def get_label(self, label_name: str) -> str:
+        return self.node.get_label(label_name)
+
     def ip_addr(self):
         return self.node.machine.ip
 
@@ -47,10 +50,21 @@ class RemoteNeardRunner:
         cmd_utils.run_cmd(self.node, cmd)
 
     def upload_neard_runner(self):
-        self.node.machine.upload('tests/mocknet/helpers/neard_runner.py',
-                                 self.neard_runner_home,
-                                 switch_user='ubuntu')
-        self.node.machine.upload('tests/mocknet/helpers/requirements.txt',
+        files = [
+            # Defines the interaction between the node with neard and the user.
+            'neard_runner.py',
+            # Python dependencies for the node.
+            'requirements.txt',
+            # Script to setup near-cli for the node.
+            'setup-near-cli.sh',
+            # Script for the validator node to send a stake proposal.
+            'send-stake-proposal.sh'
+        ]
+        tmp_file = tempfile.NamedTemporaryFile(mode='w', delete=True)
+        tmp_file.write('\n'.join(files))
+        tmp_file.flush()
+        source = f"--files-from={tmp_file.name} tests/mocknet/helpers"
+        self.node.machine.upload(source,
                                  self.neard_runner_home,
                                  switch_user='ubuntu')
 
@@ -74,6 +88,9 @@ class RemoteNeardRunner:
     def upload_file(self, src, dst):
         self.node.machine.upload(src, dst, switch_user='ubuntu')
 
+    def download_file(self, src, dst):
+        self.node.machine.download(src, dst)
+
     def init_python(self):
         cmd = f'cd {self.neard_runner_home} && python3 -m virtualenv venv -p $(which python3)' \
         ' && ./venv/bin/pip install -r requirements.txt'
@@ -95,7 +112,7 @@ class RemoteNeardRunner:
             --neard-logs-dir "/home/ubuntu/neard-logs"\
             --port 3000'
 
-        SYSTEMD_RUN_NEARD_RUNNER_CMD = f'sudo systemd-run -u neard-runner\
+        SYSTEMD_RUN_NEARD_RUNNER_CMD = f'sudo systemd-run -u neard-runner \
             --uid={USER} \
             --property=StartLimitIntervalSec=500\
             --property=StartLimitBurst=10\
@@ -123,7 +140,7 @@ class RemoteNeardRunner:
         return json.loads(r.stdout)
 
     def new_test_params(self):
-        return []
+        return {}
 
     def get_validators(self):
         return self.node.get_validators()

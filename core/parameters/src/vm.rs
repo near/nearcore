@@ -36,8 +36,6 @@ pub enum VMKind {
     Wasmer2,
     /// NearVM.
     NearVm,
-    /// NearVM. Exists temporarily while bulk memory and reftypes are getting enabled.
-    NearVm2,
 }
 
 impl VMKind {
@@ -89,10 +87,8 @@ pub struct LimitConfig {
     pub max_number_logs: u64,
     /// Maximum total length in bytes of all log messages.
     pub max_total_log_length: u64,
-
     /// Max total prepaid gas for all function call actions per receipt.
     pub max_total_prepaid_gas: Gas,
-
     /// Max number of actions per receipt.
     pub max_actions_per_receipt: u64,
     /// Max total length of all method names (including terminating character) for a function call
@@ -124,6 +120,12 @@ pub struct LimitConfig {
     /// If present, stores max number of locals declared globally in one contract
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_locals_per_contract: Option<u64>,
+    /// If present, stores max number of tables declared globally in one contract
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_tables_per_contract: Option<u32>,
+    /// If present, stores max number of elements in a single contract's table
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_elements_per_contract_table: Option<usize>,
     /// Whether to enforce account_id well-formed-ness where it wasn't enforced
     /// historically.
     #[serde(default = "AccountIdValidityRulesVersion::v0")]
@@ -182,6 +184,9 @@ pub struct Config {
     /// Whether to enable saturating reference types and bulk memory wasm extensions.
     pub reftypes_bulk_memory: bool,
 
+    /// Whether to host functions introduced with deterministic account ids.
+    pub deterministic_account_ids: bool,
+
     /// Describes limits for VM and Runtime.
     pub limit_config: LimitConfig,
 }
@@ -198,12 +203,12 @@ impl Config {
     pub fn make_free(&mut self) {
         self.ext_costs = ExtCostsConfig {
             costs: near_primitives_core::enum_map::enum_map! {
-                _ => ParameterCost { gas: 0, compute: 0 }
+                _ => ParameterCost { gas: Gas::ZERO, compute: 0 }
             },
         };
         self.grow_mem_cost = 0;
         self.regular_op_cost = 0;
-        self.limit_config.max_gas_burnt = u64::MAX;
+        self.limit_config.max_gas_burnt = Gas::MAX;
     }
 
     pub fn enable_all_features(&mut self) {

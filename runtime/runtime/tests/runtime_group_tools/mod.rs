@@ -11,7 +11,7 @@ use near_primitives::shard_layout::ShardUId;
 use near_primitives::state_record::{StateRecord, state_record_to_account_id};
 use near_primitives::test_utils::MockEpochInfoProvider;
 use near_primitives::transaction::{ExecutionOutcomeWithId, SignedTransaction};
-use near_primitives::types::{AccountId, AccountInfo, Balance};
+use near_primitives::types::{AccountId, AccountInfo, Balance, Gas};
 use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives_core::account::id::AccountIdRef;
 use near_store::ShardTries;
@@ -28,13 +28,10 @@ use std::thread::JoinHandle;
 pub mod random_config;
 
 /// Initial balance used in tests.
-pub const TESTING_INIT_BALANCE: Balance = 1_000_000_000 * NEAR_BASE;
+pub const TESTING_INIT_BALANCE: Balance = Balance::from_near(1_000_000_000);
 
 /// Validator's stake used in tests.
-pub const TESTING_INIT_STAKE: Balance = 50_000_000 * NEAR_BASE;
-
-/// One NEAR, divisible by 10^24.
-pub const NEAR_BASE: Balance = 1_000_000_000_000_000_000_000_000;
+pub const TESTING_INIT_STAKE: Balance = Balance::from_near(50_000_000);
 
 pub struct StandaloneRuntime {
     pub apply_state: ApplyState,
@@ -59,12 +56,12 @@ impl StandaloneRuntime {
         let mut runtime_config = random_config();
         let wasm_config = Arc::make_mut(&mut runtime_config.wasm_config);
         // Bumping costs to avoid inflation overflows.
-        wasm_config.limit_config.max_total_prepaid_gas = 10u64.pow(15);
+        wasm_config.limit_config.max_total_prepaid_gas = Gas::from_teragas(1000);
         let fees = Arc::make_mut(&mut runtime_config.fees);
         fees.action_fees[ActionCosts::new_action_receipt].execution =
-            runtime_config.wasm_config.limit_config.max_total_prepaid_gas / 64;
+            runtime_config.wasm_config.limit_config.max_total_prepaid_gas.checked_div(64).unwrap();
         fees.action_fees[ActionCosts::new_data_receipt_base].execution =
-            runtime_config.wasm_config.limit_config.max_total_prepaid_gas / 64;
+            runtime_config.wasm_config.limit_config.max_total_prepaid_gas.checked_div(64).unwrap();
 
         let runtime = Runtime::new();
         let genesis = Genesis::new(
@@ -108,7 +105,7 @@ impl StandaloneRuntime {
             shard_id: shard_uid.shard_id(),
             epoch_id: Default::default(),
             epoch_height: 0,
-            gas_price: 100,
+            gas_price: Balance::from_yoctonear(100),
             block_timestamp: 0,
             gas_limit: None,
             random_seed: Default::default(),
@@ -119,6 +116,7 @@ impl StandaloneRuntime {
             congestion_info,
             bandwidth_requests: BlockBandwidthRequests::empty(),
             trie_access_tracker_state: Default::default(),
+            on_post_state_ready: None,
         };
 
         Self {

@@ -1,4 +1,5 @@
 use crate::opentelemetry::get_opentelemetry_filter;
+use crate::skip_ansi_escaping_message::SkipAnsiEscapingMessage;
 use crate::{BuildEnvFilterError, EnvFilterBuilder, OpenTelemetryLevel, log_config, log_counter};
 use opentelemetry_sdk::trace::Tracer;
 use std::sync::OnceLock;
@@ -21,7 +22,7 @@ static DEFAULT_OTLP_LEVEL: OnceLock<OpenTelemetryLevel> = OnceLock::new();
 
 pub(crate) type LogLayer<Inner> = Layered<
     Filtered<
-        fmt::Layer<Inner, fmt::format::DefaultFields, fmt::format::Format, NonBlocking>,
+        fmt::Layer<Inner, SkipAnsiEscapingMessage, fmt::format::Format, NonBlocking>,
         reload::Layer<EnvFilter, Inner>,
         Inner,
     >,
@@ -29,11 +30,7 @@ pub(crate) type LogLayer<Inner> = Layered<
 >;
 
 pub(crate) type SimpleLogLayer<Inner, W> = Layered<
-    Filtered<
-        fmt::Layer<Inner, fmt::format::DefaultFields, fmt::format::Format, W>,
-        EnvFilter,
-        Inner,
-    >,
+    Filtered<fmt::Layer<Inner, SkipAnsiEscapingMessage, fmt::format::Format, W>, EnvFilter, Inner>,
     Inner,
 >;
 
@@ -86,11 +83,12 @@ pub fn reload_log_config(config: Option<&log_config::LogConfig>) {
             config.rust_log.as_deref(),
             config.verbose_module.as_deref(),
             config.opentelemetry.as_deref(),
+            config.expensive_metrics,
         )
     } else {
         // When the LOG_CONFIG_FILENAME is not available, reset to the tracing and logging config
         // when the node was started.
-        reload(None, None, None)
+        reload(None, None, None, None)
     };
     match result {
         Ok(_) => {
@@ -118,7 +116,10 @@ pub fn reload(
     rust_log: Option<&str>,
     verbose_module: Option<&str>,
     opentelemetry: Option<&str>,
+    expensive_metrics: Option<bool>,
 ) -> Result<(), Vec<ReloadError>> {
+    crate::metrics::config::enable_expensive_metrics(expensive_metrics.unwrap_or_default());
+
     let log_reload_result = LOG_LAYER_RELOAD_HANDLE.get().map_or(
         Err(ReloadError::NoLogReloadHandle),
         |reload_handle| {

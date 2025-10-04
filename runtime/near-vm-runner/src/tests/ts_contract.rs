@@ -13,8 +13,8 @@ use std::sync::Arc;
 
 #[test]
 pub fn test_ts_contract() {
-    let config = Arc::new(test_vm_config());
-    with_vm_variants(&config, |vm_kind: VMKind| {
+    with_vm_variants(|vm_kind: VMKind| {
+        let config = Arc::new(test_vm_config(Some(vm_kind)));
         let code = ContractCode::new(near_test_contracts::ts_contract().to_vec(), None);
         let mut fake_external = MockedExternal::with_code(code);
         let context = create_context(Vec::new());

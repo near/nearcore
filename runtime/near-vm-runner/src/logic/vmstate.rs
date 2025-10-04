@@ -113,7 +113,7 @@ impl<'a> Memory<'a> {
 ///
 /// See documentation of [`Memory`] for more motivation for this struct.
 #[derive(Default, Clone)]
-pub(super) struct Registers {
+pub(crate) struct Registers {
     /// Values of each existing register.
     registers: std::collections::HashMap<u64, Box<[u8]>>,
 
@@ -131,7 +131,7 @@ impl Registers {
     ///
     /// Returns an error if (i) there’s not enough gas to perform the register
     /// read or (ii) register with given index doesn’t exist.
-    pub(super) fn get<'s>(
+    pub(crate) fn get<'s>(
         &'s self,
         gas_counter: &mut GasCounter,
         register_id: u64,
@@ -152,7 +152,7 @@ impl Registers {
     }
 
     /// Returns length of register with given index or None if no such register.
-    pub(super) fn get_len(&self, register_id: u64) -> Option<u64> {
+    pub(crate) fn get_len(&self, register_id: u64) -> Option<u64> {
         self.registers.get(&register_id).map(|data| data.len() as u64)
     }
 
@@ -160,7 +160,7 @@ impl Registers {
     ///
     /// Returns an error if (i) there’s not enough gas to perform the register
     /// write or (ii) if setting the register would violate configured limits.
-    pub(super) fn set<T>(
+    pub(crate) fn set<T>(
         &mut self,
         gas_counter: &mut GasCounter,
         config: &LimitConfig,
@@ -261,6 +261,7 @@ mod tests {
     use crate::logic::gas_counter::GasCounter;
     use crate::tests::test_vm_config;
     use near_parameters::ExtCostsConfig;
+    use near_primitives_core::types::Gas;
 
     struct RegistersTestContext {
         gas: GasCounter,
@@ -272,8 +273,8 @@ mod tests {
         fn new() -> Self {
             let costs = ExtCostsConfig::test();
             Self {
-                gas: GasCounter::new(costs, u64::MAX, 0, u64::MAX, false),
-                cfg: test_vm_config().limit_config,
+                gas: GasCounter::new(costs, Gas::MAX, 0, Gas::MAX, false),
+                cfg: test_vm_config(None).limit_config,
                 regs: Default::default(),
             }
         }
@@ -305,7 +306,10 @@ mod tests {
 
         #[track_caller]
         fn assert_used_gas(&self, gas: u64) {
-            assert_eq!((gas, gas), (self.gas.burnt_gas(), self.gas.used_gas()));
+            assert_eq!(
+                (Gas::from_gas(gas), Gas::from_gas(gas)),
+                (self.gas.burnt_gas(), self.gas.used_gas())
+            );
         }
     }
 

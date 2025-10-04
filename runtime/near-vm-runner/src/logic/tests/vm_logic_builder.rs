@@ -3,6 +3,7 @@ use crate::logic::mocks::mock_memory::MockedMemory;
 use crate::logic::{Config, ExecutionResultState, MemSlice, VMContext, VMLogic};
 use crate::tests::test_vm_config;
 use near_parameters::RuntimeFeesConfig;
+use near_primitives_core::types::{Balance, Gas};
 use std::sync::Arc;
 
 pub(super) struct VMLogicBuilder {
@@ -16,7 +17,7 @@ pub(super) struct VMLogicBuilder {
 impl Default for VMLogicBuilder {
     fn default() -> Self {
         VMLogicBuilder {
-            config: test_vm_config(),
+            config: test_vm_config(None),
             fees_config: RuntimeFeesConfig::test(),
             ext: MockedExternal::default(),
             memory: MockedMemory::default(),
@@ -30,7 +31,7 @@ impl VMLogicBuilder {
         let mut builder = Self::default();
         let max_gas_burnt = builder.config.limit_config.max_gas_burnt;
         builder.context.view_config =
-            Some(near_primitives_core::config::ViewConfig { max_gas_burnt });
+            Some(near_primitives_core::config::ViewConfig { max_gas_burnt: max_gas_burnt });
         builder
     }
 
@@ -52,7 +53,7 @@ impl VMLogicBuilder {
     pub fn free() -> Self {
         VMLogicBuilder {
             config: {
-                let mut config = test_vm_config();
+                let mut config = test_vm_config(None);
                 config.make_free();
                 config
             },
@@ -70,16 +71,18 @@ fn get_context() -> VMContext {
         signer_account_id: "bob.near".parse().unwrap(),
         signer_account_pk: vec![0, 1, 2, 3, 4],
         predecessor_account_id: "carol.near".parse().unwrap(),
+        refund_to_account_id: "david.near".parse().unwrap(),
         input: vec![0, 1, 2, 3, 4],
         promise_results: vec![].into(),
         block_height: 10,
         block_timestamp: 42,
         epoch_height: 1,
-        account_balance: 100,
+        account_balance: Balance::from_yoctonear(100),
         storage_usage: 0,
-        account_locked_balance: 50,
-        attached_deposit: 10,
-        prepaid_gas: 10u64.pow(14),
+        account_locked_balance: Balance::from_yoctonear(50),
+        account_contract: near_primitives_core::account::AccountContract::None,
+        attached_deposit: Balance::from_yoctonear(10),
+        prepaid_gas: Gas::from_teragas(100),
         random_seed: vec![0, 1, 2],
         view_config: None,
         output_data_receivers: vec![],

@@ -12,15 +12,22 @@ use crate::transaction_builder::AccountRequirement;
 use crate::utils::{average_cost, percentiles};
 use near_crypto::{KeyType, PublicKey};
 use near_primitives::account::{AccessKey, AccessKeyPermission, FunctionCallPermission};
+use near_primitives::action::{DeterministicStateInitAction, GlobalContractIdentifier};
+use near_primitives::deterministic_account_id::{
+    DeterministicAccountStateInit, DeterministicAccountStateInitV1,
+};
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptV0};
 use near_primitives::transaction::Action;
-use near_primitives::types::{AccountId, Gas};
+use near_primitives::types::{AccountId, Balance, Gas};
+use near_primitives::utils::derive_near_deterministic_account_id;
+use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
+use std::collections::BTreeMap;
 use std::iter;
 
-const GAS_1_MICROSECOND: Gas = 1_000_000_000;
-const GAS_1_NANOSECOND: Gas = 1_000_000;
-const GAS_100_PICOSECONDS: Gas = 100_000;
+const GAS_1_MICROSECOND: Gas = Gas::from_gigagas(1);
+const GAS_1_NANOSECOND: Gas = Gas::from_gas(1_000_000);
+const GAS_100_PICOSECONDS: Gas = Gas::from_gas(100_000);
 
 /// A builder object for constructing action cost estimations.
 ///
@@ -186,6 +193,11 @@ impl ActionEstimation {
         self
     }
 
+    fn max_outer_iters(mut self, outer_iters: usize) -> Self {
+        self.outer_iters = self.outer_iters.min(outer_iters);
+        self
+    }
+
     /// If enabled, the estimation will automatically subtract the cost of an
     /// empty action receipt from the measurement. (enabled by default)
     fn subtract_base(mut self, yes: bool) -> Self {
@@ -239,9 +251,9 @@ impl ActionEstimation {
     #[track_caller]
     fn verify_actions_cost(&self, testbed: &mut Testbed, actions: Vec<Action>) -> GasCost {
         let tb = testbed.transaction_builder();
-        let signer_id = tb.account_by_requirement(self.signer, None);
-        let predecessor_id = tb.account_by_requirement(self.predecessor, Some(&signer_id));
-        let receiver_id = tb.account_by_requirement(self.receiver, Some(&signer_id));
+        let signer_id = tb.account_by_requirement(&self.signer, None);
+        let predecessor_id = tb.account_by_requirement(&self.predecessor, Some(&signer_id));
+        let receiver_id = tb.account_by_requirement(&self.receiver, Some(&signer_id));
         let tx = tb.transaction_from_actions(predecessor_id, receiver_id, actions);
         testbed.verify_transaction(tx, self.metric)
     }
@@ -251,15 +263,15 @@ impl ActionEstimation {
     fn apply_actions_cost(&self, testbed: &mut Testbed, actions: Vec<Action>) -> GasCost {
         let tb = testbed.transaction_builder();
 
-        let signer_id = tb.account_by_requirement(self.signer, None);
-        let predecessor_id = tb.account_by_requirement(self.predecessor, Some(&signer_id));
-        let receiver_id = tb.account_by_requirement(self.receiver, Some(&signer_id));
+        let signer_id = tb.account_by_requirement(&self.signer, None);
+        let predecessor_id = tb.account_by_requirement(&self.predecessor, Some(&signer_id));
+        let receiver_id = tb.account_by_requirement(&self.receiver, Some(&signer_id));
         let signer_public_key = PublicKey::from_seed(KeyType::ED25519, signer_id.as_str());
 
         let action_receipt = ActionReceipt {
             signer_id,
             signer_public_key,
-            gas_price: 100_000_000,
+            gas_price: Balance::from_yoctonear(100_000_000),
             output_data_receivers: vec![],
             input_data_ids: vec![],
             actions,
@@ -307,7 +319,7 @@ impl ActionEstimation {
             Statistic::Average => average_cost(gas_results),
             Statistic::Percentile(rank) => percentiles(gas_results, &[rank]).next().unwrap(),
         };
-        let gas_tolerance = self.inner_iters as u64 * self.min_gas;
+        let gas_tolerance = self.min_gas.checked_mul(self.inner_iters as u64).unwrap();
         let gas_per_action = cost_per_tx
             .saturating_sub(&base, &NonNegativeTolerance::AbsoluteTolerance(gas_tolerance))
             / self.inner_iters as u64;
@@ -677,17 +689,117 @@ pub(crate) fn delegate_exec(ctx: &mut EstimatorContext) -> GasCost {
     builder.apply_cost(&mut ctx.testbed()) / manual_inner_iters
 }
 
+/// Base cost: Send with a 0 byte initial state
+pub(crate) fn deterministic_state_init_base_send(ctx: &mut EstimatorContext) -> GasCost {
+    if !ProtocolFeature::DeterministicAccountIds.enabled(PROTOCOL_VERSION) {
+        return GasCost::zero();
+    }
+    // This framework doesn't really allow dynamic actions :S
+    // One single measurement has to be enough. (Better than nothing.)
+    let seed = 0;
+    let (receiver, action) = det_state_init_action(seed, 0, 0, 0);
+    ActionEstimation::new(ctx)
+        .add_action(action)
+        .receiver(AccountRequirement::SpecificAccount(receiver))
+        // repeating the actions has no effect
+        .inner_iters(1)
+        .max_outer_iters(1)
+        .verify_cost(&mut ctx.testbed())
+}
+
+/// Base cost: Execute with a 0 byte initial state
+pub(crate) fn deterministic_state_init_base_exec(ctx: &mut EstimatorContext) -> GasCost {
+    if !ProtocolFeature::DeterministicAccountIds.enabled(PROTOCOL_VERSION) {
+        return GasCost::zero();
+    }
+    let seed = 0;
+    let (receiver, action) = det_state_init_action(seed, 0, 0, 0);
+    ActionEstimation::new(ctx)
+        .add_action(action)
+        .receiver(AccountRequirement::SpecificAccount(receiver))
+        // repeating the actions has no effect
+        .inner_iters(1)
+        .max_outer_iters(1)
+        .apply_cost(&mut ctx.testbed())
+}
+pub(crate) fn deterministic_state_init_entry_send(ctx: &mut EstimatorContext) -> GasCost {
+    if !ProtocolFeature::DeterministicAccountIds.enabled(PROTOCOL_VERSION) {
+        return GasCost::zero();
+    }
+    let seed = 0;
+    let num_entries = 100_000;
+    let (receiver, action) = det_state_init_action(seed, num_entries, 7, 0);
+    ActionEstimation::new(ctx)
+        .add_action(action)
+        .receiver(AccountRequirement::SpecificAccount(receiver))
+        // repeating the actions has no effect
+        .inner_iters(1)
+        .max_outer_iters(1)
+        .verify_cost(&mut ctx.testbed())
+        / num_entries as u64
+}
+pub(crate) fn deterministic_state_init_entry_exec(ctx: &mut EstimatorContext) -> GasCost {
+    if !ProtocolFeature::DeterministicAccountIds.enabled(PROTOCOL_VERSION) {
+        return GasCost::zero();
+    }
+    let seed = 0;
+    let num_entries = 100_000;
+    let (receiver, action) = det_state_init_action(seed, num_entries, 7, 0);
+    ActionEstimation::new(ctx)
+        .add_action(action)
+        .receiver(AccountRequirement::SpecificAccount(receiver))
+        // repeating the actions has no effect
+        .inner_iters(1)
+        .max_outer_iters(1)
+        .apply_cost(&mut ctx.testbed())
+        / num_entries as u64
+}
+pub(crate) fn deterministic_state_init_byte_send(ctx: &mut EstimatorContext) -> GasCost {
+    if !ProtocolFeature::DeterministicAccountIds.enabled(PROTOCOL_VERSION) {
+        return GasCost::zero();
+    }
+    let seed = 0;
+    let bytes = 1_000_000;
+    let (receiver, action) = det_state_init_action(seed, 1, 1, bytes);
+    ActionEstimation::new(ctx)
+        .add_action(action)
+        .receiver(AccountRequirement::SpecificAccount(receiver))
+        // repeating the actions has no effect
+        .inner_iters(1)
+        .max_outer_iters(1)
+        .verify_cost(&mut ctx.testbed())
+        / bytes as u64
+}
+pub(crate) fn deterministic_state_init_byte_exec(ctx: &mut EstimatorContext) -> GasCost {
+    if !ProtocolFeature::DeterministicAccountIds.enabled(PROTOCOL_VERSION) {
+        return GasCost::zero();
+    }
+    let seed = 0;
+    let bytes = 1_000_000;
+    let (receiver, action) = det_state_init_action(seed, 1, 1, bytes);
+    ActionEstimation::new(ctx)
+        .add_action(action)
+        .receiver(AccountRequirement::SpecificAccount(receiver))
+        // repeating the actions has no effect
+        .inner_iters(1)
+        .max_outer_iters(1)
+        .apply_cost(&mut ctx.testbed())
+        / bytes as u64
+}
+
 fn create_account_action() -> Action {
     Action::CreateAccount(near_primitives::transaction::CreateAccountAction {})
 }
 
 fn create_transfer_action() -> Action {
-    Action::Transfer(near_primitives::transaction::TransferAction { deposit: 10u128.pow(24) })
+    Action::Transfer(near_primitives::transaction::TransferAction {
+        deposit: Balance::from_near(1),
+    })
 }
 
 fn stake_action() -> Action {
     Action::Stake(Box::new(near_primitives::transaction::StakeAction {
-        stake: 5u128.pow(28), // some arbitrary positive number
+        stake: Balance::from_near(50_000), // some arbitrary positive number
         public_key: PublicKey::from_seed(KeyType::ED25519, "seed"),
     }))
 }
@@ -721,7 +833,7 @@ fn add_fn_access_key_action(size: ActionSize) -> Action {
         access_key: AccessKey {
             nonce: 0,
             permission: AccessKeyPermission::FunctionCall(FunctionCallPermission {
-                allowance: Some(1),
+                allowance: Some(Balance::from_yoctonear(1)),
                 receiver_id,
                 method_names,
             }),
@@ -736,7 +848,9 @@ fn delete_key_action() -> Action {
 }
 
 fn transfer_action() -> Action {
-    Action::Transfer(near_primitives::transaction::TransferAction { deposit: 77 })
+    Action::Transfer(near_primitives::transaction::TransferAction {
+        deposit: Balance::from_yoctonear(77),
+    })
 }
 
 fn function_call_action(size: ActionSize) -> Action {
@@ -747,8 +861,8 @@ fn function_call_action(size: ActionSize) -> Action {
     Action::FunctionCall(Box::new(near_primitives::transaction::FunctionCallAction {
         method_name,
         args: vec![1u8; arg_len],
-        gas: 3 * 10u64.pow(12), // 3 Tgas, to allow 100 copies in the same receipt
-        deposit: 10u128.pow(24),
+        gas: Gas::from_teragas(3), // 3 Tgas, to allow 100 copies in the same receipt
+        deposit: Balance::from_near(1),
     }))
 }
 
@@ -776,6 +890,32 @@ pub(crate) fn empty_delegate_action(
         delegate_action,
         signature,
     }))
+}
+
+pub(crate) fn det_state_init_action(
+    seed: u64,
+    num_entries: usize,
+    key_size: usize,
+    entry_size: usize,
+) -> (AccountId, Action) {
+    let mut data: BTreeMap<_, _> = (0..num_entries)
+        .map(|n| (format!("{:0len$}", n, len = key_size).into_bytes(), vec![2u8; entry_size]))
+        .collect();
+
+    // Insert one special value that changes between actions to change the deterministic id.
+    data.insert(Vec::new(), seed.to_le_bytes().to_vec());
+
+    let state_init = DeterministicAccountStateInit::V1(DeterministicAccountStateInitV1 {
+        code: GlobalContractIdentifier::AccountId("minimal.global".parse().unwrap()),
+        data,
+    });
+    let receiver = derive_near_deterministic_account_id(&state_init);
+    let action = Action::DeterministicStateInit(Box::new(DeterministicStateInitAction {
+        state_init,
+        deposit: Balance::from_near(100),
+    }));
+
+    (receiver, action)
 }
 
 /// Helper enum to select how large an action should be generated.

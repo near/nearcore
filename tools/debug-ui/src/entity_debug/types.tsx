@@ -6,6 +6,7 @@ export type EntityKeyType =
     | 'block_ordinal'
     | 'chunk_hash'
     | 'epoch_id'
+    | 'outcome_id'
     | 'receipt_id'
     | 'shard_id'
     | 'shard_uid'
@@ -34,6 +35,7 @@ export type EntityType =
     | 'EpochInfoAggregator'
     | 'ExecutionOutcome'
     | 'FlatState'
+    | 'OutcomeIds'
     | 'FlatStateChanges'
     | 'FlatStateDeltaMetadata'
     | 'FlatStorageStatus'
@@ -107,7 +109,9 @@ export type CustomFieldDisplay =
     /// Displays the value as a trie path (shard_uid/state_root/nibble_hex).
     | 'trie_path'
     /// Displays the value as a nibbles hex string.
-    | 'nibbles';
+    | 'nibbles'
+    /// Displays the value as an outcome ID (can be transaction hash or receipt ID).
+    | 'outcome_id';
 
 /// Represents a value node in the entity data tree.
 export class EntityDataValueNode {
@@ -135,6 +139,7 @@ export type EntityQuery = {
     AllShardsByEpochId?: { epoch_id: string };
     BlockByHash?: { block_hash: string };
     BlockHashByHeight?: { block_height: number };
+    BlockHashByOrdinal?: { block_ordinal: number };
     BlockHeaderByHash?: { block_hash: string };
     BlockInfoByHash?: { block_hash: string };
     BlockMerkleTreeByHash?: { block_hash: string };
@@ -154,6 +159,8 @@ export type EntityQuery = {
     OutcomeByReceiptIdAndBlockHash?: { receipt_id: string; block_hash: string };
     OutcomeByTransactionHash?: { transaction_hash: string };
     OutcomeByTransactionHashAndBlockHash?: { transaction_hash: string; block_hash: string };
+    OutcomeIdsByBlockHash?: { block_hash: string };
+    OutcomeIdsByBlockHashAndShardId?: { block_hash: string; shard_id: number };
     RawTrieNodeByHash?: { trie_node_hash: string; shard_uid: string };
     RawTrieRootByChunkHash?: { chunk_hash: string };
     RawTrieValueByHash?: { trie_value_hash: string; shard_uid: string };
@@ -186,6 +193,7 @@ export const entityQueryTypes: EntityQueryType[] = [
     'AllShardsByEpochId',
     'BlockByHash',
     'BlockHashByHeight',
+    'BlockHashByOrdinal',
     'BlockHeaderByHash',
     'BlockInfoByHash',
     'BlockMerkleTreeByHash',
@@ -205,6 +213,8 @@ export const entityQueryTypes: EntityQueryType[] = [
     'OutcomeByReceiptIdAndBlockHash',
     'OutcomeByTransactionHash',
     'OutcomeByTransactionHashAndBlockHash',
+    'OutcomeIdsByBlockHash',
+    'OutcomeIdsByBlockHashAndShardId',
     'RawTrieNodeByHash',
     'RawTrieRootByChunkHash',
     'RawTrieValueByHash',
@@ -257,6 +267,7 @@ export const entityQueryKeyTypes: Record<EntityQueryType, EntityQueryKeySpec[]> 
     AllShardsByEpochId: [queryKey('epoch_id')],
     BlockByHash: [queryKey('block_hash')],
     BlockHashByHeight: [queryKey('block_height')],
+    BlockHashByOrdinal: [queryKey('block_ordinal')],
     BlockHeaderByHash: [queryKey('block_hash')],
     BlockInfoByHash: [queryKey('block_hash')],
     BlockMerkleTreeByHash: [queryKey('block_hash')],
@@ -279,6 +290,8 @@ export const entityQueryKeyTypes: Record<EntityQueryType, EntityQueryKeySpec[]> 
         queryKey('transaction_hash'),
         implicitQueryKey('block_hash'),
     ],
+    OutcomeIdsByBlockHash: [queryKey('block_hash')],
+    OutcomeIdsByBlockHashAndShardId: [queryKey('block_hash'), queryKey('shard_id')],
     RawTrieNodeByHash: [queryKey('trie_node_hash'), queryKey('shard_uid')],
     RawTrieRootByChunkHash: [queryKey('chunk_hash')],
     RawTrieValueByHash: [queryKey('trie_value_hash'), queryKey('shard_uid')],
@@ -302,6 +315,7 @@ export const entityQueryOutputType: Record<EntityQueryType, EntityType> = {
     AllShardsByEpochId: 'AllShards',
     BlockByHash: 'Block',
     BlockHashByHeight: 'BlockHash',
+    BlockHashByOrdinal: 'BlockHash',
     BlockHeaderByHash: 'BlockHeader',
     BlockInfoByHash: 'BlockInfo',
     BlockMerkleTreeByHash: 'BlockMerkleTree',
@@ -321,6 +335,8 @@ export const entityQueryOutputType: Record<EntityQueryType, EntityType> = {
     OutcomeByReceiptIdAndBlockHash: 'ExecutionOutcome',
     OutcomeByTransactionHash: 'ExecutionOutcome',
     OutcomeByTransactionHashAndBlockHash: 'ExecutionOutcome',
+    OutcomeIdsByBlockHash: 'OutcomeIds',
+    OutcomeIdsByBlockHashAndShardId: 'OutcomeIds',
     RawTrieNodeByHash: 'RawTrieNode',
     RawTrieRootByChunkHash: 'RawTrieNode',
     RawTrieValueByHash: 'Bytes',

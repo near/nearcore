@@ -24,6 +24,7 @@ derive_more = { workspace = true, features = [
     "from",
     "into",
     "deref",
+    "display",
 ] }
 easy-ext.workspace = true
 hex.workspace = true
@@ -39,6 +40,7 @@ serde_json.workspace = true
 serde_with.workspace = true
 schemars = { workspace = true, optional = true }
 sha3.workspace = true
+smallvec = { workspace = true, features = ["write"] }
 smart-default.workspace = true
 stdx.workspace = true
 strum.workspace = true
@@ -98,7 +100,4 @@ insta.workspace = true
 expect-test.workspace = true
 regex.workspace = true
 tempfile.workspace = true
-
-[[bench]]
-name = "serialization"
-harness = false
+criterion.workspace = true

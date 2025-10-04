@@ -7,7 +7,10 @@ use crate::analyze_high_load::HighLoadStatsCommand;
 use crate::compact::RunCompactionCommand;
 use crate::drop_column::DropColumnCommand;
 use crate::make_snapshot::MakeSnapshotCommand;
-use crate::memtrie::{LoadMemTrieCommand, SplitShardTrieCommand};
+use crate::memtrie::{
+    ArchivalDataLossRecoveryCommand, FindBoundaryAccountCommand, LoadMemTrieCommand,
+    SplitShardTrieCommand,
+};
 use crate::run_migrations::RunMigrationsCommand;
 use crate::set_version::SetVersionCommand;
 use crate::state_perf::StatePerfCommand;
@@ -52,9 +55,13 @@ enum SubCommand {
 
     /// Loads an in-memory trie for research purposes.
     LoadMemTrie(LoadMemTrieCommand),
-    /// Splits given shard on a given boundary account and prints approximate
+    /// Splits the given shard on the given boundary account and prints approximate
     /// RAM usage of the child shards.
     SplitShardTrie(SplitShardTrieCommand),
+    /// Find a split account for the given shard based on `memory_usage` stored in trie nodes.
+    FindBoundaryAccount(FindBoundaryAccountCommand),
+    /// Recover the archival data that was lost during resharding.
+    ArchivalDataLossRecovery(ArchivalDataLossRecoveryCommand),
 
     /// Write CryptoHash to DB
     WriteCryptoHash(WriteCryptoHashCommand),
@@ -84,12 +91,14 @@ impl DatabaseCommand {
             SubCommand::DropColumn(cmd) => cmd.run(home, genesis_validation),
             SubCommand::MakeSnapshot(cmd) => {
                 let near_config = load_config(home, genesis_validation);
-                cmd.run(home, &near_config.config.store, near_config.config.archival_config())
+                cmd.run(home, &near_config.config.store, near_config.config.cold_store.as_ref())
             }
             SubCommand::RunMigrations(cmd) => cmd.run(home, genesis_validation),
             SubCommand::StatePerf(cmd) => cmd.run(home),
             SubCommand::LoadMemTrie(cmd) => cmd.run(home, genesis_validation),
             SubCommand::SplitShardTrie(cmd) => cmd.run(home, genesis_validation),
+            SubCommand::FindBoundaryAccount(cmd) => cmd.run(home, genesis_validation),
+            SubCommand::ArchivalDataLossRecovery(cmd) => cmd.run(home, genesis_validation),
             SubCommand::WriteCryptoHash(cmd) => cmd.run(home, genesis_validation),
             SubCommand::HighLoadStats(cmd) => cmd.run(home),
             SubCommand::AnalyzeDelayedReceipt(cmd) => cmd.run(home, genesis_validation),

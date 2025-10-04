@@ -14,9 +14,11 @@ use super::ChunkProductionKey;
 /// chunk validator has verified that the chunk state witness is correct.
 #[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
+#[borsh(use_discriminant = true)]
+#[repr(u8)]
 pub enum ChunkEndorsement {
-    V1, // Deprecated
-    V2(ChunkEndorsementV2),
+    V1 = 0, // Deprecated
+    V2(ChunkEndorsementV2) = 1,
 }
 
 impl ChunkEndorsement {
@@ -25,15 +27,15 @@ impl ChunkEndorsement {
         chunk_header: &ShardChunkHeader,
         signer: &ValidatorSigner,
     ) -> ChunkEndorsement {
-        let inner = ChunkEndorsementInner::new(chunk_header.chunk_hash().clone());
         let metadata = ChunkEndorsementMetadata {
             account_id: signer.validator_id().clone(),
             shard_id: chunk_header.shard_id(),
             epoch_id,
             height_created: chunk_header.height_created(),
         };
-        let signature = signer.sign_bytes(&borsh::to_vec(&inner).unwrap());
         let metadata_signature = signer.sign_bytes(&borsh::to_vec(&metadata).unwrap());
+        let inner = ChunkEndorsementInnerV1::new(chunk_header.chunk_hash().clone());
+        let signature = signer.sign_bytes(&borsh::to_vec(&inner).unwrap());
         let endorsement = ChunkEndorsementV2 { inner, signature, metadata, metadata_signature };
         ChunkEndorsement::V2(endorsement)
     }
@@ -82,7 +84,7 @@ impl ChunkEndorsement {
         signature: &Signature,
         public_key: &PublicKey,
     ) -> bool {
-        let inner = ChunkEndorsementInner::new(chunk_hash);
+        let inner = ChunkEndorsementInnerV1::new(chunk_hash);
         let data = borsh::to_vec(&inner).unwrap();
         signature.verify(&data, public_key)
     }
@@ -106,7 +108,7 @@ impl ChunkEndorsement {
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
 pub struct ChunkEndorsementV2 {
     // This is the part of the chunk endorsement that signed and included in the block header
-    inner: ChunkEndorsementInner,
+    inner: ChunkEndorsementInnerV1,
     // This is the signature of the inner field, to be included in the block header
     signature: Signature,
     // This consists of the metadata for chunk endorsement used in validation
@@ -134,12 +136,12 @@ pub struct ChunkEndorsementMetadata {
 
 /// This is the part of the chunk endorsement that is actually being signed.
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
-pub struct ChunkEndorsementInner {
+struct ChunkEndorsementInnerV1 {
     chunk_hash: ChunkHash,
     signature_differentiator: SignatureDifferentiator,
 }
 
-impl ChunkEndorsementInner {
+impl ChunkEndorsementInnerV1 {
     fn new(chunk_hash: ChunkHash) -> Self {
         Self { chunk_hash, signature_differentiator: "ChunkEndorsement".to_owned() }
     }

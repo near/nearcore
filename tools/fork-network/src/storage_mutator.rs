@@ -544,6 +544,43 @@ pub(crate) fn commit_shard(
     Ok(new_root)
 }
 
+/// Removes all state data associated with the specified shards.
+/// Used when shards become obsolete and their state can be discarded.
+/// WARNING: This function modifies DBCol::State directly - use with caution.
+/// For more information about the deletion process, refer to StoreUpdate::delete_range documentation.
+pub(crate) fn remove_shards(
+    shard_tries: &ShardTries,
+    shard_uids: &Vec<&ShardUId>,
+) -> anyhow::Result<()> {
+    for shard_uid in shard_uids {
+        let mut trie_update = shard_tries.store_update();
+        let store_update = trie_update.store_update();
+        // Remove flat storage status
+        store_update.delete(DBCol::FlatStorageStatus, &shard_uid.to_bytes());
+        // Remove fork state root
+        store_update.delete(DBCol::Misc, &crate::cli::make_state_roots_key(**shard_uid));
+
+        // Remove all state for this shard
+        store_update.delete_range(
+            DBCol::State,
+            &shard_uid.to_bytes(),
+            &ShardUId::get_upper_bound_db_key(&shard_uid.to_bytes()),
+        );
+        store_update.delete_range(
+            DBCol::FlatState,
+            &shard_uid.to_bytes(),
+            &ShardUId::get_upper_bound_db_key(&shard_uid.to_bytes()),
+        );
+
+        trie_update
+            .commit()
+            .with_context(|| format!("failed removing state for shard {}", shard_uid))?;
+
+        tracing::info!(?shard_uid, "removed state for obsolete shard");
+    }
+    Ok(())
+}
+
 pub(crate) fn write_bandwidth_scheduler_state(
     shard_tries: &ShardTries,
     source_shard_layout: &ShardLayout,
@@ -590,7 +627,7 @@ pub(crate) fn write_bandwidth_scheduler_state(
 }
 
 // After we rewrite everything in the trie to the target shards, write flat storage statuses for new shards
-// TODO: remove all state that belongs to source shards not in the target shard layout
+// and remove state for obsolete shards
 pub(crate) fn finalize_state(
     shard_tries: &ShardTries,
     source_shard_layout: &ShardLayout,
@@ -598,6 +635,10 @@ pub(crate) fn finalize_state(
     flat_head: BlockInfo,
 ) -> anyhow::Result<()> {
     let source_shards = source_shard_layout.shard_uids().collect::<HashSet<_>>();
+    let target_shards = target_shard_layout.shard_uids().collect::<HashSet<_>>();
+
+    let shards_to_remove = source_shards.difference(&target_shards).collect::<Vec<_>>();
+    remove_shards(shard_tries, &shards_to_remove)?;
 
     for shard_uid in target_shard_layout.shard_uids() {
         if source_shards.contains(&shard_uid) {

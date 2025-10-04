@@ -114,9 +114,17 @@ pub struct StoreConfig {
     pub migration_snapshot: MigrationSnapshot,
 
     pub state_snapshot_config: StateSnapshotConfig,
+
+    #[serde(skip_serializing_if = "RocksDbConfig::is_default")]
+    pub rocksdb: RocksDbConfig,
 }
 
 impl StoreConfig {
+    /// StoreConfig used for state snapshot database.
+    pub fn state_snapshot_store_config() -> Self {
+        Self::default()
+    }
+
     pub fn enable_state_snapshot(&mut self) {
         self.state_snapshot_config.state_snapshot_type = StateSnapshotType::Enabled;
     }
@@ -300,6 +308,8 @@ impl Default for StoreConfig {
             migration_snapshot: Default::default(),
 
             state_snapshot_config: Default::default(),
+
+            rocksdb: Default::default(),
         }
     }
 }
@@ -418,6 +428,231 @@ fn default_cold_store_loop_sleep_duration() -> Duration {
     Duration::seconds(1)
 }
 
+/// RocksDB configuration options.
+///
+/// These options control database-wide behavior and performance characteristics.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
+pub struct RocksDbConfig {
+    /// Bytes to sync per sync operation for data files.
+    ///
+    /// Helps smooth I/O by syncing incrementally rather than in large bursts.
+    #[serde(default = "default_rocksdb_bytes_per_sync")]
+    pub bytes_per_sync: bytesize::ByteSize,
+
+    /// Bytes to sync per sync operation for WAL files.
+    ///
+    /// Reduces latency spikes from large fsync bursts during WAL writes.
+    #[serde(default = "default_rocksdb_wal_bytes_per_sync")]
+    pub wal_bytes_per_sync: bytesize::ByteSize,
+
+    /// Enable pipelined write path to reduce write stall latency.
+    #[serde(default = "default_rocksdb_enable_pipelined_write")]
+    pub enable_pipelined_write: bool,
+
+    /// Size of a single memtable (write buffer).
+    ///
+    /// Larger values reduce flush frequency but use more memory.
+    #[serde(default = "default_rocksdb_write_buffer_size")]
+    pub write_buffer_size: bytesize::ByteSize,
+
+    /// Target size for level 1 in the LSM tree.
+    ///
+    /// Controls the size of the first level after L0.
+    #[serde(default = "default_rocksdb_max_bytes_for_level_base")]
+    pub max_bytes_for_level_base: bytesize::ByteSize,
+
+    /// Maximum total size of WAL files before forcing a flush.
+    #[serde(default = "default_rocksdb_max_total_wal_size")]
+    pub max_total_wal_size: bytesize::ByteSize,
+
+    /// Override for RocksDB parallelism (background threads).
+    ///
+    /// If None, uses max(1, num_cpus / 2). Only applies when not using single_thread_rocksdb.
+    #[serde(default)]
+    pub parallelism: Option<i32>,
+
+    /// Column-family tuning overrides for write-heavy columns.
+    ///
+    /// Applies to: PartialChunks, State, TrieChanges.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cf_high_load_overrides: Option<RocksDbCfOverrides>,
+
+    /// Column-family tuning overrides for moderately write-heavy columns.
+    ///
+    /// Applies to: FlatState, Chunks, StateChanges, Transactions.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cf_medium_load_overrides: Option<RocksDbCfOverrides>,
+
+    /// Column-family tuning overrides for remaining columns.
+    ///
+    /// Applies to all other columns not covered by high/medium groups.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cf_low_load_overrides: Option<RocksDbCfOverrides>,
+}
+
+impl Default for RocksDbConfig {
+    fn default() -> Self {
+        Self {
+            bytes_per_sync: default_rocksdb_bytes_per_sync(),
+            wal_bytes_per_sync: default_rocksdb_wal_bytes_per_sync(),
+            enable_pipelined_write: default_rocksdb_enable_pipelined_write(),
+            write_buffer_size: default_rocksdb_write_buffer_size(),
+            max_bytes_for_level_base: default_rocksdb_max_bytes_for_level_base(),
+            max_total_wal_size: default_rocksdb_max_total_wal_size(),
+            parallelism: None,
+            cf_high_load_overrides: None,
+            cf_medium_load_overrides: None,
+            cf_low_load_overrides: None,
+        }
+    }
+}
+
+impl RocksDbConfig {
+    pub fn is_default(&self) -> bool {
+        self == &Self::default()
+    }
+}
+
+fn default_rocksdb_bytes_per_sync() -> bytesize::ByteSize {
+    bytesize::ByteSize::mib(1)
+}
+
+fn default_rocksdb_wal_bytes_per_sync() -> bytesize::ByteSize {
+    bytesize::ByteSize::mib(1)
+}
+
+fn default_rocksdb_enable_pipelined_write() -> bool {
+    true
+}
+
+fn default_rocksdb_write_buffer_size() -> bytesize::ByteSize {
+    bytesize::ByteSize::mib(256)
+}
+
+fn default_rocksdb_max_bytes_for_level_base() -> bytesize::ByteSize {
+    bytesize::ByteSize::mib(256)
+}
+
+fn default_rocksdb_max_total_wal_size() -> bytesize::ByteSize {
+    bytesize::ByteSize::gib(4)
+}
+
+/// Macro to define RocksDB column family configuration fields.
+///
+/// This ensures consistency between the struct definition, overrides application and presets.
+macro_rules! define_cf_config_fields {
+    (
+        $(#[$attrs:meta])*
+        struct RocksDbCfConfig {
+            $(
+                $(#[$field_attr:meta])*
+                $field:ident: $field_ty:ty
+            ),* $(,)?
+        }
+    ) => {
+        // Generate the base config struct with non-optional fields
+        pub struct RocksDbCfConfig {
+            $(pub $field: $field_ty,)*
+        }
+
+        // Generate the overrides struct with optional fields
+        $(#[$attrs])*
+        pub struct RocksDbCfOverrides {
+            $(
+                $(#[$field_attr])*
+                pub $field: Option<$field_ty>
+            ),*
+        }
+
+        impl RocksDbCfOverrides {
+            /// Applies these overrides non-None values over the base config.
+            pub fn apply_over(self, mut base: RocksDbCfConfig) -> RocksDbCfConfig {
+                $(
+                    if let Some(v) = self.$field {
+                        base.$field = v;
+                    }
+                )*
+                base
+            }
+        }
+    };
+}
+
+// This macro invocation will generate the structs `RocksDbCfConfig` and `RocksDbCfOverrides`.
+define_cf_config_fields! {
+    #[derive(Clone, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+    #[serde(default)]
+    struct RocksDbCfConfig {
+        memtable_memory_budget: bytesize::ByteSize,
+        level_zero_file_num_compaction_trigger: i32,
+        level_zero_slowdown_writes_trigger: i32,
+        level_zero_stop_writes_trigger: i32,
+        max_subcompactions: u32,
+        target_file_size_base: bytesize::ByteSize,
+        max_write_buffer_number: i32,
+        compaction_readahead_size: bytesize::ByteSize,
+    }
+}
+
+impl RocksDbCfConfig {
+    /// Resolves the final configuration for a column family by applying overrides to presets.
+    pub fn resolve_for_column(col: DBCol, config: &RocksDbConfig) -> Self {
+        use crate::DBCol::*;
+
+        let (preset, overrides) = match col {
+            PartialChunks | State | TrieChanges => {
+                (Self::high_load_defaults(), &config.cf_high_load_overrides)
+            }
+            FlatState | Chunks | StateChanges | Transactions => {
+                (Self::medium_load_defaults(), &config.cf_medium_load_overrides)
+            }
+            _ => (Self::low_load_defaults(), &config.cf_low_load_overrides),
+        };
+
+        overrides.clone().unwrap_or_default().apply_over(preset)
+    }
+
+    pub fn high_load_defaults() -> Self {
+        Self {
+            memtable_memory_budget: bytesize::ByteSize::mib(1024),
+            level_zero_file_num_compaction_trigger: 8,
+            level_zero_slowdown_writes_trigger: 32,
+            level_zero_stop_writes_trigger: 64,
+            max_subcompactions: 2,
+            target_file_size_base: bytesize::ByteSize::mib(128),
+            max_write_buffer_number: 8,
+            compaction_readahead_size: bytesize::ByteSize::mib(6),
+        }
+    }
+
+    pub fn medium_load_defaults() -> Self {
+        Self {
+            memtable_memory_budget: bytesize::ByteSize::mib(512),
+            level_zero_file_num_compaction_trigger: 8,
+            level_zero_slowdown_writes_trigger: 32,
+            level_zero_stop_writes_trigger: 64,
+            max_subcompactions: 1,
+            target_file_size_base: bytesize::ByteSize::mib(128),
+            max_write_buffer_number: 6,
+            compaction_readahead_size: bytesize::ByteSize::mib(4),
+        }
+    }
+
+    pub fn low_load_defaults() -> Self {
+        Self {
+            memtable_memory_budget: bytesize::ByteSize::mib(256),
+            level_zero_file_num_compaction_trigger: 8,
+            level_zero_slowdown_writes_trigger: 32,
+            level_zero_stop_writes_trigger: 64,
+            max_subcompactions: 1,
+            target_file_size_base: bytesize::ByteSize::mib(96),
+            max_write_buffer_number: 4,
+            compaction_readahead_size: bytesize::ByteSize::mib(2),
+        }
+    }
+}
+
 /// Parameters for prefetching certain contract calls.
 #[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
 #[serde(default)]
@@ -430,95 +665,56 @@ pub struct PrefetchConfig {
     pub method_name: String,
 }
 
-/// Configures the archival storage used by the archival nodes.
-///
-/// If the archival storage is ColdDB, this config is complemented by the other parts of the Near node config,
-/// for example, the `StoreConfig` stored in the `Config.cold_store` field is used to configure the cold RocksDB
-/// and the `SplitStorageConfig` stored in the `Config.split_storage` field is used to configure the process
-/// that copies database entries from hot to cold DB.
-#[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
-#[serde(default)]
-pub struct ArchivalStoreConfig {
-    /// The storage to persist the archival data (by default ColdDB).
-    pub storage: ArchivalStorageLocation,
-}
+#[cfg(test)]
+mod tests {
+    use super::{RocksDbConfig, StoreConfig};
+    use crate::config::{
+        RocksDbCfConfig, default_rocksdb_bytes_per_sync, default_rocksdb_wal_bytes_per_sync,
+    };
 
-/// Similar to External
-#[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
-pub enum ArchivalStorageLocation {
-    /// Archival data is persisted in the ColdDB.
-    /// In this case, the ColdDB is configured by the `Config.cold_store`
-    /// (which contain a [`StoreConfig`] that configures for the cold RocksDB),
-    /// and `Config.split_storage` (which contains a [`SplitStorageConfig`] that
-    /// configures the hot-to-cold copy process).
-    #[default]
-    ColdDB,
-    /// Archival data is persisted in the filesystem.
-    /// NOTE: This option not implemented yet.
-    Filesystem {
-        /// Root directory containing the archival storage files.
-        _path: std::path::PathBuf,
-    },
-    /// Archival data is persisted in the Google Cloud Storage.
-    /// NOTE: This option not implemented yet.
-    GCloud {
-        /// GCS bucket containing the archival storage objects.
-        _bucket: String,
-    },
-}
-
-/// Contains references to the sub-configs from the Near node config that are related to archival storage.
-pub struct ArchivalConfig<'a> {
-    pub archival_store_config: Option<&'a ArchivalStoreConfig>,
-    pub cold_store_config: Option<&'a StoreConfig>,
-    pub split_storage_config: Option<&'a SplitStorageConfig>,
-}
-
-impl<'a> ArchivalConfig<'a> {
-    /// Returns `Some(ArchivalConfig)` if the node is an archival node (ie. `archive` is true), otherwise returns None.
-    /// In the former case, the `ArchivalConfig` contains references to the archival related sub-configs provided in the params.
-    /// Also validates the config, for example, panics if `archive` is true and no archival storage configuration is provided or
-    /// `archive` is false but cold-storage or archival-store configuration is provided.
-    pub fn new(
-        archive: bool,
-        archival_store_config: Option<&'a ArchivalStoreConfig>,
-        cold_store_config: Option<&'a StoreConfig>,
-        split_storage_config: Option<&'a SplitStorageConfig>,
-    ) -> Option<Self> {
-        Self::validate_configs(
-            archive,
-            archival_store_config,
-            cold_store_config,
-            split_storage_config,
-        );
-        archive.then_some(Self { archival_store_config, cold_store_config, split_storage_config })
+    #[test]
+    fn rocksdb_config_override_single_field() {
+        let json = r#"{ "wal_bytes_per_sync": 3145728 }"#;
+        let cfg: RocksDbConfig = serde_json::from_str(json).unwrap();
+        assert_eq!(cfg.wal_bytes_per_sync.as_u64(), bytesize::ByteSize::mib(3).as_u64());
+        // Unset fields remain at default
+        assert_eq!(cfg.bytes_per_sync.as_u64(), default_rocksdb_bytes_per_sync().as_u64());
     }
 
-    fn validate_configs(
-        archive: bool,
-        archival_store_config: Option<&'a ArchivalStoreConfig>,
-        cold_store_config: Option<&'a StoreConfig>,
-        split_storage_config: Option<&'a SplitStorageConfig>,
-    ) {
-        if archive {
-            // Since only ColdDB storage is supported for now, assert that cold storage is configured.
-            // TODO: Change this condition after supporting other archival storage options such as GCS.
-            assert!(
-                cold_store_config.is_some()
-                    && (archival_store_config.is_none()
-                        || matches!(
-                            archival_store_config.unwrap().storage,
-                            ArchivalStorageLocation::ColdDB
-                        )),
-                "Archival storage must be ColdDB and it must be configured with a valid StoreConfig"
-            );
-        } else {
-            assert!(
-                cold_store_config.is_none()
-                    && archival_store_config.is_none()
-                    && split_storage_config.is_none(),
-                "Cold-store config and archival config must not be set for non-archival nodes"
-            );
-        }
+    #[test]
+    fn legacy_store_config_without_rocksdb_field_loads() {
+        // Simulate legacy StoreConfig JSON without the `rocksdb` key
+        let json = "{}";
+        let store: StoreConfig = serde_json::from_str(json).unwrap();
+        assert_eq!(
+            store.rocksdb.bytes_per_sync.as_u64(),
+            default_rocksdb_bytes_per_sync().as_u64()
+        );
+        assert_eq!(
+            store.rocksdb.wal_bytes_per_sync.as_u64(),
+            default_rocksdb_wal_bytes_per_sync().as_u64()
+        );
+    }
+
+    #[test]
+    fn cf_medium_override_fields() {
+        let json = r#"{ "cf_medium_load_overrides": { "max_write_buffer_number": 12, "compaction_readahead_size": 8388608 } }"#;
+        let cfg: RocksDbConfig = serde_json::from_str(json).unwrap();
+
+        // Medium: apply overrides over preset
+        let medium_base = RocksDbCfConfig::medium_load_defaults();
+        let medium = RocksDbCfConfig::resolve_for_column(crate::DBCol::FlatState, &cfg);
+        assert_eq!(medium.max_write_buffer_number, 12);
+        assert_eq!(medium.compaction_readahead_size.as_u64(), 8388608);
+        // Another medium default remains intact
+        assert_eq!(
+            medium.target_file_size_base.as_u64(),
+            medium_base.target_file_size_base.as_u64()
+        );
+
+        // High: no overrides so keep preset
+        let high_base = RocksDbCfConfig::high_load_defaults();
+        let high = RocksDbCfConfig::resolve_for_column(crate::DBCol::State, &cfg);
+        assert_eq!(high.max_write_buffer_number, high_base.max_write_buffer_number);
     }
 }

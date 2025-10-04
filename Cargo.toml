@@ -32,7 +32,6 @@ members = [
     "chain/jsonrpc-adversarial-primitives",
     "chain/jsonrpc-primitives",
     "chain/jsonrpc/client",
-    "chain/jsonrpc/fuzz",
     "chain/jsonrpc/jsonrpc-tests",
     "chain/jsonrpc/openapi",
     "chain/network",
@@ -43,6 +42,7 @@ members = [
     "core/async-derive",
     "core/chain-configs",
     "core/crypto",
+    "core/crypto/ed25519-batch",
     "core/dyn-configs",
     "core/o11y",
     "core/parameters",
@@ -67,28 +67,15 @@ members = [
     "runtime/near-vm/types",
     "runtime/near-vm/wast",
     "runtime/near-vm/compiler-test-derive",
-    "runtime/near-vm-2/test-api",
-    "runtime/near-vm-2/compiler",
-    "runtime/near-vm-2/compiler-singlepass",
-    "runtime/near-vm-2/engine",
-    "runtime/near-vm-2/vm",
-    "runtime/near-vm-2/types",
-    "runtime/near-vm-2/wast",
-    "runtime/near-vm-2/compiler-test-derive",
     "runtime/near-vm-runner",
-    "runtime/near-vm-runner/fuzz",
     "runtime/near-wallet-contract",
     "runtime/runtime",
     "runtime/runtime-params-estimator",
     "runtime/runtime-params-estimator/estimator-warehouse",
     "test-loop-tests",
-    "test-utils/actix-test-utils",
-    "test-utils/runtime-tester",
-    "test-utils/runtime-tester/fuzz",
     "test-utils/store-validator",
     "test-utils/testlib",
     "tools/database",
-    "tools/chainsync-loadtest",
     "tools/congestion-model",
     "tools/fork-network",
     "tools/indexer/example",
@@ -152,10 +139,6 @@ unused_async = "deny"
 unexpected_cfgs = { level = "allow", check-cfg = ['cfg(enable_const_type_id)'] }
 
 [workspace.dependencies]
-actix = "0.13.0"
-actix-cors = "0.6.1"
-actix-rt = "2"
-actix-web = "4.1"
 anyhow = "1.0.62"
 arbitrary = { version = "1.2.3", features = ["derive"] }
 arc-swap = "1.5"
@@ -168,7 +151,8 @@ assert_matches = "1.5.0"
 async-trait = "0.1.58"
 aurora-engine-transactions = "1.1"
 aurora-engine-types = "1.1"
-awc = { version = "3", features = ["openssl"] }
+axum = { version = "0.8", features = ["macros"] }
+axum-test = "18.0"
 backtrace = "0.3"
 base64 = "0.21"
 bencher = "0.1.5"
@@ -195,13 +179,13 @@ chrono = { version = "0.4", default-features = false, features = [
     "serde",
 ] }
 clap = { version = "4.2.0", features = ["derive", "env", "string"] }
-cpu-time = "1.0"
-criterion = { version = "0.5.1", default-features = false, features = [
+criterion = { version = "0.7.0", default-features = false, features = [
     "html_reports",
     "cargo_bench_support",
 ] }
 crossbeam = "0.8"
 crossbeam-channel = "0.5.8"
+crossbeam-utils = "0.8"
 csv = "1.2.1"
 curve25519-dalek = { version = "4.1.3", default-features = false }
 dashmap = { version = "6", default-features = false }
@@ -212,7 +196,7 @@ dirs = "4"
 dynasm = "2.0"
 dynasmrt = "2.0"
 easy-ext = "0.2"
-ed25519-dalek = { version = "2.1.0", default-features = false }
+ed25519-dalek = { version = "2.2.0", default-features = false }
 enum-map = "2.1.0"
 enumset = "1.0"
 ethabi = "18"
@@ -225,29 +209,28 @@ genesis-populate = { path = "genesis-tools/genesis-populate" }
 hex = { version = "0.4.2", features = ["serde"] }
 hex-literal = "0.2"
 hkdf = "0.12.3"
-hyper = { version = "0.14", features = ["full"] }
-hyper-tls = "0.5.0"
 im = "15"
 indexmap = "2"
 indicatif = { version = "0.17.0", features = ["rayon"] }
 insta = { version = "1.41.0", features = ["json", "yaml", "redactions"] }
 integration-tests = { path = "integration-tests" }
 inventory = "0.3.15"
-itertools = "0.12.0"
+itertools = "0.14.0"
 itoa = "1.0"
 json_comments = "0.2.1"
 libc = "0.2.81"
-libfuzzer-sys = { version = "0.4", features = ["arbitrary-derive"] }
-log = "0.4"
 lru = "0.12.3"
 memoffset = "0.8"
+merlin = { version = "3", default-features = false }
 more-asserts = "0.2"
-near-account-id = { version = "1.1.1", features = [
+named-lock = "0.4.1"
+near-account-id = { version = "2.0.0", features = [
     "internal_unstable",
     "serde",
     "borsh",
 ] }
-near-actix-test-utils = { path = "test-utils/actix-test-utils" }
+near-gas = { version = "0.3.2" }
+near-token = { version = "0.3.2" }
 near-amend-genesis = { path = "tools/amend-genesis" }
 near-database-tool = { path = "tools/database" }
 near-async = { path = "core/async" }
@@ -264,6 +247,7 @@ near-cold-store-tool = { path = "tools/cold-store", package = "cold-store-tool" 
 near-config-utils = { path = "utils/config" }
 nearcore = { path = "nearcore" }
 near-crypto = { path = "core/crypto", default-features = false }
+near-crypto-ed25519-batch = { path = "core/crypto/ed25519-batch" }
 near-dyn-configs = { path = "core/dyn-configs" }
 near-epoch-manager = { path = "chain/epoch-manager" }
 near-flat-storage = { path = "tools/flat-storage" }
@@ -277,7 +261,6 @@ near-jsonrpc-client-internal = { path = "chain/jsonrpc/client" }
 near-jsonrpc-primitives = { path = "chain/jsonrpc-primitives", features = [
     "full",
 ] }
-near-jsonrpc-tests = { path = "chain/jsonrpc/jsonrpc-tests" }
 near-mainnet-res = { path = "utils/mainnet-res" }
 near-mirror = { path = "tools/mirror" }
 near-network = { path = "chain/network" }
@@ -315,15 +298,6 @@ near-vm-test-generator = { path = "runtime/near-vm/test-generator" }
 near-vm-types = { path = "runtime/near-vm/types" }
 near-vm-vm = { path = "runtime/near-vm/vm" }
 near-vm-wast = { path = "runtime/near-vm/wast" }
-near-vm-2-test-api = { path = "runtime/near-vm-2/test-api" }
-near-vm-2-compiler = { path = "runtime/near-vm-2/compiler" }
-near-vm-2-compiler-singlepass = { path = "runtime/near-vm-2/compiler-singlepass" }
-near-vm-2-compiler-test-derive = { path = "runtime/near-vm-2/compiler-test-derive" }
-near-vm-2-engine = { path = "runtime/near-vm-2/engine" }
-near-vm-2-test-generator = { path = "runtime/near-vm-2/test-generator" }
-near-vm-2-types = { path = "runtime/near-vm-2/types" }
-near-vm-2-vm = { path = "runtime/near-vm-2/vm" }
-near-vm-2-wast = { path = "runtime/near-vm-2/wast" }
 near-wallet-contract = { path = "runtime/near-wallet-contract" }
 nix = "0.24"
 node-runtime = { path = "runtime/runtime" }
@@ -331,20 +305,21 @@ num-bigint = "0.3"
 num_cpus = "1.11"
 num-rational = { version = "0.3.1", features = ["serde"] }
 num-traits = "0.2.15"
+num-integer = "0.1.46"
 
 okapi = { git = "https://github.com/near/near-okapi-fork.git", rev = "fd7de89e130ab99a546f04e3faefcd53044f98d0", features = ["schemars-alpha"] } # Upstream crate can be used as soon as schemars 1.0 is supported https://github.com/GREsau/okapi/pull/161
 object_store = { version = "0.12", features = ["gcp"] }
 oneshot = { version = "0.1.11", features = ["std"] }
 openssl-probe = "0.1.4"
-opentelemetry = { version = "0.22.0", features = ["trace"] }
-opentelemetry_sdk = { version = "0.22.0", features = ["rt-tokio"] }
-opentelemetry-otlp = "0.15.0"
-opentelemetry-semantic-conventions = "0.14.0"
+opentelemetry = { version = "0.30", features = ["trace"] }
+opentelemetry_sdk = { version = "0.30", features = ["rt-tokio"] }
+opentelemetry-otlp = { version = "0.30", default-features = false, features = ["grpc-tonic", "trace"] }
+opentelemetry-semantic-conventions = "0.30"
 ordered-float = { version = "4.2.0", features = ["serde", "borsh"] }
-paperclip = { version = "0.9.0", features = ["actix4"] }
 parking_lot = "0.12.1"
 percent-encoding = "2.2.0"
 pin-project = "1.0"
+pid-lite = "1.2.0"
 prefix-sum-vec = "0.1.2"
 pretty_assertions = "1.2"
 primitive-types = { version = "0.10", default-features = false }
@@ -355,7 +330,7 @@ protobuf-codegen = "3.0.1"
 quote = "1.0"
 rand = "0.8.5"
 rand_chacha = "0.3.1"
-rand_core = "0.5"
+rand_core = "0.6.1"
 rand_hc = "0.3.1"
 rand_xorshift = "0.3"
 rayon = "1.10"
@@ -363,19 +338,12 @@ redis = "0.23.0"
 reed-solomon-erasure = { version = "6.0.0", features = ["simd-accel"] }
 regex = "1.7.1"
 region = "3.0"
-reqwest = { version = "0.12.0", features = ["blocking"] }
+reqwest = { version = "0.12.0", features = ["blocking", "native-tls-vendored"] }
 ripemd = "0.1.1"
 rkyv = "0.8.0"
 rlimit = "0.7"
 rlp = "0.5.2"
-rocksdb = { version = "0.21.0", default-features = false, features = [
-    "snappy",
-    "lz4",
-    "zstd",
-    "zlib",
-    "jemalloc",
-] }
-runtime-tester = { path = "test-utils/runtime-tester" }
+rocksdb = { version = "0.21.0", default-features = false }
 rusqlite = { version = "0.29.0", features = ["bundled", "chrono", "functions"] }
 rustc-demangle = "0.1"
 rust-s3 = { version = "0.32.3", features = ["blocking"] }
@@ -388,7 +356,7 @@ serde_json = "1.0.68"
 serde_repr = "0.1.8"
 serde_with = { version = "3.0", features = ["base64"] }
 serde_yaml = "0.9"
-schemars = { version = "1.0.0-alpha.17", features = ["chrono04"]}
+schemars = { version = "1.0.3", features = ["chrono04"]}
 sha2 = "0.10"
 sha3 = "0.10"
 smallvec = "1.6"
@@ -412,12 +380,13 @@ tokio = { version = "1.28", default-features = false }
 tokio-stream = { version = "0.1.2", features = ["net"] }
 tokio-util = { version = "0.7.1", features = ["codec", "io"] }
 toml = "0.5.8"
+tower-http = { version = "0.6", features = ["cors", "trace", "limit"] }
 tqdm = "0.4.4"
 tracing = { version = "0.1.40", features = ["std"] }
 tracing-appender = "0.2.3"
-tracing-opentelemetry = "0.23.0"
+tracing-opentelemetry = "0.31"
 tracing-span-tree = "0.1"
-tracing-subscriber = { version = "0.3.18", features = [
+tracing-subscriber = { version = "0.3.20", features = [
     "env-filter",
     "fmt",
     "registry",
@@ -425,11 +394,15 @@ tracing-subscriber = { version = "0.3.18", features = [
 ] }
 trybuild = "1.0.11"
 turn = "0.9"
-wasm-encoder = "0.235"
+url = "2.5.0"
+utoipa = "5.4"
+utoipa-swagger-ui = "9"
+wasm-encoder = "0.236"
 wasmparser = "0.78" # TODO: unify at least the versions of wasmparser we have in our codebase
-wasmprinter = "0.235"
-wasm-smith = "0.235"
-wasmtime = { version = "33", default-features = false, features = [
+wasmparser-236 = { package = "wasmparser", version = "0.236" }
+wasmprinter = "0.236"
+wasm-smith = "0.236"
+wasmtime = { version = "36", default-features = false, features = [
     "cranelift",
 ] }
 wast = "40.0"
@@ -442,10 +415,11 @@ winapi = { version = "0.3", features = [
     "winnt",
     "impl-default",
 ] }
+wiremock = "0.5.19"
 xshell = "0.2.1"
 xz2 = "0.1.6"
 yansi = "0.5.1"
-zstd = "0.13.1"
+zstd = { version = "0.13.1", features = ["zstdmt"] }
 
 stdx = { package = "near-stdx", path = "utils/stdx" }
 
@@ -472,13 +446,6 @@ inherits = "release"
 lto = false
 codegen-units = 16
 debug-assertions = true
-
-# Used for fuzzing, LTO is ill-supported as of 2023-09 and so should not be enabled.
-[profile.fuzz]
-inherits = "dev"
-opt-level = 3
-incremental = false
-codegen-units = 1
 
 # Needed to ensure that artifacts generated by `cargo run` and `cargo nextest` are
 # the same on nightly and can be reused. Not sure why it is the case.

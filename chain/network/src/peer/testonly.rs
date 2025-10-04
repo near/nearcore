@@ -1,26 +1,32 @@
+use crate::auto_stop::AutoStopActor;
 use crate::broadcast;
 use crate::client::{ClientSenderForNetworkInput, ClientSenderForNetworkMessage};
 use crate::config::NetworkConfig;
 use crate::network_protocol::{
-    Edge, PartialEdgeInfo, PeerIdOrHash, PeerMessage, RawRoutedMessage, RoutedMessageBody,
+    Edge, PartialEdgeInfo, PeerIdOrHash, PeerMessage, RawRoutedMessage, TieredMessageBody,
 };
 use crate::network_protocol::{RoutedMessage, testonly as data};
 use crate::peer::peer_actor::PeerActor;
 use crate::peer_manager::network_state::NetworkState;
 use crate::peer_manager::peer_manager_actor;
 use crate::peer_manager::peer_store;
-use crate::private_actix::SendMessage;
+use crate::private_messages::SendMessage;
 use crate::shards_manager::ShardsManagerRequestFromNetwork;
+use crate::spice_data_distribution::{
+    SpiceDataDistributorSenderForNetworkInput, SpiceDataDistributorSenderForNetworkMessage,
+};
 use crate::state_witness::{
     PartialWitnessSenderForNetworkInput, PartialWitnessSenderForNetworkMessage,
 };
 use crate::store;
 use crate::tcp;
-use crate::testonly::actix::ActixSystem;
-use crate::types::{PeerManagerSenderForNetworkInput, PeerManagerSenderForNetworkMessage};
-use near_async::messaging::{IntoMultiSender, Sender};
-use near_async::time;
-use near_o11y::WithSpanContextExt;
+use crate::types::{
+    PeerManagerSenderForNetworkInput, PeerManagerSenderForNetworkMessage,
+    StateRequestSenderForNetworkInput, StateRequestSenderForNetworkMessage,
+};
+use near_async::messaging::{CanSendAsync, IntoMultiSender, Sender};
+use near_async::{ActorSystem, time};
+use near_o11y::span_wrapped_msg::SpanWrappedMessageExt;
 use near_primitives::network::PeerId;
 use std::sync::Arc;
 
@@ -45,23 +51,24 @@ impl PeerConfig {
 pub(crate) enum Event {
     ShardsManager(ShardsManagerRequestFromNetwork),
     Client(ClientSenderForNetworkInput),
+    StateRequest(StateRequestSenderForNetworkInput),
     Network(peer_manager_actor::Event),
     PartialWitness(PartialWitnessSenderForNetworkInput),
     PeerManager(PeerManagerSenderForNetworkInput),
+    SpiceDataDistributor(SpiceDataDistributorSenderForNetworkInput),
 }
 
 pub(crate) struct PeerHandle {
     pub cfg: Arc<PeerConfig>,
-    actix: ActixSystem<PeerActor>,
+    actor: AutoStopActor<PeerActor>,
     pub events: broadcast::Receiver<Event>,
     pub edge: Option<Edge>,
 }
 
 impl PeerHandle {
     pub async fn send(&self, message: PeerMessage) {
-        self.actix
-            .addr
-            .send(SendMessage { message: Arc::new(message) }.with_span_context())
+        self.actor
+            .send_async(SendMessage { message: Arc::new(message) }.span_wrap())
             .await
             .unwrap();
     }
@@ -84,7 +91,7 @@ impl PeerHandle {
 
     pub fn routed_message(
         &self,
-        body: RoutedMessageBody,
+        body: TieredMessageBody,
         peer_id: PeerId,
         ttl: u8,
         utc: Option<time::Utc>,
@@ -96,8 +103,9 @@ impl PeerHandle {
         )
     }
 
-    pub async fn start_endpoint(
+    pub fn start_endpoint(
         clock: time::Clock,
+        actor_system: ActorSystem,
         cfg: PeerConfig,
         stream: tcp::Stream,
     ) -> PeerHandle {
@@ -118,6 +126,12 @@ impl PeerHandle {
                 send.send(Event::Client(event.into_input()));
             }
         });
+        let state_part_sender = Sender::from_fn({
+            let send = send.clone();
+            move |event: StateRequestSenderForNetworkMessage| {
+                send.send(Event::StateRequest(event.into_input()));
+            }
+        });
         let peer_manager_sender = Sender::from_fn({
             let send = send.clone();
             move |event: PeerManagerSenderForNetworkMessage| {
@@ -136,24 +150,31 @@ impl PeerHandle {
                 send.send(Event::PartialWitness(event.into_input()));
             }
         });
+        let spice_data_distribution_sender = Sender::from_fn({
+            move |event: SpiceDataDistributorSenderForNetworkMessage| {
+                send.send(Event::SpiceDataDistributor(event.into_input()));
+            }
+        });
         let network_state = Arc::new(NetworkState::new(
             &clock,
-            store.clone(),
+            &*actor_system.new_future_spawner(),
+            store,
             peer_store::PeerStore::new(&clock, network_cfg.peer_store.clone()).unwrap(),
             network_cfg.verify().unwrap(),
             cfg.chain.genesis_id.clone(),
             client_sender.break_apart().into_multi_sender(),
+            state_part_sender.break_apart().into_multi_sender(),
             peer_manager_sender.break_apart().into_multi_sender(),
             shards_manager_sender,
             state_witness_sender.break_apart().into_multi_sender(),
             vec![],
+            spice_data_distribution_sender.break_apart().into_multi_sender(),
         ));
-        let actix = ActixSystem::spawn({
-            let clock = clock.clone();
-            let cfg = cfg.clone();
-            move || PeerActor::spawn(clock, stream, cfg.force_encoding, network_state).unwrap().0
-        })
-        .await;
-        Self { actix, cfg, events: recv, edge: None }
+        let actor = AutoStopActor(
+            PeerActor::spawn(clock, actor_system, stream, cfg.force_encoding, network_state)
+                .unwrap()
+                .0,
+        );
+        Self { actor, cfg, events: recv, edge: None }
     }
 }

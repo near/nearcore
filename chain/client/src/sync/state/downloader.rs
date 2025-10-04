@@ -7,10 +7,12 @@ use futures::future::BoxFuture;
 use near_async::messaging::AsyncSender;
 use near_async::time::{Clock, Duration};
 use near_chain::types::RuntimeAdapter;
+use near_o11y::span_wrapped_msg::{SpanWrapped, SpanWrappedMessageExt};
 use near_primitives::hash::CryptoHash;
 use near_primitives::state_part::PartId;
 use near_primitives::state_sync::{ShardStateSyncResponseHeader, StatePartKey};
 use near_primitives::types::ShardId;
+use near_primitives::version::ProtocolVersion;
 use near_store::{DBCol, Store};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -31,7 +33,7 @@ pub(super) struct StateSyncDownloader {
     pub fallback_source: Option<Arc<dyn StateSyncDownloadSource>>,
     pub num_attempts_before_fallback: usize,
     pub header_validation_sender:
-        AsyncSender<StateHeaderValidationRequest, Result<(), near_chain::Error>>,
+        AsyncSender<SpanWrapped<StateHeaderValidationRequest>, Result<(), near_chain::Error>>,
     pub runtime: Arc<dyn RuntimeAdapter>,
     pub retry_backoff: Duration,
     pub task_tracker: TaskTracker,
@@ -88,11 +90,14 @@ impl StateSyncDownloader {
                     // so the chain can pick it up later, and we await until the chain gives us a response.
                     handle.set_status("Waiting for validation");
                     validation_sender
-                        .send_async(StateHeaderValidationRequest {
-                            shard_id,
-                            sync_hash,
-                            header: header.clone(),
-                        })
+                        .send_async(
+                            StateHeaderValidationRequest {
+                                shard_id,
+                                sync_hash,
+                                header: header.clone(),
+                            }
+                            .span_wrap(),
+                        )
                         .await
                         .map_err(|_| {
                             near_chain::Error::Other(
@@ -140,6 +145,7 @@ impl StateSyncDownloader {
         part_id: u64,
         num_prior_attempts: usize,
         cancel: CancellationToken,
+        protocol_version: ProtocolVersion,
     ) -> BoxFuture<'static, Result<(), near_chain::Error>> {
         let store = self.store.clone();
         let runtime_adapter = self.runtime.clone();
@@ -161,9 +167,13 @@ impl StateSyncDownloader {
             }
 
             let attempt = || async {
-                let source = if fallback_source.is_some()
-                    && num_prior_attempts >= num_attempts_before_fallback
-                {
+                // We cannot assume that either source is infallible. We cycle attempts
+                // to the available sources until one of them gives us the state successfully.
+                let cycle_length = num_attempts_before_fallback + 1;
+                let use_fallback = fallback_source.is_some()
+                    && num_prior_attempts % cycle_length == num_attempts_before_fallback;
+
+                let source = if use_fallback {
                     fallback_source.as_ref().unwrap().as_ref()
                 } else {
                     preferred_source.as_ref()
@@ -179,13 +189,15 @@ impl StateSyncDownloader {
                     )
                     .await?;
                 if runtime_adapter.validate_state_part(
+                    shard_id,
                     &state_root,
                     PartId { idx: part_id, total: num_state_parts },
                     &part,
                 ) {
                     let mut store_update = store.store_update();
                     let key = borsh::to_vec(&StatePartKey(sync_hash, shard_id, part_id)).unwrap();
-                    store_update.set(DBCol::StateParts, &key, &part);
+                    let bytes = part.to_bytes(protocol_version);
+                    store_update.set(DBCol::StateParts, &key, &bytes);
                     store_update.commit().map_err(|e| {
                         near_chain::Error::Other(format!("Failed to store part: {}", e))
                     })?;

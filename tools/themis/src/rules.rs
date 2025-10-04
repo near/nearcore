@@ -266,6 +266,8 @@ pub fn publishable_has_unified_license(workspace: &Workspace) -> anyhow::Result<
                 && matches!(pkg.parsed.license, Some(ref l) if l != EXPECTED_LICENSE)
                 // near-vm is a wasmer fork, so we don’t control the license
                 && !pkg.parsed.name.starts_with("near-vm")
+                // near-crypto-ed25519-batch is based on curve25519-dalek licensed as BSD-3-Clause
+                && !pkg.parsed.name.starts_with("near-crypto-ed25519-batch")
         })
         .map(|pkg| Outlier {
             path: pkg.parsed.manifest_path.clone(),

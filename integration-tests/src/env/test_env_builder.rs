@@ -1,13 +1,14 @@
-use actix_rt::System;
 use itertools::{Itertools, multizip};
 use near_async::messaging::{IntoMultiSender, IntoSender, noop};
 use near_async::time::Clock;
 use near_chain::state_snapshot_actor::SnapshotCallbacks;
 use near_chain::types::RuntimeAdapter;
 use near_chain::{Block, ChainGenesis};
-use near_chain_configs::{Genesis, GenesisConfig, MutableConfigValue, TrackedShardsConfig};
+use near_chain_configs::{
+    Genesis, GenesisConfig, MutableConfigValue, ProtocolVersionCheckConfig, TrackedShardsConfig,
+};
 use near_chunks::test_utils::MockClientAdapterForShardsManager;
-use near_client::Client;
+use near_client::{ChunkValidationActorInner, Client};
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_epoch_manager::{EpochManager, EpochManagerHandle};
 use near_network::test_utils::MockPeerManagerAdapter;
@@ -32,6 +33,7 @@ use super::setup::{
     setup_tx_request_handler,
 };
 use super::test_env::{AccountIndices, TestEnv};
+use near_async::ActorSystem;
 
 /// A builder for the TestEnv structure.
 pub struct TestEnvBuilder {
@@ -50,19 +52,18 @@ pub struct TestEnvBuilder {
     // random seed to be inject in each client according to AccountId
     // if not set, a default constant TEST_SEED will be injected
     seeds: HashMap<AccountId, RngSeed>,
-    archive: bool,
+    enable_split_store: bool,
     save_trie_changes: bool,
+    save_tx_outcomes: bool,
     state_snapshot_enabled: bool,
     track_all_shards: bool,
+    protocol_version_check: ProtocolVersionCheckConfig,
 }
 
 /// Builder for the [`TestEnv`] structure.
 impl TestEnvBuilder {
     /// Constructs a new builder.
     pub(crate) fn new(genesis_config: GenesisConfig) -> Self {
-        if let None = System::try_current() {
-            let _ = System::new();
-        }
         let clients = Self::make_accounts(1);
         let validators = clients.clone();
         let seeds: HashMap<AccountId, RngSeed> = HashMap::with_capacity(1);
@@ -80,10 +81,12 @@ impl TestEnvBuilder {
             runtimes: None,
             network_adapters: None,
             seeds,
-            archive: false,
+            enable_split_store: false,
             save_trie_changes: true,
+            save_tx_outcomes: true,
             state_snapshot_enabled: false,
             track_all_shards: false,
+            protocol_version_check: Default::default(),
         }
     }
 
@@ -199,7 +202,7 @@ impl TestEnvBuilder {
                 // this limit, we set the max_open_files config to 1000.
                 let mut store_config = StoreConfig::default();
                 store_config.max_open_files = 1000;
-                NodeStorage::opener(home_dir.as_path(), &store_config, None)
+                NodeStorage::opener(home_dir.as_path(), &store_config, None, None)
                     .open()
                     .unwrap()
                     .get_hot_store()
@@ -419,13 +422,26 @@ impl TestEnvBuilder {
         }
     }
 
-    pub fn archive(mut self, archive: bool) -> Self {
-        self.archive = archive;
+    pub fn enable_split_store(mut self, enable_split_store: bool) -> Self {
+        self.enable_split_store = enable_split_store;
         self
     }
 
     pub fn save_trie_changes(mut self, save_trie_changes: bool) -> Self {
         self.save_trie_changes = save_trie_changes;
+        self
+    }
+
+    pub fn save_tx_outcomes(mut self, save_tx_outcomes: bool) -> Self {
+        self.save_tx_outcomes = save_tx_outcomes;
+        self
+    }
+
+    pub fn protocol_version_check(
+        mut self,
+        protocol_version_check: ProtocolVersionCheckConfig,
+    ) -> Self {
+        self.protocol_version_check = protocol_version_check;
         self
     }
 
@@ -502,7 +518,9 @@ impl TestEnvBuilder {
                 )
             })
             .collect_vec();
-        let clients: Vec<Client> = (0..num_clients)
+        let actor_system = ActorSystem::new();
+        let (clients, chunk_validation_actors): (Vec<Client>, Vec<ChunkValidationActorInner>) =
+            (0..num_clients)
                 .map(|i| {
                     let account_id = client_accounts[i].clone();
                     let network_adapter = network_adapters[i].clone();
@@ -538,6 +556,7 @@ impl TestEnvBuilder {
                     };
                     setup_client_with_runtime(
                         clock.clone(),
+                        actor_system.clone(),
                         u64::try_from(num_validators).unwrap(),
                         false,
                         network_adapter.as_multi_sender(),
@@ -547,15 +566,17 @@ impl TestEnvBuilder {
                         shard_tracker,
                         runtime,
                         rng_seed,
-                        self.archive,
+                        self.enable_split_store,
                         self.save_trie_changes,
+                        self.save_tx_outcomes,
+                        self.protocol_version_check,
                         Some(snapshot_callbacks),
                         partial_witness_adapter.into_multi_sender(),
                         validator_signers[i].clone(),
                         noop().into_multi_sender(),
                     )
                 })
-                .collect();
+                .unzip();
 
         let tx_request_handlers = (0..num_clients)
             .map(|i| {
@@ -572,6 +593,7 @@ impl TestEnvBuilder {
 
         TestEnv {
             clock,
+            actor_system,
             chain_genesis,
             validators,
             network_adapters,
@@ -579,6 +601,7 @@ impl TestEnvBuilder {
             partial_witness_adapters,
             shards_manager_adapters,
             clients,
+            chunk_validation_actors,
             rpc_handlers: tx_request_handlers,
             account_indices: AccountIndices(
                 self.clients
@@ -589,8 +612,10 @@ impl TestEnvBuilder {
             ),
             paused_blocks: Default::default(),
             seeds,
-            archive: self.archive,
+            enable_split_store: self.enable_split_store,
             save_trie_changes: self.save_trie_changes,
+            save_tx_outcomes: self.save_tx_outcomes,
+            protocol_version_check: self.protocol_version_check,
         }
     }
 

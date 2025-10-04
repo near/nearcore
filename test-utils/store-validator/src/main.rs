@@ -30,7 +30,8 @@ fn main() {
     let store = near_store::NodeStorage::opener(
         home_dir,
         &near_config.config.store,
-        near_config.config.archival_config(),
+        near_config.config.cold_store.as_ref(),
+        near_config.config.cloud_storage_config(),
     )
     .open()
     .unwrap()
@@ -50,7 +51,6 @@ fn main() {
     )
     .expect("could not create transaction runtime");
     let mut store_validator = StoreValidator::new(
-        near_config.validator_signer.get().map(|x| x.validator_id().clone()),
         near_config.genesis.config,
         epoch_manager,
         shard_tracker,

@@ -3,6 +3,7 @@ use crate::block::BlockValidityError::{
     InvalidChunkHeaderRoot, InvalidChunkMask, InvalidReceiptRoot, InvalidStateRoot,
     InvalidTransactionRoot,
 };
+use crate::block_body::SpiceCoreStatement;
 use crate::block_body::{BlockBody, BlockBodyV1, ChunkEndorsementSignatures};
 pub use crate::block_header::*;
 use crate::challenge::Challenge;
@@ -20,15 +21,13 @@ use crate::{
     utils::get_block_metadata,
 };
 use borsh::{BorshDeserialize, BorshSerialize};
-#[cfg(feature = "clock")]
 use itertools::Itertools;
 #[cfg(feature = "clock")]
 use near_primitives_core::types::ProtocolVersion;
-use near_primitives_core::types::ShardIndex;
 use near_schema_checker_lib::ProtocolSchema;
 use primitive_types::U256;
 use std::collections::BTreeMap;
-use std::ops::Index;
+use std::ops::Deref;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum BlockValidityError {
@@ -80,11 +79,13 @@ pub struct BlockV4 {
 /// Versioned Block data structure.
 /// For each next version, document what are the changes between versions.
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Eq, PartialEq, ProtocolSchema)]
+#[borsh(use_discriminant = true)]
+#[repr(u8)]
 pub enum Block {
-    BlockV1(BlockV1),
-    BlockV2(BlockV2),
-    BlockV3(BlockV3),
-    BlockV4(BlockV4),
+    BlockV1(BlockV1) = 0,
+    BlockV2(BlockV2) = 1,
+    BlockV3(BlockV3) = 2,
+    BlockV4(BlockV4) = 3,
 }
 
 impl Block {
@@ -122,20 +123,25 @@ impl Block {
         clock: near_time::Clock,
         sandbox_delta_time: Option<near_time::Duration>,
         optimistic_block: Option<OptimisticBlock>,
+        // TODO(spice): Change type to Vec<SpiceCoreStatement> once spice feature is tied to
+        // protocol version. We use option for now to indicate whether spice feature is enabled to
+        // allow creating non-spice blocks for tests.
+        core_statements: Option<Vec<SpiceCoreStatement>>,
     ) -> Self {
         // Collect aggregate of validators and gas usage/limits from chunks.
+
         let mut prev_validator_proposals = vec![];
-        let mut gas_used = 0;
+        let mut gas_used = Gas::ZERO;
         // This computation of chunk_mask relies on the fact that chunks are ordered by shard_id.
         let mut chunk_mask = vec![];
-        let mut balance_burnt = 0;
-        let mut gas_limit = 0;
+        let mut balance_burnt = Balance::ZERO;
+        let mut gas_limit = Gas::ZERO;
         for chunk in &chunks {
             if chunk.height_included() == height {
                 prev_validator_proposals.extend(chunk.prev_validator_proposals());
-                gas_used += chunk.prev_gas_used();
-                gas_limit += chunk.gas_limit();
-                balance_burnt += chunk.prev_balance_burnt();
+                gas_used = gas_used.checked_add(chunk.prev_gas_used()).unwrap();
+                gas_limit = gas_limit.checked_add(chunk.gas_limit()).unwrap();
+                balance_burnt = balance_burnt.checked_add(chunk.prev_balance_burnt()).unwrap();
                 chunk_mask.push(true);
             } else {
                 chunk_mask.push(false);
@@ -150,7 +156,12 @@ impl Block {
             max_gas_price,
         );
 
-        let new_total_supply = prev.total_supply() + minted_amount.unwrap_or(0) - balance_burnt;
+        let new_total_supply = prev
+            .total_supply()
+            .checked_add(minted_amount.unwrap_or(Balance::ZERO))
+            .unwrap()
+            .checked_sub(balance_burnt)
+            .unwrap();
 
         // Use the optimistic block data if available, otherwise compute it.
         let (time, vrf_value, vrf_proof, random_value) = optimistic_block
@@ -206,12 +217,23 @@ impl Block {
                 .collect_vec(),
         ));
 
-        let body = BlockBody::new(chunks, vrf_value, vrf_proof, chunk_endorsements);
+        let chunks_wrapper = Chunks::from_chunk_headers(&chunks, height);
         let prev_state_root = if cfg!(feature = "protocol_feature_spice") {
             // TODO(spice): include state root from the relevant previous executed block.
             CryptoHash::default()
         } else {
-            Block::compute_state_root(body.chunks())
+            chunks_wrapper.compute_state_root()
+        };
+        let prev_chunk_outgoing_receipts_root =
+            chunks_wrapper.compute_chunk_prev_outgoing_receipts_root();
+        let chunk_headers_root = chunks_wrapper.compute_chunk_headers_root();
+        let chunk_tx_root = chunks_wrapper.compute_chunk_tx_root();
+        let outcome_root = chunks_wrapper.compute_outcome_root();
+
+        let body = if let Some(core_statements) = core_statements {
+            BlockBody::new_for_spice(chunks, vrf_value, vrf_proof, core_statements)
+        } else {
+            BlockBody::new(chunks, vrf_value, vrf_proof, chunk_endorsements)
         };
 
         let header = BlockHeader::new(
@@ -220,10 +242,10 @@ impl Block {
             *prev.hash(),
             body.compute_hash(),
             prev_state_root,
-            Block::compute_chunk_prev_outgoing_receipts_root(body.chunks()),
-            Block::compute_chunk_headers_root(body.chunks()).0,
-            Block::compute_chunk_tx_root(body.chunks()),
-            Block::compute_outcome_root(body.chunks()),
+            prev_chunk_outgoing_receipts_root,
+            chunk_headers_root.0,
+            chunk_tx_root,
+            outcome_root,
             time,
             random_value,
             prev_validator_proposals,
@@ -252,15 +274,17 @@ impl Block {
         prev_total_supply: Balance,
         minted_amount: Option<Balance>,
     ) -> bool {
-        let mut balance_burnt = 0;
+        let mut balance_burnt = Balance::ZERO;
 
-        for chunk in self.chunks().iter_deprecated() {
-            if chunk.height_included() == self.header().height() {
-                balance_burnt += chunk.prev_balance_burnt();
-            }
+        for chunk in self.chunks().iter_new() {
+            balance_burnt = balance_burnt.checked_add(chunk.prev_balance_burnt()).unwrap();
         }
 
-        let new_total_supply = prev_total_supply + minted_amount.unwrap_or(0) - balance_burnt;
+        let new_total_supply = prev_total_supply
+            .checked_add(minted_amount.unwrap_or(Balance::ZERO))
+            .unwrap()
+            .checked_sub(balance_burnt)
+            .unwrap();
         self.header().total_supply() == new_total_supply
     }
 
@@ -271,10 +295,8 @@ impl Block {
         max_gas_price: Balance,
         gas_price_adjustment_rate: Rational32,
     ) -> bool {
-        let gas_used =
-            Self::compute_gas_used(self.chunks().iter_deprecated(), self.header().height());
-        let gas_limit =
-            Self::compute_gas_limit(self.chunks().iter_deprecated(), self.header().height());
+        let gas_used = self.chunks().compute_gas_used();
+        let gas_limit = self.chunks().compute_gas_limit();
         let expected_price = Self::compute_next_gas_price(
             gas_price,
             gas_used,
@@ -298,12 +320,12 @@ impl Block {
         max_gas_price: Balance,
     ) -> Balance {
         // If block was skipped, the price does not change.
-        if gas_limit == 0 {
+        if gas_limit == Gas::ZERO {
             return gas_price;
         }
 
-        let gas_used = u128::from(gas_used);
-        let gas_limit = u128::from(gas_limit);
+        let gas_used = u128::from(gas_used.as_gas());
+        let gas_limit = u128::from(gas_limit.as_gas());
         let adjustment_rate_numer = *gas_price_adjustment_rate.numer() as u128;
         let adjustment_rate_denom = *gas_price_adjustment_rate.denom() as u128;
 
@@ -314,85 +336,16 @@ impl Block {
             - adjustment_rate_numer * gas_limit;
         let denominator = 2 * adjustment_rate_denom * gas_limit;
         let next_gas_price =
-            U256::from(gas_price) * U256::from(numerator) / U256::from(denominator);
+            U256::from(gas_price.as_yoctonear()) * U256::from(numerator) / U256::from(denominator);
 
-        next_gas_price.clamp(U256::from(min_gas_price), U256::from(max_gas_price)).as_u128()
-    }
-
-    pub fn compute_state_root<'a, T: IntoIterator<Item = &'a ShardChunkHeader>>(
-        chunks: T,
-    ) -> CryptoHash {
-        merklize(
-            &chunks.into_iter().map(|chunk| chunk.prev_state_root()).collect::<Vec<CryptoHash>>(),
+        Balance::from_yoctonear(
+            next_gas_price
+                .clamp(
+                    U256::from(min_gas_price.as_yoctonear()),
+                    U256::from(max_gas_price.as_yoctonear()),
+                )
+                .as_u128(),
         )
-        .0
-    }
-
-    pub fn compute_chunk_prev_outgoing_receipts_root<
-        'a,
-        T: IntoIterator<Item = &'a ShardChunkHeader>,
-    >(
-        chunks: T,
-    ) -> CryptoHash {
-        merklize(
-            &chunks
-                .into_iter()
-                .map(|chunk| chunk.prev_outgoing_receipts_root())
-                .copied()
-                .collect::<Vec<CryptoHash>>(),
-        )
-        .0
-    }
-
-    pub fn compute_chunk_headers_root<'a, T: IntoIterator<Item = &'a ShardChunkHeader>>(
-        chunks: T,
-    ) -> (CryptoHash, Vec<MerklePath>) {
-        merklize(
-            &chunks
-                .into_iter()
-                .map(|chunk| ChunkHashHeight(chunk.chunk_hash().clone(), chunk.height_included()))
-                .collect::<Vec<ChunkHashHeight>>(),
-        )
-    }
-
-    pub fn compute_chunk_tx_root<'a, T: IntoIterator<Item = &'a ShardChunkHeader>>(
-        chunks: T,
-    ) -> CryptoHash {
-        merklize(
-            &chunks.into_iter().map(|chunk| chunk.tx_root()).copied().collect::<Vec<CryptoHash>>(),
-        )
-        .0
-    }
-
-    pub fn compute_outcome_root<'a, T: IntoIterator<Item = &'a ShardChunkHeader>>(
-        chunks: T,
-    ) -> CryptoHash {
-        merklize(
-            &chunks
-                .into_iter()
-                .map(|chunk| chunk.prev_outcome_root())
-                .copied()
-                .collect::<Vec<CryptoHash>>(),
-        )
-        .0
-    }
-
-    pub fn compute_gas_used<'a, T: IntoIterator<Item = &'a ShardChunkHeader>>(
-        chunks: T,
-        height: BlockHeight,
-    ) -> Gas {
-        chunks.into_iter().fold(0, |acc, chunk| {
-            if chunk.height_included() == height { acc + chunk.prev_gas_used() } else { acc }
-        })
-    }
-
-    pub fn compute_gas_limit<'a, T: IntoIterator<Item = &'a ShardChunkHeader>>(
-        chunks: T,
-        height: BlockHeight,
-    ) -> Gas {
-        chunks.into_iter().fold(0, |acc, chunk| {
-            if chunk.height_included() == height { acc + chunk.gas_limit() } else { acc }
-        })
     }
 
     pub fn validate_chunk_header_proof(
@@ -449,6 +402,22 @@ impl Block {
         }
     }
 
+    #[inline]
+    pub fn spice_core_statements(&self) -> &[SpiceCoreStatement] {
+        match self {
+            Block::BlockV1(_) | Block::BlockV2(_) | Block::BlockV3(_) => &[],
+            Block::BlockV4(block) => block.body.spice_core_statements(),
+        }
+    }
+
+    #[inline]
+    pub fn is_spice_block(&self) -> bool {
+        match self {
+            Block::BlockV1(_) | Block::BlockV2(_) | Block::BlockV3(_) => false,
+            Block::BlockV4(block) => block.body.is_spice_block(),
+        }
+    }
+
     pub fn block_congestion_info(&self) -> BlockCongestionInfo {
         self.chunks().block_congestion_info()
     }
@@ -477,43 +446,38 @@ impl Block {
         // TODO(spice): check that block's state_root matches state_root corresponding to chunks of
         // the appropriate executed block from the past.
         if !cfg!(feature = "protocol_feature_spice") {
-            let state_root = Block::compute_state_root(self.chunks().iter_deprecated());
+            let state_root = self.chunks().compute_state_root();
             if self.header().prev_state_root() != &state_root {
                 return Err(InvalidStateRoot);
             }
         }
 
         // Check that chunk receipts root stored in the header matches the state root of the chunks
-        let chunk_receipts_root =
-            Block::compute_chunk_prev_outgoing_receipts_root(self.chunks().iter_deprecated());
+        let chunk_receipts_root = self.chunks().compute_chunk_prev_outgoing_receipts_root();
         if self.header().prev_chunk_outgoing_receipts_root() != &chunk_receipts_root {
             return Err(InvalidReceiptRoot);
         }
 
         // Check that chunk headers root stored in the header matches the chunk headers root of the chunks
-        let chunk_headers_root =
-            Block::compute_chunk_headers_root(self.chunks().iter_deprecated()).0;
+        let chunk_headers_root = self.chunks().compute_chunk_headers_root().0;
         if self.header().chunk_headers_root() != &chunk_headers_root {
             return Err(InvalidChunkHeaderRoot);
         }
 
         // Check that chunk tx root stored in the header matches the tx root of the chunks
-        let chunk_tx_root = Block::compute_chunk_tx_root(self.chunks().iter_deprecated());
+        let chunk_tx_root = self.chunks().compute_chunk_tx_root();
         if self.header().chunk_tx_root() != &chunk_tx_root {
             return Err(InvalidTransactionRoot);
         }
 
-        let outcome_root = Block::compute_outcome_root(self.chunks().iter_deprecated());
+        let outcome_root = self.chunks().compute_outcome_root();
         if self.header().outcome_root() != &outcome_root {
             return Err(InvalidTransactionRoot);
         }
 
         // Check that chunk included root stored in the header matches the chunk included root of the chunks
-        let chunk_mask: Vec<bool> = self
-            .chunks()
-            .iter_deprecated()
-            .map(|chunk| chunk.height_included() == self.header().height())
-            .collect();
+        let chunk_mask: Vec<bool> =
+            self.chunks().iter().map(|chunk| chunk.is_new_chunk()).collect();
         if self.header().chunk_mask() != &chunk_mask[..] {
             return Err(InvalidChunkMask);
         }
@@ -522,22 +486,50 @@ impl Block {
     }
 }
 
-#[derive(Clone)]
-pub enum MaybeNew<'a, T> {
-    New(&'a T),
-    Old(&'a T),
+/// Distinguishes between new and old chunks.
+/// Note: Some of the data of the cold chunk may be incompatible with the current protocol version.
+/// Example in case of resharding, if the child shard chunk is missing in the first block.
+/// the shard_id of the old chunk may be different from the shard_id of the new chunk.
+#[derive(Clone, Debug)]
+pub enum ChunkType<'a> {
+    New(&'a ShardChunkHeader),
+    Old(&'a ShardChunkHeader),
 }
 
-fn annotate_chunk(
-    chunk: &ShardChunkHeader,
-    block_height: BlockHeight,
-) -> MaybeNew<ShardChunkHeader> {
-    if chunk.is_new_chunk(block_height) { MaybeNew::New(chunk) } else { MaybeNew::Old(chunk) }
+/// Implements Deref for ChunkType to allow access to ShardChunkHeader methods directly.
+impl Deref for ChunkType<'_> {
+    type Target = ShardChunkHeader;
+
+    fn deref(&self) -> &Self::Target {
+        match self {
+            ChunkType::New(chunk) => chunk,
+            ChunkType::Old(chunk) => chunk,
+        }
+    }
 }
 
-pub enum ChunksCollection<'a> {
+impl ChunkType<'_> {
+    pub fn is_new_chunk(&self) -> bool {
+        matches!(self, ChunkType::New(_))
+    }
+}
+
+// For BlockV1, we store the chunks in a Vec, else we use a slice reference.
+enum ChunksCollection<'a> {
     V1(Vec<ShardChunkHeader>),
     V2(&'a [ShardChunkHeader]),
+}
+
+/// Implements Deref for ChunksCollection to allow access to [ShardChunkHeader] methods directly.
+impl Deref for ChunksCollection<'_> {
+    type Target = [ShardChunkHeader];
+
+    fn deref(&self) -> &Self::Target {
+        match self {
+            ChunksCollection::V1(chunks) => chunks.as_ref(),
+            ChunksCollection::V2(chunks) => chunks,
+        }
+    }
 }
 
 pub struct Chunks<'a> {
@@ -545,15 +537,12 @@ pub struct Chunks<'a> {
     block_height: BlockHeight,
 }
 
-impl<'a> Index<ShardIndex> for Chunks<'a> {
-    type Output = ShardChunkHeader;
+/// Implements Deref for Chunks to allow access to [ShardChunkHeader] methods directly.
+impl Deref for Chunks<'_> {
+    type Target = [ShardChunkHeader];
 
-    /// Deprecated. Please use get instead, it's safer.
-    fn index(&self, index: usize) -> &Self::Output {
-        match &self.chunks {
-            ChunksCollection::V1(chunks) => &chunks[index],
-            ChunksCollection::V2(chunks) => &chunks[index],
-        }
+    fn deref(&self) -> &Self::Target {
+        &self.chunks
     }
 }
 
@@ -578,56 +567,42 @@ impl<'a> Chunks<'a> {
         Self { chunks: ChunksCollection::V2(chunk_headers), block_height }
     }
 
-    pub fn len(&self) -> usize {
-        match &self.chunks {
-            ChunksCollection::V1(chunks) => chunks.len(),
-            ChunksCollection::V2(chunks) => chunks.len(),
-        }
-    }
-
-    /// Deprecated, use `iter` instead. `iter_raw` is available if there is no need to
-    /// distinguish between old and new headers.
-    pub fn iter_deprecated(&'a self) -> Box<dyn Iterator<Item = &'a ShardChunkHeader> + 'a> {
-        match &self.chunks {
-            ChunksCollection::V1(chunks) => Box::new(chunks.iter()),
-            ChunksCollection::V2(chunks) => Box::new(chunks.iter()),
-        }
-    }
-
-    pub fn iter_raw(&'a self) -> Box<dyn Iterator<Item = &'a ShardChunkHeader> + 'a> {
-        match &self.chunks {
-            ChunksCollection::V1(chunks) => Box::new(chunks.iter()),
-            ChunksCollection::V2(chunks) => Box::new(chunks.iter()),
-        }
-    }
-
-    /// Returns an iterator over the shard chunk headers, differentiating between new and old chunks.
-    pub fn iter(&'a self) -> Box<dyn Iterator<Item = MaybeNew<'a, ShardChunkHeader>> + 'a> {
-        match &self.chunks {
-            ChunksCollection::V1(chunks) => {
-                Box::new(chunks.iter().map(|chunk| annotate_chunk(chunk, self.block_height)))
+    /// Returns an iterator over all shard chunk headers, distinguishing between new and old chunks.
+    pub fn iter(&'a self) -> impl Iterator<Item = ChunkType<'a>> {
+        self.chunks.iter().map(|chunk| {
+            if chunk.is_new_chunk(self.block_height) {
+                ChunkType::New(chunk)
+            } else {
+                ChunkType::Old(chunk)
             }
-            ChunksCollection::V2(chunks) => {
-                Box::new(chunks.iter().map(|chunk| annotate_chunk(chunk, self.block_height)))
-            }
-        }
+        })
     }
 
-    pub fn get(&self, index: ShardIndex) -> Option<&ShardChunkHeader> {
-        match &self.chunks {
-            ChunksCollection::V1(chunks) => chunks.get(index),
-            ChunksCollection::V2(chunks) => chunks.get(index),
-        }
+    /// Returns an iterator over all shard chunk headers, regardless of whether they are new or old.
+    /// This doesn't have information about whether the chunk is new or old.
+    /// Use `iter` if you need to distinguish between new and old chunks.
+    pub fn iter_raw(&'a self) -> impl Iterator<Item = &'a ShardChunkHeader> {
+        self.chunks.iter()
+    }
+
+    /// Returns an iterator over the shard chunk headers that are old chunks.
+    pub fn iter_old(&'a self) -> impl Iterator<Item = &'a ShardChunkHeader> {
+        self.chunks.iter().filter(|chunk| !chunk.is_new_chunk(self.block_height))
+    }
+
+    /// Returns an iterator over the shard chunk headers that are new chunks.
+    pub fn iter_new(&'a self) -> impl Iterator<Item = &'a ShardChunkHeader> {
+        self.chunks.iter().filter(|chunk| chunk.is_new_chunk(self.block_height))
     }
 
     pub fn min_height_included(&self) -> Option<BlockHeight> {
-        self.iter_raw().map(|chunk| chunk.height_included()).min()
+        self.iter().map(|chunk| chunk.height_included()).min()
     }
 
     pub fn block_congestion_info(&self) -> BlockCongestionInfo {
         let mut result = BTreeMap::new();
 
-        for chunk in self.iter_deprecated() {
+        for chunk in self.iter_raw() {
             let shard_id = chunk.shard_id();
 
             let congestion_info = chunk.congestion_info();
@@ -647,23 +622,52 @@ impl<'a> Chunks<'a> {
     pub fn block_bandwidth_requests(&self) -> BlockBandwidthRequests {
         let mut result = BTreeMap::new();
 
+        // It's okay to take bandwidth requests from a missing chunk,
+        // the chunk was missing so it didn't send anything and still
+        // wants to send out the same receipts.
         for chunk in self.iter() {
-            // It's okay to take bandwidth requests from a missing chunk,
-            // the chunk was missing so it didn't send anything and still
-            // wants to send out the same receipts.
-            let chunk = match chunk {
-                MaybeNew::New(new_chunk) => new_chunk,
-                MaybeNew::Old(missing_chunk) => missing_chunk,
-            };
-
             let shard_id = chunk.shard_id();
-
             if let Some(bandwidth_requests) = chunk.bandwidth_requests() {
                 result.insert(shard_id, bandwidth_requests.clone());
             }
         }
 
         BlockBandwidthRequests { shards_bandwidth_requests: result }
+    }
+
+    // Instance methods that use self's iterator methods
+    pub fn compute_state_root(&self) -> CryptoHash {
+        merklize(&self.iter().map(|chunk| chunk.prev_state_root()).collect_vec()).0
+    }
+
+    pub fn compute_chunk_prev_outgoing_receipts_root(&self) -> CryptoHash {
+        merklize(&self.iter().map(|chunk| *chunk.prev_outgoing_receipts_root()).collect_vec()).0
+    }
+
+    pub fn compute_chunk_headers_root(&self) -> (CryptoHash, Vec<MerklePath>) {
+        merklize(
+            &self
+                .iter()
+                .map(|chunk| ChunkHashHeight(chunk.chunk_hash().clone(), chunk.height_included()))
+                .collect_vec(),
+        )
+    }
+
+    pub fn compute_chunk_tx_root(&self) -> CryptoHash {
+        merklize(&self.iter().map(|chunk| *chunk.tx_root()).collect_vec()).0
+    }
+
+    pub fn compute_outcome_root(&self) -> CryptoHash {
+        merklize(&self.iter().map(|chunk| *chunk.prev_outcome_root()).collect_vec()).0
+    }
+
+    pub fn compute_gas_used(&self) -> Gas {
+        self.iter_new()
+            .fold(Gas::ZERO, |acc, chunk| acc.checked_add(chunk.prev_gas_used()).unwrap())
+    }
+
+    pub fn compute_gas_limit(&self) -> Gas {
+        self.iter_new().fold(Gas::ZERO, |acc, chunk| acc.checked_add(chunk.gas_limit()).unwrap())
     }
 }
 

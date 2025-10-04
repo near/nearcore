@@ -10,13 +10,13 @@ use std::sync::Arc;
 use testlib::fees_utils::FeeHelper;
 use testlib::runtime_utils::{add_test_contract, alice_account, bob_account};
 
-const TGAS: Gas = 10u64.pow(12);
+const DEFAULT_MINIMAL_GAS_ATTACHMENT: Gas = Gas::from_gas(1);
 
 #[test]
 fn test_burn_all_gas() {
-    let attached_gas = 100 * TGAS;
-    let burn_gas = attached_gas + 1;
-    let deposit = 0;
+    let attached_gas = Gas::from_teragas(100);
+    let burn_gas = attached_gas.checked_add(DEFAULT_MINIMAL_GAS_ATTACHMENT).unwrap();
+    let deposit = Balance::ZERO;
 
     let refunds = generated_refunds_after_fn_call(attached_gas, burn_gas, deposit);
 
@@ -29,9 +29,9 @@ fn test_burn_all_gas() {
 
 #[test]
 fn test_deposit_refund() {
-    let attached_gas = 100 * TGAS;
-    let burn_gas = attached_gas + 1;
-    let deposit = 10;
+    let attached_gas = Gas::from_teragas(100);
+    let burn_gas = attached_gas.checked_add(DEFAULT_MINIMAL_GAS_ATTACHMENT).unwrap();
+    let deposit = Balance::from_yoctonear(10);
 
     let refunds = generated_refunds_after_fn_call(attached_gas, burn_gas, deposit);
 
@@ -44,9 +44,9 @@ fn test_deposit_refund() {
 
 #[test]
 fn test_big_gas_refund() {
-    let attached_gas = 100 * TGAS;
-    let burn_gas = 10 * TGAS;
-    let deposit = 0;
+    let attached_gas = Gas::from_teragas(100);
+    let burn_gas = Gas::from_teragas(10);
+    let deposit = Balance::ZERO;
 
     let refunds = generated_refunds_after_fn_call(attached_gas, burn_gas, deposit);
 
@@ -55,9 +55,9 @@ fn test_big_gas_refund() {
 
 #[test]
 fn test_small_gas_refund() {
-    let attached_gas = 10 * TGAS;
-    let burn_gas = attached_gas - TGAS / 2;
-    let deposit = 0;
+    let attached_gas = Gas::from_teragas(10);
+    let burn_gas = attached_gas.checked_sub(Gas::from_teragas(1).checked_div(2).unwrap()).unwrap();
+    let deposit = Balance::ZERO;
 
     let refunds = generated_refunds_after_fn_call(attached_gas, burn_gas, deposit);
 
@@ -110,7 +110,7 @@ fn generated_refunds_after_fn_call(
     }
 
     let balance_after = node_user.view_balance(&alice_account()).unwrap();
-    let total_cost = balance_before - balance_after;
+    let total_cost = balance_before.checked_sub(balance_after).unwrap();
 
     // Make sure the total balances check out
     assert_eq!(outcome.tokens_burnt(), total_cost);
@@ -127,25 +127,28 @@ fn generated_refunds_after_fn_call(
         .unwrap()
         .iter()
         .map(|cost_entry| cost_entry.gas_used)
-        .sum();
+        .fold(Gas::ZERO, |acc, gas| acc.checked_add(gas).unwrap());
 
-    let expected_cost = fee_helper.function_call_cost(bytes, actual_fn_call_gas_burnt);
+    let expected_cost = fee_helper.function_call_cost(bytes, actual_fn_call_gas_burnt.as_gas());
 
     // Do a general check on the gas penalty.
     // Since gas price didn't change, the only difference must be the gas refund penalty.
-    let penalty = total_cost - expected_cost;
+    let penalty = total_cost.checked_sub(expected_cost).unwrap();
     if ProtocolFeature::ReducedGasRefunds.enabled(PROTOCOL_VERSION) {
-        let unspent_gas = attached_gas - actual_fn_call_gas_burnt;
+        let unspent_gas = attached_gas.checked_sub(actual_fn_call_gas_burnt).unwrap();
         let max_gas_penalty = unspent_gas.max(
-            unspent_gas * (*fee_helper.cfg().gas_refund_penalty.numer() as u64)
-                / (*fee_helper.cfg().gas_refund_penalty.denom() as u64),
+            unspent_gas
+                .checked_mul(*fee_helper.cfg().gas_refund_penalty.numer() as u64)
+                .unwrap()
+                .checked_div(*fee_helper.cfg().gas_refund_penalty.denom() as u64)
+                .unwrap(),
         );
         let min_gas_penalty = unspent_gas.min(fee_helper.cfg().min_gas_refund_penalty);
 
         assert!(penalty >= fee_helper.gas_to_balance(min_gas_penalty));
         assert!(penalty <= fee_helper.gas_to_balance(max_gas_penalty));
     } else {
-        assert_eq!(penalty, 0, "there should be no gas penalty in this version");
+        assert_eq!(penalty, Balance::ZERO, "there should be no gas penalty in this version");
     };
 
     // Let each test check refund receipts separately.
@@ -167,14 +170,14 @@ fn setup_env(contract_load_gas: Gas) -> (RuntimeNode, FeeHelper) {
     (node, fee_helper)
 }
 
-fn runtime_config_with_contract_load_cost(contract_load_gas: u64) -> RuntimeConfig {
+fn runtime_config_with_contract_load_cost(contract_load_gas: Gas) -> RuntimeConfig {
     let runtime_config_store = RuntimeConfigStore::new(None);
     let mut runtime_config =
         RuntimeConfig::clone(runtime_config_store.get_config(PROTOCOL_VERSION));
 
     let mut wasm_config = near_parameters::vm::Config::clone(&runtime_config.wasm_config);
     wasm_config.ext_costs.costs[ExtCosts::contract_loading_base] =
-        ParameterCost { gas: contract_load_gas, compute: contract_load_gas };
+        ParameterCost { gas: contract_load_gas, compute: contract_load_gas.as_gas() };
     runtime_config.wasm_config = Arc::new(wasm_config);
     runtime_config
 }

@@ -9,7 +9,6 @@ publish = false
 workspace = true
 
 [dependencies]
-actix.workspace = true
 anyhow.workspace = true
 borsh.workspace = true
 bytesize.workspace = true
@@ -33,8 +32,10 @@ thread-priority.workspace = true
 time.workspace = true
 tokio.workspace = true
 tracing.workspace = true
+reed-solomon-erasure.workspace = true
 
 near-async.workspace = true
+near-cache.workspace = true
 near-chain-configs = { workspace = true, features = [
     "test_genesis",
     "test_utils",
@@ -77,10 +78,10 @@ shadow_chunk_validation = []
 protocol_feature_spice = [
     "near-epoch-manager/protocol_feature_spice",
     "near-primitives/protocol_feature_spice",
+    "near-store/protocol_feature_spice",
 ]
 
 nightly = [
-    "near-async/nightly",
     "near-chain-configs/nightly",
     "near-client-primitives/nightly",
     "near-epoch-manager/nightly",

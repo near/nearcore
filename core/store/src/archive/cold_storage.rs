@@ -146,7 +146,7 @@ pub fn update_cold_db(
 // Correctly set the key and value on DBTransaction, taking reference counting
 // into account. For non-rc columns it just sets the value. For rc columns it
 // appends rc = 1 to the value and sets it.
-fn rc_aware_set(
+pub fn rc_aware_set(
     transaction: &mut DBTransaction,
     col: DBCol,
     key: Vec<u8>,
@@ -287,14 +287,14 @@ fn copy_from_store(
     let mut total_size = 0;
     let total_keys = keys.len();
     for key in keys {
-        // TODO: Look into using RocksDB’s multi_key function.  It
+        // TODO: Look into using RocksDB's multi_key function.  It
         // might speed things up.  Currently our Database abstraction
-        // doesn’t offer interface for it so that would need to be
+        // doesn't offer interface for it so that would need to be
         // added.
         let data = hot_store.get_for_cold(col, &key)?;
         if let Some(value) = data {
             // TODO: As an optimization, we might consider breaking the
-            // abstraction layer.  Since we’re always writing to cold database,
+            // abstraction layer.  Since we're always writing to cold database,
             // rather than using `cold_db: &dyn Database` argument we could have
             // `cold_db: &ColdDB` and then some custom function which lets us
             // write raw bytes. This would also allow us to bypass stripping and
@@ -325,7 +325,6 @@ fn copy_from_store(
 /// This method relies on the fact that BlockHeight and BlockHeader are not garbage collectable.
 /// (to construct the Tip we query hot_store for block hash and block header)
 /// If this is to change, caller should be careful about `height` not being garbage collected in hot storage yet.
-// TODO: Remove this and use `ArchivalStore::update_head` instead, once the archival storage logic is updated to use `ArchivalStore`.
 pub fn update_cold_head(
     cold_db: &ColdDB,
     hot_store: &Store,
@@ -466,14 +465,15 @@ fn get_keys_from_store(
     let block: Block = store.get_ser_or_err_for_cold(DBCol::Block, &block_hash_key)?;
     let mut chunk_hashes = vec![];
     let mut chunks = vec![];
-    for chunk_header in block.chunks().iter_deprecated() {
+    // TODO(cloud_archival): Maybe iterate over only new chunks?
+    for chunk_header in block.chunks().iter() {
         let chunk_hash = chunk_header.chunk_hash();
         chunk_hashes.push(chunk_hash.clone());
         let chunk: Option<ShardChunk> =
             store.get_ser_for_cold(DBCol::Chunks, chunk_hash.as_bytes())?;
         let shard_id = chunk_header.shard_id();
         let Some(chunk) = chunk else {
-            // TODO(archival_v2): Uncomment the check below and cover it with test
+            // TODO(cloud_archival): Uncomment the check below and cover it with test
             // if chunk_header.height_included() == block.header().height()
             //     && tracked_shards.contains(&shard_id)
             // {

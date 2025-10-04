@@ -97,11 +97,13 @@ pub struct StateSyncInfoV1 {
 /// with some changes to the meaning of the "sync_hash", we should only need to wait for one. So this is included
 /// in order to allow for this change in the future without needing another database migration.
 #[derive(Clone, Debug, PartialEq, BorshSerialize, BorshDeserialize)]
+#[borsh(use_discriminant = true)]
+#[repr(u8)]
 pub enum StateSyncInfo {
     /// Old state sync: sync to the state right before the new epoch
-    V0(StateSyncInfoV0),
+    V0(StateSyncInfoV0) = 0,
     /// New state sync: sync to the state right after the new epoch
-    V1(StateSyncInfoV1),
+    V1(StateSyncInfoV1) = 1,
 }
 
 impl StateSyncInfo {
@@ -337,10 +339,12 @@ impl ShardChunkHeaderV3 {
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Clone, PartialEq, Eq, Debug, ProtocolSchema)]
+#[borsh(use_discriminant = true)]
+#[repr(u8)]
 pub enum ShardChunkHeader {
-    V1(ShardChunkHeaderV1),
-    V2(ShardChunkHeaderV2),
-    V3(ShardChunkHeaderV3),
+    V1(ShardChunkHeaderV1) = 0,
+    V2(ShardChunkHeaderV2) = 1,
+    V3(ShardChunkHeaderV3) = 2,
 }
 
 impl ShardChunkHeader {
@@ -753,9 +757,11 @@ impl ShardChunkHeaderV1 {
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Eq, PartialEq, ProtocolSchema)]
+#[borsh(use_discriminant = true)]
+#[repr(u8)]
 pub enum PartialEncodedChunk {
-    V1(PartialEncodedChunkV1),
-    V2(PartialEncodedChunkV2),
+    V1(PartialEncodedChunkV1) = 0,
+    V2(PartialEncodedChunkV2) = 1,
 }
 
 impl PartialEncodedChunk {
@@ -840,6 +846,23 @@ impl PartialEncodedChunk {
         match self {
             Self::V1(chunk) => chunk.header.inner.shard_id,
             Self::V2(chunk) => chunk.header.shard_id(),
+        }
+    }
+
+    /// Creates a clone of this partial chunk without the parts, keeping only
+    /// the header and receipts.
+    pub fn clone_without_parts(&self) -> Self {
+        match self {
+            Self::V1(chunk) => Self::V1(PartialEncodedChunkV1 {
+                header: chunk.header.clone(),
+                parts: Vec::new(),
+                prev_outgoing_receipts: chunk.prev_outgoing_receipts.clone(),
+            }),
+            Self::V2(chunk) => Self::V2(PartialEncodedChunkV2 {
+                header: chunk.header.clone(),
+                parts: Vec::new(),
+                prev_outgoing_receipts: chunk.prev_outgoing_receipts.clone(),
+            }),
         }
     }
 }
@@ -979,9 +1002,11 @@ pub struct ShardChunkV2 {
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Eq, PartialEq, ProtocolSchema)]
+#[borsh(use_discriminant = true)]
+#[repr(u8)]
 pub enum ShardChunk {
-    V1(ShardChunkV1),
-    V2(ShardChunkV2),
+    V1(ShardChunkV1) = 0,
+    V2(ShardChunkV2) = 1,
 }
 
 impl ShardChunk {
@@ -1213,9 +1238,11 @@ pub struct EncodedShardChunkV2 {
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq, ProtocolSchema)]
+#[borsh(use_discriminant = true)]
+#[repr(u8)]
 pub enum EncodedShardChunk {
-    V1(EncodedShardChunkV1),
-    V2(EncodedShardChunkV2),
+    V1(EncodedShardChunkV1) = 0,
+    V2(EncodedShardChunkV2) = 1,
 }
 
 impl EncodedShardChunk {
@@ -1487,9 +1514,11 @@ pub struct ArcedShardChunkV2 {
 /// some fields inside `Arc` to avoid some cloning when the chunk is being
 /// persisted to disk.
 #[derive(BorshDeserialize, BorshSerialize, Clone)]
+#[borsh(use_discriminant = true)]
+#[repr(u8)]
 pub enum ArcedShardChunk {
-    V1(ArcedShardChunkV1),
-    V2(ArcedShardChunkV2),
+    V1(ArcedShardChunkV1) = 0,
+    V2(ArcedShardChunkV2) = 1,
 }
 
 impl ArcedShardChunk {
@@ -1601,7 +1630,7 @@ mod tests {
     use crate::transaction::SignedTransaction;
     use near_crypto::{KeyType, PublicKey};
     use near_primitives_core::hash::CryptoHash;
-    use near_primitives_core::types::ShardId;
+    use near_primitives_core::types::{Balance, ShardId};
 
     fn get_receipt() -> Receipt {
         let receipt_v0 = Receipt::V0(ReceiptV0 {
@@ -1611,10 +1640,10 @@ mod tests {
             receipt: ReceiptEnum::Action(ActionReceipt {
                 signer_id: "signer_id".parse().unwrap(),
                 signer_public_key: PublicKey::empty(KeyType::ED25519),
-                gas_price: 0,
+                gas_price: Balance::ZERO,
                 output_data_receivers: vec![],
                 input_data_ids: vec![],
-                actions: vec![Action::Transfer(TransferAction { deposit: 0 })],
+                actions: vec![Action::Transfer(TransferAction { deposit: Balance::ZERO })],
             }),
         });
         receipt_v0

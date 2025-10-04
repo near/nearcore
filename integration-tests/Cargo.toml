@@ -12,8 +12,6 @@ publish = false
 workspace = true
 
 [dependencies]
-actix-rt.workspace = true
-actix.workspace = true
 anyhow.workspace = true
 bytesize.workspace = true
 borsh.workspace = true
@@ -32,10 +30,10 @@ tempfile.workspace = true
 thiserror.workspace = true
 time.workspace = true
 tokio.workspace = true
+tokio-util.workspace = true
 tracing.workspace = true
 wat.workspace = true
 
-near-actix-test-utils.workspace = true
 near-async.workspace = true
 near-chain.workspace = true
 near-chain-configs.workspace = true
@@ -91,8 +89,6 @@ test_features = [
 ]
 
 nightly = [
-  "near-actix-test-utils/nightly",
-  "near-async/nightly",
   "near-chain-configs/nightly",
   "near-chain/nightly",
   "near-chunks/nightly",

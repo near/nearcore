@@ -16,7 +16,7 @@ from tqdm import tqdm
 
 from types import SimpleNamespace
 from mirror import CommandContext, get_nodes_status, init_cmd, new_test_cmd, \
-    reset_cmd, run_env_cmd, run_remote_cmd, run_remote_upload_file, \
+    reset_cmd, run_env_cmd, run_remote_cmd, run_remote_download_file, run_remote_upload_file, \
     start_nodes_cmd, stop_nodes_cmd, update_binaries_cmd
 
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
@@ -33,8 +33,8 @@ START_HEIGHT = 138038232
 SOURCE_BENCHNET_DIR = "../benchmarks/sharded-bm"
 
 REMOTE_HOME = "/home/ubuntu"
-BENCHNET_DIR = "/home/ubuntu/bench"
-NEAR_HOME = "/home/ubuntu/.near"
+BENCHNET_DIR = f"{REMOTE_HOME}/bench"
+NEAR_HOME = f"{REMOTE_HOME}/.near"
 CONFIG_PATH = f"{NEAR_HOME}/config.json"
 
 
@@ -43,7 +43,7 @@ def fetch_forknet_details(forknet_name, bm_params):
     find_instances_cmd = [
         "gcloud", "compute", "instances", "list", "--project=nearone-mocknet",
         f"--filter=name~'-{forknet_name}-' AND -name~'traffic' AND -name~'tracing'",
-        "--format=get(name,networkInterfaces[0].networkIP)"
+        "--format=table(name,networkInterfaces[0].networkIP,zone)"
     ]
     find_instances_cmd_result = subprocess.run(
         find_instances_cmd,
@@ -51,18 +51,29 @@ def fetch_forknet_details(forknet_name, bm_params):
         text=True,
         check=True,
     )
-    output = find_instances_cmd_result.stdout.splitlines()
+
+    # drop the table header line in the output
+    nodes_data = find_instances_cmd_result.stdout.splitlines()[1:]
 
     num_cp_instances = bm_params['chunk_producers']
-    if len(output) != num_cp_instances + 1:
+    if len(nodes_data) != num_cp_instances:
         logger.error(
-            f"Expected {num_cp_instances + 1} instances, got {len(output)}")
+            f"Expected {num_cp_instances} instances, got {len(nodes_data)}")
         sys.exit(1)
 
-    rpc_instance = output[-1]
-    rpc_instance_name, rpc_instance_ip = rpc_instance.split()
-    cp_instances = list(map(lambda x: x.split(), output[:num_cp_instances]))
+    # cratch to refresh the local keystore
+    for node_data in nodes_data:
+        columns = node_data.split()
+        name, zone = columns[0], columns[2]
+        login_cmd = [
+            "gcloud", "compute", "ssh", "--zone", zone, f"ubuntu@{name}",
+            "--project", "nearone-mocknet", "--command", "pwd"
+        ]
+        subprocess.run(login_cmd, text=True, check=True)
+
+    cp_instances = list(map(lambda x: x.split(), nodes_data[:num_cp_instances]))
     cp_instance_names = [instance[0] for instance in cp_instances]
+    cp_instance_zones = [instance[2] for instance in cp_instances]
 
     find_tracing_server_cmd = [
         "gcloud", "compute", "instances", "list", "--project=nearone-mocknet",
@@ -78,12 +89,24 @@ def fetch_forknet_details(forknet_name, bm_params):
     output = tracing_server_cmd_result.stdout.strip()
     internal_ip, external_ip = output.split() if output else (None, None)
     return {
-        "rpc_instance_name": rpc_instance_name,
-        "rpc_instance_ip": rpc_instance_ip,
         "cp_instance_names": cp_instance_names,
         "tracing_server_internal_ip": internal_ip,
         "tracing_server_external_ip": external_ip
     }
+
+
+def upload_local_neard(args):
+    """ 
+    uploads the local `neard` binary to every node to the ${BENCHNET_DIR}. 
+    @return the absolute path (local to the remote node) to the uploaded `neard`
+
+    """
+    logger.info("uploading the neard ")
+    upload_file_args = copy.deepcopy(args)
+    upload_file_args.src = args.neard_binary_url
+    upload_file_args.dst = BENCHNET_DIR
+    run_remote_upload_file(CommandContext(upload_file_args))
+    return os.path.join(BENCHNET_DIR, "neard")
 
 
 def upload_json_patches(args):
@@ -102,6 +125,10 @@ def upload_json_patches(args):
 def handle_init(args):
     """Handle the init command - initialize the benchmark before running it."""
 
+    run_cmd_args = copy.deepcopy(args)
+    run_cmd_args.cmd = f"mkdir -p {BENCHNET_DIR}"
+    run_remote_cmd(CommandContext(run_cmd_args))
+
     if args.neard_binary_url is not None:
         logger.info(f"Using neard binary URL from CLI: {args.neard_binary_url}")
     elif os.environ.get('NEARD_BINARY_URL') is not None:
@@ -115,6 +142,15 @@ def handle_init(args):
         )
         sys.exit(1)
 
+    # if neard_binary_url is a local path - upload the file to each node
+    if os.path.isfile(args.neard_binary_url):
+        logger.info(f"handling local `neard` at {args.neard_binary_url}")
+        local_path_on_remote = upload_local_neard(args)
+        args.neard_binary_url = local_path_on_remote
+        logger.info(f"`neard` local path on remote: {args.neard_binary_url}")
+    else:
+        logger.info("no local `neard` found, continue assuming the remote url")
+
     init_args = SimpleNamespace(
         neard_upgrade_binary_url="",
         **vars(args),
@@ -123,10 +159,6 @@ def handle_init(args):
 
     update_binaries_args = copy.deepcopy(args)
     update_binaries_cmd(CommandContext(update_binaries_args))
-
-    run_cmd_args = copy.deepcopy(args)
-    run_cmd_args.cmd = f"mkdir -p {BENCHNET_DIR}"
-    run_remote_cmd(CommandContext(run_cmd_args))
 
     # TODO: check neard binary version
 
@@ -143,11 +175,13 @@ def handle_init(args):
         new_chain_id=args.unique_id,
         genesis_protocol_version=None,
         gcs_state_sync=False,
-        stateless_setup=True,
         yes=True,
         **vars(args),
     )
     new_test_cmd(CommandContext(new_test_cmd_args))
+
+    # Must be run after new_test to override some OS settings
+    apply_network_config(args)
 
     status_cmd_args = copy.deepcopy(args)
     status_cmd_ctx = CommandContext(status_cmd_args)
@@ -286,7 +320,7 @@ def start_nodes(args, enable_tx_generator=False):
         logger.info("Setting tx generator parameters")
 
         accounts_path = f"{BENCHNET_DIR}/user-data/shard.json"
-        schedule_file = f"{BENCHNET_DIR}/{args.case}/load-schedule.json"
+        tx_generator_settings = f"{BENCHNET_DIR}/{args.case}/tx-generator-settings.json"
 
         run_cmd_args = copy.deepcopy(args)
         run_cmd_args.host_filter = f"({'|'.join(args.forknet_details['cp_instance_names'])})"
@@ -301,9 +335,13 @@ def start_nodes(args, enable_tx_generator=False):
         run_cmd_args = copy.deepcopy(args)
         run_cmd_args.host_filter = f"({'|'.join(args.forknet_details['cp_instance_names'])})"
         run_cmd_args.cmd = f"\
-            jq --slurpfile patch {schedule_file} \
-            '. as $orig | $patch[0].schedule as $sched | .[\"tx_generator\"] += {{\"schedule\": $sched }}' \
-            {CONFIG_PATH} > tmp.$$.json && mv tmp.$$.json {CONFIG_PATH} || rm tmp.$$.json \
+            jq --slurpfile patch {tx_generator_settings} \
+            '. as $orig \
+            | $patch[0].tx_generator.schedule as $sched   \
+            | .[\"tx_generator\"] += {{\"schedule\": $sched }} \
+            | $patch[0].tx_generator.controller as $ctrl   \
+            | .[\"tx_generator\"] += {{\"controller\": $ctrl }} \
+            ' {CONFIG_PATH} > tmp.$$.json && mv tmp.$$.json {CONFIG_PATH} || rm tmp.$$.json \
         "
 
         run_remote_cmd(CommandContext(run_cmd_args))
@@ -312,6 +350,31 @@ def start_nodes(args, enable_tx_generator=False):
     start_nodes_cmd_args = copy.deepcopy(args)
     start_nodes_cmd_args.host_filter = f"({'|'.join(args.forknet_details['cp_instance_names'])})"
     start_nodes_cmd(CommandContext(start_nodes_cmd_args))
+
+
+def apply_network_config(args):
+    """Apply network configuration optimizations."""
+    logger.info("Applying network configuration optimizations")
+
+    run_cmd_args = copy.deepcopy(args)
+
+    # This command does the following:
+    # - Set overrides for some configs
+    # - Update default interface to use larger initial congestion window
+    run_cmd_args.cmd = "\
+        sudo sysctl -w net.core.rmem_max=134217728 && \
+        sudo sysctl -w net.core.wmem_max=134217728 && \
+        sudo sysctl -w net.ipv4.tcp_rmem='10240 87380 134217728' && \
+        sudo sysctl -w net.ipv4.tcp_wmem='4096 87380 134217728' && \
+        sudo sysctl -w net.core.netdev_max_backlog=30000 && \
+        sudo sysctl -w net.ipv4.tcp_no_metrics_save=1 && \
+        gw=$(ip route show default | head -1 | awk '{{print $3}}') && \
+        dev=$(ip route show default | head -1 | awk '{{print $5}}') && \
+        sudo ip route flush table main exact 0.0.0.0/0 2>/dev/null || true && \
+        sudo ip route add default via $gw dev $dev metric 100 initcwnd 255 initrwnd 255 \
+    "
+
+    run_remote_cmd(CommandContext(run_cmd_args))
 
 
 def handle_get_traces(args):
@@ -392,7 +455,7 @@ def handle_get_traces(args):
             f"Failed to fetch traces: {response.status_code} {response.text}")
 
 
-def handle_get_profiles(args):
+def handle_get_profiles(args, extra):
     args = copy.deepcopy(args)
 
     # If no host filter is provided, target the first alphabetical cp instance.
@@ -402,33 +465,14 @@ def handle_get_profiles(args):
         logger.info(f"Targeting {machine}")
         args.host_filter = machine
 
-    if not args.skip_setup:
-        upload_args = copy.deepcopy(args)
-        script_dir = os.path.dirname(os.path.realpath(__file__))
-        upload_args.src = f"{script_dir}/helpers/get-profile.sh"
-        upload_args.dst = f"{REMOTE_HOME}/get-profile.sh"
-        run_remote_upload_file(CommandContext(upload_args))
-
-    run_cmd_args = copy.deepcopy(args)
-    run_cmd_args.cmd = f"bash {REMOTE_HOME}/get-profile.sh {args.record_secs}"
-    run_remote_cmd(CommandContext(run_cmd_args))
+    extra_parameters = ' '.join(extra)
+    args.cmd = f"bash {BENCHNET_DIR}/helpers/get-profile.sh {extra_parameters}"
+    run_remote_cmd(CommandContext(args))
 
     os.makedirs(args.output_dir, exist_ok=True)
-    for host in CommandContext(args).get_targeted():
-        host_name = host.name()
-        logger.info(f"Downloading profile from {host_name}")
-        scp_cmd = [
-            "gcloud",
-            "compute",
-            "scp",
-            "--project=nearone-mocknet",
-            f"ubuntu@{host_name}:{REMOTE_HOME}/perf.script.gz",
-            f"{args.output_dir}/perf-{host_name}.gz",
-        ]
-        subprocess.run(
-            scp_cmd,
-            check=True,
-        )
+    args.src = f"{REMOTE_HOME}/perf*.gz"
+    args.dst = args.output_dir
+    run_remote_download_file(CommandContext(args))
 
 
 def handle_start(args):
@@ -535,18 +579,16 @@ def main():
         help=
         'Filter to select specific hosts (default: first alphabetical cp instance)'
     )
-    get_profiles_parser.add_argument(
-        '--record-secs',
-        type=int,
-        default=10,
-        help='Number of seconds to record the profile (default: 10)')
-    get_profiles_parser.add_argument(
-        '--skip-setup',
-        action='store_true',
-        default=False,
-        help='Skip the setup of the profile script on the nodes')
 
-    args = parser.parse_args()
+    if '--' in sys.argv:
+        idx = sys.argv.index('--')
+        my_args = sys.argv[1:idx]
+        extra_args = sys.argv[idx + 1:]
+    else:
+        my_args = sys.argv[1:]
+        extra_args = []
+
+    args = parser.parse_args(my_args)
 
     # Route to appropriate handler based on command
     if args.command == 'init':
@@ -562,7 +604,7 @@ def main():
     elif args.command == 'get-traces':
         handle_get_traces(args)
     elif args.command == 'get-profiles':
-        handle_get_profiles(args)
+        handle_get_profiles(args, extra_args)
     else:
         parser.print_help()
 

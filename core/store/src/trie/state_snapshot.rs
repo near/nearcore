@@ -137,29 +137,15 @@ pub enum StateSnapshotConfig {
     Enabled { state_snapshots_dir: PathBuf },
 }
 
-pub fn state_snapshots_dir(
-    home_dir: impl AsRef<Path>,
-    hot_store_path: impl AsRef<Path>,
-    state_snapshots_subdir: impl AsRef<Path>,
-) -> PathBuf {
-    home_dir.as_ref().join(hot_store_path).join(state_snapshots_subdir)
-}
-
 impl StateSnapshotConfig {
-    pub fn enabled(
-        home_dir: impl AsRef<Path>,
-        hot_store_path: impl AsRef<Path>,
-        state_snapshots_subdir: impl AsRef<Path>,
-    ) -> Self {
+    const STATE_SNAPSHOT_DIR: &str = "state_snapshot";
+
+    pub fn enabled(hot_store_path: impl AsRef<Path>) -> Self {
         // Assumptions:
         // * RocksDB checkpoints are taken instantly and for free, because the filesystem supports hard links.
         // * The best place for checkpoints is within the `hot_store_path`, because that directory is often a separate disk.
         Self::Enabled {
-            state_snapshots_dir: state_snapshots_dir(
-                home_dir,
-                hot_store_path,
-                state_snapshots_subdir,
-            ),
+            state_snapshots_dir: hot_store_path.as_ref().join(Self::STATE_SNAPSHOT_DIR),
         }
     }
 
@@ -191,9 +177,6 @@ impl ShardTries {
         state_root: &StateRoot,
         block_hash: &CryptoHash,
         part_id: PartId,
-        path_boundary_nodes: PartialState,
-        nibbles_begin: Vec<u8>,
-        nibbles_end: Vec<u8>,
         state_trie: Trie,
     ) -> Result<PartialState, StorageError> {
         let guard = self.state_snapshot().try_read().ok_or(SnapshotError::LockWouldBlock)?;
@@ -213,13 +196,7 @@ impl ShardTries {
         let flat_storage_chunk_view = data.flat_storage_manager.chunk_view(shard_uid, *block_hash);
 
         let snapshot_trie = Trie::new(storage, *state_root, flat_storage_chunk_view);
-        snapshot_trie.get_trie_nodes_for_part_with_flat_storage(
-            part_id,
-            path_boundary_nodes,
-            nibbles_begin,
-            nibbles_end,
-            &state_trie,
-        )
+        snapshot_trie.get_trie_nodes_for_part_with_flat_storage(part_id, &state_trie)
     }
 
     /// Makes a snapshot of the current state of the DB, if one is not already available.
@@ -379,9 +356,9 @@ impl ShardTries {
             .ok_or_else(|| anyhow::anyhow!("{snapshot_path:?} needs to have a parent dir"))?;
         tracing::debug!(target: "state_snapshot", ?snapshot_path, ?parent_path);
 
-        let store_config = StoreConfig::default();
+        let store_config = StoreConfig::state_snapshot_store_config();
 
-        let opener = NodeStorage::opener(&snapshot_path, &store_config, None);
+        let opener = NodeStorage::opener(&snapshot_path, &store_config, None, None);
         let storage = opener.open_in_mode(Mode::ReadOnly)?;
         let store = storage.get_hot_store().trie_store();
         let flat_storage_manager = FlatStorageManager::new(store.flat_store());

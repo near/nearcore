@@ -1,7 +1,6 @@
 use super::sharding::shard_was_split;
 use crate::utils::sharding::{
-    client_tracking_shard, get_memtrie_for_shard, get_tracked_shards,
-    get_tracked_shards_from_prev_block,
+    get_memtrie_for_shard, get_tracked_shards, get_tracked_shards_from_prev_block,
 };
 use borsh::BorshDeserialize;
 use itertools::Itertools;
@@ -108,12 +107,14 @@ impl TrieSanityCheck {
                 continue;
             }
 
-            let cares = client.shard_tracker.cares_about_shard(
-                Some(account_id),
-                &tip.prev_block_hash,
-                shard_uid.shard_id(),
-                false,
-            );
+            let cares = client
+                .epoch_manager
+                .cares_about_shard_from_prev_block(
+                    &tip.prev_block_hash,
+                    account_id,
+                    shard_uid.shard_id(),
+                )
+                .unwrap();
             if !cares {
                 continue;
             }
@@ -229,7 +230,10 @@ fn assert_state_sanity(
             continue;
         }
 
-        if !client_tracking_shard(client, shard_uid.shard_id(), &final_head.prev_block_hash) {
+        if !client
+            .shard_tracker
+            .cares_about_shard(&final_head.prev_block_hash, shard_uid.shard_id())
+        {
             continue;
         }
 

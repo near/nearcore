@@ -1,11 +1,10 @@
 use assert_matches::assert_matches;
 
-use near_async::futures::ActixArbiterHandleFutureSpawner;
 use near_async::time::{Clock, Duration};
 use near_chain::near_chain_primitives::error::QueryError;
 use near_chain::{ChainGenesis, ChainStoreAccess, Provenance};
 use near_chain_configs::ExternalStorageLocation::Filesystem;
-use near_chain_configs::{DumpConfig, Genesis, MutableConfigValue, NEAR_BASE};
+use near_chain_configs::{DumpConfig, Genesis, MutableConfigValue};
 use near_client::ProcessTxResponse;
 use near_client::sync::external::{StateFileType, external_storage_location};
 use near_crypto::InMemorySigner;
@@ -13,9 +12,9 @@ use near_o11y::testonly::init_test_logger;
 use near_primitives::block::Tip;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::state::FlatStateValue;
-use near_primitives::state_part::PartId;
+use near_primitives::state_part::{PartId, StatePart};
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{BlockHeight, ShardId};
+use near_primitives::types::{Balance, BlockHeight, ShardId};
 use near_primitives::validator_signer::{EmptyValidatorSigner, InMemoryValidatorSigner};
 use near_primitives::views::{QueryRequest, QueryResponseKind};
 use near_store::Store;
@@ -25,6 +24,7 @@ use std::sync::Arc;
 
 use crate::env::nightshade_setup::TestEnvNightshadeSetupExt;
 use crate::env::test_env::TestEnv;
+use near_async::futures::TokioRuntimeFutureSpawner;
 
 #[test]
 /// Produce several blocks, wait for the state dump thread to notice and
@@ -60,8 +60,10 @@ fn slow_test_state_dump() {
         "validator_signer",
     );
 
-    let arbiter = actix::Arbiter::new();
-    let mut state_sync_dumper = StateSyncDumper {
+    let tokio_runtime = Arc::new(
+        tokio::runtime::Builder::new_multi_thread().enable_all().worker_threads(1).build().unwrap(),
+    );
+    let state_sync_dumper = StateSyncDumper {
         clock: Clock::real(),
         client_config: config,
         chain_genesis: ChainGenesis::new(&genesis.config),
@@ -69,8 +71,7 @@ fn slow_test_state_dump() {
         shard_tracker,
         runtime,
         validator,
-        future_spawner: Arc::new(ActixArbiterHandleFutureSpawner(arbiter.handle())),
-        handle: None,
+        future_spawner: Arc::new(TokioRuntimeFutureSpawner(tokio_runtime)),
     };
     state_sync_dumper.start().unwrap();
 
@@ -170,8 +171,10 @@ fn run_state_sync_with_dumped_parts(
         iteration_delay: Some(Duration::ZERO),
         credentials_file: None,
     });
-    let arbiter = actix::Arbiter::new();
-    let mut state_sync_dumper = StateSyncDumper {
+    let tokio_runtime = Arc::new(
+        tokio::runtime::Builder::new_multi_thread().enable_all().worker_threads(1).build().unwrap(),
+    );
+    let state_sync_dumper = StateSyncDumper {
         clock: Clock::real(),
         client_config: config.clone(),
         chain_genesis: ChainGenesis::new(&genesis.config),
@@ -179,8 +182,7 @@ fn run_state_sync_with_dumped_parts(
         shard_tracker,
         runtime,
         validator,
-        future_spawner: Arc::new(ActixArbiterHandleFutureSpawner(arbiter.handle())),
-        handle: None,
+        future_spawner: Arc::new(TokioRuntimeFutureSpawner(tokio_runtime)),
     };
     state_sync_dumper.start().unwrap();
 
@@ -198,7 +200,7 @@ fn run_state_sync_with_dumped_parts(
                 1,
                 "test0".parse().unwrap(),
                 "test_account".parse().unwrap(),
-                NEAR_BASE,
+                Balance::from_near(1),
                 signer.public_key(),
                 &signer,
                 genesis_hash,
@@ -317,6 +319,7 @@ fn run_state_sync_with_dumped_parts(
     );
     store_update.commit().unwrap();
     let shard_id = ShardId::new(0);
+    let protocol_version = epoch_manager.get_epoch_protocol_version(&epoch_id).unwrap();
     for part_id in 0..num_parts {
         let path = root_dir.path().join(external_storage_location(
             &config.chain_id,
@@ -325,7 +328,8 @@ fn run_state_sync_with_dumped_parts(
             shard_id,
             &StateFileType::StatePart { part_id, num_parts },
         ));
-        let part = std::fs::read(&path).expect("Part file not found. It should exist");
+        let bytes = std::fs::read(&path).expect("Part file not found. It should exist");
+        let part = StatePart::from_bytes(bytes, protocol_version).unwrap();
         let part_id = PartId::new(part_id, num_parts);
         runtime_client_1
             .apply_state_part(shard_id, &state_root, part_id, &part, &epoch_id)

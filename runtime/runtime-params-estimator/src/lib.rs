@@ -83,6 +83,7 @@ mod function_call;
 mod gas_metering;
 mod trie;
 
+use crate::action_costs::det_state_init_action;
 use crate::config::Config;
 pub use crate::cost::Cost;
 pub use crate::cost_table::CostTable;
@@ -105,8 +106,8 @@ use near_primitives::transaction::{
     Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, DeleteKeyAction,
     DeployContractAction, SignedTransaction, StakeAction, TransferAction,
 };
-use near_primitives::types::AccountId;
-use near_primitives::version::PROTOCOL_VERSION;
+use near_primitives::types::{AccountId, Balance, Gas};
+use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_vm_runner::ContractCode;
 use near_vm_runner::MockContractRuntimeCache;
 use near_vm_runner::internal::VMKindExt;
@@ -211,6 +212,42 @@ static ALL_COSTS: &[(Cost, fn(&mut EstimatorContext) -> GasCost)] = &[
     (Cost::ActionDelegateSendNotSir, action_costs::delegate_send_not_sir),
     (Cost::ActionDelegateSendSir, action_costs::delegate_send_sir),
     (Cost::ActionDelegateExec, action_costs::delegate_exec),
+    (Cost::ActionDeterministicStateInitBase, action_deterministic_state_init_base),
+    (Cost::ActionDeterministicStateInitBaseExec, action_costs::deterministic_state_init_base_exec),
+    (
+        Cost::ActionDeterministicStateInitBaseSendSir,
+        action_costs::deterministic_state_init_base_send,
+    ),
+    (
+        Cost::ActionDeterministicStateInitBaseSendNotSir,
+        action_costs::deterministic_state_init_base_send,
+    ),
+    (Cost::ActionDeterministicStateInitPerEntry, action_deterministic_state_init_per_entry),
+    (
+        Cost::ActionDeterministicStateInitPerEntryExec,
+        action_costs::deterministic_state_init_entry_exec,
+    ),
+    (
+        Cost::ActionDeterministicStateInitPerEntrySendSir,
+        action_costs::deterministic_state_init_entry_send,
+    ),
+    (
+        Cost::ActionDeterministicStateInitPerEntrySendNotSir,
+        action_costs::deterministic_state_init_entry_send,
+    ),
+    (Cost::ActionDeterministicStateInitPerByte, action_deterministic_state_init_per_byte),
+    (
+        Cost::ActionDeterministicStateInitPerByteExec,
+        action_costs::deterministic_state_init_byte_exec,
+    ),
+    (
+        Cost::ActionDeterministicStateInitPerByteSendSir,
+        action_costs::deterministic_state_init_byte_send,
+    ),
+    (
+        Cost::ActionDeterministicStateInitPerByteSendNotSir,
+        action_costs::deterministic_state_init_byte_send,
+    ),
     (Cost::HostFunctionCall, host_function_call),
     (Cost::WasmInstruction, wasm_instruction),
     (Cost::DataReceiptCreationBase, data_receipt_creation_base),
@@ -260,6 +297,7 @@ static ALL_COSTS: &[(Cost, fn(&mut EstimatorContext) -> GasCost)] = &[
     (Cost::StorageRemoveRetValueByte, storage_remove_ret_value_byte),
     (Cost::TouchingTrieNode, touching_trie_node),
     (Cost::ReadCachedTrieNode, read_cached_trie_node),
+    (Cost::ReadTrieNodeEstimateByIteration, read_trie_node_estimate_by_iteration),
     (Cost::ApplyBlock, apply_block_cost),
     (Cost::ContractCompileBase, contract_compile_base),
     (Cost::ContractCompileBytes, contract_compile_bytes),
@@ -382,7 +420,8 @@ fn action_transfer(ctx: &mut EstimatorContext) -> GasCost {
         let mut make_transaction = |tb: &mut TransactionBuilder| -> SignedTransaction {
             let (sender, receiver) = tb.random_account_pair();
 
-            let actions = vec![Action::Transfer(TransferAction { deposit: 1 })];
+            let actions =
+                vec![Action::Transfer(TransferAction { deposit: Balance::from_yoctonear(1) })];
             tb.transaction_from_actions(sender, receiver, actions)
         };
         let block_size = 100;
@@ -405,7 +444,7 @@ fn action_create_account(ctx: &mut EstimatorContext) -> GasCost {
 
             let actions = vec![
                 Action::CreateAccount(CreateAccountAction {}),
-                Action::Transfer(TransferAction { deposit: 10u128.pow(26) }),
+                Action::Transfer(TransferAction { deposit: Balance::from_near(100) }),
             ];
             tb.transaction_from_actions(sender, new_account, actions)
         };
@@ -467,7 +506,7 @@ fn action_add_function_access_key_base(ctx: &mut EstimatorContext) -> GasCost {
             let receiver_id = tb.account(0).to_string();
 
             let permission = AccessKeyPermission::FunctionCall(FunctionCallPermission {
-                allowance: Some(100),
+                allowance: Some(Balance::from_yoctonear(100)),
                 receiver_id,
                 method_names: vec!["m".to_string()],
             });
@@ -498,7 +537,7 @@ fn action_add_function_access_key_per_byte(ctx: &mut EstimatorContext) -> GasCos
             let receiver_id = tb.account(0).to_string();
 
             let permission = AccessKeyPermission::FunctionCall(FunctionCallPermission {
-                allowance: Some(100),
+                allowance: Some(Balance::from_yoctonear(100)),
                 receiver_id,
                 method_names: method_names.clone(),
             });
@@ -576,7 +615,7 @@ fn action_stake(ctx: &mut EstimatorContext) -> GasCost {
             let receiver = sender.clone();
 
             let actions = vec![Action::Stake(Box::new(StakeAction {
-                stake: 1,
+                stake: Balance::from_yoctonear(1),
                 public_key: "22skMptHjFWNyuEWY22ftn2AbLPSYpmYwGJRGwpNHbTV".parse().unwrap(),
             }))];
             tb.transaction_from_actions(sender, receiver, actions)
@@ -622,7 +661,7 @@ fn action_deploy_contract_per_byte(ctx: &mut EstimatorContext) -> GasCost {
     // tolerance is chosen, quite arbitrarily, as a full base cost from protocol
     // v50. Values further in the negative indicate that the estimation error is
     // out of proportion.
-    let negative_base_tolerance = 369_531_500_000u64;
+    let negative_base_tolerance = Gas::from_gas(369_531_500_000u64);
     // For icount-based measurements, since we start compilation after the full
     // contract is already loaded into memory, it is possible that IO costs per
     // byte are essentially 0 and sometimes negative in the fitted curve. If
@@ -886,6 +925,84 @@ fn action_delegate_base(ctx: &mut EstimatorContext) -> GasCost {
     total_cost.saturating_sub(&base_cost, &NonNegativeTolerance::PER_MILLE)
 }
 
+fn action_deterministic_state_init_base(ctx: &mut EstimatorContext) -> GasCost {
+    let (base, _per_entry, _per_byte) =
+        action_deterministic_state_init_base_per_entry_per_byte(ctx);
+    base
+}
+fn action_deterministic_state_init_per_byte(ctx: &mut EstimatorContext) -> GasCost {
+    let (_base, _per_entry, per_byte) =
+        action_deterministic_state_init_base_per_entry_per_byte(ctx);
+    per_byte
+}
+fn action_deterministic_state_init_per_entry(ctx: &mut EstimatorContext) -> GasCost {
+    let (_base, per_entry, _per_byte) =
+        action_deterministic_state_init_base_per_entry_per_byte(ctx);
+    per_entry
+}
+fn action_deterministic_state_init_base_per_entry_per_byte(
+    ctx: &mut EstimatorContext,
+) -> (GasCost, GasCost, GasCost) {
+    if !ProtocolFeature::DeterministicAccountIds.enabled(PROTOCOL_VERSION) {
+        return (GasCost::zero(), GasCost::zero(), GasCost::zero());
+    }
+    if let Some(base_byte_cost) =
+        ctx.cached.action_deterministic_state_init_base_per_entry_per_byte.clone()
+    {
+        return base_byte_cost;
+    }
+
+    let block_size = 100;
+    let base = deterministic_state_init_cost(ctx, block_size, 0, 0, 0);
+
+    let per_byte = {
+        // reduce number of receipts per block to stay within one block
+        let block_size = 30;
+        let num_entries = 1;
+        let key_size = 1000;
+        let value_size = 100_000;
+        let one_large_entry_cost =
+            deterministic_state_init_cost(ctx, block_size, num_entries, key_size, value_size);
+        one_large_entry_cost / (num_entries * (key_size + value_size)) as u64
+    };
+
+    let per_entry = {
+        let block_size = 20;
+        let num_entries = 10_000;
+        let key_size = 7;
+        let value_size = 1;
+        let many_entries_cost =
+            deterministic_state_init_cost(ctx, block_size, num_entries, key_size, value_size);
+        many_entries_cost / num_entries as u64
+    };
+
+    ctx.cached.action_deterministic_state_init_base_per_entry_per_byte =
+        Some((base.clone(), per_entry.clone(), per_byte.clone()));
+    (base, per_entry, per_byte)
+}
+
+fn deterministic_state_init_cost(
+    ctx: &mut EstimatorContext<'_>,
+    block_size: usize,
+    num_entries: usize,
+    key_size: usize,
+    value_size: usize,
+) -> GasCost {
+    let mut seed = 0;
+    let mut make_transaction = |tb: &mut TransactionBuilder| -> SignedTransaction {
+        let sender = tb.random_unused_account();
+        let (receiver, action) = det_state_init_action(seed, num_entries, key_size, value_size);
+        seed += 1;
+
+        tb.transaction_from_actions(sender, receiver, vec![action])
+    };
+    // send -> exec -> refund (3 blocks => delay is 2)
+    let block_latency = 2;
+    let (gas_cost, _ext_costs) =
+        transaction_cost_ext(ctx, block_size, &mut make_transaction, block_latency);
+    gas_cost
+}
+
 fn host_function_call(ctx: &mut EstimatorContext) -> GasCost {
     let block_latency = 0;
     let (total_cost, count) = fn_cost_count(ctx, "base_1M", ExtCosts::base, block_latency);
@@ -935,7 +1052,7 @@ fn wasm_instruction(ctx: &mut EstimatorContext) -> GasCost {
 
     let instructions_per_iter = {
         let op_cost = config.regular_op_cost as u64;
-        warmup_outcome.burnt_gas / op_cost
+        warmup_outcome.burnt_gas.as_gas() / op_cost
     };
 
     let per_instruction = total / (instructions_per_iter * n_iters);
@@ -1307,6 +1424,19 @@ fn read_cached_trie_node(ctx: &mut EstimatorContext) -> GasCost {
 
     let results = (0..(warmup_iters + iters))
         .map(|_| trie::read_node_from_accounting_cache(&mut testbed))
+        .skip(warmup_iters)
+        .collect::<Vec<_>>();
+    average_cost(results)
+}
+
+fn read_trie_node_estimate_by_iteration(ctx: &mut EstimatorContext) -> GasCost {
+    let warmup_iters = ctx.config.warmup_iters_per_block;
+    let iters = ctx.config.iter_per_block;
+    let max_read_bytes = 1024 * 1024;
+    let mut testbed = ctx.testbed();
+
+    let results = (0..(warmup_iters + iters))
+        .map(|_| trie::read_trie_node_estimate_by_iteration(&mut testbed, max_read_bytes))
         .skip(warmup_iters)
         .collect::<Vec<_>>();
     average_cost(results)

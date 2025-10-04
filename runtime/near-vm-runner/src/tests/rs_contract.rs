@@ -6,6 +6,7 @@ use crate::logic::types::ReturnData;
 use crate::runner::VMKindExt;
 use near_parameters::RuntimeFeesConfig;
 use near_primitives_core::types::Balance;
+use near_primitives_core::types::Gas;
 use std::mem::size_of;
 use std::sync::Arc;
 
@@ -27,7 +28,7 @@ fn test_contract(vm_kind: VMKind) -> ContractCode {
         VMKind::Wasmer0 => unreachable!(),
         VMKind::Wasmer2 => unreachable!(),
         // production and developer environment, use a cutting-edge WASM
-        VMKind::Wasmtime | VMKind::NearVm | VMKind::NearVm2 => near_test_contracts::rs_contract(),
+        VMKind::Wasmtime | VMKind::NearVm => near_test_contracts::rs_contract(),
     };
     ContractCode::new(code.to_vec(), None)
 }
@@ -48,9 +49,9 @@ fn assert_run_result(result: VMResult, expected_value: u64) {
 
 #[test]
 pub fn test_read_write() {
-    let config = Arc::new(test_vm_config());
-    let fees = Arc::new(RuntimeFeesConfig::test());
-    with_vm_variants(&config, |vm_kind: VMKind| {
+    with_vm_variants(|vm_kind: VMKind| {
+        let config = Arc::new(test_vm_config(Some(vm_kind)));
+        let fees = Arc::new(RuntimeFeesConfig::test());
         let code = test_contract(vm_kind);
         let mut fake_external = MockedExternal::with_code(code);
         let context = create_context(encode(&[10u64, 20u64]));
@@ -80,8 +81,8 @@ macro_rules! def_test_ext {
     ($name:ident, $method:expr, $expected:expr, $input:expr, $validator:expr) => {
         #[test]
         pub fn $name() {
-            let config = Arc::new(test_vm_config());
-            with_vm_variants(&config, |vm_kind: VMKind| {
+            with_vm_variants(|vm_kind: VMKind| {
+                let config = Arc::new(test_vm_config(Some(vm_kind)));
                 run_test_ext(Arc::clone(&config), $method, $expected, $input, $validator, vm_kind)
             });
         }
@@ -89,8 +90,8 @@ macro_rules! def_test_ext {
     ($name:ident, $method:expr, $expected:expr, $input:expr) => {
         #[test]
         pub fn $name() {
-            let config = Arc::new(test_vm_config());
-            with_vm_variants(&config, |vm_kind: VMKind| {
+            with_vm_variants(|vm_kind: VMKind| {
+                let config = Arc::new(test_vm_config(Some(vm_kind)));
                 run_test_ext(Arc::clone(&config), $method, $expected, $input, vec![], vm_kind)
             });
         }
@@ -98,8 +99,8 @@ macro_rules! def_test_ext {
     ($name:ident, $method:expr, $expected:expr) => {
         #[test]
         pub fn $name() {
-            let config = Arc::new(test_vm_config());
-            with_vm_variants(&config, |vm_kind: VMKind| {
+            with_vm_variants(|vm_kind: VMKind| {
+                let config = Arc::new(test_vm_config(Some(vm_kind)));
                 run_test_ext(Arc::clone(&config), $method, $expected, &[], vec![], vm_kind)
             })
         }
@@ -127,7 +128,7 @@ fn run_test_ext(
         .run(&mut fake_external, &context, Arc::clone(&fees))
         .unwrap_or_else(|err| panic!("Failed execution: {:?}", err));
 
-    assert_eq!(outcome.profile.action_gas(), 0);
+    assert_eq!(outcome.profile.action_gas(), Gas::ZERO);
 
     if let ReturnData::Value(value) = outcome.return_data {
         assert_eq!(&value, &expected);
@@ -155,12 +156,12 @@ def_test_ext!(ext_storage_usage, "ext_storage_usage", &12u64.to_le_bytes());
 
 #[test]
 pub fn ext_used_gas() {
-    let config = Arc::new(test_vm_config());
-    with_vm_variants(&config, |vm_kind: VMKind| {
+    with_vm_variants(|vm_kind: VMKind| {
+        let config = Arc::new(test_vm_config(Some(vm_kind)));
         // Note, the used_gas is not a global used_gas at the beginning of method, but instead a
         // diff in used_gas for computing fib(30) in a loop
         let expected = [27, 180, 237, 15, 0, 0, 0, 0];
-        run_test_ext(Arc::clone(&config), "ext_used_gas", &expected, &[], vec![], vm_kind)
+        run_test_ext(config, "ext_used_gas", &expected, &[], vec![], vm_kind)
     })
 }
 
@@ -182,21 +183,21 @@ def_test_ext!(
     "ext_validator_stake",
     &(100u128).to_le_bytes(),
     b"alice",
-    vec![("alice", 100), ("bob", 1)]
+    vec![("alice", Balance::from_yoctonear(100)), ("bob", Balance::from_yoctonear(1))]
 );
 def_test_ext!(
     ext_validator_stake_bob,
     "ext_validator_stake",
     &(1u128).to_le_bytes(),
     b"bob",
-    vec![("alice", 100), ("bob", 1)]
+    vec![("alice", Balance::from_yoctonear(100)), ("bob", Balance::from_yoctonear(1))]
 );
 def_test_ext!(
     ext_validator_stake_carol,
     "ext_validator_stake",
     &(0u128).to_le_bytes(),
     b"carol",
-    vec![("alice", 100), ("bob", 1)]
+    vec![("alice", Balance::from_yoctonear(100)), ("bob", Balance::from_yoctonear(1))]
 );
 
 def_test_ext!(
@@ -204,21 +205,21 @@ def_test_ext!(
     "ext_validator_total_stake",
     &(100u128 + 1).to_le_bytes(),
     &[],
-    vec![("alice", 100), ("bob", 1)]
+    vec![("alice", Balance::from_yoctonear(100)), ("bob", Balance::from_yoctonear(1))]
 );
 
 #[test]
 pub fn test_out_of_memory() {
-    let mut config = test_vm_config();
-    config.make_free();
-    let config = Arc::new(config);
-    with_vm_variants(&config, |vm_kind: VMKind| {
-        // TODO: currently we only run this test on near-vm.
+    with_vm_variants(|vm_kind: VMKind| {
+        // TODO: currently we only run this test on near-vm and wasmtime
         match vm_kind {
-            VMKind::Wasmtime | VMKind::Wasmer2 | VMKind::Wasmer0 => return,
+            VMKind::Wasmer2 | VMKind::Wasmer0 => return,
             _ => {}
         }
 
+        let mut config = test_vm_config(Some(vm_kind));
+        config.make_free();
+        let config = Arc::new(config);
         let code = test_contract(vm_kind);
         let mut fake_external = MockedExternal::with_code(code);
         let context = create_context(Vec::new());
@@ -232,9 +233,9 @@ pub fn test_out_of_memory() {
         assert_eq!(
             result.aborted,
             match vm_kind {
-                VMKind::NearVm | VMKind::NearVm2 =>
+                VMKind::NearVm | VMKind::Wasmtime =>
                     Some(FunctionCallError::WasmTrap(WasmTrap::Unreachable)),
-                VMKind::Wasmer2 | VMKind::Wasmer0 | VMKind::Wasmtime => unreachable!(),
+                VMKind::Wasmer2 | VMKind::Wasmer0 => unreachable!(),
             }
         );
     })
@@ -246,14 +247,13 @@ fn function_call_weight_contract() -> ContractCode {
 
 #[test]
 fn attach_unspent_gas_but_use_all_gas() {
-    let mut context = create_context(vec![]);
-    context.prepaid_gas = 100 * 10u64.pow(12);
+    with_vm_variants(|vm_kind: VMKind| {
+        let mut context = create_context(vec![]);
+        context.prepaid_gas = Gas::from_teragas(100);
 
-    let mut config = test_vm_config();
-    config.limit_config.max_gas_burnt = context.prepaid_gas / 3;
-    let config = Arc::new(config);
-
-    with_vm_variants(&config, |vm_kind: VMKind| {
+        let mut config = test_vm_config(Some(vm_kind));
+        config.limit_config.max_gas_burnt = context.prepaid_gas.checked_div(3).unwrap();
+        let config = Arc::new(config);
         let code = function_call_weight_contract();
         let mut external = MockedExternal::with_code(code);
         let fees = Arc::new(RuntimeFeesConfig::test());
@@ -269,7 +269,9 @@ fn attach_unspent_gas_but_use_all_gas() {
         assert!(matches!(err, FunctionCallError::HostError(HostError::GasExceeded)));
 
         match &external.action_log[..] {
-            [_, MockAction::FunctionCallWeight { prepaid_gas: gas, .. }, _] => assert_eq!(*gas, 0),
+            [_, MockAction::FunctionCallWeight { prepaid_gas: gas, .. }, _] => {
+                assert_eq!(*gas, Gas::ZERO)
+            }
             other => panic!("unexpected actions: {other:?}"),
         }
     });

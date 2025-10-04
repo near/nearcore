@@ -7,8 +7,12 @@ use bytesize::ByteSize;
 /// Helper trait for implementing a compressed structure for networking messages.
 /// The reason this is not a struct is because some derives do not work well on
 /// structs that have generics; e.g. ProtocolSchema.
-pub trait CompressedData<T, const MAX_UNCOMPRESSED_SIZE: u64, const COMPRESSION_LEVEL: i32>
-where
+pub trait CompressedData<
+    T,
+    const MAX_UNCOMPRESSED_SIZE: u64,
+    const COMPRESSION_LEVEL: i32,
+    const N_WORKERS: u32 = 0,
+> where
     T: BorshSerialize + BorshDeserialize,
     Self: From<Box<[u8]>> + AsRef<Box<[u8]>>,
 {
@@ -22,8 +26,11 @@ where
     fn encode(uncompressed: &T) -> std::io::Result<(Self, usize)> {
         // Flow of data: Original --> Borsh serialization --> Counting write --> zstd compression --> Bytes.
         // CountingWrite will count the number of bytes for the Borsh-serialized data, before compression.
-        let mut counting_write =
-            CountingWrite::new(zstd::stream::Encoder::new(Vec::new().writer(), COMPRESSION_LEVEL)?);
+        let mut encoder = zstd::stream::Encoder::new(Vec::new().writer(), COMPRESSION_LEVEL)?;
+
+        encoder.multithread(N_WORKERS)?;
+
+        let mut counting_write = CountingWrite::new(encoder);
         borsh::to_writer(&mut counting_write, uncompressed)?;
 
         let borsh_bytes_len = counting_write.bytes_written();

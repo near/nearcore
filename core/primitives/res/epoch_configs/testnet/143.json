@@ -24,7 +24,7 @@
   "block_producer_kickout_threshold": 80,
   "chunk_producer_kickout_threshold": 80,
   "chunk_validator_only_kickout_threshold": 70,
-  "target_validator_mandates_per_shard": 68,
+  "target_validator_mandates_per_shard": 105,
   "validator_max_kickout_stake_perc": 30,
   "online_min_threshold": [
     90,
@@ -119,7 +119,7 @@
     }
   },
   "num_chunk_producer_seats": 20,
-  "num_chunk_validator_seats": 300,
+  "num_chunk_validator_seats": 500,
   "num_chunk_only_producer_seats": 0,
   "minimum_validators_per_shard": 1,
   "minimum_stake_ratio": [

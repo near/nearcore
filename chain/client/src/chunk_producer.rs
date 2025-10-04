@@ -3,7 +3,7 @@ use crate::metrics;
 use itertools::Itertools;
 use near_async::time::{Clock, Duration, Instant};
 use near_chain::types::{
-    PrepareTransactionsChunkContext, PreparedTransactions, RuntimeAdapter, RuntimeStorageConfig,
+    PrepareTransactionsBlockContext, PreparedTransactions, RuntimeAdapter, RuntimeStorageConfig,
 };
 use near_chain::{Block, Chain, ChainStore};
 use near_chain_configs::MutableConfigValue;
@@ -27,6 +27,8 @@ use near_primitives::validator_signer::ValidatorSigner;
 use near_store::ShardUId;
 use near_store::adapter::chain_store::ChainStoreAdapter;
 use parking_lot::Mutex;
+#[cfg(feature = "test_features")]
+use rand::{Rng, SeedableRng};
 use reed_solomon_erasure::galois_8::ReedSolomon;
 use std::num::NonZeroUsize;
 use std::sync::Arc;
@@ -44,6 +46,20 @@ pub enum AdvProduceChunksMode {
     ProduceWithoutTx,
     // Produce chunks but do not bother checking if included transactions pass validity check.
     ProduceWithoutTxValidityCheck,
+    // Randomly skip multiple chunks in a row.
+    SkipWindow {
+        // Size of the window in which to randomly pick a skip start.
+        window_size: u64,
+        // Number of consecutive chunks to skip when skipping is triggered.
+        skip_length: u64,
+    },
+}
+
+#[cfg(feature = "test_features")]
+pub struct ChunkProducerAdversarialControls {
+    pub produce_mode: Option<AdvProduceChunksMode>,
+    pub produce_invalid_chunks: bool,
+    pub produce_invalid_tx_in_chunks: bool,
 }
 
 pub struct ProduceChunkResult {
@@ -57,11 +73,7 @@ pub struct ChunkProducer {
     /// Adversarial controls - should be enabled only to test disruptive
     /// behavior on chain.
     #[cfg(feature = "test_features")]
-    pub adv_produce_chunks: Option<AdvProduceChunksMode>,
-    #[cfg(feature = "test_features")]
-    pub produce_invalid_chunks: bool,
-    #[cfg(feature = "test_features")]
-    pub produce_invalid_tx_in_chunks: bool,
+    pub adversarial: ChunkProducerAdversarialControls,
 
     clock: Clock,
     /// If present, limits adding transactions from the transaction
@@ -93,11 +105,11 @@ impl ChunkProducer {
 
         Self {
             #[cfg(feature = "test_features")]
-            adv_produce_chunks: None,
-            #[cfg(feature = "test_features")]
-            produce_invalid_chunks: false,
-            #[cfg(feature = "test_features")]
-            produce_invalid_tx_in_chunks: false,
+            adversarial: ChunkProducerAdversarialControls {
+                produce_mode: None,
+                produce_invalid_chunks: false,
+                produce_invalid_tx_in_chunks: false,
+            },
             clock,
             chunk_transactions_time_limit,
             chain: chain_store.clone(),
@@ -134,12 +146,17 @@ impl ChunkProducer {
             .unwrap()
             .take_account_id();
         if signer.validator_id() != &chunk_proposer {
-            debug!(target: "client",
-                me = ?signer.as_ref().validator_id(),
+            debug!(
+                target: "client",
                 ?chunk_proposer,
-                next_height,
-                %shard_id,
-                "Not producing chunk. Not chunk producer for next chunk.");
+                "not a chunk producer for this height"
+            );
+            return Ok(None);
+        }
+
+        #[cfg(feature = "test_features")]
+        if self.should_skip_chunk_production(next_height, shard_id) {
+            debug!(target: "client", "skip chunk production");
             return Ok(None);
         }
 
@@ -201,12 +218,15 @@ impl ChunkProducer {
         Ok(receipts_root)
     }
 
-    #[instrument(target = "client", level = "debug", "produce_chunk", skip_all, fields(
-        height = next_height,
+    #[instrument(target = "client", level = "debug", "produce_chunk_internal", skip_all, fields(
+        height=%next_height,
         %shard_id,
         ?epoch_id,
+        prev_block_hash = ?prev_block.header().hash(),
         chunk_hash = tracing::field::Empty,
-        tag_block_production = true
+        transactions_num = tracing::field::Empty,
+        tag_block_production = true,
+        tag_chunk_distribution = true,
     ))]
     fn produce_chunk_internal(
         &mut self,
@@ -230,7 +250,7 @@ impl ChunkProducer {
             // apply block with the new chunk, so we also skip chunk production.
             if !ChainStore::prev_block_is_caught_up(&self.chain, &prev_prev_hash, &prev_block_hash)?
             {
-                debug!(target: "client", %shard_id, next_height, "Produce chunk: prev block is not caught up");
+                debug!(target: "client", "prev block is not caught up");
                 return Err(Error::ChunkProducer(
                     "State for the epoch is not downloaded yet, skipping chunk production"
                         .to_string(),
@@ -238,7 +258,7 @@ impl ChunkProducer {
             }
         }
 
-        debug!(target: "client", me = ?validator_signer.validator_id(), next_height, %shard_id, "Producing chunk");
+        debug!(target: "client", "start producing the chunk");
 
         let shard_uid = shard_id_to_uid(self.epoch_manager.as_ref(), shard_id, epoch_id)?;
         let chunk_extra = if cfg!(feature = "protocol_feature_spice") {
@@ -252,7 +272,7 @@ impl ChunkProducer {
 
         let prepared_transactions = {
             #[cfg(feature = "test_features")]
-            match self.adv_produce_chunks {
+            match self.adversarial.produce_mode {
                 Some(AdvProduceChunksMode::ProduceWithoutTx) => {
                     PreparedTransactions { transactions: Vec::new(), limited_by: None }
                 }
@@ -271,7 +291,7 @@ impl ChunkProducer {
         let prepared_transactions = Self::maybe_insert_invalid_transaction(
             prepared_transactions,
             prev_block_hash,
-            self.produce_invalid_tx_in_chunks,
+            self.adversarial.produce_invalid_tx_in_chunks,
         );
         let num_filtered_transactions = prepared_transactions.transactions.len();
         let (tx_root, _) = merklize(
@@ -288,7 +308,11 @@ impl ChunkProducer {
         let outgoing_receipts_root = self.calculate_receipts_root(epoch_id, &outgoing_receipts)?;
         let gas_used = chunk_extra.gas_used();
         #[cfg(feature = "test_features")]
-        let gas_used = if self.produce_invalid_chunks { gas_used + 1 } else { gas_used };
+        let gas_used = if self.adversarial.produce_invalid_chunks {
+            gas_used.checked_add(near_primitives::types::Gas::from_gas(1)).unwrap()
+        } else {
+            gas_used
+        };
 
         let congestion_info = chunk_extra.congestion_info();
         let bandwidth_requests = chunk_extra.bandwidth_requests();
@@ -318,13 +342,13 @@ impl ChunkProducer {
 
         let encoded_chunk = chunk.to_encoded_shard_chunk();
         span.record("chunk_hash", tracing::field::debug(encoded_chunk.chunk_hash()));
-        debug!(target: "client",
-            me = %validator_signer.validator_id(),
-            chunk_hash = ?encoded_chunk.chunk_hash(),
-            %prev_block_hash,
+        span.record("transactions_num", tracing::field::display(num_filtered_transactions));
+        debug!(
+            target: "client",
             num_filtered_transactions,
             num_outgoing_receipts = outgoing_receipts.len(),
-            "produced_chunk");
+            "finished producing the chunk"
+        );
 
         metrics::CHUNK_PRODUCED_TOTAL.inc();
 
@@ -357,6 +381,17 @@ impl ChunkProducer {
     }
 
     /// Prepares an ordered list of valid transactions from the pool up the limits.
+    #[instrument(
+        target = "client",
+        level = "debug",
+        "producer_prepare_transactions",
+        skip_all,
+        fields(
+            height = prev_block.header().height() + 1,
+            shard_id = %shard_uid.shard_id(),
+            tag_block_production = true
+        )
+    )]
     fn prepare_transactions(
         &self,
         shard_uid: ShardUId,
@@ -383,10 +418,12 @@ impl ChunkProducer {
                 source: near_chain::types::StorageDataSource::Db,
                 state_patch: Default::default(),
             };
+            let prev_block_context =
+                PrepareTransactionsBlockContext::new(prev_block, &*self.epoch_manager)?;
             self.runtime_adapter.prepare_transactions(
                 storage_config,
-                PrepareTransactionsChunkContext { shard_id, gas_limit: chunk_extra.gas_limit() },
-                prev_block.into(),
+                shard_id,
+                prev_block_context,
                 &mut iter,
                 chain_validate,
                 self.chunk_transactions_time_limit.get(),
@@ -400,8 +437,87 @@ impl ChunkProducer {
             .reintroduce_transactions(shard_uid, prepared_transactions.transactions.clone());
 
         if reintroduced_count < prepared_transactions.transactions.len() {
-            debug!(target: "client", reintroduced_count, num_tx = prepared_transactions.transactions.len(), "Reintroduced transactions");
+            debug!(
+                target: "client",
+                reintroduced_count,
+                num_tx = prepared_transactions.transactions.len(),
+                "reintroduced transactions"
+            );
         }
         Ok(prepared_transactions)
+    }
+
+    #[cfg(feature = "test_features")]
+    fn should_skip_chunk_production(
+        &self,
+        next_block_height: BlockHeight,
+        shard_id: ShardId,
+    ) -> bool {
+        let Some(adv_produce_chunks) = &self.adversarial.produce_mode else {
+            return false;
+        };
+        match adv_produce_chunks {
+            AdvProduceChunksMode::StopProduce => {
+                tracing::info!(
+                    target: "adversary",
+                    next_block_height,
+                    "Skipping chunk production due to adversary configuration"
+                );
+                true
+            }
+            AdvProduceChunksMode::SkipWindow { window_size, skip_length } => self
+                .should_skip_chunk_production_window(
+                    next_block_height,
+                    shard_id,
+                    *window_size,
+                    *skip_length,
+                ),
+            AdvProduceChunksMode::Valid
+            | AdvProduceChunksMode::ProduceWithoutTx
+            | AdvProduceChunksMode::ProduceWithoutTxValidityCheck => false,
+        }
+    }
+
+    #[cfg(feature = "test_features")]
+    fn should_skip_chunk_production_window(
+        &self,
+        next_block_height: BlockHeight,
+        shard_id: ShardId,
+        window_size: u64,
+        skip_length: u64,
+    ) -> bool {
+        let window_start = next_block_height / window_size * window_size;
+        let offset = {
+            // Deterministic random: hash the window_start and shard_id to get a seed.
+            // This ensures different chunk producers for the same shard skip the same
+            // range.
+            let mut seed_bytes = vec![];
+            seed_bytes.extend_from_slice(&window_start.to_le_bytes());
+            seed_bytes.extend_from_slice(&shard_id.to_le_bytes());
+            let hash = near_primitives::hash::hash(&seed_bytes);
+            let mut rng = rand::rngs::StdRng::from_seed(hash.0);
+            let max_offset = window_size - skip_length;
+            rng.gen_range(0..=max_offset)
+        };
+        let skip_start = window_start + offset;
+        let skip_end = skip_start + skip_length;
+        tracing::debug!(
+            target: "adversary",
+            window_start,
+            skip_start,
+            skip_end,
+            "Computed chunk skipping window"
+        );
+        let should_skip = next_block_height >= skip_start && next_block_height < skip_end;
+        if should_skip {
+            tracing::info!(
+                target: "adversary",
+                next_block_height,
+                skip_start,
+                skip_end,
+                "Skipping chunk production in skip window"
+            );
+        }
+        should_skip
     }
 }

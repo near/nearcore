@@ -1,5 +1,5 @@
 use crate::test_utils::{TestTriesBuilder, gen_changes, simplify_changes, test_populate_trie};
-use crate::trie::trie_storage::{TrieMemoryPartialStorage, TrieStorage};
+use crate::trie::trie_storage::TrieStorage;
 use crate::trie::{AccessOptions, TrieRefcountAddition, TrieRefcountSubtraction};
 use crate::{PartialStorage, Trie, TrieUpdate};
 use assert_matches::assert_matches;
@@ -82,11 +82,6 @@ impl TrieStorage for IncompletePartialStorage {
         } else {
             Ok(result)
         }
-    }
-
-    fn as_partial_storage(&self) -> Option<&TrieMemoryPartialStorage> {
-        // Make sure it's not called - it pretends to be PartialStorage but is not
-        unimplemented!()
     }
 }
 

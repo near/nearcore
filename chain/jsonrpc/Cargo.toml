@@ -12,13 +12,13 @@ publish = false
 workspace = true
 
 [dependencies]
-actix-cors.workspace = true
-actix-web.workspace = true
+axum.workspace = true
 bs58.workspace = true
 easy-ext.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 tokio.workspace = true
+tower-http.workspace = true
 tracing.workspace = true
 
 near-async.workspace = true
@@ -41,7 +41,6 @@ test_features = [
     "near-primitives/test_features",
 ]
 nightly = [
-    "near-async/nightly",
     "near-chain-configs/nightly",
     "near-client-primitives/nightly",
     "near-client/nightly",

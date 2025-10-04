@@ -31,7 +31,7 @@ use near_primitives::stateless_validation::stored_chunk_state_transition_data::{
 use near_primitives::transaction::{ExecutionOutcomeWithProof, SignedTransaction};
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{AccountId, Balance, BlockHeight, StateRoot};
-use near_primitives::utils::{get_block_shard_id, get_outcome_id_block_hash};
+use near_primitives::utils::{get_block_shard_id, get_outcome_id_block_hash, index_to_bytes};
 use near_primitives::views::{
     BlockHeaderView, BlockView, ChunkView, ExecutionOutcomeView, ReceiptView, SignedTransactionView,
 };
@@ -59,6 +59,7 @@ pub struct EntityDebugHandlerImpl {
 }
 
 impl EntityDebugHandlerImpl {
+    #[allow(clippy::large_stack_frames)]
     fn query_impl(&self, store: Store, query: EntityQuery) -> anyhow::Result<EntityDataValue> {
         match query {
             EntityQuery::AllShardsByEpochId { epoch_id } => {
@@ -85,6 +86,12 @@ impl EntityDebugHandlerImpl {
                         &borsh::to_vec(&block_height).unwrap(),
                     )?
                     .ok_or_else(|| anyhow!("Block height not found"))?;
+                Ok(serialize_entity(&block_hash))
+            }
+            EntityQuery::BlockHashByOrdinal { block_ordinal } => {
+                let block_hash = store
+                    .get_ser::<CryptoHash>(DBCol::BlockOrdinal, &index_to_bytes(block_ordinal))?
+                    .ok_or_else(|| anyhow!("Block hash not found"))?;
                 Ok(serialize_entity(&block_hash))
             }
             EntityQuery::BlockHeaderByHash { block_hash } => {
@@ -256,6 +263,35 @@ impl EntityDebugHandlerImpl {
                     )?
                     .ok_or_else(|| anyhow!("Outcome not found"))?;
                 Ok(serialize_entity(&ExecutionOutcomeView::from(outcome.outcome)))
+            }
+            EntityQuery::OutcomeIdsByBlockHash { block_hash } => {
+                // Get all shard IDs for the epoch of this block
+                let block = store
+                    .caching_get_ser::<Block>(DBCol::Block, &borsh::to_vec(&block_hash).unwrap())?
+                    .ok_or_else(|| anyhow!("Block not found"))?;
+                let epoch_id = block.header().epoch_id();
+                let shard_layout = self.epoch_manager.get_shard_layout(&epoch_id)?;
+
+                let mut all_outcome_ids = Vec::new();
+                for shard_id in shard_layout.shard_ids() {
+                    let outcome_ids = store
+                        .get_ser::<Vec<CryptoHash>>(
+                            DBCol::OutcomeIds,
+                            &get_block_shard_id(&block_hash, shard_id),
+                        )?
+                        .unwrap_or_default();
+                    all_outcome_ids.extend(outcome_ids);
+                }
+                Ok(serialize_entity(&all_outcome_ids))
+            }
+            EntityQuery::OutcomeIdsByBlockHashAndShardId { block_hash, shard_id } => {
+                let outcome_ids = store
+                    .get_ser::<Vec<CryptoHash>>(
+                        DBCol::OutcomeIds,
+                        &get_block_shard_id(&block_hash, shard_id),
+                    )?
+                    .unwrap_or_default();
+                Ok(serialize_entity(&outcome_ids))
             }
             EntityQuery::RawTrieNodeByHash { trie_node_hash, shard_uid } => {
                 let node = store
@@ -838,6 +874,7 @@ impl BlockMiscData {
             cold_head: store.get_ser(DBCol::BlockMisc, COLD_HEAD_KEY)?,
             state_sync_dump: store.get_ser(DBCol::BlockMisc, STATE_SYNC_DUMP_KEY)?,
             state_snapshot: store.get_ser(DBCol::BlockMisc, STATE_SNAPSHOT_KEY)?,
+            // TODO(cloud_archival) Add `CLOUD_HEAD_KEY`
         })
     }
 }

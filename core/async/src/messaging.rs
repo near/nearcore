@@ -8,63 +8,83 @@ use std::sync::{Arc, OnceLock};
 use tokio::sync::oneshot;
 
 /// Trait for an actor. An actor is a struct that can handle messages and implements the Handler or
-/// HandlerWithContext trait. We can optionally implement the start_actor trait which is executed in
-/// the beginning of the actor's lifecycle.
-/// This corresponds to the actix::Actor trait `started` function.
+/// HandlerWithContext trait.
+///
+/// IMPORTANT NOTE: For the Multithread actor runtime, NONE of the below methods are ever called.
+/// These are only applicable for the async tokio runtime.
 pub trait Actor {
+    /// This is automatically called by the actor runtime when the actor is started.
+    /// It is called before any messages are processed.
     fn start_actor(&mut self, _ctx: &mut dyn DelayedActionRunner<Self>) {}
 
-    fn wrap_handler<M: actix::Message>(
+    /// This is called for every message that the actor handles, so that the actor can do something
+    /// else before and after handling the message.
+    fn wrap_handler<M, R>(
         &mut self,
         msg: M,
         ctx: &mut dyn DelayedActionRunner<Self>,
-        f: impl FnOnce(&mut Self, M, &mut dyn DelayedActionRunner<Self>) -> M::Result,
-    ) -> M::Result {
+        f: impl FnOnce(&mut Self, M, &mut dyn DelayedActionRunner<Self>) -> R,
+    ) -> R {
         f(self, msg, ctx)
     }
+
+    /// Called by the actor runtime right before the actor is dropped.
+    fn stop_actor(&mut self) {}
 }
+
+/// All handled messages shall implement this trait.
+/// TODO(#14005): The reason this exists is to allow CanSend<M> to be
+/// implemented at the same time as CanSend<MessageWithCallback<M, R>>. Once we
+/// remove MessageWithCallback, we should not need this anymore.
+pub trait Message {}
 
 /// Trait for handling a message.
 /// This works in unison with the [`CanSend`] trait. An actor implements the Handler trait for all
 /// messages it would like to handle, while the CanSend trait implements the logic to send the
 /// message to the actor. Handle and CanSend are typically not both implemented by the same struct.
-/// Note that the actor is any struct that implements the Handler trait, not just actix actors.
-pub trait Handler<M: actix::Message>
+pub trait Handler<M, R = ()>
 where
-    M::Result: Send,
+    M: Message,
+    R: Send,
 {
-    fn handle(&mut self, msg: M) -> M::Result;
+    fn handle(&mut self, msg: M) -> R;
 }
 
 /// Trait for handling a message with context.
 /// This is similar to the [`Handler`] trait, but it allows the handler to access the delayed action
-/// runner that is used to schedule actions to be run in the future. For actix::Actor, the context
-/// defined as actix::Context<Self> implements DelayedActionRunner<T>.
+/// runner that is used to schedule actions to be run in the future. For tokio actors, the
+/// TokioRuntimeHandle<A> implements DelayedActionRunner<T>.
 /// Note that the implementer for handler of a message only needs to implement either of Handler or
 /// HandlerWithContext, not both.
-pub trait HandlerWithContext<M: actix::Message>
+pub trait HandlerWithContext<M, R = ()>
 where
-    M::Result: Send,
+    M: Message,
+    R: Send,
 {
-    fn handle(&mut self, msg: M, ctx: &mut dyn DelayedActionRunner<Self>) -> M::Result;
+    fn handle(&mut self, msg: M, ctx: &mut dyn DelayedActionRunner<Self>) -> R;
 }
 
-impl<A, M> HandlerWithContext<M> for A
+impl<A, M, R> HandlerWithContext<M, R> for A
 where
-    M: actix::Message,
-    A: Actor + Handler<M>,
-    M::Result: Send,
+    A: Actor + Handler<M, R>,
+    M: Message,
+    R: Send,
 {
-    fn handle(&mut self, msg: M, ctx: &mut dyn DelayedActionRunner<Self>) -> M::Result {
+    fn handle(&mut self, msg: M, ctx: &mut dyn DelayedActionRunner<Self>) -> R {
         self.wrap_handler(msg, ctx, |this, msg, _| Handler::handle(this, msg))
     }
 }
 
 /// Trait for sending a typed message. The sent message is then handled by the Handler trait.
-/// actix::Addr, which is derived from actix::Actor is an example of a struct that implements CanSend.
-/// See [`Handler`] trait for more details.
+/// See [`Handler<M>`] trait for more details.
 pub trait CanSend<M>: Send + Sync + 'static {
     fn send(&self, message: M);
+}
+
+/// Trait for sending a typed message async. The sent message is then handled by the Handler trait.
+/// See [`Handler<M, R>`] trait for more details.
+pub trait CanSendAsync<M, R>: Send + Sync + 'static {
+    fn send_async(&self, message: M) -> BoxFuture<'static, Result<R, AsyncSendError>>;
 }
 
 /// Wraps a CanSend. This should be used to pass around an Arc<dyn CanSend<M>>, instead
@@ -186,6 +206,8 @@ pub enum AsyncSendError {
     Dropped,
 }
 
+impl std::error::Error for AsyncSendError {}
+
 impl Display for AsyncSendError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         Debug::fmt(self, f)
@@ -245,12 +267,16 @@ impl<M> CanSend<M> for Noop {
     fn send(&self, _message: M) {}
 }
 
+impl<M> CanSend<M> for Arc<Noop> {
+    fn send(&self, _message: M) {}
+}
+
 /// Creates a no-op sender that does nothing with the message.
 ///
 /// Returns a type that can be converted to any type of sender,
 /// sync or async, including multi-senders.
-pub fn noop() -> Noop {
-    Noop
+pub fn noop() -> Arc<Noop> {
+    Arc::new(Noop)
 }
 
 /// A trait for converting something that implements individual senders into

@@ -32,7 +32,7 @@ impl Store {
         skip_all
     )]
     pub fn set_recent_outbound_connections(
-        &mut self,
+        &self,
         recent_outbound_connections: &Vec<ConnectionInfo>,
     ) -> Result<(), Error> {
         let mut update = self.0.new_update();

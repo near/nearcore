@@ -5,7 +5,7 @@ use std::num::NonZeroUsize;
 use std::sync::Arc;
 
 pub(super) struct ColumnCache {
-    pub(super) values: lru::LruCache<Vec<u8>, Arc<dyn Any + Send + Sync>>,
+    pub(super) values: lru::LruCache<Vec<u8>, Option<Arc<dyn Any + Send + Sync>>>,
     /// A counter indicating the number of ongoing write transaction flushes.
     ///
     /// This cache and transactional write operation in the underlying database can be
@@ -31,6 +31,9 @@ pub(super) struct ColumnCache {
     /// of database into itself and return them directly to the caller. The write operation
     /// itself will take care of discarding dirty data.
     pub(super) active_flushes: u64,
+    /// If true, the cache will store `None` values in the cache,
+    /// which indicates that the key was not found in the database.
+    store_none_values: bool,
 }
 
 impl ColumnCache {
@@ -41,7 +44,19 @@ impl ColumnCache {
     fn new(capacity: usize) -> Option<Mutex<Self>> {
         let capacity = NonZeroUsize::new(capacity);
         let values = capacity.map(|cap| lru::LruCache::new(cap))?;
-        Some(Mutex::new(Self { values, active_flushes: 0 }))
+        Some(Mutex::new(Self { values, active_flushes: 0, store_none_values: false }))
+    }
+
+    fn with_none_values(inner: Option<Mutex<Self>>) -> Option<Mutex<Self>> {
+        if let Some(cache) = &inner {
+            let mut cache = cache.lock();
+            cache.store_none_values = true;
+        };
+        inner
+    }
+
+    pub(super) fn store_none_values(&self) -> bool {
+        self.store_none_values
     }
 }
 
@@ -64,6 +79,9 @@ impl Cache {
                 | DBCol::Block => ColumnCache::new(32),
                 | DBCol::ChunkExtra => ColumnCache::new(1024),
                 | DBCol::PartialChunks => ColumnCache::new(512),
+                | DBCol::StateShardUIdMapping => ColumnCache::with_none_values(
+                    ColumnCache::new(32),
+                ),
                 _ => ColumnCache::disabled(),
             },
         }

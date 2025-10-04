@@ -1,8 +1,13 @@
+use std::collections::HashSet;
+use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
+
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_async::time::{Duration, Utc};
 use near_chain_configs::GenesisConfig;
 use near_chain_configs::MutableConfigValue;
 use near_chain_configs::ProtocolConfig;
+use near_chain_configs::ProtocolVersionCheckConfig;
 use near_chain_configs::ReshardingConfig;
 use near_chain_primitives::Error;
 pub use near_epoch_manager::EpochManagerAdapter;
@@ -23,7 +28,7 @@ use near_primitives::receipt::{PromiseYieldTimeout, Receipt};
 use near_primitives::sandbox::state_patch::SandboxStatePatch;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::shard_layout::ShardUId;
-use near_primitives::state_part::PartId;
+use near_primitives::state_part::{PartId, StatePart};
 use near_primitives::stateless_validation::contract_distribution::ContractUpdates;
 use near_primitives::transaction::ValidatedTransaction;
 use near_primitives::transaction::{ExecutionOutcomeWithId, SignedTransaction};
@@ -37,10 +42,12 @@ use near_primitives::version::PROD_GENESIS_PROTOCOL_VERSION;
 use near_primitives::version::{MIN_GAS_PRICE_NEP_92_FIX, ProtocolVersion};
 use near_primitives::views::{QueryRequest, QueryResponse};
 use near_schema_checker_lib::ProtocolSchema;
+use near_store::TrieUpdate;
 use near_store::flat::FlatStorageManager;
 use near_store::{PartialStorage, ShardTries, Store, Trie, WrappedTrieChanges};
 use near_vm_runner::ContractCode;
 use near_vm_runner::ContractRuntimeCache;
+use node_runtime::PostStateReadyCallback;
 use node_runtime::SignedValidPeriodTransactions;
 use num_rational::Rational32;
 use tracing::instrument;
@@ -85,7 +92,7 @@ pub struct AcceptedBlock {
     pub provenance: Provenance,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct ApplyChunkResult {
     pub trie_changes: WrappedTrieChanges,
     pub new_root: StateRoot,
@@ -159,7 +166,10 @@ impl BlockEconomicsConfig {
     }
 
     pub fn max_gas_price(&self) -> Balance {
-        std::cmp::min(self.genesis_max_gas_price, Self::MAX_GAS_MULTIPLIER * self.min_gas_price())
+        std::cmp::min(
+            self.genesis_max_gas_price,
+            self.min_gas_price().checked_mul(Self::MAX_GAS_MULTIPLIER).unwrap(),
+        )
     }
 
     pub fn gas_price_adjustment_rate(&self) -> Rational32 {
@@ -198,22 +208,28 @@ pub struct ChainGenesis {
 pub struct ChainConfig {
     /// Whether to save `TrieChanges` on disk or not.
     pub save_trie_changes: bool,
+    /// Whether to persist transaction outcomes on disk or not.
+    pub save_tx_outcomes: bool,
     /// Number of threads to execute background migration work.
     /// Currently used for flat storage background creation.
     pub background_migration_threads: usize,
     /// The resharding configuration.
     pub resharding_config: MutableConfigValue<ReshardingConfig>,
+    /// The epoch to check for protocol version compatibility.
+    pub protocol_version_check: ProtocolVersionCheckConfig,
 }
 
 impl ChainConfig {
     pub fn test() -> Self {
         Self {
             save_trie_changes: true,
+            save_tx_outcomes: true,
             background_migration_threads: 1,
             resharding_config: MutableConfigValue::new(
                 ReshardingConfig::test(),
                 "resharding_config",
             ),
+            protocol_version_check: Default::default(),
         }
     }
 }
@@ -237,6 +253,7 @@ impl ChainGenesis {
     }
 }
 
+#[derive(Clone)]
 pub enum StorageDataSource {
     /// Full state data is present in DB.
     Db,
@@ -250,6 +267,7 @@ pub enum StorageDataSource {
     Recorded(PartialStorage),
 }
 
+#[derive(Clone)]
 pub struct RuntimeStorageConfig {
     pub state_root: StateRoot,
     pub use_flat_storage: bool,
@@ -324,6 +342,7 @@ pub struct ApplyChunkShardContext<'a> {
     pub last_validator_proposals: ValidatorStakeIter<'a>,
     pub gas_limit: Gas,
     pub is_new_chunk: bool,
+    pub on_post_state_ready: Option<PostStateReadyCallback>,
 }
 
 /// Contains transactions that were fetched from the transaction pool
@@ -336,6 +355,11 @@ pub struct PreparedTransactions {
     pub limited_by: Option<PrepareTransactionsLimit>,
 }
 
+/// Transactions that were taken out of the pool in prepare_transactions,
+/// but should be skipped because they were in skip_tx_hashes.
+#[derive(Debug, Clone)]
+pub struct SkippedTransactions(pub Vec<ValidatedTransaction>);
+
 /// Chunk producer prepares transactions from the transaction pool
 /// until it hits some limit (too many transactions, too much gas used, etc).
 /// This enum describes which limit was hit when preparing transactions.
@@ -346,29 +370,32 @@ pub enum PrepareTransactionsLimit {
     Time,
     ReceiptCount,
     StorageProofSize,
+    Cancelled,
 }
 
+/// Information used to prepare transactions, based on the previous block.
+/// When preparing transactions for height H, H is the "current" block and H-1 is the "previous" block.
 pub struct PrepareTransactionsBlockContext {
+    /// Gas price in the current block
     pub next_gas_price: Balance,
+    /// Height of the previous block
     pub height: BlockHeight,
-    pub block_hash: CryptoHash,
+    /// Epoch id of the current block
+    pub next_epoch_id: EpochId,
+    /// Congestion info from the previous block
     pub congestion_info: BlockCongestionInfo,
 }
 
-impl From<&Block> for PrepareTransactionsBlockContext {
-    fn from(block: &Block) -> Self {
-        let header = block.header();
-        Self {
+impl PrepareTransactionsBlockContext {
+    pub fn new(prev_block: &Block, epoch_manager: &dyn EpochManagerAdapter) -> Result<Self, Error> {
+        let header = prev_block.header();
+        Ok(Self {
             next_gas_price: header.next_gas_price(),
             height: header.height(),
-            block_hash: *header.hash(),
-            congestion_info: block.block_congestion_info(),
-        }
+            next_epoch_id: epoch_manager.get_epoch_id_from_prev_block(&header.hash())?,
+            congestion_info: prev_block.block_congestion_info(),
+        })
     }
-}
-pub struct PrepareTransactionsChunkContext {
-    pub shard_id: ShardId,
-    pub gas_limit: Gas,
 }
 
 /// Bridge between the chain and the runtime.
@@ -432,12 +459,35 @@ pub trait RuntimeAdapter: Send + Sync {
     fn prepare_transactions(
         &self,
         storage: RuntimeStorageConfig,
-        chunk: PrepareTransactionsChunkContext,
+        shard_id: ShardId,
         prev_block: PrepareTransactionsBlockContext,
         transaction_groups: &mut dyn TransactionGroupIterator,
         chain_validate: &dyn Fn(&SignedTransaction) -> bool,
         time_limit: Option<Duration>,
     ) -> Result<PreparedTransactions, Error>;
+
+    /// `prepare_transactions` with extra options, used in early transaction preparation.
+    /// * takes `TrieUpdate` instead of `RuntimeStorageConfig`. The Trie in `TrieUpdate` should have
+    ///   a fresh recorder with no recorded data to make the storage proof size limit work correctly.
+    /// * `skip_tx_hashes` - defines which transactions should be skipped. Used to skip transactions
+    ///   that were included in previous chunks but weren't removed from the pool yet. These
+    ///   transactions will still be taken out of the pool and should be reintroduced together with
+    ///   PreparedTransactions.
+    /// * `cancel` - can be used to cancel the preparation when it's running as an async task. When
+    ///   cancelled, the function will return `Ok` with `limited_by` set to
+    ///   `PrepareTransactionsLimit::Cancelled`. This allows to reintroduce the transactions that
+    ///   were removed from the pool.
+    fn prepare_transactions_extra(
+        &self,
+        storage: TrieUpdate,
+        shard_id: ShardId,
+        prev_block: PrepareTransactionsBlockContext,
+        transaction_groups: &mut dyn TransactionGroupIterator,
+        chain_validate: &dyn Fn(&SignedTransaction) -> bool,
+        skip_tx_hashes: HashSet<CryptoHash>,
+        time_limit: Option<Duration>,
+        cancel: Option<Arc<AtomicBool>>,
+    ) -> Result<(PreparedTransactions, SkippedTransactions), Error>;
 
     /// Returns true if the shard layout will change in the next epoch
     /// Current epoch is the epoch of the block after `parent_hash`
@@ -481,11 +531,18 @@ pub trait RuntimeAdapter: Send + Sync {
         prev_hash: &CryptoHash,
         state_root: &StateRoot,
         part_id: PartId,
-    ) -> Result<Vec<u8>, Error>;
+    ) -> Result<StatePart, Error>;
 
     /// Validate state part that expected to be given state root with provided data.
     /// Returns false if the resulting part doesn't match the expected one.
-    fn validate_state_part(&self, state_root: &StateRoot, part_id: PartId, data: &[u8]) -> bool;
+    /// TODO(cloud_archival) #14124 newtype for validated state parts
+    fn validate_state_part(
+        &self,
+        shard_id: ShardId,
+        state_root: &StateRoot,
+        part_id: PartId,
+        part: &StatePart,
+    ) -> bool;
 
     /// Should be executed after accepting all the parts to set up a new state.
     fn apply_state_part(
@@ -493,7 +550,7 @@ pub trait RuntimeAdapter: Send + Sync {
         shard_id: ShardId,
         state_root: &StateRoot,
         part_id: PartId,
-        part: &[u8],
+        part: &StatePart,
         epoch_id: &EpochId,
     ) -> Result<(), Error>;
 
@@ -560,7 +617,7 @@ mod tests {
             vec![Trie::EMPTY_ROOT],
             vec![Default::default(); shard_ids.len()],
             &shard_ids,
-            1_000_000,
+            Gas::from_gas(1_000_000),
             0,
             PROTOCOL_VERSION,
         );
@@ -570,8 +627,8 @@ mod tests {
             genesis_chunks.into_iter().map(|chunk| chunk.take_header()).collect(),
             Utc::now_utc(),
             0,
-            100,
-            1_000_000_000,
+            Balance::from_yoctonear(100),
+            Balance::from_yoctonear(1_000_000_000),
             &genesis_bps,
         );
         let signer = Arc::new(create_test_signer("other"));
@@ -593,9 +650,9 @@ mod tests {
                 status: ExecutionStatus::Unknown,
                 logs: vec!["outcome1".to_string()],
                 receipt_ids: vec![hash(&[1])],
-                gas_burnt: 100,
+                gas_burnt: Gas::from_gas(100),
                 compute_usage: Some(200),
-                tokens_burnt: 10000,
+                tokens_burnt: Balance::from_yoctonear(10000),
                 executor_id: "alice".parse().unwrap(),
                 metadata: ExecutionMetadata::V1,
             },
@@ -606,9 +663,9 @@ mod tests {
                 status: ExecutionStatus::SuccessValue(vec![1]),
                 logs: vec!["outcome2".to_string()],
                 receipt_ids: vec![],
-                gas_burnt: 0,
+                gas_burnt: Gas::ZERO,
                 compute_usage: Some(0),
-                tokens_burnt: 0,
+                tokens_burnt: Balance::ZERO,
                 executor_id: "bob".parse().unwrap(),
                 metadata: ExecutionMetadata::V1,
             },

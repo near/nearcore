@@ -1,5 +1,6 @@
 use near_async::messaging::{IntoMultiSender, noop};
 use near_async::time::Clock;
+use near_chain::spice_core::CoreStatementsProcessor;
 use near_chain::types::ChainConfig;
 use near_chain::{Chain, ChainGenesis, DoomslugThresholdMode};
 use near_chain_configs::{Genesis, MutableConfigValue};
@@ -7,6 +8,7 @@ use near_epoch_manager::EpochManager;
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_primitives::block::{Block, BlockHeader};
 use near_primitives::hash::CryptoHash;
+use near_store::adapter::StoreAdapter as _;
 use near_store::genesis::initialize_genesis_state;
 use near_store::test_utils::create_test_store;
 use nearcore::NightshadeRuntime;
@@ -27,10 +29,10 @@ fn genesis_header(genesis: &Genesis) -> BlockHeader {
     let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config, None);
     let shard_tracker = ShardTracker::new_empty(epoch_manager.clone());
     let runtime =
-        NightshadeRuntime::test(dir.path(), store, &genesis.config, epoch_manager.clone());
+        NightshadeRuntime::test(dir.path(), store.clone(), &genesis.config, epoch_manager.clone());
     let chain = Chain::new(
         Clock::real(),
-        epoch_manager,
+        epoch_manager.clone(),
         shard_tracker,
         runtime,
         &chain_genesis,
@@ -38,8 +40,11 @@ fn genesis_header(genesis: &Genesis) -> BlockHeader {
         ChainConfig::test(),
         None,
         Default::default(),
+        Default::default(),
         MutableConfigValue::new(None, "validator_signer"),
         noop().into_multi_sender(),
+        CoreStatementsProcessor::new_with_noop_senders(store.chain_store(), epoch_manager),
+        None,
     )
     .unwrap();
     chain.genesis().clone()
@@ -54,10 +59,10 @@ pub fn genesis_block(genesis: &Genesis) -> Arc<Block> {
     let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config, None);
     let shard_tracker = ShardTracker::new_empty(epoch_manager.clone());
     let runtime =
-        NightshadeRuntime::test(dir.path(), store, &genesis.config, epoch_manager.clone());
+        NightshadeRuntime::test(dir.path(), store.clone(), &genesis.config, epoch_manager.clone());
     let chain = Chain::new(
         Clock::real(),
-        epoch_manager,
+        epoch_manager.clone(),
         shard_tracker,
         runtime,
         &chain_genesis,
@@ -65,8 +70,11 @@ pub fn genesis_block(genesis: &Genesis) -> Arc<Block> {
         ChainConfig::test(),
         None,
         Default::default(),
+        Default::default(),
         MutableConfigValue::new(None, "validator_signer"),
         noop().into_multi_sender(),
+        CoreStatementsProcessor::new_with_noop_senders(store.chain_store(), epoch_manager),
+        None,
     )
     .unwrap();
     chain.get_block(&chain.genesis().hash().clone()).unwrap()

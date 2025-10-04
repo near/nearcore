@@ -1,4 +1,5 @@
 use super::{StoreAdapter, StoreUpdateAdapter, StoreUpdateHolder};
+use crate::db::GC_STOP_HEIGHT_KEY;
 use crate::{
     CHUNK_TAIL_KEY, DBCol, FINAL_HEAD_KEY, FORK_TAIL_KEY, HEAD_KEY, HEADER_HEAD_KEY,
     LARGEST_TARGET_HEIGHT_KEY, Store, StoreUpdate, TAIL_KEY, get_genesis_height,
@@ -113,6 +114,14 @@ impl ChainStoreAdapter {
         match self.store.get_ser(DBCol::BlockMisc, LARGEST_TARGET_HEIGHT_KEY) {
             Ok(Some(o)) => Ok(o),
             Ok(None) => Ok(0),
+            Err(e) => Err(e.into()),
+        }
+    }
+
+    pub fn gc_stop_height(&self) -> Result<BlockHeight, Error> {
+        match self.store.get_ser(DBCol::BlockMisc, GC_STOP_HEIGHT_KEY) {
+            Ok(Some(height)) => Ok(height),
+            Ok(None) => Ok(self.genesis_height),
             Err(e) => Err(e.into()),
         }
     }
@@ -239,6 +248,11 @@ impl ChainStoreAdapter {
         self.store.exists(DBCol::Chunks, h.as_ref()).map_err(|e| e.into())
     }
 
+    /// Does this partial chunk exist?
+    pub fn partial_chunk_exists(&self, h: &ChunkHash) -> Result<bool, Error> {
+        self.store.exists(DBCol::PartialChunks, h.as_ref()).map_err(|e| e.into())
+    }
+
     /// Returns encoded chunk if it's invalid otherwise None.
     pub fn is_invalid_chunk(
         &self,
@@ -280,14 +294,6 @@ impl ChainStoreAdapter {
                 .get_ser(DBCol::OutgoingReceipts, &get_block_shard_id(prev_block_hash, shard_id)),
             format_args!("OUTGOING RECEIPT: {} {}", prev_block_hash, shard_id),
         )
-    }
-
-    pub fn incoming_receipts_exist(
-        &self,
-        block_hash: &CryptoHash,
-        shard_id: ShardId,
-    ) -> Result<bool, Error> {
-        Ok(self.store.exists(DBCol::IncomingReceipts, &get_block_shard_id(block_hash, shard_id))?)
     }
 
     pub fn get_incoming_receipts(
@@ -386,6 +392,17 @@ impl ChainStoreAdapter {
         Ok(self
             .store
             .get_ser(DBCol::OutcomeIds, &get_block_shard_id(block_hash, shard_id))?
+            .unwrap_or_default())
+    }
+
+    /// Returns a vector of all known processed next block hashes.
+    pub fn get_all_next_block_hashes(
+        &self,
+        block_hash: &CryptoHash,
+    ) -> Result<Vec<CryptoHash>, Error> {
+        Ok(self
+            .store
+            .get_ser(DBCol::all_next_block_hashes(), block_hash.as_ref())?
             .unwrap_or_default())
     }
 

@@ -7,6 +7,7 @@
 import unittest
 import sys
 import pathlib
+from collections import defaultdict
 
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
@@ -120,11 +121,11 @@ class StateSyncValidatorShardSwap(unittest.TestCase):
 
             num_headers = 0
             num_parts = 0
-            num_retries = 0
+            num_failed = defaultdict(int)
 
             for key, value in down:
                 if key['result'] != 'success':
-                    num_retries += 1
+                    num_failed[key['source']] += 1
                     continue
 
                 if key['source'] != 'network':
@@ -140,11 +141,46 @@ class StateSyncValidatorShardSwap(unittest.TestCase):
             print(
                 f"Node {i} downloaded {num_headers} state headers and {num_parts} parts from peers"
             )
-            if num_retries > 0:
+            if num_failed:
                 print(
-                    f"WARN: Node {i} made {num_retries} unsuccessful requests for state data"
+                    f"WARN: Node {i} made {dict(num_failed)} unsuccessful requests for state data"
                 )
             assert num_headers > 0 and num_parts > 0, f"Node {i} did not state sync, but is expected to in this test"
+
+            msgs = metrics.get_metric_all_values("near_state_sync_peer_msgs")
+
+            num_will_respond_header = 0
+            num_will_respond_part = 0
+            num_busy = 0
+            num_error = 0
+            num_state = 0
+
+            for key, value in msgs:
+                if key['content'] == 'will_respond':
+                    if key['type'] == 'header':
+                        num_will_respond_header += 1
+                    elif key['type'] == 'part':
+                        num_will_respond_part += 1
+                    else:
+                        assert False, f"Unexpected near_state_sync_peer_acks value ({key}, {value})"
+                elif key['content'] == 'busy':
+                    num_busy += 1
+                elif key['content'] == 'error':
+                    num_error += 1
+                elif key['content'] == 'state':
+                    num_state += 1
+                else:
+                    assert False, f"Unexpected near_state_sync_peer_acks value ({key}, {value})"
+
+            assert num_will_respond_header == num_headers,\
+                f"Number of positive acks {num_will_respond_header} should match number of headers downloaded {num_headers}"
+            assert num_will_respond_part == num_parts,\
+                f"Number of positive acks {num_will_respond_part} should match number of parts downloaded {num_parts}"
+            assert num_state == num_headers + num_parts,\
+                f"Number of state responses {num_state} from peers should match number of headers and parts done"
+
+            assert num_busy + num_error == num_failed['sender_dropped'],\
+                "Number of negative acks should match number of requests with sender dropped"
 
     def tearDown(self):
         self._clear_cluster()

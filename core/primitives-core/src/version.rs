@@ -311,7 +311,23 @@ pub enum ProtocolFeature {
     ReducedGasRefunds,
     /// Move from ChunkStateWitness being a single struct to a versioned enum.
     VersionedStateWitness,
+    /// Increase max_congestion_missed_chunks from 5 to 125.
+    /// At 125 missing chunks shard will be fully congested.
+    /// At 100 missing chunks shard will be 80% congested, and transactions
+    /// targeting it will be rejected as per reject_tx_congestion_threshold
+    /// config.
+    ///
+    /// It improves UX during long ranges of missing chunks, as transactions
+    /// are much less likely to get rejected with ShardStuck error.
+    IncreaseMaxCongestionMissedChunks,
+
+    Wasmtime,
     SaturatingFloatToInt,
+    ChunkPartChecks,
+    StatePartsCompression,
+    /// NEP: https://github.com/near/NEPs/pull/616
+    DeterministicAccountIds,
+    InvalidTxGenerateOutcomes,
 }
 
 impl ProtocolFeature {
@@ -405,8 +421,12 @@ impl ProtocolFeature {
             | ProtocolFeature::ProduceOptimisticBlock => 77,
             ProtocolFeature::SimpleNightshadeV6
             | ProtocolFeature::VersionedStateWitness
+            | ProtocolFeature::ChunkPartChecks
             | ProtocolFeature::SaturatingFloatToInt
             | ProtocolFeature::ReducedGasRefunds => 78,
+            ProtocolFeature::IncreaseMaxCongestionMissedChunks => 79,
+            ProtocolFeature::StatePartsCompression => 81,
+            ProtocolFeature::Wasmtime => 82,
 
             // Nightly features:
             ProtocolFeature::FixContractLoadingCost => 129,
@@ -414,6 +434,8 @@ impl ProtocolFeature {
             // that always enables this for mocknet (see config_mocknet function).
             ProtocolFeature::ShuffleShardAssignments => 143,
             ProtocolFeature::ExcludeExistingCodeFromWitnessForCodeLen => 148,
+            ProtocolFeature::DeterministicAccountIds => 150,
+            ProtocolFeature::InvalidTxGenerateOutcomes => 151,
             // Place features that are not yet in Nightly below this line.
         }
     }
@@ -430,10 +452,10 @@ pub const PROD_GENESIS_PROTOCOL_VERSION: ProtocolVersion = 29;
 pub const MIN_SUPPORTED_PROTOCOL_VERSION: ProtocolVersion = 77;
 
 /// Current protocol version used on the mainnet with all stable features.
-const STABLE_PROTOCOL_VERSION: ProtocolVersion = 78;
+const STABLE_PROTOCOL_VERSION: ProtocolVersion = 82;
 
 // On nightly, pick big enough version to support all features.
-const NIGHTLY_PROTOCOL_VERSION: ProtocolVersion = 149;
+const NIGHTLY_PROTOCOL_VERSION: ProtocolVersion = 151;
 
 /// Largest protocol version supported by the current binary.
 pub const PROTOCOL_VERSION: ProtocolVersion =

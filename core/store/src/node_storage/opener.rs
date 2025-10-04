@@ -1,8 +1,13 @@
-use crate::config::ArchivalConfig;
+use near_chain_configs::CloudStorageConfig;
+
+use crate::archive::cloud_storage::CloudStorageOpener;
+use crate::config::StateSnapshotType;
 use crate::db::rocksdb::RocksDB;
 use crate::db::rocksdb::snapshot::{Snapshot, SnapshotError, SnapshotRemoveError};
 use crate::metadata::{DB_VERSION, DbKind, DbMetadata, DbVersion};
-use crate::{DBCol, DBTransaction, Mode, NodeStorage, Store, StoreConfig, Temperature};
+use crate::{
+    DBCol, DBTransaction, Mode, NodeStorage, StateSnapshotConfig, Store, StoreConfig, Temperature,
+};
 use std::sync::Arc;
 
 #[derive(Debug, thiserror::Error)]
@@ -175,8 +180,8 @@ pub struct StoreOpener<'a> {
     /// version.
     migrator: Option<&'a dyn StoreMigrator>,
 
-    /// Archival config. This is set to a valid config for archival nodes.
-    archival_config: Option<ArchivalConfig<'a>>,
+    /// Opener for an instance of cloud storage if one was configured.
+    cloud_storage_opener: Option<CloudStorageOpener>,
 }
 
 /// Opener for a single RocksDB instance.
@@ -203,26 +208,20 @@ impl<'a> StoreOpener<'a> {
     pub(crate) fn new(
         home_dir: &std::path::Path,
         store_config: &'a StoreConfig,
-        archival_config: Option<ArchivalConfig<'a>>,
+        cold_store_config: Option<&'a StoreConfig>,
+        cloud_storage_config: Option<&'a CloudStorageConfig>,
     ) -> Self {
-        Self {
-            hot: DBOpener::new(home_dir, store_config, Temperature::Hot),
-            cold: archival_config
-                .as_ref()
-                .map(|config| {
-                    config
-                        .cold_store_config
-                        .map(|config| DBOpener::new(home_dir, config, Temperature::Cold))
-                })
-                .flatten(),
-            archival_config,
-            migrator: None,
-        }
+        let hot = DBOpener::new(home_dir, store_config, Temperature::Hot);
+        let cold =
+            cold_store_config.map(|config| DBOpener::new(home_dir, config, Temperature::Cold));
+        let cloud_storage_opener = cloud_storage_config
+            .map(|config| CloudStorageOpener::new(home_dir.to_path_buf(), config.clone()));
+        Self { hot, cold, migrator: None, cloud_storage_opener }
     }
 
-    /// Returns true is this opener is for an archival node.
+    /// Returns true if this opener is for an archival node.
     fn is_archive(&self) -> bool {
-        self.archival_config.is_some()
+        self.cold.is_some() || self.cloud_storage_opener.is_some()
     }
 
     /// Configures the opener with specified [`StoreMigrator`].
@@ -262,6 +261,63 @@ impl<'a> StoreOpener<'a> {
         Ok(storage)
     }
 
+    /// Migrate state snapshots.
+    ///
+    /// This function iterates over all state snapshots in the state snapshots directory
+    /// and runs the migration on each of them.
+    ///
+    /// Migrations is not performed in the following cases:
+    /// - If snapshots are disabled
+    /// - If the migrator is not found
+    /// - If the state snapshots directory does not exist
+    /// - If the state snapshot is already migrated
+    fn migrate_state_snapshots(&self) -> Result<(), StoreOpenerError> {
+        if self.migrator.is_none() {
+            tracing::debug!(target: "db_opener", "No migrator found, skipping state snapshots migration");
+            return Ok(());
+        }
+
+        let state_snapshots_dir = match self.hot.config.state_snapshot_config.state_snapshot_type {
+            StateSnapshotType::Enabled => {
+                // At this point, the self.hot.path was built from home_dir and store_config.path.
+                let config = StateSnapshotConfig::enabled(&self.hot.path);
+                config.state_snapshots_dir().unwrap().to_path_buf()
+            }
+            StateSnapshotType::Disabled => {
+                tracing::debug!(target: "db_opener", "State snapshots are disabled, skipping state snapshots migration");
+                return Ok(());
+            }
+        };
+
+        if !state_snapshots_dir.exists() {
+            tracing::debug!(
+                target: "db_opener",
+                ?state_snapshots_dir,
+                "State snapshots directory does not exist, skipping state snapshots migration"
+            );
+            return Ok(());
+        }
+
+        let config = StoreConfig::state_snapshot_store_config();
+        for entry in std::fs::read_dir(state_snapshots_dir)? {
+            let entry = entry?;
+            let snapshot_path = entry.path();
+            if !entry.file_type()?.is_dir() {
+                tracing::trace!(
+                    target: "db_opener",
+                    ?snapshot_path,
+                    "This entry is not a directory, skipping"
+                );
+                continue;
+            }
+
+            let opener = NodeStorage::opener(&snapshot_path, &config, None, None)
+                .with_migrator(self.migrator.unwrap());
+            let _ = opener.open_in_mode(Mode::ReadWrite)?;
+        }
+        Ok(())
+    }
+
     fn open_dbs(
         &self,
         mode: Mode,
@@ -288,6 +344,11 @@ impl<'a> StoreOpener<'a> {
         } else {
             Snapshot::none()
         };
+
+        if let Err(error) = self.migrate_state_snapshots() {
+            // If migration fails the node may not be able to share state parts.
+            tracing::error!(target: "db_opener", ?error, "Error migrating state snapshots");
+        }
 
         let (hot_db, _) = self.hot.open(mode, DB_VERSION)?;
         let cold_db = self
@@ -623,9 +684,9 @@ pub fn checkpoint_hot_storage_and_cleanup_columns(
         .map_err(StoreOpenerError::CheckpointError)?;
 
     // As only path from config is used in StoreOpener, default config with custom path will do.
-    let mut config = StoreConfig::default();
-    config.path = Some(checkpoint_path);
-    let opener = NodeStorage::opener(checkpoint_base_path, &config, None);
+    let config =
+        StoreConfig { path: Some(checkpoint_path), ..StoreConfig::state_snapshot_store_config() };
+    let opener = NodeStorage::opener(checkpoint_base_path, &config, None, None);
     // This will create all the column families that were dropped by create_checkpoint(),
     // but all the data and associated files that were in them previously should be gone.
     let node_storage = opener.open_in_mode(Mode::ReadWriteExisting)?;
@@ -655,14 +716,14 @@ pub fn checkpoint_hot_storage_and_cleanup_columns(
 /// with the fork-network tool, we only need the state and
 /// flat state, and a few other small columns. So getting rid of
 /// everything else saves quite a bit on the disk space needed for each node.
-pub fn clear_columns<'a>(
+pub fn clear_columns(
     home_dir: &std::path::Path,
     config: &StoreConfig,
-    archival_config: Option<ArchivalConfig<'a>>,
+    cold_store_config: Option<&StoreConfig>,
     cols: &[DBCol],
     recreate_dropped_columns: bool,
 ) -> anyhow::Result<()> {
-    let opener = StoreOpener::new(home_dir, config, archival_config);
+    let opener = StoreOpener::new(home_dir, config, cold_store_config, None);
     let (mut hot_db, _hot_snapshot, cold_db, _cold_snapshot) =
         opener.open_dbs(Mode::ReadWriteExisting)?;
     hot_db.clear_cols(cols)?;

@@ -28,6 +28,7 @@ test-ci *FLAGS: check-cargo-fmt \
                 check-cargo-udeps \
                 (nextest "stable" FLAGS) \
                 (nextest "nightly" FLAGS) \
+                nextest-spice \
                 doctests
 # order them with the fastest / most likely to fail checks first
 # when changing this, remember to adjust the CI workflow in parallel, as CI runs each of these in a separate job
@@ -52,6 +53,10 @@ nextest TYPE *FLAGS:
 
 nextest-slow TYPE *FLAGS: (nextest TYPE "--ignore-default-filter -E 'default() + test(/^(.*::slow_test|slow_test)/)'" FLAGS)
 nextest-all TYPE *FLAGS: (nextest TYPE "--ignore-default-filter -E 'all()'" FLAGS)
+
+# TODO(#13341): Remove once spice tests can run as part of nightly or stable tests.
+spice_test_filter := "-E 'all() & test(spice)'"
+nextest-spice *FLAGS: (nextest "stable" "--features protocol_feature_spice" "--ignore-default-filter" spice_test_filter FLAGS)
 
 doctests:
     cargo test --doc
@@ -183,10 +188,15 @@ check-publishable-separately *OPTIONS:
 
 openapi-spec:
     #!/usr/bin/env bash
-    cargo run -p near-jsonrpc-openapi-spec > {{ justfile_directory() }}/new-openapi.json
-    cmp {{ justfile_directory() }}/new-openapi.json chain/jsonrpc/openapi/openapi.json
+    cargo run -p near-jsonrpc-openapi-spec > chain/jsonrpc/openapi/openapi.json
+    git diff --exit-code
     res=$?
     if [ $res -ne 0 ]; then
-        echo "OpenAPI spec has changed, please ensure the code doesn't break Near JSON RPC clients and run 'cargo run -p near-jsonrpc-openapi-spec > chain/jsonrpc/openapi/openapi.json' to update it."
+        echo "OpenAPI spec has changed, please ensure the code doesn't break Near JSON RPC clients and run 'cargo run -p near-jsonrpc-openapi-spec > chain/jsonrpc/openapi/openapi.json' to update it. Also update spec version accordingly in chain/jsonrpc/openapi/src/main.rs."
         exit 1
     fi
+
+check-cspell:
+    # You will need the cspell npm package.
+    # For nixpkgs users that's `nodePackages.cspell`
+    git ls-files | cspell --no-progress --file-list stdin

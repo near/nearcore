@@ -157,6 +157,24 @@ pub static CHUNK_STATE_WITNESS_DECODE_TIME: LazyLock<HistogramVec> = LazyLock::n
     .unwrap()
 });
 
+pub static VALIDATE_CHUNK_WITH_ENCODED_MERKLE_ROOT_TIME: LazyLock<HistogramVec> =
+    LazyLock::new(|| {
+        try_create_histogram_vec(
+            "near_validate_chunk_with_encoded_merkle_root_time",
+            "Time taken to validate a chunk with encoded merkle root",
+            &["shard_id"],
+            Some(
+                // Buckets from 1ms to 500ms
+                // 5ms = expected
+                // 20ms = concerning but OK
+                // 50ms = bad
+                // >=100ms = very bad
+                vec![0.001, 0.005, 0.01, 0.02, 0.05, 0.1, 0.5], // seconds
+            ),
+        )
+        .unwrap()
+    });
+
 pub(crate) static CHUNK_STATE_WITNESS_MAIN_STATE_TRANSITION_SIZE: LazyLock<HistogramVec> =
     LazyLock::new(|| {
         try_create_histogram_vec(

@@ -5,8 +5,8 @@ const BOOL_SIZE: usize = 1;
 const SCALAR_SIZE: usize = 256 / 8;
 const POINT_SIZE: usize = SCALAR_SIZE * 2;
 
-pub(super) struct InvalidInput {
-    pub(super) msg: String,
+pub(crate) struct InvalidInput {
+    pub(crate) msg: String,
 }
 
 impl InvalidInput {
@@ -22,7 +22,7 @@ impl From<InvalidInput> for VMLogicError {
     }
 }
 
-pub(super) fn split_elements<const ELEMENT_SIZE: usize>(
+pub(crate) fn split_elements<const ELEMENT_SIZE: usize>(
     data: &[u8],
 ) -> Result<&[[u8; ELEMENT_SIZE]], InvalidInput> {
     stdx::as_chunks_exact(data).map_err(|e| InvalidInput { msg: e.to_string() })
@@ -30,7 +30,7 @@ pub(super) fn split_elements<const ELEMENT_SIZE: usize>(
 
 const G1_MULTIEXP_ELEMENT_SIZE: usize = POINT_SIZE + SCALAR_SIZE;
 
-pub(super) fn g1_multiexp(
+pub(crate) fn g1_multiexp(
     elements: &[[u8; G1_MULTIEXP_ELEMENT_SIZE]],
 ) -> Result<[u8; POINT_SIZE], InvalidInput> {
     let elements: Vec<(bn::G1, bn::Fr)> = elements
@@ -50,7 +50,7 @@ pub(super) fn g1_multiexp(
 
 const G1_SUM_ELEMENT_SIZE: usize = BOOL_SIZE + POINT_SIZE;
 
-pub(super) fn g1_sum(
+pub(crate) fn g1_sum(
     elements: &[[u8; G1_SUM_ELEMENT_SIZE]],
 ) -> Result<[u8; POINT_SIZE], InvalidInput> {
     let elements: Vec<(bool, bn::G1)> = {
@@ -74,7 +74,7 @@ pub(super) fn g1_sum(
 
 const PAIRING_CHECK_ELEMENT_SIZE: usize = POINT_SIZE + POINT_SIZE * 2;
 
-pub(super) fn pairing_check(
+pub(crate) fn pairing_check(
     elements: &[[u8; PAIRING_CHECK_ELEMENT_SIZE]],
 ) -> Result<bool, InvalidInput> {
     let elements: Vec<(bn::G1, bn::G2)> = elements

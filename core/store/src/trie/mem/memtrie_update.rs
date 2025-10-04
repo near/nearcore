@@ -10,7 +10,7 @@ use crate::trie::ops::interface::{
     GenericTrieValue, GenericUpdatedTrieNode, GenericUpdatedTrieNodeWithSize, UpdatedNodeId,
 };
 use crate::trie::trie_recording::TrieRecorder;
-use crate::trie::{AccessOptions, Children, MemTrieChanges, TrieRefcountDeltaMap};
+use crate::trie::{AccessOptions, Children, MemTrieChanges, NUM_CHILDREN, TrieRefcountDeltaMap};
 use crate::{RawTrieNode, RawTrieNodeWithSize, TrieChanges};
 
 use super::arena::{ArenaMemory, ArenaMut};
@@ -50,11 +50,11 @@ impl MemTrieNode {
         }
     }
 
-    fn convert_children_to_updated<'a, M: ArenaMemory>(
-        view: ChildrenView<'a, M>,
-    ) -> [Option<MemTrieNodeId>; 16] {
-        let mut children = [None; 16];
-        for i in 0..16 {
+    fn convert_children_to_updated<M: ArenaMemory>(
+        view: ChildrenView<M>,
+    ) -> [Option<MemTrieNodeId>; NUM_CHILDREN] {
+        let mut children = [None; NUM_CHILDREN];
+        for i in 0..NUM_CHILDREN {
             if let Some(child) = view.get(i) {
                 children[i] = Some(child.id());
             }
@@ -114,10 +114,11 @@ impl<'a> TrieChangesTracker<'a> {
 
     fn record<M: ArenaMemory>(&mut self, node: &MemTrieNodeView<'a, M>) {
         let node_hash = node.node_hash();
-        let raw_node_serialized = borsh::to_vec(&node.to_raw_trie_node_with_size()).unwrap();
         *self.refcount_deleted_hashes.entry(node_hash).or_default() += 1;
         if let Some(recorder) = self.recorder.as_mut() {
-            recorder.record(&node_hash, raw_node_serialized.into());
+            recorder.record_with(&node_hash, || {
+                borsh::to_vec(&node.to_raw_trie_node_with_size()).unwrap().into()
+            });
         }
     }
 
@@ -476,12 +477,13 @@ pub(super) fn construct_root_from_changes<A: ArenaMut>(
     let updated_nodes = &changes.updated_nodes;
     let node_ids_with_hashes = &changes.node_ids_with_hashes;
     for (node_id, node_hash) in node_ids_with_hashes {
-        let node = updated_nodes.get(*node_id).unwrap().clone().unwrap();
+        let node = updated_nodes.get(*node_id).unwrap().as_ref().unwrap();
+        let memory_usage = node.memory_usage;
         let node = match &node.node {
             UpdatedMemTrieNode::Empty => unreachable!(),
             UpdatedMemTrieNode::Branch { children, value } => {
-                let mut new_children = [None; 16];
-                for i in 0..16 {
+                let mut new_children = [None; NUM_CHILDREN];
+                for i in 0..NUM_CHILDREN {
                     if let Some(child) = children[i] {
                         new_children[i] = Some(map_to_new_node_id(child, &updated_to_new_map));
                     }
@@ -501,7 +503,8 @@ pub(super) fn construct_root_from_changes<A: ArenaMut>(
                 InputMemTrieNode::Leaf { value, extension }
             }
         };
-        let mem_node_id = MemTrieNodeId::new_with_hash(arena, node, *node_hash);
+        let mem_node_id =
+            MemTrieNodeId::new_with_hash_and_memory_usage(arena, node, *node_hash, memory_usage);
         updated_to_new_map.insert(*node_id, mem_node_id);
         last_node_id = Some(mem_node_id);
     }
@@ -518,6 +521,7 @@ mod tests {
     use crate::trie::mem::memtries::MemTries;
     use crate::trie::{AccessOptions, MemTrieChanges};
     use crate::{KeyLookupMode, ShardTries, TrieChanges};
+    use near_primitives::errors::StorageError;
     use near_primitives::hash::CryptoHash;
     use near_primitives::shard_layout::ShardUId;
     use near_primitives::state::{FlatStateValue, ValueRef};
@@ -1006,5 +1010,40 @@ mod tests {
         memtrie.delete_until_height(2);
         assert_eq!(memtrie.arena.num_active_allocs(), frozen_arena.num_active_allocs());
         assert_eq!(memtrie.arena.active_allocs_bytes(), frozen_arena.active_allocs_bytes());
+    }
+
+    #[test]
+    fn test_memtrie_snapshot() {
+        // insert some values into memtrie
+        let mut memtrie = MemTries::new(ShardUId::single_shard());
+        let state_root = StateRoot::default();
+        let state_root = insert_changes_to_memtrie(&mut memtrie, state_root, 0, "ff00 = 0000");
+        let state_root = insert_changes_to_memtrie(&mut memtrie, state_root, 1, "ff01 = 0100");
+        let state_root2 = insert_changes_to_memtrie(&mut memtrie, state_root, 2, "ff0101 = 0101");
+
+        // get the root hash for state_root and state_root2
+        let hash = memtrie.get_root(&state_root).unwrap().view().node_hash().to_string();
+        assert_eq!(hash, "8utD1no12bD972DPzij3ydnaNGkLBRzuxGTKhbqrx39Q");
+        let hash = memtrie.get_root(&state_root2).unwrap().view().node_hash().to_string();
+        assert_eq!(hash, "87gK6ZaJBgtuBLL3MZ5GB1rVKJmpJ1gYBLusRbTHyZuu");
+
+        // create snapshot, gc all other entries
+        memtrie.snapshot(&state_root2).unwrap();
+        memtrie.delete_until_height(10);
+
+        // state_root2 should still exist in snapshot, however state_root should be gone
+        assert!(matches!(
+            memtrie.get_root(&state_root),
+            Err(StorageError::StorageInconsistentState { .. })
+        ));
+        let hash = memtrie.get_root(&state_root2).unwrap().view().node_hash().to_string();
+        assert_eq!(hash, "87gK6ZaJBgtuBLL3MZ5GB1rVKJmpJ1gYBLusRbTHyZuu");
+
+        // delete snapshot, state_root2 should be gone
+        memtrie.delete_snapshot();
+        assert!(matches!(
+            memtrie.get_root(&state_root2),
+            Err(StorageError::StorageInconsistentState { .. })
+        ));
     }
 }

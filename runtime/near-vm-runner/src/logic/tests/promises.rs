@@ -2,9 +2,12 @@ use crate::logic::mocks::mock_external::MockedExternal;
 use crate::logic::tests::helpers::*;
 use crate::logic::tests::vm_logic_builder::VMLogicBuilder;
 use crate::logic::types::PromiseResult;
+use crate::map;
 
 use near_crypto::PublicKey;
+use near_parameters::{ActionCosts, ExtCosts};
 use near_primitives_core::hash::CryptoHash;
+use near_primitives_core::types::Gas;
 use serde_json;
 
 fn vm_receipts<'a>(ext: &'a MockedExternal) -> Vec<impl serde::Serialize + 'a> {
@@ -39,14 +42,14 @@ fn test_promise_batch_action_function_call() {
     let index = promise_create(&mut logic, b"rick.test", 0, 0).expect("should create a promise");
     let index_ptr = logic.internal_mem_write(&index.to_le_bytes()).ptr;
 
-    promise_batch_action_function_call(&mut logic, 123, 0, 0)
+    promise_batch_action_function_call(&mut logic, 123, 0, Gas::ZERO)
         .expect_err("shouldn't accept not existent promise index");
     let non_receipt =
         logic.promise_and(index_ptr, 1u64).expect("should create a non-receipt promise");
-    promise_batch_action_function_call(&mut logic, non_receipt, 0, 0)
+    promise_batch_action_function_call(&mut logic, non_receipt, 0, Gas::ZERO)
         .expect_err("shouldn't accept non-receipt promise index");
 
-    promise_batch_action_function_call(&mut logic, index, 0, 0)
+    promise_batch_action_function_call(&mut logic, index, 0, Gas::ZERO)
         .expect("should add an action to receipt");
     expect_test::expect![[r#"
         [
@@ -81,7 +84,7 @@ fn test_promise_batch_action_function_call() {
                 103,
                 115
               ],
-              "attached_deposit": 0,
+              "attached_deposit": "0",
               "prepaid_gas": 0,
               "gas_weight": 0
             }
@@ -138,7 +141,7 @@ fn test_promise_batch_action_function_call() {
                 103,
                 115
               ],
-              "attached_deposit": 0,
+              "attached_deposit": "0",
               "prepaid_gas": 0,
               "gas_weight": 0
             }
@@ -199,7 +202,7 @@ fn test_promise_batch_action_create_account() {
                 103,
                 115
               ],
-              "attached_deposit": 0,
+              "attached_deposit": "0",
               "prepaid_gas": 0,
               "gas_weight": 0
             }
@@ -268,7 +271,7 @@ fn test_promise_batch_action_deploy_contract() {
                 103,
                 115
               ],
-              "attached_deposit": 0,
+              "attached_deposit": "0",
               "prepaid_gas": 0,
               "gas_weight": 0
             }
@@ -345,7 +348,7 @@ fn test_promise_batch_action_deploy_global_contract() {
                 103,
                 115
               ],
-              "attached_deposit": 0,
+              "attached_deposit": "0",
               "prepaid_gas": 0,
               "gas_weight": 0
             }
@@ -431,7 +434,7 @@ fn test_promise_batch_action_use_global_contract() {
                 103,
                 115
               ],
-              "attached_deposit": 0,
+              "attached_deposit": "0",
               "prepaid_gas": 0,
               "gas_weight": 0
             }
@@ -505,7 +508,7 @@ fn test_promise_batch_action_transfer() {
                 103,
                 115
               ],
-              "attached_deposit": 0,
+              "attached_deposit": "0",
               "prepaid_gas": 0,
               "gas_weight": 0
             }
@@ -513,7 +516,7 @@ fn test_promise_batch_action_transfer() {
           {
             "Transfer": {
               "receipt_index": 0,
-              "deposit": 110
+              "deposit": "110"
             }
           }
         ]"#]]
@@ -580,7 +583,7 @@ fn test_promise_batch_action_stake() {
                 103,
                 115
               ],
-              "attached_deposit": 0,
+              "attached_deposit": "0",
               "prepaid_gas": 0,
               "gas_weight": 0
             }
@@ -588,7 +591,7 @@ fn test_promise_batch_action_stake() {
           {
             "Stake": {
               "receipt_index": 0,
-              "stake": 110,
+              "stake": "110",
               "public_key": "ed25519:5do5nkAEVhL8iteDvXNgxi4pWK78Y7DDadX11ArFNyrf"
             }
           }
@@ -678,7 +681,7 @@ fn test_promise_batch_action_add_key_with_function_call() {
                 103,
                 115
               ],
-              "attached_deposit": 0,
+              "attached_deposit": "0",
               "prepaid_gas": 0,
               "gas_weight": 0
             }
@@ -688,7 +691,7 @@ fn test_promise_batch_action_add_key_with_function_call() {
               "receipt_index": 0,
               "public_key": "ed25519:5do5nkAEVhL8iteDvXNgxi4pWK78Y7DDadX11ArFNyrf",
               "nonce": 1,
-              "allowance": 999,
+              "allowance": "999",
               "receiver_id": "sam",
               "method_names": [
                 [
@@ -765,7 +768,7 @@ fn test_promise_batch_then() {
                 103,
                 115
               ],
-              "attached_deposit": 0,
+              "attached_deposit": "0",
               "prepaid_gas": 0,
               "gas_weight": 0
             }
@@ -784,6 +787,152 @@ fn test_promise_batch_then() {
                 0
               ],
               "receiver_id": "rick.test"
+            }
+          }
+        ]"#]]
+    .assert_eq(&serde_json::to_string_pretty(&vm_receipts(&logic_builder.ext)).unwrap());
+}
+
+#[test]
+fn test_promise_batch_action_state_init() {
+    let mut logic_builder = VMLogicBuilder::default();
+    logic_builder.config.deterministic_account_ids = true;
+
+    let mut logic = logic_builder.build();
+
+    // Note: Sending to an invalid receiver here, "rick.test" is not a
+    // deterministic account id. On the VM level, that won't be caught. But the
+    // outgoing receipt will fail validation. Tests for that case are in
+    // `runtime/runtime/src/verifier.rs`.
+    let receiver = "rick.test";
+    let index = promise_batch_create(&mut logic, &receiver).expect("should create a promise");
+
+    // check setup costs are as expected and reset the counter (reset happens inside `assert_costs`)
+    assert_costs(map! {
+      ExtCosts::base: 1,
+      ExtCosts::read_memory_base: 1,
+      ExtCosts::read_memory_byte: receiver.len() as u64,
+      ExtCosts::utf8_decoding_base: 1,
+      ExtCosts::utf8_decoding_byte: receiver.len() as u64,
+    });
+
+    let account_id = logic.internal_mem_write(b"global.near");
+    let key = logic.internal_mem_write(b"key");
+    let value = logic.internal_mem_write(b"value");
+    let amount = logic.internal_mem_write(&110u128.to_le_bytes());
+    let key2_register = 0;
+    let value2_register = 1;
+    let key2 = b"key2";
+    logic.wrapped_internal_write_register(key2_register, key2).unwrap();
+    let value2 = b"value2";
+    logic.wrapped_internal_write_register(value2_register, value2).unwrap();
+    reset_costs_counter();
+
+    let action_index = logic
+        .promise_batch_action_state_init_by_account_id(
+            index,
+            account_id.len,
+            account_id.ptr,
+            amount.ptr,
+        )
+        .expect("should successfully add state init action");
+
+    assert_costs(map! {
+      ExtCosts::base: 1,
+      ExtCosts::read_memory_base: 2,
+      ExtCosts::read_memory_byte: account_id.len + amount.len,
+      ExtCosts::utf8_decoding_base: 1,
+      ExtCosts::utf8_decoding_byte: account_id.len,
+    });
+
+    logic
+        .set_state_init_data_entry(index, action_index, key.len, key.ptr, value.len, value.ptr)
+        .expect("should successfully add data to state init action");
+
+    assert_costs(map! {
+      ExtCosts::base: 1,
+      ExtCosts::read_memory_base: 2,
+      ExtCosts::read_memory_byte: key.len + value.len,
+    });
+
+    // also set by register
+    logic
+        .set_state_init_data_entry(
+            index,
+            action_index,
+            u64::MAX,
+            key2_register,
+            u64::MAX,
+            value2_register,
+        )
+        .expect("should successfully add data to state init action");
+
+    assert_costs(map! {
+      ExtCosts::base: 1,
+      ExtCosts::read_register_base: 2,
+      ExtCosts::read_register_byte: (key2.len() + value2.len()) as u64,
+    });
+
+    let profile = logic.gas_counter().profile_data();
+    assert_eq!(logic.used_gas().unwrap(), 8_586_074_959_513, "unexpected gas usage {profile:?}");
+
+    // Check that all send costs have been charged as expected
+
+    // action_deterministic_state_init
+    //    send 3.85 Tgas
+    //    exec 4.00 Tgas
+    assert_eq!(
+        profile.actions_profile[ActionCosts::deterministic_state_init_base].as_gigagas(),
+        3850,
+        "unexpected action gas usage {profile:?}"
+    );
+    // action_deterministic_state_init_per_entry
+    //    exec 0.20 Tgas
+    assert_eq!(
+        profile.actions_profile[ActionCosts::deterministic_state_init_entry].as_gigagas(),
+        0,
+        "unexpected action gas usage {profile:?}"
+    );
+    // action_deterministic_state_init_per_byte
+    //    send 0.000_072 per byte
+    //    exec 0.000_070 per byte
+    assert_eq!(
+        profile.actions_profile[ActionCosts::deterministic_state_init_byte].as_gas(),
+        1_296_000_000,
+        "unexpected action gas usage {profile:?}"
+    );
+    // action_receipt_creation
+    //    send 0.108 Tgas
+    //    exec 0.108 Tgas
+    assert_eq!(
+        profile.actions_profile[ActionCosts::new_action_receipt].as_gigagas(),
+        108,
+        "unexpected action gas usage {profile:?}"
+    );
+
+    expect_test::expect![[r#"
+        [
+          {
+            "CreateReceipt": {
+              "receipt_indices": [],
+              "receiver_id": "rick.test"
+            }
+          },
+          {
+            "DeterministicStateInit": {
+              "receipt_index": 0,
+              "state_init": {
+                "V1": {
+                  "code": {
+                    "AccountId": "global.near"
+                  },
+                  "data": {
+                    "a2V5": "dmFsdWU=",
+                    "a2V5Mg==": "dmFsdWUy"
+                  }
+                }
+              },
+              "amount": "110"
             }
           }
         ]"#]]

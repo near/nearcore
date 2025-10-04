@@ -257,7 +257,7 @@ expression: receipts_gas_profile
         CostGasUsed {
             cost_category: "WASM_HOST_COST",
             cost: "TOUCHING_TRIE_NODE",
-            gas_used: 32203911852,
+            gas_used: 4560000000,
         },
         CostGasUsed {
             cost_category: "WASM_HOST_COST",

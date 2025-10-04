@@ -16,7 +16,7 @@ fn benchmark_write_then_read_successful(
     let tmp_dir = tempfile::tempdir().unwrap();
     // Use default StoreConfig rather than NodeStorage::test_opener so we’re using the
     // same configuration as in production.
-    let store = NodeStorage::opener(tmp_dir.path(), &Default::default(), None)
+    let store = NodeStorage::opener(tmp_dir.path(), &Default::default(), None, None)
         .open()
         .unwrap()
         .get_hot_store();

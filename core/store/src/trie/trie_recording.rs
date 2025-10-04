@@ -1,3 +1,5 @@
+use super::mem::ArenaMemory;
+use super::mem::node::MemTrieNodeView;
 use super::{Trie, TrieChanges, TrieRefcountDeltaMap};
 use crate::{NibbleSlice, PartialStorage, RawTrieNode, RawTrieNodeWithSize};
 use borsh::BorshDeserialize;
@@ -12,24 +14,24 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 /// A simple struct to capture a state proof as it's being accumulated.
 pub struct TrieRecorder {
     recorded: dashmap::DashMap<CryptoHash, TrieNodeWithRefcount>,
-    size: AtomicUsize,
+    size: crossbeam::utils::CachePadded<AtomicUsize>,
     /// Size of the recorded state proof plus some additional size added to cover removals and
     /// contract code.
     ///
     /// An upper-bound estimation of the true recorded size after finalization. See
     /// https://github.com/near/nearcore/issues/10890 and
     /// https://github.com/near/nearcore/pull/11000 for details.
-    upper_bound_size: AtomicUsize,
+    upper_bound_size: crossbeam::utils::CachePadded<AtomicUsize>,
+    /// Counts removals performed while recording.
+    ///
+    /// recorded_storage_size_upper_bound takes it into account when calculating the total size.
+    removal_counter: crossbeam::utils::CachePadded<AtomicUsize>,
+    /// Counts the total size of the contract codes read while recording.
+    code_len_counter: crossbeam::utils::CachePadded<AtomicUsize>,
     /// Limit on the maximum size of the state proof that can be recorded.
     ///
     /// This may get set to u64::MAX to effectively impose no useful limit.
     proof_size_limit: u64,
-    /// Counts removals performed while recording.
-    ///
-    /// recorded_storage_size_upper_bound takes it into account when calculating the total size.
-    removal_counter: AtomicUsize,
-    /// Counts the total size of the contract codes read while recording.
-    code_len_counter: AtomicUsize,
     /// Account IDs for which the code should be recorded.
     pub codes_to_record: dashmap::DashSet<AccountId>,
 }
@@ -78,10 +80,10 @@ impl TrieRecorder {
         Self {
             recorded: Default::default(),
             proof_size_limit: proof_size_limit.unwrap_or(u64::MAX),
-            size: 0.into(),
-            upper_bound_size: 0.into(),
-            removal_counter: 0.into(),
-            code_len_counter: 0.into(),
+            size: Default::default(),
+            upper_bound_size: Default::default(),
+            removal_counter: Default::default(),
+            code_len_counter: Default::default(),
             codes_to_record: Default::default(),
         }
     }
@@ -95,14 +97,34 @@ impl TrieRecorder {
     }
 
     pub fn record(&self, hash: &CryptoHash, node: Arc<[u8]>) {
-        let size = node.len();
-        let times_seen = self.recorded.entry(*hash).or_insert_with(|| node.into()).increment();
+        self.record_with(hash, move || node);
+    }
+
+    /// Just like "record", but takes a function which returns the serialized node.
+    /// Allows to avoid re-serializing the node when it has already been recorded.
+    pub fn record_with(&self, hash: &CryptoHash, get_serialized_node: impl FnOnce() -> Arc<[u8]>) {
+        let mut size_from_first_insert: Option<usize> = None;
+        self.recorded
+            .entry(*hash)
+            .or_insert_with(|| {
+                let serialized = get_serialized_node();
+                size_from_first_insert = Some(serialized.len());
+                serialized.into()
+            })
+            .increment();
 
         // Only do size accounting if this is the first time we see this value.
-        if times_seen == 1 {
+        if let Some(size) = size_from_first_insert {
             self.upper_bound_size.fetch_add(size, Ordering::Release).checked_add(size).unwrap();
             self.size.fetch_add(size, Ordering::Release);
         }
+    }
+
+    /// Convenience function to record memtrie nodes
+    pub fn record_memtrie_node<M: ArenaMemory>(&self, node_view: &MemTrieNodeView<'_, M>) {
+        self.record_with(&node_view.node_hash(), || {
+            borsh::to_vec(&node_view.to_raw_trie_node_with_size()).unwrap().into()
+        });
     }
 
     pub fn record_key_removal(&self) {
@@ -139,7 +161,7 @@ impl TrieRecorder {
                 nodes.push(node.into_inner().0);
             }
         }
-        nodes.sort();
+        nodes.sort_unstable();
         PartialStorage { nodes: PartialState::TrieValues(nodes) }
     }
 
@@ -367,8 +389,9 @@ mod trie_recording_tests {
     use near_primitives::shard_layout::{ShardUId, get_block_shard_uid};
     use near_primitives::state::PartialState;
     use near_primitives::state::ValueRef;
-    use near_primitives::types::StateRoot;
+    use near_primitives::types::Balance;
     use near_primitives::types::chunk_extra::ChunkExtra;
+    use near_primitives::types::{Gas, StateRoot};
     use rand::prelude::SliceRandom;
     use rand::{Rng, random, thread_rng};
     use std::cell::{Cell, RefCell};
@@ -430,9 +453,9 @@ mod trie_recording_tests {
             &state_root,
             CryptoHash::default(),
             Vec::new(),
-            0,
-            0,
-            0,
+            Gas::ZERO,
+            Gas::ZERO,
+            Balance::ZERO,
             Some(CongestionInfo::default()),
             BandwidthRequests::empty(),
         );

@@ -1,7 +1,7 @@
 use crate::account::{AccessKey, AccessKeyPermission, Account};
 use crate::action::{
-    DeployGlobalContractAction, GlobalContractDeployMode, GlobalContractIdentifier,
-    UseGlobalContractAction,
+    DeployGlobalContractAction, DeterministicStateInitAction, GlobalContractDeployMode,
+    GlobalContractIdentifier, UseGlobalContractAction,
 };
 use crate::block::Block;
 use crate::block_body::{BlockBody, ChunkEndorsementSignatures};
@@ -23,6 +23,7 @@ use crate::views::{ExecutionStatusView, FinalExecutionOutcomeView, FinalExecutio
 use near_crypto::vrf::Value;
 use near_crypto::{EmptySigner, PublicKey, SecretKey, Signature, Signer};
 use near_primitives_core::account::AccountContract;
+use near_primitives_core::deterministic_account_id::DeterministicAccountStateInit;
 use near_primitives_core::types::{BlockHeight, MerkleHash, ProtocolVersion};
 use std::collections::HashMap;
 #[cfg(feature = "clock")]
@@ -31,7 +32,7 @@ use std::sync::Arc;
 pub fn account_new(amount: Balance, code_hash: CryptoHash) -> Account {
     Account::new(
         amount,
-        0,
+        Balance::ZERO,
         AccountContract::from_local_code_hash(code_hash),
         std::mem::size_of::<Account>() as u64,
     )
@@ -426,6 +427,29 @@ impl SignedTransaction {
             0,
         )
     }
+
+    pub fn deterministic_state_init(
+        nonce: Nonce,
+        signer_id: AccountId,
+        receiver_id: AccountId,
+        signer: &Signer,
+        block_hash: CryptoHash,
+        state_init: DeterministicAccountStateInit,
+        deposit: Balance,
+    ) -> Self {
+        Self::from_actions(
+            nonce,
+            signer_id,
+            receiver_id,
+            signer,
+            vec![Action::DeterministicStateInit(Box::new(DeterministicStateInitAction {
+                state_init,
+                deposit,
+            }))],
+            block_hash,
+            0,
+        )
+    }
 }
 
 impl BlockHeader {
@@ -723,6 +747,7 @@ impl BlockBody {
         match self {
             BlockBody::V1(body) => &mut body.chunks,
             BlockBody::V2(body) => &mut body.chunks,
+            BlockBody::V3(body) => &mut body.chunks,
         }
     }
 
@@ -730,6 +755,7 @@ impl BlockBody {
         match self {
             BlockBody::V1(body) => body.chunks = chunks,
             BlockBody::V2(body) => body.chunks = chunks,
+            BlockBody::V3(body) => body.chunks = chunks,
         }
     }
 
@@ -737,6 +763,7 @@ impl BlockBody {
         match self {
             BlockBody::V1(body) => body.vrf_value = vrf_value,
             BlockBody::V2(body) => body.vrf_value = vrf_value,
+            BlockBody::V3(body) => body.vrf_value = vrf_value,
         }
     }
 
@@ -744,6 +771,7 @@ impl BlockBody {
         match self {
             BlockBody::V1(_) => unreachable!("old body should not appear in tests"),
             BlockBody::V2(body) => body.chunk_endorsements = chunk_endorsements,
+            BlockBody::V3(_) => unreachable!("block body for spice should not appear in tests"),
         }
     }
 }
@@ -765,6 +793,9 @@ pub struct TestBlockBuilder {
     next_bp_hash: CryptoHash,
     approvals: Vec<Option<Box<near_crypto::Signature>>>,
     block_merkle_root: CryptoHash,
+    chunks: Vec<ShardChunkHeader>,
+    /// Iff `Some` spice block will be created.
+    spice_core_statements: Option<Vec<crate::block_body::SpiceCoreStatement>>,
 }
 
 #[cfg(feature = "clock")]
@@ -787,6 +818,8 @@ impl TestBlockBuilder {
             next_bp_hash: *prev.header().next_bp_hash(),
             approvals: vec![],
             block_merkle_root: tree.root(),
+            chunks: prev.chunks().iter_raw().cloned().collect(),
+            spice_core_statements: None,
         }
     }
     pub fn height(mut self, height: u64) -> Self {
@@ -820,31 +853,46 @@ impl TestBlockBuilder {
         self
     }
 
+    pub fn chunks(mut self, chunks: Vec<ShardChunkHeader>) -> Self {
+        self.chunks = chunks;
+        self
+    }
+
+    pub fn spice_core_statements(
+        mut self,
+        spice_core_statements: Vec<crate::block_body::SpiceCoreStatement>,
+    ) -> Self {
+        self.spice_core_statements = Some(spice_core_statements);
+        self
+    }
+
     pub fn build(self) -> Arc<Block> {
         use crate::version::PROTOCOL_VERSION;
 
         tracing::debug!(target: "test", height=self.height, ?self.epoch_id, "produce block");
+        let chunks_len = self.chunks.len();
         Arc::new(Block::produce(
             PROTOCOL_VERSION,
             self.prev.header(),
             self.height,
             self.prev.header().block_ordinal() + 1,
-            self.prev.chunks().iter_deprecated().cloned().collect(),
-            vec![vec![]; self.prev.chunks().len()],
+            self.chunks,
+            vec![vec![]; chunks_len],
             self.epoch_id,
             self.next_epoch_id,
             None,
             self.approvals,
             num_rational::Ratio::new(0, 1),
-            0,
-            0,
-            Some(0),
+            Balance::ZERO,
+            Balance::ZERO,
+            Some(Balance::ZERO),
             self.signer.as_ref(),
             self.next_bp_hash,
             self.block_merkle_root,
             self.clock,
             None,
             None,
+            self.spice_core_statements,
         ))
     }
 }
@@ -952,11 +1000,14 @@ impl EpochInfoProvider for MockEpochInfoProvider {
     }
 
     fn validator_total_stake(&self, _epoch_id: &EpochId) -> Result<Balance, EpochError> {
-        Ok(self.validators.values().sum())
+        Ok(self
+            .validators
+            .values()
+            .fold(Balance::ZERO, |sum, item| sum.checked_add(*item).unwrap()))
     }
 
     fn minimum_stake(&self, _prev_block_hash: &CryptoHash) -> Result<Balance, EpochError> {
-        Ok(0)
+        Ok(Balance::ZERO)
     }
 
     fn chain_id(&self) -> String {
@@ -1046,7 +1097,12 @@ impl FinalExecutionOutcomeView {
 
     /// Calculates how much NEAR was burnt for gas, after refunds.
     pub fn tokens_burnt(&self) -> Balance {
-        self.transaction_outcome.outcome.tokens_burnt
-            + self.receipts_outcome.iter().map(|r| r.outcome.tokens_burnt).sum::<u128>()
+        self.transaction_outcome
+            .outcome
+            .tokens_burnt
+            .checked_add(self.receipts_outcome.iter().fold(Balance::ZERO, |sum, item| {
+                sum.checked_add(item.outcome.tokens_burnt).unwrap()
+            }))
+            .unwrap()
     }
 }

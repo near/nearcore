@@ -38,6 +38,11 @@ python tests/mocknet/sharded_bm.py init && python tests/mocknet/sharded_bm.py st
 python tests/mocknet/sharded_bm.py get-traces
 ```
 
+* Collect perf profiles remotely from an arbitrary machine, or specify a set of machines to collect profiles from using `--host-filter`
+``` bash
+python tests/mocknet/sharded_bm.py get-profiles
+```
+
 4. Stop the benchmark:
 
 ```bash

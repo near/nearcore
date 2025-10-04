@@ -1,5 +1,6 @@
 use super::test_builder::test_builder;
 use expect_test::expect;
+use near_primitives_core::types::Gas;
 use std::fmt::Write;
 
 const FIX_CONTRACT_LOADING_COST: u32 = 129;
@@ -15,7 +16,7 @@ static INFINITE_INITIALIZER_CONTRACT: &str = r#"
 fn test_infinite_initializer() {
     test_builder()
         .wat(INFINITE_INITIALIZER_CONTRACT)
-        .gas(10u64.pow(10))
+        .gas(Gas::from_gigagas(10))
         .expect(&expect![[r#"
             VMOutcome: balance 4 storage_usage 12 return data None burnt gas 10000000000 used gas 10000000000
             Err: Exceeded the prepaid gas.
@@ -126,7 +127,6 @@ fn test_empty_method() {
 fn test_trap_contract() {
     test_builder()
         .wat(r#"(module (func (export "main") (unreachable)) )"#)
-        .skip_wasmtime()
         .expects(&[
             expect![[r#"
                 VMOutcome: balance 4 storage_usage 12 return data None burnt gas 80976092 used gas 80976092
@@ -146,7 +146,6 @@ fn test_trap_initializer() {
                 )
             "#,
         )
-        .skip_wasmtime()
         .expects(&[
             expect![[r#"
                 VMOutcome: balance 4 storage_usage 12 return data None burnt gas 98404812 used gas 98404812
@@ -170,7 +169,6 @@ fn test_div_by_zero_contract() {
                 )
             "#,
         )
-        .skip_wasmtime()
         .expects(&[
             expect![[r#"
                 VMOutcome: balance 4 storage_usage 12 return data None burnt gas 88068079 used gas 88068079
@@ -194,7 +192,6 @@ fn test_float_to_int_contract() {
                     )
                 "#,
             ))
-            .skip_wasmtime()
             .expects(&[
                 expect![[r#"
                     VMOutcome: balance 4 storage_usage 12 return data None burnt gas 92691798 used gas 92691798
@@ -221,7 +218,6 @@ fn test_indirect_call_to_null_contract() {
             "#,
         )
         .opaque_error()
-        .skip_wasmtime()
         .expects(&[
             expect![[r#"
                 VMOutcome: balance 4 storage_usage 12 return data None burnt gas 109031223 used gas 109031223
@@ -250,7 +246,6 @@ fn test_indirect_call_to_wrong_signature_contract() {
                 )
             "#,
         )
-        .skip_wasmtime()
         .expects(&[
             expect![[r#"
                 VMOutcome: balance 4 storage_usage 12 return data None burnt gas 134085008 used gas 134085008
@@ -334,7 +329,6 @@ fn test_panic_re_export() {
 fn test_stack_overflow() {
     test_builder()
         .wat(r#"(module (func $f (export "main") (call $f)))"#)
-        .skip_wasmtime()
         .opaque_error()
         .expects(&[
             expect![[r#"
@@ -360,7 +354,6 @@ fn test_stack_instrumentation_protocol_upgrade() {
             "#,
         )
         .method("f1")
-        .skip_wasmtime()
         .opaque_error()
         .expects(&[
             expect![[r#"
@@ -384,7 +377,6 @@ fn test_stack_instrumentation_protocol_upgrade() {
         )
         .method("f2")
         .opaque_error()
-        .skip_wasmtime()
         .expects(&[
             expect![[r#"
                 VMOutcome: balance 4 storage_usage 12 return data None burnt gas 29757263944 used gas 29757263944
@@ -409,7 +401,7 @@ fn test_memory_grow() {
   )
 )"#,
         )
-        .gas(10u64.pow(10))
+        .gas(Gas::from_gigagas(10))
         .expect(&expect![[r#"
             VMOutcome: balance 4 storage_usage 12 return data None burnt gas 10000000000 used gas 10000000000
             Err: Exceeded the prepaid gas.
@@ -514,7 +506,7 @@ fn test_initializer_no_gas() {
   (start $f)
 )"#,
         )
-        .gas(0)
+        .gas(Gas::ZERO)
         .expect(&expect![[r#"
             VMOutcome: balance 4 storage_usage 12 return data None burnt gas 0 used gas 0
             Err: Exceeded the prepaid gas.
@@ -563,7 +555,7 @@ fn test_external_call_ok() {
 
 #[test]
 fn test_external_call_error() {
-    test_builder().wat(EXTERNAL_CALL_CONTRACT).gas(100).expect(&expect![[r#"
+    test_builder().wat(EXTERNAL_CALL_CONTRACT).gas(Gas::from_gas(100)).expect(&expect![[r#"
         VMOutcome: balance 4 storage_usage 12 return data None burnt gas 100 used gas 100
         Err: Exceeded the prepaid gas.
     "#]]);
@@ -611,7 +603,6 @@ fn test_address_overflow() {
 
     test_builder()
         .wat(code)
-        .skip_wasmtime()
         .expects(&[
             expect![[r#"
                 VMOutcome: balance 4 storage_usage 12 return data None burnt gas 97048978 used gas 97048978
@@ -645,7 +636,6 @@ fn test_nan_sign() {
 
     test_builder()
         .wat(code)
-        .skip_wasmtime()
         .expects(&[
             expect![[r#"
                 VMOutcome: balance 4 storage_usage 12 return data None burnt gas 110433335 used gas 110433335
@@ -657,12 +647,14 @@ fn test_nan_sign() {
 // even load a contract.
 #[test]
 fn test_gas_exceed_loading() {
-    test_builder().wat(SIMPLE_CONTRACT).method("non_empty_non_existing").gas(1).expect(&expect![[
-        r#"
+    test_builder()
+        .wat(SIMPLE_CONTRACT)
+        .method("non_empty_non_existing")
+        .gas(Gas::from_gas(1))
+        .expect(&expect![[r#"
             VMOutcome: balance 4 storage_usage 12 return data None burnt gas 1 used gas 1
             Err: Exceeded the prepaid gas.
-        "#
-    ]]);
+        "#]]);
 }
 
 // Call the "gas" host function with unreasonably large values, trying to force
@@ -755,12 +747,22 @@ mod fix_contract_loading_cost_protocol_upgrade {
         let loading_base = cfg_costs.gas_cost(ExtCosts::contract_loading_base);
         let loading_byte = cfg_costs.gas_cost(ExtCosts::contract_loading_bytes);
         let wasm_length = test_after.get_wasm().len();
-        test_after.gas(loading_base + wasm_length as u64 * loading_byte).expect(&expect);
+        test_after
+            .gas(
+                loading_base
+                    .checked_add(loading_byte.checked_mul(wasm_length as u64).unwrap())
+                    .unwrap(),
+            )
+            .expect(&expect);
         #[allow(deprecated)]
         test_builder()
             .wat(ALMOST_TRIVIAL_CONTRACT)
             .only_protocol_versions(vec![FIX_CONTRACT_LOADING_COST - 1])
-            .gas(loading_base + wasm_length as u64 * loading_byte)
+            .gas(
+                loading_base
+                    .checked_add(loading_byte.checked_mul(wasm_length as u64).unwrap())
+                    .unwrap(),
+            )
             .expect(&expect);
     }
 
@@ -777,7 +779,9 @@ mod fix_contract_loading_cost_protocol_upgrade {
         let loading_base = cfg_costs.gas_cost(ExtCosts::contract_loading_base);
         let loading_byte = cfg_costs.gas_cost(ExtCosts::contract_loading_bytes);
         let wasm_length = test_after.get_wasm().len();
-        let prepaid_gas = loading_base + wasm_length as u64 * loading_byte + 884037;
+        let prepaid_gas = Gas::from_gas(
+            loading_base.as_gas() + wasm_length as u64 * loading_byte.as_gas() + 884037,
+        );
         test_after.gas(prepaid_gas).expect(&expect);
         #[allow(deprecated)]
         test_builder()

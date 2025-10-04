@@ -5,6 +5,7 @@ pub type PublicKey = Vec<u8>;
 pub type PromiseIndex = u64;
 pub type ReceiptIndex = u64;
 pub type IteratorIndex = u64;
+pub type ActionIndex = u64;
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum ReturnData {
@@ -57,6 +58,17 @@ impl GlobalContractIdentifier {
         match &self {
             Self::CodeHash(_) => 32,
             Self::AccountId(account_id) => account_id.len(),
+        }
+    }
+}
+
+impl From<GlobalContractIdentifier>
+    for near_primitives_core::global_contract::GlobalContractIdentifier
+{
+    fn from(other: GlobalContractIdentifier) -> Self {
+        match other {
+            GlobalContractIdentifier::CodeHash(crypto_hash) => Self::CodeHash(crypto_hash),
+            GlobalContractIdentifier::AccountId(account_id) => Self::AccountId(account_id),
         }
     }
 }

@@ -29,7 +29,8 @@ fn read_trie_items(bench: &mut Bencher, shard_index: ShardIndex, shard_id: Shard
         let store = near_store::NodeStorage::opener(
             &home_dir,
             &near_config.config.store,
-            near_config.config.archival_config(),
+            near_config.config.cold_store.as_ref(),
+            near_config.config.cloud_storage_config(),
         )
         .open_in_mode(mode)
         .unwrap()
@@ -46,7 +47,7 @@ fn read_trie_items(bench: &mut Bencher, shard_index: ShardIndex, shard_id: Shard
         let head = chain_store.head().unwrap();
         let last_block = chain_store.get_block(&head.last_block_hash).unwrap();
         let state_roots: Vec<StateRoot> =
-            last_block.chunks().iter_deprecated().map(|chunk| chunk.prev_state_root()).collect();
+            last_block.chunks().iter().map(|chunk| chunk.prev_state_root()).collect();
         let header = last_block.header();
 
         let trie = runtime

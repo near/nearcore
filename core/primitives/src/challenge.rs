@@ -33,9 +33,11 @@ pub struct ChunkProofs {
 /// decoded.
 #[allow(clippy::large_enum_variant)] // both variants are large
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug, ProtocolSchema)]
+#[borsh(use_discriminant = true)]
+#[repr(u8)]
 pub enum MaybeEncodedShardChunk {
-    Encoded(EncodedShardChunk),
-    Decoded(ShardChunk),
+    Encoded(EncodedShardChunk) = 0,
+    Decoded(ShardChunk) = 1,
 }
 
 /// Doesn't match post-{state root, outgoing receipts, gas used, etc} results after applying previous chunk.
@@ -62,10 +64,12 @@ pub struct ChunkState {
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug, ProtocolSchema)]
 // TODO(#1313): Use Box
 #[allow(clippy::large_enum_variant)]
+#[borsh(use_discriminant = true)]
+#[repr(u8)]
 pub enum ChallengeBody {
-    BlockDoubleSign(BlockDoubleSign),
-    ChunkProofs(ChunkProofs),
-    ChunkState(ChunkState),
+    BlockDoubleSign(BlockDoubleSign) = 0,
+    ChunkProofs(ChunkProofs) = 1,
+    ChunkState(ChunkState) = 2,
 }
 
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug, ProtocolSchema)]

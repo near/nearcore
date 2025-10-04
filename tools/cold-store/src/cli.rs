@@ -115,7 +115,8 @@ impl ColdStoreCommand {
         let opener = NodeStorage::opener(
             home_dir,
             &near_config.config.store,
-            near_config.config.archival_config(),
+            near_config.config.cold_store.as_ref(),
+            near_config.config.cloud_storage_config(),
         );
 
         match self.subcmd {
@@ -137,7 +138,8 @@ impl ColdStoreCommand {
         NodeStorage::opener(
             home_dir,
             &near_config.config.store,
-            near_config.config.archival_config(),
+            near_config.config.cold_store.as_ref(),
+            near_config.config.cloud_storage_config(),
         )
     }
 }
@@ -166,6 +168,7 @@ fn check_open(store: &NodeStorage) -> anyhow::Result<()> {
 fn print_heads(store: &NodeStorage) -> anyhow::Result<()> {
     let hot_store = store.get_hot_store();
     let cold_store = store.get_cold_store();
+    // TODO(cloud_archival) Handle cloud head
 
     // hot store
     {
@@ -352,7 +355,7 @@ impl PrepareHotCmd {
         // Open the rpc_storage using the near_config with the path swapped.
         let mut rpc_store_config = near_config.config.store.clone();
         rpc_store_config.path = Some(path.to_path_buf());
-        let rpc_opener = NodeStorage::opener(home_dir, &rpc_store_config, None);
+        let rpc_opener = NodeStorage::opener(home_dir, &rpc_store_config, None, None);
         let rpc_storage = rpc_opener.open()?;
         let rpc_store = rpc_storage.get_hot_store();
 
@@ -500,7 +503,7 @@ impl StateRootSelector {
                     .get_ser::<near_primitives::block::Block>(DBCol::Block, &hash_key)?
                     .ok_or_else(|| anyhow::anyhow!("Failed to find Block: {:?}", hash_key))?;
                 let mut hashes = vec![];
-                for chunk in block.chunks().iter_deprecated() {
+                for chunk in block.chunks().iter() {
                     hashes.push(
                         cold_store
                             .get_ser::<near_primitives::sharding::ShardChunk>(

@@ -341,6 +341,8 @@ impl HeaderSync {
         let store = chain.chain_store();
         let tip = store.header_head()?;
         // We could just get the ordinal from the header, but it's off by one: #8177.
+        // Note: older block headers don't have ordinals, so for them we can't get the ordinal from header,
+        // have to use get_block_merkle_tree.
         let tip_ordinal = store.get_block_merkle_tree(&tip.last_block_hash)?.size();
         let final_head = store.final_head()?;
         let final_head_ordinal = store.get_block_merkle_tree(&final_head.last_block_hash)?.size();
@@ -406,7 +408,7 @@ mod test {
     use near_primitives::merkle::PartialMerkleTree;
     use near_primitives::network::PeerId;
     use near_primitives::test_utils::TestBlockBuilder;
-    use near_primitives::types::EpochId;
+    use near_primitives::types::{Balance, EpochId};
     use near_primitives::version::PROTOCOL_VERSION;
     use num_rational::Ratio;
     use std::sync::Arc;
@@ -476,7 +478,6 @@ mod test {
                 .build();
             process_block_sync(
                 &mut chain,
-                &None,
                 block.into(),
                 Provenance::PRODUCED,
                 &mut BlockProcessingArtifact::default(),
@@ -493,7 +494,6 @@ mod test {
                 .build();
             process_block_sync(
                 &mut chain2,
-                &None,
                 block.into(),
                 Provenance::PRODUCED,
                 &mut BlockProcessingArtifact::default(),
@@ -565,7 +565,6 @@ mod test {
                 let block = TestBlockBuilder::new(Clock::real(), &prev, signer.clone()).build();
                 process_block_sync(
                     chain,
-                    &None,
                     block.into(),
                     Provenance::PRODUCED,
                     &mut BlockProcessingArtifact::default(),
@@ -581,7 +580,6 @@ mod test {
                 .build();
             process_block_sync(
                 &mut chain,
-                &None,
                 block.into(),
                 Provenance::PRODUCED,
                 &mut BlockProcessingArtifact::default(),
@@ -597,7 +595,6 @@ mod test {
                 .build();
             process_block_sync(
                 &mut chain2,
-                &None,
                 block.into(),
                 Provenance::PRODUCED,
                 &mut BlockProcessingArtifact::default(),
@@ -788,7 +785,7 @@ mod test {
                 last_block.header(),
                 this_height,
                 last_block.header().block_ordinal() + 1,
-                last_block.chunks().iter_deprecated().cloned().collect(),
+                last_block.chunks().iter_raw().cloned().collect(),
                 vec![vec![]; last_block.chunks().len()],
                 epoch_id,
                 next_epoch_id,
@@ -808,13 +805,14 @@ mod test {
                     })
                     .collect(),
                 Ratio::new(0, 1),
-                0,
-                100,
-                Some(0),
+                Balance::ZERO,
+                Balance::from_yoctonear(100),
+                Some(Balance::ZERO),
                 signer2.as_ref(),
                 *last_block.header().next_bp_hash(),
                 block_merkle_tree.root(),
                 clock.clock(),
+                None,
                 None,
                 None,
             ));
@@ -822,7 +820,6 @@ mod test {
             chain2.process_block_header(block.header()).unwrap(); // just to validate
             process_block_sync(
                 &mut chain2,
-                &None,
                 block.into(),
                 Provenance::PRODUCED,
                 &mut BlockProcessingArtifact::default(),
@@ -877,8 +874,7 @@ mod test {
                 NetworkRequests::BlockHeadersRequest { hashes, peer_id } => {
                     assert_eq!(peer_id, peer1.peer_info.id);
                     let headers =
-                        retrieve_headers(chain2.chain_store(), hashes, MAX_BLOCK_HEADERS, None)
-                            .unwrap();
+                        retrieve_headers(chain2.chain_store(), hashes, MAX_BLOCK_HEADERS).unwrap();
                     assert!(!headers.is_empty(), "No headers were returned");
                     match chain.sync_block_headers(headers) {
                         Ok(_) => {}

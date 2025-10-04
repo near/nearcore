@@ -59,7 +59,6 @@ pub(crate) fn compilation_duration(kind: near_parameters::vm::VMKind, duration: 
         VMKind::Wasmtime => m.wasmtime_compilation_time += duration,
         VMKind::Wasmer2 => unreachable!(),
         VMKind::NearVm => m.near_vm_compilation_time += duration,
-        VMKind::NearVm2 => m.near_vm_compilation_time += duration,
     });
 }
 

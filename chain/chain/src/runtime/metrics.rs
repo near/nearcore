@@ -98,6 +98,16 @@ pub(crate) static STATE_SYNC_OBTAIN_PART_DELAY: LazyLock<HistogramVec> = LazyLoc
     .unwrap()
 });
 
+pub(crate) static STATE_SYNC_VALIDATE_PART_DELAY: LazyLock<HistogramVec> = LazyLock::new(|| {
+    try_create_histogram_vec(
+        "near_state_sync_validate_part_delay_sec",
+        "Latency of validating a state part",
+        &["shard_id", "result"],
+        Some(exponential_buckets(0.001, 2.0, 20).unwrap()),
+    )
+    .unwrap()
+});
+
 pub(crate) static STATE_SYNC_APPLY_PART_DELAY: LazyLock<HistogramVec> = LazyLock::new(|| {
     try_create_histogram_vec(
         "near_state_sync_apply_part_delay_sec",

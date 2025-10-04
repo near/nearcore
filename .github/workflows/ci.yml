@@ -29,6 +29,13 @@ jobs:
             type: stable
             upload_profraws: true
             run_on_pr: true
+          # TODO(#13341): Remove separate spice test checks once spice tests can run as part of nightly or stable tests.
+          - name: Linux Spice
+            id: linux-spice
+            os: warp-ubuntu-2204-x64-16x
+            type: spice
+            upload_profraws: true
+            run_on_pr: true
           - name: Linux Nightly
             id: linux-nightly
             os: warp-ubuntu-2204-x64-16x
@@ -37,7 +44,7 @@ jobs:
             run_on_pr: true
           - name: MacOS
             id: macos
-            os: warp-macos-14-arm64-6x
+            os: warp-macos-latest-arm64-6x
             type: stable
             upload_profraws: false
             run_on_pr: false
@@ -54,10 +61,17 @@ jobs:
 
       # Run the tests
       - name: just nextest-slow ${{ matrix.type }} (with coverage)
-        if: github.event_name != 'pull_request' || matrix.run_on_pr
+        if: (github.event_name != 'pull_request' || matrix.run_on_pr) && matrix.type != 'spice'
         run: |
           mkdir -p coverage/profraw/{unit,binaries}
           just codecov-ci "nextest-slow ${{ matrix.type }}"
+
+      # Run spice tests.
+      - name: just nextest-spice (with coverage)
+        if: matrix.type == 'spice'
+        run: |
+          mkdir -p coverage/profraw/{unit,binaries}
+          just codecov-ci "nextest-spice"
 
       # Upload the coverage files
       - if: github.event_name != 'pull_request' || matrix.run_on_pr
@@ -144,7 +158,6 @@ jobs:
       - run: cargo build --locked --profile dev-release -p neard --bin neard
       - run: echo "CURRENT_NEARD=$PWD/target/dev-release/neard" >> "$GITHUB_ENV"
       - run: echo "NEAR_ROOT=$PWD" >> "$GITHUB_ENV"
-      - run: python3 scripts/state/update_res.py check
       - run: pushd pytest && python3 tests/sanity/upgradable.py && popd
       - run: pushd pytest && python3 tests/sanity/db_migration.py && popd
       - run: pushd pytest && python3 tests/sanity/backward_compatible.py && popd
@@ -215,7 +228,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: streetsidesoftware/cspell-action@v6
+      - uses: taiki-e/install-action@7852930e42e73b6c323ae4435f5135b58754dfdd
+        with:
+          tool: just
+      - run: npm install -g cspell
+      - run: just check-cspell
 
   check_cargo_deny:
     name: "Cargo Deny"
@@ -353,6 +370,12 @@ jobs:
           files: unit-linux-nightly.json
           fail_ci_if_error: true
           flags: unittests-nightly
+      # TODO(#13341): Remove separate spice test checks once spice tests can run as part of nightly or stable tests.
+      - uses: codecov/codecov-action@eaaf4bedf32dbdc6b720b63067d99c4d77d6047d
+        with:
+          files: unit-linux-spice.json
+          fail_ci_if_error: true
+          flags: unittests-spice
       - uses: codecov/codecov-action@eaaf4bedf32dbdc6b720b63067d99c4d77d6047d
         with:
           files: py.json

@@ -2,9 +2,10 @@ use std::cmp::Ordering;
 use std::sync::Arc;
 
 use crate::block_processing_utils::BlockNotInPoolError;
-use crate::chain::Chain;
+use crate::chain::{ApplyChunksIterationMode, Chain};
 use crate::rayon_spawner::RayonAsyncComputationSpawner;
 use crate::runtime::NightshadeRuntime;
+use crate::spice_core::CoreStatementsProcessor;
 use crate::store::ChainStoreAccess;
 use crate::types::{AcceptedBlock, ChainConfig, ChainGenesis};
 use crate::{ApplyChunksSpawner, DoomslugThresholdMode};
@@ -13,17 +14,21 @@ use near_async::time::Clock;
 use near_chain_configs::{Genesis, MutableConfigValue};
 use near_chain_primitives::Error;
 use near_epoch_manager::shard_tracker::ShardTracker;
-use near_epoch_manager::{EpochManager, EpochManagerHandle};
+use near_epoch_manager::{EpochManager, EpochManagerAdapter, EpochManagerHandle};
+use near_primitives::bandwidth_scheduler::BandwidthRequests;
 use near_primitives::block::Block;
+use near_primitives::congestion_info::CongestionInfo;
 use near_primitives::hash::CryptoHash;
 use near_primitives::optimistic_block::BlockToApply;
+use near_primitives::sharding::{ShardChunkHeader, ShardChunkHeaderV3};
 use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::test_utils::create_test_signer;
-use near_primitives::types::{AccountId, NumBlocks, NumShards};
+use near_primitives::types::{AccountId, Balance, BlockHeight, Gas, NumBlocks, NumShards, ShardId};
 use near_primitives::utils::MaybeValidated;
 use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_store::DBCol;
+use near_store::adapter::StoreAdapter as _;
 use near_store::genesis::initialize_genesis_state;
 use near_store::test_utils::create_test_store;
 use num_rational::Ratio;
@@ -48,7 +53,6 @@ pub fn get_chain_with_epoch_length_and_num_shards(
     epoch_length: NumBlocks,
     num_shards: NumShards,
 ) -> Chain {
-    let store = create_test_store();
     let mut genesis = Genesis::test_sharded(
         clock.clone(),
         vec!["test1".parse::<AccountId>().unwrap()],
@@ -56,16 +60,25 @@ pub fn get_chain_with_epoch_length_and_num_shards(
         vec![1; num_shards as usize],
     );
     genesis.config.epoch_length = epoch_length;
+    get_chain_with_genesis(clock, genesis)
+}
+
+pub fn get_chain_with_genesis(clock: Clock, genesis: Genesis) -> Chain {
+    let store = create_test_store();
     let tempdir = tempfile::tempdir().unwrap();
     initialize_genesis_state(store.clone(), &genesis, Some(tempdir.path()));
     let chain_genesis = ChainGenesis::new(&genesis.config);
     let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config, None);
     let shard_tracker = ShardTracker::new_empty(epoch_manager.clone());
-    let runtime =
-        NightshadeRuntime::test(tempdir.path(), store, &genesis.config, epoch_manager.clone());
+    let runtime = NightshadeRuntime::test(
+        tempdir.path(),
+        store.clone(),
+        &genesis.config,
+        epoch_manager.clone(),
+    );
     Chain::new(
         clock,
-        epoch_manager,
+        epoch_manager.clone(),
         shard_tracker,
         runtime,
         &chain_genesis,
@@ -73,8 +86,11 @@ pub fn get_chain_with_epoch_length_and_num_shards(
         ChainConfig::test(),
         None,
         ApplyChunksSpawner::Custom(Arc::new(RayonAsyncComputationSpawner)),
+        ApplyChunksIterationMode::Sequential,
         MutableConfigValue::new(None, "validator_signer"),
         noop().into_multi_sender(),
+        CoreStatementsProcessor::new_with_noop_senders(store.chain_store(), epoch_manager),
+        None,
     )
     .unwrap()
 }
@@ -104,16 +120,15 @@ pub fn wait_for_block_in_processing(
 /// finishes
 pub fn process_block_sync(
     chain: &mut Chain,
-    me: &Option<AccountId>,
     block: MaybeValidated<Arc<Block>>,
     provenance: Provenance,
     block_processing_artifacts: &mut BlockProcessingArtifact,
 ) -> Result<Vec<AcceptedBlock>, Error> {
     let block_hash = *block.hash();
-    chain.start_process_block_async(me, block, provenance, block_processing_artifacts, None)?;
+    chain.start_process_block_async(block, provenance, block_processing_artifacts, None)?;
     wait_for_block_in_processing(chain, &block_hash).unwrap();
     let (accepted_blocks, errors) =
-        chain.postprocess_ready_blocks(me, block_processing_artifacts, None);
+        chain.postprocess_ready_blocks(block_processing_artifacts, None);
     // This is in test, we should never get errors when postprocessing blocks
     debug_assert!(errors.is_empty());
     Ok(accepted_blocks)
@@ -140,18 +155,22 @@ pub fn setup_with_tx_validity_period(
     );
     genesis.config.epoch_length = epoch_length;
     genesis.config.transaction_validity_period = tx_validity_period;
-    genesis.config.gas_limit = 1_000_000;
-    genesis.config.min_gas_price = 100;
-    genesis.config.max_gas_price = 1_000_000_000;
-    genesis.config.total_supply = 1_000_000_000;
+    genesis.config.gas_limit = Gas::from_gas(1_000_000);
+    genesis.config.min_gas_price = Balance::from_yoctonear(100);
+    genesis.config.max_gas_price = Balance::from_yoctonear(1_000_000_000);
+    genesis.config.total_supply = Balance::from_yoctonear(1_000_000_000);
     genesis.config.gas_price_adjustment_rate = Ratio::from_integer(0);
     genesis.config.protocol_version = PROTOCOL_VERSION;
     let tempdir = tempfile::tempdir().unwrap();
     initialize_genesis_state(store.clone(), &genesis, Some(tempdir.path()));
     let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config, None);
     let shard_tracker = ShardTracker::new_empty(epoch_manager.clone());
-    let runtime =
-        NightshadeRuntime::test(tempdir.path(), store, &genesis.config, epoch_manager.clone());
+    let runtime = NightshadeRuntime::test(
+        tempdir.path(),
+        store.clone(),
+        &genesis.config,
+        epoch_manager.clone(),
+    );
     let chain = Chain::new(
         clock,
         epoch_manager.clone(),
@@ -162,8 +181,11 @@ pub fn setup_with_tx_validity_period(
         ChainConfig::test(),
         None,
         ApplyChunksSpawner::Custom(Arc::new(RayonAsyncComputationSpawner)),
+        ApplyChunksIterationMode::Sequential,
         MutableConfigValue::new(None, "validator_signer"),
         noop().into_multi_sender(),
+        CoreStatementsProcessor::new_with_noop_senders(store.chain_store(), epoch_manager.clone()),
+        None,
     )
     .unwrap();
     chain.init_flat_storage().unwrap();
@@ -226,7 +248,7 @@ pub fn display_chain(me: &Option<AccountId>, chain: &mut Chain, tail: bool) {
                 }
             );
             if let Some(block) = maybe_block {
-                for chunk_header in block.chunks().iter_deprecated() {
+                for chunk_header in block.chunks().iter() {
                     let chunk_producer = epoch_manager
                         .get_chunk_producer_info(&ChunkProductionKey {
                             epoch_id,
@@ -268,6 +290,55 @@ pub fn display_chain(me: &Option<AccountId>, chain: &mut Chain, tail: bool) {
     }
 }
 
+pub fn get_fake_next_block_chunk_headers(
+    block: &Block,
+    epoch_manager: &dyn EpochManagerAdapter,
+) -> Vec<ShardChunkHeader> {
+    fn chunk_header(
+        height: BlockHeight,
+        shard_id: ShardId,
+        prev_block_hash: CryptoHash,
+        signer: &ValidatorSigner,
+    ) -> ShardChunkHeader {
+        ShardChunkHeader::V3(ShardChunkHeaderV3::new(
+            prev_block_hash,
+            Default::default(),
+            Default::default(),
+            Default::default(),
+            Default::default(),
+            height,
+            shard_id,
+            Default::default(),
+            Default::default(),
+            Default::default(),
+            Default::default(),
+            Default::default(),
+            Default::default(),
+            CongestionInfo::default(),
+            BandwidthRequests::empty(),
+            signer,
+        ))
+    }
+
+    let mut chunks = Vec::new();
+    for chunk in block.chunks().iter_raw() {
+        let shard_id = chunk.shard_id();
+        let height = block.header().height() + 1;
+        let chunk_producer = epoch_manager
+            .get_chunk_producer_info(&ChunkProductionKey {
+                shard_id,
+                epoch_id: *block.header().epoch_id(),
+                height_created: height,
+            })
+            .unwrap();
+        let signer = create_test_signer(chunk_producer.account_id().as_str());
+        let mut chunk_header = chunk_header(height, shard_id, *block.hash(), &signer);
+        *chunk_header.height_included_mut() = height;
+        chunks.push(chunk_header);
+    }
+    chunks
+}
+
 #[cfg(test)]
 mod test {
     use std::convert::TryFrom;
@@ -278,7 +349,7 @@ mod test {
     use near_primitives::hash::CryptoHash;
     use near_primitives::receipt::{Receipt, ReceiptPriority};
     use near_primitives::sharding::ReceiptList;
-    use near_primitives::types::{AccountId, NumShards};
+    use near_primitives::types::{AccountId, Balance, NumShards};
 
     use crate::Chain;
 
@@ -302,8 +373,9 @@ mod test {
 
     fn test_build_receipt_hashes_with_num_shard(num_shards: NumShards) {
         let shard_layout = ShardLayout::multi_shard(num_shards, 0);
-        let create_receipt_from_receiver_id =
-            |receiver_id| Receipt::new_balance_refund(&receiver_id, 0, ReceiptPriority::NoPriority);
+        let create_receipt_from_receiver_id = |receiver_id| {
+            Receipt::new_balance_refund(&receiver_id, Balance::ZERO, ReceiptPriority::NoPriority)
+        };
         let mut rng = rand::thread_rng();
         let receipts = (0..3000)
             .map(|_| {

@@ -11,9 +11,9 @@ use crate::types::PeerManagerMessageRequest;
 use crate::types::PeerMessage;
 use crate::{network_protocol::testonly as data, peer::testonly::PeerHandle};
 use itertools::Itertools;
+use near_async::messaging::CanSendAsync;
 use near_async::time;
 use near_crypto::SecretKey;
-use near_o11y::WithSpanContextExt;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
@@ -338,7 +338,7 @@ async fn propagate() {
         shards: info1.shards.clone(),
     });
 
-    pms[1].actix.addr.send(message.with_span_context()).await.unwrap();
+    let _: () = pms[1].actor.send_async(message).await.unwrap();
 
     tracing::info!(target:"test", "Make sure that the message sent from #1 reaches #2 on the other side of the ring.");
     let want: HashSet<Arc<SnapshotHostInfo>> = std::iter::once(info1).collect();
@@ -436,7 +436,7 @@ async fn too_many_shards_truncate() {
         shards: too_many_shards.clone(),
     });
 
-    pm.actix.addr.send(message.with_span_context()).await.unwrap();
+    let _: () = pm.actor.send_async(message).await.unwrap();
 
     tracing::info!(target:"test", "Receive the truncated SnapshotHostInfo message on peer1, make sure that the contents are correct.");
     let msg = peer1.events.recv_until(take_sync_snapshot_msg).await;

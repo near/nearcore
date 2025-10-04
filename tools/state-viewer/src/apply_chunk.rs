@@ -9,7 +9,6 @@ use near_epoch_manager::shard_assignment::shard_id_to_uid;
 use near_epoch_manager::{EpochManagerAdapter, EpochManagerHandle};
 use near_primitives::apply::ApplyChunkReason;
 use near_primitives::bandwidth_scheduler::BlockBandwidthRequests;
-use near_primitives::block::MaybeNew;
 use near_primitives::congestion_info::BlockCongestionInfo;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::Receipt;
@@ -126,10 +125,7 @@ pub fn apply_chunk(
     let mut shards_bandwidth_requests = BTreeMap::new();
     let mut shards_congestion_info = BTreeMap::new();
     for prev_chunk in prev_block.chunks().iter() {
-        let shard_id = match prev_chunk {
-            MaybeNew::New(new_chunk) => new_chunk.shard_id(),
-            MaybeNew::Old(missing_chunk) => missing_chunk.shard_id(),
-        };
+        let shard_id = prev_chunk.shard_id();
         let shard_uid =
             shard_id_to_uid(epoch_manager, shard_id, prev_block.header().epoch_id()).unwrap();
         let Ok(chunk_extra) = chain_store.get_chunk_extra(&prev_block_hash, &shard_uid) else {
@@ -180,6 +176,7 @@ pub fn apply_chunk(
                 last_validator_proposals: chunk_header.prev_validator_proposals(),
                 gas_limit: chunk_header.gas_limit(),
                 is_new_chunk: true,
+                on_post_state_ready: None,
             },
             ApplyChunkBlockContext {
                 block_type: BlockType::Normal,
@@ -215,7 +212,7 @@ fn find_tx_or_receipt(
     let epoch_id = block.header().epoch_id();
     let shard_layout = epoch_manager.get_shard_layout(epoch_id)?;
 
-    let chunk_hashes = chunks.iter_deprecated().map(|c| c.chunk_hash());
+    let chunk_hashes = chunks.iter_raw().map(|c| c.chunk_hash());
     for (shard_index, chunk_hash) in chunk_hashes.enumerate() {
         let shard_id = shard_layout.get_shard_id(shard_index).unwrap();
         let chunk =

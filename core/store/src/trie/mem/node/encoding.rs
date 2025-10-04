@@ -9,6 +9,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use near_primitives::hash::CryptoHash;
 use std::mem::size_of;
 
+use crate::trie::NUM_CHILDREN;
 use smallvec::SmallVec;
 
 #[derive(PartialEq, Eq, Clone, Copy, Debug, BorshSerialize, BorshDeserialize)]
@@ -114,7 +115,7 @@ impl MemTrieNodeId {
     pub(crate) fn new_impl(
         arena: &mut impl ArenaMut,
         node: InputMemTrieNode,
-        node_hash: Option<CryptoHash>,
+        node_hash_and_memory_usage: Option<(CryptoHash, u64)>,
     ) -> Self {
         // We add reference to all the children when creating the node.
         // As for the refcount of this newly created node, it starts at 0.
@@ -136,10 +137,13 @@ impl MemTrieNodeId {
             _ => {}
         }
         // Prepare the raw node, for memory usage and hash computation.
-        let raw_node_with_size = if matches!(&node, InputMemTrieNode::Leaf { .. }) {
+        let node_hash_and_memory_usage = if matches!(&node, InputMemTrieNode::Leaf { .. }) {
             None
         } else {
-            Some(node.to_raw_trie_node_with_size_non_leaf(arena.memory()))
+            Some(node_hash_and_memory_usage.unwrap_or_else(|| {
+                let raw_node_with_size = node.to_raw_trie_node_with_size_non_leaf(arena.memory());
+                (raw_node_with_size.hash(), raw_node_with_size.memory_usage)
+            }))
         };
 
         // Finally, encode the data.
@@ -168,13 +172,10 @@ impl MemTrieNodeId {
                     arena,
                     ExtensionHeader::SERIALIZED_SIZE + extension_header.flexible_data_length(),
                 );
-                let raw_node_with_size = raw_node_with_size.unwrap();
+                let (node_hash, memory_usage) = node_hash_and_memory_usage.unwrap();
                 data.encode(ExtensionHeader {
                     common: CommonHeader { refcount: 0, kind: NodeKind::Extension },
-                    nonleaf: NonLeafHeader::new(
-                        raw_node_with_size.memory_usage,
-                        node_hash.unwrap_or_else(|| raw_node_with_size.hash()),
-                    ),
+                    nonleaf: NonLeafHeader::new(memory_usage, node_hash),
                     child: child.pos,
                     extension: extension_header,
                 });
@@ -187,13 +188,10 @@ impl MemTrieNodeId {
                     arena,
                     BranchHeader::SERIALIZED_SIZE + children_header.flexible_data_length(),
                 );
-                let raw_node_with_size = raw_node_with_size.unwrap();
+                let (node_hash, memory_usage) = node_hash_and_memory_usage.unwrap();
                 data.encode(BranchHeader {
                     common: CommonHeader { refcount: 0, kind: NodeKind::Branch },
-                    nonleaf: NonLeafHeader::new(
-                        raw_node_with_size.memory_usage,
-                        node_hash.unwrap_or_else(|| raw_node_with_size.hash()),
-                    ),
+                    nonleaf: NonLeafHeader::new(memory_usage, node_hash),
                     children: children_header,
                 });
                 data.encode_flexible(&children_header, &children);
@@ -208,13 +206,10 @@ impl MemTrieNodeId {
                         + children_header.flexible_data_length()
                         + value_header.flexible_data_length(),
                 );
-                let raw_node_with_size = raw_node_with_size.unwrap();
+                let (node_hash, memory_usage) = node_hash_and_memory_usage.unwrap();
                 data.encode(BranchWithValueHeader {
                     common: CommonHeader { refcount: 0, kind: NodeKind::BranchWithValue },
-                    nonleaf: NonLeafHeader::new(
-                        raw_node_with_size.memory_usage,
-                        node_hash.unwrap_or_else(|| raw_node_with_size.hash()),
-                    ),
+                    nonleaf: NonLeafHeader::new(memory_usage, node_hash),
                     children: children_header,
                     value: value_header,
                 });
@@ -256,7 +251,7 @@ impl MemTrieNodeId {
         let new_refcount = refcount.checked_sub(1).unwrap();
         refcount_memory.copy_from_slice(new_refcount.to_le_bytes().as_ref());
         if new_refcount == 0 {
-            let mut children_to_unref: SmallVec<[ArenaPos; 16]> = SmallVec::new();
+            let mut children_to_unref: SmallVec<[ArenaPos; NUM_CHILDREN]> = SmallVec::new();
             let node_ptr = self.as_ptr(arena.memory());
             for child in node_ptr.view().iter_children() {
                 children_to_unref.push(child.id().pos);

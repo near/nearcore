@@ -1,4 +1,4 @@
 .near/
-load-schedule.json
+tx-generator-settings.json
 neard
 user-data/

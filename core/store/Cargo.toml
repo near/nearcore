@@ -12,8 +12,6 @@ publish = false
 workspace = true
 
 [dependencies]
-actix-rt.workspace = true
-actix.workspace = true
 anyhow.workspace = true
 borsh.workspace = true
 bytesize.workspace = true
@@ -33,7 +31,13 @@ rand.workspace = true
 rayon.workspace = true
 reed-solomon-erasure.workspace = true
 rlimit.workspace = true
-rocksdb.workspace = true
+rocksdb = { workspace = true, features = [
+    "snappy",
+    "lz4",
+    "zstd",
+    "zlib",
+    "jemalloc",
+] }
 serde.workspace = true
 serde_json.workspace = true
 static_assertions.workspace = true
@@ -44,6 +48,7 @@ thiserror.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 
+near-async.workspace = true
 near-chain-configs = { workspace = true, features = ["metrics"] }
 near-chain-primitives.workspace = true
 near-crypto.workspace = true
@@ -59,6 +64,7 @@ near-vm-runner.workspace = true
 assert_matches.workspace = true
 bencher.workspace = true
 insta.workspace = true
+near-async.workspace = true
 near-chain.workspace = true
 near-chunks.workspace = true
 rand.workspace = true
@@ -101,4 +107,7 @@ protocol_schema = [
     "near-primitives/protocol_schema",
     "near-parameters/protocol_schema",
     "near-schema-checker-lib/protocol_schema",
+]
+protocol_feature_spice = [
+    "near-primitives/protocol_feature_spice",
 ]

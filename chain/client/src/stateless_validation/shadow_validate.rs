@@ -8,7 +8,7 @@ use near_primitives::sharding::{ShardChunk, ShardChunkHeader};
 impl Client {
     // Temporary feature to make node produce state witness for every chunk in every processed block
     // and then self-validate it.
-    pub(crate) fn shadow_validate_block_chunks(&mut self, block: &Block) -> Result<(), Error> {
+    pub(crate) fn shadow_validate_block_chunks(&self, block: &Block) -> Result<(), Error> {
         if !cfg!(feature = "shadow_chunk_validation") {
             return Ok(());
         }
@@ -16,12 +16,7 @@ impl Client {
         tracing::debug!(target: "client", ?block_hash, "shadow validation for block chunks");
         let prev_block = self.chain.get_block(block.header().prev_hash())?;
         let prev_block_chunks = prev_block.chunks();
-        for (shard_index, chunk) in block
-            .chunks()
-            .iter_deprecated()
-            .enumerate()
-            .filter(|(_, chunk)| chunk.is_new_chunk(block.header().height()))
-        {
+        for (shard_index, chunk) in block.chunks().iter_new().enumerate() {
             let chunk = get_chunk_clone_from_header(&self.chain.chain_store, chunk)?;
             // TODO(resharding) This doesn't work if shard layout changes.
             let prev_chunk_header = prev_block_chunks.get(shard_index).unwrap();
@@ -43,7 +38,7 @@ impl Client {
     }
 
     fn shadow_validate_chunk(
-        &mut self,
+        &self,
         prev_block_header: &BlockHeader,
         prev_chunk_header: &ShardChunkHeader,
         chunk: &ShardChunk,
@@ -60,10 +55,12 @@ impl Client {
         if self.config.save_latest_witnesses {
             self.chain.chain_store.save_latest_chunk_state_witness(&state_witness)?;
         }
+        let rs = self.shadow_validation_reed_solomon_encoder().clone();
         self.chain.shadow_validate_state_witness(
             state_witness,
             self.epoch_manager.as_ref(),
             None,
+            rs,
         )?;
         Ok(())
     }

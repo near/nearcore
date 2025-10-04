@@ -2,7 +2,7 @@ use near_chain_configs::{
     BLOCK_PRODUCER_KICKOUT_THRESHOLD, CHUNK_PRODUCER_KICKOUT_THRESHOLD,
     CHUNK_VALIDATOR_ONLY_KICKOUT_THRESHOLD, EXPECTED_EPOCH_LENGTH, FISHERMEN_THRESHOLD,
     GAS_PRICE_ADJUSTMENT_RATE, GENESIS_CONFIG_FILENAME, Genesis, GenesisConfig, INITIAL_GAS_LIMIT,
-    MAX_INFLATION_RATE, MIN_GAS_PRICE, NEAR_BASE, NUM_BLOCK_PRODUCER_SEATS, NUM_BLOCKS_PER_YEAR,
+    MAX_INFLATION_RATE, MIN_GAS_PRICE, NUM_BLOCK_PRODUCER_SEATS, NUM_BLOCKS_PER_YEAR,
     PROTOCOL_REWARD_RATE, PROTOCOL_UPGRADE_STAKE_THRESHOLD, TRANSACTION_VALIDITY_PERIOD,
     TrackedShardsConfig,
 };
@@ -30,10 +30,10 @@ fn verify_total_supply(total_supply: Balance, chain_id: &str) {
     if chain_id == near_primitives::chains::MAINNET {
         assert_eq!(
             total_supply,
-            1_000_000_000 * NEAR_BASE,
+            Balance::from_near(1_000_000_000),
             "Total supply should be exactly 1 billion"
         );
-    } else if total_supply > 10_000_000_000 * NEAR_BASE
+    } else if total_supply > Balance::from_near(10_000_000_000)
         && chain_id == near_primitives::chains::TESTNET
     {
         panic!("Total supply should not be more than 10 billion");
@@ -53,7 +53,7 @@ pub fn csv_to_json_configs(home: &Path, chain_id: String, tracked_shards: Vec<Sh
 
     // Construct `config.json`.
     let mut config = Config::default();
-    // TODO(archival_v2): Revisit this file, `tracked_shards` likely does not make sense here.
+    // TODO(cloud_archival): Revisit this file, `tracked_shards` likely does not make sense here.
     // Perhaps it will make sense if used together with `TrackedShardsConfig::Shards` when it is added.
     let tracked_shards_config = if tracked_shards.is_empty() {
         TrackedShardsConfig::NoShards

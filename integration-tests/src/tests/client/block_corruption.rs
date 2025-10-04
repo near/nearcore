@@ -9,6 +9,7 @@ use near_crypto::{InMemorySigner, KeyType};
 use near_o11y::testonly::init_test_logger;
 use near_primitives::sharding::{ShardChunkHeader, ShardChunkHeaderInner};
 use near_primitives::transaction::SignedTransaction;
+use near_primitives::types::Balance;
 use near_primitives::types::ShardId;
 use near_primitives::validator_signer::InMemoryValidatorSigner;
 use near_primitives_core::types::BlockHeight;
@@ -24,7 +25,7 @@ fn create_tx_load(height: BlockHeight, last_block: &Block) -> Vec<SignedTransact
         "test0".parse().unwrap(),
         "test1".parse().unwrap(),
         &signer,
-        10,
+        Balance::from_yoctonear(10),
         *last_block.hash(),
     );
     vec![tx]
@@ -65,7 +66,7 @@ fn change_shard_id_to_invalid() {
     // 1. Corrupt chunks
     let bad_shard_id = ShardId::new(100);
     let mut new_chunks = vec![];
-    for chunk in block.chunks().iter_deprecated() {
+    for chunk in block.chunks().iter_raw() {
         let mut new_chunk = chunk.clone();
         match &mut new_chunk {
             ShardChunkHeader::V1(new_chunk) => new_chunk.inner.shard_id = bad_shard_id,
@@ -247,7 +248,7 @@ fn check_process_flipped_block_fails_on_bit(
 /// This vector should include various validation errors that correspond to data changed with a bit flip.
 #[test]
 fn ultra_slow_test_check_process_flipped_block_fails() {
-    init_test_logger();
+    // Note: intentionally not initializing logging because otherwise this test logs too much and is too slow.
     let mut corrupted_bit_idx = 0;
     // List of reasons `check_process_flipped_block_fails_on_bit` returned `Err`.
     // Should be empty.
@@ -271,6 +272,9 @@ fn ultra_slow_test_check_process_flipped_block_fails() {
             env = create_env();
         }
 
+        if corrupted_bit_idx % 100 == 0 {
+            eprintln!("Progress: {} bits", corrupted_bit_idx);
+        }
         let res = check_process_flipped_block_fails_on_bit(&mut env, corrupted_bit_idx);
         if let Ok(res) = &res {
             if res.to_string() == "End" {

@@ -2,6 +2,7 @@ use crate::approval_verification::verify_approvals_and_threshold_orphan;
 use crate::block_processing_utils::BlockPreprocessInfo;
 use crate::chain::collect_receipts_from_response;
 use crate::metrics::{SHARD_LAYOUT_NUM_SHARDS, SHARD_LAYOUT_VERSION};
+use crate::spice_core::CoreStatementsProcessor;
 use crate::store::utils::get_block_header_on_chain_by_height;
 use crate::store::{ChainStore, ChainStoreAccess, ChainStoreUpdate};
 use crate::types::{
@@ -11,6 +12,7 @@ use crate::types::{
 use crate::update_shard::{NewChunkResult, OldChunkResult, ShardUpdateResult};
 use crate::{Chain, Doomslug};
 use crate::{DoomslugThresholdMode, metrics};
+use near_chain_configs::ProtocolVersionCheckConfig;
 use near_chain_primitives::error::Error;
 use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_assignment::shard_id_to_uid;
@@ -23,7 +25,8 @@ use near_primitives::shard_layout::ShardUId;
 use near_primitives::sharding::{ReceiptProof, ShardChunk};
 use near_primitives::state_sync::{ReceiptProofResponse, ShardStateSyncResponseHeader};
 use near_primitives::types::chunk_extra::ChunkExtra;
-use near_primitives::types::{BlockHeight, ShardId};
+use near_primitives::types::{BlockHeight, EpochId, ShardId};
+use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::LightClientBlockView;
 use node_runtime::SignedValidPeriodTransactions;
 use std::sync::Arc;
@@ -38,6 +41,7 @@ pub struct ChainUpdate<'a> {
     runtime_adapter: Arc<dyn RuntimeAdapter>,
     chain_store_update: ChainStoreUpdate<'a>,
     doomslug_threshold_mode: DoomslugThresholdMode,
+    spice_core_processor: CoreStatementsProcessor,
 }
 
 impl<'a> ChainUpdate<'a> {
@@ -46,9 +50,16 @@ impl<'a> ChainUpdate<'a> {
         epoch_manager: Arc<dyn EpochManagerAdapter>,
         runtime_adapter: Arc<dyn RuntimeAdapter>,
         doomslug_threshold_mode: DoomslugThresholdMode,
+        spice_core_processor: CoreStatementsProcessor,
     ) -> Self {
         let chain_store_update: ChainStoreUpdate<'_> = chain_store.store_update();
-        Self::new_impl(epoch_manager, runtime_adapter, doomslug_threshold_mode, chain_store_update)
+        Self::new_impl(
+            epoch_manager,
+            runtime_adapter,
+            doomslug_threshold_mode,
+            chain_store_update,
+            spice_core_processor,
+        )
     }
 
     fn new_impl(
@@ -56,8 +67,39 @@ impl<'a> ChainUpdate<'a> {
         runtime_adapter: Arc<dyn RuntimeAdapter>,
         doomslug_threshold_mode: DoomslugThresholdMode,
         chain_store_update: ChainStoreUpdate<'a>,
+        spice_core_processor: CoreStatementsProcessor,
     ) -> Self {
-        ChainUpdate { epoch_manager, runtime_adapter, chain_store_update, doomslug_threshold_mode }
+        ChainUpdate {
+            epoch_manager,
+            runtime_adapter,
+            chain_store_update,
+            doomslug_threshold_mode,
+            spice_core_processor,
+        }
+    }
+
+    pub fn check_protocol_version(
+        &self,
+        block_hash: &CryptoHash,
+        epoch_to_check: ProtocolVersionCheckConfig,
+    ) -> Result<(), Error> {
+        if !self.epoch_manager.is_next_block_epoch_start(block_hash)? {
+            return Ok(());
+        }
+        let epoch_id = match epoch_to_check {
+            ProtocolVersionCheckConfig::Next => self.epoch_manager.get_next_epoch_id(block_hash)?,
+            ProtocolVersionCheckConfig::NextNext => EpochId(*block_hash),
+        };
+        // Note: this lookup comes from the epoch_manager's cache in case of the next next epoch,
+        // as it is not persisted to disk yet.
+        let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
+        if protocol_version > PROTOCOL_VERSION {
+            panic!(
+                "The client protocol version is older than the protocol version of the network: {} > {}",
+                protocol_version, PROTOCOL_VERSION
+            );
+        }
+        Ok(())
     }
 
     /// Commit changes to the chain into the database.
@@ -275,6 +317,10 @@ impl<'a> ChainUpdate<'a> {
         self.chain_store_update.save_block(Arc::clone(&block));
         self.chain_store_update.inc_block_refcount(prev_hash)?;
 
+        if cfg!(feature = "protocol_feature_spice") {
+            self.chain_store_update.merge(self.spice_core_processor.record_block(&block)?);
+        }
+
         // Update the chain head if it's the new tip
         let res = self.update_head(block.header())?;
 
@@ -477,6 +523,7 @@ impl<'a> ChainUpdate<'a> {
                 gas_limit,
                 last_validator_proposals: chunk_header.prev_validator_proposals(),
                 is_new_chunk: true,
+                on_post_state_ready: None,
             },
             ApplyChunkBlockContext {
                 block_type: BlockType::Normal,
@@ -595,6 +642,7 @@ impl<'a> ChainUpdate<'a> {
                 last_validator_proposals: chunk_extra.validator_proposals(),
                 gas_limit: chunk_extra.gas_limit(),
                 is_new_chunk: false,
+                on_post_state_ready: None,
             },
             ApplyChunkBlockContext::from_header(
                 &block_header,

@@ -17,15 +17,17 @@ use near_async::messaging::{AsyncSender, IntoSender};
 use near_async::time::{Clock, Duration};
 use near_chain::Chain;
 use near_chain::types::RuntimeAdapter;
-use near_chain_configs::{ExternalStorageConfig, ExternalStorageLocation, SyncConfig};
+use near_chain_configs::{
+    ExternalStorageConfig, ExternalStorageLocation, StateSyncConfig, SyncConcurrency, SyncConfig,
+};
 use near_client_primitives::types::{ShardSyncStatus, StateSyncStatus};
 use near_epoch_manager::EpochManagerAdapter;
-use near_network::types::{
-    HighestHeightPeerInfo, PeerManagerMessageRequest, PeerManagerMessageResponse,
-};
+use near_network::client::StateResponse;
+use near_network::types::{PeerManagerMessageRequest, PeerManagerMessageResponse};
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
-use near_primitives::state_sync::{ShardStateSyncResponse, ShardStateSyncResponseHeader};
+use near_primitives::state_part::StatePart;
+use near_primitives::state_sync::ShardStateSyncResponseHeader;
 use near_primitives::types::ShardId;
 use near_store::Store;
 use network::{StateSyncDownloadSourcePeer, StateSyncDownloadSourcePeerSharedState};
@@ -66,18 +68,10 @@ pub struct StateSync {
 
     /// There is one entry in this map for each shard that is being synced.
     shard_syncs: HashMap<(CryptoHash, ShardId), StateSyncShardHandle>,
-}
 
-/// Maximum number of outstanding requests for decentralized state sync.
-const NUM_CONCURRENT_REQUESTS_FOR_PEERS: usize = 10;
-/// Maximum number of "apply parts" tasks that can be performed in parallel.
-/// This is a very disk-heavy task and therefore we set this to a low limit,
-/// or else the rocksdb contention makes the whole server freeze up.
-const NUM_CONCURRENT_REQUESTS_FOR_COMPUTATION: usize = 4;
-/// Maximum number of "apply parts" tasks that can be performed in parallel
-/// during catchup. We set this to a very low value to avoid overloading the
-/// node while it is still performing normal tasks.
-const NUM_CONCURRENT_REQUESTS_FOR_COMPUTATION_DURING_CATCHUP: usize = 1;
+    /// Concurrency limits.
+    concurrency_config: SyncConcurrency,
+}
 
 impl StateSync {
     /// Note: `future_spawner` is used to spawn futures that perform state sync tasks.
@@ -95,7 +89,7 @@ impl StateSync {
         retry_backoff: Duration,
         external_backoff: Duration,
         chain_id: &str,
-        sync_config: &SyncConfig,
+        sync_config: &StateSyncConfig,
         chain_requests_sender: ChainSenderForStateSync,
         future_spawner: Arc<dyn FutureSpawner>,
         catchup: bool,
@@ -115,7 +109,7 @@ impl StateSync {
                 num_concurrent_requests,
                 num_concurrent_requests_during_catchup,
                 external_storage_fallback_threshold,
-            }) = sync_config
+            }) = &sync_config.sync
             {
                 let external = match location {
                     ExternalStorageLocation::S3 { bucket, region, .. } => {
@@ -134,7 +128,7 @@ impl StateSync {
                     }
                     ExternalStorageLocation::GCS { bucket, .. } => ExternalConnection::GCS {
                         gcs_client: Arc::new(
-                            object_store::gcp::GoogleCloudStorageBuilder::new()
+                            object_store::gcp::GoogleCloudStorageBuilder::from_env()
                                 .with_bucket_name(bucket)
                                 .build()
                                 .unwrap(),
@@ -147,10 +141,11 @@ impl StateSync {
                     *num_concurrent_requests_during_catchup
                 } else {
                     *num_concurrent_requests
-                } as usize;
+                };
                 let fallback_source = Arc::new(StateSyncDownloadSourceExternal {
                     clock: clock.clone(),
                     store: store.clone(),
+                    epoch_manager: epoch_manager.clone(),
                     chain_id: chain_id.to_string(),
                     conn: external,
                     timeout: external_timeout,
@@ -159,13 +154,13 @@ impl StateSync {
                 (
                     Some(fallback_source),
                     *external_storage_fallback_threshold as usize,
-                    num_concurrent_requests.min(NUM_CONCURRENT_REQUESTS_FOR_PEERS),
+                    num_concurrent_requests.min(sync_config.concurrency.peer_downloads),
                 )
             } else {
-                (None, 0, NUM_CONCURRENT_REQUESTS_FOR_PEERS)
+                (None, 0, sync_config.concurrency.peer_downloads)
             };
 
-        let downloading_task_tracker = TaskTracker::new(num_concurrent_requests);
+        let downloading_task_tracker = TaskTracker::new(usize::from(num_concurrent_requests));
         let downloader = Arc::new(StateSyncDownloader {
             clock,
             store: store.clone(),
@@ -179,11 +174,11 @@ impl StateSync {
         });
 
         let num_concurrent_computations = if catchup {
-            NUM_CONCURRENT_REQUESTS_FOR_COMPUTATION_DURING_CATCHUP
+            sync_config.concurrency.apply_during_catchup
         } else {
-            NUM_CONCURRENT_REQUESTS_FOR_COMPUTATION
+            sync_config.concurrency.apply
         };
-        let computation_task_tracker = TaskTracker::new(num_concurrent_computations);
+        let computation_task_tracker = TaskTracker::new(usize::from(num_concurrent_computations));
 
         Self {
             store,
@@ -196,6 +191,7 @@ impl StateSync {
             runtime,
             chain_requests_sender,
             shard_syncs: HashMap::new(),
+            concurrency_config: sync_config.concurrency,
         }
     }
 
@@ -203,11 +199,9 @@ impl StateSync {
     pub fn apply_peer_message(
         &self,
         peer_id: PeerId,
-        shard_id: ShardId,
-        sync_hash: CryptoHash,
-        data: ShardStateSyncResponse,
+        msg: StateResponse,
     ) -> Result<(), near_chain::Error> {
-        self.peer_source_state.lock().receive_peer_message(peer_id, shard_id, sync_hash, data)?;
+        self.peer_source_state.lock().receive_peer_message(peer_id, msg)?;
         Ok(())
     }
 
@@ -216,16 +210,11 @@ impl StateSync {
         &mut self,
         sync_hash: CryptoHash,
         sync_status: &mut StateSyncStatus,
-        highest_height_peers: &[HighestHeightPeerInfo],
         tracking_shards: &[ShardId],
     ) -> Result<StateSyncResult, near_chain::Error> {
         let _span =
             tracing::debug_span!(target: "sync", "run_sync", sync_type = "StateSync").entered();
         tracing::debug!(%sync_hash, ?tracking_shards, "syncing state");
-
-        self.peer_source_state.lock().set_highest_peers(
-            highest_height_peers.iter().map(|info| info.peer_info.id.clone()).collect(),
-        );
 
         let mut all_done = true;
         for shard_id in tracking_shards {
@@ -269,6 +258,7 @@ impl StateSync {
                         self.chain_requests_sender.clone().into_sender(),
                         cancel.clone(),
                         self.future_spawner.clone(),
+                        self.concurrency_config.per_shard,
                     );
                     let (sender, receiver) = oneshot::channel();
 
@@ -327,7 +317,7 @@ pub(self) trait StateSyncDownloadSource: Send + Sync + 'static {
         part_id: u64,
         handle: Arc<TaskHandle>,
         cancel: CancellationToken,
-    ) -> BoxFuture<Result<Vec<u8>, near_chain::Error>>;
+    ) -> BoxFuture<Result<StatePart, near_chain::Error>>;
 }
 
 /// Find the hash of the first block on the same epoch (and chain) of block with hash `sync_hash`.

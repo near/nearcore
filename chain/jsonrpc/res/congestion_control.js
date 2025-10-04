@@ -43,7 +43,8 @@ function BlocksTable({ rows }) {
         const row = rows[i];
 
         const chunkCells = [];
-        row.chunks.forEach((chunk, shardId) => {
+        for (const chunk of row.chunks) {
+            const shardId = chunk.shard_id;
             if (chunk.congestion_info) {
                 const info = chunk.congestion_info.V1;
                 chunkCells.push(<React.Fragment key={shardId}>
@@ -62,7 +63,7 @@ function BlocksTable({ rows }) {
                     <td className="not_available">N/A</td>
                 </React.Fragment>);
             }
-        });
+        }
 
         tableRows.push(
             <tr key={row.block_hash}>

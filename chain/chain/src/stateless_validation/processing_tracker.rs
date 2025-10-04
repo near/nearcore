@@ -5,6 +5,7 @@ use std::sync::{Arc, OnceLock};
 /// kept alive as long as the processing is ongoing, then once it's dropped,
 /// the paired `ProcessingDoneWaiter` will be notified that the processing has finished.
 /// Does NOT implement `Clone`, if you want to clone it, wrap it in an `Arc`.
+#[derive(Debug)]
 pub struct ProcessingDoneTracker(Arc<OnceLock<()>>);
 
 impl ProcessingDoneTracker {

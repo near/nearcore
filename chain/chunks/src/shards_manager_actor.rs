@@ -80,19 +80,19 @@
 
 use crate::adapter::ShardsManagerRequestFromClient;
 use crate::chunk_cache::{EncodedChunksCache, EncodedChunksCacheEntry};
-use crate::client::ShardsManagerResponse;
+use crate::client::{ShardsManagerResponse, ShardsManagerResponseSender};
 use crate::logic::{
     chunk_needs_to_be_fetched_from_archival, create_partial_chunk, make_outgoing_receipts_proofs,
     make_partial_encoded_chunk_from_owned_parts_and_needed_receipts, need_part, need_receipt,
 };
 use crate::metrics;
 use ::time::ext::InstantExt as _;
-use actix::Actor;
-use near_async::actix_wrapper::ActixWrapper;
+use near_async::ActorSystem;
 use near_async::futures::{DelayedActionRunner, DelayedActionRunnerExt};
 use near_async::messaging::{self, Handler, HandlerWithContext, Sender};
 use near_async::time::Duration;
 use near_async::time::{self, Clock};
+use near_async::tokio::TokioRuntimeHandle;
 use near_chain::byzantine_assert;
 use near_chain::near_chain_primitives::error::Error::DBNotFoundErr;
 use near_chain::signature_verification::{
@@ -110,11 +110,12 @@ use near_network::types::{
     PartialEncodedChunkResponseMsg,
 };
 use near_network::types::{NetworkRequests, PeerManagerMessageRequest};
+use near_o11y::span_wrapped_msg::SpanWrappedMessageExt;
 use near_performance_metrics_macros::perf;
 use near_primitives::block::Tip;
 use near_primitives::errors::EpochError;
 use near_primitives::hash::CryptoHash;
-use near_primitives::merkle::{MerklePath, verify_path};
+use near_primitives::merkle::{MerklePath, verify_path_with_index};
 use near_primitives::receipt::Receipt;
 use near_primitives::reed_solomon::{reed_solomon_decode, reed_solomon_encode};
 use near_primitives::sharding::{
@@ -137,7 +138,7 @@ use reed_solomon_erasure::galois_8::ReedSolomon;
 use std::collections::{HashMap, HashSet};
 use std::num::NonZeroUsize;
 use std::sync::Arc;
-use tracing::{debug, debug_span, error, warn};
+use tracing::{debug, debug_span, error, instrument, warn};
 
 pub const CHUNK_REQUEST_RETRY: time::Duration = time::Duration::milliseconds(100);
 pub const CHUNK_REQUEST_SWITCH_TO_OTHERS: time::Duration = time::Duration::milliseconds(400);
@@ -272,7 +273,7 @@ pub struct ShardsManagerActor {
     view_epoch_manager: Arc<dyn EpochManagerAdapter>,
     shard_tracker: ShardTracker,
     peer_manager_adapter: Sender<PeerManagerMessageRequest>,
-    client_adapter: Sender<ShardsManagerResponse>,
+    client_adapter: ShardsManagerResponseSender,
     rs: ReedSolomon,
 
     encoded_chunks: EncodedChunksCache,
@@ -327,16 +328,16 @@ impl HandlerWithContext<ShardsManagerRequestFromNetwork> for ShardsManagerActor 
     }
 }
 pub fn start_shards_manager(
+    actor_system: ActorSystem,
     epoch_manager: Arc<dyn EpochManagerAdapter>,
     view_epoch_manager: Arc<dyn EpochManagerAdapter>,
     shard_tracker: ShardTracker,
     network_adapter: Sender<PeerManagerMessageRequest>,
-    client_adapter_for_shards_manager: Sender<ShardsManagerResponse>,
+    client_adapter_for_shards_manager: ShardsManagerResponseSender,
     validator_signer: MutableValidatorSigner,
     store: Store,
     chunk_request_retry_period: Duration,
-) -> (actix::Addr<ActixWrapper<ShardsManagerActor>>, actix::ArbiterHandle) {
-    let shards_manager_arbiter = actix::Arbiter::new().handle();
+) -> TokioRuntimeHandle<ShardsManagerActor> {
     // TODO: make some better API for accessing chain properties like head.
     let chain_head = store
         .get_ser::<Tip>(DBCol::BlockMisc, HEAD_KEY)
@@ -360,11 +361,7 @@ pub fn start_shards_manager(
         chunk_request_retry_period,
     );
 
-    let shards_manager_addr =
-        ActixWrapper::<ShardsManagerActor>::start_in_arbiter(&shards_manager_arbiter, move |_| {
-            ActixWrapper::new(shards_manager)
-        });
-    (shards_manager_addr, shards_manager_arbiter)
+    actor_system.spawn_tokio_actor(shards_manager)
 }
 
 impl ShardsManagerActor {
@@ -375,7 +372,7 @@ impl ShardsManagerActor {
         view_epoch_manager: Arc<dyn EpochManagerAdapter>,
         shard_tracker: ShardTracker,
         network_adapter: Sender<PeerManagerMessageRequest>,
-        client_adapter: Sender<ShardsManagerResponse>,
+        client_adapter: ShardsManagerResponseSender,
         store: ChunkStoreAdapter,
         initial_chain_head: Tip,
         initial_chain_header_head: Tip,
@@ -924,6 +921,16 @@ impl ShardsManagerActor {
         request: PartialEncodedChunkRequestMsg,
     ) -> (PartialEncodedChunkResponseSource, PartialEncodedChunkResponseMsg) {
         let (src, mut response_msg) = self.prepare_partial_encoded_chunk_response_unsorted(request);
+        match src {
+            PartialEncodedChunkResponseSource::InMemoryCache => {
+                metrics::PARTIAL_ENCODED_CHUNK_REQUEST_CACHE_HIT.inc();
+            }
+            PartialEncodedChunkResponseSource::None
+            | PartialEncodedChunkResponseSource::PartialChunkOnDisk
+            | PartialEncodedChunkResponseSource::ShardChunkOnDisk => {
+                metrics::PARTIAL_ENCODED_CHUNK_REQUEST_CACHE_MISS.inc();
+            }
+        }
         // Note that the PartialChunks column is a write-once column, and needs
         // the values to be deterministic.
         response_msg.receipts.sort();
@@ -1165,7 +1172,13 @@ impl ShardsManagerActor {
         num_total_parts: usize,
     ) -> Result<(), Error> {
         if (part.part_ord as usize) < num_total_parts {
-            if !verify_path(merkle_root, &part.merkle_proof, &part.part) {
+            if !verify_path_with_index(
+                merkle_root,
+                &part.merkle_proof,
+                &part.part,
+                part.part_ord,
+                num_total_parts as u64,
+            ) {
                 return Err(Error::InvalidMerkleProof);
             }
 
@@ -1488,6 +1501,19 @@ impl ShardsManagerActor {
     ///  ProcessPartialEncodedChunkResult::HaveAllPartsAndReceipts: if all parts and
     ///    receipts in the chunk are received and the chunk has been processed.
     ///  ProcessPartialEncodedChunkResult::NeedsBlockChunkDropped: process request is received earlier than Block for the same height and the chunk has been dropped without processing any part of it.
+    #[instrument(
+        target = "chunks",
+        level = "debug",
+        "process_partial_encoded_chunk",
+        skip_all,
+        fields(
+            height = partial_encoded_chunk.get_inner().height_created(),
+            height_included = partial_encoded_chunk.get_inner().height_included(),
+            shard_id = %partial_encoded_chunk.get_inner().shard_id(),
+            chunk_hash = ?partial_encoded_chunk.get_inner().chunk_hash(),
+            part_ords = ?partial_encoded_chunk.get_inner().parts().iter().map(|p| p.part_ord).collect::<Vec<_>>(),
+            tag_chunk_distribution = true)
+    )]
     fn process_partial_encoded_chunk(
         &mut self,
         partial_encoded_chunk: MaybeValidated<PartialEncodedChunk>,
@@ -1496,14 +1522,6 @@ impl ShardsManagerActor {
         let partial_encoded_chunk =
             partial_encoded_chunk.map(|chunk| PartialEncodedChunkV2::from(chunk));
         let chunk_hash = partial_encoded_chunk.header.chunk_hash();
-        let _span = debug_span!(
-            target: "chunks",
-            "process_partial_encoded_chunk",
-            ?chunk_hash,
-            shard_id = %partial_encoded_chunk.header.shard_id(),
-            height_created = partial_encoded_chunk.header.height_created(),
-            height_included = partial_encoded_chunk.header.height_included())
-        .entered();
         debug!(
             target: "chunks",
             parts = ?partial_encoded_chunk.get_inner().parts.iter().map(|p| p.part_ord).collect::<Vec<_>>(),
@@ -1514,9 +1532,9 @@ impl ShardsManagerActor {
             if entry.complete {
                 return Ok(ProcessPartialEncodedChunkResult::Known);
             }
-            debug!(target: "chunks", num_parts_in_cache = entry.parts.len(), total_needed = self.epoch_manager.num_data_parts());
+            debug!(target: "chunks", num_parts_in_cache = entry.parts.len(), total_needed = self.epoch_manager.num_data_parts(), tag_chunk_distribution = true);
         } else {
-            debug!(target: "chunks", num_parts_in_cache = 0, total_needed = self.epoch_manager.num_data_parts());
+            debug!(target: "chunks", num_parts_in_cache = 0, total_needed = self.epoch_manager.num_data_parts(), tag_chunk_distribution = true);
         }
 
         // 1.b Checking chunk height
@@ -1526,6 +1544,7 @@ impl ShardsManagerActor {
                 .encoded_chunks
                 .height_within_horizon(partial_encoded_chunk.header.height_created())
             {
+                metrics::PARTIAL_ENCODED_CHUNK_OUTSIDE_HORIZON.inc();
                 return Err(Error::ChainError(near_chain::Error::InvalidChunkHeight));
             }
             // We shouldn't process un-requested chunk if we have seen one with same (height_created + shard_id) but different chunk_hash
@@ -1744,8 +1763,16 @@ impl ShardsManagerActor {
         let entry = self.encoded_chunks.get(&chunk_hash).unwrap();
         let have_all_parts = self.has_all_parts(&prev_block_hash, entry, me)?;
         let have_all_receipts = self.has_all_receipts(&prev_block_hash, entry)?;
-
         let can_reconstruct = entry.parts.len() >= self.epoch_manager.num_data_parts();
+
+        if can_reconstruct {
+            self.encoded_chunks.mark_can_reconstruct(&chunk_hash);
+        }
+
+        if have_all_receipts {
+            self.encoded_chunks.mark_received_all_receipts(&chunk_hash);
+        }
+
         let chunk_producer = self
             .epoch_manager
             .get_chunk_producer_info(&ChunkProductionKey {
@@ -1756,11 +1783,15 @@ impl ShardsManagerActor {
             .take_account_id();
 
         if have_all_parts {
+            self.encoded_chunks.mark_received_all_parts(&chunk_hash);
             if self.encoded_chunks.mark_chunk_for_inclusion(&chunk_hash) {
-                self.client_adapter.send(ShardsManagerResponse::ChunkHeaderReadyForInclusion {
-                    chunk_header: header.clone(),
-                    chunk_producer,
-                });
+                self.client_adapter.send(
+                    ShardsManagerResponse::ChunkHeaderReadyForInclusion {
+                        chunk_header: header.clone(),
+                        chunk_producer,
+                    }
+                    .span_wrap(),
+                );
             }
         }
         // we can safely unwrap here because we already checked that chunk_hash exist in encoded_chunks
@@ -1830,7 +1861,7 @@ impl ShardsManagerActor {
         self.requested_partial_encoded_chunks.remove(&chunk_hash);
         debug!(target: "chunks", "Completed chunk {:?}", chunk_hash);
         self.client_adapter
-            .send(ShardsManagerResponse::ChunkCompleted { partial_chunk, shard_chunk });
+            .send(ShardsManagerResponse::ChunkCompleted { partial_chunk, shard_chunk }.span_wrap());
     }
 
     /// Try to process chunks in the chunk cache whose previous block hash is `prev_block_hash` and
@@ -1988,6 +2019,12 @@ impl ShardsManagerActor {
         Ok(true)
     }
 
+    #[instrument(target = "client", level = "debug", "distribute_encoded_chunk", skip_all, fields(
+        height = %partial_chunk.height_created(),
+        shard_id = %partial_chunk.shard_id(),
+        chunk_hash = ?partial_chunk.chunk_hash(),
+        tag_chunk_distribution = true
+    ))]
     fn distribute_encoded_chunk(
         &mut self,
         partial_chunk: PartialEncodedChunk,
@@ -2002,14 +2039,9 @@ impl ShardsManagerActor {
             .start_timer();
         // TODO: if the number of validators exceeds the number of parts, this logic must be changed
         let chunk_header = encoded_chunk.cloned_header();
+        #[cfg(not(feature = "test_features"))]
         debug_assert_eq!(chunk_header, partial_chunk.cloned_header());
         let prev_block_hash = chunk_header.prev_block_hash();
-        let _span = tracing::debug_span!(
-            target: "client",
-            "distribute_encoded_chunk",
-            ?prev_block_hash,
-            %shard_id)
-        .entered();
 
         let mut block_producer_mapping = HashMap::new();
         let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(&prev_block_hash)?;

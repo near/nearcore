@@ -1,4 +1,4 @@
-<!-- cspell:ignore Heaptrack Jemalloc bytehound highcpu jemallocator koute kptr libbytehound myexportedfile mylittleprofile readwrite rgba setcap tikv -->
+<!-- cspell:ignore Heaptrack Jemalloc bytehound highcpu jemallocator koute kptr libbytehound myexportedfile mylittleprofile read-write rgba setcap tikv -->
 # Profiling neard
 
 ## Sampling performance profiling
@@ -13,8 +13,7 @@ Linux's `perf` has been a tool of choice in most cases, although tools like Inte
 used too. In order to use either, first prepare your system:
 
 ```command
-sudo sysctl kernel.perf_event_paranoid=0
-sudo sysctl kernel.kptr_restrict=0
+sudo sysctl kernel.perf_event_paranoid=0 kernel.kptr_restrict=0
 ```
 
 <blockquote style="background: rgba(255, 200, 0, 0.1); border: 5px solid rgba(255, 200, 0, 0.4);">
@@ -29,26 +28,44 @@ Definitely do not run untrusted code after running these commands.
 
 Then collect a profile as such:
 
+<!-- cspell: ignore ecpu esyscalls epoll esched -->
 ```command
-$ perf record -e cpu-clock -F1000 -g --call-graph dwarf,65528 YOUR_COMMAND_HERE
+$ perf record -ecpu-clock -esyscalls:sys_enter_{"epoll_*wait*","futex_wait*",futex_wake,io_uring_enter,nanosleep,pause,"*poll","*select*",sched_yield,"wait*"} -esched:sched_switch -F1000 -g --call-graph dwarf,65528 [YOUR_COMMAND_HERE]
 # or attach to a running process:
-$ perf record -e cpu-clock -F1000 -g --call-graph dwarf,65528 -p NEARD_PID
+$ perf record -ecpu-clock -esyscalls:sys_enter_{"epoll_*wait*","futex_wait*",futex_wake,io_uring_enter,nanosleep,pause,"*poll","*select*",sched_yield,"wait*"} -esched:sched_switch -F1000 -g --call-graph dwarf,65528 -p [NEARD_PID]
+# possibly with a pre-specified collection duration
+$ timeout 15 perf record -ecpu-clock -esyscalls:sys_enter_{"epoll_*wait*","futex_wait*",futex_wake,io_uring_enter,nanosleep,pause,"*poll","*select*",sched_yield,"wait*"} -esched:sched_switch -F1000 -g --call-graph dwarf,65528 -p [NEARD_PID]
 ```
 
 This command will use the CPU time clock to determine when to trigger a sampling process and will
-do such sampling roughly 1000 times (the `-F` argument) every CPU second.
+do such sampling roughly 1000 times (the `-F` argument) every CPU second. It will also sample a
+selection of syscall entries as well as scheduler switches. Readers are encouraged to adjust the
+events they record – ones in the command above are a good baseline only.
 
 Once terminated, this command will produce a profile file in the current working directory.
 Although you can inspect the profile already with `perf report`, we've had much better experience
 with using [Firefox Profiler](https://profiler.firefox.com/) as the viewer. Although Firefox
 Profiler supports `perf` and many other different data formats, for `perf` in particular a
-conversion step is necessary:
+conversion step is necessary. For ideal results with Firefox Profiler,
+[`samply`](https://github.com/mstange/samply) is recommended, as it produces a much better
+rendering than the `perf script` approach previously recommended by this and [Firefox Profiler
+documentation](https://profiler.firefox.com/docs/#/./guide-perf-profiling) alike.
 
 ```command
-perf script -F +pid > mylittleprofile.script
+$ cargo install samply
+$ samply import -P 3333 perf.data
 ```
 
-Then, load this `mylittleprofile.script` file with the profiler.
+This will open a local server with a profiler UI. If profiling on a cloud machine, use a SSH proxy
+to access this interface (you can start another ssh session):
+
+```
+$ gcloud compute ssh --ssh-flag='-L 3333:localhost:3333' [OTHER_ARGS...]
+# open localhost:3333 in your browser
+```
+
+From there you can inspect the profile locally and upload it to `profiler.firefox.com` for sharing
+with others.
 
 ### Low overhead stack frame collection
 
@@ -65,8 +82,34 @@ cargo build --release --config .cargo/config.profiling.toml -p neard
 Then, replace the `--call-graph dwarf` with `--call-graph fp`:
 
 ```command
-perf record -e cpu-clock -F1000 -g --call-graph fp,65528 YOUR_COMMAND_HERE
+perf record -ecpu-clock -esyscalls:sys_enter_{"epoll_*wait*","futex_wait*",futex_wake,io_uring_enter,nanosleep,pause,"*poll","*select*",sched_yield,"wait*"} -esched:sched_switch -F1000 -g --call-graph fp,65528 [YOUR_COMMAND_HERE]
 ```
+
+### Headless `samply` use
+
+Samply instructions above require manual interaction with browsers, which makes automation
+difficult. If you'd like to just get files for, headless operation is also possible. Do note that
+the results produced this way lose some information that is otherwise made available with the
+instructions above. Most notably – kernel symbols may be lost.
+
+<!-- cspell: ignore cswitch presymbolicate -->
+```
+$ samply import --cswitch-markers --unstable-presymbolicate -s -n perf.data
+$ ls profile.json*
+```
+
+These files can later be viewed with
+
+```
+$ samply load
+```
+
+### Lost samples
+
+In some cases `perf` may complain about lost samples. This can happen more often when profiling
+`neard` with a large number threads. To mitigate sample loss, reduce the sampling rate, use [low
+overhead stack frame collection](#low-overhead-stack-frame-collection) and/or record traces to a
+fast storage device (possibly `/tmp` mounted on `tmpfs`.)
 
 ### Profiling with hardware counters
 
@@ -230,14 +273,14 @@ achieve that today.
 First, make sure all deltas in flat storage are applied and written:
 
 ```
-neard view-state --readwrite apply-range --shard-id $SHARD_ID --storage flat sequential
+neard view-state --read-write apply-range --storage flat sequential
 ```
 
 You will need to do this for all shards you're interested in profiling. Then pick a block or a
 range of blocks you want to re-apply and set the flat head to the specified height:
 
 ```
-neard flat-storage move-flat-head --shard-id 0 --version 0 back --blocks 17
+neard flat-storage move-flat-head back --blocks 17
 ```
 
 Finally the following commands will apply the block or blocks from the height in various different
@@ -247,13 +290,18 @@ forget to run these commands under the profiler :)
 ```
 # Apply blocks from current flat head to the highest known block height in sequence
 # using the memtrie storage (note that after this you will need to move the flat head again)
-neard view-state --readwrite apply-range --shard-id 0 --storage memtrie sequential
+neard view-state --read-write apply-range --storage memtrie sequential
 # Same but with flat storage
-neard view-state --readwrite apply-range --shard-id 0 --storage flat sequential
+neard view-state --read-write apply-range --storage flat sequential
 
 # Repeatedly apply a single block at the flat head using the memtrie storage.
 # Will not modify the storage on the disk.
-neard view-state apply-range --shard-id 0 --storage memtrie benchmark
+neard view-state apply-range --storage memtrie benchmark
 # Same but with flat storage
-neard view-state apply-range --shard-id 0 --storage flat benchmark
+neard view-state apply-range --storage flat benchmark
+# Same but with recorded storage
+neard view-state apply-range --storage recorded benchmark
 ```
+
+Note that all of these commands operate on all shards at the same time. You can specify
+`--shard-id` argument to pick just one shard to operate with.

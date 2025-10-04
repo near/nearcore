@@ -5,6 +5,7 @@ use genesis_populate::GenesisBuilder;
 use near_chain_configs::GenesisValidationMode;
 use near_parameters::RuntimeConfigView;
 use near_parameters::vm::VMKind;
+use near_primitives::action::GlobalContractIdentifier;
 use replay::ReplayCmd;
 use runtime_params_estimator::config::{Config, GasMetric};
 use runtime_params_estimator::{
@@ -61,7 +62,7 @@ struct CliArgs {
     #[clap(long, default_value = "time", value_parser(["icount", "time"]))]
     metric: String,
     /// Which VM to test.
-    #[clap(long, value_enum, default_value_t = VMKind::NearVm)]
+    #[clap(long, value_enum, default_value_t = VMKind::Wasmtime)]
     vm_kind: VMKind,
     /// Render existing `costs.txt` as `RuntimeConfig`.
     #[clap(long)]
@@ -181,6 +182,7 @@ fn run_estimation(cli_args: CliArgs) -> anyhow::Result<Option<CostTable>> {
             None,
             None,
             None,
+            None,
         )
         .expect("failed to init config");
 
@@ -189,7 +191,8 @@ fn run_estimation(cli_args: CliArgs) -> anyhow::Result<Option<CostTable>> {
         let store = near_store::NodeStorage::opener(
             &state_dump_path,
             &near_config.config.store,
-            near_config.config.archival_config(),
+            near_config.config.cold_store.as_ref(),
+            near_config.config.cloud_storage_config(),
         )
         .open()
         .unwrap()
@@ -197,6 +200,10 @@ fn run_estimation(cli_args: CliArgs) -> anyhow::Result<Option<CostTable>> {
         GenesisBuilder::from_config_and_store(&state_dump_path, near_config, store)
             .add_additional_accounts(cli_args.additional_accounts_num)
             .add_additional_accounts_contract(contract_code.to_vec())
+            .add_additional_global_contract(
+                GlobalContractIdentifier::AccountId("minimal.global".parse().unwrap()),
+                Vec::new(),
+            )
             .print_progress()
             .build()
             .unwrap()
@@ -535,7 +542,7 @@ mod tests {
             fs_keys_per_delta: 1,
             skip_build_test_contract: false,
             metric: "time".to_owned(),
-            vm_kind: VMKind::NearVm,
+            vm_kind: VMKind::Wasmtime,
             costs_file: None,
             compare_to: None,
             costs: Some(costs),

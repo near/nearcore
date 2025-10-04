@@ -5,7 +5,7 @@
 //! Unfortunately, this is not the case today. We are in the process of refactoring ClientActor
 //! <https://github.com/near/nearcore/issues/7899>
 
-use crate::chunk_executor_actor::ExecutorBlock;
+use crate::chunk_executor_actor::ProcessedBlock;
 #[cfg(feature = "test_features")]
 pub use crate::chunk_producer::AdvProduceChunksMode;
 #[cfg(feature = "test_features")]
@@ -15,6 +15,9 @@ use crate::config_updater::ConfigUpdater;
 use crate::debug::new_network_info_view;
 use crate::info::{InfoHelper, display_sync_status};
 use crate::stateless_validation::chunk_endorsement::ChunkEndorsementTracker;
+use crate::stateless_validation::chunk_validation_actor::{
+    ChunkValidationActorInner, ChunkValidationSender,
+};
 use crate::stateless_validation::partial_witness::partial_witness_actor::PartialWitnessSenderForClient;
 use crate::sync::handler::SyncHandlerRequest;
 use crate::sync::state::chain_requests::{
@@ -22,25 +25,26 @@ use crate::sync::state::chain_requests::{
 };
 use crate::sync_jobs_actor::{ClientSenderForSyncJobs, SyncJobsActor};
 use crate::{AsyncComputationMultiSpawner, StatusResponse, metrics};
-use actix::Actor;
-use near_async::actix::AddrWithAutoSpanContextExt;
-use near_async::actix_wrapper::ActixWrapper;
 use near_async::futures::{DelayedActionRunner, DelayedActionRunnerExt, FutureSpawner};
 use near_async::messaging::{
-    self, CanSend, Handler, IntoMultiSender, IntoSender as _, LateBoundSender, Sender, noop,
+    self, CanSend, Handler, IntoMultiSender, IntoSender as _, LateBoundSender, Sender,
 };
+use near_async::multithread::MultithreadRuntimeHandle;
 use near_async::time::Duration;
 use near_async::time::{Clock, Utc};
-use near_async::{MultiSend, MultiSenderFrom};
+use near_async::tokio::TokioRuntimeHandle;
+use near_async::{ActorSystem, MultiSend, MultiSenderFrom};
 #[cfg(feature = "test_features")]
 use near_chain::ChainStoreAccess;
 use near_chain::chain::{
-    ApplyChunksDoneMessage, BlockCatchUpRequest, BlockCatchUpResponse, ChunkStateWitnessMessage,
+    ApplyChunksDoneMessage, BlockCatchUpRequest, BlockCatchUpResponse, PostStateReadyMessage,
 };
 use near_chain::resharding::types::ReshardingSender;
+use near_chain::spice_core::CoreStatementsProcessor;
 use near_chain::state_snapshot_actor::SnapshotCallbacks;
 use near_chain::test_utils::format_hash;
 use near_chain::types::RuntimeAdapter;
+use near_chain::{ApplyChunksIterationMode, ApplyChunksSpawner};
 use near_chain::{
     Block, BlockHeader, ChainGenesis, Provenance, byzantine_assert, near_chain_primitives,
 };
@@ -56,12 +60,13 @@ use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_network::client::{
     BlockApproval, BlockHeadersResponse, BlockResponse, OptimisticBlockMessage, SetNetworkInfo,
-    StateResponseReceived,
+    StateResponse, StateResponseReceived,
 };
 use near_network::types::ReasonForBan;
 use near_network::types::{
     NetworkInfo, NetworkRequests, PeerManagerAdapter, PeerManagerMessageRequest,
 };
+use near_o11y::span_wrapped_msg::SpanWrapped;
 use near_performance_metrics;
 use near_performance_metrics_macros::perf;
 use near_primitives::block::Tip;
@@ -72,7 +77,6 @@ use near_primitives::network::PeerId;
 use near_primitives::types::{AccountId, BlockHeight};
 use near_primitives::unwrap_or_return;
 use near_primitives::utils::MaybeValidated;
-use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature, get_protocol_upgrade_schedule};
 use near_primitives::views::{DetailedDebugStatus, ValidatorInfo};
 #[cfg(feature = "test_features")]
@@ -91,8 +95,6 @@ const STATUS_WAIT_TIME_MULTIPLIER: i32 = 10;
 /// `max_block_production_time` times this multiplier is how long we wait before rebroadcasting
 /// the current `head`
 const HEAD_STALL_MULTIPLIER: u32 = 4;
-
-pub type ClientActor = ActixWrapper<ClientActorInner>;
 
 /// Returns random seed sampled from the current thread
 fn random_seed_from_thread() -> RngSeed {
@@ -119,15 +121,23 @@ fn wait_until_genesis(genesis_time: &Utc) {
 }
 
 pub struct StartClientResult {
-    pub client_actor: actix::Addr<ClientActor>,
-    pub client_arbiter_handle: actix::ArbiterHandle,
+    pub client_actor: TokioRuntimeHandle<ClientActorInner>,
     pub tx_pool: Arc<Mutex<ShardedTransactionPool>>,
     pub chunk_endorsement_tracker: Arc<ChunkEndorsementTracker>,
+    pub chunk_validation_actor: MultithreadRuntimeHandle<ChunkValidationActorInner>,
 }
 
-/// Starts client in a separate Arbiter (thread).
+pub struct SpiceClientConfig {
+    pub core_processor: CoreStatementsProcessor,
+    pub chunk_executor_sender: Sender<ProcessedBlock>,
+    pub spice_chunk_validator_sender: Sender<ProcessedBlock>,
+    pub spice_data_distributor_sender: Sender<ProcessedBlock>,
+}
+
+/// Starts client in a separate tokio runtime (thread).
 pub fn start_client(
     clock: Clock,
+    actor_system: ActorSystem,
     client_config: ClientConfig,
     chain_genesis: ChainGenesis,
     epoch_manager: Arc<dyn EpochManagerAdapter>,
@@ -147,16 +157,18 @@ pub fn start_client(
     enable_doomslug: bool,
     seed: Option<RngSeed>,
     resharding_sender: ReshardingSender,
+    spice_client_config: SpiceClientConfig,
 ) -> StartClientResult {
-    let client_arbiter = actix::Arbiter::new();
-    let client_arbiter_handle = client_arbiter.handle();
-
     wait_until_genesis(&chain_genesis.time);
 
     let chain_sender_for_state_sync = LateBoundSender::<ChainSenderForStateSync>::new();
     let client_sender_for_client = LateBoundSender::<ClientSenderForClient>::new();
     let protocol_upgrade_schedule = get_protocol_upgrade_schedule(client_config.chain_id.as_str());
     let multi_spawner = AsyncComputationMultiSpawner::default();
+    let apply_chunks_iteration_mode = ApplyChunksIterationMode::default();
+
+    let chunk_validation_adapter = LateBoundSender::<ChunkValidationSender>::new();
+
     let client = Client::new(
         clock.clone(),
         client_config,
@@ -171,18 +183,51 @@ pub fn start_client(
         seed.unwrap_or_else(random_seed_from_thread),
         snapshot_callbacks,
         multi_spawner,
+        apply_chunks_iteration_mode,
         partial_witness_adapter,
         resharding_sender,
         state_sync_future_spawner,
         chain_sender_for_state_sync.as_multi_sender(),
         client_sender_for_client.as_multi_sender(),
+        chunk_validation_adapter.as_multi_sender(),
         protocol_upgrade_schedule,
+        spice_client_config.core_processor,
     )
     .unwrap();
 
     let client_sender_for_sync_jobs = LateBoundSender::<ClientSenderForSyncJobs>::new();
-    let sync_jobs_actor = SyncJobsActor::new(client_sender_for_sync_jobs.as_multi_sender());
-    let sync_jobs_actor_addr = sync_jobs_actor.spawn_actix_actor();
+    let sync_jobs_actor = SyncJobsActor::new(
+        client_sender_for_sync_jobs.as_multi_sender(),
+        apply_chunks_iteration_mode,
+    );
+    let sync_jobs_actor_addr = actor_system.spawn_tokio_actor(sync_jobs_actor);
+
+    // Create chunk validation actor
+    let genesis_block = client.chain.genesis_block();
+    let num_chunk_validation_threads = client.config.chunk_validation_threads;
+
+    let chunk_validation_actor_addr = ChunkValidationActorInner::spawn_multithread_actor(
+        actor_system.clone(),
+        client.chain.chain_store().clone(),
+        genesis_block,
+        epoch_manager.clone(),
+        runtime.clone(),
+        network_adapter.clone().into_sender(),
+        client.validator_signer.clone(),
+        client.config.save_latest_witnesses,
+        client.config.save_invalid_witnesses,
+        {
+            // The number of shards for the binary's latest `PROTOCOL_VERSION` is used as a thread limit.
+            // This assumes that:
+            // a) The number of shards will not grow above this limit without the binary being updated (no dynamic resharding),
+            // b) Under normal conditions, the node will not process more chunks at the same time as there are shards.
+            let max_num_shards = runtime.get_shard_layout(PROTOCOL_VERSION).num_shards() as usize;
+            ApplyChunksSpawner::Default.into_spawner(max_num_shards)
+        },
+        client.config.orphan_state_witness_pool_size,
+        client.config.orphan_state_witness_max_size.as_u64(),
+        num_chunk_validation_threads,
+    );
 
     let client_actor_inner = ClientActorInner::new(
         clock,
@@ -193,45 +238,39 @@ pub fn start_client(
         sender,
         adv,
         config_updater,
-        sync_jobs_actor_addr.with_auto_span_context().into_multi_sender(),
-        // TODO(spice): Pass in chunk_executor_sender.
-        noop().into_sender(),
+        sync_jobs_actor_addr.into_multi_sender(),
+        spice_client_config.chunk_executor_sender,
+        spice_client_config.spice_chunk_validator_sender,
+        spice_client_config.spice_data_distributor_sender,
     )
     .unwrap();
     let tx_pool = client_actor_inner.client.chunk_producer.sharded_tx_pool.clone();
     let chunk_endorsement_tracker =
         Arc::clone(&client_actor_inner.client.chunk_endorsement_tracker);
-    let client_addr = ClientActor::start_in_arbiter(&client_arbiter_handle, move |_| {
-        ActixWrapper::new(client_actor_inner)
-    });
+    let client_actor = actor_system.spawn_tokio_actor(client_actor_inner);
 
-    client_sender_for_sync_jobs
-        .bind(client_addr.clone().with_auto_span_context().into_multi_sender());
-    client_sender_for_client.bind(client_addr.clone().with_auto_span_context().into_multi_sender());
-    chain_sender_for_state_sync
-        .bind(client_addr.clone().with_auto_span_context().into_multi_sender());
+    client_sender_for_sync_jobs.bind(client_actor.clone().into_multi_sender());
+    client_sender_for_client.bind(client_actor.clone().into_multi_sender());
+    chain_sender_for_state_sync.bind(client_actor.clone().into_multi_sender());
+    chunk_validation_adapter.bind(chunk_validation_actor_addr.clone().into_multi_sender());
 
     StartClientResult {
-        client_actor: client_addr,
-        client_arbiter_handle,
+        client_actor,
         tx_pool,
         chunk_endorsement_tracker,
+        chunk_validation_actor: chunk_validation_actor_addr,
     }
 }
 
 #[derive(Clone, MultiSend, MultiSenderFrom)]
 pub struct ClientSenderForClient {
-    pub apply_chunks_done: Sender<ApplyChunksDoneMessage>,
+    pub apply_chunks_done: Sender<SpanWrapped<ApplyChunksDoneMessage>>,
+    pub on_post_state_ready: Sender<SpanWrapped<PostStateReadyMessage>>,
 }
 
 #[derive(Clone, MultiSend, MultiSenderFrom)]
 pub struct SyncJobsSenderForClient {
     pub block_catch_up: Sender<BlockCatchUpRequest>,
-}
-
-#[derive(Clone, MultiSend, MultiSenderFrom)]
-pub struct ClientSenderForPartialWitness {
-    pub chunk_state_witness: Sender<ChunkStateWitnessMessage>,
 }
 
 pub struct ClientActorInner {
@@ -272,7 +311,17 @@ pub struct ClientActorInner {
 
     /// With spice chunk executor executes chunks asynchronously.
     /// Should be noop sender otherwise.
-    chunk_executor_sender: Sender<ExecutorBlock>,
+    chunk_executor_sender: Sender<ProcessedBlock>,
+
+    /// With spice spice chunk validator validates witnesses for which it
+    /// needs to be aware of new blocks.
+    /// Without spice should be a noop sender.
+    spice_chunk_validator_sender: Sender<ProcessedBlock>,
+
+    /// With spice spice data distributor receives spice data; for that it requires block
+    /// information. Since data may arrive before blocks it needs to be aware of new blocks.
+    /// Without spice should be a noop sender.
+    spice_data_distributor_sender: Sender<ProcessedBlock>,
 }
 
 impl messaging::Actor for ClientActorInner {
@@ -280,19 +329,14 @@ impl messaging::Actor for ClientActorInner {
         self.start(ctx);
     }
 
-    /// Wrapper for processing actix message which must be called after receiving it.
-    ///
-    /// Due to a bug in Actix library, while there are messages in mailbox, Actix
-    /// will prioritize processing messages until mailbox is empty. In such case execution
-    /// of any other task scheduled with `run_later` will be delayed. At the same time,
-    /// we have several important functions which have to be called regularly, so we put
-    /// these calls into `check_triggers` and call it here as a quick hack.
-    fn wrap_handler<M: actix::Message>(
+    /// Wrapper for processing an actor message which must be called after receiving it.
+    /// This calls check_triggers first; see the doc of check_triggers for details.
+    fn wrap_handler<M, R>(
         &mut self,
         msg: M,
         ctx: &mut dyn DelayedActionRunner<Self>,
-        f: impl FnOnce(&mut Self, M, &mut dyn DelayedActionRunner<Self>) -> M::Result,
-    ) -> M::Result {
+        f: impl FnOnce(&mut Self, M, &mut dyn DelayedActionRunner<Self>) -> R,
+    ) -> R {
         self.check_triggers(ctx);
         let _span = tracing::debug_span!(target: "client", "NetworkClientMessage").entered();
         let msg_type = std::any::type_name::<M>();
@@ -346,7 +390,9 @@ impl ClientActorInner {
         adv: crate::adversarial::Controls,
         config_updater: Option<ConfigUpdater>,
         sync_jobs_sender: SyncJobsSenderForClient,
-        chunk_executor_sender: Sender<ExecutorBlock>,
+        chunk_executor_sender: Sender<ProcessedBlock>,
+        spice_chunk_validator_sender: Sender<ProcessedBlock>,
+        spice_data_distributor_sender: Sender<ProcessedBlock>,
     ) -> Result<Self, Error> {
         if let Some(vs) = &client.validator_signer.get() {
             info!(target: "client", "Starting validator node: {}", vs.validator_id());
@@ -385,6 +431,8 @@ impl ClientActorInner {
             config_updater,
             sync_jobs_sender,
             chunk_executor_sender,
+            spice_chunk_validator_sender,
+            spice_data_distributor_sender,
         })
     }
 }
@@ -413,8 +461,7 @@ pub enum AdvProduceBlockHeightSelection {
 }
 
 #[cfg(feature = "test_features")]
-#[derive(actix::Message, Debug)]
-#[rtype(result = "Option<u64>")]
+#[derive(near_async::Message, Debug)]
 pub enum NetworkAdversarialMessage {
     AdvProduceBlocks(u64, bool),
     AdvProduceChunks(AdvProduceChunksMode),
@@ -428,6 +475,13 @@ pub enum NetworkAdversarialMessage {
 
 #[cfg(feature = "test_features")]
 impl Handler<NetworkAdversarialMessage> for ClientActorInner {
+    fn handle(&mut self, msg: NetworkAdversarialMessage) {
+        Handler::<NetworkAdversarialMessage, Option<u64>>::handle(self, msg);
+    }
+}
+
+#[cfg(feature = "test_features")]
+impl Handler<NetworkAdversarialMessage, Option<u64>> for ClientActorInner {
     fn handle(&mut self, msg: NetworkAdversarialMessage) -> Option<u64> {
         match msg {
             NetworkAdversarialMessage::AdvDisableDoomslug => {
@@ -476,7 +530,6 @@ impl Handler<NetworkAdversarialMessage> for ClientActorInner {
                 let mut genesis = near_chain_configs::GenesisConfig::default();
                 genesis.genesis_height = self.client.chain.chain_store().get_genesis_height();
                 let mut store_validator = near_chain::store_validator::StoreValidator::new(
-                    self.client.validator_signer.get().map(|x| x.validator_id().clone()),
                     genesis,
                     self.client.epoch_manager.clone(),
                     self.client.shard_tracker.clone(),
@@ -495,30 +548,30 @@ impl Handler<NetworkAdversarialMessage> for ClientActorInner {
             }
             NetworkAdversarialMessage::AdvProduceChunks(adv_produce_chunks) => {
                 info!(target: "adversary", mode=?adv_produce_chunks, "setting adversary produce chunks");
-                self.client.chunk_producer.adv_produce_chunks = Some(adv_produce_chunks);
+                self.client.chunk_producer.adversarial.produce_mode = Some(adv_produce_chunks);
                 None
             }
             NetworkAdversarialMessage::AdvInsertInvalidTransactions(on) => {
                 info!(target: "adversary", on, "invalid transactions");
-                self.client.chunk_producer.produce_invalid_tx_in_chunks = on;
+                self.client.chunk_producer.adversarial.produce_invalid_tx_in_chunks = on;
                 None
             }
         }
     }
 }
 
-impl Handler<OptimisticBlockMessage> for ClientActorInner {
-    fn handle(&mut self, msg: OptimisticBlockMessage) {
-        let OptimisticBlockMessage { optimistic_block, from_peer } = msg;
+impl Handler<SpanWrapped<OptimisticBlockMessage>> for ClientActorInner {
+    fn handle(&mut self, msg: SpanWrapped<OptimisticBlockMessage>) {
+        let OptimisticBlockMessage { optimistic_block, from_peer } = msg.span_unwrap();
         debug!(target: "client", block_height = optimistic_block.inner.block_height, prev_block_hash = ?optimistic_block.inner.prev_block_hash, ?from_peer, "OptimisticBlockMessage");
 
         self.client.receive_optimistic_block(optimistic_block, &from_peer);
     }
 }
 
-impl Handler<BlockResponse> for ClientActorInner {
-    fn handle(&mut self, msg: BlockResponse) {
-        let BlockResponse { block, peer_id, was_requested } = msg;
+impl Handler<SpanWrapped<BlockResponse>> for ClientActorInner {
+    fn handle(&mut self, msg: SpanWrapped<BlockResponse>) {
+        let BlockResponse { block, peer_id, was_requested } = msg.span_unwrap();
         debug!(target: "client", block_height = block.header().height(), block_hash = ?block.header().hash(), "BlockResponse");
         let blocks_at_height =
             self.client.chain.chain_store().get_all_block_hashes_by_height(block.header().height());
@@ -532,13 +585,11 @@ impl Handler<BlockResponse> for ClientActorInner {
                 // blocks other than the few special ones that State Sync expects.
                 return;
             }
-            let signer = self.client.validator_signer.get();
             self.client.receive_block(
                 block,
                 peer_id,
                 was_requested,
                 Some(self.client.myself_sender.apply_chunks_done.clone()),
-                &signer,
             );
         } else {
             match self.client.epoch_manager.get_epoch_id_from_prev_block(block.header().prev_hash())
@@ -556,9 +607,9 @@ impl Handler<BlockResponse> for ClientActorInner {
     }
 }
 
-impl Handler<BlockHeadersResponse> for ClientActorInner {
-    fn handle(&mut self, msg: BlockHeadersResponse) -> Result<(), ReasonForBan> {
-        let BlockHeadersResponse(headers, peer_id) = msg;
+impl Handler<SpanWrapped<BlockHeadersResponse>, Result<(), ReasonForBan>> for ClientActorInner {
+    fn handle(&mut self, msg: SpanWrapped<BlockHeadersResponse>) -> Result<(), ReasonForBan> {
+        let BlockHeadersResponse(headers, peer_id) = msg.span_unwrap();
         if self.receive_headers(headers, peer_id) {
             Ok(())
         } else {
@@ -568,33 +619,41 @@ impl Handler<BlockHeadersResponse> for ClientActorInner {
     }
 }
 
-impl Handler<BlockApproval> for ClientActorInner {
-    fn handle(&mut self, msg: BlockApproval) {
-        let BlockApproval(approval, peer_id) = msg;
+impl Handler<SpanWrapped<BlockApproval>> for ClientActorInner {
+    fn handle(&mut self, msg: SpanWrapped<BlockApproval>) {
+        let BlockApproval(approval, peer_id) = msg.span_unwrap();
         debug!(target: "client", "Receive approval {:?} from peer {:?}", approval, peer_id);
-        let validator_signer = self.client.validator_signer.get();
-        self.client.collect_block_approval(
-            &approval,
-            ApprovalType::PeerApproval(peer_id),
-            &validator_signer,
-        );
+        self.client.collect_block_approval(&approval, ApprovalType::PeerApproval(peer_id));
     }
 }
 
 /// StateResponse is used during StateSync and catchup.
 /// It contains either StateSync header information (that tells us how many parts there are etc) or a single part.
-impl Handler<StateResponseReceived> for ClientActorInner {
-    fn handle(&mut self, msg: StateResponseReceived) {
-        let StateResponseReceived { peer_id, state_response_info } = msg;
-        let shard_id = state_response_info.shard_id();
-        let hash = state_response_info.sync_hash();
-        let state_response = state_response_info.take_state_response();
+impl Handler<SpanWrapped<StateResponseReceived>> for ClientActorInner {
+    fn handle(&mut self, msg: SpanWrapped<StateResponseReceived>) {
+        let StateResponseReceived { peer_id, state_response } = msg.span_unwrap();
+        let hash = state_response.sync_hash();
+        let shard_id = state_response.shard_id();
 
-        trace!(target: "sync", "Received state response shard_id: {} sync_hash: {:?} part(id/size): {:?}",
-               shard_id,
-               hash,
-               state_response.part().as_ref().map(|(part_id, data)| (part_id, data.len()))
-        );
+        match state_response {
+            StateResponse::Ack(ref ack) => {
+                trace!(target: "sync", "Received state request ack shard_id: {} sync_hash: {:?} part_id: {:?} ack: {:?}",
+                    shard_id,
+                    hash,
+                    state_response.part_id_or_header(),
+                    ack.body,
+                );
+            }
+            StateResponse::State(ref state) => {
+                trace!(target: "sync", "Received state response shard_id: {} sync_hash: {:?} part_id: {:?} size: {:?}",
+                    shard_id,
+                    hash,
+                    state_response.part_id_or_header(),
+                    state.payload_length(),
+                );
+            }
+        }
+
         // Get the download that matches the shard_id and hash
 
         // ... It could be that the state was requested by the state sync
@@ -602,12 +661,9 @@ impl Handler<StateResponseReceived> for ClientActorInner {
             &mut self.client.sync_handler.sync_status
         {
             if hash == *sync_hash {
-                if let Err(err) = self.client.sync_handler.state_sync.apply_peer_message(
-                    peer_id,
-                    shard_id,
-                    *sync_hash,
-                    state_response,
-                ) {
+                if let Err(err) =
+                    self.client.sync_handler.state_sync.apply_peer_message(peer_id, state_response)
+                {
                     tracing::error!(?err, "Error applying state sync response");
                 }
                 return;
@@ -618,8 +674,7 @@ impl Handler<StateResponseReceived> for ClientActorInner {
         if let Some(CatchupState { state_sync, .. }) =
             self.client.catchup_state_syncs.get_mut(&hash)
         {
-            if let Err(err) = state_sync.apply_peer_message(peer_id, shard_id, hash, state_response)
-            {
+            if let Err(err) = state_sync.apply_peer_message(peer_id, state_response) {
                 tracing::error!(?err, "Error applying catchup state sync response");
             }
             return;
@@ -629,16 +684,21 @@ impl Handler<StateResponseReceived> for ClientActorInner {
     }
 }
 
-impl Handler<SetNetworkInfo> for ClientActorInner {
-    fn handle(&mut self, msg: SetNetworkInfo) {
+impl Handler<SpanWrapped<SetNetworkInfo>> for ClientActorInner {
+    fn handle(&mut self, msg: SpanWrapped<SetNetworkInfo>) {
+        let msg = msg.span_unwrap();
         // SetNetworkInfo is a large message. Avoid printing it at the `debug` verbosity.
-        let SetNetworkInfo(network_info) = msg;
-        self.network_info = network_info;
+        self.network_info = msg.0;
     }
 }
 
 #[cfg(feature = "sandbox")]
-impl Handler<near_client_primitives::types::SandboxMessage> for ClientActorInner {
+impl
+    Handler<
+        near_client_primitives::types::SandboxMessage,
+        near_client_primitives::types::SandboxResponse,
+    > for ClientActorInner
+{
     fn handle(
         &mut self,
         msg: near_client_primitives::types::SandboxMessage,
@@ -673,8 +733,9 @@ impl Handler<near_client_primitives::types::SandboxMessage> for ClientActorInner
     }
 }
 
-impl Handler<Status> for ClientActorInner {
-    fn handle(&mut self, msg: Status) -> Result<StatusResponse, StatusError> {
+impl Handler<SpanWrapped<Status>, Result<StatusResponse, StatusError>> for ClientActorInner {
+    fn handle(&mut self, msg: SpanWrapped<Status>) -> Result<StatusResponse, StatusError> {
+        let msg = msg.span_unwrap();
         let head = self.client.chain.head()?;
         let head_header = self.client.chain.get_block_header(&head.last_block_hash)?;
         let latest_block_time = head_header.raw_timestamp();
@@ -744,11 +805,7 @@ impl Handler<Status> for ClientActorInner {
                 sync_status: format!(
                     "{} ({})",
                     self.client.sync_handler.sync_status.as_variant_name(),
-                    display_sync_status(
-                        &self.client.sync_handler.sync_status,
-                        &head,
-                        &self.client.config.state_sync.sync,
-                    ),
+                    display_sync_status(&self.client.sync_handler.sync_status, &head),
                 ),
                 catchup_status: self.client.get_catchup_status()?,
                 current_head_status: head.as_ref().into(),
@@ -815,8 +872,10 @@ fn make_known_producer(
     }
 }
 
-impl Handler<GetNetworkInfo> for ClientActorInner {
-    fn handle(&mut self, _msg: GetNetworkInfo) -> Result<NetworkInfoResponse, String> {
+impl Handler<SpanWrapped<GetNetworkInfo>, Result<NetworkInfoResponse, String>>
+    for ClientActorInner
+{
+    fn handle(&mut self, _msg: SpanWrapped<GetNetworkInfo>) -> Result<NetworkInfoResponse, String> {
         Ok(NetworkInfoResponse {
             connected_peers: (self.network_info.connected_peers.iter())
                 .map(|fpi| make_peer_info(fpi.full_peer_info.peer_info.clone()))
@@ -835,10 +894,15 @@ impl Handler<GetNetworkInfo> for ClientActorInner {
     }
 }
 
-impl Handler<ApplyChunksDoneMessage> for ClientActorInner {
-    fn handle(&mut self, _msg: ApplyChunksDoneMessage) {
-        let validator_signer = self.client.validator_signer.get();
-        self.try_process_unfinished_blocks(&validator_signer);
+impl Handler<SpanWrapped<ApplyChunksDoneMessage>> for ClientActorInner {
+    fn handle(&mut self, _msg: SpanWrapped<ApplyChunksDoneMessage>) {
+        self.try_process_unfinished_blocks();
+    }
+}
+
+impl Handler<SpanWrapped<PostStateReadyMessage>> for ClientActorInner {
+    fn handle(&mut self, msg: SpanWrapped<PostStateReadyMessage>) {
+        self.handle_on_post_state_ready(msg.span_unwrap());
     }
 }
 
@@ -991,10 +1055,7 @@ impl ClientActorInner {
 
     /// Retrieves latest height, and checks if must produce next block.
     /// Otherwise wait for block arrival or suggest to skip after timeout.
-    fn handle_block_production(
-        &mut self,
-        signer: &Option<Arc<ValidatorSigner>>,
-    ) -> Result<(), Error> {
+    fn handle_block_production(&mut self) -> Result<(), Error> {
         let _span = tracing::debug_span!(target: "client", "handle_block_production").entered();
         // If syncing, don't try to produce blocks.
         if self.client.sync_handler.sync_status.is_syncing() {
@@ -1034,7 +1095,7 @@ impl ClientActorInner {
             debug!(target: "client", "Cannot produce any block: not enough approvals beyond {}", latest_known.height);
         }
 
-        let me = if let Some(me) = signer {
+        let me = if let Some(me) = self.client.validator_signer.get() {
             me.validator_id().clone()
         } else {
             return Ok(());
@@ -1074,7 +1135,7 @@ impl ClientActorInner {
                 self.client
                     .chunk_inclusion_tracker
                     .record_endorsement_metrics(prev_block_hash, &shard_ids);
-                if let Err(err) = self.produce_block(height, signer) {
+                if let Err(err) = self.produce_block(height) {
                     // If there is an error, report it and let it retry on the next loop step.
                     error!(target: "client", height, "Block production failed: {}", err);
                 } else {
@@ -1111,11 +1172,11 @@ impl ClientActorInner {
     /// Triggers are important functions of client, like running single step of state sync or
     /// checking if we can produce a block.
     ///
-    /// It is called before processing Actix message and also in schedule_triggers.
-    /// This is to ensure all triggers enjoy higher priority than any actix message.
-    /// Otherwise due to a bug in Actix library Actix prioritizes processing messages
-    /// while there are messages in mailbox. Because of that we handle scheduling
-    /// triggers with custom `run_timer` function instead of `run_later` in Actix.
+    /// It is called before processing an actor message and also in schedule_triggers.
+    /// This is to ensure all triggers enjoy higher priority than any actor message.
+    /// Otherwise, due to FIFO message handling, these important triggers will be delayed
+    /// if there are still pending messages to handle. Because of that we handle scheduling
+    /// triggers with custom `run_timer` function instead of `run_later`.
     ///
     /// Returns the delay before the next time `check_triggers` should be called, which is
     /// min(time until the closest trigger, 1 second).
@@ -1153,8 +1214,7 @@ impl ClientActorInner {
             }
         }
 
-        let validator_signer = self.client.validator_signer.get();
-        self.try_process_unfinished_blocks(&validator_signer);
+        self.try_process_unfinished_blocks();
 
         let mut delay = near_async::time::Duration::seconds(1);
         let now = self.clock.now_utc();
@@ -1180,6 +1240,8 @@ impl ClientActorInner {
             );
             delay = core::cmp::min(delay, self.doomslug_timer_next_attempt - now)
         }
+
+        let validator_signer = self.client.validator_signer.get();
         if validator_signer.is_some() {
             self.block_production_next_attempt = self.run_timer(
                 self.client.config.block_production_tracking_delay,
@@ -1208,6 +1270,12 @@ impl ClientActorInner {
         delay
     }
 
+    // TODO: Implement handling of PostStateReadyMessage, for now just log it.
+    #[allow(clippy::needless_pass_by_ref_mut)]
+    fn handle_on_post_state_ready(&mut self, msg: PostStateReadyMessage) {
+        tracing::trace!(target: "client", ?msg, "Received PostStateReadyMessage");
+    }
+
     /// "Unfinished" blocks means that blocks that client has started the processing and haven't
     /// finished because it was waiting for applying chunks to be done. This function checks
     /// if there are any "unfinished" blocks that are ready to be processed again and finish processing
@@ -1216,25 +1284,23 @@ impl ClientActorInner {
     /// The job that executes applying chunks will send an ApplyChunkDoneMessage to ClientActor after
     /// applying chunks is done, so when receiving ApplyChunkDoneMessage messages, ClientActor
     /// calls this function to finish processing the unfinished blocks. ClientActor also calls
-    /// this function in `check_triggers`, because the actix queue may be blocked by other messages
+    /// this function in `check_triggers`, because the actor queue may be blocked by other messages
     /// and we want to prioritize block processing.
-    fn try_process_unfinished_blocks(&mut self, signer: &Option<Arc<ValidatorSigner>>) {
+    fn try_process_unfinished_blocks(&mut self) {
         let _span = debug_span!(target: "client", "try_process_unfinished_blocks").entered();
         let (accepted_blocks, errors) = self.client.postprocess_ready_blocks(
             Some(self.client.myself_sender.apply_chunks_done.clone()),
             true,
-            signer,
         );
         if !errors.is_empty() {
             error!(target: "client", ?errors, "try_process_unfinished_blocks got errors");
         }
-        self.process_accepted_blocks(accepted_blocks, signer);
+        self.process_accepted_blocks(accepted_blocks);
     }
 
     fn try_handle_block_production(&mut self) {
         let _span = debug_span!(target: "client", "try_handle_block_production").entered();
-        let signer = self.client.validator_signer.get();
-        if let Err(err) = self.handle_block_production(&signer) {
+        if let Err(err) = self.handle_block_production() {
             tracing::error!(target: "client", ?err, "Handle block production failed")
         }
     }
@@ -1254,15 +1320,14 @@ impl ClientActorInner {
         match chain_store_update.commit() {
             Ok(_) => {
                 let head = unwrap_or_return!(self.client.chain.head());
-                if self.client.is_validator(&head.epoch_id, &signer)
-                    || self.client.is_validator(&head.next_epoch_id, &signer)
+                if self.client.is_validator(&head.epoch_id)
+                    || self.client.is_validator(&head.next_epoch_id)
                 {
                     for approval in approvals {
-                        if let Err(e) = self.client.send_block_approval(
-                            &self.client.doomslug.get_tip().0,
-                            approval,
-                            &signer,
-                        ) {
+                        if let Err(e) = self
+                            .client
+                            .send_block_approval(&self.client.doomslug.get_tip().0, approval)
+                        {
                             error!("Error while sending an approval {:?}", e);
                         }
                     }
@@ -1274,11 +1339,7 @@ impl ClientActorInner {
 
     /// Produce block if we are block producer for given `next_height` height.
     /// Can return error, should be called with `produce_block` to handle errors and reschedule.
-    fn produce_block(
-        &mut self,
-        next_height: BlockHeight,
-        signer: &Option<Arc<ValidatorSigner>>,
-    ) -> Result<(), Error> {
+    fn produce_block(&mut self, next_height: BlockHeight) -> Result<(), Error> {
         let _span = tracing::debug_span!(target: "client", "produce_block", next_height).entered();
         let Some(block) = self.client.produce_block_on_head(next_height, false)? else {
             return Ok(());
@@ -1289,13 +1350,12 @@ impl ClientActorInner {
         self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
             NetworkRequests::Block { block: Arc::clone(&block) },
         ));
-        // We’ve produced the block so that counts as validated block.
+        // We've produced the block so that counts as validated block.
         let block = MaybeValidated::from_validated(block);
         let res = self.client.start_process_block(
             block,
             Provenance::PRODUCED,
             Some(self.client.myself_sender.apply_chunks_done.clone()),
-            signer,
         );
         let Err(error) = res else {
             return Ok(());
@@ -1324,8 +1384,6 @@ impl ClientActorInner {
 
     /// Produce optimistic block if we are block producer for given `next_height` height.
     fn produce_optimistic_block(&mut self, next_height: BlockHeight) -> Result<(), Error> {
-        let _span = tracing::debug_span!(target: "client", "produce_optimistic_block", next_height)
-            .entered();
         // Check if optimistic block is already produced
         if self.client.is_optimistic_block_done(next_height) {
             return Ok(());
@@ -1346,23 +1404,19 @@ impl ClientActorInner {
             },
         ));
 
-        // We’ve produced the optimistic block, mark it as done so we don't produce it again.
+        // We've produced the optimistic block, mark it as done so we don't produce it again.
         self.client.save_optimistic_block(&optimistic_block);
         self.client.chain.optimistic_block_chunks.add_block(optimistic_block);
 
-        let signer = self.client.validator_signer.get();
-        let me = signer.as_ref().map(|signer| signer.validator_id().clone());
-        self.client.chain.maybe_process_optimistic_block(
-            &me,
-            Some(self.client.myself_sender.apply_chunks_done.clone()),
-        );
+        self.client.chain.maybe_process_optimistic_block(Some(
+            self.client.myself_sender.apply_chunks_done.clone(),
+        ));
 
         Ok(())
     }
 
     fn send_chunks_metrics(&self, block: &Block) {
-        let chunks = block.chunks();
-        for (chunk, &included) in chunks.iter_deprecated().zip(block.header().chunk_mask().iter()) {
+        for (chunk, &included) in block.chunks().iter().zip(block.header().chunk_mask().iter()) {
             if included {
                 self.info_helper.chunk_processed(
                     chunk.shard_id(),
@@ -1377,8 +1431,7 @@ impl ClientActorInner {
 
     fn send_block_metrics(&mut self, block: &Block) {
         let chunks_in_block = block.header().chunk_mask().iter().filter(|&&m| m).count();
-        let gas_used =
-            Block::compute_gas_used(block.chunks().iter_deprecated(), block.header().height());
+        let gas_used = block.chunks().compute_gas_used();
 
         let last_final_hash = block.header().last_final_block();
         let last_final_ds_hash = block.header().last_ds_final_block();
@@ -1416,11 +1469,7 @@ impl ClientActorInner {
     }
 
     /// Process all blocks that were accepted by calling other relevant services.
-    fn process_accepted_blocks(
-        &mut self,
-        accepted_blocks: Vec<CryptoHash>,
-        _signer: &Option<Arc<ValidatorSigner>>,
-    ) {
+    fn process_accepted_blocks(&mut self, accepted_blocks: Vec<CryptoHash>) {
         let _span = tracing::debug_span!(
             target: "client",
             "process_accepted_blocks",
@@ -1431,7 +1480,10 @@ impl ClientActorInner {
             debug!(target: "client", height=block.header().height(), "process_accepted_block");
             self.send_chunks_metrics(&block);
             self.send_block_metrics(&block);
-            self.chunk_executor_sender.send(ExecutorBlock { block_hash: accepted_block });
+            self.chunk_executor_sender.send(ProcessedBlock { block_hash: accepted_block });
+            self.spice_chunk_validator_sender.send(ProcessedBlock { block_hash: accepted_block });
+            self.spice_data_distributor_sender.send(ProcessedBlock { block_hash: accepted_block });
+            self.client.chain.spice_core_processor.send_execution_result_endorsements(&block);
         }
     }
 
@@ -1528,14 +1580,11 @@ impl ClientActorInner {
         {
             // An extra scope to limit the lifetime of the span.
             let _span = tracing::debug_span!(target: "client", "catchup").entered();
-            let validator_signer = self.client.validator_signer.get();
             if let Err(err) = self.client.run_catchup(
-                &self.network_info.highest_height_peers,
                 &self.sync_jobs_sender.block_catch_up,
                 Some(self.client.myself_sender.apply_chunks_done.clone()),
-                &validator_signer,
             ) {
-                error!(target: "client", "{:?} Error occurred during catchup for the next epoch: {:?}", validator_signer.as_ref().map(|vs| vs.validator_id()), err);
+                error!(target: "client", "Error occurred during catchup for the next epoch: {:?}", err);
             }
         }
 
@@ -1593,7 +1642,6 @@ impl ClientActorInner {
     /// finishing state part job
     fn run_sync_step(&mut self) {
         let _span = tracing::debug_span!(target: "client", "run_sync_step").entered();
-        let signer = self.client.validator_signer.get();
 
         let currently_syncing = self.client.sync_handler.sync_status.is_syncing();
         let sync = match self.syncing_info() {
@@ -1621,7 +1669,7 @@ impl ClientActorInner {
                     info!(target: "client", ?sync, "enabling sync");
                 }
 
-                self.handle_sync_needed(highest_height, &signer);
+                self.handle_sync_needed(highest_height);
             }
         }
     }
@@ -1630,13 +1678,12 @@ impl ClientActorInner {
     ///
     /// This method performs whatever syncing technique is needed (epoch sync, header sync,
     /// state sync, block sync) to make progress towards bring the node up to date.
-    fn handle_sync_needed(&mut self, highest_height: u64, signer: &Option<Arc<ValidatorSigner>>) {
+    fn handle_sync_needed(&mut self, highest_height: u64) {
         let sync_step_result = self.client.sync_handler.handle_sync_needed(
             &mut self.client.chain,
             &self.client.shard_tracker,
             highest_height,
             &self.network_info.highest_height_peers,
-            signer,
             Some(self.client.myself_sender.apply_chunks_done.clone()),
         );
         let Some(sync_step_result) = sync_step_result else {
@@ -1795,7 +1842,6 @@ impl ClientActorInner {
         };
         let is_based_on_current_head =
             prev_block_height == self.client.chain.mut_chain_store().head().unwrap().height;
-        let signer = self.client.validator_signer.get();
         let mut blocks_produced = 0;
         for height in start_height.. {
             let block = if is_based_on_current_head {
@@ -1823,7 +1869,6 @@ impl ClientActorInner {
                 block.into(),
                 Provenance::PRODUCED,
                 Some(self.client.myself_sender.apply_chunks_done.clone()),
-                &signer,
             );
             blocks_produced += 1;
             if blocks_produced == num_blocks {
@@ -1833,9 +1878,10 @@ impl ClientActorInner {
     }
 }
 
-impl Handler<BlockCatchUpResponse> for ClientActorInner {
-    fn handle(&mut self, msg: BlockCatchUpResponse) {
-        tracing::debug!(target: "client", ?msg);
+impl Handler<SpanWrapped<BlockCatchUpResponse>> for ClientActorInner {
+    fn handle(&mut self, msg: SpanWrapped<BlockCatchUpResponse>) {
+        let msg = msg.span_unwrap();
+        debug!(target: "client", ?msg);
         if let Some(CatchupState { catchup, .. }) =
             self.client.catchup_state_syncs.get_mut(&msg.sync_hash)
         {
@@ -1850,17 +1896,25 @@ impl Handler<BlockCatchUpResponse> for ClientActorInner {
     }
 }
 
-impl Handler<ShardsManagerResponse> for ClientActorInner {
+impl Handler<SpanWrapped<ShardsManagerResponse>> for ClientActorInner {
     #[perf]
-    fn handle(&mut self, msg: ShardsManagerResponse) {
+    fn handle(&mut self, msg: SpanWrapped<ShardsManagerResponse>) {
+        let msg = msg.span_unwrap();
         match msg {
             ShardsManagerResponse::ChunkCompleted { partial_chunk, shard_chunk } => {
-                let signer = self.client.validator_signer.get();
+                let _span = tracing::debug_span!(
+                    target: "client",
+                    "chunk_completed",
+                    height = partial_chunk.height_created(),
+                    shard_id = %partial_chunk.shard_id(),
+                    chunk_hash = ?partial_chunk.chunk_hash(),
+                    tag_chunk_distribution = true,
+                )
+                .entered();
                 self.client.on_chunk_completed(
                     partial_chunk,
                     shard_chunk,
                     Some(self.client.myself_sender.apply_chunks_done.clone()),
-                    &signer,
                 );
             }
             ShardsManagerResponse::InvalidChunk(encoded_chunk) => {
@@ -1870,6 +1924,15 @@ impl Handler<ShardsManagerResponse> for ClientActorInner {
                 chunk_header,
                 chunk_producer,
             } => {
+                let _span = tracing::debug_span!(
+                    target: "client",
+                    "chunk_header_ready_for_inclusion",
+                    height = chunk_header.height_created(),
+                    shard_id = %chunk_header.shard_id(),
+                    chunk_hash = ?chunk_header.chunk_hash(),
+                    tag_chunk_distribution = true,
+                )
+                .entered();
                 self.client
                     .chunk_inclusion_tracker
                     .mark_chunk_header_ready_for_inclusion(chunk_header, chunk_producer);
@@ -1878,30 +1941,27 @@ impl Handler<ShardsManagerResponse> for ClientActorInner {
     }
 }
 
-impl Handler<GetClientConfig> for ClientActorInner {
-    fn handle(&mut self, msg: GetClientConfig) -> Result<ClientConfig, GetClientConfigError> {
-        tracing::debug!(target: "client", ?msg);
-
+impl Handler<SpanWrapped<GetClientConfig>, Result<ClientConfig, GetClientConfigError>>
+    for ClientActorInner
+{
+    fn handle(
+        &mut self,
+        msg: SpanWrapped<GetClientConfig>,
+    ) -> Result<ClientConfig, GetClientConfigError> {
+        debug!(target: "client", ?msg);
         Ok(self.client.config.clone())
     }
 }
 
-impl Handler<ChunkStateWitnessMessage> for ClientActorInner {
+impl Handler<SpanWrapped<StateHeaderValidationRequest>, Result<(), near_chain::Error>>
+    for ClientActorInner
+{
     #[perf]
-    fn handle(&mut self, msg: ChunkStateWitnessMessage) {
-        let ChunkStateWitnessMessage { witness, raw_witness_size } = msg;
-        let signer = self.client.validator_signer.get();
-        if let Err(err) =
-            self.client.process_chunk_state_witness(witness, raw_witness_size, None, signer)
-        {
-            tracing::error!(target: "client", ?err, "Error processing chunk state witness");
-        }
-    }
-}
-
-impl Handler<StateHeaderValidationRequest> for ClientActorInner {
-    #[perf]
-    fn handle(&mut self, msg: StateHeaderValidationRequest) -> Result<(), near_chain::Error> {
+    fn handle(
+        &mut self,
+        msg: SpanWrapped<StateHeaderValidationRequest>,
+    ) -> Result<(), near_chain::Error> {
+        let msg = msg.span_unwrap();
         self.client.chain.state_sync_adapter.set_state_header(
             msg.shard_id,
             msg.sync_hash,
@@ -1910,9 +1970,15 @@ impl Handler<StateHeaderValidationRequest> for ClientActorInner {
     }
 }
 
-impl Handler<ChainFinalizationRequest> for ClientActorInner {
+impl Handler<SpanWrapped<ChainFinalizationRequest>, Result<(), near_chain::Error>>
+    for ClientActorInner
+{
     #[perf]
-    fn handle(&mut self, msg: ChainFinalizationRequest) -> Result<(), near_chain::Error> {
+    fn handle(
+        &mut self,
+        msg: SpanWrapped<ChainFinalizationRequest>,
+    ) -> Result<(), near_chain::Error> {
+        let msg = msg.span_unwrap();
         self.client.chain.set_state_finalize(msg.shard_id, msg.sync_hash)
     }
 }

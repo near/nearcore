@@ -1,7 +1,8 @@
-use actix::Addr;
+use near_async::messaging::CanSendAsync;
+use near_async::multithread::MultithreadRuntimeHandle;
 use near_chain_configs::Genesis;
-use near_client::ViewClientActor;
-use near_o11y::WithSpanContextExt;
+use near_client::ViewClientActorInner;
+use near_primitives::types::Balance;
 use validated_operations::ValidatedOperation;
 
 pub(crate) mod nep141;
@@ -19,7 +20,7 @@ mod validated_operations;
 /// We choose to do a proper implementation for the genesis block later.
 async fn convert_genesis_records_to_transaction(
     genesis: &Genesis,
-    view_client_addr: &Addr<ViewClientActor>,
+    view_client_addr: &MultithreadRuntimeHandle<ViewClientActorInner>,
     block: &near_primitives::views::BlockView,
 ) -> crate::errors::Result<crate::models::Transaction> {
     let mut genesis_account_ids = std::collections::HashSet::new();
@@ -33,9 +34,9 @@ async fn convert_genesis_records_to_transaction(
     // operations to be created in deterministic order (so that their indexes
     // stay the same).
     let genesis_accounts: std::collections::BTreeMap<_, _> = crate::utils::query_accounts(
-        &near_primitives::types::BlockId::Hash(block.header.hash).into(),
-        genesis_account_ids.iter(),
-        view_client_addr,
+        near_primitives::types::BlockId::Hash(block.header.hash).into(),
+        genesis_account_ids.iter().cloned(),
+        view_client_addr.clone(),
     )
     .await?;
     let runtime_config = crate::utils::query_protocol_config(block.header.hash, view_client_addr)
@@ -48,7 +49,7 @@ async fn convert_genesis_records_to_transaction(
         let account_balances =
             crate::utils::RosettaAccountBalances::from_account(&account, &runtime_config);
 
-        if account_balances.liquid != 0 {
+        if !account_balances.liquid.is_zero() {
             operations.push(crate::models::Operation {
                 operation_identifier: crate::models::OperationIdentifier::new(&operations),
                 related_operations: None,
@@ -57,14 +58,14 @@ async fn convert_genesis_records_to_transaction(
                     sub_account: None,
                     metadata: None,
                 },
-                amount: Some(crate::models::Amount::from_yoctonear(account_balances.liquid)),
+                amount: Some(crate::models::Amount::from_balance(account_balances.liquid)),
                 type_: crate::models::OperationType::Transfer,
                 status: Some(crate::models::OperationStatusKind::Success),
                 metadata: None,
             });
         }
 
-        if account_balances.liquid_for_storage != 0 {
+        if !account_balances.liquid_for_storage.is_zero() {
             operations.push(crate::models::Operation {
                 operation_identifier: crate::models::OperationIdentifier::new(&operations),
                 related_operations: None,
@@ -73,7 +74,7 @@ async fn convert_genesis_records_to_transaction(
                     sub_account: Some(crate::models::SubAccount::LiquidBalanceForStorage.into()),
                     metadata: None,
                 },
-                amount: Some(crate::models::Amount::from_yoctonear(
+                amount: Some(crate::models::Amount::from_balance(
                     account_balances.liquid_for_storage,
                 )),
                 type_: crate::models::OperationType::Transfer,
@@ -82,7 +83,7 @@ async fn convert_genesis_records_to_transaction(
             });
         }
 
-        if account_balances.locked != 0 {
+        if !account_balances.locked.is_zero() {
             operations.push(crate::models::Operation {
                 operation_identifier: crate::models::OperationIdentifier::new(&operations),
                 related_operations: None,
@@ -91,7 +92,7 @@ async fn convert_genesis_records_to_transaction(
                     sub_account: Some(crate::models::SubAccount::Locked.into()),
                     metadata: None,
                 },
-                amount: Some(crate::models::Amount::from_yoctonear(account_balances.locked)),
+                amount: Some(crate::models::Amount::from_balance(account_balances.locked)),
                 type_: crate::models::OperationType::Transfer,
                 status: Some(crate::models::OperationStatusKind::Success),
                 metadata: None,
@@ -113,15 +114,12 @@ async fn convert_genesis_records_to_transaction(
 }
 
 pub(crate) async fn convert_block_to_transactions(
-    view_client_addr: &Addr<ViewClientActor>,
+    view_client_addr: &MultithreadRuntimeHandle<ViewClientActorInner>,
     block: &near_primitives::views::BlockView,
     currencies: &Option<Vec<crate::models::Currency>>,
 ) -> crate::errors::Result<Vec<crate::models::Transaction>> {
     let state_changes = view_client_addr
-        .send(
-            near_client::GetStateChangesInBlock { block_hash: block.header.hash }
-                .with_span_context(),
-        )
+        .send_async(near_client::GetStateChangesInBlock { block_hash: block.header.hash })
         .await?
         .unwrap();
 
@@ -148,21 +146,21 @@ pub(crate) async fn convert_block_to_transactions(
     let prev_block_id = near_primitives::types::BlockReference::from(
         near_primitives::types::BlockId::Hash(block.header.prev_hash),
     );
-    let accounts_previous_state =
-        crate::utils::query_accounts(&prev_block_id, touched_account_ids.iter(), view_client_addr)
-            .await?;
+    let accounts_previous_state = crate::utils::query_accounts(
+        prev_block_id,
+        touched_account_ids.iter().cloned(),
+        view_client_addr.clone(),
+    )
+    .await?;
 
     let accounts_changes = view_client_addr
-        .send(
-            near_client::GetStateChanges {
-                block_hash: block.header.hash,
-                state_changes_request:
-                    near_primitives::views::StateChangesRequestView::AccountChanges {
-                        account_ids: touched_account_ids,
-                    },
-            }
-            .with_span_context(),
-        )
+        .send_async(near_client::GetStateChanges {
+            block_hash: block.header.hash,
+            state_changes_request:
+                near_primitives::views::StateChangesRequestView::AccountChanges {
+                    account_ids: touched_account_ids,
+                },
+        })
         .await??;
 
     let runtime_config = crate::utils::query_protocol_config(block.header.hash, view_client_addr)
@@ -188,7 +186,7 @@ pub(crate) async fn convert_block_to_transactions(
 
 pub(crate) async fn collect_transactions(
     genesis: &Genesis,
-    view_client_addr: &Addr<ViewClientActor>,
+    view_client_addr: &MultithreadRuntimeHandle<ViewClientActorInner>,
     block: &near_primitives::views::BlockView,
     currencies: &Option<Vec<crate::models::Currency>>,
 ) -> crate::errors::Result<Vec<crate::models::Transaction>> {
@@ -326,7 +324,7 @@ impl From<NearActions> for Vec<crate::models::Operation> {
                 }
 
                 near_primitives::transaction::Action::Transfer(action) => {
-                    let transfer_amount = crate::models::Amount::from_yoctonear(action.deposit);
+                    let transfer_amount = crate::models::Amount::from_balance(action.deposit);
 
                     let sender_transfer_operation_id =
                         crate::models::OperationIdentifier::new(&operations);
@@ -386,10 +384,10 @@ impl From<NearActions> for Vec<crate::models::Operation> {
                 }
 
                 near_primitives::transaction::Action::FunctionCall(action) => {
-                    let attached_amount = crate::models::Amount::from_yoctonear(action.deposit);
+                    let attached_amount = crate::models::Amount::from_balance(action.deposit);
 
                     let mut related_operations = vec![];
-                    if action.deposit > 0 {
+                    if action.deposit > Balance::ZERO {
                         let fund_transfer_operation_id =
                             crate::models::OperationIdentifier::new(&operations);
                         operations.push(
@@ -486,6 +484,9 @@ impl From<NearActions> for Vec<crate::models::Operation> {
                 near_primitives::transaction::Action::DeployGlobalContract(_)
                 | near_primitives::transaction::Action::UseGlobalContract(_) => {
                     // TODO(#12639): Implement global contracts support, ignored for now.
+                }
+                near_primitives::transaction::Action::DeterministicStateInit(_) => {
+                    // TODO(#14073): Implement rosetta adapter, probably first requires global contracts, too
                 }
             }
         }
@@ -633,9 +634,19 @@ impl TryFrom<Vec<crate::models::Operation>> for NearActions {
                                 .to_string(),
                         ));
                     }
+                    if !receiver_transfer_operation.amount.currency.is_near()
+                        || !sender_transfer_operation.amount.currency.is_near()
+                    {
+                        return Err(crate::errors::ErrorKind::InvalidInput(
+                            "Currency of Sender and Receiver TRANSFER operations must be NEAR"
+                                .to_string(),
+                        ));
+                    }
                     actions.push(
                         near_primitives::transaction::TransferAction {
-                            deposit: receiver_transfer_operation.amount.value.absolute_difference(),
+                            deposit: Balance::from_yoctonear(
+                                receiver_transfer_operation.amount.value.absolute_difference(),
+                            ),
                         }
                         .into(),
                     )
@@ -692,14 +703,20 @@ impl TryFrom<Vec<crate::models::Operation>> for NearActions {
                         )?;
                     sender_account_id.try_set(&initiate_function_call_operation.sender_account)?;
 
-                    if function_call_operation.attached_amount > 0 {
+                    if function_call_operation.attached_amount > Balance::ZERO {
                         let transfer_operation =
                             validated_operations::TransferOperation::try_from_option(
                                 operations.next(),
                             )?;
+                        if !transfer_operation.amount.currency.is_near() {
+                            return Err(crate::errors::ErrorKind::InvalidInput(
+                                "Currency of TRANSFER has to be NEAR".to_string(),
+                            ));
+                        }
                         if transfer_operation.amount.value.is_positive()
-                            || transfer_operation.amount.value.absolute_difference()
-                                != function_call_operation.attached_amount
+                            || Balance::from_yoctonear(
+                                transfer_operation.amount.value.absolute_difference(),
+                            ) != function_call_operation.attached_amount
                         {
                             return Err(crate::errors::ErrorKind::InvalidInput(
                                 "The sum of amounts of Sender TRANSFER and Receiver FUNCTION_CALL operations must be zero"
@@ -838,6 +855,7 @@ mod tests {
     use near_crypto::{KeyType, SecretKey};
     use near_primitives::action::delegate::{DelegateAction, SignedDelegateAction};
     use near_primitives::transaction::{Action, TransferAction};
+    use near_primitives::types::Gas;
 
     #[test]
     fn test_near_actions_bijection() {
@@ -864,15 +882,11 @@ mod tests {
             }
             .into(),
         ];
-        let transfer_actions = vec![
-            near_primitives::transaction::TransferAction {
-                deposit: near_primitives::types::Balance::MAX,
-            }
-            .into(),
-        ];
+        let transfer_actions =
+            vec![near_primitives::transaction::TransferAction { deposit: Balance::MAX }.into()];
         let stake_actions = vec![
             near_primitives::transaction::StakeAction {
-                stake: 456,
+                stake: Balance::from_yoctonear(456),
                 public_key: near_crypto::SecretKey::from_random(near_crypto::KeyType::ED25519)
                     .public_key(),
             }
@@ -886,8 +900,8 @@ mod tests {
             near_primitives::transaction::FunctionCallAction {
                 method_name: "method-name".parse().unwrap(),
                 args: b"args".to_vec(),
-                gas: 100500,
-                deposit: 0,
+                gas: Gas::from_gas(100500),
+                deposit: Balance::ZERO,
             }
             .into(),
         ];
@@ -895,8 +909,8 @@ mod tests {
             near_primitives::transaction::FunctionCallAction {
                 method_name: "method-name".parse().unwrap(),
                 args: b"args".to_vec(),
-                gas: 100500,
-                deposit: near_primitives::types::Balance::MAX,
+                gas: Gas::from_gas(100500),
+                deposit: Balance::MAX,
             }
             .into(),
         ];
@@ -989,7 +1003,9 @@ mod tests {
                     sender_id: "account.near".parse().unwrap(),
                     receiver_id: "receiver.near".parse().unwrap(),
                     actions: vec![
-                        Action::Transfer(TransferAction { deposit: 1 }).try_into().unwrap(),
+                        Action::Transfer(TransferAction { deposit: Balance::from_yoctonear(1) })
+                            .try_into()
+                            .unwrap(),
                     ],
                     nonce: 0,
                     max_block_height: 0,
@@ -1118,7 +1134,7 @@ mod tests {
             crate::models::Operation {
                 type_: crate::models::OperationType::Transfer,
                 account: "sender.near".parse().unwrap(),
-                amount: Some(crate::models::Amount::from_yoctonear(0)),
+                amount: Some(crate::models::Amount::from_balance(Balance::ZERO)),
                 operation_identifier: sender_transfer_operation_id.clone(),
                 related_operations: None,
                 status: None,
@@ -1160,7 +1176,7 @@ mod tests {
             crate::models::Operation {
                 type_: crate::models::OperationType::Transfer,
                 account: "receiver.near".parse().unwrap(),
-                amount: Some(crate::models::Amount::from_yoctonear(0)),
+                amount: Some(crate::models::Amount::from_balance(Balance::ZERO)),
                 operation_identifier: receiver_transfer_operation_id,
                 related_operations: Some(vec![sender_transfer_operation_id]),
                 status: None,
@@ -1240,7 +1256,7 @@ mod tests {
                 type_: crate::models::OperationType::Transfer,
                 account: "sender.near".parse().unwrap(),
                 // This is expected to be negative to match the amount in the FunctionCallOperation
-                amount: Some(crate::models::Amount::from_yoctonear(0)),
+                amount: Some(crate::models::Amount::from_balance(Balance::ZERO)),
                 operation_identifier: fund_transfer_function_call_operation_id.clone(),
                 related_operations: None,
                 status: None,

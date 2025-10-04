@@ -1,6 +1,7 @@
 use std::num::ParseIntError;
 
 use near_account_id::ParseAccountError;
+use near_async::messaging::AsyncSendError;
 
 #[derive(Debug, strum::EnumIter, thiserror::Error)]
 pub(crate) enum ErrorKind {
@@ -20,10 +21,10 @@ pub(crate) enum ErrorKind {
 
 pub(crate) type Result<T> = std::result::Result<T, ErrorKind>;
 
-impl From<actix::MailboxError> for ErrorKind {
-    fn from(err: actix::MailboxError) -> Self {
+impl From<AsyncSendError> for ErrorKind {
+    fn from(err: AsyncSendError) -> Self {
         Self::InternalError(format!(
-            "Server seems to be under a heavy load thus reaching a limit of Actix queue: {}",
+            "Server seems to be under a heavy load thus reaching some internal queue limit: {}",
             err
         ))
     }

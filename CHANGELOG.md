@@ -3,10 +3,35 @@
 ## [unreleased]
 
 ### Protocol Changes
+* The contract runtime has been upgraded to use the new Wasmtime-based runtime;
+* The contract runtime now allows for bulk memory instructions in Wasm code.
+
+### Non-protocol Changes
+**No Changes**
+
+## [2.9.0]
+
+### Protocol Changes
 **No Changes**
 
 ### Non-protocol Changes
 * Moved Tier1 configuration from experimental to top level config. No action is necessary as the default values are the recommended ones. ([#13575](https://github.com/near/nearcore/pull/13575))
+* Add a new configuration option `save_tx_outcomes` ([#13610](https://github.com/near/nearcore/pull/13610)). When set to `false`, per-transaction outcomes are not written to the db to improve validator throughput. Disabling this config means transactions processed by the node will not be queryable by transaction hash, however this is not needed for validators to perform their duties. The default for archive and RPC nodes is `true`.
+* Updated the recommended operating system network settings for running `neard` ([#14012](https://github.com/near/nearcore/pull/14012)).
+
+## [2.8.0]
+
+### Protocol Changes
+* Increase number of validators from 300 to 500. To maintain the chain safety, we increase the number of mandates per shard to 105. ([#14033](https://github.com/near/nearcore/pull/14033))
+
+### Non-protocol Changes
+* Added a neard subcommand tool that can be used to recover data that was lost
+  due to bug in resharding. ([#14185](https://github.com/near/nearcore/pull/14185))
+
+## [2.7.1]
+
+### Non-protocol changes
+* Add a new configuration option `protocol_version_check_config_override`. This determines which epoch the client uses to determine version compatibility with the network. The default is `NextNext`, which causes the node to exit instead of persisting potentially incorrect epoch info and corrupting the database in case the node operator does not update the client in time for the network upgrade. The prior behavior only checked the protocol version in the next epoch, which can be restored by setting this option to `Next` and allows a validator that did not upgrade their node to participate in the final epoch the client is compatible with the network.
 
 ## [2.7.0]
 
@@ -22,6 +47,7 @@
 * Add RPC query for viewing global contract code. ([#13547](https://github.com/near/nearcore/pull/13547))
 * Add promise batch host functions for global contracts. ([#13565](https://github.com/near/nearcore/pull/13565))
 * Stabilize `EXPERIMENTAL_changes` RPC method and rename it to `changes`. ([#13722](https://github.com/near/nearcore/pull/13722))
+* Rename `TxRequestHandlerActor` to `RpcHandlerActor` to reflect the change in the scope of its responsibilities. Otherwise its API change is fully backward-compatible, so the dependent services can handle it by simply renaming the type where it is mentioned explicitly. ([#13259](https://github.com/near/nearcore/pull/13259))
 
 ## [2.6.0]
 
@@ -70,7 +96,7 @@ since they're hard links to database files that get cleaned up on every epoch. [
 ## 2.3.0
 
 ### Protocol Changes
-* Sets `chunk_validator_only_kickout_threshold` to 70. Uses this kickout threshold as a cutoff threshold for contribution of endorsement ratio in rewards calculation: if endorsement ratio is above 70%, the contribution of endorsement ratio in average uptime calculation is 100%, otherwise it is 0%. Endorsements received are now included in `BlockHeader` to improve kickout and reward calculation for chunk validators. 
+* Sets `chunk_validator_only_kickout_threshold` to 70. Uses this kickout threshold as a cutoff threshold for contribution of endorsement ratio in rewards calculation: if endorsement ratio is above 70%, the contribution of endorsement ratio in average uptime calculation is 100%, otherwise it is 0%. Endorsements received are now included in `BlockHeader` to improve kickout and reward calculation for chunk validators.
 
 ### Non-protocol Changes
 * Added [documentation](./docs/misc/archival_data_recovery.md) and a [reference](./scripts/recover_missing_archival_data.sh) script to recover the data lost in archival nodes at the beginning of 2024.
@@ -138,7 +164,7 @@ After that the node should be able to recover and sync with the rest of the netw
 
 ### Protocol Changes
 
-* Use more precise gas costs for function calls [#10943](https://github.com/near/nearcore/pull/10943) that should lead to more efficient chunk utilization. 
+* Use more precise gas costs for function calls [#10943](https://github.com/near/nearcore/pull/10943) that should lead to more efficient chunk utilization.
 
 ### Non-protocol Changes
 

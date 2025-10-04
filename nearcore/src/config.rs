@@ -11,24 +11,27 @@ use near_chain_configs::test_utils::{
 use near_chain_configs::{
     BLOCK_PRODUCER_KICKOUT_THRESHOLD, CHUNK_PRODUCER_KICKOUT_THRESHOLD,
     CHUNK_VALIDATOR_ONLY_KICKOUT_THRESHOLD, ChunkDistributionNetworkConfig, ClientConfig,
+    CloudArchivalReaderConfig, CloudArchivalWriterConfig, CloudStorageConfig,
     EXPECTED_EPOCH_LENGTH, EpochSyncConfig, FAST_EPOCH_LENGTH, FISHERMEN_THRESHOLD,
     GAS_PRICE_ADJUSTMENT_RATE, GCConfig, GENESIS_CONFIG_FILENAME, Genesis, GenesisConfig,
     GenesisValidationMode, INITIAL_GAS_LIMIT, LogSummaryStyle, MAX_INFLATION_RATE,
     MIN_BLOCK_PRODUCTION_DELAY, MIN_GAS_PRICE, MutableConfigValue, MutableValidatorSigner,
-    NEAR_BASE, NUM_BLOCK_PRODUCER_SEATS, NUM_BLOCKS_PER_YEAR, PROTOCOL_REWARD_RATE,
-    PROTOCOL_UPGRADE_STAKE_THRESHOLD, ReshardingConfig, StateSyncConfig,
-    TRANSACTION_VALIDITY_PERIOD, TrackedShardsConfig, default_chunk_wait_mult,
-    default_enable_multiline_logging, default_epoch_sync,
-    default_header_sync_expected_height_per_second, default_header_sync_initial_timeout,
-    default_header_sync_progress_timeout, default_header_sync_stall_ban_timeout,
-    default_log_summary_period, default_orphan_state_witness_max_size,
-    default_orphan_state_witness_pool_size, default_produce_chunk_add_transactions_time_limit,
+    NUM_BLOCK_PRODUCER_SEATS, NUM_BLOCKS_PER_YEAR, PROTOCOL_REWARD_RATE,
+    PROTOCOL_UPGRADE_STAKE_THRESHOLD, ProtocolVersionCheckConfig, ReshardingConfig,
+    StateSyncConfig, TRANSACTION_VALIDITY_PERIOD, TrackedShardsConfig,
+    default_chunk_validation_threads, default_chunk_wait_mult, default_enable_multiline_logging,
+    default_epoch_sync, default_header_sync_expected_height_per_second,
+    default_header_sync_initial_timeout, default_header_sync_progress_timeout,
+    default_header_sync_stall_ban_timeout, default_log_summary_period,
+    default_orphan_state_witness_max_size, default_orphan_state_witness_pool_size,
+    default_produce_chunk_add_transactions_time_limit, default_state_request_server_threads,
+    default_state_request_throttle_period, default_state_requests_per_throttle_period,
     default_state_sync_enabled, default_state_sync_external_backoff,
     default_state_sync_external_timeout, default_state_sync_p2p_timeout,
     default_state_sync_retry_backoff, default_sync_check_period, default_sync_height_threshold,
     default_sync_max_block_requests, default_sync_step_period, default_transaction_pool_size_limit,
     default_trie_viewer_state_size_limit, default_tx_routing_height_horizon,
-    default_view_client_threads, default_view_client_throttle_period, get_initial_supply,
+    default_view_client_threads, get_initial_supply,
 };
 use near_config_utils::{DownloadConfigType, ValidationError, ValidationErrors};
 use near_crypto::{InMemorySigner, KeyFile, KeyType, PublicKey, Signer};
@@ -44,17 +47,14 @@ use near_primitives::network::PeerId;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::types::{
-    AccountId, AccountInfo, Balance, BlockHeight, BlockHeightDelta, Gas, NumSeats, NumShards,
-    ShardId,
+    AccountId, AccountInfo, BlockHeight, BlockHeightDelta, Gas, NumSeats, NumShards, ShardId,
 };
 use near_primitives::utils::{from_timestamp, get_num_seats_per_shard};
 use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
 use near_primitives::version::PROTOCOL_VERSION;
 #[cfg(feature = "rosetta_rpc")]
 use near_rosetta_rpc::RosettaRpcConfig;
-use near_store::config::{
-    ArchivalConfig, ArchivalStoreConfig, SplitStorageConfig, StateSnapshotType,
-};
+use near_store::config::{SplitStorageConfig, StateSnapshotType};
 use near_store::{StateSnapshotConfig, Store, TrieConfig};
 use near_telemetry::TelemetryConfig;
 use near_vm_runner::{ContractRuntimeCache, FilesystemContractRuntimeCache};
@@ -66,9 +66,6 @@ use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tracing::{info, warn};
-
-/// Millinear, 1/1000 of NEAR.
-pub const MILLI_NEAR: Balance = NEAR_BASE / 1000;
 
 /// Block production tracking delay.
 pub const BLOCK_PRODUCTION_TRACKING_DELAY: i64 = 10;
@@ -115,7 +112,6 @@ pub const CONFIG_FILENAME: &str = "config.json";
 pub const NODE_KEY_FILE: &str = "node_key.json";
 pub const VALIDATOR_KEY_FILE: &str = "validator_key.json";
 
-pub const NETWORK_LEGACY_TELEMETRY_URL: &str = "https://explorer.{}.near.org/api/nodes";
 pub const NETWORK_TELEMETRY_URL: &str = "https://telemetry.nearone.org/nodes";
 
 fn default_doomslug_step_period() -> Duration {
@@ -275,6 +271,14 @@ pub struct Config {
 
     #[serde(skip_serializing_if = "is_false")]
     pub archive: bool,
+    /// Configuration for a cloud-based archival reader.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cloud_archival_reader: Option<CloudArchivalReaderConfig>,
+    /// Configuration for a cloud-based archival writer. If this config is present, the writer is enabled and
+    /// writes chunk-related data based on the tracked shards.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cloud_archival_writer: Option<CloudArchivalWriterConfig>,
+
     /// If save_trie_changes is not set it will get inferred from the `archive` field as follows:
     /// save_trie_changes = !archive
     /// save_trie_changes should be set to true iff
@@ -283,6 +287,19 @@ pub struct Config {
     /// needs trie changes in order to do garbage collection on hot and populate cold State column.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub save_trie_changes: Option<bool>,
+    /// Whether to persist `ExecutionOutcomeWithProof` objects into
+    /// `DBCol::TransactionResultForBlock`.  Disabling this on validator
+    /// nodes reduces write amplification.  RPC nodes keep it enabled so
+    /// that transaction status queries continue to work.
+    /// If set to `None`, the value will be treated as true if either
+    /// - `archive` is true, or
+    /// - All shards are tracked (i.e. node is an RPC node).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub save_tx_outcomes: Option<bool>,
+    /// Whether to persist partial chunk parts for untracked shards in the database.
+    /// If `None`, defaults to true (persist).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub save_untracked_partial_chunks_parts: Option<bool>,
     pub log_summary_style: LogSummaryStyle,
     #[serde(with = "near_async::time::serde_duration_as_std")]
     pub log_summary_period: Duration,
@@ -292,8 +309,17 @@ pub struct Config {
     #[serde(flatten)]
     pub gc: GCConfig,
     pub view_client_threads: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub chunk_validation_threads: Option<usize>,
+    /// Throttling window for state requests (headers and parts).
     #[serde(with = "near_async::time::serde_duration_as_std")]
-    pub view_client_throttle_period: Duration,
+    #[serde(alias = "view_client_throttle_period")]
+    pub state_request_throttle_period: Duration,
+    /// Maximum number of state requests served per throttle period
+    #[serde(alias = "view_client_num_state_requests_per_throttle_period")]
+    pub state_requests_per_throttle_period: usize,
+    /// Number of threads for StateRequestActor pool.
+    pub state_request_server_threads: usize,
     pub trie_viewer_state_size_limit: Option<u64>,
     /// If set, overrides value in genesis configuration.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -301,14 +327,11 @@ pub struct Config {
     /// Different parameters to configure underlying storage.
     pub store: near_store::StoreConfig,
     /// Different parameters to configure underlying cold storage.
-    /// This feature is under development, do not use in production.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cold_store: Option<near_store::StoreConfig>,
     /// Configuration for the split storage.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub split_storage: Option<SplitStorageConfig>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub archival_storage: Option<ArchivalStoreConfig>,
     /// The node will stop after the head exceeds this height.
     /// The node usually stops within several seconds after reaching the target height.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -371,6 +394,22 @@ pub struct Config {
     /// This option can cause extra load on the database and is not recommended for production use.
     pub save_invalid_witnesses: bool,
     pub transaction_request_handler_threads: usize,
+    /// If set to NextNext, node will exit if the next next epoch's protocol version is not supported.
+    /// This is the default and is a stricter check, which avoids persisting a potentially incorrect
+    /// EpochInfo, which can complicate node recovery if the node misses the protocol upgrade.
+    /// If set to Next, node will exit only if the next epoch's protocol version is not supported.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub protocol_version_check_config_override: Option<ProtocolVersionCheckConfig>,
+
+    /// Location where to store a cache of compiled contracts.
+    ///
+    /// This cache can be manually emptied occasionally to keep storage usage down and does not
+    /// need to be included into snapshots or dumps.
+    ///
+    /// Path is interpreted relative to `home_dir`.
+    ///
+    /// Use [`Self::contract_cache_path()`] to access this field.
+    pub(crate) contract_cache_path: Option<PathBuf>,
 }
 
 fn is_false(value: &bool) -> bool {
@@ -378,6 +417,7 @@ fn is_false(value: &bool) -> bool {
 }
 impl Default for Config {
     fn default() -> Self {
+        let store = near_store::StoreConfig::default();
         Config {
             genesis_file: GENESIS_CONFIG_FILENAME.to_string(),
             genesis_records_file: None,
@@ -398,18 +438,24 @@ impl Default for Config {
             tracked_shards: None,
             tracked_shard_schedule: None,
             archive: false,
+            cloud_archival_reader: None,
+            cloud_archival_writer: None,
             save_trie_changes: None,
+            save_tx_outcomes: None,
+            save_untracked_partial_chunks_parts: None,
             log_summary_style: LogSummaryStyle::Colored,
             log_summary_period: default_log_summary_period(),
             gc: GCConfig::default(),
             view_client_threads: default_view_client_threads(),
-            view_client_throttle_period: default_view_client_throttle_period(),
+            chunk_validation_threads: None,
+            state_request_throttle_period: default_state_request_throttle_period(),
+            state_requests_per_throttle_period: default_state_requests_per_throttle_period(),
+            state_request_server_threads: default_state_request_server_threads(),
             trie_viewer_state_size_limit: default_trie_viewer_state_size_limit(),
             max_gas_burnt_view: None,
-            store: near_store::StoreConfig::default(),
+            store,
             cold_store: None,
             split_storage: None,
-            archival_storage: None,
             expected_shutdown: None,
             state_sync: None,
             epoch_sync: default_epoch_sync(),
@@ -424,9 +470,11 @@ impl Default for Config {
             orphan_state_witness_pool_size: default_orphan_state_witness_pool_size(),
             orphan_state_witness_max_size: default_orphan_state_witness_max_size(),
             max_loaded_contracts: 256,
+            contract_cache_path: None,
             save_latest_witnesses: false,
             save_invalid_witnesses: false,
             transaction_request_handler_threads: 4,
+            protocol_version_check_config_override: None,
         }
     }
 }
@@ -455,6 +503,10 @@ impl Config {
             .map_err(|_| ValidationError::ConfigFileError {
                 error_message: format!("Failed to strip comments from {}", path.display()),
             })?;
+
+        // Check for deprecated fields before deserialization to warn about them
+        Self::check_for_deprecated_fields(&json_str_without_comments);
+
         let config: Config = serde_ignored::deserialize(
             &mut serde_json::Deserializer::from_str(&json_str_without_comments),
             |field| unrecognized_fields.push(field.to_string()),
@@ -474,6 +526,47 @@ impl Config {
         }
 
         Ok(config)
+    }
+
+    /// Return each deprecated key together with the preferred replacement.
+    ///
+    /// Empty `Vec` ⇒ no deprecated keys detected.
+    /// NOTE: Keys are `'static` so the function itself does **zero** heap allocations
+    /// beyond the output `Vec`.
+    pub(crate) fn deprecated_fields_in_json(json_str: &str) -> Vec<(&'static str, &'static str)> {
+        // Static table keeps the mapping in one obvious place
+        const MAPPING: &[(&str, &str)] = &[
+            ("view_client_throttle_period", "state_request_throttle_period"),
+            (
+                "view_client_num_state_requests_per_throttle_period",
+                "state_requests_per_throttle_period",
+            ),
+        ];
+
+        let Ok(value) = serde_json::from_str::<serde_json::Value>(json_str) else {
+            return Vec::new(); // malformed JSON ⇒ nothing to warn about here
+        };
+        let Some(obj) = value.as_object() else {
+            return Vec::new(); // not an object ⇒ nothing to match
+        };
+
+        MAPPING
+            .iter()
+            .filter(|(old, _)| obj.contains_key(*old))
+            .map(|(old, new)| (*old, *new))
+            .collect()
+    }
+
+    /// Check for deprecated configuration fields and emit warnings
+    fn check_for_deprecated_fields(json_str: &str) {
+        for (deprecated_key, new_key) in Self::deprecated_fields_in_json(json_str) {
+            tracing::warn!(
+                target: "neard",
+                deprecated_key = %deprecated_key,
+                new_key        = %new_key,
+                "Deprecated config key detected – please migrate",
+            );
+        }
     }
 
     fn validate(&self) -> Result<(), ValidationError> {
@@ -501,16 +594,6 @@ impl Config {
         }
     }
 
-    /// Returns `ArchivalConfig` which contains references to the archival-related configs if the config is for an archival node; otherwise returns `None`.
-    pub fn archival_config(&self) -> Option<ArchivalConfig> {
-        ArchivalConfig::new(
-            self.archive,
-            self.archival_storage.as_ref(),
-            self.cold_store.as_ref(),
-            self.split_storage.as_ref(),
-        )
-    }
-
     pub fn tracked_shards_config(&self) -> TrackedShardsConfig {
         if let Some(tracked_shards_config) = self.tracked_shards_config.clone() {
             return tracked_shards_config;
@@ -521,6 +604,35 @@ impl Config {
             &self.tracked_shadow_validator,
             &self.tracked_accounts,
         )
+    }
+
+    /// Returns the cloud storage config. Checks if configs are equal if both cloud archival reader and
+    /// writers are enabled.
+    pub fn cloud_storage_config(&self) -> Option<&CloudStorageConfig> {
+        if let (Some(reader), Some(writer)) =
+            (&self.cloud_archival_reader, &self.cloud_archival_writer)
+        {
+            assert_eq!(
+                reader.cloud_storage, writer.cloud_storage,
+                "Cloud archival reader and writer storage configs are not equal."
+            );
+        }
+        if let Some(reader) = &self.cloud_archival_reader {
+            return Some(&reader.cloud_storage);
+        }
+        if let Some(writer) = &self.cloud_archival_writer {
+            return Some(&writer.cloud_storage);
+        }
+        None
+    }
+
+    pub fn contract_cache_path(&self) -> PathBuf {
+        if let Some(explicit) = &self.contract_cache_path {
+            explicit.clone()
+        } else {
+            let store_path = self.store.path.as_deref().unwrap_or_else(|| "data".as_ref());
+            [store_path, "contract.cache".as_ref()].into_iter().collect()
+        }
     }
 }
 
@@ -550,6 +662,7 @@ impl NearConfig {
         network_key_pair: KeyFile,
         validator_signer: MutableValidatorSigner,
     ) -> anyhow::Result<Self> {
+        let is_archive_or_rpc = config.archive || config.tracked_shards_config().is_rpc();
         Ok(NearConfig {
             config: config.clone(),
             client_config: ClientConfig {
@@ -594,11 +707,22 @@ impl NearConfig {
                 doomslug_step_period: config.consensus.doomslug_step_period,
                 tracked_shards_config: config.tracked_shards_config(),
                 archive: config.archive,
+                cloud_archival_reader: config.cloud_archival_reader,
+                cloud_archival_writer: config.cloud_archival_writer,
                 save_trie_changes: config.save_trie_changes.unwrap_or(!config.archive),
+                save_tx_outcomes: config.save_tx_outcomes.unwrap_or(is_archive_or_rpc),
+                save_untracked_partial_chunks_parts: config
+                    .save_untracked_partial_chunks_parts
+                    .unwrap_or(true),
                 log_summary_style: config.log_summary_style,
                 gc: config.gc,
                 view_client_threads: config.view_client_threads,
-                view_client_throttle_period: config.view_client_throttle_period,
+                chunk_validation_threads: config
+                    .chunk_validation_threads
+                    .unwrap_or_else(default_chunk_validation_threads),
+                state_request_throttle_period: config.state_request_throttle_period,
+                state_requests_per_throttle_period: config.state_requests_per_throttle_period,
+                state_request_server_threads: config.state_request_server_threads,
                 trie_viewer_state_size_limit: config.trie_viewer_state_size_limit,
                 max_gas_burnt_view: config.max_gas_burnt_view,
                 enable_statistics_export: config.store.enable_statistics_export,
@@ -623,6 +747,9 @@ impl NearConfig {
                 save_latest_witnesses: config.save_latest_witnesses,
                 save_invalid_witnesses: config.save_invalid_witnesses,
                 transaction_request_handler_threads: config.transaction_request_handler_threads,
+                protocol_version_check: config
+                    .protocol_version_check_config_override
+                    .unwrap_or(ProtocolVersionCheckConfig::NextNext),
             },
             #[cfg(feature = "tx_generator")]
             tx_generator: config.tx_generator,
@@ -689,9 +816,7 @@ impl NightshadeRuntime {
         let state_snapshot_config =
             match config.config.store.state_snapshot_config.state_snapshot_type {
                 StateSnapshotType::Enabled => StateSnapshotConfig::enabled(
-                    home_dir,
-                    config.config.store.path.as_ref().unwrap_or(&"data".into()),
-                    "state_snapshot",
+                    home_dir.join(config.config.store.path.as_ref().unwrap_or(&"data".into())),
                 ),
                 StateSnapshotType::Disabled => StateSnapshotConfig::Disabled,
             };
@@ -701,6 +826,7 @@ impl NightshadeRuntime {
         let contract_cache = FilesystemContractRuntimeCache::with_memory_cache(
             home_dir,
             config.config.store.path.as_ref(),
+            &config.config.contract_cache_path(),
             config.config.max_loaded_contracts,
         )?;
         Ok(NightshadeRuntime::new(
@@ -714,6 +840,8 @@ impl NightshadeRuntime {
             config.config.gc.gc_num_epochs_to_keep(),
             TrieConfig::from_store_config(&config.config.store),
             state_snapshot_config,
+            config.client_config.state_sync.parts_compression_lvl,
+            config.client_config.cloud_archival_writer.is_some(),
         ))
     }
 }
@@ -836,6 +964,7 @@ pub fn init_configs(
     download_config_url: Option<&str>,
     boot_nodes: Option<&str>,
     max_gas_burnt_view: Option<Gas>,
+    state_sync_bucket: Option<&str>,
 ) -> anyhow::Result<()> {
     fs::create_dir_all(dir).with_context(|| anyhow!("Failed to create directory {:?}", dir))?;
 
@@ -877,6 +1006,9 @@ pub fn init_configs(
             .context(format!("Failed to download the config file from {}", url))?;
         config = Config::from_file(&dir.join(CONFIG_FILENAME))?;
     }
+    if let Some(bucket) = state_sync_bucket {
+        config.state_sync = Some(StateSyncConfig::gcs_with_bucket(bucket.to_string()));
+    }
 
     if let Some(nodes) = boot_nodes {
         config.network.boot_nodes = nodes.to_string();
@@ -893,9 +1025,9 @@ pub fn init_configs(
             if test_seed.is_some() {
                 bail!("Test seed is not supported for {chain_id}");
             }
-            config.telemetry.endpoints.push(NETWORK_LEGACY_TELEMETRY_URL.replace("{}", &chain_id));
-            config.telemetry.endpoints.push(NETWORK_TELEMETRY_URL.to_string());
-            config.state_sync = Some(StateSyncConfig::gcs_default());
+            if !config.telemetry.endpoints.contains(&NETWORK_TELEMETRY_URL.to_string()) {
+                config.telemetry.endpoints.push(NETWORK_TELEMETRY_URL.to_string());
+            }
         }
         _ => {
             // Create new configuration, key files and genesis for one validator.
@@ -1220,6 +1352,11 @@ fn create_localnet_config(
     } else {
         Some(tracked_shards_config.clone())
     };
+
+    // Save tx outcomes for the first validator node (for testing purposes).
+    if params.is_boot {
+        config.save_tx_outcomes = Some(true);
+    }
 
     config
 }
@@ -1584,6 +1721,7 @@ mod tests {
             None,
             None,
             None,
+            None,
         )
         .unwrap();
         let genesis = Genesis::from_file(
@@ -1641,6 +1779,7 @@ mod tests {
             None,
             None,
             None,
+            None,
         )
         .unwrap();
 
@@ -1668,6 +1807,7 @@ mod tests {
             false,
             None,
             false,
+            None,
             None,
             None,
             None,
@@ -1707,14 +1847,14 @@ mod tests {
                     gc_blocks_limit: 42,
                     gc_fork_clean_step: 420,
                     gc_num_epochs_to_keep: 24,
-                    gc_step_period: Duration::seconds(1),
+                    gc_step_period: Duration::milliseconds(500),
                 }
             } else {
                 GCConfig {
                     gc_blocks_limit: 2,
                     gc_fork_clean_step: 100,
                     gc_num_epochs_to_keep: 5,
-                    gc_step_period: Duration::seconds(1),
+                    gc_step_period: Duration::milliseconds(500),
                 }
             };
             assert_eq!(want_gc, config.gc);
@@ -1828,7 +1968,7 @@ mod tests {
         // Validators will track 2 shards and non-validators will track all shards.
         let _tracked_shards =
             [ShardUId::new(0, ShardId::new(1)), ShardUId::new(0, ShardId::new(3))];
-        // TODO(archival_v2): When `TrackedShardsConfig::Shards` is added, use it here together with `tracked_shards`.
+        // TODO(cloud_archival): When `TrackedShardsConfig::Shards` is added, use it here together with `tracked_shards`.
         let tracked_shards_config = TrackedShardsConfig::AllShards;
 
         let (configs, _validator_signers, _network_signers, genesis, _shard_keys) =
@@ -1958,5 +2098,56 @@ mod tests {
             writeln!(file, "not JSON").unwrap();
         }
         test_err("bad_key", "fred", "");
+    }
+
+    #[test]
+    fn detects_view_client_throttle_period() {
+        let json = r#"{ "view_client_throttle_period": "10s" }"#;
+        let deprecated = Config::deprecated_fields_in_json(json);
+        assert_eq!(
+            deprecated,
+            vec![("view_client_throttle_period", "state_request_throttle_period")]
+        );
+    }
+
+    #[test]
+    fn detects_view_client_num_state_requests() {
+        let json = r#"{ "view_client_num_state_requests_per_throttle_period": 256 }"#;
+        let deprecated = Config::deprecated_fields_in_json(json);
+        assert_eq!(
+            deprecated,
+            vec![(
+                "view_client_num_state_requests_per_throttle_period",
+                "state_requests_per_throttle_period"
+            )]
+        );
+    }
+
+    #[test]
+    fn detects_both_deprecated_fields() {
+        let json = r#"
+        {
+            "view_client_throttle_period": "10s",
+            "view_client_num_state_requests_per_throttle_period": 256
+        }
+        "#;
+        let mut deprecated = Config::deprecated_fields_in_json(json);
+        deprecated.sort(); // order is implementation detail
+        assert_eq!(
+            deprecated,
+            vec![
+                (
+                    "view_client_num_state_requests_per_throttle_period",
+                    "state_requests_per_throttle_period"
+                ),
+                ("view_client_throttle_period", "state_request_throttle_period"),
+            ]
+        );
+    }
+
+    #[test]
+    fn no_deprecated_fields_on_clean_config() {
+        let json = r#"{ "state_request_throttle_period": "10s" }"#;
+        assert!(Config::deprecated_fields_in_json(json).is_empty());
     }
 }

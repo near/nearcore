@@ -26,9 +26,11 @@ pub type Bandwidth = u64;
     Eq,
     ProtocolSchema,
 )]
+#[borsh(use_discriminant = true)]
+#[repr(u8)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub enum BandwidthRequests {
-    V1(BandwidthRequestsV1),
+    V1(BandwidthRequestsV1) = 0,
 }
 
 impl BandwidthRequests {
@@ -37,6 +39,7 @@ impl BandwidthRequests {
     }
 }
 
+/// Version 1 of [`BandwidthRequest`].
 #[derive(
     BorshSerialize,
     BorshDeserialize,
@@ -250,8 +253,10 @@ impl BlockBandwidthRequests {
 /// and apply the same bandwidth scheduler algorithm at the same heights, so the resulting
 /// scheduler state stays the same.
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq, ProtocolSchema)]
+#[borsh(use_discriminant = true)]
+#[repr(u8)]
 pub enum BandwidthSchedulerState {
-    V1(BandwidthSchedulerStateV1),
+    V1(BandwidthSchedulerStateV1) = 0,
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq, ProtocolSchema)]

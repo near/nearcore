@@ -6,6 +6,7 @@ use std::fmt;
 use std::hash::{Hash, Hasher};
 use std::io::Write;
 
+/// A 256-bit hash used in NEAR Protocol.
 #[derive(
     Copy,
     Clone,

@@ -1,12 +1,12 @@
 #[cfg(feature = "clock")]
 use crate::block::BlockHeader;
 use crate::hash::{CryptoHash, hash};
-use crate::transaction::ValidatedTransactionHash;
 use crate::types::{NumSeats, NumShards, ShardId};
 use chrono;
 use chrono::DateTime;
 use near_crypto::{ED25519PublicKey, Secp256K1PublicKey};
 use near_primitives_core::account::id::{AccountId, AccountType};
+use near_primitives_core::deterministic_account_id::DeterministicAccountStateInit;
 use near_primitives_core::types::BlockHeight;
 use serde;
 use std::cmp::max;
@@ -179,6 +179,52 @@ pub fn get_block_shard_id(block_hash: &CryptoHash, shard_id: ShardId) -> Vec<u8>
     res
 }
 
+pub fn get_receipt_proof_key(
+    block_hash: &CryptoHash,
+    from_shard_id: ShardId,
+    to_shard_id: ShardId,
+) -> Vec<u8> {
+    const BYTES_LEN: usize = size_of::<CryptoHash>() + size_of::<ShardId>() + size_of::<ShardId>();
+    let mut res = Vec::with_capacity(BYTES_LEN);
+    res.extend_from_slice(block_hash.as_ref());
+    res.extend_from_slice(&to_shard_id.to_le_bytes());
+    res.extend_from_slice(&from_shard_id.to_le_bytes());
+    res
+}
+
+pub fn get_receipt_proof_target_shard_prefix(
+    block_hash: &CryptoHash,
+    to_shard_id: ShardId,
+) -> Vec<u8> {
+    const BYTES_LEN: usize = size_of::<CryptoHash>() + size_of::<ShardId>();
+    let mut res = Vec::with_capacity(BYTES_LEN);
+    res.extend_from_slice(block_hash.as_ref());
+    res.extend_from_slice(&to_shard_id.to_le_bytes());
+    res
+}
+
+pub fn get_endorsements_key_prefix(block_hash: &CryptoHash, shard_id: ShardId) -> Vec<u8> {
+    get_block_shard_id(block_hash, shard_id)
+}
+
+pub fn get_endorsements_key(
+    block_hash: &CryptoHash,
+    shard_id: ShardId,
+    account_id: &AccountId,
+) -> Vec<u8> {
+    let account_id = account_id.as_bytes();
+    let length: usize = size_of::<CryptoHash>() + size_of::<ShardId>() + account_id.len();
+    let mut res = Vec::with_capacity(length);
+    res.extend_from_slice(block_hash.as_ref());
+    res.extend_from_slice(&shard_id.to_le_bytes());
+    res.extend_from_slice(account_id);
+    res
+}
+
+pub fn get_execution_results_key(block_hash: &CryptoHash, shard_id: ShardId) -> Vec<u8> {
+    get_block_shard_id(block_hash, shard_id)
+}
+
 pub fn get_block_shard_id_rev(
     key: &[u8],
 ) -> Result<(CryptoHash, ShardId), Box<dyn std::error::Error + Send + Sync>> {
@@ -211,10 +257,10 @@ pub fn get_outcome_id_block_hash_rev(key: &[u8]) -> std::io::Result<(CryptoHash,
 
 /// Creates a new Receipt ID based on original transaction hash.
 pub fn create_receipt_id_from_transaction(
-    tx_hash: ValidatedTransactionHash,
+    tx_hash: &CryptoHash,
     block_height: BlockHeight,
 ) -> CryptoHash {
-    create_hash_index(&tx_hash.get_hash(), block_height, 0)
+    create_hash_index(tx_hash, block_height, 0)
 }
 
 /// Creates a new Receipt ID based on original receipt id.
@@ -422,6 +468,17 @@ pub fn derive_eth_implicit_account_id(public_key: &Secp256K1PublicKey) -> Accoun
     use sha3::Digest;
     let pk_hash = sha3::Keccak256::digest(&public_key);
     format!("0x{}", hex::encode(&pk_hash[12..32])).parse().unwrap()
+}
+
+/// Returns a NEP-616 compliant deterministic account id.
+/// This is a NEAR-implicit account ID which is fully defined by its initial state.
+pub fn derive_near_deterministic_account_id(
+    state_init: &DeterministicAccountStateInit,
+) -> AccountId {
+    use sha3::Digest;
+    let data = borsh::to_vec(&state_init).expect("borsh must not fail");
+    let hash = sha3::Keccak256::digest(&data);
+    format!("0s{}", hex::encode(&hash[12..32])).parse().unwrap()
 }
 
 /// Returns the block metadata used to create an optimistic block.

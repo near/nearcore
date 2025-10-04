@@ -285,7 +285,6 @@ pub fn test_stabilized_host_function() {
     (call $ripemd160 (i64.const 0) (i64.const 0) (i64.const 0)))
 )"#,
         )
-        .opaque_error()
         .expects(&[
             expect![[r#"
                 VMOutcome: balance 4 storage_usage 12 return data None burnt gas 7226376631 used gas 7226376631

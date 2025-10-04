@@ -9,15 +9,15 @@ use near_crypto::vrf::Value;
 use near_crypto::{KeyType, PublicKey, Signature};
 use near_network::types::{NetworkRequests, PeerManagerMessageRequest};
 use near_primitives::bandwidth_scheduler::BandwidthRequests;
-use near_primitives::block::Block;
+use near_primitives::block::{Block, Chunks};
 use near_primitives::congestion_info::CongestionInfo;
 use near_primitives::network::PeerId;
 use near_primitives::optimistic_block::OptimisticBlock;
 use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::sharding::ShardChunkHeaderV3;
 use near_primitives::test_utils::create_test_signer;
-use near_primitives::types::ShardId;
 use near_primitives::types::validator_stake::ValidatorStake;
+use near_primitives::types::{Balance, Gas, ShardId};
 use near_primitives::utils::MaybeValidated;
 use near_store::ShardUId;
 use std::sync::Arc;
@@ -34,13 +34,15 @@ fn test_not_process_height_twice() {
     env.process_block(0, block, Provenance::PRODUCED);
     let validator_signer = create_test_signer("test0");
 
-    let proposals =
-        vec![ValidatorStake::new("test1".parse().unwrap(), PublicKey::empty(KeyType::ED25519), 0)];
+    let proposals = vec![ValidatorStake::new(
+        "test1".parse().unwrap(),
+        PublicKey::empty(KeyType::ED25519),
+        Balance::ZERO,
+    )];
     let mut_block = Arc::make_mut(&mut duplicate_block);
     mut_block.mut_header().set_prev_validator_proposals(proposals);
     mut_block.mut_header().resign(&validator_signer);
     let dup_block_hash = *mut_block.hash();
-    let signer = env.clients[0].validator_signer.get();
     // we should have dropped the block before we even tried to process it, so the result should be ok
     env.clients[0]
         .receive_block_impl(
@@ -48,7 +50,6 @@ fn test_not_process_height_twice() {
             PeerId::new(PublicKey::empty(KeyType::ED25519)),
             false,
             None,
-            &signer,
         )
         .unwrap();
     // check that the second block is not being processed
@@ -76,7 +77,6 @@ fn test_not_process_same_block_twice() {
 
     // Produce block and optimistic block at height 2. Process optimistic block.
     let signer = env.clients[0].validator_signer.get().unwrap();
-    let me = Some(signer.validator_id().clone());
     let block = env.clients[0].produce_block(2).unwrap().unwrap();
     let optimistic_block = OptimisticBlock::adv_produce(
         &prev_block.header(),
@@ -89,7 +89,6 @@ fn test_not_process_same_block_twice() {
     env.clients[0]
         .chain
         .process_optimistic_block(
-            &me,
             optimistic_block,
             block.chunks().iter_raw().cloned().collect(),
             None,
@@ -98,13 +97,11 @@ fn test_not_process_same_block_twice() {
 
     // First attempt to process block 2 should return error due to
     // optimistic block in processing.
-    let signer = Some(signer);
     let res = env.clients[0].receive_block_impl(
         block.clone(),
         PeerId::new(PublicKey::empty(KeyType::ED25519)),
         false,
         None,
-        &signer,
     );
     assert_matches!(res, Err(near_chain::Error::BlockPendingOptimisticExecution));
 
@@ -115,7 +112,6 @@ fn test_not_process_same_block_twice() {
         PeerId::new(PublicKey::empty(KeyType::ED25519)),
         false,
         None,
-        &signer,
     );
     assert_matches!(res, Ok(_));
 }
@@ -131,7 +127,7 @@ fn test_bad_shard_id() {
     env.process_block(0, prev_block, Provenance::PRODUCED);
     let mut block = env.clients[0].produce_block(2).unwrap().unwrap(); // modify the block and resign it
     let validator_signer = create_test_signer("test0");
-    let mut chunks: Vec<_> = block.chunks().iter_deprecated().cloned().collect();
+    let mut chunks: Vec<_> = block.chunks().iter_raw().cloned().collect();
     // modify chunk 0 to have shard_id 1
     let chunk = chunks.get(0).unwrap();
     let outgoing_receipts_root = chunks.get(1).unwrap().prev_outgoing_receipts_root();
@@ -157,11 +153,12 @@ fn test_bad_shard_id() {
     modified_chunk.height_included = 2;
     chunks[0] = ShardChunkHeader::V3(modified_chunk);
     let mut_block = Arc::make_mut(&mut block);
-    mut_block.mut_header().set_chunk_headers_root(Block::compute_chunk_headers_root(&chunks).0);
-    mut_block.mut_header().set_prev_chunk_outgoing_receipts_root(
-        Block::compute_chunk_prev_outgoing_receipts_root(&chunks),
-    );
-    mut_block.set_chunks(chunks);
+    mut_block.set_chunks(chunks.clone());
+    let chunks = Chunks::from_chunk_headers(&chunks, mut_block.header().height());
+    mut_block.mut_header().set_chunk_headers_root(chunks.compute_chunk_headers_root().0);
+    mut_block
+        .mut_header()
+        .set_prev_chunk_outgoing_receipts_root(chunks.compute_chunk_prev_outgoing_receipts_root());
     let body_hash = mut_block.compute_block_body_hash().unwrap();
     mut_block.mut_header().set_block_body_hash(body_hash);
     mut_block.mut_header().resign(&validator_signer);
@@ -188,16 +185,9 @@ fn test_bad_block_content_vrf() {
     let block = env.clients[0].produce_block(2).unwrap().unwrap();
     let mut bad_block = block.clone();
     Arc::make_mut(&mut bad_block).set_vrf_value(Value([0u8; 32]));
-    let signer = env.clients[0].validator_signer.get();
 
     let err = env.clients[0]
-        .receive_block_impl(
-            bad_block,
-            PeerId::new(PublicKey::empty(KeyType::ED25519)),
-            false,
-            None,
-            &signer,
-        )
+        .receive_block_impl(bad_block, PeerId::new(PublicKey::empty(KeyType::ED25519)), false, None)
         .unwrap_err();
     assert_matches!(err, near_chain::Error::InvalidSignature);
 
@@ -217,16 +207,9 @@ fn test_bad_block_signature() {
     let block = env.clients[0].produce_block(2).unwrap().unwrap();
     let mut bad_block = block.clone();
     Arc::make_mut(&mut bad_block).mut_header().set_signature(Signature::default());
-    let signer = env.clients[0].validator_signer.get();
 
     let err = env.clients[0]
-        .receive_block_impl(
-            bad_block,
-            PeerId::new(PublicKey::empty(KeyType::ED25519)),
-            false,
-            None,
-            &signer,
-        )
+        .receive_block_impl(bad_block, PeerId::new(PublicKey::empty(KeyType::ED25519)), false, None)
         .unwrap_err();
     assert_matches!(err, near_chain::Error::InvalidSignature);
 
@@ -244,15 +227,16 @@ enum BadCongestionInfoMode {
 
 impl BadCongestionInfoMode {
     fn corrupt(&self, congestion_info: &mut CongestionInfo) {
+        let congestion_info_test_gas_amount = Gas::from_gas(1);
         match self {
             BadCongestionInfoMode::CorruptReceiptBytes => {
                 congestion_info.add_receipt_bytes(1).unwrap();
             }
             BadCongestionInfoMode::CorruptDelayedReceiptsBytes => {
-                congestion_info.add_delayed_receipt_gas(1).unwrap();
+                congestion_info.add_delayed_receipt_gas(congestion_info_test_gas_amount).unwrap();
             }
             BadCongestionInfoMode::CorruptBufferedReceiptsBytes => {
-                congestion_info.add_buffered_receipt_gas(1).unwrap();
+                congestion_info.add_buffered_receipt_gas(congestion_info_test_gas_amount).unwrap();
             }
             BadCongestionInfoMode::CorruptAllowedShard => {
                 congestion_info.set_allowed_shard(u16::MAX);
@@ -283,7 +267,7 @@ fn test_bad_congestion_info_impl(mode: BadCongestionInfoMode) {
 
     let validator_signer = create_test_signer("test0");
 
-    let chunks: Vec<_> = block.chunks().iter_deprecated().cloned().collect();
+    let chunks: Vec<_> = block.chunks().iter_raw().cloned().collect();
     let chunk = chunks.get(0).unwrap();
 
     let mut congestion_info = chunk.congestion_info();
@@ -315,7 +299,7 @@ fn test_bad_congestion_info_impl(mode: BadCongestionInfoMode) {
     let prev_block_hash = block.header().prev_hash();
     let client = &env.clients[0];
     let prev_chunk_extra = client.chain.get_chunk_extra(prev_block_hash, &shard_uid).unwrap();
-    let result: Result<(), near_chain::Error> = validate_chunk_with_chunk_extra(
+    let result: Result<_, near_chain::Error> = validate_chunk_with_chunk_extra(
         &client.chain.chain_store,
         client.epoch_manager.as_ref(),
         prev_block_hash,
@@ -391,11 +375,9 @@ fn test_process_optimistic_block() {
 
     // Start processing block and then optimistic block.
     // Check that optimistic block is not in processing.
-    let signer = env.clients[0].validator_signer.get();
-    let me = signer.as_ref().map(|signer| signer.validator_id().clone());
-    env.clients[0].start_process_block(block.into(), Provenance::NONE, None, &signer).unwrap();
+    env.clients[0].start_process_block(block.into(), Provenance::NONE, None).unwrap();
     let optimistic_block_height = optimistic_block.inner.block_height;
-    env.clients[0].chain.preprocess_optimistic_block(optimistic_block, &me, None);
+    env.clients[0].chain.preprocess_optimistic_block(optimistic_block, None);
     assert!(
         !is_optimistic_block_in_processing(&env.clients[0].chain, optimistic_block_height),
         "Optimistic block should not be in processing because block processing already started"

@@ -3,7 +3,6 @@
 
 use crate::node::{Node, NodeConfig, ThreadNode, create_nodes_from_seeds};
 use crate::tests::standard_cases::*;
-use crate::utils::test_helpers::heavy_test;
 use near_o11y::testonly::init_test_module_logger;
 use std::thread;
 use std::time::Duration;
@@ -43,14 +42,13 @@ fn create_thread_nodes_rpc() -> Vec<ThreadNode> {
 }
 
 /// Macro for running testnet tests using ThreadNode and RPCUser.
-/// Guard each test with heavy_test mutex.
 macro_rules! run_testnet_test {
     ($f:expr) => {
-        heavy_test(|| {
-            let mut nodes = create_thread_nodes_rpc();
-            let node = nodes.remove(0);
-            $f(node)
-        });
+        let mut nodes = create_thread_nodes_rpc();
+        let node = nodes.remove(0);
+        $f(node);
+        drop(nodes);
+        near_store::db::RocksDB::block_until_all_instances_are_dropped();
     };
 }
 
@@ -95,6 +93,11 @@ fn slow_test_nonce_updated_when_tx_failed_testnet() {
 }
 
 #[test]
+fn slow_test_regression_nonce_update_with_mixed_transactions_testnet() {
+    run_testnet_test!(test_regression_nonce_update_with_mixed_transactions);
+}
+
+#[test]
 fn slow_test_upload_contract_testnet() {
     run_testnet_test!(test_upload_contract);
 }
@@ -107,6 +110,11 @@ fn slow_test_redeploy_contract_testnet() {
 #[test]
 fn slow_test_send_money_testnet() {
     run_testnet_test!(test_send_money);
+}
+
+#[test]
+fn slow_test_transaction_invalid_signature_testnet() {
+    run_testnet_test!(test_transaction_invalid_signature);
 }
 
 #[test]

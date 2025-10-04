@@ -1,7 +1,7 @@
 use near_primitives::errors::StorageError;
 use near_primitives::state::FlatStateValue;
 
-use crate::trie::{AccessOptions, TRIE_COSTS, ValueHandle};
+use crate::trie::{AccessOptions, NUM_CHILDREN, TRIE_COSTS, ValueHandle};
 
 /// For updated nodes, the ID is simply the index into the array of updated nodes we keep.
 pub type UpdatedNodeId = usize;
@@ -66,7 +66,7 @@ pub enum GenericTrieNode<TrieNodePtr, GenericValueHandle> {
     },
     /// Corresponds to either a Branch or BranchWithValue node.
     Branch {
-        children: Box<[Option<TrieNodePtr>; 16]>,
+        children: Box<[Option<TrieNodePtr>; NUM_CHILDREN]>,
         value: Option<GenericValueHandle>,
     },
 }
@@ -259,7 +259,16 @@ pub trait GenericTrieInternalStorage<GenericTrieNodePtr, GenericValueHandle> {
         &self,
         ptr: GenericTrieNodePtr,
         opts: AccessOptions,
-    ) -> Result<GenericTrieNode<GenericTrieNodePtr, GenericValueHandle>, StorageError>;
+    ) -> Result<GenericTrieNode<GenericTrieNodePtr, GenericValueHandle>, StorageError> {
+        let node_with_size = self.get_node_with_size(ptr, opts)?;
+        Ok(node_with_size.node)
+    }
+
+    fn get_node_with_size(
+        &self,
+        ptr: GenericTrieNodePtr,
+        opts: AccessOptions,
+    ) -> Result<GenericTrieNodeWithSize<GenericTrieNodePtr, GenericValueHandle>, StorageError>;
 
     // Get a value from the storage, and record it if specified in `opts`.
     fn get_value(

@@ -1,26 +1,31 @@
 use crate::accounts_data::{AccountDataCache, AccountDataError};
 use crate::client::{
     BlockApproval, ChunkEndorsementMessage, ClientSenderForNetwork, ProcessTxRequest,
-    TxStatusRequest, TxStatusResponse,
+    SpiceChunkEndorsementMessage, StateResponse, StateResponseReceived, TxStatusRequest,
+    TxStatusResponse,
 };
 use crate::concurrency::demux;
 use crate::concurrency::runtime::Runtime;
 use crate::config;
 use crate::network_protocol::{
     Edge, EdgeState, PartialEdgeInfo, PeerIdOrHash, PeerInfo, PeerMessage, RawRoutedMessage,
-    RoutedMessage, RoutedMessageBody, SignedAccountData, SnapshotHostInfo,
+    RoutedMessage, SignedAccountData, SnapshotHostInfo, T1MessageBody, T2MessageBody,
+    TieredMessageBody,
 };
 use crate::peer::peer_actor::ClosingReason;
 use crate::peer::peer_actor::PeerActor;
 use crate::peer_manager::connection;
 use crate::peer_manager::connection_store;
 use crate::peer_manager::peer_store;
-use crate::private_actix::RegisterPeerError;
+use crate::private_messages::RegisterPeerError;
 #[cfg(feature = "distance_vector_routing")]
 use crate::routing::NetworkTopologyChange;
 use crate::routing::route_back_cache::RouteBackCache;
 use crate::shards_manager::ShardsManagerRequestFromNetwork;
 use crate::snapshot_hosts::{SnapshotHostInfoError, SnapshotHostsCache};
+use crate::spice_data_distribution::{
+    SpiceDataDistributorSenderForNetwork, SpiceIncomingPartialData,
+};
 use crate::state_witness::{
     ChunkContractAccessesMessage, ChunkStateWitnessAckMessage, ContractCodeRequestMessage,
     ContractCodeResponseMessage, PartialEncodedContractDeploysMessage,
@@ -32,12 +37,14 @@ use crate::store;
 use crate::tcp;
 use crate::types::{
     ChainInfo, PeerManagerSenderForNetwork, PeerType, ReasonForBan, StateHeaderRequestBody,
-    StatePartRequestBody, Tier3Request, Tier3RequestBody,
+    StatePartRequestBody, StateRequestSenderForNetwork, Tier3Request, Tier3RequestBody,
 };
 use anyhow::Context;
 use arc_swap::ArcSwap;
+use near_async::futures::FutureSpawner;
 use near_async::messaging::{CanSend, SendAsync, Sender};
-use near_async::time;
+use near_async::{ActorSystem, time};
+use near_o11y::span_wrapped_msg::SpanWrappedMessageExt;
 use near_primitives::genesis::GenesisId;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
@@ -95,10 +102,8 @@ pub(crate) struct NetworkState {
     /// Async methods of NetworkState are not cancellable,
     /// so calling them from, for example, PeerActor is dangerous because
     /// PeerActor can be stopped at any moment.
-    /// WARNING: DO NOT spawn infinite futures/background loops on this arbiter,
+    /// WARNING: DO NOT spawn infinite futures/background loops on this runtime,
     /// as it will be automatically closed only when the NetworkState is dropped.
-    /// WARNING: actix actors can be spawned only when actix::System::current() is set.
-    /// DO NOT spawn actors from a task on this runtime.
     runtime: Runtime,
     /// PeerManager config.
     pub config: config::VerifiedConfig,
@@ -107,9 +112,11 @@ pub(crate) struct NetworkState {
     /// GenesisId of the chain.
     pub genesis_id: GenesisId,
     pub client: ClientSenderForNetwork,
+    pub state_request_adapter: StateRequestSenderForNetwork,
     pub peer_manager_adapter: PeerManagerSenderForNetwork,
     pub shards_manager_adapter: Sender<ShardsManagerRequestFromNetwork>,
     pub partial_witness_adapter: PartialWitnessSenderForNetwork,
+    pub spice_data_distributor_adapter: SpiceDataDistributorSenderForNetwork,
 
     /// Network-related info about the chain.
     pub chain_info: ArcSwap<Option<ChainInfo>>,
@@ -175,15 +182,18 @@ pub(crate) struct NetworkState {
 impl NetworkState {
     pub fn new(
         clock: &time::Clock,
+        future_spawner: &dyn FutureSpawner,
         store: store::Store,
         peer_store: peer_store::PeerStore,
         config: config::VerifiedConfig,
         genesis_id: GenesisId,
         client: ClientSenderForNetwork,
+        state_request_adapter: StateRequestSenderForNetwork,
         peer_manager_adapter: PeerManagerSenderForNetwork,
         shards_manager_adapter: Sender<ShardsManagerRequestFromNetwork>,
         partial_witness_adapter: PartialWitnessSenderForNetwork,
         whitelist_nodes: Vec<WhitelistNode>,
+        spice_data_distributor_adapter: SpiceDataDistributorSenderForNetwork,
     ) -> Self {
         Self {
             runtime: Runtime::new(),
@@ -199,6 +209,7 @@ impl NetworkState {
             })),
             genesis_id,
             client,
+            state_request_adapter,
             peer_manager_adapter,
             shards_manager_adapter,
             partial_witness_adapter,
@@ -220,13 +231,17 @@ impl NetworkState {
             )),
             txns_since_last_block: AtomicUsize::new(0),
             whitelist_nodes,
-            add_edges_demux: demux::Demux::new(config.routing_table_update_rate_limit),
+            add_edges_demux: demux::Demux::new(
+                config.routing_table_update_rate_limit,
+                future_spawner,
+            ),
             #[cfg(feature = "distance_vector_routing")]
             update_routes_demux: demux::Demux::new(config.routing_table_update_rate_limit),
             set_chain_info_mutex: Mutex::new(()),
             config,
             created_at: clock.now(),
             tier1_advertise_proxies_mutex: tokio::sync::Mutex::new(()),
+            spice_data_distributor_adapter,
         }
     }
 
@@ -458,6 +473,7 @@ impl NetworkState {
     pub async fn reconnect(
         self: &Arc<Self>,
         clock: time::Clock,
+        actor_system: ActorSystem,
         peer_info: PeerInfo,
         max_attempts: usize,
     ) {
@@ -470,9 +486,15 @@ impl NetworkState {
                     tcp::Stream::connect(&peer_info, tcp::Tier::T2, &self.config.socket_options)
                         .await
                         .context("tcp::Stream::connect()")?;
-                PeerActor::spawn_and_handshake(clock.clone(), stream, None, self.clone())
-                    .await
-                    .context("PeerActor::spawn()")?;
+                PeerActor::spawn_and_handshake(
+                    clock.clone(),
+                    actor_system.clone(),
+                    stream,
+                    None,
+                    self.clone(),
+                )
+                .await
+                .context("PeerActor::spawn()")?;
                 anyhow::Ok(())
             }
             .await;
@@ -504,19 +526,21 @@ impl NetworkState {
 
     #[cfg(test)]
     pub fn send_ping(&self, clock: &time::Clock, tier: tcp::Tier, nonce: u64, target: PeerId) {
-        let body = RoutedMessageBody::Ping(crate::network_protocol::Ping {
+        let body = T2MessageBody::Ping(crate::network_protocol::Ping {
             nonce,
             source: self.config.node_id(),
-        });
+        })
+        .into();
         let msg = RawRoutedMessage { target: PeerIdOrHash::PeerId(target), body };
         self.send_message_to_peer(clock, tier, self.sign_message(clock, msg));
     }
 
     pub fn send_pong(&self, clock: &time::Clock, tier: tcp::Tier, nonce: u64, target: CryptoHash) {
-        let body = RoutedMessageBody::Pong(crate::network_protocol::Pong {
+        let body = T2MessageBody::Pong(crate::network_protocol::Pong {
             nonce,
             source: self.config.node_id(),
-        });
+        })
+        .into();
         let msg = RawRoutedMessage { target: PeerIdOrHash::Hash(target), body };
         self.send_message_to_peer(clock, tier, self.sign_message(clock, msg));
     }
@@ -553,7 +577,7 @@ impl NetworkState {
                     // If a message is a response, we try to load the target from the route back
                     // cache.
                     PeerIdOrHash::Hash(hash) => {
-                        match self.tier1_route_back.lock().remove(clock, hash) {
+                        match self.tier1_route_back.lock().remove(clock, &hash) {
                             Some(peer_id) => peer_id,
                             None => return false,
                         }
@@ -611,7 +635,7 @@ impl NetworkState {
         self: &Arc<Self>,
         clock: &time::Clock,
         account_id: &AccountId,
-        msg: RoutedMessageBody,
+        msg: TieredMessageBody,
     ) -> bool {
         // If the message is allowed to be sent to self, we handle it directly.
         if self.config.validator.account_id().is_some_and(|id| &id == account_id) {
@@ -624,7 +648,7 @@ impl NetworkState {
                 &clock,
                 RawRoutedMessage { target: PeerIdOrHash::PeerId(my_peer_id.clone()), body: msg },
             );
-            actix::spawn(async move {
+            self.spawn(async move {
                 let hash = msg.hash();
                 this.receive_routed_message(
                     &clock,
@@ -700,129 +724,167 @@ impl NetworkState {
         msg_author: PeerId,
         prev_hop: PeerId,
         msg_hash: CryptoHash,
-        body: RoutedMessageBody,
-    ) -> Option<RoutedMessageBody> {
+        body: TieredMessageBody,
+    ) -> Option<TieredMessageBody> {
         match body {
-            RoutedMessageBody::TxStatusRequest(account_id, tx_hash) => self
-                .client
-                .send_async(TxStatusRequest { tx_hash, signer_account_id: account_id })
-                .await
-                .ok()
-                .flatten()
-                .map(|response| RoutedMessageBody::TxStatusResponse(*response)),
-            RoutedMessageBody::TxStatusResponse(tx_result) => {
-                self.client.send_async(TxStatusResponse(tx_result.into())).await.ok();
-                None
-            }
-            RoutedMessageBody::BlockApproval(approval) => {
-                self.client.send_async(BlockApproval(approval, prev_hop)).await.ok();
-                None
-            }
-            RoutedMessageBody::ForwardTx(transaction) => {
-                self.client
-                    .send_async(ProcessTxRequest {
-                        transaction,
-                        is_forwarded: true,
-                        check_only: false,
-                    })
+            TieredMessageBody::T1(body) => match *body {
+                T1MessageBody::BlockApproval(approval) => {
+                    self.client
+                        .send_async(BlockApproval(approval, prev_hop).span_wrap())
+                        .await
+                        .ok();
+                    None
+                }
+                T1MessageBody::VersionedPartialEncodedChunk(chunk) => {
+                    self.shards_manager_adapter
+                        .send(ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunk(*chunk));
+                    None
+                }
+                T1MessageBody::PartialEncodedChunkForward(msg) => {
+                    self.shards_manager_adapter.send(
+                        ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunkForward(msg),
+                    );
+                    None
+                }
+                T1MessageBody::PartialEncodedStateWitness(witness) => {
+                    self.partial_witness_adapter.send(PartialEncodedStateWitnessMessage(witness));
+                    None
+                }
+                T1MessageBody::PartialEncodedStateWitnessForward(witness) => {
+                    self.partial_witness_adapter
+                        .send(PartialEncodedStateWitnessForwardMessage(witness));
+                    None
+                }
+                T1MessageBody::VersionedChunkEndorsement(endorsement) => {
+                    self.client.send_async(ChunkEndorsementMessage(endorsement)).await.ok();
+                    None
+                }
+                T1MessageBody::ChunkContractAccesses(accesses) => {
+                    self.partial_witness_adapter.send(ChunkContractAccessesMessage(accesses));
+                    None
+                }
+                T1MessageBody::ContractCodeRequest(request) => {
+                    self.partial_witness_adapter.send(ContractCodeRequestMessage(request));
+                    None
+                }
+                T1MessageBody::ContractCodeResponse(response) => {
+                    self.partial_witness_adapter.send(ContractCodeResponseMessage(response));
+                    None
+                }
+                T1MessageBody::SpicePartialData(spice_partial_data) => {
+                    self.spice_data_distributor_adapter
+                        .send(SpiceIncomingPartialData { data: spice_partial_data });
+                    None
+                }
+                T1MessageBody::SpiceChunkEndorsement(endorsement) => {
+                    if cfg!(feature = "protocol_feature_spice") {
+                        self.client
+                            .send_async(SpiceChunkEndorsementMessage(endorsement))
+                            .await
+                            .ok();
+                    }
+                    None
+                }
+            },
+            TieredMessageBody::T2(body) => match *body {
+                T2MessageBody::TxStatusRequest(account_id, tx_hash) => self
+                    .client
+                    .send_async(TxStatusRequest { tx_hash, signer_account_id: account_id })
                     .await
-                    .ok();
-                None
-            }
-            RoutedMessageBody::PartialEncodedChunkRequest(request) => {
-                self.shards_manager_adapter.send(
-                    ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunkRequest {
-                        partial_encoded_chunk_request: request,
-                        route_back: msg_hash,
-                    },
-                );
-                None
-            }
-            RoutedMessageBody::PartialEncodedChunkResponse(response) => {
-                self.shards_manager_adapter.send(
-                    ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunkResponse {
-                        partial_encoded_chunk_response: response,
-                        received_time: clock.now().into(),
-                    },
-                );
-                None
-            }
-            RoutedMessageBody::VersionedPartialEncodedChunk(chunk) => {
-                self.shards_manager_adapter
-                    .send(ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunk(chunk));
-                None
-            }
-            RoutedMessageBody::PartialEncodedChunkForward(msg) => {
-                self.shards_manager_adapter
-                    .send(ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunkForward(msg));
-                None
-            }
-            RoutedMessageBody::ChunkStateWitnessAck(ack) => {
-                self.partial_witness_adapter.send(ChunkStateWitnessAckMessage(ack));
-                None
-            }
-            RoutedMessageBody::PartialEncodedStateWitness(witness) => {
-                self.partial_witness_adapter.send(PartialEncodedStateWitnessMessage(witness));
-                None
-            }
-            RoutedMessageBody::PartialEncodedStateWitnessForward(witness) => {
-                self.partial_witness_adapter
-                    .send(PartialEncodedStateWitnessForwardMessage(witness));
-                None
-            }
-            RoutedMessageBody::VersionedChunkEndorsement(endorsement) => {
-                self.client.send_async(ChunkEndorsementMessage(endorsement)).await.ok();
-                None
-            }
-            RoutedMessageBody::StateHeaderRequest(request) => {
-                self.peer_manager_adapter.send(Tier3Request {
-                    peer_info: PeerInfo {
-                        id: msg_author,
-                        addr: Some(request.addr),
-                        account_id: None,
-                    },
-                    body: Tier3RequestBody::StateHeader(StateHeaderRequestBody {
-                        shard_id: request.shard_id,
-                        sync_hash: request.sync_hash,
+                    .ok()
+                    .flatten()
+                    .map(|response| {
+                        TieredMessageBody::T2(Box::new(T2MessageBody::TxStatusResponse(response)))
                     }),
-                });
-                None
-            }
-            RoutedMessageBody::StatePartRequest(request) => {
-                self.peer_manager_adapter.send(Tier3Request {
-                    peer_info: PeerInfo {
-                        id: msg_author,
-                        addr: Some(request.addr),
-                        account_id: None,
-                    },
-                    body: Tier3RequestBody::StatePart(StatePartRequestBody {
-                        shard_id: request.shard_id,
-                        sync_hash: request.sync_hash,
-                        part_id: request.part_id,
-                    }),
-                });
-                None
-            }
-            RoutedMessageBody::ChunkContractAccesses(accesses) => {
-                self.partial_witness_adapter.send(ChunkContractAccessesMessage(accesses));
-                None
-            }
-            RoutedMessageBody::ContractCodeRequest(request) => {
-                self.partial_witness_adapter.send(ContractCodeRequestMessage(request));
-                None
-            }
-            RoutedMessageBody::ContractCodeResponse(response) => {
-                self.partial_witness_adapter.send(ContractCodeResponseMessage(response));
-                None
-            }
-            RoutedMessageBody::PartialEncodedContractDeploys(deploys) => {
-                self.partial_witness_adapter.send(PartialEncodedContractDeploysMessage(deploys));
-                None
-            }
-            body => {
-                tracing::error!(target: "network", "Peer received unexpected message type: {:?}", body);
-                None
-            }
+                T2MessageBody::TxStatusResponse(tx_result) => {
+                    self.client.send_async(TxStatusResponse(tx_result.into())).await.ok();
+                    None
+                }
+                T2MessageBody::ForwardTx(transaction) => {
+                    self.client
+                        .send_async(ProcessTxRequest {
+                            transaction,
+                            is_forwarded: true,
+                            check_only: false,
+                        })
+                        .await
+                        .ok();
+                    None
+                }
+                T2MessageBody::PartialEncodedChunkRequest(request) => {
+                    self.shards_manager_adapter.send(
+                        ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunkRequest {
+                            partial_encoded_chunk_request: request,
+                            route_back: msg_hash,
+                        },
+                    );
+                    None
+                }
+                T2MessageBody::PartialEncodedChunkResponse(response) => {
+                    self.shards_manager_adapter.send(
+                        ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunkResponse {
+                            partial_encoded_chunk_response: response,
+                            received_time: clock.now().into(),
+                        },
+                    );
+                    None
+                }
+                T2MessageBody::ChunkStateWitnessAck(ack) => {
+                    self.partial_witness_adapter.send(ChunkStateWitnessAckMessage(ack));
+                    None
+                }
+                T2MessageBody::StateHeaderRequest(request) => {
+                    self.peer_manager_adapter.send(Tier3Request {
+                        peer_info: PeerInfo {
+                            id: msg_author,
+                            addr: Some(request.addr),
+                            account_id: None,
+                        },
+                        body: Tier3RequestBody::StateHeader(StateHeaderRequestBody {
+                            shard_id: request.shard_id,
+                            sync_hash: request.sync_hash,
+                        }),
+                    });
+                    None
+                }
+                T2MessageBody::StatePartRequest(request) => {
+                    self.peer_manager_adapter.send(Tier3Request {
+                        peer_info: PeerInfo {
+                            id: msg_author,
+                            addr: Some(request.addr),
+                            account_id: None,
+                        },
+                        body: Tier3RequestBody::StatePart(StatePartRequestBody {
+                            shard_id: request.shard_id,
+                            sync_hash: request.sync_hash,
+                            part_id: request.part_id,
+                        }),
+                    });
+                    None
+                }
+                T2MessageBody::PartialEncodedContractDeploys(deploys) => {
+                    self.partial_witness_adapter
+                        .send(PartialEncodedContractDeploysMessage(deploys));
+                    None
+                }
+                T2MessageBody::StateRequestAck(ack) => {
+                    self.client
+                        .send_async(
+                            StateResponseReceived {
+                                peer_id: msg_author,
+                                state_response: StateResponse::Ack(ack),
+                            }
+                            .span_wrap(),
+                        )
+                        .await
+                        .ok();
+                    None
+                }
+                body => {
+                    tracing::error!(target: "network", "Peer received unexpected message type: {:?}", body);
+                    None
+                }
+            },
         }
     }
 
@@ -1003,7 +1065,7 @@ impl NetworkState {
         let _mutex = self.set_chain_info_mutex.lock();
 
         // We set state.chain_info and call accounts_data.set_keys
-        // synchronously, therefore, assuming actix in-order delivery, there
+        // synchronously, therefore, assuming actors deliver messages in order, there
         // will be no race condition between subsequent SetChainInfo calls.
         self.chain_info.store(Arc::new(Some(info.clone())));
 

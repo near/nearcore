@@ -8,7 +8,7 @@ use near_primitives::hash::CryptoHash;
 use super::mem::iter::STMemTrieIterator;
 use super::ops::interface::GenericTrieInternalStorage;
 use super::ops::iter::{TrieItem, TrieIteratorImpl};
-use super::trie_storage_update::{TrieStorageNode, TrieStorageNodePtr};
+use super::trie_storage_update::{TrieStorageNodePtr, TrieStorageNodeWithSize};
 use super::{AccessOptions, Trie, ValueHandle};
 
 pub struct DiskTrieIteratorInner<'a> {
@@ -41,20 +41,20 @@ impl<'a> GenericTrieInternalStorage<TrieStorageNodePtr, ValueHandle> for DiskTri
         Some(self.trie.root)
     }
 
-    fn get_node(
+    fn get_node_with_size(
         &self,
         ptr: TrieStorageNodePtr,
         opts: AccessOptions,
-    ) -> Result<TrieStorageNode, StorageError> {
-        let node = self.trie.retrieve_raw_node(&ptr, true, opts)?.map(|(bytes, node)| {
-            if opts.enable_state_witness_recording {
-                if let Some(ref visited_nodes) = self.visited_nodes {
-                    visited_nodes.borrow_mut().push(bytes);
-                }
+    ) -> Result<TrieStorageNodeWithSize, StorageError> {
+        let Some((bytes, node)) = self.trie.retrieve_raw_node(&ptr, true, opts)? else {
+            return Ok(Default::default());
+        };
+        if opts.enable_state_witness_recording {
+            if let Some(ref visited_nodes) = self.visited_nodes {
+                visited_nodes.borrow_mut().push(bytes);
             }
-            TrieStorageNode::from_raw_trie_node(node.node)
-        });
-        Ok(node.unwrap_or_default())
+        }
+        Ok(TrieStorageNodeWithSize::from_raw_trie_node_with_size(node))
     }
 
     fn get_value(
@@ -133,12 +133,20 @@ mod tests {
         let state_root =
             test_populate_trie(&tries, &Trie::EMPTY_ROOT, ShardUId::single_shard(), trie_changes);
         let trie = tries.get_trie_for_shard(ShardUId::single_shard(), state_root);
-        let path_begin: Vec<_> = NibbleSlice::new(b"aa").iter().collect();
-        let path_end: Vec<_> = NibbleSlice::new(b"abb").iter().collect();
+        let path_begin = Some(b"aa".as_slice());
+        let path_end = Some(b"abb".as_slice());
         let mut trie_iter = trie.disk_iter().unwrap();
-        let items = trie_iter.visit_nodes_interval(&path_begin, &path_end).unwrap();
+        let items = trie_iter.visit_nodes_interval(path_begin, path_end).unwrap();
         let trie_items: Vec<_> = items.into_iter().map(|item| item.key).flatten().collect();
         assert_eq!(trie_items, vec![b"aa"]);
+    }
+
+    fn assert_iter_type(iter: &TrieIterator, memtrie: bool) {
+        if memtrie {
+            assert!(matches!(iter, TrieIterator::Memtrie(_)));
+        } else {
+            assert!(matches!(iter, TrieIterator::Disk(_)));
+        }
     }
 
     fn test_iterator(use_memtries: bool) {
@@ -149,11 +157,7 @@ mod tests {
             {
                 let lock = trie.lock_for_iter();
                 let iter = lock.iter().unwrap();
-                if use_memtries {
-                    assert!(matches!(iter, TrieIterator::Memtrie(_)));
-                } else {
-                    assert!(matches!(iter, TrieIterator::Disk(_)));
-                }
+                assert_iter_type(&iter, use_memtries);
                 let result1: Vec<_> = iter.map(Result::unwrap).collect();
                 let result2: Vec<_> = map.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
                 assert_eq!(result1, result2);
@@ -235,7 +239,7 @@ mod tests {
         }
     }
 
-    // Check that pruning a node doesn't descend into it's subtree.
+    // Check that pruning a node doesn't descend into its subtree.
     // A buggy pruning implementation could still iterate over all the
     // nodes but simply not return them. This test makes sure this is
     // not the case.
@@ -360,11 +364,7 @@ mod tests {
     ) {
         let lock = trie.lock_for_iter();
         let mut iterator = lock.iter().unwrap();
-        if is_memtrie {
-            assert!(matches!(iterator, TrieIterator::Memtrie(_)));
-        } else {
-            assert!(matches!(iterator, TrieIterator::Disk(_)));
-        }
+        assert_iter_type(&iterator, is_memtrie);
         iterator.seek_prefix(&seek_key).unwrap();
         let got = iterator
             .map(|item| {
@@ -396,11 +396,7 @@ mod tests {
         let got = {
             let lock = trie_with_recorder.lock_for_iter();
             let mut iterator = lock.iter().unwrap();
-            if is_memtrie {
-                assert!(matches!(iterator, TrieIterator::Memtrie(_)));
-            } else {
-                assert!(matches!(iterator, TrieIterator::Disk(_)));
-            }
+            assert_iter_type(&iterator, is_memtrie);
 
             let seek_bound =
                 if include_start { Bound::Included(seek_key) } else { Bound::Excluded(seek_key) };
