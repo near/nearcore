@@ -10803,7 +10803,7 @@
           "num_active_peers",
           "peer_max_count",
           "sent_bytes_per_sec",
-          "received_bytes_per_sec",
+          "received_bytes_per_sec"
         ],
         "type": "object"
       },
