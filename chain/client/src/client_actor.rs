@@ -30,8 +30,7 @@ use near_async::messaging::{
     self, CanSend, Handler, IntoMultiSender, IntoSender as _, LateBoundSender, Sender,
 };
 use near_async::multithread::MultithreadRuntimeHandle;
-use near_async::time::Duration;
-use near_async::time::{Clock, Utc};
+use near_async::time::{Clock, Duration, Utc};
 use near_async::tokio::TokioRuntimeHandle;
 use near_async::{ActorSystem, MultiSend, MultiSenderFrom};
 #[cfg(feature = "test_features")]
@@ -415,7 +414,6 @@ impl ClientActorInner {
                 highest_height_peers: vec![],
                 received_bytes_per_sec: 0,
                 sent_bytes_per_sec: 0,
-                known_producers: vec![],
                 tier1_accounts_keys: vec![],
                 tier1_accounts_data: vec![],
             },
@@ -860,18 +858,6 @@ fn make_peer_info(from: near_network::types::PeerInfo) -> near_client_primitives
     }
 }
 
-/// Private to public API conversion.
-fn make_known_producer(
-    from: near_network::types::KnownProducer,
-) -> near_client_primitives::types::KnownProducer {
-    near_client_primitives::types::KnownProducer {
-        peer_id: from.peer_id,
-        account_id: from.account_id,
-        addr: from.addr,
-        next_hops: from.next_hops,
-    }
-}
-
 impl Handler<SpanWrapped<GetNetworkInfo>, Result<NetworkInfoResponse, String>>
     for ClientActorInner
 {
@@ -884,12 +870,6 @@ impl Handler<SpanWrapped<GetNetworkInfo>, Result<NetworkInfoResponse, String>>
             peer_max_count: self.network_info.peer_max_count,
             sent_bytes_per_sec: self.network_info.sent_bytes_per_sec,
             received_bytes_per_sec: self.network_info.received_bytes_per_sec,
-            known_producers: self
-                .network_info
-                .known_producers
-                .iter()
-                .map(|p| make_known_producer(p.clone()))
-                .collect(),
         })
     }
 }

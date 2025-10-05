@@ -46,9 +46,6 @@ def visit_node(node_ip, timeout):
         data = requests.get(f'http://{node_ip}:3030/network_info',
                             timeout=timeout).json()
         peer_id_to_account_id = {}
-        for known_producer in data['known_producers']:
-            peer_id_to_account_id[
-                known_producer['peer_id']] = known_producer['account_id']
         for peer in data['active_peers']:
             ip = peer['addr'].split(':')[0]
             learn_about_node(ip)

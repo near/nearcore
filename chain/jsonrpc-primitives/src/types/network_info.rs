@@ -12,22 +12,12 @@ pub struct RpcPeerInfo {
 
 #[derive(serde::Serialize, serde::Deserialize, Debug)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-pub struct RpcKnownProducer {
-    pub account_id: AccountId,
-    pub addr: Option<SocketAddr>,
-    pub peer_id: PeerId,
-}
-
-#[derive(serde::Serialize, serde::Deserialize, Debug)]
-#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct RpcNetworkInfoResponse {
     pub active_peers: Vec<RpcPeerInfo>,
     pub num_active_peers: usize,
     pub peer_max_count: u32,
     pub sent_bytes_per_sec: u64,
     pub received_bytes_per_sec: u64,
-    /// Accounts of known block and chunk producers from routing table.
-    pub known_producers: Vec<RpcKnownProducer>,
 }
 
 #[derive(thiserror::Error, Debug, Clone, serde::Serialize, serde::Deserialize)]

@@ -45,7 +45,7 @@ use near_client_primitives::debug::{DebugBlockStatus, DebugChunkStatus};
 use near_network::types::{ConnectedPeerInfo, NetworkInfo, PeerType};
 use near_primitives::sharding::ChunkHash;
 use near_primitives::views::{
-    AccountDataView, KnownProducerView, NetworkInfoView, PeerInfoView, Tier1ProxyView,
+    AccountDataView, NetworkInfoView, PeerInfoView, Tier1ProxyView,
 };
 
 // Maximum number of blocks to search for the first block to display.
@@ -938,18 +938,6 @@ pub(crate) fn new_network_info_view(chain: &Chain, network_info: &NetworkInfo) -
             .iter()
             .map(|full_peer_info| new_peer_info_view(chain, full_peer_info))
             .collect::<Vec<_>>(),
-        known_producers: network_info
-            .known_producers
-            .iter()
-            .map(|it| KnownProducerView {
-                account_id: it.account_id.clone(),
-                peer_id: it.peer_id.public_key().clone(),
-                next_hops: it
-                    .next_hops
-                    .as_ref()
-                    .map(|it| it.iter().map(|peer_id| peer_id.public_key().clone()).collect()),
-            })
-            .collect(),
         tier1_accounts_keys: network_info.tier1_accounts_keys.clone(),
         tier1_accounts_data: network_info
             .tier1_accounts_data
