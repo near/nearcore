@@ -14,7 +14,7 @@
                     data.status_response.EpochInfo.forEach(element => {
                         if (element.epoch_id == epoch_id) {
                             epoch_found = true;
-                            producers_callback(element.block_producers, element.chunk_only_producers);
+                            producers_callback(element.block_producers, element.chunk_producers);
                         }
                     });
                     // This can happen if we're in sync mode - in such case, still print the list of peers,
@@ -50,35 +50,8 @@
                             chunk_producer_set.add(element);
                         });
 
-                        let known_set = new Set();
-                        data.detailed_debug_status.network_info.known_producers.forEach(element => {
-                            known_set.add(element.account_id);
-                        });
-
-                        let reachable_set = new Set();
-                        data.detailed_debug_status.network_info.known_producers.forEach(element => {
-                            if (element.next_hops != null && element.next_hops.length > 0) {
-                                reachable_set.add(element.account_id);
-                            }
-                        });
-
                         $('.js-num-block-producers').text(block_producers.length);
-                        $('.js-num-known-block-producers').text(getIntersection(block_producer_set, known_set).size);
-                        $('.js-num-reachable-block-producers').text(getIntersection(block_producer_set, reachable_set).size);
-                        let unknown_set = getDifference(block_producer_set, known_set);
-                        let known_but_unreachable = getIntersection(block_producer_set, getDifference(known_set, reachable_set));
-                        $('.js-unknown-block-producers').text(Array.from(unknown_set).join(","));
-                        $('.js-unreachable-block-producers').text(Array.from(known_but_unreachable).join(","));
-
-
-
                         $('.js-num-chunk-producers').text(chunk_producers.length);
-                        $('.js-num-known-chunk-producers').text(getIntersection(chunk_producer_set, known_set).size);
-                        $('.js-num-reachable-chunk-producers').text(getIntersection(chunk_producer_set, reachable_set).size);
-                        let chunk_unknown_set = getDifference(chunk_producer_set, known_set);
-                        let chunk_known_but_unreachable = getIntersection(chunk_producer_set, getDifference(known_set, reachable_set));
-                        $('.js-unknown-chunk-producers').text(Array.from(chunk_unknown_set).join(","));
-                        $('.js-unreachable-chunk-producers').text(Array.from(chunk_known_but_unreachable).join(","));
 
                         let node_public_key = data.node_public_key;
                         let sync_status = data.detailed_debug_status.sync_status;
@@ -91,24 +64,6 @@
                         let peer_status_map = new Map();
                         network_info.connected_peers.forEach(function (peer, index) {
                             let peer_id = peer.peer_id;
-                            let validator = new Array();
-                            let routedValidator = new Array();
-                            data.detailed_debug_status.network_info.known_producers.forEach(element => {
-                                if (block_producer_set.has(element.account_id) || chunk_producer_set.has(element.account_id)) {
-                                    if (element.peer_id == peer_id) {
-                                        // This means that the peer that we're connected to is a validator.
-                                        validator.push(element.account_id);
-                                    } else {
-                                        if (element.next_hops != null) {
-                                            if (element.next_hops.includes(peer_id)) {
-                                                // This means that the peer that we're connected to is on the shortest path
-                                                // to this validator.
-                                                routedValidator.push(element.account_id);
-                                            }
-                                        }
-                                    }
-                                }
-                            });
                             let peer_class = peerClass(current_height, peer.height)
                             if (peer_status_map.has(peer_class)) {
                                 peer_status_map.set(peer_class, peer_status_map.get(peer_class) + 1);
@@ -124,7 +79,6 @@
 
                             let row = $('.js-tbody-peers').append($('<tr>')
                                 .append($('<td>').append(add_debug_port_link(peer.addr)))
-                                .append($('<td>').append(validator.join(",")))
                                 .append($('<td>').append(peer.peer_id.substr(8, 5) + "..."))
                                 .append($('<td>').append(convertTime(peer.last_time_received_message_millis)).addClass(last_ping_class))
                                 .append($('<td>').append(JSON.stringify(peer.height)).addClass(peer_class))
@@ -135,7 +89,6 @@
                                 .append($('<td>').append(peer.nonce + " <br> " + convertTime(Date.now() - peer.nonce * 1000)))
                                 .append($('<td>').append(convertTime(peer.connection_established_time_millis)))
                                 .append($('<td>').append(computeTraffic(peer.received_bytes_per_sec, peer.sent_bytes_per_sec)))
-                                .append($('<td>').append(routedValidator.join(",")))
                             )
                         });
                         let legend = [["peer_ahead_alot", "Peer ahead a lot"],
@@ -235,27 +188,15 @@
             Number of peers: <span class="js-num-peers"></span>/<span class="js-max-peers"></span>
         </p>
         <p>
-            Block Producers: <span class="js-num-block-producers"></span> Known: <span
-                class="js-num-known-block-producers"></span>
-            Reachable: <span class="js-num-reachable-block-producers"></span>
+            Block Producers: <span class="js-num-block-producers"></span>
         </p>
     </h2>
 
-    <pre>
-Unknown: <span class="js-unknown-block-producers"></span>
-Unreachable: <span class="js-unreachable-block-producers"></span>
-    </pre>
     <h2>
         <p>
-            Chunk Producers: <span class="js-num-chunk-producers"></span> Known: <span
-                class="js-num-known-chunk-producers"></span>
-            Reachable: <span class="js-num-reachable-chunk-producers"></span>
+            Chunk Producers: <span class="js-num-chunk-producers"></span>
         </p>
     </h2>
-    <pre>
-Unknown: <span class="js-unknown-chunk-producers"></span>
-Unreachable: <span class="js-unreachable-chunk-producers"></span>
-    </pre>
 
     <b>Unknown</b> means that we didn't receive 'announce' information about this validator (so we don't know on which
     peer it
@@ -278,7 +219,6 @@ Unreachable: <span class="js-unreachable-chunk-producers"></span>
         <thead>
             <tr>
                 <th>Address</th>
-                <th>Validator?</th>
                 <th>PeerId</th>
                 <th>Last ping</th>
                 <th>Height</th>
@@ -289,7 +229,6 @@ Unreachable: <span class="js-unreachable-chunk-producers"></span>
                 <th>Nonce</th>
                 <th>First connection</th>
                 <th>Traffic (last minute)</th>
-                <th>Route to validators</th>
             </tr>
         </thead>
         <tbody class="js-tbody-peers">
