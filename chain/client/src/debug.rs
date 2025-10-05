@@ -44,9 +44,7 @@ use time::ext::InstantExt as _;
 use near_client_primitives::debug::{DebugBlockStatus, DebugChunkStatus};
 use near_network::types::{ConnectedPeerInfo, NetworkInfo, PeerType};
 use near_primitives::sharding::ChunkHash;
-use near_primitives::views::{
-    AccountDataView, NetworkInfoView, PeerInfoView, Tier1ProxyView,
-};
+use near_primitives::views::{AccountDataView, NetworkInfoView, PeerInfoView, Tier1ProxyView};
 
 // Maximum number of blocks to search for the first block to display.
 const DEBUG_MAX_BLOCKS_TO_SEARCH: u64 = 10000;
