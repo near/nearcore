@@ -197,6 +197,10 @@ fn setup(
     ));
 
     let shards_manager_adapter_for_client = LateBoundSender::new();
+    let spice_core_processor = CoreStatementsProcessor::new_with_noop_senders(
+        runtime.store().chain_store(),
+        epoch_manager.clone(),
+    );
     let StartClientResult {
         client_actor,
         tx_pool,
@@ -226,10 +230,7 @@ fn setup(
         Some(TEST_SEED),
         resharding_sender.into_multi_sender(),
         SpiceClientConfig {
-            core_processor: CoreStatementsProcessor::new_with_noop_senders(
-                runtime.store().chain_store(),
-                epoch_manager.clone(),
-            ),
+            core_processor: spice_core_processor.clone(),
             chunk_executor_sender: noop().into_sender(),
             spice_chunk_validator_sender: noop().into_sender(),
             spice_data_distributor_sender: noop().into_sender(),
@@ -253,6 +254,7 @@ fn setup(
         signer,
         runtime,
         network_adapter.clone(),
+        spice_core_processor,
     );
 
     let validator_signer = Some(Arc::new(EmptyValidatorSigner::new(account_id)));
@@ -577,6 +579,7 @@ pub fn setup_synchronous_shards_manager(
         MutableConfigValue::new(None, "validator_signer"),
         noop().into_multi_sender(),
         CoreStatementsProcessor::new_with_noop_senders(chain_store, epoch_manager.clone()),
+        None,
     )
     .unwrap();
     let chain_head = chain.head().unwrap();
@@ -623,6 +626,10 @@ pub fn setup_tx_request_handler(
         transaction_validity_period: chain_genesis.transaction_validity_period,
     };
 
+    let spice_core_processor = CoreStatementsProcessor::new_with_noop_senders(
+        runtime.store().chain_store(),
+        epoch_manager.clone(),
+    );
     RpcHandler::new(
         config,
         client.chunk_producer.sharded_tx_pool.clone(),
@@ -632,6 +639,7 @@ pub fn setup_tx_request_handler(
         client.validator_signer.clone(),
         runtime,
         network_adapter,
+        spice_core_processor,
     )
 }
 

@@ -7,7 +7,7 @@ use crate::network_protocol::{
 };
 use crate::peer::peer_actor;
 use crate::peer::peer_actor::PeerActor;
-use crate::private_actix::SendMessage;
+use crate::private_messages::SendMessage;
 use crate::stats::metrics;
 use crate::tcp;
 use crate::types::{BlockInfo, FullPeerInfo, PeerChainInfo, PeerType, ReasonForBan};
@@ -155,7 +155,7 @@ impl Connection {
     }
 
     // TODO(gprusak): embed Stream directly in Connection,
-    // so that we can skip actix queue when sending messages.
+    // so that we can skip the actor queue when sending messages.
     pub fn send_message(&self, msg: Arc<PeerMessage>) {
         let msg_kind = msg.msg_variant().to_string();
         tracing::trace!(target: "network", ?msg_kind, "Send message");

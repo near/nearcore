@@ -1,4 +1,5 @@
 use crate::opentelemetry::get_opentelemetry_filter;
+use crate::skip_ansi_escaping_message::SkipAnsiEscapingMessage;
 use crate::{BuildEnvFilterError, EnvFilterBuilder, OpenTelemetryLevel, log_config, log_counter};
 use opentelemetry_sdk::trace::Tracer;
 use std::sync::OnceLock;
@@ -21,7 +22,7 @@ static DEFAULT_OTLP_LEVEL: OnceLock<OpenTelemetryLevel> = OnceLock::new();
 
 pub(crate) type LogLayer<Inner> = Layered<
     Filtered<
-        fmt::Layer<Inner, fmt::format::DefaultFields, fmt::format::Format, NonBlocking>,
+        fmt::Layer<Inner, SkipAnsiEscapingMessage, fmt::format::Format, NonBlocking>,
         reload::Layer<EnvFilter, Inner>,
         Inner,
     >,
@@ -29,11 +30,7 @@ pub(crate) type LogLayer<Inner> = Layered<
 >;
 
 pub(crate) type SimpleLogLayer<Inner, W> = Layered<
-    Filtered<
-        fmt::Layer<Inner, fmt::format::DefaultFields, fmt::format::Format, W>,
-        EnvFilter,
-        Inner,
-    >,
+    Filtered<fmt::Layer<Inner, SkipAnsiEscapingMessage, fmt::format::Format, W>, EnvFilter, Inner>,
     Inner,
 >;
 

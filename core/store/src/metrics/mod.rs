@@ -638,7 +638,6 @@ mod test {
     use crate::metadata::{DB_VERSION, DbKind};
     use crate::metrics::rocksdb_metrics;
     use crate::test_utils::create_test_node_storage_with_cold;
-    use actix;
     use near_o11y::testonly::init_test_logger;
     use near_time::Duration;
 
@@ -668,7 +667,7 @@ mod test {
         hot.set_store_statistics(hot_stats);
         cold.set_store_statistics(cold_stats);
 
-        actix::clock::sleep(period.unsigned_abs()).await;
+        tokio::time::sleep(period.unsigned_abs()).await;
         for _ in 0..10 {
             let int_gauges = rocksdb_metrics::get_int_gauges();
 
@@ -677,7 +676,7 @@ mod test {
             if has_hot_gauge && has_cold_gauge {
                 break;
             }
-            actix::clock::sleep(period.unsigned_abs() / 10).await;
+            tokio::time::sleep(period.unsigned_abs() / 10).await;
         }
 
         let int_gauges = rocksdb_metrics::get_int_gauges();

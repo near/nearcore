@@ -44,6 +44,7 @@ fn genesis_header(genesis: &Genesis) -> BlockHeader {
         MutableConfigValue::new(None, "validator_signer"),
         noop().into_multi_sender(),
         CoreStatementsProcessor::new_with_noop_senders(store.chain_store(), epoch_manager),
+        None,
     )
     .unwrap();
     chain.genesis().clone()
@@ -73,6 +74,7 @@ pub fn genesis_block(genesis: &Genesis) -> Arc<Block> {
         MutableConfigValue::new(None, "validator_signer"),
         noop().into_multi_sender(),
         CoreStatementsProcessor::new_with_noop_senders(store.chain_store(), epoch_manager),
+        None,
     )
     .unwrap();
     chain.get_block(&chain.genesis().hash().clone()).unwrap()

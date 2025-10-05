@@ -12,7 +12,6 @@ publish = false
 workspace = true
 
 [dev-dependencies]
-actix.workspace = true
 assert_matches.workspace = true
 borsh.workspace = true
 bytesize.workspace = true

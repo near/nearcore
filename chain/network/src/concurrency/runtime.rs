@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 /// Single-threaded runtime which cancels all the tasks as soon as it is dropped.
-/// A potential in-place replacement for actix::Actor.
+/// TODO(#14005): Replace this with TokioRuntimeHandle.
 pub(crate) struct Runtime {
     pub handle: tokio::runtime::Handle,
     stop: Arc<tokio::sync::Notify>,

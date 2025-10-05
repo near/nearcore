@@ -27,8 +27,9 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{Receipt, ReceiptPriority};
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::sharding::ShardChunk;
-use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsement;
+use near_primitives::stateless_validation::spice_chunk_endorsement::SpiceChunkEndorsement;
 use near_primitives::test_utils::{TestBlockBuilder, create_test_signer};
+use near_primitives::types::SpiceChunkId;
 use near_primitives::types::{
     AccountId, Balance, BlockExecutionResults, ChunkExecutionResult, NumShards, ShardId,
 };
@@ -45,7 +46,6 @@ use crate::chunk_executor_actor::ProcessedBlock;
 use crate::spice_data_distributor_actor::SpiceDataDistributorAdapter;
 use crate::spice_data_distributor_actor::SpiceDistributorOutgoingReceipts;
 use crate::spice_data_distributor_actor::SpiceDistributorStateWitness;
-use crate::stateless_validation::chunk_endorsement::ChunkEndorsementTracker;
 
 struct FakeSpawner {
     sc: UnboundedSender<Box<dyn FnOnce() + Send>>,
@@ -112,12 +112,6 @@ impl TestActor {
             epoch_manager.clone(),
         );
 
-        let chunk_endorsement_tracker = Arc::new(ChunkEndorsementTracker::new(
-            epoch_manager.clone(),
-            runtime.store().clone(),
-            spice_core_processor.clone(),
-        ));
-
         let (spawner, tasks_rc) = FakeSpawner::new();
         let (actor_sc, actor_rc) = unbounded();
         let chunk_executor_adapter = Sender::from_fn(move |event: ExecutorApplyChunksDone| {
@@ -164,7 +158,6 @@ impl TestActor {
             network_adapter,
             validator_signer,
             spice_core_processor,
-            chunk_endorsement_tracker,
             Arc::new(spawner),
             ApplyChunksIterationMode::Sequential,
             chunk_executor_adapter,
@@ -269,7 +262,7 @@ fn setup_with_non_validator(outgoing_sc: UnboundedSender<OutgoingMessage>) -> [T
 fn simulate_single_outgoing_message(actors: &mut [TestActor], message: &OutgoingMessage) {
     match message {
         OutgoingMessage::NetworkRequests(requests) => match requests {
-            NetworkRequests::ChunkEndorsement(..) => {}
+            NetworkRequests::SpiceChunkEndorsement(..) => {}
             request => unreachable!("{request:?}"),
         },
         OutgoingMessage::SpiceDistributorOutgoingReceipts(SpiceDistributorOutgoingReceipts {
@@ -390,16 +383,13 @@ fn record_endorsements(actors: &mut [TestActor], block: &Block) {
             let Some(signer) = actor.actor.validator_signer.get() else {
                 continue;
             };
-            let endorsement = ChunkEndorsement::new_with_execution_result(
-                *epoch_id,
+            let endorsement = SpiceChunkEndorsement::new(
+                SpiceChunkId { block_hash: *block.hash(), shard_id },
                 execution_result.clone(),
-                *block.header().hash(),
-                chunk.shard_id(),
-                chunk.height_created(),
                 &signer,
             );
             for actor in actors.iter() {
-                actor.actor.core_processor.record_chunk_endorsement(endorsement.clone()).unwrap();
+                actor.actor.core_processor.process_chunk_endorsement(endorsement.clone()).unwrap();
             }
         }
     }
