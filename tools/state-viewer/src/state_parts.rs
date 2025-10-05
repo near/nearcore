@@ -2,12 +2,13 @@ use crate::epoch_info::iterate_and_filter;
 use borsh::BorshSerialize;
 use near_chain::{Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode};
 use near_client::sync::external::{
-    ExternalConnection, StateFileType, create_bucket_read_write, create_bucket_readonly,
-    external_storage_location, external_storage_location_directory, get_num_parts_from_filename,
+    StateFileType, StateSyncConnection, external_storage_location,
+    external_storage_location_directory, get_num_parts_from_filename,
 };
 use near_epoch_manager::EpochManager;
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_primitives::epoch_info::EpochInfo;
+use near_primitives::external::{ExternalStorageLocation, S3AccessConfig};
 use near_primitives::state::PartialState;
 use near_primitives::state_part::{PartId, StatePart};
 use near_primitives::state_record::StateRecord;
@@ -20,7 +21,6 @@ use nearcore::{NearConfig, NightshadeRuntime, NightshadeRuntimeExt};
 use std::ops::Range;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
-use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 #[derive(clap::ValueEnum, Clone, Debug, Default)]
@@ -142,7 +142,7 @@ impl StatePartsSubCommand {
                     part_id,
                     epoch_selection,
                 } => {
-                    let external = create_external_connection(
+                    let external = create_state_sync_connection(
                         root_dir,
                         s3_bucket,
                         s3_region,
@@ -171,7 +171,7 @@ impl StatePartsSubCommand {
                     epoch_selection,
                     credentials_file,
                 } => {
-                    let external = create_external_connection(
+                    let external = create_state_sync_connection(
                         root_dir,
                         s3_bucket,
                         s3_region,
@@ -209,44 +209,30 @@ enum Mode {
     ReadWrite,
 }
 
-fn create_external_connection(
+fn create_state_sync_connection(
     root_dir: Option<PathBuf>,
     bucket: Option<String>,
     region: Option<String>,
     gcs_bucket: Option<String>,
     credentials_file: Option<PathBuf>,
-    mode: Mode,
-) -> ExternalConnection {
-    if let Some(root_dir) = root_dir {
-        ExternalConnection::Filesystem { root_dir }
+    s3_mode: Mode,
+) -> StateSyncConnection {
+    let location = if let Some(root_dir) = root_dir {
+        ExternalStorageLocation::Filesystem { root_dir }
     } else if let (Some(bucket), Some(region)) = (bucket, region) {
-        let bucket = match mode {
-            Mode::ReadOnly => create_bucket_readonly(&bucket, &region, Duration::from_secs(5)),
-            Mode::ReadWrite => {
-                create_bucket_read_write(&bucket, &region, Duration::from_secs(5), credentials_file)
-            }
-        }
-        .expect("Failed to create an S3 bucket");
-        ExternalConnection::S3 { bucket: Arc::new(bucket) }
+        ExternalStorageLocation::S3 { bucket, region }
     } else if let Some(bucket) = gcs_bucket {
-        if let Some(credentials_file) = credentials_file {
-            unsafe { std::env::set_var("SERVICE_ACCOUNT", &credentials_file) };
-        }
-        ExternalConnection::GCS {
-            gcs_client: Arc::new(
-                object_store::gcp::GoogleCloudStorageBuilder::from_env()
-                    .with_bucket_name(&bucket)
-                    .build()
-                    .unwrap(),
-            ),
-            reqwest_client: Arc::new(reqwest::Client::default()),
-            bucket,
-        }
+        ExternalStorageLocation::GCS { bucket }
     } else {
         panic!(
             "Please provide --root-dir, or both of --s3-bucket and --s3-region, or --gcs-bucket"
         );
-    }
+    };
+    let s3_access_config = S3AccessConfig {
+        timeout: Duration::from_secs(5),
+        is_readonly: matches!(s3_mode, Mode::ReadOnly),
+    };
+    StateSyncConnection::new(&location, credentials_file, s3_access_config)
 }
 
 #[derive(clap::Subcommand, Debug, Clone)]
@@ -337,7 +323,7 @@ async fn load_state_parts(
     chain: &Chain,
     chain_id: &str,
     store: Store,
-    external: &ExternalConnection,
+    external: &StateSyncConnection,
 ) {
     let epoch_id = epoch_selection.to_epoch_id(store, chain);
     let (state_root, epoch_height, epoch_id, sync_hash) =
@@ -457,7 +443,7 @@ async fn dump_state_parts(
     chain: &Chain,
     chain_id: &str,
     store: Store,
-    external: &ExternalConnection,
+    external: &StateSyncConnection,
 ) {
     let epoch_id = epoch_selection.to_epoch_id(store, chain);
     let epoch = chain.epoch_manager.get_epoch_info(&epoch_id).unwrap();

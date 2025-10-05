@@ -9,6 +9,7 @@ use near_client::sync::external::{StateFileType, external_storage_location};
 use near_crypto::InMemorySigner;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::block::Tip;
+use near_primitives::external::ExternalStorageLocation;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::state::FlatStateValue;
 use near_primitives::state_part::{PartId, StatePart};
@@ -48,7 +49,7 @@ fn slow_test_state_dump() {
     let mut config = env.clients[0].config.clone();
     let root_dir = tempfile::Builder::new().prefix("state_dump").tempdir().unwrap();
     config.state_sync.dump = Some(DumpConfig {
-        location: Filesystem { root_dir: root_dir.path().to_path_buf() },
+        location: ExternalStorageLocation::Filesystem { root_dir: root_dir.path().to_path_buf() },
         restart_dump_for_shards: None,
         iteration_delay: Some(Duration::ZERO),
         credentials_file: None,
@@ -165,7 +166,7 @@ fn run_state_sync_with_dumped_parts(
     let mut config = env.clients[0].config.clone();
     let root_dir = tempfile::Builder::new().prefix("state_dump").tempdir().unwrap();
     config.state_sync.dump = Some(DumpConfig {
-        location: Filesystem { root_dir: root_dir.path().to_path_buf() },
+        location: ExternalStorageLocation::Filesystem { root_dir: root_dir.path().to_path_buf() },
         restart_dump_for_shards: None,
         iteration_delay: Some(Duration::ZERO),
         credentials_file: None,

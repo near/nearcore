@@ -29,9 +29,9 @@ pub struct BlockDataV1 {
     transaction_result_for_block: HashMap<CryptoHash, ExecutionOutcomeWithProof>,
 }
 
-pub fn build_block_data(store: &Store, block_height: &BlockHeight) -> Result<BlockData, Error> {
+pub fn build_block_data(store: &Store, block_height: BlockHeight) -> Result<BlockData, Error> {
     let store = store.chain_store();
-    let block_hash = store.get_block_hash_by_height(*block_height)?;
+    let block_hash = store.get_block_hash_by_height(block_height)?;
     let block = (*store.get_block(&block_hash)?).clone();
     let block_info = store.epoch_store().get_block_info(&block_hash)?;
     let next_block_hash = store.get_next_block_hash(&block_hash)?;

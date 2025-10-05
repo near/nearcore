@@ -1,13 +1,16 @@
 //! Cloud archival actor: moves finalized data from the hot store to the cloud storage.
 //! Runs in a loop until the cloud head catches up with the hot final head.
 use std::io;
+use std::sync::Arc;
 
 use near_async::futures::{DelayedActionRunner, DelayedActionRunnerExt};
 use near_async::messaging::Actor;
 use near_chain::types::{RuntimeAdapter, Tip};
-use near_chain_configs::{CloudArchivalHandle, CloudArchivalWriterConfig, CloudStorageConfig};
+use near_chain_configs::{CloudArchivalHandle, CloudArchivalWriterConfig};
 use near_primitives::types::BlockHeight;
 use near_store::adapter::StoreAdapter;
+use near_store::archive::cloud_storage::CloudStorage;
+use near_store::archive::cloud_storage::update::{update_cloud_storage, CloudArchivingError};
 use near_store::db::{CLOUD_HEAD_KEY, DBTransaction};
 use near_store::{DBCol, FINAL_HEAD_KEY, Store};
 use time::Duration;
@@ -24,27 +27,6 @@ enum CloudArchivingResult {
     // Archived a height below the final head; more heights are immediately available.
     // Contains (archived_height, target_height).
     OlderHeightArchived(BlockHeight, BlockHeight),
-}
-
-/// Error surfaced while archiving data or performing sanity checks.
-#[derive(thiserror::Error, Debug)]
-enum CloudArchivingError {
-    #[error("Cloud archiving IO error: {message}")]
-    IOError { message: String },
-    #[error("Cloud archiving chain error: {error}")]
-    ChainError { error: near_chain_primitives::Error },
-}
-
-impl From<std::io::Error> for CloudArchivingError {
-    fn from(error: std::io::Error) -> Self {
-        CloudArchivingError::IOError { message: error.to_string() }
-    }
-}
-
-impl From<near_chain_primitives::Error> for CloudArchivingError {
-    fn from(error: near_chain_primitives::Error) -> Self {
-        CloudArchivingError::ChainError { error }
-    }
 }
 
 /// Error surfaced while initializing cloud archive or writer.
@@ -83,6 +65,7 @@ pub struct CloudArchivalActor {
     config: CloudArchivalWriterConfig,
     genesis_height: BlockHeight,
     hot_store: Store,
+    cloud_storage: Arc<CloudStorage>,
     cloud_head: BlockHeight,
     handle: CloudArchivalHandle,
 }
@@ -93,22 +76,32 @@ pub fn create_cloud_archival_actor(
     genesis_height: BlockHeight,
     runtime_adapter: &dyn RuntimeAdapter,
     hot_store: Store,
+    cloud_storage: Option<&Arc<CloudStorage>>,
 ) -> anyhow::Result<Option<CloudArchivalActor>> {
     let Some(config) = cloud_archival_config else {
         tracing::debug!(target: "cloud_archival", "Not creating the cloud archival actor because cloud archival writer is not configured");
         return Ok(None);
     };
+    let cloud_storage = cloud_storage
+        .expect("Cloud archival writer is configured but cloud storage was not initialized.");
     let cloud_head =
-        initialize_cloud_head(&hot_store, genesis_height, &config.cloud_storage, runtime_adapter)?;
+        initialize_cloud_head(&hot_store, genesis_height, cloud_storage, runtime_adapter)?;
 
     tracing::info!(target: "cloud_archival", cloud_head, "Creating the cloud archival actor");
-    let actor = CloudArchivalActor::new(config, genesis_height, hot_store, cloud_head);
+    let actor = CloudArchivalActor::new(
+        config,
+        genesis_height,
+        hot_store,
+        cloud_storage.clone(),
+        cloud_head,
+    );
     Ok(Some(actor))
 }
 
 impl Actor for CloudArchivalActor {
     fn start_actor(&mut self, ctx: &mut dyn DelayedActionRunner<Self>) {
         tracing::info!(target: "cloud_archival", "Starting the cloud archival actor");
+        
         self.cloud_archival_loop(ctx);
     }
 }
@@ -118,10 +111,15 @@ impl CloudArchivalActor {
         config: CloudArchivalWriterConfig,
         genesis_height: BlockHeight,
         hot_store: Store,
+        cloud_storage: Arc<CloudStorage>,
         cloud_head: BlockHeight,
     ) -> Self {
         let handle = CloudArchivalHandle::new();
-        Self { config, genesis_height, hot_store, cloud_head, handle }
+        Self { config, genesis_height, hot_store, cloud_storage, cloud_head, handle }
+    }
+
+    pub fn get_cloud_storage(&self) -> Arc<CloudStorage> {
+        self.cloud_storage.clone()
     }
 
     pub fn get_cloud_head(&self) -> BlockHeight {
@@ -200,7 +198,7 @@ impl CloudArchivalActor {
             return Ok(CloudArchivingResult::NoHeightArchived(self.cloud_head));
         }
         let height_to_archive = self.cloud_head + 1;
-        self.archive_data(height_to_archive)?;
+        //self.archive_data(height_to_archive)?;
         self.update_cloud_head(height_to_archive)?;
 
         let result = if height_to_archive == target_height {
@@ -212,16 +210,16 @@ impl CloudArchivalActor {
         result
     }
 
+    #[allow(unused)]
     /// Persist finalized data for `height` to cloud storage.
-    // TODO(cloud_archival): Implement
-    fn archive_data(&self, _height: BlockHeight) -> Result<(), CloudArchivingError> {
-        Ok(())
+    async fn archive_data(&self, height: BlockHeight) -> Result<(), CloudArchivingError> {
+        update_cloud_storage(&self.cloud_storage, &self.hot_store, height).await
     }
 
     /// Advance the cloud archival head to `new_head` after a successful upload.
     fn update_cloud_head(&mut self, new_head: BlockHeight) -> Result<(), CloudArchivingError> {
         debug_assert_eq!(new_head, self.cloud_head + 1);
-        set_cloud_head_external(&self.config.cloud_storage, new_head)?;
+        set_cloud_head_external(&self.cloud_storage, new_head)?;
         set_cloud_head_local(&self.hot_store, new_head)?;
         self.cloud_head = new_head;
         Ok(())
@@ -236,11 +234,11 @@ impl CloudArchivalActor {
 fn initialize_cloud_head(
     hot_store: &Store,
     genesis_height: BlockHeight,
-    cloud_storage_config: &CloudStorageConfig,
+    cloud_storage: &Arc<CloudStorage>,
     runtime_adapter: &dyn RuntimeAdapter,
 ) -> Result<BlockHeight, CloudArchivalInitializationError> {
     let cloud_head_local = get_cloud_head_local(hot_store)?;
-    let cloud_head_external = get_cloud_head_external(cloud_storage_config)?;
+    let cloud_head_external = get_cloud_head_external(cloud_storage)?;
     let cloud_head = match (cloud_head_local, cloud_head_external) {
         (None, None) => {
             let hot_final_height = get_hot_final_head_height(hot_store, genesis_height)?;
@@ -249,11 +247,7 @@ fn initialize_cloud_head(
                 start_height = hot_final_height,
                 "Cloud head is missing both locally and externally. Initializing new cloud archive and writer.",
             );
-            initialize_new_cloud_archive_and_writer(
-                hot_store,
-                cloud_storage_config,
-                hot_final_height,
-            )?;
+            initialize_new_cloud_archive_and_writer(hot_store, cloud_storage, hot_final_height)?;
             hot_final_height
         }
         (None, Some(cloud_head_external)) => {
@@ -289,10 +283,10 @@ fn initialize_cloud_head(
 /// final head.
 fn initialize_new_cloud_archive_and_writer(
     hot_store: &Store,
-    cloud_storage_config: &CloudStorageConfig,
+    cloud_storage: &Arc<CloudStorage>,
     hot_final_height: BlockHeight,
 ) -> Result<(), CloudArchivalInitializationError> {
-    set_cloud_head_external(cloud_storage_config, hot_final_height)?;
+    set_cloud_head_external(cloud_storage, hot_final_height)?;
     set_cloud_head_local(hot_store, hot_final_height)?;
     Ok(())
 }
@@ -340,9 +334,7 @@ fn get_hot_final_head_height(
 
 /// Returns the cloud head from external storage, if any.
 #[allow(unused)]
-fn get_cloud_head_external(
-    cloud_storage_config: &CloudStorageConfig,
-) -> io::Result<Option<BlockHeight>> {
+fn get_cloud_head_external(cloud_storage: &Arc<CloudStorage>) -> io::Result<Option<BlockHeight>> {
     // TODO(cloud_archival) Retrieve the `cloud_head` from the external storage
     Ok(None)
 }
@@ -350,7 +342,7 @@ fn get_cloud_head_external(
 /// Persists the cloud head to external storage.
 #[allow(unused)]
 fn set_cloud_head_external(
-    cloud_storage_config: &CloudStorageConfig,
+    cloud_storage: &Arc<CloudStorage>,
     new_head: BlockHeight,
 ) -> io::Result<()> {
     // TODO(cloud_archival) Set the `cloud_head` to the external storage

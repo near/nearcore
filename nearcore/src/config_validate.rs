@@ -1,6 +1,7 @@
-use near_chain_configs::{DumpConfig, SyncConfig};
+use near_chain_configs::{CloudStorageConfig, DumpConfig, SyncConfig};
 use near_config_utils::{ValidationError, ValidationErrors};
 use near_primitives::external::ExternalStorageLocation;
+use near_store::archive::cloud_storage::opener::CloudStorageOpener;
 use std::collections::HashSet;
 use std::path::Path;
 
@@ -247,12 +248,16 @@ impl<'a> ConfigValidator<'a> {
                     .to_string();
             self.validation_errors.push_config_semantics_error(error_message);
         }
+        if let Some(reader) = &self.config.cloud_archival_reader {
+            self.validate_cloud_storage_config(&reader.cloud_storage);
+        }
 
         let Some(writer) = &self.config.cloud_archival_writer else {
             return;
         };
         // Writer is enabled
 
+        self.validate_cloud_storage_config(&writer.cloud_storage);
         let tracked_shards = self.config.tracked_shards_config();
         if !tracked_shards.tracks_non_empty_subset_of_shards() && !writer.archive_block_data {
             let error_message =
@@ -268,6 +273,14 @@ impl<'a> ConfigValidator<'a> {
         if reader.cloud_storage != writer.cloud_storage {
             let error_message =
                 "`cloud_archival_reader` and `cloud_archival_writer` storage configs must be equal.".to_string();
+            self.validation_errors.push_config_semantics_error(error_message);
+        }
+    }
+
+    fn validate_cloud_storage_config(&mut self, config: &CloudStorageConfig) {
+        if !CloudStorageOpener::is_storage_location_supported(&config.storage) {
+            let error_message =
+                format!("{} is not supported cloud storage location.", config.storage.name());
             self.validation_errors.push_config_semantics_error(error_message);
         }
     }
@@ -309,6 +322,7 @@ mod tests {
     use near_chain_configs::test_utils::test_cloud_archival_configs;
     use near_chain_configs::{StateSyncConfig, TrackedShardsConfig};
     use near_jsonrpc::RpcConfig;
+    use near_primitives::external::ExternalStorageLocation;
 
     use super::*;
 
@@ -487,6 +501,19 @@ mod tests {
         reader_config.cloud_storage.storage =
             ExternalStorageLocation::Filesystem { root_dir: "x".into() };
         config.cloud_archival_reader = Some(reader_config);
+        config.cloud_archival_writer = Some(writer_config);
+        validate_config(&config).unwrap();
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "\\nconfig.json semantic issue: S3 is not supported cloud storage location."
+    )]
+    fn test_cloud_archival_storage_s3_not_supported() {
+        let mut config = Config::default();
+        let (_, mut writer_config) = test_cloud_archival_configs("");
+        writer_config.cloud_storage.storage =
+            ExternalStorageLocation::S3 { bucket: "".into(), region: "".into() };
         config.cloud_archival_writer = Some(writer_config);
         validate_config(&config).unwrap();
     }

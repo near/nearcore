@@ -1,13 +1,10 @@
 use crate::metrics;
 use anyhow::Context;
 use futures::TryStreamExt;
-use near_primitives::external::ExternalConnection;
+use near_primitives::external::{ExternalConnection, ExternalStorageLocation, S3AccessConfig};
 use near_primitives::types::{EpochId, ShardId};
-use object_store::{ObjectStore as _, PutPayload};
-use std::io::{Read, Write};
+use object_store::ObjectStore as _;
 use std::path::PathBuf;
-use std::sync::Arc;
-use std::time::Duration;
 use std::time::Instant;
 
 #[derive(Debug, Clone)]
@@ -44,154 +41,154 @@ impl StateFileType {
     }
 }
 
-pub async fn get_file(
-    connection: &ExternalConnection,
-    shard_id: ShardId,
-    location: &str,
-    file_type: &StateFileType,
-) -> Result<Vec<u8>, anyhow::Error> {
-    let _timer = metrics::STATE_SYNC_EXTERNAL_PARTS_REQUEST_DELAY
-        .with_label_values(&[&shard_id.to_string(), &file_type.to_string()])
-        .start_timer();
-    let result = connection.get(location).await;
-    match result {
-        Ok(bytes) => {
-            tracing::debug!(target: "sync", %shard_id, location, num_bytes = bytes.len(), storage = connection.storage_name(), "request finished");
-            metrics::STATE_SYNC_EXTERNAL_PARTS_SIZE_DOWNLOADED
-                .with_label_values(&[&shard_id.to_string(), &file_type.to_string()])
-                .inc_by(bytes.len() as u64);
-        }
-        Err(error) => {
-            tracing::debug!(target: "sync", %shard_id, location, error, storage = connection.storage_name(), "request failed");
-        }
+#[derive(Clone)]
+pub struct StateSyncConnection {
+    connection: ExternalConnection,
+    storage_name: String,
+}
+
+impl StateSyncConnection {
+    pub fn new(
+        location: &ExternalStorageLocation,
+        credentials_file: Option<PathBuf>,
+        s3_access_config: S3AccessConfig,
+    ) -> Self {
+        let connection =
+            ExternalConnection::new(location, credentials_file, Some(s3_access_config));
+        let storage_name = location.name().to_string();
+        Self { connection, storage_name }
     }
-}
 
-/// Uploads the given state part or header to external storage.
-/// Wrapper for adding is_ok to the metric labels.
-pub async fn put_file(
-    connection: &ExternalConnection,
-    file_type: StateFileType,
-    data: &[u8],
-    shard_id: ShardId,
-    location: &str,
-) -> Result<(), anyhow::Error> {
-    let instant = Instant::now();
-    let res = connection.put(location, data).await;
-    let is_ok = if res.is_ok() {
-        tracing::debug!(target: "state_sync_dump", %shard_id, part_length = data.len(), ?location, ?file_type, storage = connection.storage_name(), "Wrote a state part");
-        "ok"
-    } else {
-        "error"
-    };
-    let elapsed = instant.elapsed();
-    metrics::STATE_SYNC_DUMP_PUT_OBJECT_ELAPSED
-        .with_label_values(&[&shard_id.to_string(), is_ok, &file_type.to_string()])
-        .observe(elapsed.as_secs_f64());
-    res
-}
+    pub async fn get_file(
+        &self,
+        shard_id: ShardId,
+        location: &str,
+        file_type: &StateFileType,
+    ) -> Result<Vec<u8>, anyhow::Error> {
+        let _timer = metrics::STATE_SYNC_EXTERNAL_PARTS_REQUEST_DELAY
+            .with_label_values(&[&shard_id.to_string(), &file_type.to_string()])
+            .start_timer();
+        let result = self.connection.get(location).await;
+        match &result {
+            Ok(bytes) => {
+                tracing::debug!(target: "sync", %shard_id, location, num_bytes = bytes.len(), storage = self.storage_name, "request finished");
+                metrics::STATE_SYNC_EXTERNAL_PARTS_SIZE_DOWNLOADED
+                    .with_label_values(&[&shard_id.to_string(), &file_type.to_string()])
+                    .inc_by(bytes.len() as u64);
+            }
+            Err(error) => {
+                tracing::debug!(target: "sync", %shard_id, location, ?error, storage = self.storage_name, "request failed");
+            }
+        }
+        result
+    }
 
-/// When using GCS external connection, this function requires credentials.
-/// Thus, this function shouldn't be used for sync node that is expected to operate anonymously.
-/// Only dump nodes should use this function.
-pub async fn list_objects(
-    connection: &ExternalConnection,
-    shard_id: ShardId,
-    directory_path: &str,
-) -> Result<Vec<String>, anyhow::Error> {
-    let _timer = metrics::STATE_SYNC_DUMP_LIST_OBJECT_ELAPSED
-        .with_label_values(&[&shard_id.to_string()])
-        .start_timer();
-    match connection {
-        ExternalConnection::S3 { bucket } => {
-            let prefix = format!("{}/", directory_path);
-            let list_results = bucket.list(prefix.clone(), Some("/".to_string())).await?;
-            tracing::debug!(target: "state_sync_dump", %shard_id, ?directory_path, "List state parts in s3");
-            let mut file_names = vec![];
-            for res in list_results {
-                for obj in res.contents {
-                    file_names.push(extract_file_name_from_full_path(obj.key))
+    /// Uploads the given state part or header to external storage.
+    /// Wrapper for adding is_ok to the metric labels.
+    pub async fn put_file(
+        &self,
+        file_type: StateFileType,
+        data: &[u8],
+        shard_id: ShardId,
+        location: &str,
+    ) -> Result<(), anyhow::Error> {
+        let instant = Instant::now();
+        let res = self.connection.put(location, data).await;
+        let is_ok = if res.is_ok() {
+            tracing::debug!(target: "state_sync_dump", %shard_id, part_length = data.len(), ?location, ?file_type, storage = self.storage_name, "Wrote a state part");
+            "ok"
+        } else {
+            "error"
+        };
+        let elapsed = instant.elapsed();
+        metrics::STATE_SYNC_DUMP_PUT_OBJECT_ELAPSED
+            .with_label_values(&[&shard_id.to_string(), is_ok, &file_type.to_string()])
+            .observe(elapsed.as_secs_f64());
+        res
+    }
+
+    /// When using GCS external connection, this function requires credentials.
+    /// Thus, this function shouldn't be used for sync node that is expected to operate anonymously.
+    /// Only dump nodes should use this function.
+    pub async fn list_objects(
+        &self,
+        shard_id: ShardId,
+        directory_path: &str,
+    ) -> Result<Vec<String>, anyhow::Error> {
+        let _timer = metrics::STATE_SYNC_DUMP_LIST_OBJECT_ELAPSED
+            .with_label_values(&[&shard_id.to_string()])
+            .start_timer();
+        match &self.connection {
+            ExternalConnection::S3 { bucket } => {
+                let prefix = format!("{}/", directory_path);
+                let list_results = bucket.list(prefix.clone(), Some("/".to_string())).await?;
+                tracing::debug!(target: "state_sync_dump", %shard_id, ?directory_path, "List state parts in s3");
+                let mut file_names = vec![];
+                for res in list_results {
+                    for obj in res.contents {
+                        file_names.push(extract_file_name_from_full_path(obj.key))
+                    }
                 }
+                Ok(file_names)
             }
-            Ok(file_names)
-        }
-        ExternalConnection::Filesystem { root_dir } => {
-            let path = root_dir.join(directory_path);
-            tracing::debug!(target: "state_sync_dump", %shard_id, ?path, "List state parts in local directory");
-            std::fs::create_dir_all(&path)?;
-            let mut file_names = vec![];
-            let files = std::fs::read_dir(&path)?;
-            for file in files {
-                let file_name = Self::extract_file_name_from_path_buf(file?.path());
-                file_names.push(file_name);
+            ExternalConnection::Filesystem { root_dir } => {
+                let path = root_dir.join(directory_path);
+                tracing::debug!(target: "state_sync_dump", %shard_id, ?path, "List state parts in local directory");
+                std::fs::create_dir_all(&path)?;
+                let mut file_names = vec![];
+                let files = std::fs::read_dir(&path)?;
+                for file in files {
+                    let file_name = extract_file_name_from_path_buf(file?.path());
+                    file_names.push(file_name);
+                }
+                Ok(file_names)
             }
-            Ok(file_names)
-        }
-        ExternalConnection::GCS { gcs_client, .. } => {
-            let prefix = format!("{}/", directory_path);
-            tracing::debug!(target: "state_sync_dump", %shard_id, ?directory_path, "List state parts in GCS");
-            Ok(gcs_client
-                .list(Some(
-                    &object_store::path::Path::parse(&prefix)
-                        .with_context(|| format!("can't parse {prefix} as path"))?,
-                ))
-                .try_collect::<Vec<_>>()
-                .await?
-                .into_iter()
-                .map(|object| object.location.filename().unwrap().into())
-                .collect())
+            ExternalConnection::GCS { gcs_client, .. } => {
+                let prefix = format!("{}/", directory_path);
+                tracing::debug!(target: "state_sync_dump", %shard_id, ?directory_path, "List state parts in GCS");
+                Ok(gcs_client
+                    .list(Some(
+                        &object_store::path::Path::parse(&prefix)
+                            .with_context(|| format!("can't parse {prefix} as path"))?,
+                    ))
+                    .try_collect::<Vec<_>>()
+                    .await?
+                    .into_iter()
+                    .map(|object| object.location.filename().unwrap().into())
+                    .collect())
+            }
         }
     }
-}
 
-/// Check if the state sync header exists in the external storage.
-pub async fn is_state_sync_header_stored_for_epoch(
-    connection: &ExternalConnection,
-    shard_id: ShardId,
-    chain_id: &String,
-    epoch_id: &EpochId,
-    epoch_height: u64,
-) -> Result<bool, anyhow::Error> {
-    let file_type = StateFileType::StateHeader;
-    let directory_path =
-        external_storage_location_directory(chain_id, epoch_id, epoch_height, shard_id, &file_type);
-    let file_names = list_objects(connection, shard_id, &directory_path).await?;
-    let header_exits = file_names.contains(&file_type.filename());
-    tracing::debug!(
-        target: "state_sync_dump",
-        ?directory_path,
-        "{}",
-        match header_exits {
-            true => "Header has already been dumped.",
-            false => "Header has not been dumped.",
-        }
-    );
-    Ok(header_exits)
-}
-
-/// Check if the state sync header exists in the external storage.
-pub async fn is_state_sync_header_stored_for_epoch(
-    &self,
-    shard_id: ShardId,
-    chain_id: &String,
-    epoch_id: &EpochId,
-    epoch_height: u64,
-) -> Result<bool, anyhow::Error> {
-    let file_type = StateFileType::StateHeader;
-    let directory_path =
-        external_storage_location_directory(chain_id, epoch_id, epoch_height, shard_id, &file_type);
-    let file_names = self.list_objects(shard_id, &directory_path).await?;
-    let header_exits = file_names.contains(&file_type.filename());
-    tracing::debug!(
-        target: "state_sync_dump",
-        ?directory_path,
-        "{}",
-        match header_exits {
-            true => "Header has already been dumped.",
-            false => "Header has not been dumped.",
-        }
-    );
-    Ok(header_exits)
+    /// Check if the state sync header exists in the external storage.
+    pub async fn is_state_sync_header_stored_for_epoch(
+        &self,
+        shard_id: ShardId,
+        chain_id: &String,
+        epoch_id: &EpochId,
+        epoch_height: u64,
+    ) -> Result<bool, anyhow::Error> {
+        let file_type = StateFileType::StateHeader;
+        let directory_path = external_storage_location_directory(
+            chain_id,
+            epoch_id,
+            epoch_height,
+            shard_id,
+            &file_type,
+        );
+        let file_names = self.list_objects(shard_id, &directory_path).await?;
+        let header_exits = file_names.contains(&file_type.filename());
+        tracing::debug!(
+            target: "state_sync_dump",
+            ?directory_path,
+            "{}",
+            match header_exits {
+                true => "Header has already been dumped.",
+                false => "Header has not been dumped.",
+            }
+        );
+        Ok(header_exits)
+    }
 }
 
 fn extract_file_name_from_full_path(full_path: String) -> String {
@@ -284,10 +281,11 @@ pub fn get_part_id_from_filename(s: &str) -> Option<u64> {
 #[cfg(test)]
 mod test {
     use crate::sync::external::{
-        ExternalConnection, StateFileType, get_num_parts_from_filename, get_part_id_from_filename,
-        is_part_filename,
+        ExternalConnection, StateFileType, StateSyncConnection, get_num_parts_from_filename,
+        get_part_id_from_filename, is_part_filename,
     };
     use near_o11y::testonly::init_test_logger;
+    use near_primitives::external::ExternalStorageLocation;
     use near_primitives::types::ShardId;
     use rand::distributions::{Alphanumeric, DistString};
 
@@ -321,17 +319,9 @@ mod test {
         tracing::debug!("Filename: {:?}", filename);
 
         // Define bucket.
-        let bucket = String::from("state-parts");
-        let connection = ExternalConnection::GCS {
-            gcs_client: std::sync::Arc::new(
-                object_store::gcp::GoogleCloudStorageBuilder::from_env()
-                    .with_bucket_name(&bucket)
-                    .build()
-                    .unwrap(),
-            ),
-            reqwest_client: std::sync::Arc::new(reqwest::Client::default()),
-            bucket,
-        };
+        let location = ExternalStorageLocation::GCS { bucket: "state-parts".into() };
+        let connection = ExternalConnection::new(&location, None, None);
+        let connection = StateSyncConnection { connection, storage_name: "GCS".into() };
 
         // Generate random data.
         let data = random_string(1000);

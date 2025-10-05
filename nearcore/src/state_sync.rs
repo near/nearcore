@@ -9,17 +9,15 @@ use near_async::time::{Clock, Duration, Interval};
 use near_chain::types::RuntimeAdapter;
 use near_chain::{Chain, ChainGenesis, DoomslugThresholdMode};
 use near_chain_configs::{ClientConfig, MutableValidatorSigner};
+use near_client::sync::external::{StateFileType, external_storage_location};
 use near_client::sync::external::{
-    ExternalConnection, external_storage_location_directory, get_part_id_from_filename,
+    StateSyncConnection, external_storage_location_directory, get_part_id_from_filename,
     is_part_filename,
-};
-use near_client::sync::external::{
-    StateFileType, create_bucket_read_write, external_storage_location,
 };
 use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_primitives::block::BlockHeader;
-use near_primitives::external::{ExternalConnection, ExternalStorageLocation};
+use near_primitives::external::S3AccessConfig;
 use near_primitives::hash::CryptoHash;
 use near_primitives::state_part::PartId;
 use near_primitives::state_sync::StateSyncDumpProgress;
@@ -66,8 +64,13 @@ impl StateSyncDumper {
             return Ok(Arc::new(StateSyncDumpHandle::new()));
         };
         tracing::info!(target: "state_sync_dump", "Spawning the state sync dump loop");
-        let external_timeout = Duration::from_secs(30);
-        let external = ExternalConnection::new(&dump_config.location, external_timeout, true, dump_config.credentials_file);
+        let s3_access_config =
+            S3AccessConfig { timeout: std::time::Duration::from_secs(30), is_readonly: false };
+        let external = StateSyncConnection::new(
+            &dump_config.location,
+            dump_config.credentials_file,
+            s3_access_config,
+        );
         let chain_id = self.client_config.chain_id.clone();
         let handle = Arc::new(StateSyncDumpHandle::new());
 
@@ -138,7 +141,7 @@ async fn get_missing_part_ids_for_epoch(
     epoch_id: &EpochId,
     epoch_height: u64,
     total_parts: u64,
-    external: &ExternalConnection,
+    external: &StateSyncConnection,
 ) -> Result<HashSet<u64>, anyhow::Error> {
     if total_parts == 0 {
         return Ok(HashSet::new());
@@ -200,7 +203,7 @@ struct DumpState {
 impl DumpState {
     /// For each shard, checks the filenames that exist in `external` and sets the corresponding `parts_missing` fields
     /// to contain the parts that haven't yet been uploaded, so that we only try to generate those.
-    async fn set_missing_parts(&self, external: &ExternalConnection, chain_id: &str) {
+    async fn set_missing_parts(&self, external: &StateSyncConnection, chain_id: &str) {
         for (shard_id, s) in &self.dump_state {
             match get_missing_part_ids_for_epoch(
                 *shard_id,
@@ -292,7 +295,7 @@ struct StateDumper {
     runtime: Arc<dyn RuntimeAdapter>,
     // State associated with dumping the current epoch
     current_dump: CurrentDump,
-    external: ExternalConnection,
+    external: StateSyncConnection,
     future_spawner: Arc<dyn FutureSpawner>,
     // Used to limit how many tasks can be doing the computation-heavy state part generation at a time
     obtain_parts: Arc<Semaphore>,
@@ -301,7 +304,7 @@ struct StateDumper {
 // Stores needed data for use in part upload futures
 struct PartUploader {
     clock: Clock,
-    external: ExternalConnection,
+    external: StateSyncConnection,
     runtime: Arc<dyn RuntimeAdapter>,
     chain_id: String,
     epoch_id: EpochId,
@@ -454,7 +457,7 @@ impl PartUploader {
 // Stores needed data for use in header upload futures
 struct HeaderUploader {
     clock: Clock,
-    external: ExternalConnection,
+    external: StateSyncConnection,
     chain_id: String,
     epoch_id: EpochId,
     epoch_height: EpochHeight,
@@ -566,7 +569,7 @@ impl StateDumper {
         chain: Chain,
         epoch_manager: Arc<dyn EpochManagerAdapter>,
         runtime: Arc<dyn RuntimeAdapter>,
-        external: ExternalConnection,
+        external: StateSyncConnection,
         future_spawner: Arc<dyn FutureSpawner>,
     ) -> Self {
         Self {
@@ -940,7 +943,7 @@ async fn state_sync_dump(
     shard_tracker: ShardTracker,
     runtime: Arc<dyn RuntimeAdapter>,
     chain_id: String,
-    external: ExternalConnection,
+    external: StateSyncConnection,
     iteration_delay: Duration,
     keep_running: &AtomicBool,
     future_spawner: Arc<dyn FutureSpawner>,
@@ -998,7 +1001,7 @@ async fn do_state_sync_dump(
     shard_tracker: ShardTracker,
     runtime: Arc<dyn RuntimeAdapter>,
     chain_id: String,
-    external: ExternalConnection,
+    external: StateSyncConnection,
     iteration_delay: Duration,
     handle: Arc<StateSyncDumpHandle>,
     future_spawner: Arc<dyn FutureSpawner>,

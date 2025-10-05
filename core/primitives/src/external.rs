@@ -23,6 +23,16 @@ pub enum ExternalStorageLocation {
     },
 }
 
+impl ExternalStorageLocation {
+    pub fn name(&self) -> &str {
+        match self {
+            Self::S3 { .. } => "S3",
+            Self::Filesystem { .. } => "Filesystem",
+            Self::GCS { .. } => "GCS",
+        }
+    }
+}
+
 /// Connection to the external storage.
 #[derive(Clone)]
 pub enum ExternalConnection {
@@ -45,42 +55,33 @@ pub enum ExternalConnection {
 const GCS_ENCODE_SET: &percent_encoding::AsciiSet =
     &percent_encoding::NON_ALPHANUMERIC.remove(b'-').remove(b'.').remove(b'_');
 
-impl ExternalConnection {
-    pub fn storage_name(&self) -> &str {
-        match self {
-            Self::S3 { .. } => "S3",
-            Self::Filesystem { .. } => "Filesystem",
-            Self::GCS { .. } => "GCS",
-        }
-    }
+pub struct S3AccessConfig {
+    pub is_readonly: bool,
+    pub timeout: Duration,
+}
 
+impl ExternalConnection {
     pub fn new(
         location: &ExternalStorageLocation,
-        external_timeout: Duration,
-        has_write_access: bool,
         credentials_file: Option<PathBuf>,
+        s3_access_config: Option<S3AccessConfig>,
     ) -> Self {
         match location {
             ExternalStorageLocation::S3 { bucket, region, .. } => {
-                let bucket = if has_write_access {
-                    create_bucket_read_write(
-                        &bucket,
-                        &region,
-                        external_timeout,
-                        credentials_file,
-                    )
+                let S3AccessConfig { is_readonly, timeout } = s3_access_config
+                    .expect("S3 access config not provided with S3 external storage location");
+                let bucket = if is_readonly {
+                    create_s3_bucket_readonly(&bucket, &region, timeout)
                 } else {
-                    create_bucket_readonly(
-                        &bucket,
-                        &region,
-                        external_timeout.max(Duration::ZERO),//.unsigned_abs(),
-                    )
+                    create_s3_bucket_read_write(&bucket, &region, timeout, credentials_file)
                 };
                 if let Err(err) = bucket {
-                    if has_write_access {
-                        panic!("Failed to authenticate connection to S3. Please either provide AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY in the environment, or create a credentials file and link it in config.json as 's3_credentials_file'. Error: {err}");
-                    } else {
+                    if is_readonly {
                         panic!("Failed to create an S3 bucket: {err}");
+                    } else {
+                        panic!(
+                            "Failed to authenticate connection to S3. Please either provide AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY in the environment, or create a credentials file and link it in config.json as 's3_credentials_file'. Error: {err}"
+                        );
                     }
                 }
                 ExternalConnection::S3 { bucket: Arc::new(bucket.unwrap()) }
@@ -89,16 +90,16 @@ impl ExternalConnection {
                 ExternalConnection::Filesystem { root_dir: root_dir.clone() }
             }
             ExternalStorageLocation::GCS { bucket, .. } => {
-                if has_write_access {
-                    if let Some(credentials_file) = credentials_file {
-                        if let Ok(var) = std::env::var("SERVICE_ACCOUNT") {
-                            tracing::warn!(target: "external", "Environment variable 'SERVICE_ACCOUNT' is set to {var}, but 'credentials_file' in config.json overrides it to '{credentials_file:?}'");
-                            println!("Environment variable 'SERVICE_ACCOUNT' is set to {var}, but 'credentials_file' in config.json overrides it to '{credentials_file:?}'");
-                        }
-                        // SAFE: no threads *yet*.
-                        unsafe { std::env::set_var("SERVICE_ACCOUNT", &credentials_file) };
-                        tracing::info!(target: "external", "Set the environment variable 'SERVICE_ACCOUNT' to '{credentials_file:?}'");
+                if let Some(credentials_file) = credentials_file {
+                    if let Ok(var) = std::env::var("SERVICE_ACCOUNT") {
+                        tracing::warn!(target: "external", "Environment variable 'SERVICE_ACCOUNT' is set to {var}, but 'credentials_file' in config.json overrides it to '{credentials_file:?}'");
+                        println!(
+                            "Environment variable 'SERVICE_ACCOUNT' is set to {var}, but 'credentials_file' in config.json overrides it to '{credentials_file:?}'"
+                        );
                     }
+                    // SAFE: no threads *yet*.
+                    unsafe { std::env::set_var("SERVICE_ACCOUNT", &credentials_file) };
+                    tracing::info!(target: "external", "Set the environment variable 'SERVICE_ACCOUNT' to '{credentials_file:?}'");
                 }
                 ExternalConnection::GCS {
                     gcs_client: Arc::new(
@@ -155,11 +156,13 @@ impl ExternalConnection {
     pub async fn put(&self, path: &str, value: &[u8]) -> Result<(), anyhow::Error> {
         match self {
             ExternalConnection::S3 { bucket } => {
+                tracing::debug!(target: "external", path, "Writing to S3");
                 bucket.put_object(path, value).await?;
                 Ok(())
             }
             ExternalConnection::Filesystem { root_dir } => {
                 let path = root_dir.join(path);
+                tracing::debug!(target: "external", ?path, "Writing to a file");
                 if let Some(parent_dir) = path.parent() {
                     std::fs::create_dir_all(parent_dir)?;
                 }
@@ -174,6 +177,7 @@ impl ExternalConnection {
             ExternalConnection::GCS { gcs_client, .. } => {
                 let path = object_store::path::Path::parse(path)
                     .with_context(|| format!("{path} isn't a valid path for GCP"))?;
+                tracing::debug!(target: "external", ?path, "Writing to GCS");
                 gcs_client.put(&path, PutPayload::from_bytes(value.to_vec().into())).await?;
                 Ok(())
             }
@@ -181,25 +185,13 @@ impl ExternalConnection {
     }
 }
 
-pub fn create_bucket_readonly(
+pub fn create_s3_bucket_readonly(
     bucket: &str,
     region: &str,
     timeout: Duration,
 ) -> Result<s3::Bucket, anyhow::Error> {
     let creds = s3::creds::Credentials::anonymous()?;
-    create_bucket(bucket, region, timeout, creds)
-}
-
-fn create_bucket(
-    bucket: &str,
-    region: &str,
-    timeout: Duration,
-    creds: s3::creds::Credentials,
-) -> Result<s3::Bucket, anyhow::Error> {
-    let mut bucket = s3::Bucket::new(bucket, region.parse::<s3::Region>()?, creds)?;
-    // Ensure requests finish in finite amount of time.
-    bucket.set_request_timeout(Some(timeout));
-    Ok(bucket)
+    create_s3_bucket(bucket, region, timeout, creds)
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -208,7 +200,7 @@ struct S3CredentialsConfig {
     secret_key: String,
 }
 
-pub fn create_bucket_read_write(
+pub fn create_s3_bucket_read_write(
     bucket: &str,
     region: &str,
     timeout: Duration,
@@ -230,5 +222,17 @@ pub fn create_bucket_read_write(
         }
         None => s3::creds::Credentials::default(),
     }?;
-    create_bucket(bucket, region, timeout, creds)
+    create_s3_bucket(bucket, region, timeout, creds)
+}
+
+fn create_s3_bucket(
+    bucket: &str,
+    region: &str,
+    timeout: Duration,
+    creds: s3::creds::Credentials,
+) -> Result<s3::Bucket, anyhow::Error> {
+    let mut bucket = s3::Bucket::new(bucket, region.parse::<s3::Region>()?, creds)?;
+    // Ensure requests finish in finite amount of time.
+    bucket.set_request_timeout(Some(timeout));
+    Ok(bucket)
 }

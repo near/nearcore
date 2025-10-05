@@ -374,6 +374,7 @@ pub fn setup_client(
             genesis.config.genesis_height,
             runtime_adapter.as_ref(),
             storage.hot_store,
+            storage.cloud_storage.as_ref(),
         )
         .unwrap()
         .unwrap();

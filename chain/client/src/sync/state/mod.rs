@@ -7,7 +7,7 @@ mod task_tracker;
 mod util;
 
 use crate::metrics;
-use crate::sync::external::{ExternalConnection, create_bucket_readonly};
+use crate::sync::external::StateSyncConnection;
 use chain_requests::ChainSenderForStateSync;
 use downloader::StateSyncDownloader;
 use external::StateSyncDownloadSourceExternal;
@@ -22,7 +22,7 @@ use near_client_primitives::types::{ShardSyncStatus, StateSyncStatus};
 use near_epoch_manager::EpochManagerAdapter;
 use near_network::client::StateResponse;
 use near_network::types::{PeerManagerMessageRequest, PeerManagerMessageResponse};
-use near_primitives::external::ExternalStorageLocation;
+use near_primitives::external::S3AccessConfig;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
 use near_primitives::state_part::StatePart;
@@ -110,7 +110,11 @@ impl StateSync {
                 external_storage_fallback_threshold,
             }) = &sync_config.sync
             {
-                let external = ExternalConnection::new(location, external_timeout, false, None);
+                let s3_access_config = S3AccessConfig {
+                    timeout: external_timeout.max(Duration::ZERO).unsigned_abs(),
+                    is_readonly: true,
+                };
+                let external = StateSyncConnection::new(location, None, s3_access_config);
                 let num_concurrent_requests = if catchup {
                     *num_concurrent_requests_during_catchup
                 } else {

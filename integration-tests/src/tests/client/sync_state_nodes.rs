@@ -11,6 +11,7 @@ use near_network::client::{StatePartOrHeader, StateRequestHeader, StateRequestPa
 use near_network::tcp;
 use near_network::test_utils::{convert_boot_nodes, wait_or_timeout};
 use near_o11y::testonly::{init_integration_logger, init_test_logger};
+use near_primitives::external::ExternalStorageLocation;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::state_part::{PartId, StatePart};
 use near_primitives::state_sync::StatePartKey;
@@ -298,7 +299,7 @@ async fn ultra_slow_test_sync_state_dump() {
     near1.client_config.tracked_shards_config = TrackedShardsConfig::AllShards;
 
     near1.client_config.state_sync.dump = Some(DumpConfig {
-        location: Filesystem { root_dir: dump_dir.path().to_path_buf() },
+        location: ExternalStorageLocation::Filesystem { root_dir: dump_dir.path().to_path_buf() },
         restart_dump_for_shards: None,
         iteration_delay: Some(Duration::milliseconds(500)),
         credentials_file: None,
@@ -338,7 +339,9 @@ async fn ultra_slow_test_sync_state_dump() {
                         near2.client_config.state_sync_p2p_timeout = Duration::seconds(2);
                         near2.client_config.state_sync.sync =
                             SyncConfig::ExternalStorage(ExternalStorageConfig {
-                                location: Filesystem { root_dir: dump_dir.path().to_path_buf() },
+                                location: ExternalStorageLocation::Filesystem {
+                                    root_dir: dump_dir.path().to_path_buf(),
+                                },
                                 num_concurrent_requests: 1,
                                 num_concurrent_requests_during_catchup: 1,
                                 external_storage_fallback_threshold: 0,

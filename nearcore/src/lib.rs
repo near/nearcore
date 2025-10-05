@@ -68,7 +68,7 @@ mod metrics;
 pub mod migrations;
 pub mod state_sync;
 use near_async::ActorSystem;
-use near_async::futures::FutureSpawner;
+use near_async::futures::{FutureSpawner, FutureSpawnerExt};
 use near_async::multithread::MultithreadRuntimeHandle;
 use near_async::tokio::TokioRuntimeHandle;
 use near_client::client_actor::{ClientActorInner, SpiceClientConfig};
@@ -454,10 +454,11 @@ pub fn start_with_config_and_synchronization(
         config.genesis.config.genesis_height,
         runtime.as_ref(),
         storage.get_hot_store(),
+        storage.get_cloud_storage(),
     )?;
     let cloud_archival_handle = if let Some(actor) = result {
         let handle = actor.get_handle();
-        let _cloud_archival_addr = actor_system.spawn_tokio_actor(actor);
+        actor_system.new_future_spawner().spawn("cloud_archival", actor.s);
         Some(handle)
     } else {
         None
