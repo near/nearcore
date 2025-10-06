@@ -298,10 +298,13 @@ pub enum ProtocolFeature {
     /// Instead of sending code in the witness, the code checks the code-size using the internal trie nodes.
     ExcludeExistingCodeFromWitnessForCodeLen,
     /// Use the block height instead of the block hash to calculate the receipt ID.
-    BlockHeightForReceiptId,
+    #[deprecated]
+    _DeprecatedBlockHeightForReceiptId,
     /// Enable optimistic block production.
-    ProduceOptimisticBlock,
-    GlobalContracts,
+    #[deprecated]
+    _DeprecatedProduceOptimisticBlock,
+    #[deprecated]
+    _DeprecatedGlobalContracts,
     /// NEP: https://github.com/near/NEPs/pull/536
     ///
     /// Reduce the number of gas refund receipts by charging the current gas
@@ -416,9 +419,9 @@ impl ProtocolFeature {
             | ProtocolFeature::_DeprecatedCurrentEpochStateSync => 74,
             ProtocolFeature::_DeprecatedSimpleNightshadeV4 => 75,
             ProtocolFeature::_DeprecatedSimpleNightshadeV5 => 76,
-            ProtocolFeature::GlobalContracts
-            | ProtocolFeature::BlockHeightForReceiptId
-            | ProtocolFeature::ProduceOptimisticBlock => 77,
+            ProtocolFeature::_DeprecatedGlobalContracts
+            | ProtocolFeature::_DeprecatedBlockHeightForReceiptId
+            | ProtocolFeature::_DeprecatedProduceOptimisticBlock => 77,
             ProtocolFeature::SimpleNightshadeV6
             | ProtocolFeature::VersionedStateWitness
             | ProtocolFeature::ChunkPartChecks
@@ -449,7 +452,7 @@ impl ProtocolFeature {
 pub const PROD_GENESIS_PROTOCOL_VERSION: ProtocolVersion = 29;
 
 /// Minimum supported protocol version for the current binary
-pub const MIN_SUPPORTED_PROTOCOL_VERSION: ProtocolVersion = 77;
+pub const MIN_SUPPORTED_PROTOCOL_VERSION: ProtocolVersion = 80;
 
 /// Current protocol version used on the mainnet with all stable features.
 const STABLE_PROTOCOL_VERSION: ProtocolVersion = 82;

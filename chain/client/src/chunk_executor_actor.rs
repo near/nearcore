@@ -349,8 +349,6 @@ impl ChunkExecutorActor {
         let epoch_id = block.header().epoch_id();
         let shard_layout = self.epoch_manager.get_shard_layout(&epoch_id)?;
 
-        let receipts_shuffle_salt = get_receipts_shuffle_salt(self.epoch_manager.as_ref(), &block)?;
-
         let chunk_headers = &block.chunks();
         let mut jobs = Vec::new();
         // TODO(spice-resharding): Make sure shard logic is correct with resharding.
@@ -380,7 +378,7 @@ impl ChunkExecutorActor {
             let mut receipt_proofs = incoming_receipts
                 .remove(&shard_id)
                 .expect("expected receipts for all tracked shards");
-            shuffle_receipt_proofs(&mut receipt_proofs, receipts_shuffle_salt);
+            shuffle_receipt_proofs(&mut receipt_proofs, get_receipts_shuffle_salt(&block));
 
             let storage_context =
                 StorageContext { storage_data_source: StorageDataSource::Db, state_patch };

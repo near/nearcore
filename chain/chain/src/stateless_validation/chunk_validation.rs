@@ -482,8 +482,7 @@ fn validate_source_receipt_proofs(
         )?;
 
         // Arrange the receipts in the order in which they should be applied.
-        let receipts_shuffle_salt = get_receipts_shuffle_salt(epoch_manager, block)?;
-        shuffle_receipt_proofs(&mut block_receipt_proofs, receipts_shuffle_salt);
+        shuffle_receipt_proofs(&mut block_receipt_proofs, get_receipts_shuffle_salt(block));
         for proof in block_receipt_proofs {
             receipts_to_apply.extend(proof.0.iter().cloned());
         }

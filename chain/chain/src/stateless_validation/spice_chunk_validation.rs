@@ -291,8 +291,7 @@ fn validate_source_receipts_proofs(
     receipt_proofs =
         filter_incoming_receipts_for_shard(shard_layout, shard_id, Arc::new(receipt_proofs))?;
 
-    let receipts_shuffle_salt = get_receipts_shuffle_salt(epoch_manager, &block)?;
-    shuffle_receipt_proofs(&mut receipt_proofs, receipts_shuffle_salt);
+    shuffle_receipt_proofs(&mut receipt_proofs, get_receipts_shuffle_salt(&block));
     Ok(receipt_proofs.into_iter().map(|proof| proof.0).flatten().collect())
 }
 
