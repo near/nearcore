@@ -264,7 +264,8 @@ pub enum ProtocolFeature {
     #[deprecated]
     _DeprecatedSimpleNightshadeV5,
     /// Resharding V3 - Adding "650" boundary.
-    SimpleNightshadeV6,
+    #[deprecated]
+    _DeprecatedSimpleNightshadeV6,
     /// Exclude contract code from the chunk state witness and distribute it to chunk validators separately.
     #[deprecated]
     _DeprecatedExcludeContractCodeFromStateWitness,
@@ -422,7 +423,7 @@ impl ProtocolFeature {
             ProtocolFeature::_DeprecatedGlobalContracts
             | ProtocolFeature::_DeprecatedBlockHeightForReceiptId
             | ProtocolFeature::_DeprecatedProduceOptimisticBlock => 77,
-            ProtocolFeature::SimpleNightshadeV6
+            ProtocolFeature::_DeprecatedSimpleNightshadeV6
             | ProtocolFeature::VersionedStateWitness
             | ProtocolFeature::ChunkPartChecks
             | ProtocolFeature::SaturatingFloatToInt
