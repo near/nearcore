@@ -351,13 +351,25 @@ mod tests {
         tx_pool
     }
 
-    #[test]
-    fn test_prepare_transactions_job() {
+    struct TestData {
+        shard_uid: ShardUId,
+        runtime: Arc<NightshadeRuntime>,
+        state: TrieUpdate,
+        tx_pool: Arc<Mutex<ShardedTransactionPool>>,
+    }
+
+    fn setup_test() -> TestData {
         let account_id: AccountId = "test".parse().unwrap();
         let shard_uid = ShardUId::single_shard();
         let (runtime, state) = setup_state(account_id.clone());
         let tx_pool = setup_pool(account_id, shard_uid, 1);
 
+        TestData { shard_uid, runtime, state, tx_pool }
+    }
+
+    #[test]
+    fn test_prepare_transactions_job() {
+        let TestData { shard_uid, runtime, state, tx_pool } = setup_test();
         let inputs = PrepareTransactionsJobInputs::new_for_test(runtime, state, shard_uid, tx_pool);
         let job = PrepareTransactionsJob::new(inputs);
         job.run_job();
@@ -380,10 +392,7 @@ mod tests {
 
     #[test]
     fn test_prepare_transactions_job_cancel() {
-        let account_id: AccountId = "test".parse().unwrap();
-        let shard_uid = ShardUId::single_shard();
-        let (runtime, state) = setup_state(account_id.clone());
-        let tx_pool = setup_pool(account_id, shard_uid, 1);
+        let TestData { shard_uid, runtime, state, tx_pool } = setup_test();
         let inputs = PrepareTransactionsJobInputs::new_for_test(runtime, state, shard_uid, tx_pool);
         let job = PrepareTransactionsJob::new(inputs);
         job.cancel();
@@ -410,11 +419,7 @@ mod tests {
 
     #[test]
     fn test_prepare_transactions_manager() {
-        let account_id: AccountId = "test".parse().unwrap();
-        let shard_uid = ShardUId::single_shard();
-        let (runtime, state) = setup_state(account_id.clone());
-        let tx_pool = setup_pool(account_id, shard_uid, 1);
-
+        let TestData { shard_uid, runtime, state, tx_pool } = setup_test();
         let inputs = PrepareTransactionsJobInputs::new_for_test(runtime, state, shard_uid, tx_pool);
         let key = make_key(0, shard_uid, CryptoHash::default());
         let mut manager = PrepareTransactionsManager::new();
@@ -427,10 +432,7 @@ mod tests {
 
     #[test]
     fn test_prepare_transactions_manager_pop_job_with_different_key() {
-        let account_id: AccountId = "test".parse().unwrap();
-        let shard_uid = ShardUId::single_shard();
-        let (runtime, state) = setup_state(account_id.clone());
-        let tx_pool = setup_pool(account_id, shard_uid, 1);
+        let TestData { shard_uid, runtime, state, tx_pool } = setup_test();
         let inputs = PrepareTransactionsJobInputs::new_for_test(runtime, state, shard_uid, tx_pool);
         let key = make_key(0, shard_uid, CryptoHash::default());
         let mut manager = PrepareTransactionsManager::new();
@@ -443,10 +445,7 @@ mod tests {
 
     #[test]
     fn test_prepare_transactions_manager_push_same_height_and_shard() {
-        let account_id: AccountId = "test".parse().unwrap();
-        let shard_uid = ShardUId::single_shard();
-        let (runtime, state) = setup_state(account_id.clone());
-        let tx_pool = setup_pool(account_id, shard_uid, 1);
+        let TestData { shard_uid, runtime, state, tx_pool } = setup_test();
         let inputs1 = PrepareTransactionsJobInputs::new_for_test(
             runtime.clone(),
             state.clone_for_tx_preparation(), // This is good enough for the test
