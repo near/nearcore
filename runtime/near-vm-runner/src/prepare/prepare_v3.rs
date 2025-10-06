@@ -394,7 +394,7 @@ pub(crate) fn prepare_contract(
         .with_gas(SimpleGasCostCfg {
             regular: u64::from(config.regular_op_cost),
             linear_base: config.linear_op_base_cost,
-            linear_unit: config.linear_op_unit_cost
+            linear_unit: config.linear_op_unit_cost,
         })
         .analyze(&lightly_steamed)
         .map_err(|err| {
@@ -455,7 +455,7 @@ impl finite_wasm_6::max_stack::SizeConfig for SimpleMaxStackCfg {
 struct SimpleGasCostCfg {
     regular: u64,
     linear_base: u64,
-    linear_unit: u64
+    linear_unit: u64,
 }
 
 macro_rules! gas_cost {
