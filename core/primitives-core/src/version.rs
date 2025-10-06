@@ -301,7 +301,8 @@ pub enum ProtocolFeature {
     BlockHeightForReceiptId,
     /// Enable optimistic block production.
     ProduceOptimisticBlock,
-    GlobalContracts,
+    #[deprecated]
+    _DeprecatedGlobalContracts,
     /// NEP: https://github.com/near/NEPs/pull/536
     ///
     /// Reduce the number of gas refund receipts by charging the current gas
@@ -416,7 +417,7 @@ impl ProtocolFeature {
             | ProtocolFeature::_DeprecatedCurrentEpochStateSync => 74,
             ProtocolFeature::_DeprecatedSimpleNightshadeV4 => 75,
             ProtocolFeature::_DeprecatedSimpleNightshadeV5 => 76,
-            ProtocolFeature::GlobalContracts
+            ProtocolFeature::_DeprecatedGlobalContracts
             | ProtocolFeature::BlockHeightForReceiptId
             | ProtocolFeature::ProduceOptimisticBlock => 77,
             ProtocolFeature::SimpleNightshadeV6
@@ -449,7 +450,7 @@ impl ProtocolFeature {
 pub const PROD_GENESIS_PROTOCOL_VERSION: ProtocolVersion = 29;
 
 /// Minimum supported protocol version for the current binary
-pub const MIN_SUPPORTED_PROTOCOL_VERSION: ProtocolVersion = 77;
+pub const MIN_SUPPORTED_PROTOCOL_VERSION: ProtocolVersion = 80;
 
 /// Current protocol version used on the mainnet with all stable features.
 const STABLE_PROTOCOL_VERSION: ProtocolVersion = 82;
