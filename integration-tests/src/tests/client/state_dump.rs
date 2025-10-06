@@ -3,7 +3,7 @@ use assert_matches::assert_matches;
 use near_async::time::{Clock, Duration};
 use near_chain::near_chain_primitives::error::QueryError;
 use near_chain::{ChainGenesis, ChainStoreAccess, Provenance};
-use near_chain_configs::ExternalStorageLocation;
+use near_chain_configs::ExternalStorageLocation::Filesystem;
 use near_chain_configs::{DumpConfig, Genesis, MutableConfigValue};
 use near_client::ProcessTxResponse;
 use near_client::sync::external::{StateFileType, external_storage_location};
@@ -49,7 +49,7 @@ fn slow_test_state_dump() {
     let mut config = env.clients[0].config.clone();
     let root_dir = tempfile::Builder::new().prefix("state_dump").tempdir().unwrap();
     config.state_sync.dump = Some(DumpConfig {
-        location: ExternalStorageLocation::Filesystem { root_dir: root_dir.path().to_path_buf() },
+        location: Filesystem { root_dir: root_dir.path().to_path_buf() },
         restart_dump_for_shards: None,
         iteration_delay: Some(Duration::ZERO),
         credentials_file: None,
@@ -166,7 +166,7 @@ fn run_state_sync_with_dumped_parts(
     let mut config = env.clients[0].config.clone();
     let root_dir = tempfile::Builder::new().prefix("state_dump").tempdir().unwrap();
     config.state_sync.dump = Some(DumpConfig {
-        location: ExternalStorageLocation::Filesystem { root_dir: root_dir.path().to_path_buf() },
+        location: Filesystem { root_dir: root_dir.path().to_path_buf() },
         restart_dump_for_shards: None,
         iteration_delay: Some(Duration::ZERO),
         credentials_file: None,
