@@ -86,8 +86,8 @@ pub struct NodeExecutionData {
     pub state_sync_dumper_handle: TestLoopDataHandle<Arc<StateSyncDumpHandle>>,
     pub spice_data_distributor_sender: TestLoopSender<SpiceDataDistributorActor>,
     pub cold_store_sender: Option<TestLoopSender<ColdStoreActor>>,
-    pub cloud_archival_writer_handle: Option<TestLoopDataHandle<CloudArchivalWriterHandle>>,
-    pub cloud_storage_sender: Option<TestLoopDataHandle<Arc<CloudStorage>>>,
+    pub cloud_storage_sender: TestLoopDataHandle<Option<Arc<CloudStorage>>>,
+    pub cloud_archival_writer_handle: TestLoopDataHandle<Option<CloudArchivalWriterHandle>>,
 }
 
 impl From<&NodeExecutionData> for AccountId {

@@ -1,9 +1,6 @@
 use crate::metrics;
-use anyhow::Context;
-use futures::TryStreamExt;
 use near_primitives::external::{ExternalConnection, ExternalStorageLocation, S3AccessConfig};
 use near_primitives::types::{EpochId, ShardId};
-use object_store::ObjectStore as _;
 use std::path::PathBuf;
 use std::time::Instant;
 
@@ -118,46 +115,8 @@ impl StateSyncConnection {
         let _timer = metrics::STATE_SYNC_DUMP_LIST_OBJECT_ELAPSED
             .with_label_values(&[&shard_id.to_string()])
             .start_timer();
-        match &self.connection {
-            ExternalConnection::S3 { bucket } => {
-                let prefix = format!("{}/", directory_path);
-                let list_results = bucket.list(prefix.clone(), Some("/".to_string())).await?;
-                tracing::debug!(target: "state_sync_dump", %shard_id, ?directory_path, "List state parts in s3");
-                let mut file_names = vec![];
-                for res in list_results {
-                    for obj in res.contents {
-                        file_names.push(extract_file_name_from_full_path(obj.key))
-                    }
-                }
-                Ok(file_names)
-            }
-            ExternalConnection::Filesystem { root_dir } => {
-                let path = root_dir.join(directory_path);
-                tracing::debug!(target: "state_sync_dump", %shard_id, ?path, "List state parts in local directory");
-                std::fs::create_dir_all(&path)?;
-                let mut file_names = vec![];
-                let files = std::fs::read_dir(&path)?;
-                for file in files {
-                    let file_name = extract_file_name_from_path_buf(file?.path());
-                    file_names.push(file_name);
-                }
-                Ok(file_names)
-            }
-            ExternalConnection::GCS { gcs_client, .. } => {
-                let prefix = format!("{}/", directory_path);
-                tracing::debug!(target: "state_sync_dump", %shard_id, ?directory_path, "List state parts in GCS");
-                Ok(gcs_client
-                    .list(Some(
-                        &object_store::path::Path::parse(&prefix)
-                            .with_context(|| format!("can't parse {prefix} as path"))?,
-                    ))
-                    .try_collect::<Vec<_>>()
-                    .await?
-                    .into_iter()
-                    .map(|object| object.location.filename().unwrap().into())
-                    .collect())
-            }
-        }
+        tracing::debug!(target: "state_sync_dump", %shard_id, directory_path, "List state parts");
+        self.connection.list(directory_path).await
     }
 
     /// Check if the state sync header exists in the external storage.
@@ -189,14 +148,6 @@ impl StateSyncConnection {
         );
         Ok(header_exits)
     }
-}
-
-fn extract_file_name_from_full_path(full_path: String) -> String {
-    return extract_file_name_from_path_buf(PathBuf::from(full_path));
-}
-
-fn extract_file_name_from_path_buf(path_buf: PathBuf) -> String {
-    return path_buf.file_name().unwrap().to_str().unwrap().to_string();
 }
 
 /// Construct the state file location on the external storage.

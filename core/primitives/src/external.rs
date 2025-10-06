@@ -3,6 +3,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use anyhow::Context;
+use futures::TryStreamExt;
 use object_store::{ObjectStore, PutPayload};
 use std::time::Duration;
 
@@ -183,6 +184,57 @@ impl ExternalConnection {
             }
         }
     }
+
+    pub async fn list(&self, directory_path: &str) -> Result<Vec<String>, anyhow::Error> {
+        match self {
+            ExternalConnection::S3 { bucket } => {
+                let prefix = format!("{}/", directory_path);
+                let list_results = bucket.list(prefix.clone(), Some("/".to_string())).await?;
+                tracing::debug!(target: "external", directory_path, "List directory in s3");
+                let mut file_names = vec![];
+                for res in list_results {
+                    for obj in res.contents {
+                        file_names.push(extract_file_name_from_full_path(obj.key))
+                    }
+                }
+                Ok(file_names)
+            }
+            ExternalConnection::Filesystem { root_dir } => {
+                let path = root_dir.join(directory_path);
+                tracing::debug!(target: "external", ?path, "List files in local directory");
+                std::fs::create_dir_all(&path)?;
+                let mut file_names = vec![];
+                let files = std::fs::read_dir(&path)?;
+                for file in files {
+                    let file_name = extract_file_name_from_path_buf(file?.path());
+                    file_names.push(file_name);
+                }
+                Ok(file_names)
+            }
+            ExternalConnection::GCS { gcs_client, .. } => {
+                let prefix = format!("{}/", directory_path);
+                tracing::debug!(target: "external", directory_path, "List directory in GCS");
+                Ok(gcs_client
+                    .list(Some(
+                        &object_store::path::Path::parse(&prefix)
+                            .with_context(|| format!("can't parse {prefix} as path"))?,
+                    ))
+                    .try_collect::<Vec<_>>()
+                    .await?
+                    .into_iter()
+                    .map(|object| object.location.filename().unwrap().into())
+                    .collect())
+            }
+        }
+    }
+}
+
+fn extract_file_name_from_full_path(full_path: String) -> String {
+    return extract_file_name_from_path_buf(PathBuf::from(full_path));
+}
+
+fn extract_file_name_from_path_buf(path_buf: PathBuf) -> String {
+    return path_buf.file_name().unwrap().to_str().unwrap().to_string();
 }
 
 pub fn create_s3_bucket_readonly(

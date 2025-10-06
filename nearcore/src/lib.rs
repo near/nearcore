@@ -449,20 +449,15 @@ pub fn start_with_config_and_synchronization(
         None
     };
 
-    let result = create_cloud_archival_writer(
+    let cloud_archival_writer_handle = create_cloud_archival_writer(
         Clock::real(),
+        actor_system.new_future_spawner().into(),
         config.config.cloud_archival_writer,
         config.genesis.config.genesis_height,
-        runtime.as_ref(),
+        runtime.clone(),
         storage.get_hot_store(),
         storage.get_cloud_storage(),
     )?;
-    let cloud_archival_writer_handle = if let Some(writer) = result {
-        let handle = writer.start(actor_system.new_future_spawner().into());
-        Some(handle)
-    } else {
-        None
-    };
 
     let telemetry =
         TelemetryActor::spawn_tokio_actor(actor_system.clone(), config.telemetry_config.clone());

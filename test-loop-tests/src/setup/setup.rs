@@ -368,29 +368,19 @@ pub fn setup_client(
         None
     };
 
-    let cloud_storage_sender = storage.cloud_storage.as_ref().map(|storage| {
-        let handle = test_loop.data.register_data(storage.clone());
-        handle
-    });
+    let cloud_storage_sender = test_loop.data.register_data(storage.cloud_storage.clone());
 
-    let cloud_archival_writer_handle = if client_config.cloud_archival_writer.is_some() {
-        let writer = create_cloud_archival_writer(
-            test_loop.clock(),
-            client_config.cloud_archival_writer.clone(),
-            genesis.config.genesis_height,
-            runtime_adapter.as_ref(),
-            storage.hot_store,
-            storage.cloud_storage.as_ref(),
-        )
-        .unwrap()
-        .unwrap();
-        let future_spawner = Arc::new(test_loop.future_spawner(identifier));
-        let handle = writer.start(future_spawner);
-        let handle = test_loop.data.register_data(handle);
-        Some(handle)
-    } else {
-        None
-    };
+    let cloud_archival_writer_handle = create_cloud_archival_writer(
+        test_loop.clock(),
+        Arc::new(test_loop.future_spawner(identifier)),
+        client_config.cloud_archival_writer.clone(),
+        genesis.config.genesis_height,
+        runtime_adapter.clone(),
+        storage.hot_store,
+        storage.cloud_storage.as_ref(),
+    )
+    .unwrap();
+    let cloud_archival_writer_handle = test_loop.data.register_data(cloud_archival_writer_handle);
 
     let resharding_actor = ReshardingActor::new(
         epoch_manager.clone(),

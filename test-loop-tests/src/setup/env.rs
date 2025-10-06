@@ -125,11 +125,8 @@ impl TestLoopEnv {
     }
 
     fn get_cloud_storage(&self, node_data: &NodeExecutionData) -> Option<Arc<CloudStorage>> {
-        let Some(cloud_storage_sender) = &node_data.cloud_storage_sender else {
-            return None;
-        };
-        let cloud_storage = self.test_loop.data.get(&cloud_storage_sender);
-        Some(cloud_storage.clone())
+        let cloud_storage = self.test_loop.data.get(&node_data.cloud_storage_sender);
+        cloud_storage.clone()
     }
 
     /// Function to restart a node in test loop environment. This function takes in the new_identifier

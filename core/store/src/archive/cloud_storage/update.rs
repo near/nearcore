@@ -1,11 +1,8 @@
-use std::path::PathBuf;
-use std::sync::Arc;
-
 use near_primitives::types::BlockHeight;
 
 use crate::Store;
-use crate::archive::cloud_storage::CloudStorage;
 use crate::archive::cloud_storage::block_data::build_block_data;
+use crate::archive::cloud_storage::{CloudStorage, CloudStorageFileID};
 
 /// Error surfaced while archiving data or performing sanity checks.
 #[derive(thiserror::Error, Debug)]
@@ -30,51 +27,33 @@ impl From<near_chain_primitives::Error> for CloudArchivingError {
     }
 }
 
-enum CloudStorageFileID {
-    Head,
-    Block(BlockHeight),
-}
-
-impl CloudStorageFileID {
-    fn to_path(&self) -> String {
-        let path_parts = match self {
-            CloudStorageFileID::Head => vec!["head".to_string()],
-            CloudStorageFileID::Block(height) => vec![height.to_string(), "block".to_string()],
-        };
-        let path = PathBuf::from_iter(path_parts);
-        path.to_str().expect("non UTF-8 string").to_string()
+impl CloudStorage {
+    /// Saves the archival data associated with the block at the given height.
+    pub async fn archive_block_data(
+        &self,
+        hot_store: &Store,
+        block_height: BlockHeight,
+    ) -> Result<(), CloudArchivingError> {
+        let block_data = build_block_data(hot_store, block_height)?;
+        let file_id = CloudStorageFileID::Block(block_height);
+        let blob = borsh::to_vec(&block_data)?;
+        self.put(file_id, blob).await
     }
-}
 
-async fn put(
-    cloud_storage: &Arc<CloudStorage>,
-    file_id: CloudStorageFileID,
-    value: Vec<u8>,
-) -> Result<(), CloudArchivingError> {
-    let path = file_id.to_path();
-    cloud_storage
-        .external
-        .put(&path, &value)
-        .await
-        .map_err(|error| CloudArchivingError::PutError { error })
-}
+    /// Persists the cloud head to external storage.
+    pub async fn update_cloud_head(&self, head: BlockHeight) -> Result<(), CloudArchivingError> {
+        self.put(CloudStorageFileID::Head, borsh::to_vec(&head)?).await
+    }
 
-/// Saves the archival data associated with the block at the given height.
-pub async fn archive_block_data(
-    cloud_storage: &Arc<CloudStorage>,
-    hot_store: &Store,
-    block_height: BlockHeight,
-) -> Result<(), CloudArchivingError> {
-    let block_data = build_block_data(hot_store, block_height)?;
-    let file_id = CloudStorageFileID::Block(block_height);
-    let blob = borsh::to_vec(&block_data)?;
-    put(cloud_storage, file_id, blob).await
-}
-
-/// Persists the cloud head to external storage.
-pub async fn update_cloud_head(
-    cloud_storage: &Arc<CloudStorage>,
-    head: BlockHeight,
-) -> Result<(), CloudArchivingError> {
-    put(cloud_storage, CloudStorageFileID::Head, borsh::to_vec(&head)?).await
+    async fn put(
+        &self,
+        file_id: CloudStorageFileID,
+        value: Vec<u8>,
+    ) -> Result<(), CloudArchivingError> {
+        let path = file_id.path();
+        self.external
+            .put(&path, &value)
+            .await
+            .map_err(|error| CloudArchivingError::PutError { error })
+    }
 }

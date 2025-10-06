@@ -87,8 +87,8 @@ fn get_writer_handle<'a>(
     archival_id: &AccountId,
 ) -> &'a CloudArchivalWriterHandle {
     let archival_node = TestLoopNode::for_account(&env.node_datas, archival_id);
-    let writer_handle = archival_node.data().cloud_archival_writer_handle.as_ref().unwrap();
-    env.test_loop.data.get(writer_handle)
+    let writer_handle = &archival_node.data().cloud_archival_writer_handle;
+    env.test_loop.data.get(writer_handle).as_ref().unwrap()
 }
 
 fn get_cloud_head(env: &TestLoopEnv, archival_id: &AccountId) -> BlockHeight {

@@ -15,7 +15,6 @@ workspace = true
 anyhow.workspace = true
 borsh.workspace = true
 bytesize.workspace = true
-object_store.workspace = true
 futures.workspace = true
 itertools.workspace = true
 lru.workspace = true

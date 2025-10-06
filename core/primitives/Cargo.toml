@@ -32,6 +32,7 @@ hex.workspace = true
 itertools.workspace = true
 num-rational.workspace = true
 object_store.workspace = true
+futures.workspace = true
 ordered-float.workspace = true
 percent-encoding.workspace = true
 primitive-types.workspace = true
