@@ -165,7 +165,7 @@ impl FilterRateWindow {
                 tracing::warn!(target: "transaction-generator", "zero time difference in rate measurement");
                 return None;
             }
-            Some((new_data - old_value) as f64 *1e9/ (time_diff_ns as f64))
+            Some((new_data - old_value) as f64 * 1e9 / (time_diff_ns as f64))
         } else {
             self.data.push_back(ValueAtTime { value: new_data, at_time_ns: timestamp_ns });
             None
@@ -461,10 +461,34 @@ impl TxGenerator {
         controller.register(height, at_time_ns);
 
         tokio::spawn(async move {
+            let mut last_height_update: Option<(u64, tokio::time::Instant)> = None;
             loop {
                 tokio::select! {
                     _ = rx_block.changed() => {
                         let (_, height, at_time_ns) = *rx_block.borrow();
+                        let now = tokio::time::Instant::now();
+
+                        if let Some((last_height, last_update_time)) = last_height_update {
+                            if height == last_height {
+                                // if the time between blocks is too long, skip the controller update and
+                                // stop generating transactions for a while
+                                // the trigger value (3s) needs to be outside of the normal operation range to
+                                // avoid getting into a mode where we spit out the chunk of
+                                // transactions at a very high rate and then wait for chain to recover,
+                                // and then repeat the cycle.
+                                let dt = now.duration_since(last_update_time);
+                                if Duration::from_secs(3) < dt {
+                                    tx_tps_values
+                                        .send(tokio::time::Duration::from_secs(30))
+                                        .unwrap();
+                                    tracing::warn!(target: "transaction-generator", dt=?dt, "long delay between blocks, skipping controller update and pausing transaction generation");
+                                }
+                                // no change in height, ignore sample
+                                continue;
+                            }
+                        }
+                        last_height_update = Some((height, now));
+
                         rate += controller.register(height, at_time_ns);
                         if rate < 1.0 || rate > 100000.0 {
                             tracing::warn!(target: "transaction-generator", rate, "controller suggested tps is out of range, clamping");
