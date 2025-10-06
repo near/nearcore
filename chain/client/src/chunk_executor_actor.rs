@@ -31,7 +31,6 @@ use near_epoch_manager::shard_assignment::shard_id_to_uid;
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_network::types::PeerManagerAdapter;
 use near_primitives::hash::CryptoHash;
-use near_primitives::optimistic_block::BlockToApply;
 use near_primitives::sandbox::state_patch::SandboxStatePatch;
 use near_primitives::sharding::ReceiptProof;
 use near_primitives::sharding::ShardChunk;
@@ -420,19 +419,15 @@ impl ChunkExecutorActor {
         let iteration_mode = self.apply_chunks_iteration_mode;
         self.apply_chunks_spawner.spawn("apply_chunks", move || {
             let block_hash = *block.hash();
-            let apply_results = do_apply_chunks(
-                iteration_mode,
-                BlockToApply::Normal(block_hash),
-                block.header().height(),
-                jobs,
-            )
-            .into_iter()
-            .map(|(shard_id, result)| {
-                result.unwrap_or_else(|err| {
+            let apply_results =
+                do_apply_chunks(iteration_mode, &block_hash, block.header().height(), jobs)
+                    .into_iter()
+                    .map(|(shard_id, result)| {
+                        result.unwrap_or_else(|err| {
                     panic!("failed to apply block {block_hash:?} chunk for shard {shard_id}: {err}")
                 })
-            })
-            .collect();
+                    })
+                    .collect();
             apply_done_sender.send(ExecutorApplyChunksDone { block_hash, apply_results });
         });
         Ok(())
@@ -845,13 +840,13 @@ type UpdateShardJob = (
     level = "debug",
     target = "chunk_executor",
     skip_all,
-    fields(%block_height, ?block)
+    fields(%block_height, ?block_hash)
 )]
 // We don't reuse chain's do_apply_chunks because we don't need CachedShardUpdateKey which is used
 // for optimistic blocks.
 fn do_apply_chunks(
     iteration_mode: ApplyChunksIterationMode,
-    block: BlockToApply,
+    block_hash: &CryptoHash,
     block_height: BlockHeight,
     work: Vec<UpdateShardJob>,
 ) -> Vec<(ShardId, Result<ShardUpdateResult, Error>)> {
