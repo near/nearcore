@@ -22,7 +22,6 @@ hex.workspace = true
 indicatif.workspace = true
 itertools.workspace = true
 num-rational.workspace = true
-object_store.workspace = true
 parking_lot.workspace = true
 rand.workspace = true
 reqwest.workspace = true

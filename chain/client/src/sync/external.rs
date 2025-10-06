@@ -38,6 +38,7 @@ impl StateFileType {
     }
 }
 
+/// Wrapper for a connection to the external storage, used by state sync.
 #[derive(Clone)]
 pub struct StateSyncConnection {
     connection: ExternalConnection,
