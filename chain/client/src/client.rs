@@ -1468,6 +1468,8 @@ impl Client {
         approval: Approval,
         next_block_producer: AccountId,
     ) {
+        let _span =
+            tracing::debug_span!(target: "client", "send_block_approval_to_account").entered();
         let validator_signer = self.validator_signer.get();
         let my_account_id = validator_signer.as_ref().map(|x| x.validator_id());
         if Some(&next_block_producer) == my_account_id {
