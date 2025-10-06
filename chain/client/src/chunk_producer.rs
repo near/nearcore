@@ -547,11 +547,6 @@ impl ChunkProducer {
 
     /// Start a background job which performs early transaction preparation. Early transaction
     /// preparation starts as soon as the post-state TrieUpdate of applied chunk is available.
-    #[instrument(target = "client", level = "debug", "start_prepare_transactions_job", skip_all, fields(
-        height=prev_block_context.height + 1,
-        shard_id=%shard_uid.shard_id(),
-        tag_block_production = true,
-    ))]
     pub fn start_prepare_transactions_job(
         &mut self,
         shard_update_key: CachedShardUpdateKey,
@@ -579,6 +574,15 @@ impl ChunkProducer {
         };
 
         let next_height = prev_block_context.height + 1;
+        let _span = tracing::debug_span!(
+            target: "client",
+            "start_prepare_transactions_job",
+            height = next_height,
+            shard_id = %shard_uid.shard_id(),
+            tag_block_production = true,
+        )
+        .entered();
+
         let prepare_job_key = PrepareTransactionsJobKey {
             shard_uid,
             shard_update_key,
