@@ -165,6 +165,8 @@ impl StateValue {
             StateValue::TrieValueRef(value_ref) => value_ref.len(),
             StateValue::Serialized(token) => token.len(),
             StateValue::Deserialized(deserialized) => {
+                // FIXME(nagisa): this may not be necessary if the stored type is `Vec<u8>`. This
+                // probably should be a method on `Deserialized`.
                 todo!("serialize on the fly, take length")
             }
         }

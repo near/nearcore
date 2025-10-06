@@ -193,7 +193,7 @@ pub trait External {
     /// assert_eq!(external.storage_get(&mut gas, b"no_key").unwrap().map(|ptr| ptr.deref(&mut gas).unwrap()), None);
     /// ```
     fn storage_get<'a>(
-        &'a self,
+        &'a mut self,
         access_tracker: &mut dyn StorageAccessTracker,
         key: &[u8],
     ) -> Result<Option<Box<dyn ValuePtr + 'a>>>;

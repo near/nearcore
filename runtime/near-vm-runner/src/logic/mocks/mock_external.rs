@@ -160,7 +160,7 @@ impl External for MockedExternal {
     }
 
     fn storage_get(
-        &self,
+        &mut self,
         _: &mut dyn StorageAccessTracker,
         key: &[u8],
     ) -> Result<Option<Box<dyn ValuePtr>>> {

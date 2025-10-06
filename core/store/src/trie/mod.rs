@@ -1545,22 +1545,29 @@ impl Trie {
             OptimizedValueRef::Ref(value_ref) => {
                 self.retrieve_value(&value_ref.hash, operation_options)
             }
-            OptimizedValueRef::AvailableValue(ValueAccessToken { value }) => {
-                let value_hash = hash(value);
-                let arc_value: Arc<[u8]> = value.clone().into();
-                if operation_options.trie_access_tracker.track_mem_lookup(&value_hash).is_none() {
-                    operation_options
-                        .trie_access_tracker
-                        .track_disk_lookup(value_hash, arc_value.clone());
-                }
-                if operation_options.enable_state_witness_recording {
-                    if let Some(recorder) = &self.recorder {
-                        recorder.record(&value_hash, arc_value);
-                    }
-                }
-                Ok(value.clone())
+            OptimizedValueRef::AvailableValue(token) => {
+                Ok(self.access_value(operation_options, token).to_vec())
             }
         }
+    }
+
+    pub fn access_value<'a>(
+        &self,
+        operation_options: AccessOptions,
+        token: &'a ValueAccessToken,
+    ) -> &'a [u8] {
+        // Oof! This can't be performant.
+        let value_hash = hash(&token.value);
+        let arc_value: Arc<[u8]> = token.value.clone().into();
+        if operation_options.trie_access_tracker.track_mem_lookup(&value_hash).is_none() {
+            operation_options.trie_access_tracker.track_disk_lookup(value_hash, arc_value.clone());
+        }
+        if operation_options.enable_state_witness_recording {
+            if let Some(recorder) = &self.recorder {
+                recorder.record(&value_hash, arc_value);
+            }
+        }
+        &token.value
     }
 
     /// Retrieves the full value for the given key.

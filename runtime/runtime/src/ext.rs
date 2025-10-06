@@ -10,8 +10,8 @@ use near_primitives::utils::create_receipt_id_from_action_hash;
 use near_primitives::version::ProtocolVersion;
 use near_store::contract::ContractStorage;
 use near_store::state_update::{StateOperations, StateValue};
-use near_store::trie::{AccessOptions, AccessTracker};
-use near_store::{KeyLookupMode, TrieUpdateValuePtr};
+use near_store::trie::{AccessOptions, AccessTracker, OptimizedValueRef, ValueAccessToken};
+use near_store::{KeyLookupMode, Trie};
 use near_vm_runner::logic::errors::{AnyError, InconsistentStateError, VMLogicError};
 use near_vm_runner::logic::types::{
     ActionIndex, GlobalContractDeployMode, GlobalContractIdentifier, ReceiptIndex,
@@ -20,6 +20,7 @@ use near_vm_runner::logic::{External, StorageAccessTracker, ValuePtr};
 use near_vm_runner::{Contract, ContractCode};
 use near_wallet_contract::wallet_contract;
 use parking_lot::Mutex;
+use std::any::Any;
 use std::collections::BTreeMap;
 use std::fmt::Debug;
 use std::sync::Arc;
@@ -56,26 +57,40 @@ impl From<ExternalError> for VMLogicError {
     }
 }
 
-pub struct RuntimeExtValuePtr<'a, 'b> {
-    update_op: &'a mut StateOperations<'a>,
+pub struct RuntimeExtValuePtr<'a, 'access_tracker> {
+    trie: &'a Trie,
     value_ptr: StateValue,
-    deref_options: AccessOptions<'b>,
+    deref_options: AccessOptions<'access_tracker>,
     accounting_state: Arc<AccountingState>,
 }
 
-impl<'a, 'b> ValuePtr for RuntimeExtValuePtr<'a, 'b> {
+impl<'a, 'access_tracker> ValuePtr for RuntimeExtValuePtr<'a, 'access_tracker> {
     fn len(&self) -> u32 {
-        self.value_ptr.len()
+        u32::try_from(self.value_ptr.len()).unwrap()
     }
 
     fn deref(&self, access_tracker: &mut dyn StorageAccessTracker) -> ExtResult<Vec<u8>> {
+        let start_ttn = self.accounting_state.get_counts();
         match &self.value_ptr {
-            TrieUpdateValuePtr::MemoryRef(data) => Ok(data.to_vec()),
-            TrieUpdateValuePtr::Ref(trie, optimized_value_ref) => {
-                let start_ttn = self.accounting_state.get_counts();
-                let result = trie.deref_optimized(self.deref_options, &optimized_value_ref);
+            StateValue::TrieValueRef(value_ref) => {
+                let result = self.trie.retrieve_value(&value_ref.hash, self.deref_options);
                 self.accounting_state.commit_counts_since(start_ttn, access_tracker)?;
-                Ok(result.map_err(wrap_storage_error)?)
+                result.map_err(wrap_storage_error)
+            }
+            StateValue::Serialized(value_access_token) => {
+                let val = self.trie.access_value(self.deref_options, &value_access_token);
+                self.accounting_state.commit_counts_since(start_ttn, access_tracker)?;
+                Ok(val.to_vec())
+            }
+            StateValue::Deserialized(deserialized) => {
+                let arc = Arc::clone(deserialized);
+                return <Arc<dyn Any + Send + Sync>>::downcast::<Vec<u8>>(arc)
+                    .map_err(|_| {
+                        wrap_storage_error(StorageError::StorageInconsistentState(
+                            "type confusion".into(),
+                        ))
+                    })
+                    .map(Arc::unwrap_or_clone);
             }
         }
     }
@@ -150,7 +165,7 @@ impl<'a, 'su> External for RuntimeExt<'a, 'su> {
     ) -> ExtResult<Option<Vec<u8>>> {
         // SUBTLE: Storage writes don't actually touch anything in the trie, at least not during
         // the contract execution -- they just put a value as a prospective in a map in
-        // `TrieUpdate`. However we do need to grab the value for the evicted result and for all
+        // `StateUpdate`. However we do need to grab the value for the evicted result and for all
         // intents and purposes we need to both account for TTN fees and record the path to the
         // value for the state witness. For that reason the lookup below has to happen through the
         // Trie.
@@ -159,14 +174,36 @@ impl<'a, 'su> External for RuntimeExt<'a, 'su> {
         let options = AccessOptions::contract_runtime(&self.trie_access_tracker);
         let evicted_ptr = self
             .update_op
-            .get_ref(storage_key, KeyLookupMode::MemOrTrie, options)
+            .get_ref(storage_key.clone(), KeyLookupMode::MemOrTrie, options)
             .map_err(wrap_storage_error)?;
+
+        let trie = self.update_op.trie();
         let evicted = match evicted_ptr {
             None => None,
-            Some(ptr) => {
-                access_tracker.deref_write_evicted_value_bytes(u64::from(ptr.len()))?;
-                Some(ptr.deref_value(options).map_err(wrap_storage_error)?)
-            }
+            Some(ptr) => match ptr {
+                StateValue::TrieValueRef(value_ref) => {
+                    let len = u64::try_from(value_ref.len()).unwrap();
+                    access_tracker.deref_write_evicted_value_bytes(len)?;
+                    let result = trie.retrieve_value(&value_ref.hash, options);
+                    Some(result.map_err(wrap_storage_error)?)
+                }
+                StateValue::Serialized(value) => {
+                    let len = u64::try_from(value.len()).unwrap();
+                    access_tracker.deref_write_evicted_value_bytes(len)?;
+                    let result = trie.access_value(options, &value);
+                    Some(result.to_vec())
+                }
+                StateValue::Deserialized(deserialized) => {
+                    let value = Arc::downcast::<Vec<u8>>(deserialized).map_err(|_| {
+                        wrap_storage_error(StorageError::StorageInconsistentState(
+                            "type confusion".into(),
+                        ))
+                    })?;
+                    let len = u64::try_from(value.len()).unwrap();
+                    access_tracker.deref_write_evicted_value_bytes(len)?;
+                    Some(Arc::unwrap_or_clone(value))
+                }
+            },
         };
         let _delta =
             self.trie_access_tracker.state.commit_counts_since(start_ttn, access_tracker)?;
@@ -185,7 +222,7 @@ impl<'a, 'su> External for RuntimeExt<'a, 'su> {
     }
 
     fn storage_get<'b>(
-        &'b self,
+        &'b mut self,
         access_tracker: &mut dyn StorageAccessTracker,
         key: &[u8],
     ) -> ExtResult<Option<Box<dyn ValuePtr + 'b>>> {
@@ -205,6 +242,7 @@ impl<'a, 'su> External for RuntimeExt<'a, 'su> {
             .map(|option| {
                 option.map(|value_ptr| {
                     Box::new(RuntimeExtValuePtr {
+                        trie: self.update_op.trie(),
                         value_ptr,
                         deref_options,
                         accounting_state: Arc::clone(&self.trie_access_tracker.state),
@@ -235,7 +273,7 @@ impl<'a, 'su> External for RuntimeExt<'a, 'su> {
     ) -> ExtResult<Option<Vec<u8>>> {
         // SUBTLE: Storage removals don't actually touch anything in the trie, at least not during
         // the contract execution -- they just put a value as a prospective in a map in
-        // `TrieUpdate`. However we do need to grab the value for the evicted result and for all
+        // `StateUpdate`. However we do need to grab the value for the evicted result and for all
         // intents and purposes we need to both account for TTN fees and record the path to the
         // value for the state witness. For that reason the lookup below has to happen through the
         // Trie.
