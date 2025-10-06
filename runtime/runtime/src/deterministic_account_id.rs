@@ -55,16 +55,19 @@ pub(crate) fn action_deterministic_state_init(
     result: &mut ActionResult,
 ) -> Result<(), RuntimeError> {
     let current_protocol_version = apply_state.current_protocol_version;
+    let storage_usage_config = &apply_state.config.fees.storage_usage_config;
     match AccountState::of(account.as_ref()) {
         AccountState::NonExisting => {
-            let storage_usage_config = &apply_state.config.fees.storage_usage_config;
-            create_deterministic_account(account, storage_usage_config);
+            // Create with zero balance now and check later how much of the
+            // provided deposit is needed.
+            create_deterministic_account(account, Balance::ZERO, storage_usage_config);
             deploy_deterministic_account(
                 state_update,
                 account.as_mut().expect("account must exist now"),
                 account_id,
                 &action.state_init,
                 result,
+                storage_usage_config,
                 current_protocol_version,
             )?;
         }
@@ -75,12 +78,16 @@ pub(crate) fn action_deterministic_state_init(
                 account_id,
                 &action.state_init,
                 result,
+                storage_usage_config,
                 current_protocol_version,
             )?;
         }
         AccountState::Active => {
             // Account already exists, do nothing.
         }
+    }
+    if result.result.is_err() {
+        return Ok(());
     }
     debug_assert!(
         matches!(AccountState::of(account.as_ref()), AccountState::Active),
@@ -131,6 +138,7 @@ pub(crate) fn action_deterministic_state_init(
 
 pub(crate) fn create_deterministic_account(
     account: &mut Option<Account>,
+    initial_balance: Balance,
     storage_usage_config: &StorageUsageConfig,
 ) {
     // Unlike `CreateAccount`, this account creation does not change
@@ -140,7 +148,7 @@ pub(crate) fn create_deterministic_account(
     // `AddKey`, `DeployContract`, or any other actions that only the
     // account owner is permitted to do.
     *account = Some(Account::new(
-        Balance::ZERO,
+        initial_balance,
         Balance::ZERO,
         AccountContract::None,
         storage_usage_config.num_bytes_account,
@@ -160,6 +168,7 @@ fn deploy_deterministic_account(
     account_id: &AccountId,
     state_init: &DeterministicAccountStateInit,
     result: &mut ActionResult,
+    storage_usage_config: &StorageUsageConfig,
     current_protocol_version: ProtocolVersion,
 ) -> Result<(), RuntimeError> {
     // Step 1: set contract code (includes storage usage accounting)
@@ -171,12 +180,23 @@ fn deploy_deterministic_account(
         current_protocol_version,
         result,
     )?;
+    if result.result.is_err() {
+        return Ok(());
+    }
 
     // Step 2: insert provided key-value pairs
     let mut required_storage_usage = account.storage_usage();
     for (key, value) in state_init.data() {
         let trie_key = TrieKey::ContractData { account_id: account_id.clone(), key: key.to_vec() };
-        let new_bytes = value.len() as u64;
+
+        let value_bytes = value.len() as u64;
+        let key_bytes = key.len() as u64;
+        let extra_per_record_bytes = storage_usage_config.num_extra_bytes_record;
+
+        let new_bytes = value_bytes
+            .checked_add(key_bytes)
+            .and_then(|acc| acc.checked_add(extra_per_record_bytes))
+            .ok_or(IntegerOverflowError {})?;
         state_update.set(trie_key, value.clone());
         required_storage_usage =
             required_storage_usage.checked_add(new_bytes).ok_or(IntegerOverflowError {})?;

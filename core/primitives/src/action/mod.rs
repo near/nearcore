@@ -309,7 +309,7 @@ pub struct TransferAction {
 pub enum Action {
     /// Create an (sub)account using a transaction `receiver_id` as an ID for
     /// a new account ID must pass validation rules described here
-    /// <http://nomicon.io/Primitives/Account.html>.
+    /// <https://nomicon.io/DataStructures/Account>.
     CreateAccount(CreateAccountAction) = 0,
     /// Sets a Wasm code to a receiver_id
     DeployContract(DeployContractAction) = 1,

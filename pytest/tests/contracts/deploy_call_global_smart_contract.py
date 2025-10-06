@@ -20,7 +20,7 @@ def test_deploy_global_contract():
     n = 2
     val_client_config_changes = {
         i: {
-            "tracked_shards_config": "NoShards"
+            "tracked_shards_config": "NoShards",
         } for i in range(n)
     }
     rpc_client_config_changes = {n: {"tracked_shards_config": "AllShards"}}
@@ -42,12 +42,12 @@ def test_deploy_global_contract():
     deploy_mode = GlobalContractDeployMode()
     deploy_mode.enum = 'codeHash'
     deploy_mode.codeHash = ()
-    deploy_global_contract(nodes[0], test_contract, deploy_mode, 10)
+    deploy_global_contract(rpc, nodes[0], test_contract, deploy_mode, 10)
 
     identifier = GlobalContractIdentifier()
     identifier.enum = "codeHash"
     identifier.codeHash = hashlib.sha256(test_contract).digest()
-    use_global_contract(nodes[1], identifier, 20)
+    use_global_contract(rpc, nodes[1], identifier, 20)
 
     call_contract(rpc, nodes[0], nodes[1].signer_key.account_id, 30)
     call_contract(rpc, nodes[1], nodes[1].signer_key.account_id, 40)
@@ -56,39 +56,52 @@ def test_deploy_global_contract():
     deploy_mode = GlobalContractDeployMode()
     deploy_mode.enum = 'accountId'
     deploy_mode.accountId = ()
-    deploy_global_contract(nodes[0], test_contract, deploy_mode, 50)
+    deploy_global_contract(rpc, nodes[0], test_contract, deploy_mode, 50)
 
     identifier = GlobalContractIdentifier()
     identifier.enum = "accountId"
     identifier.accountId = nodes[0].signer_key.account_id
-    use_global_contract(nodes[1], identifier, 60)
+    use_global_contract(rpc, nodes[1], identifier, 60)
 
     call_contract(rpc, nodes[0], nodes[1].signer_key.account_id, 70)
     call_contract(rpc, nodes[1], nodes[1].signer_key.account_id, 80)
 
 
 def call_contract(rpc, node, contract_id, nonce):
-    last_block_hash = node.get_latest_block().hash_bytes
+    last_block_hash = rpc.get_latest_block().hash_bytes
     tx = sign_function_call_tx(node.signer_key, contract_id, 'log_something',
                                [], 150 * GGAS, 1, nonce, last_block_hash)
-    res = rpc.send_tx_and_wait(tx, 20)
+    res = rpc.send_tx_and_wait(tx, 10)
+    print("call", res)
     assert res['result']['receipts_outcome'][0]['outcome']['logs'][0] == 'hello'
 
 
-def deploy_global_contract(node, contract, deploy_mode, nonce):
-    last_block_hash = node.get_latest_block().hash_bytes
+def deploy_global_contract(rpc, node, contract, deploy_mode, nonce):
+    last_block_hash = rpc.get_latest_block().hash_bytes
     tx = sign_deploy_global_contract_tx(node.signer_key, contract, deploy_mode,
                                         nonce, last_block_hash)
-    node.send_tx(tx)
-    time.sleep(3)
+    res = rpc.send_tx_and_wait(tx, 10)
+    print("deploy", res)
+    assert "SuccessValue" in res['result']['status']
 
 
-def use_global_contract(node, identifier, nonce):
-    last_block_hash = node.get_latest_block().hash_bytes
-    tx = sign_use_global_contract_tx(node.signer_key, identifier, nonce,
-                                     last_block_hash)
-    node.send_tx(tx)
-    time.sleep(3)
+def use_global_contract(rpc, node, identifier, nonce):
+    """
+    Uses up-to 5 nonces past the supplied `nonce` for retries.
+    """
+    last_block_hash = rpc.get_latest_block().hash_bytes
+
+    # transaction becoming "Executed" does not imply that the global contract distribution receipt
+    # has been executed on all nodes and therefore we can't use deploy's finality status as a cue
+    # that it can already be deployed to an account (used.) We'll try a few times to mitigate.
+    for attempt in range(5):
+        tx = sign_use_global_contract_tx(node.signer_key, identifier,
+                                         nonce + attempt, last_block_hash)
+        res = rpc.send_tx_and_wait(tx, 10)
+        print("use", res)
+        if "SuccessValue" in res['result']['status']:
+            return
+    assert false, "5 attempts to use contract did not succeed"
 
 
 if __name__ == '__main__':
