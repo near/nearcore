@@ -321,6 +321,7 @@ export const ThreadTimeline = ({ thread, messageTypes, minTimeMs, currentTimeUni
     const svgHeight = chartHeight + LEGEND_VERTICAL_MARGIN * 2 + LEGEND_HEIGHT_PER_ROW * Math.ceil(colorMap.size / 5);
 
     const [hoveredEvent, setHoveredEvent] = useState<{ event: EventToDisplay, x: number, y: number } | null>(null);
+    const [hoveredLegendType, setHoveredLegendType] = useState<string | null>(null);
 
     useEffect(() => {
         const svg = svgRef.current;
@@ -401,6 +402,12 @@ export const ThreadTimeline = ({ thread, messageTypes, minTimeMs, currentTimeUni
                 const x1 = Math.max(0, xStart);
                 const x2 = Math.max(0, xStart) + width;
 
+                // Determine opacity based on legend hover state
+                let opacity = event.leftUncertain || event.rightUncertain ? 0.6 : 0.9;
+                if (hoveredLegendType !== null) {
+                    opacity = event.type === hoveredLegendType ? opacity : 0.1;
+                }
+
                 return (
                     <line
                         key={index}
@@ -411,7 +418,7 @@ export const ThreadTimeline = ({ thread, messageTypes, minTimeMs, currentTimeUni
                         stroke={baseColor}
                         strokeWidth={LINE_STROKE_WIDTH}
                         strokeLinecap="round"
-                        opacity={event.leftUncertain || event.rightUncertain ? 0.6 : 0.9}
+                        opacity={opacity}
                         onMouseEnter={(e) => {
                             const rect = e.currentTarget.getBoundingClientRect();
                             setHoveredEvent({
@@ -431,8 +438,20 @@ export const ThreadTimeline = ({ thread, messageTypes, minTimeMs, currentTimeUni
                 {Array.from(colorMap.entries()).map(([type, color], index) => {
                     const x = (index % 5) * 200;
                     const y = Math.floor(index / 5) * 25;
+                    const isHovered = hoveredLegendType === type;
+                    const isDimmed = hoveredLegendType !== null && !isHovered;
+
                     return (
-                        <g key={type} transform={`translate(${x}, ${y})`}>
+                        <g
+                            key={type}
+                            transform={`translate(${x}, ${y})`}
+                            onMouseEnter={() => setHoveredLegendType(type)}
+                            onMouseLeave={() => setHoveredLegendType(null)}
+                            style={{ cursor: 'pointer' }}
+                            opacity={isDimmed ? 0.3 : 1}
+                        >
+                            {/* Backdrop for larger hover area */}
+                            <rect x={12} y={0} width={180} height={20} fill="transparent" />
                             <line x1={16} y1={9} x2={24} y2={9} stroke={color} strokeWidth={LINE_STROKE_WIDTH} strokeLinecap="round" />
                             <text x={36} y={13} fontSize={10} fontFamily="sans-serif">{type}</text>
                         </g>
