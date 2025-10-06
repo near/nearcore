@@ -13,7 +13,7 @@ use near_chain::types::RuntimeAdapter;
 use near_chain::{ApplyChunksIterationMode, ApplyChunksSpawner, ChainGenesis};
 use near_chain_configs::{MutableConfigValue, ReshardingHandle};
 use near_chunks::shards_manager_actor::ShardsManagerActor;
-use near_client::archive::cloud_archival_actor::create_cloud_archival_actor;
+use near_client::archive::cloud_archival_actor::create_cloud_archival_writer;
 use near_client::archive::cold_store_actor::create_cold_store_actor;
 use near_client::chunk_executor_actor::ChunkExecutorActor;
 use near_client::client_actor::ClientActorInner;
@@ -368,8 +368,14 @@ pub fn setup_client(
         None
     };
 
-    let cloud_archival_sender = if client_config.cloud_archival_writer.is_some() {
-        let cloud_archival_actor = create_cloud_archival_actor(
+    let cloud_storage_sender = storage.cloud_storage.as_ref().map(|storage| {
+        let handle = test_loop.data.register_data(storage.clone());
+        handle
+    });
+
+    let cloud_archival_writer_handle = if client_config.cloud_archival_writer.is_some() {
+        let writer = create_cloud_archival_writer(
+            test_loop.clock(),
             client_config.cloud_archival_writer.clone(),
             genesis.config.genesis_height,
             runtime_adapter.as_ref(),
@@ -378,9 +384,10 @@ pub fn setup_client(
         )
         .unwrap()
         .unwrap();
-        let sender = LateBoundSender::new();
-        let sender = test_loop.data.register_actor(identifier, cloud_archival_actor, Some(sender));
-        Some(sender)
+        let future_spawner = Arc::new(test_loop.future_spawner(identifier));
+        let handle = writer.start(future_spawner);
+        let handle = test_loop.data.register_data(handle);
+        Some(handle)
     } else {
         None
     };
@@ -511,7 +518,8 @@ pub fn setup_client(
         state_sync_dumper_handle,
         spice_data_distributor_sender,
         cold_store_sender,
-        cloud_archival_sender,
+        cloud_storage_sender,
+        cloud_archival_writer_handle,
     };
 
     // Add the client to the network shared state before returning data

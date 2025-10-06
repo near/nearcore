@@ -10,8 +10,8 @@ pub mod test_utils;
 mod updatable_config;
 
 pub use client_config::{
-    ChunkDistributionNetworkConfig, ChunkDistributionUris, ClientConfig, CloudArchivalHandle,
-    CloudArchivalReaderConfig, CloudArchivalWriterConfig, CloudStorageConfig,
+    ChunkDistributionNetworkConfig, ChunkDistributionUris, ClientConfig, CloudArchivalReaderConfig,
+    CloudArchivalWriterConfig, CloudArchivalWriterHandle, CloudStorageConfig,
     DEFAULT_GC_NUM_EPOCHS_TO_KEEP, DEFAULT_STATE_PARTS_COMPRESSION_LEVEL, DumpConfig,
     EpochSyncConfig, ExternalStorageConfig, GCConfig, LogSummaryStyle, MIN_GC_NUM_EPOCHS_TO_KEEP,
     ProtocolVersionCheckConfig, ReshardingConfig, ReshardingHandle, StateSyncConfig,

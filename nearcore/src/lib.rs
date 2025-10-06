@@ -20,10 +20,10 @@ use near_chain::{
     ApplyChunksSpawner, Chain, ChainGenesis, PartialWitnessValidationThreadPool,
     WitnessCreationThreadPool,
 };
-use near_chain_configs::{CloudArchivalHandle, MutableValidatorSigner, ReshardingHandle};
+use near_chain_configs::{CloudArchivalWriterHandle, MutableValidatorSigner, ReshardingHandle};
 use near_chunks::shards_manager_actor::start_shards_manager;
 use near_client::adapter::client_sender_for_network;
-use near_client::archive::cloud_archival_actor::create_cloud_archival_actor;
+use near_client::archive::cloud_archival_actor::create_cloud_archival_writer;
 use near_client::archive::cold_store_actor::create_cold_store_actor;
 use near_client::chunk_executor_actor::ChunkExecutorActor;
 use near_client::gc_actor::GCActor;
@@ -68,7 +68,7 @@ mod metrics;
 pub mod migrations;
 pub mod state_sync;
 use near_async::ActorSystem;
-use near_async::futures::{FutureSpawner, FutureSpawnerExt};
+use near_async::futures::FutureSpawner;
 use near_async::multithread::MultithreadRuntimeHandle;
 use near_async::tokio::TokioRuntimeHandle;
 use near_client::client_actor::{ClientActorInner, SpiceClientConfig};
@@ -336,7 +336,7 @@ pub struct NearNode {
     pub cold_store_loop_handle: Option<Arc<AtomicBool>>,
     /// The `cloud_archival_handle` will only be set if the cloud archival writer is configured. It's a handle
     /// to control the cloud archival actor that archives data from the hot store to the cloud archival.
-    pub cloud_archival_handle: Option<CloudArchivalHandle>,
+    pub cloud_archival_writer_handle: Option<CloudArchivalWriterHandle>,
     // A handle that allows the main process to interrupt resharding if needed.
     // This typically happens when the main process is interrupted.
     pub resharding_handle: ReshardingHandle,
@@ -449,16 +449,16 @@ pub fn start_with_config_and_synchronization(
         None
     };
 
-    let result = create_cloud_archival_actor(
+    let result = create_cloud_archival_writer(
+        Clock::real(),
         config.config.cloud_archival_writer,
         config.genesis.config.genesis_height,
         runtime.as_ref(),
         storage.get_hot_store(),
         storage.get_cloud_storage(),
     )?;
-    let cloud_archival_handle = if let Some(actor) = result {
-        let handle = actor.get_handle();
-        actor_system.new_future_spawner().spawn("cloud_archival", actor.s);
+    let cloud_archival_writer_handle = if let Some(writer) = result {
+        let handle = writer.start(actor_system.new_future_spawner().into());
         Some(handle)
     } else {
         None
@@ -756,7 +756,7 @@ pub fn start_with_config_and_synchronization(
         #[cfg(feature = "tx_generator")]
         tx_generator,
         cold_store_loop_handle,
-        cloud_archival_handle,
+        cloud_archival_writer_handle,
         resharding_handle,
         shard_tracker,
     })
