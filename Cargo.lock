@@ -4189,6 +4189,7 @@ dependencies = [
  "near-crypto",
  "near-dyn-configs",
  "near-epoch-manager",
+ "near-external",
  "near-network",
  "near-o11y",
  "near-parameters",
@@ -4364,6 +4365,22 @@ dependencies = [
  "rand 0.8.5",
  "rand_hc 0.3.1",
  "serde",
+ "tracing",
+]
+
+[[package]]
+name = "near-external"
+version = "0.0.0"
+dependencies = [
+ "anyhow",
+ "futures",
+ "near-chain-configs",
+ "object_store",
+ "percent-encoding",
+ "reqwest 0.12.4",
+ "rust-s3",
+ "serde",
+ "serde_json",
  "tracing",
 ]
 
@@ -4776,7 +4793,6 @@ dependencies = [
 name = "near-primitives"
 version = "0.0.0"
 dependencies = [
- "anyhow",
  "arbitrary",
  "assert_matches",
  "base64 0.21.0",
@@ -4792,7 +4808,6 @@ dependencies = [
  "easy-ext",
  "enum-map",
  "expect-test",
- "futures",
  "hex",
  "insta",
  "itertools 0.14.0",
@@ -4805,16 +4820,12 @@ dependencies = [
  "near-stdx",
  "near-time",
  "num-rational 0.3.2",
- "object_store",
  "ordered-float",
- "percent-encoding",
  "primitive-types 0.10.1",
  "rand 0.8.5",
  "rand_chacha 0.3.1",
  "reed-solomon-erasure",
  "regex",
- "reqwest 0.12.4",
- "rust-s3",
  "schemars 1.0.3",
  "serde",
  "serde_json",
@@ -4962,7 +4973,9 @@ dependencies = [
  "axum",
  "borsh",
  "clap",
+ "near-chain-configs",
  "near-client",
+ "near-external",
  "near-jsonrpc",
  "near-o11y",
  "near-primitives",
@@ -5355,6 +5368,7 @@ dependencies = [
  "near-crypto",
  "near-dyn-configs",
  "near-epoch-manager",
+ "near-external",
  "near-jsonrpc",
  "near-jsonrpc-primitives",
  "near-mainnet-res",
@@ -7778,6 +7792,7 @@ dependencies = [
  "near-client",
  "near-crypto",
  "near-epoch-manager",
+ "near-external",
  "near-jsonrpc",
  "near-network",
  "near-o11y",
@@ -8053,6 +8068,7 @@ dependencies = [
  "near-client",
  "near-crypto",
  "near-epoch-manager",
+ "near-external",
  "near-indexer",
  "near-jsonrpc",
  "near-network",

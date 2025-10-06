@@ -2,14 +2,15 @@ use anyhow::anyhow;
 use axum::Router;
 use axum::routing::get;
 use borsh::BorshDeserialize;
+use near_chain_configs::ExternalStorageLocation;
 use near_client::sync::external::{
     StateFileType, StateSyncConnection, external_storage_location,
     external_storage_location_directory, get_num_parts_from_filename,
 };
+use near_external::S3AccessConfig;
 use near_jsonrpc::client::{JsonRpcClient, new_client};
 use near_jsonrpc::primitives::errors::RpcErrorKind;
 use near_jsonrpc::primitives::types::config::RpcProtocolConfigRequest;
-use near_primitives::external::{ExternalStorageLocation, S3AccessConfig};
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::state_part::PartId;

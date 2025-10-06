@@ -4,7 +4,6 @@ use std::path::PathBuf;
 use chrono::{DateTime, Utc};
 use near_crypto::{InMemorySigner, PublicKey};
 use near_primitives::account::{AccessKey, Account, AccountContract};
-use near_primitives::external::ExternalStorageLocation;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::state_record::StateRecord;
@@ -17,12 +16,12 @@ use num_rational::{Ratio, Rational32};
 use crate::client_config::default_archival_writer_polling_interval;
 use crate::{
     ClientConfig, CloudArchivalReaderConfig, CloudArchivalWriterConfig, CloudStorageConfig,
-    EpochSyncConfig, FAST_EPOCH_LENGTH, GAS_PRICE_ADJUSTMENT_RATE, GCConfig, Genesis,
-    GenesisConfig, INITIAL_GAS_LIMIT, LogSummaryStyle, MAX_INFLATION_RATE, MIN_GAS_PRICE,
-    MutableConfigValue, NUM_BLOCKS_PER_YEAR, PROTOCOL_REWARD_RATE, PROTOCOL_TREASURY_ACCOUNT,
-    ReshardingConfig, StateSyncConfig, TRANSACTION_VALIDITY_PERIOD, TrackedShardsConfig,
-    default_orphan_state_witness_max_size, default_orphan_state_witness_pool_size,
-    default_produce_chunk_add_transactions_time_limit,
+    EpochSyncConfig, ExternalStorageLocation, FAST_EPOCH_LENGTH, GAS_PRICE_ADJUSTMENT_RATE,
+    GCConfig, Genesis, GenesisConfig, INITIAL_GAS_LIMIT, LogSummaryStyle, MAX_INFLATION_RATE,
+    MIN_GAS_PRICE, MutableConfigValue, NUM_BLOCKS_PER_YEAR, PROTOCOL_REWARD_RATE,
+    PROTOCOL_TREASURY_ACCOUNT, ReshardingConfig, StateSyncConfig, TRANSACTION_VALIDITY_PERIOD,
+    TrackedShardsConfig, default_orphan_state_witness_max_size,
+    default_orphan_state_witness_pool_size, default_produce_chunk_add_transactions_time_limit,
 };
 
 /// Returns the default value for the thread count associated with rpc-handler actor (currently

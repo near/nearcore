@@ -16,8 +16,8 @@ use near_client::sync::external::{
 };
 use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_tracker::ShardTracker;
+use near_external::S3AccessConfig;
 use near_primitives::block::BlockHeader;
-use near_primitives::external::S3AccessConfig;
 use near_primitives::hash::CryptoHash;
 use near_primitives::state_part::PartId;
 use near_primitives::state_sync::StateSyncDumpProgress;

@@ -4,35 +4,9 @@ use std::sync::Arc;
 
 use anyhow::Context;
 use futures::TryStreamExt;
+use near_chain_configs::ExternalStorageLocation;
 use object_store::{ObjectStore, PutPayload};
 use std::time::Duration;
-
-/// Supported external storage backends and their minimal config.
-#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, PartialEq)]
-#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-pub enum ExternalStorageLocation {
-    S3 {
-        /// Location on S3.
-        bucket: String,
-        /// Data may only be available in certain locations.
-        region: String,
-    },
-    /// Local filesystem root for storing data.
-    Filesystem { root_dir: PathBuf },
-    /// Google Cloud Storage bucket name.
-    GCS { bucket: String },
-}
-
-impl ExternalStorageLocation {
-    /// Human-readable backend name.
-    pub fn name(&self) -> &str {
-        match self {
-            Self::S3 { .. } => "S3",
-            Self::Filesystem { .. } => "Filesystem",
-            Self::GCS { .. } => "GCS",
-        }
-    }
-}
 
 /// Live connection/handle to an external storage backend.
 #[derive(Clone)]

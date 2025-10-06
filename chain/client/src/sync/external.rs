@@ -1,5 +1,6 @@
 use crate::metrics;
-use near_primitives::external::{ExternalConnection, ExternalStorageLocation, S3AccessConfig};
+use near_chain_configs::ExternalStorageLocation;
+use near_external::{ExternalConnection, S3AccessConfig};
 use near_primitives::types::{EpochId, ShardId};
 use std::path::PathBuf;
 use std::time::Instant;
@@ -236,8 +237,8 @@ mod test {
         ExternalConnection, StateFileType, StateSyncConnection, get_num_parts_from_filename,
         get_part_id_from_filename, is_part_filename,
     };
+    use near_chain_configs::ExternalStorageLocation;
     use near_o11y::testonly::init_test_logger;
-    use near_primitives::external::ExternalStorageLocation;
     use near_primitives::types::ShardId;
     use rand::distributions::{Alphanumeric, DistString};
 

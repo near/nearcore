@@ -338,7 +338,10 @@ impl Runtime {
         if log.is_empty() {
             return;
         }
-        debug!(target: "runtime", "{}", log.join("\n"));
+        let log_str = log.iter().fold(String::new(), |acc, s| {
+            if acc.is_empty() { s.to_string() } else { acc + "\n" + s }
+        });
+        debug!(target: "runtime", "{}", log_str);
     }
 
     fn apply_action(

@@ -1,14 +1,15 @@
 use crate::epoch_info::iterate_and_filter;
 use borsh::BorshSerialize;
 use near_chain::{Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode};
+use near_chain_configs::ExternalStorageLocation;
 use near_client::sync::external::{
     StateFileType, StateSyncConnection, external_storage_location,
     external_storage_location_directory, get_num_parts_from_filename,
 };
 use near_epoch_manager::EpochManager;
 use near_epoch_manager::shard_tracker::ShardTracker;
+use near_external::S3AccessConfig;
 use near_primitives::epoch_info::EpochInfo;
-use near_primitives::external::{ExternalStorageLocation, S3AccessConfig};
 use near_primitives::state::PartialState;
 use near_primitives::state_part::{PartId, StatePart};
 use near_primitives::state_record::StateRecord;

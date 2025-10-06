@@ -3,7 +3,6 @@ use crate::MutableConfigValue;
 use bytesize::ByteSize;
 #[cfg(feature = "schemars")]
 use near_parameters::view::Rational32SchemarsProvider;
-use near_primitives::external::ExternalStorageLocation;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::types::{
     AccountId, BlockHeight, BlockHeightDelta, Gas, NumBlocks, NumSeats, ShardId,
@@ -202,6 +201,33 @@ pub struct ExternalStorageConfig {
     /// the network before it fetches from external storage.
     #[serde(default = "default_external_storage_fallback_threshold")]
     pub external_storage_fallback_threshold: u64,
+}
+
+/// Supported external storage backends and their minimal config.
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, PartialEq)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+pub enum ExternalStorageLocation {
+    S3 {
+        /// Location on S3.
+        bucket: String,
+        /// Data may only be available in certain locations.
+        region: String,
+    },
+    /// Local filesystem root for storing data.
+    Filesystem { root_dir: PathBuf },
+    /// Google Cloud Storage bucket name.
+    GCS { bucket: String },
+}
+
+impl ExternalStorageLocation {
+    /// Human-readable backend name.
+    pub fn name(&self) -> &str {
+        match self {
+            Self::S3 { .. } => "S3",
+            Self::Filesystem { .. } => "Filesystem",
+            Self::GCS { .. } => "GCS",
+        }
+    }
 }
 
 fn default_state_parts_compression_level() -> i32 {

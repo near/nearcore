@@ -1,6 +1,7 @@
 use itertools::Itertools;
 use near_async::time::Duration;
 use near_chain::Provenance;
+use near_chain_configs::ExternalStorageLocation;
 use near_chain_configs::{
     DumpConfig, ExternalStorageConfig, Genesis, SyncConfig, TrackedShardsConfig,
 };
@@ -11,7 +12,6 @@ use near_network::client::{StatePartOrHeader, StateRequestHeader, StateRequestPa
 use near_network::tcp;
 use near_network::test_utils::{convert_boot_nodes, wait_or_timeout};
 use near_o11y::testonly::{init_integration_logger, init_test_logger};
-use near_primitives::external::ExternalStorageLocation;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::state_part::{PartId, StatePart};
 use near_primitives::state_sync::StatePartKey;
