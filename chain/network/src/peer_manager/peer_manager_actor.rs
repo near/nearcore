@@ -18,10 +18,11 @@ use crate::stats::metrics;
 use crate::store;
 use crate::tcp;
 use crate::types::{
-    ConnectedPeerInfo, HighestHeightPeerInfo, NetworkInfo, NetworkRequests, NetworkResponses,
-    PeerInfo, PeerManagerMessageRequest, PeerManagerMessageResponse, PeerManagerSenderForNetwork,
-    PeerType, SetChainInfo, SnapshotHostInfo, StateHeaderRequestBody, StatePartRequestBody,
-    StateRequestSenderForNetwork, StateSyncEvent, Tier3Request, Tier3RequestBody,
+    ConnectedPeerInfo, HighestHeightPeerInfo, KnownProducer, NetworkInfo, NetworkRequests,
+    NetworkResponses, PeerInfo, PeerManagerMessageRequest, PeerManagerMessageResponse,
+    PeerManagerSenderForNetwork, PeerType, SetChainInfo, SnapshotHostInfo, StateHeaderRequestBody,
+    StatePartRequestBody, StateRequestSenderForNetwork, StateSyncEvent, Tier3Request,
+    Tier3RequestBody,
 };
 use ::time::ext::InstantExt as _;
 use anyhow::Context as _;
@@ -720,6 +721,26 @@ impl PeerManagerActor {
                 None => 0,
             },
         };
+        let accounts_data = self.state.accounts_data.load();
+        let known_producers = accounts_data
+            .keys_by_id
+            .iter()
+            .map(|(account_id, keys)| {
+                keys.iter().map(|key| {
+                    accounts_data.data.get(key).map(|d| {
+                        let peer_id = &d.data.peer_id;
+                        KnownProducer {
+                            account_id: account_id.clone(),
+                            addr: None,
+                            peer_id: peer_id.clone(),
+                            next_hops: self.state.graph.routing_table._view_route(&peer_id),
+                        }
+                    })
+                })
+            })
+            .flatten()
+            .flatten()
+            .collect::<Vec<KnownProducer>>();
         NetworkInfo {
             connected_peers: tier2.ready.values().map(connected_peer).collect(),
             tier1_connections: tier1.ready.values().map(connected_peer).collect(),
@@ -736,9 +757,9 @@ impl PeerManagerActor {
                 .values()
                 .map(|x| x.stats.received_bytes_per_sec.load(Ordering::Relaxed))
                 .sum(),
-            known_producers: vec![],
-            tier1_accounts_keys: self.state.accounts_data.load().keys.iter().cloned().collect(),
-            tier1_accounts_data: self.state.accounts_data.load().data.values().cloned().collect(),
+            known_producers,
+            tier1_accounts_keys: accounts_data.keys.iter().cloned().collect(),
+            tier1_accounts_data: accounts_data.data.values().cloned().collect(),
         }
     }
 
