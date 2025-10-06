@@ -298,7 +298,8 @@ pub enum ProtocolFeature {
     /// Instead of sending code in the witness, the code checks the code-size using the internal trie nodes.
     ExcludeExistingCodeFromWitnessForCodeLen,
     /// Use the block height instead of the block hash to calculate the receipt ID.
-    BlockHeightForReceiptId,
+    #[deprecated]
+    _DeprecatedBlockHeightForReceiptId,
     /// Enable optimistic block production.
     ProduceOptimisticBlock,
     #[deprecated]
@@ -418,7 +419,7 @@ impl ProtocolFeature {
             ProtocolFeature::_DeprecatedSimpleNightshadeV4 => 75,
             ProtocolFeature::_DeprecatedSimpleNightshadeV5 => 76,
             ProtocolFeature::_DeprecatedGlobalContracts
-            | ProtocolFeature::BlockHeightForReceiptId
+            | ProtocolFeature::_DeprecatedBlockHeightForReceiptId
             | ProtocolFeature::ProduceOptimisticBlock => 77,
             ProtocolFeature::SimpleNightshadeV6
             | ProtocolFeature::VersionedStateWitness
