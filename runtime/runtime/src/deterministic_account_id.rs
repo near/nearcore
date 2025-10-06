@@ -58,7 +58,9 @@ pub(crate) fn action_deterministic_state_init(
     let storage_usage_config = &apply_state.config.fees.storage_usage_config;
     match AccountState::of(account.as_ref()) {
         AccountState::NonExisting => {
-            create_deterministic_account(account, storage_usage_config);
+            // Create with zero balance now and check later how much of the
+            // provided deposit is needed.
+            create_deterministic_account(account, Balance::ZERO, storage_usage_config);
             deploy_deterministic_account(
                 state_update,
                 account.as_mut().expect("account must exist now"),
@@ -136,6 +138,7 @@ pub(crate) fn action_deterministic_state_init(
 
 pub(crate) fn create_deterministic_account(
     account: &mut Option<Account>,
+    initial_balance: Balance,
     storage_usage_config: &StorageUsageConfig,
 ) {
     // Unlike `CreateAccount`, this account creation does not change
@@ -145,7 +148,7 @@ pub(crate) fn create_deterministic_account(
     // `AddKey`, `DeployContract`, or any other actions that only the
     // account owner is permitted to do.
     *account = Some(Account::new(
-        Balance::ZERO,
+        initial_balance,
         Balance::ZERO,
         AccountContract::None,
         storage_usage_config.num_bytes_account,
