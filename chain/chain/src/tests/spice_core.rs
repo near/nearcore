@@ -1545,9 +1545,6 @@ fn block_builder(chain: &Chain, prev_block: &Block) -> TestBlockBuilder {
         .get_block_producer_info(prev_block.header().epoch_id(), prev_block.header().height() + 1)
         .unwrap();
     let signer = Arc::new(create_test_signer(block_producer.account_id().as_str()));
-    let mut chunks = get_fake_next_block_chunk_headers(&prev_block, chain.epoch_manager.as_ref());
-    *chunks[0].height_included_mut() = 0;
-    assert!(!chunks[0].is_new_chunk(prev_block.header().height() + 1));
     TestBlockBuilder::new(Clock::real(), prev_block, signer)
         .chunks(get_fake_next_block_chunk_headers(&prev_block, chain.epoch_manager.as_ref()))
 }

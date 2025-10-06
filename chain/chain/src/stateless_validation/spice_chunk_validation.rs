@@ -55,15 +55,14 @@ pub fn spice_pre_validate_chunk_state_witness(
     }
 
     let chunks = block.chunks();
-    let chunk_header = chunks
-        .iter_raw()
-        .find(|chunk| chunk.shard_id() == shard_id)
-        // TODO(spice): Handle a case of missing chunks by assuming it's empty.
-        .unwrap();
+    let shard_index = shard_layout.get_shard_index(shard_id).unwrap();
+    let chunk_header = chunks.get(shard_index).unwrap();
 
     // Ensure that the chunk header version is supported in this protocol version
-    let protocol_version = epoch_manager.get_epoch_info(&epoch_id)?.protocol_version();
-    chunk_header.validate_version(protocol_version)?;
+    if chunk_header.is_new_chunk(block.header().height()) {
+        let protocol_version = epoch_manager.get_epoch_info(&epoch_id)?.protocol_version();
+        chunk_header.validate_version(protocol_version)?;
+    }
 
     let prev_block_header = prev_block.header();
 
@@ -99,8 +98,7 @@ pub fn spice_pre_validate_chunk_state_witness(
     if chunk_tx_root != tx_root_from_state_witness {
         return Err(Error::InvalidChunkStateWitness(format!(
             "Transaction root {:?} does not match expected transaction root {:?}",
-            tx_root_from_state_witness,
-            chunk_header.tx_root()
+            tx_root_from_state_witness, chunk_tx_root
         )));
     }
 
@@ -277,7 +275,6 @@ fn validate_source_receipts_proofs(
             )));
         };
 
-        // TODO(spice): Allow validating receipt proofs without chunk available.
         let from_shard_id = prev_block_shard_id;
         let target_shard_id = shard_id;
         validate_receipt_proof(
@@ -932,9 +929,21 @@ mod tests {
             let txs = test_transactions_from_prev_block_hash(*prev_block.hash());
             let (tx_root, _) = merklize(&txs);
             for chunk in prev_block.chunks().iter_raw() {
-                let mut chunk_header = self.build_chunk(prev_block, tx_root, chunk);
-                *chunk_header.height_included_mut() = chunk_header.height_created();
-                assert_eq!(chunk_header.height_created(), prev_block.header().height() + 1);
+                let shard_id = chunk.shard_id();
+                let height = prev_block.header().height() + 1;
+                let chunk_producer = self
+                    .chain
+                    .epoch_manager
+                    .get_chunk_producer_info(&ChunkProductionKey {
+                        shard_id,
+                        epoch_id: *prev_block.header().epoch_id(),
+                        height_created: height,
+                    })
+                    .unwrap();
+                let signer = create_test_signer(chunk_producer.account_id().as_str());
+                let mut chunk_header =
+                    test_chunk_header(height, shard_id, *prev_block.hash(), &signer, tx_root);
+                *chunk_header.height_included_mut() = height;
                 chunks.push(chunk_header);
             }
             self.build_block_with_chunks(prev_block, chunks)
@@ -958,29 +967,6 @@ mod tests {
                 .chunks(chunks)
                 .spice_core_statements(vec![])
                 .build()
-        }
-
-        fn build_chunk(
-            &self,
-            prev_block: &Block,
-            tx_root: CryptoHash,
-            chunk: &ShardChunkHeader,
-        ) -> ShardChunkHeader {
-            let shard_id = chunk.shard_id();
-            let height = prev_block.header().height() + 1;
-            let chunk_producer = self
-                .chain
-                .epoch_manager
-                .get_chunk_producer_info(&ChunkProductionKey {
-                    shard_id,
-                    epoch_id: *prev_block.header().epoch_id(),
-                    height_created: height,
-                })
-                .unwrap();
-            let signer = create_test_signer(chunk_producer.account_id().as_str());
-            let chunk_header =
-                test_chunk_header(height, shard_id, *prev_block.hash(), &signer, tx_root);
-            chunk_header
         }
 
         fn shard_id(&self) -> ShardId {
@@ -1141,19 +1127,16 @@ mod tests {
 
         fn simulate_chunk_application(&self) -> (SpiceChunkStateTransition, ChunkExecutionResult) {
             let transactions = self.transactions();
-            self.simulate_chunk_application_with_transactions(&self.block(), transactions)
+            self.simulate_chunk_application_for_block(&self.block(), transactions)
         }
 
         fn simulate_chunk_application_for_block_with_missing_chunks(
             &self,
         ) -> (SpiceChunkStateTransition, ChunkExecutionResult) {
-            self.simulate_chunk_application_with_transactions(
-                &self.block_with_missing_chunks(),
-                vec![],
-            )
+            self.simulate_chunk_application_for_block(&self.block_with_missing_chunks(), vec![])
         }
 
-        fn simulate_chunk_application_with_transactions(
+        fn simulate_chunk_application_for_block(
             &self,
             block: &Block,
             transactions: Vec<SignedTransaction>,

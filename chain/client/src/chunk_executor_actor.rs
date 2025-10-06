@@ -843,7 +843,7 @@ type UpdateShardJob = (
 
 #[instrument(
     level = "debug",
-    target = "chain",
+    target = "chunk_executor",
     skip_all,
     fields(%block_height, ?block)
 )]
