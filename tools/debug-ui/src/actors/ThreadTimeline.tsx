@@ -26,9 +26,9 @@ function getEventsToDisplay(
     const events = [];
     let currentEvent: null | { messageType: number, startSMT: number } = null;
     let currentOffsetSMT = 0; // offset in ms since minimum time
-    let lastLostHorizonSMT = 0; // if we encounter an end event without start, this is the last known time the event was running at
     const windows = [...thread.windows];
     windows.reverse();
+    let lastLostHorizonSMT = windows[0].start_time_ms - minTimeMs; // if we encounter an end event without start, this is the last known time the event was running at
     for (let i = 0; i < windows.length; i++) {
         const window = windows[i];
         currentOffsetSMT = window.start_time_ms - minTimeMs;
@@ -294,19 +294,21 @@ export const ThreadTimeline = ({ thread, messageTypes, minTimeMs, currentTimeUni
     );
     console.log("Events to display:", events);
 
-    const maxTimeMs = INSTRUMENTED_WINDOW_LEN_MS * thread.windows.length;
-    const [viewport, setViewport] = useState(
-        new Viewport(0, maxTimeMs, 800, 0, maxTimeMs, 1)
-    );
-    const svgRef = useRef<SVGSVGElement>(null);
-
     const ROW_HEIGHT = 10;
     const ROW_PADDING = 2;
     const EVENT_SPACING_PX = 1;
     const LINE_STROKE_WIDTH = 10;
-    const LEGEND_HEIGHT = 50;
-    const LEGEND_TOP_MARGIN = 10;
+    const LEGEND_VERTICAL_MARGIN = 5;
+    const LEGEND_HEIGHT_PER_ROW = 25;
     const GRID_LABEL_TOP_MARGIN = 20;
+    const VIEWPORT_WIDTH = 1000;
+
+    const maxTimeMs = INSTRUMENTED_WINDOW_LEN_MS * thread.windows.length;
+    const [viewport, setViewport] = useState(
+        new Viewport(-1000, maxTimeMs + 1000, VIEWPORT_WIDTH, -1000, maxTimeMs + 1000, 1)
+    );
+    const svgRef = useRef<SVGSVGElement>(null);
+
 
     const colorMap = useMemo(() => createColorMap(events), [events]);
 
@@ -316,7 +318,7 @@ export const ThreadTimeline = ({ thread, messageTypes, minTimeMs, currentTimeUni
     );
 
     const chartHeight = GRID_LABEL_TOP_MARGIN + (maxRow + 1) * (ROW_HEIGHT + ROW_PADDING) + 20;
-    const svgHeight = chartHeight + LEGEND_TOP_MARGIN + LEGEND_HEIGHT;
+    const svgHeight = chartHeight + LEGEND_VERTICAL_MARGIN * 2 + LEGEND_HEIGHT_PER_ROW * Math.ceil(colorMap.size / 5);
 
     const [hoveredEvent, setHoveredEvent] = useState<{ event: EventToDisplay, x: number, y: number } | null>(null);
 
@@ -338,7 +340,7 @@ export const ThreadTimeline = ({ thread, messageTypes, minTimeMs, currentTimeUni
     return (<>
         <svg
             ref={svgRef}
-            width={800}
+            width={1000}
             height={svgHeight}
             style={{ border: "1px solid black", backgroundColor: "#f0f0f0" }}
             onMouseMove={(e) => {
@@ -354,13 +356,9 @@ export const ThreadTimeline = ({ thread, messageTypes, minTimeMs, currentTimeUni
                     const tickInterval = getTimeTickInterval(viewportSpan);
                     const startTick = Math.ceil(viewport.getStart() / tickInterval) * tickInterval;
                     const ticks = [];
-                    const labelMargin = 40; // Margin to prevent labels from being cut off at edges
 
                     for (let tick = startTick; tick <= viewport.getEnd(); tick += tickInterval) {
                         const x = viewport.transform(tick);
-                        // Only show label if it's not too close to the edges
-                        const showLabel = x > labelMargin && x < 800 - labelMargin;
-
                         ticks.push(
                             <g key={tick}>
                                 <line
@@ -371,7 +369,7 @@ export const ThreadTimeline = ({ thread, messageTypes, minTimeMs, currentTimeUni
                                     stroke="#ccc"
                                     strokeWidth={1}
                                 />
-                                {showLabel && (
+                                {(
                                     <text
                                         x={x}
                                         y={12}
@@ -394,7 +392,7 @@ export const ThreadTimeline = ({ thread, messageTypes, minTimeMs, currentTimeUni
                 const xStart = viewport.transform(event.startSMT);
                 const xEnd = viewport.transform(event.endSMT);
                 const width = xEnd - xStart;
-                if (xEnd < 0 || xStart > 800) {
+                if (xEnd < 0 || xStart > VIEWPORT_WIDTH) {
                     return null; // Skip rendering events outside the viewport
                 }
 
@@ -429,14 +427,14 @@ export const ThreadTimeline = ({ thread, messageTypes, minTimeMs, currentTimeUni
             })}
 
             {/* Legend */}
-            <g transform={`translate(10, ${chartHeight + LEGEND_TOP_MARGIN})`}>
+            <g transform={`translate(0, ${chartHeight + LEGEND_VERTICAL_MARGIN})`}>
                 {Array.from(colorMap.entries()).map(([type, color], index) => {
-                    const x = (index % 4) * 200;
-                    const y = Math.floor(index / 4) * 18;
+                    const x = (index % 5) * 200;
+                    const y = Math.floor(index / 5) * 25;
                     return (
                         <g key={type} transform={`translate(${x}, ${y})`}>
-                            <line x1={0} y1={6} x2={12} y2={6} stroke={color} strokeWidth={6} strokeLinecap="round" />
-                            <text x={18} y={10} fontSize={10} fontFamily="sans-serif">{type}</text>
+                            <line x1={16} y1={9} x2={24} y2={9} stroke={color} strokeWidth={LINE_STROKE_WIDTH} strokeLinecap="round" />
+                            <text x={36} y={13} fontSize={10} fontFamily="sans-serif">{type}</text>
                         </g>
                     );
                 })}
