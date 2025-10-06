@@ -31,6 +31,13 @@
 
                         rendered.add(account_key);
 
+                        let account_id = "";
+                        network_info.known_producers.forEach(producer => {
+                            if (producer.peer_id == peer.peer_id) {
+                                account_id = producer.account_id;
+                            }
+                        });
+
                         let last_ping = convertTime(peer.last_time_received_message_millis)
                         let last_ping_class = ""
                         if (data.node_public_key == account_key) {
@@ -42,6 +49,7 @@
                         let row = $('.js-tbody-peers').append($('<tr>')
                             .append($('<td>').append(add_debug_port_link(peer.addr)))
                             .append($('<td>').append(account_key.substr(8, 5) + "..."))
+                            .append($('<td>').append(account_id))
                             .append($('<td>').append("[" + proxies.join(",") + "]"))
                             .append($('<td>').append(peer.peer_id.substr(8, 5) + "..."))
                             .append($('<td>').append(last_ping).addClass(last_ping_class))
@@ -62,6 +70,13 @@
                         }
                         rendered.add(account_key);
 
+                        let account_id = "";
+                        network_info.known_producers.forEach(producer => {
+                            if (producer.peer_id == account.peer_id) {
+                                account_id = producer.account_id;
+                            }
+                        });
+
                         let proxies = new Array();
                         account.proxies.forEach(proxy => {
                             proxies.push(proxy.peer_id.substr(8, 5) + "...@" + proxy.addr);
@@ -70,6 +85,7 @@
                         let row = $('.js-tbody-peers').append($('<tr>')
                             .append($('<td>'))
                             .append($('<td>').append(account_key.substr(8, 5) + "..."))
+                            .append($('<td>').append(account_id))
                             .append($('<td>').append("[" + proxies.join(",") + "]"))
                             .append($('<td>').append(account.peer_id.substr(8, 5) + "..."))
                             .append($('<td>'))
@@ -91,6 +107,7 @@
                         let row = $('.js-tbody-peers').append($('<tr>')
                             .append($('<td>'))
                             .append($('<td>').append(account_key.substr(8, 5) + "..."))
+                            .append($('<td>'))
                             .append($('<td>'))
                             .append($('<td>'))
                             .append($('<td>'))
@@ -125,6 +142,7 @@
             <tr>
                 <th>Address</th>
                 <th>AccountKey</th>
+                <th>AccountId</th>
                 <th>Proxies</th>
                 <th>PeerId</th>
                 <th>Last ping</th>
