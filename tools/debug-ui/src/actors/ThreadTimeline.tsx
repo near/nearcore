@@ -313,7 +313,7 @@ export const ThreadTimeline = ({ thread, messageTypes, minTimeMs, currentTimeMs 
     const LEGEND_HEIGHT_PER_ROW = 25;
     const CPU_CHART_HEIGHT = 50;
     const GRID_LABEL_TOP_MARGIN = 20;
-    const VIEWPORT_WIDTH = 1000;
+    const VIEWPORT_WIDTH = 1200;
 
     const maxTimeMs = currentTimeMs - minTimeMs;
     const [viewport, setViewport] = useState(
@@ -348,7 +348,9 @@ export const ThreadTimeline = ({ thread, messageTypes, minTimeMs, currentTimeMs 
             e.preventDefault();
             e.stopPropagation();
             const zoomFactor = e.deltaY < 0 ? 0.9 : 1.1;
-            setViewport(viewport.zoom(e.clientX, zoomFactor));
+            const rect = svg.getBoundingClientRect();
+            const mouseX = e.clientX - rect.left;
+            setViewport(viewport.zoom(mouseX, zoomFactor));
         };
 
         svg.addEventListener('wheel', handleWheel, { passive: false });
@@ -358,7 +360,7 @@ export const ThreadTimeline = ({ thread, messageTypes, minTimeMs, currentTimeMs 
     return (<>
         <svg
             ref={svgRef}
-            width={1000}
+            width={VIEWPORT_WIDTH}
             height={svgHeight}
             style={{ border: "1px solid black", backgroundColor: "white" }}
             onMouseMove={(e) => {
