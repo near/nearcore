@@ -652,7 +652,7 @@ impl ChunkProducer {
                 ?prev_chunk_shard_update_key,
                 "Cached prepared transactions not found"
             );
-            metrics::PREPARE_TRANSACTIONS_JOB_NOT_FOUND_TOTAL
+            metrics::PREPARE_TRANSACTIONS_JOB_RESULT_NOT_FOUND_TOTAL
                 .with_label_values(&[&shard_id.to_string()])
                 .inc();
             return Ok(None);

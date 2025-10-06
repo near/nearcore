@@ -52,10 +52,10 @@ pub(crate) static PREPARE_TRANSACTIONS_JOB_RESULT_USED_TOTAL: LazyLock<IntCounte
         .unwrap()
     });
 
-pub(crate) static PREPARE_TRANSACTIONS_JOB_NOT_FOUND_TOTAL: LazyLock<IntCounterVec> =
+pub(crate) static PREPARE_TRANSACTIONS_JOB_RESULT_NOT_FOUND_TOTAL: LazyLock<IntCounterVec> =
     LazyLock::new(|| {
         try_create_int_counter_vec(
-            "near_prepare_transactions_job_not_found_total",
+            "near_prepare_transactions_job_result_not_found_total",
             "Total number of times prepare transactions job was not found since starting this node",
             &["shard_id"],
         )
