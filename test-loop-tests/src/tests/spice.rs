@@ -251,12 +251,12 @@ fn test_spice_chain_with_missing_chunks() {
     let client = &env.test_loop.data.get(&client_handle).client;
     let mut block =
         client.chain.get_block(&client.chain.final_head().unwrap().last_block_hash).unwrap();
-    let mut missed = false;
-    let mut have_missed_chunks = false;
+    let mut missed_execution = false;
+    let mut have_missing_chunks = false;
     while !block.header().is_genesis() {
         for chunk in block.chunks().iter_raw() {
             if !chunk.is_new_chunk(block.header().height()) {
-                have_missed_chunks = true;
+                have_missing_chunks = true;
             }
         }
 
@@ -266,7 +266,7 @@ fn test_spice_chain_with_missing_chunks() {
                 .spice_core_processor
                 .get_execution_results_by_shard_id(&block)
                 .unwrap();
-            missed = true;
+            missed_execution = true;
             println!(
                 "not all execution result for block at height: {}; execution_results: {:?}",
                 block.header().height(),
@@ -276,8 +276,8 @@ fn test_spice_chain_with_missing_chunks() {
         block = client.chain.get_block(block.header().prev_hash()).unwrap();
     }
 
-    assert!(!missed, "some of the blocks are missing execution results");
-    assert!(have_missed_chunks);
+    assert!(!missed_execution, "some of the blocks are missing execution results");
+    assert!(have_missing_chunks);
 
     assert!(!balance_changes.is_empty());
     for (account, balance_change) in &balance_changes {
