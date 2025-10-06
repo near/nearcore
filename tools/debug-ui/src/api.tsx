@@ -521,6 +521,8 @@ export async function fetchEntity(
     return response.json();
 }
 
+export const INSTRUMENTED_WINDOW_LEN_MS = 500;
+
 export async function fetchInstrumentedThreadsView(
     addr: string
 ): Promise<InstrumentedThreadsViewResponse> {
@@ -544,12 +546,18 @@ export interface InstrumentedThread {
     active_time_ns: number;
     message_types: string[];
     windows: InstrumentedWindow[];
-    active_event: InstrumentedEvent | null;
+    active_event: InstrumentedActiveEvent | null;
+}
+
+export interface InstrumentedActiveEvent {
+    message_type: number;
+    active_for_ns: number;
 }
 
 export interface InstrumentedWindow {
     start_time_ms: number;
     events: InstrumentedEvent[];
+    events_overfilled: boolean;
     summary: InstrumentedWindowSummary;
     dequeue_summary: InstrumentedWindowSummary;
 }

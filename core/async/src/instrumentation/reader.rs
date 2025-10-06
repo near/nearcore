@@ -38,6 +38,7 @@ pub struct InstrumentedActiveEventView {
 pub struct InstrumentedWindowView {
     pub start_time_ms: u64,
     pub events: Vec<InstrumentedEventView>,
+    pub events_overfilled: bool,
     pub summary: InstrumentedWindowSummaryView,
     pub dequeue_summary: InstrumentedWindowSummaryView,
 }
@@ -83,9 +84,14 @@ impl InstrumentedEvent {
 }
 
 impl InstrumentedEventBuffer {
-    pub fn to_view(&self) -> Vec<InstrumentedEventView> {
+    /// Returns the events and whether the buffer is overfilled.
+    pub fn to_view(&self) -> (Vec<InstrumentedEventView>, bool) {
         let len = self.len.load(Ordering::Acquire);
-        (0..len).map(|i| self.buffer[i].to_view()).collect::<Vec<_>>()
+        let readable_len = len.min(self.buffer.len());
+        (
+            (0..readable_len).map(|i| self.buffer[i].to_view()).collect::<Vec<_>>(),
+            len != readable_len,
+        )
     }
 }
 
@@ -127,9 +133,11 @@ impl AggregatedMessageTypeStats {
 
 impl InstrumentedWindow {
     pub fn to_view(&self) -> InstrumentedWindowView {
+        let (events, events_overfilled) = self.events.to_view();
         InstrumentedWindowView {
             start_time_ms: self.start_time_ns / 1_000_000,
-            events: self.events.to_view(),
+            events,
+            events_overfilled,
             summary: self.summary.to_view(self.index),
             dequeue_summary: self.dequeue_summary.to_view(self.index),
         }

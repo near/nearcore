@@ -179,8 +179,7 @@ pub struct InstrumentedWindow {
     pub index: usize,
     pub start_time_ns: u64,
     /// Events recorded during this window. If the number of events exceed the capacity
-    /// of this buffer, we will simply stop recording; when reading, we would understand
-    /// from the summary that this buffer is full and some events are missing.
+    /// of this buffer, we will simply stop recording.
     pub events: InstrumentedEventBuffer,
     pub summary: InstrumentedWindowSummary,
     pub dequeue_summary: InstrumentedWindowSummary,
@@ -300,10 +299,12 @@ impl InstrumentedEventBuffer {
             let event = &self.buffer[len];
             event.event.store(encoded_event, Ordering::Relaxed);
             event.relative_timestamp_ns.store(relative_timestamp_ns, Ordering::Relaxed);
-            // Release ordering because the length is used to tell any reader that
-            // the event is ready to be read, so all previous writes must be visible.
-            self.len.store(len + 1, Ordering::Release);
         }
+        // Increment even if the buffer is full - that way the reader knows if the
+        // buffer is overfilled.
+        // Release ordering because the length is used to tell any reader that
+        // the event is ready to be read, so all previous writes must be visible.
+        self.len.store(len + 1, Ordering::Release);
     }
 
     pub fn clear(&mut self) {

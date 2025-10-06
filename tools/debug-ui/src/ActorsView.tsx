@@ -1,8 +1,9 @@
 import './ActorsView.scss';
 import { useQuery } from '@tanstack/react-query';
-import { fetchInstrumentedThreadsView, InstrumentedThread, InstrumentedWindow } from './api';
+import { fetchInstrumentedThreadsView, INSTRUMENTED_WINDOW_LEN_MS, InstrumentedThread, InstrumentedWindow } from './api';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, Legend } from "recharts";
 import { useState, useRef, useEffect } from 'react';
+import { ThreadTimeline } from './actors/ThreadTimeline';
 
 type ActorsViewProps = {
     addr: string;
@@ -124,7 +125,7 @@ export const ActorsView = ({ addr }: ActorsViewProps) => {
                             checked={yAxisMode === 'fixed'}
                             onChange={(e) => setYAxisMode(e.target.value as 'auto' | 'fixed')}
                         />
-                        Fixed ({WINDOW_LEN_MS}ms)
+                        Fixed ({INSTRUMENTED_WINDOW_LEN_MS}ms)
                     </label>
                 </div>
                 <div className="control-buttons">
@@ -170,7 +171,7 @@ export const ActorsView = ({ addr }: ActorsViewProps) => {
                     {sortedThreads?.map((thread: InstrumentedThread, idx: number) => (
                         <tr key={idx}>
                             <td>{formatThreadName(thread.thread_name)}</td>
-                            <td><BucketChart windows={thread.windows} min_start_time={minStartTime} message_types={thread.message_types} yAxisMode={yAxisMode} is_dequeue_chart={false} /></td>
+                            <td><ThreadTimeline thread={thread} minTimeMs={minStartTime} messageTypes={thread.message_types} currentTimeUnixMs={currentTimeUnixMs} /></td>
                             <td><BucketChart windows={thread.windows} min_start_time={minStartTime} message_types={thread.message_types} yAxisMode={yAxisMode} is_dequeue_chart={true} /></td>
                         </tr>
                     ))}
@@ -211,9 +212,6 @@ const getMaxStartTime = (threads: InstrumentedThread[]): number => {
     return Math.max(...threads.map(t => getFirstStartTime(t)));
 }
 
-const WINDOW_LEN_MS = 500;
-const MAX_BUCKETS_TO_DISPLAY = 15;
-
 type BucketChartProps = {
     windows: InstrumentedWindow[];
     min_start_time: number;
@@ -231,8 +229,9 @@ function BucketChart({ windows, min_start_time, message_types, yAxisMode, is_deq
     while (processedWindows.length == 0 || processedWindows[processedWindows.length - 1].start_time_ms > min_start_time) {
         const lastWindow = processedWindows[processedWindows.length - 1];
         processedWindows.push({
-            start_time_ms: processedWindows.length == 0 ? min_start_time : lastWindow.start_time_ms - WINDOW_LEN_MS,
+            start_time_ms: processedWindows.length == 0 ? min_start_time : lastWindow.start_time_ms - INSTRUMENTED_WINDOW_LEN_MS,
             events: [],
+            events_overfilled: false,
             summary: {
                 message_stats_by_type: [],
             },
@@ -290,7 +289,7 @@ function BucketChart({ windows, min_start_time, message_types, yAxisMode, is_deq
     return (
         <BarChart width={800} height={150} data={data}>
             <XAxis dataKey="bucket" tickFormatter={formatXAxisLabel} />
-            <YAxis domain={[0, yAxisMode === 'auto' ? 'auto' : WINDOW_LEN_MS]} hide={true} />
+            <YAxis domain={[0, yAxisMode === 'auto' ? 'auto' : INSTRUMENTED_WINDOW_LEN_MS]} hide={true} />
             <Tooltip content={<CustomTooltip />} />
             <Legend align={"right"} verticalAlign={"middle"} layout="vertical" iconSize={8} width={250} wrapperStyle={
                 { fontSize: "12px", paddingLeft: "10px" }
@@ -304,7 +303,7 @@ function BucketChart({ windows, min_start_time, message_types, yAxisMode, is_deq
 
 const labelFormatter = (value: number) => {
     const startTime = (value as number) / 1000;
-    const endTime = ((value as number) + WINDOW_LEN_MS) / 1000;
+    const endTime = ((value as number) + INSTRUMENTED_WINDOW_LEN_MS) / 1000;
     return `Time: ${startTime.toFixed(1)}-${endTime.toFixed(1)}s`;
 }
 
