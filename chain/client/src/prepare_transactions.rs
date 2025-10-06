@@ -5,7 +5,8 @@ use std::sync::atomic::AtomicBool;
 
 use near_async::time::Duration;
 use near_chain::types::{
-    PrepareTransactionsBlockContext, PreparedTransactions, RuntimeAdapter, SkippedTransactions,
+    PrepareTransactionsBlockContext, PrepareTransactionsLimit, PreparedTransactions,
+    RuntimeAdapter, SkippedTransactions,
 };
 use near_chunks::client::ShardedTransactionPool;
 use near_client_primitives::types::Error;
@@ -123,7 +124,18 @@ impl PrepareTransactionsJob {
                     // Run the job. The state is locked so no other methods will read or modify it
                     // until the preparation finishes.
                     let result = self.do_prepare_transactions(inputs, &mut *tx_pool_guard);
-                    *state = PrepareTransactionsJobState::Finished(result);
+
+                    match result {
+                        Ok(prepared)
+                            if prepared.limited_by == Some(PrepareTransactionsLimit::Cancelled) =>
+                        {
+                            // In case of cancelled preparation discard the result
+                            *state = PrepareTransactionsJobState::Cancelled;
+                        }
+                        good_result => {
+                            *state = PrepareTransactionsJobState::Finished(good_result);
+                        }
+                    };
                 }
                 _ => unreachable!(),
             }
