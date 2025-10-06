@@ -301,7 +301,8 @@ pub enum ProtocolFeature {
     #[deprecated]
     _DeprecatedBlockHeightForReceiptId,
     /// Enable optimistic block production.
-    ProduceOptimisticBlock,
+    #[deprecated]
+    _DeprecatedProduceOptimisticBlock,
     #[deprecated]
     _DeprecatedGlobalContracts,
     /// NEP: https://github.com/near/NEPs/pull/536
@@ -420,7 +421,7 @@ impl ProtocolFeature {
             ProtocolFeature::_DeprecatedSimpleNightshadeV5 => 76,
             ProtocolFeature::_DeprecatedGlobalContracts
             | ProtocolFeature::_DeprecatedBlockHeightForReceiptId
-            | ProtocolFeature::ProduceOptimisticBlock => 77,
+            | ProtocolFeature::_DeprecatedProduceOptimisticBlock => 77,
             ProtocolFeature::SimpleNightshadeV6
             | ProtocolFeature::VersionedStateWitness
             | ProtocolFeature::ChunkPartChecks
