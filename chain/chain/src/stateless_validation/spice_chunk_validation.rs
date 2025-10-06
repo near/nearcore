@@ -91,7 +91,7 @@ pub fn spice_pre_validate_chunk_state_witness(
     let chunk_tx_root = if chunk_header.is_new_chunk(block.header().height()) {
         *chunk_header.tx_root()
     } else {
-        // Missing chunk which is treated as empty chunk.
+        // Missing chunks are treated as empty chunks.
         let (empty_txs_root, _) = merklize::<SignedTransaction>(&[]);
         empty_txs_root
     };
