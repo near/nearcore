@@ -14,6 +14,7 @@ type EventToDisplay = {
     leftUncertain: boolean; // If we're not sure about when the event's left edge is
     rightUncertain: boolean; // If we're not sure about when the event's right edge is
     type: string;
+    row: number; // vertical row for stacking
 };
 
 function getEventsToDisplay(
@@ -41,7 +42,8 @@ function getEventsToDisplay(
                             endSMT: event.relative_timestamp_ns / 1_000_000 + currentOffsetSMT,
                             leftUncertain: true,
                             rightUncertain: false,
-                            type: messageTypes[event.message_type]
+                            type: messageTypes[event.message_type],
+                            row: 0
                         });
                     } else {
                         if (currentEvent.messageType !== event.message_type) {
@@ -52,7 +54,8 @@ function getEventsToDisplay(
                             endSMT: event.relative_timestamp_ns / 1_000_000 + currentOffsetSMT,
                             leftUncertain: false,
                             rightUncertain: false,
-                            type: messageTypes[event.message_type]
+                            type: messageTypes[event.message_type],
+                            row: 0
                         });
                         currentEvent = null;
                     }
@@ -75,7 +78,8 @@ function getEventsToDisplay(
                     endSMT: currentOffsetSMT,
                     leftUncertain: false,
                     rightUncertain: true,
-                    type: messageTypes[currentEvent.messageType]
+                    type: messageTypes[currentEvent.messageType],
+                    row: 0
                 });
                 currentEvent = null;
             }
@@ -94,7 +98,8 @@ function getEventsToDisplay(
             endSMT: currentTimeUnixMs - minTimeMs,
             leftUncertain: false,
             rightUncertain: true,
-            type: messageTypes[currentEvent.messageType]
+            type: messageTypes[currentEvent.messageType],
+            row: 0
         });
     }
     // There's another possibility that there is an ongoing event, but it has been ongoing for so long
@@ -106,10 +111,65 @@ function getEventsToDisplay(
             endSMT: currentTimeUnixMs - minTimeMs,
             leftUncertain: true,
             rightUncertain: true,
-            type: messageTypes[thread.active_event.message_type]
+            type: messageTypes[thread.active_event.message_type],
+            row: 0
         });
     }
     return events;
+}
+
+/// Assigns rows to events so that overlapping events are displayed in different rows
+function assignRows(events: EventToDisplay[], viewport: Viewport, minWidthPx: number, spacingPx: number): { events: EventToDisplay[], maxRow: number } {
+    // Create a copy of events with row assignments
+    const positionedEvents = events.map(e => ({ ...e }));
+
+    // Sort events by start time
+    positionedEvents.sort((a, b) => a.startSMT - b.startSMT);
+
+    // Track the end position (in pixels) of the last event in each row
+    const rowEndPositions: number[] = [];
+
+    let maxRow = 0;
+
+    for (const event of positionedEvents) {
+        const startPx = viewport.transform(event.startSMT);
+        const endPx = viewport.transform(event.endSMT);
+        const widthPx = Math.max(minWidthPx, endPx - startPx);
+        const actualEndPx = startPx + widthPx;
+
+        // Find the first row where this event fits (no overlap with spacing)
+        let assignedRow = 0;
+        for (let row = 0; row < rowEndPositions.length; row++) {
+            if (startPx >= rowEndPositions[row] + spacingPx) {
+                assignedRow = row;
+                break;
+            }
+            assignedRow = row + 1;
+        }
+
+        event.row = assignedRow;
+        rowEndPositions[assignedRow] = actualEndPx;
+        maxRow = Math.max(maxRow, assignedRow);
+    }
+
+    return { events: positionedEvents, maxRow };
+}
+
+/// Creates a color map for event types with well-distributed colors
+function createColorMap(events: EventToDisplay[]): Map<string, string> {
+    // Get unique event types and sort them
+    const uniqueTypes = Array.from(new Set(events.map(e => e.type))).sort();
+
+    const colorMap = new Map<string, string>();
+    const numTypes = uniqueTypes.length;
+
+    // Distribute hues evenly across the color wheel
+    uniqueTypes.forEach((type, index) => {
+        const hue = (index * 360) / numTypes;
+        colorMap.set(type, `hsl(${hue}, 70%, 60%)`);
+    });
+
+    return colorMap;
 }
 
 /// Displays the data between start and end in a viewport of a given width.
@@ -157,6 +217,22 @@ export const ThreadTimeline = ({ thread, messageTypes, minTimeMs, currentTimeUni
     );
     const svgRef = useRef<SVGSVGElement>(null);
 
+    const MIN_WIDTH_PX = 4;
+    const ROW_HEIGHT = 20;
+    const ROW_PADDING = 2;
+    const EVENT_SPACING_PX = 1;
+    const LEGEND_HEIGHT = 30;
+
+    const colorMap = useMemo(() => createColorMap(events), [events]);
+
+    const { events: positionedEvents, maxRow } = useMemo(
+        () => assignRows(events, viewport, MIN_WIDTH_PX, EVENT_SPACING_PX),
+        [events, viewport]
+    );
+
+    const chartHeight = (maxRow + 1) * (ROW_HEIGHT + ROW_PADDING) + 20;
+    const svgHeight = chartHeight + LEGEND_HEIGHT;
+
     useEffect(() => {
         const svg = svgRef.current;
         if (!svg) return;
@@ -176,7 +252,7 @@ export const ThreadTimeline = ({ thread, messageTypes, minTimeMs, currentTimeUni
         <svg
             ref={svgRef}
             width={800}
-            height={100}
+            height={svgHeight}
             style={{ border: "1px solid black", backgroundColor: "#f0f0f0" }}
             onMouseMove={(e) => {
                 if (e.buttons === 1) {
@@ -184,22 +260,28 @@ export const ThreadTimeline = ({ thread, messageTypes, minTimeMs, currentTimeUni
                 }
             }}
         >
-            {events.map((event, index) => {
+            {positionedEvents.map((event, index) => {
                 const xStart = viewport.transform(event.startSMT);
                 const xEnd = viewport.transform(event.endSMT);
-                const width = xEnd - xStart;
+                const width = Math.max(MIN_WIDTH_PX, xEnd - xStart);
                 if (xEnd < 0 || xStart > 800) {
                     return null; // Skip rendering events outside the viewport
                 }
+
+                const y = 10 + event.row * (ROW_HEIGHT + ROW_PADDING);
+                const baseColor = colorMap.get(event.type) || "#888";
+
                 return (
                     <rect
                         key={index}
                         x={Math.max(0, xStart)}
-                        y={20}
-                        width={Math.max(1, width)}
-                        height={60}
-                        fill={event.leftUncertain || event.rightUncertain ? "orange" : "blue"}
-                        opacity={event.leftUncertain || event.rightUncertain ? 0.5 : 1.0}
+                        y={y}
+                        width={width}
+                        height={ROW_HEIGHT}
+                        fill={baseColor}
+                        opacity={event.leftUncertain || event.rightUncertain ? 0.6 : 0.9}
+                        stroke={event.leftUncertain || event.rightUncertain ? "orange" : "#333"}
+                        strokeWidth={1}
                     >
                         <title>
                             {event.type} ({event.leftUncertain ? "?" : ""}{(event.startSMT).toFixed(2)} ms - {(
@@ -209,6 +291,20 @@ export const ThreadTimeline = ({ thread, messageTypes, minTimeMs, currentTimeUni
                     </rect>
                 );
             })}
+
+            {/* Legend */}
+            <g transform={`translate(0, ${chartHeight})`}>
+                {Array.from(colorMap.entries()).map(([type, color], index) => {
+                    const x = 10 + (index % 4) * 200;
+                    const y = Math.floor(index / 4) * 15;
+                    return (
+                        <g key={type} transform={`translate(${x}, ${y})`}>
+                            <rect x={0} y={0} width={12} height={12} fill={color} stroke="#333" strokeWidth={1} />
+                            <text x={16} y={10} fontSize={10} fontFamily="sans-serif">{type}</text>
+                        </g>
+                    );
+                })}
+            </g>
         </svg>
     )
 };
