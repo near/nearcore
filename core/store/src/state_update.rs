@@ -143,6 +143,13 @@ impl StateUpdate {
         &self.trie
     }
 
+    pub fn clone_for_tx_preparation(&self) -> Self {
+        Self {
+            trie: self.trie.recording_reads_new_recorder(),
+            state: self.state.clone(),
+        }
+    }
+
     pub fn finalize(self) -> Result<TrieUpdateResult, StorageError> {
         todo!()
     }
@@ -674,6 +681,7 @@ impl<'su> StateOperations<'su> {
     pub fn trie(&self) -> &crate::Trie {
         &self.state_update.trie()
     }
+
 }
 
 // FIXME: these all need some other solution

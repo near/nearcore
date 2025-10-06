@@ -263,14 +263,15 @@ impl TrieViewer {
             receipt: ReceiptEnum::Action(action_receipt.clone()),
             priority: 0,
         });
+        let contract_storage = near_store::contract::ContractStorage::new_for_trie(&trie);
         let state_update = StateUpdate::new(trie);
         let pipeline = ReceiptPreparationPipeline::new(
             Arc::clone(config),
             apply_state.cache.as_ref().map(|v| v.handle()),
-            state_update.contract_storage(),
+            contract_storage,
         );
         let view_config = Some(ViewConfig { max_gas_burnt: self.max_gas_burnt_view });
-        let update_ops = state_update.start_update();
+        let mut update_ops = state_update.start_update();
         let code_hash = account.contract().into_owned().hash(&mut update_ops)?;
         let contract = pipeline.get_contract(&receipt, code_hash, 0, view_config.clone());
         let mut runtime_ext = RuntimeExt::new(

@@ -66,6 +66,7 @@ use near_primitives::utils::{
 };
 use near_primitives::version::{ProtocolFeature, ProtocolVersion};
 use near_primitives_core::apply::ApplyChunkReason;
+use near_store::contract::ContractStorage;
 use near_store::state_update::{StateOperations, StateUpdate};
 use near_store::trie::AccessOptions;
 use near_store::trie::receipts_column_helper::DelayedReceiptQueue;
@@ -114,17 +115,12 @@ mod verifier;
 const EXPECT_ACCOUNT_EXISTS: &str = "account exists, checked above";
 
 pub struct PostState {
-    pub trie_update: TrieUpdate,
+    pub state_update: StateUpdate,
 }
 
 impl Debug for PostState {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "PostState {{ trie_update: committed: {}, prospective: {} }}",
-            self.trie_update.committed_len(),
-            self.trie_update.prospective_len()
-        )
+        f.debug_struct("PostState").finish()
     }
 }
 
@@ -1504,9 +1500,14 @@ impl Runtime {
         // 2. Process transactions.
         // 3. Process receipts.
         // 4. Validate and apply the state update.
+        let contract_storage = near_store::contract::ContractStorage::new_for_trie(&trie);
         let state_update = state_update::StateUpdate::new(trie);
-        let mut processing_state =
-            ApplyProcessingState::new(&apply_state, state_update, epoch_info_provider);
+        let mut processing_state = ApplyProcessingState::new(
+            &apply_state,
+            state_update,
+            contract_storage,
+            epoch_info_provider,
+        );
         processing_state.stats.transactions_num = signed_txs.len().try_into().unwrap();
         processing_state.stats.incoming_receipts_num = incoming_receipts.len().try_into().unwrap();
         processing_state.stats.is_new_chunk = !apply_state.is_new_chunk;
@@ -2513,8 +2514,9 @@ impl Runtime {
 
         // Call `on_post_state_ready` with a clone of the `state_update` if requested.
         if let Some(on_post_state_ready) = &apply_state.on_post_state_ready {
-            let post_state =
-                PostState { trie_update: processing_state.state_update.clone_for_tx_preparation() };
+            let post_state = PostState {
+                state_update: processing_state.state_update.clone_for_tx_preparation(),
+            };
             let callback = &on_post_state_ready.callback;
             callback(post_state);
         }
@@ -2841,6 +2843,7 @@ struct ApplyProcessingState<'a> {
     apply_state: &'a ApplyState,
     prefetcher: Option<TriePrefetcher>,
     state_update: StateUpdate,
+    contract_storage: near_store::contract::ContractStorage,
     epoch_info_provider: &'a dyn EpochInfoProvider,
     total: TotalResourceGuard,
     stats: ChunkApplyStatsV0,
@@ -2850,6 +2853,7 @@ impl<'a> ApplyProcessingState<'a> {
     fn new(
         apply_state: &'a ApplyState,
         state_update: StateUpdate,
+        contract_storage: ContractStorage,
         epoch_info_provider: &'a dyn EpochInfoProvider,
     ) -> Self {
         let protocol_version = apply_state.current_protocol_version;
@@ -2868,6 +2872,7 @@ impl<'a> ApplyProcessingState<'a> {
             apply_state,
             prefetcher,
             state_update,
+            contract_storage,
             epoch_info_provider,
             total,
             stats,
@@ -2882,7 +2887,7 @@ impl<'a> ApplyProcessingState<'a> {
         let pipeline_manager = pipelining::ReceiptPreparationPipeline::new(
             Arc::clone(&self.apply_state.config),
             self.apply_state.cache.as_ref().map(|v| v.handle()),
-            self.state_update.contract_storage(),
+            self.contract_storage.clone(),
         );
         ApplyProcessingReceiptState {
             pipeline_manager,
@@ -3046,6 +3051,7 @@ pub mod estimator {
     use near_primitives::types::EpochInfoProvider;
     use near_primitives::types::validator_stake::ValidatorStake;
     use near_store::ShardUId;
+    use near_store::contract::ContractStorage;
     use near_store::state_update::StateOperations;
     use near_store::trie::outgoing_metadata::{OutgoingMetadatas, ReceiptGroupsConfig};
     use near_store::trie::receipts_column_helper::ShardsOutgoingReceiptBuffer;
@@ -3053,7 +3059,8 @@ pub mod estimator {
     use std::num::NonZeroU64;
 
     pub fn apply_action_receipt(
-        state_update: StateOperations,
+        mut state_update: StateOperations,
+        contract_storage: &ContractStorage,
         apply_state: &ApplyState,
         receipt: &Receipt,
         outgoing_receipts: &mut Vec<Receipt>,
@@ -3094,7 +3101,7 @@ pub mod estimator {
         let empty_pipeline = ReceiptPreparationPipeline::new(
             std::sync::Arc::clone(&apply_state.config),
             apply_state.cache.as_ref().map(|c| c.handle()),
-            state_update.contract_storage(),
+            contract_storage.clone(),
         );
         let apply_result = Runtime {}.apply_action_receipt(
             state_update,

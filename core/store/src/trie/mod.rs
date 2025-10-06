@@ -243,7 +243,7 @@ impl UpdatedTrieStorageNodeWithSize {
 }
 
 pub struct Trie {
-    storage: Arc<dyn TrieStorage>,
+    pub(crate) storage: Arc<dyn TrieStorage>,
     memtries: Option<Arc<RwLock<MemTries>>>,
     /// In super rare cases it's possible that we see forks close to the resharding boundary.
     /// We would like to apply the same set of trie changes to the child memtrie to keep

@@ -95,6 +95,13 @@ impl ContractStorage {
         Self { storage, tracker: Arc::new(Mutex::new(Some(ContractsTracker::default()))) }
     }
 
+    pub fn new_for_trie(trie: &crate::Trie) -> Self {
+        Self {
+            storage: trie.storage.clone(),
+            tracker: Arc::new(Mutex::new(Some(ContractsTracker::default()))),
+        }
+    }
+
     /// Retrieves the contract code by its hash.
     ///
     /// This is called when preparing (eg. compiling) the contract for execution optimistically, and
