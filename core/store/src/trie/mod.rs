@@ -431,6 +431,8 @@ impl TrieRefcountDeltaMap {
             }
         }
         // Sort so that trie changes have unique representation.
+        // sort_unstable is fine here because we're sorting by simple values (hashes)
+        // and we only need consistent ordering, not stable ordering.
         insertions.sort_unstable();
         deletions.sort_unstable();
         (insertions, deletions)
