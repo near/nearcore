@@ -736,6 +736,7 @@ impl PeerManagerActor {
                 .values()
                 .map(|x| x.stats.received_bytes_per_sec.load(Ordering::Relaxed))
                 .sum(),
+            known_producers: vec![],
             tier1_accounts_keys: self.state.accounts_data.load().keys.iter().cloned().collect(),
             tier1_accounts_data: self.state.accounts_data.load().data.values().cloned().collect(),
         }

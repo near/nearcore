@@ -563,6 +563,14 @@ pub struct PeerInfo {
     pub account_id: Option<AccountId>,
 }
 
+#[derive(Clone, Debug)]
+pub struct KnownProducer {
+    pub account_id: AccountId,
+    pub addr: Option<std::net::SocketAddr>,
+    pub peer_id: PeerId,
+    pub next_hops: Option<Vec<PeerId>>,
+}
+
 #[derive(Debug)]
 pub struct NetworkInfoResponse {
     pub connected_peers: Vec<PeerInfo>,
@@ -570,6 +578,8 @@ pub struct NetworkInfoResponse {
     pub peer_max_count: u32,
     pub sent_bytes_per_sec: u64,
     pub received_bytes_per_sec: u64,
+    /// Accounts of known block and chunk producers from routing table.
+    pub known_producers: Vec<KnownProducer>,
 }
 
 /// Status of given transaction including all the subsequent receipts.

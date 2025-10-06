@@ -36,6 +36,7 @@ use near_primitives::types::{AccountId, BlockHeight, EpochHeight, ShardId};
 use near_schema_checker_lib::ProtocolSchema;
 use std::collections::{HashMap, HashSet};
 use std::fmt::Debug;
+use std::net::SocketAddr;
 use std::sync::Arc;
 
 /// Number of hops a message is allowed to travel before being dropped.
@@ -50,6 +51,14 @@ pub enum PeerType {
     Inbound,
     /// Outbound session
     Outbound,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct KnownProducer {
+    pub account_id: AccountId,
+    pub addr: Option<SocketAddr>,
+    pub peer_id: PeerId,
+    pub next_hops: Option<Vec<PeerId>>,
 }
 
 /// Ban reason.
@@ -408,6 +417,8 @@ pub struct NetworkInfo {
     pub highest_height_peers: Vec<HighestHeightPeerInfo>,
     pub sent_bytes_per_sec: u64,
     pub received_bytes_per_sec: u64,
+    /// Accounts of known block and chunk producers from routing table.
+    pub known_producers: Vec<KnownProducer>,
     /// Collected data about the current TIER1 accounts.
     pub tier1_accounts_keys: Vec<PublicKey>,
     pub tier1_accounts_data: Vec<Arc<SignedAccountData>>,

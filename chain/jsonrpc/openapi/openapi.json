@@ -8588,6 +8588,29 @@
         "title": "JsonRpcResponse_for_RpcValidatorResponse_and_RpcError",
         "type": "object"
       },
+      "KnownProducerView": {
+        "description": "Information about a Producer: its account name, peer_id and a list of connected peers that\nthe node can use to send message for this producer.",
+        "properties": {
+          "account_id": {
+            "$ref": "#/components/schemas/AccountId"
+          },
+          "next_hops": {
+            "items": {
+              "$ref": "#/components/schemas/PublicKey"
+            },
+            "nullable": true,
+            "type": "array"
+          },
+          "peer_id": {
+            "$ref": "#/components/schemas/PublicKey"
+          }
+        },
+        "required": [
+          "account_id",
+          "peer_id"
+        ],
+        "type": "object"
+      },
       "LightClientBlockLiteView": {
         "properties": {
           "inner_lite": {
@@ -8928,6 +8951,12 @@
             },
             "type": "array"
           },
+          "known_producers": {
+            "items": {
+              "$ref": "#/components/schemas/KnownProducerView"
+            },
+            "type": "array"
+          },
           "num_connected_peers": {
             "format": "uint",
             "minimum": 0,
@@ -8961,6 +8990,7 @@
           "peer_max_count",
           "num_connected_peers",
           "connected_peers",
+          "known_producers",
           "tier1_accounts_keys",
           "tier1_accounts_data",
           "tier1_connections"
@@ -10571,6 +10601,25 @@
         ],
         "nullable": true
       },
+      "RpcKnownProducer": {
+        "properties": {
+          "account_id": {
+            "$ref": "#/components/schemas/AccountId"
+          },
+          "addr": {
+            "nullable": true,
+            "type": "string"
+          },
+          "peer_id": {
+            "$ref": "#/components/schemas/PeerId"
+          }
+        },
+        "required": [
+          "account_id",
+          "peer_id"
+        ],
+        "type": "object"
+      },
       "RpcLightClientBlockProofRequest": {
         "properties": {
           "block_hash": {
@@ -10777,6 +10826,13 @@
             },
             "type": "array"
           },
+          "known_producers": {
+            "description": "Accounts of known block and chunk producers from routing table.",
+            "items": {
+              "$ref": "#/components/schemas/RpcKnownProducer"
+            },
+            "type": "array"
+          },
           "num_active_peers": {
             "format": "uint",
             "minimum": 0,
@@ -10803,7 +10859,8 @@
           "num_active_peers",
           "peer_max_count",
           "sent_bytes_per_sec",
-          "received_bytes_per_sec"
+          "received_bytes_per_sec",
+          "known_producers"
         ],
         "type": "object"
       },

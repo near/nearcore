@@ -1,8 +1,9 @@
 use super::{RpcFrom, RpcInto};
 use near_async::messaging::AsyncSendError;
-use near_client_primitives::types::{NetworkInfoResponse, PeerInfo};
+use near_client_primitives::types::NetworkInfoResponse;
+use near_client_primitives::types::{KnownProducer, PeerInfo};
 use near_jsonrpc_primitives::types::network_info::{
-    RpcNetworkInfoError, RpcNetworkInfoResponse, RpcPeerInfo,
+    RpcKnownProducer, RpcNetworkInfoError, RpcNetworkInfoResponse, RpcPeerInfo,
 };
 
 impl RpcFrom<AsyncSendError> for RpcNetworkInfoError {
@@ -14,6 +15,16 @@ impl RpcFrom<AsyncSendError> for RpcNetworkInfoError {
 impl RpcFrom<PeerInfo> for RpcPeerInfo {
     fn rpc_from(peer_info: PeerInfo) -> Self {
         Self { id: peer_info.id, addr: peer_info.addr, account_id: peer_info.account_id }
+    }
+}
+
+impl RpcFrom<KnownProducer> for RpcKnownProducer {
+    fn rpc_from(known_producer: KnownProducer) -> Self {
+        Self {
+            account_id: known_producer.account_id,
+            addr: known_producer.addr,
+            peer_id: known_producer.peer_id,
+        }
     }
 }
 
@@ -29,6 +40,11 @@ impl RpcFrom<NetworkInfoResponse> for RpcNetworkInfoResponse {
             peer_max_count: network_info_response.peer_max_count,
             sent_bytes_per_sec: network_info_response.sent_bytes_per_sec,
             received_bytes_per_sec: network_info_response.received_bytes_per_sec,
+            known_producers: network_info_response
+                .known_producers
+                .iter()
+                .map(|kp| kp.clone().rpc_into())
+                .collect(),
         }
     }
 }

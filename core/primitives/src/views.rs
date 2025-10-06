@@ -446,6 +446,16 @@ pub struct PeerInfoView {
     pub nonce: u64,
 }
 
+/// Information about a Producer: its account name, peer_id and a list of connected peers that
+/// the node can use to send message for this producer.
+#[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+pub struct KnownProducerView {
+    pub account_id: AccountId,
+    pub peer_id: PublicKey,
+    pub next_hops: Option<Vec<PublicKey>>,
+}
+
 #[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct Tier1ProxyView {
@@ -488,6 +498,7 @@ pub struct NetworkInfoView {
     pub peer_max_count: u32,
     pub num_connected_peers: usize,
     pub connected_peers: Vec<PeerInfoView>,
+    pub known_producers: Vec<KnownProducerView>,
     pub tier1_accounts_keys: Vec<PublicKey>,
     pub tier1_accounts_data: Vec<AccountDataView>,
     pub tier1_connections: Vec<PeerInfoView>,
