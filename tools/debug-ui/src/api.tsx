@@ -539,6 +539,7 @@ export interface InstrumentedThreadsViewResponse {
 export interface InstrumentedThreads {
     threads: InstrumentedThread[];
     current_time_unix_ms: number;
+    current_time_relative_ms: number;
 }
 
 export interface InstrumentedThread {
@@ -556,6 +557,7 @@ export interface InstrumentedActiveEvent {
 
 export interface InstrumentedWindow {
     start_time_ms: number;
+    end_time_ms: number;
     events: InstrumentedEvent[];
     events_overfilled: boolean;
     summary: InstrumentedWindowSummary;

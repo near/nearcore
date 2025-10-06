@@ -18,9 +18,12 @@ pub struct InstrumentedThreadWriter {
 impl InstrumentedThreadWriter {
     pub fn new(clock: Clock, reference_instant: Instant, target: Arc<InstrumentedThread>) -> Self {
         Self {
+            current_window_start_time_ns: clock.now().duration_since(reference_instant).as_nanos()
+                as u64
+                / WINDOW_SIZE_NS
+                * WINDOW_SIZE_NS,
             clock,
             reference_instant,
-            current_window_start_time_ns: 0,
             type_name_registry: HashMap::new(),
             target,
         }

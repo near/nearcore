@@ -5,7 +5,7 @@ type ActorsViewProps = {
     thread: InstrumentedThread;
     messageTypes: string[];
     minTimeMs: number;
-    currentTimeUnixMs: number;
+    currentTimeMs: number;
 };
 
 type EventToDisplay = {
@@ -157,15 +157,27 @@ function assignRows(events: EventToDisplay[], viewport: Viewport, spacingPx: num
 }
 
 /// Creates a color map for event types with well-distributed colors
-function createColorMap(events: EventToDisplay[]): Map<string, string> {
-    // Get unique event types and sort them
-    const uniqueTypes = Array.from(new Set(events.map(e => e.type))).sort();
+function createColorMap(events: EventToDisplay[], thread: InstrumentedThread): Map<string, string> {
+    // Get unique event types from events
+    const uniqueTypes = new Set(events.map(e => e.type));
+
+    // Also check if any windows have type ID -1 (unknown) in their summaries
+    for (const window of thread.windows) {
+        for (const stat of window.summary.message_stats_by_type) {
+            if (stat.message_type === -1) {
+                uniqueTypes.add("Unknown");
+            }
+        }
+    }
+
+    // Sort types for stable colors
+    const sortedTypes = Array.from(uniqueTypes).sort();
 
     const colorMap = new Map<string, string>();
-    const numTypes = uniqueTypes.length;
+    const numTypes = sortedTypes.length;
 
     // Distribute hues evenly across the color wheel
-    uniqueTypes.forEach((type, index) => {
+    sortedTypes.forEach((type, index) => {
         const hue = (index * 360) / numTypes;
         colorMap.set(type, `hsl(${hue}, 70%, 60%)`);
     });
@@ -287,12 +299,11 @@ class Viewport {
     }
 }
 
-export const ThreadTimeline = ({ thread, messageTypes, minTimeMs, currentTimeUnixMs }: ActorsViewProps) => {
+export const ThreadTimeline = ({ thread, messageTypes, minTimeMs, currentTimeMs }: ActorsViewProps) => {
     const events = useMemo(
-        () => getEventsToDisplay(thread, messageTypes, minTimeMs, currentTimeUnixMs),
-        [thread, messageTypes, minTimeMs, currentTimeUnixMs]
+        () => getEventsToDisplay(thread, messageTypes, minTimeMs, currentTimeMs),
+        [thread, messageTypes, minTimeMs, currentTimeMs]
     );
-    console.log("Events to display:", events);
 
     const ROW_HEIGHT = 10;
     const ROW_PADDING = 2;
@@ -300,25 +311,31 @@ export const ThreadTimeline = ({ thread, messageTypes, minTimeMs, currentTimeUni
     const LINE_STROKE_WIDTH = 10;
     const LEGEND_VERTICAL_MARGIN = 5;
     const LEGEND_HEIGHT_PER_ROW = 25;
+    const CPU_CHART_HEIGHT = 50;
     const GRID_LABEL_TOP_MARGIN = 20;
     const VIEWPORT_WIDTH = 1000;
 
-    const maxTimeMs = INSTRUMENTED_WINDOW_LEN_MS * thread.windows.length;
+    const maxTimeMs = currentTimeMs - minTimeMs;
     const [viewport, setViewport] = useState(
         new Viewport(-1000, maxTimeMs + 1000, VIEWPORT_WIDTH, -1000, maxTimeMs + 1000, 1)
     );
     const svgRef = useRef<SVGSVGElement>(null);
 
 
-    const colorMap = useMemo(() => createColorMap(events), [events]);
+    const colorMap = useMemo(() => createColorMap(events, thread), [events, thread]);
 
     const { events: positionedEvents, maxRow } = useMemo(
         () => assignRows(events, viewport, EVENT_SPACING_PX, LINE_STROKE_WIDTH),
         [events, viewport]
     );
 
-    const chartHeight = GRID_LABEL_TOP_MARGIN + (maxRow + 1) * (ROW_HEIGHT + ROW_PADDING) + 20;
-    const svgHeight = chartHeight + LEGEND_VERTICAL_MARGIN * 2 + LEGEND_HEIGHT_PER_ROW * Math.ceil(colorMap.size / 5);
+    const cpuChartTop = 0;
+    const cpuChartBottom = cpuChartTop + CPU_CHART_HEIGHT;
+    const gridTop = cpuChartBottom + GRID_LABEL_TOP_MARGIN;
+    const eventsTop = gridTop + 10;
+    const chartHeight = eventsTop + (maxRow + 1) * (ROW_HEIGHT + ROW_PADDING) + 10;
+    const legendHeight = colorMap.size > 0 ? LEGEND_VERTICAL_MARGIN * 2 + LEGEND_HEIGHT_PER_ROW * Math.ceil(colorMap.size / 5) : 0;
+    const svgHeight = chartHeight + legendHeight;
 
     const [hoveredEvent, setHoveredEvent] = useState<{ event: EventToDisplay, x: number, y: number } | null>(null);
     const [hoveredLegendType, setHoveredLegendType] = useState<string | null>(null);
@@ -343,13 +360,163 @@ export const ThreadTimeline = ({ thread, messageTypes, minTimeMs, currentTimeUni
             ref={svgRef}
             width={1000}
             height={svgHeight}
-            style={{ border: "1px solid black", backgroundColor: "#f0f0f0" }}
+            style={{ border: "1px solid black", backgroundColor: "white" }}
             onMouseMove={(e) => {
                 if (e.buttons === 1) {
                     setViewport(viewport.pan(-e.movementX));
                 }
             }}
         >
+            {/* CPU Load Chart */}
+            <g>
+                {/* White background for entire CPU chart area */}
+                <rect
+                    x={0}
+                    y={cpuChartTop}
+                    width={VIEWPORT_WIDTH}
+                    height={CPU_CHART_HEIGHT}
+                    fill="white"
+                />
+                {(() => {
+                    const windows = [...thread.windows];
+                    windows.reverse(); // Match the order from getEventsToDisplay
+                    const paths: JSX.Element[] = [];
+
+                    // Build stacked areas for each message type
+                    const typeOrder = Array.from(colorMap.keys());
+
+                    windows.forEach((window, windowIndex) => {
+                        const windowStartMs = window.start_time_ms - minTimeMs;
+                        const windowEndMs = window.end_time_ms - minTimeMs;
+
+                        const x1 = viewport.transform(windowStartMs);
+                        const x2 = viewport.transform(windowEndMs);
+
+                        // Skip windows outside viewport
+                        if (x2 < 0 || x1 > VIEWPORT_WIDTH) return;
+
+                        // Window duration is INSTRUMENTED_WINDOW_LEN_MS in nanoseconds
+                        const windowDurationNs = INSTRUMENTED_WINDOW_LEN_MS * 1_000_000;
+
+                        // Create stacked bars
+                        let cumulativeTimeNs = 0;
+
+                        typeOrder.forEach((type) => {
+                            const stat = window.summary.message_stats_by_type.find(
+                                s => {
+                                    if (s.message_type === -1) return type === "Unknown";
+                                    return messageTypes[s.message_type] === type;
+                                }
+                            );
+
+                            if (!stat || stat.total_time_ns === 0) return;
+
+                            const y1 = cpuChartTop + CPU_CHART_HEIGHT - (cumulativeTimeNs / windowDurationNs * CPU_CHART_HEIGHT);
+                            const y2 = cpuChartTop + CPU_CHART_HEIGHT - ((cumulativeTimeNs + stat.total_time_ns) / windowDurationNs * CPU_CHART_HEIGHT);
+
+                            const color = colorMap.get(type) || "#888";
+                            const isDimmed = hoveredLegendType !== null && hoveredLegendType !== type;
+
+                            paths.push(
+                                <rect
+                                    key={`${windowIndex}-${type}`}
+                                    x={Math.max(0, x1)}
+                                    y={y2}
+                                    width={Math.max(1, x2 - x1)}
+                                    height={y1 - y2}
+                                    fill={color}
+                                    opacity={isDimmed ? 0.1 : 0.8}
+                                />
+                            );
+
+                            cumulativeTimeNs += stat.total_time_ns;
+                        });
+                    });
+
+                    return paths;
+                })()}
+            </g>
+
+            {/* Background shading for areas outside window range */}
+            <g>
+                {(() => {
+                    const windows = [...thread.windows];
+                    windows.reverse();
+                    if (windows.length === 0) return null;
+
+                    const firstWindowStartMs = windows[0].start_time_ms - minTimeMs;
+                    const lastWindowEndMs = currentTimeMs - minTimeMs;
+
+                    const beforeX1 = viewport.transform(viewport.getStart());
+                    const beforeX2 = viewport.transform(firstWindowStartMs);
+                    const afterX1 = viewport.transform(lastWindowEndMs);
+                    const afterX2 = viewport.transform(viewport.getEnd());
+
+                    return (
+                        <>
+                            {/* Area before first window */}
+                            {beforeX2 > 0 && (
+                                <rect
+                                    x={Math.max(0, beforeX1)}
+                                    y={0}
+                                    width={Math.max(0, beforeX2 - Math.max(0, beforeX1))}
+                                    height={chartHeight}
+                                    fill="#444"
+                                    opacity={0.3}
+                                />
+                            )}
+                            {/* Area after last window */}
+                            {afterX1 < VIEWPORT_WIDTH && (
+                                <rect
+                                    x={Math.max(0, afterX1)}
+                                    y={0}
+                                    width={Math.min(VIEWPORT_WIDTH, afterX2) - Math.max(0, afterX1)}
+                                    height={chartHeight}
+                                    fill="#444"
+                                    opacity={0.3}
+                                />
+                            )}
+                        </>
+                    );
+                })()}
+            </g>
+
+            {/* Overfilled window indicators in event timeline area */}
+            <g>
+                {(() => {
+                    const windows = [...thread.windows];
+                    windows.reverse();
+                    const indicators: JSX.Element[] = [];
+
+                    windows.forEach((window, index) => {
+                        if (!window.events_overfilled) return;
+
+                        const windowStartMs = window.start_time_ms - minTimeMs;
+                        const windowEndMs = window.end_time_ms - minTimeMs;
+
+                        const x1 = viewport.transform(windowStartMs);
+                        const x2 = viewport.transform(windowEndMs);
+
+                        // Skip windows outside viewport
+                        if (x2 < 0 || x1 > VIEWPORT_WIDTH) return;
+
+                        indicators.push(
+                            <rect
+                                key={`overfilled-${index}`}
+                                x={Math.max(0, x1)}
+                                y={eventsTop}
+                                width={Math.max(1, x2 - x1)}
+                                height={chartHeight - eventsTop}
+                                fill="#f88"
+                                opacity={0.3}
+                            />
+                        );
+                    });
+
+                    return indicators;
+                })()}
+            </g>
+
             {/* Grid lines */}
             <g>
                 {(() => {
@@ -364,7 +531,7 @@ export const ThreadTimeline = ({ thread, messageTypes, minTimeMs, currentTimeUni
                             <g key={tick}>
                                 <line
                                     x1={x}
-                                    y1={GRID_LABEL_TOP_MARGIN}
+                                    y1={gridTop}
                                     x2={x}
                                     y2={chartHeight}
                                     stroke="#ccc"
@@ -373,7 +540,7 @@ export const ThreadTimeline = ({ thread, messageTypes, minTimeMs, currentTimeUni
                                 {(
                                     <text
                                         x={x}
-                                        y={12}
+                                        y={gridTop - 8}
                                         fontSize={10}
                                         fontFamily="sans-serif"
                                         fill="#666"
@@ -397,7 +564,7 @@ export const ThreadTimeline = ({ thread, messageTypes, minTimeMs, currentTimeUni
                     return null; // Skip rendering events outside the viewport
                 }
 
-                const y = GRID_LABEL_TOP_MARGIN + 10 + event.row * (ROW_HEIGHT + ROW_PADDING) + ROW_HEIGHT / 2;
+                const y = eventsTop + event.row * (ROW_HEIGHT + ROW_PADDING) + ROW_HEIGHT / 2;
                 const baseColor = colorMap.get(event.type) || "#888";
                 const x1 = Math.max(0, xStart);
                 const x2 = Math.max(0, xStart) + width;
@@ -433,31 +600,57 @@ export const ThreadTimeline = ({ thread, messageTypes, minTimeMs, currentTimeUni
                 );
             })}
 
-            {/* Legend */}
-            <g transform={`translate(0, ${chartHeight + LEGEND_VERTICAL_MARGIN})`}>
-                {Array.from(colorMap.entries()).map(([type, color], index) => {
-                    const x = (index % 5) * 200;
-                    const y = Math.floor(index / 5) * 25;
-                    const isHovered = hoveredLegendType === type;
-                    const isDimmed = hoveredLegendType !== null && !isHovered;
-
-                    return (
-                        <g
-                            key={type}
-                            transform={`translate(${x}, ${y})`}
-                            onMouseEnter={() => setHoveredLegendType(type)}
-                            onMouseLeave={() => setHoveredLegendType(null)}
-                            style={{ cursor: 'pointer' }}
-                            opacity={isDimmed ? 0.3 : 1}
-                        >
-                            {/* Backdrop for larger hover area */}
-                            <rect x={12} y={0} width={180} height={20} fill="transparent" />
-                            <line x1={16} y1={9} x2={24} y2={9} stroke={color} strokeWidth={LINE_STROKE_WIDTH} strokeLinecap="round" />
-                            <text x={36} y={13} fontSize={10} fontFamily="sans-serif">{type}</text>
-                        </g>
-                    );
-                })}
+            {/* Border lines */}
+            <g>
+                {/* Border between CPU chart and grid markings */}
+                <line
+                    x1={0}
+                    y1={cpuChartBottom + 0.5}
+                    x2={VIEWPORT_WIDTH}
+                    y2={cpuChartBottom + 0.5}
+                    stroke="#666"
+                    strokeWidth={1}
+                />
+                {/* Border between event timeline and legend */}
+                {legendHeight > 0 && (
+                    <line
+                        x1={0}
+                        y1={chartHeight + 0.5}
+                        x2={VIEWPORT_WIDTH}
+                        y2={chartHeight + 0.5}
+                        stroke="#666"
+                        strokeWidth={1}
+                    />
+                )}
             </g>
+
+            {/* Legend */}
+            {legendHeight > 0 && (
+                <g transform={`translate(0, ${chartHeight + LEGEND_VERTICAL_MARGIN})`}>
+                    {Array.from(colorMap.entries()).map(([type, color], index) => {
+                        const x = (index % 5) * 200;
+                        const y = Math.floor(index / 5) * 25;
+                        const isHovered = hoveredLegendType === type;
+                        const isDimmed = hoveredLegendType !== null && !isHovered;
+
+                        return (
+                            <g
+                                key={type}
+                                transform={`translate(${x}, ${y})`}
+                                onMouseEnter={() => setHoveredLegendType(type)}
+                                onMouseLeave={() => setHoveredLegendType(null)}
+                                style={{ cursor: 'pointer' }}
+                                opacity={isDimmed ? 0.3 : 1}
+                            >
+                                {/* Backdrop for larger hover area */}
+                                <rect x={12} y={0} width={180} height={20} fill="transparent" />
+                                <line x1={16} y1={9} x2={24} y2={9} stroke={color} strokeWidth={LINE_STROKE_WIDTH} strokeLinecap="round" />
+                                <text x={36} y={13} fontSize={10} fontFamily="sans-serif">{type}</text>
+                            </g>
+                        );
+                    })}
+                </g>
+            )}
         </svg>
 
         {/* Tooltip */}

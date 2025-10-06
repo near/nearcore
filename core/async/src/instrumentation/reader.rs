@@ -16,6 +16,7 @@ use crate::instrumentation::{
 pub struct InstrumentedThreadsView {
     pub threads: Vec<InstrumentedThreadView>,
     pub current_time_unix_ms: u64,
+    pub current_time_relative_ms: u64,
 }
 
 #[derive(Serialize, Debug)]
@@ -37,6 +38,7 @@ pub struct InstrumentedActiveEventView {
 #[derive(Serialize, Debug)]
 pub struct InstrumentedWindowView {
     pub start_time_ms: u64,
+    pub end_time_ms: u64,
     pub events: Vec<InstrumentedEventView>,
     pub events_overfilled: bool,
     pub summary: InstrumentedWindowSummaryView,
@@ -132,10 +134,11 @@ impl AggregatedMessageTypeStats {
 }
 
 impl InstrumentedWindow {
-    pub fn to_view(&self) -> InstrumentedWindowView {
+    pub fn to_view(&self, end_time: u64) -> InstrumentedWindowView {
         let (events, events_overfilled) = self.events.to_view();
         InstrumentedWindowView {
             start_time_ms: self.start_time_ns / 1_000_000,
+            end_time_ms: end_time / 1_000_000,
             events,
             events_overfilled,
             summary: self.summary.to_view(self.index),
@@ -165,10 +168,13 @@ impl InstrumentedThread {
         };
         let current_window_index = self.current_window_index.load(Ordering::Acquire);
         let mut windows = Vec::new();
+        let mut prev_window_start_time = current_time_ns;
         for i in 0..NUM_WINDOWS.min(current_window_index) {
             let window_index = current_window_index - i;
             let window = &self.windows[window_index % self.windows.len()];
-            windows.push(window.read().to_view());
+            let read = window.read();
+            windows.push(read.to_view(prev_window_start_time));
+            prev_window_start_time = read.start_time_ns;
         }
         InstrumentedThreadView {
             thread_name: self.thread_name.clone(),
@@ -188,6 +194,10 @@ impl AllActorInstrumentations {
         let mut threads =
             threads.into_iter().map(|thread| thread.to_view(current_time_ns)).collect::<Vec<_>>();
         threads.sort_by_key(|thread| -(thread.active_time_ns as i128));
-        InstrumentedThreadsView { current_time_unix_ms, threads }
+        InstrumentedThreadsView {
+            current_time_unix_ms,
+            current_time_relative_ms: current_time_ns / 1_000_000,
+            threads,
+        }
     }
 }

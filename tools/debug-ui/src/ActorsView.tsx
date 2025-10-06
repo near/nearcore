@@ -98,6 +98,7 @@ export const ActorsView = ({ addr }: ActorsViewProps) => {
     let sortedThreads = allThreads.slice().sort((a: InstrumentedThread, b: InstrumentedThread) => a.thread_name.localeCompare(b.thread_name));
     let [minStartTime, maxStartTime] = [getMinStartTime(allThreads), getMaxStartTime(allThreads)];
     let currentTimeUnixMs = currentData?.status_response.InstrumentedThreads.current_time_unix_ms || 0;
+    let currentTimeMs = currentData?.status_response.InstrumentedThreads.current_time_relative_ms || 0;
     let startTimeUnixEstimatedMs = currentTimeUnixMs - (maxStartTime - minStartTime);
 
     return (
@@ -171,7 +172,7 @@ export const ActorsView = ({ addr }: ActorsViewProps) => {
                     {sortedThreads?.map((thread: InstrumentedThread, idx: number) => (
                         <tr key={idx}>
                             <td>{formatThreadName(thread.thread_name)}</td>
-                            <td><ThreadTimeline thread={thread} minTimeMs={minStartTime} messageTypes={thread.message_types} currentTimeUnixMs={currentTimeUnixMs} /></td>
+                            <td><ThreadTimeline thread={thread} minTimeMs={minStartTime} messageTypes={thread.message_types} currentTimeMs={currentTimeMs} /></td>
                             <td><BucketChart windows={thread.windows} min_start_time={minStartTime} message_types={thread.message_types} yAxisMode={yAxisMode} is_dequeue_chart={true} /></td>
                         </tr>
                     ))}
@@ -230,6 +231,7 @@ function BucketChart({ windows, min_start_time, message_types, yAxisMode, is_deq
         const lastWindow = processedWindows[processedWindows.length - 1];
         processedWindows.push({
             start_time_ms: processedWindows.length == 0 ? min_start_time : lastWindow.start_time_ms - INSTRUMENTED_WINDOW_LEN_MS,
+            end_time_ms: processedWindows.length == 0 ? min_start_time + INSTRUMENTED_WINDOW_LEN_MS : lastWindow.end_time_ms - INSTRUMENTED_WINDOW_LEN_MS,
             events: [],
             events_overfilled: false,
             summary: {
@@ -310,7 +312,6 @@ const labelFormatter = (value: number) => {
 
 const CustomTooltip = ({ active, payload, label }: any) => {
     const isVisible = active && payload && payload.length;
-    console.log('Tooltip payload:', payload);
     return (
         <div className="custom-tooltip" style={{ visibility: isVisible ? 'visible' : 'hidden' }}>
             {isVisible && (
