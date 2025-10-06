@@ -172,9 +172,40 @@ function createColorMap(events: EventToDisplay[]): Map<string, string> {
     return colorMap;
 }
 
+/// Calculates appropriate time tick interval based on viewport span
+function getTimeTickInterval(viewportSpanMs: number): number {
+    // Target around 8-12 ticks across the viewport
+    const targetTicks = 10;
+    const roughInterval = viewportSpanMs / targetTicks;
+
+    // Round to nice intervals: 1, 2, 5, 10, 20, 50, 100, 200, 500, 1000, etc.
+    const magnitude = Math.pow(10, Math.floor(Math.log10(roughInterval)));
+    const normalizedInterval = roughInterval / magnitude;
+
+    let niceInterval;
+    if (normalizedInterval < 1.5) {
+        niceInterval = 1;
+    } else if (normalizedInterval < 3.5) {
+        niceInterval = 2;
+    } else if (normalizedInterval < 7.5) {
+        niceInterval = 5;
+    } else {
+        niceInterval = 10;
+    }
+
+    return niceInterval * magnitude;
+}
+
 /// Displays the data between start and end in a viewport of a given width.
 class Viewport {
-    constructor(private start: number, private end: number, private width: number) { }
+    constructor(
+        private start: number,
+        private end: number,
+        private width: number,
+        private minBound: number = 0,
+        private maxBound: number = Infinity,
+        private minZoom: number = 1
+    ) { }
 
     /// Transforms the given value to a position in the viewport.
     transform(value: number): number {
@@ -193,16 +224,58 @@ class Viewport {
         return length / this.width * (this.end - this.start);
     }
 
+    getStart(): number {
+        return this.start;
+    }
+
+    getEnd(): number {
+        return this.end;
+    }
+
     zoom(pivot: number, factor: number): Viewport {
         const pivotPos = this.invTransform(pivot);
-        const newStart = pivotPos - (pivotPos - this.start) * factor;
-        const newEnd = pivotPos + (this.end - pivotPos) * factor;
-        return new Viewport(newStart, newEnd, this.width);
+        let newStart = pivotPos - (pivotPos - this.start) * factor;
+        let newEnd = pivotPos + (this.end - pivotPos) * factor;
+
+        // Enforce minimum zoom (maximum span)
+        if (newEnd - newStart < this.minZoom) {
+            const center = (newStart + newEnd) / 2;
+            newStart = center - this.minZoom / 2;
+            newEnd = center + this.minZoom / 2;
+        }
+
+        // Constrain to bounds
+        if (newStart < this.minBound) {
+            newEnd += this.minBound - newStart;
+            newStart = this.minBound;
+        }
+        if (newEnd > this.maxBound) {
+            newStart -= newEnd - this.maxBound;
+            newEnd = this.maxBound;
+        }
+        // Ensure we don't exceed bounds after adjustment
+        newStart = Math.max(this.minBound, newStart);
+        newEnd = Math.min(this.maxBound, newEnd);
+
+        return new Viewport(newStart, newEnd, this.width, this.minBound, this.maxBound, this.minZoom);
     }
 
     pan(delta: number): Viewport {
         let offset = this.invTransformLength(delta);
-        return new Viewport(this.start + offset, this.end + offset, this.width);
+        let newStart = this.start + offset;
+        let newEnd = this.end + offset;
+
+        // Constrain to bounds
+        if (newStart < this.minBound) {
+            newEnd += this.minBound - newStart;
+            newStart = this.minBound;
+        }
+        if (newEnd > this.maxBound) {
+            newStart -= newEnd - this.maxBound;
+            newEnd = this.maxBound;
+        }
+
+        return new Viewport(newStart, newEnd, this.width, this.minBound, this.maxBound, this.minZoom);
     }
 }
 
@@ -212,8 +285,10 @@ export const ThreadTimeline = ({ thread, messageTypes, minTimeMs, currentTimeUni
         [thread, messageTypes, minTimeMs, currentTimeUnixMs]
     );
     console.log("Events to display:", events);
+
+    const maxTimeMs = INSTRUMENTED_WINDOW_LEN_MS * thread.windows.length;
     const [viewport, setViewport] = useState(
-        new Viewport(0, INSTRUMENTED_WINDOW_LEN_MS * thread.windows.length, 800)
+        new Viewport(0, maxTimeMs, 800, 0, maxTimeMs, 1)
     );
     const svgRef = useRef<SVGSVGElement>(null);
 
@@ -233,6 +308,8 @@ export const ThreadTimeline = ({ thread, messageTypes, minTimeMs, currentTimeUni
     const chartHeight = (maxRow + 1) * (ROW_HEIGHT + ROW_PADDING) + 20;
     const svgHeight = chartHeight + LEGEND_HEIGHT;
 
+    const [hoveredEvent, setHoveredEvent] = useState<{ event: EventToDisplay, x: number, y: number } | null>(null);
+
     useEffect(() => {
         const svg = svgRef.current;
         if (!svg) return;
@@ -248,7 +325,7 @@ export const ThreadTimeline = ({ thread, messageTypes, minTimeMs, currentTimeUni
         return () => svg.removeEventListener('wheel', handleWheel);
     }, [viewport]);
 
-    return (
+    return (<>
         <svg
             ref={svgRef}
             width={800}
@@ -260,6 +337,42 @@ export const ThreadTimeline = ({ thread, messageTypes, minTimeMs, currentTimeUni
                 }
             }}
         >
+            {/* Grid lines */}
+            <g>
+                {(() => {
+                    const viewportSpan = viewport.getEnd() - viewport.getStart();
+                    const tickInterval = getTimeTickInterval(viewportSpan);
+                    const startTick = Math.ceil(viewport.getStart() / tickInterval) * tickInterval;
+                    const ticks = [];
+
+                    for (let tick = startTick; tick <= viewport.getEnd(); tick += tickInterval) {
+                        const x = viewport.transform(tick);
+                        ticks.push(
+                            <g key={tick}>
+                                <line
+                                    x1={x}
+                                    y1={0}
+                                    x2={x}
+                                    y2={chartHeight}
+                                    stroke="#ccc"
+                                    strokeWidth={1}
+                                />
+                                <text
+                                    x={x + 2}
+                                    y={12}
+                                    fontSize={10}
+                                    fontFamily="sans-serif"
+                                    fill="#666"
+                                >
+                                    {tick.toFixed(1)}ms
+                                </text>
+                            </g>
+                        );
+                    }
+                    return ticks;
+                })()}
+            </g>
+
             {positionedEvents.map((event, index) => {
                 const xStart = viewport.transform(event.startSMT);
                 const xEnd = viewport.transform(event.endSMT);
@@ -282,13 +395,17 @@ export const ThreadTimeline = ({ thread, messageTypes, minTimeMs, currentTimeUni
                         opacity={event.leftUncertain || event.rightUncertain ? 0.6 : 0.9}
                         stroke={event.leftUncertain || event.rightUncertain ? "orange" : "#333"}
                         strokeWidth={1}
-                    >
-                        <title>
-                            {event.type} ({event.leftUncertain ? "?" : ""}{(event.startSMT).toFixed(2)} ms - {(
-                                event.endSMT
-                            ).toFixed(2)} ms{event.rightUncertain ? "?" : ""})
-                        </title>
-                    </rect>
+                        onMouseEnter={(e) => {
+                            const rect = e.currentTarget.getBoundingClientRect();
+                            setHoveredEvent({
+                                event,
+                                x: rect.right + 5,
+                                y: rect.top
+                            });
+                        }}
+                        onMouseLeave={() => setHoveredEvent(null)}
+                        style={{ cursor: 'pointer' }}
+                    />
                 );
             })}
 
@@ -306,5 +423,30 @@ export const ThreadTimeline = ({ thread, messageTypes, minTimeMs, currentTimeUni
                 })}
             </g>
         </svg>
-    )
+
+        {/* Tooltip */}
+        {hoveredEvent && (
+            <div
+                style={{
+                    position: 'fixed',
+                    left: hoveredEvent.x,
+                    top: hoveredEvent.y,
+                    backgroundColor: 'rgba(0, 0, 0, 0.9)',
+                    color: 'white',
+                    padding: '8px 12px',
+                    borderRadius: '4px',
+                    fontSize: '12px',
+                    pointerEvents: 'none',
+                    zIndex: 1000,
+                    whiteSpace: 'nowrap',
+                    boxShadow: '0 2px 8px rgba(0,0,0,0.3)'
+                }}
+            >
+                <div><strong>{hoveredEvent.event.type}</strong></div>
+                <div>Duration: {(hoveredEvent.event.endSMT - hoveredEvent.event.startSMT).toFixed(3)} ms</div>
+                <div>Start: {hoveredEvent.event.startSMT.toFixed(2)} ms</div>
+                <div>End: {hoveredEvent.event.endSMT.toFixed(2)} ms</div>
+            </div>
+        )}
+    </>);
 };
