@@ -1,9 +1,9 @@
 //! Chain Client Configuration
-use crate::ExternalStorageLocation::GCS;
 use crate::MutableConfigValue;
 use bytesize::ByteSize;
 #[cfg(feature = "schemars")]
 use near_parameters::view::Rational32SchemarsProvider;
+use near_primitives::external::ExternalStorageLocation;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::types::{
     AccountId, BlockHeight, BlockHeightDelta, Gas, NumBlocks, NumSeats, ShardId,
@@ -204,23 +204,6 @@ pub struct ExternalStorageConfig {
     pub external_storage_fallback_threshold: u64,
 }
 
-#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, PartialEq)]
-#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-pub enum ExternalStorageLocation {
-    S3 {
-        /// Location of state dumps on S3.
-        bucket: String,
-        /// Data may only be available in certain locations.
-        region: String,
-    },
-    Filesystem {
-        root_dir: PathBuf,
-    },
-    GCS {
-        bucket: String,
-    },
-}
-
 fn default_state_parts_compression_level() -> i32 {
     DEFAULT_STATE_PARTS_COMPRESSION_LEVEL
 }
@@ -411,7 +394,7 @@ impl StateSyncConfig {
     pub fn gcs_with_bucket(bucket: String) -> Self {
         Self {
             sync: SyncConfig::ExternalStorage(ExternalStorageConfig {
-                location: GCS { bucket },
+                location: ExternalStorageLocation::GCS { bucket },
                 num_concurrent_requests: DEFAULT_STATE_SYNC_NUM_CONCURRENT_REQUESTS_EXTERNAL,
                 num_concurrent_requests_during_catchup:
                     DEFAULT_STATE_SYNC_NUM_CONCURRENT_REQUESTS_ON_CATCHUP_EXTERNAL,

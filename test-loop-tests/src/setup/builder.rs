@@ -1,6 +1,7 @@
 use itertools::Itertools;
 use near_chain_configs::test_genesis::{TestEpochConfigBuilder, TestGenesisBuilder};
 use near_chain_configs::test_utils::TestClientConfigParams;
+use near_primitives::external::ExternalStorageLocation;
 use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -10,8 +11,8 @@ use tempfile::TempDir;
 use near_async::test_loop::TestLoopV2;
 use near_async::time::{Clock, Duration};
 use near_chain_configs::{
-    ClientConfig, DumpConfig, ExternalStorageConfig, ExternalStorageLocation, Genesis,
-    StateSyncConfig, SyncConfig, TrackedShardsConfig,
+    ClientConfig, DumpConfig, ExternalStorageConfig, Genesis, StateSyncConfig, SyncConfig,
+    TrackedShardsConfig,
 };
 use near_parameters::RuntimeConfigStore;
 use near_primitives::epoch_manager::EpochConfigStore;
