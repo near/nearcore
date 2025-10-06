@@ -1,8 +1,7 @@
-import './ActorsView.scss';
-import { useQuery } from '@tanstack/react-query';
-import { fetchInstrumentedThreadsView, INSTRUMENTED_WINDOW_LEN_MS, InstrumentedThread, InstrumentedWindow } from './api';
-import { BarChart, Bar, XAxis, YAxis, Tooltip, Legend } from "recharts";
 import { useState, useRef, useEffect } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import './ActorsView.scss';
+import { fetchInstrumentedThreadsView, InstrumentedThread } from './api';
 import { ThreadTimeline } from './actors/ThreadTimeline';
 
 type ActorsViewProps = {
@@ -95,12 +94,12 @@ export const ActorsView = ({ addr }: ActorsViewProps) => {
             </div>
         );
     }
-    let allThreads = currentData?.status_response.InstrumentedThreads.threads || [];
-    let sortedThreads = allThreads.slice().sort((a: InstrumentedThread, b: InstrumentedThread) => a.thread_name.localeCompare(b.thread_name));
-    let [minStartTime, maxStartTime] = [getMinStartTime(allThreads), getMaxStartTime(allThreads)];
-    let currentTimeUnixMs = currentData?.status_response.InstrumentedThreads.current_time_unix_ms || 0;
-    let currentTimeMs = currentData?.status_response.InstrumentedThreads.current_time_relative_ms || 0;
-    let startTimeUnixEstimatedMs = currentTimeUnixMs - (maxStartTime - minStartTime);
+    const allThreads = currentData?.status_response.InstrumentedThreads.threads || [];
+    const sortedThreads = allThreads.slice().sort((a: InstrumentedThread, b: InstrumentedThread) => a.thread_name.localeCompare(b.thread_name));
+    const [minStartTime, maxStartTime] = [getMinStartTime(allThreads), getMaxStartTime(allThreads)];
+    const currentTimeUnixMs = currentData?.status_response.InstrumentedThreads.current_time_unix_ms || 0;
+    const currentTimeMs = currentData?.status_response.InstrumentedThreads.current_time_relative_ms || 0;
+    const startTimeUnixEstimatedMs = currentTimeUnixMs - (maxStartTime - minStartTime);
 
     return (
         <div className="actors-view">
@@ -148,7 +147,7 @@ export const ActorsView = ({ addr }: ActorsViewProps) => {
                             checked={yAxisMode === 'fixed'}
                             onChange={(e) => setYAxisMode(e.target.value as 'auto' | 'fixed')}
                         />
-                        Fixed ({INSTRUMENTED_WINDOW_LEN_MS}ms)
+                        100%
                     </label>
                 </div>
                 <div className="control-buttons">
@@ -186,16 +185,14 @@ export const ActorsView = ({ addr }: ActorsViewProps) => {
                 <thead>
                     <tr>
                         <th>Thread Name</th>
-                        <th>Time buckets</th>
-                        <th>Dequeue Time</th>
+                        <th>Timeline</th>
                     </tr>
                 </thead>
                 <tbody>
                     {sortedThreads?.map((thread: InstrumentedThread, idx: number) => (
                         <tr key={idx}>
                             <td>{formatThreadName(thread.thread_name)}</td>
-                            <td><ThreadTimeline thread={thread} minTimeMs={minStartTime} messageTypes={thread.message_types} currentTimeMs={currentTimeMs} chartMode={timelineChartMode} /></td>
-                            <td><BucketChart windows={thread.windows} min_start_time={minStartTime} message_types={thread.message_types} yAxisMode={yAxisMode} is_dequeue_chart={true} /></td>
+                            <td><ThreadTimeline thread={thread} minTimeMs={minStartTime} messageTypes={thread.message_types} currentTimeMs={currentTimeMs} chartMode={timelineChartMode} yAxisMode={yAxisMode} /></td>
                         </tr>
                     ))}
                 </tbody>
@@ -234,117 +231,3 @@ const getMaxStartTime = (threads: InstrumentedThread[]): number => {
     }
     return Math.max(...threads.map(t => getFirstStartTime(t)));
 }
-
-type BucketChartProps = {
-    windows: InstrumentedWindow[];
-    min_start_time: number;
-    message_types: string[];
-    yAxisMode: 'auto' | 'fixed';
-    is_dequeue_chart: boolean;
-};
-
-function BucketChart({ windows, min_start_time, message_types, yAxisMode, is_dequeue_chart }: BucketChartProps) {
-    // Create a copy of windows to avoid mutating the original
-    let processedWindows = [...windows];
-
-    // Add empty windows at the end to align all threads to start from min_start_time
-    // Windows are in reverse chronological order (newest first)
-    while (processedWindows.length == 0 || processedWindows[processedWindows.length - 1].start_time_ms > min_start_time) {
-        const lastWindow = processedWindows[processedWindows.length - 1];
-        processedWindows.push({
-            start_time_ms: processedWindows.length == 0 ? min_start_time : lastWindow.start_time_ms - INSTRUMENTED_WINDOW_LEN_MS,
-            end_time_ms: processedWindows.length == 0 ? min_start_time + INSTRUMENTED_WINDOW_LEN_MS : lastWindow.end_time_ms - INSTRUMENTED_WINDOW_LEN_MS,
-            events: [],
-            events_overfilled: false,
-            summary: {
-                message_stats_by_type: [],
-            },
-            dequeue_summary: {
-                message_stats_by_type: [],
-            },
-        });
-    }
-
-    // Reverse the array so oldest windows come first (chronological order)
-    processedWindows.reverse();
-
-    // Convert windows to recharts format with relative time from min_start_time
-    const data = processedWindows.map(window => {
-        // Calculate relative time from the global minimum start time
-        const relativeTime = window.start_time_ms - min_start_time;
-        let entry: { [key: string]: number } = { bucket: relativeTime };
-
-        const summary = is_dequeue_chart ? window.dequeue_summary : window.summary;
-        summary.message_stats_by_type.forEach((stat) => {
-            entry[message_types[stat.message_type]] = stat.total_time_ns / 1_000_000; // convert to ms
-            entry[message_types[stat.message_type] + '_count'] = stat.count;
-        });
-        return entry;
-    });
-
-    const COLORS = [
-        "#1f77b4", // blue
-        "#ff7f0e", // orange
-        "#2ca02c", // green
-        "#d62728", // red
-        "#9467bd", // purple
-        "#8c564b", // brown
-        "#e377c2", // pink
-        "#7f7f7f", // gray
-        "#bcbd22", // olive
-        "#17becf", // teal
-        "#393b79", // dark blue
-        "#637939", // dark green
-        "#8c6d31", // dark brown
-        "#843c39", // dark red
-        "#7b4173", // dark purple
-        "#cedb9c", // light green
-        "#9c9ede", // light blue
-        "#f7b6d2", // light pink
-        "#c7c7c7", // light gray
-        "#dbdb8d"  // light olive
-    ];
-
-    // Custom formatter for X-axis to show relative time
-    const formatXAxisLabel = (value: number) => {
-        return `${(value / 1000).toFixed(1)}s`;
-    };
-
-    return (
-        <BarChart width={800} height={150} data={data}>
-            <XAxis dataKey="bucket" tickFormatter={formatXAxisLabel} />
-            <YAxis domain={[0, yAxisMode === 'auto' ? 'auto' : INSTRUMENTED_WINDOW_LEN_MS]} hide={true} />
-            <Tooltip content={<CustomTooltip />} />
-            <Legend align={"right"} verticalAlign={"middle"} layout="vertical" iconSize={8} width={250} wrapperStyle={
-                { fontSize: "12px", paddingLeft: "10px" }
-            } />
-            {message_types.map((type, index) => (
-                <Bar dataKey={type} stackId="a" fill={COLORS[index % COLORS.length]} />
-            ))}
-        </BarChart>
-    );
-}
-
-const labelFormatter = (value: number) => {
-    const startTime = (value as number) / 1000;
-    const endTime = ((value as number) + INSTRUMENTED_WINDOW_LEN_MS) / 1000;
-    return `Time: ${startTime.toFixed(1)}-${endTime.toFixed(1)}s`;
-}
-
-
-const CustomTooltip = ({ active, payload, label }: any) => {
-    const isVisible = active && payload && payload.length;
-    return (
-        <div className="custom-tooltip" style={{ visibility: isVisible ? 'visible' : 'hidden' }}>
-            {isVisible && (
-                <>
-                    <p className="label">{labelFormatter(label)}</p>
-                    {payload.map((item: any) => (
-                        <p style={{ color: item.color }} key={item.name}>{item.name}: {item.value.toFixed(2)} ms ({item.payload[item.name + '_count']} messages)</p>
-                    ))}
-                </>
-            )
-            }
-        </div>
-    );
-};

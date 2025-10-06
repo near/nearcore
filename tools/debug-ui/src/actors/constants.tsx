@@ -1,0 +1,9 @@
+export const ROW_HEIGHT = 10;
+export const ROW_PADDING = 2;
+export const EVENT_SPACING_PX = 1;
+export const LINE_STROKE_WIDTH = 10;
+export const LEGEND_VERTICAL_MARGIN = 5;
+export const LEGEND_HEIGHT_PER_ROW = 25;
+export const CPU_CHART_HEIGHT = 50;
+export const GRID_LABEL_TOP_MARGIN = 20;
+export const VIEWPORT_WIDTH = 1200;
