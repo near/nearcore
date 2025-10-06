@@ -15,11 +15,11 @@ function toPercentage(number, fractionDigits) {
 }
 
 // Makes an element that when clicked, expands or ellipsifies the hash and creator.
-function HashElement({ hashValue, creator, expandAll }) {
+function HashElement({ hashValue, creator, expandAll, knownProducers }) {
     let [expanded, setExpanded] = React.useState(false);
     let updateXarrow = reactXarrow.useXarrow();
     return <span
-        className={`hash-element`}
+        className={`hash-element ${knownProducers.has(creator) ? '' : 'validator-unavailable'}`}
         onClick={() => {
             setExpanded((value) => !value);
             // xarrows need to be updated whenever graph dot positions may change.
@@ -122,7 +122,7 @@ function sortBlocksAndDetermineBlockGraphLayout(blocks, missedHeights, head, hea
     return rows;
 }
 
-function BlocksTable({ rows, expandAll, hideMissingHeights }) {
+function BlocksTable({ rows, knownProducers, expandAll, hideMissingHeights }) {
     let numGraphColumns = 1;  // either 1 or 2; determines the width of leftmost td
     let numShards = 0;
     for (let row of rows) {
@@ -171,7 +171,8 @@ function BlocksTable({ rows, expandAll, hideMissingHeights }) {
                     <HashElement
                         hashValue={chunk.chunk_hash}
                         creator={chunk.chunk_producer}
-                        expandAll={expandAll} />
+                        expandAll={expandAll}
+                        knownProducers={knownProducers} />
                 </td>
                 <td>{(chunk.gas_used / (1024 * 1024 * 1024 * 1024)).toFixed(1)}</td>
                 <td>{chunk.processing_time_ms}</td>
@@ -196,7 +197,8 @@ function BlocksTable({ rows, expandAll, hideMissingHeights }) {
                     <HashElement
                         hashValue={block.block_hash}
                         creator={block.block_producer}
-                        expandAll={expandAll} />
+                        expandAll={expandAll}
+                        knownProducers={knownProducers} />
                 </td>
                 <td>{block.processing_time_ms}</td>
                 <td>{row.blockDelay ?? ''}</td>
@@ -229,6 +231,7 @@ function BlocksTable({ rows, expandAll, hideMissingHeights }) {
 function Page() {
     const [rows, setRows] = React.useState([]);
     const [error, setError] = React.useState(null);
+    const [knownProducers, setKnownProducers] = React.useState(new Set());
     const [expandAll, setExpandAll] = React.useState(false);
     const [hideMissingHeights, setHideMissingHeights] = React.useState(false);
     const updateXarrow = reactXarrow.useXarrow();
@@ -249,6 +252,12 @@ function Page() {
                 } else if (!resp.ok) {
                     throw new Error('Debug API call failed: ' + resp.statusText);
                 }
+                const { detailed_debug_status: { network_info: { known_producers } } } = await resp.json();
+                const knownProducerSet = new Set();
+                for (const producer of known_producers) {
+                    knownProducerSet.add(producer.account_id);
+                }
+                setKnownProducers(knownProducerSet);
 
                 resp = await fetch(blockStatusApiPath);
                 if (!resp.ok) {
@@ -336,6 +345,7 @@ function Page() {
         </button>
         <BlocksTable
             rows={rows}
+            knownProducers={knownProducers}
             expandAll={expandAll}
             hideMissingHeights={hideMissingHeights} />
 
