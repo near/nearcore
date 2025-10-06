@@ -337,7 +337,7 @@ impl User for RuntimeUser {
         result.result = self
             .trie_viewer
             .call_function(
-                state_update,
+                state_update.trie,
                 view_state,
                 account_id,
                 method_name,

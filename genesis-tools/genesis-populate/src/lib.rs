@@ -35,7 +35,7 @@ use near_store::{
 use near_time::Utc;
 use near_vm_runner::ContractCode;
 use nearcore::{NearConfig, NightshadeRuntime, NightshadeRuntimeExt};
-pub use node_runtime::bootstrap_congestion_info;
+pub use node_runtime::bootstrap_congestion_info_trie;
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
@@ -331,7 +331,7 @@ impl GenesisBuilder {
         let trie = self.runtime.get_trie_for_shard(shard_id, prev_hash, state_root, true)?;
         let protocol_config = self.runtime.get_protocol_config(genesis.header().epoch_id())?;
         let runtime_config = protocol_config.runtime_config;
-        let congestion_info = bootstrap_congestion_info(&trie, &runtime_config, shard_id)?;
+        let congestion_info = bootstrap_congestion_info_trie(&trie, &runtime_config, shard_id)?;
         Ok(congestion_info)
     }
 

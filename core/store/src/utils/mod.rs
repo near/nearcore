@@ -7,6 +7,7 @@ use crate::{DBCol, GENESIS_STATE_ROOTS_KEY, Store, StoreUpdate, TrieAccess, Trie
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::PublicKey;
 use near_primitives::account::{AccessKey, Account, GasKey};
+use near_primitives::bandwidth_scheduler::BandwidthSchedulerState;
 use near_primitives::congestion_info::CongestionInfo;
 use near_primitives::errors::StorageError;
 use near_primitives::hash::CryptoHash;
@@ -307,4 +308,10 @@ pub fn set_genesis_height(store_update: &mut StoreUpdate, genesis_height: &Block
     store_update
         .set_ser::<BlockHeight>(DBCol::BlockMisc, GENESIS_HEIGHT_KEY, genesis_height)
         .expect("Borsh cannot fail");
+}
+
+pub fn get_bandwidth_scheduler_state(
+    trie: &dyn TrieAccess,
+) -> Result<Option<BandwidthSchedulerState>, StorageError> {
+    get(trie, &TrieKey::BandwidthSchedulerState)
 }

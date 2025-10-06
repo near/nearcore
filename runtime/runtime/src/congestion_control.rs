@@ -790,6 +790,63 @@ pub fn bootstrap_congestion_info(
     }))
 }
 
+/// Iterate all columns in the trie holding unprocessed receipts and
+/// computes the storage consumption as well as attached gas.
+///
+/// This is an IO intensive operation! Only do it to bootstrap the
+/// `CongestionInfo`. In normal operation, this information is kept up
+/// to date and passed from chunk to chunk through chunk header fields.
+pub fn bootstrap_congestion_info_trie(
+    trie: &dyn near_store::TrieAccess,
+    config: &RuntimeConfig,
+    shard_id: ShardId,
+) -> Result<CongestionInfo, StorageError> {
+    use near_store::trie::receipts_column_helper_trie::{
+        DelayedReceiptQueue, ShardsOutgoingReceiptBuffer, TrieQueue
+    };
+    let mut receipt_bytes: u64 = 0;
+    let mut delayed_receipts_gas: u128 = 0;
+    let mut buffered_receipts_gas: u128 = 0;
+
+    let delayed_receipt_queue = &DelayedReceiptQueue::load(trie)?;
+    for receipt_result in delayed_receipt_queue.iter(trie, true) {
+        let receipt = receipt_result?;
+        let gas =
+            receipt_congestion_gas(&receipt, config).map_err(int_overflow_to_storage_err)?.as_gas();
+        delayed_receipts_gas = safe_add_gas_to_u128(delayed_receipts_gas, Gas::from_gas(gas))
+            .map_err(int_overflow_to_storage_err)?;
+
+        let memory = receipt_size(&receipt).map_err(int_overflow_to_storage_err)? as u64;
+        receipt_bytes = receipt_bytes.checked_add(memory).ok_or_else(overflow_storage_err)?;
+    }
+
+    let mut outgoing_buffers = ShardsOutgoingReceiptBuffer::load(trie)?;
+    for shard in outgoing_buffers.shards() {
+        for receipt_result in outgoing_buffers.to_shard(shard).iter(trie, true) {
+            let receipt = receipt_result?;
+            let gas = receipt_congestion_gas(&receipt, config)
+                .map_err(int_overflow_to_storage_err)?
+                .as_gas();
+            buffered_receipts_gas = safe_add_gas_to_u128(buffered_receipts_gas, Gas::from_gas(gas))
+                .map_err(int_overflow_to_storage_err)?;
+            let memory = receipt_size(&receipt).map_err(int_overflow_to_storage_err)? as u64;
+            receipt_bytes = receipt_bytes.checked_add(memory).ok_or_else(overflow_storage_err)?;
+        }
+    }
+
+    Ok(CongestionInfo::V1(CongestionInfoV1 {
+        delayed_receipts_gas: delayed_receipts_gas as u128,
+        buffered_receipts_gas: buffered_receipts_gas as u128,
+        receipt_bytes,
+        // For the first chunk, set this to the own id.
+        // This allows bootstrapping without knowing all other shards.
+        // It is also irrelevant, since the bootstrapped value is only used at
+        // the start of applying a chunk on this shard. Other shards will only
+        // see and act on the first congestion info after that.
+        allowed_shard: shard_id.into(),
+    }))
+}
+
 /// A wrapper around `DelayedReceiptQueue` to accumulate changes in gas and
 /// bytes.
 ///

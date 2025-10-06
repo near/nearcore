@@ -22,7 +22,7 @@ pub use crate::verifier::{
 use bandwidth_scheduler::{BandwidthSchedulerOutput, run_bandwidth_scheduler};
 use config::{total_prepaid_send_fees, tx_cost};
 use congestion_control::ReceiptSink;
-pub use congestion_control::bootstrap_congestion_info;
+pub use congestion_control::{bootstrap_congestion_info, bootstrap_congestion_info_trie};
 use global_contracts::{
     AccountContractAccessExt, action_deploy_global_contract, action_use_global_contract,
     apply_global_contract_distribution_receipt,
