@@ -14,7 +14,7 @@ use near_chain::ChainStoreAccess;
 use near_chain::chain::{NewChunkData, NewChunkResult, ShardContext, StorageContext};
 use near_chain::sharding::get_receipts_shuffle_salt;
 use near_chain::sharding::shuffle_receipt_proofs;
-use near_chain::spice_chunk_applicaton::build_spice_apply_chunk_block_context;
+use near_chain::spice_chunk_application::build_spice_apply_chunk_block_context;
 use near_chain::spice_core::CoreStatementsProcessor;
 use near_chain::spice_core::ExecutionResultEndorsed;
 use near_chain::types::ApplyChunkResult;

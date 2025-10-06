@@ -21,7 +21,7 @@ use tracing::Span;
 
 use crate::chain::{NewChunkData, NewChunkResult, ShardContext, StorageContext, apply_new_chunk};
 use crate::sharding::{get_receipts_shuffle_salt, shuffle_receipt_proofs};
-use crate::spice_chunk_applicaton::build_spice_apply_chunk_block_context;
+use crate::spice_chunk_application::build_spice_apply_chunk_block_context;
 use crate::store::filter_incoming_receipts_for_shard;
 use crate::types::{RuntimeAdapter, StorageDataSource};
 use crate::{Chain, ChainStore};

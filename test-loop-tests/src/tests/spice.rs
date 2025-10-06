@@ -198,14 +198,11 @@ fn test_spice_chain_with_missing_chunks() {
         .genesis(genesis)
         .epoch_config_store(epoch_config_store)
         .clients(producer_accounts.iter().cloned().chain(validator_accounts).collect_vec())
-        .config_modifier({
-            let producer_tracking_all_shards_index = producer_tracking_all_shards_index;
-            move |client_config, client_index| {
-                // Note: we are not tracking all shards with all clients to make sure tests don't pass
-                // with witness validation broken.
-                if client_index == producer_tracking_all_shards_index {
-                    client_config.tracked_shards_config = TrackedShardsConfig::AllShards;
-                }
+        .config_modifier(move |client_config, client_index| {
+            // Note: we are not tracking all shards with all clients to make sure tests don't pass
+            // with witness validation broken.
+            if client_index == producer_tracking_all_shards_index {
+                client_config.tracked_shards_config = TrackedShardsConfig::AllShards;
             }
         })
         .build()
