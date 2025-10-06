@@ -6,6 +6,7 @@ type ActorsViewProps = {
     messageTypes: string[];
     minTimeMs: number;
     currentTimeMs: number;
+    chartMode: 'cpu' | 'dequeue';
 };
 
 type EventToDisplay = {
@@ -161,9 +162,14 @@ function createColorMap(events: EventToDisplay[], thread: InstrumentedThread): M
     // Get unique event types from events
     const uniqueTypes = new Set(events.map(e => e.type));
 
-    // Also check if any windows have type ID -1 (unknown) in their summaries
+    // Also check if any windows have type ID -1 (unknown) in their summaries (both cpu and dequeue)
     for (const window of thread.windows) {
         for (const stat of window.summary.message_stats_by_type) {
+            if (stat.message_type === -1) {
+                uniqueTypes.add("Unknown");
+            }
+        }
+        for (const stat of window.dequeue_summary.message_stats_by_type) {
             if (stat.message_type === -1) {
                 uniqueTypes.add("Unknown");
             }
@@ -299,7 +305,7 @@ class Viewport {
     }
 }
 
-export const ThreadTimeline = ({ thread, messageTypes, minTimeMs, currentTimeMs }: ActorsViewProps) => {
+export const ThreadTimeline = ({ thread, messageTypes, minTimeMs, currentTimeMs, chartMode }: ActorsViewProps) => {
     const events = useMemo(
         () => getEventsToDisplay(thread, messageTypes, minTimeMs, currentTimeMs),
         [thread, messageTypes, minTimeMs, currentTimeMs]
@@ -403,8 +409,11 @@ export const ThreadTimeline = ({ thread, messageTypes, minTimeMs, currentTimeMs 
                         // Create stacked bars
                         let cumulativeTimeNs = 0;
 
+                        // Select the appropriate summary based on chart mode
+                        const summary = chartMode === 'cpu' ? window.summary : window.dequeue_summary;
+
                         typeOrder.forEach((type) => {
-                            const stat = window.summary.message_stats_by_type.find(
+                            const stat = summary.message_stats_by_type.find(
                                 s => {
                                     if (s.message_type === -1) return type === "Unknown";
                                     return messageTypes[s.message_type] === type;
@@ -601,6 +610,40 @@ export const ThreadTimeline = ({ thread, messageTypes, minTimeMs, currentTimeMs 
                     />
                 );
             })}
+
+            {/* Chart type label */}
+            <g>
+                {(() => {
+                    const windows = [...thread.windows];
+                    windows.reverse();
+                    if (windows.length === 0) return null;
+
+                    const firstWindowStartMs = windows[0].start_time_ms - minTimeMs;
+                    const viewportStartMs = viewport.getStart();
+                    const labelPositionMs = Math.max(firstWindowStartMs, viewportStartMs);
+                    const labelX = viewport.transform(labelPositionMs) + 5;
+
+                    // Only show label if it's within visible area and not in dark gray region
+                    if (labelX < 0 || labelX > VIEWPORT_WIDTH || labelPositionMs < firstWindowStartMs) {
+                        return null;
+                    }
+
+                    const chartLabel = chartMode === 'cpu' ? 'CPU' : 'Dequeue Delay';
+
+                    return (
+                        <text
+                            x={labelX}
+                            y={cpuChartTop + 15}
+                            fontSize={12}
+                            fontFamily="sans-serif"
+                            fill="#888"
+                            fontWeight="bold"
+                        >
+                            {chartLabel}
+                        </text>
+                    );
+                })()}
+            </g>
 
             {/* Border lines */}
             <g>

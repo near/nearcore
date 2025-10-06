@@ -19,6 +19,7 @@ export const ActorsView = ({ addr }: ActorsViewProps) => {
     const [loadedData, setLoadedData] = useState<any>(null);
     const [hasInitiallyFetched, setHasInitiallyFetched] = useState<boolean>(false);
     const [yAxisMode, setYAxisMode] = useState<'auto' | 'fixed'>('auto');
+    const [timelineChartMode, setTimelineChartMode] = useState<'cpu' | 'dequeue'>('cpu');
     const fileInputRef = useRef<HTMLInputElement>(null);
 
     const {
@@ -109,6 +110,27 @@ export const ActorsView = ({ addr }: ActorsViewProps) => {
                     {`Showing data from ~${new Date(startTimeUnixEstimatedMs).toISOString()} to ${new Date(currentTimeUnixMs).toISOString()} (${((currentTimeUnixMs - startTimeUnixEstimatedMs) / 1000).toFixed(1)}s) `}
                 </div>
                 <div className="y-axis-controls">
+                    <span className="control-label">Timeline Chart:</span>
+                    <label className="radio-option">
+                        <input
+                            type="radio"
+                            value="cpu"
+                            checked={timelineChartMode === 'cpu'}
+                            onChange={(e) => setTimelineChartMode(e.target.value as 'cpu' | 'dequeue')}
+                        />
+                        CPU
+                    </label>
+                    <label className="radio-option">
+                        <input
+                            type="radio"
+                            value="dequeue"
+                            checked={timelineChartMode === 'dequeue'}
+                            onChange={(e) => setTimelineChartMode(e.target.value as 'cpu' | 'dequeue')}
+                        />
+                        Dequeue Delay
+                    </label>
+                </div>
+                <div className="y-axis-controls">
                     <span className="control-label">Y-Axis Scale:</span>
                     <label className="radio-option">
                         <input
@@ -172,7 +194,7 @@ export const ActorsView = ({ addr }: ActorsViewProps) => {
                     {sortedThreads?.map((thread: InstrumentedThread, idx: number) => (
                         <tr key={idx}>
                             <td>{formatThreadName(thread.thread_name)}</td>
-                            <td><ThreadTimeline thread={thread} minTimeMs={minStartTime} messageTypes={thread.message_types} currentTimeMs={currentTimeMs} /></td>
+                            <td><ThreadTimeline thread={thread} minTimeMs={minStartTime} messageTypes={thread.message_types} currentTimeMs={currentTimeMs} chartMode={timelineChartMode} /></td>
                             <td><BucketChart windows={thread.windows} min_start_time={minStartTime} message_types={thread.message_types} yAxisMode={yAxisMode} is_dequeue_chart={true} /></td>
                         </tr>
                     ))}
