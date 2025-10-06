@@ -119,7 +119,7 @@ function getEventsToDisplay(
 }
 
 /// Assigns rows to events so that overlapping events are displayed in different rows
-function assignRows(events: EventToDisplay[], viewport: Viewport, minWidthPx: number, spacingPx: number): { events: EventToDisplay[], maxRow: number } {
+function assignRows(events: EventToDisplay[], viewport: Viewport, spacingPx: number, lineStrokeWidth: number): { events: EventToDisplay[], maxRow: number } {
     // Create a copy of events with row assignments
     const positionedEvents = events.map(e => ({ ...e }));
 
@@ -134,13 +134,14 @@ function assignRows(events: EventToDisplay[], viewport: Viewport, minWidthPx: nu
     for (const event of positionedEvents) {
         const startPx = viewport.transform(event.startSMT);
         const endPx = viewport.transform(event.endSMT);
-        const widthPx = Math.max(minWidthPx, endPx - startPx);
-        const actualEndPx = startPx + widthPx;
+        const widthPx = endPx - startPx;
+        // Account for the line stroke width with round caps (adds strokeWidth/2 on each side)
+        const actualEndPx = startPx + widthPx + lineStrokeWidth / 2;
 
         // Find the first row where this event fits (no overlap with spacing)
         let assignedRow = 0;
         for (let row = 0; row < rowEndPositions.length; row++) {
-            if (startPx >= rowEndPositions[row] + spacingPx) {
+            if (startPx - lineStrokeWidth / 2 >= rowEndPositions[row] + spacingPx) {
                 assignedRow = row;
                 break;
             }
@@ -194,6 +195,13 @@ function getTimeTickInterval(viewportSpanMs: number): number {
     }
 
     return niceInterval * magnitude;
+}
+
+/// Formats time in milliseconds to seconds, removing trailing zeros
+function formatTime(ms: number): string {
+    const seconds = ms / 1000;
+    // Remove trailing zeros and unnecessary decimal point
+    return seconds.toFixed(3).replace(/\.?0+$/, '');
 }
 
 /// Displays the data between start and end in a viewport of a given width.
@@ -292,21 +300,23 @@ export const ThreadTimeline = ({ thread, messageTypes, minTimeMs, currentTimeUni
     );
     const svgRef = useRef<SVGSVGElement>(null);
 
-    const MIN_WIDTH_PX = 4;
-    const ROW_HEIGHT = 20;
+    const ROW_HEIGHT = 10;
     const ROW_PADDING = 2;
     const EVENT_SPACING_PX = 1;
-    const LEGEND_HEIGHT = 30;
+    const LINE_STROKE_WIDTH = 10;
+    const LEGEND_HEIGHT = 50;
+    const LEGEND_TOP_MARGIN = 10;
+    const GRID_LABEL_TOP_MARGIN = 20;
 
     const colorMap = useMemo(() => createColorMap(events), [events]);
 
     const { events: positionedEvents, maxRow } = useMemo(
-        () => assignRows(events, viewport, MIN_WIDTH_PX, EVENT_SPACING_PX),
+        () => assignRows(events, viewport, EVENT_SPACING_PX, LINE_STROKE_WIDTH),
         [events, viewport]
     );
 
-    const chartHeight = (maxRow + 1) * (ROW_HEIGHT + ROW_PADDING) + 20;
-    const svgHeight = chartHeight + LEGEND_HEIGHT;
+    const chartHeight = GRID_LABEL_TOP_MARGIN + (maxRow + 1) * (ROW_HEIGHT + ROW_PADDING) + 20;
+    const svgHeight = chartHeight + LEGEND_TOP_MARGIN + LEGEND_HEIGHT;
 
     const [hoveredEvent, setHoveredEvent] = useState<{ event: EventToDisplay, x: number, y: number } | null>(null);
 
@@ -344,28 +354,35 @@ export const ThreadTimeline = ({ thread, messageTypes, minTimeMs, currentTimeUni
                     const tickInterval = getTimeTickInterval(viewportSpan);
                     const startTick = Math.ceil(viewport.getStart() / tickInterval) * tickInterval;
                     const ticks = [];
+                    const labelMargin = 40; // Margin to prevent labels from being cut off at edges
 
                     for (let tick = startTick; tick <= viewport.getEnd(); tick += tickInterval) {
                         const x = viewport.transform(tick);
+                        // Only show label if it's not too close to the edges
+                        const showLabel = x > labelMargin && x < 800 - labelMargin;
+
                         ticks.push(
                             <g key={tick}>
                                 <line
                                     x1={x}
-                                    y1={0}
+                                    y1={GRID_LABEL_TOP_MARGIN}
                                     x2={x}
                                     y2={chartHeight}
                                     stroke="#ccc"
                                     strokeWidth={1}
                                 />
-                                <text
-                                    x={x + 2}
-                                    y={12}
-                                    fontSize={10}
-                                    fontFamily="sans-serif"
-                                    fill="#666"
-                                >
-                                    {tick.toFixed(1)}ms
-                                </text>
+                                {showLabel && (
+                                    <text
+                                        x={x}
+                                        y={12}
+                                        fontSize={10}
+                                        fontFamily="sans-serif"
+                                        fill="#666"
+                                        textAnchor="middle"
+                                    >
+                                        {formatTime(tick)}
+                                    </text>
+                                )}
                             </g>
                         );
                     }
@@ -376,25 +393,27 @@ export const ThreadTimeline = ({ thread, messageTypes, minTimeMs, currentTimeUni
             {positionedEvents.map((event, index) => {
                 const xStart = viewport.transform(event.startSMT);
                 const xEnd = viewport.transform(event.endSMT);
-                const width = Math.max(MIN_WIDTH_PX, xEnd - xStart);
+                const width = xEnd - xStart;
                 if (xEnd < 0 || xStart > 800) {
                     return null; // Skip rendering events outside the viewport
                 }
 
-                const y = 10 + event.row * (ROW_HEIGHT + ROW_PADDING);
+                const y = GRID_LABEL_TOP_MARGIN + 10 + event.row * (ROW_HEIGHT + ROW_PADDING) + ROW_HEIGHT / 2;
                 const baseColor = colorMap.get(event.type) || "#888";
+                const x1 = Math.max(0, xStart);
+                const x2 = Math.max(0, xStart) + width;
 
                 return (
-                    <rect
+                    <line
                         key={index}
-                        x={Math.max(0, xStart)}
-                        y={y}
-                        width={width}
-                        height={ROW_HEIGHT}
-                        fill={baseColor}
+                        x1={x1}
+                        y1={y}
+                        x2={x2}
+                        y2={y}
+                        stroke={baseColor}
+                        strokeWidth={LINE_STROKE_WIDTH}
+                        strokeLinecap="round"
                         opacity={event.leftUncertain || event.rightUncertain ? 0.6 : 0.9}
-                        stroke={event.leftUncertain || event.rightUncertain ? "orange" : "#333"}
-                        strokeWidth={1}
                         onMouseEnter={(e) => {
                             const rect = e.currentTarget.getBoundingClientRect();
                             setHoveredEvent({
@@ -410,14 +429,14 @@ export const ThreadTimeline = ({ thread, messageTypes, minTimeMs, currentTimeUni
             })}
 
             {/* Legend */}
-            <g transform={`translate(0, ${chartHeight})`}>
+            <g transform={`translate(10, ${chartHeight + LEGEND_TOP_MARGIN})`}>
                 {Array.from(colorMap.entries()).map(([type, color], index) => {
-                    const x = 10 + (index % 4) * 200;
-                    const y = Math.floor(index / 4) * 15;
+                    const x = (index % 4) * 200;
+                    const y = Math.floor(index / 4) * 18;
                     return (
                         <g key={type} transform={`translate(${x}, ${y})`}>
-                            <rect x={0} y={0} width={12} height={12} fill={color} stroke="#333" strokeWidth={1} />
-                            <text x={16} y={10} fontSize={10} fontFamily="sans-serif">{type}</text>
+                            <line x1={0} y1={6} x2={12} y2={6} stroke={color} strokeWidth={6} strokeLinecap="round" />
+                            <text x={18} y={10} fontSize={10} fontFamily="sans-serif">{type}</text>
                         </g>
                     );
                 })}
