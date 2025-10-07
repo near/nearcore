@@ -9,14 +9,14 @@ use near_async::messaging::{
 };
 use near_async::test_loop::sender::TestLoopSender;
 use near_async::time::{Clock, Duration};
-use near_async::{MultiSend, MultiSenderFrom};
+use near_async::{Message, MultiSend, MultiSenderFrom};
 use near_chain::{Block, BlockHeader};
 use near_client::spice_data_distributor_actor::SpiceDistributorOutgoingReceipts;
 use near_client::{BlockApproval, BlockResponse, SetNetworkInfo};
 use near_network::client::{
     BlockHeadersRequest, BlockHeadersResponse, BlockRequest, ChunkEndorsementMessage,
     EpochSyncRequestMessage, EpochSyncResponseMessage, OptimisticBlockMessage, ProcessTxRequest,
-    ProcessTxResponse,
+    ProcessTxResponse, SpiceChunkEndorsementMessage,
 };
 use near_network::shards_manager::ShardsManagerRequestFromNetwork;
 use near_network::spice_data_distribution::SpiceIncomingPartialData;
@@ -55,6 +55,7 @@ pub struct ClientSenderForTestLoopNetwork {
 pub struct TxRequestHandleSenderForTestLoopNetwork {
     pub transaction: AsyncSender<ProcessTxRequest, ProcessTxResponse>,
     pub chunk_endorsement: AsyncSender<ChunkEndorsementMessage, ()>,
+    pub spice_chunk_endorsement: AsyncSender<SpiceChunkEndorsementMessage, ()>,
 }
 
 #[derive(Clone, MultiSend, MultiSenderFrom)]
@@ -71,8 +72,7 @@ pub struct SpiceDataDistributorSenderForTestLoopNetwork {
 
 /// This message is used to allow TestLoopPeerManagerActor to construct NetworkInfo for each
 /// client.
-#[derive(actix::Message, Debug, Clone, PartialEq, Eq)]
-#[rtype(result = "()")]
+#[derive(Message, Debug, Clone, PartialEq, Eq)]
 pub struct TestLoopNetworkBlockInfo {
     pub peer: PeerInfo,
     pub block_header: BlockHeader,
@@ -498,6 +498,14 @@ fn network_message_to_client_handler(
                 .senders_for_account(&my_account_id, &target)
                 .rpc_handler_sender
                 .send_async(ChunkEndorsementMessage(endorsement));
+            drop(future);
+            None
+        }
+        NetworkRequests::SpiceChunkEndorsement(target, endorsement) => {
+            let future = shared_state
+                .senders_for_account(&my_account_id, &target)
+                .rpc_handler_sender
+                .send_async(SpiceChunkEndorsementMessage(endorsement));
             drop(future);
             None
         }

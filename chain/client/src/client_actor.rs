@@ -36,7 +36,9 @@ use near_async::tokio::TokioRuntimeHandle;
 use near_async::{ActorSystem, MultiSend, MultiSenderFrom};
 #[cfg(feature = "test_features")]
 use near_chain::ChainStoreAccess;
-use near_chain::chain::{ApplyChunksDoneMessage, BlockCatchUpRequest, BlockCatchUpResponse};
+use near_chain::chain::{
+    ApplyChunksDoneMessage, BlockCatchUpRequest, BlockCatchUpResponse, PostStateReadyMessage,
+};
 use near_chain::resharding::types::ReshardingSender;
 use near_chain::spice_core::CoreStatementsProcessor;
 use near_chain::state_snapshot_actor::SnapshotCallbacks;
@@ -75,7 +77,7 @@ use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::types::{AccountId, BlockHeight};
 use near_primitives::unwrap_or_return;
 use near_primitives::utils::MaybeValidated;
-use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature, get_protocol_upgrade_schedule};
+use near_primitives::version::{PROTOCOL_VERSION, get_protocol_upgrade_schedule};
 use near_primitives::views::{DetailedDebugStatus, ValidatorInfo};
 #[cfg(feature = "test_features")]
 use near_store::DBCol;
@@ -263,6 +265,7 @@ pub fn start_client(
 #[derive(Clone, MultiSend, MultiSenderFrom)]
 pub struct ClientSenderForClient {
     pub apply_chunks_done: Sender<SpanWrapped<ApplyChunksDoneMessage>>,
+    pub on_post_state_ready: Sender<SpanWrapped<PostStateReadyMessage>>,
 }
 
 #[derive(Clone, MultiSend, MultiSenderFrom)]
@@ -328,13 +331,8 @@ impl messaging::Actor for ClientActorInner {
         self.start(ctx);
     }
 
-    /// Wrapper for processing actix message which must be called after receiving it.
-    ///
-    /// Due to a bug in Actix library, while there are messages in mailbox, Actix
-    /// will prioritize processing messages until mailbox is empty. In such case execution
-    /// of any other task scheduled with `run_later` will be delayed. At the same time,
-    /// we have several important functions which have to be called regularly, so we put
-    /// these calls into `check_triggers` and call it here as a quick hack.
+    /// Wrapper for processing an actor message which must be called after receiving it.
+    /// This calls check_triggers first; see the doc of check_triggers for details.
     fn wrap_handler<M, R>(
         &mut self,
         msg: M,
@@ -466,8 +464,7 @@ pub enum AdvProduceBlockHeightSelection {
 }
 
 #[cfg(feature = "test_features")]
-#[derive(actix::Message, Debug)]
-#[rtype(result = "Option<u64>")]
+#[derive(near_async::Message, Debug)]
 pub enum NetworkAdversarialMessage {
     AdvProduceBlocks(u64, bool),
     AdvProduceChunks(AdvProduceChunksMode),
@@ -906,6 +903,12 @@ impl Handler<SpanWrapped<ApplyChunksDoneMessage>> for ClientActorInner {
     }
 }
 
+impl Handler<SpanWrapped<PostStateReadyMessage>> for ClientActorInner {
+    fn handle(&mut self, msg: SpanWrapped<PostStateReadyMessage>) {
+        self.handle_on_post_state_ready(msg.span_unwrap());
+    }
+}
+
 #[derive(Debug)]
 enum SyncRequirement {
     SyncNeeded { peer_id: PeerId, highest_height: BlockHeight, head: Tip },
@@ -1189,10 +1192,6 @@ impl ClientActorInner {
             }
         }
 
-        let protocol_version = self.client.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
-        if !ProtocolFeature::ProduceOptimisticBlock.enabled(protocol_version) {
-            return Ok(());
-        }
         let optimistic_block_height = self.client.doomslug.get_timer_height();
         if me != self.client.epoch_manager.get_block_producer(&epoch_id, optimistic_block_height)? {
             return Ok(());
@@ -1217,11 +1216,11 @@ impl ClientActorInner {
     /// Triggers are important functions of client, like running single step of state sync or
     /// checking if we can produce a block.
     ///
-    /// It is called before processing Actix message and also in schedule_triggers.
-    /// This is to ensure all triggers enjoy higher priority than any actix message.
-    /// Otherwise due to a bug in Actix library Actix prioritizes processing messages
-    /// while there are messages in mailbox. Because of that we handle scheduling
-    /// triggers with custom `run_timer` function instead of `run_later` in Actix.
+    /// It is called before processing an actor message and also in schedule_triggers.
+    /// This is to ensure all triggers enjoy higher priority than any actor message.
+    /// Otherwise, due to FIFO message handling, these important triggers will be delayed
+    /// if there are still pending messages to handle. Because of that we handle scheduling
+    /// triggers with custom `run_timer` function instead of `run_later`.
     ///
     /// Returns the delay before the next time `check_triggers` should be called, which is
     /// min(time until the closest trigger, 1 second).
@@ -1315,6 +1314,12 @@ impl ClientActorInner {
         delay
     }
 
+    // TODO: Implement handling of PostStateReadyMessage, for now just log it.
+    #[allow(clippy::needless_pass_by_ref_mut)]
+    fn handle_on_post_state_ready(&mut self, msg: PostStateReadyMessage) {
+        tracing::trace!(target: "client", ?msg, "Received PostStateReadyMessage");
+    }
+
     /// "Unfinished" blocks means that blocks that client has started the processing and haven't
     /// finished because it was waiting for applying chunks to be done. This function checks
     /// if there are any "unfinished" blocks that are ready to be processed again and finish processing
@@ -1323,7 +1328,7 @@ impl ClientActorInner {
     /// The job that executes applying chunks will send an ApplyChunkDoneMessage to ClientActor after
     /// applying chunks is done, so when receiving ApplyChunkDoneMessage messages, ClientActor
     /// calls this function to finish processing the unfinished blocks. ClientActor also calls
-    /// this function in `check_triggers`, because the actix queue may be blocked by other messages
+    /// this function in `check_triggers`, because the actor queue may be blocked by other messages
     /// and we want to prioritize block processing.
     fn try_process_unfinished_blocks(&mut self) {
         let _span = debug_span!(target: "client", "try_process_unfinished_blocks").entered();

@@ -1,11 +1,11 @@
-use crate::actix::AutoStopActor;
+use crate::auto_stop::AutoStopActor;
 use crate::network_protocol::testonly as data;
 use crate::peer::stream;
 use crate::tcp;
 use crate::testonly::make_rng;
 use near_async::messaging::{CanSendAsync, IntoSender};
 use near_async::tokio::TokioRuntimeHandle;
-use near_async::{ActorSystem, messaging};
+use near_async::{ActorSystem, Message, messaging};
 use rand::Rng as _;
 use std::sync::Arc;
 use tokio::sync::mpsc;
@@ -18,8 +18,7 @@ struct Actor {
 
 impl messaging::Actor for Actor {}
 
-#[derive(actix::Message, Debug)]
-#[rtype("()")]
+#[derive(Message, Debug)]
 struct SendFrame(stream::Frame);
 
 impl messaging::Handler<SendFrame> for Actor {

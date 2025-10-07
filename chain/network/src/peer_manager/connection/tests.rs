@@ -2,7 +2,7 @@ use crate::network_protocol::testonly as data;
 use crate::peer::peer_actor::ClosingReason;
 use crate::peer_manager;
 use crate::peer_manager::connection;
-use crate::private_actix::RegisterPeerError;
+use crate::private_messages::RegisterPeerError;
 use crate::tcp;
 use crate::testonly::make_rng;
 use near_async::time;

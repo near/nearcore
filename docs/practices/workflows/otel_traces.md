@@ -60,26 +60,12 @@ However, a few corner cases exist.
 
 * `do_apply_chunks()` starts 4 sub-tasks in parallel and waits for their completion. To make it
 work, the parent span is passed explicitly to the sub-tasks.
-* Messages to actix workers. If you do nothing, that the traces are limited to work done in a
-single actor. But that is very restrictive and not useful enough. To workaround that, each actix
-message gets attached `opentelemetry::Context`. That context somehow represents the information
-about the parent span. This mechanism was the reason for `.with_span_context()` function calls when sending messages to actix Actors, which have now been removed.
 * Inter-process tracing is theoretically available, but I have never tested it. The plan was to
 test it as soon as the Canary images get updated 😭 Therefore it most likely doesn’t work. Each
 `PeerMessage` is injected with `TraceContext` (1, 2) and the receiving node extracts that context
 and all spans generated in handling that message should be parented to the trace from another node.
 * Some spans are created using `info_span!()` but they are few and mostly for the logs. Exporting
 only info-level spans doesn’t give any useful tracing information in Grafana.
-
-* `actix::Actor::handle()` deserves a special note. The design choice was to provide a macro that
-lets us easily annotate every implementation of `actix::Actor::handle()`. This macro sets the
-following span attributes:
-
-  * `actor` to the name of the struct that implements actix::Actor
-  * `handler` to the name of the message struct
-
-   And it lets you provide more span attributes. In the example, ClientActor specifies `msg_type`,
-   which in all cases is identical to `handler`.
 
 ## Configuration
 

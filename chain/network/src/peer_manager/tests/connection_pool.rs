@@ -8,7 +8,7 @@ use crate::peer_manager::connection;
 use crate::peer_manager::network_state::LIMIT_PENDING_PEERS;
 use crate::peer_manager::peer_manager_actor::Event as PME;
 use crate::peer_manager::testonly::Event;
-use crate::private_actix::RegisterPeerError;
+use crate::private_messages::RegisterPeerError;
 use crate::tcp;
 use crate::testonly::make_rng;
 use crate::testonly::stream::Stream;

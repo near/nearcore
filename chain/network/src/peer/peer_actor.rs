@@ -22,7 +22,7 @@ use crate::peer_manager::network_state::{NetworkState, PRUNE_EDGES_AFTER};
 #[cfg(test)]
 use crate::peer_manager::peer_manager_actor::Event;
 use crate::peer_manager::peer_manager_actor::MAX_TIER2_PEERS;
-use crate::private_actix::{RegisterPeerError, SendMessage};
+use crate::private_messages::{RegisterPeerError, SendMessage};
 use crate::rate_limits::messages_limits;
 #[cfg(feature = "distance_vector_routing")]
 use crate::routing::NetworkTopologyChange;
@@ -38,7 +38,7 @@ use lru::LruCache;
 use near_async::futures::{DelayedActionRunner, DelayedActionRunnerExt, FutureSpawnerExt};
 use near_async::messaging::{self, CanSend, IntoSender, SendAsync};
 use near_async::tokio::TokioRuntimeHandle;
-use near_async::{ActorSystem, time};
+use near_async::{ActorSystem, Message, time};
 use near_crypto::Signature;
 use near_o11y::log_assert;
 use near_o11y::span_wrapped_msg::{SpanWrapped, SpanWrappedMessageExt};
@@ -1635,12 +1635,12 @@ impl messaging::Actor for PeerActor {
     }
 
     fn stop_actor(&mut self) {
-        // closing_reason may be None in case the whole actix system is stopped.
+        // closing_reason may be None in case the whole actor system is stopped.
         // It happens a lot in tests.
         metrics::PEER_CONNECTIONS_TOTAL.dec();
         match &self.closing_reason {
             None => {
-                // Due to Actix semantics, sometimes closing reason may be not set.
+                // Due to actor system shutdown, sometimes closing reason may be not set.
                 // But it is only expected to happen in tests.
                 tracing::error!(target:"network", "closing reason not set. This should happen only in tests.");
             }
@@ -1665,7 +1665,7 @@ impl messaging::Actor for PeerActor {
             PeerStatus::Connecting(..) => {
                 // TODO(gprusak): reporting ConnectionClosed event is quite scattered right now and
                 // it is very ugly: it may happen here, in spawn_inner, or in NetworkState::unregister().
-                // Centralize it, once we get rid of actix.
+                // We should find a way to centralize it.
                 #[cfg(test)]
                 self.network_state.config.event_sink.send(Event::ConnectionClosed(
                     ConnectionClosedEvent {
@@ -1825,8 +1825,7 @@ impl messaging::Handler<SpanWrapped<SendMessage>> for PeerActor {
 }
 
 /// Messages from PeerManager to Peer
-#[derive(actix::Message, Debug)]
-#[rtype(result = "()")]
+#[derive(Message, Debug)]
 pub(crate) struct Stop {
     pub ban_reason: Option<ReasonForBan>,
 }

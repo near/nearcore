@@ -1,6 +1,6 @@
 use crate::PeerManagerActor;
 use crate::accounts_data::AccountDataCacheSnapshot;
-use crate::actix::AutoStopActor;
+use crate::auto_stop::AutoStopActor;
 use crate::broadcast;
 use crate::client::ClientSenderForNetworkInput;
 use crate::client::ClientSenderForNetworkMessage;
@@ -34,6 +34,7 @@ use crate::types::{
     PeerManagerSenderForNetworkInput, PeerManagerSenderForNetworkMessage, ReasonForBan,
 };
 use futures::FutureExt;
+use near_async::Message;
 use near_async::futures::FutureSpawnerExt;
 use near_async::messaging::{self, CanSendAsync, IntoMultiSender};
 use near_async::messaging::{CanSend, Sender};
@@ -57,8 +58,7 @@ use std::sync::Arc;
 /// This gives 5 file descriptors per PeerActor (4 + 1 TCP socket).
 pub(crate) const FDS_PER_PEER: usize = 5;
 
-#[derive(actix::Message)]
-#[rtype("()")]
+#[derive(Message)]
 struct WithNetworkState(
     Box<dyn Send + FnOnce(Arc<NetworkState>) -> Pin<Box<dyn Send + 'static + Future<Output = ()>>>>,
 );
@@ -90,7 +90,7 @@ pub enum Event {
 pub(crate) struct ActorHandler {
     pub cfg: config::NetworkConfig,
     pub events: broadcast::Receiver<Event>,
-    pub actix: AutoStopActor<PeerManagerActor>,
+    pub actor: AutoStopActor<PeerManagerActor>,
     pub actor_system: ActorSystem,
 }
 
@@ -204,7 +204,7 @@ impl ActorHandler {
         let stream = tcp::Stream::connect(&peer_info, tier, &config::SocketOptions::default())
             .await
             .unwrap();
-        self.actix.send(PeerManagerMessageRequest::OutboundTcpConnect(stream));
+        self.actor.send(PeerManagerMessageRequest::OutboundTcpConnect(stream));
     }
 
     pub fn connect_to(
@@ -212,7 +212,7 @@ impl ActorHandler {
         peer_info: &PeerInfo,
         tier: tcp::Tier,
     ) -> impl 'static + Send + Future<Output = tcp::StreamId> {
-        let addr = self.actix.0.clone();
+        let addr = self.actor.0.clone();
         let events = self.events.clone();
         let peer_info = peer_info.clone();
         async move {
@@ -243,7 +243,7 @@ impl ActorHandler {
         f: impl 'static + Send + FnOnce(Arc<NetworkState>) -> Fut,
     ) -> R {
         let (send, recv) = tokio::sync::oneshot::channel();
-        self.actix
+        self.actor
             .send_async(WithNetworkState(Box::new(|s| {
                 Box::pin(async { send.send(f(s).await).ok().unwrap() })
             })))
@@ -302,7 +302,7 @@ impl ActorHandler {
             tcp::Stream::loopback(network_cfg.node_id(), tier).await;
         let stream_id = outbound_stream.id();
         let events = self.events.from_now();
-        self.actix.send(PeerManagerMessageRequest::OutboundTcpConnect(outbound_stream));
+        self.actor.send(PeerManagerMessageRequest::OutboundTcpConnect(outbound_stream));
         let conn = RawConnection {
             events,
             stream: inbound_stream,
@@ -437,7 +437,7 @@ impl ActorHandler {
 
     pub async fn announce_account(&self, aa: AnnounceAccount) {
         let msg = PeerManagerMessageRequest::NetworkRequests(NetworkRequests::AnnounceAccount(aa));
-        let _: () = self.actix.send_async(msg).await.unwrap();
+        let _: () = self.actor.send_async(msg).await.unwrap();
     }
 
     // Awaits until the accounts_data state satisfies predicate `pred`.
@@ -688,8 +688,8 @@ pub(crate) async fn start(
         genesis_id,
     )
     .unwrap();
-    let actix = AutoStopActor(actor);
-    let h = ActorHandler { cfg, actix, events: recv.clone(), actor_system };
+    let actor = AutoStopActor(actor);
+    let h = ActorHandler { cfg, actor, events: recv.clone(), actor_system };
     // Wait for the server to start.
     recv.recv_until(|ev| match ev {
         Event::PeerManager(PME::ServerStarted) => Some(()),

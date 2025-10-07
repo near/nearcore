@@ -2,7 +2,8 @@ use crate::accounts_data::{AccountDataCache, AccountDataError};
 use crate::announce_accounts::AnnounceAccountCache;
 use crate::client::{
     BlockApproval, ChunkEndorsementMessage, ClientSenderForNetwork, ProcessTxRequest,
-    StateResponse, StateResponseReceived, TxStatusRequest, TxStatusResponse,
+    SpiceChunkEndorsementMessage, StateResponse, StateResponseReceived, TxStatusRequest,
+    TxStatusResponse,
 };
 use crate::concurrency::demux;
 use crate::concurrency::runtime::Runtime;
@@ -17,7 +18,7 @@ use crate::peer::peer_actor::PeerActor;
 use crate::peer_manager::connection;
 use crate::peer_manager::connection_store;
 use crate::peer_manager::peer_store;
-use crate::private_actix::RegisterPeerError;
+use crate::private_messages::RegisterPeerError;
 #[cfg(feature = "distance_vector_routing")]
 use crate::routing::NetworkTopologyChange;
 use crate::routing::route_back_cache::RouteBackCache;
@@ -786,6 +787,15 @@ impl NetworkState {
                         .send(SpiceIncomingPartialData { data: spice_partial_data });
                     None
                 }
+                T1MessageBody::SpiceChunkEndorsement(endorsement) => {
+                    if cfg!(feature = "protocol_feature_spice") {
+                        self.client
+                            .send_async(SpiceChunkEndorsementMessage(endorsement))
+                            .await
+                            .ok();
+                    }
+                    None
+                }
             },
             TieredMessageBody::T2(body) => match *body {
                 T2MessageBody::TxStatusRequest(account_id, tx_hash) => self
@@ -1066,7 +1076,7 @@ impl NetworkState {
         let _mutex = self.set_chain_info_mutex.lock();
 
         // We set state.chain_info and call accounts_data.set_keys
-        // synchronously, therefore, assuming actix in-order delivery, there
+        // synchronously, therefore, assuming actors deliver messages in order, there
         // will be no race condition between subsequent SetChainInfo calls.
         self.chain_info.store(Arc::new(Some(info.clone())));
 

@@ -1,6 +1,7 @@
 //! External dependencies of the near-vm-logic.
 use super::VMLogicError;
 use super::types::{GlobalContractDeployMode, GlobalContractIdentifier, ReceiptIndex};
+use crate::logic::types::ActionIndex;
 use near_crypto::PublicKey;
 use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::types::{AccountId, Balance, Gas, GasWeight, Nonce};
@@ -377,6 +378,49 @@ pub trait External {
         &mut self,
         receipt_index: ReceiptIndex,
         contract_id: GlobalContractIdentifier,
+    ) -> Result<(), VMLogicError>;
+
+    /// Attach the [`DeterministicStateInit`] action to an existing receipt.
+    ///
+    /// Returns the ActionIndex of the newly created action.
+    ///
+    /// Use [`External::set_deterministic_state_init_data_entry`] to set initial
+    /// data key-value pairs.
+    ///
+    /// # Arguments
+    ///
+    /// * `receipt_index` - an index of Receipt to append an action
+    /// * `contract_id`   - identifier of the contract to use
+    /// * `amount`        - how much NEAR to attach to the initialization
+    ///
+    /// # Panics
+    ///
+    /// Panics if the `receipt_index` does not refer to a known receipt.
+    fn append_action_deterministic_state_init(
+        &mut self,
+        receipt_index: ReceiptIndex,
+        contract_id: GlobalContractIdentifier,
+        amount: Balance,
+    ) -> Result<ActionIndex, VMLogicError>;
+
+    /// Set a data entry to an existing [`DeterministicStateInit`] action.
+    ///
+    /// # Arguments
+    ///
+    /// * `receipt_index` - index of receipt within outgoing receipts
+    /// * `action_index`  - index of action within a batch
+    /// * `key`           - the key for which to insert a data entry
+    /// * `value`         - the data entry value to add
+    ///
+    /// # Panics
+    ///
+    /// Panics if the `receipt_index` does not refer to a known receipt.
+    fn set_deterministic_state_init_data_entry(
+        &mut self,
+        receipt_index: ReceiptIndex,
+        action_index: ActionIndex,
+        key: Vec<u8>,
+        value: Vec<u8>,
     ) -> Result<(), VMLogicError>;
 
     /// Attach the [`FunctionCallAction`] action to an existing receipt.

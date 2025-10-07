@@ -3,51 +3,6 @@
 version = 4
 
 [[package]]
-name = "actix"
-version = "0.13.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f728064aca1c318585bf4bb04ffcfac9e75e508ab4e8b1bd9ba5dfe04e2cbed5"
-dependencies = [
- "actix-rt",
- "actix_derive",
- "bitflags 1.3.2",
- "bytes",
- "crossbeam-channel",
- "futures-core",
- "futures-sink",
- "futures-task",
- "futures-util",
- "log",
- "once_cell",
- "parking_lot 0.12.1",
- "pin-project-lite",
- "smallvec",
- "tokio",
- "tokio-util",
-]
-
-[[package]]
-name = "actix-rt"
-version = "2.7.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7ea16c295198e958ef31930a6ef37d0fb64e9ca3b6116e6b93a8bdae96ee1000"
-dependencies = [
- "futures-core",
- "tokio",
-]
-
-[[package]]
-name = "actix_derive"
-version = "0.6.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6d44b8fee1ced9671ba043476deddef739dd0959bf77030b26b738cc591737a7"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 1.0.103",
-]
-
-[[package]]
 name = "addr2line"
 version = "0.24.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3354,7 +3309,6 @@ dependencies = [
 name = "integration-tests"
 version = "0.0.0"
 dependencies = [
- "actix",
  "anyhow",
  "assert_matches",
  "aurora-engine-transactions",
@@ -4053,7 +4007,6 @@ dependencies = [
 name = "near-async"
 version = "0.0.0"
 dependencies = [
- "actix",
  "crossbeam-channel",
  "futures",
  "near-async-derive",
@@ -4092,7 +4045,6 @@ dependencies = [
 name = "near-chain"
 version = "0.0.0"
 dependencies = [
- "actix",
  "anyhow",
  "assert_matches",
  "borsh",
@@ -4183,7 +4135,6 @@ dependencies = [
 name = "near-chunks"
 version = "0.0.0"
 dependencies = [
- "actix",
  "assert_matches",
  "itertools 0.14.0",
  "lru 0.12.3",
@@ -4220,7 +4171,6 @@ dependencies = [
 name = "near-client"
 version = "0.0.0"
 dependencies = [
- "actix",
  "anyhow",
  "assert_matches",
  "borsh",
@@ -4279,8 +4229,7 @@ dependencies = [
 name = "near-client-primitives"
 version = "0.0.0"
 dependencies = [
- "actix",
- "near-chain-configs",
+ "near-async",
  "near-chain-primitives",
  "near-chunks-primitives",
  "near-crypto",
@@ -4486,7 +4435,6 @@ dependencies = [
 name = "near-indexer"
 version = "0.0.0"
 dependencies = [
- "actix",
  "anyhow",
  "futures",
  "near-async",
@@ -4597,7 +4545,6 @@ dependencies = [
 name = "near-jsonrpc-tests"
 version = "0.0.0"
 dependencies = [
- "actix",
  "axum",
  "axum-test",
  "borsh",
@@ -4620,6 +4567,7 @@ dependencies = [
  "reqwest 0.12.4",
  "serde_json",
  "tempfile",
+ "tokio",
 ]
 
 [[package]]
@@ -4679,7 +4627,6 @@ dependencies = [
 name = "near-network"
 version = "0.0.0"
 dependencies = [
- "actix",
  "anyhow",
  "arc-swap",
  "assert_matches",
@@ -4733,11 +4680,11 @@ dependencies = [
 name = "near-o11y"
 version = "0.0.0"
 dependencies = [
- "actix",
  "base64 0.21.0",
  "bencher",
  "clap",
  "itoa",
+ "near-async",
  "near-crypto",
  "near-fmt",
  "near-primitives-core",
@@ -4873,7 +4820,6 @@ dependencies = [
  "smart-default",
  "strum",
  "tempfile",
- "testlib",
  "thiserror 2.0.16",
  "tracing",
  "zstd",
@@ -5034,7 +4980,6 @@ version = "0.0.0"
 name = "near-store"
 version = "0.0.0"
 dependencies = [
- "actix",
  "anyhow",
  "assert_matches",
  "bencher",
@@ -5088,7 +5033,6 @@ dependencies = [
 name = "near-telemetry"
 version = "0.0.0"
 dependencies = [
- "actix",
  "futures",
  "near-async",
  "near-o11y",
@@ -5392,6 +5336,7 @@ dependencies = [
  "bencher",
  "borsh",
  "bytesize 1.1.0",
+ "criterion",
  "dirs",
  "easy-ext",
  "futures",
@@ -5420,6 +5365,7 @@ dependencies = [
  "near-rosetta-rpc",
  "near-store",
  "near-telemetry",
+ "near-time",
  "near-transactions-generator",
  "near-vm-runner",
  "node-runtime",
@@ -5441,6 +5387,7 @@ dependencies = [
  "url",
  "wiremock",
  "xz2",
+ "zstd",
 ]
 
 [[package]]
@@ -5520,6 +5467,7 @@ dependencies = [
  "base64 0.21.0",
  "borsh",
  "bytesize 1.1.0",
+ "crossbeam-utils",
  "dashmap",
  "ed25519-dalek",
  "enum-map",
@@ -5538,6 +5486,7 @@ dependencies = [
  "near-vm-runner",
  "near-wallet-contract",
  "num-bigint 0.3.3",
+ "num-integer",
  "num-traits",
  "parking_lot 0.12.1",
  "rand 0.8.5",
@@ -8093,7 +8042,6 @@ dependencies = [
 name = "test-loop-tests"
 version = "0.0.0"
 dependencies = [
- "actix",
  "assert_matches",
  "borsh",
  "bytesize 1.1.0",

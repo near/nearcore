@@ -12,7 +12,7 @@ use crate::stateless_validation::chunk_validator::send_chunk_endorsement_to_bloc
 use near_async::futures::{AsyncComputationSpawner, AsyncComputationSpawnerExt};
 use near_async::messaging::{Actor, Handler, Sender};
 use near_async::multithread::MultithreadRuntimeHandle;
-use near_async::{ActorSystem, MultiSend, MultiSenderFrom};
+use near_async::{ActorSystem, Message, MultiSend, MultiSenderFrom};
 use near_chain::chain::ChunkStateWitnessMessage;
 use near_chain::stateless_validation::chunk_validation::{self, MainStateTransitionCache};
 use near_chain::stateless_validation::metrics::CHUNK_WITNESS_VALIDATION_FAILED_TOTAL;
@@ -65,8 +65,7 @@ pub struct ChunkValidationSender {
 
 /// Message to notify the chunk validation actor about new blocks
 /// so it can process orphan witnesses that were waiting for these blocks.
-#[derive(actix::Message, Debug)]
-#[rtype(result = "()")]
+#[derive(Message, Debug)]
 pub struct BlockNotificationMessage {
     pub block: Arc<Block>,
 }
