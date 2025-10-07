@@ -21,6 +21,7 @@ use near_primitives_core::account::AccountContract;
 use near_primitives_core::config::INLINE_DISK_VALUE_THRESHOLD;
 use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::types::{AccountId, Balance, EpochHeight, Gas, GasWeight, StorageUsage};
+use std::rc::Rc;
 use wasmtime::{Caller, Extern, Memory};
 
 // Lookup the memory export and cache it on success.
@@ -702,7 +703,7 @@ pub fn input(caller: &mut Caller<'_, Ctx>, register_id: u64) -> Result<()> {
         &mut ctx.result_state.gas_counter,
         &ctx.config.limit_config,
         register_id,
-        ctx.context.input.as_slice(),
+        Rc::clone(&ctx.context.input),
     )
 }
 
@@ -3606,7 +3607,7 @@ pub fn promise_result(
                 &mut ctx.result_state.gas_counter,
                 &ctx.config.limit_config,
                 register_id,
-                data.as_slice(),
+                Rc::clone(data),
             )?;
             Ok(1)
         }

@@ -8,6 +8,7 @@ use near_parameters::ExtCosts::*;
 use near_parameters::vm::LimitConfig;
 use std::borrow::Cow;
 use std::collections::hash_map::Entry;
+use std::rc::Rc;
 
 type Result<T> = ::std::result::Result<T, VMLogicError>;
 
@@ -115,7 +116,7 @@ impl<'a> Memory<'a> {
 #[derive(Default, Clone)]
 pub(crate) struct Registers {
     /// Values of each existing register.
-    registers: std::collections::HashMap<u64, Box<[u8]>>,
+    registers: std::collections::HashMap<u64, Rc<[u8]>>,
 
     /// Total memory usage as counted for the purposes of the contract
     /// execution.
@@ -168,7 +169,7 @@ impl Registers {
         data: T,
     ) -> Result<()>
     where
-        T: Into<Box<[u8]>> + AsRef<[u8]>,
+        T: Into<Rc<[u8]>> + AsRef<[u8]>,
     {
         let data_len =
             u64::try_from(data.as_ref().len()).map_err(|_| HostError::MemoryAccessViolation)?;
@@ -197,7 +198,7 @@ impl Registers {
         config: &LimitConfig,
         register_id: u64,
         data_len: u64,
-    ) -> Result<Entry<'a, u64, Box<[u8]>>> {
+    ) -> Result<Entry<'a, u64, Rc<[u8]>>> {
         if data_len > config.max_register_size {
             return Err(HostError::MemoryAccessViolation.into());
         }

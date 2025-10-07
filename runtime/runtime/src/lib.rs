@@ -88,6 +88,7 @@ use smallvec::SmallVec;
 use std::cmp::max;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::fmt::Debug;
+use std::rc::Rc;
 use std::sync::Arc;
 use tracing::{debug, instrument};
 use verifier::ValidateReceiptMode;
@@ -584,7 +585,13 @@ impl Runtime {
                     data_id: *data_id,
                 });
                 match data {
-                    Some(value) => Ok(PromiseResult::Successful(value)),
+                    // Note: Going from Vec<u8> to Rc<[u8]> shrinks the
+                    // allocated to fit, which may re-allocate if the capacity >
+                    // len.
+                    // Most likely, capacity == len holds here anyway but it
+                    // would be better to use `Rc<u8>` already in `ReceivedData`
+                    // and `DataReceipt`.
+                    Some(value) => Ok(PromiseResult::Successful(Rc::from(value))),
                     None => Ok(PromiseResult::Failed),
                 }
             })

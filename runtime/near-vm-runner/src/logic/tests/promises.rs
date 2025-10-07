@@ -17,7 +17,7 @@ fn vm_receipts<'a>(ext: &'a MockedExternal) -> Vec<impl serde::Serialize + 'a> {
 #[test]
 fn test_promise_results() {
     let promise_results = [
-        PromiseResult::Successful(b"test".to_vec()),
+        PromiseResult::Successful(b"test".to_vec().into()),
         PromiseResult::Failed,
         PromiseResult::NotReady,
     ];
