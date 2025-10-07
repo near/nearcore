@@ -45,6 +45,7 @@ struct ControllerConfig {
     gain_proportional: f64,
     gain_integral: f64,
     gain_derivative: f64,
+    block_pause_threshold_ms: Option<u64>,
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
@@ -176,6 +177,7 @@ impl FilterRateWindow {
 struct FilteredRateController {
     controller: pid_lite::Controller,
     filter: FilterRateWindow,
+    block_pause_threshold_ms: Option<u64>,
 }
 
 impl FilteredRateController {
@@ -311,7 +313,6 @@ impl TxGenerator {
             Ok(rsp) => {
                 let rsp = rsp.context("get latest block")?;
                 Ok(rsp.header)
-                // Ok((rsp.header.hash, rsp.header.height,))
             }
             Err(err) => {
                 anyhow::bail!("async send error: {err}");
@@ -477,12 +478,15 @@ impl TxGenerator {
                                 // transactions at a very high rate and then wait for chain to recover,
                                 // and then repeat the cycle.
                                 let dt = now.duration_since(last_update_time);
-                                if Duration::from_secs(3) < dt {
-                                    tx_tps_values
-                                        .send(tokio::time::Duration::from_secs(30))
-                                        .unwrap();
-                                    tracing::warn!(target: "transaction-generator", dt=?dt, "long delay between blocks, skipping controller update and pausing transaction generation");
+                                if let Some(threshold_ms) = controller.block_pause_threshold_ms {
+                                    if Duration::from_millis(threshold_ms) < dt {
+                                        tx_tps_values
+                                            .send(tokio::time::Duration::from_secs(100))
+                                            .unwrap();
+                                        tracing::warn!(target: "transaction-generator", dt=?dt, "long delay between blocks, skipping controller update and pausing transaction generation");
+                                    }
                                 }
+
                                 // no change in height, ignore sample
                                 continue;
                             }
@@ -594,6 +598,7 @@ impl TxGenerator {
                     controller_config.gain_derivative,
                 ),
                 filter: FilterRateWindow::new(controller_config.bps_filter_window_length),
+                block_pause_threshold_ms: controller_config.block_pause_threshold_ms,
             })
         } else {
             None
