@@ -101,6 +101,7 @@ export const ThreadTimeline = ({ thread, messageTypes, minTimeMs, currentTimeMs,
                     setViewport(viewport.pan(-e.movementX));
                 }
             }}
+            onDoubleClick={() => setViewport(viewport.reset())}
         >
             {/* CPU Load Chart */}
             <g>

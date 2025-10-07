@@ -91,6 +91,10 @@ export class Viewport {
         return new Viewport(this.start, this.end, newWidth, this.minBound, this.maxBound, this.minZoom);
     }
 
+    reset(): Viewport {
+        return new Viewport(this.minBound, this.maxBound, this.width, this.minBound, this.maxBound, this.minZoom);
+    }
+
     pan(delta: number): Viewport {
         const offset = this.invTransformLength(delta);
         let newStart = this.start + offset;
