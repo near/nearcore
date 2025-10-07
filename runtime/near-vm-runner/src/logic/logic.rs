@@ -767,11 +767,13 @@ impl<'a> VMLogic<'a> {
     pub fn input(&mut self, register_id: u64) -> Result<()> {
         self.result_state.gas_counter.pay_base(base)?;
 
-        self.registers.set(
+        let charge_bytes_gas = !self.config.deterministic_account_ids;
+        self.registers.set_rc_data(
             &mut self.result_state.gas_counter,
             &self.config.limit_config,
             register_id,
             Rc::clone(&self.context.input),
+            charge_bytes_gas,
         )
     }
 
@@ -3257,11 +3259,13 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
         {
             PromiseResult::NotReady => Ok(0),
             PromiseResult::Successful(data) => {
-                self.registers.set(
+                let charge_bytes_gas = !self.config.deterministic_account_ids;
+                self.registers.set_rc_data(
                     &mut self.result_state.gas_counter,
                     &self.config.limit_config,
                     register_id,
-                    data.as_ref(),
+                    Rc::clone(data),
+                    charge_bytes_gas,
                 )?;
                 Ok(1)
             }

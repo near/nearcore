@@ -699,11 +699,13 @@ pub fn input(caller: &mut Caller<'_, Ctx>, register_id: u64) -> Result<()> {
     let ctx = caller.data_mut();
     ctx.result_state.gas_counter.pay_base(base)?;
 
-    ctx.registers.set(
+    let charge_bytes_gas = !ctx.config.deterministic_account_ids;
+    ctx.registers.set_rc_data(
         &mut ctx.result_state.gas_counter,
         &ctx.config.limit_config,
         register_id,
         Rc::clone(&ctx.context.input),
+        charge_bytes_gas,
     )
 }
 
@@ -3603,11 +3605,13 @@ pub fn promise_result(
     {
         PromiseResult::NotReady => Ok(0),
         PromiseResult::Successful(data) => {
-            ctx.registers.set(
+            let charge_bytes_gas = !ctx.config.deterministic_account_ids;
+            ctx.registers.set_rc_data(
                 &mut ctx.result_state.gas_counter,
                 &ctx.config.limit_config,
                 register_id,
                 Rc::clone(data),
+                charge_bytes_gas,
             )?;
             Ok(1)
         }

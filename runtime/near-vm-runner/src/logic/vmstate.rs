@@ -171,10 +171,47 @@ impl Registers {
     where
         T: Into<Rc<[u8]>> + AsRef<[u8]>,
     {
+        self.set_impl(gas_counter, config, register_id, data, true)
+    }
+
+    /// Sets register with given index.
+    ///
+    /// Returns an error if (i) there’s not enough gas to perform the register
+    /// write or (ii) if setting the register would violate configured limits.
+    ///
+    /// Specialized version of [`Self::set`] that's guaranteed to not copy and
+    /// therefore only needs to charge gas for for copying bytes to maintain
+    /// backwards compatibility.
+    ///
+    /// Once all places use `Rc` over `Vec`, this can entirely replace [`Self::set`].
+    pub(crate) fn set_rc_data(
+        &mut self,
+        gas_counter: &mut GasCounter,
+        config: &LimitConfig,
+        register_id: u64,
+        data: Rc<[u8]>,
+        charge_bytes_gas: bool,
+    ) -> Result<()> {
+        self.set_impl(gas_counter, config, register_id, data, charge_bytes_gas)
+    }
+
+    fn set_impl<T>(
+        &mut self,
+        gas_counter: &mut GasCounter,
+        config: &LimitConfig,
+        register_id: u64,
+        data: T,
+        charge_bytes_gas: bool,
+    ) -> Result<()>
+    where
+        T: Into<Rc<[u8]>> + AsRef<[u8]>,
+    {
         let data_len =
             u64::try_from(data.as_ref().len()).map_err(|_| HostError::MemoryAccessViolation)?;
         gas_counter.pay_base(write_register_base)?;
-        gas_counter.pay_per(write_register_byte, data_len)?;
+        if charge_bytes_gas {
+            gas_counter.pay_per(write_register_byte, data_len)?;
+        }
         let entry = self.check_set_register(config, register_id, data_len)?;
         let data = data.into();
         match entry {
