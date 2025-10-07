@@ -388,6 +388,7 @@ impl ChunkExecutorActor {
             let cached_shard_update_key = Chain::get_cached_shard_update_key(
                 &block_context.to_key_source(),
                 chunk_headers.iter_raw(),
+                shard_id,
             )?;
 
             let job = self.get_update_shard_job(

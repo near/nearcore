@@ -452,7 +452,7 @@ pub fn pre_validate_chunk_state_witness(
         MainTransition::Genesis { .. } => CachedShardUpdateKey::new(CryptoHash::default()),
         MainTransition::NewChunk { new_chunk_data, shard_id, .. } => {
             Chain::get_cached_shard_update_key(
-                &new_chunk_data.block,
+                &new_chunk_data.block.to_key_source(),
                 last_chunk_block.chunks().iter_raw(),
                 *shard_id,
             )?
