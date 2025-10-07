@@ -93,11 +93,15 @@ impl StateSyncConnection {
     ) -> Result<(), anyhow::Error> {
         let instant = Instant::now();
         let res = self.connection.put(location, data).await;
-        let is_ok = if res.is_ok() {
-            tracing::debug!(target: "state_sync_dump", %shard_id, part_length = data.len(), ?location, ?file_type, storage = self.storage_name, "Wrote a state part");
-            "ok"
-        } else {
-            "error"
+        let is_ok = match &res {
+            Ok(()) => {
+                tracing::debug!(target: "state_sync_dump", %shard_id, part_length = data.len(), ?location, ?file_type, storage = self.storage_name, "Wrote a state part");
+                "ok"
+            }
+            Err(error) => {
+                tracing::error!(target: "state_sync_dump", %shard_id, part_length = data.len(), ?location, ?file_type, storage = self.storage_name, ?error, "Failed to write a state part");
+                "error"
+            }
         };
         let elapsed = instant.elapsed();
         metrics::STATE_SYNC_DUMP_PUT_OBJECT_ELAPSED

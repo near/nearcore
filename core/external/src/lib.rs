@@ -9,6 +9,8 @@ use object_store::{ObjectStore, PutPayload};
 use std::time::Duration;
 
 /// Live connection/handle to an external storage backend.
+// TODO(cloud_archival) Structure it better, e.g. make it a trait. May simplify when we
+// use object_store for each backend.
 #[derive(Clone)]
 pub enum ExternalConnection {
     /// Authenticated S3 client (read-only or read/write).
@@ -17,8 +19,8 @@ pub enum ExternalConnection {
     Filesystem { root_dir: PathBuf },
     /// GCS client (upload/list via SDK, anonymous downloads via HTTP).
     GCS {
-        // May be used for uploading and listing state parts.
-        // Requires valid credentials to be specified through env variable.
+        // May be used for uploading and listing state parts. Requires valid credentials
+        // to be specified through env variable.
         gcs_client: Arc<object_store::gcp::GoogleCloudStorage>,
         // May be used for anonymously downloading state parts.
         reqwest_client: Arc<reqwest::Client>,
