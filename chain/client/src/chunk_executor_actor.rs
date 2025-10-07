@@ -19,7 +19,7 @@ use near_chain::sharding::shuffle_receipt_proofs;
 use near_chain::spice_core::CoreStatementsProcessor;
 use near_chain::spice_core::ExecutionResultEndorsed;
 use near_chain::types::ApplyChunkResult;
-use near_chain::types::{ApplyChunkBlockContext, RuntimeAdapter, StorageDataSource};
+use near_chain::types::{RuntimeAdapter, StorageDataSource};
 use near_chain::update_shard::{ShardUpdateReason, ShardUpdateResult, process_shard_update};
 use near_chain::{
     Block, Chain, ChainGenesis, ChainStore, ChainUpdate, DoomslugThresholdMode, Error,
@@ -31,7 +31,7 @@ use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_assignment::shard_id_to_uid;
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_network::types::PeerManagerAdapter;
-use near_primitives::block::Chunks;
+use near_primitives::block::{ApplyChunkBlockContext, Chunks};
 use near_primitives::hash::CryptoHash;
 use near_primitives::optimistic_block::{BlockToApply, CachedShardUpdateKey};
 use near_primitives::sandbox::state_patch::SandboxStatePatch;
@@ -387,8 +387,7 @@ impl ChunkExecutorActor {
 
             let cached_shard_update_key = Chain::get_cached_shard_update_key(
                 &block_context.to_key_source(),
-                chunk_headers,
-                shard_id,
+                chunk_headers.iter_raw(),
             )?;
 
             let job = self.get_update_shard_job(
@@ -490,7 +489,7 @@ impl ChunkExecutorActor {
         new_chunk_result: &NewChunkResult,
         outgoing_receipts_root: CryptoHash,
     ) -> Result<(), Error> {
-        let NewChunkResult { shard_uid, gas_limit, apply_result } = new_chunk_result;
+        let NewChunkResult { shard_uid, gas_limit, apply_result, .. } = new_chunk_result;
         let shard_id = shard_uid.shard_id();
         let epoch_id = block.header().epoch_id();
         let shard_layout = self.epoch_manager.get_shard_layout(epoch_id)?;
@@ -640,6 +639,7 @@ impl ChunkExecutorActor {
                 receipts,
                 block,
                 storage_context,
+                chunk: None,
             })
         };
 

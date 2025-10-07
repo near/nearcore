@@ -1,15 +1,18 @@
 use crate::crypto_hash_timer::CryptoHashTimer;
 use crate::types::{
-    ApplyChunkBlockContext, ApplyChunkResult, ApplyChunkShardContext, RuntimeAdapter,
-    RuntimeStorageConfig, StorageDataSource,
+    ApplyChunkResult, ApplyChunkShardContext, RuntimeAdapter, RuntimeStorageConfig,
+    StorageDataSource,
 };
 use near_async::time::Clock;
 use near_chain_primitives::Error;
 use near_primitives::apply::ApplyChunkReason;
+use near_primitives::block::ApplyChunkBlockContext;
 use near_primitives::receipt::Receipt;
 use near_primitives::sandbox::state_patch::SandboxStatePatch;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::sharding::ChunkHash;
+use near_primitives::sharding::ShardChunkHeader;
+use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::validator_stake::{ValidatorStake, ValidatorStakeIter};
 use near_primitives::types::{Gas, StateRoot};
@@ -17,11 +20,12 @@ use node_runtime::{PostStateReadyCallback, SignedValidPeriodTransactions};
 
 /// Result of updating a shard for some block when it has a new chunk for this
 /// shard.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct NewChunkResult {
     pub shard_uid: ShardUId,
     pub gas_limit: Gas,
     pub apply_result: ApplyChunkResult,
+    pub context: NewChunkContext,
 }
 
 /// Result of updating a shard for some block when it doesn't have a new chunk
@@ -41,6 +45,17 @@ pub enum ShardUpdateResult {
     OldChunk(OldChunkResult),
 }
 
+/// Subset of the `NewChunkData` required to reproduce the chunk application context on another
+/// validator.
+#[derive(Debug, Clone)]
+pub struct NewChunkContext {
+    pub chunk_header: Option<ShardChunkHeader>,
+    pub transactions: Vec<SignedTransaction>,
+    pub receipts: Vec<Receipt>,
+    pub block: ApplyChunkBlockContext,
+    // pub storage_context: StorageContext,
+}
+
 pub struct NewChunkData {
     pub gas_limit: Gas,
     pub prev_state_root: StateRoot,
@@ -52,6 +67,8 @@ pub struct NewChunkData {
     pub receipts: Vec<Receipt>,
     pub block: ApplyChunkBlockContext,
     pub storage_context: StorageContext,
+    /// temporary for passing chunk to optimistic witness
+    pub chunk: Option<ShardChunkHeader>,
 }
 
 pub struct OldChunkData {
@@ -134,6 +151,7 @@ pub fn apply_new_chunk(
         block,
         receipts,
         storage_context,
+        chunk,
     } = data;
     let shard_id = shard_context.shard_uid.shard_id();
     let _span = tracing::debug_span!(
@@ -167,13 +185,21 @@ pub fn apply_new_chunk(
             is_new_chunk: true,
             on_post_state_ready,
         },
-        block,
+        block.clone(),
         &receipts,
-        transactions,
+        transactions.clone(),
     ) {
-        Ok(apply_result) => {
-            Ok(NewChunkResult { gas_limit, shard_uid: shard_context.shard_uid, apply_result })
-        }
+        Ok(apply_result) => Ok(NewChunkResult {
+            gas_limit,
+            shard_uid: shard_context.shard_uid,
+            apply_result,
+            context: NewChunkContext {
+                chunk_header: chunk,
+                transactions: transactions.transactions,
+                receipts,
+                block,
+            },
+        }),
         Err(err) => Err(err),
     }
 }

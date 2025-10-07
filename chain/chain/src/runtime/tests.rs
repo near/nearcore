@@ -1,6 +1,6 @@
 use super::*;
 use crate::spice_core::CoreStatementsProcessor;
-use crate::types::{BlockType, ChainConfig, RuntimeStorageConfig};
+use crate::types::{ChainConfig, RuntimeStorageConfig};
 use crate::{Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode};
 use borsh::BorshDeserialize;
 use near_async::messaging::{IntoMultiSender, noop};
@@ -19,7 +19,7 @@ use near_pool::{InsertTransactionResult, PoolIteratorWrapper, TransactionPool};
 use near_primitives::action::FunctionCallAction;
 use near_primitives::apply::ApplyChunkReason;
 use near_primitives::bandwidth_scheduler::BlockBandwidthRequests;
-use near_primitives::block::Tip;
+use near_primitives::block::{BlockType, Tip};
 use near_primitives::congestion_info::{BlockCongestionInfo, ExtendedCongestionInfo};
 use near_primitives::epoch_block_info::BlockInfo;
 use near_primitives::epoch_info::RngSeed;
@@ -1549,6 +1549,7 @@ fn get_test_env_with_chain_and_pool() -> (TestEnv, Chain, TransactionPool) {
         Default::default(),
         Default::default(),
         MutableConfigValue::new(None, "validator_signer"),
+        noop().into_multi_sender(),
         noop().into_multi_sender(),
         CoreStatementsProcessor::new_with_noop_senders(
             env.runtime.store().chain_store(),

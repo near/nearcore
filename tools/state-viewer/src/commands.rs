@@ -17,9 +17,7 @@ use bytesize::ByteSize;
 use itertools::ChunkBy;
 use itertools::Itertools;
 use near_chain::chain::collect_receipts_from_response;
-use near_chain::types::{
-    ApplyChunkBlockContext, ApplyChunkResult, ApplyChunkShardContext, RuntimeAdapter,
-};
+use near_chain::types::{ApplyChunkResult, ApplyChunkShardContext, RuntimeAdapter};
 use near_chain::{
     Chain, ChainGenesis, ChainStore, ChainStoreAccess, Error, ReceiptFilter,
     get_incoming_receipts_for_shard,
@@ -31,7 +29,7 @@ use near_epoch_manager::shard_assignment::{
 use near_epoch_manager::{EpochManager, EpochManagerAdapter, proposals_to_epoch_info};
 use near_primitives::account::id::AccountId;
 use near_primitives::apply::ApplyChunkReason;
-use near_primitives::block::Block;
+use near_primitives::block::{ApplyChunkBlockContext, Block};
 use near_primitives::chains::MAINNET;
 use near_primitives::epoch_info::EpochInfo;
 use near_primitives::epoch_manager::EpochConfigStore;

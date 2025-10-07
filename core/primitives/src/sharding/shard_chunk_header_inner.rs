@@ -1,5 +1,6 @@
 use crate::bandwidth_scheduler::BandwidthRequests;
 use crate::congestion_info::CongestionInfo;
+use crate::sharding::ShardChunkHeader;
 use crate::types::StateRoot;
 use crate::types::validator_stake::{ValidatorStake, ValidatorStakeIter, ValidatorStakeV1};
 use borsh::{BorshDeserialize, BorshSerialize};
@@ -361,4 +362,29 @@ pub struct ShardChunkHeaderInnerV5SpiceTxOnly {
     pub prev_outgoing_receipts_root: CryptoHash,
     /// Tx merkle root.
     pub tx_root: CryptoHash,
+}
+/// Info enough to apply state witness.
+/// Whatever field named `previous` here actually corresponds to the level of associated chunk
+/// Currently unused.
+#[derive(BorshSerialize, BorshDeserialize, Clone, PartialEq, Eq, Debug, ProtocolSchema)]
+pub struct ShardChunkApplyHeader {
+    pub prev_block_hash: CryptoHash,
+    pub prev_state_root: StateRoot,
+    pub height_created: BlockHeight,
+    pub shard_id: ShardId,
+    pub gas_limit: Gas,
+    pub prev_validator_proposals: Vec<ValidatorStake>,
+}
+
+impl From<ShardChunkHeader> for ShardChunkApplyHeader {
+    fn from(chunk: ShardChunkHeader) -> Self {
+        Self {
+            prev_block_hash: *chunk.prev_block_hash(),
+            prev_state_root: chunk.prev_state_root(),
+            height_created: chunk.height_created(),
+            shard_id: chunk.shard_id(),
+            gas_limit: chunk.gas_limit(),
+            prev_validator_proposals: chunk.prev_validator_proposals().collect(),
+        }
+    }
 }

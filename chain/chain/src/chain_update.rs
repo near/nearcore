@@ -6,8 +6,7 @@ use crate::spice_core::CoreStatementsProcessor;
 use crate::store::utils::get_block_header_on_chain_by_height;
 use crate::store::{ChainStore, ChainStoreAccess, ChainStoreUpdate};
 use crate::types::{
-    ApplyChunkBlockContext, ApplyChunkResult, ApplyChunkShardContext, BlockType, RuntimeAdapter,
-    RuntimeStorageConfig,
+    ApplyChunkResult, ApplyChunkShardContext, RuntimeAdapter, RuntimeStorageConfig,
 };
 use crate::update_shard::{NewChunkResult, OldChunkResult, ShardUpdateResult};
 use crate::{Chain, Doomslug};
@@ -17,7 +16,7 @@ use near_chain_primitives::error::Error;
 use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_assignment::shard_id_to_uid;
 use near_primitives::apply::ApplyChunkReason;
-use near_primitives::block::{Block, Tip};
+use near_primitives::block::{ApplyChunkBlockContext, Block, BlockType, Tip};
 use near_primitives::block_header::BlockHeader;
 use near_primitives::epoch_block_info::BlockInfo;
 use near_primitives::hash::CryptoHash;
@@ -132,7 +131,12 @@ impl<'a> ChainUpdate<'a> {
         let prev_hash = block.header().prev_hash();
         let height = block.header().height();
         match result {
-            ShardUpdateResult::NewChunk(NewChunkResult { gas_limit, shard_uid, apply_result }) => {
+            ShardUpdateResult::NewChunk(NewChunkResult {
+                gas_limit,
+                shard_uid,
+                apply_result,
+                ..
+            }) => {
                 let (outcome_root, outcome_paths) =
                     ApplyChunkResult::compute_outcomes_proof(&apply_result.outcomes);
                 let shard_id = shard_uid.shard_id();

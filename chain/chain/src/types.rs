@@ -15,7 +15,7 @@ use near_parameters::RuntimeConfig;
 use near_pool::types::TransactionGroupIterator;
 use near_primitives::apply::ApplyChunkReason;
 use near_primitives::bandwidth_scheduler::BandwidthRequests;
-use near_primitives::bandwidth_scheduler::BlockBandwidthRequests;
+use near_primitives::block::ApplyChunkBlockContext;
 pub use near_primitives::block::{Block, BlockHeader, Tip};
 use near_primitives::chunk_apply_stats::ChunkApplyStatsV0;
 use near_primitives::congestion_info::BlockCongestionInfo;
@@ -24,7 +24,6 @@ use near_primitives::congestion_info::ExtendedCongestionInfo;
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{MerklePath, merklize};
-use near_primitives::optimistic_block::OptimisticBlockKeySource;
 use near_primitives::receipt::{PromiseYieldTimeout, Receipt};
 use near_primitives::sandbox::state_patch::SandboxStatePatch;
 use near_primitives::shard_layout::ShardLayout;
@@ -93,7 +92,7 @@ pub struct AcceptedBlock {
     pub provenance: Provenance,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ApplyChunkResult {
     pub trie_changes: WrappedTrieChanges,
     pub new_root: StateRoot,
@@ -296,53 +295,6 @@ impl RuntimeStorageConfig {
             use_flat_storage: false,
             source: StorageDataSource::DbTrieOnly,
             state_patch: Default::default(),
-        }
-    }
-}
-
-#[derive(Clone, Debug)]
-pub enum BlockType {
-    Normal,
-    Optimistic,
-}
-
-#[derive(Clone)]
-pub struct ApplyChunkBlockContext {
-    pub block_type: BlockType,
-    pub height: BlockHeight,
-    pub prev_block_hash: CryptoHash,
-    pub block_timestamp: u64,
-    pub gas_price: Balance,
-    pub random_seed: CryptoHash,
-    pub congestion_info: BlockCongestionInfo,
-    pub bandwidth_requests: BlockBandwidthRequests,
-}
-
-impl ApplyChunkBlockContext {
-    pub fn from_header(
-        header: &BlockHeader,
-        gas_price: Balance,
-        congestion_info: BlockCongestionInfo,
-        bandwidth_requests: BlockBandwidthRequests,
-    ) -> Self {
-        Self {
-            block_type: BlockType::Normal,
-            height: header.height(),
-            prev_block_hash: *header.prev_hash(),
-            block_timestamp: header.raw_timestamp(),
-            gas_price,
-            random_seed: *header.random_value(),
-            congestion_info,
-            bandwidth_requests,
-        }
-    }
-
-    pub fn to_key_source(&self) -> OptimisticBlockKeySource {
-        OptimisticBlockKeySource {
-            height: self.height,
-            prev_block_hash: self.prev_block_hash,
-            block_timestamp: self.block_timestamp,
-            random_seed: self.random_seed,
         }
     }
 }

@@ -5,12 +5,13 @@ use near_chain::near_chain_primitives::error::QueryError;
 use near_chain::stateless_validation::processing_tracker::{
     ProcessingDoneTracker, ProcessingDoneWaiter,
 };
+use near_chain::stateless_validation::state_witness::DistributeStateWitnessRequest;
 use near_chain::types::Tip;
 use near_chain::{ChainGenesis, ChainStoreAccess, Provenance};
 use near_chain_configs::{Genesis, GenesisConfig, ProtocolVersionCheckConfig};
 use near_chunks::client::ShardsManagerResponse;
 use near_chunks::test_utils::{MockClientAdapterForShardsManager, SynchronousShardsManagerAdapter};
-use near_client::{Client, DistributeStateWitnessRequest, RpcHandler};
+use near_client::{Client, RpcHandler};
 use near_crypto::{InMemorySigner, Signer};
 use near_epoch_manager::shard_assignment::{account_id_to_shard_id, shard_id_to_uid};
 use near_network::client::ProcessTxResponse;
@@ -407,7 +408,7 @@ impl TestEnv {
             while let Some(request) = partial_witness_adapter.pop_distribution_request() {
                 let DistributeStateWitnessRequest { state_witness, .. } = request;
                 let raw_witness_size = borsh::object_length(&state_witness).unwrap();
-                let key = state_witness.chunk_production_key();
+                let key = state_witness.production_key().chunk;
                 let chunk_validators = self.clients[client_idx]
                     .epoch_manager
                     .get_chunk_validator_assignments(
