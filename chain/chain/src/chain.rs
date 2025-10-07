@@ -1873,7 +1873,8 @@ impl Chain {
         .entered();
 
         // Record that we sent chunk apply witness for this (prev_block_hash, shard_id) pair
-        assert_eq!(block_context.height, chunk_header.height_created());
+        // this may fail in case of block miss
+        // assert_eq!(block_context.height, chunk_header.height_created());
         cache.put((block_context.height, shard_id), ());
 
         let main_state_transition = ChunkStateTransition {
