@@ -4,6 +4,10 @@
     }
 
     .actors-controls {
+        position: sticky;
+        top: 0;
+        z-index: 100;
+        background-color: white;
         display: flex;
         justify-content: space-between;
         align-items: center;
@@ -127,18 +131,16 @@
 .threads-container {
     display: flex;
     align-items: stretch;
+    background: repeating-linear-gradient(45deg,
+            #f0f0f0,
+            #f0f0f0 10px,
+            #e0e0e0 10px,
+            #e0e0e0 20px);
 }
 
 .scroll-space {
     width: 30px;
-
-    &:first-child {
-        border-right: 1px solid gray;
-    }
-
-    &:last-child {
-        border-left: 1px solid gray;
-    }
+    cursor: ns-resize;
 }
 
 .threads {
@@ -146,12 +148,14 @@
 }
 
 .one-thread-row {
-    padding-top: 5px;
-    background-color: #eee;
+    margin-top: 5px;
+    background-color: #444;
+    border-left: 1px solid #888;
+    border-right: 1px solid #888;
 
     .thread-name {
         font-weight: bold;
-        color: gray;
+        color: #eee;
         font-size: 0.85em;
         padding-left: 5px;
     }
