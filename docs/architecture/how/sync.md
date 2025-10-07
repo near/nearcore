@@ -227,7 +227,7 @@ is caught up and if we need to download states. The logic works as follows:
 
 The catchup process is implemented through the function `Client::run_catchup`.
 `ClientActor` schedules a call to `run_catchup` every 100ms. However, the call
-can be delayed if ClientActor has a lot of messages in its actix queue.
+can be delayed if ClientActor has a lot of messages in its actor queue.
 
 Every time `run_catchup` is called, it checks `DBCol::StateDlInfos` to see
 if there are any shard states that should be downloaded. If so, it
@@ -257,7 +257,7 @@ block of an epoch, even when there are no new states to be downloaded for the
 new epoch. This is unnecessary.
 
 Second, even though `run_catchup` is scheduled to run every 100ms, the call can
-be delayed if ClientActor has messages in its actix queue. A better way to do
+be delayed if ClientActor has messages in its actor queue. A better way to do
 this is to move the scheduling of `run_catchup` to `check_triggers`.
 
 Third, because of how `run_catchup` interacts with `SyncJobsActor`, `run_catchup`

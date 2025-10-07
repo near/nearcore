@@ -2366,12 +2366,10 @@ impl Chain {
             // TODO(spice): move incoming receipts collection inside apply_chunks_preprocessing
             HashMap::default()
         } else {
-            let receipts_shuffle_salt =
-                get_receipts_shuffle_salt(self.epoch_manager.as_ref(), &block)?;
             self.collect_incoming_receipts_from_chunks(
                 &block.chunks(),
                 &prev_hash,
-                receipts_shuffle_salt,
+                get_receipts_shuffle_salt(&block),
             )?
         };
 
@@ -2628,12 +2626,10 @@ impl Chain {
             let prev_block = self.chain_store.get_block(block.header().prev_hash())?.clone();
             let prev_hash = *prev_block.hash();
 
-            let receipts_shuffle_salt =
-                get_receipts_shuffle_salt(self.epoch_manager.as_ref(), &block)?;
             let receipts_by_shard = self.collect_incoming_receipts_from_chunks(
                 &block.chunks(),
                 &prev_hash,
-                receipts_shuffle_salt,
+                get_receipts_shuffle_salt(&block),
             )?;
 
             let work = self.apply_chunks_preprocessing(

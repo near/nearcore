@@ -10,7 +10,7 @@ used in nearcore:
 
 ## Messaging
 
-`Sender<T>` and `AsyncSender<T>` are abstractions of our Actix interfaces. When
+`Sender<T>` and `AsyncSender<T>` are abstractions of our actor interfaces. When
 a component needs to send a message to another component, the component should
 keep a `Sender<T>` as a field and require it during construction, like:
 
@@ -34,16 +34,12 @@ impl MyComponent {
 ```
 
 To create a `Sender<T>`, we need any implementation of `CanSend<T>`. One way is
-to use an Actix address:
+to use an `TokioRuntimeHandle<T>` or `MultithreadRuntimeHandle<T>`.
 ```rust
 impl Handler<DownstreamMessage> for DownstreamActor {...}
 
-impl DownstreamActor {
-  pub fn spawn(...) -> Addr<DownstreamActor> {...}
-}
-
-fn setup_system() {
-  let addr = DownstreamActor::spawn(...);
+fn setup_system(actor_system: ActorSystem) {
+  let addr = actor_system.spawn_tokio_actor(DownstreamActor());
   let my_component = MyComponent::new(addr.into_sender());
 }
 ```

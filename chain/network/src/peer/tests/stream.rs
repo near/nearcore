@@ -1,4 +1,4 @@
-use crate::actix::AutoStopActor;
+use crate::auto_stop::AutoStopActor;
 use crate::network_protocol::testonly as data;
 use crate::peer::stream;
 use crate::tcp;

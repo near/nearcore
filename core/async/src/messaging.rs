@@ -42,7 +42,6 @@ pub trait Message {}
 /// This works in unison with the [`CanSend`] trait. An actor implements the Handler trait for all
 /// messages it would like to handle, while the CanSend trait implements the logic to send the
 /// message to the actor. Handle and CanSend are typically not both implemented by the same struct.
-/// Note that the actor is any struct that implements the Handler trait, not just actix actors.
 pub trait Handler<M, R = ()>
 where
     M: Message,
@@ -53,8 +52,8 @@ where
 
 /// Trait for handling a message with context.
 /// This is similar to the [`Handler`] trait, but it allows the handler to access the delayed action
-/// runner that is used to schedule actions to be run in the future. For actix::Actor, the context
-/// defined as actix::Context<Self> implements DelayedActionRunner<T>.
+/// runner that is used to schedule actions to be run in the future. For tokio actors, the
+/// TokioRuntimeHandle<A> implements DelayedActionRunner<T>.
 /// Note that the implementer for handler of a message only needs to implement either of Handler or
 /// HandlerWithContext, not both.
 pub trait HandlerWithContext<M, R = ()>

@@ -73,6 +73,7 @@ pub(crate) fn execute_function_call(
         signer_account_pk: borsh::to_vec(&action_receipt.signer_public_key())
             .expect("Failed to serialize"),
         predecessor_account_id: predecessor_id.clone(),
+        refund_to_account_id: action_receipt.refund_to().as_ref().unwrap_or(predecessor_id).clone(),
         input: function_call.args.clone(),
         promise_results,
         block_height: apply_state.block_height,
@@ -81,6 +82,7 @@ pub(crate) fn execute_function_call(
         account_balance: runtime_ext.account().amount(),
         account_locked_balance: runtime_ext.account().locked(),
         storage_usage: runtime_ext.account().storage_usage(),
+        account_contract: runtime_ext.account().contract().into_owned(),
         attached_deposit: function_call.deposit,
         prepaid_gas: function_call.gas,
         random_seed,
@@ -561,7 +563,11 @@ pub(crate) fn action_implicit_account_creation_transfer(
             .ok();
         }
         AccountType::NearDeterministicAccount => {
-            create_deterministic_account(account, &apply_state.config.fees.storage_usage_config);
+            create_deterministic_account(
+                account,
+                deposit,
+                &apply_state.config.fees.storage_usage_config,
+            );
         }
         // This panic is unreachable as this is an implicit account creation transfer.
         // `check_account_existence` would fail because `account_is_implicit` would return false for a Named account.

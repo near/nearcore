@@ -26,6 +26,8 @@ use std::collections::{HashMap, HashSet};
 use std::num::NonZeroUsize;
 use std::sync::Arc;
 
+use crate::Chain;
+
 /// Message that should be sent once executions results for all chunks in a block are endorsed.
 #[derive(Message, Debug, Clone, PartialEq)]
 pub struct ExecutionResultEndorsed {
@@ -96,7 +98,7 @@ impl CoreStatementsTracker {
     fn all_execution_results_exist(&self, block: &Block) -> Result<bool, Error> {
         let shard_layout = self.epoch_manager.get_shard_layout(block.header().epoch_id())?;
         for shard_id in shard_layout.shard_ids() {
-            if self.get_execution_result(block.hash(), shard_id)?.is_none() {
+            if self.get_execution_result(block, shard_id)?.is_none() {
                 return Ok(false);
             }
         }
@@ -152,6 +154,28 @@ impl CoreStatementsTracker {
     }
 
     fn get_execution_result(
+        &self,
+        block: &Block,
+        shard_id: ShardId,
+    ) -> Result<Option<Arc<ChunkExecutionResult>>, Error> {
+        if block.header().is_genesis() {
+            let shard_layout = self.epoch_manager.get_shard_layout(block.header().epoch_id())?;
+            let chunk_extra = Chain::build_genesis_chunk_extra(
+                self.chain_store.store_ref(),
+                &shard_layout,
+                shard_id,
+                &block,
+            )?;
+            Ok(Some(Arc::new(ChunkExecutionResult {
+                chunk_extra,
+                outgoing_receipts_root: CryptoHash::default(),
+            })))
+        } else {
+            Ok(self.get_execution_result_from_store(block.hash(), shard_id)?)
+        }
+    }
+
+    fn get_execution_result_from_store(
         &self,
         block_hash: &CryptoHash,
         shard_id: ShardId,
@@ -220,16 +244,13 @@ impl CoreStatementsTracker {
                 "when there are no missing endorsements execution result should be present"
             );
         }
-        let epoch_id = block.header().epoch_id();
-        let chunks = block.chunks();
-        uncertified_chunks.reserve_exact(chunks.len());
-        for chunk in chunks.iter_raw() {
-            let shard_id = chunk.shard_id();
-            let height_created = chunk.height_created();
+        let shard_layout = self.epoch_manager.get_shard_layout(block.header().epoch_id())?;
+        uncertified_chunks.reserve_exact(shard_layout.num_shards() as usize);
+        for shard_id in shard_layout.shard_ids() {
             let chunk_validator_assignments = self.epoch_manager.get_chunk_validator_assignments(
-                &epoch_id,
+                block.header().epoch_id(),
                 shard_id,
-                height_created,
+                block.header().height(),
             )?;
 
             let missing_endorsements = chunk_validator_assignments
@@ -493,8 +514,9 @@ impl CoreStatementsProcessor {
             .map_err(ProcessChunkError::InvalidEndorsement)?;
         let chunk_id = endorsement.chunk_id();
 
-        let execution_result_is_known =
-            tracker.get_execution_result(&chunk_id.block_hash, chunk_id.shard_id)?.is_some();
+        let execution_result_is_known = tracker
+            .get_execution_result_from_store(&chunk_id.block_hash, chunk_id.shard_id)?
+            .is_some();
 
         let block_hash = chunk_id.block_hash;
         let store_update = tracker
@@ -524,7 +546,7 @@ impl CoreStatementsProcessor {
         let tracker = self.read();
         let shard_layout = tracker.epoch_manager.get_shard_layout(block.header().epoch_id())?;
         for shard_id in shard_layout.shard_ids() {
-            let Some(result) = tracker.get_execution_result(block.hash(), shard_id)? else {
+            let Some(result) = tracker.get_execution_result(block, shard_id)? else {
                 continue;
             };
             results.insert(shard_id, result.clone());
@@ -540,16 +562,12 @@ impl CoreStatementsProcessor {
     ) -> Result<Option<BlockExecutionResults>, Error> {
         assert!(cfg!(feature = "protocol_feature_spice"));
 
-        if block.header().is_genesis() {
-            return Ok(Some(BlockExecutionResults(HashMap::new())));
-        }
-
         let mut results = HashMap::new();
 
         let tracker = self.read();
         let shard_layout = tracker.epoch_manager.get_shard_layout(block.header().epoch_id())?;
         for shard_id in shard_layout.shard_ids() {
-            let Some(result) = tracker.get_execution_result(block.hash(), shard_id)? else {
+            let Some(result) = tracker.get_execution_result(block, shard_id)? else {
                 return Ok(None);
             };
             results.insert(shard_id, result.clone());
@@ -590,7 +608,7 @@ impl CoreStatementsProcessor {
                 }
             }
 
-            let Some(execution_result) = tracker.get_execution_result(
+            let Some(execution_result) = tracker.get_execution_result_from_store(
                 &chunk_info.chunk_id.block_hash,
                 chunk_info.chunk_id.shard_id,
             )?

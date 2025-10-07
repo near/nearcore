@@ -986,14 +986,13 @@ fn test_memory_copy_aggregate_accounting() {
         )
         .gas(Gas::from_gigagas(10))
         .skip_near_vm()
-        .protocol_features(&[ProtocolFeature::RefTypesBulkMemory])
+        .protocol_features(&[ProtocolFeature::Wasmtime])
         .expects(&[expect![[r#"
             VMOutcome: balance 4 storage_usage 12 return data None burnt gas 0 used gas 0
             Err: PrepareError: Error happened while deserializing the module.
         "#]],
         expect![[r#"
-            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 91000008 used gas 91000008
-            Err: PrepareError: Error happened while deserializing the module.
+            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 146947416 used gas 146947416
         "#]]]);
 
     test_builder()
@@ -1008,15 +1007,14 @@ fn test_memory_copy_aggregate_accounting() {
         )
         .gas(Gas::from_gigagas(10))
         .skip_near_vm()
-        .protocol_features(&[ProtocolFeature::RefTypesBulkMemory])
+        .protocol_features(&[ProtocolFeature::Wasmtime])
         .expects(&[expect![[r#"
             VMOutcome: balance 4 storage_usage 12 return data None burnt gas 0 used gas 0
             Err: PrepareError: Error happened while deserializing the module.
         "#]],
         // Gas use here should be roughly double that of the test above!
         expect![[r#"
-            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 91000008 used gas 91000008
-            Err: PrepareError: Error happened while deserializing the module.
+            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 167516316 used gas 167516316
         "#]]]);
 }
 
@@ -1044,14 +1042,13 @@ fn test_memory_copy_full_memory() {
         )
         .gas(Gas::MAX)
         .skip_near_vm()
-        .protocol_features(&[ProtocolFeature::RefTypesBulkMemory])
+        .protocol_features(&[ProtocolFeature::Wasmtime])
         .expects(&[expect![[r#"
             VMOutcome: balance 4 storage_usage 12 return data None burnt gas 0 used gas 0
             Err: PrepareError: Error happened while deserializing the module.
         "#]],
         expect![[r#"
-            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 224983293 used gas 224983293
-            Err: PrepareError: Error happened while deserializing the module.
+            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 276071613848301 used gas 276071613848301
         "#]]]);
 }
 
@@ -1081,13 +1078,13 @@ fn test_memory_copy_full_memory_out_of_gas() {
         )
         .gas(Gas::from_teragas(300))
         .skip_near_vm()
-        .protocol_features(&[ProtocolFeature::RefTypesBulkMemory])
+        .protocol_features(&[ProtocolFeature::Wasmtime])
         .expects(&[expect![[r#"
             VMOutcome: balance 4 storage_usage 12 return data None burnt gas 0 used gas 0
             Err: PrepareError: Error happened while deserializing the module.
         "#]],
         expect![[r#"
-            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 253304963 used gas 253304963
-            Err: PrepareError: Error happened while deserializing the module.
+            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 300000000000000 used gas 300000000000000
+            Err: Exceeded the maximum amount of gas allowed to burn per contract.
         "#]]]);
 }
