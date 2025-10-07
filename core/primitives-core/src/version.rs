@@ -313,7 +313,8 @@ pub enum ProtocolFeature {
     /// receipts.
     ReducedGasRefunds,
     /// Move from ChunkStateWitness being a single struct to a versioned enum.
-    VersionedStateWitness,
+    #[deprecated]
+    _DeprecatedVersionedStateWitness,
     /// Increase max_congestion_missed_chunks from 5 to 125.
     /// At 125 missing chunks shard will be fully congested.
     /// At 100 missing chunks shard will be 80% congested, and transactions
@@ -423,7 +424,7 @@ impl ProtocolFeature {
             | ProtocolFeature::_DeprecatedBlockHeightForReceiptId
             | ProtocolFeature::_DeprecatedProduceOptimisticBlock => 77,
             ProtocolFeature::SimpleNightshadeV6
-            | ProtocolFeature::VersionedStateWitness
+            | ProtocolFeature::_DeprecatedVersionedStateWitness
             | ProtocolFeature::ChunkPartChecks
             | ProtocolFeature::SaturatingFloatToInt
             | ProtocolFeature::ReducedGasRefunds => 78,
