@@ -63,6 +63,8 @@ struct DoomslugTimer {
     delay_step: Duration,
     max_delay: Duration,
     chunk_wait_mult: Rational32,
+    /// If set, reduces the effective wait for the next endorsement only.
+    next_endorsement_compensation: Option<Duration>,
 }
 
 struct DoomslugTip {
@@ -158,6 +160,10 @@ pub struct Doomslug {
     endorsement_pending: bool,
     /// Information to track the timer (see `start_timer` routine in the paper)
     timer: DoomslugTimer,
+
+    /// Last recorded postprocess busy window. Used to decide one-shot compensation for the
+    /// next endorsement at the time we send the current one.
+    last_busy_window: Option<(Instant, Instant)>,
 
     /// Approvals that were created by this doomslug instance (for debugging only).
     /// Keeps up to MAX_HISTORY_SIZE entries.
@@ -379,6 +385,11 @@ impl DoomslugApprovalsTrackersAtHeight {
 }
 
 impl Doomslug {
+    /// Record the last postprocess busy window. The decision to compensate is made in process_timer.
+    pub fn record_busy_window(&mut self, busy_start: Instant, busy_end: Instant) {
+        self.last_busy_window = Some((busy_start, busy_end));
+    }
+    // (removed) record_busy_window and compensate_next_endorsement_delay
     pub fn new(
         clock: Clock,
         largest_target_height: BlockHeight,
@@ -417,7 +428,9 @@ impl Doomslug {
                 delay_step,
                 max_delay,
                 chunk_wait_mult,
+                next_endorsement_compensation: None,
             },
+            last_busy_window: None,
             history: VecDeque::new(),
         }
     }
@@ -488,6 +501,16 @@ impl Doomslug {
     #[must_use]
     pub fn process_timer(&mut self, signer: &Option<Arc<ValidatorSigner>>) -> Vec<Approval> {
         let now = self.clock.now();
+        // Effective endorsement delay for due check based on next_endorsement_compensation.
+        let endorsement_delay = if let Some(comp) = self.timer.next_endorsement_compensation {
+            if comp >= self.timer.endorsement_delay {
+                Duration::milliseconds(0)
+            } else {
+                self.timer.endorsement_delay - comp
+            }
+        } else {
+            self.timer.endorsement_delay
+        };
         let mut ret = vec![];
         for _ in 0..MAX_TIMER_ITERS {
             let skip_delay = self
@@ -502,7 +525,7 @@ impl Doomslug {
             let tip_height = self.tip.height;
 
             if self.endorsement_pending
-                && now >= self.timer.last_endorsement_sent + self.timer.endorsement_delay
+                && now >= self.timer.last_endorsement_sent + endorsement_delay
             {
                 if tip_height >= self.largest_target_height.get() {
                     self.largest_target_height.set(tip_height + 1);
@@ -525,13 +548,23 @@ impl Doomslug {
                     });
                 }
 
-                if now >= self.timer.last_endorsement_sent + 2 * self.timer.endorsement_delay {
-                    self.timer.last_endorsement_sent = now;
+                // Compute one-shot compensation for the NEXT endorsement based on the last busy window.
+                if let Some((busy_start, busy_end)) = self.last_busy_window.take() {
+                    let deadline = self.timer.last_endorsement_sent + self.timer.endorsement_delay;
+                    if deadline >= busy_start && deadline <= busy_end {
+                        let overlap = busy_end.signed_duration_since(deadline);
+                        let max_comp = self.timer.endorsement_delay / 2;
+                        let comp = core::cmp::min(overlap, max_comp);
+                        self.timer.next_endorsement_compensation =
+                            if comp > Duration::milliseconds(0) { Some(comp) } else { None };
+                    } else {
+                        self.timer.next_endorsement_compensation = None;
+                    }
                 } else {
-                    // optimisation hack for the case when postprocess_block &
-                    // produce_chunk delayed sending approval
-                    self.timer.last_endorsement_sent += self.timer.endorsement_delay;
+                    self.timer.next_endorsement_compensation = None;
                 }
+                // Reflect actual send time for this endorsement.
+                self.timer.last_endorsement_sent = now;
                 self.endorsement_pending = false;
             }
 
@@ -661,6 +694,7 @@ impl Doomslug {
 
         self.approval_trackers.retain(|h, _| should_retain_height(*h, height));
         self.endorsement_pending = true;
+        // Any stored one-shot advance will be consumed at send time in process_timer.
     }
 
     /// Records an approval message, and return whether the block has passed the threshold / ready

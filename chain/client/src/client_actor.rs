@@ -1343,6 +1343,7 @@ impl ClientActorInner {
     /// and we want to prioritize block processing.
     fn try_process_unfinished_blocks(&mut self) {
         let _span = debug_span!(target: "client", "try_process_unfinished_blocks").entered();
+        let t0 = self.client.clock.now();
         let (accepted_blocks, errors) = self.client.postprocess_ready_blocks(
             Some(self.client.myself_sender.clone().into_multi_sender()),
             true,
@@ -1351,6 +1352,11 @@ impl ClientActorInner {
             error!(target: "client", ?errors, "try_process_unfinished_blocks got errors");
         }
         self.process_accepted_blocks(accepted_blocks);
+        let elapsed = self.client.clock.now() - t0;
+        if elapsed > near_async::time::Duration::milliseconds(50) {
+            let t1 = self.client.clock.now();
+            self.client.doomslug.record_busy_window(t0, t1);
+        }
     }
 
     fn try_handle_block_production(&mut self) {
