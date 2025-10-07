@@ -77,7 +77,7 @@ use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::types::{AccountId, BlockHeight};
 use near_primitives::unwrap_or_return;
 use near_primitives::utils::MaybeValidated;
-use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature, get_protocol_upgrade_schedule};
+use near_primitives::version::{PROTOCOL_VERSION, get_protocol_upgrade_schedule};
 use near_primitives::views::{DetailedDebugStatus, ValidatorInfo};
 #[cfg(feature = "test_features")]
 use near_store::DBCol;
@@ -1192,10 +1192,6 @@ impl ClientActorInner {
             }
         }
 
-        let protocol_version = self.client.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
-        if !ProtocolFeature::ProduceOptimisticBlock.enabled(protocol_version) {
-            return Ok(());
-        }
         let optimistic_block_height = self.client.doomslug.get_timer_height();
         if me != self.client.epoch_manager.get_block_producer(&epoch_id, optimistic_block_height)? {
             return Ok(());

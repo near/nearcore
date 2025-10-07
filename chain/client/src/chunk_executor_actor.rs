@@ -357,8 +357,7 @@ impl ChunkExecutorActor {
         let prev_block = self.chain_store.get_block(prev_hash)?;
         let shard_layout = self.epoch_manager.get_shard_layout(&block.header().epoch_id())?;
         let chunk_headers = block.chunks();
-
-        let receipts_shuffle_salt = get_receipts_shuffle_salt(self.epoch_manager.as_ref(), &block)?;
+        let receipts_shuffle_salt = get_receipts_shuffle_salt(&block);
 
         let mut jobs = Vec::new();
         // TODO(spice-resharding): Make sure shard logic is correct with resharding.
