@@ -232,11 +232,39 @@ fn test_spice_chain_with_missing_chunks() {
         assert_eq!(got_balance, INITIAL_BALANCE);
     }
 
-    let rpc_node_data = rpc_node.data().clone();
-    let (_, balance_changes) = schedule_send_money_txs(&[rpc_node_data], &accounts, &env.test_loop);
+    // We cannot use rpc_node to schedule transactions since it may direct transactions to
+    // producer with missing chunks.
+    let node_data = env
+        .node_datas
+        .iter()
+        .find(|node_data| node_data.account_id != node_with_missing_chunks.data().account_id)
+        .unwrap()
+        .clone();
+    let (sent_txs, balance_changes) =
+        schedule_send_money_txs(&[node_data], &accounts, &env.test_loop);
 
-    // TODO(spice): refactor to run until all transactions are executed.
-    rpc_node.run_until_head_height(&mut env.test_loop, 70);
+    let mut observed_txs = HashSet::new();
+    env.test_loop.run_until(
+        |test_loop_data| {
+            let head = rpc_node.head(test_loop_data);
+            let client = rpc_node.client(test_loop_data);
+            let block = client.chain.get_block(&head.last_block_hash).unwrap();
+            for chunk in block.chunks().iter() {
+                let Ok(chunk) = client.chain.get_chunk(&chunk.chunk_hash()) else {
+                    continue;
+                };
+                for tx in chunk.to_transactions() {
+                    observed_txs.insert(tx.get_hash());
+                }
+            }
+            observed_txs.len() == sent_txs.lock().len()
+        },
+        Duration::seconds(200),
+    );
+
+    // A few more blocks to make sure everything is executed.
+    let head_height = rpc_node.head(env.test_loop_data()).height;
+    rpc_node.run_until_head_height(&mut env.test_loop, head_height + 3);
 
     let client = rpc_node.client(env.test_loop_data());
     let mut block =
