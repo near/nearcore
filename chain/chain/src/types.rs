@@ -15,7 +15,7 @@ use near_parameters::RuntimeConfig;
 use near_pool::types::TransactionGroupIterator;
 use near_primitives::apply::ApplyChunkReason;
 use near_primitives::bandwidth_scheduler::BandwidthRequests;
-use near_primitives::bandwidth_scheduler::BlockBandwidthRequests;
+use near_primitives::block::ApplyChunkBlockContext;
 pub use near_primitives::block::{Block, BlockHeader, Tip};
 use near_primitives::chunk_apply_stats::ChunkApplyStatsV0;
 use near_primitives::congestion_info::BlockCongestionInfo;
@@ -92,7 +92,7 @@ pub struct AcceptedBlock {
     pub provenance: Provenance,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ApplyChunkResult {
     pub trie_changes: WrappedTrieChanges,
     pub new_root: StateRoot,
@@ -299,44 +299,6 @@ impl RuntimeStorageConfig {
     }
 }
 
-#[derive(Clone, Debug)]
-pub enum BlockType {
-    Normal,
-    Optimistic,
-}
-
-#[derive(Clone)]
-pub struct ApplyChunkBlockContext {
-    pub block_type: BlockType,
-    pub height: BlockHeight,
-    pub prev_block_hash: CryptoHash,
-    pub block_timestamp: u64,
-    pub gas_price: Balance,
-    pub random_seed: CryptoHash,
-    pub congestion_info: BlockCongestionInfo,
-    pub bandwidth_requests: BlockBandwidthRequests,
-}
-
-impl ApplyChunkBlockContext {
-    pub fn from_header(
-        header: &BlockHeader,
-        gas_price: Balance,
-        congestion_info: BlockCongestionInfo,
-        bandwidth_requests: BlockBandwidthRequests,
-    ) -> Self {
-        Self {
-            block_type: BlockType::Normal,
-            height: header.height(),
-            prev_block_hash: *header.prev_hash(),
-            block_timestamp: header.raw_timestamp(),
-            gas_price,
-            random_seed: *header.random_value(),
-            congestion_info,
-            bandwidth_requests,
-        }
-    }
-}
-
 pub struct ApplyChunkShardContext<'a> {
     pub shard_id: ShardId,
     pub last_validator_proposals: ValidatorStakeIter<'a>,
@@ -375,6 +337,7 @@ pub enum PrepareTransactionsLimit {
 
 /// Information used to prepare transactions, based on the previous block.
 /// When preparing transactions for height H, H is the "current" block and H-1 is the "previous" block.
+#[derive(Clone, Eq, PartialEq, Debug)]
 pub struct PrepareTransactionsBlockContext {
     /// Gas price in the current block
     pub next_gas_price: Balance,

@@ -28,9 +28,7 @@ pub use near_client_primitives::debug::DebugStatus;
 pub use near_network::client::{
     BlockApproval, BlockResponse, ProcessTxRequest, ProcessTxResponse, SetNetworkInfo,
 };
-pub use stateless_validation::partial_witness::partial_witness_actor::{
-    DistributeStateWitnessRequest, PartialWitnessActor, PartialWitnessSenderForClient,
-};
+pub use stateless_validation::partial_witness::partial_witness_actor::PartialWitnessActor;
 
 pub mod adapter;
 pub mod adversarial;
@@ -46,6 +44,7 @@ pub mod debug;
 pub mod gc_actor;
 mod info;
 pub mod metrics;
+mod prepare_transactions;
 mod rpc_handler;
 pub mod spice_chunk_validator_actor;
 pub mod spice_data_distributor_actor;

@@ -51,6 +51,7 @@ impl Client {
                 prev_block_header,
                 prev_chunk_header,
                 chunk,
+                false,
             )?;
         if self.config.save_latest_witnesses {
             self.chain.chain_store.save_latest_chunk_state_witness(&state_witness)?;

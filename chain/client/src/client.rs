@@ -13,7 +13,6 @@ use crate::stateless_validation::chunk_endorsement::ChunkEndorsementTracker;
 use crate::stateless_validation::chunk_validation_actor::{
     BlockNotificationMessage, ChunkValidationSender,
 };
-use crate::stateless_validation::partial_witness::partial_witness_actor::PartialWitnessSenderForClient;
 use crate::sync::block::BlockSync;
 use crate::sync::epoch::EpochSync;
 use crate::sync::handler::SyncHandler;
@@ -23,8 +22,8 @@ use crate::sync::state::{StateSync, StateSyncResult};
 use crate::{ProduceChunkResult, metrics};
 use itertools::Itertools;
 use near_async::futures::{AsyncComputationSpawner, FutureSpawner};
-use near_async::messaging::IntoSender;
 use near_async::messaging::{CanSend, Sender};
+use near_async::messaging::{IntoMultiSender, IntoSender};
 use near_async::time::{Clock, Duration, Instant};
 use near_chain::chain::{
     ApplyChunksDoneSender, BlockCatchUpRequest, BlockMissingChunks, BlocksCatchUpState,
@@ -35,6 +34,7 @@ use near_chain::rayon_spawner::RayonAsyncComputationSpawner;
 use near_chain::resharding::types::ReshardingSender;
 use near_chain::spice_core::CoreStatementsProcessor;
 use near_chain::state_snapshot_actor::SnapshotCallbacks;
+use near_chain::stateless_validation::state_witness::PartialWitnessSenderForClient;
 use near_chain::test_utils::format_hash;
 use near_chain::types::{ChainConfig, LatestKnown, RuntimeAdapter};
 use near_chain::{
@@ -221,6 +221,8 @@ pub struct AsyncComputationMultiSpawner {
     apply_chunks: ApplyChunksSpawner,
     /// Spawner to run 'epoch sync' tasks (defaults to `RayonAsyncComputationSpawner`)
     epoch_sync: Arc<dyn AsyncComputationSpawner>,
+    /// Spawner to run 'prepare transactions' tasks (defaults to `RayonAsyncComputationSpawner`)
+    prepare_transactions: Arc<dyn AsyncComputationSpawner>,
 }
 
 impl Default for AsyncComputationMultiSpawner {
@@ -228,6 +230,7 @@ impl Default for AsyncComputationMultiSpawner {
         Self {
             apply_chunks: Default::default(),
             epoch_sync: Arc::new(RayonAsyncComputationSpawner),
+            prepare_transactions: Arc::new(RayonAsyncComputationSpawner),
         }
     }
 }
@@ -235,7 +238,11 @@ impl Default for AsyncComputationMultiSpawner {
 impl AsyncComputationMultiSpawner {
     /// Use a custom spawner for all kinds of tasks.
     pub fn all_custom(spawner: Arc<dyn AsyncComputationSpawner>) -> Self {
-        Self { apply_chunks: ApplyChunksSpawner::Custom(spawner.clone()), epoch_sync: spawner }
+        Self {
+            apply_chunks: ApplyChunksSpawner::Custom(spawner.clone()),
+            epoch_sync: spawner.clone(),
+            prepare_transactions: spawner,
+        }
     }
 
     /// Use a custom spawner for 'apply chunks' tasks
@@ -295,6 +302,7 @@ impl Client {
             apply_chunks_iteration_mode,
             validator_signer.clone(),
             resharding_sender.clone(),
+            partial_witness_adapter.clone(),
             spice_core_processor,
             Some(myself_sender.on_post_state_ready.clone()),
         )?;
@@ -364,6 +372,7 @@ impl Client {
             runtime_adapter.clone(),
             rng_seed,
             config.transaction_pool_size_limit,
+            multi_spawner.prepare_transactions,
         );
 
         let chunk_distribution_network = ChunkDistributionNetwork::from_config(&config);
@@ -1088,8 +1097,10 @@ impl Client {
             return;
         }
 
-        self.chain
-            .preprocess_optimistic_block(block, Some(self.myself_sender.apply_chunks_done.clone()));
+        self.chain.preprocess_optimistic_block(
+            block,
+            Some(self.myself_sender.clone().into_multi_sender()),
+        );
     }
 
     /// To protect ourselves from spamming, we do some pre-check on block
@@ -1374,7 +1385,7 @@ impl Client {
         self.process_blocks_with_missing_chunks(apply_chunks_done_sender);
 
         self.chain
-            .maybe_process_optimistic_block(Some(self.myself_sender.apply_chunks_done.clone()));
+            .maybe_process_optimistic_block(Some(self.myself_sender.clone().into_multi_sender()));
     }
 
     /// Called asynchronously when the ShardsManager finishes processing a chunk but the chunk

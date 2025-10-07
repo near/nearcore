@@ -28,7 +28,7 @@ use near_primitives::views::{
 use crate::setup::builder::TestLoopBuilder;
 use crate::setup::env::TestLoopEnv;
 use crate::setup::state::NodeExecutionData;
-use crate::utils::transactions::execute_money_transfers;
+use crate::utils::transactions::execute_money_transfers_with_delay;
 
 const NUM_VALIDATORS: usize = 2;
 const NUM_ACCOUNTS: usize = 20;
@@ -83,7 +83,14 @@ fn slow_test_view_requests_to_archival_node() {
         .warmup();
 
     let non_validator_accounts = accounts.iter().skip(NUM_VALIDATORS).cloned().collect_vec();
-    execute_money_transfers(&mut test_loop, &node_datas, &non_validator_accounts).unwrap();
+    let transaction_delay = Duration::milliseconds(100);
+    execute_money_transfers_with_delay(
+        &mut test_loop,
+        &node_datas,
+        &non_validator_accounts,
+        transaction_delay,
+    )
+    .unwrap();
 
     // Run the chain until it garbage collects blocks from the first epoch.
     let client_handle = node_datas[ARCHIVAL_CLIENT].client_sender.actor_handle();
