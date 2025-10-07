@@ -333,9 +333,9 @@ impl FindBoundaryAccountCommand {
         let state_root = chunk_extra.state_root();
         let trie = shard_tries.get_trie_for_shard(shard_uid, *state_root);
         tracing::info!("Searching for boundary account...");
-        let trie_split = find_trie_split(&trie);
+        let trie_split = find_trie_split(&trie)?;
 
-        let boundary_account = trie_split.boundary_account();
+        let boundary_account = trie_split.boundary_account;
         let left_memory = ByteSize::b(trie_split.left_memory);
         let right_memory = ByteSize::b(trie_split.right_memory);
         tracing::info!("Boundary account found");
