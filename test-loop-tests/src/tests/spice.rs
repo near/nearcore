@@ -163,20 +163,20 @@ fn test_spice_chain() {
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn test_spice_chain_with_missing_chunks() {
     use crate::utils::account::{
-        create_validators_spec, rpc_account_id, validators_spec_clients_with_rpc,
+        create_account_id, create_validators_spec, rpc_account_id, validators_spec_clients_with_rpc,
     };
     use crate::utils::node::TestLoopNode;
 
     init_test_logger();
     let accounts: Vec<AccountId> =
-        (0..100).map(|i| format!("account{}", i).parse().unwrap()).collect_vec();
+        (0..100).map(|i| create_account_id(&format!("account{}", i))).collect_vec();
 
     // With 2 shards and 4 producers we should still be able to include all transactions
     // when one of the producers starts missing chunks.
     let num_producers = 4;
     let num_validators = 0;
-    let shard_layout =
-        ShardLayout::multi_shard_custom(vec![accounts[accounts.len() / 2].clone()], 1);
+    let boundary_account = accounts[accounts.len() / 2].clone();
+    let shard_layout = ShardLayout::multi_shard_custom(vec![boundary_account], 1);
 
     let validators_spec = create_validators_spec(num_producers, num_validators);
     let clients = validators_spec_clients_with_rpc(&validators_spec);
