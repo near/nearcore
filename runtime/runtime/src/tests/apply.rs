@@ -845,7 +845,6 @@ fn test_apply_surplus_gas_for_transfer() {
         .checked_add(fees.fee(ActionCosts::transfer).exec_fee())
         .unwrap();
 
-    assert!(!fees.refund_gas_price_changes);
     let expected_burnt_amount = gas_price.checked_mul(u128::from(exec_gas.as_gas())).unwrap();
     let expected_receipts = 0;
 
@@ -902,7 +901,6 @@ fn test_apply_deficit_gas_for_function_call_covered() {
             Gas::from_gas(gas).checked_add(expected_gas_burnt).unwrap().as_gas(),
         ))
         .unwrap();
-    assert!(!apply_state.config.fees.refund_gas_price_changes);
     let expected_gas_burnt_amount =
         gas_price.checked_mul(u128::from(expected_gas_burnt.as_gas())).unwrap();
     // With gas refund penalties enabled, we should see a reduced refund value
@@ -930,7 +928,6 @@ fn test_apply_deficit_gas_for_function_call_covered() {
             Default::default(),
         )
         .unwrap();
-    assert!(!apply_state.config.fees.refund_gas_price_changes);
     assert_eq!(
         result.stats.balance.gas_deficit_amount,
         GAS_PRICE
@@ -1016,7 +1013,6 @@ fn test_apply_deficit_gas_for_function_call_partial() {
         )
         .unwrap();
     assert_eq!(result.stats.balance.gas_deficit_amount, expected_deficit);
-    assert!(!apply_state.config.fees.refund_gas_price_changes);
     // The deficit does not affect refunds, hence we should expect a
     // normal refund of the unspent gas. However, this is small enough to
     // cancel out, so we add the refund cost to tx_burnt and expect no
@@ -1073,7 +1069,6 @@ fn test_apply_surplus_gas_for_function_call() {
             Gas::from_gas(gas).checked_add(expected_gas_burnt).unwrap().as_gas(),
         ))
         .unwrap();
-    assert!(!apply_state.config.fees.refund_gas_price_changes);
     let expected_gas_burnt_amount =
         gas_price.checked_mul(u128::from(expected_gas_burnt.as_gas())).unwrap();
 

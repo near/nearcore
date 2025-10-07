@@ -447,11 +447,6 @@ pub struct RuntimeFeesConfig {
     /// Pessimistic gas price inflation ratio.
     pub pessimistic_gas_price_inflation_ratio: Rational32,
 
-    /// Whether we calculate in the gas price changes when refunding gas.
-    ///
-    /// Changed to false with [NEP-536](https://github.com/near/NEPs/pull/536)
-    pub refund_gas_price_changes: bool,
-
     /// Relative cost for gas refunds as a ratio of the refunded amount.
     ///
     /// The actual penalty is
@@ -493,7 +488,6 @@ impl RuntimeFeesConfig {
             storage_usage_config: StorageUsageConfig::test(),
             burnt_gas_reward: Rational32::new(3, 10),
             pessimistic_gas_price_inflation_ratio: Rational32::new(103, 100),
-            refund_gas_price_changes: false,
             gas_refund_penalty: Rational32::new(5, 100),
             min_gas_refund_penalty: Gas::from_teragas(1),
             action_fees: enum_map::enum_map! {
@@ -532,7 +526,6 @@ impl RuntimeFeesConfig {
             storage_usage_config: StorageUsageConfig::free(),
             burnt_gas_reward: Rational32::from_integer(0),
             pessimistic_gas_price_inflation_ratio: Rational32::from_integer(0),
-            refund_gas_price_changes: false,
             gas_refund_penalty: Rational32::from_integer(0),
             min_gas_refund_penalty: Gas::ZERO,
         }

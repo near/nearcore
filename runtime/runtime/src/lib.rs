@@ -734,12 +734,9 @@ impl Runtime {
             .unwrap();
         // The balance that the current account should receive as a reward for function call
         // execution.
-        // Post NEP-536:
-        // No shenanigans here. We are not refunding gas price differences,
-        // we just use the receipt gas price and call it the correct price.
-        // No deficits to try and recover.
-        assert!(!apply_state.config.fees.refund_gas_price_changes, "NEP-536 is always enabled");
-        // Use receipt gas price for reward calculation
+        // Post NEP-536: We are not refunding gas price differences, we just use the receipt
+        // gas price and call it the correct price.
+        // No deficits to try and recover. Use receipt gas price for reward calculation
         let receiver_reward = safe_gas_to_balance(action_receipt.gas_price(), receiver_gas_reward)?;
         if receiver_reward > Balance::ZERO {
             let mut account = get_account(state_update, account_id)?;
@@ -878,7 +875,6 @@ impl Runtime {
         result: &mut ActionResult,
         config: &RuntimeConfig,
     ) -> Result<GasRefundResult, RuntimeError> {
-        assert!(!config.fees.refund_gas_price_changes, "NEP-536 is always enabled");
         let total_deposit = total_deposit(&action_receipt.actions())?;
         let prepaid_gas = total_prepaid_gas(&action_receipt.actions())?
             .checked_add(total_prepaid_send_fees(config, &action_receipt.actions())?)
