@@ -191,6 +191,7 @@ export const ActorsView = ({ addr }: ActorsViewProps) => {
                         </div>
                     ))}
                 </div>
+                <div className="scroll-space" />
             </div>
             {/*
             <pre>{JSON.stringify(instrumentedThreads, null, 2)}</pre>

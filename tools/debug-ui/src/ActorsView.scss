@@ -131,7 +131,14 @@
 
 .scroll-space {
     width: 30px;
-    border-right: 1px solid gray;
+
+    &:first-child {
+        border-right: 1px solid gray;
+    }
+
+    &:last-child {
+        border-left: 1px solid gray;
+    }
 }
 
 .threads {

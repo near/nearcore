@@ -26,10 +26,11 @@ export const ThreadTimeline = ({ thread, messageTypes, minTimeMs, currentTimeMs,
     );
 
     const maxTimeMs = currentTimeMs - minTimeMs;
-    const [viewport, setViewport] = useState(
-        new Viewport(-1000, maxTimeMs + 1000, VIEWPORT_WIDTH, -1000, maxTimeMs + 1000, 1)
-    );
     const svgRef = useRef<SVGSVGElement>(null);
+    const [svgWidth, setSvgWidth] = useState(VIEWPORT_WIDTH);
+    const [viewport, setViewport] = useState(
+        new Viewport(-1000, maxTimeMs + 1000, svgWidth, -1000, maxTimeMs + 1000, 1)
+    );
 
     const colorMap = useMemo(() => new MessageTypeAndColorMap(events, windows, messageTypes), [events, windows, messageTypes]);
 
@@ -41,7 +42,13 @@ export const ThreadTimeline = ({ thread, messageTypes, minTimeMs, currentTimeMs,
     const gridTop = CPU_CHART_HEIGHT + GRID_LABEL_TOP_MARGIN;
     const eventsTop = gridTop + 10;
     const chartHeight = eventsTop + (maxRow + 1) * (ROW_HEIGHT + ROW_PADDING) + 10;
-    const legendHeight = colorMap.size > 0 ? LEGEND_VERTICAL_MARGIN * 2 + LEGEND_HEIGHT_PER_ROW * Math.ceil(colorMap.size / 5) : 0;
+
+    // Calculate legend columns based on available width
+    const legendItemWidth = 200;
+    const legendColumns = Math.max(1, Math.floor(svgWidth / legendItemWidth));
+    const legendRows = colorMap.size > 0 ? Math.ceil(colorMap.size / legendColumns) : 0;
+    const legendHeight = legendRows > 0 ? LEGEND_VERTICAL_MARGIN * 2 + LEGEND_HEIGHT_PER_ROW * legendRows : 0;
+
     const svgHeight = chartHeight + legendHeight;
 
     const [hoveredEvent, setHoveredEvent] = useState<{ event: EventToDisplay, x: number, y: number } | null>(null);
@@ -65,12 +72,30 @@ export const ThreadTimeline = ({ thread, messageTypes, minTimeMs, currentTimeMs,
         return () => svg.removeEventListener('wheel', handleWheel);
     }, [viewport]);
 
+    useEffect(() => {
+        const svg = svgRef.current;
+        if (!svg) return;
+
+        const resizeObserver = new ResizeObserver((entries) => {
+            for (const entry of entries) {
+                const newWidth = entry.contentRect.width;
+                if (newWidth !== svgWidth) {
+                    setSvgWidth(newWidth);
+                    setViewport(vp => vp.resize(newWidth));
+                }
+            }
+        });
+
+        resizeObserver.observe(svg);
+        return () => resizeObserver.disconnect();
+    }, [svgWidth]);
+
     return (<>
         <svg
             ref={svgRef}
-            width={VIEWPORT_WIDTH}
+            width="100%"
             height={svgHeight}
-            style={{ backgroundColor: "white", borderTop: "1px solid #666", borderBottom: "1px solid #666" }}
+            style={{ backgroundColor: "white", borderTop: "1px solid #666", borderBottom: "1px solid #666", display: "block" }}
             onMouseMove={(e) => {
                 if (e.buttons === 1) {
                     setViewport(viewport.pan(-e.movementX));
@@ -119,11 +144,11 @@ export const ThreadTimeline = ({ thread, messageTypes, minTimeMs, currentTimeMs,
                                 />
                             )}
                             {/* Area after last window */}
-                            {afterX1 < VIEWPORT_WIDTH && (
+                            {afterX1 < svgWidth && (
                                 <rect
                                     x={Math.max(0, afterX1)}
                                     y={0}
-                                    width={Math.min(VIEWPORT_WIDTH, afterX2) - Math.max(0, afterX1)}
+                                    width={Math.min(svgWidth, afterX2) - Math.max(0, afterX1)}
                                     height={chartHeight}
                                     fill="#444"
                                     opacity={0.3}
@@ -144,7 +169,7 @@ export const ThreadTimeline = ({ thread, messageTypes, minTimeMs, currentTimeMs,
                         const x2 = viewport.transform(window.endSMT);
 
                         // Skip windows outside viewport
-                        if (x2 < 0 || x1 > VIEWPORT_WIDTH) return;
+                        if (x2 < 0 || x1 > svgWidth) return;
 
                         indicators.push(
                             <rect
@@ -169,7 +194,7 @@ export const ThreadTimeline = ({ thread, messageTypes, minTimeMs, currentTimeMs,
                 const xStart = viewport.transform(event.startSMT);
                 const xEnd = viewport.transform(event.endSMT);
                 const width = xEnd - xStart;
-                if (xEnd < 0 || xStart > VIEWPORT_WIDTH) {
+                if (xEnd < 0 || xStart > svgWidth) {
                     return null; // Skip rendering events outside the viewport
                 }
 
@@ -215,7 +240,7 @@ export const ThreadTimeline = ({ thread, messageTypes, minTimeMs, currentTimeMs,
                 <line
                     x1={0}
                     y1={CPU_CHART_HEIGHT + 0.5}
-                    x2={VIEWPORT_WIDTH}
+                    x2={svgWidth}
                     y2={CPU_CHART_HEIGHT + 0.5}
                     stroke="#666"
                     strokeWidth={1}
@@ -225,7 +250,7 @@ export const ThreadTimeline = ({ thread, messageTypes, minTimeMs, currentTimeMs,
                     <line
                         x1={0}
                         y1={chartHeight + 0.5}
-                        x2={VIEWPORT_WIDTH}
+                        x2={svgWidth}
                         y2={chartHeight + 0.5}
                         stroke="#666"
                         strokeWidth={1}
@@ -237,8 +262,8 @@ export const ThreadTimeline = ({ thread, messageTypes, minTimeMs, currentTimeMs,
             {legendHeight > 0 && (
                 <g transform={`translate(0, ${chartHeight + LEGEND_VERTICAL_MARGIN})`}>
                     {colorMap.map((typeId, name, color, index) => {
-                        const x = (index % 5) * 200;
-                        const y = Math.floor(index / 5) * LEGEND_HEIGHT_PER_ROW;
+                        const x = (index % legendColumns) * legendItemWidth;
+                        const y = Math.floor(index / legendColumns) * LEGEND_HEIGHT_PER_ROW;
                         const isHovered = hoveredLegendType === typeId;
                         const isDimmed = hoveredLegendType !== null && !isHovered;
 
@@ -252,7 +277,7 @@ export const ThreadTimeline = ({ thread, messageTypes, minTimeMs, currentTimeMs,
                                 opacity={isDimmed ? 0.3 : 1}
                             >
                                 {/* Backdrop for larger hover area */}
-                                <rect x={0} y={0} width={200} height={LEGEND_HEIGHT_PER_ROW} fill="transparent" />
+                                <rect x={0} y={0} width={legendItemWidth} height={LEGEND_HEIGHT_PER_ROW} fill="transparent" />
                                 <line x1={16} y1={LEGEND_HEIGHT_PER_ROW / 2} x2={24} y2={LEGEND_HEIGHT_PER_ROW / 2} stroke={color} strokeWidth={LINE_STROKE_WIDTH} strokeLinecap="round" />
                                 <text x={36} y={LEGEND_HEIGHT_PER_ROW / 2 + 4} fontSize={10} fontFamily="sans-serif">{name}</text>
                             </g>
