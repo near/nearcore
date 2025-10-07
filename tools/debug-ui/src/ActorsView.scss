@@ -7,7 +7,6 @@
         display: flex;
         justify-content: space-between;
         align-items: center;
-        margin-bottom: 20px;
         padding: 10px;
         border-bottom: 1px solid #e0e0e0;
         flex-wrap: wrap;
@@ -125,45 +124,29 @@
     }
 }
 
-.actors-table {
-    table {
-        width: 100%;
-        border-collapse: collapse;
-        table-layout: fixed;
-    }
+.threads-container {
+    display: flex;
+    align-items: stretch;
+}
 
-    table,
-    th,
-    td {
-        border: 1px solid black;
-    }
+.scroll-space {
+    width: 30px;
+    border-right: 1px solid gray;
+}
 
-    td {
-        text-align: left;
-        vertical-align: top;
-        padding: 8px;
-    }
+.threads {
+    flex: 1;
+}
 
-    th {
-        text-align: center;
-        vertical-align: center;
-        padding: 8px;
-        background-color: lightgrey;
-    }
+.one-thread-row {
+    padding-top: 5px;
+    background-color: #eee;
 
-    // Thread Name column (first column)
-    th:first-child,
-    td:first-child {
-        width: 25%;
-        word-wrap: break-word;
-        overflow-wrap: break-word;
-        hyphens: none;
-        white-space: normal;
-    }
-
-
-    tr.active {
-        background-color: #eff8bf;
+    .thread-name {
+        font-weight: bold;
+        color: gray;
+        font-size: 0.85em;
+        padding-left: 5px;
     }
 }
 

@@ -36,8 +36,11 @@ export function renderCpuChart(params: {
     colorMap: MessageTypeAndColorMap,
     viewport: Viewport,
     hoveredLegendType: number | null,
+    hoveredWindowIndex: number | null,
+    onWindowHover: (windowIndex: number, x: number, y: number) => void,
+    onWindowLeave: () => void,
 }): JSX.Element[] {
-    const { windows, chartMode, yAxisMode, colorMap, viewport, hoveredLegendType } = params;
+    const { windows, chartMode, yAxisMode, colorMap, viewport, hoveredLegendType, hoveredWindowIndex, onWindowHover, onWindowLeave } = params;
 
     const elements: JSX.Element[] = [];
 
@@ -82,36 +85,97 @@ export function renderCpuChart(params: {
 
             cumulativeY += thisBarHeight;
         });
-    });
 
-    // Render labels
+        // Add transparent overlay for hover detection
+        elements.push(
+            <rect
+                key={`hover-${windowIndex}`}
+                x={Math.max(0, x1)}
+                y={0}
+                width={Math.max(1, x2 - x1)}
+                height={CPU_CHART_HEIGHT}
+                fill="transparent"
+                onMouseEnter={(e) => {
+                    const rect = e.currentTarget.getBoundingClientRect();
+                    onWindowHover(windowIndex, rect.right + 5, rect.top);
+                }}
+                onMouseLeave={onWindowLeave}
+                style={{ cursor: 'pointer' }}
+            />
+        );
+    });
+    if (hoveredWindowIndex !== null) {
+        const hoveredWindow = windows[hoveredWindowIndex];
+        const x1 = viewport.transform(hoveredWindow.startSMT);
+        const x2 = viewport.transform(hoveredWindow.endSMT);
+        elements.push(
+            <rect
+                key={`outline-${hoveredWindowIndex}`}
+                x={Math.max(0, x1) + 0.5}
+                y={0.5}
+                width={Math.max(1, x2 - x1) - 0.5}
+                height={CPU_CHART_HEIGHT - 1}
+                fill="none"
+                stroke="#000"
+                strokeWidth={1}
+                style={{ pointerEvents: 'none' }}
+            />
+        );
+    }
+
+    // Render labels with backdrop
     const labelX = Math.max(0, viewport.transform(windows[0].startSMT)) + 5;
     const chartTypeName = chartMode === 'cpu' ? 'CPU' : 'Dequeue Delay';
     const maxPercent = yMax * 100;
+    const maxLabelText = `${Math.round(maxPercent * 1e6) / 1e6}% (${chartTypeName})`;
 
-    // Max label
+    // Max label with backdrop
     elements.push(
-        <text
-            x={labelX}
-            y={15}
-            fontSize={12}
-            fontFamily="sans-serif"
-            fill="#888"
-            fontWeight="bold"
-        >
-            {Math.round(maxPercent * 1e6) / 1e6}% ({chartTypeName})
-        </text>);
-    // Min label
+        <g key="max-label" style={{ pointerEvents: 'none' }}>
+            <rect
+                x={labelX - 2}
+                y={3}
+                width={maxLabelText.length * 7}
+                height={16}
+                fill="white"
+                opacity={0.7}
+            />
+            <text
+                x={labelX}
+                y={15}
+                fontSize={12}
+                fontFamily="sans-serif"
+                fill="#888"
+                fontWeight="bold"
+            >
+                {maxLabelText}
+            </text>
+        </g>
+    );
+
+    // Min label with backdrop
     elements.push(
-        <text
-            x={labelX}
-            y={CPU_CHART_HEIGHT - 5}
-            fontSize={12}
-            fontFamily="sans-serif"
-            fill="#888"
-            fontWeight="bold"
-        >
-            0%
-        </text>);
+        <g key="min-label" style={{ pointerEvents: 'none' }}>
+            <rect
+                x={labelX - 2}
+                y={CPU_CHART_HEIGHT - 17}
+                width={20}
+                height={16}
+                fill="white"
+                opacity={0.7}
+            />
+            <text
+                x={labelX}
+                y={CPU_CHART_HEIGHT - 5}
+                fontSize={12}
+                fontFamily="sans-serif"
+                fill="#888"
+                fontWeight="bold"
+            >
+                0%
+            </text>
+        </g>
+    );
+
     return elements;
 }

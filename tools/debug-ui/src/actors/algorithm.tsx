@@ -66,9 +66,9 @@ export class Viewport {
 
         // Enforce minimum zoom (maximum span)
         if (newEnd - newStart < this.minZoom) {
-            const center = (newStart + newEnd) / 2;
-            newStart = center - this.minZoom / 2;
-            newEnd = center + this.minZoom / 2;
+            const pivotFraction = (pivotPos - newStart) / (newEnd - newStart);
+            newStart = pivotPos - this.minZoom * pivotFraction;
+            newEnd = pivotPos + this.minZoom * (1 - pivotFraction);
         }
 
         // Constrain to bounds

@@ -181,22 +181,17 @@ export const ActorsView = ({ addr }: ActorsViewProps) => {
                     )}
                 </div>
             </div>
-            <table className="actors-table">
-                <thead>
-                    <tr>
-                        <th>Thread Name</th>
-                        <th>Timeline</th>
-                    </tr>
-                </thead>
-                <tbody>
+            <div className="threads-container">
+                <div className="scroll-space" />
+                <div className="threads">
                     {sortedThreads?.map((thread: InstrumentedThread, idx: number) => (
-                        <tr key={idx}>
-                            <td>{formatThreadName(thread.thread_name)}</td>
-                            <td><ThreadTimeline thread={thread} minTimeMs={minStartTime} messageTypes={thread.message_types} currentTimeMs={currentTimeMs} chartMode={timelineChartMode} yAxisMode={yAxisMode} /></td>
-                        </tr>
+                        <div className="one-thread-row" key={idx}>
+                            <div className="thread-name">{formatThreadName(thread.thread_name)}</div>
+                            <div className="thread-timeline"><ThreadTimeline thread={thread} minTimeMs={minStartTime} messageTypes={thread.message_types} currentTimeMs={currentTimeMs} chartMode={timelineChartMode} yAxisMode={yAxisMode} /></div>
+                        </div>
                     ))}
-                </tbody>
-            </table>
+                </div>
+            </div>
             {/*
             <pre>{JSON.stringify(instrumentedThreads, null, 2)}</pre>
             */}

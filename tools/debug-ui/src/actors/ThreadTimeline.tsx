@@ -4,6 +4,7 @@ import { CPU_CHART_HEIGHT, EVENT_SPACING_PX, GRID_LABEL_TOP_MARGIN, LEGEND_HEIGH
 import { assignRows, EventToDisplay, getEventsToDisplay, makeWindowsToDisplay, MessageTypeAndColorMap, Viewport } from "./algorithm";
 import { renderCpuChart } from "./cpu_chart";
 import { renderGridline } from "./gridline";
+import "./ThreadTimeline.scss";
 
 type ActorsViewProps = {
     thread: InstrumentedThread;
@@ -45,6 +46,7 @@ export const ThreadTimeline = ({ thread, messageTypes, minTimeMs, currentTimeMs,
 
     const [hoveredEvent, setHoveredEvent] = useState<{ event: EventToDisplay, x: number, y: number } | null>(null);
     const [hoveredLegendType, setHoveredLegendType] = useState<number | null>(null);
+    const [hoveredCpuWindow, setHoveredCpuWindow] = useState<{ windowIndex: number, x: number, y: number } | null>(null);
 
     useEffect(() => {
         const svg = svgRef.current;
@@ -68,7 +70,7 @@ export const ThreadTimeline = ({ thread, messageTypes, minTimeMs, currentTimeMs,
             ref={svgRef}
             width={VIEWPORT_WIDTH}
             height={svgHeight}
-            style={{ border: "1px solid black", backgroundColor: "white" }}
+            style={{ backgroundColor: "white", borderTop: "1px solid #666", borderBottom: "1px solid #666" }}
             onMouseMove={(e) => {
                 if (e.buttons === 1) {
                     setViewport(viewport.pan(-e.movementX));
@@ -84,6 +86,9 @@ export const ThreadTimeline = ({ thread, messageTypes, minTimeMs, currentTimeMs,
                     colorMap,
                     viewport,
                     hoveredLegendType,
+                    hoveredWindowIndex: hoveredCpuWindow?.windowIndex ?? null,
+                    onWindowHover: (windowIndex, x, y) => setHoveredCpuWindow({ windowIndex, x, y }),
+                    onWindowLeave: () => setHoveredCpuWindow(null),
                 })}
             </g>
 
@@ -233,7 +238,7 @@ export const ThreadTimeline = ({ thread, messageTypes, minTimeMs, currentTimeMs,
                 <g transform={`translate(0, ${chartHeight + LEGEND_VERTICAL_MARGIN})`}>
                     {colorMap.map((typeId, name, color, index) => {
                         const x = (index % 5) * 200;
-                        const y = Math.floor(index / 5) * 25;
+                        const y = Math.floor(index / 5) * LEGEND_HEIGHT_PER_ROW;
                         const isHovered = hoveredLegendType === typeId;
                         const isDimmed = hoveredLegendType !== null && !isHovered;
 
@@ -247,9 +252,9 @@ export const ThreadTimeline = ({ thread, messageTypes, minTimeMs, currentTimeMs,
                                 opacity={isDimmed ? 0.3 : 1}
                             >
                                 {/* Backdrop for larger hover area */}
-                                <rect x={12} y={0} width={180} height={20} fill="transparent" />
-                                <line x1={16} y1={9} x2={24} y2={9} stroke={color} strokeWidth={LINE_STROKE_WIDTH} strokeLinecap="round" />
-                                <text x={36} y={13} fontSize={10} fontFamily="sans-serif">{name}</text>
+                                <rect x={0} y={0} width={200} height={LEGEND_HEIGHT_PER_ROW} fill="transparent" />
+                                <line x1={16} y1={LEGEND_HEIGHT_PER_ROW / 2} x2={24} y2={LEGEND_HEIGHT_PER_ROW / 2} stroke={color} strokeWidth={LINE_STROKE_WIDTH} strokeLinecap="round" />
+                                <text x={36} y={LEGEND_HEIGHT_PER_ROW / 2 + 4} fontSize={10} fontFamily="sans-serif">{name}</text>
                             </g>
                         );
                     })}
@@ -257,22 +262,13 @@ export const ThreadTimeline = ({ thread, messageTypes, minTimeMs, currentTimeMs,
             )}
         </svg>
 
-        {/* Tooltip */}
+        {/* Event Tooltip */}
         {hoveredEvent && (
             <div
+                className="tooltip event-tooltip"
                 style={{
-                    position: 'fixed',
                     left: hoveredEvent.x,
-                    top: hoveredEvent.y,
-                    backgroundColor: 'rgba(0, 0, 0, 0.9)',
-                    color: 'white',
-                    padding: '8px 12px',
-                    borderRadius: '4px',
-                    fontSize: '12px',
-                    pointerEvents: 'none',
-                    zIndex: 1000,
-                    whiteSpace: 'nowrap',
-                    boxShadow: '0 2px 8px rgba(0,0,0,0.3)'
+                    top: hoveredEvent.y
                 }}
             >
                 <div><strong>{colorMap.get(hoveredEvent.event.typeId).name}</strong></div>
@@ -281,5 +277,69 @@ export const ThreadTimeline = ({ thread, messageTypes, minTimeMs, currentTimeMs,
                 <div>End: {hoveredEvent.event.endSMT.toFixed(2)} ms</div>
             </div>
         )}
+
+        {/* CPU Window Tooltip */}
+        {hoveredCpuWindow && (() => {
+            const window = windows[hoveredCpuWindow.windowIndex];
+            const summary = chartMode === 'cpu' ? window.summary : window.dequeueSummary;
+            const windowDurationMs = window.endSMT - window.startSMT;
+
+            // Calculate total and build list of types
+            const totalTimeNs = summary.message_stats_by_type.reduce((sum, stat) => sum + stat.total_time_ns, 0);
+            const totalMs = totalTimeNs / 1e6;
+            const totalPercent = (totalMs / windowDurationMs) * 100;
+            const totalCount = summary.message_stats_by_type.reduce((sum, stat) => sum + stat.count, 0);
+            const idleMs = windowDurationMs - totalMs;
+            const idlePercent = (idleMs / windowDurationMs) * 100;
+
+            return (
+                <div
+                    className="tooltip"
+                    style={{
+                        left: hoveredCpuWindow.x,
+                        top: hoveredCpuWindow.y
+                    }}
+                >
+                    <div className="tooltip-title"><strong>Window {hoveredCpuWindow.windowIndex}</strong></div>
+                    <table>
+                        <thead>
+                            <tr>
+                                <th className="align-left">Type</th>
+                                <th className="align-right">Count</th>
+                                <th className="align-right">Time (ms)</th>
+                                <th className="align-right">%</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {summary.message_stats_by_type.map(stat => {
+                                const typeMs = stat.total_time_ns / 1e6;
+                                const typePercent = (typeMs / windowDurationMs) * 100;
+                                const typeName = colorMap.get(stat.message_type).name;
+                                return (
+                                    <tr key={stat.message_type}>
+                                        <td>{typeName}</td>
+                                        <td className="align-right">{stat.count}</td>
+                                        <td className="align-right">{typeMs.toFixed(2)}</td>
+                                        <td className="align-right">{typePercent.toFixed(1)}%</td>
+                                    </tr>
+                                );
+                            })}
+                            <tr className="bordered">
+                                <td><strong>Total</strong></td>
+                                <td className="align-right"><strong>{totalCount}</strong></td>
+                                <td className="align-right"><strong>{totalMs.toFixed(2)}</strong></td>
+                                <td className="align-right"><strong>{totalPercent.toFixed(1)}%</strong></td>
+                            </tr>
+                            <tr>
+                                <td className="top-padding">Idle</td>
+                                <td className="align-right top-padding">-</td>
+                                <td className="align-right top-padding">{idleMs.toFixed(2)}</td>
+                                <td className="align-right top-padding">{idlePercent.toFixed(1)}%</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            );
+        })()}
     </>);
 };
