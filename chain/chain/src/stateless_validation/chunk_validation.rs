@@ -30,7 +30,7 @@ use near_primitives::shard_layout::{ShardLayout, ShardUId};
 use near_primitives::sharding::{ChunkHash, ReceiptProof, ShardChunkHeader};
 use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::stateless_validation::state_witness::{
-    ChunkStateWitness, ChunkStateWitnessV1, EncodedChunkStateWitness,
+    ChunkStateWitness, EncodedChunkStateWitness,
 };
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{AccountId, ShardId, ShardIndex};
@@ -848,14 +848,7 @@ impl Chain {
                     .with_label_values(&[shard_id_label.as_str()])
                     .start_timer();
 
-            let protocol_version = self
-                .epoch_manager
-                .get_epoch_protocol_version(&witness.chunk_production_key().epoch_id)?;
-            if ProtocolFeature::VersionedStateWitness.enabled(protocol_version) {
-                let _witness: ChunkStateWitness = encoded_witness.decode()?.0;
-            } else {
-                let _witness: ChunkStateWitnessV1 = encoded_witness.decode()?.0;
-            };
+            let _witness: ChunkStateWitness = encoded_witness.decode()?.0;
             decode_timer.observe_duration();
             (encoded_witness, raw_witness_size)
         };
