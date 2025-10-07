@@ -2811,7 +2811,8 @@ pub fn set_state_init_data_entry(
         ActionCosts::deterministic_state_init_entry,
         sir,
     )?;
-    let bytes = key_len.checked_add(value_len).ok_or(HostError::IntegerOverflow)?;
+    let bytes =
+        (key.len() as u64).checked_add(value.len() as u64).ok_or(HostError::IntegerOverflow)?;
     pay_action_per_byte(
         &mut ctx.result_state.gas_counter,
         &ctx.fees_config,
