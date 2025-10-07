@@ -43,11 +43,41 @@ export const ThreadTimeline = ({ thread, messageTypes, minTimeMs, currentTimeMs,
     const eventsTop = gridTop + 10;
     const chartHeight = eventsTop + (maxRow + 1) * (ROW_HEIGHT + ROW_PADDING) + 10;
 
-    // Calculate legend columns based on available width
-    const legendItemWidth = 200;
-    const legendColumns = Math.max(1, Math.floor(svgWidth / legendItemWidth));
-    const legendRows = colorMap.size > 0 ? Math.ceil(colorMap.size / legendColumns) : 0;
-    const legendHeight = legendRows > 0 ? LEGEND_VERTICAL_MARGIN * 2 + LEGEND_HEIGHT_PER_ROW * legendRows : 0;
+    // Calculate legend layout based on text widths
+    const legendItems = useMemo(() => {
+        const items: { typeId: number, name: string, color: string, width: number }[] = [];
+        colorMap.map((typeId, name, color) => {
+            // Approximate width: 7px per character + 40px for color indicator and padding
+            const width = Math.max(100, name.length * 7 + 40);
+            items.push({ typeId, name, color, width });
+        });
+        return items;
+    }, [colorMap]);
+
+    const { legendRows, legendHeight, legendLayout } = useMemo(() => {
+        if (legendItems.length === 0) {
+            return { legendRows: 0, legendHeight: 0, legendLayout: [] };
+        }
+
+        // Greedy bin packing: fill rows left to right
+        const layout: { x: number, y: number, width: number }[] = [];
+        let currentRow = 0;
+        let currentX = 0;
+
+        legendItems.forEach((item) => {
+            if (currentX + item.width > svgWidth && currentX > 0) {
+                // Move to next row
+                currentRow++;
+                currentX = 0;
+            }
+            layout.push({ x: currentX, y: currentRow * LEGEND_HEIGHT_PER_ROW, width: item.width });
+            currentX += item.width;
+        });
+
+        const rows = currentRow + 1;
+        const height = LEGEND_VERTICAL_MARGIN * 2 + LEGEND_HEIGHT_PER_ROW * rows;
+        return { legendRows: rows, legendHeight: height, legendLayout: layout };
+    }, [legendItems, svgWidth]);
 
     const svgHeight = chartHeight + legendHeight;
 
@@ -262,25 +292,24 @@ export const ThreadTimeline = ({ thread, messageTypes, minTimeMs, currentTimeMs,
             {/* Legend */}
             {legendHeight > 0 && (
                 <g transform={`translate(0, ${chartHeight + LEGEND_VERTICAL_MARGIN})`}>
-                    {colorMap.map((typeId, name, color, index) => {
-                        const x = (index % legendColumns) * legendItemWidth;
-                        const y = Math.floor(index / legendColumns) * LEGEND_HEIGHT_PER_ROW;
-                        const isHovered = hoveredLegendType === typeId;
+                    {legendItems.map((item, index) => {
+                        const layout = legendLayout[index];
+                        const isHovered = hoveredLegendType === item.typeId;
                         const isDimmed = hoveredLegendType !== null && !isHovered;
 
                         return (
                             <g
-                                key={typeId}
-                                transform={`translate(${x}, ${y})`}
-                                onMouseEnter={() => setHoveredLegendType(typeId)}
+                                key={item.typeId}
+                                transform={`translate(${layout.x}, ${layout.y})`}
+                                onMouseEnter={() => setHoveredLegendType(item.typeId)}
                                 onMouseLeave={() => setHoveredLegendType(null)}
                                 style={{ cursor: 'pointer' }}
                                 opacity={isDimmed ? 0.3 : 1}
                             >
                                 {/* Backdrop for larger hover area */}
-                                <rect x={0} y={0} width={legendItemWidth} height={LEGEND_HEIGHT_PER_ROW} fill="transparent" />
-                                <line x1={16} y1={LEGEND_HEIGHT_PER_ROW / 2} x2={24} y2={LEGEND_HEIGHT_PER_ROW / 2} stroke={color} strokeWidth={LINE_STROKE_WIDTH} strokeLinecap="round" />
-                                <text x={36} y={LEGEND_HEIGHT_PER_ROW / 2 + 4} fontSize={10} fontFamily="sans-serif">{name}</text>
+                                <rect x={0} y={0} width={layout.width} height={LEGEND_HEIGHT_PER_ROW} fill="transparent" />
+                                <line x1={16} y1={LEGEND_HEIGHT_PER_ROW / 2} x2={24} y2={LEGEND_HEIGHT_PER_ROW / 2} stroke={item.color} strokeWidth={LINE_STROKE_WIDTH} strokeLinecap="round" />
+                                <text x={36} y={LEGEND_HEIGHT_PER_ROW / 2 + 4} fontSize={10} fontFamily="sans-serif">{item.name}</text>
                             </g>
                         );
                     })}
