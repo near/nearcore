@@ -3,7 +3,7 @@ use near_chain_configs::Genesis;
 use near_parameters::RuntimeConfigStore;
 use near_primitives::transaction::{Action, DeployContractAction, SignedTransaction};
 use near_primitives::types::{AccountId, Balance};
-use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
+use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::FinalExecutionStatus;
 
 /// Tests if the maximum allowed contract can be deployed with current gas limits
@@ -54,9 +54,7 @@ fn test_deploy_max_size_contract() {
         )
         .unwrap();
     assert_eq!(transaction_result.status, FinalExecutionStatus::SuccessValue(Vec::new()));
-    let num_expected_receipts =
-        if ProtocolFeature::ReducedGasRefunds.enabled(PROTOCOL_VERSION) { 1 } else { 2 };
-    assert_eq!(transaction_result.receipts_outcome.len(), num_expected_receipts);
+    assert_eq!(transaction_result.receipts_outcome.len(), 1);
 
     // Deploy contract
     let wasm_binary = near_test_contracts::sized_contract(contract_size as usize);

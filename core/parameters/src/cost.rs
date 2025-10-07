@@ -2,7 +2,6 @@ use crate::parameter::Parameter;
 use enum_map::{EnumMap, enum_map};
 use near_account_id::AccountType;
 use near_primitives_core::types::{Balance, Compute, Gas};
-use near_primitives_core::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_schema_checker_lib::ProtocolSchema;
 use num_rational::Rational32;
 
@@ -494,18 +493,9 @@ impl RuntimeFeesConfig {
             storage_usage_config: StorageUsageConfig::test(),
             burnt_gas_reward: Rational32::new(3, 10),
             pessimistic_gas_price_inflation_ratio: Rational32::new(103, 100),
-            refund_gas_price_changes: !ProtocolFeature::ReducedGasRefunds.enabled(PROTOCOL_VERSION),
-            gas_refund_penalty: if ProtocolFeature::ReducedGasRefunds.enabled(PROTOCOL_VERSION) {
-                Rational32::new(5, 100)
-            } else {
-                Rational32::new(0, 100)
-            },
-            min_gas_refund_penalty: if ProtocolFeature::ReducedGasRefunds.enabled(PROTOCOL_VERSION)
-            {
-                Gas::from_teragas(1)
-            } else {
-                Gas::ZERO
-            },
+            refund_gas_price_changes: false,
+            gas_refund_penalty: Rational32::new(5, 100),
+            min_gas_refund_penalty: Gas::from_teragas(1),
             action_fees: enum_map::enum_map! {
                 ActionCosts::create_account => Fee::test_value(3_850_000_000_000),
                 ActionCosts::delete_account => Fee::test_value(147489000000),
@@ -542,7 +532,7 @@ impl RuntimeFeesConfig {
             storage_usage_config: StorageUsageConfig::free(),
             burnt_gas_reward: Rational32::from_integer(0),
             pessimistic_gas_price_inflation_ratio: Rational32::from_integer(0),
-            refund_gas_price_changes: !ProtocolFeature::ReducedGasRefunds.enabled(PROTOCOL_VERSION),
+            refund_gas_price_changes: false,
             gas_refund_penalty: Rational32::from_integer(0),
             min_gas_refund_penalty: Gas::ZERO,
         }

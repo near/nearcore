@@ -1,6 +1,5 @@
 use crate::node::{Node, RuntimeNode};
 use near_primitives::types::{Balance, Gas};
-use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_primitives::views::FinalExecutionStatus;
 
 /// Initial balance used in tests.
@@ -22,9 +21,7 @@ fn setup_test_contract(wasm_binary: &[u8]) -> RuntimeNode {
         )
         .unwrap();
     assert_eq!(transaction_result.status, FinalExecutionStatus::SuccessValue(Vec::new()));
-    let num_expected_receipts =
-        if ProtocolFeature::ReducedGasRefunds.enabled(PROTOCOL_VERSION) { 1 } else { 2 };
-    assert_eq!(transaction_result.receipts_outcome.len(), num_expected_receipts);
+    assert_eq!(transaction_result.receipts_outcome.len(), 1);
 
     let transaction_result = node_user
         .deploy_contract("test_contract.alice.near".parse().unwrap(), wasm_binary.to_vec())
