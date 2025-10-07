@@ -6,12 +6,14 @@ use crate::trie::ops::interface::{
 use crate::trie::{AccessOptions, NUM_CHILDREN};
 use crate::{NibbleSlice, Trie};
 use derive_where::derive_where;
-use itertools::Itertools;
+use near_primitives::account::id::ParseAccountError;
+use near_primitives::errors::StorageError;
 use near_primitives::trie_key::col::{ACCESS_KEY, ACCOUNT, CONTRACT_CODE, CONTRACT_DATA};
 use near_primitives::types::AccountId;
 use smallvec::SmallVec;
 use std::fmt::Debug;
 use std::marker::PhantomData;
+use thiserror::Error;
 
 const MAX_NIBBLES: usize = AccountId::MAX_LEN * 2;
 // The order of subtrees matters - accounts must go first (!)
@@ -19,6 +21,22 @@ const MAX_NIBBLES: usize = AccountId::MAX_LEN * 2;
 // Chunks are split by account IDs, not arbitrary byte sequences. Therefore, also make sure
 // not to add any subtrees here that do not use account ID as key (or key prefix).
 const SUBTREES: [u8; 4] = [ACCOUNT, CONTRACT_CODE, ACCESS_KEY, CONTRACT_DATA];
+
+#[derive(Error, Debug)]
+pub enum SplitError {
+    #[error(transparent)]
+    Storage(#[from] StorageError),
+    #[error("no root in trie")]
+    NoRoot,
+    #[error("key in the trie is not a valid account ID (too short or odd length). nibbles: {0:?}")]
+    InvalidKey(Vec<u8>),
+    #[error("split key is not valid UTF-8 string")]
+    Utf8(#[from] std::str::Utf8Error),
+    #[error("split key is not a valid account ID")]
+    AccountId(#[from] ParseAccountError),
+}
+
+type SplitResult<T> = Result<T, SplitError>;
 
 /// This represents a descent stage of a single subtree (e.g. accounts or access keys)
 /// in a descent that involves multiple subtrees.
@@ -92,25 +110,29 @@ impl<NodePtr: Debug + Copy> TrieDescentStage<NodePtr> {
         }
     }
 
-    fn children_memory_usage<Value, Getter>(&self, get_node: Getter) -> [u64; NUM_CHILDREN]
+    fn children_memory_usage<Value, Getter>(
+        &self,
+        get_node: Getter,
+    ) -> SplitResult<[u64; NUM_CHILDREN]>
     where
-        Getter: Fn(NodePtr) -> GenericTrieNodeWithSize<NodePtr, Value>,
+        Getter: Fn(NodePtr) -> Result<GenericTrieNodeWithSize<NodePtr, Value>, StorageError>,
     {
+        let mut result = [0; NUM_CHILDREN];
         match self {
-            Self::CutOff | Self::AtLeaf { .. } => [0; NUM_CHILDREN],
+            Self::CutOff | Self::AtLeaf { .. } => {}
             Self::InsideExtension { memory_usage, remaining_nibbles, .. } => {
                 let next_nibble = remaining_nibbles[0];
-                let mut result = [0; NUM_CHILDREN];
                 result[next_nibble as usize] = *memory_usage;
-                result
             }
-            Self::AtBranch { children, .. } => children
-                .iter()
-                .map(|child| child.map(|child| get_node(child).memory_usage).unwrap_or_default())
-                .collect_vec()
-                .try_into()
-                .unwrap(),
+            Self::AtBranch { children, .. } => {
+                for i in 0..NUM_CHILDREN {
+                    if let Some(child) = children[i] {
+                        result[i] = get_node(child)?.memory_usage;
+                    }
+                }
+            }
         }
+        Ok(result)
     }
 
     fn can_descend(&self) -> bool {
@@ -135,9 +157,9 @@ impl<NodePtr: Debug + Copy> TrieDescentStage<NodePtr> {
         }
     }
 
-    fn descend<Value, Getter>(&mut self, nibble: u8, get_node: Getter)
+    fn descend<Value, Getter>(&mut self, nibble: u8, get_node: Getter) -> SplitResult<()>
     where
-        Getter: Fn(NodePtr) -> GenericTrieNodeWithSize<NodePtr, Value>,
+        Getter: Fn(NodePtr) -> Result<GenericTrieNodeWithSize<NodePtr, Value>, StorageError>,
     {
         tracing::trace!(target = "memtrie", ?self, %nibble, "descending");
         match self {
@@ -148,20 +170,25 @@ impl<NodePtr: Debug + Copy> TrieDescentStage<NodePtr> {
                     remaining_nibbles.remove(0);
                 } else {
                     *self = Self::CutOff;
-                    return;
+                    return Ok(());
                 }
 
                 if remaining_nibbles.is_empty() {
                     match child {
                         None => *self = Self::AtLeaf { memory_usage: *memory_usage },
-                        Some(child) => *self = get_node(*child).into(),
+                        Some(child) => *self = get_node(*child)?.into(),
                     }
                 }
             }
             Self::AtBranch { children, .. } => {
-                *self = children[nibble as usize].map(get_node).into()
+                if let Some(child) = children[nibble as usize] {
+                    *self = get_node(child)?.into();
+                } else {
+                    *self = Self::CutOff;
+                }
             }
         }
+        Ok(())
     }
 }
 
@@ -190,22 +217,22 @@ where
     NodePtr: Debug + Copy,
     Storage: GenericTrieInternalStorage<NodePtr, Value>,
 {
-    pub fn new(trie_storage: Storage) -> Self {
-        let root_ptr = trie_storage.get_root().expect("no root in trie");
-        let get_node = |ptr| trie_storage.get_node_with_size(ptr, AccessOptions::DEFAULT).unwrap();
+    pub fn new(trie_storage: Storage) -> SplitResult<Self> {
+        let root_ptr = trie_storage.get_root().ok_or(SplitError::NoRoot)?;
+        let get_node = |ptr| trie_storage.get_node_with_size(ptr, AccessOptions::DEFAULT);
         let mut subtree_stages = SmallVec::new();
         let mut middle_memory = 0;
 
         for subtree_key in SUBTREES {
-            let mut subtree_stage: TrieDescentStage<NodePtr> = get_node(root_ptr).into();
+            let mut subtree_stage: TrieDescentStage<NodePtr> = get_node(root_ptr)?.into();
             let (nib1, nib2) = byte_to_nibbles(subtree_key);
-            subtree_stage.descend(nib1, get_node);
-            subtree_stage.descend(nib2, get_node);
+            subtree_stage.descend(nib1, get_node)?;
+            subtree_stage.descend(nib2, get_node)?;
             middle_memory += subtree_stage.current_node_memory_usage();
             subtree_stages.push(subtree_stage);
         }
 
-        Self {
+        Ok(Self {
             _phantom: PhantomData,
             trie_storage,
             subtree_stages,
@@ -213,7 +240,7 @@ where
             left_memory: 0,
             right_memory: 0,
             middle_memory,
-        }
+        })
     }
 
     fn total_memory(&self) -> u64 {
@@ -221,30 +248,29 @@ where
     }
 
     /// Aggregate children memory usage across all subtrees
-    fn aggregate_children_mem_usage(&self) -> [u64; NUM_CHILDREN] {
-        let get_node =
-            |ptr| self.trie_storage.get_node_with_size(ptr, AccessOptions::DEFAULT).unwrap();
+    fn aggregate_children_mem_usage(&self) -> SplitResult<[u64; NUM_CHILDREN]> {
+        let get_node = |ptr| self.trie_storage.get_node_with_size(ptr, AccessOptions::DEFAULT);
         let mut children_mem_usage = [0u64; NUM_CHILDREN];
         for subtree in &self.subtree_stages {
-            let subtree_children = subtree.children_memory_usage(get_node);
+            let subtree_children = subtree.children_memory_usage(get_node)?;
             for i in 0..NUM_CHILDREN {
                 children_mem_usage[i] += subtree_children[i];
             }
         }
-        children_mem_usage
+        Ok(children_mem_usage)
     }
 
     /// Find the key (nibbles) which splits the trie into two parts with possibly equal
     /// memory usage. Returns the key and the memory usage of the left and right part.
-    pub fn find_mem_usage_split(mut self) -> TrieSplit {
-        while let Some((nibble, child_mem_usage, left_mem_usage)) = self.next_step() {
-            self.descend_step(nibble, child_mem_usage, left_mem_usage);
+    pub fn find_mem_usage_split(mut self) -> SplitResult<TrieSplit> {
+        while let Some((nibble, child_mem_usage, left_mem_usage)) = self.next_step()? {
+            self.descend_step(nibble, child_mem_usage, left_mem_usage)?;
         }
 
         // The split path needs to be convertible into an account ID. Therefore, it has to be
         // at least 2 bytes long, and include an even number of nibbles.
         while self.nibbles.len() < AccountId::MIN_LEN * 2 || self.nibbles.len() % 2 != 0 {
-            self.force_next_step();
+            self.force_next_step()?;
         }
 
         // `middle_memory` is added to `right_memory`, because the boundary belongs to the right part.
@@ -260,7 +286,7 @@ where
         let split2 =
             TrieSplit::new(self.nibbles, self.left_memory + self.middle_memory, self.right_memory);
 
-        if split1.mem_diff() <= split2.mem_diff() { split1 } else { split2 }
+        if split1.mem_diff() <= split2.mem_diff() { Ok(split1) } else { Ok(split2) }
     }
 
     /// Find the next step `(nibble, child_mem_usage, left_mem_usage)`.
@@ -268,11 +294,11 @@ where
     ///     * `child_mem_usage` – memory usage of the middle child
     ///     * `left_mem_usage` – total memory usage of left siblings of the middle child
     /// Returns `None` if the end of the searched is reached.
-    fn next_step(&self) -> Option<(u8, u64, u64)> {
+    fn next_step(&self) -> SplitResult<Option<(u8, u64, u64)>> {
         // Stop when a leaf is reached in the accounts subtree
         if !self.subtree_stages[0].can_descend() {
             tracing::debug!(target = "memtrie", "leaf reached in accounts subtree");
-            return None;
+            return Ok(None);
         }
 
         // Total memory is constant. Left memory is initially 0. With every step, left memory
@@ -281,30 +307,39 @@ where
         debug_assert!(self.total_memory() / 2 >= self.left_memory);
         let threshold = self.total_memory() / 2 - self.left_memory;
 
-        let children_mem_usage = self.aggregate_children_mem_usage();
+        let children_mem_usage = self.aggregate_children_mem_usage()?;
 
         // Find the middle child
         tracing::debug!(target = "memtrie", ?children_mem_usage, %threshold, "finding middle child");
-        let (middle_child, left_mem_usage) = find_middle_child(&children_mem_usage, threshold)?;
+        let Some((middle_child, left_mem_usage)) =
+            find_middle_child(&children_mem_usage, threshold)
+        else {
+            return Ok(None);
+        };
         let child_mem_usage = children_mem_usage[middle_child];
         tracing::debug!(target = "memtrie", %middle_child, %child_mem_usage, %left_mem_usage, "middle child found");
 
-        Some((middle_child as u8, child_mem_usage, left_mem_usage))
+        Ok(Some((middle_child as u8, child_mem_usage, left_mem_usage)))
     }
 
     /// Force descent into the first available child. This is done to ensure the correct length
     /// of the split path, even though further descent will not improve the memory usage balance.
-    fn force_next_step(&mut self) {
-        let children_mem_usage = self.aggregate_children_mem_usage();
+    fn force_next_step(&mut self) -> SplitResult<()> {
+        let children_mem_usage = self.aggregate_children_mem_usage()?;
         let first_child = self.subtree_stages[0]
             .first_child()
-            .expect("no child to force descend – the keys are expected to be account IDs");
+            .ok_or_else(|| SplitError::InvalidKey(self.nibbles.to_vec()))?;
         let child_mem_usage = children_mem_usage[first_child as usize];
         let left_mem_usage = children_mem_usage[0..first_child as usize].iter().sum();
-        self.descend_step(first_child, child_mem_usage, left_mem_usage);
+        self.descend_step(first_child, child_mem_usage, left_mem_usage)
     }
 
-    fn descend_step(&mut self, nibble: u8, child_mem_usage: u64, left_mem_usage: u64) {
+    fn descend_step(
+        &mut self,
+        nibble: u8,
+        child_mem_usage: u64,
+        left_mem_usage: u64,
+    ) -> SplitResult<()> {
         // Update left, right, and middle memory
         self.left_memory += left_mem_usage;
         self.right_memory += self.middle_memory - left_mem_usage - child_mem_usage;
@@ -312,13 +347,13 @@ where
         tracing::debug!(target = "memtrie", %self.left_memory, %self.right_memory, %self.middle_memory, "remaining memory updated");
 
         // Update descent stages for all subtrees
-        let get_node =
-            |ptr| self.trie_storage.get_node_with_size(ptr, AccessOptions::DEFAULT).unwrap();
+        let get_node = |ptr| self.trie_storage.get_node_with_size(ptr, AccessOptions::DEFAULT);
         for stage in &mut self.subtree_stages {
-            stage.descend(nibble, get_node);
+            stage.descend(nibble, get_node)?;
         }
         self.nibbles.push(nibble);
         tracing::debug!(target = "memtrie", ?self.nibbles, nibble_str = String::from_utf8_lossy(&nibbles_to_bytes(&self.nibbles)).to_string(), "nibbles updated");
+        Ok(())
     }
 }
 
@@ -381,8 +416,9 @@ impl TrieSplit {
     }
 
     // Parse the split path into `AccountId`. Panics if parsing fails.
-    pub fn boundary_account(&self) -> AccountId {
-        std::str::from_utf8(&self.split_path_bytes()).unwrap().parse().unwrap()
+    pub fn boundary_account(&self) -> SplitResult<AccountId> {
+        let account_id = std::str::from_utf8(&self.split_path_bytes())?.parse()?;
+        Ok(account_id)
     }
 
     /// Get absolute difference between right and left memory
@@ -406,15 +442,15 @@ fn nibbles_to_bytes(nibbles: &[u8]) -> Vec<u8> {
     nibbles.chunks_exact(2).map(|pair| (pair[0] << 4) | pair[1]).collect()
 }
 
-pub fn find_trie_split(trie: &Trie) -> TrieSplit {
+pub fn find_trie_split(trie: &Trie) -> SplitResult<TrieSplit> {
     match trie.lock_memtries() {
         Some(memtries) => {
             let trie_storage = MemTrieIteratorInner::new(&memtries, trie);
-            TrieDescent::new(trie_storage).find_mem_usage_split()
+            TrieDescent::new(trie_storage)?.find_mem_usage_split()
         }
         None => {
             let trie_storage = DiskTrieIteratorInner::new(trie);
-            TrieDescent::new(trie_storage).find_mem_usage_split()
+            TrieDescent::new(trie_storage)?.find_mem_usage_split()
         }
     }
 }
@@ -504,17 +540,19 @@ mod tests {
 
     impl ToDescentStage for MemTrieNodeId {
         fn to_descent_stage(&self, arena: &STArena) -> TrieDescentStage<MemTrieNodeId> {
-            get_node(arena)(*self).into()
+            get_node(arena)(*self).unwrap().into()
         }
     }
 
-    fn get_node_stub<P>(_: P) -> GenericTrieNodeWithSize<P, ()> {
+    fn get_node_stub<P>(_: P) -> Result<GenericTrieNodeWithSize<P, ()>, StorageError> {
         unreachable!()
     }
 
-    fn get_node(arena: &STArena) -> impl Fn(MemTrieNodeId) -> MemTrieNodeWithSize {
+    fn get_node(
+        arena: &STArena,
+    ) -> impl Fn(MemTrieNodeId) -> Result<MemTrieNodeWithSize, StorageError> {
         |node_id| {
-            MemTrieNodeWithSize::from_existing_node_view(node_id.as_ptr(arena.memory()).view())
+            Ok(MemTrieNodeWithSize::from_existing_node_view(node_id.as_ptr(arena.memory()).view()))
         }
     }
 
@@ -526,7 +564,10 @@ mod tests {
         fn cut_off() {
             let descent_stage = TrieDescentStage::<()>::CutOff;
             assert_eq!(descent_stage.current_node_memory_usage(), 0);
-            assert_eq!(descent_stage.children_memory_usage(get_node_stub), [0u64; NUM_CHILDREN]);
+            assert_eq!(
+                descent_stage.children_memory_usage(get_node_stub).unwrap(),
+                [0u64; NUM_CHILDREN]
+            );
         }
 
         #[test]
@@ -535,19 +576,28 @@ mod tests {
 
             let empty_leaf = new_leaf(&mut arena, &[], &[]).to_descent_stage(&arena);
             assert_eq!(empty_leaf.current_node_memory_usage(), EMPTY_LEAF_MEM);
-            assert_eq!(empty_leaf.children_memory_usage(get_node_stub), [0u64; NUM_CHILDREN]);
+            assert_eq!(
+                empty_leaf.children_memory_usage(get_node_stub).unwrap(),
+                [0u64; NUM_CHILDREN]
+            );
 
             let nonempty_leaf = new_leaf(&mut arena, &[], &[1, 2, 3]).to_descent_stage(&arena);
             let exp_memory = EMPTY_LEAF_MEM + TRIE_COSTS.byte_of_value * 3;
             assert_eq!(nonempty_leaf.current_node_memory_usage(), exp_memory);
-            assert_eq!(nonempty_leaf.children_memory_usage(get_node_stub), [0u64; NUM_CHILDREN]);
+            assert_eq!(
+                nonempty_leaf.children_memory_usage(get_node_stub).unwrap(),
+                [0u64; NUM_CHILDREN]
+            );
 
             let extension_leaf = new_leaf(&mut arena, &[1, 2], &[]).to_descent_stage(&arena);
             let exp_memory = EMPTY_LEAF_MEM + TRIE_COSTS.byte_of_key * 2;
             let mut exp_children_mem = [0u64; NUM_CHILDREN];
             exp_children_mem[1] = exp_memory; // The first nibble in extension is '1'
             assert_eq!(extension_leaf.current_node_memory_usage(), exp_memory);
-            assert_eq!(extension_leaf.children_memory_usage(get_node_stub), exp_children_mem);
+            assert_eq!(
+                extension_leaf.children_memory_usage(get_node_stub).unwrap(),
+                exp_children_mem
+            );
         }
 
         #[test]
@@ -561,7 +611,7 @@ mod tests {
             let mut exp_children_mem = [0u64; NUM_CHILDREN];
             exp_children_mem[4] = exp_memory; // The first nibble in extension is '4'
             assert_eq!(extension.current_node_memory_usage(), exp_memory);
-            assert_eq!(extension.children_memory_usage(get_node_stub), exp_children_mem);
+            assert_eq!(extension.children_memory_usage(get_node_stub).unwrap(), exp_children_mem);
         }
 
         #[test]
@@ -570,7 +620,10 @@ mod tests {
 
             let empty_branch = new_branch(&mut arena, None, [None; 16]).to_descent_stage(&arena);
             assert_eq!(empty_branch.current_node_memory_usage(), TRIE_COSTS.node_cost);
-            assert_eq!(empty_branch.children_memory_usage(get_node_stub), [0u64; NUM_CHILDREN]);
+            assert_eq!(
+                empty_branch.children_memory_usage(get_node_stub).unwrap(),
+                [0u64; NUM_CHILDREN]
+            );
 
             let branch_with_value =
                 new_branch(&mut arena, Some(&[1, 2, 3]), [None; 16]).to_descent_stage(&arena);
@@ -578,7 +631,7 @@ mod tests {
             let exp_memory = TRIE_COSTS.node_cost * 2 + TRIE_COSTS.byte_of_value * 3;
             assert_eq!(branch_with_value.current_node_memory_usage(), exp_memory);
             assert_eq!(
-                branch_with_value.children_memory_usage(get_node_stub),
+                branch_with_value.children_memory_usage(get_node_stub).unwrap(),
                 [0u64; NUM_CHILDREN]
             );
 
@@ -597,7 +650,7 @@ mod tests {
             exp_children_mem[5] = leaf2_mem;
             assert_eq!(branch_with_children.current_node_memory_usage(), exp_memory);
             assert_eq!(
-                branch_with_children.children_memory_usage(get_node(&arena)),
+                branch_with_children.children_memory_usage(get_node(&arena)).unwrap(),
                 exp_children_mem
             );
         }
@@ -608,58 +661,63 @@ mod tests {
         use super::*;
 
         #[test]
-        fn cut_off() {
+        fn cut_off() -> anyhow::Result<()> {
             let mut descent_stage = TrieDescentStage::<()>::CutOff;
             assert!(!descent_stage.can_descend());
-            descent_stage.descend(0, get_node_stub);
+            descent_stage.descend(0, get_node_stub)?;
             assert_matches!(descent_stage, TrieDescentStage::CutOff);
+            Ok(())
         }
 
         #[test]
-        fn leaf() {
+        fn leaf() -> anyhow::Result<()> {
             let mut arena = STArena::new("test".to_string());
 
             let mut empty_leaf = new_leaf(&mut arena, &[], &[]).to_descent_stage(&arena);
             assert!(!empty_leaf.can_descend());
-            empty_leaf.descend(0, get_node_stub);
+            empty_leaf.descend(0, get_node_stub)?;
             assert_matches!(empty_leaf, TrieDescentStage::CutOff);
 
             let mut leaf_with_extension =
                 new_leaf(&mut arena, &[1, 2], &[]).to_descent_stage(&arena);
             assert!(leaf_with_extension.can_descend());
-            leaf_with_extension.descend(1, get_node_stub);
+            leaf_with_extension.descend(1, get_node_stub)?;
             assert_matches!(&leaf_with_extension, TrieDescentStage::InsideExtension { remaining_nibbles, ..} if **remaining_nibbles == [2]);
             assert!(leaf_with_extension.can_descend());
-            leaf_with_extension.descend(2, get_node_stub);
+            leaf_with_extension.descend(2, get_node_stub)?;
             assert_matches!(leaf_with_extension, TrieDescentStage::AtLeaf { .. });
             assert!(!leaf_with_extension.can_descend());
 
             let mut leaf_with_extension =
                 new_leaf(&mut arena, &[1, 2], &[]).to_descent_stage(&arena);
-            leaf_with_extension.descend(6, get_node_stub); // Nibble **not** in the extension
+            leaf_with_extension.descend(6, get_node_stub)?; // Nibble **not** in the extension
             assert_matches!(leaf_with_extension, TrieDescentStage::CutOff);
+
+            Ok(())
         }
 
         #[test]
-        fn extension() {
+        fn extension() -> anyhow::Result<()> {
             let mut arena = STArena::new("test".to_string());
 
             let leaf = new_leaf(&mut arena, &[], &[]);
             let mut extension = new_extension(&mut arena, &[1, 2], leaf).to_descent_stage(&arena);
             assert!(extension.can_descend());
-            extension.descend(1, get_node(&arena));
+            extension.descend(1, get_node(&arena))?;
             assert_matches!(&extension, TrieDescentStage::InsideExtension { remaining_nibbles, ..} if **remaining_nibbles == [2]);
             assert!(extension.can_descend());
-            extension.descend(2, get_node(&arena));
+            extension.descend(2, get_node(&arena))?;
             assert_matches!(extension, TrieDescentStage::AtLeaf { .. });
 
             let mut extension = new_extension(&mut arena, &[1, 2], leaf).to_descent_stage(&arena);
-            extension.descend(3, get_node_stub); // Nibble **not** in extension
+            extension.descend(3, get_node_stub)?; // Nibble **not** in extension
             assert_matches!(extension, TrieDescentStage::CutOff);
+
+            Ok(())
         }
 
         #[test]
-        fn branch() {
+        fn branch() -> anyhow::Result<()> {
             let mut arena = STArena::new("test".to_string());
 
             let leaf = new_leaf(&mut arena, &[], &[]);
@@ -667,18 +725,21 @@ mod tests {
             children[0] = Some(leaf);
             let mut branch = new_branch(&mut arena, None, children).to_descent_stage(&arena);
             assert!(branch.can_descend());
-            branch.descend(0, get_node(&arena));
+            branch.descend(0, get_node(&arena))?;
             assert_matches!(branch, TrieDescentStage::AtLeaf { .. });
 
             let mut branch = new_branch(&mut arena, None, children).to_descent_stage(&arena);
-            branch.descend(1, get_node_stub); // Not child at this index
+            branch.descend(1, get_node_stub)?; // No child at this index
             assert_matches!(branch, TrieDescentStage::CutOff);
+
+            Ok(())
         }
     }
 
     /// These tests verify the logic of aggregate (multi-subtree) descent.
     mod trie_descent {
         use super::*;
+        use itertools::Itertools;
         use near_primitives::errors::StorageError;
 
         /// A minimal implementation of `GenericTrieInternalStorage` for tests
@@ -697,7 +758,7 @@ mod tests {
                 ptr: MemTrieNodeId,
                 _opts: AccessOptions,
             ) -> Result<MemTrieNodeWithSize, StorageError> {
-                Ok(get_node(self.arena)(ptr))
+                get_node(self.arena)(ptr)
             }
 
             fn get_value(
@@ -727,7 +788,7 @@ mod tests {
             let branch = new_branch(arena, None, children);
             let root = new_extension(arena, &[first_nibble], branch);
             let storage = TestStorage { root, arena };
-            TrieDescent::new(storage)
+            TrieDescent::new(storage).unwrap()
         }
 
         #[test]
@@ -738,8 +799,8 @@ mod tests {
             let trie_descent = init(&mut arena, subtrees);
 
             assert_eq!(trie_descent.total_memory(), SUBTREES.len() as u64 * EMPTY_LEAF_MEM);
-            assert_eq!(trie_descent.aggregate_children_mem_usage(), [0u64; NUM_CHILDREN]);
-            assert!(trie_descent.next_step().is_none());
+            assert_eq!(trie_descent.aggregate_children_mem_usage().unwrap(), [0u64; NUM_CHILDREN]);
+            assert!(trie_descent.next_step().unwrap().is_none());
         }
 
         #[test]
@@ -764,8 +825,8 @@ mod tests {
             let exp_total_mem =
                 exp_children_mem.iter().sum::<u64>() + TRIE_COSTS.node_cost * SUBTREES.len() as u64;
             assert_eq!(trie_descent.total_memory(), exp_total_mem);
-            assert_eq!(trie_descent.aggregate_children_mem_usage(), exp_children_mem);
-            assert!(trie_descent.next_step().is_some());
+            assert_eq!(trie_descent.aggregate_children_mem_usage().unwrap(), exp_children_mem);
+            assert!(trie_descent.next_step().unwrap().is_some());
         }
 
         #[test]
@@ -776,11 +837,10 @@ mod tests {
             // A single entry with 1-nibble key (not long enough for an account ID)
             let mut subtrees = [new_leaf(&mut arena, &[], &[]); SUBTREES.len()];
             subtrees[0] = new_leaf(&mut arena, &[1], &[1u8; 100]);
-            init(&mut arena, subtrees).find_mem_usage_split();
+            init(&mut arena, subtrees).find_mem_usage_split().unwrap();
         }
 
         #[test]
-        #[should_panic]
         fn odd_key_length() {
             let mut arena = STArena::new("test".to_string());
 
@@ -810,7 +870,8 @@ mod tests {
                 };
                 new_extension(&mut arena, &[1, 1, 1, 1], branch)
             };
-            init(&mut arena, subtrees).find_mem_usage_split();
+            let result = init(&mut arena, subtrees).find_mem_usage_split();
+            assert!(result.is_err());
         }
 
         #[test]
@@ -825,7 +886,7 @@ mod tests {
                 children[2] = Some(new_leaf(&mut arena, &[0, 0, 0], &[1u8; 300]));
                 new_branch(&mut arena, None, children)
             };
-            let split = init(&mut arena, subtrees).find_mem_usage_split();
+            let split = init(&mut arena, subtrees).find_mem_usage_split().unwrap();
 
             // The 'middle' account is placed at 1, 0, 0, 0 path. However, using it as a boundary
             // would result in a suboptimal split of roughly 100 bytes vs. 1300 bytes. There is a
@@ -872,7 +933,7 @@ mod tests {
 
             let trie_descent = init(&mut arena, subtrees);
             let total_memory = trie_descent.total_memory();
-            let split = trie_descent.find_mem_usage_split();
+            let split = trie_descent.find_mem_usage_split().unwrap();
             assert_eq!(split.split_path_bytes(), vec![0x10, 0x00]);
             assert_eq!(split.left_memory + split.right_memory, total_memory);
 
@@ -880,7 +941,7 @@ mod tests {
             subtrees[1] = new_leaf(&mut arena, &[1, 1, 1, 1, 1, 1], &[1u8; 2000]);
             let trie_descent = init(&mut arena, subtrees);
             let total_memory = trie_descent.total_memory();
-            let split = trie_descent.find_mem_usage_split();
+            let split = trie_descent.find_mem_usage_split().unwrap();
             // The extra nibbles from extension in contract code subtree should *not* be included.
             // Trie descent is over when a leaf is reached in the accounts' subtree.
             assert_eq!(split.split_path_bytes(), vec![0x11, 0x00]);
@@ -913,29 +974,29 @@ mod tests {
             Storage: GenericTrieInternalStorage<NodePtr, Value>,
         {
             /// Helper method to get the split yielded by a pre-defined key.
-            fn get_split(mut self, key_bytes: &[u8]) -> TrieSplit {
+            fn get_split(mut self, key_bytes: &[u8]) -> SplitResult<TrieSplit> {
                 for nibble in bytes_to_nibbles(key_bytes) {
-                    let children_mem_usage = self.aggregate_children_mem_usage();
+                    let children_mem_usage = self.aggregate_children_mem_usage()?;
                     let child_mem_usage = children_mem_usage[nibble as usize];
                     let left_mem_usage = children_mem_usage[..nibble as usize].iter().sum();
-                    self.descend_step(nibble, child_mem_usage, left_mem_usage);
+                    self.descend_step(nibble, child_mem_usage, left_mem_usage)?;
                 }
 
-                TrieSplit::new(
+                Ok(TrieSplit::new(
                     self.nibbles,
                     self.left_memory,
                     self.right_memory + self.middle_memory,
-                )
+                ))
             }
         }
 
         /// Helper function to get the split yielded by the given boundary account.
         /// Assumes the trie is using memtries.
-        fn get_memtrie_split(trie: &Trie, boundary_account: &AccountId) -> TrieSplit {
+        fn get_memtrie_split(trie: &Trie, boundary_account: &AccountId) -> SplitResult<TrieSplit> {
             let key_bytes = boundary_account.as_bytes();
             let memtries = trie.lock_memtries().unwrap();
             let trie_storage = MemTrieIteratorInner::new(&memtries, trie);
-            TrieDescent::new(trie_storage).get_split(key_bytes)
+            TrieDescent::new(trie_storage)?.get_split(key_bytes)
         }
 
         #[test]
@@ -1036,15 +1097,15 @@ mod tests {
             // Find the boundary account
             let trie =
                 shard_tries.get_trie_for_shard(shard_uid, new_root).recording_reads_new_recorder();
-            let trie_split = find_trie_split(&trie);
+            let trie_split = find_trie_split(&trie)?;
             println!("Found trie split: {trie_split:?}");
-            let boundary_account = trie_split.boundary_account();
+            let boundary_account = trie_split.boundary_account()?;
             println!("Boundary account: {boundary_account:?}");
 
             // Verify if running the algorithm on recorded storage gives the same result
             let recorded_storage = trie.recorded_storage().unwrap();
             let recorded_trie = Trie::from_recorded_storage(recorded_storage, new_root, true);
-            let recorded_trie_split = find_trie_split(&recorded_trie);
+            let recorded_trie_split = find_trie_split(&recorded_trie)?;
             assert_eq!(trie_split, recorded_trie_split);
 
             // Assert that previous and next account gives worse splits than the account found
@@ -1057,13 +1118,13 @@ mod tests {
             let trie = shard_tries.get_trie_for_shard(shard_uid, new_root);
 
             if let Some(left_account) = left_account {
-                let left_split = get_memtrie_split(&trie, left_account);
+                let left_split = get_memtrie_split(&trie, left_account)?;
                 println!("Left account split: {left_split:?}");
                 assert!(left_split.mem_diff() >= trie_split.mem_diff());
             }
 
             if let Some(right_account) = right_account {
-                let right_split = get_memtrie_split(&trie, right_account);
+                let right_split = get_memtrie_split(&trie, right_account)?;
                 println!("Right account split: {right_split:?}");
 
                 // `find_trie_split` finds the best possible split for which `right_memory >= left_memory`.
