@@ -10,7 +10,7 @@ use near_primitives::utils::create_receipt_id_from_action_hash;
 use near_primitives::version::ProtocolVersion;
 use near_store::contract::ContractStorage;
 use near_store::state_update::{StateOperations, StateValue};
-use near_store::trie::{AccessOptions, AccessTracker, OptimizedValueRef, ValueAccessToken};
+use near_store::trie::{AccessOptions, AccessTracker};
 use near_store::{KeyLookupMode, Trie};
 use near_vm_runner::logic::errors::{AnyError, InconsistentStateError, VMLogicError};
 use near_vm_runner::logic::types::{

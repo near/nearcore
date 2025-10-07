@@ -827,6 +827,7 @@ mod state_value_impls {
     borsh_state_value!(Receipt);
     borsh_state_value!(ReceiptGroup);
     borsh_state_value!(u32);
+    borsh_state_value!(i32);
     borsh_state_value!(CryptoHash);
     borsh_state_value!(ReceiptOrStateStoredReceipt<'static>);
     borsh_state_value!(BandwidthSchedulerState);

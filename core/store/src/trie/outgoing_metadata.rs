@@ -416,9 +416,11 @@ fn subtract_gas_checked(total: &mut u128, delta: Gas) {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::VecDeque;
-    use std::convert::Infallible;
-
+    use super::{ReceiptGroup, ReceiptGroupV0, ReceiptGroupsConfig, ReceiptGroupsQueue};
+    use crate::Trie;
+    use crate::state_update::{StateOperations, StateUpdate};
+    use crate::test_utils::TestTriesBuilder;
+    use crate::trie::receipts_column_helper::TrieQueue;
     use bytesize::ByteSize;
     use near_primitives::bandwidth_scheduler::{
         BandwidthRequest, BandwidthRequestValues, BandwidthSchedulerParams,
@@ -427,12 +429,8 @@ mod tests {
     use near_primitives::types::{Gas, ShardId};
     use rand::{Rng, SeedableRng};
     use rand_chacha::ChaCha20Rng;
-
-    use crate::test_utils::TestTriesBuilder;
-    use crate::trie::receipts_column_helper::TrieQueue;
-    use crate::{Trie, TrieUpdate};
-
-    use super::{ReceiptGroup, ReceiptGroupV0, ReceiptGroupsConfig, ReceiptGroupsQueue};
+    use std::collections::VecDeque;
+    use std::convert::Infallible;
     use testlib::bandwidth_scheduler::get_random_receipt_size_for_test;
 
     #[test]
@@ -477,7 +475,7 @@ mod tests {
         );
     }
 
-    fn make_trie_update() -> TrieUpdate {
+    fn make_state_update() -> StateUpdate {
         let shard_layout_version = 1;
         let shard_layout = ShardLayout::multi_shard(2, shard_layout_version);
         let shard_uid = shard_layout.shard_uids().next().unwrap();
@@ -485,18 +483,21 @@ mod tests {
 
         let tries = TestTriesBuilder::new().with_shard_layout(shard_layout).build();
         let trie = tries.get_trie_for_shard(shard_uid, state_root);
-        TrieUpdate::new(trie)
+        StateUpdate::new(trie)
     }
 
     #[test]
     fn test_receipt_groups_queue() {
-        let trie_update = &mut make_trie_update();
+        let state_update = make_state_update();
         let config =
             ReceiptGroupsConfig { size_upper_bound: ByteSize::kb(100), gas_upper_bound: Gas::MAX };
         let mut queue = ReceiptGroupsQueue::new(ShardId::new(0));
 
-        fn group_sizes(queue: &ReceiptGroupsQueue, trie: &TrieUpdate) -> Vec<u64> {
-            queue.iter_receipt_group_sizes(trie, false).map(|size_res| size_res.unwrap()).collect()
+        fn group_sizes(queue: &ReceiptGroupsQueue, update_op: StateOperations<'_>) -> Vec<u64> {
+            queue
+                .iter_receipt_group_sizes(update_op, false)
+                .map(|size_res| size_res.unwrap())
+                .collect()
         }
 
         let ten_kb = ByteSize::kb(10);
@@ -504,47 +505,82 @@ mod tests {
         let hundred_kb = ByteSize::kb(100);
         let two_hundred_kb = ByteSize::kb(200);
 
-        assert_eq!(group_sizes(&queue, trie_update), Vec::<u64>::new());
+        assert_eq!(group_sizes(&queue, state_update.start_update()), Vec::<u64>::new());
 
-        queue.update_on_receipt_pushed(ten_kb, Gas::from_gas(10), trie_update, &config).unwrap();
-        assert_eq!(group_sizes(&queue, trie_update), vec![10_000]);
+        let mut update_op = state_update.start_update();
+        queue.update_on_receipt_pushed(ten_kb, Gas::from_gas(10), &mut update_op, &config).unwrap();
+        update_op.commit().unwrap();
+        assert_eq!(group_sizes(&queue, state_update.start_update()), vec![10_000]);
 
-        queue.update_on_receipt_pushed(ten_kb, Gas::from_gas(10), trie_update, &config).unwrap();
-        assert_eq!(group_sizes(&queue, trie_update), vec![20_000]);
+        let mut update_op = state_update.start_update();
+        queue.update_on_receipt_pushed(ten_kb, Gas::from_gas(10), &mut update_op, &config).unwrap();
+        update_op.commit().unwrap();
+        assert_eq!(group_sizes(&queue, state_update.start_update()), vec![20_000]);
 
-        queue.update_on_receipt_pushed(fifty_kb, Gas::from_gas(10), trie_update, &config).unwrap();
-        assert_eq!(group_sizes(&queue, trie_update), vec![70_000]);
-
-        queue.update_on_receipt_popped(ten_kb, Gas::from_gas(10), trie_update).unwrap();
-        assert_eq!(group_sizes(&queue, trie_update), vec![60_000]);
-
+        let mut update_op = state_update.start_update();
         queue
-            .update_on_receipt_pushed(hundred_kb, Gas::from_gas(10), trie_update, &config)
+            .update_on_receipt_pushed(fifty_kb, Gas::from_gas(10), &mut update_op, &config)
             .unwrap();
-        assert_eq!(group_sizes(&queue, trie_update), vec![60_000, 100_000]);
+        update_op.commit().unwrap();
+        assert_eq!(group_sizes(&queue, state_update.start_update()), vec![70_000]);
 
-        queue.update_on_receipt_pushed(ten_kb, Gas::from_gas(10), trie_update, &config).unwrap();
-        assert_eq!(group_sizes(&queue, trie_update), vec![60_000, 100_000, 10_000]);
+        let mut update_op = state_update.start_update();
+        queue.update_on_receipt_popped(ten_kb, Gas::from_gas(10), &mut update_op).unwrap();
+        update_op.commit().unwrap();
+        assert_eq!(group_sizes(&queue, state_update.start_update()), vec![60_000]);
 
+        let mut update_op = state_update.start_update();
         queue
-            .update_on_receipt_pushed(two_hundred_kb, Gas::from_gas(10), trie_update, &config)
+            .update_on_receipt_pushed(hundred_kb, Gas::from_gas(10), &mut update_op, &config)
             .unwrap();
-        assert_eq!(group_sizes(&queue, trie_update), vec![60_000, 100_000, 10_000, 200_000]);
+        update_op.commit().unwrap();
+        assert_eq!(group_sizes(&queue, state_update.start_update()), vec![60_000, 100_000]);
 
-        queue.update_on_receipt_popped(ten_kb, Gas::from_gas(10), trie_update).unwrap();
-        assert_eq!(group_sizes(&queue, trie_update), vec![50_000, 100_000, 10_000, 200_000]);
+        let mut update_op = state_update.start_update();
+        queue.update_on_receipt_pushed(ten_kb, Gas::from_gas(10), &mut update_op, &config).unwrap();
+        update_op.commit().unwrap();
+        assert_eq!(group_sizes(&queue, state_update.start_update()), vec![60_000, 100_000, 10_000]);
 
-        queue.update_on_receipt_popped(fifty_kb, Gas::from_gas(10), trie_update).unwrap();
-        assert_eq!(group_sizes(&queue, trie_update), vec![100_000, 10_000, 200_000]);
+        let mut update_op = state_update.start_update();
+        queue
+            .update_on_receipt_pushed(two_hundred_kb, Gas::from_gas(10), &mut update_op, &config)
+            .unwrap();
+        update_op.commit().unwrap();
+        assert_eq!(
+            group_sizes(&queue, state_update.start_update()),
+            vec![60_000, 100_000, 10_000, 200_000]
+        );
 
-        queue.update_on_receipt_popped(hundred_kb, Gas::from_gas(10), trie_update).unwrap();
-        assert_eq!(group_sizes(&queue, trie_update), vec![10_000, 200_000]);
+        let mut update_op = state_update.start_update();
+        queue.update_on_receipt_popped(ten_kb, Gas::from_gas(10), &mut update_op).unwrap();
+        update_op.commit().unwrap();
+        assert_eq!(
+            group_sizes(&queue, state_update.start_update()),
+            vec![50_000, 100_000, 10_000, 200_000]
+        );
 
-        queue.update_on_receipt_popped(ten_kb, Gas::from_gas(10), trie_update).unwrap();
-        assert_eq!(group_sizes(&queue, trie_update), vec![200_000]);
+        let mut update_op = state_update.start_update();
+        queue.update_on_receipt_popped(fifty_kb, Gas::from_gas(10), &mut update_op).unwrap();
+        update_op.commit().unwrap();
+        assert_eq!(
+            group_sizes(&queue, state_update.start_update()),
+            vec![100_000, 10_000, 200_000]
+        );
 
-        queue.update_on_receipt_popped(two_hundred_kb, Gas::from_gas(10), trie_update).unwrap();
-        assert_eq!(group_sizes(&queue, trie_update), Vec::<u64>::new());
+        let mut update_op = state_update.start_update();
+        queue.update_on_receipt_popped(hundred_kb, Gas::from_gas(10), &mut update_op).unwrap();
+        update_op.commit().unwrap();
+        assert_eq!(group_sizes(&queue, state_update.start_update()), vec![10_000, 200_000]);
+
+        let mut update_op = state_update.start_update();
+        queue.update_on_receipt_popped(ten_kb, Gas::from_gas(10), &mut update_op).unwrap();
+        update_op.commit().unwrap();
+        assert_eq!(group_sizes(&queue, state_update.start_update()), vec![200_000]);
+
+        let mut update_op = state_update.start_update();
+        queue.update_on_receipt_popped(two_hundred_kb, Gas::from_gas(10), &mut update_op).unwrap();
+        update_op.commit().unwrap();
+        assert_eq!(group_sizes(&queue, state_update.start_update()), Vec::<u64>::new());
     }
 
     /// Equivalent to the `ReceiptGroup` struct, used in testing.
@@ -644,11 +680,12 @@ mod tests {
             receipts.push((receipt_size, receipt_gas));
         }
 
-        let trie_update = &mut make_trie_update();
+        let state_update = make_state_update();
 
         // Then perform random pushes and pops.
         let mut next_receipt_to_push_idx = 0;
         loop {
+            let mut update_op = state_update.start_update();
             let can_push = next_receipt_to_push_idx < receipts.len();
             let can_pop = !buffered_receipts.is_empty();
 
@@ -668,14 +705,14 @@ mod tests {
                 let (receipt_size, receipt_gas) = receipts[next_receipt_to_push_idx];
                 next_receipt_to_push_idx += 1;
                 groups_queue
-                    .update_on_receipt_pushed(receipt_size, receipt_gas, trie_update, &config)
+                    .update_on_receipt_pushed(receipt_size, receipt_gas, &mut update_op, &config)
                     .unwrap();
                 test_queue.update_on_receipt_pushed(receipt_size, receipt_gas, &config);
                 buffered_receipts.push_back((receipt_size, receipt_gas));
             } else {
                 let (receipt_size, receipt_gas) = buffered_receipts.pop_front().unwrap();
                 groups_queue
-                    .update_on_receipt_popped(receipt_size, receipt_gas, trie_update)
+                    .update_on_receipt_popped(receipt_size, receipt_gas, &mut update_op)
                     .unwrap();
                 test_queue.update_on_receipt_popped(receipt_size, receipt_gas);
             }
@@ -683,11 +720,13 @@ mod tests {
             if rng.r#gen::<bool>() {
                 // Reload the queue from trie. Tests that all changes are persisted after every operation.
                 groups_queue =
-                    ReceiptGroupsQueue::load(trie_update, ShardId::new(0)).unwrap().unwrap();
+                    ReceiptGroupsQueue::load(&mut update_op, ShardId::new(0)).unwrap().unwrap();
             }
-
-            let groups_queue_groups: Vec<ReceiptGroup> =
-                groups_queue.iter(trie_update, false).map(|group_res| group_res.unwrap()).collect();
+            update_op.commit().unwrap();
+            let groups_queue_groups: Vec<ReceiptGroup> = groups_queue
+                .iter(state_update.start_update(), false)
+                .map(|group_res| group_res.unwrap())
+                .collect();
             let test_queue_groups: Vec<ReceiptGroup> =
                 test_queue.groups.iter().copied().map(|g| g.into()).collect();
             assert_eq!(groups_queue_groups, test_queue_groups);

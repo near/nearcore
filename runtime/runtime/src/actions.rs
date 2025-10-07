@@ -1171,7 +1171,7 @@ fn apply_recorded_storage_garbage(
         .strip_prefix("internal_record_storage_garbage_")
         .and_then(|suf| suf.parse::<usize>().ok())
     {
-        if state_update.trie.record_storage_garbage(garbage_size_mbs) {
+        if state_update.trie().record_storage_garbage(garbage_size_mbs) {
             tracing::warn!(target: "runtime", %garbage_size_mbs, "Generated storage proof garbage");
         }
     }
@@ -1192,7 +1192,8 @@ mod tests {
     use near_primitives::types::Gas;
     use near_primitives::types::{EpochId, StateChangeCause};
     use near_primitives::version::PROTOCOL_VERSION;
-    use near_store::set_account;
+    use near_store::{set_account, state_update};
+    use near_store::state_update::StateUpdate;
     use near_store::test_utils::TestTriesBuilder;
     use std::sync::Arc;
 
@@ -1298,7 +1299,7 @@ mod tests {
         account_id: &AccountId,
         code_hash: &CryptoHash,
         storage_usage: u64,
-        state_update: &mut TrieUpdate,
+        state_update: &mut StateOperations,
     ) -> ActionResult {
         let mut account = Some(Account::new(
             Balance::from_yoctonear(100),
@@ -1330,13 +1331,16 @@ mod tests {
     #[test]
     fn test_delete_account_too_large() {
         let tries = TestTriesBuilder::new().build();
-        let mut state_update =
-            tries.new_trie_update(ShardUId::single_shard(), CryptoHash::default());
+        let trie =
+            tries.get_trie_for_shard(ShardUId::single_shard(), CryptoHash::default());
+        let state_update = StateUpdate::new(trie);
+        let mut update_op = state_update.start_update();
+
         let action_result = test_delete_large_account(
             &"alice".parse().unwrap(),
             &CryptoHash::default(),
             Account::MAX_ACCOUNT_DELETION_STORAGE_USAGE + 1,
-            &mut state_update,
+            &mut update_op,
         );
         assert_eq!(
             action_result.result,
@@ -1351,8 +1355,8 @@ mod tests {
 
     fn test_delete_account_with_contract(storage_usage: u64) -> ActionResult {
         let tries = TestTriesBuilder::new().build();
-        let mut state_update =
-            tries.new_trie_update(ShardUId::single_shard(), CryptoHash::default());
+        let trie = tries.get_trie_for_shard(ShardUId::single_shard(), CryptoHash::default());
+        let state_update = StateUpdate::new(trie);
         let account_id = "alice".parse::<AccountId>().unwrap();
         let deploy_action = DeployContractAction { code: [0; 10_000].to_vec() };
         let mut account = Account::new(
@@ -1362,8 +1366,9 @@ mod tests {
             storage_usage,
         );
         let apply_state = create_apply_state(0);
+        let mut update_ops = state_update.start_update();
         let res = action_deploy_contract(
-            &mut state_update,
+            &mut update_ops,
             &mut account,
             &account_id,
             &deploy_action,
@@ -1376,7 +1381,7 @@ mod tests {
             &account_id,
             &account.local_contract_hash().unwrap_or_default(),
             storage_usage,
-            &mut state_update,
+            &mut update_ops,
         )
     }
 
@@ -1465,23 +1470,25 @@ mod tests {
         account_id: &AccountId,
         public_key: &PublicKey,
         access_key: &AccessKey,
-    ) -> TrieUpdate {
+    ) -> StateUpdate {
         let tries = TestTriesBuilder::new().build();
-        let mut state_update =
-            tries.new_trie_update(ShardUId::single_shard(), CryptoHash::default());
+        let trie = tries.get_trie_for_shard(ShardUId::single_shard(), CryptoHash::default());
+        let state_update = StateUpdate::new(trie);
+        let mut update_op = state_update.start_update();
         let account =
             Account::new(Balance::from_yoctonear(100), Balance::ZERO, AccountContract::None, 100);
-        set_account(&mut state_update, account_id.clone(), &account);
-        set_access_key(&mut state_update, account_id.clone(), public_key.clone(), access_key);
-
-        state_update.commit(StateChangeCause::InitialState);
-        let trie_changes = state_update.finalize().unwrap().trie_changes;
-        let mut store_update = tries.store_update();
-        let root = tries.apply_all(&trie_changes, ShardUId::single_shard(), &mut store_update);
-        store_update.commit().unwrap();
-
-        tries.new_trie_update(ShardUId::single_shard(), root)
+        update_op.set(TrieKey::Account { account_id: account_id.clone() }, account);
+        let key =
+            TrieKey::AccessKey { account_id: account_id.clone(), public_key: public_key.clone() };
+        update_op.set(key, access_key.clone());
+        update_op.commit(/* StateChangeCause::InitialState */);
+        // let trie_changes = state_update.finalize().unwrap().trie_changes;
+        // let mut store_update = tries.store_update();
+        // let root = tries.apply_all(&trie_changes, ShardUId::single_shard(), &mut store_update);
+        // store_update.commit().unwrap();
+        state_update
     }
+
     fn non_delegate_action(action: Action) -> NonDelegateAction {
         NonDelegateAction::try_from(action)
             .expect("cannot violate type invariants, not even in test")
@@ -1497,10 +1504,11 @@ mod tests {
 
         let apply_state =
             create_apply_state(signed_delegate_action.delegate_action.max_block_height);
-        let mut state_update = setup_account(&sender_id, &sender_pub_key, &access_key);
+        let state_update = setup_account(&sender_id, &sender_pub_key, &access_key);
+        let mut update_op = state_update.start_update();
 
         apply_delegate_action(
-            &mut state_update,
+            &mut update_op,
             &apply_state,
             &VersionedActionReceipt::from(&action_receipt),
             &sender_id,
@@ -1539,13 +1547,14 @@ mod tests {
 
         let apply_state =
             create_apply_state(signed_delegate_action.delegate_action.max_block_height);
-        let mut state_update = setup_account(&sender_id, &sender_pub_key, &access_key);
+        let state_update = setup_account(&sender_id, &sender_pub_key, &access_key);
+        let mut update_op = state_update.start_update();
 
         // Corrupt receiver_id. Signature verification must fail.
         signed_delegate_action.delegate_action.receiver_id = "www.test.near".parse().unwrap();
 
         apply_delegate_action(
-            &mut state_update,
+            &mut update_op,
             &apply_state,
             &VersionedActionReceipt::from(action_receipt),
             &sender_id,
@@ -1569,10 +1578,11 @@ mod tests {
         // Setup current block as higher than max_block_height. Must fail.
         let apply_state =
             create_apply_state(signed_delegate_action.delegate_action.max_block_height + 1);
-        let mut state_update = setup_account(&sender_id, &sender_pub_key, &access_key);
+        let state_update = setup_account(&sender_id, &sender_pub_key, &access_key);
+        let mut update_op = state_update.start_update();
 
         apply_delegate_action(
-            &mut state_update,
+            &mut update_op,
             &apply_state,
             &VersionedActionReceipt::from(action_receipt),
             &sender_id,
@@ -1595,11 +1605,11 @@ mod tests {
 
         let apply_state =
             create_apply_state(signed_delegate_action.delegate_action.max_block_height);
-        let mut state_update = setup_account(&sender_id, &sender_pub_key, &access_key);
-
+        let state_update = setup_account(&sender_id, &sender_pub_key, &access_key);
+        let mut update_op = state_update.start_update();
         // Use a different sender_id. Must fail.
         apply_delegate_action(
-            &mut state_update,
+            &mut update_op,
             &apply_state,
             &VersionedActionReceipt::from(action_receipt),
             &"www.test.near".parse().unwrap(),
@@ -1640,12 +1650,13 @@ mod tests {
 
         let apply_state =
             create_apply_state(signed_delegate_action.delegate_action.max_block_height);
-        let mut state_update = setup_account(sender_id, sender_pub_key, &access_key);
+        let state_update = setup_account(sender_id, sender_pub_key, &access_key);
 
         // Everything is ok
         let mut result = ActionResult::default();
+        let mut update_op = state_update.start_update();
         validate_delegate_action_key(
-            &mut state_update,
+            &mut update_op,
             &apply_state,
             &signed_delegate_action.delegate_action,
             &mut result,
@@ -1656,7 +1667,7 @@ mod tests {
         // Must fail, Nonce had been updated by previous step.
         result = ActionResult::default();
         validate_delegate_action_key(
-            &mut state_update,
+            &mut update_op,
             &apply_state,
             &signed_delegate_action.delegate_action,
             &mut result,
@@ -1675,13 +1686,8 @@ mod tests {
         result = ActionResult::default();
         let mut delegate_action = signed_delegate_action.delegate_action.clone();
         delegate_action.nonce += 1;
-        validate_delegate_action_key(
-            &mut state_update,
-            &apply_state,
-            &delegate_action,
-            &mut result,
-        )
-        .expect("Expect ok");
+        validate_delegate_action_key(&mut update_op, &apply_state, &delegate_action, &mut result)
+            .expect("Expect ok");
         assert!(result.result.is_ok(), "Result error: {:?}", result.result);
     }
 
@@ -1695,14 +1701,15 @@ mod tests {
 
         let apply_state =
             create_apply_state(signed_delegate_action.delegate_action.max_block_height);
-        let mut state_update = setup_account(
+        let state_update = setup_account(
             &sender_id,
             &PublicKey::empty(near_crypto::KeyType::ED25519),
             &access_key,
         );
+        let mut update_op = state_update.start_update();
 
         validate_delegate_action_key(
-            &mut state_update,
+            &mut update_op,
             &apply_state,
             &signed_delegate_action.delegate_action,
             &mut result,
@@ -1733,10 +1740,11 @@ mod tests {
 
         let apply_state =
             create_apply_state(signed_delegate_action.delegate_action.max_block_height);
-        let mut state_update = setup_account(&sender_id, &sender_pub_key, &access_key);
+        let state_update = setup_account(&sender_id, &sender_pub_key, &access_key);
+        let mut update_op = state_update.start_update();
 
         validate_delegate_action_key(
-            &mut state_update,
+            &mut update_op,
             &apply_state,
             &signed_delegate_action.delegate_action,
             &mut result,
@@ -1761,10 +1769,11 @@ mod tests {
         let access_key = AccessKey { nonce: 19000000, permission: AccessKeyPermission::FullAccess };
 
         let apply_state = create_apply_state(1);
-        let mut state_update = setup_account(&sender_id, &sender_pub_key, &access_key);
+        let state_update = setup_account(&sender_id, &sender_pub_key, &access_key);
+        let mut update_op = state_update.start_update();
 
         validate_delegate_action_key(
-            &mut state_update,
+            &mut update_op,
             &apply_state,
             &signed_delegate_action.delegate_action,
             &mut result,
@@ -1792,7 +1801,7 @@ mod tests {
         let mut state_update = setup_account(&sender_id, &sender_pub_key, &access_key);
 
         validate_delegate_action_key(
-            &mut state_update,
+            &mut state_update.start_update(),
             &apply_state,
             &delegate_action,
             &mut result,

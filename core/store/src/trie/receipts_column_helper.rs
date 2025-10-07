@@ -400,6 +400,7 @@ mod tests {
 
     use super::*;
     use crate::Trie;
+    use crate::state_update::StateUpdate;
     use crate::test_utils::{TestTriesBuilder, gen_receipts};
     use near_primitives::receipt::Receipt;
     use near_primitives::shard_layout::ShardLayout;
@@ -426,20 +427,23 @@ mod tests {
     #[track_caller]
     fn check_delayed_receipt_queue(input_receipts: &[Receipt]) {
         let state_update = init_state();
-        let mut update_op = state_update.start_update();
 
         // load a queue to fill it with receipts
         {
+            let mut update_op = state_update.start_update();
             let mut queue =
                 DelayedReceiptQueue::load(&mut update_op).expect("creating queue must not fail");
-            check_push_to_receipt_queue(input_receipts, &mut update_op, &mut queue);
+            update_op.commit();
+            check_push_to_receipt_queue(input_receipts, &state_update, &mut queue);
         }
 
         // drop queue and load another one to see if values are persisted
         {
+            let mut update_op = state_update.start_update();
             let mut queue =
                 DelayedReceiptQueue::load(&mut update_op).expect("creating queue must not fail");
-            check_receipt_queue_contains_receipts(input_receipts, &mut update_op, &mut queue);
+            update_op.commit();
+            check_receipt_queue_contains_receipts(input_receipts, &state_update, &mut queue);
         }
     }
 
@@ -460,22 +464,25 @@ mod tests {
     #[track_caller]
     fn check_outgoing_receipt_buffer_separately(input_receipts: &[Receipt]) {
         let state_update = init_state();
-        let mut update_op = state_update.start_update();
         for id in 0..2u32 {
             // load a buffer to fill it with receipts
             {
+                let mut update_op = state_update.start_update();
                 let mut buffers = ShardsOutgoingReceiptBuffer::load(&mut update_op)
                     .expect("creating buffers must not fail");
+                update_op.commit();
                 let mut buffer = buffers.to_shard(ShardId::from(id));
-                check_push_to_receipt_queue(input_receipts, &mut update_op, &mut buffer);
+                check_push_to_receipt_queue(input_receipts, &state_update, &mut buffer);
             }
 
             // drop queue and load another one to see if values are persisted
             {
+                let mut update_op = state_update.start_update();
                 let mut buffers = ShardsOutgoingReceiptBuffer::load(&mut update_op)
                     .expect("creating buffers must not fail");
+                update_op.commit();
                 let mut buffer = buffers.to_shard(ShardId::from(id));
-                check_receipt_queue_contains_receipts(input_receipts, &mut update_op, &mut buffer);
+                check_receipt_queue_contains_receipts(input_receipts, &state_update, &mut buffer);
             }
         }
     }
@@ -501,17 +508,18 @@ mod tests {
         // load shard_buffers once and hold on to it for the entire duration
         let mut shard_buffers = ShardsOutgoingReceiptBuffer::load(&mut update_op)
             .expect("creating buffers must not fail");
+        update_op.commit();
         for id in 0..2u32 {
             // load a buffer to fill it with receipts
             {
                 let mut buffer = shard_buffers.to_shard(ShardId::from(id));
-                check_push_to_receipt_queue(input_receipts, &mut update_op, &mut buffer);
+                check_push_to_receipt_queue(input_receipts, &state_update, &mut buffer);
             }
 
             // drop queue and load another one to see if values are persisted
             {
                 let mut buffer = shard_buffers.to_shard(ShardId::from(id));
-                check_receipt_queue_contains_receipts(input_receipts, &mut update_op, &mut buffer);
+                check_receipt_queue_contains_receipts(input_receipts, &state_update, &mut buffer);
             }
         }
     }
@@ -521,15 +529,19 @@ mod tests {
     #[track_caller]
     fn check_push_to_receipt_queue(
         input_receipts: &[Receipt],
-        trie: &mut StateOperations,
-        queue: &mut impl for<'a> TrieQueue<Item<'a> = ReceiptOrStateStoredReceipt<'a>>,
+        state_update: &StateUpdate,
+        queue: &mut impl TrieQueue<Item = ReceiptOrStateStoredReceipt<'static>>,
     ) {
+        let mut update_op = state_update.start_update();
         for receipt in input_receipts {
-            let receipt = ReceiptOrStateStoredReceipt::Receipt(Cow::Borrowed(receipt));
-            queue.push_back(trie, &receipt).expect("pushing must not fail");
+            let receipt = ReceiptOrStateStoredReceipt::Receipt(Cow::Owned(receipt.clone()));
+            queue.push_back(&mut update_op, receipt).expect("pushing must not fail");
         }
-        let iterated_receipts: Vec<ReceiptOrStateStoredReceipt> =
-            queue.iter(trie, true).collect::<Result<_, _>>().expect("iterating should not fail");
+        update_op.commit();
+        let iterated_receipts: Vec<ReceiptOrStateStoredReceipt> = queue
+            .iter(state_update.start_update(), true)
+            .collect::<Result<_, _>>()
+            .expect("iterating should not fail");
         let iterated_receipts: Vec<Receipt> =
             iterated_receipts.into_iter().map(|receipt| receipt.into_receipt()).collect();
 
@@ -542,19 +554,22 @@ mod tests {
     #[track_caller]
     fn check_receipt_queue_contains_receipts(
         input_receipts: &[Receipt],
-        trie: &mut StateOperations,
-        queue: &mut impl for<'a> TrieQueue<Item<'a> = ReceiptOrStateStoredReceipt<'a>>,
+        state_update: &StateUpdate,
+        queue: &mut impl TrieQueue<Item = ReceiptOrStateStoredReceipt<'static>>,
     ) {
         // check 2: assert newly loaded queue still contains the receipts
-        let iterated_receipts: Vec<ReceiptOrStateStoredReceipt> =
-            queue.iter(trie, true).collect::<Result<_, _>>().expect("iterating should not fail");
+        let iterated_receipts: Vec<ReceiptOrStateStoredReceipt> = queue
+            .iter(state_update.start_update(), true)
+            .collect::<Result<_, _>>()
+            .expect("iterating should not fail");
         let iterated_receipts: Vec<Receipt> =
             iterated_receipts.into_iter().map(|receipt| receipt.into_receipt()).collect();
         assert_eq!(input_receipts, iterated_receipts, "receipts were not persisted correctly");
 
         // check 3: pop receipts from queue and check if all are returned in the right order
         let mut popped = vec![];
-        while let Some(receipt) = queue.pop_front(trie).expect("pop must not fail") {
+        let mut update = state_update.start_update();
+        while let Some(receipt) = queue.pop_front(&mut update).expect("pop must not fail") {
             let receipt = receipt.into_receipt();
             popped.push(receipt);
         }
@@ -583,16 +598,14 @@ mod tests {
             Self { indices: Default::default() }
         }
 
-        pub fn load(trie: &dyn TrieAccess) -> Result<Self, StorageError> {
-            Ok(Self { indices: Self::read_indices(trie)? })
+        pub fn load(update_op: &mut StateOperations) -> Result<Self, StorageError> {
+            Ok(Self { indices: Self::read_indices(update_op)? })
         }
 
-        fn read_indices(trie: &dyn TrieAccess) -> Result<TrieQueueIndices, StorageError> {
-            Ok(get(
-                trie,
-                &TrieKey::BufferedReceiptGroupsQueueData { receiving_shard: Self::fake_shard_id() },
-            )?
-            .unwrap_or_default())
+        fn read_indices(update_op: &mut StateOperations) -> Result<TrieQueueIndices, StorageError> {
+            let key: TrieKey =
+                TrieKey::BufferedReceiptGroupsQueueData { receiving_shard: Self::fake_shard_id() };
+            update_op.get::<TrieQueueIndices>(key).map(|v| v.cloned().unwrap_or_default())
         }
 
         /// TestQueue reuses the trie columns used for storing buffered receipt groups queue.
@@ -605,9 +618,12 @@ mod tests {
     }
 
     impl TrieQueue for TestTrieQueue {
-        type Item<'a> = i32;
+        type Item = i32;
 
-        fn load_indices(&self, trie: &dyn TrieAccess) -> Result<TrieQueueIndices, StorageError> {
+        fn load_indices(
+            &self,
+            trie: &mut StateOperations,
+        ) -> Result<TrieQueueIndices, StorageError> {
             Self::read_indices(trie)
         }
 
@@ -620,11 +636,9 @@ mod tests {
         }
 
         fn write_indices(&self, state_update: &mut StateOperations) {
-            set(
-                state_update,
-                TrieKey::BufferedReceiptGroupsQueueData { receiving_shard: Self::fake_shard_id() },
-                &self.indices,
-            );
+            let key =
+                TrieKey::BufferedReceiptGroupsQueueData { receiving_shard: Self::fake_shard_id() };
+            state_update.set(key, self.indices.clone());
         }
 
         fn trie_key(&self, index: u64) -> TrieKey {
@@ -683,9 +697,13 @@ mod tests {
 
     // Load the queue from the trie, discarding the current data stored in the variable.
     // Ensures that all changes are written to the trie after every operation.
-    fn maybe_reload_queue(trie: &TrieUpdate, queue: &mut TestTrieQueue, rng: &mut impl Rng) {
+    fn maybe_reload_queue(
+        update_op: &mut StateOperations,
+        queue: &mut TestTrieQueue,
+        rng: &mut impl Rng,
+    ) {
         if rng.r#gen::<bool>() {
-            *queue = TestTrieQueue::load(trie).unwrap();
+            *queue = TestTrieQueue::load(update_op).unwrap();
         }
     }
 
@@ -695,7 +713,7 @@ mod tests {
     fn test_random_trie_queue_operations() {
         let rng = &mut ChaCha20Rng::seed_from_u64(0);
 
-        let mut trie = init_state();
+        let state_update = init_state();
         // Trie queue
         let mut trie_queue = TestTrieQueue::new();
         // In-memory queue to compare against
@@ -703,21 +721,22 @@ mod tests {
 
         // Run 20_000 random operations on the queue
         for i in 0..20_000 {
-            maybe_reload_queue(&mut trie, &mut trie_queue, rng);
+            let mut update_op = state_update.start_update();
+            maybe_reload_queue(&mut update_op, &mut trie_queue, rng);
 
             let op = generate_random_operation(rng, i);
             match op {
                 RandomOperation::PushBack(value) => {
-                    trie_queue.push_back(&mut trie, &value).unwrap();
+                    trie_queue.push_back(&mut update_op, value).unwrap();
                     memory_queue.push_back(value);
                 }
                 RandomOperation::PopFront => {
-                    let trie_item = trie_queue.pop_front(&mut trie).unwrap();
+                    let trie_item = trie_queue.pop_front(&mut update_op).unwrap();
                     let memory_item = memory_queue.pop_front();
                     assert_eq!(trie_item, memory_item);
                 }
                 RandomOperation::PopBack => {
-                    let trie_item = trie_queue.pop_back(&mut trie).unwrap();
+                    let trie_item = trie_queue.pop_back(&mut update_op).unwrap();
                     let memory_item = memory_queue.pop_back();
                     assert_eq!(trie_item, memory_item);
                 }
@@ -733,7 +752,7 @@ mod tests {
                         Box::new(|_: i32| -> Option<i32> { None })
                     };
 
-                    trie_queue.modify_first(&mut trie, &modify_fn).unwrap();
+                    trie_queue.modify_first(&mut update_op, &modify_fn).unwrap();
 
                     let memory_item = memory_queue.pop_front().unwrap();
                     if let Some(new_item) = modify_fn(memory_item) {
@@ -741,7 +760,7 @@ mod tests {
                     }
                 }
                 RandomOperation::PopN(n) => {
-                    let trie_popped = trie_queue.pop_n(&mut trie, n as u64).unwrap();
+                    let trie_popped = trie_queue.pop_n(&mut update_op, n as u64).unwrap();
                     let mut memory_popped = 0;
                     for _ in 0..n {
                         if memory_queue.pop_front().is_some() {
@@ -752,7 +771,9 @@ mod tests {
                 }
             }
 
-            maybe_reload_queue(&mut trie, &mut trie_queue, rng);
+            maybe_reload_queue(&mut update_op, &mut trie_queue, rng);
+
+            update_op.commit();
 
             if rng.r#gen::<bool>() {
                 // Compare a random prefix from both queues
@@ -762,7 +783,8 @@ mod tests {
                     rng.gen_range(0..memory_queue.len())
                 };
                 let mut trie_items = Vec::new();
-                let mut trie_iter = trie_queue.iter(&trie, rng.r#gen::<bool>());
+                let mut trie_iter =
+                    trie_queue.iter(state_update.start_update(), rng.r#gen::<bool>());
                 for _ in 0..prefix_len {
                     let trie_item = trie_iter.next().unwrap().unwrap();
                     trie_items.push(trie_item);
