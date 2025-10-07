@@ -1,9 +1,9 @@
+use near_chain::stateless_validation::state_witness::DistributeStateWitnessRequest;
 use parking_lot::RwLock;
 use std::collections::VecDeque;
 use std::sync::Arc;
 
 use near_async::messaging::CanSend;
-use near_client::DistributeStateWitnessRequest;
 
 #[derive(Clone, Default)]
 pub struct MockPartialWitnessAdapter {

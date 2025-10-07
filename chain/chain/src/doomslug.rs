@@ -525,7 +525,13 @@ impl Doomslug {
                     });
                 }
 
-                self.timer.last_endorsement_sent = now;
+                if now >= self.timer.last_endorsement_sent + 2 * self.timer.endorsement_delay {
+                    self.timer.last_endorsement_sent = now;
+                } else {
+                    // optimisation hack for the case when postprocess_block &
+                    // produce_chunk delayed sending approval
+                    self.timer.last_endorsement_sent += self.timer.endorsement_delay;
+                }
                 self.endorsement_pending = false;
             }
 

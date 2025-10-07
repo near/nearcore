@@ -8,8 +8,10 @@
 use std::io::ErrorKind;
 
 use near_primitives::hash::CryptoHash;
-use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::stateless_validation::state_witness::ChunkStateWitness;
+use near_primitives::stateless_validation::{
+    ChunkProductionKey, WitnessProductionKey, WitnessType,
+};
 use near_primitives::types::EpochId;
 use near_primitives::types::ShardId;
 use near_store::{DBCol, Store};
@@ -148,8 +150,14 @@ impl ChainStore {
         let _guard = LOCK.lock();
 
         let start_time = std::time::Instant::now();
-        let ChunkProductionKey { shard_id, epoch_id, height_created } =
-            witness.chunk_production_key();
+        let WitnessProductionKey {
+            chunk: ChunkProductionKey { shard_id, epoch_id, height_created },
+            witness_type,
+        } = witness.production_key();
+        if witness_type != WitnessType::Optimistic {
+            // Don't save for simplicity for now.
+            return Ok(());
+        }
         let _span = tracing::info_span!(target: "client", "save_latest_chunk_state_witness", ?height_created, %shard_id).entered();
 
         let serialized_witness = borsh::to_vec(witness)?;

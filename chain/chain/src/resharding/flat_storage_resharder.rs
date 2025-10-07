@@ -1065,6 +1065,7 @@ mod tests {
             Default::default(),
             validator_signer,
             noop().into_multi_sender(),
+            noop().into_multi_sender(),
             CoreStatementsProcessor::new_with_noop_senders(
                 runtime.store().chain_store(),
                 epoch_manager.clone(),

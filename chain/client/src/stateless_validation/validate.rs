@@ -75,6 +75,7 @@ pub fn validate_partial_encoded_state_witness(
         shard_id = %shard_id,
         part_ord = partial_witness.part_ord(),
         tag_witness_distribution = true,
+        witness_type = ?partial_witness.production_key().witness_type,
     )
     .entered();
     let num_parts =

@@ -1,11 +1,17 @@
-use super::partial_witness::partial_witness_actor::DistributeStateWitnessRequest;
 use crate::Client;
 use crate::stateless_validation::chunk_validator::send_chunk_endorsement_to_block_producers;
 use near_async::messaging::{CanSend, IntoSender};
 use near_chain::BlockHeader;
-use near_chain::stateless_validation::state_witness::CreateWitnessResult;
+// unused import removed
+use near_chain::stateless_validation::state_witness::{
+    CreateWitnessResult, DistributeStateWitnessRequest,
+};
+// unused import removed
 use near_chain_primitives::Error;
+// unused import removed
 use near_primitives::sharding::{ShardChunk, ShardChunkHeader};
+use near_primitives::stateless_validation::WitnessType;
+// unused import removed
 use near_primitives::types::EpochId;
 
 impl Client {
@@ -21,6 +27,14 @@ impl Client {
         let chunk_header = chunk.cloned_header();
         let shard_id = chunk_header.shard_id();
         let height = chunk_header.height_created();
+        let apply_witness_sent = {
+            let lock = self.chain.chunk_apply_witness_sent_cache.lock();
+            lock.contains(&(prev_chunk_header.height_created(), shard_id))
+        };
+
+        let witness_type =
+            if apply_witness_sent { WitnessType::Validate } else { WitnessType::Full };
+
         let _span = tracing::debug_span!(
             target: "client",
             "send_chunk_state_witness",
@@ -29,6 +43,7 @@ impl Client {
             %shard_id,
             tag_block_production = true,
             tag_witness_distribution = true,
+            witness_type = ?witness_type,
         )
         .entered();
 
@@ -43,6 +58,7 @@ impl Client {
                 prev_block_header,
                 prev_chunk_header,
                 chunk,
+                apply_witness_sent,
             )?;
 
         if self.config.save_latest_witnesses {
