@@ -1017,11 +1017,10 @@ fn test_apply_deficit_gas_for_function_call_partial() {
         .unwrap();
     assert_eq!(result.stats.balance.gas_deficit_amount, expected_deficit);
     assert!(!apply_state.config.fees.refund_gas_price_changes);
-    // The deficit does not affect refunds in this config, hence we expect a
+    // The deficit does not affect refunds, hence we should expect a
     // normal refund of the unspent gas. However, this is small enough to
     // cancel out, so we add the refund cost to tx_burnt and expect no
-    // refund. Like in the other case, this ends up burning all gas and not
-    // refunding anything.
+    // refund. This ends up burning all gas and not refunding anything.
     assert_eq!(result.outgoing_receipts.len(), 0);
     assert_eq!(result.stats.balance.tx_burnt_amount, total_receipt_cost);
 }

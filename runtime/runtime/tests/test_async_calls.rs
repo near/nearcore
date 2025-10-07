@@ -55,7 +55,7 @@ fn test_simple_func_call() {
         actions,
         a0, Action::FunctionCall(_function_call_action), {}
     );
-    assert!(receipts.is_empty(), "refund should have been avoided");
+    assert_eq!(receipts, [], "refund should have been avoided");
 }
 
 // single promise, no callback (A->B)
@@ -110,7 +110,7 @@ fn test_single_promise_no_callback() {
         }
     );
     let [r1, refunds @ ..] = &receipts else { panic!("Incorrect number of produced receipts") };
-    assert!(refunds.is_empty(), "refund should have been avoided");
+    assert_eq!(refunds, [], "refund should have been avoided");
 
     let receipts = &*assert_receipts!(group, "near_1" => r1 @ "near_2",
         ReceiptEnum::Action(ActionReceipt{actions, ..}) | ReceiptEnum::ActionV2(ActionReceiptV2{actions, ..}),
@@ -120,7 +120,7 @@ fn test_single_promise_no_callback() {
         assert_eq!(function_call_action.gas, GAS_2);
         assert!(function_call_action.deposit.is_zero());
     });
-    assert!(receipts.is_empty(), "refund should have been avoided");
+    assert_eq!(receipts, [], "refund should have been avoided");
 }
 
 // single promise with callback (A->B=>C)
@@ -183,7 +183,7 @@ fn test_single_promise_with_callback() {
         }
     );
     let [r1, r2, refunds @ ..] = &receipts else { panic!("Incorrect number of produced receipts") };
-    assert!(refunds.is_empty(), "refund should have been avoided");
+    assert_eq!(refunds, [], "refund should have been avoided");
 
     let data_id;
 
@@ -198,7 +198,7 @@ fn test_single_promise_with_callback() {
         assert_eq!(function_call_action.gas, GAS_2);
         assert!(function_call_action.deposit.is_zero());
     });
-    assert!(receipts.is_empty(), "refund should have been avoided");
+    assert_eq!(receipts, [], "refund should have been avoided");
 
     let receipts = &*assert_receipts!(group, "near_1" => r2 @ "near_3",
         ReceiptEnum::Action(ActionReceipt{actions, input_data_ids, ..}) | ReceiptEnum::ActionV2(ActionReceiptV2{actions, input_data_ids, ..}),
@@ -212,7 +212,7 @@ fn test_single_promise_with_callback() {
             assert!(function_call_action.deposit.is_zero());
         }
     );
-    assert!(receipts.is_empty(), "refund should have been avoided");
+    assert_eq!(receipts, [], "refund should have been avoided");
 }
 
 // two promises, no callbacks (A->B->C)
@@ -275,7 +275,7 @@ fn test_two_promises_no_callbacks() {
         }
     );
     let [r1, refunds @ ..] = &receipts else { panic!("must have outgoing receipt") };
-    assert!(refunds.is_empty(), "refund should have been avoided");
+    assert_eq!(refunds, [], "refund should have been avoided");
 
     let receipts = &*assert_receipts!(group, "near_1" => r1 @ "near_2",
         ReceiptEnum::Action(ActionReceipt{actions, ..}) | ReceiptEnum::ActionV2(ActionReceiptV2{actions, ..}),
@@ -287,7 +287,7 @@ fn test_two_promises_no_callbacks() {
         }
     );
     let [r2, refunds @ ..] = &receipts else { panic!("Incorrect number of produced receipts") };
-    assert!(refunds.is_empty(), "refund should have been avoided");
+    assert_eq!(refunds, [], "refund should have been avoided");
 
     let receipts = &*assert_receipts!(group, "near_2" => r2 @ "near_3",
         ReceiptEnum::Action(ActionReceipt{actions, ..}) | ReceiptEnum::ActionV2(ActionReceiptV2{actions, ..}),
@@ -298,7 +298,7 @@ fn test_two_promises_no_callbacks() {
             assert!(function_call_action.deposit.is_zero());
         }
     );
-    assert!(receipts.is_empty(), "refund should have been avoided");
+    assert_eq!(receipts, [], "refund should have been avoided");
 }
 
 // two promises, with two callbacks (A->B->C=>D=>E) where call to E is initialized by completion of D.
@@ -381,7 +381,7 @@ fn test_two_promises_with_two_callbacks() {
     let [r1, cb1, refunds @ ..] = &receipts else {
         panic!("Incorrect number of produced receipts")
     };
-    assert!(refunds.is_empty(), "refund should have been avoided");
+    assert_eq!(refunds, [], "refund should have been avoided");
 
     let receipts = &*assert_receipts!(group, "near_1" => r1 @ "near_2",
         ReceiptEnum::Action(ActionReceipt{actions, ..}) | ReceiptEnum::ActionV2(ActionReceiptV2{actions, ..}),
@@ -395,7 +395,7 @@ fn test_two_promises_with_two_callbacks() {
     let [r2, cb2, refunds @ ..] = &receipts else {
         panic!("Incorrect number of produced receipts")
     };
-    assert!(refunds.is_empty(), "refund should have been avoided");
+    assert_eq!(refunds, [], "refund should have been avoided");
 
     let receipts = &*assert_receipts!(group, "near_2" => r2 @ "near_3",
         ReceiptEnum::Action(ActionReceipt{actions, ..}) | ReceiptEnum::ActionV2(ActionReceiptV2{actions, ..}),
@@ -406,7 +406,7 @@ fn test_two_promises_with_two_callbacks() {
             assert!(function_call_action.deposit.is_zero());
         }
     );
-    assert!(receipts.is_empty(), "refund should have been avoided");
+    assert_eq!(receipts, [], "refund should have been avoided");
 
     let receipts = &*assert_receipts!(group, "near_2" => cb2 @ "near_4",
         ReceiptEnum::Action(ActionReceipt{actions, ..}) | ReceiptEnum::ActionV2(ActionReceiptV2{actions, ..}),
@@ -417,7 +417,7 @@ fn test_two_promises_with_two_callbacks() {
             assert!(function_call_action.deposit.is_zero());
         }
     );
-    assert!(receipts.is_empty(), "refund should have been avoided");
+    assert_eq!(receipts, [], "refund should have been avoided");
 
     let receipts = &*assert_receipts!(group, "near_1" => cb1 @ "near_5",
         ReceiptEnum::Action(ActionReceipt{actions, ..}) | ReceiptEnum::ActionV2(ActionReceiptV2{actions, ..}),
@@ -428,7 +428,7 @@ fn test_two_promises_with_two_callbacks() {
             assert!(function_call_action.deposit.is_zero());
         }
     );
-    assert!(receipts.is_empty(), "refund should have been avoided");
+    assert_eq!(receipts, [], "refund should have been avoided");
 }
 
 // Batch actions tests
@@ -487,7 +487,7 @@ fn test_single_promise_no_callback_batch() {
         }
     );
     let [r1, refunds @ ..] = &receipts else { panic!("Incorrect number of produced receipts") };
-    assert!(refunds.is_empty(), "refund should have been avoided");
+    assert_eq!(refunds, [], "refund should have been avoided");
 
     let receipts = &*assert_receipts!(group, "near_1" => r1 @ "near_2",
         ReceiptEnum::Action(ActionReceipt{actions, ..}) | ReceiptEnum::ActionV2(ActionReceiptV2{actions, ..}),
@@ -498,7 +498,7 @@ fn test_single_promise_no_callback_batch() {
             assert!(function_call_action.deposit.is_zero());
         }
     );
-    assert!(receipts.is_empty(), "refund should have been avoided");
+    assert_eq!(receipts, [], "refund should have been avoided");
 }
 
 // single promise with callback (A->B=>C) with batch actions
@@ -567,7 +567,7 @@ fn test_single_promise_with_callback_batch() {
         }
     );
     let [r1, r2, refunds @ ..] = &receipts else { panic!("Incorrect number of produced receipts") };
-    assert!(refunds.is_empty(), "refund should have been avoided");
+    assert_eq!(refunds, [], "refund should have been avoided");
 
     let data_id;
     let receipts = &*assert_receipts!(group, "near_1" => r1 @ "near_2",
@@ -582,7 +582,7 @@ fn test_single_promise_with_callback_batch() {
             assert!(function_call_action.deposit.is_zero());
         }
     );
-    assert!(receipts.is_empty(), "refund should have been avoided");
+    assert_eq!(receipts, [], "refund should have been avoided");
 
     let receipts = &*assert_receipts!(group, "near_1" => r2 @ "near_3",
         ReceiptEnum::Action(ActionReceipt{actions, input_data_ids, ..}) | ReceiptEnum::ActionV2(ActionReceiptV2{actions, input_data_ids, ..}),
@@ -651,7 +651,7 @@ fn test_simple_transfer() {
     );
     let [r1, refunds @ ..] = &receipts else { panic!("Incorrect number of produced receipts") };
 
-    assert!(refunds.is_empty(), "refund should have been avoided");
+    assert_eq!(refunds, [], "refund should have been avoided");
 
     let refunds = assert_receipts!(group, "near_1" => r1 @ "near_2",
         ReceiptEnum::Action(ActionReceipt{actions, ..}) | ReceiptEnum::ActionV2(ActionReceiptV2{actions, ..}),
@@ -724,7 +724,7 @@ fn test_create_account_with_transfer_and_full_key() {
         }
     );
     let [r1, refunds @ ..] = &receipts else { panic!("Incorrect number of produced receipts") };
-    assert!(refunds.is_empty(), "refund should have been avoided");
+    assert_eq!(refunds, [], "refund should have been avoided");
 
     let refunds = assert_receipts!(group, "near_1" => r1 @ "near_2",
         ReceiptEnum::Action(ActionReceipt{actions, ..}) | ReceiptEnum::ActionV2(ActionReceiptV2{actions, ..}),
@@ -878,7 +878,7 @@ fn test_account_factory() {
     );
     let [r3, refunds @ ..] = &receipts else { panic!("Incorrect number of produced receipts") };
     // For gas price difference
-    assert!(refunds.is_empty(), "refund should have been avoided");
+    assert_eq!(refunds, [], "refund should have been avoided");
 
     let receipts = &*assert_receipts!(group, "near_1" => r2 @ "near_2",
         ReceiptEnum::Action(ActionReceipt{actions, input_data_ids, ..}) | ReceiptEnum::ActionV2(ActionReceiptV2{actions, input_data_ids, ..}),
@@ -893,7 +893,7 @@ fn test_account_factory() {
     );
     let [r4, refunds @ ..] = &receipts else { panic!("Incorrect number of produced receipts") };
     // For gas price difference
-    assert!(refunds.is_empty(), "refund should have been avoided");
+    assert_eq!(refunds, [], "refund should have been avoided");
 
     let receipts = &*assert_receipts!(group, "near_2" => r3 @ "near_0",
         ReceiptEnum::Action(ActionReceipt{actions, ..}) | ReceiptEnum::ActionV2(ActionReceiptV2{actions, ..}),
@@ -904,7 +904,7 @@ fn test_account_factory() {
             assert!(function_call_action.deposit.is_zero());
         }
     );
-    assert!(receipts.is_empty(), "refund should have been avoided");
+    assert_eq!(receipts, [], "refund should have been avoided");
 
     let receipts = &*assert_receipts!(group, "near_2" => r4 @ "near_1",
         ReceiptEnum::Action(ActionReceipt{actions, ..}) | ReceiptEnum::ActionV2(ActionReceiptV2{actions, ..}),
@@ -916,7 +916,7 @@ fn test_account_factory() {
             assert!(function_call_action.deposit.is_zero());
         }
     );
-    assert!(receipts.is_empty(), "refund should have been avoided");
+    assert_eq!(receipts, [], "refund should have been avoided");
 }
 
 #[test]
@@ -1008,7 +1008,7 @@ fn test_create_account_add_key_call_delete_key_delete_account() {
     let [r1, refunds @ ..] = &receipts else { panic!("must have outgoing receipt") };
 
     // For gas price difference
-    assert!(refunds.is_empty(), "refund should have been avoided");
+    assert_eq!(refunds, [], "refund should have been avoided");
 
     let receipts = &*assert_receipts!(group, "near_1" => r1 @ "near_3",
         ReceiptEnum::Action(ActionReceipt{actions, ..}) | ReceiptEnum::ActionV2(ActionReceiptV2{actions, ..}),
@@ -1116,7 +1116,7 @@ fn test_transfer_64len_hex() {
         }
     );
     let [r1, refunds @ ..] = &receipts else { panic!("Incorrect number of produced receipts") };
-    assert!(refunds.is_empty(), "refund should have been avoided");
+    assert_eq!(refunds, [], "refund should have been avoided");
 
     let refunds = assert_receipts!(group, "near_1" => r1 @ account_id.as_str(),
     ReceiptEnum::Action(ActionReceipt{actions, ..}) | ReceiptEnum::ActionV2(ActionReceiptV2{actions, ..}),
@@ -1194,7 +1194,7 @@ fn test_create_transfer_64len_hex_fail() {
     println!("receipts: {:?}", receipts);
 
     let [r1, refunds @ ..] = &receipts else { panic!("Incorrect number of produced receipts") };
-    assert!(refunds.is_empty(), "refund should have been avoided");
+    assert_eq!(refunds, [], "refund should have been avoided");
 
     let receipts = &*assert_receipts!(group, "near_1" => r1 @ account_id.as_str(),
         ReceiptEnum::Action(ActionReceipt{actions, ..}) | ReceiptEnum::ActionV2(ActionReceiptV2{actions, ..}),
@@ -1212,7 +1212,7 @@ fn test_create_transfer_64len_hex_fail() {
     assert_refund!(group, deposit_refund @ "near_1");
 
     // For gas price difference
-    assert!(refunds.is_empty(), "refund should have been avoided");
+    assert_eq!(refunds, [], "refund should have been avoided");
 }
 
 // redirect the balance refund using `promise_refund_to`
