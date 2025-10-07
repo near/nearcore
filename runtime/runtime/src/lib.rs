@@ -585,9 +585,9 @@ impl Runtime {
                     data_id: *data_id,
                 });
                 match data {
-                    // Note: Going from Vec<u8> to Rc<[u8]> shrinks the
-                    // allocated to fit, which may re-allocate if the capacity >
-                    // len.
+                    // TODO: Going from Vec<u8> to Rc<[u8]> shrinks the
+                    // allocated buffer to fit, which may re-allocate if the
+                    // capacity > len.
                     // Most likely, capacity == len holds here anyway but it
                     // would be better to use `Rc<u8>` already in `ReceivedData`
                     // and `DataReceipt`.
