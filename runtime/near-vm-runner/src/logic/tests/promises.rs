@@ -8,6 +8,7 @@ use near_crypto::PublicKey;
 use near_parameters::{ActionCosts, ExtCosts};
 use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::types::Gas;
+use near_primitives_core::version::{PROTOCOL_VERSION, ProtocolFeature};
 use serde_json;
 
 fn vm_receipts<'a>(ext: &'a MockedExternal) -> Vec<impl serde::Serialize + 'a> {
@@ -33,6 +34,31 @@ fn test_promise_results() {
 
     // Only promise with result should write data into register
     logic.assert_read_register(b"test", 0);
+}
+
+#[test]
+fn test_promise_result_per_byte_gas_fee() {
+    const RESULT_SIZE: usize = 100;
+    let promise_results = [PromiseResult::Successful([0u8; RESULT_SIZE].into())];
+
+    let mut logic_builder = VMLogicBuilder::default();
+    logic_builder.context.promise_results = promise_results.into();
+    let mut logic = logic_builder.build();
+
+    logic.promise_result(0, 0).expect("promise_result should succeed");
+
+    if ProtocolFeature::DeterministicAccountIds.enabled(PROTOCOL_VERSION) {
+        assert_costs(map! {
+          ExtCosts::base: 1,
+          ExtCosts::write_register_base: 1,
+        });
+    } else {
+        assert_costs(map! {
+          ExtCosts::base: 1,
+          ExtCosts::write_register_base: 1,
+          ExtCosts::write_register_byte: RESULT_SIZE as u64,
+        });
+    }
 }
 
 #[test]
