@@ -20,6 +20,18 @@ Gas cost of a growing memory by single page.
 
 Gas cost of a regular operation.
 
+## linear_op_base_cost
+
+`type: u64
+
+Base gas cost of a bulk memory/table operation.
+
+## linear_op_unit_cost
+
+`type: u64
+
+Gas cost per unit of a bulk memory/table operation.
+
 ## max_gas_burnt
 
 `type: Gas

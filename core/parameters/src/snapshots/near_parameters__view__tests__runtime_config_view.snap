@@ -196,6 +196,8 @@ expression: "&view"
     },
     "grow_mem_cost": 1,
     "regular_op_cost": 822756,
+    "linear_op_base_cost": 26328192,
+    "linear_op_unit_cost": 822756,
     "vm_kind": "<REDACTED>",
     "discard_custom_sections": true,
     "saturating_float_to_int": true,

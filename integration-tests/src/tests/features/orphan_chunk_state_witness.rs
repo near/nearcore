@@ -29,14 +29,14 @@ trait ChunkStateWitnessExt {
 impl ChunkStateWitnessExt for ChunkStateWitness {
     fn mut_source_receipt_proofs(&mut self) -> &mut HashMap<ChunkHash, ReceiptProof> {
         match self {
-            ChunkStateWitness::V1(witness) => &mut witness.source_receipt_proofs,
+            ChunkStateWitness::V1 => unreachable!("ChunkStateWitness V1 is deprecated"),
             ChunkStateWitness::V2(witness) => &mut witness.source_receipt_proofs,
         }
     }
 
     fn mut_chunk_header(&mut self) -> &mut ShardChunkHeader {
         match self {
-            ChunkStateWitness::V1(witness) => &mut witness.chunk_header,
+            ChunkStateWitness::V1 => unreachable!("ChunkStateWitness V1 is deprecated"),
             ChunkStateWitness::V2(witness) => &mut witness.chunk_header,
         }
     }
@@ -175,7 +175,6 @@ fn setup_orphan_witness_test() -> OrphanWitnessTestEnv {
         .chain_store()
         .create_state_witness(
             chunk_producer_client.epoch_manager.as_ref(),
-            block2_chunk_producer.clone(),
             block1.header(),
             &block1.chunks()[0],
             &chunk2,

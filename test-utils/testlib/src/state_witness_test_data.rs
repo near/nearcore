@@ -205,7 +205,6 @@ pub fn generate_realistic_state_witness(target_size_bytes: usize) -> ChunkStateW
     println!("Generated ChunkStateWitness with estimated size: {} bytes", current_witness_size);
 
     ChunkStateWitness::new(
-        "producer.near".parse().unwrap(),
         EpochId::default(),
         chunk_header,
         main_state_transition,
@@ -214,7 +213,6 @@ pub fn generate_realistic_state_witness(target_size_bytes: usize) -> ChunkStateW
         all_transactions.clone(),
         vec![],
         all_transactions,
-        PROTOCOL_VERSION,
     )
 }
 

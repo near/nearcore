@@ -46,8 +46,6 @@ impl Client {
         let CreateWitnessResult { state_witness, .. } =
             self.chain.chain_store().create_state_witness(
                 self.epoch_manager.as_ref(),
-                // Setting arbitrary chunk producer is OK for shadow validation
-                "alice.near".parse().unwrap(),
                 prev_block_header,
                 prev_chunk_header,
                 chunk,
