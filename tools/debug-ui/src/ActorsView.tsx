@@ -89,6 +89,61 @@ const normalizeData = (data: any): CombinedActorsData | null => {
     };
 };
 
+// Helper function to render queue table rows with sorted data
+const renderQueueTableRows = (allQueuesData: AllQueuesViewResponse) => {
+    const rows: JSX.Element[] = [];
+    const queues = allQueuesData.status_response.AllQueuesView.queues;
+
+    // Convert Map to array and sort by actor/queue name
+    const sortedQueues = Object.entries(queues).sort(([a], [b]) => a.localeCompare(b));
+
+    let totalPendingMessages = 0;
+
+    sortedQueues.forEach(([actorName, queueView]) => {
+        const pendingCounts = queueView.pending_counts;
+
+        // Convert Map to array and sort by message type name
+        const sortedMessages = Object.entries(pendingCounts).sort(([a], [b]) => a.localeCompare(b));
+
+        if (sortedMessages.length === 0) {
+            // Show actor with no known message types
+            rows.push(
+                <tr key={`${actorName}-empty`}>
+                    <td>{actorName}</td>
+                    <td><em>No known message types</em></td>
+                    <td>0</td>
+                </tr>
+            );
+        } else {
+            // Show each message type for this actor
+            sortedMessages.forEach(([messageType, count], index) => {
+                const countNum = Number(count);
+                totalPendingMessages += countNum;
+                rows.push(
+                    <tr key={`${actorName}-${messageType}`}>
+                        <td>{index === 0 ? actorName : ''}</td>
+                        <td>{messageType}</td>
+                        <td>{countNum}</td>
+                    </tr>
+                );
+            });
+        }
+    });
+
+    // Add summary row
+    if (rows.length > 0 && totalPendingMessages > 0) {
+        rows.push(
+            <tr key="summary" className="summary-row">
+                <td><strong>Total</strong></td>
+                <td><strong>{sortedQueues.length} queue(s)</strong></td>
+                <td><strong>{totalPendingMessages}</strong></td>
+            </tr>
+        );
+    }
+
+    return rows;
+};
+
 export const ActorsView = ({ addr }: ActorsViewProps) => {
     const [loadedData, setLoadedData] = useState<CombinedActorsData | null>(null);
     const [hasInitiallyFetched, setHasInitiallyFetched] = useState<boolean>(false);
@@ -289,6 +344,37 @@ export const ActorsView = ({ addr }: ActorsViewProps) => {
                 </div>
                 <div className="scroll-space" />
             </div>
+
+            {/* Queue Data Table */}
+            {currentData?.allQueues && (
+                <div className="queues-container">
+                    <h3>Queue Status ({Object.keys(currentData.allQueues.status_response.AllQueuesView.queues).length} queues)</h3>
+                    <div className="queues-table-container">
+                        <table className="queues-table">
+                            <thead>
+                                <tr>
+                                    <th>Actor/Queue</th>
+                                    <th>Message/Future Description</th>
+                                    <th>Pending Count</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {(() => {
+                                    const rows = renderQueueTableRows(currentData.allQueues);
+                                    return rows.length > 0 ? rows : (
+                                        <tr>
+                                            <td colSpan={3} className="empty-table-message">
+                                                No queues found
+                                            </td>
+                                        </tr>
+                                    );
+                                })()}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            )}
+
             {/*
             AllQueues data is now available in: currentData?.allQueues
             InstrumentedThreads data: currentData?.instrumentedThreads
