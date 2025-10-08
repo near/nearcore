@@ -4,8 +4,8 @@ use std::sync::Arc;
 use itertools::Itertools;
 use near_async::futures::{DelayedActionRunnerExt as _, FutureSpawner, FutureSpawnerExt};
 use near_async::messaging::{
-    Actor, AsyncSender, CanSend, Handler, IntoMultiSender as _, IntoSender as _, Message,
-    SendAsync, Sender,
+    Actor, AsyncSender, CanSend, Handler, IntoMultiSender as _, IntoSender as _, SendAsync,
+    Sender,
 };
 use near_async::test_loop::sender::TestLoopSender;
 use near_async::time::{Clock, Duration};
@@ -234,7 +234,7 @@ pub struct UnreachableActor {}
 
 impl<M, R> Handler<M, R> for UnreachableActor
 where
-    M: Message,
+    M: Send + 'static,
     R: Send,
 {
     fn handle(&mut self, _msg: M) -> R {

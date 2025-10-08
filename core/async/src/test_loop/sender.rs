@@ -4,7 +4,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use crate::futures::DelayedActionRunner;
-use crate::messaging::{Actor, AsyncSendError, CanSend, CanSendAsync, HandlerWithContext, Message};
+use crate::messaging::{Actor, AsyncSendError, CanSend, CanSendAsync, HandlerWithContext};
 use crate::time::Duration;
 
 use super::PendingEventsSender;
@@ -78,7 +78,7 @@ where
 
 impl<M, A> CanSend<M> for TestLoopSender<A>
 where
-    M: Message + Debug + Send + 'static,
+    M: Debug + Send + 'static,
     A: Actor + HandlerWithContext<M> + 'static,
 {
     fn send(&self, msg: M) {
@@ -98,7 +98,7 @@ where
 
 impl<M, R, A> CanSendAsync<M, R> for TestLoopSender<A>
 where
-    M: Message + Debug + Send + 'static,
+    M: Debug + Send + 'static,
     A: Actor + HandlerWithContext<M, R> + 'static,
     R: Send + 'static,
 {

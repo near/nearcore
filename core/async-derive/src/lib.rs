@@ -67,9 +67,9 @@ fn derive_multi_sender_from_impl(input: proc_macro2::TokenStream) -> proc_macro2
                     type_bounds.push(quote!(
                         near_async::messaging::CanSendAsync<#(#arguments),*>
                     ));
-                    initializers.push(
-                        quote!(near_async::messaging::IntoAsyncSender::as_async_sender(&input)),
-                    );
+                    initializers.push(quote!(
+                        near_async::messaging::IntoAsyncSender::as_async_sender(&input)
+                    ));
                 } else {
                     panic!("Field {} must be either a Sender or an AsyncSender", field_name);
                 }
@@ -235,9 +235,8 @@ fn derive_multi_send_message_impl(input: proc_macro2::TokenStream) -> proc_macro
             } else if last_segment.ident == "AsyncSender" {
                 let message_type = arguments[0].clone();
                 let result_type = arguments[1].clone();
-                message_types.push(
-                    quote!(near_async::messaging::AsyncMessage<#message_type, #result_type>),
-                );
+                message_types
+                    .push(quote!(near_async::messaging::AsyncMessage<#message_type, #result_type>));
                 input_types.push(quote!(#message_type));
                 input_extractors.push(quote!(msg.message));
                 dispatch_tokens.push(quote!(
@@ -301,15 +300,9 @@ fn derive_multi_send_message_impl(input: proc_macro2::TokenStream) -> proc_macro
     }
 }
 
-/// Simply derives `impl Message for X` for any type `X`.
 #[proc_macro_derive(Message)]
-pub fn derive_message(input: TokenStream) -> TokenStream {
-    let ast: syn::DeriveInput = syn::parse(input).unwrap();
-    let struct_name = ast.ident;
-    quote! {
-        impl near_async::messaging::Message for #struct_name {}
-    }
-    .into()
+pub fn derive_message(_input: TokenStream) -> TokenStream {
+    TokenStream::new()
 }
 
 #[cfg(test)]
