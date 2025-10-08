@@ -205,9 +205,9 @@ export const ThreadTimeline = ({ thread, messageTypes, minTimeMs, currentTimeMs,
                         indicators.push(
                             <rect
                                 key={`overfilled-${index}`}
-                                x={Math.max(0, x1)}
+                                x={x1}
                                 y={eventsTop}
-                                width={Math.max(1, x2 - x1)}
+                                width={x2 - x1}
                                 height={chartHeight - eventsTop}
                                 fill="#f88"
                                 opacity={0.3}

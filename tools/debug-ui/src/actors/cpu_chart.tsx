@@ -74,9 +74,9 @@ export function renderCpuChart(params: {
             elements.push(
                 <rect
                     key={`${windowIndex}-${type}`}
-                    x={Math.max(0, x1)}
+                    x={x1}
                     y={y2}
-                    width={Math.max(1, x2 - x1)}
+                    width={x2 - x1}
                     height={y1 - y2}
                     fill={color}
                     opacity={isDimmed ? 0.1 : 0.8}
@@ -90,9 +90,9 @@ export function renderCpuChart(params: {
         elements.push(
             <rect
                 key={`hover-${windowIndex}`}
-                x={Math.max(0, x1)}
+                x={x1}
                 y={0}
-                width={Math.max(1, x2 - x1)}
+                width={x2 - x1}
                 height={CPU_CHART_HEIGHT}
                 fill="transparent"
                 onMouseEnter={(e) => {
@@ -111,9 +111,9 @@ export function renderCpuChart(params: {
         elements.push(
             <rect
                 key={`outline-${hoveredWindowIndex}`}
-                x={Math.max(0, x1) + 0.5}
+                x={x1 + 0.5}
                 y={0.5}
-                width={Math.max(1, x2 - x1) - 0.5}
+                width={x2 - x1 - 0.5}
                 height={CPU_CHART_HEIGHT - 1}
                 fill="none"
                 stroke="#000"
