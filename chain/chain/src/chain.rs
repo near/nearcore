@@ -51,6 +51,7 @@ use near_async::Message;
 use near_async::futures::AsyncComputationSpawner;
 use near_async::futures::AsyncComputationSpawnerExt;
 use near_async::messaging::{IntoMultiSender, noop};
+use near_async::span_wrapped_msg::{SpanWrapped, SpanWrappedMessageExt};
 use near_async::time::{Clock, Duration, Instant};
 use near_chain_configs::{MutableValidatorSigner, ProtocolVersionCheckConfig};
 use near_chain_primitives::ApplyChunksMode;
@@ -59,7 +60,6 @@ use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_assignment::shard_id_to_uid;
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_epoch_manager::validate::validate_optimistic_block_relevant;
-use near_o11y::span_wrapped_msg::{SpanWrapped, SpanWrappedMessageExt};
 use near_primitives::block::{
     Block, BlockValidityError, ChunkType, Chunks, Tip, compute_bp_hash_from_validator_stakes,
 };

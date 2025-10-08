@@ -1,8 +1,8 @@
 use near_async::messaging::{self, CanSend, Handler, Sender};
+use near_async::span_wrapped_msg::{SpanWrapped, SpanWrappedMessageExt};
 use near_async::{MultiSend, MultiSenderFrom};
 use near_chain::ApplyChunksIterationMode;
 use near_chain::chain::{BlockCatchUpRequest, BlockCatchUpResponse, do_apply_chunks};
-use near_o11y::span_wrapped_msg::{SpanWrapped, SpanWrappedMessageExt};
 use near_performance_metrics_macros::perf;
 use near_primitives::optimistic_block::BlockToApply;
 

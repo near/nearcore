@@ -4,6 +4,7 @@ use std::sync::Arc;
 
 use near_async::futures::{AsyncComputationSpawner, AsyncComputationSpawnerExt as _};
 use near_async::messaging::{Handler, IntoSender as _, Sender};
+use near_async::span_wrapped_msg::SpanWrapped;
 use near_async::{Message, MultiSend, MultiSenderFrom};
 use near_chain::spice_core::{CoreStatementsProcessor, ExecutionResultEndorsed};
 use near_chain::stateless_validation::spice_chunk_validation::{
@@ -14,7 +15,6 @@ use near_chain::{ApplyChunksSpawner, Block, ChainGenesis, ChainStore, Error};
 use near_chain_configs::MutableValidatorSigner;
 use near_epoch_manager::EpochManagerAdapter;
 use near_network::types::{NetworkRequests, PeerManagerAdapter, PeerManagerMessageRequest};
-use near_o11y::span_wrapped_msg::SpanWrapped;
 use near_performance_metrics_macros::perf;
 use near_primitives::hash::CryptoHash;
 use near_primitives::stateless_validation::spice_chunk_endorsement::SpiceChunkEndorsement;
