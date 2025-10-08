@@ -429,7 +429,7 @@ impl ProtocolFeature {
             | ProtocolFeature::SaturatingFloatToInt
             | ProtocolFeature::ReducedGasRefunds => 78,
             ProtocolFeature::IncreaseMaxCongestionMissedChunks => 79,
-            ProtocolFeature::StatePartsCompression => 81,
+            ProtocolFeature::StatePartsCompression | ProtocolFeature::DeterministicAccountIds => 81,
             ProtocolFeature::Wasmtime => 82,
 
             // Nightly features:
@@ -438,7 +438,6 @@ impl ProtocolFeature {
             // that always enables this for mocknet (see config_mocknet function).
             ProtocolFeature::ShuffleShardAssignments => 143,
             ProtocolFeature::ExcludeExistingCodeFromWitnessForCodeLen => 148,
-            ProtocolFeature::DeterministicAccountIds => 150,
             ProtocolFeature::InvalidTxGenerateOutcomes => 151,
             // Place features that are not yet in Nightly below this line.
         }

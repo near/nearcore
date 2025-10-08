@@ -2190,7 +2190,7 @@ mod tests {
                 Err(
                     UnsupportedProtocolFeature {
                         protocol_feature: "DeterministicAccountIds",
-                        version: 149,
+                        version: 80,
                     },
                 )
             "#]],
