@@ -196,7 +196,7 @@ export const ThreadTimeline = ({ thread, messageTypes, minTimeMs, currentTimeMs,
                     const indicators: JSX.Element[] = [];
                     windows.forEach((window, index) => {
                         if (!window.eventsOverfilled) return;
-                        const x1 = viewport.transform(window.startSMT);
+                        const x1 = viewport.transform(window.lastCertainTimeBeforeOverfilling);
                         const x2 = viewport.transform(window.endSMT);
 
                         // Skip windows outside viewport

@@ -16,6 +16,7 @@ export type WindowToDisplay = {
     startSMT: number;
     endSMT: number;
     eventsOverfilled: boolean;
+    lastCertainTimeBeforeOverfilling: number;
     summary: InstrumentedWindowSummary;
     dequeueSummary: InstrumentedWindowSummary;
 };
@@ -131,56 +132,46 @@ export function getEventsToDisplay(
         const window = windows[i];
         currentOffsetSMT = window.start_time_ms - minTimeMs;
 
-        if (!window.events_overfilled) {
-            for (const event of window.events) {
-                if (!event.is_start) {
-                    if (currentEvent == null) {
-                        events.push({
-                            startSMT: lastLostHorizonSMT,
-                            endSMT: event.relative_timestamp_ns / 1_000_000 + currentOffsetSMT,
-                            leftUncertain: true,
-                            rightUncertain: false,
-                            typeId: event.message_type,
-                            row: 0
-                        });
-                    } else {
-                        if (currentEvent.messageType !== event.message_type) {
-                            console.warn(`Mismatched event types: expected ${currentEvent.messageType}, got ${event.message_type}`);
-                        }
-                        events.push({
-                            startSMT: currentEvent.startSMT,
-                            endSMT: event.relative_timestamp_ns / 1_000_000 + currentOffsetSMT,
-                            leftUncertain: false,
-                            rightUncertain: false,
-                            typeId: event.message_type,
-                            row: 0
-                        });
-                        currentEvent = null;
-                    }
+        for (const event of window.events) {
+            if (!event.is_start) {
+                if (currentEvent == null) {
+                    events.push({
+                        startSMT: lastLostHorizonSMT,
+                        endSMT: event.relative_timestamp_ns / 1_000_000 + currentOffsetSMT,
+                        leftUncertain: true,
+                        rightUncertain: false,
+                        typeId: event.message_type,
+                        row: 0
+                    });
                 } else {
-                    if (currentEvent != null) {
-                        console.warn(`Unexpected start event while current event is active: ${currentEvent.messageType}`);
+                    if (currentEvent.messageType !== event.message_type) {
+                        console.warn(`Mismatched event types: expected ${currentEvent.messageType}, got ${event.message_type}`);
                     }
-                    currentEvent = {
-                        messageType: event.message_type,
-                        startSMT: event.relative_timestamp_ns / 1_000_000 + currentOffsetSMT
-                    };
+                    events.push({
+                        startSMT: currentEvent.startSMT,
+                        endSMT: event.relative_timestamp_ns / 1_000_000 + currentOffsetSMT,
+                        leftUncertain: false,
+                        rightUncertain: false,
+                        typeId: event.message_type,
+                        row: 0
+                    });
+                    currentEvent = null;
                 }
+            } else {
+                if (currentEvent != null) {
+                    console.warn(`Unexpected start event while current event is active: ${currentEvent.messageType}`);
+                }
+                currentEvent = {
+                    messageType: event.message_type,
+                    startSMT: event.relative_timestamp_ns / 1_000_000 + currentOffsetSMT
+                };
             }
-        } else {
-            // If the window is overfilled, we rely on the summary only. If there's an ongoing event,
-            // we don't know when exactly it ended.
-            if (currentEvent != null) {
-                events.push({
-                    startSMT: currentEvent.startSMT,
-                    endSMT: currentOffsetSMT,
-                    leftUncertain: false,
-                    rightUncertain: true,
-                    typeId: currentEvent.messageType,
-                    row: 0
-                });
-                currentEvent = null;
-            }
+        }
+        if (window.events_overfilled) {
+            // If the window is overfilled, if there is any last event still active at the end of the
+            // buffer (which isn't the complete data), we don't know when it ended. So we just
+            // discard that event.
+            currentEvent = null;
             // If there are more windows, set the last lost horizon to the start of the next window,
             // because if the first event is the end of a message, we don't know when it started either,
             // so we assume it started at the beginning of the next window.
@@ -295,36 +286,26 @@ export function assignRows(events: EventToDisplay[], viewport: Viewport): { even
             leftUncertain: groupEvents.some(e => e.leftUncertain),
             rightUncertain: groupEvents.some(e => e.rightUncertain),
             typeId: groupEvents[0].typeId,
-            row: 0, // Will be assigned in next phase
+            row: 0, // Will be assigned based on type
             count: groupEvents.length,
             rowSpan: 1 // Always single row height
         });
     }
 
-    // Phase 5: Assign rows to merged events
-    mergedEvents.sort((a, b) => a.startSMT - b.startSMT);
-    const rowEndPositions: number[] = [];
-    let maxRow = 0;
+    // Phase 5: Assign rows based on message type (each type gets its own row)
+    // First, determine unique type IDs and sort them
+    const uniqueTypes = Array.from(new Set(mergedEvents.map(e => e.typeId))).sort((a, b) => a - b);
+    const typeToRow = new Map<number, number>();
+    uniqueTypes.forEach((typeId, index) => {
+        typeToRow.set(typeId, index);
+    });
 
+    // Assign rows based on type
     for (const event of mergedEvents) {
-        const startPx = viewport.transform(event.startSMT);
-        const endPx = viewport.transform(event.endSMT);
-        const actualEndPx = startPx + (endPx - startPx) + LINE_STROKE_WIDTH / 2;
-
-        // Find first available row
-        let assignedRow = 0;
-        for (let row = 0; row < rowEndPositions.length; row++) {
-            if (startPx - LINE_STROKE_WIDTH / 2 >= rowEndPositions[row] + EVENT_SPACING_PX) {
-                assignedRow = row;
-                break;
-            }
-            assignedRow = row + 1;
-        }
-
-        event.row = assignedRow;
-        rowEndPositions[assignedRow] = actualEndPx;
-        maxRow = Math.max(maxRow, assignedRow);
+        event.row = typeToRow.get(event.typeId)!;
     }
+
+    const maxRow = uniqueTypes.length - 1;
 
     return { events: mergedEvents, maxRow };
 }
@@ -337,10 +318,19 @@ export function makeWindowsToDisplay(
     const threadWindows = [...thread.windows];
     threadWindows.reverse();
     for (const window of threadWindows) {
+        let lastCertainTimeBeforeOverfilling = window.end_time_ms;
+        if (window.events_overfilled) {
+            if (window.events[window.events.length - 1].is_start) {
+                lastCertainTimeBeforeOverfilling = window.events[window.events.length - 2].relative_timestamp_ns / 1e6 + window.start_time_ms;
+            } else {
+                lastCertainTimeBeforeOverfilling = window.events[window.events.length - 1].relative_timestamp_ns / 1e6 + window.start_time_ms;
+            }
+        }
         windows.push({
             startSMT: window.start_time_ms - minTimeMs,
             endSMT: window.end_time_ms - minTimeMs,
             eventsOverfilled: window.events_overfilled,
+            lastCertainTimeBeforeOverfilling: lastCertainTimeBeforeOverfilling - minTimeMs,
             summary: window.summary,
             dequeueSummary: window.dequeue_summary,
         });
