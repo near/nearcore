@@ -210,97 +210,66 @@ export function getEventsToDisplay(
 /// Assigns rows to events so that overlapping events are displayed in different rows
 /// Also collapses visually overlapping events of the same type into single elements with a count
 export function assignRows(events: EventToDisplay[], viewport: Viewport): { events: EventToDisplay[], maxRow: number } {
-    // Phase 1: Identify visual bounds and find groups of visually overlapping same-type events
+    // Phase 1: Sort events and merge visually overlapping same-type events using linear sweep
     const positionedEvents = events.map(e => ({ ...e }));
     positionedEvents.sort((a, b) => a.startSMT - b.startSMT);
 
-    const visualBounds: { startPx: number, endPx: number }[] = [];
+    const mergedEvents: EventToDisplay[] = [];
+    // Track the last merged event for each type
+    const lastEventByType = new Map<number, number>(); // typeId -> index in mergedEvents
 
     for (const event of positionedEvents) {
         const startPx = viewport.transform(event.startSMT);
         const endPx = viewport.transform(event.endSMT);
+        const visualStart = startPx - LINE_STROKE_WIDTH / 2;
+        const visualEnd = endPx + LINE_STROKE_WIDTH / 2;
 
-        visualBounds.push({
-            startPx: startPx - LINE_STROKE_WIDTH / 2,
-            endPx: endPx + LINE_STROKE_WIDTH / 2
-        });
-    }
+        const lastIndex = lastEventByType.get(event.typeId);
 
-    // Phase 2: Build graph of VISUALLY overlapping same-type events
-    const adjacencyList = new Map<number, Set<number>>();
-    for (let i = 0; i < positionedEvents.length; i++) {
-        adjacencyList.set(i, new Set());
-    }
+        if (lastIndex !== undefined) {
+            const lastEvent = mergedEvents[lastIndex];
+            const lastStartPx = viewport.transform(lastEvent.startSMT);
+            const lastEndPx = viewport.transform(lastEvent.endSMT);
+            const lastVisualEnd = lastEndPx + LINE_STROKE_WIDTH / 2;
 
-    for (let i = 0; i < positionedEvents.length; i++) {
-        for (let j = i + 1; j < positionedEvents.length; j++) {
-            const ei = positionedEvents[i];
-            const ej = positionedEvents[j];
-
-            if (ei.typeId === ej.typeId) {
-                const bi = visualBounds[i];
-                const bj = visualBounds[j];
-                const visuallyOverlaps = !(bi.endPx + EVENT_SPACING_PX <= bj.startPx || bj.endPx + EVENT_SPACING_PX <= bi.startPx);
-
-                if (visuallyOverlaps) {
-                    adjacencyList.get(i)!.add(j);
-                    adjacencyList.get(j)!.add(i);
-                }
+            // Check if visually overlaps with last event of same type
+            if (visualStart < lastVisualEnd + EVENT_SPACING_PX) {
+                // Merge into last event
+                lastEvent.endSMT = Math.max(lastEvent.endSMT, event.endSMT);
+                lastEvent.leftUncertain = lastEvent.leftUncertain || event.leftUncertain;
+                lastEvent.rightUncertain = lastEvent.rightUncertain || event.rightUncertain;
+                lastEvent.count = (lastEvent.count || 1) + 1;
+            } else {
+                // Create new merged event
+                const newIndex = mergedEvents.length;
+                mergedEvents.push({
+                    ...event,
+                    row: 0, // Will be assigned based on type
+                    count: 1,
+                    rowSpan: 1
+                });
+                lastEventByType.set(event.typeId, newIndex);
             }
+        } else {
+            // First event of this type
+            const newIndex = mergedEvents.length;
+            mergedEvents.push({
+                ...event,
+                row: 0, // Will be assigned based on type
+                count: 1,
+                rowSpan: 1
+            });
+            lastEventByType.set(event.typeId, newIndex);
         }
     }
 
-    // Phase 3: Find connected components using DFS
-    const visited = new Set<number>();
-    const components: number[][] = [];
-
-    function dfs(node: number, component: number[]) {
-        visited.add(node);
-        component.push(node);
-        for (const neighbor of adjacencyList.get(node)!) {
-            if (!visited.has(neighbor)) {
-                dfs(neighbor, component);
-            }
-        }
-    }
-
-    for (let i = 0; i < positionedEvents.length; i++) {
-        if (!visited.has(i)) {
-            const component: number[] = [];
-            dfs(i, component);
-            components.push(component);
-        }
-    }
-
-    // Phase 4: Create merged events (one per component)
-    const mergedEvents: EventToDisplay[] = [];
-
-    for (const component of components) {
-        const groupEvents = component.map(idx => positionedEvents[idx]);
-        const minStart = Math.min(...groupEvents.map(e => e.startSMT));
-        const maxEnd = Math.max(...groupEvents.map(e => e.endSMT));
-
-        mergedEvents.push({
-            startSMT: minStart,
-            endSMT: maxEnd,
-            leftUncertain: groupEvents.some(e => e.leftUncertain),
-            rightUncertain: groupEvents.some(e => e.rightUncertain),
-            typeId: groupEvents[0].typeId,
-            row: 0, // Will be assigned based on type
-            count: groupEvents.length,
-            rowSpan: 1 // Always single row height
-        });
-    }
-
-    // Phase 5: Assign rows based on message type (each type gets its own row)
-    // First, determine unique type IDs and sort them
+    // Phase 2: Assign rows based on message type (each type gets its own row)
     const uniqueTypes = Array.from(new Set(mergedEvents.map(e => e.typeId))).sort((a, b) => a - b);
     const typeToRow = new Map<number, number>();
     uniqueTypes.forEach((typeId, index) => {
         typeToRow.set(typeId, index);
     });
 
-    // Assign rows based on type
     for (const event of mergedEvents) {
         event.row = typeToRow.get(event.typeId)!;
     }
