@@ -34,9 +34,15 @@ const ThreadTimelineRow = ({ thread, minTimeMs, currentTimeMs, chartMode, yAxisM
 
     return (
         <div className="one-thread-row">
-            <div className="thread-name" onClick={handleToggle} style={{ cursor: 'pointer' }}>
-                <span style={{ marginRight: '8px' }}>{isExpanded ? '▼' : '▶'}</span>
-                {formatThreadName(thread.thread_name)}
+            <div className="thread-name" onClick={handleToggle} style={{ cursor: 'pointer', display: 'flex', alignItems: 'center' }}>
+                <svg width="16" height="16" viewBox="0 0 16 16" style={{ marginRight: '8px', flexShrink: 0 }}>
+                    {isExpanded ? (
+                        <path d="M3 5 L8 10 L13 5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                    ) : (
+                        <path d="M5 3 L10 8 L5 13" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                    )}
+                </svg>
+                <span>{formatThreadName(thread.thread_name)}</span>
             </div>
             <div className="thread-timeline">
                 <ThreadTimeline
