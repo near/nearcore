@@ -11,13 +11,10 @@ use std::sync::Arc;
 use super::AccessOptions;
 
 /// Read-only iterator over items stored in a TrieQueue.
-struct TrieQueueIterator<'a, 'su, Queue>
-where
-    Queue: TrieQueue,
-{
+struct TrieQueueIterator<'a, 'b, 'su, Queue> {
     indices: std::ops::Range<u64>,
     trie_queue: &'a Queue,
-    trie: StateOperations<'su>,
+    update_ops: &'b mut StateOperations<'su>,
     side_effects: bool,
 }
 
@@ -225,21 +222,21 @@ pub trait TrieQueue {
         self.indices().len()
     }
 
-    fn iter<'a>(
+    fn iter<'a, 'su>(
         &'a self,
-        mut trie: StateOperations<'a>,
+        update_ops: &'a mut StateOperations<'su>,
         side_effects: bool,
     ) -> impl DoubleEndedIterator<Item = Result<Self::Item, StorageError>> + 'a
     where
         Self: Sized,
     {
         if side_effects {
-            self.debug_check_unchanged(&mut trie);
+            self.debug_check_unchanged(update_ops);
         }
         TrieQueueIterator {
             indices: self.indices().first_index..self.indices().next_available_index,
             trie_queue: self,
-            trie,
+            update_ops,
             side_effects,
         }
     }
@@ -353,7 +350,7 @@ impl TrieQueue for OutgoingReceiptBuffer<'_> {
     }
 }
 
-impl<'a, 'su, Q> Iterator for TrieQueueIterator<'a, 'su, Q>
+impl<'a, 'b, 'su, Q> Iterator for TrieQueueIterator<'a, 'b, 'su, Q>
 where
     Q: TrieQueue,
 {
@@ -362,7 +359,11 @@ where
     fn next(&mut self) -> Option<Self::Item> {
         let index = self.indices.next()?;
         let key = self.trie_queue.trie_key(index);
-        let value = if self.side_effects { self.trie.get(key) } else { self.trie.pure_get(key) };
+        let value = if self.side_effects {
+            self.update_ops.get(key)
+        } else {
+            self.update_ops.pure_get(key)
+        };
         let result = match value {
             Err(e) => Err(e),
             Ok(None) => Err(StorageError::StorageInconsistentState(
@@ -374,14 +375,18 @@ where
     }
 }
 
-impl<'a, 'su, Q> DoubleEndedIterator for TrieQueueIterator<'a, 'su, Q>
+impl<'a, 'b, 'su, Q> DoubleEndedIterator for TrieQueueIterator<'a, 'b, 'su, Q>
 where
     Q: TrieQueue,
 {
     fn next_back(&mut self) -> Option<Self::Item> {
         let index = self.indices.next_back()?;
         let key = self.trie_queue.trie_key(index);
-        let value = if self.side_effects { self.trie.get(key) } else { self.trie.pure_get(key) };
+        let value = if self.side_effects {
+            self.update_ops.get(key)
+        } else {
+            self.update_ops.pure_get(key)
+        };
         let result = match value {
             Err(e) => Err(e),
             Ok(None) => Err(StorageError::StorageInconsistentState(
@@ -433,7 +438,7 @@ mod tests {
             let mut update_op = state_update.start_update();
             let mut queue =
                 DelayedReceiptQueue::load(&mut update_op).expect("creating queue must not fail");
-            update_op.commit();
+            update_op.commit().unwrap();
             check_push_to_receipt_queue(input_receipts, &state_update, &mut queue);
         }
 
@@ -442,7 +447,7 @@ mod tests {
             let mut update_op = state_update.start_update();
             let mut queue =
                 DelayedReceiptQueue::load(&mut update_op).expect("creating queue must not fail");
-            update_op.commit();
+            update_op.commit().unwrap();
             check_receipt_queue_contains_receipts(input_receipts, &state_update, &mut queue);
         }
     }
@@ -470,7 +475,7 @@ mod tests {
                 let mut update_op = state_update.start_update();
                 let mut buffers = ShardsOutgoingReceiptBuffer::load(&mut update_op)
                     .expect("creating buffers must not fail");
-                update_op.commit();
+                update_op.commit().unwrap();
                 let mut buffer = buffers.to_shard(ShardId::from(id));
                 check_push_to_receipt_queue(input_receipts, &state_update, &mut buffer);
             }
@@ -480,7 +485,7 @@ mod tests {
                 let mut update_op = state_update.start_update();
                 let mut buffers = ShardsOutgoingReceiptBuffer::load(&mut update_op)
                     .expect("creating buffers must not fail");
-                update_op.commit();
+                update_op.commit().unwrap();
                 let mut buffer = buffers.to_shard(ShardId::from(id));
                 check_receipt_queue_contains_receipts(input_receipts, &state_update, &mut buffer);
             }
@@ -508,7 +513,7 @@ mod tests {
         // load shard_buffers once and hold on to it for the entire duration
         let mut shard_buffers = ShardsOutgoingReceiptBuffer::load(&mut update_op)
             .expect("creating buffers must not fail");
-        update_op.commit();
+        update_op.commit().unwrap();
         for id in 0..2u32 {
             // load a buffer to fill it with receipts
             {
@@ -537,9 +542,8 @@ mod tests {
             let receipt = ReceiptOrStateStoredReceipt::Receipt(Cow::Owned(receipt.clone()));
             queue.push_back(&mut update_op, receipt).expect("pushing must not fail");
         }
-        update_op.commit();
         let iterated_receipts: Vec<ReceiptOrStateStoredReceipt> = queue
-            .iter(state_update.start_update(), true)
+            .iter(&mut update_op, true)
             .collect::<Result<_, _>>()
             .expect("iterating should not fail");
         let iterated_receipts: Vec<Receipt> =
@@ -557,9 +561,10 @@ mod tests {
         state_update: &StateUpdate,
         queue: &mut impl TrieQueue<Item = ReceiptOrStateStoredReceipt<'static>>,
     ) {
+        let mut update_op = state_update.start_update();
         // check 2: assert newly loaded queue still contains the receipts
         let iterated_receipts: Vec<ReceiptOrStateStoredReceipt> = queue
-            .iter(state_update.start_update(), true)
+            .iter(&mut update_op, true)
             .collect::<Result<_, _>>()
             .expect("iterating should not fail");
         let iterated_receipts: Vec<Receipt> =
@@ -773,8 +778,6 @@ mod tests {
 
             maybe_reload_queue(&mut update_op, &mut trie_queue, rng);
 
-            update_op.commit();
-
             if rng.r#gen::<bool>() {
                 // Compare a random prefix from both queues
                 let prefix_len = if rng.r#gen::<bool>() || memory_queue.is_empty() {
@@ -783,8 +786,7 @@ mod tests {
                     rng.gen_range(0..memory_queue.len())
                 };
                 let mut trie_items = Vec::new();
-                let mut trie_iter =
-                    trie_queue.iter(state_update.start_update(), rng.r#gen::<bool>());
+                let mut trie_iter = trie_queue.iter(&mut update_op, rng.r#gen::<bool>());
                 for _ in 0..prefix_len {
                     let trie_item = trie_iter.next().unwrap().unwrap();
                     trie_items.push(trie_item);

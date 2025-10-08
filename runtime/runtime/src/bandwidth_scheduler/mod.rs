@@ -140,7 +140,7 @@ pub fn run_bandwidth_scheduler(
     // feed into the hasher directly.
     let scheduler_state_hash: CryptoHash = hash(&borsh::to_vec(&scheduler_state).unwrap());
     update_ops.set(TrieKey::BandwidthSchedulerState, scheduler_state);
-    update_ops.commit(/*StateChangeCause::BandwidthSchedulerStateUpdate*/);
+    update_ops.commit(/*StateChangeCause::BandwidthSchedulerStateUpdate*/).expect("TODO(state_update): error handling");
 
     stats.time_to_run_ms = start_time.elapsed().as_millis();
     Ok(BandwidthSchedulerOutput { granted_bandwidth, params, scheduler_state_hash })

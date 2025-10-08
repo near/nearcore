@@ -1481,7 +1481,7 @@ mod tests {
         let key =
             TrieKey::AccessKey { account_id: account_id.clone(), public_key: public_key.clone() };
         update_op.set(key, access_key.clone());
-        update_op.commit(/* StateChangeCause::InitialState */);
+        update_op.commit(/* StateChangeCause::InitialState */).unwrap();
         // let trie_changes = state_update.finalize().unwrap().trie_changes;
         // let mut store_update = tries.store_update();
         // let root = tries.apply_all(&trie_changes, ShardUId::single_shard(), &mut store_update);

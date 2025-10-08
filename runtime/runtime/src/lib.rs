@@ -48,7 +48,6 @@ use near_primitives::receipt::{
     VersionedReceiptEnum,
 };
 use near_primitives::sandbox::state_patch::SandboxStatePatch;
-use near_primitives::state_record::StateRecord;
 use near_primitives::stateless_validation::contract_distribution::ContractUpdates;
 use near_primitives::transaction::{
     Action, ExecutionMetadata, ExecutionOutcome, ExecutionOutcomeWithId, ExecutionStatus, LogEntry,
@@ -57,7 +56,7 @@ use near_primitives::transaction::{
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{
     AccountId, Balance, BlockHeight, Compute, EpochHeight, EpochId, EpochInfoProvider, Gas,
-    RawStateChangesWithTrieKey, ShardId, StateChangeCause, StateRoot,
+    RawStateChangesWithTrieKey, ShardId, StateRoot,
     validator_stake::ValidatorStake,
 };
 use near_primitives::utils::{
@@ -70,11 +69,8 @@ use near_store::contract::ContractStorage;
 use near_store::state_update::{StateOperations, StateUpdate};
 use near_store::trie::AccessOptions;
 use near_store::trie::receipts_column_helper::DelayedReceiptQueue;
-use near_store::trie::update::{self, TrieUpdateResult};
-use near_store::{
-    KeyLookupMode, PartialStorage, StorageError, Trie, TrieAccess, TrieChanges, TrieUpdate,
-    get_account, set_access_key, set_account, state_update,
-};
+use near_store::trie::update::TrieUpdateResult;
+use near_store::{KeyLookupMode, PartialStorage, StorageError, Trie, TrieChanges, state_update};
 use near_vm_runner::ContractCode;
 use near_vm_runner::ContractRuntimeCache;
 use near_vm_runner::ProfileDataV3;
@@ -88,7 +84,6 @@ use smallvec::SmallVec;
 use std::cmp::max;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::fmt::Debug;
-use std::os::unix::process;
 use std::sync::Arc;
 use tracing::{debug, instrument};
 use verifier::ValidateReceiptMode;
@@ -750,7 +745,7 @@ impl Runtime {
                 tx_burnt_amount = tx_burnt_amount.checked_sub(receiver_reward).unwrap();
                 account.set_amount(safe_add_balance(account.amount(), receiver_reward)?);
             }
-            update_ops.in_place_commit(/* ActionReceiptGasReward */);
+            update_ops.in_place_commit(/* ActionReceiptGasReward */)?;
         }
 
         stats.balance.tx_burnt_amount =
@@ -1292,7 +1287,7 @@ impl Runtime {
             }
         };
         // We didn't trigger execution, so we need to commit the state.
-        state_ops.commit(/* PostponedReceipt */);
+        state_ops.commit(/* PostponedReceipt */)?;
         Ok(None)
     }
 
@@ -1558,7 +1553,7 @@ impl Runtime {
         )?;
         // Forward buffered receipts from previous chunks.
         receipt_sink.forward_from_buffer(&mut update_ops, apply_state)?;
-        update_ops.commit(/* Apply Preparation */);
+        update_ops.commit(/* Apply Preparation */).expect("TODO(state_update): error handling");
         let mut processing_state =
             processing_state.into_processing_receipt_state(incoming_receipts, delayed_receipts);
 
@@ -1626,7 +1621,7 @@ impl Runtime {
                     ),
                 }
             }
-            state_update.commit();
+            state_update.commit().expect("TODO(state_update): error handling");
         }
     }
 
@@ -1810,14 +1805,13 @@ impl Runtime {
                                 Ok(state_ops.get::<AccessKey>(key)?.cloned())
                             });
                         }
-                        state_ops.commit(/* FIXME(nagisa) */);
+                        state_ops.commit(/* FIXME(nagisa) */).expect("TODO(state_update): error handling");
                     });
                 (accounts, access_keys)
             },
         );
 
         let default_hash = CryptoHash::default();
-        let mut last_tx_hash = &default_hash;
         let (maybe_expired_txs, _) =
             signed_txs.get_potentially_expired_transactions_and_expiration_flags();
         let mut state_ops = processing_state.state_update.start_update();
@@ -1835,7 +1829,6 @@ impl Runtime {
                 continue;
             }
 
-            last_tx_hash = tx.hash();
             let signer_id = tx.transaction.signer_id();
             let pubkey = tx.transaction.public_key();
             let gas_price = processing_state.apply_state.gas_price;
@@ -2036,7 +2029,7 @@ impl Runtime {
                 state_ops.set(key, ak);
             }
         }
-        state_ops.commit();
+        state_ops.commit().expect("TODO(state_update): error handling");
         Ok(())
     }
 
@@ -2149,7 +2142,7 @@ impl Runtime {
                     &receipt,
                     &processing_state.apply_state,
                 )?;
-                update_op.commit(/* ... */);
+                update_op.commit(/* ... */).expect("TODO(state_update): error handling");
             } else {
                 if let Some(nsi) = &mut next_schedule_after {
                     *nsi = nsi.saturating_sub(1);
@@ -2207,16 +2200,17 @@ impl Runtime {
         let mut processed_delayed_receipts = vec![];
 
         let mut next_schedule_after = {
-            // FIXME(state_update): maybe make this take `StateUpdate` instead and have it create
-            // its own `Operations` internally?
-            let mut prep_lookahead_iter = processing_state
-                .delayed_receipts
-                .peek_iter(processing_state.state_update.start_update());
-            schedule_contract_preparation(
+            let mut peek_update = processing_state.state_update.start_update();
+            let mut prep_lookahead_iter =
+                processing_state.delayed_receipts.peek_iter(&mut peek_update);
+            let res = schedule_contract_preparation(
                 &mut processing_state.pipeline_manager,
                 &processing_state.state_update,
                 &mut prep_lookahead_iter,
-            )
+            );
+            drop(prep_lookahead_iter);
+            peek_update.discard();
+            res
         };
 
         loop {
@@ -2226,33 +2220,39 @@ impl Runtime {
                 break;
             }
 
-            let mut state_update = processing_state.state_update.start_update();
+            let receipt = {
+                let mut update_op = processing_state.state_update.start_update();
 
-            let receipt = if let Some(receipt) = processing_state
-                .delayed_receipts
-                .pop(&mut state_update, &processing_state.apply_state.config)?
-            {
-                receipt.into_receipt()
-            } else {
-                // Break loop if there are no more receipts to be processed.
-                break;
-            };
+                let receipt = if let Some(receipt) = processing_state
+                    .delayed_receipts
+                    .pop(&mut update_op, &processing_state.apply_state.config)?
+                {
+                    receipt.into_receipt()
+                } else {
+                    // Break loop if there are no more receipts to be processed.
+                    update_op.commit(/* ... */).expect("TODO(state_update): error handling");
+                    break;
+                };
 
-            // TODO(resharding): Add metric for tracking number of
-            delayed_receipt_count += 1;
-            if let Some(nsi) = &mut next_schedule_after {
-                *nsi = nsi.saturating_sub(1);
-                if *nsi == 0 {
-                    let mut prep_lookahead_iter = processing_state
-                        .delayed_receipts
-                        .peek_iter(processing_state.state_update.start_update());
-                    next_schedule_after = schedule_contract_preparation(
-                        &mut processing_state.pipeline_manager,
-                        &processing_state.state_update,
-                        &mut prep_lookahead_iter,
-                    );
+                // TODO(resharding): Add metric for tracking number of
+                delayed_receipt_count += 1;
+                if let Some(nsi) = &mut next_schedule_after {
+                    *nsi = nsi.saturating_sub(1);
+                    if *nsi == 0 {
+                        let mut prep_lookahead_iter =
+                            processing_state.delayed_receipts.peek_iter(&mut update_op);
+                        next_schedule_after = schedule_contract_preparation(
+                            &mut processing_state.pipeline_manager,
+                            &processing_state.state_update,
+                            &mut prep_lookahead_iter,
+                        );
+                        drop(prep_lookahead_iter);
+                    }
                 }
-            }
+
+                update_op.commit(/* ... */).expect("TODO(state_update): error handling");
+                receipt
+            };
 
             if let Some(prefetcher) = &mut processing_state.prefetcher {
                 // Prefetcher is allowed to fail
@@ -2272,7 +2272,6 @@ impl Runtime {
                     receipt, e
                 ))
             })?;
-            state_update.commit(/* ... */);
 
             self.process_receipt_with_metrics(
                 &receipt,
@@ -2341,7 +2340,7 @@ impl Runtime {
                     receipt,
                     &processing_state.apply_state,
                 )?;
-                update_op.commit(/* ...? */);
+                update_op.commit(/* ...? */).expect("TODO(state_update): error handling");
             } else {
                 if let Some(nsi) = &mut next_schedule_after {
                     *nsi = nsi.saturating_sub(1);
@@ -2504,7 +2503,7 @@ impl Runtime {
         )?;
 
         self.apply_state_patch(&mut state_ops, state_patch);
-        state_ops.commit();
+        state_ops.commit().expect("TODO(state_update): error handling");
         let chunk_recorded_size_upper_bound =
             processing_state.state_update.trie().recorded_storage_size_upper_bound() as f64;
         let shard_id_str = apply_state.shard_id.to_string();
@@ -2791,6 +2790,7 @@ fn resolve_promise_yield_timeouts(
         // Math checked above: first_index is less than next_available_index
         promise_yield_indices.first_index += 1;
     }
+    state_update.commit().expect("TODO: error handling");
     processing_state.metrics.yield_timeouts_done(
         processed_yield_timeouts.len() as u64,
         yield_processing_start.elapsed(),
