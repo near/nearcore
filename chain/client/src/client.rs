@@ -625,6 +625,54 @@ impl Client {
         self.last_optimistic_block_produced = Some(optimistic_block.clone());
     }
 
+    pub fn try_produce_optimistic_block_after_block_accepted(
+        &mut self,
+        signer: &Arc<ValidatorSigner>,
+    ) {
+        let Ok(head) = self.chain.head() else { return };
+        let Ok(epoch_id) = self.epoch_manager.get_epoch_id_from_prev_block(&head.last_block_hash)
+        else {
+            return;
+        };
+
+        let optimistic_height = self.doomslug.get_timer_height();
+        let Ok(producer) = self.epoch_manager.get_block_producer(&epoch_id, optimistic_height)
+        else {
+            return;
+        };
+
+        if &producer != signer.validator_id() {
+            return;
+        }
+
+        // Check if already produced
+        if self.is_optimistic_block_done(optimistic_height) {
+            tracing::debug!(target: "client", optimistic_height, "Optimistic block already produced");
+            return;
+        }
+
+        let Ok(Some(optimistic_block)) = self.produce_optimistic_block_on_head(optimistic_height)
+        else {
+            return;
+        };
+
+        // Send optimistic block out
+        if let Ok(tip) = self.chain.head() {
+            if let Ok(targets) = self.get_optimistic_block_targets(&tip) {
+                self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
+                    NetworkRequests::OptimisticBlock {
+                        chunk_producers: targets,
+                        optimistic_block: optimistic_block.clone(),
+                    },
+                ));
+            }
+        }
+
+        // Save optimistic block
+        self.save_optimistic_block(&optimistic_block);
+        self.chain.optimistic_block_chunks.add_block(optimistic_block);
+    }
+
     /// Produce optimistic block for given `height` on top of chain head.
     /// Either returns optimistic block or error.
     #[instrument(
@@ -1622,8 +1670,14 @@ impl Client {
         }
 
         if let Some(signer) = self.validator_signer.get() {
+            let is_new_head = status.is_new_head();
+
             if !self.reconcile_transaction_pool(status, &block) {
                 return;
+            }
+
+            if is_new_head {
+                self.try_produce_optimistic_block_after_block_accepted(&signer);
             }
 
             let can_produce_with_provenance = provenance != Provenance::SYNC;
