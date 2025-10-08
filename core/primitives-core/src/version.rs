@@ -326,8 +326,10 @@ pub enum ProtocolFeature {
     IncreaseMaxCongestionMissedChunks,
 
     Wasmtime,
-    SaturatingFloatToInt,
-    ChunkPartChecks,
+    #[deprecated]
+    _DeprecatedSaturatingFloatToInt,
+    #[deprecated]
+    _DeprecatedChunkPartChecks,
     StatePartsCompression,
     /// NEP: https://github.com/near/NEPs/pull/616
     DeterministicAccountIds,
@@ -425,8 +427,8 @@ impl ProtocolFeature {
             | ProtocolFeature::_DeprecatedProduceOptimisticBlock => 77,
             ProtocolFeature::SimpleNightshadeV6
             | ProtocolFeature::_DeprecatedVersionedStateWitness
-            | ProtocolFeature::ChunkPartChecks
-            | ProtocolFeature::SaturatingFloatToInt
+            | ProtocolFeature::_DeprecatedChunkPartChecks
+            | ProtocolFeature::_DeprecatedSaturatingFloatToInt
             | ProtocolFeature::ReducedGasRefunds => 78,
             ProtocolFeature::IncreaseMaxCongestionMissedChunks => 79,
             ProtocolFeature::StatePartsCompression => 81,

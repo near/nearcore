@@ -35,7 +35,6 @@ use near_primitives::stateless_validation::state_witness::{
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{AccountId, ShardId, ShardIndex};
 use near_primitives::utils::compression::CompressedData;
-use near_primitives::version::ProtocolFeature;
 use near_store::flat::BlockInfo;
 use near_store::trie::ops::resharding::RetainMode;
 use near_store::{PartialStorage, Store, Trie};
@@ -721,8 +720,6 @@ pub fn validate_chunk_state_witness_impl(
             )));
         }
     }
-    let protocol_version = epoch_manager.get_epoch_protocol_version(&epoch_id)?;
-
     // Compute receipts root + header validation in parallel with encoded-merkle-root check.
     let (res_receipts_root, res_encoded_merkle_check) = rayon::join(
         || -> Result<CryptoHash, Error> {
@@ -735,21 +732,17 @@ pub fn validate_chunk_state_witness_impl(
             Ok(outgoing_receipts_root)
         },
         || {
-            if ProtocolFeature::ChunkPartChecks.enabled(protocol_version) {
-                let (tx_root, _) = merklize(&state_witness.new_transactions());
-                if tx_root != *state_witness.chunk_header().tx_root() {
-                    return Err(Error::InvalidTxRoot);
-                }
-                validate_chunk_with_encoded_merkle_root(
-                    &state_witness.chunk_header(),
-                    &outgoing_receipts,
-                    state_witness.new_transactions(),
-                    rs.as_ref(),
-                    shard_id,
-                )
-            } else {
-                Ok(())
+            let (tx_root, _) = merklize(&state_witness.new_transactions());
+            if tx_root != *state_witness.chunk_header().tx_root() {
+                return Err(Error::InvalidTxRoot);
             }
+            validate_chunk_with_encoded_merkle_root(
+                &state_witness.chunk_header(),
+                &outgoing_receipts,
+                state_witness.new_transactions(),
+                rs.as_ref(),
+                shard_id,
+            )
         },
     );
     res_receipts_root?;
