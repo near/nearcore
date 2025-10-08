@@ -4,7 +4,7 @@ use crate::tcp;
 use bytesize::{GIB, MIB};
 use near_async::Message;
 use near_async::futures::{FutureSpawner, FutureSpawnerExt};
-use near_async::messaging::{self, MessageWithCallback};
+use near_async::messaging::{AsyncSender, Sender};
 use std::io;
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -60,13 +60,13 @@ pub(crate) struct FramedStream {
     stats: Arc<connection::Stats>,
     send_buf_size_metric: Arc<metrics::IntGaugeGuard>,
     /// Sender to send the error to the PeerActor.
-    error_sender: messaging::Sender<Error>,
+    error_sender: Sender<Error>,
 }
 
 impl FramedStream {
     pub fn spawn(
-        error_sender: messaging::Sender<Error>,
-        frame_sender: messaging::Sender<MessageWithCallback<Frame, ()>>,
+        error_sender: Sender<Error>,
+        frame_sender: AsyncSender<Frame, ()>,
         future_spawner: &dyn FutureSpawner,
         stream: tcp::Stream,
         stats: Arc<connection::Stats>,
@@ -136,7 +136,7 @@ impl FramedStream {
     async fn run_recv_loop(
         peer_addr: SocketAddr,
         read: ReadHalf,
-        frame_sender: messaging::Sender<MessageWithCallback<Frame, ()>>,
+        frame_sender: AsyncSender<Frame, ()>,
         stats: Arc<connection::Stats>,
     ) -> Result<(), RecvError> {
         const READ_BUFFER_CAPACITY: usize = 8 * 1024;

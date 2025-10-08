@@ -36,7 +36,7 @@ use crate::types::{
 use ::time::Duration;
 use lru::LruCache;
 use near_async::futures::{DelayedActionRunner, DelayedActionRunnerExt, FutureSpawnerExt};
-use near_async::messaging::{self, CanSend, IntoSender, SendAsync};
+use near_async::messaging::{self, CanSend, IntoAsyncSender, IntoSender, SendAsync};
 use near_async::tokio::TokioRuntimeHandle;
 use near_async::{ActorSystem, Message, time};
 use near_crypto::Signature;
@@ -363,7 +363,7 @@ impl PeerActor {
         let stats = Arc::new(connection::Stats::default());
         let framed = stream::FramedStream::spawn(
             handle.clone().into_sender(),
-            handle.clone().into_sender(),
+            handle.clone().into_async_sender(),
             &*handle.future_spawner(),
             stream,
             stats.clone(),
