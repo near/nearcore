@@ -141,6 +141,14 @@ mod tests {
         assert_eq!(trie_items, vec![b"aa"]);
     }
 
+    fn assert_iter_type(iter: &TrieIterator, memtrie: bool) {
+        if memtrie {
+            assert!(matches!(iter, TrieIterator::Memtrie(_)));
+        } else {
+            assert!(matches!(iter, TrieIterator::Disk(_)));
+        }
+    }
+
     fn test_iterator(use_memtries: bool) {
         let mut rng = rand::thread_rng();
         for _ in 0..100 {
@@ -149,11 +157,7 @@ mod tests {
             {
                 let lock = trie.lock_for_iter();
                 let iter = lock.iter().unwrap();
-                if use_memtries {
-                    assert!(matches!(iter, TrieIterator::Memtrie(_)));
-                } else {
-                    assert!(matches!(iter, TrieIterator::Disk(_)));
-                }
+                assert_iter_type(&iter, use_memtries);
                 let result1: Vec<_> = iter.map(Result::unwrap).collect();
                 let result2: Vec<_> = map.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
                 assert_eq!(result1, result2);
@@ -235,7 +239,7 @@ mod tests {
         }
     }
 
-    // Check that pruning a node doesn't descend into it's subtree.
+    // Check that pruning a node doesn't descend into its subtree.
     // A buggy pruning implementation could still iterate over all the
     // nodes but simply not return them. This test makes sure this is
     // not the case.
@@ -360,11 +364,7 @@ mod tests {
     ) {
         let lock = trie.lock_for_iter();
         let mut iterator = lock.iter().unwrap();
-        if is_memtrie {
-            assert!(matches!(iterator, TrieIterator::Memtrie(_)));
-        } else {
-            assert!(matches!(iterator, TrieIterator::Disk(_)));
-        }
+        assert_iter_type(&iterator, is_memtrie);
         iterator.seek_prefix(&seek_key).unwrap();
         let got = iterator
             .map(|item| {
@@ -396,11 +396,7 @@ mod tests {
         let got = {
             let lock = trie_with_recorder.lock_for_iter();
             let mut iterator = lock.iter().unwrap();
-            if is_memtrie {
-                assert!(matches!(iterator, TrieIterator::Memtrie(_)));
-            } else {
-                assert!(matches!(iterator, TrieIterator::Disk(_)));
-            }
+            assert_iter_type(&iterator, is_memtrie);
 
             let seek_bound =
                 if include_start { Bound::Included(seek_key) } else { Bound::Excluded(seek_key) };

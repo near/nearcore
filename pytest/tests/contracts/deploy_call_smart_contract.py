@@ -21,14 +21,15 @@ def test_deploy_contract():
     last_block_hash = nodes[0].get_latest_block().hash_bytes
     tx = sign_deploy_contract_tx(nodes[0].signer_key, load_test_contract(), 10,
                                  last_block_hash)
-    nodes[0].send_tx(tx)
-    time.sleep(3)
+    res = nodes[0].send_tx_and_wait(tx, 5)
+    print("deploy", res)
 
     last_block_hash = nodes[1].get_latest_block().hash_bytes
     tx = sign_function_call_tx(nodes[0].signer_key,
                                nodes[0].signer_key.account_id, 'log_something',
                                [], 150 * GGAS, 1, 20, last_block_hash)
     res = nodes[1].send_tx_and_wait(tx, 20)
+    print("call", res)
     import json
     print(json.dumps(res, indent=2))
     assert res['result']['receipts_outcome'][0]['outcome']['logs'][0] == 'hello'

@@ -870,7 +870,7 @@ pub struct StatusResponse {
 }
 
 /// Contains main info about the block.
-#[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone, Default)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct BlockHeaderView {
     pub height: BlockHeight,

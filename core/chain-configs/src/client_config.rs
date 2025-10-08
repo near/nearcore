@@ -14,7 +14,6 @@ use near_time::Duration;
 use near_time::{DurationAsStdSchemaProvider, DurationSchemarsProvider};
 use num_rational::Rational32;
 use std::cmp::max;
-use std::num::NonZero;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
@@ -675,14 +674,6 @@ pub fn default_orphan_state_witness_pool_size() -> usize {
 /// the OrphanStateWitnessPool.
 pub fn default_orphan_state_witness_max_size() -> ByteSize {
     ByteSize::mb(40)
-}
-
-/// Returns the default value for the thread count associated with rpc-handler actor (currently
-/// handling incoming transactions and chunk endorsement validations).
-/// In the benchmarks no performance gains were observed when increasing the number of threads
-/// above half of available cores.
-pub fn default_rpc_handler_thread_count() -> usize {
-    std::thread::available_parallelism().unwrap_or(NonZero::new(16 as usize).unwrap()).get() / 2
 }
 
 /// Config for the Chunk Distribution Network feature.

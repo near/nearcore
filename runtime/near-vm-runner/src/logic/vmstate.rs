@@ -8,6 +8,7 @@ use near_parameters::ExtCosts::*;
 use near_parameters::vm::LimitConfig;
 use std::borrow::Cow;
 use std::collections::hash_map::Entry;
+use std::rc::Rc;
 
 type Result<T> = ::std::result::Result<T, VMLogicError>;
 
@@ -115,7 +116,7 @@ impl<'a> Memory<'a> {
 #[derive(Default, Clone)]
 pub(crate) struct Registers {
     /// Values of each existing register.
-    registers: std::collections::HashMap<u64, Box<[u8]>>,
+    registers: std::collections::HashMap<u64, Rc<[u8]>>,
 
     /// Total memory usage as counted for the purposes of the contract
     /// execution.
@@ -168,12 +169,49 @@ impl Registers {
         data: T,
     ) -> Result<()>
     where
-        T: Into<Box<[u8]>> + AsRef<[u8]>,
+        T: Into<Rc<[u8]>> + AsRef<[u8]>,
+    {
+        self.set_impl(gas_counter, config, register_id, data, true)
+    }
+
+    /// Sets register with given index.
+    ///
+    /// Returns an error if (i) there’s not enough gas to perform the register
+    /// write or (ii) if setting the register would violate configured limits.
+    ///
+    /// Specialized version of [`Self::set`] that's guaranteed to not copy and
+    /// therefore only needs to charge gas for for copying bytes to maintain
+    /// backwards compatibility.
+    ///
+    /// Once all places use `Rc` over `Vec`, this can entirely replace [`Self::set`].
+    pub(crate) fn set_rc_data(
+        &mut self,
+        gas_counter: &mut GasCounter,
+        config: &LimitConfig,
+        register_id: u64,
+        data: Rc<[u8]>,
+        charge_bytes_gas: bool,
+    ) -> Result<()> {
+        self.set_impl(gas_counter, config, register_id, data, charge_bytes_gas)
+    }
+
+    fn set_impl<T>(
+        &mut self,
+        gas_counter: &mut GasCounter,
+        config: &LimitConfig,
+        register_id: u64,
+        data: T,
+        charge_bytes_gas: bool,
+    ) -> Result<()>
+    where
+        T: Into<Rc<[u8]>> + AsRef<[u8]>,
     {
         let data_len =
             u64::try_from(data.as_ref().len()).map_err(|_| HostError::MemoryAccessViolation)?;
         gas_counter.pay_base(write_register_base)?;
-        gas_counter.pay_per(write_register_byte, data_len)?;
+        if charge_bytes_gas {
+            gas_counter.pay_per(write_register_byte, data_len)?;
+        }
         let entry = self.check_set_register(config, register_id, data_len)?;
         let data = data.into();
         match entry {
@@ -197,7 +235,7 @@ impl Registers {
         config: &LimitConfig,
         register_id: u64,
         data_len: u64,
-    ) -> Result<Entry<'a, u64, Box<[u8]>>> {
+    ) -> Result<Entry<'a, u64, Rc<[u8]>>> {
         if data_len > config.max_register_size {
             return Err(HostError::MemoryAccessViolation.into());
         }

@@ -27,7 +27,7 @@ class TestState:
         self.test_accounts = test_accounts
         self.max_tps_per_node = max_tps_per_node
         self.rpc_infos = rpc_infos
-        self.function_call_state = [[]] * len(self.test_accounts)
+        self.function_call_state = [[] for _ in range(len(self.test_accounts))]
 
     def random_account(self):
         return random.choice(self.test_accounts)

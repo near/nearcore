@@ -2,6 +2,7 @@ use crate::opentelemetry::add_opentelemetry_layer;
 use crate::reload::{
     LogLayer, SimpleLogLayer, set_default_otlp_level, set_log_layer_handle, set_otlp_layer_handle,
 };
+use crate::skip_ansi_escaping_message::SkipAnsiEscapingMessage;
 use crate::{OpenTelemetryLevel, log_counter};
 use near_crypto::PublicKey;
 use near_primitives_core::types::AccountId;
@@ -112,6 +113,7 @@ where
         .with_ansi(ansi)
         .with_span_events(get_fmt_span(with_span_events))
         .with_writer(writer)
+        .map_fmt_fields(|f| SkipAnsiEscapingMessage::new(f))
         .with_filter(filter);
 
     subscriber.with(layer)
@@ -141,6 +143,7 @@ where
         .with_ansi(ansi)
         .with_span_events(get_fmt_span(with_span_events))
         .with_writer(writer)
+        .map_fmt_fields(|f| SkipAnsiEscapingMessage::new(f))
         .with_filter(filter);
 
     (subscriber.with(layer), handle)

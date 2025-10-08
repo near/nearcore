@@ -56,7 +56,7 @@ nextest-all TYPE *FLAGS: (nextest TYPE "--ignore-default-filter -E 'all()'" FLAG
 
 # TODO(#13341): Remove once spice tests can run as part of nightly or stable tests.
 spice_test_filter := "-E 'all() & test(spice)'"
-nextest-spice *FLAGS: (nextest "stable" "--features protocol_feature_spice" "--ignore-default-filter" spice_test_filter FLAGS)
+nextest-spice *FLAGS: (nextest "stable" "--features protocol_feature_spice,test_features" "--ignore-default-filter" spice_test_filter FLAGS)
 
 doctests:
     cargo test --doc

@@ -1,8 +1,11 @@
 use near_crypto::PublicKey;
 use near_primitives::action::{
     Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, DeleteKeyAction,
-    DeployContractAction, DeployGlobalContractAction, FunctionCallAction, StakeAction,
-    TransferAction, UseGlobalContractAction,
+    DeployContractAction, DeployGlobalContractAction, DeterministicStateInitAction,
+    FunctionCallAction, StakeAction, TransferAction, UseGlobalContractAction,
+};
+use near_primitives::deterministic_account_id::{
+    DeterministicAccountStateInit, DeterministicAccountStateInitV1,
 };
 use near_primitives::errors::{IntegerOverflowError, RuntimeError};
 use near_primitives::receipt::DataReceiver;
@@ -11,8 +14,10 @@ use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::types::{AccountId, Balance, Gas, GasWeight, Nonce};
 use near_vm_runner::logic::HostError;
 use near_vm_runner::logic::VMLogicError;
-use near_vm_runner::logic::types::{GlobalContractDeployMode, GlobalContractIdentifier};
-use std::collections::HashMap;
+use near_vm_runner::logic::types::{
+    ActionIndex, GlobalContractDeployMode, GlobalContractIdentifier,
+};
+use std::collections::{BTreeMap, HashMap};
 
 /// near_vm_runner::types is not public.
 type ReceiptIndex = u64;
@@ -308,6 +313,79 @@ impl ReceiptManager {
             Action::UseGlobalContract(Box::new(UseGlobalContractAction { contract_identifier })),
         );
         Ok(())
+    }
+
+    /// Attach the [`DeterministicStateInit`] action to an existing receipt.
+    ///
+    /// Returns the ActionIndex of the newly created action.
+    ///
+    /// Use [`Self::set_deterministic_state_init_data_entry`] to set initial
+    /// data key-value pairs.
+    ///
+    /// # Arguments
+    ///
+    /// * `receipt_index` - an index of Receipt to append an action
+    /// * `contract_id`   - identifier of the contract to use
+    /// * `amount`        - how much NEAR to attach to the initialization
+    ///
+    /// # Panics
+    ///
+    /// Panics if the `receipt_index` does not refer to a known receipt.
+    pub(super) fn append_deterministic_state_init(
+        &mut self,
+        receipt_index: ReceiptIndex,
+        code: GlobalContractIdentifier,
+        deposit: Balance,
+    ) -> Result<ActionIndex, VMLogicError> {
+        let state_init = DeterministicAccountStateInit::V1(DeterministicAccountStateInitV1 {
+            code: code.into(),
+            data: BTreeMap::new(),
+        });
+        let action = Action::DeterministicStateInit(Box::new(DeterministicStateInitAction {
+            state_init,
+            deposit,
+        }));
+        let action_index = self.append_action(receipt_index, action);
+        Ok(action_index as u64)
+    }
+
+    /// Set a data entry to an existing [`DeterministicStateInit`] action.
+    ///
+    /// # Arguments
+    ///
+    /// * `receipt_index` - index of receipt within outgoing receipts
+    /// * `action_index`  - index of action within a batch
+    /// * `key`           - the key for which to insert a data entry
+    /// * `value`         - the data entry value to add
+    ///
+    /// # Panics
+    ///
+    /// Panics if the `receipt_index` does not refer to a known receipt.
+    pub(super) fn set_deterministic_state_init_data_entry(
+        &mut self,
+        receipt_index: ReceiptIndex,
+        action_index: ActionIndex,
+        key: Vec<u8>,
+        value: Vec<u8>,
+    ) -> Result<(), VMLogicError> {
+        let actions = &mut self
+            .action_receipts
+            .get_mut(receipt_index as usize)
+            .expect("receipt index should be present")
+            .actions;
+
+        let action = actions.get_mut(action_index as usize);
+        match action {
+            Some(Action::DeterministicStateInit(action)) => {
+                let prev_value = action.state_init.data_mut().insert(key, value);
+                if prev_value.is_some() {
+                    Err(HostError::DataEntryAlreadyExists.into())
+                } else {
+                    Ok(())
+                }
+            }
+            _ => Err(HostError::InvalidActionIndex { receipt_index, action_index }.into()),
+        }
     }
 
     /// Attach the [`FunctionCallAction`] action to an existing receipt.

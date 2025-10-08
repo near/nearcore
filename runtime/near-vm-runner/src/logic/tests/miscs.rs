@@ -4,6 +4,9 @@ use crate::logic::tests::vm_logic_builder::VMLogicBuilder;
 use crate::map;
 use hex::FromHex;
 use near_parameters::ExtCosts;
+use near_primitives_core::account::AccountContract;
+use near_primitives_core::hash::CryptoHash;
+use near_primitives_core::types::AccountId;
 use serde::de::Error;
 use serde_json::from_slice;
 use std::{fmt::Display, fs};
@@ -403,4 +406,62 @@ fn test_contract_size_limit() {
         logic.promise_batch_action_deploy_global_contract(promise_id, limit + 1, 0),
         Err(HostError::ContractSizeExceeded { size: limit + 1, limit }.into())
     );
+}
+
+#[test]
+fn test_current_contract_code_none() {
+    let mut logic_builder = VMLogicBuilder::default();
+    let mut logic = logic_builder.build();
+
+    // 0 if the contract code is None
+    // 1 if the contract code is Local(CryptoHash)
+    // 2 if the contract code is Global(CryptoHash)
+    // 3 if the contract code is GlobalByAccount(AccountId)
+    assert_eq!(Ok(0), logic.current_contract_code(0));
+    assert_eq!(None, logic.registers().get_for_free(0));
+}
+
+#[test]
+fn test_current_contract_code_local() {
+    let mut logic_builder = VMLogicBuilder::default();
+    let code_hash = CryptoHash::hash_borsh("seed");
+    logic_builder.context.account_contract = AccountContract::Local(code_hash);
+    let mut logic = logic_builder.build();
+
+    // 0 if the contract code is None
+    // 1 if the contract code is Local(CryptoHash)
+    // 2 if the contract code is Global(CryptoHash)
+    // 3 if the contract code is GlobalByAccount(AccountId)
+    assert_eq!(Ok(1), logic.current_contract_code(0));
+    logic.assert_read_register(code_hash.as_bytes(), 0);
+}
+
+#[test]
+fn test_current_contract_code_global_by_hash() {
+    let mut logic_builder = VMLogicBuilder::default();
+    let code_hash = CryptoHash::hash_borsh("seed2");
+    logic_builder.context.account_contract = AccountContract::Global(code_hash);
+    let mut logic = logic_builder.build();
+
+    // 0 if the contract code is None
+    // 1 if the contract code is Local(CryptoHash)
+    // 2 if the contract code is Global(CryptoHash)
+    // 3 if the contract code is GlobalByAccount(AccountId)
+    assert_eq!(Ok(2), logic.current_contract_code(0));
+    logic.assert_read_register(code_hash.as_bytes(), 0);
+}
+
+#[test]
+fn test_current_contract_code_global_by_id() {
+    let mut logic_builder = VMLogicBuilder::default();
+    let account_id: AccountId = "alice.near".parse().unwrap();
+    logic_builder.context.account_contract = AccountContract::GlobalByAccount(account_id.clone());
+    let mut logic = logic_builder.build();
+
+    // 0 if the contract code is None
+    // 1 if the contract code is Local(CryptoHash)
+    // 2 if the contract code is Global(CryptoHash)
+    // 3 if the contract code is GlobalByAccount(AccountId)
+    assert_eq!(Ok(3), logic.current_contract_code(0));
+    logic.assert_read_register(account_id.as_bytes(), 0);
 }

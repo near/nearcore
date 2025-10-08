@@ -272,6 +272,7 @@ impl SpiceChunkValidatorActor {
         let runtime_adapter = self.runtime_adapter.clone();
         let network_sender = self.network_adapter.clone().into_sender();
         let core_processor = self.core_processor.clone();
+        let block_height = block.header().height();
         self.validation_spawner.spawn("spice_stateless_validation", move || {
             // TODO(spice): Implement saving of invalid witnesses.
             let chunk_execution_result = match spice_validate_chunk_state_witness(
@@ -289,6 +290,7 @@ impl SpiceChunkValidatorActor {
                         target: "spice_chunk_validator",
                         ?err,
                         ?chunk_id,
+                        ?block_height,
                         "Failed to validate chunk"
                     );
                     return;

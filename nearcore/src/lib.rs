@@ -73,7 +73,7 @@ use near_async::multithread::MultithreadRuntimeHandle;
 use near_async::tokio::TokioRuntimeHandle;
 use near_client::client_actor::{ClientActorInner, SpiceClientConfig};
 #[cfg(feature = "tx_generator")]
-use near_transactions_generator::actix_actor::GeneratorActorImpl;
+use near_transactions_generator::actor::GeneratorActorImpl;
 
 pub fn get_default_home() -> PathBuf {
     if let Ok(near_home) = std::env::var("NEAR_HOME") {
@@ -452,6 +452,7 @@ pub fn start_with_config_and_synchronization(
     let result = create_cloud_archival_actor(
         config.config.cloud_archival_writer,
         config.genesis.config.genesis_height,
+        runtime.as_ref(),
         storage.get_hot_store(),
     )?;
     let cloud_archival_handle = if let Some(actor) = result {
@@ -736,7 +737,7 @@ pub fn start_with_config_and_synchronization(
     tracing::trace!(target: "diagnostic", key = "log", "Starting NEAR node with diagnostic activated");
 
     #[cfg(feature = "tx_generator")]
-    let tx_generator = near_transactions_generator::actix_actor::start_tx_generator(
+    let tx_generator = near_transactions_generator::actor::start_tx_generator(
         actor_system.clone(),
         config.tx_generator.unwrap_or_default(),
         rpc_handler.clone().into_multi_sender(),

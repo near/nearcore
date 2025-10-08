@@ -56,6 +56,12 @@ impl DeterministicAccountStateInit {
         }
     }
 
+    pub fn data_mut(&mut self) -> &mut BTreeMap<Vec<u8>, Vec<u8>> {
+        match self {
+            DeterministicAccountStateInit::V1(inner) => &mut inner.data,
+        }
+    }
+
     pub fn version(&self) -> u32 {
         match self {
             DeterministicAccountStateInit::V1(_) => 1,
@@ -69,11 +75,16 @@ impl DeterministicAccountStateInit {
         }
     }
 
-    /// The length of the serialized structure.
+    /// The length of all inner keys and values summed up.
     ///
     /// This length is multiplied by `action_deterministic_state_init_per_byte`
     /// for gas cost calculations of a state initialization.
     pub fn len_bytes(&self) -> usize {
-        borsh::object_length(&self).expect("borsh must not fail")
+        self.data().iter().fold(0, |acc, (key, value)| {
+            acc.checked_add(key.len())
+                .expect("state init must not be that large")
+                .checked_add(value.len())
+                .expect("state init must not be that large")
+        })
     }
 }

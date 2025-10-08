@@ -51,4 +51,11 @@ impl SignedValidPeriodTransactions {
     pub fn len(&self) -> usize {
         self.transactions.len()
     }
+
+    /// get references to underlying fields
+    pub fn get_potentially_expired_transactions_and_expiration_flags(
+        &self,
+    ) -> (&[SignedTransaction], &[bool]) {
+        (&self.transactions, &self.transaction_validity_check_passed)
+    }
 }

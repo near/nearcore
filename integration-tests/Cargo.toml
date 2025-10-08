@@ -62,7 +62,6 @@ node-runtime.workspace = true
 testlib.workspace = true
 
 [dev-dependencies]
-actix.workspace = true
 near-primitives = { workspace = true, features = ["clock", "solomon", "rand"] }
 assert_matches.workspace = true
 aurora-engine-transactions.workspace = true

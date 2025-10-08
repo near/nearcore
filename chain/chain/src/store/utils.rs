@@ -67,24 +67,72 @@ pub fn check_transaction_validity_period(
     base_block_hash: &CryptoHash,
     transaction_validity_period: BlockHeightDelta,
 ) -> Result<(), InvalidTxError> {
+    let base_header =
+        chain_store.get_block_header(base_block_hash).map_err(|_| InvalidTxError::Expired)?;
+
+    metrics::CHAIN_VALIDITY_PERIOD_CHECK_DELAY
+        .observe(prev_block_header.height().saturating_sub(base_header.height()) as f64);
+
+    // First check the distance between blocks
+    if prev_block_header.height() > base_header.height() + transaction_validity_period {
+        return Err(InvalidTxError::Expired);
+    }
+
+    // Then check if there is a path between the blocks (`base` is an ancestor of `prev`)
+    validity_period_validate_is_ancestor(&base_header, prev_block_header, chain_store)
+}
+
+/// Transaction validity period check used in early prepare transactions. It's different from the
+/// standard `check_transaction_validity_period` because early transaction preparation doesn't know
+/// what the previous block hash is, it only knows the one before that. Normal validity check uses
+/// `prev_block_header`, which is the previous block before the one which will contain the
+/// transactions. This check uses `prev_prev_block_header`, which is the block before the previous
+/// block and the same height as the normal check.
+pub fn early_prepare_txs_check_validity_period(
+    chain_store: &ChainStoreAdapter,
+    prev_block_height: BlockHeight,
+    prev_prev_block_header: &BlockHeader,
+    base_block_hash: &CryptoHash,
+    transaction_validity_period: BlockHeightDelta,
+) -> Result<(), InvalidTxError> {
+    let base_header =
+        chain_store.get_block_header(base_block_hash).map_err(|_| InvalidTxError::Expired)?;
+
+    metrics::CHAIN_VALIDITY_PERIOD_CHECK_DELAY
+        .observe(prev_block_height.saturating_sub(base_header.height()) as f64);
+
+    // First check the distance between blocks
+    if prev_block_height > base_header.height() + transaction_validity_period {
+        return Err(InvalidTxError::Expired);
+    }
+
+    // Then check if there is a path between the blocks (`base` is ancestor of `prev_prev`)
+    validity_period_validate_is_ancestor(&base_header, prev_prev_block_header, chain_store)
+}
+
+/// Check if base_header is an ancestor of prev_block_header.
+/// Used in check_transaction_validity_period.
+fn validity_period_validate_is_ancestor(
+    base_header: &BlockHeader,
+    prev_block_header: &BlockHeader,
+    chain_store: &ChainStoreAdapter,
+) -> Result<(), InvalidTxError> {
+    let base_height = base_header.height();
+    let prev_height = prev_block_header.height();
+    let base_block_hash = base_header.hash();
+
+    // Base can't be an ancestor of prev if its height is bigger
+    if base_height > prev_height {
+        return Err(InvalidTxError::InvalidChain);
+    }
+
     // if both are on the canonical chain, comparing height is sufficient
     // we special case this because it is expected that this scenario will happen in most cases.
-    let base_height = chain_store
-        .get_block_header(base_block_hash)
-        .map_err(|_| InvalidTxError::Expired)?
-        .height();
-    let prev_height = prev_block_header.height();
-    metrics::CHAIN_VALIDITY_PERIOD_CHECK_DELAY
-        .observe(prev_height.saturating_sub(base_height) as f64);
     if let Ok(base_block_hash_by_height) = chain_store.get_block_hash_by_height(base_height) {
         if &base_block_hash_by_height == base_block_hash {
             if let Ok(prev_hash) = chain_store.get_block_hash_by_height(prev_height) {
                 if &prev_hash == prev_block_header.hash() {
-                    if prev_height <= base_height + transaction_validity_period {
-                        return Ok(());
-                    } else {
-                        return Err(InvalidTxError::Expired);
-                    }
+                    return Ok(());
                 }
             }
         }
@@ -97,18 +145,12 @@ pub fn check_transaction_validity_period(
         .get_block_height(prev_block_header.last_final_block())
         .map_err(|_| InvalidTxError::InvalidChain)?;
 
-    if prev_height > base_height + transaction_validity_period {
-        Err(InvalidTxError::Expired)
-    } else if last_final_height >= base_height {
+    if last_final_height >= base_height {
         let base_block_hash_by_height = chain_store
             .get_block_hash_by_height(base_height)
             .map_err(|_| InvalidTxError::InvalidChain)?;
         if &base_block_hash_by_height == base_block_hash {
-            if prev_height <= base_height + transaction_validity_period {
-                Ok(())
-            } else {
-                Err(InvalidTxError::Expired)
-            }
+            Ok(())
         } else {
             Err(InvalidTxError::InvalidChain)
         }

@@ -196,7 +196,7 @@ impl Account {
     }
 
     #[inline]
-    pub fn contract(&self) -> Cow<AccountContract> {
+    pub fn contract(&self) -> Cow<'_, AccountContract> {
         match self {
             Self::V1(account) => {
                 Cow::Owned(AccountContract::from_local_code_hash(account.code_hash))

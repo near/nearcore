@@ -3,6 +3,12 @@ on:
   pull_request:
   merge_group:
   workflow_dispatch:
+    inputs:
+      neard-branch:
+        default: "master"
+        description: "nearcore git reference to test (branch-name or `refs/pull/$PR_NUMBER/head` or a commit hash)"
+        type: string
+        required: true
 
 jobs:
   nayduck_tests:
@@ -12,12 +18,20 @@ jobs:
     timeout-minutes: 60
     if: github.event_name == 'merge_group' || github.event_name == 'workflow_dispatch'
 
+
     steps:
       - name: Install JQ json processor
         run: sudo apt install jq
 
       - name: Checkout nearcore repository
+        if: github.event_name != 'workflow_dispatch'
         uses: actions/checkout@v4
+
+      - name: Checkout nearcore repository for workflow dispatch
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/checkout@v4
+        with:
+          ref: ${{github.event.inputs.neard-branch}}
 
       - name: Install required python modules
         run: |
@@ -56,7 +70,7 @@ jobs:
             echo "Fix them before merging"
             exit 1
           fi
-          
+
       - name: Cleanup Nayduck tests on cancel
         if: cancelled()
         run: |

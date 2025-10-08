@@ -49,7 +49,7 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use std::io;
 use std::ops::Deref;
 use std::sync::Arc;
-use utils::check_transaction_validity_period;
+use utils::{check_transaction_validity_period, early_prepare_txs_check_validity_period};
 
 pub mod latest_witnesses;
 mod merkle_proof;
@@ -470,6 +470,23 @@ impl ChainStore {
         check_transaction_validity_period(
             &self.store,
             prev_block_header,
+            base_block_hash,
+            self.transaction_validity_period,
+        )
+    }
+
+    /// Similar to `check_transaction_validity_period`, used in early transaction preparation where
+    /// prev_block_header is not available.
+    pub fn early_prepare_txs_check_validity_period(
+        &self,
+        prev_block_height: BlockHeight,
+        prev_prev_block_header: &BlockHeader,
+        base_block_hash: &CryptoHash,
+    ) -> Result<(), InvalidTxError> {
+        early_prepare_txs_check_validity_period(
+            &self.store,
+            prev_block_height,
+            prev_prev_block_header,
             base_block_hash,
             self.transaction_validity_period,
         )
@@ -2166,6 +2183,17 @@ mod tests {
                 .check_transaction_validity_period(&short_fork_head, genesis.hash(),)
                 .is_ok()
         );
+        assert!(
+            chain
+                .mut_chain_store()
+                .early_prepare_txs_check_validity_period(
+                    short_fork_head.height(),
+                    genesis.header(),
+                    genesis.hash(),
+                )
+                .is_ok()
+        );
+
         let mut long_fork = vec![];
         let mut prev_block = genesis;
         for i in 1..(chain.transaction_validity_period() + 3) {
@@ -2186,11 +2214,30 @@ mod tests {
                 .check_transaction_validity_period(cur_header, valid_base_hash)
                 .is_ok()
         );
+        assert!(
+            chain
+                .chain_store()
+                .early_prepare_txs_check_validity_period(
+                    cur_header.height(),
+                    long_fork[long_fork.len() - 2].header(),
+                    valid_base_hash
+                )
+                .is_ok()
+        );
+
         let invalid_base_hash = long_fork[0].hash();
         assert_eq!(
             chain
                 .mut_chain_store()
                 .check_transaction_validity_period(cur_header, invalid_base_hash),
+            Err(InvalidTxError::Expired)
+        );
+        assert_eq!(
+            chain.chain_store().early_prepare_txs_check_validity_period(
+                cur_header.height(),
+                long_fork[long_fork.len() - 2].header(),
+                invalid_base_hash
+            ),
             Err(InvalidTxError::Expired)
         );
     }
@@ -2221,6 +2268,16 @@ mod tests {
                 .check_transaction_validity_period(cur_header, valid_base_hash,)
                 .is_ok()
         );
+        assert!(
+            chain
+                .chain_store()
+                .early_prepare_txs_check_validity_period(
+                    cur_header.height(),
+                    blocks[blocks.len() - 2].header(),
+                    valid_base_hash
+                )
+                .is_ok()
+        );
         let new_block = TestBlockBuilder::new(Clock::real(), &blocks.last().unwrap(), signer)
             .height(chain.transaction_validity_period() + 3)
             .build();
@@ -2233,6 +2290,14 @@ mod tests {
             chain
                 .chain_store()
                 .check_transaction_validity_period(new_block.header(), valid_base_hash,),
+            Err(InvalidTxError::Expired)
+        );
+        assert_eq!(
+            chain.chain_store().early_prepare_txs_check_validity_period(
+                new_block.header().height(),
+                blocks.last().unwrap().header(),
+                valid_base_hash,
+            ),
             Err(InvalidTxError::Expired)
         );
     }
@@ -2263,6 +2328,15 @@ mod tests {
                 .check_transaction_validity_period(&short_fork_head, &genesis_hash),
             Err(InvalidTxError::Expired)
         );
+        assert_eq!(
+            chain.chain_store().early_prepare_txs_check_validity_period(
+                short_fork_head.height(),
+                short_fork[short_fork.len() - 2].header(),
+                &genesis_hash
+            ),
+            Err(InvalidTxError::Expired)
+        );
+
         let mut long_fork = vec![];
         let mut prev_block = genesis;
         for i in 1..(chain.transaction_validity_period() * 5) {
@@ -2279,6 +2353,14 @@ mod tests {
             chain
                 .mut_chain_store()
                 .check_transaction_validity_period(long_fork_head, &genesis_hash,),
+            Err(InvalidTxError::Expired)
+        );
+        assert_eq!(
+            chain.chain_store().early_prepare_txs_check_validity_period(
+                long_fork_head.height(),
+                long_fork[long_fork.len() - 2].header(),
+                &genesis_hash
+            ),
             Err(InvalidTxError::Expired)
         );
     }

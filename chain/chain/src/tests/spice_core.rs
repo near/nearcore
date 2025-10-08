@@ -373,7 +373,7 @@ fn test_get_block_execution_results_for_genesis() {
     let genesis = chain.genesis_block();
     let execution_results = core_processor.get_block_execution_results(&genesis).unwrap();
     assert!(execution_results.is_some());
-    assert_eq!(execution_results.unwrap().0, HashMap::new());
+    assert_eq!(execution_results.unwrap().0.len(), genesis.chunks().len());
 }
 
 #[test]

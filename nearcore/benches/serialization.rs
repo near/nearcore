@@ -10,10 +10,10 @@ use near_primitives::test_utils::account_new;
 use near_primitives::transaction::{
     Action, SignedTransaction, Transaction, TransactionV0, TransferAction,
 };
+use near_primitives::types::MerkleHash;
 use near_primitives::types::{Balance, EpochId, Gas, ShardId, StateRoot};
 use near_primitives::validator_signer::InMemoryValidatorSigner;
 use near_primitives::version::PROTOCOL_VERSION;
-use near_primitives_core::types::MerkleHash;
 use near_time::Clock;
 use num_rational::Rational32;
 

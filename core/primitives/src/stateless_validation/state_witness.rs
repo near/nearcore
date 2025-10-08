@@ -1,18 +1,18 @@
+use std::collections::HashMap;
 use std::fmt::Debug;
-use {crate::state::PartialState, std::collections::HashMap};
 
 use super::ChunkProductionKey;
 #[cfg(feature = "solomon")]
 use crate::reed_solomon::{ReedSolomonEncoderDeserialize, ReedSolomonEncoderSerialize};
 use crate::sharding::{ChunkHash, ReceiptProof, ShardChunkHeader};
+use crate::state::PartialState;
 use crate::transaction::SignedTransaction;
-use crate::types::{EpochId, SignatureDifferentiator};
+use crate::types::EpochId;
 use crate::utils::compression::CompressedData;
 use borsh::{BorshDeserialize, BorshSerialize};
 use bytesize::ByteSize;
 use near_primitives_core::hash::CryptoHash;
-use near_primitives_core::types::{AccountId, BlockHeight, ProtocolVersion, ShardId};
-use near_primitives_core::version::{PROTOCOL_VERSION, ProtocolFeature};
+use near_primitives_core::types::{BlockHeight, ShardId};
 use near_schema_checker_lib::ProtocolSchema;
 
 /// Represents max allowed size of the raw (not compressed) state witness,
@@ -40,16 +40,6 @@ pub struct EncodedChunkStateWitness(Box<[u8]>);
 impl
     CompressedData<
         ChunkStateWitness,
-        MAX_UNCOMPRESSED_STATE_WITNESS_SIZE,
-        STATE_WITNESS_COMPRESSION_LEVEL,
-        STATE_WITNESS_COMPRESSION_NUM_WORKERS,
-    > for EncodedChunkStateWitness
-{
-}
-
-impl
-    CompressedData<
-        ChunkStateWitnessV1,
         MAX_UNCOMPRESSED_STATE_WITNESS_SIZE,
         STATE_WITNESS_COMPRESSION_LEVEL,
         STATE_WITNESS_COMPRESSION_NUM_WORKERS,
@@ -105,25 +95,9 @@ impl ChunkStateWitnessAck {
 #[borsh(use_discriminant = true)]
 #[repr(u8)]
 pub enum ChunkStateWitness {
-    V1(ChunkStateWitnessV1) = 0,
-    V2(ChunkStateWitnessV2) = 1,
+    V1 = 0, // Deprecated
+    V2(Box<ChunkStateWitnessV2>) = 1,
 }
-
-#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
-pub struct ChunkStateWitnessV1 {
-    pub chunk_producer: AccountId,
-    pub epoch_id: EpochId,
-    pub chunk_header: ShardChunkHeader,
-    pub main_state_transition: ChunkStateTransition,
-    pub source_receipt_proofs: HashMap<ChunkHash, ReceiptProof>,
-    pub applied_receipts_hash: CryptoHash,
-    pub transactions: Vec<SignedTransaction>,
-    pub implicit_transitions: Vec<ChunkStateTransition>,
-    pub _deprecated_new_transactions: Vec<SignedTransaction>,
-    pub _deprecated_new_transactions_validation_state: PartialState,
-    signature_differentiator: SignatureDifferentiator,
-}
-
 /// From V1 -> V2 we have the following changes:
 /// - The `chunk_producer`, `new_transactions`, `new_transactions_validation_state`,
 ///   and `signature_differentiator` fields are removed.
@@ -194,7 +168,6 @@ pub struct ChunkStateWitnessV2 {
 
 impl ChunkStateWitness {
     pub fn new(
-        chunk_producer: AccountId,
         epoch_id: EpochId,
         chunk_header: ShardChunkHeader,
         main_state_transition: ChunkStateTransition,
@@ -203,23 +176,8 @@ impl ChunkStateWitness {
         transactions: Vec<SignedTransaction>,
         implicit_transitions: Vec<ChunkStateTransition>,
         new_transactions: Vec<SignedTransaction>,
-        protocol_version: ProtocolVersion,
     ) -> Self {
-        if ProtocolFeature::VersionedStateWitness.enabled(protocol_version) {
-            return Self::V2(ChunkStateWitnessV2 {
-                epoch_id,
-                chunk_header,
-                main_state_transition,
-                source_receipt_proofs,
-                applied_receipts_hash,
-                transactions,
-                implicit_transitions,
-                new_transactions,
-            });
-        }
-
-        Self::V1(ChunkStateWitnessV1 {
-            chunk_producer,
+        Self::V2(Box::new(ChunkStateWitnessV2 {
             epoch_id,
             chunk_header,
             main_state_transition,
@@ -227,17 +185,14 @@ impl ChunkStateWitness {
             applied_receipts_hash,
             transactions,
             implicit_transitions,
-            signature_differentiator: "ChunkStateWitness".to_string(),
-            _deprecated_new_transactions: vec![],
-            _deprecated_new_transactions_validation_state: PartialState::default(),
-        })
+            new_transactions,
+        }))
     }
 
     /// Used for testing.
     pub fn new_dummy(height: BlockHeight, shard_id: ShardId, prev_block_hash: CryptoHash) -> Self {
         let header = ShardChunkHeader::new_dummy(height, shard_id, prev_block_hash);
         Self::new(
-            "alice.near".parse().unwrap(),
             EpochId::default(),
             header,
             Default::default(),
@@ -246,87 +201,76 @@ impl ChunkStateWitness {
             Default::default(),
             Default::default(),
             Default::default(),
-            PROTOCOL_VERSION,
         )
     }
 
     pub fn chunk_production_key(&self) -> ChunkProductionKey {
         match self {
-            ChunkStateWitness::V1(witness) => witness.chunk_production_key(),
+            ChunkStateWitness::V1 => unreachable!("ChunkStateWitness V1 is deprecated"),
             ChunkStateWitness::V2(witness) => witness.chunk_production_key(),
         }
     }
 
     pub fn epoch_id(&self) -> &EpochId {
         match self {
-            ChunkStateWitness::V1(witness) => &witness.epoch_id,
+            ChunkStateWitness::V1 => unreachable!("ChunkStateWitness V1 is deprecated"),
             ChunkStateWitness::V2(witness) => &witness.epoch_id,
         }
     }
 
     pub fn chunk_header(&self) -> &ShardChunkHeader {
         match self {
-            ChunkStateWitness::V1(witness) => &witness.chunk_header,
+            ChunkStateWitness::V1 => unreachable!("ChunkStateWitness V1 is deprecated"),
             ChunkStateWitness::V2(witness) => &witness.chunk_header,
         }
     }
 
     pub fn main_state_transition(&self) -> &ChunkStateTransition {
         match self {
-            ChunkStateWitness::V1(witness) => &witness.main_state_transition,
+            ChunkStateWitness::V1 => unreachable!("ChunkStateWitness V1 is deprecated"),
             ChunkStateWitness::V2(witness) => &witness.main_state_transition,
         }
     }
 
     pub fn mut_main_state_transition(&mut self) -> &mut ChunkStateTransition {
         match self {
-            ChunkStateWitness::V1(witness) => &mut witness.main_state_transition,
+            ChunkStateWitness::V1 => unreachable!("ChunkStateWitness V1 is deprecated"),
             ChunkStateWitness::V2(witness) => &mut witness.main_state_transition,
         }
     }
 
     pub fn source_receipt_proofs(&self) -> &HashMap<ChunkHash, ReceiptProof> {
         match self {
-            ChunkStateWitness::V1(witness) => &witness.source_receipt_proofs,
+            ChunkStateWitness::V1 => unreachable!("ChunkStateWitness V1 is deprecated"),
             ChunkStateWitness::V2(witness) => &witness.source_receipt_proofs,
         }
     }
 
     pub fn applied_receipts_hash(&self) -> &CryptoHash {
         match self {
-            ChunkStateWitness::V1(witness) => &witness.applied_receipts_hash,
+            ChunkStateWitness::V1 => unreachable!("ChunkStateWitness V1 is deprecated"),
             ChunkStateWitness::V2(witness) => &witness.applied_receipts_hash,
         }
     }
 
     pub fn transactions(&self) -> &Vec<SignedTransaction> {
         match self {
-            ChunkStateWitness::V1(witness) => &witness.transactions,
+            ChunkStateWitness::V1 => unreachable!("ChunkStateWitness V1 is deprecated"),
             ChunkStateWitness::V2(witness) => &witness.transactions,
         }
     }
 
     pub fn implicit_transitions(&self) -> &Vec<ChunkStateTransition> {
         match self {
-            ChunkStateWitness::V1(witness) => &witness.implicit_transitions,
+            ChunkStateWitness::V1 => unreachable!("ChunkStateWitness V1 is deprecated"),
             ChunkStateWitness::V2(witness) => &witness.implicit_transitions,
         }
     }
 
     pub fn new_transactions(&self) -> &Vec<SignedTransaction> {
         match self {
-            ChunkStateWitness::V1(witness) => &witness._deprecated_new_transactions,
+            ChunkStateWitness::V1 => unreachable!("ChunkStateWitness V1 is deprecated"),
             ChunkStateWitness::V2(witness) => &witness.new_transactions,
-        }
-    }
-}
-
-impl ChunkStateWitnessV1 {
-    pub fn chunk_production_key(&self) -> ChunkProductionKey {
-        ChunkProductionKey {
-            shard_id: self.chunk_header.shard_id(),
-            epoch_id: self.epoch_id,
-            height_created: self.chunk_header.height_created(),
         }
     }
 }

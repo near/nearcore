@@ -1294,8 +1294,7 @@ pub struct ChunkExecutionResult {
     pub outgoing_receipts_root: CryptoHash,
 }
 
-/// Execution results for all chunks in the block.
-/// For genesis inner hashmap is always empty.
+/// Execution results for all shards in the block.
 pub struct BlockExecutionResults(pub HashMap<ShardId, Arc<ChunkExecutionResult>>);
 
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq, Hash)]

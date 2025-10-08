@@ -9028,7 +9028,7 @@
         "oneOf": [
           {
             "additionalProperties": false,
-            "description": "Create an (sub)account using a transaction `receiver_id` as an ID for\na new account ID must pass validation rules described here\n<http://nomicon.io/Primitives/Account.html>.",
+            "description": "Create an (sub)account using a transaction `receiver_id` as an ID for\na new account ID must pass validation rules described here\n<https://nomicon.io/DataStructures/Account>.",
             "properties": {
               "CreateAccount": {
                 "$ref": "#/components/schemas/CreateAccountAction"
@@ -15115,6 +15115,18 @@
             ],
             "description": "Describes limits for VM and Runtime.\n\nTODO: Consider changing this to `VMLimitConfigView` to avoid dependency\non runtime."
           },
+          "linear_op_base_cost": {
+            "description": "Base gas cost of a linear operation",
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "linear_op_unit_cost": {
+            "description": "Unit gas cost of a linear operation",
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
           "reftypes_bulk_memory": {
             "description": "See [VMConfig::reftypes_bulk_memory](crate::vm::Config::reftypes_bulk_memory).",
             "type": "boolean"
@@ -15150,6 +15162,8 @@
           "ext_costs",
           "grow_mem_cost",
           "regular_op_cost",
+          "linear_op_base_cost",
+          "linear_op_unit_cost",
           "vm_kind",
           "discard_custom_sections",
           "saturating_float_to_int",

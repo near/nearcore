@@ -10,6 +10,7 @@ use borsh::BorshDeserialize;
 use borsh::BorshSerialize;
 pub use edge::*;
 use near_primitives::genesis::GenesisId;
+use near_primitives::spice_partial_data::SpicePartialData;
 pub use near_primitives::state_sync::StateRequestAck;
 use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsement;
 use near_primitives::stateless_validation::contract_distribution::ChunkContractAccesses;
@@ -40,7 +41,6 @@ pub use _proto::network as proto;
 use crate::network_protocol::proto_conv::trace_context::{
     extract_span_context, inject_trace_context,
 };
-use crate::spice_data_distribution::SpicePartialData;
 use near_async::time;
 use near_crypto::PublicKey;
 use near_crypto::Signature;
@@ -943,8 +943,9 @@ impl fmt::Debug for RoutedMessageBody {
             ),
             RoutedMessageBody::SpicePartialData(spice_partial_data) => write!(
                 f,
-                "SpicePartialData(id={:?}, commitment={:?})",
-                spice_partial_data.id, spice_partial_data.commitment,
+                "SpicePartialData(block_hash={:?}, sender={:?})",
+                spice_partial_data.block_hash(),
+                spice_partial_data.sender(),
             ),
             RoutedMessageBody::SpiceChunkEndorsement(_) => {
                 write!(f, "SpiceChunkEndorsement")

@@ -346,6 +346,8 @@ impl TryFrom<&ParameterTable> for RuntimeConfig {
                 vm_kind: params.get(Parameter::VmKind)?,
                 grow_mem_cost: params.get(Parameter::WasmGrowMemCost)?,
                 regular_op_cost: params.get(Parameter::WasmRegularOpCost)?,
+                linear_op_base_cost: params.get(Parameter::WasmLinearOpBaseCost)?,
+                linear_op_unit_cost: params.get(Parameter::WasmLinearOpUnitCost)?,
                 discard_custom_sections: params.get(Parameter::DiscardCustomSections)?,
                 saturating_float_to_int: params.get(Parameter::SaturatingFloatToInt)?,
                 reftypes_bulk_memory: params.get(Parameter::ReftypesBulkMemory)?,

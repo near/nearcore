@@ -17,7 +17,7 @@ axum.workspace = true
 chrono.workspace = true
 clap.workspace = true
 time.workspace = true
-tokio.workspace = true
+tokio = { workspace = true, features = ["signal"] }
 tracing.workspace = true
 
 near-time.workspace = true
