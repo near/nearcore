@@ -8,8 +8,17 @@ export type EventToDisplay = {
     rightUncertain: boolean; // If we're not sure about when the event's right edge is
     typeId: number;
     row: number; // vertical row for stacking
-    count?: number; // number of collapsed events (if > 1, this represents multiple events)
-    rowSpan?: number; // number of rows this event occupies (for collapsed events)
+};
+
+export type MergedEventToDisplay = {
+    startSMT: number; // milliseconds since minimum time (start of earliest event)
+    endSMT: number; // milliseconds since minimum time (end of latest event)
+    leftUncertain: boolean;
+    rightUncertain: boolean;
+    typeId: number;
+    row: number;
+    count: number; // number of events merged (1 for single event)
+    totalDurationMs: number; // sum of all individual event durations
 };
 
 export type WindowToDisplay = {
@@ -204,31 +213,31 @@ export function getEventsToDisplay(
             row: 0
         });
     }
+
+    // Pre-sort events by start time for faster processing
+    events.sort((a, b) => a.startSMT - b.startSMT);
+
     return events;
 }
 
 /// Assigns rows to events so that overlapping events are displayed in different rows
 /// Also collapses visually overlapping events of the same type into single elements with a count
-export function assignRows(events: EventToDisplay[], viewport: Viewport): { events: EventToDisplay[], maxRow: number } {
-    // Phase 1: Sort events and merge visually overlapping same-type events using linear sweep
-    const positionedEvents = events.map(e => ({ ...e }));
-    positionedEvents.sort((a, b) => a.startSMT - b.startSMT);
+export function assignRows(events: EventToDisplay[], viewport: Viewport): { events: MergedEventToDisplay[], maxRow: number } {
+    // Events are already sorted by startSMT in getEventsToDisplay
 
-    const mergedEvents: EventToDisplay[] = [];
+    const mergedEvents: MergedEventToDisplay[] = [];
     // Track the last merged event for each type
     const lastEventByType = new Map<number, number>(); // typeId -> index in mergedEvents
 
-    for (const event of positionedEvents) {
+    for (const event of events) {
         const startPx = viewport.transform(event.startSMT);
-        const endPx = viewport.transform(event.endSMT);
         const visualStart = startPx - LINE_STROKE_WIDTH / 2;
-        const visualEnd = endPx + LINE_STROKE_WIDTH / 2;
+        const eventDuration = event.endSMT - event.startSMT;
 
         const lastIndex = lastEventByType.get(event.typeId);
 
         if (lastIndex !== undefined) {
             const lastEvent = mergedEvents[lastIndex];
-            const lastStartPx = viewport.transform(lastEvent.startSMT);
             const lastEndPx = viewport.transform(lastEvent.endSMT);
             const lastVisualEnd = lastEndPx + LINE_STROKE_WIDTH / 2;
 
@@ -238,15 +247,20 @@ export function assignRows(events: EventToDisplay[], viewport: Viewport): { even
                 lastEvent.endSMT = Math.max(lastEvent.endSMT, event.endSMT);
                 lastEvent.leftUncertain = lastEvent.leftUncertain || event.leftUncertain;
                 lastEvent.rightUncertain = lastEvent.rightUncertain || event.rightUncertain;
-                lastEvent.count = (lastEvent.count || 1) + 1;
+                lastEvent.count += 1;
+                lastEvent.totalDurationMs += eventDuration;
             } else {
                 // Create new merged event
                 const newIndex = mergedEvents.length;
                 mergedEvents.push({
-                    ...event,
+                    startSMT: event.startSMT,
+                    endSMT: event.endSMT,
+                    leftUncertain: event.leftUncertain,
+                    rightUncertain: event.rightUncertain,
+                    typeId: event.typeId,
                     row: 0, // Will be assigned based on type
                     count: 1,
-                    rowSpan: 1
+                    totalDurationMs: eventDuration
                 });
                 lastEventByType.set(event.typeId, newIndex);
             }
@@ -254,10 +268,14 @@ export function assignRows(events: EventToDisplay[], viewport: Viewport): { even
             // First event of this type
             const newIndex = mergedEvents.length;
             mergedEvents.push({
-                ...event,
+                startSMT: event.startSMT,
+                endSMT: event.endSMT,
+                leftUncertain: event.leftUncertain,
+                rightUncertain: event.rightUncertain,
+                typeId: event.typeId,
                 row: 0, // Will be assigned based on type
                 count: 1,
-                rowSpan: 1
+                totalDurationMs: eventDuration
             });
             lastEventByType.set(event.typeId, newIndex);
         }

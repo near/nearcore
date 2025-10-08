@@ -1,7 +1,7 @@
 import { useMemo, useState, useRef, useEffect } from "react";
 import { InstrumentedThread } from "../api";
 import { CPU_CHART_HEIGHT, GRID_LABEL_TOP_MARGIN, LEGEND_HEIGHT_PER_ROW, LEGEND_VERTICAL_MARGIN, LINE_STROKE_WIDTH, ROW_HEIGHT, ROW_PADDING } from "./constants";
-import { assignRows, EventToDisplay, getEventsToDisplay, makeWindowsToDisplay, MessageTypeAndColorMap, Viewport } from "./algorithm";
+import { assignRows, getEventsToDisplay, makeWindowsToDisplay, MessageTypeAndColorMap, MergedEventToDisplay, Viewport } from "./algorithm";
 import { renderCpuChart } from "./cpu_chart";
 import { renderGridline } from "./gridline";
 import "./ThreadTimeline.scss";
@@ -81,7 +81,7 @@ export const ThreadTimeline = ({ thread, messageTypes, minTimeMs, currentTimeMs,
 
     const svgHeight = chartHeight + legendHeight;
 
-    const [hoveredEvent, setHoveredEvent] = useState<{ event: EventToDisplay, x: number, y: number } | null>(null);
+    const [hoveredEvent, setHoveredEvent] = useState<{ event: MergedEventToDisplay, x: number, y: number } | null>(null);
     const [hoveredLegendType, setHoveredLegendType] = useState<number | null>(null);
     const [hoveredCpuWindow, setHoveredCpuWindow] = useState<{ windowIndex: number, x: number, y: number } | null>(null);
 
@@ -239,7 +239,7 @@ export const ThreadTimeline = ({ thread, messageTypes, minTimeMs, currentTimeMs,
                     opacity = event.typeId === hoveredLegendType ? opacity : 0.1;
                 }
 
-                const isCollapsed = (event.count || 1) > 1;
+                const isCollapsed = event.count > 1;
 
                 if (isCollapsed) {
                     // Render as a combined line with count
@@ -369,12 +369,17 @@ export const ThreadTimeline = ({ thread, messageTypes, minTimeMs, currentTimeMs,
                 }}
             >
                 <div><strong>{colorMap.get(hoveredEvent.event.typeId).name}</strong></div>
-                {(hoveredEvent.event.count || 1) > 1 && (
-                    <div>Count: {hoveredEvent.event.count}</div>
+                {hoveredEvent.event.count > 1 && (
+                    <>
+                        <div>Count: {hoveredEvent.event.count}</div>
+                        <div>Total Time: {hoveredEvent.event.totalDurationMs.toFixed(3)} ms</div>
+                        <div>Utilization: {((hoveredEvent.event.totalDurationMs / (hoveredEvent.event.endSMT - hoveredEvent.event.startSMT)) * 100).toFixed(1)}%</div>
+                    </>
                 )}
-                <div>Duration: {(hoveredEvent.event.endSMT - hoveredEvent.event.startSMT).toFixed(3)} ms</div>
-                <div>Start: {hoveredEvent.event.startSMT.toFixed(2)} ms</div>
-                <div>End: {hoveredEvent.event.endSMT.toFixed(2)} ms</div>
+                {hoveredEvent.event.count === 1 && (
+                    <div>Duration: {hoveredEvent.event.totalDurationMs.toFixed(3)} ms</div>
+                )}
+                <div>Interval: {hoveredEvent.event.startSMT.toFixed(2)} - {hoveredEvent.event.endSMT.toFixed(2)} ms</div>
             </div>
         )}
 
