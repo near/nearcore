@@ -1,0 +1,125 @@
+package near:nearcore@0.1.0;
+
+interface finite-wasm {
+   gas-exhausted: func();
+   stack-exhausted: func();
+   burn-gas: func(gas: u64);
+}
+
+interface runtime {
+   variant value-or-register {
+     value(list<u8>),
+     register(u64),
+   }
+
+   record u128 {
+     lo: u64,
+     hi: u64,
+   }
+
+   // Copies `data` into the register. If register is unused will initialize
+   // it. If register has larger capacity than needed for `data` will not re-allocate it. The
+   // register will lose the pre-existing data if any.
+   write-register: func(register-id: u64, data: list<u8>);
+
+   // Reads the entire content from the register `register-id`
+   read-register: func(register-id: u64) -> list<u8>;
+
+   // Returns the size of the blob stored in the given register.
+   // If register is not used, returns `none`.
+   register-len: func(register-id: u64) -> option<u64>;
+
+   // Saves the account id of the current contract that we execute into the register.
+   current-account-id: func(register-id: u64);
+
+   // All contract calls are a result of some transaction that was signed by some account using
+   // some access key and submitted into a memory pool (either through the wallet using RPC or by
+   // a node itself). This function returns the id of that account. Saves the bytes of the signer
+   // account id into the register.
+   signer-account-id: func(register-id: u64);
+
+   // Saves the public key fo the access key that was used by the signer into the register. In
+   // rare situations smart contract might want to know the exact access key that was used to send
+   // the original transaction, e.g. to increase the allowance or manipulate with the public key.
+   signer-account-pk: func(register-id: u64);
+
+   // All contract calls are a result of a receipt, this receipt might be created by a transaction
+   // that does function invocation on the contract or another contract as a result of
+   // cross-contract call. Saves the bytes of the predecessor account id into the register.
+   predecessor-account-id: func(register-id: u64);
+
+   // Populates a register with the ID of an account which would receive a refund.
+   refund-to-account-id: func(register-id: u64);
+
+   // Reads input to the contract call into the register. Input is expected to be in JSON-format.
+   // If input is provided saves the bytes (potentially zero) of input into register. If input is
+   // not provided writes 0 bytes into the register.
+   input: func(register-id: u64);
+
+   // Returns the current block height.
+   block-height: func() -> u64;
+
+   // Returns the current block timestamp (number of non-leap-nanoseconds since January 1, 1970 0:00:00 UTC).
+   block-timestamp: func() -> u64;
+
+   // Returns the current epoch height.
+   epoch-height: func() -> u64;
+
+   // Returns the number of bytes used by the contract if it was saved to the trie as of the
+   // invocation. This includes:
+   // * The data written with storage_* functions during current and previous execution;
+   // * The bytes needed to store the access keys of the given account.
+   // * The contract code size
+   // * A small fixed overhead for account metadata.
+   storage-usage: func() -> u64;
+
+   // The current balance of the given account. This includes the attached_deposit that was
+   // attached to the transaction.
+   account-balance: func() -> u128;
+
+   // The current amount of tokens locked due to staking.
+   account-locked-balance: func() -> u128;
+
+   // The balance that was attached to the call that will be immediately deposited before the
+   // contract execution starts.
+   attached-deposit: func() -> u128;
+
+   // The amount of gas attached to the call that can be used to pay for the gas fees.
+   prepaid-gas: func() -> u64;
+
+   // The gas that was already burnt during the contract execution (cannot exceed `prepaid_gas`)
+   used-gas: func() -> u64;
+
+   // Writes random seed into the register.
+   random-seed: func(register-id: u64);
+
+   // Hashes the given value using sha256 and returns it into `register-id`.
+   sha256: func(value: value-or-register, register-id: u64);
+
+   // Sets the blob of data as the return value of the contract.
+   value-return: func(value: value-or-register);
+
+   // Panics with the string.
+   panic: func(s: option<string>);
+
+   // Logs the string.
+   log: func(s: string);
+
+   // Reads the value stored under the given key.
+   // * If key is used copies the content of the value into the `register-id`, even if the content
+   //   is zero bytes. Returns `true`;
+   // * If key is not present then does not modify the register. Returns `false`;
+   storage-read: func(key: value-or-register, register-id: u64) -> bool;
+
+   // Writes key-value into storage.
+   // * If key is not in use it inserts the key-value pair and does not modify the register. Returns `false`;
+   // * If key is in use it inserts the key-value and copies the old value into the `register-id`. Returns `true`.
+   //
+   storage-write: func(key: value-or-register, value: value-or-register, register-id: u64) -> bool;
+}
+
+world imports {
+    import finite-wasm;
+
+    import runtime;
+}

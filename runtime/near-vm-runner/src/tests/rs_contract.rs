@@ -74,6 +74,36 @@ pub fn test_read_write() {
             Arc::clone(&fees),
         );
         assert_run_result(result, 20);
+
+        if vm_kind == VMKind::Wasmtime {
+            let code = near_test_contracts::component_rs_contract().to_vec();
+            let code = ContractCode::new(code, None);
+            let mut fake_external = MockedExternal::with_code(code);
+            let context = create_context(encode(&[10u64, 20u64]));
+            let mut config = Arc::unwrap_or_clone(config);
+            config.component_model = true;
+            config.limit_config.max_tables_per_contract = Some(3);
+            let config = Arc::new(config);
+            let runtime =
+                vm_kind.runtime(Arc::clone(&config)).expect("runtime has not been compiled");
+            let gas_counter = context.make_gas_counter(&config);
+            let result = runtime.prepare(&fake_external, None, gas_counter, "write-key-value").run(
+                &mut fake_external,
+                &context,
+                Arc::clone(&fees),
+            );
+            assert_run_result(result, 0);
+
+            let context = create_context(encode(&[10u64]));
+            let runtime = vm_kind.runtime(config.clone()).expect("runtime has not been compiled");
+            let gas_counter = context.make_gas_counter(&config);
+            let result = runtime.prepare(&fake_external, None, gas_counter, "read-value").run(
+                &mut fake_external,
+                &context,
+                Arc::clone(&fees),
+            );
+            assert_run_result(result, 20);
+        }
     });
 }
 

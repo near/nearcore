@@ -211,6 +211,7 @@ pub enum Parameter {
     DiscardCustomSections,
     SaturatingFloatToInt,
     ReftypesBulkMemory,
+    ComponentModel,
 
     // Congestion Control
     MaxCongestionIncomingGas,
