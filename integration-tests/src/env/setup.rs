@@ -15,6 +15,7 @@ use near_chain::{ApplyChunksIterationMode, Chain, ChainGenesis, DoomslugThreshol
 
 use near_async::ActorSystem;
 use near_async::multithread::MultithreadRuntimeHandle;
+use near_async::span_wrapped_msg::SpanWrapped;
 use near_async::tokio::TokioRuntimeHandle;
 use near_chain_configs::test_utils::TestClientConfigParams;
 use near_chain_configs::{
@@ -43,7 +44,6 @@ use near_network::shards_manager::ShardsManagerRequestFromNetwork;
 use near_network::state_witness::PartialWitnessSenderForNetwork;
 use near_network::types::{NetworkRequests, NetworkResponses, PeerManagerAdapter};
 use near_network::types::{PeerManagerMessageRequest, PeerManagerMessageResponse};
-use near_o11y::span_wrapped_msg::SpanWrapped;
 use near_primitives::epoch_info::RngSeed;
 use near_primitives::network::PeerId;
 use near_primitives::test_utils::create_test_signer;

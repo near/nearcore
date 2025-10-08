@@ -20,11 +20,11 @@ pub use config::RosettaRpcConfig;
 use near_async::futures::{FutureSpawner, FutureSpawnerExt};
 use near_async::messaging::CanSendAsync;
 use near_async::multithread::MultithreadRuntimeHandle;
+use near_async::span_wrapped_msg::SpanWrappedMessageExt;
 use near_async::tokio::TokioRuntimeHandle;
 use near_chain_configs::Genesis;
 use near_client::client_actor::ClientActorInner;
 use near_client::{RpcHandler, ViewClientActorInner};
-use near_o11y::span_wrapped_msg::SpanWrappedMessageExt;
 use near_primitives::{borsh::BorshDeserialize, types::Balance};
 
 mod adapters;
