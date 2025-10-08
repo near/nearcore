@@ -19,7 +19,7 @@ use near_primitives::block::{ApprovalMessage, Block};
 use near_primitives::epoch_sync::CompressedEpochSyncProof;
 use near_primitives::genesis::GenesisId;
 use near_primitives::hash::CryptoHash;
-use near_primitives::network::{AnnounceAccount, PeerId};
+use near_primitives::network::PeerId;
 use near_primitives::optimistic_block::OptimisticBlock;
 use near_primitives::sharding::PartialEncodedChunkWithArcReceipts;
 use near_primitives::spice_partial_data::SpicePartialData;
@@ -269,8 +269,6 @@ pub enum NetworkRequests {
     },
     /// Ban given peer.
     BanPeer { peer_id: PeerId, ban_reason: ReasonForBan },
-    /// Announce account
-    AnnounceAccount(AnnounceAccount),
     /// Broadcast information about a hosted snapshot.
     SnapshotHostInfo { sync_hash: CryptoHash, epoch_height: EpochHeight, shards: Vec<ShardId> },
 
@@ -516,7 +514,6 @@ mod tests {
     #[test]
     fn test_struct_size() {
         assert_size!(PeerInfo);
-        assert_size!(AnnounceAccount);
         assert_size!(RawRoutedMessage);
         assert_size!(RoutedMessage);
         assert_size!(KnownPeerState);

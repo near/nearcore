@@ -30,7 +30,7 @@ use crate::test_utils;
 use crate::types::StateRequestSenderForNetworkInput;
 use crate::types::StateRequestSenderForNetworkMessage;
 use crate::types::{
-    AccountKeys, ChainInfo, KnownPeerStatus, NetworkRequests, PeerManagerMessageRequest,
+    AccountKeys, ChainInfo, KnownPeerStatus, PeerManagerMessageRequest,
     PeerManagerSenderForNetworkInput, PeerManagerSenderForNetworkMessage, ReasonForBan,
 };
 use futures::FutureExt;
@@ -39,10 +39,9 @@ use near_async::futures::FutureSpawnerExt;
 use near_async::messaging::{self, CanSendAsync, IntoMultiSender};
 use near_async::messaging::{CanSend, Sender};
 use near_async::{ActorSystem, time};
-use near_primitives::network::{AnnounceAccount, PeerId};
+use near_primitives::network::PeerId;
 use near_primitives::state_sync::ShardStateSyncResponse;
 use near_primitives::state_sync::ShardStateSyncResponseV2;
-use near_primitives::types::AccountId;
 use std::collections::HashSet;
 use std::fmt::Debug;
 use std::future::Future;
@@ -435,11 +434,6 @@ impl ActorHandler {
         .await;
     }
 
-    pub async fn announce_account(&self, aa: AnnounceAccount) {
-        let msg = PeerManagerMessageRequest::NetworkRequests(NetworkRequests::AnnounceAccount(aa));
-        let _: () = self.actor.send_async(msg).await.unwrap();
-    }
-
     // Awaits until the accounts_data state satisfies predicate `pred`.
     pub async fn wait_for_accounts_data_pred(
         &self,
@@ -527,25 +521,6 @@ impl ActorHandler {
         }
     }
 
-    pub async fn wait_for_account_owner(&self, account: &AccountId) -> PeerId {
-        let mut events = self.events.from_now();
-        loop {
-            let account = account.clone();
-            let got = self
-                .with_state(|s| async move { s.account_announcements.get_account_owner(&account) })
-                .await;
-            if let Some(got) = got {
-                return got;
-            }
-            events
-                .recv_until(|ev| match ev {
-                    Event::PeerManager(PME::AccountsAdded(_)) => Some(()),
-                    _ => None,
-                })
-                .await;
-        }
-    }
-
     pub async fn wait_for_num_connected_peers(&self, wanted: usize) {
         let mut events = self.events.from_now();
         loop {
@@ -605,20 +580,6 @@ pub(crate) async fn start(
             // For some specific events we craft a response and send it back, while for
             // most other events we send it to the sink (for what? I have no idea).
             match event {
-                ClientSenderForNetworkMessage::_announce_account(msg) => {
-                    (msg.callback)(
-                        std::future::ready(Ok(Ok(msg
-                            .message
-                            .0
-                            .iter()
-                            .map(|(account, _)| account.clone())
-                            .collect())))
-                        .boxed(),
-                    );
-                    send.send(Event::Client(ClientSenderForNetworkInput::_announce_account(
-                        msg.message,
-                    )));
-                }
                 _ => {
                     send.send(Event::Client(event.into_input()));
                 }
