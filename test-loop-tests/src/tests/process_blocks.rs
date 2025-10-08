@@ -9,7 +9,7 @@ use near_chain_configs::test_genesis::{TestEpochConfigBuilder, ValidatorsSpec};
 use near_client::BlockResponse;
 use near_crypto::{KeyType, PublicKey};
 use near_network::types::{NetworkRequests, ReasonForBan};
-use near_o11y::span_wrapped_msg::{SpanWrapped, SpanWrappedMessageExt};
+use near_async::span_wrapped_msg::{SpanWrapped, SpanWrappedMessageExt};
 use near_o11y::testonly::init_test_logger;
 use near_primitives::hash::hash;
 use near_primitives::shard_layout::ShardLayout;

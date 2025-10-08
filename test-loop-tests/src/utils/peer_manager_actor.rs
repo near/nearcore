@@ -31,7 +31,7 @@ use near_network::types::{
     PeerManagerMessageRequest, PeerManagerMessageResponse, ReasonForBan, SetChainInfo,
     StateSyncEvent, Tier3Request,
 };
-use near_o11y::span_wrapped_msg::{SpanWrapped, SpanWrappedMessageExt};
+use near_async::span_wrapped_msg::{SpanWrapped, SpanWrappedMessageExt};
 use near_primitives::genesis::GenesisId;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;

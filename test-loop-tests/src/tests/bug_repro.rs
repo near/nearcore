@@ -14,7 +14,7 @@ use near_crypto::InMemorySigner;
 use near_network::client::{BlockApproval, BlockResponse};
 use near_network::shards_manager::ShardsManagerRequestFromNetwork;
 use near_network::types::NetworkRequests;
-use near_o11y::span_wrapped_msg::SpanWrappedMessageExt;
+use near_async::span_wrapped_msg::SpanWrappedMessageExt;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::transaction::SignedTransaction;

@@ -13,6 +13,7 @@ use itertools::Itertools as _;
 use near_async::messaging::Sender;
 use near_async::messaging::{Handler, Message};
 use near_async::messaging::{IntoSender as _, noop};
+use near_async::span_wrapped_msg::SpanWrapped;
 use near_async::time::Clock;
 use near_chain::Block;
 use near_chain::test_utils::{
@@ -27,7 +28,6 @@ use near_network::spice_data_distribution::SpiceDataIdentifier;
 use near_network::spice_data_distribution::SpiceDataPart;
 use near_network::spice_data_distribution::SpiceIncomingPartialData;
 use near_network::types::{NetworkRequests, PeerManagerAdapter, PeerManagerMessageRequest};
-use near_o11y::span_wrapped_msg::SpanWrapped;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::hash::CryptoHash;
 use near_primitives::hash::hash;

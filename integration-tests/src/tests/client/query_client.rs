@@ -1,6 +1,7 @@
 use crate::env::setup::setup_no_network;
 use near_async::ActorSystem;
 use near_async::messaging::CanSendAsync;
+use near_async::span_wrapped_msg::SpanWrappedMessageExt;
 use near_async::time::{Clock, Duration};
 use near_client::{
     GetBlock, GetBlockWithMerkleTree, GetExecutionOutcomesForBlock, Query, TxStatus,
@@ -9,7 +10,6 @@ use near_client_primitives::types::Status;
 use near_crypto::InMemorySigner;
 use near_network::client::{BlockResponse, ProcessTxRequest, ProcessTxResponse};
 use near_network::types::PeerInfo;
-use near_o11y::span_wrapped_msg::SpanWrappedMessageExt;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::block::{Block, BlockHeader};
 use near_primitives::merkle::PartialMerkleTree;

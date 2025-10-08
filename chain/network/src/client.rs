@@ -1,8 +1,8 @@
 use crate::network_protocol::StateResponseInfo;
 use crate::types::{NetworkInfo, ReasonForBan};
 use near_async::messaging::{AsyncSender, Sender};
+use near_async::span_wrapped_msg::SpanWrapped;
 use near_async::{Message, MultiSend, MultiSendMessage, MultiSenderFrom};
-use near_o11y::span_wrapped_msg::SpanWrapped;
 use near_primitives::block::{Approval, Block, BlockHeader};
 use near_primitives::epoch_sync::CompressedEpochSyncProof;
 use near_primitives::errors::InvalidTxError;

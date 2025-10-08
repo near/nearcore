@@ -13,6 +13,7 @@ use near_async::instrumentation::{all_actor_instrumentations_view, all_queues};
 use near_async::messaging::{
     AsyncSendError, AsyncSender, CanSend, MessageWithCallback, SendAsync, Sender,
 };
+use near_async::span_wrapped_msg::{SpanWrapped, SpanWrappedMessageExt};
 use near_async::time::Clock;
 use near_chain_configs::{ClientConfig, GenesisConfig, ProtocolConfigView};
 use near_client::{
@@ -50,7 +51,6 @@ use near_jsonrpc_primitives::types::transactions::{
 use near_network::debug::GetDebugStatus;
 use near_network::tcp::{self, ListenerAddr};
 use near_o11y::metrics::{Encoder, TextEncoder, prometheus};
-use near_o11y::span_wrapped_msg::{SpanWrapped, SpanWrappedMessageExt};
 use near_primitives::hash::CryptoHash;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, BlockId, BlockReference};

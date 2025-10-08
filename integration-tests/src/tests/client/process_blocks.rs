@@ -9,6 +9,7 @@ use assert_matches::assert_matches;
 use itertools::Itertools;
 use near_async::ActorSystem;
 use near_async::messaging::{CanSend, CanSendAsync};
+use near_async::span_wrapped_msg::SpanWrappedMessageExt;
 use near_async::time::{Clock, Duration};
 use near_chain::types::{LatestKnown, RuntimeAdapter};
 use near_chain::validate::validate_chunk_with_chunk_extra;
@@ -27,7 +28,6 @@ use near_network::types::{
 };
 use near_network::types::{FullPeerInfo, NetworkRequests, NetworkResponses};
 use near_network::types::{PeerInfo, ReasonForBan};
-use near_o11y::span_wrapped_msg::SpanWrappedMessageExt;
 use near_o11y::testonly::{init_integration_logger, init_test_logger};
 use near_parameters::{ActionCosts, ExtCosts};
 use near_parameters::{RuntimeConfig, RuntimeConfigStore};

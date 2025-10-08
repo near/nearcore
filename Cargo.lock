@@ -4732,7 +4732,6 @@ dependencies = [
  "bencher",
  "clap",
  "itoa",
- "near-async",
  "near-crypto",
  "near-fmt",
  "near-primitives-core",

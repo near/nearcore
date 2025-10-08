@@ -13,7 +13,7 @@ use near_client::client_actor::ClientActorInner;
 use near_epoch_manager::EpochManagerAdapter;
 use near_network::client::{BlockApproval, BlockResponse};
 use near_network::types::NetworkRequests;
-use near_o11y::span_wrapped_msg::SpanWrappedMessageExt;
+use near_async::span_wrapped_msg::SpanWrappedMessageExt;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::block::{Approval, ApprovalInner};
 use near_primitives::hash::CryptoHash;

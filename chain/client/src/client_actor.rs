@@ -30,6 +30,7 @@ use near_async::messaging::{
     self, CanSend, Handler, IntoMultiSender, IntoSender as _, LateBoundSender, Sender,
 };
 use near_async::multithread::MultithreadRuntimeHandle;
+use near_async::span_wrapped_msg::SpanWrapped;
 use near_async::time::{Clock, Utc};
 use near_async::time::{Duration, Instant};
 use near_async::tokio::TokioRuntimeHandle;
@@ -64,7 +65,6 @@ use near_network::types::ReasonForBan;
 use near_network::types::{
     NetworkInfo, NetworkRequests, PeerManagerAdapter, PeerManagerMessageRequest,
 };
-use near_o11y::span_wrapped_msg::SpanWrapped;
 use near_performance_metrics;
 use near_performance_metrics_macros::perf;
 use near_primitives::block::Tip;

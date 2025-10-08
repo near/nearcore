@@ -25,8 +25,8 @@ use crate::types::{
     StateRequestSenderForNetworkInput, StateRequestSenderForNetworkMessage,
 };
 use near_async::messaging::{CanSendAsync, IntoMultiSender, Sender};
+use near_async::span_wrapped_msg::SpanWrappedMessageExt;
 use near_async::{ActorSystem, time};
-use near_o11y::span_wrapped_msg::SpanWrappedMessageExt;
 use near_primitives::network::PeerId;
 use std::sync::Arc;
 

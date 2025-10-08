@@ -52,7 +52,7 @@ use near_async::messaging::CanSendAsync;
 use near_async::multithread::MultithreadRuntimeHandle;
 use near_async::tokio::TokioRuntimeHandle;
 use near_client::client_actor::ClientActorInner;
-use near_o11y::span_wrapped_msg::SpanWrappedMessageExt;
+use near_async::span_wrapped_msg::SpanWrappedMessageExt;
 
 #[derive(strum::EnumIter)]
 enum DBCol {

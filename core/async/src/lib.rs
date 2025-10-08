@@ -6,6 +6,7 @@ pub mod futures;
 pub mod instrumentation;
 pub mod messaging;
 pub mod multithread;
+pub mod span_wrapped_msg;
 pub mod test_loop;
 pub mod tokio;
 
