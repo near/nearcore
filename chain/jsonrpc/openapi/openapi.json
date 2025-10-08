@@ -15137,10 +15137,6 @@
             "minimum": 0,
             "type": "integer"
           },
-          "saturating_float_to_int": {
-            "description": "See [VMConfig::saturating_float_to_int](crate::vm::Config::saturating_float_to_int).",
-            "type": "boolean"
-          },
           "storage_get_mode": {
             "allOf": [
               {
@@ -15166,7 +15162,6 @@
           "linear_op_unit_cost",
           "vm_kind",
           "discard_custom_sections",
-          "saturating_float_to_int",
           "global_contract_host_fns",
           "reftypes_bulk_memory",
           "deterministic_account_ids",

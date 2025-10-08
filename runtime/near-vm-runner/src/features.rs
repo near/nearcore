@@ -10,7 +10,7 @@ mod opts {
     pub(super) const TAIL_CALL: bool = false;
     pub(super) const MULTI_MEMORY: bool = false;
     pub(super) const MEMORY64: bool = false;
-    pub(super) const SATURATING_FLOAT_TO_INT: bool = false;
+    pub(super) const SATURATING_FLOAT_TO_INT: bool = true;
     pub(super) const EXCEPTIONS: bool = false;
     pub(super) const RELAXED_SIMD: bool = false;
     pub(super) const EXTENDED_COST: bool = false;
@@ -27,17 +27,13 @@ mod opts {
 #[derive(Clone, Copy)]
 #[allow(unused)]
 pub struct WasmFeatures {
-    saturating_float_to_int: bool,
     reftypes_bulk_memory: bool,
 }
 
 impl WasmFeatures {
     #[allow(unused)]
     pub fn new(config: &vm::Config) -> Self {
-        Self {
-            saturating_float_to_int: config.saturating_float_to_int,
-            reftypes_bulk_memory: config.reftypes_bulk_memory,
-        }
+        Self { reftypes_bulk_memory: config.reftypes_bulk_memory }
     }
 }
 
@@ -49,7 +45,7 @@ impl From<WasmFeatures> for finite_wasm::wasmparser::WasmFeatures {
             floats: true,
             mutable_global: true,
             sign_extension: SIGN_EXTENSION,
-            saturating_float_to_int: f.saturating_float_to_int,
+            saturating_float_to_int: SATURATING_FLOAT_TO_INT,
             reference_types: f.reftypes_bulk_memory,
             bulk_memory: f.reftypes_bulk_memory,
 
@@ -78,7 +74,7 @@ impl From<WasmFeatures> for finite_wasm_6::wasmparser::WasmFeatures {
             floats: true,
             mutable_global: true,
             sign_extension: SIGN_EXTENSION,
-            saturating_float_to_int: f.saturating_float_to_int,
+            saturating_float_to_int: SATURATING_FLOAT_TO_INT,
             reference_types: f.reftypes_bulk_memory,
             bulk_memory: f.reftypes_bulk_memory,
 
