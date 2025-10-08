@@ -52,18 +52,6 @@ impl RewardCalculator {
         }
     }
 
-    pub fn new_with_disabled_inflation(config: &GenesisConfig, epoch_length: u64) -> Self {
-        RewardCalculator {
-            num_blocks_per_year: config.num_blocks_per_year,
-            epoch_length,
-            protocol_reward_rate: config.protocol_reward_rate,
-            protocol_treasury_account: config.protocol_treasury_account.clone(),
-            num_seconds_per_year: NUM_SECONDS_IN_A_YEAR,
-            genesis_protocol_version: config.protocol_version,
-            disable_inflation: true,
-        }
-    }
-
     /// Calculate validator reward for an epoch based on their block and chunk production stats.
     /// Returns map of validators with their rewards and amount of newly minted tokens including to protocol's treasury.
     /// See spec <https://nomicon.io/Economics/Economic#validator-rewards-calculation>.
@@ -81,10 +69,9 @@ impl RewardCalculator {
             if self.disable_inflation { Rational32::new_raw(0, 1) } else { max_inflation_rate };
         let mut res = HashMap::new();
         let num_validators = validator_block_chunk_stats.len();
-        // For mainnet and testnet, use hardcoded values of 5% inflation and
-        // 10% protocol reward rate.
-        // For other chains, use the values from the genesis config.
-        // TODO: make them configurable based on protocol version, e.g. by
+        // For mainnet and testnet, use hardcoded value of 10% protocol reward rate.
+        // For other chains, use the value from the genesis config.
+        // TODO: make it configurable based on protocol version, e.g. by
         // moving to the epoch config.
         let use_hardcoded_value = self.genesis_protocol_version == PROD_GENESIS_PROTOCOL_VERSION;
         let protocol_reward_rate = if use_hardcoded_value {
