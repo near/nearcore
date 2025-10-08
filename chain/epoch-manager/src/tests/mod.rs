@@ -483,6 +483,7 @@ fn test_validator_reward_one_validator() {
         protocol_treasury_account: "near".parse().unwrap(),
         num_seconds_per_year: 50,
         genesis_protocol_version: PROTOCOL_VERSION,
+        disable_inflation: false,
     };
     let mut epoch_manager =
         setup_epoch_manager(validators, epoch_length, 1, 1, 90, 60, 0, reward_calculator.clone());
@@ -578,6 +579,7 @@ fn test_validator_reward_weight_by_stake() {
         protocol_treasury_account: "near".parse().unwrap(),
         num_seconds_per_year: 50,
         genesis_protocol_version: PROTOCOL_VERSION,
+        disable_inflation: false,
     };
     let mut epoch_manager =
         setup_epoch_manager(validators, epoch_length, 1, 2, 90, 60, 0, reward_calculator.clone());
@@ -682,6 +684,7 @@ fn test_reward_multiple_shards() {
         protocol_treasury_account: "near".parse().unwrap(),
         num_seconds_per_year: 1_000_000,
         genesis_protocol_version: PROTOCOL_VERSION,
+        disable_inflation: false,
     };
     let num_shards = 2;
     let epoch_manager = setup_epoch_manager(
@@ -1018,6 +1021,7 @@ fn test_rewards_with_kickouts() {
         protocol_treasury_account: "near".parse().unwrap(),
         num_seconds_per_year: NUM_SECONDS_IN_A_YEAR,
         genesis_protocol_version: PROTOCOL_VERSION,
+        disable_inflation: false,
     };
     let em = setup_epoch_manager(validators, epoch_length, 1, 3, 10, 10, 0, reward_calculator)
         .into_handle();

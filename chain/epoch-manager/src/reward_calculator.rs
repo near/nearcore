@@ -34,6 +34,9 @@ pub struct RewardCalculator {
     pub protocol_treasury_account: AccountId,
     pub num_seconds_per_year: u64,
     pub genesis_protocol_version: ProtocolVersion,
+
+    // Testing only
+    pub disable_inflation: bool,
 }
 
 impl RewardCalculator {
@@ -45,6 +48,19 @@ impl RewardCalculator {
             protocol_treasury_account: config.protocol_treasury_account.clone(),
             num_seconds_per_year: NUM_SECONDS_IN_A_YEAR,
             genesis_protocol_version: config.protocol_version,
+            disable_inflation: false,
+        }
+    }
+
+    pub fn new_with_disabled_inflation(config: &GenesisConfig, epoch_length: u64) -> Self {
+        RewardCalculator {
+            num_blocks_per_year: config.num_blocks_per_year,
+            epoch_length,
+            protocol_reward_rate: config.protocol_reward_rate,
+            protocol_treasury_account: config.protocol_treasury_account.clone(),
+            num_seconds_per_year: NUM_SECONDS_IN_A_YEAR,
+            genesis_protocol_version: config.protocol_version,
+            disable_inflation: true,
         }
     }
 
@@ -61,6 +77,8 @@ impl RewardCalculator {
         online_thresholds: ValidatorOnlineThresholds,
         max_inflation_rate: Rational32,
     ) -> (HashMap<AccountId, Balance>, Balance) {
+        let max_inflation_rate =
+            if self.disable_inflation { Rational32::new_raw(0, 1) } else { max_inflation_rate };
         let mut res = HashMap::new();
         let num_validators = validator_block_chunk_stats.len();
         // For mainnet and testnet, use hardcoded values of 5% inflation and
@@ -173,6 +191,7 @@ mod tests {
             protocol_treasury_account: "near".parse().unwrap(),
             num_seconds_per_year: 1000000,
             genesis_protocol_version: PROTOCOL_VERSION,
+            disable_inflation: false,
         };
         let validator_block_chunk_stats = HashMap::from([
             (
@@ -230,6 +249,7 @@ mod tests {
             protocol_treasury_account: "near".parse().unwrap(),
             num_seconds_per_year: 1000,
             genesis_protocol_version: PROTOCOL_VERSION,
+            disable_inflation: false,
         };
         let validator_block_chunk_stats = HashMap::from([
             (
@@ -299,6 +319,7 @@ mod tests {
             protocol_treasury_account: "near".parse().unwrap(),
             num_seconds_per_year: 1000,
             genesis_protocol_version: PROTOCOL_VERSION,
+            disable_inflation: false,
         };
         let validator_block_chunk_stats = HashMap::from([
             (
@@ -382,6 +403,7 @@ mod tests {
             protocol_treasury_account: "near".parse().unwrap(),
             num_seconds_per_year: 1000,
             genesis_protocol_version: PROTOCOL_VERSION,
+            disable_inflation: false,
         };
         let validator_block_chunk_stats = HashMap::from([
             // Blocks, chunks, endorsements
@@ -471,6 +493,7 @@ mod tests {
             protocol_treasury_account: "near".parse().unwrap(),
             num_seconds_per_year: 1000,
             genesis_protocol_version: PROTOCOL_VERSION,
+            disable_inflation: false,
         };
         let validator_block_chunk_stats = HashMap::from([
             // Blocks, chunks, endorsements - endorsement ratio cutoff is exceeded
@@ -564,6 +587,7 @@ mod tests {
             protocol_treasury_account: "near".parse().unwrap(),
             num_seconds_per_year: 60 * 60 * 24 * 365,
             genesis_protocol_version: PROTOCOL_VERSION,
+            disable_inflation: false,
         };
         let validator_block_chunk_stats = HashMap::from([(
             "test".parse().unwrap(),
