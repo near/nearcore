@@ -25,6 +25,7 @@ tracing.workspace = true
 
 near-async-derive.workspace = true
 near-time = { workspace = true, features = ["clock"] }
+near-o11y.workspace = true
 
 [dev-dependencies]
 tokio-util.workspace = true

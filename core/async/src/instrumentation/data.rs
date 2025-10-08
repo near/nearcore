@@ -49,6 +49,9 @@ pub static ALL_ACTOR_INSTRUMENTATIONS: LazyLock<AllActorInstrumentations> =
 /// is done on every actor thread, it will be significant.
 pub struct InstrumentedThread {
     pub thread_name: String,
+    /// The name of the actor (if any) that this thread is running. This is used
+    /// in metrics, to allow grouping by actor name for multithreaded actors.
+    pub actor_name: String,
     /// Time when this thread was started, in nanoseconds since reference_instant.
     pub started_time_ns: u64,
     /// Registry of message types that are seen so far on this thread. It is used to
@@ -80,9 +83,10 @@ pub struct InstrumentedThread {
 }
 
 impl InstrumentedThread {
-    pub fn new(thread_name: String, start_time: u64) -> Self {
+    pub fn new(thread_name: String, actor_name: String, start_time: u64) -> Self {
         Self {
             thread_name,
+            actor_name,
             started_time_ns: start_time,
             message_type_registry: MessageTypeRegistry::default(),
             windows: (0..WINDOW_ARRAY_SIZE)
@@ -116,7 +120,8 @@ impl InstrumentedThread {
         );
     }
 
-    pub fn end_event(&self, timestamp_ns: u64) {
+    // Ends the currently active event, if any, and returns the elapsed time in nanoseconds.
+    pub fn end_event(&self, timestamp_ns: u64) -> u64 {
         let active_event = self.active_event.load(Ordering::Relaxed);
         let message_type_id = active_event as u32;
         let start_timestamp = self.active_event_start_ns.load(Ordering::Relaxed);
@@ -128,6 +133,8 @@ impl InstrumentedThread {
         window.events.push(encoded_event, timestamp_ns.saturating_sub(window.start_time_ns));
         let elapsed_ns = timestamp_ns.saturating_sub(start_timestamp.max(window.start_time_ns));
         window.summary.add_message_time(current_window_index, message_type_id, elapsed_ns);
+        let total_elapsed_ns = timestamp_ns.saturating_sub(start_timestamp);
+        total_elapsed_ns
     }
 
     pub fn advance_window(&self, window_end_time_ns: u64) {

@@ -5,6 +5,7 @@ use near_time::Clock;
 use crate::instrumentation::{
     WINDOW_SIZE_NS,
     data::{ALL_ACTOR_INSTRUMENTATIONS, InstrumentedThread},
+    metrics::{MESSAGE_DEQUEUE_TIME, MESSAGE_PROCESSING_TIME},
 };
 
 pub struct InstrumentedThreadWriter {
@@ -29,11 +30,12 @@ impl InstrumentedThreadWriter {
         }
     }
 
-    pub fn new_from_global(thread_name: String) -> Self {
+    pub fn new_from_global(thread_name: String, actor_name: String) -> Self {
         let clock = Clock::real();
         let reference_instant = ALL_ACTOR_INSTRUMENTATIONS.reference_instant;
         let target = Arc::new(InstrumentedThread::new(
             thread_name,
+            actor_name,
             clock.now().duration_since(reference_instant).as_nanos() as u64,
         ));
         let key = Arc::as_ptr(&target) as usize;
@@ -53,13 +55,29 @@ impl InstrumentedThreadWriter {
             id
         };
         self.advance_window_if_needed_internal(start_time_ns);
+        MESSAGE_DEQUEUE_TIME
+            .with_label_values(&[&self.target.actor_name, message_type])
+            .observe(dequeue_time_ns as f64 / 1_000_000.0);
         self.target.start_event(message_type_id, start_time_ns, dequeue_time_ns);
     }
 
-    pub fn end_event(&mut self) {
+    // End an event for a specific message type.
+    // Note: easier to ask for message type here instead of storing a reverse mapping,
+    // as the caller knows it.
+    pub fn end_event(&mut self, message_type: &str) {
         let end_time_ns = self.clock.now().duration_since(self.reference_instant).as_nanos() as u64;
         self.advance_window_if_needed_internal(end_time_ns);
-        self.target.end_event(end_time_ns);
+        let total_elapsed_ns = self.target.end_event(end_time_ns);
+
+        // if message_type contains ::, panic
+        assert!(
+            !message_type.contains("::"),
+            "Message type should not contain ::, got {}",
+            message_type
+        );
+        MESSAGE_PROCESSING_TIME
+            .with_label_values(&[&self.target.actor_name, message_type])
+            .observe(total_elapsed_ns as f64 / 1_000_000.0);
     }
 
     pub fn advance_window_if_needed(&mut self) {

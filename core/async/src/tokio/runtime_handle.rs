@@ -184,9 +184,11 @@ impl<A: Actor + Send + 'static> TokioRuntimeBuilder<A> {
             // The runtime gets dropped as soon as this loop exits, cancelling all other futures on
             // the same tokio runtime.
             let _runtime = AsyncDroppableRuntime::new(runtime);
+            let actor_name = std::any::type_name::<A>();
             let mut actor = CallStopWhenDropping { actor };
             let mut instrumentation = InstrumentedThreadWriter::new_from_global(
-                std::any::type_name::<A>().to_string()
+                actor_name.to_string(),
+                actor_name.to_string(),
             );
             let mut window_update_timer = tokio::time::interval(Duration::from_secs(1));
             loop {
@@ -209,7 +211,7 @@ impl<A: Actor + Send + 'static> TokioRuntimeBuilder<A> {
                         let dequeue_time_ns = runtime_handle.get_time().saturating_sub(message.enqueued_time_ns);
                         instrumentation.start_event(message.name, dequeue_time_ns);
                         (message.function)(&mut actor.actor, &mut runtime_handle);
-                        instrumentation.end_event();
+                        instrumentation.end_event(message.name);
                     }
                     // Note: If the sender is closed, that stops being a selectable option.
                     // This is valid: we can spawn a tokio runtime without a handle, just to keep

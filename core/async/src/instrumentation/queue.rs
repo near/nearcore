@@ -6,6 +6,8 @@ use std::sync::{Arc, LazyLock, Weak};
 use parking_lot::RwLock;
 use serde::Serialize;
 
+use crate::instrumentation::metrics::QUEUE_PENDING_MESSAGES;
+
 pub struct AllQueues {
     queues: RwLock<HashMap<String, Weak<InstrumentedQueue>>>,
 }
@@ -15,6 +17,7 @@ pub static ALL_QUEUES: LazyLock<AllQueues> =
 
 pub struct InstrumentedQueue {
     pending: RwLock<HashMap<String, AtomicU64>>,
+    queue_name: String,
 }
 
 impl InstrumentedQueue {
@@ -23,7 +26,10 @@ impl InstrumentedQueue {
         if let Some(queue) = queues.get(queue_name).and_then(|w| w.upgrade()) {
             return queue;
         }
-        let queue = Arc::new(InstrumentedQueue { pending: RwLock::new(HashMap::new()) });
+        let queue = Arc::new(InstrumentedQueue {
+            pending: RwLock::new(HashMap::new()),
+            queue_name: queue_name.to_string(),
+        });
         queues.insert(queue_name.to_string(), Arc::downgrade(&queue));
         queue
     }
@@ -34,6 +40,7 @@ impl InstrumentedQueue {
             let pending = self.pending.read();
             if let Some(counter) = pending.get(message_type) {
                 counter.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                QUEUE_PENDING_MESSAGES.with_label_values(&[&self.queue_name]).inc();
                 return;
             }
         }
@@ -41,12 +48,14 @@ impl InstrumentedQueue {
         let mut pending = self.pending.write();
         let counter = pending.entry(message_type.to_string()).or_insert_with(|| AtomicU64::new(0));
         counter.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        QUEUE_PENDING_MESSAGES.with_label_values(&[&self.queue_name]).inc();
     }
 
     pub fn dequeue(&self, message_type: &str) {
         let pending = self.pending.read();
         if let Some(counter) = pending.get(message_type) {
             counter.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
+            QUEUE_PENDING_MESSAGES.with_label_values(&[&self.queue_name]).dec();
         }
     }
 

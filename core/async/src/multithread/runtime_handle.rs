@@ -100,9 +100,10 @@ where
     threads.spawn_broadcast(move |_| {
         let _threads = threads_clone.clone();
         let thread_id = thread_index.fetch_add(1, Ordering::Relaxed);
+        let actor_name = std::any::type_name::<A>();
         let mut actor = make_actor_fn();
         let mut instrumentation = InstrumentedThreadWriter::new_from_global
-            (format!("{}-{}", std::any::type_name::<A>(), thread_id));
+            (format!("{}-{}", actor_name, thread_id), actor_name.to_string());
         let window_update_ticker = crossbeam_channel::tick(Duration::from_secs(1));
         loop {
             crossbeam_channel::select! {
@@ -124,7 +125,7 @@ where
                     instrumentation.start_event(message.name, dequeue_time_ns);
                     tracing::debug!(target: "multithread_runtime", seq, "Executing message");
                     (message.function)(&mut actor);
-                    instrumentation.end_event();
+                    instrumentation.end_event(message.name);
                 }
             }
         }
