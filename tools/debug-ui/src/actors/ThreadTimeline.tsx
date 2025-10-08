@@ -91,6 +91,11 @@ export const ThreadTimeline = ({ thread, messageTypes, minTimeMs, currentTimeMs,
         if (!svg) return;
 
         const handleWheel = (e: WheelEvent) => {
+            if (!isExpanded) {
+                // When collapsed, allow normal page scrolling
+                return;
+            }
+
             e.preventDefault();
             e.stopPropagation();
             const zoomFactor = e.deltaY < 0 ? 0.9 : 1.1;
@@ -101,7 +106,7 @@ export const ThreadTimeline = ({ thread, messageTypes, minTimeMs, currentTimeMs,
 
         svg.addEventListener('wheel', handleWheel, { passive: false });
         return () => svg.removeEventListener('wheel', handleWheel);
-    }, [viewport]);
+    }, [viewport, isExpanded]);
 
     useEffect(() => {
         const svg = svgRef.current;

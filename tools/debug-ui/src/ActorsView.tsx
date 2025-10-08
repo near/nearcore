@@ -22,15 +22,25 @@ const ThreadTimelineRow = ({ thread, minTimeMs, currentTimeMs, chartMode, yAxisM
     yAxisMode: 'auto' | 'fixed';
 }) => {
     const [isExpanded, setIsExpanded] = useState(false);
+    const [resetKey, setResetKey] = useState(0);
+
+    const handleToggle = () => {
+        if (isExpanded) {
+            // When collapsing, trigger a reset
+            setResetKey(prev => prev + 1);
+        }
+        setIsExpanded(!isExpanded);
+    };
 
     return (
         <div className="one-thread-row">
-            <div className="thread-name" onClick={() => setIsExpanded(!isExpanded)} style={{ cursor: 'pointer' }}>
+            <div className="thread-name" onClick={handleToggle} style={{ cursor: 'pointer' }}>
                 <span style={{ marginRight: '8px' }}>{isExpanded ? '▼' : '▶'}</span>
                 {formatThreadName(thread.thread_name)}
             </div>
             <div className="thread-timeline">
                 <ThreadTimeline
+                    key={resetKey}
                     thread={thread}
                     minTimeMs={minTimeMs}
                     messageTypes={thread.message_types}
