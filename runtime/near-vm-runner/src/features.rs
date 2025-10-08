@@ -124,7 +124,6 @@ impl From<WasmFeatures> for near_vm_types::Features {
             multi_memory: MULTI_MEMORY,
             memory64: MEMORY64,
             exceptions: EXCEPTIONS,
-            saturating_float_to_int: SATURATING_FLOAT_TO_INT,
         }
     }
 }
