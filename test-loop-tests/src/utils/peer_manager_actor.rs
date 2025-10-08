@@ -7,6 +7,7 @@ use near_async::messaging::{
     Actor, AsyncSender, CanSend, Handler, IntoMultiSender as _, IntoSender as _, Message,
     SendAsync, Sender,
 };
+use near_async::span_wrapped_msg::{SpanWrapped, SpanWrappedMessageExt};
 use near_async::test_loop::sender::TestLoopSender;
 use near_async::time::{Clock, Duration};
 use near_async::{Message, MultiSend, MultiSenderFrom};
@@ -31,7 +32,6 @@ use near_network::types::{
     PeerManagerMessageRequest, PeerManagerMessageResponse, ReasonForBan, SetChainInfo,
     StateSyncEvent, Tier3Request,
 };
-use near_async::span_wrapped_msg::{SpanWrapped, SpanWrappedMessageExt};
 use near_primitives::genesis::GenesisId;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
