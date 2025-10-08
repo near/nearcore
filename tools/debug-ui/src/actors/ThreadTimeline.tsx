@@ -1,6 +1,6 @@
 import { useMemo, useState, useRef, useEffect } from "react";
-import { InstrumentedThread, InstrumentedWindowSummary } from "../api";
-import { CPU_CHART_HEIGHT, EVENT_SPACING_PX, GRID_LABEL_TOP_MARGIN, LEGEND_HEIGHT_PER_ROW, LEGEND_VERTICAL_MARGIN, LINE_STROKE_WIDTH, ROW_HEIGHT, ROW_PADDING, VIEWPORT_WIDTH } from "./constants";
+import { InstrumentedThread } from "../api";
+import { CPU_CHART_HEIGHT, GRID_LABEL_TOP_MARGIN, LEGEND_HEIGHT_PER_ROW, LEGEND_VERTICAL_MARGIN, LINE_STROKE_WIDTH, ROW_HEIGHT, ROW_PADDING } from "./constants";
 import { assignRows, EventToDisplay, getEventsToDisplay, makeWindowsToDisplay, MessageTypeAndColorMap, Viewport } from "./algorithm";
 import { renderCpuChart } from "./cpu_chart";
 import { renderGridline } from "./gridline";
@@ -27,7 +27,7 @@ export const ThreadTimeline = ({ thread, messageTypes, minTimeMs, currentTimeMs,
 
     const maxTimeMs = currentTimeMs - minTimeMs;
     const svgRef = useRef<SVGSVGElement>(null);
-    const [svgWidth, setSvgWidth] = useState(VIEWPORT_WIDTH);
+    const [svgWidth, setSvgWidth] = useState(800);
     const [viewport, setViewport] = useState(
         new Viewport(-1000, maxTimeMs + 1000, svgWidth, -1000, maxTimeMs + 1000, 1)
     );
@@ -229,7 +229,6 @@ export const ThreadTimeline = ({ thread, messageTypes, minTimeMs, currentTimeMs,
                     return null; // Skip rendering events outside the viewport
                 }
 
-                const y = eventsTop + event.row * (ROW_HEIGHT + ROW_PADDING) + ROW_HEIGHT / 2;
                 const baseColor = colorMap.get(event.typeId).color;
                 const x1 = Math.max(0, xStart);
                 const x2 = Math.max(0, xStart) + width;
@@ -240,29 +239,72 @@ export const ThreadTimeline = ({ thread, messageTypes, minTimeMs, currentTimeMs,
                     opacity = event.typeId === hoveredLegendType ? opacity : 0.1;
                 }
 
-                return (
-                    <line
-                        key={index}
-                        x1={x1}
-                        y1={y}
-                        x2={x2}
-                        y2={y}
-                        stroke={baseColor}
-                        strokeWidth={LINE_STROKE_WIDTH}
-                        strokeLinecap="round"
-                        opacity={opacity}
-                        onMouseEnter={(e) => {
-                            const rect = e.currentTarget.getBoundingClientRect();
-                            setHoveredEvent({
-                                event,
-                                x: rect.right + 5,
-                                y: rect.top
-                            });
-                        }}
-                        onMouseLeave={() => setHoveredEvent(null)}
-                        style={{ cursor: 'pointer' }}
-                    />
-                );
+                const isCollapsed = (event.count || 1) > 1;
+
+                if (isCollapsed) {
+                    // Render as a combined line with count
+                    const y = eventsTop + event.row * (ROW_HEIGHT + ROW_PADDING) + ROW_HEIGHT / 2;
+                    const rectHeight = LINE_STROKE_WIDTH;
+
+                    return (
+                        <g key={index}>
+                            <rect
+                                x={x1 - LINE_STROKE_WIDTH / 2}
+                                y={y - rectHeight / 2}
+                                width={x2 - x1 + LINE_STROKE_WIDTH}
+                                height={rectHeight}
+                                fill={baseColor}
+                                opacity={opacity}
+                                rx={2}
+                                onMouseEnter={(e) => {
+                                    const rect = e.currentTarget.getBoundingClientRect();
+                                    setHoveredEvent({ event, x: rect.right + 5, y: rect.top });
+                                }}
+                                onMouseLeave={() => setHoveredEvent(null)}
+                                style={{ cursor: 'pointer' }}
+                            />
+                            {/* Display count */}
+                            <text
+                                x={x1 + (x2 - x1) / 2}
+                                y={y + 4}
+                                fontSize={10}
+                                fontFamily="sans-serif"
+                                textAnchor="middle"
+                                fill="white"
+                                style={{ pointerEvents: 'none', fontWeight: 'bold' }}
+                            >
+                                {event.count}
+                            </text>
+                        </g>
+                    );
+                } else {
+                    // Render as a single line
+                    const y = eventsTop + event.row * (ROW_HEIGHT + ROW_PADDING) + ROW_HEIGHT / 2;
+
+                    return (
+                        <line
+                            key={index}
+                            x1={x1}
+                            y1={y}
+                            x2={x2}
+                            y2={y}
+                            stroke={baseColor}
+                            strokeWidth={LINE_STROKE_WIDTH}
+                            strokeLinecap="round"
+                            opacity={opacity}
+                            onMouseEnter={(e) => {
+                                const rect = e.currentTarget.getBoundingClientRect();
+                                setHoveredEvent({
+                                    event,
+                                    x: rect.right + 5,
+                                    y: rect.top
+                                });
+                            }}
+                            onMouseLeave={() => setHoveredEvent(null)}
+                            style={{ cursor: 'pointer' }}
+                        />
+                    );
+                }
             })}
 
             {/* Border lines */}
@@ -327,6 +369,9 @@ export const ThreadTimeline = ({ thread, messageTypes, minTimeMs, currentTimeMs,
                 }}
             >
                 <div><strong>{colorMap.get(hoveredEvent.event.typeId).name}</strong></div>
+                {(hoveredEvent.event.count || 1) > 1 && (
+                    <div>Count: {hoveredEvent.event.count}</div>
+                )}
                 <div>Duration: {(hoveredEvent.event.endSMT - hoveredEvent.event.startSMT).toFixed(3)} ms</div>
                 <div>Start: {hoveredEvent.event.startSMT.toFixed(2)} ms</div>
                 <div>End: {hoveredEvent.event.endSMT.toFixed(2)} ms</div>

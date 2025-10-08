@@ -8,6 +8,8 @@ export type EventToDisplay = {
     rightUncertain: boolean; // If we're not sure about when the event's right edge is
     typeId: number;
     row: number; // vertical row for stacking
+    count?: number; // number of collapsed events (if > 1, this represents multiple events)
+    rowSpan?: number; // number of rows this event occupies (for collapsed events)
 };
 
 export type WindowToDisplay = {
@@ -215,26 +217,101 @@ export function getEventsToDisplay(
 }
 
 /// Assigns rows to events so that overlapping events are displayed in different rows
+/// Also collapses visually overlapping events of the same type into single elements with a count
 export function assignRows(events: EventToDisplay[], viewport: Viewport): { events: EventToDisplay[], maxRow: number } {
-    // Create a copy of events with row assignments
+    // Phase 1: Identify visual bounds and find groups of visually overlapping same-type events
     const positionedEvents = events.map(e => ({ ...e }));
-
-    // Sort events by start time
     positionedEvents.sort((a, b) => a.startSMT - b.startSMT);
 
-    // Track the end position (in pixels) of the last event in each row
-    const rowEndPositions: number[] = [];
-
-    let maxRow = 0;
+    const visualBounds: { startPx: number, endPx: number }[] = [];
 
     for (const event of positionedEvents) {
         const startPx = viewport.transform(event.startSMT);
         const endPx = viewport.transform(event.endSMT);
-        const widthPx = endPx - startPx;
-        // Account for the line stroke width with round caps (adds strokeWidth/2 on each side)
-        const actualEndPx = startPx + widthPx + LINE_STROKE_WIDTH / 2;
 
-        // Find the first row where this event fits (no overlap with spacing)
+        visualBounds.push({
+            startPx: startPx - LINE_STROKE_WIDTH / 2,
+            endPx: endPx + LINE_STROKE_WIDTH / 2
+        });
+    }
+
+    // Phase 2: Build graph of VISUALLY overlapping same-type events
+    const adjacencyList = new Map<number, Set<number>>();
+    for (let i = 0; i < positionedEvents.length; i++) {
+        adjacencyList.set(i, new Set());
+    }
+
+    for (let i = 0; i < positionedEvents.length; i++) {
+        for (let j = i + 1; j < positionedEvents.length; j++) {
+            const ei = positionedEvents[i];
+            const ej = positionedEvents[j];
+
+            if (ei.typeId === ej.typeId) {
+                const bi = visualBounds[i];
+                const bj = visualBounds[j];
+                const visuallyOverlaps = !(bi.endPx + EVENT_SPACING_PX <= bj.startPx || bj.endPx + EVENT_SPACING_PX <= bi.startPx);
+
+                if (visuallyOverlaps) {
+                    adjacencyList.get(i)!.add(j);
+                    adjacencyList.get(j)!.add(i);
+                }
+            }
+        }
+    }
+
+    // Phase 3: Find connected components using DFS
+    const visited = new Set<number>();
+    const components: number[][] = [];
+
+    function dfs(node: number, component: number[]) {
+        visited.add(node);
+        component.push(node);
+        for (const neighbor of adjacencyList.get(node)!) {
+            if (!visited.has(neighbor)) {
+                dfs(neighbor, component);
+            }
+        }
+    }
+
+    for (let i = 0; i < positionedEvents.length; i++) {
+        if (!visited.has(i)) {
+            const component: number[] = [];
+            dfs(i, component);
+            components.push(component);
+        }
+    }
+
+    // Phase 4: Create merged events (one per component)
+    const mergedEvents: EventToDisplay[] = [];
+
+    for (const component of components) {
+        const groupEvents = component.map(idx => positionedEvents[idx]);
+        const minStart = Math.min(...groupEvents.map(e => e.startSMT));
+        const maxEnd = Math.max(...groupEvents.map(e => e.endSMT));
+
+        mergedEvents.push({
+            startSMT: minStart,
+            endSMT: maxEnd,
+            leftUncertain: groupEvents.some(e => e.leftUncertain),
+            rightUncertain: groupEvents.some(e => e.rightUncertain),
+            typeId: groupEvents[0].typeId,
+            row: 0, // Will be assigned in next phase
+            count: groupEvents.length,
+            rowSpan: 1 // Always single row height
+        });
+    }
+
+    // Phase 5: Assign rows to merged events
+    mergedEvents.sort((a, b) => a.startSMT - b.startSMT);
+    const rowEndPositions: number[] = [];
+    let maxRow = 0;
+
+    for (const event of mergedEvents) {
+        const startPx = viewport.transform(event.startSMT);
+        const endPx = viewport.transform(event.endSMT);
+        const actualEndPx = startPx + (endPx - startPx) + LINE_STROKE_WIDTH / 2;
+
+        // Find first available row
         let assignedRow = 0;
         for (let row = 0; row < rowEndPositions.length; row++) {
             if (startPx - LINE_STROKE_WIDTH / 2 >= rowEndPositions[row] + EVENT_SPACING_PX) {
@@ -249,7 +326,7 @@ export function assignRows(events: EventToDisplay[], viewport: Viewport): { even
         maxRow = Math.max(maxRow, assignedRow);
     }
 
-    return { events: positionedEvents, maxRow };
+    return { events: mergedEvents, maxRow };
 }
 
 export function makeWindowsToDisplay(
