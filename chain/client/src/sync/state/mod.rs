@@ -13,7 +13,7 @@ use downloader::StateSyncDownloader;
 use external::StateSyncDownloadSourceExternal;
 use futures::future::BoxFuture;
 use near_async::futures::{FutureSpawner, FutureSpawnerExt};
-use near_async::messaging::{AsyncSender, IntoSender};
+use near_async::messaging::{AsyncSender, IntoAsyncSender};
 use near_async::time::{Clock, Duration};
 use near_chain::Chain;
 use near_chain::types::RuntimeAdapter;
@@ -167,7 +167,7 @@ impl StateSync {
             preferred_source: peer_source,
             fallback_source,
             num_attempts_before_fallback,
-            header_validation_sender: chain_requests_sender.clone().into_sender(),
+            header_validation_sender: chain_requests_sender.clone().into_async_sender(),
             runtime: runtime.clone(),
             retry_backoff,
             task_tracker: downloading_task_tracker.clone(),
@@ -255,7 +255,7 @@ impl StateSync {
                         self.epoch_manager.clone(),
                         self.computation_task_tracker.clone(),
                         status.clone(),
-                        self.chain_requests_sender.clone().into_sender(),
+                        self.chain_requests_sender.clone().into_async_sender(),
                         cancel.clone(),
                         self.future_spawner.clone(),
                         self.concurrency_config.per_shard,

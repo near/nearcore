@@ -6,7 +6,7 @@ use crate::types::{
 };
 use futures::{Future, FutureExt};
 use near_async::Message;
-use near_async::messaging::{self, CanSend, MessageWithCallback};
+use near_async::messaging::{self, AsyncSendError, CanSend, CanSendAsync, MessageWithCallback};
 use near_crypto::{KeyType, SecretKey};
 use near_primitives::hash::hash;
 use near_primitives::network::PeerId;
@@ -166,6 +166,24 @@ impl CanSend<PeerManagerMessageRequest> for MockPeerManagerAdapter {
     fn send(&self, msg: PeerManagerMessageRequest) {
         self.requests.write().push_back(msg);
         self.notify.notify_one();
+    }
+}
+
+impl CanSendAsync<PeerManagerMessageRequest, PeerManagerMessageResponse>
+    for MockPeerManagerAdapter
+{
+    fn send_async(
+        &self,
+        message: PeerManagerMessageRequest,
+    ) -> futures::future::BoxFuture<'static, Result<PeerManagerMessageResponse, AsyncSendError>> {
+        self.requests.write().push_back(message);
+        self.notify.notify_one();
+        async move {
+            Ok(PeerManagerMessageResponse::NetworkResponses(
+                NetworkResponses::NoResponse,
+            ))
+        }
+        .boxed()
     }
 }
 

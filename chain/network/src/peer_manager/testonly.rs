@@ -33,9 +33,9 @@ use crate::types::{
     AccountKeys, ChainInfo, KnownPeerStatus, NetworkRequests, PeerManagerMessageRequest,
     PeerManagerSenderForNetworkInput, PeerManagerSenderForNetworkMessage, ReasonForBan,
 };
-use futures::FutureExt;
 use near_async::Message;
 use near_async::futures::FutureSpawnerExt;
+use near_async::messaging::AsyncMessage;
 use near_async::messaging::{self, CanSendAsync, IntoMultiSender};
 use near_async::messaging::{CanSend, Sender};
 use near_async::{ActorSystem, time};
@@ -606,17 +606,12 @@ pub(crate) async fn start(
             // most other events we send it to the sink (for what? I have no idea).
             match event {
                 ClientSenderForNetworkMessage::_announce_account(msg) => {
-                    (msg.callback)(
-                        std::future::ready(Ok(Ok(msg
-                            .message
-                            .0
-                            .iter()
-                            .map(|(account, _)| account.clone())
-                            .collect())))
-                        .boxed(),
-                    );
+                    let near_async::messaging::AsyncMessage { message, responder } = msg;
+                    let accounts =
+                        message.0.iter().map(|(account, _)| account.clone()).collect::<Vec<_>>();
+                    responder.respond(Ok(Ok(accounts)));
                     send.send(Event::Client(ClientSenderForNetworkInput::_announce_account(
-                        msg.message,
+                        message,
                     )));
                 }
                 _ => {
@@ -631,16 +626,17 @@ pub(crate) async fn start(
             // NOTE: See above comment for explanation about this code.
             match event {
                 StateRequestSenderForNetworkMessage::_state_request_part(msg) => {
-                    let StateRequestPart { part_id, shard_id, sync_hash } = msg.message;
+                    let AsyncMessage { message, responder } = msg;
+                    let StateRequestPart { part_id, shard_id, sync_hash } = message;
                     let part = Some((part_id, vec![]));
                     let state_response =
                         ShardStateSyncResponse::V2(ShardStateSyncResponseV2 { header: None, part });
                     let result = Some(StatePartOrHeader(Box::new(StateResponseInfo::V2(
                         Box::new(StateResponseInfoV2 { shard_id, sync_hash, state_response }),
                     ))));
-                    (msg.callback)(std::future::ready(Ok(result)).boxed());
+                    responder.respond(Ok(result));
                     send.send(Event::StateRequestSender(
-                        StateRequestSenderForNetworkInput::_state_request_part(msg.message),
+                        StateRequestSenderForNetworkInput::_state_request_part(message),
                     ));
                 }
                 _ => {

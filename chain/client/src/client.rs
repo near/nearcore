@@ -23,7 +23,7 @@ use crate::sync::state::{StateSync, StateSyncResult};
 use crate::{ProduceChunkResult, metrics};
 use itertools::Itertools;
 use near_async::futures::{AsyncComputationSpawner, FutureSpawner};
-use near_async::messaging::IntoSender;
+use near_async::messaging::IntoAsyncSender;
 use near_async::messaging::{CanSend, Sender};
 use near_async::time::{Clock, Duration, Instant};
 use near_chain::chain::{
@@ -329,7 +329,7 @@ impl Client {
             runtime_adapter.store().clone(),
             epoch_manager.clone(),
             runtime_adapter.clone(),
-            network_adapter.clone().into_sender(),
+            network_adapter.clone().into_async_sender(),
             config.state_sync_external_timeout,
             config.state_sync_p2p_timeout,
             config.state_sync_retry_backoff,
@@ -2175,7 +2175,7 @@ impl Client {
                             self.runtime_adapter.store().clone(),
                             self.epoch_manager.clone(),
                             self.runtime_adapter.clone(),
-                            self.network_adapter.clone().into_sender(),
+                            self.network_adapter.clone().into_async_sender(),
                             self.config.state_sync_external_timeout,
                             self.config.state_sync_p2p_timeout,
                             self.config.state_sync_retry_backoff,
