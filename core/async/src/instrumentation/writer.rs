@@ -69,12 +69,6 @@ impl InstrumentedThreadWriter {
         self.advance_window_if_needed_internal(end_time_ns);
         let total_elapsed_ns = self.target.end_event(end_time_ns);
 
-        // if message_type contains ::, panic
-        assert!(
-            !message_type.contains("::"),
-            "Message type should not contain ::, got {}",
-            message_type
-        );
         MESSAGE_PROCESSING_TIME
             .with_label_values(&[&self.target.actor_name, message_type])
             .observe(total_elapsed_ns as f64 / 1_000_000.0);
