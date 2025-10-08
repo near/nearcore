@@ -14,6 +14,36 @@ const formatThreadName = (threadName: string): string => {
     return threadName.replace(/::/g, '::​')
 };
 
+const ThreadTimelineRow = ({ thread, minTimeMs, currentTimeMs, chartMode, yAxisMode }: {
+    thread: InstrumentedThread;
+    minTimeMs: number;
+    currentTimeMs: number;
+    chartMode: 'cpu' | 'dequeue';
+    yAxisMode: 'auto' | 'fixed';
+}) => {
+    const [isExpanded, setIsExpanded] = useState(false);
+
+    return (
+        <div className="one-thread-row">
+            <div className="thread-name" onClick={() => setIsExpanded(!isExpanded)} style={{ cursor: 'pointer' }}>
+                <span style={{ marginRight: '8px' }}>{isExpanded ? '▼' : '▶'}</span>
+                {formatThreadName(thread.thread_name)}
+            </div>
+            <div className="thread-timeline">
+                <ThreadTimeline
+                    thread={thread}
+                    minTimeMs={minTimeMs}
+                    messageTypes={thread.message_types}
+                    currentTimeMs={currentTimeMs}
+                    chartMode={chartMode}
+                    yAxisMode={yAxisMode}
+                    isExpanded={isExpanded}
+                />
+            </div>
+        </div>
+    );
+};
+
 export const ActorsView = ({ addr }: ActorsViewProps) => {
     const [loadedData, setLoadedData] = useState<any>(null);
     const [hasInitiallyFetched, setHasInitiallyFetched] = useState<boolean>(false);
@@ -185,10 +215,14 @@ export const ActorsView = ({ addr }: ActorsViewProps) => {
                 <div className="scroll-space" />
                 <div className="threads">
                     {sortedThreads?.map((thread: InstrumentedThread, idx: number) => (
-                        <div className="one-thread-row" key={idx}>
-                            <div className="thread-name">{formatThreadName(thread.thread_name)}</div>
-                            <div className="thread-timeline"><ThreadTimeline thread={thread} minTimeMs={minStartTime} messageTypes={thread.message_types} currentTimeMs={currentTimeMs} chartMode={timelineChartMode} yAxisMode={yAxisMode} /></div>
-                        </div>
+                        <ThreadTimelineRow
+                            key={idx}
+                            thread={thread}
+                            minTimeMs={minStartTime}
+                            currentTimeMs={currentTimeMs}
+                            chartMode={timelineChartMode}
+                            yAxisMode={yAxisMode}
+                        />
                     ))}
                 </div>
                 <div className="scroll-space" />

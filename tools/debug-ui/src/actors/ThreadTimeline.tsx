@@ -13,9 +13,10 @@ type ActorsViewProps = {
     currentTimeMs: number;
     chartMode: 'cpu' | 'dequeue';
     yAxisMode: 'auto' | 'fixed';
+    isExpanded: boolean;
 };
 
-export const ThreadTimeline = ({ thread, messageTypes, minTimeMs, currentTimeMs, chartMode, yAxisMode }: ActorsViewProps) => {
+export const ThreadTimeline = ({ thread, messageTypes, minTimeMs, currentTimeMs, chartMode, yAxisMode, isExpanded }: ActorsViewProps) => {
     const events = useMemo(
         () => getEventsToDisplay(thread, minTimeMs, currentTimeMs),
         [thread, minTimeMs, currentTimeMs]
@@ -41,7 +42,7 @@ export const ThreadTimeline = ({ thread, messageTypes, minTimeMs, currentTimeMs,
 
     const gridTop = CPU_CHART_HEIGHT + GRID_LABEL_TOP_MARGIN;
     const eventsTop = gridTop + 10;
-    const chartHeight = eventsTop + (maxRow + 1) * (ROW_HEIGHT + ROW_PADDING) + 10;
+    const chartHeight = isExpanded ? eventsTop + (maxRow + 1) * (ROW_HEIGHT + ROW_PADDING) + 10 : gridTop;
 
     // Calculate legend layout based on text widths
     const legendItems = useMemo(() => {
@@ -55,7 +56,7 @@ export const ThreadTimeline = ({ thread, messageTypes, minTimeMs, currentTimeMs,
     }, [colorMap]);
 
     const { legendRows, legendHeight, legendLayout } = useMemo(() => {
-        if (legendItems.length === 0) {
+        if (legendItems.length === 0 || !isExpanded) {
             return { legendRows: 0, legendHeight: 0, legendLayout: [] };
         }
 
@@ -77,7 +78,7 @@ export const ThreadTimeline = ({ thread, messageTypes, minTimeMs, currentTimeMs,
         const rows = currentRow + 1;
         const height = LEGEND_VERTICAL_MARGIN * 2 + LEGEND_HEIGHT_PER_ROW * rows;
         return { legendRows: rows, legendHeight: height, legendLayout: layout };
-    }, [legendItems, svgWidth]);
+    }, [legendItems, svgWidth, isExpanded]);
 
     const svgHeight = chartHeight + legendHeight;
 
@@ -221,7 +222,7 @@ export const ThreadTimeline = ({ thread, messageTypes, minTimeMs, currentTimeMs,
 
             {renderGridline(viewport, gridTop, chartHeight)}
 
-            {positionedEvents.map((event, index) => {
+            {isExpanded && positionedEvents.map((event, index) => {
                 const xStart = viewport.transform(event.startSMT);
                 const xEnd = viewport.transform(event.endSMT);
                 const width = xEnd - xStart;
