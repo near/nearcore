@@ -1,11 +1,16 @@
 import { useState, useRef, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import './ActorsView.scss';
-import { fetchInstrumentedThreadsView, InstrumentedThread } from './api';
+import { fetchInstrumentedThreadsView, fetchAllQueuesView, InstrumentedThread, InstrumentedThreadsViewResponse, AllQueuesViewResponse } from './api';
 import { ThreadTimeline } from './actors/ThreadTimeline';
 
 type ActorsViewProps = {
     addr: string;
+};
+
+type CombinedActorsData = {
+    instrumentedThreads: InstrumentedThreadsViewResponse | null;
+    allQueues: AllQueuesViewResponse | null;
 };
 
 // Helper function to format thread names for better word wrapping at `::`
@@ -37,9 +42,9 @@ const ThreadTimelineRow = ({ thread, minTimeMs, currentTimeMs, chartMode, yAxisM
             <div className="thread-name" onClick={handleToggle} style={{ cursor: 'pointer', display: 'flex', alignItems: 'center' }}>
                 <svg width="16" height="16" viewBox="0 0 16 16" style={{ marginRight: '8px', flexShrink: 0 }}>
                     {isExpanded ? (
-                        <path d="M3 5 L8 10 L13 5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                        <path d="M3 5 L8 10 L13 5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
                     ) : (
-                        <path d="M5 3 L10 8 L5 13" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                        <path d="M5 3 L10 8 L5 13" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
                     )}
                 </svg>
                 <span>{formatThreadName(thread.thread_name)}</span>
@@ -60,8 +65,32 @@ const ThreadTimelineRow = ({ thread, minTimeMs, currentTimeMs, chartMode, yAxisM
     );
 };
 
+// Helper function to normalize data format for backward compatibility
+const normalizeData = (data: any): CombinedActorsData | null => {
+    if (!data) return null;
+
+    // If data has the new combined format
+    if (data.instrumentedThreads && data.allQueues) {
+        return data as CombinedActorsData;
+    }
+
+    // If data has the old format (just instrumented threads response)
+    if (data.status_response?.InstrumentedThreads) {
+        return {
+            instrumentedThreads: data as InstrumentedThreadsViewResponse,
+            allQueues: null
+        };
+    }
+
+    // If data might be the individual response objects
+    return {
+        instrumentedThreads: data as InstrumentedThreadsViewResponse,
+        allQueues: null
+    };
+};
+
 export const ActorsView = ({ addr }: ActorsViewProps) => {
-    const [loadedData, setLoadedData] = useState<any>(null);
+    const [loadedData, setLoadedData] = useState<CombinedActorsData | null>(null);
     const [hasInitiallyFetched, setHasInitiallyFetched] = useState<boolean>(false);
     const [yAxisMode, setYAxisMode] = useState<'auto' | 'fixed'>('auto');
     const [timelineChartMode, setTimelineChartMode] = useState<'cpu' | 'dequeue'>('cpu');
@@ -76,19 +105,35 @@ export const ActorsView = ({ addr }: ActorsViewProps) => {
         enabled: false, // Avoid auto-fetch
     });
 
+    const {
+        data: allQueues,
+        error: allQueuesError,
+        isLoading: allQueuesIsLoading,
+        refetch: refetchAllQueues,
+    } = useQuery(['allQueues', addr], () => fetchAllQueuesView(addr), {
+        enabled: false, // Avoid auto-fetch
+    });
+
     // Fetch data only once on initial mount
     useEffect(() => {
         if (!hasInitiallyFetched && !loadedData) {
             refetchInstrumentedThreads();
+            refetchAllQueues();
             setHasInitiallyFetched(true);
         }
-    }, [refetchInstrumentedThreads, hasInitiallyFetched, loadedData]);
+    }, [refetchInstrumentedThreads, refetchAllQueues, hasInitiallyFetched, loadedData]);
+
+    // Combine the data from both queries
+    const combinedFetchedData = instrumentedThreads && allQueues ? {
+        instrumentedThreads,
+        allQueues
+    } : null;
 
     // Use loaded data if available, otherwise use fetched data
-    const currentData = loadedData || instrumentedThreads;
+    const currentData = normalizeData(loadedData || combinedFetchedData);
 
     const handleRefreshData = async () => {
-        await refetchInstrumentedThreads();
+        await Promise.all([refetchInstrumentedThreads(), refetchAllQueues()]);
     };
 
     const handleSaveData = () => {
@@ -116,7 +161,7 @@ export const ActorsView = ({ addr }: ActorsViewProps) => {
         reader.onload = (e) => {
             try {
                 const data = JSON.parse(e.target?.result as string);
-                setLoadedData(data);
+                setLoadedData(normalizeData(data));
             } catch (error) {
                 alert('Error parsing JSON file: ' + error);
             }
@@ -131,20 +176,21 @@ export const ActorsView = ({ addr }: ActorsViewProps) => {
         }
     };
 
-    if ((instrumentedThreadsIsLoading && !hasInitiallyFetched) && !loadedData) {
+    if (((instrumentedThreadsIsLoading || allQueuesIsLoading) && !hasInitiallyFetched) && !loadedData) {
         return <div>Loading...</div>;
-    } else if (instrumentedThreadsError && !loadedData) {
+    } else if ((instrumentedThreadsError || allQueuesError) && !loadedData) {
+        const error = instrumentedThreadsError || allQueuesError;
         return (
             <div className="actors-view">
-                <div className="error">{(instrumentedThreadsError as Error).stack}</div>
+                <div className="error">{(error as Error).stack}</div>
             </div>
         );
     }
-    const allThreads = currentData?.status_response.InstrumentedThreads.threads || [];
+    const allThreads = currentData?.instrumentedThreads?.status_response.InstrumentedThreads.threads || [];
     const sortedThreads = allThreads.slice().sort((a: InstrumentedThread, b: InstrumentedThread) => a.thread_name.localeCompare(b.thread_name));
     const [minStartTime, maxStartTime] = [getMinStartTime(allThreads), getMaxStartTime(allThreads)];
-    const currentTimeUnixMs = currentData?.status_response.InstrumentedThreads.current_time_unix_ms || 0;
-    const currentTimeMs = currentData?.status_response.InstrumentedThreads.current_time_relative_ms || 0;
+    const currentTimeUnixMs = currentData?.instrumentedThreads?.status_response.InstrumentedThreads.current_time_unix_ms || 0;
+    const currentTimeMs = currentData?.instrumentedThreads?.status_response.InstrumentedThreads.current_time_relative_ms || 0;
     const startTimeUnixEstimatedMs = currentTimeUnixMs - (maxStartTime - minStartTime);
 
     return (
@@ -199,10 +245,10 @@ export const ActorsView = ({ addr }: ActorsViewProps) => {
                 <div className="control-buttons">
                     <button
                         onClick={handleRefreshData}
-                        disabled={instrumentedThreadsIsLoading || !!loadedData}
+                        disabled={instrumentedThreadsIsLoading || allQueuesIsLoading || !!loadedData}
                         className="refresh-button"
                     >
-                        {instrumentedThreadsIsLoading ? 'Refreshing...' : 'Refresh Data'}
+                        {(instrumentedThreadsIsLoading || allQueuesIsLoading) ? 'Refreshing...' : 'Refresh Data'}
                     </button>
                     <button onClick={handleSaveData} disabled={!currentData} className="save-button">
                         Save View
@@ -244,7 +290,9 @@ export const ActorsView = ({ addr }: ActorsViewProps) => {
                 <div className="scroll-space" />
             </div>
             {/*
-            <pre>{JSON.stringify(instrumentedThreads, null, 2)}</pre>
+            AllQueues data is now available in: currentData?.allQueues
+            InstrumentedThreads data: currentData?.instrumentedThreads
+            <pre>{JSON.stringify(currentData?.allQueues, null, 2)}</pre>
             */}
         </div>
     );

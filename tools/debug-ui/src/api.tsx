@@ -580,3 +580,21 @@ export interface MessageStatsForType {
     total_time_ns: number;
 }
 
+export async function fetchAllQueuesView(addr: string): Promise<AllQueuesViewResponse> {
+    const response = await fetch(`http://${addr}/debug/api/all_queues`);
+    return await response.json();
+}
+
+export interface AllQueuesViewResponse {
+    status_response: {
+        AllQueuesView: AllQueuesView;
+    }
+}
+
+export interface AllQueuesView {
+    queues: Map<string, QueueView>;
+}
+
+export interface QueueView {
+    pending_counts: Map<string, number>;
+}
