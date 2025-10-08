@@ -33,7 +33,6 @@ near-client-primitives.workspace = true
 near-client.workspace = true
 near-crypto.workspace = true
 near-network.workspace = true
-near-o11y.workspace = true
 near-parameters.workspace = true
 near-primitives.workspace = true
 node-runtime.workspace = true
@@ -44,7 +43,6 @@ nightly = [
     "near-client-primitives/nightly",
     "near-client/nightly",
     "near-network/nightly",
-    "near-o11y/nightly",
     "near-parameters/nightly",
     "near-primitives/nightly",
     "node-runtime/nightly",

@@ -4938,7 +4938,6 @@ dependencies = [
  "near-client-primitives",
  "near-crypto",
  "near-network",
- "near-o11y",
  "near-parameters",
  "near-primitives",
  "node-runtime",
