@@ -31,9 +31,9 @@ use crate::setup::state::NodeExecutionData;
 fn setup(num_nodes: usize, epoch_length: BlockHeightDelta) -> TestLoopEnv {
     let accounts =
         (0..num_nodes).map(|i| format!("account{i}").parse().unwrap()).collect::<Vec<AccountId>>();
-    let account_strs = accounts.iter().map(|acc| acc.as_str()).collect_vec();
+    let account_names = accounts.iter().map(|acc| acc.as_str()).collect_vec();
     let shard_layout = ShardLayout::single_shard();
-    let validators_spec = ValidatorsSpec::desired_roles(&account_strs, &[]);
+    let validators_spec = ValidatorsSpec::desired_roles(&account_names, &[]);
     let genesis = TestLoopBuilder::new_genesis_builder()
         .epoch_length(epoch_length)
         .shard_layout(shard_layout)
