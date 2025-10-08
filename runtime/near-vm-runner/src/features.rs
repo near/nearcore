@@ -45,7 +45,6 @@ impl From<WasmFeatures> for finite_wasm::wasmparser::WasmFeatures {
             floats: true,
             mutable_global: true,
             sign_extension: SIGN_EXTENSION,
-            saturating_float_to_int: SATURATING_FLOAT_TO_INT,
             reference_types: f.reftypes_bulk_memory,
             bulk_memory: f.reftypes_bulk_memory,
 
@@ -57,6 +56,7 @@ impl From<WasmFeatures> for finite_wasm::wasmparser::WasmFeatures {
             multi_memory: MULTI_MEMORY,
             exceptions: EXCEPTIONS,
             memory64: MEMORY64,
+            saturating_float_to_int: SATURATING_FLOAT_TO_INT,
             relaxed_simd: RELAXED_SIMD,
             extended_const: EXTENDED_COST,
             component_model: COMPONENT_MODEL,
@@ -74,7 +74,6 @@ impl From<WasmFeatures> for finite_wasm_6::wasmparser::WasmFeatures {
             floats: true,
             mutable_global: true,
             sign_extension: SIGN_EXTENSION,
-            saturating_float_to_int: SATURATING_FLOAT_TO_INT,
             reference_types: f.reftypes_bulk_memory,
             bulk_memory: f.reftypes_bulk_memory,
 
@@ -88,6 +87,7 @@ impl From<WasmFeatures> for finite_wasm_6::wasmparser::WasmFeatures {
             exceptions: EXCEPTIONS,
             legacy_exceptions: EXCEPTIONS,
             memory64: MEMORY64,
+            saturating_float_to_int: SATURATING_FLOAT_TO_INT,
             relaxed_simd: RELAXED_SIMD,
             extended_const: EXTENDED_COST,
             component_model: COMPONENT_MODEL,
