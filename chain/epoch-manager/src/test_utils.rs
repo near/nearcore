@@ -159,6 +159,7 @@ pub fn epoch_config(
         shuffle_shard_assignment_for_chunk_producers: false,
         shard_layout: ShardLayout::multi_shard(num_shards, 0),
         validator_max_kickout_stake_perc: 100,
+        max_inflation_rate: Ratio::new(1, 20),
     };
     let config_store = EpochConfigStore::test_single_version(PROTOCOL_VERSION, epoch_config);
     AllEpochConfig::from_epoch_config_store(
