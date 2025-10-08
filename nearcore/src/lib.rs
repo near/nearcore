@@ -281,6 +281,7 @@ fn spawn_spice_actors(
         runtime.store().chain_store(),
         core_processor.clone(),
         validator_signer.clone(),
+        shard_tracker.clone(),
         network_adapter.clone(),
         chunk_executor_adapter.as_sender(),
         spice_chunk_validator_adapter.as_sender(),
