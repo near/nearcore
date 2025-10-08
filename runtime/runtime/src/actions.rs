@@ -41,6 +41,7 @@ use near_vm_runner::logic::{VMContext, VMOutcome};
 use near_vm_runner::{ContractCode, ContractRuntimeCache};
 use near_vm_runner::{PreparedContract, precompile_contract};
 use near_wallet_contract::{wallet_contract, wallet_contract_magic_bytes};
+use std::rc::Rc;
 use std::sync::Arc;
 
 /// Runs given function call with given context / apply state.
@@ -74,7 +75,7 @@ pub(crate) fn execute_function_call(
             .expect("Failed to serialize"),
         predecessor_account_id: predecessor_id.clone(),
         refund_to_account_id: action_receipt.refund_to().as_ref().unwrap_or(predecessor_id).clone(),
-        input: function_call.args.clone(),
+        input: Rc::from(function_call.args.clone()),
         promise_results,
         block_height: apply_state.block_height,
         block_timestamp: apply_state.block_timestamp,

@@ -4,6 +4,7 @@ use near_primitives_core::config::ViewConfig;
 use near_primitives_core::types::{
     AccountId, Balance, BlockHeight, EpochHeight, Gas, StorageUsage,
 };
+use std::rc::Rc;
 
 #[derive(Clone)]
 /// Context for the contract execution.
@@ -27,7 +28,7 @@ pub struct VMContext {
     pub refund_to_account_id: AccountId,
     /// The input to the contract call.
     /// Encoded as base64 string to be able to pass input in borsh binary format.
-    pub input: Vec<u8>,
+    pub input: Rc<[u8]>,
     /// If this method execution is invoked directly as a callback by one or more contract calls
     /// the results of the methods that made the callback are stored in this collection.
     pub promise_results: std::sync::Arc<[PromiseResult]>,

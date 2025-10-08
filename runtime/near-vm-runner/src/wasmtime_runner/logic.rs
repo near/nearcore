@@ -21,6 +21,7 @@ use near_primitives_core::account::AccountContract;
 use near_primitives_core::config::INLINE_DISK_VALUE_THRESHOLD;
 use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::types::{AccountId, Balance, EpochHeight, Gas, GasWeight, StorageUsage};
+use std::rc::Rc;
 use wasmtime::{Caller, Extern, Memory};
 
 // Lookup the memory export and cache it on success.
@@ -698,11 +699,13 @@ pub fn input(caller: &mut Caller<'_, Ctx>, register_id: u64) -> Result<()> {
     let ctx = caller.data_mut();
     ctx.result_state.gas_counter.pay_base(base)?;
 
-    ctx.registers.set(
+    let charge_bytes_gas = !ctx.config.deterministic_account_ids;
+    ctx.registers.set_rc_data(
         &mut ctx.result_state.gas_counter,
         &ctx.config.limit_config,
         register_id,
-        ctx.context.input.as_slice(),
+        Rc::clone(&ctx.context.input),
+        charge_bytes_gas,
     )
 }
 
@@ -3602,11 +3605,13 @@ pub fn promise_result(
     {
         PromiseResult::NotReady => Ok(0),
         PromiseResult::Successful(data) => {
-            ctx.registers.set(
+            let charge_bytes_gas = !ctx.config.deterministic_account_ids;
+            ctx.registers.set_rc_data(
                 &mut ctx.result_state.gas_counter,
                 &ctx.config.limit_config,
                 register_id,
-                data.as_slice(),
+                Rc::clone(data),
+                charge_bytes_gas,
             )?;
             Ok(1)
         }
