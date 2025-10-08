@@ -5,7 +5,6 @@ use crate::types::{
     StateSyncEvent, Tier3Request,
 };
 use futures::{Future, FutureExt};
-use near_async::Message;
 use near_async::messaging::{AsyncSendError, CanSend, CanSendAsync, Handler};
 use near_crypto::{KeyType, SecretKey};
 use near_primitives::hash::hash;
@@ -104,7 +103,7 @@ pub fn expected_routing_tables(
 }
 
 /// `GetInfo` gets `NetworkInfo` from `PeerManager`.
-#[derive(Message, Debug)]
+#[derive(Debug)]
 pub struct GetInfo {}
 
 impl Handler<GetInfo, crate::types::NetworkInfo> for PeerManagerActor {
@@ -114,7 +113,7 @@ impl Handler<GetInfo, crate::types::NetworkInfo> for PeerManagerActor {
 }
 
 // `StopSignal is used to stop PeerManagerActor for unit tests
-#[derive(Message, Default, Debug)]
+#[derive(Default, Debug)]
 pub struct StopSignal {
     pub should_panic: bool,
 }
@@ -217,7 +216,7 @@ impl MockPeerManagerAdapter {
     }
 }
 
-#[derive(Message, Clone, Debug)]
+#[derive(Clone, Debug)]
 pub struct SetAdvOptions {
     pub set_max_peers: Option<u64>,
 }

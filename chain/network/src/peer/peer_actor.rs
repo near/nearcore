@@ -38,7 +38,7 @@ use lru::LruCache;
 use near_async::futures::{DelayedActionRunner, DelayedActionRunnerExt, FutureSpawnerExt};
 use near_async::messaging::{self, CanSend, CanSendAsync, IntoAsyncSender, IntoSender};
 use near_async::tokio::TokioRuntimeHandle;
-use near_async::{ActorSystem, Message, time};
+use near_async::{ActorSystem, time};
 use near_crypto::Signature;
 use near_o11y::log_assert;
 use near_o11y::span_wrapped_msg::{SpanWrapped, SpanWrappedMessageExt};
@@ -1822,7 +1822,7 @@ impl messaging::Handler<SpanWrapped<SendMessage>> for PeerActor {
 }
 
 /// Messages from PeerManager to Peer
-#[derive(Message, Debug)]
+#[derive(Debug)]
 pub(crate) struct Stop {
     pub ban_reason: Option<ReasonForBan>,
 }

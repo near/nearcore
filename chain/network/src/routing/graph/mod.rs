@@ -4,7 +4,7 @@ use crate::routing::routing_table_view::RoutingTableView;
 use crate::stats::metrics;
 use ::time::ext::InstantExt as _;
 use arc_swap::ArcSwap;
-use near_async::messaging::{Actor, CanSendAsync, Handler, Message};
+use near_async::messaging::{Actor, CanSendAsync, Handler};
 use near_async::multithread::MultithreadRuntimeHandle;
 use near_async::time::Clock;
 use near_async::{new_owned_multithread_actor, time};
@@ -300,8 +300,6 @@ impl Actor for GraphActor {}
 
 #[derive(Debug)]
 struct UpdateEdges(Vec<Vec<Edge>>);
-
-impl Message for UpdateEdges {}
 
 impl Handler<UpdateEdges, (Vec<Edge>, Vec<bool>)> for GraphActor {
     fn handle(&mut self, msg: UpdateEdges) -> (Vec<Edge>, Vec<bool>) {

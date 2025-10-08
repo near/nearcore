@@ -167,12 +167,6 @@ fn extract_cfg_attributes(attrs: &[syn::Attribute]) -> Vec<syn::Attribute> {
     attrs.iter().filter(|attr| attr.path().is_ident("cfg")).cloned().collect()
 }
 
-/// Simply derives `impl Message for X` for any type `X`.
-#[proc_macro_derive(Message)]
-pub fn derive_message(_input: TokenStream) -> TokenStream {
-    TokenStream::new()
-}
-
 #[cfg(test)]
 mod tests {
     use quote::quote;
