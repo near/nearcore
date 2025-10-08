@@ -178,7 +178,6 @@ pub fn stake(account_id: AccountId, amount: Balance) -> ValidatorStake {
 /// No-op reward calculator. Will produce no reward
 pub fn default_reward_calculator() -> RewardCalculator {
     RewardCalculator {
-        max_inflation_rate: Ratio::from_integer(0),
         num_blocks_per_year: 1,
         epoch_length: 1,
         protocol_reward_rate: Ratio::from_integer(0),
