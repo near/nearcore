@@ -1,4 +1,4 @@
-use crate::messaging::{self, AsyncMessage, AsyncSendError, CanSend, CanSendAsync, Sender};
+use crate::messaging::{AsyncMessage, AsyncSendError, CanSend, CanSendAsync, Sender};
 use futures::future::BoxFuture;
 
 /// Allows a Sender<M> to be used like a Sender<S> as long as S can be converted to M.
@@ -20,9 +20,8 @@ where
 {
     fn send_async(&self, message: S) -> BoxFuture<'static, Result<R, AsyncSendError>> {
         let sender = self.sender.clone();
-        messaging::send_async_via_message_with_callback(message, move |mwc| {
-            let async_message: AsyncMessage<S, R> = mwc.into();
-            sender.send(M::from(async_message));
-        })
+        let (async_message, future) = AsyncMessage::new(message);
+        sender.send(M::from(async_message));
+        future
     }
 }

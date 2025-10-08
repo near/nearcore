@@ -6,7 +6,7 @@ use crate::types::{
 };
 use futures::{Future, FutureExt};
 use near_async::Message;
-use near_async::messaging::{self, AsyncSendError, CanSend, CanSendAsync, MessageWithCallback};
+use near_async::messaging::{self, AsyncSendError, CanSend, CanSendAsync};
 use near_crypto::{KeyType, SecretKey};
 use near_primitives::hash::hash;
 use near_primitives::network::PeerId;
@@ -142,24 +142,6 @@ impl messaging::Handler<StopSignal> for PeerManagerActor {
 pub struct MockPeerManagerAdapter {
     pub requests: Arc<RwLock<VecDeque<PeerManagerMessageRequest>>>,
     pub notify: Notify,
-}
-
-impl CanSend<MessageWithCallback<PeerManagerMessageRequest, PeerManagerMessageResponse>>
-    for MockPeerManagerAdapter
-{
-    fn send(
-        &self,
-        message: MessageWithCallback<PeerManagerMessageRequest, PeerManagerMessageResponse>,
-    ) {
-        self.requests.write().push_back(message.message);
-        self.notify.notify_one();
-        (message.callback)(
-            std::future::ready(Ok(PeerManagerMessageResponse::NetworkResponses(
-                NetworkResponses::NoResponse,
-            )))
-            .boxed(),
-        );
-    }
 }
 
 impl CanSend<PeerManagerMessageRequest> for MockPeerManagerAdapter {

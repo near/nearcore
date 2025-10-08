@@ -4,9 +4,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use crate::futures::DelayedActionRunner;
-use crate::messaging::{
-    Actor, AsyncSendError, CanSend, CanSendAsync, HandlerWithContext, Message, MessageWithCallback,
-};
+use crate::messaging::{Actor, AsyncSendError, CanSend, CanSendAsync, HandlerWithContext, Message};
 use crate::time::Duration;
 
 use super::PendingEventsSender;
@@ -89,29 +87,6 @@ where
         let callback = move |data: &mut TestLoopData| {
             let actor = data.get_mut(&this.actor_handle);
             actor.handle(msg, &mut this);
-        };
-        self.pending_events_sender.send_with_delay(
-            description,
-            Box::new(callback),
-            self.sender_delay,
-        );
-    }
-}
-
-impl<M, R, A> CanSend<MessageWithCallback<M, R>> for TestLoopSender<A>
-where
-    M: Message + Debug + Send + 'static,
-    A: Actor + HandlerWithContext<M, R> + 'static,
-    R: 'static + Send,
-{
-    fn send(&self, msg: MessageWithCallback<M, R>) {
-        let mut this = self.clone();
-        let description = format!("{}({:?})", pretty_type_name::<A>(), &msg.message);
-        let callback = move |data: &mut TestLoopData| {
-            let MessageWithCallback { message: msg, callback } = msg;
-            let actor = data.get_mut(&this.actor_handle);
-            let result = actor.handle(msg, &mut this);
-            callback(async move { Ok(result) }.boxed());
         };
         self.pending_events_sender.send_with_delay(
             description,

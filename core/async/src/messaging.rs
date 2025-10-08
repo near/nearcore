@@ -193,21 +193,6 @@ impl<M, R: Send + 'static> AsyncSender<M, R> {
     }
 }
 
-// Glue layer
-impl<M, R: Send + 'static> From<Sender<MessageWithCallback<M, R>>> for AsyncSender<M, R> {
-    fn from(sender: Sender<MessageWithCallback<M, R>>) -> Self {
-        AsyncSender::from_impl(sender)
-    }
-}
-
-// Glue layer
-impl<M, R: Send + 'static> CanSend<MessageWithCallback<M, R>> for AsyncSender<M, R> {
-    fn send(&self, message: MessageWithCallback<M, R>) {
-        let MessageWithCallback { message, callback } = message;
-        callback(self.send_async(message));
-    }
-}
-
 /// Convenience trait allowing callers to invoke `send_async` without naming [`CanSendAsync`].
 /// See [`AsyncSendError`] for reasons that the returned future may resolve to an error.
 pub trait SendAsync<M, R: Send + 'static> {
@@ -217,49 +202,6 @@ pub trait SendAsync<M, R: Send + 'static> {
 impl<M, R: Send + 'static, A: CanSendAsync<M, R> + ?Sized> SendAsync<M, R> for A {
     fn send_async(&self, message: M) -> BoxFuture<'static, Result<R, AsyncSendError>> {
         CanSendAsync::send_async(self, message)
-    }
-}
-
-pub(crate) fn send_async_via_message_with_callback<M, R: Send + 'static>(
-    message: M,
-    send: impl FnOnce(MessageWithCallback<M, R>) + Send + 'static,
-) -> BoxFuture<'static, Result<R, AsyncSendError>> {
-    let (sender, receiver) = oneshot::channel::<BoxFuture<'static, Result<R, AsyncSendError>>>();
-    let future = async move {
-        match receiver.await {
-            Ok(result_future) => result_future.await,
-            Err(_) => Err(AsyncSendError::Dropped),
-        }
-    };
-    let callback = Box::new(move |response| {
-        // It's ok if the receiver dropped the future; the sender no longer cares about the result.
-        sender.send(response).ok();
-    });
-    send(MessageWithCallback { message, callback });
-    future.boxed()
-}
-
-impl<M, R: Send + 'static> CanSendAsync<M, R> for Sender<MessageWithCallback<M, R>> {
-    fn send_async(&self, message: M) -> BoxFuture<'static, Result<R, AsyncSendError>> {
-        let sender = self.sender.clone();
-        send_async_via_message_with_callback(message, move |msg| sender.send(msg))
-    }
-}
-
-impl<M, R: Send + 'static> Sender<MessageWithCallback<M, R>> {
-    /// Same as the above, but for a concrete Sender type.
-    pub fn send_async(&self, message: M) -> BoxFuture<'static, Result<R, AsyncSendError>> {
-        CanSendAsync::send_async(self, message)
-    }
-
-    /// Creates a sender that would handle send_async messages by producing a
-    /// result synchronously. Note that the provided function is NOT async.
-    ///
-    /// (Implementing the similar functionality with async function is possible
-    /// but requires deciding who drives the async function; a FutureSpawner
-    /// can be a good idea.)
-    pub fn from_async_fn(send_async: impl Fn(M) -> R + Send + Sync + 'static) -> Self {
-        Self::from_impl(SendAsyncFunction::new(send_async))
     }
 }
 
@@ -282,33 +224,16 @@ impl Display for AsyncSendError {
     }
 }
 
-/// Legacy helper carrying a message together with a callback returning a response future.
-/// This is kept for compatibility while callers migrate to [`CanSendAsync`] and [`AsyncSender`].
-pub struct MessageWithCallback<T, R> {
-    pub message: T,
-    pub callback: Box<dyn FnOnce(BoxFuture<'static, Result<R, AsyncSendError>>) + Send>,
-}
-
-impl<T: Debug, R> Debug for MessageWithCallback<T, R> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_tuple("MessageWithCallback").field(&self.message).finish()
-    }
-}
-
 /// Response handle allowing tests and adapters to resolve an async message manually.
 pub struct AsyncResponseSender<R: Send + 'static> {
     callback: Option<Box<dyn FnOnce(BoxFuture<'static, Result<R, AsyncSendError>>) + Send>>,
 }
 
 impl<R: Send + 'static> AsyncResponseSender<R> {
-    fn new(callback: Box<dyn FnOnce(BoxFuture<'static, Result<R, AsyncSendError>>) + Send>) -> Self {
+    fn new(
+        callback: Box<dyn FnOnce(BoxFuture<'static, Result<R, AsyncSendError>>) + Send>,
+    ) -> Self {
         Self { callback: Some(callback) }
-    }
-
-    fn into_callback(
-        mut self,
-    ) -> Box<dyn FnOnce(BoxFuture<'static, Result<R, AsyncSendError>>) + Send> {
-        self.callback.take().expect("Async response already used")
     }
 
     /// Respond with a future that will be awaited by the sender.
@@ -334,6 +259,24 @@ pub struct AsyncMessage<M, R: Send + 'static> {
 }
 
 impl<M, R: Send + 'static> AsyncMessage<M, R> {
+    /// Create a new async message together with a future that resolves when the responder is used.
+    pub fn new(message: M) -> (Self, BoxFuture<'static, Result<R, AsyncSendError>>) {
+        let (sender, receiver) =
+            oneshot::channel::<BoxFuture<'static, Result<R, AsyncSendError>>>();
+        let responder = AsyncResponseSender::new(Box::new(move |future| {
+            sender.send(future).ok();
+        }));
+        let msg = AsyncMessage { message, responder };
+        let future = async move {
+            match receiver.await {
+                Ok(result_future) => result_future.await,
+                Err(_) => Err(AsyncSendError::Dropped),
+            }
+        }
+        .boxed();
+        (msg, future)
+    }
+
     /// Respond with a future result.
     pub fn respond_with(
         self,
@@ -351,18 +294,6 @@ impl<M, R: Send + 'static> AsyncMessage<M, R> {
 impl<T: Debug, R: Send + 'static> Debug for AsyncMessage<T, R> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_tuple("AsyncMessage").field(&self.message).finish()
-    }
-}
-
-impl<M, R: Send + 'static> From<MessageWithCallback<M, R>> for AsyncMessage<M, R> {
-    fn from(message: MessageWithCallback<M, R>) -> Self {
-        Self { message: message.message, responder: AsyncResponseSender::new(message.callback) }
-    }
-}
-
-impl<M, R: Send + 'static> From<AsyncMessage<M, R>> for MessageWithCallback<M, R> {
-    fn from(message: AsyncMessage<M, R>) -> Self {
-        Self { message: message.message, callback: message.responder.into_callback() }
     }
 }
 
@@ -455,16 +386,52 @@ impl<A, B: MultiSenderFrom<A>> IntoMultiSender<B> for A {
 
 #[cfg(test)]
 mod tests {
-    use crate::messaging::{AsyncSendError, MessageWithCallback, Sender};
+    use super::*;
     use futures::FutureExt;
+    use std::sync::Arc;
     use tokio_util::sync::CancellationToken;
+
+    #[derive(Clone)]
+    struct DroppingAsyncSender;
+
+    impl CanSendAsync<u32, u32> for DroppingAsyncSender {
+        fn send_async(&self, _message: u32) -> BoxFuture<'static, Result<u32, AsyncSendError>> {
+            async { Err(AsyncSendError::Dropped) }.boxed()
+        }
+    }
 
     #[tokio::test]
     async fn test_async_send_sender_dropped() {
         // The handler drops the callback, making the response will never resolve.
-        let sender: Sender<MessageWithCallback<u32, u32>> = Sender::from_fn(|_| {});
+        let sender = Arc::new(DroppingAsyncSender).as_async_sender();
         let result = sender.send_async(4).await;
         assert_eq!(result, Err(AsyncSendError::Dropped));
+    }
+
+    #[derive(Clone)]
+    struct BackgroundResponder {
+        result_blocker: CancellationToken,
+        callback_done: CancellationToken,
+    }
+
+    impl CanSendAsync<u32, u32> for BackgroundResponder {
+        fn send_async(&self, message: u32) -> BoxFuture<'static, Result<u32, AsyncSendError>> {
+            let blocker = self.result_blocker.clone();
+            let done = self.callback_done.clone();
+            let (sender, receiver) = tokio::sync::oneshot::channel();
+            tokio::spawn(async move {
+                blocker.cancelled().await;
+                sender.send(Ok(message)).ok();
+                done.cancel();
+            });
+            async move {
+                match receiver.await {
+                    Ok(result) => result,
+                    Err(_) => Err(AsyncSendError::Dropped),
+                }
+            }
+            .boxed()
+        }
     }
 
     #[tokio::test]
@@ -482,16 +449,7 @@ mod tests {
         let sender = {
             let result_blocker = result_blocker.clone();
             let callback_done = callback_done.clone();
-            Sender::<MessageWithCallback<u32, u32>>::from_fn(move |msg| {
-                let MessageWithCallback { message, callback } = msg;
-                let result_blocker = result_blocker.clone();
-                let callback_done = callback_done.clone();
-                tokio::spawn(async move {
-                    result_blocker.cancelled().await;
-                    callback(async move { Ok(message) }.boxed());
-                    callback_done.cancel();
-                });
-            })
+            Arc::new(BackgroundResponder { result_blocker, callback_done }).as_async_sender()
         };
 
         drop(sender.send_async(4)); // drops the resulting future
