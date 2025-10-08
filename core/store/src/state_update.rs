@@ -438,9 +438,58 @@ impl<'su> StateOperations<'su> {
     where
         V: Deserialized + Deserializable,
     {
-        todo!()
-        // let value = self.operate_value::<V>(key);
-        // value.operations |= OperationValue::WRITTEN;
+        let (opval, trie) = self.pull_value(
+            key,
+            |trie: &Trie, key: &TrieKey| {
+                let state_ref = fetch(trie, key)?;
+                Ok(match state_ref {
+                    None => OperationValue::absent_in_trie(),
+                    Some(sr) => OperationValue { operations: 0, value: sr.into() },
+                })
+            },
+            Some(|trie: &Trie, key: &TrieKey| match fetch(trie, key)? {
+                None => todo!("storage inconsistent error"),
+                Some(v) => Ok(v),
+            }),
+        )?;
+        opval.operations |= OperationValue::READ | OperationValue::WRITTEN;
+        match &mut opval.value {
+            state_value::Type::Absent => return Ok(None),
+            state_value::Type::Present => todo!("unreachable, storage inconsistent error"),
+            state_value::Type::Deserialized(v) => {
+                let mutable = Arc::make_mut(v);
+                return Ok(Some(<dyn Any>::downcast_mut(mutable).expect("TODO: type confusion??")));
+            }
+            this @ state_value::Type::Serialized(_) => {
+                let serialized = std::mem::replace(this, state_value::Type::Present);
+                let state_value::Type::Serialized(serialized) = serialized else { unreachable!() };
+                let trie_ref = OptimizedValueRef::AvailableValue(Arc::unwrap_or_clone(serialized));
+                // NOTE: it is fine if failing here leaves `Type::Present` rather than the original
+                // value. It is not ideal, of course, but next time around if we request this key
+                // again, we would refetch it from trie again.
+                // That said, this is only okay so long as the only way to get `Serialized`
+                // variants in the state is by reading from underlying trie.
+                let serialized_bytes = deref(trie, trie_ref)?;
+                let deser = V::deserialize(serialized_bytes)?;
+                *this = state_value::Type::Deserialized(deser);
+                let state_value::Type::Deserialized(v) = this else {
+                    unreachable!();
+                };
+                return Ok(Some(<dyn Any>::downcast_ref(v).expect("TODO: type confusion??")));
+            }
+            this @ state_value::Type::TrieValueRef(_) => {
+                let valref = std::mem::replace(this, state_value::Type::Present);
+                let state_value::Type::TrieValueRef(valref) = valref else { unreachable!() };
+                let trie_ref = OptimizedValueRef::Ref(valref);
+                let serialized_bytes = deref(trie, trie_ref)?;
+                let deser = V::deserialize(serialized_bytes)?;
+                *this = state_value::Type::Deserialized(deser);
+                let state_value::Type::Deserialized(v) = this else {
+                    unreachable!();
+                };
+                return Ok(Some(<dyn Any>::downcast_ref(v).expect("TODO: type confusion??")));
+            }
+        }
         // if Arc::get_mut(&mut value.value).is_none() {
         //     let new_arc = value.value.arc();
         //     value.value = new_arc;
@@ -704,6 +753,7 @@ impl<'su> StateOperations<'su> {
 
 #[cfg(debug_assertions)]
 impl<'su> Drop for StateOperations<'su> {
+    #[track_caller]
     fn drop(&mut self) {
         if !self.operations.is_empty() {
             panic!("StateUpdateOperation is dropped without commiting or discarding contents");
