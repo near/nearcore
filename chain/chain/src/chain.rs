@@ -1891,6 +1891,21 @@ impl Chain {
         )
         .entered();
 
+        // Skip witness generation for chunks from previous blocks.
+        // This can happen when optimistic block production starts before chunks from the
+        // previous block finish applying (race condition with early OB production).
+        // The witness would have already been sent at the correct height.
+        if chunk_header.height_created() != block_context.height {
+            tracing::debug!(
+                target: "chain",
+                chunk_height = chunk_header.height_created(),
+                block_height = block_context.height,
+                %shard_id,
+                "Skipping optimistic witness for chunk from previous block"
+            );
+            return Ok(());
+        }
+
         // Record that we sent chunk apply witness for this (prev_block_hash, shard_id) pair
         assert_eq!(block_context.height, chunk_header.height_created());
         cache.put((block_context.height, shard_id), ());

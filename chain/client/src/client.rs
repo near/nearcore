@@ -1906,36 +1906,60 @@ impl Client {
             self.epoch_manager.as_ref(),
             &self.shard_tracker,
         )?;
-        let (shard_chunk, encoded_shard_chunk) = chunk.into_parts();
-        let partial_chunk_arc = Arc::new(partial_chunk.clone());
-        persist_chunk(
-            Arc::clone(&partial_chunk_arc),
-            Some(shard_chunk),
-            self.chain.mut_chain_store(),
-        )?;
 
+        let (shard_chunk, encoded_shard_chunk) = chunk.into_parts();
         let chunk_header = encoded_shard_chunk.cloned_header();
-        if let Some(chunk_distribution) = &self.chunk_distribution_network {
-            if chunk_distribution.enabled() {
-                let partial_chunk_arc = Arc::clone(&partial_chunk_arc);
-                let mut thread_local_client = chunk_distribution.clone();
-                // TODO(#14005): Use a TokioRuntimeHandle to spawn this future.
-                tokio::spawn(async move {
-                    if let Err(err) = thread_local_client.publish_chunk(&partial_chunk_arc).await {
-                        error!(target: "client", ?err, "Failed to distribute chunk via Chunk Distribution Network");
-                    }
-                });
-            }
-        }
 
         self.chunk_inclusion_tracker
-            .mark_chunk_header_ready_for_inclusion(chunk_header, validator_id);
-        self.shards_manager_adapter.send(ShardsManagerRequestFromClient::DistributeEncodedChunk {
-            partial_chunk,
-            encoded_chunk: encoded_shard_chunk,
-            merkle_paths,
-            outgoing_receipts: receipts,
-        });
+            .mark_chunk_header_ready_for_inclusion(chunk_header.clone(), validator_id);
+
+        let mut chain_store = self.chain.chain_store().clone();
+        let shards_manager = self.shards_manager_adapter.clone();
+        let cdn = self.chunk_distribution_network.clone();
+        let partial_chunk_arc = Arc::new(partial_chunk.clone());
+
+        std::thread::Builder::new()
+            .name(format!("chunk-persist-{}", chunk_header.shard_id()))
+            .spawn(move || {
+                let _span = tracing::debug_span!(
+                    target: "client",
+                    "chunk_persist_background",
+                    height = chunk_header.height_created(),
+                    shard_id = %chunk_header.shard_id(),
+                ).entered();
+
+                // Persist chunk to disk (blocking I/O)
+                if let Err(err) = persist_chunk(
+                    Arc::clone(&partial_chunk_arc),
+                    Some(shard_chunk),
+                    &mut chain_store,
+                ) {
+                    tracing::error!(target: "client", ?err, "Failed to persist chunk");
+                    return;
+                }
+
+                if let Some(mut cdn_client) = cdn.filter(|c| c.enabled()) {
+                    let partial_chunk_for_cdn = Arc::clone(&partial_chunk_arc);
+                    tokio::task::block_in_place(|| {
+                        tokio::runtime::Handle::current().block_on(async {
+                            if let Err(err) = cdn_client.publish_chunk(&partial_chunk_for_cdn).await {
+                                tracing::error!(target: "client", ?err, "Failed to publish chunk to CDN");
+                            }
+                        })
+                    });
+                }
+
+                shards_manager.send(ShardsManagerRequestFromClient::DistributeEncodedChunk {
+                    partial_chunk,
+                    encoded_chunk: encoded_shard_chunk,
+                    merkle_paths,
+                    outgoing_receipts: receipts,
+                });
+
+                tracing::debug!(target: "client", "Chunk persistence and distribution completed");
+            })
+            .expect("Failed to spawn chunk persistence thread");
+
         Ok(())
     }
 
