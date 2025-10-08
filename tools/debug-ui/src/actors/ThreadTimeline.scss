@@ -1,13 +1,14 @@
 .tooltip {
     position: fixed;
-    background-color: rgba(0, 0, 0, 0.9);
-    color: white;
+    background-color: white;
+    color: black;
     padding: 4px 6px;
     border-radius: 4px;
     font-size: 12px;
     pointer-events: none;
     z-index: 1000;
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+    border: 1px solid #ccc;
     width: auto;
     white-space: nowrap;
 
@@ -64,7 +65,16 @@
         }
 
         tr.bordered {
-            border-top: 1px solid #eee;
+            border-top: 1px solid #ddd;
         }
+    }
+
+    .color-indicator {
+        display: inline-block;
+        width: 12px;
+        height: 12px;
+        margin-right: 4px;
+        border-radius: 2px;
+        vertical-align: middle;
     }
 }

@@ -360,28 +360,33 @@ export const ThreadTimeline = ({ thread, messageTypes, minTimeMs, currentTimeMs,
         </svg>
 
         {/* Event Tooltip */}
-        {hoveredEvent && (
-            <div
-                className="tooltip event-tooltip"
-                style={{
-                    left: hoveredEvent.x,
-                    top: hoveredEvent.y
-                }}
-            >
-                <div><strong>{colorMap.get(hoveredEvent.event.typeId).name}</strong></div>
-                {hoveredEvent.event.count > 1 && (
-                    <>
-                        <div>Count: {hoveredEvent.event.count}</div>
-                        <div>Total Time: {hoveredEvent.event.totalDurationMs.toFixed(3)} ms</div>
-                        <div>Utilization: {((hoveredEvent.event.totalDurationMs / (hoveredEvent.event.endSMT - hoveredEvent.event.startSMT)) * 100).toFixed(1)}%</div>
-                    </>
-                )}
-                {hoveredEvent.event.count === 1 && (
-                    <div>Duration: {hoveredEvent.event.totalDurationMs.toFixed(3)} ms</div>
-                )}
-                <div>Interval: {hoveredEvent.event.startSMT.toFixed(2)} - {hoveredEvent.event.endSMT.toFixed(2)} ms</div>
-            </div>
-        )}
+        {hoveredEvent && (() => {
+            const tooltipWidth = 250; // Approximate tooltip width
+            const shouldFlipLeft = hoveredEvent.x + tooltipWidth > globalThis.window.innerWidth;
+
+            return (
+                <div
+                    className="tooltip event-tooltip"
+                    style={{
+                        left: shouldFlipLeft ? hoveredEvent.x - tooltipWidth - 10 : hoveredEvent.x,
+                        top: hoveredEvent.y
+                    }}
+                >
+                    <div><strong>{colorMap.get(hoveredEvent.event.typeId).name}</strong></div>
+                    {hoveredEvent.event.count > 1 && (
+                        <>
+                            <div>Count: {hoveredEvent.event.count}</div>
+                            <div>Total Time: {hoveredEvent.event.totalDurationMs.toFixed(3)} ms</div>
+                            <div>Utilization: {((hoveredEvent.event.totalDurationMs / (hoveredEvent.event.endSMT - hoveredEvent.event.startSMT)) * 100).toFixed(1)}%</div>
+                        </>
+                    )}
+                    {hoveredEvent.event.count === 1 && (
+                        <div>Duration: {hoveredEvent.event.totalDurationMs.toFixed(3)} ms</div>
+                    )}
+                    <div>Interval: {hoveredEvent.event.startSMT.toFixed(2)} - {hoveredEvent.event.endSMT.toFixed(2)} ms</div>
+                </div>
+            );
+        })()}
 
         {/* CPU Window Tooltip */}
         {hoveredCpuWindow && (() => {
@@ -397,11 +402,14 @@ export const ThreadTimeline = ({ thread, messageTypes, minTimeMs, currentTimeMs,
             const idleMs = windowDurationMs - totalMs;
             const idlePercent = (idleMs / windowDurationMs) * 100;
 
+            const tooltipWidth = 300; // Approximate tooltip width
+            const shouldFlipLeft = hoveredCpuWindow.x + tooltipWidth > globalThis.window.innerWidth;
+
             return (
                 <div
                     className="tooltip"
                     style={{
-                        left: hoveredCpuWindow.x,
+                        left: shouldFlipLeft ? hoveredCpuWindow.x - tooltipWidth - 10 : hoveredCpuWindow.x,
                         top: hoveredCpuWindow.y
                     }}
                 >
@@ -419,10 +427,14 @@ export const ThreadTimeline = ({ thread, messageTypes, minTimeMs, currentTimeMs,
                             {summary.message_stats_by_type.map(stat => {
                                 const typeMs = stat.total_time_ns / 1e6;
                                 const typePercent = (typeMs / windowDurationMs) * 100;
+                                const typeColor = colorMap.get(stat.message_type).color;
                                 const typeName = colorMap.get(stat.message_type).name;
                                 return (
                                     <tr key={stat.message_type}>
-                                        <td>{typeName}</td>
+                                        <td>
+                                            <span className="color-indicator" style={{ backgroundColor: typeColor }}></span>
+                                            {typeName}
+                                        </td>
                                         <td className="align-right">{stat.count}</td>
                                         <td className="align-right">{typeMs.toFixed(2)}</td>
                                         <td className="align-right">{typePercent.toFixed(1)}%</td>
