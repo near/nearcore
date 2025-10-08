@@ -1,5 +1,6 @@
 use near_time::Clock;
 
+use crate::instrumentation::queue::InstrumentedQueue;
 use crate::instrumentation::writer::InstrumentedThreadWriter;
 use crate::messaging::Actor;
 use std::sync::Arc;
@@ -18,20 +19,20 @@ pub(super) struct MultithreadRuntimeMessage<A> {
 /// Allows sending messages to a multithreaded actor runtime. Implements CanSend and CanSendAsync traits
 /// for the messages that the actor can handle.
 pub struct MultithreadRuntimeHandle<A> {
-    pub(super) sender: crossbeam_channel::Sender<MultithreadRuntimeMessage<A>>,
+    sender: crossbeam_channel::Sender<MultithreadRuntimeMessage<A>>,
+    pending_counts: Arc<InstrumentedQueue>,
     clock: Clock,
     reference_instant: Instant,
 }
 
-impl<A> From<crossbeam_channel::Sender<MultithreadRuntimeMessage<A>>>
-    for MultithreadRuntimeHandle<A>
-{
-    fn from(sender: crossbeam_channel::Sender<MultithreadRuntimeMessage<A>>) -> Self {
-        Self { sender, clock: Clock::real(), reference_instant: Instant::now() }
-    }
-}
-
 impl<A> MultithreadRuntimeHandle<A> {
+    fn from_sender(
+        sender: crossbeam_channel::Sender<MultithreadRuntimeMessage<A>>,
+        pending_counts: Arc<InstrumentedQueue>,
+    ) -> Self {
+        Self { sender, pending_counts, clock: Clock::real(), reference_instant: Instant::now() }
+    }
+
     pub(super) fn get_time(&self) -> u64 {
         self.clock.now().duration_since(self.reference_instant).as_nanos() as u64
     }
@@ -41,6 +42,7 @@ impl<A> Clone for MultithreadRuntimeHandle<A> {
     fn clone(&self) -> Self {
         Self {
             sender: self.sender.clone(),
+            pending_counts: self.pending_counts.clone(),
             clock: self.clock.clone(),
             reference_instant: self.reference_instant,
         }
@@ -53,6 +55,23 @@ where
 {
     pub fn sender(&self) -> Arc<MultithreadRuntimeHandle<A>> {
         Arc::new(self.clone())
+    }
+}
+
+impl<A> MultithreadRuntimeHandle<A> {
+    pub(super) fn send_message(
+        &self,
+        message: MultithreadRuntimeMessage<A>,
+    ) -> Result<(), crossbeam_channel::SendError<MultithreadRuntimeMessage<A>>> {
+        let name = message.name;
+        self.pending_counts.enqueue(name);
+        let result = self.sender.send(message);
+        if result.is_ok() {
+            Ok(())
+        } else {
+            self.pending_counts.dequeue(name);
+            result
+        }
     }
 }
 
@@ -73,7 +92,8 @@ where
     let threads =
         Arc::new(rayon::ThreadPoolBuilder::new().num_threads(num_threads).build().unwrap());
     let (sender, receiver) = crossbeam_channel::unbounded::<MultithreadRuntimeMessage<A>>();
-    let handle = MultithreadRuntimeHandle::from(sender);
+    let pending_counts = InstrumentedQueue::register_new(std::any::type_name::<A>());
+    let handle = MultithreadRuntimeHandle::from_sender(sender, pending_counts.clone());
     let threads_clone = threads.clone();
     let thread_index = Arc::new(AtomicUsize::new(0));
     let handle_clone = handle.clone();
@@ -98,6 +118,7 @@ where
                         tracing::warn!(target: "multithread_runtime", "message queue closed, exiting event loop.");
                         return;
                     };
+                    pending_counts.dequeue(message.name);
                     let seq = message.seq;
                     let dequeue_time_ns = handle_clone.get_time().saturating_sub(message.enqueued_time_ns);
                     instrumentation.start_event(message.name, dequeue_time_ns);

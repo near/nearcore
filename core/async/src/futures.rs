@@ -1,7 +1,9 @@
 use futures::FutureExt;
 pub use futures::future::BoxFuture; // pub for macros
 use near_time::Duration;
+use std::pin::Pin;
 use std::sync::Arc;
+use std::task::{Context, Poll};
 
 /// Abstraction for something that can drive futures.
 ///
@@ -156,5 +158,34 @@ pub struct StdThreadAsyncComputationSpawnerForTest;
 impl AsyncComputationSpawner for StdThreadAsyncComputationSpawnerForTest {
     fn spawn_boxed(&self, _name: &str, f: Box<dyn FnOnce() + Send>) {
         std::thread::spawn(f);
+    }
+}
+
+/// A future that runs a given future, and when the future is ready, runs a given callback.
+pub struct WrappedFuture {
+    future: futures::future::BoxFuture<'static, ()>,
+    on_ready: Option<Box<dyn FnOnce() + Send>>,
+}
+
+impl WrappedFuture {
+    pub fn new(
+        future: futures::future::BoxFuture<'static, ()>,
+        on_ready: Box<dyn FnOnce() + Send>,
+    ) -> Self {
+        Self { future, on_ready: Some(on_ready) }
+    }
+}
+
+impl Future for WrappedFuture {
+    type Output = ();
+
+    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        let result = Pin::new(&mut self.future).poll(cx);
+        if let Poll::Ready(()) = result {
+            if let Some(on_ready) = self.on_ready.take() {
+                on_ready();
+            }
+        }
+        result
     }
 }

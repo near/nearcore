@@ -3,6 +3,7 @@ use near_time::Clock;
 use crate::instrumentation::{data::ALL_ACTOR_INSTRUMENTATIONS, reader::InstrumentedThreadsView};
 
 pub(crate) mod data;
+pub mod queue;
 pub mod reader;
 pub(crate) mod writer;
 
@@ -14,4 +15,8 @@ const NUM_WINDOWS: usize = 60; // keep stats for the last 30 seconds
 
 pub fn all_actor_instrumentations_view(clock: &Clock) -> InstrumentedThreadsView {
     ALL_ACTOR_INSTRUMENTATIONS.to_view(clock)
+}
+
+pub fn all_queues() -> queue::AllQueuesView {
+    queue::ALL_QUEUES.to_view()
 }

@@ -29,7 +29,7 @@ where
             name: message_type,
             function: Box::new(function),
         };
-        if let Err(_) = self.sender.send(message) {
+        if let Err(_) = self.send_message(message) {
             tracing::info!(target: "multithread_runtime", seq, "Ignoring sync message, receiving actor is being shut down");
         }
     }
@@ -58,7 +58,7 @@ where
             name: message_type,
             function: Box::new(function),
         };
-        if let Err(_) = self.sender.send(message) {
+        if let Err(_) = self.send_message(message) {
             tracing::info!(target: "multithread_runtime", seq, "Ignoring sync message with callback, receiving actor is being shut down");
         }
     }
@@ -88,7 +88,7 @@ where
             name: message_type,
             function: Box::new(function),
         };
-        if let Err(_) = self.sender.send(message) {
+        if let Err(_) = self.send_message(message) {
             async { Err(AsyncSendError::Dropped) }.boxed()
         } else {
             future.boxed()

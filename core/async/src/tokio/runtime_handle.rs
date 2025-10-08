@@ -4,7 +4,8 @@ use std::time::{Duration, Instant};
 use near_time::Clock;
 use tokio::sync::mpsc;
 
-use crate::futures::{DelayedActionRunner, FutureSpawner};
+use crate::futures::{DelayedActionRunner, FutureSpawner, WrappedFuture};
+use crate::instrumentation::queue::InstrumentedQueue;
 use crate::instrumentation::writer::InstrumentedThreadWriter;
 use crate::messaging::Actor;
 use crate::tokio::runtime::AsyncDroppableRuntime;
@@ -23,7 +24,8 @@ pub(super) struct TokioRuntimeMessage<A> {
 /// It allows for sending messages and spawning futures into the Tokio runtime.
 pub struct TokioRuntimeHandle<A> {
     /// The sender is used to send messages to the actor running in the Tokio runtime.
-    pub(super) sender: mpsc::UnboundedSender<TokioRuntimeMessage<A>>,
+    sender: mpsc::UnboundedSender<TokioRuntimeMessage<A>>,
+    pending_counts: Arc<InstrumentedQueue>,
     /// The runtime_handle used to post futures to the Tokio runtime.
     /// This is a handle, meaning it does not prevent the runtime from shutting down.
     /// Runtime shutdown is governed by cancellation only (either via TokioRuntimeHandle::stop() or
@@ -41,6 +43,7 @@ impl<A> Clone for TokioRuntimeHandle<A> {
     fn clone(&self) -> Self {
         Self {
             sender: self.sender.clone(),
+            pending_counts: self.pending_counts.clone(),
             runtime_handle: self.runtime_handle.clone(),
             cancel: self.cancel.clone(),
             clock: self.clock.clone(),
@@ -67,6 +70,37 @@ where
 
     pub(super) fn get_time(&self) -> u64 {
         self.clock.now().duration_since(self.reference_instant).as_nanos() as u64
+    }
+}
+
+impl<A> TokioRuntimeHandle<A> {
+    pub(super) fn send_message(
+        &self,
+        message: TokioRuntimeMessage<A>,
+    ) -> Result<(), mpsc::error::SendError<TokioRuntimeMessage<A>>> {
+        let name = message.name;
+        self.pending_counts.enqueue(name);
+        let result = self.sender.send(message);
+        if result.is_ok() {
+            Ok(())
+        } else {
+            self.pending_counts.dequeue(name);
+            result
+        }
+    }
+
+    pub fn spawn_future(
+        &self,
+        future: futures::future::BoxFuture<'static, ()>,
+        description: &'static str,
+    ) {
+        self.pending_counts.enqueue(description);
+        let pending_counts = self.pending_counts.clone();
+        let on_ready = Box::new(move || {
+            pending_counts.dequeue(description);
+        });
+        let wrapped_future = WrappedFuture::new(future, on_ready);
+        self.runtime_handle.spawn(wrapped_future);
     }
 }
 
@@ -100,6 +134,7 @@ impl<A: Actor> Drop for CallStopWhenDropping<A> {
 pub struct TokioRuntimeBuilder<A: Actor + Send + 'static> {
     handle: TokioRuntimeHandle<A>,
     receiver: Option<mpsc::UnboundedReceiver<TokioRuntimeMessage<A>>>,
+    pending_counts: Arc<InstrumentedQueue>,
     system_cancellation_signal: CancellationToken,
     runtime: Option<Runtime>,
 }
@@ -113,10 +148,12 @@ impl<A: Actor + Send + 'static> TokioRuntimeBuilder<A> {
             .expect("Failed to create Tokio runtime");
 
         let (sender, receiver) = mpsc::unbounded_channel::<TokioRuntimeMessage<A>>();
+        let pending_counts = InstrumentedQueue::register_new(std::any::type_name::<A>());
         let cancel = CancellationToken::new();
 
         let handle = TokioRuntimeHandle {
             sender,
+            pending_counts: pending_counts.clone(),
             runtime_handle: runtime.handle().clone(),
             cancel,
             clock: Clock::real(),
@@ -126,6 +163,7 @@ impl<A: Actor + Send + 'static> TokioRuntimeBuilder<A> {
         Self {
             handle,
             receiver: Some(receiver),
+            pending_counts,
             system_cancellation_signal,
             runtime: Some(runtime),
         }
@@ -140,6 +178,7 @@ impl<A: Actor + Send + 'static> TokioRuntimeBuilder<A> {
         let inner_runtime_handle = runtime_handle.runtime_handle.clone();
         let runtime = self.runtime.take().unwrap();
         let mut receiver = self.receiver.take().unwrap();
+        let pending_counts = self.pending_counts.clone();
         inner_runtime_handle.spawn(async move {
             actor.start_actor(&mut runtime_handle);
             // The runtime gets dropped as soon as this loop exits, cancelling all other futures on
@@ -165,6 +204,7 @@ impl<A: Actor + Send + 'static> TokioRuntimeBuilder<A> {
                     }
                     Some(message) = receiver.recv() => {
                         let seq = message.seq;
+                        pending_counts.dequeue(message.name);
                         tracing::debug!(target: "tokio_runtime", seq, "Executing message");
                         let dequeue_time_ns = runtime_handle.get_time().saturating_sub(message.enqueued_time_ns);
                         instrumentation.start_event(message.name, dequeue_time_ns);
