@@ -5,7 +5,6 @@ use crate::types::{
     StateSyncEvent, Tier3Request,
 };
 use futures::{Future, FutureExt};
-use near_async::Message;
 use near_async::messaging::{self, AsyncSendError, CanSend, CanSendAsync};
 use near_crypto::{KeyType, SecretKey};
 use near_primitives::hash::hash;
@@ -104,7 +103,7 @@ pub fn expected_routing_tables(
 }
 
 /// `GetInfo` gets `NetworkInfo` from `PeerManager`.
-#[derive(Message, Debug)]
+#[derive(Debug)]
 pub struct GetInfo {}
 
 impl messaging::Handler<GetInfo, crate::types::NetworkInfo> for PeerManagerActor {
@@ -114,7 +113,7 @@ impl messaging::Handler<GetInfo, crate::types::NetworkInfo> for PeerManagerActor
 }
 
 // `StopSignal is used to stop PeerManagerActor for unit tests
-#[derive(Message, Default, Debug)]
+#[derive(Default, Debug)]
 pub struct StopSignal {
     pub should_panic: bool,
 }
@@ -157,7 +156,8 @@ impl CanSendAsync<PeerManagerMessageRequest, PeerManagerMessageResponse>
     fn send_async(
         &self,
         message: PeerManagerMessageRequest,
-    ) -> futures::future::BoxFuture<'static, Result<PeerManagerMessageResponse, AsyncSendError>> {
+    ) -> futures::future::BoxFuture<'static, Result<PeerManagerMessageResponse, AsyncSendError>>
+    {
         self.requests.write().push_back(message);
         self.notify.notify_one();
         async move {
@@ -216,7 +216,7 @@ impl MockPeerManagerAdapter {
     }
 }
 
-#[derive(Message, Clone, Debug)]
+#[derive(Clone, Debug)]
 pub struct SetAdvOptions {
     pub set_max_peers: Option<u64>,
 }

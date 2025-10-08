@@ -15,8 +15,8 @@ use std::sync::Arc;
 
 use assert_matches::assert_matches;
 use itertools::Itertools as _;
-use near_async::messaging::Sender;
 use near_async::messaging::Handler;
+use near_async::messaging::Sender;
 use near_async::messaging::{IntoAsyncSender as _, IntoSender as _, noop};
 use near_async::time::Clock;
 use near_chain::Block;

@@ -4,12 +4,11 @@ use std::sync::Arc;
 use itertools::Itertools;
 use near_async::futures::{DelayedActionRunnerExt as _, FutureSpawner, FutureSpawnerExt};
 use near_async::messaging::{
-    Actor, AsyncSender, CanSend, Handler, IntoMultiSender as _, IntoSender as _, SendAsync,
-    Sender,
+    Actor, AsyncSender, CanSend, Handler, IntoMultiSender as _, IntoSender as _, SendAsync, Sender,
 };
 use near_async::test_loop::sender::TestLoopSender;
 use near_async::time::{Clock, Duration};
-use near_async::{Message, MultiSend, MultiSenderFrom};
+use near_async::{MultiSend, MultiSenderFrom};
 use near_chain::{Block, BlockHeader};
 use near_client::spice_data_distributor_actor::SpiceDistributorOutgoingReceipts;
 use near_client::{BlockApproval, BlockResponse, SetNetworkInfo};
@@ -72,7 +71,7 @@ pub struct SpiceDataDistributorSenderForTestLoopNetwork {
 
 /// This message is used to allow TestLoopPeerManagerActor to construct NetworkInfo for each
 /// client.
-#[derive(Message, Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TestLoopNetworkBlockInfo {
     pub peer: PeerInfo,
     pub block_header: BlockHeader,

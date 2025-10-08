@@ -33,7 +33,6 @@ use crate::types::{
     AccountKeys, ChainInfo, KnownPeerStatus, NetworkRequests, PeerManagerMessageRequest,
     PeerManagerSenderForNetworkInput, PeerManagerSenderForNetworkMessage, ReasonForBan,
 };
-use near_async::Message;
 use near_async::futures::FutureSpawnerExt;
 use near_async::messaging::AsyncMessage;
 use near_async::messaging::{self, CanSendAsync, IntoMultiSender};
@@ -58,7 +57,6 @@ use std::sync::Arc;
 /// This gives 5 file descriptors per PeerActor (4 + 1 TCP socket).
 pub(crate) const FDS_PER_PEER: usize = 5;
 
-#[derive(Message)]
 struct WithNetworkState(
     Box<dyn Send + FnOnce(Arc<NetworkState>) -> Pin<Box<dyn Send + 'static + Future<Output = ()>>>>,
 );

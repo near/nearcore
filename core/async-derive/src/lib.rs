@@ -300,11 +300,6 @@ fn derive_multi_send_message_impl(input: proc_macro2::TokenStream) -> proc_macro
     }
 }
 
-#[proc_macro_derive(Message)]
-pub fn derive_message(_input: TokenStream) -> TokenStream {
-    TokenStream::new()
-}
-
 #[cfg(test)]
 mod tests {
     use quote::quote;
