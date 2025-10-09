@@ -403,29 +403,30 @@ fn test_early_prepare_tx_missing_block() {
 fn test_early_prepare_tx_epoch_switch() {
     init_test_logger();
 
-    let short_epoch_length = 5;
+    let short_epoch_length = 6;
     let TestLoopEnv { mut test_loop, node_datas, shared_state } = setup(2, short_epoch_length);
     let start_tip = get_tip(&test_loop.data, &node_datas);
     let start_height = start_tip.height;
-    let start_epoch = start_tip.epoch_id;
     let metrics = MetricTrackers::new();
 
     // Run the chain for a few heights, submit some transactions at each height
     let mut nonce_counter = 1;
-    for _ in 0..8 {
+    for _ in 0..5 {
         let block_hash = get_tip(&test_loop.data, &node_datas).last_block_hash;
         submit_transactions(&node_datas, block_hash, &mut nonce_counter);
         run_until_next_height(&mut test_loop, &node_datas);
     }
 
     // Make sure that the epoch switch happened while submitting transactions
-    let epoch_id = get_tip(&test_loop.data, &node_datas).epoch_id;
-    assert_ne!(start_epoch, epoch_id);
+    assert_eq!(start_tip.next_epoch_id, get_tip(&test_loop.data, &node_datas).epoch_id);
 
     // Run for a few more heights to make sure that all transactions were picked up
     for _ in 0..2 {
         run_until_next_height(&mut test_loop, &node_datas);
     }
+
+    // There should be only one epoch switch in the test
+    assert_eq!(start_tip.next_epoch_id, get_tip(&test_loop.data, &node_datas).epoch_id);
 
     // Collect transactions included in chunks
     let chain_txs = collect_chain_txs(start_height, &test_loop, &node_datas);
@@ -444,10 +445,10 @@ fn test_early_prepare_tx_epoch_switch() {
     assert_eq!(chain_txs.num_missing_blocks, 0);
 
     // Metrics have the right values
-    // 2 jobs were not used because of the epoch switch
-    assert_eq!(metrics.job_started_total.get(), 10);
-    assert_eq!(metrics.job_result_used_total.get(), 8);
-    assert_eq!(metrics.job_result_not_found_total.get(), 2);
+    // 1 job was not used because of the epoch switch
+    assert_eq!(metrics.job_started_total.get(), 7);
+    assert_eq!(metrics.job_result_used_total.get(), 6);
+    assert_eq!(metrics.job_result_not_found_total.get(), 1);
     assert_eq!(metrics.job_error_total.get(), 0);
 
     TestLoopEnv { test_loop, node_datas, shared_state }
