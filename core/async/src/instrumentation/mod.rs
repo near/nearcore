@@ -10,9 +10,12 @@ pub mod reader;
 mod tests;
 pub(crate) mod writer;
 
+pub use data::InstrumentedThread;
+pub use writer::InstrumentedThreadWriter;
+
 /// Window size. Windows are aligned to whole multiples of this size since UNIX epoch,
 /// regardless of when the actor thread started.
-const WINDOW_SIZE_NS: u64 = 500_000_000; // 500ms
+pub const WINDOW_SIZE_NS: u64 = 500_000_000; // 500ms
 /// Number of most recent windows to maintain stats for.
 const NUM_WINDOWS: usize = 60; // keep stats for the last 30 seconds
 

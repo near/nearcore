@@ -4053,6 +4053,7 @@ dependencies = [
 name = "near-async"
 version = "0.0.0"
 dependencies = [
+ "criterion",
  "crossbeam-channel",
  "futures",
  "near-async-derive",
