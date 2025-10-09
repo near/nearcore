@@ -92,16 +92,16 @@ pub fn create_cloud_archival_writer(
     genesis_height: BlockHeight,
     runtime_adapter: Arc<dyn RuntimeAdapter>,
     hot_store: Store,
-) -> anyhow::Result<Option<CloudArchivalWriterHandle>> {
+) -> anyhow::Result<(Option<CloudArchivalWriterHandle>, Option<CloudArchivalWriter>)> {
     let Some(config) = writer_config else {
         tracing::debug!(target: "cloud_archival", "Not creating the cloud archival writer because it is not configured");
-        return Ok(None);
+        return Ok((None, None));
     };
     let writer = CloudArchivalWriter::new(config, genesis_height, hot_store);
     let handle = writer.handle.clone();
     tracing::info!(target: "cloud_archival", "Starting the cloud archival writer");
     writer.initialize_cloud_head(&runtime_adapter)?;
-    Ok(Some(handle))
+    Ok((Some(handle), Some(writer)))
 }
 
 impl Actor for CloudArchivalWriter {

@@ -449,12 +449,15 @@ pub fn start_with_config_and_synchronization(
         None
     };
 
-    let cloud_archival_writer_handle = create_cloud_archival_writer(
+    let (cloud_archival_writer_handle, cloud_archival_writer) = create_cloud_archival_writer(
         config.config.cloud_archival_writer,
         config.genesis.config.genesis_height,
         runtime.clone(),
         storage.get_hot_store(),
     )?;
+    if let Some(actor) = cloud_archival_writer {
+        let _cloud_archival_addr = actor_system.spawn_tokio_actor(actor);
+    }
 
     let telemetry =
         TelemetryActor::spawn_tokio_actor(actor_system.clone(), config.telemetry_config.clone());

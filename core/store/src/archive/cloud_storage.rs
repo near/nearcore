@@ -21,7 +21,8 @@ impl CloudStorageOpener {
     }
 
     pub fn open(&self) -> Arc<CloudStorage> {
-        unimplemented!("TODO(cloud_archival): Implement opening cloud storage")
+        // TODO(cloud_archival): Implement opening cloud storage
+        Arc::new(CloudStorage)
     }
 }
 
