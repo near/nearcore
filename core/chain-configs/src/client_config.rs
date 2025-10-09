@@ -277,13 +277,13 @@ pub struct CloudArchivalWriterConfig {
     pub polling_interval: Duration,
 }
 
-// A handle that allows the main process to interrupt cloud archival actor if needed.
+// A handle that allows the main process to interrupt cloud archival writer if needed.
 #[derive(Clone)]
-pub struct CloudArchivalHandle {
+pub struct CloudArchivalWriterHandle {
     keep_going: Arc<AtomicBool>,
 }
 
-impl CloudArchivalHandle {
+impl CloudArchivalWriterHandle {
     pub fn new() -> Self {
         Self { keep_going: Arc::new(AtomicBool::new(true)) }
     }
