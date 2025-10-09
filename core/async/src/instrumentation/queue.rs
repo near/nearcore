@@ -1,36 +1,25 @@
 use core::str;
 use std::collections::HashMap;
+use std::sync::Arc;
 use std::sync::atomic::AtomicU64;
-use std::sync::{Arc, LazyLock, Weak};
 
 use parking_lot::RwLock;
 use serde::Serialize;
 
 use crate::instrumentation::metrics::QUEUE_PENDING_MESSAGES;
-
-pub struct AllQueues {
-    queues: RwLock<HashMap<String, Weak<InstrumentedQueue>>>,
-}
-
-pub static ALL_QUEUES: LazyLock<AllQueues> =
-    LazyLock::new(|| AllQueues { queues: RwLock::new(HashMap::new()) });
+use near_o11y::metrics::prometheus::core::GenericGauge;
 
 pub struct InstrumentedQueue {
     pending: RwLock<HashMap<String, AtomicU64>>,
-    queue_name: String,
+    pending_messages_gauge: GenericGauge<near_o11y::metrics::prometheus::core::AtomicI64>,
 }
 
 impl InstrumentedQueue {
-    pub fn register_new(queue_name: &str) -> Arc<InstrumentedQueue> {
-        let mut queues = ALL_QUEUES.queues.write();
-        if let Some(queue) = queues.get(queue_name).and_then(|w| w.upgrade()) {
-            return queue;
-        }
-        let queue = Arc::new(InstrumentedQueue {
+    pub fn new(queue_name: &str) -> Arc<Self> {
+        let queue = Arc::new(Self {
             pending: RwLock::new(HashMap::new()),
-            queue_name: queue_name.to_string(),
+            pending_messages_gauge: QUEUE_PENDING_MESSAGES.with_label_values(&[queue_name]),
         });
-        queues.insert(queue_name.to_string(), Arc::downgrade(&queue));
         queue
     }
 
@@ -40,7 +29,7 @@ impl InstrumentedQueue {
             let pending = self.pending.read();
             if let Some(counter) = pending.get(message_type) {
                 counter.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                QUEUE_PENDING_MESSAGES.with_label_values(&[&self.queue_name]).inc();
+                self.pending_messages_gauge.inc();
                 return;
             }
         }
@@ -48,14 +37,14 @@ impl InstrumentedQueue {
         let mut pending = self.pending.write();
         let counter = pending.entry(message_type.to_string()).or_insert_with(|| AtomicU64::new(0));
         counter.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        QUEUE_PENDING_MESSAGES.with_label_values(&[&self.queue_name]).inc();
+        self.pending_messages_gauge.inc();
     }
 
     pub fn dequeue(&self, message_type: &str) {
         let pending = self.pending.read();
         if let Some(counter) = pending.get(message_type) {
             counter.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
-            QUEUE_PENDING_MESSAGES.with_label_values(&[&self.queue_name]).dec();
+            self.pending_messages_gauge.dec();
         }
     }
 
@@ -65,24 +54,6 @@ impl InstrumentedQueue {
             .iter()
             .map(|(k, v)| (k.clone(), v.load(std::sync::atomic::Ordering::Relaxed)))
             .collect()
-    }
-}
-
-#[derive(Serialize, Debug)]
-pub struct AllQueuesView {
-    pub queues: HashMap<String, InstrumentedQueueView>,
-}
-
-impl AllQueues {
-    pub fn to_view(&self) -> AllQueuesView {
-        let queues = self.queues.read();
-        let mut result = HashMap::new();
-        for (name, weak_queue) in queues.iter() {
-            if let Some(queue) = weak_queue.upgrade() {
-                result.insert(name.clone(), queue.to_view());
-            }
-        }
-        AllQueuesView { queues: result }
     }
 }
 

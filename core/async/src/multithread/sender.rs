@@ -25,7 +25,7 @@ where
 
         let message = MultithreadRuntimeMessage {
             seq,
-            enqueued_time_ns: self.get_time(),
+            enqueued_time_ns: self.instrumentation.current_time(),
             name: message_type,
             function: Box::new(function),
         };
@@ -54,7 +54,7 @@ where
 
         let message = MultithreadRuntimeMessage {
             seq,
-            enqueued_time_ns: self.get_time(),
+            enqueued_time_ns: self.instrumentation.current_time(),
             name: message_type,
             function: Box::new(function),
         };
@@ -84,7 +84,7 @@ where
 
         let message = MultithreadRuntimeMessage {
             seq,
-            enqueued_time_ns: self.get_time(),
+            enqueued_time_ns: self.instrumentation.current_time(),
             name: message_type,
             function: Box::new(function),
         };

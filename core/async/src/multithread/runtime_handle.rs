@@ -1,11 +1,9 @@
-use near_time::Clock;
-
 use crate::instrumentation::queue::InstrumentedQueue;
-use crate::instrumentation::writer::InstrumentedThreadWriter;
+use crate::instrumentation::writer::InstrumentedThreadWriterSharedPart;
 use crate::messaging::Actor;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 /// MultithreadRuntimeMessage is a type alias for a boxed function that can be sent to the multithread runtime,
 /// as well as a description for debugging purposes.
@@ -20,32 +18,21 @@ pub(super) struct MultithreadRuntimeMessage<A> {
 /// for the messages that the actor can handle.
 pub struct MultithreadRuntimeHandle<A> {
     sender: crossbeam_channel::Sender<MultithreadRuntimeMessage<A>>,
-    pending_counts: Arc<InstrumentedQueue>,
-    clock: Clock,
-    reference_instant: Instant,
+    pub(super) instrumentation: Arc<InstrumentedThreadWriterSharedPart>,
 }
 
 impl<A> MultithreadRuntimeHandle<A> {
-    fn from_sender(
+    fn new(
         sender: crossbeam_channel::Sender<MultithreadRuntimeMessage<A>>,
-        pending_counts: Arc<InstrumentedQueue>,
+        instrumentation: Arc<InstrumentedThreadWriterSharedPart>,
     ) -> Self {
-        Self { sender, pending_counts, clock: Clock::real(), reference_instant: Instant::now() }
-    }
-
-    pub(super) fn get_time(&self) -> u64 {
-        self.clock.now().duration_since(self.reference_instant).as_nanos() as u64
+        Self { sender, instrumentation }
     }
 }
 
 impl<A> Clone for MultithreadRuntimeHandle<A> {
     fn clone(&self) -> Self {
-        Self {
-            sender: self.sender.clone(),
-            pending_counts: self.pending_counts.clone(),
-            clock: self.clock.clone(),
-            reference_instant: self.reference_instant,
-        }
+        Self { sender: self.sender.clone(), instrumentation: self.instrumentation.clone() }
     }
 }
 
@@ -64,12 +51,12 @@ impl<A> MultithreadRuntimeHandle<A> {
         message: MultithreadRuntimeMessage<A>,
     ) -> Result<(), crossbeam_channel::SendError<MultithreadRuntimeMessage<A>>> {
         let name = message.name;
-        self.pending_counts.enqueue(name);
+        self.instrumentation.queue().enqueue(name);
         let result = self.sender.send(message);
         if result.is_ok() {
             Ok(())
         } else {
-            self.pending_counts.dequeue(name);
+            self.instrumentation.queue().dequeue(name);
             result
         }
     }
@@ -92,18 +79,19 @@ where
     let threads =
         Arc::new(rayon::ThreadPoolBuilder::new().num_threads(num_threads).build().unwrap());
     let (sender, receiver) = crossbeam_channel::unbounded::<MultithreadRuntimeMessage<A>>();
-    let pending_counts = InstrumentedQueue::register_new(std::any::type_name::<A>());
-    let handle = MultithreadRuntimeHandle::from_sender(sender, pending_counts.clone());
+    let instrumented_queue = InstrumentedQueue::new(std::any::type_name::<A>());
+    let actor_name = std::any::type_name::<A>();
+    let shared_instrumentation =
+        InstrumentedThreadWriterSharedPart::new(actor_name.to_string(), instrumented_queue.clone());
+    let handle = MultithreadRuntimeHandle::new(sender, shared_instrumentation);
     let threads_clone = threads.clone();
     let thread_index = Arc::new(AtomicUsize::new(0));
     let handle_clone = handle.clone();
     threads.spawn_broadcast(move |_| {
         let _threads = threads_clone.clone();
         let thread_id = thread_index.fetch_add(1, Ordering::Relaxed);
-        let actor_name = std::any::type_name::<A>();
+        let mut instrumentation = handle_clone.instrumentation.new_writer_with_global_registration(Some(thread_id));
         let mut actor = make_actor_fn();
-        let mut instrumentation = InstrumentedThreadWriter::new_from_global
-            (format!("{}-{}", actor_name, thread_id), actor_name.to_string());
         let window_update_ticker = crossbeam_channel::tick(Duration::from_secs(1));
         loop {
             crossbeam_channel::select! {
@@ -119,9 +107,9 @@ where
                         tracing::warn!(target: "multithread_runtime", "message queue closed, exiting event loop.");
                         return;
                     };
-                    pending_counts.dequeue(message.name);
+                    instrumented_queue.dequeue(message.name);
                     let seq = message.seq;
-                    let dequeue_time_ns = handle_clone.get_time().saturating_sub(message.enqueued_time_ns);
+                    let dequeue_time_ns = handle_clone.instrumentation.current_time().saturating_sub(message.enqueued_time_ns);
                     instrumentation.start_event(message.name, dequeue_time_ns);
                     tracing::debug!(target: "multithread_runtime", seq, "Executing message");
                     (message.function)(&mut actor);

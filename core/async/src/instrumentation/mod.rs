@@ -12,6 +12,7 @@ pub(crate) mod writer;
 
 pub use data::InstrumentedThread;
 pub use writer::InstrumentedThreadWriter;
+pub use writer::InstrumentedThreadWriterSharedPart;
 
 /// Window size. Windows are aligned to whole multiples of this size since UNIX epoch,
 /// regardless of when the actor thread started.
@@ -21,8 +22,4 @@ const NUM_WINDOWS: usize = 60; // keep stats for the last 30 seconds
 
 pub fn all_actor_instrumentations_view(clock: &Clock) -> InstrumentedThreadsView {
     ALL_ACTOR_INSTRUMENTATIONS.to_view(clock)
-}
-
-pub fn all_queues() -> queue::AllQueuesView {
-    queue::ALL_QUEUES.to_view()
 }

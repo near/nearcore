@@ -3,6 +3,7 @@ use std::sync::atomic::Ordering;
 use near_time::Clock;
 use serde::Serialize;
 
+use crate::instrumentation::queue::InstrumentedQueueView;
 use crate::instrumentation::{
     NUM_WINDOWS,
     data::{
@@ -26,6 +27,7 @@ pub struct InstrumentedThreadView {
     pub message_types: Vec<String>,
     pub windows: Vec<InstrumentedWindowView>,
     pub active_event: Option<InstrumentedActiveEventView>,
+    pub queue: InstrumentedQueueView,
 }
 
 #[derive(Serialize, Debug)]
@@ -182,12 +184,14 @@ impl InstrumentedThread {
             message_types: self.message_type_registry.to_vec(),
             windows,
             active_event,
+            queue: self.queue.to_view(),
         }
     }
 }
 
 impl AllActorInstrumentations {
     pub fn to_view(&self, clock: &Clock) -> InstrumentedThreadsView {
+        #[allow(clippy::needless_collect)] // to avoid long locking
         let threads = self.threads.read().values().cloned().collect::<Vec<_>>();
         let current_time_ns = clock.now().duration_since(self.reference_instant).as_nanos() as u64;
         let current_time_unix_ms = (clock.now_utc().unix_timestamp_nanos() / 1000000) as u64;

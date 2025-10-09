@@ -9,6 +9,7 @@ use std::{
 
 use parking_lot::RwLock;
 
+use crate::instrumentation::queue::InstrumentedQueue;
 use crate::instrumentation::{NUM_WINDOWS, WINDOW_SIZE_NS};
 /// it needs to be at least NUM_WINDOWS + 1, but we round up to a power of two for efficiency
 const WINDOW_ARRAY_SIZE: usize = NUM_WINDOWS + 4;
@@ -52,6 +53,8 @@ pub struct InstrumentedThread {
     /// The name of the actor (if any) that this thread is running. This is used
     /// in metrics, to allow grouping by actor name for multithreaded actors.
     pub actor_name: String,
+    /// The (possibly shared) queue instrumentation.
+    pub queue: Arc<InstrumentedQueue>,
     /// Time when this thread was started, in nanoseconds since reference_instant.
     pub started_time_ns: u64,
     /// Registry of message types that are seen so far on this thread. It is used to
@@ -83,10 +86,16 @@ pub struct InstrumentedThread {
 }
 
 impl InstrumentedThread {
-    pub fn new(thread_name: String, actor_name: String, start_time: u64) -> Self {
+    pub fn new(
+        thread_name: String,
+        actor_name: String,
+        queue: Arc<InstrumentedQueue>,
+        start_time: u64,
+    ) -> Self {
         Self {
             thread_name,
             actor_name,
+            queue,
             started_time_ns: start_time,
             message_type_registry: MessageTypeRegistry::default(),
             windows: (0..WINDOW_ARRAY_SIZE)
@@ -314,7 +323,7 @@ impl InstrumentedEventBuffer {
         self.len.store(len + 1, Ordering::Release);
     }
 
-    pub fn clear(&mut self) {
+    pub fn clear(&self) {
         // Relaxed because the synchronization is performed via the RwLock (which
         // is guaranteed because this function takes &mut self).
         self.len.store(0, std::sync::atomic::Ordering::Relaxed);

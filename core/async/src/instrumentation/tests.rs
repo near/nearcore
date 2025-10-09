@@ -4,6 +4,8 @@ use time::Duration;
 use near_time::FakeClock;
 
 use crate::instrumentation::NUM_WINDOWS;
+use crate::instrumentation::queue::InstrumentedQueue;
+use crate::instrumentation::writer::InstrumentedThreadWriterSharedPart;
 use crate::instrumentation::{
     WINDOW_SIZE_NS, data::InstrumentedThread, writer::InstrumentedThreadWriter,
 };
@@ -23,13 +25,21 @@ impl Default for TestSetup {
         let clock = fake_clock.clock();
         let reference_instant = fake_clock.now();
 
+        let queue = InstrumentedQueue::new("test_actor");
         let target = Arc::new(InstrumentedThread::new(
             "test_thread".to_string(),
             "test_actor".to_string(),
+            queue.clone(),
             0,
         ));
+        let shared = InstrumentedThreadWriterSharedPart::new_for_test(
+            "test_actor".to_string(),
+            clock,
+            reference_instant,
+            queue,
+        );
 
-        let writer = InstrumentedThreadWriter::new(clock, reference_instant, target.clone());
+        let writer = shared.new_writer_for_test(target.clone());
 
         Self { clock: fake_clock, reference_instant, target, writer }
     }
@@ -61,14 +71,14 @@ fn test_basic_event_tracking() {
     assert!(!window.events_overfilled);
 
     // Check that the summary contains our message processing time
-    assert!(window.summary.message_stats_by_type.len() >= 1);
+    assert!(!window.summary.message_stats_by_type.is_empty());
     let message_stats = &window.summary.message_stats_by_type[0];
     assert_eq!(message_stats.message_type, 0); // First message type gets ID 0
     assert_eq!(message_stats.count, 1);
     assert!(message_stats.total_time_ns >= 50_000_000); // At least 50ms
 
     // Check dequeue summary
-    assert!(window.dequeue_summary.message_stats_by_type.len() >= 1);
+    assert!(!window.dequeue_summary.message_stats_by_type.is_empty());
     let dequeue_stats = &window.dequeue_summary.message_stats_by_type[0];
     assert_eq!(dequeue_stats.message_type, 0);
     assert_eq!(dequeue_stats.count, 1);
@@ -154,7 +164,7 @@ fn test_window_wrapping() {
 
     // Each window should have our test event
     for window in &view.windows {
-        if window.summary.message_stats_by_type.len() > 0 {
+        if !window.summary.message_stats_by_type.is_empty() {
             assert_eq!(window.summary.message_stats_by_type[0].count, 1);
             assert!(window.summary.message_stats_by_type[0].total_time_ns >= 10_000_000); // At least 10ms
         }
@@ -185,13 +195,13 @@ fn test_cross_window_event() {
     // The event should be split across windows
     // First window should have partial time (50ms)
     let first_window = &view.windows[1]; // Windows are in reverse order (most recent first)
-    if first_window.summary.message_stats_by_type.len() > 0 {
+    if !first_window.summary.message_stats_by_type.is_empty() {
         assert!(first_window.summary.message_stats_by_type[0].total_time_ns <= 50_000_000); // Should be <= 50ms
     }
 
     // Second window should have the remaining time (50ms)
     let second_window = &view.windows[0];
-    if second_window.summary.message_stats_by_type.len() > 0 {
+    if !second_window.summary.message_stats_by_type.is_empty() {
         assert!(second_window.summary.message_stats_by_type[0].total_time_ns >= 50_000_000); // Should be >= 50ms
     }
 }
