@@ -338,6 +338,14 @@ fn test_early_prepare_tx_missing_chunk() {
 }
 
 /// Test that early transaction preparation works as expected when there is a missing block
+///
+/// The situation looks like this:
+/// 1005 -> 1006 -> 1007
+///            \------------> 1008 -> 1009
+///
+/// A block is always processed before preparing transactions for the next chunk, so ideally all
+/// jobs should be found and used. However sometimes testloop can cause weird timing issues where
+/// one of the jobs doesn't start in time.
 #[test]
 fn test_early_prepare_tx_missing_block() {
     init_test_logger();
@@ -390,6 +398,10 @@ fn test_early_prepare_tx_missing_block() {
     assert_eq!(metrics.job_started_total.get(), 11);
 
     // One job was not used because of the missing block
+
+    // If (used, not_found) changes to (9, 1), it's ok to change the asserts.
+    // Ideally it would be (10, 0), but it depends on the timing and sometimes
+    // testloop delays can cause a job to not start in time.
     assert_eq!(metrics.job_result_used_total.get(), 10);
     assert_eq!(metrics.job_result_not_found_total.get(), 0);
     assert_eq!(metrics.job_error_total.get(), 0);
