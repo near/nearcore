@@ -2,6 +2,10 @@ use crate::PeerManagerActor;
 use crate::accounts_data::AccountDataCacheSnapshot;
 use crate::auto_stop::AutoStopActor;
 use crate::broadcast;
+use crate::client::AnnounceAccountRequest;
+use crate::client::ClientSenderForNetwork;
+use crate::client::StatePartOrHeader;
+use crate::client::StateRequestPart;
 use crate::config;
 use crate::network_protocol::SnapshotHostInfo;
 use crate::network_protocol::SyncSnapshotHosts;
@@ -16,10 +20,14 @@ use crate::peer_manager::peer_manager_actor::Event as PME;
 use crate::snapshot_hosts::SnapshotHostsCache;
 use crate::tcp;
 use crate::test_utils;
+use crate::types::StateRequestSenderForNetwork;
+use crate::types::StateResponseInfo;
+use crate::types::StateResponseInfoV2;
 use crate::types::{
     AccountKeys, ChainInfo, KnownPeerStatus, NetworkRequests, PeerManagerMessageRequest,
     ReasonForBan,
 };
+use futures::FutureExt;
 use near_async::Message;
 use near_async::futures::FutureSpawnerExt;
 use near_async::messaging::IntoSender;
@@ -28,6 +36,8 @@ use near_async::messaging::{self, CanSendAsync, IntoMultiSender};
 use near_async::messaging::{CanSend, Sender};
 use near_async::{ActorSystem, time};
 use near_primitives::network::{AnnounceAccount, PeerId};
+use near_primitives::state_sync::ShardStateSyncResponse;
+use near_primitives::state_sync::ShardStateSyncResponseV2;
 use near_primitives::types::AccountId;
 use std::collections::HashSet;
 use std::fmt::Debug;
@@ -583,58 +593,43 @@ pub(crate) async fn start(
             send.send(Event::PeerManager(event));
         }
     });
-    // let client_sender = Sender::from_fn({
-    //     let send = send.clone();
-    //     move |event: ClientSenderForNetworkMessage| {
-    //         // NOTE(robin-near): This is a pretty bad hack to preserve previous behavior
-    //         // of the test code.
-    //         // For some specific events we craft a response and send it back, while for
-    //         // most other events we send it to the sink (for what? I have no idea).
-    //         match event {
-    //             ClientSenderForNetworkMessage::_announce_account(msg) => {
-    //                 (msg.callback)(
-    //                     std::future::ready(Ok(Ok(msg
-    //                         .message
-    //                         .0
-    //                         .iter()
-    //                         .map(|(account, _)| account.clone())
-    //                         .collect())))
-    //                     .boxed(),
-    //                 );
-    //                 send.send(Event::Client(ClientSenderForNetworkInput::_announce_account(
-    //                     msg.message,
-    //                 )));
-    //             }
-    //             _ => {
-    //                 send.send(Event::Client(event.into_input()));
-    //             }
-    //         }
-    //     }
-    // });
-    // let state_request_sender = Sender::from_fn({
-    //     let send = send.clone();
-    //     move |event: StateRequestSenderForNetworkMessage| {
-    //         // NOTE: See above comment for explanation about this code.
-    //         match event {
-    //             StateRequestSenderForNetworkMessage::_state_request_part(msg) => {
-    //                 let StateRequestPart { part_id, shard_id, sync_hash } = msg.message;
-    //                 let part = Some((part_id, vec![]));
-    //                 let state_response =
-    //                     ShardStateSyncResponse::V2(ShardStateSyncResponseV2 { header: None, part });
-    //                 let result = Some(StatePartOrHeader(Box::new(StateResponseInfo::V2(
-    //                     Box::new(StateResponseInfoV2 { shard_id, sync_hash, state_response }),
-    //                 ))));
-    //                 (msg.callback)(std::future::ready(Ok(result)).boxed());
-    //                 send.send(Event::StateRequestSender(
-    //                     StateRequestSenderForNetworkInput::_state_request_part(msg.message),
-    //                 ));
-    //             }
-    //             _ => {
-    //                 send.send(Event::StateRequestSender(event.into_input()));
-    //             }
-    //         }
-    //     }
-    // });
+
+    let mut client_sender: ClientSenderForNetwork = noop().into_multi_sender();
+    client_sender.announce_account = Sender::from_fn({
+        move |msg: messaging::MessageWithCallback<
+            AnnounceAccountRequest,
+            Result<Vec<AnnounceAccount>, ReasonForBan>,
+        >| {
+            // NOTE(robin-near): This is a pretty bad hack to preserve previous behavior
+            // of the test code.
+            // For some specific events we craft a response and send it back, while for
+            // most other events we send it to the sink (for what? I have no idea).
+            (msg.callback)(
+                std::future::ready(Ok(Ok(msg
+                    .message
+                    .0
+                    .iter()
+                    .map(|(account, _)| account.clone())
+                    .collect())))
+                .boxed(),
+            );
+        }
+    });
+
+    let mut state_request_sender: StateRequestSenderForNetwork = noop().into_multi_sender();
+    state_request_sender.state_request_part = Sender::from_fn({
+        move |msg: messaging::MessageWithCallback<StateRequestPart, Option<StatePartOrHeader>>| {
+            // NOTE: See above comment for explanation about this code.
+            let StateRequestPart { part_id, shard_id, sync_hash } = msg.message;
+            let part = Some((part_id, vec![]));
+            let state_response =
+                ShardStateSyncResponse::V2(ShardStateSyncResponseV2 { header: None, part });
+            let result = Some(StatePartOrHeader(Box::new(StateResponseInfo::V2(Box::new(
+                StateResponseInfoV2 { shard_id, sync_hash, state_response },
+            )))));
+            (msg.callback)(std::future::ready(Ok(result)).boxed());
+        }
+    });
     // let peer_manager_sender = Sender::from_fn({
     //     let send = send.clone();
     //     move |event: PeerManagerSenderForNetworkMessage| {
@@ -665,8 +660,8 @@ pub(crate) async fn start(
         actor_system.clone(),
         store,
         cfg.clone(),
-        noop().into_multi_sender(),
-        noop().into_multi_sender(),
+        client_sender,
+        state_request_sender,
         noop().into_multi_sender(),
         noop().into_sender(),
         noop().into_multi_sender(),
