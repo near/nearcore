@@ -7,7 +7,7 @@ use near_client::sync::external::{
     StateFileType, StateSyncConnection, external_storage_location,
     external_storage_location_directory, get_num_parts_from_filename,
 };
-use near_external::S3AccessConfig;
+use near_external_storage::S3AccessConfig;
 use near_jsonrpc::client::{JsonRpcClient, new_client};
 use near_jsonrpc::primitives::errors::RpcErrorKind;
 use near_jsonrpc::primitives::types::config::RpcProtocolConfigRequest;

@@ -1,6 +1,6 @@
 use crate::metrics;
 use near_chain_configs::ExternalStorageLocation;
-use near_external::{ExternalConnection, S3AccessConfig};
+use near_external_storage::{ExternalConnection, S3AccessConfig};
 use near_primitives::types::{EpochId, ShardId};
 use std::path::PathBuf;
 use std::time::Instant;

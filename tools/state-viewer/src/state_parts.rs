@@ -8,7 +8,7 @@ use near_client::sync::external::{
 };
 use near_epoch_manager::EpochManager;
 use near_epoch_manager::shard_tracker::ShardTracker;
-use near_external::S3AccessConfig;
+use near_external_storage::S3AccessConfig;
 use near_primitives::epoch_info::EpochInfo;
 use near_primitives::state::PartialState;
 use near_primitives::state_part::{PartId, StatePart};

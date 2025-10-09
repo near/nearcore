@@ -20,7 +20,7 @@ use near_chain::types::RuntimeAdapter;
 use near_chain_configs::{ExternalStorageConfig, StateSyncConfig, SyncConcurrency, SyncConfig};
 use near_client_primitives::types::{ShardSyncStatus, StateSyncStatus};
 use near_epoch_manager::EpochManagerAdapter;
-use near_external::S3AccessConfig;
+use near_external_storage::S3AccessConfig;
 use near_network::client::StateResponse;
 use near_network::types::{PeerManagerMessageRequest, PeerManagerMessageResponse};
 use near_primitives::hash::CryptoHash;

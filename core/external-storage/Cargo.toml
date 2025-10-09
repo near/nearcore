@@ -1,5 +1,5 @@
 [package]
-name = "near-external"
+name = "near-external-storage"
 version.workspace = true
 authors.workspace = true
 edition.workspace = true

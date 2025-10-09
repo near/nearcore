@@ -4189,7 +4189,7 @@ dependencies = [
  "near-crypto",
  "near-dyn-configs",
  "near-epoch-manager",
- "near-external",
+ "near-external-storage",
  "near-network",
  "near-o11y",
  "near-parameters",
@@ -4369,7 +4369,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "near-external"
+name = "near-external-storage"
 version = "0.0.0"
 dependencies = [
  "anyhow",
@@ -4975,7 +4975,7 @@ dependencies = [
  "clap",
  "near-chain-configs",
  "near-client",
- "near-external",
+ "near-external-storage",
  "near-jsonrpc",
  "near-o11y",
  "near-primitives",
@@ -5368,7 +5368,7 @@ dependencies = [
  "near-crypto",
  "near-dyn-configs",
  "near-epoch-manager",
- "near-external",
+ "near-external-storage",
  "near-jsonrpc",
  "near-jsonrpc-primitives",
  "near-mainnet-res",
@@ -7792,7 +7792,7 @@ dependencies = [
  "near-client",
  "near-crypto",
  "near-epoch-manager",
- "near-external",
+ "near-external-storage",
  "near-jsonrpc",
  "near-network",
  "near-o11y",
@@ -8068,7 +8068,7 @@ dependencies = [
  "near-client",
  "near-crypto",
  "near-epoch-manager",
- "near-external",
+ "near-external-storage",
  "near-indexer",
  "near-jsonrpc",
  "near-network",

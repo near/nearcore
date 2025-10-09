@@ -44,7 +44,7 @@ members = [
     "core/crypto",
     "core/crypto/ed25519-batch",
     "core/dyn-configs",
-    "core/external",
+    "core/external-storage",
     "core/o11y",
     "core/parameters",
     "core/primitives",
@@ -251,7 +251,7 @@ near-crypto = { path = "core/crypto", default-features = false }
 near-crypto-ed25519-batch = { path = "core/crypto/ed25519-batch" }
 near-dyn-configs = { path = "core/dyn-configs" }
 near-epoch-manager = { path = "chain/epoch-manager" }
-near-external = { path = "core/external" }
+near-external-storage = { path = "core/external-storage" }
 near-flat-storage = { path = "tools/flat-storage" }
 near-fork-network = { path = "tools/fork-network" }
 near-fmt = { path = "utils/fmt" }
