@@ -80,7 +80,7 @@ pub const EXPECTED_EPOCH_LENGTH: BlockHeightDelta =
     (5 * 60 * 1000) / MIN_BLOCK_PRODUCTION_DELAY as u64;
 
 /// Maximum inflation rate per year
-pub const MAX_INFLATION_RATE: Rational32 = Rational32::new_raw(1, 20);
+pub const MAX_INFLATION_RATE: Rational32 = Rational32::new_raw(1, 40);
 
 /// Initial and minimum gas price.
 pub const MIN_GAS_PRICE: Balance = 100_000_000;
