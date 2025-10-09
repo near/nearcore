@@ -538,7 +538,7 @@ mod tests {
     #[test]
     fn test_reward_no_overflow() {
         let epoch_length = 60 * 60 * 12;
-        let max_inflation_rate = Ratio::new(5, 100);
+        let max_inflation_rate = Ratio::new(1, 40);
         let reward_calculator = RewardCalculator {
             num_blocks_per_year: 60 * 60 * 24 * 365,
             // half a day

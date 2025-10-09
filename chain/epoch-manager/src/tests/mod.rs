@@ -523,7 +523,7 @@ fn test_validator_reward_one_validator() {
     let mut validator_stakes = HashMap::new();
     validator_stakes.insert("test2".parse().unwrap(), stake_amount);
 
-    let max_inflation_rate = Ratio::new(5, 100);
+    let max_inflation_rate = Ratio::new(1, 40);
     let (validator_reward, inflation) = reward_calculator.calculate_reward(
         validator_online_ratio,
         &validator_stakes,
@@ -619,7 +619,7 @@ fn test_validator_reward_weight_by_stake() {
     let mut validators_stakes = HashMap::new();
     validators_stakes.insert("test1".parse().unwrap(), stake_amount1);
     validators_stakes.insert("test2".parse().unwrap(), stake_amount2);
-    let max_inflation_rate = Ratio::new(5, 100);
+    let max_inflation_rate = Ratio::new(1, 40);
     let (validator_reward, inflation) = reward_calculator.calculate_reward(
         validator_online_ratio,
         &validators_stakes,
@@ -743,7 +743,7 @@ fn test_reward_multiple_shards() {
     let mut validators_stakes = HashMap::new();
     validators_stakes.insert("test1".parse().unwrap(), stake_amount);
     validators_stakes.insert("test2".parse().unwrap(), stake_amount);
-    let max_inflation_rate = Ratio::new(5, 100);
+    let max_inflation_rate = Ratio::new(1, 40);
     let (validator_reward, inflation) = reward_calculator.calculate_reward(
         validator_online_ratio,
         &validators_stakes,
@@ -1085,20 +1085,20 @@ fn test_rewards_with_kickouts() {
             2,
             // test3 should still be rewarded even though it is in the kickouts for unstaking
             HashMap::from([
-                ("near".parse().unwrap(), 1585),
-                ("test1".parse().unwrap(), 4756),
-                ("test3".parse().unwrap(), 4756),
+                ("near".parse().unwrap(), 792),
+                ("test1".parse().unwrap(), 2378),
+                ("test3".parse().unwrap(), 2378),
             ]),
         ),
         (
             3,
             HashMap::from([
-                ("near".parse().unwrap(), 1585),
-                ("test1".parse().unwrap(), 4756),
-                ("test3".parse().unwrap(), 4756),
+                ("near".parse().unwrap(), 792),
+                ("test1".parse().unwrap(), 2378),
+                ("test3".parse().unwrap(), 2378),
             ]),
         ),
-        (4, HashMap::from([("near".parse().unwrap(), 1585), ("test1".parse().unwrap(), 14269)])),
+        (4, HashMap::from([("near".parse().unwrap(), 792), ("test1".parse().unwrap(), 7135)])),
     ]);
     let wanted_kickouts = HashMap::from([
         (
