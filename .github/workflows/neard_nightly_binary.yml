@@ -26,7 +26,7 @@ jobs:
 
       - name: Checkout ${{ github.event.inputs.branch }} branch
         if: ${{ github.event_name == 'workflow_dispatch'}}
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           ref: ${{ github.event.inputs.branch }}
 
