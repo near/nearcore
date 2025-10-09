@@ -36,6 +36,8 @@ use crate::types::{
 use futures::FutureExt;
 use near_async::Message;
 use near_async::futures::FutureSpawnerExt;
+use near_async::messaging::IntoSender;
+use near_async::messaging::noop;
 use near_async::messaging::{self, CanSendAsync, IntoMultiSender};
 use near_async::messaging::{CanSend, Sender};
 use near_async::{ActorSystem, time};
@@ -78,13 +80,13 @@ impl messaging::Handler<WithNetworkState> for PeerManagerActor {
 #[derive(Debug, PartialEq, Eq, Clone)]
 #[allow(clippy::large_enum_variant)]
 pub enum Event {
-    ShardsManager(ShardsManagerRequestFromNetwork),
-    Client(ClientSenderForNetworkInput),
-    StateRequestSender(StateRequestSenderForNetworkInput),
+    // ShardsManager(ShardsManagerRequestFromNetwork),
+    // Client(ClientSenderForNetworkInput),
+    // StateRequestSender(StateRequestSenderForNetworkInput),
     PeerManager(PME),
-    PeerManagerSender(PeerManagerSenderForNetworkInput),
-    PartialWitness(PartialWitnessSenderForNetworkInput),
-    SpiceDataDistributor(SpiceDataDistributorSenderForNetworkInput),
+    // PeerManagerSender(PeerManagerSenderForNetworkInput),
+    // PartialWitness(PartialWitnessSenderForNetworkInput),
+    // SpiceDataDistributor(SpiceDataDistributorSenderForNetworkInput),
 }
 
 pub(crate) struct ActorHandler {
@@ -597,94 +599,94 @@ pub(crate) async fn start(
             send.send(Event::PeerManager(event));
         }
     });
-    let client_sender = Sender::from_fn({
-        let send = send.clone();
-        move |event: ClientSenderForNetworkMessage| {
-            // NOTE(robin-near): This is a pretty bad hack to preserve previous behavior
-            // of the test code.
-            // For some specific events we craft a response and send it back, while for
-            // most other events we send it to the sink (for what? I have no idea).
-            match event {
-                ClientSenderForNetworkMessage::_announce_account(msg) => {
-                    (msg.callback)(
-                        std::future::ready(Ok(Ok(msg
-                            .message
-                            .0
-                            .iter()
-                            .map(|(account, _)| account.clone())
-                            .collect())))
-                        .boxed(),
-                    );
-                    send.send(Event::Client(ClientSenderForNetworkInput::_announce_account(
-                        msg.message,
-                    )));
-                }
-                _ => {
-                    send.send(Event::Client(event.into_input()));
-                }
-            }
-        }
-    });
-    let state_request_sender = Sender::from_fn({
-        let send = send.clone();
-        move |event: StateRequestSenderForNetworkMessage| {
-            // NOTE: See above comment for explanation about this code.
-            match event {
-                StateRequestSenderForNetworkMessage::_state_request_part(msg) => {
-                    let StateRequestPart { part_id, shard_id, sync_hash } = msg.message;
-                    let part = Some((part_id, vec![]));
-                    let state_response =
-                        ShardStateSyncResponse::V2(ShardStateSyncResponseV2 { header: None, part });
-                    let result = Some(StatePartOrHeader(Box::new(StateResponseInfo::V2(
-                        Box::new(StateResponseInfoV2 { shard_id, sync_hash, state_response }),
-                    ))));
-                    (msg.callback)(std::future::ready(Ok(result)).boxed());
-                    send.send(Event::StateRequestSender(
-                        StateRequestSenderForNetworkInput::_state_request_part(msg.message),
-                    ));
-                }
-                _ => {
-                    send.send(Event::StateRequestSender(event.into_input()));
-                }
-            }
-        }
-    });
-    let peer_manager_sender = Sender::from_fn({
-        let send = send.clone();
-        move |event: PeerManagerSenderForNetworkMessage| {
-            send.send(Event::PeerManagerSender(event.into_input()));
-        }
-    });
-    let shards_manager_sender = Sender::from_fn({
-        let send = send.clone();
-        move |event| {
-            send.send(Event::ShardsManager(event));
-        }
-    });
-    let state_witness_sender = Sender::from_fn({
-        let send = send.clone();
-        move |event: PartialWitnessSenderForNetworkMessage| {
-            send.send(Event::PartialWitness(event.into_input()));
-        }
-    });
-    let spice_data_distribution_sender = Sender::from_fn({
-        let send = send.clone();
-        move |event: SpiceDataDistributorSenderForNetworkMessage| {
-            send.send(Event::SpiceDataDistributor(event.into_input()));
-        }
-    });
+    // let client_sender = Sender::from_fn({
+    //     let send = send.clone();
+    //     move |event: ClientSenderForNetworkMessage| {
+    //         // NOTE(robin-near): This is a pretty bad hack to preserve previous behavior
+    //         // of the test code.
+    //         // For some specific events we craft a response and send it back, while for
+    //         // most other events we send it to the sink (for what? I have no idea).
+    //         match event {
+    //             ClientSenderForNetworkMessage::_announce_account(msg) => {
+    //                 (msg.callback)(
+    //                     std::future::ready(Ok(Ok(msg
+    //                         .message
+    //                         .0
+    //                         .iter()
+    //                         .map(|(account, _)| account.clone())
+    //                         .collect())))
+    //                     .boxed(),
+    //                 );
+    //                 send.send(Event::Client(ClientSenderForNetworkInput::_announce_account(
+    //                     msg.message,
+    //                 )));
+    //             }
+    //             _ => {
+    //                 send.send(Event::Client(event.into_input()));
+    //             }
+    //         }
+    //     }
+    // });
+    // let state_request_sender = Sender::from_fn({
+    //     let send = send.clone();
+    //     move |event: StateRequestSenderForNetworkMessage| {
+    //         // NOTE: See above comment for explanation about this code.
+    //         match event {
+    //             StateRequestSenderForNetworkMessage::_state_request_part(msg) => {
+    //                 let StateRequestPart { part_id, shard_id, sync_hash } = msg.message;
+    //                 let part = Some((part_id, vec![]));
+    //                 let state_response =
+    //                     ShardStateSyncResponse::V2(ShardStateSyncResponseV2 { header: None, part });
+    //                 let result = Some(StatePartOrHeader(Box::new(StateResponseInfo::V2(
+    //                     Box::new(StateResponseInfoV2 { shard_id, sync_hash, state_response }),
+    //                 ))));
+    //                 (msg.callback)(std::future::ready(Ok(result)).boxed());
+    //                 send.send(Event::StateRequestSender(
+    //                     StateRequestSenderForNetworkInput::_state_request_part(msg.message),
+    //                 ));
+    //             }
+    //             _ => {
+    //                 send.send(Event::StateRequestSender(event.into_input()));
+    //             }
+    //         }
+    //     }
+    // });
+    // let peer_manager_sender = Sender::from_fn({
+    //     let send = send.clone();
+    //     move |event: PeerManagerSenderForNetworkMessage| {
+    //         send.send(Event::PeerManagerSender(event.into_input()));
+    //     }
+    // });
+    // let shards_manager_sender = Sender::from_fn({
+    //     let send = send.clone();
+    //     move |event| {
+    //         send.send(Event::ShardsManager(event));
+    //     }
+    // });
+    // let state_witness_sender = Sender::from_fn({
+    //     let send = send.clone();
+    //     move |event: PartialWitnessSenderForNetworkMessage| {
+    //         send.send(Event::PartialWitness(event.into_input()));
+    //     }
+    // });
+    // let spice_data_distribution_sender = Sender::from_fn({
+    //     let send = send.clone();
+    //     move |event: SpiceDataDistributorSenderForNetworkMessage| {
+    //         send.send(Event::SpiceDataDistributor(event.into_input()));
+    //     }
+    // });
     let actor_system = ActorSystem::new();
     let actor = PeerManagerActor::spawn(
         clock,
         actor_system.clone(),
         store,
         cfg.clone(),
-        client_sender.break_apart().into_multi_sender(),
-        state_request_sender.break_apart().into_multi_sender(),
-        peer_manager_sender.break_apart().into_multi_sender(),
-        shards_manager_sender,
-        state_witness_sender.break_apart().into_multi_sender(),
-        spice_data_distribution_sender.break_apart().into_multi_sender(),
+        noop().into_multi_sender(),
+        noop().into_multi_sender(),
+        noop().into_multi_sender(),
+        noop().into_sender(),
+        noop().into_multi_sender(),
+        noop().into_multi_sender(),
         genesis_id,
     )
     .unwrap();
