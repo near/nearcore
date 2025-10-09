@@ -487,7 +487,7 @@ def handle_get_logs(args):
     os.makedirs(args.output_dir, exist_ok=True)
     args.src = compressed_log_file
     args.dst = args.output_dir
-    run_remote_download_file(CommandContext(args), include_node_name=True )
+    run_remote_download_file(CommandContext(args), include_node_name=True)
 
 
 def handle_start(args):
@@ -601,10 +601,9 @@ def main():
         '--output-dir',
         default='.',
         help='Directory to save the log files (default: current directory)')
-    get_logs_parser.add_argument(
-        '--host-filter',
-        default=None,
-        help= 'Filter to select specific hosts')
+    get_logs_parser.add_argument('--host-filter',
+                                 default=None,
+                                 help='Filter to select specific hosts')
 
     if '--' in sys.argv:
         idx = sys.argv.index('--')
