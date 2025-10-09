@@ -454,7 +454,6 @@ pub fn start_with_config_and_synchronization(
         config.genesis.config.genesis_height,
         runtime.clone(),
         storage.get_hot_store(),
-        storage.get_cloud_storage(),
     )?;
 
     let telemetry =

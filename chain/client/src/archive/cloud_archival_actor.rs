@@ -9,7 +9,6 @@ use near_chain::types::{RuntimeAdapter, Tip};
 use near_chain_configs::{CloudArchivalWriterConfig, CloudArchivalWriterHandle};
 use near_primitives::types::BlockHeight;
 use near_store::adapter::StoreAdapter;
-use near_store::archive::cloud_storage::CloudStorage;
 use near_store::db::{CLOUD_HEAD_KEY, DBTransaction};
 use near_store::{DBCol, FINAL_HEAD_KEY, Store};
 use time::Duration;
@@ -84,8 +83,6 @@ pub struct CloudArchivalWriter {
     config: CloudArchivalWriterConfig,
     genesis_height: BlockHeight,
     hot_store: Store,
-    #[allow(unused)]
-    cloud_storage: Arc<CloudStorage>,
     handle: CloudArchivalWriterHandle,
 }
 
@@ -95,16 +92,12 @@ pub fn create_cloud_archival_writer(
     genesis_height: BlockHeight,
     runtime_adapter: Arc<dyn RuntimeAdapter>,
     hot_store: Store,
-    cloud_storage: Option<&Arc<CloudStorage>>,
 ) -> anyhow::Result<Option<CloudArchivalWriterHandle>> {
     let Some(config) = writer_config else {
         tracing::debug!(target: "cloud_archival", "Not creating the cloud archival writer because it is not configured");
         return Ok(None);
     };
-
-    let cloud_storage = cloud_storage
-        .expect("Cloud archival writer is configured but cloud storage was not initialized.");
-    let writer = CloudArchivalWriter::new(config, genesis_height, hot_store, cloud_storage.clone());
+    let writer = CloudArchivalWriter::new(config, genesis_height, hot_store);
     let handle = writer.handle.clone();
     tracing::info!(target: "cloud_archival", "Starting the cloud archival writer");
     writer.initialize_cloud_head(&runtime_adapter)?;
@@ -123,10 +116,9 @@ impl CloudArchivalWriter {
         config: CloudArchivalWriterConfig,
         genesis_height: BlockHeight,
         hot_store: Store,
-        cloud_storage: Arc<CloudStorage>,
     ) -> Self {
         let handle = CloudArchivalWriterHandle::new();
-        Self { config, genesis_height, hot_store, cloud_storage, handle }
+        Self { config, genesis_height, hot_store, handle }
     }
 
     /// Main loop: archive as fast as possible until `cloud_head == hot_final_head`, then
