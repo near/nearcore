@@ -51,7 +51,7 @@ jobs:
     timeout-minutes: 90
     steps:
       - if: github.event_name != 'pull_request' || matrix.run_on_pr
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       # Install all the required tools
       - if: github.event_name != 'pull_request' || matrix.run_on_pr
@@ -96,7 +96,7 @@ jobs:
     name: "Protobuf Backward Compatibility"
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5-
       - uses: bufbuild/buf-setup-action@1158f4fa81bc02e1ff62abcca6d516c9e24c77da
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
@@ -111,7 +111,7 @@ jobs:
       fail-fast: false
     timeout-minutes: 90
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: WarpBuilds/setup-python@v5
         with:
           python-version: 3.11
@@ -143,7 +143,7 @@ jobs:
     name: "Large pytest Tests"
     runs-on: warp-ubuntu-2204-x64-8x
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: WarpBuilds/setup-python@v5
         with:
           python-version: 3.11
@@ -173,7 +173,7 @@ jobs:
     name: "Protocol Schema"
     runs-on: warp-ubuntu-2204-x64-8x
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: taiki-e/install-action@7852930e42e73b6c323ae4435f5135b58754dfdd
         with:
           tool: just
@@ -183,7 +183,7 @@ jobs:
     name: "Style"
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: taiki-e/install-action@7852930e42e73b6c323ae4435f5135b58754dfdd
         with:
           tool: just
@@ -198,7 +198,7 @@ jobs:
     name: "Cargo Fmt"
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: taiki-e/install-action@7852930e42e73b6c323ae4435f5135b58754dfdd
         with:
           tool: just
@@ -208,7 +208,7 @@ jobs:
     name: "Cargo Clippy"
     runs-on: warp-ubuntu-2204-x64-8x
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: taiki-e/install-action@7852930e42e73b6c323ae4435f5135b58754dfdd
         with:
           tool: just
@@ -218,7 +218,7 @@ jobs:
     name: "Rust Doctests"
     runs-on: warp-ubuntu-2204-x64-8x
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: taiki-e/install-action@7852930e42e73b6c323ae4435f5135b58754dfdd
         with:
           tool: just
@@ -227,7 +227,7 @@ jobs:
   spellcheck:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: taiki-e/install-action@7852930e42e73b6c323ae4435f5135b58754dfdd
         with:
           tool: just
@@ -238,7 +238,7 @@ jobs:
     name: "Cargo Deny"
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: taiki-e/install-action@7852930e42e73b6c323ae4435f5135b58754dfdd
         with:
           tool: just,cargo-deny
@@ -248,7 +248,7 @@ jobs:
     name: "Themis"
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: taiki-e/install-action@7852930e42e73b6c323ae4435f5135b58754dfdd
         with:
           tool: just
@@ -258,7 +258,7 @@ jobs:
     name: "Cargo machete (unused dependencies)"
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: taiki-e/install-action@7852930e42e73b6c323ae4435f5135b58754dfdd
         with:
           tool: just,cargo-machete
@@ -268,7 +268,7 @@ jobs:
     name: "Non-default Configuration Builds"
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: taiki-e/install-action@7852930e42e73b6c323ae4435f5135b58754dfdd
         with:
           tool: just
@@ -278,7 +278,7 @@ jobs:
     name: "Unused Dependencies"
     runs-on: warp-ubuntu-2204-x64-8x
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: taiki-e/install-action@7852930e42e73b6c323ae4435f5135b58754dfdd
         with:
           tool: just,cargo-udeps
@@ -288,7 +288,7 @@ jobs:
     name: "Cargo Audit"
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: taiki-e/install-action@7852930e42e73b6c323ae4435f5135b58754dfdd
         with:
           tool: cargo-audit
@@ -306,7 +306,7 @@ jobs:
           - type: unit
             profraws: unit
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 1000 # have enough history to find the merge-base between PR and master
       - uses: actions/download-artifact@v4
@@ -353,7 +353,7 @@ jobs:
       - pytest_tests
       - pytest_nightly_tests
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: actions/download-artifact@v4
         with:
           pattern: coverage-codecov-*
@@ -403,7 +403,7 @@ jobs:
             os: windows-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: taiki-e/install-action@7852930e42e73b6c323ae4435f5135b58754dfdd
         with:
           tool: just
@@ -414,7 +414,7 @@ jobs:
     name: "OpenAPI Spec"
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: taiki-e/install-action@7852930e42e73b6c323ae4435f5135b58754dfdd
         with:
           tool: just
