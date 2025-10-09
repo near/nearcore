@@ -40,11 +40,11 @@ jobs:
 
       - name: Checkout Release/RC branch
         if: contains(fromJSON('["released", "prereleased"]'), github.event.action)
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Checkout ${{ github.event.inputs.branch_ref }} branch
         if: ${{ github.event_name == 'workflow_dispatch'}}
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           ref: ${{ github.event.inputs.branch_ref }}
 
