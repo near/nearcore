@@ -38,8 +38,9 @@ where
 
 /// See ActorSystem::spawn_multithread_actor.
 ///
-/// The `system_cancellation_signal_preventer` is an optional sender that can be used to disable
-/// system-wide cancellation.
+/// The `cancellation_signal_holder` is an optional sender that can be used to disable
+/// system-wide cancellation. If this sender is used, it is just the other side of the
+/// `cancellation_signal`.
 pub(crate) fn spawn_multithread_actor<A>(
     num_threads: usize,
     make_actor_fn: impl Fn() -> A + Sync + Send + 'static,
