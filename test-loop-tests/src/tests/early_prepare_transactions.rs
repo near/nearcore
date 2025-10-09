@@ -354,9 +354,11 @@ fn test_early_prepare_tx_missing_block() {
 
     // Run the chain for a few heights, submit some transactions at each height
     let mut nonce_counter = 1;
+    // Use one block hash for all transactions. Preparing using the latest hash can sometimes cause the transactions
+    // to get rejected when they are prepared on top of the missing block, which isn't on the canonical chain.
+    let tx_block_hash = get_tip(&test_loop.data, &node_datas).last_block_hash;
     for _ in 0..5 {
-        let block_hash = get_tip(&test_loop.data, &node_datas).last_block_hash;
-        submit_transactions(&node_datas, block_hash, &mut nonce_counter);
+        submit_transactions(&node_datas, tx_block_hash, &mut nonce_counter);
         run_until_next_height(&mut test_loop, &node_datas);
     }
 
