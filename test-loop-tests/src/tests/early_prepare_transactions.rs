@@ -87,14 +87,28 @@ fn get_tip(test_loop_data: &TestLoopData, node_datas: &[NodeExecutionData]) -> A
     test_loop_data.get(&node_datas[0].client_sender.actor_handle()).client.chain.head().unwrap()
 }
 
+/// Run the chain until all nodes reach the next height.
+/// Waiting for all nodes makes the tests more consistent.
 fn run_until_next_height(test_loop: &mut TestLoopV2, node_datas: &[NodeExecutionData]) {
     let initial_height = get_tip(&test_loop.data, node_datas).height;
     test_loop.run_until(
         |tl_data| {
-            let cur_height = get_tip(tl_data, node_datas).height;
+            let cur_height = node_datas
+                .iter()
+                .map(|node_data| {
+                    tl_data
+                        .get(&node_data.client_sender.actor_handle())
+                        .client
+                        .chain
+                        .head()
+                        .unwrap()
+                        .height
+                })
+                .min()
+                .unwrap();
             cur_height > initial_height
         },
-        Duration::seconds(30),
+        Duration::seconds(5),
     );
 }
 
