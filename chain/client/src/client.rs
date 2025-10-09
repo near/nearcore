@@ -1835,11 +1835,6 @@ impl Client {
         )?;
         let (shard_chunk, encoded_shard_chunk) = chunk.into_parts();
         let partial_chunk_arc = Arc::new(partial_chunk.clone());
-        persist_chunk(
-            Arc::clone(&partial_chunk_arc),
-            Some(shard_chunk),
-            self.chain.mut_chain_store(),
-        )?;
 
         let chunk_header = encoded_shard_chunk.cloned_header();
         if let Some(chunk_distribution) = &self.chunk_distribution_network {
@@ -1855,14 +1850,22 @@ impl Client {
             }
         }
 
-        self.chunk_inclusion_tracker
-            .mark_chunk_header_ready_for_inclusion(chunk_header, validator_id);
         self.shards_manager_adapter.send(ShardsManagerRequestFromClient::DistributeEncodedChunk {
             partial_chunk,
             encoded_chunk: encoded_shard_chunk,
             merkle_paths,
             outgoing_receipts: receipts,
         });
+
+        persist_chunk(
+            Arc::clone(&partial_chunk_arc),
+            Some(shard_chunk),
+            self.chain.mut_chain_store(),
+        )?;
+
+        self.chunk_inclusion_tracker
+            .mark_chunk_header_ready_for_inclusion(chunk_header, validator_id);
+
         Ok(())
     }
 
