@@ -302,7 +302,7 @@ fn test_early_prepare_tx_missing_chunk() {
     // There were at least 3 blocks with some transactions inside
     assert!(chain_txs.num_blocks_with_txs > 3);
 
-    // No missing chunks and blocks
+    // One missing chunk, no missing blocks.
     assert_eq!(chain_txs.num_missing_chunks, 1);
     assert_eq!(chain_txs.num_missing_blocks, 0);
 
@@ -359,7 +359,7 @@ fn test_early_prepare_tx_missing_block() {
     // There were at least 3 blocks with some transactions inside
     assert!(chain_txs.num_blocks_with_txs > 3);
 
-    // No missing chunks and blocks
+    // No missing chunks. One missing block.
     assert_eq!(chain_txs.num_missing_chunks, 0);
     assert_eq!(chain_txs.num_missing_blocks, 1);
 
