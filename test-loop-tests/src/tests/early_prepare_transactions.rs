@@ -8,6 +8,7 @@ use near_client::metrics::{
     PREPARE_TRANSACTIONS_JOB_RESULT_USED_TOTAL, PREPARE_TRANSACTIONS_JOB_STARTED_TOTAL,
 };
 use near_o11y::metrics::IntCounterVec;
+use near_o11y::testonly::init_test_logger;
 use near_primitives::block::ChunkType;
 use std::collections::HashSet;
 use std::sync::{Arc, LazyLock};
@@ -213,6 +214,8 @@ impl MetricTrackers {
 /// Test that early transaction preparation works as expected on the happy path
 #[test]
 fn test_early_prepare_tx_basic() {
+    init_test_logger();
+
     let TestLoopEnv { mut test_loop, node_datas, shared_state } = setup(2, LONG_EPOCH_LENGTH);
     let start_height = get_tip(&test_loop.data, &node_datas).height;
     let metrics = MetricTrackers::new();
@@ -259,6 +262,8 @@ fn test_early_prepare_tx_basic() {
 /// Test that early transaction preparation works as expected when there is a missing chunk
 #[test]
 fn test_early_prepare_tx_missing_chunk() {
+    init_test_logger();
+
     let env = setup(2, LONG_EPOCH_LENGTH);
     let start_height = get_tip(&env.test_loop.data, &env.node_datas).height;
 
@@ -321,6 +326,8 @@ fn test_early_prepare_tx_missing_chunk() {
 /// Test that early transaction preparation works as expected when there is a missing block
 #[test]
 fn test_early_prepare_tx_missing_block() {
+    init_test_logger();
+
     // `DropCondition::BlocksByHeight` doesn't work well with 2 nodes, the chain gets stuck. With 4 nodes it works fine.
     let env = setup(4, LONG_EPOCH_LENGTH);
     let start_height = get_tip(&env.test_loop.data, &env.node_datas).height;
@@ -378,6 +385,8 @@ fn test_early_prepare_tx_missing_block() {
 /// Test that early transaction preparation works as expected when there is an epoch switch
 #[test]
 fn test_early_prepare_tx_epoch_switch() {
+    init_test_logger();
+
     let short_epoch_length = 5;
     let TestLoopEnv { mut test_loop, node_datas, shared_state } = setup(2, short_epoch_length);
     let start_tip = get_tip(&test_loop.data, &node_datas);
