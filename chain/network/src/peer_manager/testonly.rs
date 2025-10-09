@@ -2,14 +2,8 @@ use crate::PeerManagerActor;
 use crate::accounts_data::AccountDataCacheSnapshot;
 use crate::auto_stop::AutoStopActor;
 use crate::broadcast;
-use crate::client::ClientSenderForNetworkInput;
-use crate::client::ClientSenderForNetworkMessage;
-use crate::client::StatePartOrHeader;
-use crate::client::StateRequestPart;
 use crate::config;
 use crate::network_protocol::SnapshotHostInfo;
-use crate::network_protocol::StateResponseInfo;
-use crate::network_protocol::StateResponseInfoV2;
 use crate::network_protocol::SyncSnapshotHosts;
 use crate::network_protocol::testonly as data;
 use crate::network_protocol::{
@@ -19,21 +13,13 @@ use crate::peer;
 use crate::peer::peer_actor::ClosingReason;
 use crate::peer_manager::network_state::NetworkState;
 use crate::peer_manager::peer_manager_actor::Event as PME;
-use crate::shards_manager::ShardsManagerRequestFromNetwork;
 use crate::snapshot_hosts::SnapshotHostsCache;
-use crate::spice_data_distribution::SpiceDataDistributorSenderForNetworkInput;
-use crate::spice_data_distribution::SpiceDataDistributorSenderForNetworkMessage;
-use crate::state_witness::PartialWitnessSenderForNetworkInput;
-use crate::state_witness::PartialWitnessSenderForNetworkMessage;
 use crate::tcp;
 use crate::test_utils;
-use crate::types::StateRequestSenderForNetworkInput;
-use crate::types::StateRequestSenderForNetworkMessage;
 use crate::types::{
     AccountKeys, ChainInfo, KnownPeerStatus, NetworkRequests, PeerManagerMessageRequest,
-    PeerManagerSenderForNetworkInput, PeerManagerSenderForNetworkMessage, ReasonForBan,
+    ReasonForBan,
 };
-use futures::FutureExt;
 use near_async::Message;
 use near_async::futures::FutureSpawnerExt;
 use near_async::messaging::IntoSender;
@@ -42,8 +28,6 @@ use near_async::messaging::{self, CanSendAsync, IntoMultiSender};
 use near_async::messaging::{CanSend, Sender};
 use near_async::{ActorSystem, time};
 use near_primitives::network::{AnnounceAccount, PeerId};
-use near_primitives::state_sync::ShardStateSyncResponse;
-use near_primitives::state_sync::ShardStateSyncResponseV2;
 use near_primitives::types::AccountId;
 use std::collections::HashSet;
 use std::fmt::Debug;

@@ -1,6 +1,5 @@
 use crate::auto_stop::AutoStopActor;
 use crate::broadcast;
-use crate::client::{ClientSenderForNetworkInput, ClientSenderForNetworkMessage};
 use crate::config::NetworkConfig;
 use crate::network_protocol::{
     Edge, PartialEdgeInfo, PeerIdOrHash, PeerMessage, RawRoutedMessage, TieredMessageBody,
@@ -11,19 +10,8 @@ use crate::peer_manager::network_state::NetworkState;
 use crate::peer_manager::peer_manager_actor;
 use crate::peer_manager::peer_store;
 use crate::private_messages::SendMessage;
-use crate::shards_manager::ShardsManagerRequestFromNetwork;
-use crate::spice_data_distribution::{
-    SpiceDataDistributorSenderForNetworkInput, SpiceDataDistributorSenderForNetworkMessage,
-};
-use crate::state_witness::{
-    PartialWitnessSenderForNetworkInput, PartialWitnessSenderForNetworkMessage,
-};
 use crate::store;
 use crate::tcp;
-use crate::types::{
-    PeerManagerSenderForNetworkInput, PeerManagerSenderForNetworkMessage,
-    StateRequestSenderForNetworkInput, StateRequestSenderForNetworkMessage,
-};
 use near_async::messaging::{CanSendAsync, IntoMultiSender, IntoSender, Sender, noop};
 use near_async::{ActorSystem, time};
 use near_o11y::span_wrapped_msg::SpanWrappedMessageExt;
