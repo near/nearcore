@@ -340,8 +340,8 @@ fn test_early_prepare_tx_missing_chunk() {
 /// Test that early transaction preparation works as expected when there is a missing block
 ///
 /// The situation looks like this:
-/// 1005 -> 1006 -> 1007
-///            \------------> 1008 -> 1009
+/// 10005 -> 10006 -> 10007
+///              \------------> 10008 -> 10009
 ///
 /// A block is always processed before preparing transactions for the next chunk, so ideally all
 /// jobs should be found and used. However sometimes testloop can cause weird timing issues where
