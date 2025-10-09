@@ -3,6 +3,7 @@ use std::sync::atomic::Ordering;
 use near_time::Clock;
 use serde::Serialize;
 
+use crate::instrumentation::WINDOW_SIZE_NS;
 use crate::instrumentation::queue::InstrumentedQueueView;
 use crate::instrumentation::{
     NUM_WINDOWS,
@@ -45,6 +46,34 @@ pub struct InstrumentedWindowView {
     pub events_overfilled: bool,
     pub summary: InstrumentedWindowSummaryView,
     pub dequeue_summary: InstrumentedWindowSummaryView,
+}
+
+impl InstrumentedWindowView {
+    /// Sometimes one or more recent windows have not yet been created because an event has been
+    /// blocking the thread for so long. In that case, fill in the missing windows with maybe an
+    /// active event.
+    pub fn new_filler(
+        start_time_ns: u64,
+        end_time_ns: u64,
+        active_event: Option<&InstrumentedActiveEventView>,
+    ) -> Self {
+        let mut view = InstrumentedWindowView {
+            start_time_ms: start_time_ns / 1_000_000,
+            end_time_ms: end_time_ns / 1_000_000,
+            events: Vec::new(),
+            events_overfilled: false,
+            summary: InstrumentedWindowSummaryView { message_stats_by_type: Vec::new() },
+            dequeue_summary: InstrumentedWindowSummaryView { message_stats_by_type: Vec::new() },
+        };
+        if let Some(active_event) = active_event {
+            view.summary.message_stats_by_type.push(MessageStatsForTypeView {
+                message_type: active_event.message_type as i32,
+                count: 1,
+                total_time_ns: end_time_ns - start_time_ns,
+            });
+        }
+        view
+    }
 }
 
 #[derive(Serialize, Debug)]
@@ -171,10 +200,35 @@ impl InstrumentedThread {
         let current_window_index = self.current_window_index.load(Ordering::Acquire);
         let mut windows = Vec::new();
         let mut prev_window_start_time = current_time_ns;
+
+        // Fill in missing windows if the current time is too far ahead of the last recorded window.
+        let last_recorded_window_start_time =
+            self.windows[current_window_index % self.windows.len()].read().start_time_ns;
+        while prev_window_start_time > last_recorded_window_start_time + WINDOW_SIZE_NS {
+            let modulo =
+                (prev_window_start_time - last_recorded_window_start_time) % WINDOW_SIZE_NS;
+            let filler_start_time = if modulo == 0 {
+                prev_window_start_time - WINDOW_SIZE_NS
+            } else {
+                prev_window_start_time - modulo
+            };
+            windows.push(InstrumentedWindowView::new_filler(
+                filler_start_time,
+                prev_window_start_time,
+                active_event.as_ref(),
+            ));
+            prev_window_start_time = filler_start_time;
+        }
+        let oldest_time_to_return =
+            current_time_ns.saturating_sub(NUM_WINDOWS as u64 * WINDOW_SIZE_NS);
+
         for i in 0..NUM_WINDOWS.min(current_window_index) {
-            let window_index = current_window_index - i - 1;
+            let window_index = current_window_index - i;
             let window = &self.windows[window_index % self.windows.len()];
             let read = window.read();
+            if read.start_time_ns < oldest_time_to_return {
+                break;
+            }
             windows.push(read.to_view(prev_window_start_time));
             prev_window_start_time = read.start_time_ns;
         }

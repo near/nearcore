@@ -1,16 +1,11 @@
 import { useState, useRef, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import './ActorsView.scss';
-import { fetchInstrumentedThreadsView, fetchAllQueuesView, InstrumentedThread, InstrumentedThreadsViewResponse, AllQueuesViewResponse } from './api';
+import { fetchInstrumentedThreadsView, InstrumentedThread } from './api';
 import { ThreadTimeline } from './actors/ThreadTimeline';
 
 type ActorsViewProps = {
     addr: string;
-};
-
-type CombinedActorsData = {
-    instrumentedThreads: InstrumentedThreadsViewResponse | null;
-    allQueues: AllQueuesViewResponse | null;
 };
 
 // Helper function to format thread names for better word wrapping at `::`
@@ -65,87 +60,8 @@ const ThreadTimelineRow = ({ thread, minTimeMs, currentTimeMs, chartMode, yAxisM
     );
 };
 
-// Helper function to normalize data format for backward compatibility
-const normalizeData = (data: any): CombinedActorsData | null => {
-    if (!data) return null;
-
-    // If data has the new combined format
-    if (data.instrumentedThreads && data.allQueues) {
-        return data as CombinedActorsData;
-    }
-
-    // If data has the old format (just instrumented threads response)
-    if (data.status_response?.InstrumentedThreads) {
-        return {
-            instrumentedThreads: data as InstrumentedThreadsViewResponse,
-            allQueues: null
-        };
-    }
-
-    // If data might be the individual response objects
-    return {
-        instrumentedThreads: data as InstrumentedThreadsViewResponse,
-        allQueues: null
-    };
-};
-
-// Helper function to render queue table rows with sorted data
-const renderQueueTableRows = (allQueuesData: AllQueuesViewResponse) => {
-    const rows: JSX.Element[] = [];
-    const queues = allQueuesData.status_response.AllQueuesView.queues;
-
-    // Convert Map to array and sort by actor/queue name
-    const sortedQueues = Object.entries(queues).sort(([a], [b]) => a.localeCompare(b));
-
-    let totalPendingMessages = 0;
-
-    sortedQueues.forEach(([actorName, queueView]) => {
-        const pendingCounts = queueView.pending_counts;
-
-        // Convert Map to array and sort by message type name
-        const sortedMessages = Object.entries(pendingCounts).sort(([a], [b]) => a.localeCompare(b));
-
-        if (sortedMessages.length === 0) {
-            // Show actor with no known message types
-            rows.push(
-                <tr key={`${actorName}-empty`}>
-                    <td>{actorName}</td>
-                    <td><em>No known message types</em></td>
-                    <td>0</td>
-                </tr>
-            );
-        } else {
-            // Show each message type for this actor
-            sortedMessages.forEach(([messageType, count], index) => {
-                const countNum = Number(count);
-                totalPendingMessages += countNum;
-                rows.push(
-                    <tr key={`${actorName}-${messageType}`}>
-                        <td>{index === 0 ? actorName : ''}</td>
-                        <td>{messageType}</td>
-                        <td>{countNum}</td>
-                    </tr>
-                );
-            });
-        }
-    });
-
-    // Add summary row
-    if (rows.length > 0 && totalPendingMessages > 0) {
-        rows.push(
-            <tr key="summary" className="summary-row">
-                <td><strong>Total</strong></td>
-                <td><strong>{sortedQueues.length} queue(s)</strong></td>
-                <td><strong>{totalPendingMessages}</strong></td>
-            </tr>
-        );
-    }
-
-    return rows;
-};
-
 export const ActorsView = ({ addr }: ActorsViewProps) => {
-    const [loadedData, setLoadedData] = useState<CombinedActorsData | null>(null);
+    const [loadedData, setLoadedData] = useState<any>(null);
     const [hasInitiallyFetched, setHasInitiallyFetched] = useState<boolean>(false);
     const [yAxisMode, setYAxisMode] = useState<'auto' | 'fixed'>('auto');
     const [timelineChartMode, setTimelineChartMode] = useState<'cpu' | 'dequeue'>('cpu');
@@ -160,35 +76,19 @@ export const ActorsView = ({ addr }: ActorsViewProps) => {
         enabled: false, // Avoid auto-fetch
     });
 
-    const {
-        data: allQueues,
-        error: allQueuesError,
-        isLoading: allQueuesIsLoading,
-        refetch: refetchAllQueues,
-    } = useQuery(['allQueues', addr], () => fetchAllQueuesView(addr), {
-        enabled: false, // Avoid auto-fetch
-    });
-
     // Fetch data only once on initial mount
     useEffect(() => {
         if (!hasInitiallyFetched && !loadedData) {
             refetchInstrumentedThreads();
-            refetchAllQueues();
             setHasInitiallyFetched(true);
         }
-    }, [refetchInstrumentedThreads, refetchAllQueues, hasInitiallyFetched, loadedData]);
-
-    // Combine the data from both queries
-    const combinedFetchedData = instrumentedThreads && allQueues ? {
-        instrumentedThreads,
-        allQueues
-    } : null;
+    }, [refetchInstrumentedThreads, hasInitiallyFetched, loadedData]);
 
     // Use loaded data if available, otherwise use fetched data
-    const currentData = normalizeData(loadedData || combinedFetchedData);
+    const currentData = loadedData || instrumentedThreads;
 
     const handleRefreshData = async () => {
-        await Promise.all([refetchInstrumentedThreads(), refetchAllQueues()]);
+        await refetchInstrumentedThreads();
     };
 
     const handleSaveData = () => {
@@ -216,7 +116,7 @@ export const ActorsView = ({ addr }: ActorsViewProps) => {
         reader.onload = (e) => {
             try {
                 const data = JSON.parse(e.target?.result as string);
-                setLoadedData(normalizeData(data));
+                setLoadedData(data);
             } catch (error) {
                 alert('Error parsing JSON file: ' + error);
             }
@@ -231,29 +131,28 @@ export const ActorsView = ({ addr }: ActorsViewProps) => {
         }
     };
 
-    if (((instrumentedThreadsIsLoading || allQueuesIsLoading) && !hasInitiallyFetched) && !loadedData) {
+    if ((instrumentedThreadsIsLoading && !hasInitiallyFetched) && !loadedData) {
         return <div>Loading...</div>;
-    } else if ((instrumentedThreadsError || allQueuesError) && !loadedData) {
-        const error = instrumentedThreadsError || allQueuesError;
+    } else if (instrumentedThreadsError && !loadedData) {
         return (
             <div className="actors-view">
-                <div className="error">{(error as Error).stack}</div>
+                <div className="error">{(instrumentedThreadsError as Error).stack}</div>
             </div>
         );
     }
-    const allThreads = currentData?.instrumentedThreads?.status_response.InstrumentedThreads.threads || [];
+    const allThreads = currentData?.status_response.InstrumentedThreads.threads || [];
     const sortedThreads = allThreads.slice().sort((a: InstrumentedThread, b: InstrumentedThread) => a.thread_name.localeCompare(b.thread_name));
-    const [minStartTime, maxStartTime] = [getMinStartTime(allThreads), getMaxStartTime(allThreads)];
-    const currentTimeUnixMs = currentData?.instrumentedThreads?.status_response.InstrumentedThreads.current_time_unix_ms || 0;
-    const currentTimeMs = currentData?.instrumentedThreads?.status_response.InstrumentedThreads.current_time_relative_ms || 0;
-    const startTimeUnixEstimatedMs = currentTimeUnixMs - (maxStartTime - minStartTime);
+    const minStartTime = getMinStartTime(allThreads);
+    const currentTimeUnixMs = currentData?.status_response.InstrumentedThreads.current_time_unix_ms || 0;
+    const currentTimeMs = currentData?.status_response.InstrumentedThreads.current_time_relative_ms || 0;
+    const minStartTimeUnixMs = currentTimeUnixMs - currentTimeMs + minStartTime;
 
     return (
         <div className="actors-view">
             <div className="actors-controls">
                 <h2>Instrumented Threads</h2>
                 <div className="time-info">
-                    {`Showing data from ~${new Date(startTimeUnixEstimatedMs).toISOString()} to ${new Date(currentTimeUnixMs).toISOString()} (${((currentTimeUnixMs - startTimeUnixEstimatedMs) / 1000).toFixed(1)}s) `}
+                    {`Showing data from ~${new Date(minStartTimeUnixMs).toISOString()} to ${new Date(currentTimeUnixMs).toISOString()} (${((currentTimeUnixMs - minStartTime) / 1000).toFixed(1)}s) `}
                 </div>
                 <div className="y-axis-controls">
                     <span className="control-label">Timeline Chart:</span>
@@ -300,10 +199,10 @@ export const ActorsView = ({ addr }: ActorsViewProps) => {
                 <div className="control-buttons">
                     <button
                         onClick={handleRefreshData}
-                        disabled={instrumentedThreadsIsLoading || allQueuesIsLoading || !!loadedData}
+                        disabled={instrumentedThreadsIsLoading || !!loadedData}
                         className="refresh-button"
                     >
-                        {(instrumentedThreadsIsLoading || allQueuesIsLoading) ? 'Refreshing...' : 'Refresh Data'}
+                        {instrumentedThreadsIsLoading ? 'Refreshing...' : 'Refresh Data'}
                     </button>
                     <button onClick={handleSaveData} disabled={!currentData} className="save-button">
                         Save View
@@ -344,51 +243,11 @@ export const ActorsView = ({ addr }: ActorsViewProps) => {
                 </div>
                 <div className="scroll-space" />
             </div>
-
-            {/* Queue Data Table */}
-            {currentData?.allQueues && (
-                <div className="queues-container">
-                    <h3>Queue Status ({Object.keys(currentData.allQueues.status_response.AllQueuesView.queues).length} queues)</h3>
-                    <div className="queues-table-container">
-                        <table className="queues-table">
-                            <thead>
-                                <tr>
-                                    <th>Actor/Queue</th>
-                                    <th>Message/Future Description</th>
-                                    <th>Pending Count</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {(() => {
-                                    const rows = renderQueueTableRows(currentData.allQueues);
-                                    return rows.length > 0 ? rows : (
-                                        <tr>
-                                            <td colSpan={3} className="empty-table-message">
-                                                No queues found
-                                            </td>
-                                        </tr>
-                                    );
-                                })()}
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-            )}
-
             {/*
-            AllQueues data is now available in: currentData?.allQueues
-            InstrumentedThreads data: currentData?.instrumentedThreads
-            <pre>{JSON.stringify(currentData?.allQueues, null, 2)}</pre>
+            <pre>{JSON.stringify(instrumentedThreads, null, 2)}</pre>
             */}
         </div>
     );
-}
-
-const getFirstStartTime = (thread: InstrumentedThread): number => {
-    if (thread.windows.length === 0) {
-        return 0;
-    }
-    return thread.windows[0].start_time_ms;
 }
 
 const getLastStartTime = (thread: InstrumentedThread): number => {
@@ -404,10 +263,3 @@ const getMinStartTime = (threads: InstrumentedThread[]): number => {
     }
     return Math.min(...threads.map(t => getLastStartTime(t)));
 };
-
-const getMaxStartTime = (threads: InstrumentedThread[]): number => {
-    if (threads.length === 0) {
-        return 0;
-    }
-    return Math.max(...threads.map(t => getFirstStartTime(t)));
-}

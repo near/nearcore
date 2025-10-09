@@ -15,6 +15,7 @@ workspace = true
 crossbeam-channel.workspace = true
 futures.workspace = true
 parking_lot.workspace = true
+rand = { workspace = true, optional = true }
 rayon.workspace = true
 serde.workspace = true
 serde_json.workspace = true
@@ -30,6 +31,9 @@ near-o11y.workspace = true
 [dev-dependencies]
 tokio-util.workspace = true
 criterion.workspace = true
+
+[features]
+instrumentation_testing = ["rand"]
 
 [[bench]]
 name = "instrumentation"
