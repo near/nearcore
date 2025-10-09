@@ -81,6 +81,7 @@ use near_primitives::version::{PROTOCOL_VERSION, get_protocol_upgrade_schedule};
 use near_primitives::views::{DetailedDebugStatus, ValidatorInfo};
 #[cfg(feature = "test_features")]
 use near_store::DBCol;
+use near_store::adapter::StoreAdapter;
 use near_telemetry::TelemetryEvent;
 use parking_lot::Mutex;
 use rand::seq::SliceRandom;
