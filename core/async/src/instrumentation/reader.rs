@@ -170,7 +170,7 @@ impl InstrumentedThread {
         let mut windows = Vec::new();
         let mut prev_window_start_time = current_time_ns;
         for i in 0..NUM_WINDOWS.min(current_window_index) {
-            let window_index = current_window_index - i;
+            let window_index = current_window_index - i - 1;
             let window = &self.windows[window_index % self.windows.len()];
             let read = window.read();
             windows.push(read.to_view(prev_window_start_time));

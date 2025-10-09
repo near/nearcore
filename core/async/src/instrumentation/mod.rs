@@ -6,6 +6,8 @@ pub(crate) mod data;
 mod metrics;
 pub mod queue;
 pub mod reader;
+#[cfg(test)]
+mod tests;
 pub(crate) mod writer;
 
 /// Window size. Windows are aligned to whole multiples of this size since UNIX epoch,
