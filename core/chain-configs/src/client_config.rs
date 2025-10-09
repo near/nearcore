@@ -1,5 +1,4 @@
 //! Chain Client Configuration
-use crate::ExternalStorageLocation::GCS;
 use crate::MutableConfigValue;
 use bytesize::ByteSize;
 #[cfg(feature = "schemars")]
@@ -204,21 +203,31 @@ pub struct ExternalStorageConfig {
     pub external_storage_fallback_threshold: u64,
 }
 
+/// Supported external storage backends and their minimal config.
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug, PartialEq)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub enum ExternalStorageLocation {
     S3 {
-        /// Location of state dumps on S3.
+        /// Location on S3.
         bucket: String,
         /// Data may only be available in certain locations.
         region: String,
     },
-    Filesystem {
-        root_dir: PathBuf,
-    },
-    GCS {
-        bucket: String,
-    },
+    /// Local filesystem root for storing data.
+    Filesystem { root_dir: PathBuf },
+    /// Google Cloud Storage bucket name.
+    GCS { bucket: String },
+}
+
+impl ExternalStorageLocation {
+    /// Human-readable backend name.
+    pub fn name(&self) -> &str {
+        match self {
+            Self::S3 { .. } => "S3",
+            Self::Filesystem { .. } => "Filesystem",
+            Self::GCS { .. } => "GCS",
+        }
+    }
 }
 
 fn default_state_parts_compression_level() -> i32 {
@@ -411,7 +420,7 @@ impl StateSyncConfig {
     pub fn gcs_with_bucket(bucket: String) -> Self {
         Self {
             sync: SyncConfig::ExternalStorage(ExternalStorageConfig {
-                location: GCS { bucket },
+                location: ExternalStorageLocation::GCS { bucket },
                 num_concurrent_requests: DEFAULT_STATE_SYNC_NUM_CONCURRENT_REQUESTS_EXTERNAL,
                 num_concurrent_requests_during_catchup:
                     DEFAULT_STATE_SYNC_NUM_CONCURRENT_REQUESTS_ON_CATCHUP_EXTERNAL,
