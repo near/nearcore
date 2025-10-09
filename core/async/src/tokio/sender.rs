@@ -26,7 +26,7 @@ where
 
         let message = TokioRuntimeMessage {
             seq,
-            enqueued_time_ns: self.get_time(),
+            enqueued_time_ns: self.instrumentation.current_time(),
             name: message_type,
             function: Box::new(function),
         };
@@ -61,7 +61,7 @@ where
 
         let message = TokioRuntimeMessage {
             seq,
-            enqueued_time_ns: self.get_time(),
+            enqueued_time_ns: self.instrumentation.current_time(),
             name: message_type,
             function: Box::new(function),
         };
@@ -89,7 +89,7 @@ where
         };
         let message = TokioRuntimeMessage {
             seq,
-            enqueued_time_ns: self.get_time(),
+            enqueued_time_ns: self.instrumentation.current_time(),
             name: message_type,
             function: Box::new(function),
         };
@@ -126,7 +126,7 @@ where
             let function = move |actor: &mut A, ctx: &mut dyn DelayedActionRunner<A>| f(actor, ctx);
             let message = TokioRuntimeMessage {
                 seq,
-                enqueued_time_ns: handle.get_time(),
+                enqueued_time_ns: handle.instrumentation.current_time(),
                 name,
                 function: Box::new(function),
             };

@@ -3,7 +3,11 @@ use std::hint::black_box;
 use std::sync::Arc;
 use time::Duration;
 
-use near_async::instrumentation::{InstrumentedThread, InstrumentedThreadWriter, WINDOW_SIZE_NS};
+use near_async::instrumentation::queue::InstrumentedQueue;
+use near_async::instrumentation::{
+    InstrumentedThread, InstrumentedThreadWriter, InstrumentedThreadWriterSharedPart,
+    WINDOW_SIZE_NS,
+};
 use near_time::FakeClock;
 
 const NUM_WINDOWS: usize = 1000;
@@ -23,13 +27,21 @@ impl BenchSetup {
         let clock = fake_clock.clock();
         let reference_instant = fake_clock.now();
 
+        let queue = InstrumentedQueue::new("test_actor");
         let target = Arc::new(InstrumentedThread::new(
-            "bench_thread".to_string(),
-            "bench_actor".to_string(),
+            "test_thread".to_string(),
+            "test_actor".to_string(),
+            queue.clone(),
             0,
         ));
+        let shared = InstrumentedThreadWriterSharedPart::new_for_test(
+            "test_actor".to_string(),
+            clock,
+            reference_instant,
+            queue,
+        );
 
-        let writer = InstrumentedThreadWriter::new(clock, reference_instant, target);
+        let writer = shared.new_writer_for_test(target);
 
         Self { clock: fake_clock, writer }
     }
@@ -76,7 +88,7 @@ fn benchmark_message_type_registration(c: &mut Criterion) {
             let BenchSetup { mut writer, .. } = BenchSetup::new();
 
             // Register all message types by using them
-            for message_type in MESSAGE_TYPES.iter() {
+            for message_type in MESSAGE_TYPES {
                 writer.start_event(black_box(message_type), black_box(1_000_000));
                 writer.end_event(black_box(message_type));
             }
