@@ -107,7 +107,12 @@ impl InstrumentedThread {
         }
     }
 
-    pub fn start_event(&self, message_type_id: u32, timestamp_ns: u64, dequeue_time_ns: u64) {
+    pub fn start_event(
+        &self,
+        message_type_id: u32,
+        timestamp_ns: u64,
+        dequeue_time_ns: Option<u64>,
+    ) {
         let encoded_event = encode_message_event(message_type_id, true);
         self.active_event_start_ns.store(timestamp_ns, Ordering::Relaxed);
         // Release order here because this atomic embeds an "is present" bit, and this
@@ -122,11 +127,13 @@ impl InstrumentedThread {
         let window = &self.windows[current_window_index % WINDOW_ARRAY_SIZE];
         let window = window.read();
         window.events.push(encoded_event, timestamp_ns.saturating_sub(window.start_time_ns));
-        window.dequeue_summary.add_message_time(
-            current_window_index,
-            message_type_id,
-            dequeue_time_ns,
-        );
+        if let Some(dequeue_time_ns) = dequeue_time_ns {
+            window.dequeue_summary.add_message_time(
+                current_window_index,
+                message_type_id,
+                dequeue_time_ns,
+            );
+        }
     }
 
     // Ends the currently active event, if any, and returns the elapsed time in nanoseconds.

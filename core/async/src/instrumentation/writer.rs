@@ -39,7 +39,7 @@ impl InstrumentedThreadWriter {
         MESSAGE_DEQUEUE_TIME
             .with_label_values(&[&self.target.actor_name, message_type])
             .observe(dequeue_time_ns as f64 / 1_000_000.0);
-        self.target.start_event(message_type_id, start_time_ns, dequeue_time_ns);
+        self.target.start_event(message_type_id, start_time_ns, Some(dequeue_time_ns));
     }
 
     // End an event for a specific message type.
@@ -67,6 +67,24 @@ impl InstrumentedThreadWriter {
             self.current_window_start_time_ns += WINDOW_SIZE_NS;
             self.target.advance_window(self.current_window_start_time_ns);
         }
+    }
+
+    pub fn record_event(&mut self, message_type: &str, start_time: Instant, end_time: Instant) {
+        let start_time_ns =
+            start_time.duration_since(self.shared.reference_instant).as_nanos() as u64;
+        let end_time_ns = end_time.duration_since(self.shared.reference_instant).as_nanos() as u64;
+        let message_type_id = if let Some(id) = self.type_name_registry.get(message_type) {
+            *id
+        } else {
+            let id = self.type_name_registry.len() as u32;
+            self.type_name_registry.insert(message_type.to_string(), id);
+            self.target.message_type_registry.push_type(message_type.to_string());
+            id
+        };
+        self.advance_window_if_needed_internal(start_time_ns);
+        self.target.start_event(message_type_id, start_time_ns, None);
+        self.advance_window_if_needed_internal(end_time_ns);
+        self.target.end_event(end_time_ns);
     }
 }
 

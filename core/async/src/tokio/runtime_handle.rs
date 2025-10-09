@@ -4,7 +4,7 @@ use crate::instrumentation::writer::InstrumentedThreadWriterSharedPart;
 use crate::messaging::Actor;
 use crate::tokio::runtime::AsyncDroppableRuntime;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tokio::runtime::Runtime;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
@@ -17,11 +17,19 @@ pub(super) struct TokioRuntimeMessage<A> {
     pub(super) function: Box<dyn FnOnce(&mut A, &mut dyn DelayedActionRunner<A>) + Send>,
 }
 
+pub(super) struct FutureInstrumentationEvent {
+    pub(super) name: &'static str,
+    pub(super) start_instant: Instant,
+    pub(super) end_instant: Instant,
+}
+
 /// TokioRuntimeHandle is a handle to a Tokio runtime that can be used to send messages to an actor.
 /// It allows for sending messages and spawning futures into the Tokio runtime.
 pub struct TokioRuntimeHandle<A> {
     /// The sender is used to send messages to the actor running in the Tokio runtime.
     sender: mpsc::UnboundedSender<TokioRuntimeMessage<A>>,
+    /// Used to track the time spent processing futures.
+    future_instrumentation_sender: mpsc::UnboundedSender<FutureInstrumentationEvent>,
     pub(super) instrumentation: Arc<InstrumentedThreadWriterSharedPart>,
     /// The runtime_handle used to post futures to the Tokio runtime.
     /// This is a handle, meaning it does not prevent the runtime from shutting down.
@@ -38,6 +46,7 @@ impl<A> Clone for TokioRuntimeHandle<A> {
     fn clone(&self) -> Self {
         Self {
             sender: self.sender.clone(),
+            future_instrumentation_sender: self.future_instrumentation_sender.clone(),
             instrumentation: self.instrumentation.clone(),
             runtime_handle: self.runtime_handle.clone(),
             cancel: self.cancel.clone(),
@@ -88,8 +97,41 @@ impl<A> TokioRuntimeHandle<A> {
         let on_ready = Box::new(move || {
             instrumentation.queue().dequeue(description);
         });
-        let wrapped_future = WrappedFuture::new(future, on_ready);
+        let future_instrumentation_sender = self.future_instrumentation_sender.clone();
+        let wrapped_future = WrappedFuture::new(future, on_ready, Box::new(move || {
+            FutureInstrumentationGuard::new(
+                future_instrumentation_sender.clone(),
+                description,
+            )
+        }));
         self.runtime_handle.spawn(wrapped_future);
+    }
+}
+
+struct FutureInstrumentationGuard {
+    sender: mpsc::UnboundedSender<FutureInstrumentationEvent>,
+    name: &'static str,
+    start_instant: Instant,
+}
+
+impl FutureInstrumentationGuard {
+    fn new(
+        sender: mpsc::UnboundedSender<FutureInstrumentationEvent>,
+        name: &'static str,
+    ) -> Self {
+        Self { sender, name, start_instant: Instant::now() }
+    }
+}
+
+impl Drop for FutureInstrumentationGuard {
+    fn drop(&mut self) {
+        let end_instant = Instant::now();
+        let event = FutureInstrumentationEvent {
+            name: self.name,
+            start_instant: self.start_instant,
+            end_instant,
+        };
+        let _ = self.sender.send(event);
     }
 }
 
@@ -124,6 +166,7 @@ pub struct TokioRuntimeBuilder<A: Actor + Send + 'static> {
     handle: TokioRuntimeHandle<A>,
     receiver: Option<mpsc::UnboundedReceiver<TokioRuntimeMessage<A>>>,
     shared_instrumentation: Arc<InstrumentedThreadWriterSharedPart>,
+    future_instrumentation_receiver: Option<mpsc::UnboundedReceiver<FutureInstrumentationEvent>>,
     system_cancellation_signal: CancellationToken,
     runtime: Option<Runtime>,
 }
@@ -142,10 +185,13 @@ impl<A: Actor + Send + 'static> TokioRuntimeBuilder<A> {
             std::any::type_name::<A>().to_string(),
             instrumented_queue,
         );
+        let (future_instrumentation_sender, future_instrumentation_receiver) =
+            mpsc::unbounded_channel::<FutureInstrumentationEvent>();
         let cancel = CancellationToken::new();
 
         let handle = TokioRuntimeHandle {
             sender,
+            future_instrumentation_sender,
             runtime_handle: runtime.handle().clone(),
             cancel,
             instrumentation: shared_instrumentation.clone(),
@@ -155,6 +201,7 @@ impl<A: Actor + Send + 'static> TokioRuntimeBuilder<A> {
             handle,
             receiver: Some(receiver),
             shared_instrumentation,
+            future_instrumentation_receiver: Some(future_instrumentation_receiver),
             system_cancellation_signal,
             runtime: Some(runtime),
         }
@@ -180,6 +227,7 @@ impl<A: Actor + Send + 'static> TokioRuntimeBuilder<A> {
             let mut window_update_timer = tokio::time::interval(Duration::from_secs(1));
             loop {
                 tokio::select! {
+                    biased; 
                     _ = self.system_cancellation_signal.cancelled() => {
                         tracing::info!(target: "tokio_runtime", "Shutting down Tokio runtime due to ActorSystem shutdown");
                         break;
@@ -187,6 +235,9 @@ impl<A: Actor + Send + 'static> TokioRuntimeBuilder<A> {
                     _ = runtime_handle.cancel.cancelled() => {
                         tracing::debug!(target: "tokio_runtime", "Shutting down Tokio runtime due to targeted cancellation");
                         break;
+                    }
+                    Some(event) = self.future_instrumentation_receiver.as_mut().unwrap().recv() => {
+                        instrumentation.record_event(event.name, event.start_instant, event.end_instant);
                     }
                     _ = window_update_timer.tick() => {
                         instrumentation.advance_window_if_needed();
