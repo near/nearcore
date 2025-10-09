@@ -63,10 +63,6 @@ impl RewardCalculator {
     ) -> (HashMap<AccountId, Balance>, Balance) {
         let mut res = HashMap::new();
         let num_validators = validator_block_chunk_stats.len();
-        // For mainnet and testnet, use hardcoded value of 10% protocol reward rate.
-        // For other chains, use the value from the genesis config.
-        // TODO: make it configurable based on protocol version, e.g. by
-        // moving to the epoch config.
         let use_hardcoded_value = protocol_version > self.genesis_protocol_version;
         let protocol_reward_rate = if use_hardcoded_value {
             Rational32::new_raw(1, 10)
