@@ -74,6 +74,7 @@ pub struct EpochConfig {
     pub chunk_producer_assignment_changes_limit: NumSeats,
     // #[default(false)]
     pub shuffle_shard_assignment_for_chunk_producers: bool,
+    pub max_inflation_rate: Rational32,
 }
 
 impl EpochConfig {
@@ -124,6 +125,7 @@ impl EpochConfig {
             minimum_stake_ratio: Rational32::new(160i32, 1_000_000i32),
             chunk_producer_assignment_changes_limit: 5,
             shuffle_shard_assignment_for_chunk_producers: false,
+            max_inflation_rate: Rational32::new(1, 20),
         }
     }
 
@@ -152,6 +154,7 @@ impl EpochConfig {
             minimum_stake_ratio: Rational32::new(160i32, 1_000_000i32),
             chunk_producer_assignment_changes_limit: 5,
             shuffle_shard_assignment_for_chunk_producers: false,
+            max_inflation_rate: Rational32::new(1, 20),
         }
     }
 
@@ -179,6 +182,7 @@ impl EpochConfig {
             minimum_stake_ratio: Rational32::new(160i32, 1_000_000i32),
             chunk_producer_assignment_changes_limit: 5,
             shuffle_shard_assignment_for_chunk_producers: false,
+            max_inflation_rate: Rational32::new(1, 20),
         }
     }
 }
