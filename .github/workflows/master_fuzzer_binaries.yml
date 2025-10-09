@@ -23,7 +23,7 @@ jobs:
       - run: sudo swapon /swap-file
 
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
   
       - id: "auth"
         name: Authenticate with Google Cloud
