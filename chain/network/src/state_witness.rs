@@ -1,5 +1,5 @@
 use near_async::messaging::Sender;
-use near_async::{Message, MultiSend, MultiSendMessage, MultiSenderFrom};
+use near_async::{Message, MultiSend, MultiSenderFrom};
 use near_primitives::stateless_validation::contract_distribution::{
     ChunkContractAccesses, ContractCodeRequest, ContractCodeResponse, PartialEncodedContractDeploys,
 };
@@ -35,9 +35,7 @@ pub struct ContractCodeRequestMessage(pub ContractCodeRequest);
 pub struct ContractCodeResponseMessage(pub ContractCodeResponse);
 
 /// Multi-sender for forwarding messages received from network to PartialWitnessActor.
-#[derive(Clone, MultiSend, MultiSenderFrom, MultiSendMessage)]
-#[multi_send_message_derive(Debug)]
-#[multi_send_input_derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, MultiSend, MultiSenderFrom)]
 pub struct PartialWitnessSenderForNetwork {
     pub chunk_state_witness_ack: Sender<ChunkStateWitnessAckMessage>,
     pub partial_encoded_state_witness: Sender<PartialEncodedStateWitnessMessage>,
