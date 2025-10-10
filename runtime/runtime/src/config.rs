@@ -286,29 +286,38 @@ pub fn tx_cost(
     tx: &Transaction,
     receipt_gas_price: Balance,
 ) -> Result<TransactionCost, IntegerOverflowError> {
-    let sender_is_receiver = tx.receiver_id() == tx.signer_id();
+    calculate_tx_cost(tx.receiver_id(), tx.signer_id(), tx.actions(), config, receipt_gas_price)
+}
+
+pub fn calculate_tx_cost(
+    receiver_id: &AccountId,
+    signer_id: &AccountId,
+    actions: &[Action],
+    config: &RuntimeConfig,
+    receipt_gas_price: Balance,
+) -> Result<TransactionCost, IntegerOverflowError> {
+    let sender_is_receiver = receiver_id == signer_id;
     let fees = &config.fees;
     let mut gas_burnt: Gas = fees.fee(ActionCosts::new_action_receipt).send_fee(sender_is_receiver);
     gas_burnt = gas_burnt.checked_add_result(total_send_fees(
         config,
         sender_is_receiver,
-        tx.actions(),
-        tx.receiver_id(),
+        actions,
+        receiver_id,
     )?)?;
-    let prepaid_gas = total_prepaid_gas(&tx.actions())?
-        .checked_add_result(total_prepaid_send_fees(config, &tx.actions())?)?;
-
+    let prepaid_gas = total_prepaid_gas(&actions)?
+        .checked_add_result(total_prepaid_send_fees(config, &actions)?)?;
     let mut gas_remaining =
         prepaid_gas.checked_add_result(fees.fee(ActionCosts::new_action_receipt).exec_fee())?;
     gas_remaining = gas_remaining.checked_add_result(total_prepaid_exec_fees(
         config,
-        tx.actions(),
-        tx.receiver_id(),
+        actions,
+        receiver_id,
     )?)?;
     let burnt_amount = safe_gas_to_balance(receipt_gas_price, gas_burnt)?;
     let remaining_gas_amount = safe_gas_to_balance(receipt_gas_price, gas_remaining)?;
     let mut total_cost = safe_add_balance(burnt_amount, remaining_gas_amount)?;
-    total_cost = safe_add_balance(total_cost, total_deposit(&tx.actions())?)?;
+    total_cost = safe_add_balance(total_cost, total_deposit(actions)?)?;
     Ok(TransactionCost { gas_burnt, gas_remaining, receipt_gas_price, total_cost, burnt_amount })
 }
 
