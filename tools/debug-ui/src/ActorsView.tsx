@@ -141,7 +141,11 @@ export const ActorsView = ({ addr }: ActorsViewProps) => {
         );
     }
     const allThreads = currentData?.status_response.InstrumentedThreads.threads || [];
-    const sortedThreads = allThreads.slice().sort((a: InstrumentedThread, b: InstrumentedThread) => a.thread_name.localeCompare(b.thread_name));
+    const sortedThreads = allThreads.slice().sort((a: InstrumentedThread, b: InstrumentedThread) => {
+        const nameComparison = a.thread_name.localeCompare(b.thread_name);
+        if (nameComparison !== 0) return nameComparison;
+        return b.active_time_ns - a.active_time_ns;
+    });
     const minStartTime = getMinStartTime(allThreads);
     const currentTimeUnixMs = currentData?.status_response.InstrumentedThreads.current_time_unix_ms || 0;
     const currentTimeMs = currentData?.status_response.InstrumentedThreads.current_time_relative_ms || 0;

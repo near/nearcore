@@ -222,7 +222,7 @@ impl InstrumentedThread {
         let oldest_time_to_return =
             current_time_ns.saturating_sub(NUM_WINDOWS as u64 * WINDOW_SIZE_NS);
 
-        for i in 0..NUM_WINDOWS.min(current_window_index) {
+        for i in 0..NUM_WINDOWS.min(current_window_index + 1) {
             let window_index = current_window_index - i;
             let window = &self.windows[window_index % self.windows.len()];
             let read = window.read();
