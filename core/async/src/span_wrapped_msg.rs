@@ -1,4 +1,4 @@
-use near_async::messaging::Message;
+use crate::messaging::Message;
 use tracing::{Span, debug_span};
 
 #[derive(Debug, Clone)]

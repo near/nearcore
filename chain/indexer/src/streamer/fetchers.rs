@@ -2,6 +2,7 @@ use std::collections::HashMap;
 
 use futures::StreamExt;
 use near_async::messaging::{AsyncSender, IntoMultiSender, SendAsync};
+use near_async::span_wrapped_msg::{SpanWrapped, SpanWrappedMessageExt};
 use near_chain_configs::ProtocolConfigView;
 use near_client::{
     GetBlock, GetChunk, GetExecutionOutcomesForBlock, GetProtocolConfig, GetReceipt,
@@ -13,7 +14,6 @@ use near_client_primitives::types::{
 };
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_indexer_primitives::IndexerExecutionOutcomeWithOptionalReceipt;
-use near_o11y::span_wrapped_msg::{SpanWrapped, SpanWrappedMessageExt};
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::{BlockId, BlockReference, EpochId, Finality, ShardId};
 use near_primitives::views::{
