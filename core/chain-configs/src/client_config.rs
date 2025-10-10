@@ -277,13 +277,13 @@ pub struct CloudArchivalWriterConfig {
     pub polling_interval: Duration,
 }
 
-// A handle that allows the main process to interrupt cloud archival writer if needed.
-#[derive(Clone)]
-pub struct CloudArchivalWriterHandle {
+/// A handle that allows the main process to interrupt other.
+#[derive(Clone, Debug)]
+pub struct InterruptHandle {
     keep_going: Arc<AtomicBool>,
 }
 
-impl CloudArchivalWriterHandle {
+impl InterruptHandle {
     pub fn new() -> Self {
         Self { keep_going: Arc::new(AtomicBool::new(true)) }
     }
@@ -308,6 +308,16 @@ impl CloudArchivalWriterHandle {
 
     fn set(&self, keep_going: bool) -> () {
         self.keep_going.store(keep_going, std::sync::atomic::Ordering::Relaxed);
+    }
+}
+
+/// A handle that allows the main process to interrupt cloud archival writer if needed.
+#[derive(Clone)]
+pub struct CloudArchivalWriterHandle(pub InterruptHandle);
+
+impl CloudArchivalWriterHandle {
+    pub fn new() -> Self {
+        Self(InterruptHandle::new())
     }
 }
 
@@ -476,25 +486,11 @@ impl Default for EpochSyncConfig {
 // A handle that allows the main process to interrupt resharding if needed.
 // This typically happens when the main process is interrupted.
 #[derive(Clone, Debug)]
-pub struct ReshardingHandle {
-    keep_going: Arc<AtomicBool>,
-}
+pub struct ReshardingHandle(pub InterruptHandle);
 
 impl ReshardingHandle {
     pub fn new() -> Self {
-        Self { keep_going: Arc::new(AtomicBool::new(true)) }
-    }
-
-    pub fn get(&self) -> bool {
-        self.keep_going.load(std::sync::atomic::Ordering::Relaxed)
-    }
-
-    pub fn stop(&self) -> () {
-        self.keep_going.store(false, std::sync::atomic::Ordering::Relaxed);
-    }
-
-    pub fn is_cancelled(&self) -> bool {
-        !self.get()
+        Self(InterruptHandle::new())
     }
 }
 

@@ -59,6 +59,11 @@ pub enum CloudArchivalInitializationError {
     )]
     MissingExternalHead { cloud_head_local: BlockHeight },
     #[error(
+        "Local cloud head ({cloud_head_local}) is ahead of the external head ({cloud_head_external}).\n\
+        This indicates an invalid state. Please ensure the correct cloud archive is used or reset the local CLOUD_HEAD."
+    )]
+    LocalHeadAboveExternal { cloud_head_local: BlockHeight, cloud_head_external: BlockHeight },
+    #[error(
         "GC tail: {gc_tail}, exceeds GC stop height: {gc_stop_height} for the cloud head: {cloud_head}"
     )]
     CloudHeadTooOld { cloud_head: BlockHeight, gc_stop_height: BlockHeight, gc_tail: BlockHeight },
@@ -124,7 +129,7 @@ impl CloudArchivalWriter {
     /// Main loop: archive as fast as possible until `cloud_head == hot_final_head`, then
     /// sleep for `polling_interval` before trying again.
     fn cloud_archival_loop(&self, ctx: &mut dyn DelayedActionRunner<Self>) {
-        if self.handle.is_cancelled() {
+        if self.handle.0.is_cancelled() {
             tracing::debug!(target: "cloud_archival", "Stopping the cloud archival loop");
             return;
         }
@@ -251,16 +256,32 @@ impl CloudArchivalWriter {
                     cloud_head_local,
                 });
             }
+            (Some(cloud_head_local), Some(cloud_head_external))
+                if cloud_head_local < cloud_head_external =>
+            {
+                tracing::warn!(
+                    target: "cloud_archival",
+                    cloud_head_local,
+                    cloud_head_external,
+                    "External cloud head is ahead of the local head. Syncing local to external.",
+                );
+                self.update_cloud_writer_head(runtime_adapter, cloud_head_external)?;
+            }
+            (Some(cloud_head_local), Some(cloud_head_external))
+                if cloud_head_local > cloud_head_external =>
+            {
+                return Err(CloudArchivalInitializationError::LocalHeadAboveExternal {
+                    cloud_head_local,
+                    cloud_head_external,
+                });
+            }
             (Some(cloud_head_local), Some(cloud_head_external)) => {
-                if cloud_head_local != cloud_head_external {
-                    tracing::warn!(
-                        target: "cloud_archival",
-                        cloud_head_local,
-                        cloud_head_external,
-                        "Cloud head is different between the local and external version. Using the external version.",
-                    );
-                    self.update_cloud_writer_head(runtime_adapter, cloud_head_external)?;
-                }
+                assert_eq!(cloud_head_local, cloud_head_external);
+                tracing::info!(
+                    target: "cloud_archival",
+                    cloud_head_local,
+                    "Cloud head is equal locally and externally.",
+                );
             }
         };
         Ok(())

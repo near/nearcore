@@ -59,7 +59,7 @@ pub fn pause_and_resume_writer_with_sanity_checks(
     assert!(2 < cloud_head && cloud_head + 1 < epoch_length);
 
     // Stop the writer and let the node reach `resume_height` while the writer is paused.
-    get_writer_handle(&env, &archival_id).stop();
+    get_writer_handle(&env, &archival_id).0.stop();
     let node_identifier = {
         let archival_node = TestLoopNode::for_account(&env.node_datas, &archival_id);
         archival_node.run_until_head_height(&mut env.test_loop, resume_height);
@@ -70,7 +70,7 @@ pub fn pause_and_resume_writer_with_sanity_checks(
     gc_and_heads_sanity_checks(&env, &archival_id, split_store_enabled, None);
 
     // Resume the writer and restart the node.
-    get_writer_handle(&env, &archival_id).resume();
+    get_writer_handle(&env, &archival_id).0.resume();
     stop_and_restart_node(&mut env, node_identifier.as_str());
 }
 
