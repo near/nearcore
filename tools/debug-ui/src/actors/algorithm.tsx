@@ -146,26 +146,26 @@ export function getEventsToDisplay(
         currentOffsetSMT = window.start_time_ms - minTimeMs;
 
         for (const event of window.events) {
-            if (!event.is_start) {
+            if (!event.s) {
                 if (currentEvent == null) {
                     events.push({
                         startSMT: lastLostHorizonSMT,
-                        endSMT: event.relative_timestamp_ns / 1_000_000 + currentOffsetSMT,
+                        endSMT: event.t / 1_000_000 + currentOffsetSMT,
                         leftUncertain: true,
                         rightUncertain: false,
-                        typeId: event.message_type,
+                        typeId: event.m,
                         row: 0
                     });
                 } else {
-                    if (currentEvent.messageType !== event.message_type) {
-                        console.warn(`Mismatched event types: expected ${currentEvent.messageType}, got ${event.message_type}`);
+                    if (currentEvent.messageType !== event.m) {
+                        console.warn(`Mismatched event types: expected ${currentEvent.messageType}, got ${event.m}`);
                     }
                     events.push({
                         startSMT: currentEvent.startSMT,
-                        endSMT: event.relative_timestamp_ns / 1_000_000 + currentOffsetSMT,
+                        endSMT: event.t / 1_000_000 + currentOffsetSMT,
                         leftUncertain: false,
                         rightUncertain: false,
-                        typeId: event.message_type,
+                        typeId: event.m,
                         row: 0
                     });
                     currentEvent = null;
@@ -175,8 +175,8 @@ export function getEventsToDisplay(
                     console.warn(`Unexpected start event while current event is active: ${currentEvent.messageType}`);
                 }
                 currentEvent = {
-                    messageType: event.message_type,
-                    startSMT: event.relative_timestamp_ns / 1_000_000 + currentOffsetSMT
+                    messageType: event.m,
+                    startSMT: event.t / 1_000_000 + currentOffsetSMT
                 };
             }
         }
@@ -311,10 +311,10 @@ export function makeWindowsToDisplay(
     for (const window of threadWindows) {
         let lastCertainTimeBeforeOverfilling = window.end_time_ms;
         if (window.events_overfilled) {
-            if (window.events[window.events.length - 1].is_start) {
-                lastCertainTimeBeforeOverfilling = window.events[window.events.length - 2].relative_timestamp_ns / 1e6 + window.start_time_ms;
+            if (window.events[window.events.length - 1].s) {
+                lastCertainTimeBeforeOverfilling = window.events[window.events.length - 2].t / 1e6 + window.start_time_ms;
             } else {
-                lastCertainTimeBeforeOverfilling = window.events[window.events.length - 1].relative_timestamp_ns / 1e6 + window.start_time_ms;
+                lastCertainTimeBeforeOverfilling = window.events[window.events.length - 1].t / 1e6 + window.start_time_ms;
             }
         }
         windows.push({
@@ -340,10 +340,10 @@ export class MessageTypeAndColorMap {
         const uniqueTypes = new Set(events.map(e => e.typeId));
         for (const window of windows) {
             for (const stat of window.summary.message_stats_by_type) {
-                uniqueTypes.add(stat.message_type);
+                uniqueTypes.add(stat.m);
             }
             for (const stat of window.dequeueSummary.message_stats_by_type) {
-                uniqueTypes.add(stat.message_type);
+                uniqueTypes.add(stat.m);
             }
         }
 

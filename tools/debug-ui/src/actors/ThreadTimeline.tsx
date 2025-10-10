@@ -416,10 +416,10 @@ export const ThreadTimeline = ({ thread, messageTypes, minTimeMs, currentTimeMs,
             const windowDurationMs = window.endSMT - window.startSMT;
 
             // Calculate total and build list of types
-            const totalTimeNs = summary.message_stats_by_type.reduce((sum, stat) => sum + stat.total_time_ns, 0);
+            const totalTimeNs = summary.message_stats_by_type.reduce((sum, stat) => sum + stat.t, 0);
             const totalMs = totalTimeNs / 1e6;
             const totalPercent = (totalMs / windowDurationMs) * 100;
-            const totalCount = summary.message_stats_by_type.reduce((sum, stat) => sum + stat.count, 0);
+            const totalCount = summary.message_stats_by_type.reduce((sum, stat) => sum + stat.c, 0);
             const idleMs = windowDurationMs - totalMs;
             const idlePercent = (idleMs / windowDurationMs) * 100;
 
@@ -446,17 +446,17 @@ export const ThreadTimeline = ({ thread, messageTypes, minTimeMs, currentTimeMs,
                         </thead>
                         <tbody>
                             {summary.message_stats_by_type.map(stat => {
-                                const typeMs = stat.total_time_ns / 1e6;
+                                const typeMs = stat.t / 1e6;
                                 const typePercent = (typeMs / windowDurationMs) * 100;
-                                const typeColor = colorMap.get(stat.message_type).color;
-                                const typeName = colorMap.get(stat.message_type).name;
+                                const typeColor = colorMap.get(stat.m).color;
+                                const typeName = colorMap.get(stat.m).name;
                                 return (
-                                    <tr key={stat.message_type}>
+                                    <tr key={stat.m}>
                                         <td>
                                             <span className="color-indicator" style={{ backgroundColor: typeColor }}></span>
                                             {typeName}
                                         </td>
-                                        <td className="align-right">{stat.count}</td>
+                                        <td className="align-right">{stat.c}</td>
                                         <td className="align-right">{typeMs.toFixed(2)}</td>
                                         <td className="align-right">{typePercent.toFixed(1)}%</td>
                                     </tr>

@@ -570,9 +570,9 @@ export interface InstrumentedWindow {
 }
 
 export interface InstrumentedEvent {
-    message_type: number
-    is_start: boolean;
-    relative_timestamp_ns: number;
+    m: number;
+    s: boolean;
+    t: number;
 }
 
 export interface InstrumentedWindowSummary {
@@ -580,8 +580,8 @@ export interface InstrumentedWindowSummary {
 }
 
 export interface MessageStatsForType {
-    message_type: number;
-    count: number;
-    total_time_ns: number;
+    m: number;
+    c: number;
+    t: number;
 }
 

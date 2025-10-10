@@ -78,9 +78,12 @@ impl InstrumentedWindowView {
 
 #[derive(Serialize, Debug)]
 pub struct InstrumentedEventView {
+    #[serde(rename = "m")]
     pub message_type: u32,
+    #[serde(rename = "s")]
     pub is_start: bool,
     /// Relative to the beginning of the window.
+    #[serde(rename = "t")]
     pub relative_timestamp_ns: u64,
 }
 
@@ -93,8 +96,11 @@ pub struct InstrumentedWindowSummaryView {
 pub struct MessageStatsForTypeView {
     /// Index into InstrumentedThreadView.message_types.
     /// May be -1 for unknown message types (if the type registry temporarily overflowed).
+    #[serde(rename = "m")]
     pub message_type: i32,
+    #[serde(rename = "c")]
     pub count: usize,
+    #[serde(rename = "t")]
     pub total_time_ns: u64,
 }
 

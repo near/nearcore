@@ -15,7 +15,7 @@ function calculateYMaxForCpuChart(
     windows.forEach(window => {
         const summary = chartMode === 'cpu' ? window.summary : window.dequeueSummary;
         const totalTimeNs = summary.message_stats_by_type.reduce(
-            (sum, stat) => sum + stat.total_time_ns, 0
+            (sum, stat) => sum + stat.t, 0
         );
         const fractionInWindow = totalTimeNs / 1e6 / Math.max(window.endSMT - window.startSMT, 1);
         maxFraction = Math.max(maxFraction, fractionInWindow);
@@ -65,11 +65,11 @@ export function renderCpuChart(params: {
         const windowDurationMs = Math.max(window.endSMT - window.startSMT, 1);  // avoid division by 0
 
         typeOrder.forEach((type) => {
-            const stat = summary.message_stats_by_type.find(s => s.message_type === type);
-            if (!stat || stat.total_time_ns === 0) return;
+            const stat = summary.message_stats_by_type.find(s => s.m === type);
+            if (!stat || stat.t === 0) return;
 
             const y1 = CPU_CHART_HEIGHT - (cumulativeY / yMax * CPU_CHART_HEIGHT);
-            const thisBarHeight = stat.total_time_ns / 1e6 / windowDurationMs;
+            const thisBarHeight = stat.t / 1e6 / windowDurationMs;
             const y2 = CPU_CHART_HEIGHT - ((cumulativeY + thisBarHeight) / yMax * CPU_CHART_HEIGHT);
 
             const color = colorMap.get(type).color;
