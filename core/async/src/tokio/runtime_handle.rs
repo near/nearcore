@@ -98,12 +98,13 @@ impl<A> TokioRuntimeHandle<A> {
             instrumentation.queue().dequeue(description);
         });
         let future_instrumentation_sender = self.future_instrumentation_sender.clone();
-        let wrapped_future = WrappedFuture::new(future, on_ready, Box::new(move || {
-            FutureInstrumentationGuard::new(
-                future_instrumentation_sender.clone(),
-                description,
-            )
-        }));
+        let wrapped_future = WrappedFuture::new(
+            future,
+            on_ready,
+            Box::new(move || {
+                FutureInstrumentationGuard::new(future_instrumentation_sender.clone(), description)
+            }),
+        );
         self.runtime_handle.spawn(wrapped_future);
     }
 }
@@ -115,10 +116,7 @@ struct FutureInstrumentationGuard {
 }
 
 impl FutureInstrumentationGuard {
-    fn new(
-        sender: mpsc::UnboundedSender<FutureInstrumentationEvent>,
-        name: &'static str,
-    ) -> Self {
+    fn new(sender: mpsc::UnboundedSender<FutureInstrumentationEvent>, name: &'static str) -> Self {
         Self { sender, name, start_instant: Instant::now() }
     }
 }
@@ -227,7 +225,7 @@ impl<A: Actor + Send + 'static> TokioRuntimeBuilder<A> {
             let mut window_update_timer = tokio::time::interval(Duration::from_secs(1));
             loop {
                 tokio::select! {
-                    biased; 
+                    biased;
                     _ = self.system_cancellation_signal.cancelled() => {
                         tracing::info!(target: "tokio_runtime", "Shutting down Tokio runtime due to ActorSystem shutdown");
                         break;
