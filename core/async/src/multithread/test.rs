@@ -1,6 +1,6 @@
 use crate::ActorSystem;
 use crate::instrumentation::all_actor_instrumentations_view;
-use crate::instrumentation::reader::InstrumentedThreadsView;
+use crate::instrumentation::test_utils::get_total_times;
 use crate::messaging::{Actor, CanSend, CanSendAsync, Handler, Message};
 use futures::executor::block_on;
 use near_time::Clock;
@@ -123,25 +123,6 @@ fn test_instrumentation() {
     // dequeue time for the next message is `delay_a`.
     handle.send(MessageA { delay: delay_b });
 
-    let get_total_times = |view: &InstrumentedThreadsView| {
-        let mut total_processing_time_ns = 0;
-        let mut total_dequeue_time_ns = 0;
-        for thread in &view.threads {
-            if !thread.thread_name.contains("MyActor") {
-                continue;
-            }
-            for window in &thread.windows {
-                for stat in &window.summary.message_stats_by_type {
-                    total_processing_time_ns += stat.total_time_ns;
-                }
-                for stat in &window.dequeue_summary.message_stats_by_type {
-                    total_dequeue_time_ns += stat.total_time_ns;
-                }
-            }
-        }
-        (total_processing_time_ns, total_dequeue_time_ns)
-    };
-
     // Retry up to 10 times, waiting 200ms each time, until we find a thread with windows
     // that has recorded expected events.
     let mut success = false;
@@ -151,7 +132,7 @@ fn test_instrumentation() {
     for _ in 0..10 {
         // Add up all the processing and dequeue times recorded in the windows of the actor threads.
         let views = all_actor_instrumentations_view(&clock);
-        let (total_processing_time_ns, total_dequeue_time_ns) = get_total_times(&views);
+        let (total_processing_time_ns, total_dequeue_time_ns) = get_total_times("MyActor", &views);
         if total_processing_time_ns >= expected_processing_time_ns
             && total_dequeue_time_ns >= expected_dequeue_time_ns
         {

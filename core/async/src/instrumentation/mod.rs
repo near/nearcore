@@ -6,6 +6,8 @@ pub(crate) mod data;
 mod metrics;
 pub mod queue;
 pub mod reader;
+#[cfg(test)]
+pub(crate) mod test_utils;
 #[cfg(feature = "instrumentation_testing")]
 pub mod testing;
 #[cfg(test)]

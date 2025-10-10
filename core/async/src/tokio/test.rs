@@ -3,7 +3,7 @@ use near_time::Clock;
 use crate::ActorSystem;
 use crate::futures::{DelayedActionRunner, DelayedActionRunnerExt, FutureSpawnerExt};
 use crate::instrumentation::all_actor_instrumentations_view;
-use crate::instrumentation::reader::InstrumentedThreadsView;
+use crate::instrumentation::test_utils::get_total_times;
 use crate::messaging::{Actor, CanSend, CanSendAsync, Handler, Message};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -337,25 +337,6 @@ async fn test_instrumentation() {
 
     builder.spawn_tokio_actor(MyActor);
 
-    let get_total_times = |view: &InstrumentedThreadsView| {
-        let mut total_processing_time_ns = 0;
-        let mut total_dequeue_time_ns = 0;
-        for thread in &view.threads {
-            if !thread.thread_name.contains("MyActor") {
-                continue;
-            }
-            for window in &thread.windows {
-                for stat in &window.summary.message_stats_by_type {
-                    total_processing_time_ns += stat.total_time_ns;
-                }
-                for stat in &window.dequeue_summary.message_stats_by_type {
-                    total_dequeue_time_ns += stat.total_time_ns;
-                }
-            }
-        }
-        (total_processing_time_ns, total_dequeue_time_ns)
-    };
-
     // Retry up to 10 times, waiting 200ms each time, until we find a thread with windows
     // that has recorded expected events.
     let mut success = false;
@@ -365,7 +346,7 @@ async fn test_instrumentation() {
     for _ in 0..10 {
         // Add up all the processing and dequeue times recorded in the windows of the actor threads.
         let views = all_actor_instrumentations_view(&clock);
-        let (total_processing_time_ns, total_dequeue_time_ns) = get_total_times(&views);
+        let (total_processing_time_ns, total_dequeue_time_ns) = get_total_times("MyActor", &views);
         if total_processing_time_ns >= expected_processing_time_ns
             && total_dequeue_time_ns >= expected_dequeue_time_ns
         {
@@ -376,6 +357,46 @@ async fn test_instrumentation() {
         tokio::time::sleep(Duration::from_millis(200)).await;
     }
     actor_system.stop();
+    assert!(
+        success,
+        "Did not find expected processing and dequeue times ({}, {}) in instrumentation data",
+        expected_processing_time_ns, expected_dequeue_time_ns
+    );
+}
+
+#[tokio::test]
+async fn test_instrumenting_future() {
+    struct MyActor;
+    impl Actor for MyActor {}
+    let actor_system = ActorSystem::new();
+    let builder = actor_system.new_tokio_builder();
+    let handle = builder.handle();
+
+    builder.spawn_tokio_actor(MyActor);
+    handle.spawn("description", async move {
+        std::thread::sleep(Duration::from_millis(100));
+    });
+
+    // Retry up to 10 times, waiting 200ms each time, until we find a thread with windows
+    // that has recorded expected events.
+    let mut success = false;
+    let expected_processing_time_ns = 100_000_000;
+    let expected_dequeue_time_ns = 0;
+    let clock = Clock::real();
+    for _ in 0..10 {
+        // Add up all the processing and dequeue times recorded in the windows of the actor threads.
+        let views = all_actor_instrumentations_view(&clock);
+        let (total_processing_time_ns, total_dequeue_time_ns) = get_total_times("MyActor", &views);
+        if total_processing_time_ns >= expected_processing_time_ns
+            && total_dequeue_time_ns >= expected_dequeue_time_ns
+        {
+            success = true;
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(200)).await;
+    }
+    actor_system.stop();
+
     assert!(
         success,
         "Did not find expected processing and dequeue times ({}, {}) in instrumentation data",
