@@ -928,10 +928,7 @@ async fn ttl_and_num_hops() {
             let got = peer
                 .events
                 .recv_until(|ev| match ev {
-                    peer::testonly::Event::Network(PME::MessageProcessed(
-                        tcp::Tier::T2,
-                        PeerMessage::Routed(msg),
-                    )) => Some(msg),
+                    PME::MessageProcessed(tcp::Tier::T2, PeerMessage::Routed(msg)) => Some(msg),
                     _ => None,
                 })
                 .await;
@@ -986,10 +983,7 @@ async fn repeated_data_in_sync_routing_table() {
         // SyncRoutingTable.
         while edges_got != edges_want || accounts_got != accounts_want {
             match peer.events.recv().await {
-                peer::testonly::Event::Network(PME::MessageProcessed(
-                    tcp::Tier::T2,
-                    PeerMessage::SyncRoutingTable(got),
-                )) => {
+                PME::MessageProcessed(tcp::Tier::T2, PeerMessage::SyncRoutingTable(got)) => {
                     for a in got.accounts {
                         assert!(!accounts_got.contains(&a), "repeated broadcast: {a:?}");
                         assert!(accounts_want.contains(&a), "unexpected broadcast: {a:?}");

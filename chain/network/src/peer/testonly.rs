@@ -7,7 +7,7 @@ use crate::network_protocol::{
 use crate::network_protocol::{RoutedMessage, testonly as data};
 use crate::peer::peer_actor::PeerActor;
 use crate::peer_manager::network_state::NetworkState;
-use crate::peer_manager::peer_manager_actor;
+use crate::peer_manager::peer_manager_actor::Event;
 use crate::peer_manager::peer_store;
 use crate::private_messages::SendMessage;
 use crate::store;
@@ -34,18 +34,6 @@ impl PeerConfig {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-#[allow(clippy::large_enum_variant)]
-pub(crate) enum Event {
-    // ShardsManager(ShardsManagerRequestFromNetwork),
-    // Client(ClientSenderForNetworkInput),
-    // StateRequest(StateRequestSenderForNetworkInput),
-    Network(peer_manager_actor::Event),
-    // PartialWitness(PartialWitnessSenderForNetworkInput),
-    // PeerManager(PeerManagerSenderForNetworkInput),
-    // SpiceDataDistributor(SpiceDataDistributorSenderForNetworkInput),
-}
-
 pub(crate) struct PeerHandle {
     pub cfg: Arc<PeerConfig>,
     actor: AutoStopActor<PeerActor>,
@@ -65,10 +53,8 @@ impl PeerHandle {
         self.edge = Some(
             self.events
                 .recv_until(|ev| match ev {
-                    Event::Network(peer_manager_actor::Event::HandshakeCompleted(ev)) => {
-                        Some(ev.edge)
-                    }
-                    Event::Network(peer_manager_actor::Event::ConnectionClosed(ev)) => {
+                    Event::HandshakeCompleted(ev) => Some(ev.edge),
+                    Event::ConnectionClosed(ev) => {
                         panic!("handshake failed: {}", ev.reason)
                     }
                     _ => None,
@@ -102,47 +88,9 @@ impl PeerHandle {
 
         let store = store::Store::from(near_store::db::TestDB::new());
         let mut network_cfg = cfg.network.clone();
-        network_cfg.event_sink = Sender::from_fn({
-            // let send = send.clone();
-            move |event| {
-                send.send(Event::Network(event));
-            }
+        network_cfg.event_sink = Sender::from_fn(move |event| {
+            send.send(event);
         });
-        // let client_sender = Sender::from_fn({
-        //     let send = send.clone();
-        //     move |event: ClientSenderForNetworkMessage| {
-        //         send.send(Event::Client(event.into_input()));
-        //     }
-        // });
-        // let state_part_sender = Sender::from_fn({
-        //     let send = send.clone();
-        //     move |event: StateRequestSenderForNetworkMessage| {
-        //         send.send(Event::StateRequest(event.into_input()));
-        //     }
-        // });
-        // let peer_manager_sender = Sender::from_fn({
-        //     let send = send.clone();
-        //     move |event: PeerManagerSenderForNetworkMessage| {
-        //         send.send(Event::PeerManager(event.into_input()));
-        //     }
-        // });
-        // let shards_manager_sender = Sender::from_fn({
-        //     let send = send.clone();
-        //     move |event| {
-        //         send.send(Event::ShardsManager(event));
-        //     }
-        // });
-        // let state_witness_sender = Sender::from_fn({
-        //     let send = send.clone();
-        //     move |event: PartialWitnessSenderForNetworkMessage| {
-        //         send.send(Event::PartialWitness(event.into_input()));
-        //     }
-        // });
-        // let spice_data_distribution_sender = Sender::from_fn({
-        //     move |event: SpiceDataDistributorSenderForNetworkMessage| {
-        //         send.send(Event::SpiceDataDistributor(event.into_input()));
-        //     }
-        // });
         let network_state = Arc::new(NetworkState::new(
             &clock,
             &*actor_system.new_future_spawner(),
