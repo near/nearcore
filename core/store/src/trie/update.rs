@@ -218,11 +218,20 @@ impl TrieUpdate {
     pub fn commit(&mut self, event: StateChangeCause) {
         let prospective = std::mem::take(&mut self.prospective);
         for (raw_key, TrieKeyValueUpdate { trie_key, value }) in prospective {
-            self.committed
+            let changes = &mut self.committed
                 .entry(raw_key)
                 .or_insert_with(|| RawStateChangesWithTrieKey { trie_key, changes: Vec::new() })
-                .changes
-                .push(RawStateChange { cause: event.clone(), data: value });
+                .changes;
+            if changes.is_empty() {
+                changes.push(RawStateChange { cause: event.clone(), data: value });
+            } else {
+                *changes.last_mut().unwrap() = RawStateChange { cause: event.clone(), data: value };
+            }
+            // self.committed
+            //     .entry(raw_key)
+            //     .or_insert_with(|| RawStateChangesWithTrieKey { trie_key, changes: Vec::new() })
+            //     .changes
+            //     .push(RawStateChange { cause: event.clone(), data: value });
         }
         self.contract_storage.commit_deploys();
     }
