@@ -1,7 +1,11 @@
 use crate::ActorSystem;
+use crate::instrumentation::all_actor_instrumentations_view;
+use crate::instrumentation::reader::InstrumentedThreadsView;
 use crate::messaging::{Actor, CanSend, CanSendAsync, Handler, Message};
 use futures::executor::block_on;
+use near_time::Clock;
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 
 #[test]
@@ -86,4 +90,81 @@ fn test_multithread_actor_stopping() {
     }
     actor_system.stop();
     let _ = block_on(stopped.acquire_many(24)).unwrap();
+}
+
+#[test]
+fn test_instrumentation() {
+    struct MyActor;
+    impl Actor for MyActor {}
+
+    #[derive(Debug)]
+    struct MessageA {
+        delay: Duration,
+    }
+    impl Message for MessageA {}
+
+    impl Handler<MessageA> for MyActor {
+        fn handle(&mut self, msg: MessageA) {
+            std::thread::sleep(msg.delay);
+        }
+    }
+
+    let num_threads = 2;
+    let actor_system = ActorSystem::new();
+    let handle = actor_system.spawn_multithread_actor(num_threads, || MyActor);
+
+    let delay_a = Duration::from_millis(100);
+    let delay_b = Duration::from_millis(200);
+
+    for _ in 0..num_threads {
+        handle.send(MessageA { delay: delay_a });
+    }
+    // Since we sent `num_threads` messages with `delay_a`, the minimum expected
+    // dequeue time for the next message is `delay_a`.
+    handle.send(MessageA { delay: delay_b });
+
+    let get_total_times = |view: &InstrumentedThreadsView| {
+        let mut total_processing_time_ns = 0;
+        let mut total_dequeue_time_ns = 0;
+        for thread in &view.threads {
+            if !thread.thread_name.contains("MyActor") {
+                continue;
+            }
+            for window in &thread.windows {
+                for stat in &window.summary.message_stats_by_type {
+                    total_processing_time_ns += stat.total_time_ns;
+                }
+                for stat in &window.dequeue_summary.message_stats_by_type {
+                    total_dequeue_time_ns += stat.total_time_ns;
+                }
+            }
+        }
+        (total_processing_time_ns, total_dequeue_time_ns)
+    };
+
+    // Retry up to 10 times, waiting 200ms each time, until we find a thread with windows
+    // that has recorded expected events.
+    let mut success = false;
+    let expected_processing_time_ns = (delay_a * num_threads as u32 + delay_b).as_nanos() as u64;
+    let expected_dequeue_time_ns = delay_a.as_nanos() as u64;
+    let clock = Clock::real();
+    for _ in 0..10 {
+        // Add up all the processing and dequeue times recorded in the windows of the actor threads.
+        let views = all_actor_instrumentations_view(&clock);
+        let (total_processing_time_ns, total_dequeue_time_ns) = get_total_times(&views);
+        if total_processing_time_ns >= expected_processing_time_ns
+            && total_dequeue_time_ns >= expected_dequeue_time_ns
+        {
+            success = true;
+            break;
+        }
+
+        std::thread::sleep(Duration::from_millis(200));
+    }
+    actor_system.stop();
+    assert!(
+        success,
+        "Did not find expected processing and dequeue times ({}, {}) in instrumentation data",
+        expected_processing_time_ns, expected_dequeue_time_ns
+    );
 }

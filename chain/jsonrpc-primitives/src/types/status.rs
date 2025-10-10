@@ -40,6 +40,7 @@ pub enum DebugStatusResponse {
     Routes(NetworkRoutesView),
     SnapshotHosts(SnapshotHostsView),
     SplitStoreStatus(SplitStorageInfoView),
+    InstrumentedThreads(serde_json::Value), // Directly use the serialized form here to avoid dependency on near-async.
 }
 
 #[cfg(feature = "debug_types")]

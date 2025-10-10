@@ -90,6 +90,7 @@ use ::time::ext::InstantExt as _;
 use near_async::ActorSystem;
 use near_async::futures::{DelayedActionRunner, DelayedActionRunnerExt};
 use near_async::messaging::{self, Handler, HandlerWithContext, Sender};
+use near_async::span_wrapped_msg::SpanWrappedMessageExt;
 use near_async::time::Duration;
 use near_async::time::{self, Clock};
 use near_async::tokio::TokioRuntimeHandle;
@@ -110,7 +111,6 @@ use near_network::types::{
     PartialEncodedChunkResponseMsg,
 };
 use near_network::types::{NetworkRequests, PeerManagerMessageRequest};
-use near_o11y::span_wrapped_msg::SpanWrappedMessageExt;
 use near_performance_metrics_macros::perf;
 use near_primitives::block::Tip;
 use near_primitives::errors::EpochError;
