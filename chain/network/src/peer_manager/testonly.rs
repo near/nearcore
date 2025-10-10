@@ -16,7 +16,7 @@ use crate::network_protocol::{
 use crate::peer;
 use crate::peer::peer_actor::ClosingReason;
 use crate::peer_manager::network_state::NetworkState;
-use crate::peer_manager::peer_manager_actor::Event as PME;
+use crate::peer_manager::peer_manager_actor::Event;
 use crate::snapshot_hosts::SnapshotHostsCache;
 use crate::tcp;
 use crate::test_utils;
@@ -71,18 +71,6 @@ impl messaging::Handler<WithNetworkState> for PeerManagerActor {
     }
 }
 
-#[derive(Debug, PartialEq, Eq, Clone)]
-#[allow(clippy::large_enum_variant)]
-pub enum Event {
-    // ShardsManager(ShardsManagerRequestFromNetwork),
-    // Client(ClientSenderForNetworkInput),
-    // StateRequestSender(StateRequestSenderForNetworkInput),
-    PeerManager(PME),
-    // PeerManagerSender(PeerManagerSenderForNetworkInput),
-    // PartialWitness(PartialWitnessSenderForNetworkInput),
-    // SpiceDataDistributor(SpiceDataDistributorSenderForNetworkInput),
-}
-
 pub(crate) struct ActorHandler {
     pub cfg: config::NetworkConfig,
     pub events: broadcast::Receiver<Event>,
@@ -92,20 +80,14 @@ pub(crate) struct ActorHandler {
 
 pub(crate) fn unwrap_sync_accounts_data_processed(ev: Event) -> Option<SyncAccountsData> {
     match ev {
-        Event::PeerManager(PME::MessageProcessed(
-            tcp::Tier::T2,
-            PeerMessage::SyncAccountsData(msg),
-        )) => Some(msg),
+        Event::MessageProcessed(tcp::Tier::T2, PeerMessage::SyncAccountsData(msg)) => Some(msg),
         _ => None,
     }
 }
 
 pub(crate) fn unwrap_sync_snapshot_hosts_data_processed(ev: Event) -> Option<SyncSnapshotHosts> {
     match ev {
-        Event::PeerManager(PME::MessageProcessed(
-            tcp::Tier::T2,
-            PeerMessage::SyncSnapshotHosts(msg),
-        )) => Some(msg),
+        Event::MessageProcessed(tcp::Tier::T2, PeerMessage::SyncSnapshotHosts(msg)) => Some(msg),
         _ => None,
     }
 }
@@ -148,10 +130,8 @@ impl RawConnection {
         // Wait for the peer manager to complete the handshake.
         self.events
             .recv_until(|ev| match ev {
-                Event::PeerManager(PME::HandshakeCompleted(ev)) if ev.stream_id == stream_id => {
-                    Some(())
-                }
-                Event::PeerManager(PME::ConnectionClosed(ev)) if ev.stream_id == stream_id => {
+                Event::HandshakeCompleted(ev) if ev.stream_id == stream_id => Some(()),
+                Event::ConnectionClosed(ev) if ev.stream_id == stream_id => {
                     panic!("handshake aborted: {}", ev.reason)
                 }
                 _ => None,
@@ -172,10 +152,8 @@ impl RawConnection {
         let reason = self
             .events
             .recv_until(|ev| match ev {
-                Event::PeerManager(PME::ConnectionClosed(ev)) if ev.stream_id == stream_id => {
-                    Some(ev.reason)
-                }
-                Event::PeerManager(PME::HandshakeCompleted(ev)) if ev.stream_id == stream_id => {
+                Event::ConnectionClosed(ev) if ev.stream_id == stream_id => Some(ev.reason),
+                Event::HandshakeCompleted(ev) if ev.stream_id == stream_id => {
                     panic!("PeerManager accepted the handshake")
                 }
                 _ => None,
@@ -220,12 +198,8 @@ impl ActorHandler {
             addr.send(PeerManagerMessageRequest::OutboundTcpConnect(stream));
             events
                 .recv_until(|ev| match &ev {
-                    Event::PeerManager(PME::HandshakeCompleted(ev))
-                        if ev.stream_id == stream_id =>
-                    {
-                        Some(stream_id)
-                    }
-                    Event::PeerManager(PME::ConnectionClosed(ev)) if ev.stream_id == stream_id => {
+                    Event::HandshakeCompleted(ev) if ev.stream_id == stream_id => Some(stream_id),
+                    Event::ConnectionClosed(ev) if ev.stream_id == stream_id => {
                         panic!("PeerManager rejected the handshake")
                     }
                     _ => None,
@@ -276,12 +250,8 @@ impl ActorHandler {
         conn.events
             .clone()
             .recv_until(|ev| match ev {
-                Event::PeerManager(PME::HandshakeStarted(ev)) if ev.stream_id == stream_id => {
-                    Some(())
-                }
-                Event::PeerManager(PME::ConnectionClosed(ev)) if ev.stream_id == stream_id => {
-                    Some(())
-                }
+                Event::HandshakeStarted(ev) if ev.stream_id == stream_id => Some(()),
+                Event::ConnectionClosed(ev) if ev.stream_id == stream_id => Some(()),
                 _ => None,
             })
             .await;
@@ -314,12 +284,8 @@ impl ActorHandler {
         conn.events
             .clone()
             .recv_until(|ev| match ev {
-                Event::PeerManager(PME::HandshakeStarted(ev)) if ev.stream_id == stream_id => {
-                    Some(())
-                }
-                Event::PeerManager(PME::ConnectionClosed(ev)) if ev.stream_id == stream_id => {
-                    Some(())
-                }
+                Event::HandshakeStarted(ev) if ev.stream_id == stream_id => Some(()),
+                Event::ConnectionClosed(ev) if ev.stream_id == stream_id => Some(()),
                 _ => None,
             })
             .await;
@@ -498,7 +464,7 @@ impl ActorHandler {
 
             events
                 .recv_until(|ev| match ev {
-                    Event::PeerManager(PME::HandshakeCompleted { .. }) => Some(()),
+                    Event::HandshakeCompleted { .. } => Some(()),
                     _ => None,
                 })
                 .await;
@@ -516,7 +482,7 @@ impl ActorHandler {
             }
             events
                 .recv_until(|ev| match ev {
-                    Event::PeerManager(PME::EdgesAdded { .. }) => Some(()),
+                    Event::EdgesAdded { .. } => Some(()),
                     _ => None,
                 })
                 .await;
@@ -535,7 +501,7 @@ impl ActorHandler {
             }
             events
                 .recv_until(|ev| match ev {
-                    Event::PeerManager(PME::AccountsAdded(_)) => Some(()),
+                    Event::AccountsAdded(_) => Some(()),
                     _ => None,
                 })
                 .await;
@@ -551,7 +517,7 @@ impl ActorHandler {
             }
             events
                 .recv_until(|ev| match ev {
-                    Event::PeerManager(PME::EdgesAdded { .. }) => Some(()),
+                    Event::EdgesAdded { .. } => Some(()),
                     _ => None,
                 })
                 .await;
@@ -584,15 +550,10 @@ pub(crate) async fn start(
     mut cfg: config::NetworkConfig,
     chain: Arc<data::Chain>,
 ) -> ActorHandler {
-    let (send, mut recv) = broadcast::unbounded_channel();
+    let (send, mut recv) = broadcast::unbounded_channel::<Event>();
     let chain = chain.clone();
     let genesis_id = chain.genesis_id.clone();
-    cfg.event_sink = Sender::from_fn({
-        let send = send.clone();
-        move |event| {
-            send.send(Event::PeerManager(event));
-        }
-    });
+    cfg.event_sink = Sender::from_fn(move |event| send.send(event));
 
     let mut client_sender: ClientSenderForNetwork = noop().into_multi_sender();
     client_sender.announce_account = Sender::from_fn({
@@ -630,30 +591,7 @@ pub(crate) async fn start(
             (msg.callback)(std::future::ready(Ok(result)).boxed());
         }
     });
-    // let peer_manager_sender = Sender::from_fn({
-    //     let send = send.clone();
-    //     move |event: PeerManagerSenderForNetworkMessage| {
-    //         send.send(Event::PeerManagerSender(event.into_input()));
-    //     }
-    // });
-    // let shards_manager_sender = Sender::from_fn({
-    //     let send = send.clone();
-    //     move |event| {
-    //         send.send(Event::ShardsManager(event));
-    //     }
-    // });
-    // let state_witness_sender = Sender::from_fn({
-    //     let send = send.clone();
-    //     move |event: PartialWitnessSenderForNetworkMessage| {
-    //         send.send(Event::PartialWitness(event.into_input()));
-    //     }
-    // });
-    // let spice_data_distribution_sender = Sender::from_fn({
-    //     let send = send.clone();
-    //     move |event: SpiceDataDistributorSenderForNetworkMessage| {
-    //         send.send(Event::SpiceDataDistributor(event.into_input()));
-    //     }
-    // });
+
     let actor_system = ActorSystem::new();
     let actor = PeerManagerActor::spawn(
         clock,
@@ -673,7 +611,7 @@ pub(crate) async fn start(
     let h = ActorHandler { cfg, actor, events: recv.clone(), actor_system };
     // Wait for the server to start.
     recv.recv_until(|ev| match ev {
-        Event::PeerManager(PME::ServerStarted) => Some(()),
+        Event::ServerStarted => Some(()),
         _ => None,
     })
     .await;

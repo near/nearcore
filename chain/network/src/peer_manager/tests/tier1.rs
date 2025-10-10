@@ -2,8 +2,7 @@ use crate::config;
 use crate::network_protocol::testonly as data;
 use crate::network_protocol::{PeerAddr, PeerMessage, T1MessageBody, TieredMessageBody};
 use crate::peer_manager;
-use crate::peer_manager::peer_manager_actor::Event as PME;
-use crate::peer_manager::testonly::Event;
+use crate::peer_manager::peer_manager_actor::Event;
 use crate::peer_manager::testonly::start as start_pm;
 use crate::stun;
 use crate::tcp;
@@ -80,9 +79,7 @@ async fn send_and_recv_tier1_message(
     let want = send_tier1_message(rng, clock, from, to).await.expect("routing info not available");
     let got = events
         .recv_until(|ev| match ev {
-            Event::PeerManager(PME::MessageProcessed(tier, PeerMessage::Routed(got)))
-                if tier == recv_tier =>
-            {
+            Event::MessageProcessed(tier, PeerMessage::Routed(got)) if tier == recv_tier => {
                 Some(got)
             }
             _ => None,
