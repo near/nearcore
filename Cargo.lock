@@ -4577,7 +4577,6 @@ name = "near-jsonrpc-primitives"
 version = "0.0.0"
 dependencies = [
  "arbitrary",
- "near-async",
  "near-chain-configs",
  "near-client-primitives",
  "near-crypto",

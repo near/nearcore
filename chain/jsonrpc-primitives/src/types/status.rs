@@ -1,4 +1,3 @@
-use near_async::instrumentation::reader::InstrumentedThreadsView;
 #[cfg(feature = "debug_types")]
 use near_client_primitives::debug::{
     DebugBlockStatusData, EpochInfoView, TrackedShardsView, ValidatorStatus,
@@ -41,7 +40,7 @@ pub enum DebugStatusResponse {
     Routes(NetworkRoutesView),
     SnapshotHosts(SnapshotHostsView),
     SplitStoreStatus(SplitStorageInfoView),
-    InstrumentedThreads(InstrumentedThreadsView),
+    InstrumentedThreads(serde_json::Value), // Directly use the serialized form here to avoid dependency on near-async.
 }
 
 #[cfg(feature = "debug_types")]
