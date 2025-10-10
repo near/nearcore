@@ -15,6 +15,8 @@ workspace = true
 crossbeam-channel.workspace = true
 futures.workspace = true
 parking_lot.workspace = true
+prometheus.workspace = true
+rand = { workspace = true, optional = true }
 rayon.workspace = true
 serde.workspace = true
 serde_json.workspace = true
@@ -28,4 +30,12 @@ near-time = { workspace = true, features = ["clock"] }
 
 [dev-dependencies]
 tokio-util.workspace = true
+criterion.workspace = true
+
+[features]
+instrumentation_testing = ["rand"]
+
+[[bench]]
+name = "instrumentation"
+harness = false
 

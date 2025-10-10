@@ -4007,11 +4007,14 @@ dependencies = [
 name = "near-async"
 version = "0.0.0"
 dependencies = [
+ "criterion",
  "crossbeam-channel",
  "futures",
  "near-async-derive",
  "near-time",
  "parking_lot 0.12.1",
+ "prometheus",
+ "rand 0.8.5",
  "rayon",
  "serde",
  "serde_json",
@@ -4699,7 +4702,6 @@ dependencies = [
  "bencher",
  "clap",
  "itoa",
- "near-async",
  "near-crypto",
  "near-fmt",
  "near-primitives-core",
@@ -4904,7 +4906,6 @@ dependencies = [
  "near-client-primitives",
  "near-crypto",
  "near-network",
- "near-o11y",
  "near-parameters",
  "near-primitives",
  "node-runtime",

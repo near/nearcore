@@ -15,6 +15,7 @@ use near_chain::{ApplyChunksIterationMode, Chain, ChainGenesis, DoomslugThreshol
 
 use near_async::ActorSystem;
 use near_async::multithread::MultithreadRuntimeHandle;
+use near_async::span_wrapped_msg::SpanWrapped;
 use near_async::tokio::TokioRuntimeHandle;
 use near_chain_configs::test_utils::TestClientConfigParams;
 use near_chain_configs::{
@@ -43,7 +44,6 @@ use near_network::shards_manager::ShardsManagerRequestFromNetwork;
 use near_network::state_witness::PartialWitnessSenderForNetwork;
 use near_network::types::{NetworkRequests, NetworkResponses, PeerManagerAdapter};
 use near_network::types::{PeerManagerMessageRequest, PeerManagerMessageResponse};
-use near_o11y::span_wrapped_msg::SpanWrapped;
 use near_primitives::epoch_info::RngSeed;
 use near_primitives::network::PeerId;
 use near_primitives::test_utils::create_test_signer;
@@ -215,7 +215,7 @@ fn setup(
         shard_tracker.clone(),
         runtime.clone(),
         PeerId::new(PublicKey::empty(KeyType::ED25519)),
-        actor_system.new_future_spawner().into(),
+        actor_system.new_future_spawner("state sync").into(),
         network_adapter.clone(),
         shards_manager_adapter_for_client.as_sender(),
         signer.clone(),
@@ -506,7 +506,7 @@ pub fn setup_client_with_runtime(
         apply_chunks_iteration_mode,
         partial_witness_adapter,
         resharding_sender,
-        actor_system.new_future_spawner().into(),
+        actor_system.new_future_spawner("state sync").into(),
         noop().into_multi_sender(), // state sync ignored for these tests
         noop().into_multi_sender(), // apply chunks ping not necessary for these tests
         chunk_validation_sender,

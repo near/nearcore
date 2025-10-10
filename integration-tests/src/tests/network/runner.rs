@@ -124,7 +124,7 @@ fn setup_network_node(
         shard_tracker.clone(),
         runtime.clone(),
         config.node_id(),
-        actor_system.new_future_spawner().into(),
+        actor_system.new_future_spawner("state sync").into(),
         network_adapter.as_multi_sender(),
         shards_manager_adapter.as_sender(),
         validator_signer.clone(),

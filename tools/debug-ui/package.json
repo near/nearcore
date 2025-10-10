@@ -14,7 +14,8 @@
     "react-router-dom": "^7.5.2",
     "react-scripts": "^5.0.1",
     "react-tooltip": "^5.22.0",
-    "react-xarrows": "^2.0.2"
+    "react-xarrows": "^2.0.2",
+    "recharts": "^3.2.1"
   },
   "scripts": {
     "start": "DISABLE_ESLINT_PLUGIN=true react-scripts start",

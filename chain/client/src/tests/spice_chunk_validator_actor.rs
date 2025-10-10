@@ -1,6 +1,7 @@
 use assert_matches::assert_matches;
 use near_async::futures::AsyncComputationSpawner;
 use near_async::messaging::{Handler, IntoSender as _, Message, Sender};
+use near_async::span_wrapped_msg::SpanWrappedMessageExt as _;
 use near_async::time::Clock;
 use near_chain::spice_core::{CoreStatementsProcessor, ExecutionResultEndorsed};
 use near_chain::test_utils::{
@@ -16,7 +17,6 @@ use near_chain_configs::test_genesis::{TestGenesisBuilder, ValidatorsSpec};
 use near_chain_configs::{Genesis, MutableConfigValue};
 use near_epoch_manager::EpochManagerAdapter;
 use near_network::types::{NetworkRequests, PeerManagerAdapter, PeerManagerMessageRequest};
-use near_o11y::span_wrapped_msg::SpanWrappedMessageExt as _;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::apply::ApplyChunkReason;
 use near_primitives::hash::{CryptoHash, hash};

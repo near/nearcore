@@ -25,8 +25,8 @@ use crate::types::{
     StateRequestSenderForNetworkInput, StateRequestSenderForNetworkMessage,
 };
 use near_async::messaging::{CanSendAsync, IntoMultiSender, Sender};
+use near_async::span_wrapped_msg::SpanWrappedMessageExt;
 use near_async::{ActorSystem, time};
-use near_o11y::span_wrapped_msg::SpanWrappedMessageExt;
 use near_primitives::network::PeerId;
 use std::sync::Arc;
 
@@ -157,7 +157,7 @@ impl PeerHandle {
         });
         let network_state = Arc::new(NetworkState::new(
             &clock,
-            &*actor_system.new_future_spawner(),
+            &*actor_system.new_future_spawner("network demux"),
             store,
             peer_store::PeerStore::new(&clock, network_cfg.peer_store.clone()).unwrap(),
             network_cfg.verify().unwrap(),
