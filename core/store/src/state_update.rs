@@ -386,9 +386,9 @@ impl<'su> StateOperations<'su> {
             state_value::Type::Absent => return Ok(None),
             state_value::Type::Present => todo!("unreachable, storage inconsistent error"),
             state_value::Type::Deserialized(v) => {
-                return Ok(Some(
-                    <dyn Any>::downcast_ref::<V>(&*v).expect("TODO: type confusion??"),
-                ));
+                let v: &dyn Deserialized = &**v;
+                let downcast = <dyn Any>::downcast_ref::<V>(v);
+                return Ok(Some(downcast.expect("TODO: type confusion??")));
             }
             this @ state_value::Type::Serialized(_) => {
                 let serialized = std::mem::replace(this, state_value::Type::Present);
@@ -409,7 +409,8 @@ impl<'su> StateOperations<'su> {
                         let state_value::Type::Deserialized(v) = this else {
                             unreachable!();
                         };
-                        let downcast = <dyn Any>::downcast_ref::<V>(&*v);
+                        let v: &dyn Deserialized = &**v;
+                        let downcast = <dyn Any>::downcast_ref::<V>(v);
                         return Ok(Some(downcast.expect("TODO: unreachable type confusion??")));
                     }
                     Err(e) => {
@@ -431,9 +432,9 @@ impl<'su> StateOperations<'su> {
                 let state_value::Type::Deserialized(v) = this else {
                     unreachable!();
                 };
-                return Ok(Some(
-                    <dyn Any>::downcast_ref::<V>(&*v).expect("TODO: unreachable type confusion??"),
-                ));
+                let v: &dyn Deserialized = &**v;
+                let downcast = <dyn Any>::downcast_ref::<V>(v);
+                return Ok(Some(downcast.expect("TODO: unreachable type confusion??")));
             }
         }
     }
@@ -888,12 +889,13 @@ pub mod state_value {
             return None;
         }
         if Arc::get_mut(arc).is_none() {
-            // We don't have exclusive ownership, clone.
-            let value = <dyn Any>::downcast_ref::<T>(&**arc).unwrap().clone();
+            let value: &dyn Deserialized = &**arc;
+            let value = <dyn Any>::downcast_ref::<T>(value).unwrap().clone();
             *arc = Arc::new(value);
         }
         // Could be made faster with `get_mut_unchecked`.
-        <dyn Any + Send + Sync>::downcast_mut::<T>(Arc::get_mut(arc).unwrap() as _)
+        let value: &mut dyn Deserialized = Arc::get_mut(arc).unwrap();
+        <dyn Any + Send + Sync>::downcast_mut::<T>(value as _)
     }
 }
 
