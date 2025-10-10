@@ -1,4 +1,5 @@
 import { Viewport } from "./algorithm";
+import { drawLine } from "./canvas_utils";
 
 /// Calculates appropriate time tick interval based on viewport span
 function getTimeTickInterval(viewportSpanMs: number): number {
@@ -31,42 +32,28 @@ function formatTime(ms: number): string {
     return seconds.toFixed(3).replace(/\.?0+$/, '');
 }
 
-export function renderGridline(viewport: Viewport, gridTop: number, chartHeight: number): JSX.Element {
-    return <g>
-        {(() => {
-            const viewportSpan = viewport.getEnd() - viewport.getStart();
-            const tickInterval = getTimeTickInterval(viewportSpan);
-            const startTick = Math.ceil(viewport.getStart() / tickInterval) * tickInterval;
-            const ticks = [];
+export function renderGridline(
+    ctx: CanvasRenderingContext2D,
+    viewport: Viewport,
+    gridTop: number,
+    chartHeight: number
+): void {
+    const viewportSpan = viewport.getEnd() - viewport.getStart();
+    const tickInterval = getTimeTickInterval(viewportSpan);
+    const startTick = Math.ceil(viewport.getStart() / tickInterval) * tickInterval;
 
-            for (let tick = startTick; tick <= viewport.getEnd(); tick += tickInterval) {
-                const x = viewport.transform(tick);
-                ticks.push(
-                    <g key={tick}>
-                        <line
-                            x1={x}
-                            y1={gridTop}
-                            x2={x}
-                            y2={chartHeight}
-                            stroke="#ccc"
-                            strokeWidth={1}
-                        />
-                        {(
-                            <text
-                                x={x}
-                                y={gridTop - 8}
-                                fontSize={10}
-                                fontFamily="sans-serif"
-                                fill="#666"
-                                textAnchor="middle"
-                            >
-                                {formatTime(tick)}
-                            </text>
-                        )}
-                    </g>
-                );
-            }
-            return ticks;
-        })()}
-    </g>;
+    ctx.font = '10px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'alphabetic';
+
+    for (let tick = startTick; tick <= viewport.getEnd(); tick += tickInterval) {
+        const x = viewport.transform(tick);
+
+        // Draw vertical grid line
+        drawLine(ctx, x, gridTop, x, chartHeight, '#ccc', 1, 'butt');
+
+        // Draw time label
+        ctx.fillStyle = '#666';
+        ctx.fillText(formatTime(tick), x, gridTop - 8);
+    }
 }

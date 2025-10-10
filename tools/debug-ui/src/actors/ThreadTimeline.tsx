@@ -1,9 +1,10 @@
-import { useMemo, useState, useRef, useEffect } from "react";
+import { useMemo, useState, useRef, useEffect, useCallback } from "react";
 import { InstrumentedThread } from "../api";
 import { CPU_CHART_HEIGHT, GRID_LABEL_TOP_MARGIN, LEGEND_HEIGHT_PER_ROW, LEGEND_VERTICAL_MARGIN, LINE_STROKE_WIDTH, ROW_HEIGHT, ROW_PADDING } from "./constants";
 import { assignRows, getEventsToDisplay, makeWindowsToDisplay, MessageTypeAndColorMap, MergedEventToDisplay, Viewport } from "./algorithm";
 import { renderCpuChart } from "./cpu_chart";
 import { renderGridline } from "./gridline";
+import { HitDetector, clearCanvas, drawRect, drawLine, drawRoundedRect } from "./canvas_utils";
 import "./ThreadTimeline.scss";
 
 type ActorsViewProps = {
@@ -26,11 +27,13 @@ export const ThreadTimeline = ({ thread, messageTypes, minTimeMs, currentTimeMs,
         [thread, minTimeMs]
     );
 
-    const svgRef = useRef<SVGSVGElement>(null);
-    const [svgWidth, setSvgWidth] = useState(800);
+    const canvasRef = useRef<HTMLCanvasElement>(null);
+    const containerRef = useRef<HTMLDivElement>(null);
+    const [canvasWidth, setCanvasWidth] = useState(800);
+    const hitDetectorRef = useRef<HitDetector>(new HitDetector());
 
     const availableTimeInWindows = currentTimeMs - minTimeMs;
-    const defaultViewport = new Viewport(availableTimeInWindows - 30000 - 500, availableTimeInWindows + 1000, svgWidth, availableTimeInWindows - 30000 - 500, availableTimeInWindows + 1000, 1);
+    const defaultViewport = new Viewport(availableTimeInWindows - 30000 - 500, availableTimeInWindows + 1000, canvasWidth, availableTimeInWindows - 30000 - 500, availableTimeInWindows + 1000, 1);
     const [currentViewport, setViewport] = useState(defaultViewport);
     const viewport = currentViewport.isAllowedRangeTheSameAs(defaultViewport) ? currentViewport : defaultViewport;
 
@@ -67,7 +70,7 @@ export const ThreadTimeline = ({ thread, messageTypes, minTimeMs, currentTimeMs,
         let currentX = 0;
 
         legendItems.forEach((item) => {
-            if (currentX + item.width > svgWidth && currentX > 0) {
+            if (currentX + item.width > canvasWidth && currentX > 0) {
                 // Move to next row
                 currentRow++;
                 currentX = 0;
@@ -79,180 +82,100 @@ export const ThreadTimeline = ({ thread, messageTypes, minTimeMs, currentTimeMs,
         const rows = currentRow + 1;
         const height = LEGEND_VERTICAL_MARGIN * 2 + LEGEND_HEIGHT_PER_ROW * rows;
         return { legendHeight: height, legendLayout: layout };
-    }, [legendItems, svgWidth, isExpanded]);
+    }, [legendItems, canvasWidth, isExpanded]);
 
-    const svgHeight = chartHeight + legendHeight;
+    const canvasHeight = chartHeight + legendHeight;
 
     const [hoveredEvent, setHoveredEvent] = useState<{ event: MergedEventToDisplay, x: number, y: number } | null>(null);
     const [hoveredLegendType, setHoveredLegendType] = useState<number | null>(null);
     const [hoveredCpuWindow, setHoveredCpuWindow] = useState<{ windowIndex: number, x: number, y: number } | null>(null);
     const [hoveredQueue, setHoveredQueue] = useState<{ x: number, y: number } | null>(null);
 
-    useEffect(() => {
-        const svg = svgRef.current;
-        if (!svg) return;
+    // Main render function
+    const renderCanvas = useCallback(() => {
+        const canvas = canvasRef.current;
+        if (!canvas) return;
 
-        const handleWheel = (e: WheelEvent) => {
-            if (!isExpanded) {
-                // When collapsed, allow normal page scrolling
-                return;
-            }
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return;
 
-            e.preventDefault();
-            e.stopPropagation();
-            const zoomFactor = e.deltaY < 0 ? 0.9 : 1.1;
-            const rect = svg.getBoundingClientRect();
-            const mouseX = e.clientX - rect.left;
-            setViewport(viewport.zoom(mouseX, zoomFactor));
-        };
+        const hitDetector = hitDetectorRef.current;
+        hitDetector.clear();
 
-        svg.addEventListener('wheel', handleWheel, { passive: false });
-        return () => svg.removeEventListener('wheel', handleWheel);
-    }, [viewport, isExpanded]);
+        // Clear canvas
+        clearCanvas(ctx, canvasWidth, canvasHeight);
 
-    useEffect(() => {
-        const svg = svgRef.current;
-        if (!svg) return;
+        // Set white background
+        ctx.fillStyle = 'white';
+        ctx.fillRect(0, 0, canvasWidth, canvasHeight);
 
-        const resizeObserver = new ResizeObserver((entries) => {
-            for (const entry of entries) {
-                const newWidth = entry.contentRect.width;
-                if (newWidth !== svgWidth) {
-                    setSvgWidth(newWidth);
-                    setViewport(vp => vp.resize(newWidth));
-                }
-            }
+        // Render CPU chart
+        renderCpuChart(ctx, hitDetector, {
+            windows,
+            chartMode,
+            yAxisMode,
+            colorMap,
+            viewport,
+            hoveredLegendType,
+            hoveredWindowIndex: hoveredCpuWindow?.windowIndex ?? null,
+            queueCounts: thread.queue.pending_counts,
+            hoveredQueue: hoveredQueue !== null,
         });
 
-        resizeObserver.observe(svg);
-        return () => resizeObserver.disconnect();
-    }, [svgWidth]);
+        // Render background shading for areas outside window range
+        if (windows.length > 0) {
+            const firstWindowStartMs = windows[0].startSMT;
+            const lastWindowEndMs = windows[windows.length - 1].endSMT;
 
-    return (<>
-        <svg
-            ref={svgRef}
-            width="100%"
-            height={svgHeight}
-            style={{ backgroundColor: "white", borderTop: "1px solid #666", borderBottom: "1px solid #666", display: "block" }}
-            onMouseMove={(e) => {
-                if (e.buttons === 1) {
-                    setViewport(viewport.pan(-e.movementX));
-                }
-            }}
-            onDoubleClick={() => setViewport(viewport.reset())}
-        >
-            {/* CPU Load Chart */}
-            <g>
-                {renderCpuChart({
-                    windows,
-                    chartMode,
-                    yAxisMode,
-                    colorMap,
-                    viewport,
-                    hoveredLegendType,
-                    hoveredWindowIndex: hoveredCpuWindow?.windowIndex ?? null,
-                    onWindowHover: (windowIndex, x, y) => setHoveredCpuWindow({ windowIndex, x, y }),
-                    onWindowLeave: () => setHoveredCpuWindow(null),
-                    queueCounts: thread.queue.pending_counts,
-                    hoveredQueue: hoveredQueue !== null,
-                    onQueueHover: (x, y) => setHoveredQueue({ x, y }),
-                    onQueueLeave: () => setHoveredQueue(null),
-                })}
-            </g>
+            const beforeX1 = viewport.transform(viewport.getStart());
+            const beforeX2 = viewport.transform(firstWindowStartMs);
+            const afterX1 = viewport.transform(lastWindowEndMs);
+            const afterX2 = viewport.transform(viewport.getEnd());
 
-            {/* Background shading for areas outside window range */}
-            <g>
-                {(() => {
-                    if (windows.length === 0) return null;
+            // Area before first window
+            if (beforeX2 > 0) {
+                drawRect(ctx, Math.max(0, beforeX1), 0, Math.max(0, beforeX2 - Math.max(0, beforeX1)), chartHeight, '#eee');
+            }
 
-                    const firstWindowStartMs = windows[0].startSMT;
-                    const lastWindowEndMs = windows[windows.length - 1].endSMT;
+            // Area after last window
+            if (afterX1 < canvasWidth) {
+                drawRect(ctx, Math.max(0, afterX1), CPU_CHART_HEIGHT, Math.min(canvasWidth, afterX2) - Math.max(0, afterX1), chartHeight - CPU_CHART_HEIGHT, '#eee');
+            }
 
-                    const beforeX1 = viewport.transform(viewport.getStart());
-                    const beforeX2 = viewport.transform(firstWindowStartMs);
-                    const afterX1 = viewport.transform(lastWindowEndMs);
-                    const afterX2 = viewport.transform(viewport.getEnd());
+            // Red line indicating current time
+            if (afterX1 < canvasWidth) {
+                drawLine(ctx, Math.floor(afterX1) + 0.5, 0, Math.floor(afterX1) + 0.5, chartHeight, '#f00', 1, 'butt');
+            }
+        }
 
-                    return (
-                        <>
-                            {/* Area before first window */}
-                            {beforeX2 > 0 && (
-                                <rect
-                                    x={Math.max(0, beforeX1)}
-                                    y={0}
-                                    width={Math.max(0, beforeX2 - Math.max(0, beforeX1))}
-                                    height={chartHeight}
-                                    fill="#eee"
-                                />
-                            )}
-                            {/* Area after last window */}
-                            {afterX1 < svgWidth && (
-                                <rect
-                                    x={Math.max(0, afterX1)}
-                                    y={CPU_CHART_HEIGHT}
-                                    width={Math.min(svgWidth, afterX2) - Math.max(0, afterX1)}
-                                    height={chartHeight - CPU_CHART_HEIGHT}
-                                    fill="#eee"
-                                />
-                            )}
-                            {/* Red line indicating current time */}
-                            {afterX1 < svgWidth && (
-                                <line
-                                    x1={Math.floor(afterX1) + 0.5}
-                                    y1={0}
-                                    x2={Math.floor(afterX1) + 0.5}
-                                    y2={chartHeight}
-                                    stroke="#f00"
-                                    strokeWidth={1}
-                                />
-                            )}
-                        </>
-                    );
-                })()}
-            </g>
+        // Render overfilled window indicators
+        windows.forEach((window) => {
+            if (!window.eventsOverfilled) return;
+            const x1 = viewport.transform(window.lastCertainTimeBeforeOverfilling);
+            const x2 = viewport.transform(window.endSMT);
 
-            {/* Overfilled window indicators in event timeline area */}
-            <g>
-                {(() => {
-                    const indicators: JSX.Element[] = [];
-                    windows.forEach((window, index) => {
-                        if (!window.eventsOverfilled) return;
-                        const x1 = viewport.transform(window.lastCertainTimeBeforeOverfilling);
-                        const x2 = viewport.transform(window.endSMT);
+            // Skip windows outside viewport
+            if (x2 < 0 || x1 > canvasWidth) return;
 
-                        // Skip windows outside viewport
-                        if (x2 < 0 || x1 > svgWidth) return;
+            drawRect(ctx, x1, eventsTop, x2 - x1, chartHeight - eventsTop, '#f88', undefined, 1, 0.3);
+        });
 
-                        indicators.push(
-                            <rect
-                                key={`overfilled-${index}`}
-                                x={x1}
-                                y={eventsTop}
-                                width={x2 - x1}
-                                height={chartHeight - eventsTop}
-                                fill="#f88"
-                                opacity={0.3}
-                            />
-                        );
-                    });
+        // Render gridlines
+        renderGridline(ctx, viewport, gridTop, chartHeight);
 
-                    return indicators;
-                })()}
-            </g>
-
-            {renderGridline(viewport, gridTop, chartHeight)}
-
-            {isExpanded && positionedEvents.map((event, index) => {
+        // Render events
+        if (isExpanded) {
+            positionedEvents.forEach((event, index) => {
                 const xStart = viewport.transform(event.startSMT);
                 const xEnd = viewport.transform(event.endSMT);
                 const width = xEnd - xStart;
-                if (xEnd < 0 || xStart > svgWidth) {
-                    return null; // Skip rendering events outside the viewport
+                if (xEnd < 0 || xStart > canvasWidth) {
+                    return; // Skip rendering events outside the viewport
                 }
 
                 const baseColor = colorMap.get(event.typeId).color;
                 const x1 = Math.max(0, xStart);
-                const x2 = Math.min(xStart + width, svgWidth);
+                const x2 = Math.min(xStart + width, canvasWidth);
 
                 // Determine opacity based on legend hover state
                 let opacity = event.leftUncertain || event.rightUncertain ? 0.6 : 0.9;
@@ -267,118 +190,236 @@ export const ThreadTimeline = ({ thread, messageTypes, minTimeMs, currentTimeMs,
                     const y = eventsTop + event.row * (ROW_HEIGHT + ROW_PADDING) + ROW_HEIGHT / 2;
                     const rectHeight = LINE_STROKE_WIDTH;
 
-                    return (
-                        <g key={index}>
-                            <rect
-                                x={x1 - LINE_STROKE_WIDTH / 2}
-                                y={y - rectHeight / 2}
-                                width={x2 - x1 + LINE_STROKE_WIDTH}
-                                height={rectHeight}
-                                fill={baseColor}
-                                opacity={opacity}
-                                rx={2}
-                                onMouseEnter={(e) => {
-                                    const rect = e.currentTarget.getBoundingClientRect();
-                                    setHoveredEvent({ event, x: rect.right + 5, y: rect.top });
-                                }}
-                                onMouseLeave={() => setHoveredEvent(null)}
-                                style={{ cursor: 'pointer' }}
-                            />
-                            {/* Display count */}
-                            <text
-                                x={x1 + (x2 - x1) / 2}
-                                y={y + 4}
-                                fontSize={10}
-                                fontFamily="sans-serif"
-                                textAnchor="middle"
-                                fill="white"
-                                style={{ pointerEvents: 'none', fontWeight: 'bold' }}
-                            >
-                                {event.count}
-                            </text>
-                        </g>
-                    );
+                    drawRoundedRect(ctx, x1 - LINE_STROKE_WIDTH / 2, y - rectHeight / 2, x2 - x1 + LINE_STROKE_WIDTH, rectHeight, 2, baseColor, undefined, 1, opacity);
+
+                    // Display count
+                    ctx.font = 'bold 10px sans-serif';
+                    ctx.textAlign = 'center';
+                    ctx.textBaseline = 'middle';
+                    ctx.fillStyle = 'white';
+                    ctx.fillText(event.count.toString(), x1 + (x2 - x1) / 2, y + 1);
                 } else {
                     // Render as a single line
                     const y = eventsTop + event.row * (ROW_HEIGHT + ROW_PADDING) + ROW_HEIGHT / 2;
-
-                    return (
-                        <line
-                            key={index}
-                            x1={x1}
-                            y1={y}
-                            x2={x2}
-                            y2={y}
-                            stroke={baseColor}
-                            strokeWidth={LINE_STROKE_WIDTH}
-                            strokeLinecap="round"
-                            opacity={opacity}
-                            onMouseEnter={(e) => {
-                                const rect = e.currentTarget.getBoundingClientRect();
-                                setHoveredEvent({
-                                    event,
-                                    x: rect.right + 5,
-                                    y: rect.top
-                                });
-                            }}
-                            onMouseLeave={() => setHoveredEvent(null)}
-                            style={{ cursor: 'pointer' }}
-                        />
-                    );
+                    drawRoundedRect(ctx, x1 - LINE_STROKE_WIDTH / 2, y - LINE_STROKE_WIDTH / 2, x2 - x1 + LINE_STROKE_WIDTH, LINE_STROKE_WIDTH, LINE_STROKE_WIDTH / 2, baseColor, undefined, 1, opacity);
                 }
-            })}
 
-            {/* Border lines */}
-            <g>
-                {/* Border between CPU chart and grid markings */}
-                <line
-                    x1={0}
-                    y1={CPU_CHART_HEIGHT + 0.5}
-                    x2={svgWidth}
-                    y2={CPU_CHART_HEIGHT + 0.5}
-                    stroke="#666"
-                    strokeWidth={1}
-                />
-                {/* Border between event timeline and legend */}
-                {legendHeight > 0 && (
-                    <line
-                        x1={0}
-                        y1={chartHeight + 0.5}
-                        x2={svgWidth}
-                        y2={chartHeight + 0.5}
-                        stroke="#666"
-                        strokeWidth={1}
-                    />
-                )}
-            </g>
+                // Add hit region for event
+                hitDetector.addRegion({
+                    x: x1 - LINE_STROKE_WIDTH / 2,
+                    y: eventsTop + event.row * (ROW_HEIGHT + ROW_PADDING),
+                    width: x2 - x1 + LINE_STROKE_WIDTH,
+                    height: ROW_HEIGHT,
+                    data: { event, index },
+                    type: 'event'
+                });
+            });
 
-            {/* Legend */}
-            {legendHeight > 0 && (
-                <g transform={`translate(0, ${chartHeight + LEGEND_VERTICAL_MARGIN})`}>
-                    {legendItems.map((item, index) => {
-                        const layout = legendLayout[index];
-                        const isHovered = hoveredLegendType === item.typeId;
-                        const isDimmed = hoveredLegendType !== null && !isHovered;
+            // Render highlight for hovered event
+            if (hoveredEvent) {
+                const hoveredEventData = hoveredEvent.event;
+                const xStart = viewport.transform(hoveredEventData.startSMT);
+                const xEnd = viewport.transform(hoveredEventData.endSMT);
+                const x1 = Math.max(0, xStart);
+                const x2 = Math.min(xStart + (xEnd - xStart), canvasWidth);
+                const y = eventsTop + hoveredEventData.row * (ROW_HEIGHT + ROW_PADDING) + ROW_HEIGHT / 2;
 
-                        return (
-                            <g
-                                key={item.typeId}
-                                transform={`translate(${layout.x}, ${layout.y})`}
-                                onMouseEnter={() => setHoveredLegendType(item.typeId)}
-                                onMouseLeave={() => setHoveredLegendType(null)}
-                                style={{ cursor: 'pointer' }}
-                                opacity={isDimmed ? 0.3 : 1}
-                            >
-                                {/* Backdrop for larger hover area */}
-                                <rect x={0} y={0} width={layout.width} height={LEGEND_HEIGHT_PER_ROW} fill="transparent" />
-                                <line x1={16} y1={LEGEND_HEIGHT_PER_ROW / 2} x2={24} y2={LEGEND_HEIGHT_PER_ROW / 2} stroke={item.color} strokeWidth={LINE_STROKE_WIDTH} strokeLinecap="round" />
-                                <text x={36} y={LEGEND_HEIGHT_PER_ROW / 2 + 4} fontSize={10} fontFamily="sans-serif">{item.name}</text>
-                            </g>
-                        );
-                    })}
-                </g>
-            )}
-        </svg>
+                const highlightColor = colorMap.get(hoveredEventData.typeId).color;
+                const isCollapsed = hoveredEventData.count > 1;
+
+                if (isCollapsed) {
+                    const rectHeight = LINE_STROKE_WIDTH;
+                    drawRoundedRect(ctx, x1 - LINE_STROKE_WIDTH / 2 - 1, y - rectHeight / 2 - 1, x2 - x1 + LINE_STROKE_WIDTH + 2, rectHeight + 2, 3, undefined, highlightColor, 2);
+                } else {
+                    drawRoundedRect(ctx, x1 - LINE_STROKE_WIDTH / 2 - 1, y - LINE_STROKE_WIDTH / 2 - 1, x2 - x1 + LINE_STROKE_WIDTH + 2, LINE_STROKE_WIDTH + 2, LINE_STROKE_WIDTH / 2 + 1, undefined, highlightColor, 2);
+                }
+            }
+        }
+
+        // Render border lines
+        drawLine(ctx, 0, CPU_CHART_HEIGHT + 0.5, canvasWidth, CPU_CHART_HEIGHT + 0.5, '#666', 1, 'butt');
+
+        if (legendHeight > 0) {
+            drawLine(ctx, 0, chartHeight + 0.5, canvasWidth, chartHeight + 0.5, '#666', 1, 'butt');
+        }
+
+        // Render legend
+        if (legendHeight > 0) {
+            const legendY = chartHeight + LEGEND_VERTICAL_MARGIN;
+
+            legendItems.forEach((item, index) => {
+                const layout = legendLayout[index];
+                const isHovered = hoveredLegendType === item.typeId;
+                const isDimmed = hoveredLegendType !== null && !isHovered;
+
+                ctx.globalAlpha = isDimmed ? 0.3 : 1;
+
+                const x = layout.x;
+                const y = legendY + layout.y;
+
+                // Line indicator
+                drawLine(ctx, x + 16, y + LEGEND_HEIGHT_PER_ROW / 2, x + 24, y + LEGEND_HEIGHT_PER_ROW / 2, item.color, LINE_STROKE_WIDTH, 'round');
+
+                // Text
+                ctx.font = '10px sans-serif';
+                ctx.textAlign = 'left';
+                ctx.textBaseline = 'middle';
+                ctx.fillStyle = 'black';
+                ctx.fillText(item.name, x + 36, y + LEGEND_HEIGHT_PER_ROW / 2 + 1);
+
+                ctx.globalAlpha = 1;
+
+                // Add hit region for legend item
+                hitDetector.addRegion({
+                    x,
+                    y,
+                    width: layout.width,
+                    height: LEGEND_HEIGHT_PER_ROW,
+                    data: { typeId: item.typeId },
+                    type: 'legend'
+                });
+            });
+        }
+    }, [canvasWidth, canvasHeight, windows, chartMode, yAxisMode, colorMap, viewport, hoveredLegendType, hoveredCpuWindow, hoveredQueue, hoveredEvent, thread.queue.pending_counts, gridTop, chartHeight, eventsTop, isExpanded, positionedEvents, legendHeight, legendItems, legendLayout]);
+
+    // Render canvas whenever dependencies change
+    useEffect(() => {
+        renderCanvas();
+    }, [renderCanvas]);
+
+    // Wheel event handler
+    useEffect(() => {
+        const canvas = canvasRef.current;
+        if (!canvas) return;
+
+        const handleWheel = (e: WheelEvent) => {
+            if (!isExpanded) {
+                // When collapsed, allow normal page scrolling
+                return;
+            }
+
+            e.preventDefault();
+            e.stopPropagation();
+            const zoomFactor = e.deltaY < 0 ? 0.9 : 1.1;
+            const rect = canvas.getBoundingClientRect();
+            const mouseX = e.clientX - rect.left;
+            setViewport(viewport.zoom(mouseX, zoomFactor));
+        };
+
+        canvas.addEventListener('wheel', handleWheel, { passive: false });
+        return () => canvas.removeEventListener('wheel', handleWheel);
+    }, [viewport, isExpanded]);
+
+    // Resize observer
+    useEffect(() => {
+        const container = containerRef.current;
+        if (!container) return;
+
+        const resizeObserver = new ResizeObserver((entries) => {
+            for (const entry of entries) {
+                const newWidth = entry.contentRect.width;
+                if (newWidth !== canvasWidth) {
+                    setCanvasWidth(newWidth);
+                    setViewport(vp => vp.resize(newWidth));
+                }
+            }
+        });
+
+        resizeObserver.observe(container);
+        return () => resizeObserver.disconnect();
+    }, [canvasWidth]);
+
+    // Mouse move handler for hit detection
+    const handleMouseMove = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
+        const canvas = canvasRef.current;
+        if (!canvas) return;
+
+        const rect = canvas.getBoundingClientRect();
+        const x = e.clientX - rect.left;
+        const y = e.clientY - rect.top;
+
+        // Handle panning
+        if (e.buttons === 1) {
+            setViewport(viewport.pan(-e.movementX));
+            return;
+        }
+
+        // Hit detection
+        const hitDetector = hitDetectorRef.current;
+        const hitRegion = hitDetector.findRegion(x, y);
+
+        if (hitRegion) {
+            if (hitRegion.type === 'window') {
+                const windowIndex = hitRegion.data.windowIndex;
+                if (!hoveredCpuWindow || hoveredCpuWindow.windowIndex !== windowIndex) {
+                    setHoveredCpuWindow({ windowIndex, x: rect.left + hitRegion.x, y: rect.top + CPU_CHART_HEIGHT + 5 });
+                    setHoveredEvent(null);
+                    setHoveredQueue(null);
+                    setHoveredLegendType(null);
+                }
+            } else if (hitRegion.type === 'event') {
+                const event = hitRegion.data.event;
+                if (!hoveredEvent || hoveredEvent.event !== event) {
+                    setHoveredEvent({ event, x: rect.left + hitRegion.x, y: rect.top + hitRegion.y + hitRegion.height + 10 });
+                    setHoveredCpuWindow(null);
+                    setHoveredQueue(null);
+                    setHoveredLegendType(null);
+                }
+            } else if (hitRegion.type === 'queue') {
+                if (!hoveredQueue) {
+                    setHoveredQueue({ x: rect.left + hitRegion.x, y: rect.top + hitRegion.y });
+                    setHoveredCpuWindow(null);
+                    setHoveredEvent(null);
+                    setHoveredLegendType(null);
+                }
+            } else if (hitRegion.type === 'legend') {
+                const typeId = hitRegion.data.typeId;
+                if (hoveredLegendType !== typeId) {
+                    setHoveredLegendType(typeId);
+                    setHoveredCpuWindow(null);
+                    setHoveredEvent(null);
+                    setHoveredQueue(null);
+                }
+            }
+        } else {
+            // No hit, clear all hovers
+            if (hoveredCpuWindow) setHoveredCpuWindow(null);
+            if (hoveredEvent) setHoveredEvent(null);
+            if (hoveredQueue) setHoveredQueue(null);
+            if (hoveredLegendType !== null) setHoveredLegendType(null);
+        }
+    }, [viewport, hoveredCpuWindow, hoveredEvent, hoveredQueue, hoveredLegendType]);
+
+    const handleMouseLeave = useCallback(() => {
+        setHoveredCpuWindow(null);
+        setHoveredEvent(null);
+        setHoveredQueue(null);
+        setHoveredLegendType(null);
+    }, []);
+
+    const handleDoubleClick = useCallback(() => {
+        setViewport(viewport.reset());
+    }, [viewport]);
+
+    return (<>
+        <div ref={containerRef} style={{ width: '100%' }}>
+            <canvas
+                ref={canvasRef}
+                width={canvasWidth}
+                height={canvasHeight}
+                style={{
+                    backgroundColor: "white",
+                    borderTop: "1px solid #666",
+                    borderBottom: "1px solid #666",
+                    display: "block",
+                    width: '100%',
+                    // cursor: 'pointer'
+                }}
+                onMouseMove={handleMouseMove}
+                onMouseLeave={handleMouseLeave}
+                onDoubleClick={handleDoubleClick}
+            />
+        </div>
 
         {/* Event Tooltip */}
         {hoveredEvent && (() => {

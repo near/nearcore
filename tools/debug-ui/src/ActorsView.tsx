@@ -167,7 +167,7 @@ export const ActorsView = ({ addr }: ActorsViewProps) => {
                             checked={timelineChartMode === 'cpu'}
                             onChange={(e) => setTimelineChartMode(e.target.value as 'cpu' | 'dequeue')}
                         />
-                        CPU
+                        Utilization
                     </label>
                     <label className="radio-option">
                         <input

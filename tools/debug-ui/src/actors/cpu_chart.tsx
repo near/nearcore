@@ -1,5 +1,6 @@
 import { MessageTypeAndColorMap, Viewport, WindowToDisplay } from "./algorithm";
 import { CPU_CHART_HEIGHT } from "./constants";
+import { HitDetector, drawRect, drawTextWithBackground } from "./canvas_utils";
 
 /// Calculates y-max, as a value from 0 to 1.
 function calculateYMaxForCpuChart(
@@ -29,24 +30,22 @@ function calculateYMaxForCpuChart(
 }
 
 /// Renders the CPU/dequeue chart
-export function renderCpuChart(params: {
-    windows: WindowToDisplay[],
-    chartMode: 'cpu' | 'dequeue',
-    yAxisMode: 'auto' | 'fixed',
-    colorMap: MessageTypeAndColorMap,
-    viewport: Viewport,
-    hoveredLegendType: number | null,
-    hoveredWindowIndex: number | null,
-    onWindowHover: (windowIndex: number, x: number, y: number) => void,
-    onWindowLeave: () => void,
-    queueCounts: { [message_type: string]: number },
-    hoveredQueue: boolean,
-    onQueueHover: (x: number, y: number) => void,
-    onQueueLeave: () => void,
-}): JSX.Element[] {
-    const { windows, chartMode, yAxisMode, colorMap, viewport, hoveredLegendType, hoveredWindowIndex, onWindowHover, onWindowLeave, queueCounts, hoveredQueue, onQueueHover, onQueueLeave } = params;
-
-    const elements: JSX.Element[] = [];
+export function renderCpuChart(
+    ctx: CanvasRenderingContext2D,
+    hitDetector: HitDetector,
+    params: {
+        windows: WindowToDisplay[],
+        chartMode: 'cpu' | 'dequeue',
+        yAxisMode: 'auto' | 'fixed',
+        colorMap: MessageTypeAndColorMap,
+        viewport: Viewport,
+        hoveredLegendType: number | null,
+        hoveredWindowIndex: number | null,
+        queueCounts: { [message_type: string]: number },
+        hoveredQueue: boolean,
+    }
+): void {
+    const { windows, chartMode, yAxisMode, colorMap, viewport, hoveredLegendType, hoveredWindowIndex, queueCounts, hoveredQueue } = params;
 
     const typeOrder = Array.from(colorMap.keys());
     const yMax = calculateYMaxForCpuChart(windows, chartMode, yAxisMode);
@@ -75,111 +74,41 @@ export function renderCpuChart(params: {
             const color = colorMap.get(type).color;
             const isDimmed = hoveredLegendType !== null && hoveredLegendType !== type;
 
-            elements.push(
-                <rect
-                    key={`${windowIndex}-${type}`}
-                    x={x1}
-                    y={y2}
-                    width={x2 - x1}
-                    height={y1 - y2}
-                    fill={color}
-                    opacity={isDimmed ? 0.1 : 0.8}
-                />
-            );
+            drawRect(ctx, x1, y2, x2 - x1, y1 - y2, color, undefined, 1, isDimmed ? 0.1 : 0.8);
 
             cumulativeY += thisBarHeight;
         });
 
-        // Add transparent overlay for hover detection
-        elements.push(
-            <rect
-                key={`hover-${windowIndex}`}
-                x={x1}
-                y={0}
-                width={x2 - x1}
-                height={CPU_CHART_HEIGHT}
-                fill="transparent"
-                onMouseEnter={(e) => {
-                    const rect = e.currentTarget.getBoundingClientRect();
-                    onWindowHover(windowIndex, rect.right + 5, rect.top);
-                }}
-                onMouseLeave={onWindowLeave}
-                style={{ cursor: 'pointer' }}
-            />
-        );
+        // Add hit region for hover detection
+        hitDetector.addRegion({
+            x: x1,
+            y: 0,
+            width: x2 - x1,
+            height: CPU_CHART_HEIGHT,
+            data: { windowIndex },
+            type: 'window'
+        });
     });
+
+    // Draw outline for hovered window
     if (hoveredWindowIndex !== null) {
         const hoveredWindow = windows[hoveredWindowIndex];
         const x1 = viewport.transform(hoveredWindow.startSMT);
         const x2 = viewport.transform(hoveredWindow.endSMT);
-        elements.push(
-            <rect
-                key={`outline-${hoveredWindowIndex}`}
-                x={x1 + 0.5}
-                y={0.5}
-                width={x2 - x1 - 0.5}
-                height={CPU_CHART_HEIGHT - 1}
-                fill="none"
-                stroke="#000"
-                strokeWidth={1}
-                style={{ pointerEvents: 'none' }}
-            />
-        );
+        drawRect(ctx, x1 + 0.5, 0.5, x2 - x1 - 0.5, CPU_CHART_HEIGHT - 1, undefined, '#000', 1);
     }
 
     // Render labels with backdrop
     const labelX = Math.max(0, viewport.transform(windows[0].startSMT)) + 5;
-    const chartTypeName = chartMode === 'cpu' ? 'CPU' : 'Dequeue Delay';
+    const chartTypeName = chartMode === 'cpu' ? 'Utilization' : 'Dequeue Delay';
     const maxPercent = yMax * 100;
     const maxLabelText = `${Math.round(maxPercent * 1e6) / 1e6}% (${chartTypeName})`;
 
     // Max label with backdrop
-    elements.push(
-        <g key="max-label" style={{ pointerEvents: 'none' }}>
-            <rect
-                x={labelX - 2}
-                y={3}
-                width={maxLabelText.length * 7}
-                height={16}
-                fill="white"
-                opacity={0.7}
-            />
-            <text
-                x={labelX}
-                y={15}
-                fontSize={12}
-                fontFamily="sans-serif"
-                fill="#888"
-                fontWeight="bold"
-            >
-                {maxLabelText}
-            </text>
-        </g>
-    );
+    drawTextWithBackground(ctx, maxLabelText, labelX, 15, 12, 'sans-serif', '#888', 'white', 0.7, 'bold');
 
     // Min label with backdrop
-    elements.push(
-        <g key="min-label" style={{ pointerEvents: 'none' }}>
-            <rect
-                x={labelX - 2}
-                y={CPU_CHART_HEIGHT - 17}
-                width={20}
-                height={16}
-                fill="white"
-                opacity={0.7}
-            />
-            <text
-                x={labelX}
-                y={CPU_CHART_HEIGHT - 5}
-                fontSize={12}
-                fontFamily="sans-serif"
-                fill="#888"
-                fontWeight="bold"
-            >
-                0%
-            </text>
-        </g>
-    );
+    drawTextWithBackground(ctx, '0%', labelX, CPU_CHART_HEIGHT - 5, 12, 'sans-serif', '#888', 'white', 0.7, 'bold');
 
     // Render queue indicator beyond last window
     {
@@ -194,58 +123,30 @@ export function renderCpuChart(params: {
             const isHovered = hoveredQueue === true;
 
             // Background for queue indicator
-            elements.push(
-                <rect
-                    key="queue-bg"
-                    x={queueX1}
-                    y={0}
-                    width={queueWidth}
-                    height={CPU_CHART_HEIGHT}
-                    fill={isHovered ? "#ccc" : "#eee"}
-                    onMouseEnter={(e) => {
-                        const rect = e.currentTarget.getBoundingClientRect();
-                        onQueueHover(rect.left, rect.top);
-                    }}
-                    onMouseLeave={onQueueLeave}
-                    style={{ cursor: 'pointer' }}
-                />
-            );
+            drawRect(ctx, queueX1, 0, queueWidth, CPU_CHART_HEIGHT, isHovered ? "#ccc" : "#eee");
 
             // Queue text
             const queueText = `Q: ${totalQueued}`;
-            elements.push(
-                <text
-                    key="queue-text"
-                    x={queueX1 + queueWidth / 2}
-                    y={CPU_CHART_HEIGHT / 2 + 5}
-                    fontSize={14}
-                    fontFamily="sans-serif"
-                    textAnchor="middle"
-                    fill="#333"
-                    style={{ pointerEvents: 'none' }}
-                >
-                    {queueText}
-                </text>
-            );
+            ctx.font = '14px sans-serif';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillStyle = '#333';
+            ctx.fillText(queueText, queueX1 + queueWidth / 2, CPU_CHART_HEIGHT / 2 + 1);
 
             // Outline when hovered
             if (isHovered) {
-                elements.push(
-                    <rect
-                        key="queue-outline"
-                        x={queueX1 + 0.5}
-                        y={0.5}
-                        width={queueWidth - 1}
-                        height={CPU_CHART_HEIGHT - 1}
-                        fill="none"
-                        stroke="#000"
-                        strokeWidth={1}
-                        style={{ pointerEvents: 'none' }}
-                    />
-                );
+                drawRect(ctx, queueX1 + 0.5, 0.5, queueWidth - 1, CPU_CHART_HEIGHT - 1, undefined, '#000', 1);
             }
+
+            // Add hit region for queue
+            hitDetector.addRegion({
+                x: queueX1,
+                y: 0,
+                width: queueWidth,
+                height: CPU_CHART_HEIGHT,
+                data: {},
+                type: 'queue'
+            });
         }
     }
-
-    return elements;
 }
