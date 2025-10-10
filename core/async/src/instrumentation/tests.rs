@@ -54,10 +54,6 @@ fn test_basic_event_tracking() {
     clock.advance(Duration::milliseconds(50)); // Process for 50ms
     writer.end_event("TestMessage");
 
-    // Move time forward to complete the window
-    clock.advance(Duration::milliseconds(TEST_WINDOW_SIZE_MS));
-    writer.advance_window_if_needed();
-
     // Get the view and verify the event was recorded
     let view = target.to_view(clock.now().duration_since(reference_instant).as_nanos() as u64);
 
@@ -101,10 +97,6 @@ fn test_multiple_message_types() {
     writer.start_event("MessageA", 1_000_000);
     clock.advance(Duration::milliseconds(15));
     writer.end_event("MessageA");
-
-    // Move time forward to complete the window
-    clock.advance(Duration::milliseconds(TEST_WINDOW_SIZE_MS));
-    writer.advance_window_if_needed();
 
     let view = target.to_view(clock.now().duration_since(reference_instant).as_nanos() as u64);
 
@@ -183,10 +175,6 @@ fn test_cross_window_event() {
     clock.advance(Duration::milliseconds(100)); // This should cross into the next window
     writer.end_event("CrossWindowMessage");
 
-    // Move time forward to complete the window
-    clock.advance(Duration::milliseconds(TEST_WINDOW_SIZE_MS));
-    writer.advance_window_if_needed();
-
     let view = target.to_view(clock.now().duration_since(reference_instant).as_nanos() as u64);
 
     // Should have 2 windows now
@@ -224,10 +212,6 @@ fn test_active_event_tracking() {
 
     // Now end the event
     writer.end_event("ActiveMessage");
-
-    // Move time forward to complete the window
-    clock.advance(Duration::milliseconds(TEST_WINDOW_SIZE_MS));
-    writer.advance_window_if_needed();
 
     let view = target.to_view(clock.now().duration_since(reference_instant).as_nanos() as u64);
 
