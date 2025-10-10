@@ -72,7 +72,6 @@ impl EpochManager {
                 Balance::ZERO,
                 genesis_protocol_version,
                 false,
-                None,
             )
         }
     }
