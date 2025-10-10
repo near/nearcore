@@ -31,6 +31,7 @@ use futures::FutureExt;
 use near_async::Message;
 use near_async::futures::FutureSpawnerExt;
 use near_async::messaging::IntoSender;
+use near_async::messaging::MessageWithCallback;
 use near_async::messaging::noop;
 use near_async::messaging::{self, CanSendAsync, IntoMultiSender};
 use near_async::messaging::{CanSend, Sender};
@@ -556,30 +557,19 @@ pub(crate) async fn start(
     cfg.event_sink = Sender::from_fn(move |event| send.send(event));
 
     let mut client_sender: ClientSenderForNetwork = noop().into_multi_sender();
-    client_sender.announce_account = Sender::from_fn({
-        move |msg: messaging::MessageWithCallback<
-            AnnounceAccountRequest,
-            Result<Vec<AnnounceAccount>, ReasonForBan>,
-        >| {
+    client_sender.announce_account =
+        Sender::from_fn(move |msg: MessageWithCallback<AnnounceAccountRequest, _>| {
             // NOTE(robin-near): This is a pretty bad hack to preserve previous behavior
             // of the test code.
             // For some specific events we craft a response and send it back, while for
             // most other events we send it to the sink (for what? I have no idea).
-            (msg.callback)(
-                std::future::ready(Ok(Ok(msg
-                    .message
-                    .0
-                    .iter()
-                    .map(|(account, _)| account.clone())
-                    .collect())))
-                .boxed(),
-            );
-        }
-    });
+            let result = Ok(msg.message.0.iter().map(|(account, _)| account.clone()).collect());
+            (msg.callback)(std::future::ready(Ok(result)).boxed());
+        });
 
     let mut state_request_sender: StateRequestSenderForNetwork = noop().into_multi_sender();
-    state_request_sender.state_request_part = Sender::from_fn({
-        move |msg: messaging::MessageWithCallback<StateRequestPart, Option<StatePartOrHeader>>| {
+    state_request_sender.state_request_part =
+        Sender::from_fn(move |msg: MessageWithCallback<StateRequestPart, _>| {
             // NOTE: See above comment for explanation about this code.
             let StateRequestPart { part_id, shard_id, sync_hash } = msg.message;
             let part = Some((part_id, vec![]));
@@ -589,8 +579,7 @@ pub(crate) async fn start(
                 StateResponseInfoV2 { shard_id, sync_hash, state_response },
             )))));
             (msg.callback)(std::future::ready(Ok(result)).boxed());
-        }
-    });
+        });
 
     let actor_system = ActorSystem::new();
     let actor = PeerManagerActor::spawn(
