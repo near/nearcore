@@ -124,6 +124,10 @@ export class Viewport {
 
         return new Viewport(newStart, newEnd, this.width, this.minBound, this.maxBound, this.minZoom);
     }
+
+    isAllowedRangeTheSameAs(other: Viewport): boolean {
+        return this.minBound === other.minBound && this.maxBound === other.maxBound;
+    }
 }
 
 export function getEventsToDisplay(
@@ -327,9 +331,11 @@ export function makeWindowsToDisplay(
 
 export class MessageTypeAndColorMap {
     private _map: Map<number, { name: string, color: string }>;
+    private _nameToTypeId: Map<string, number>;
     private _order: number[];
     constructor(events: EventToDisplay[], windows: WindowToDisplay[], messageTypes: string[]) {
         this._map = new Map();
+        this._nameToTypeId = new Map();
         // Get unique event types from events
         const uniqueTypes = new Set(events.map(e => e.typeId));
         for (const window of windows) {
@@ -356,6 +362,7 @@ export class MessageTypeAndColorMap {
 
     set(typeId: number, typeName: string, color: string) {
         this._map.set(typeId, { name: typeName, color: color });
+        this._nameToTypeId.set(typeName, typeId);
     }
 
     get(typeId: number): { name: string, color: string } {
@@ -384,5 +391,13 @@ export class MessageTypeAndColorMap {
 
     keys(): IterableIterator<number> {
         return this._map.keys();
+    }
+
+    colorByName(name: string): string {
+        const typeId = this._nameToTypeId.get(name);
+        if (typeId !== undefined) {
+            return this._map.get(typeId)?.color || "#888";
+        }
+        return "#888";
     }
 }

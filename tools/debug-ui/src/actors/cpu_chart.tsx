@@ -39,8 +39,12 @@ export function renderCpuChart(params: {
     hoveredWindowIndex: number | null,
     onWindowHover: (windowIndex: number, x: number, y: number) => void,
     onWindowLeave: () => void,
+    queueCounts: { [message_type: string]: number },
+    hoveredQueue: boolean,
+    onQueueHover: (x: number, y: number) => void,
+    onQueueLeave: () => void,
 }): JSX.Element[] {
-    const { windows, chartMode, yAxisMode, colorMap, viewport, hoveredLegendType, hoveredWindowIndex, onWindowHover, onWindowLeave } = params;
+    const { windows, chartMode, yAxisMode, colorMap, viewport, hoveredLegendType, hoveredWindowIndex, onWindowHover, onWindowLeave, queueCounts, hoveredQueue, onQueueHover, onQueueLeave } = params;
 
     const elements: JSX.Element[] = [];
 
@@ -176,6 +180,72 @@ export function renderCpuChart(params: {
             </text>
         </g>
     );
+
+    // Render queue indicator beyond last window
+    {
+        const totalQueued = Object.values(queueCounts).reduce((sum, count) => sum + count, 0);
+
+        const lastWindow = windows[windows.length - 1];
+        const queueX1 = viewport.transform(lastWindow.endSMT);
+        const queueWidth = viewport.transformLength(1000);
+
+        // Only render if at least partially visible
+        if (queueX1 < viewport.transform(viewport.getEnd())) {
+            const isHovered = hoveredQueue === true;
+
+            // Background for queue indicator
+            elements.push(
+                <rect
+                    key="queue-bg"
+                    x={queueX1}
+                    y={0}
+                    width={queueWidth}
+                    height={CPU_CHART_HEIGHT}
+                    fill={isHovered ? "#ccc" : "#eee"}
+                    onMouseEnter={(e) => {
+                        const rect = e.currentTarget.getBoundingClientRect();
+                        onQueueHover(rect.left, rect.top);
+                    }}
+                    onMouseLeave={onQueueLeave}
+                    style={{ cursor: 'pointer' }}
+                />
+            );
+
+            // Queue text
+            const queueText = `Q: ${totalQueued}`;
+            elements.push(
+                <text
+                    key="queue-text"
+                    x={queueX1 + queueWidth / 2}
+                    y={CPU_CHART_HEIGHT / 2 + 5}
+                    fontSize={14}
+                    fontFamily="sans-serif"
+                    textAnchor="middle"
+                    fill="#333"
+                    style={{ pointerEvents: 'none' }}
+                >
+                    {queueText}
+                </text>
+            );
+
+            // Outline when hovered
+            if (isHovered) {
+                elements.push(
+                    <rect
+                        key="queue-outline"
+                        x={queueX1 + 0.5}
+                        y={0.5}
+                        width={queueWidth - 1}
+                        height={CPU_CHART_HEIGHT - 1}
+                        fill="none"
+                        stroke="#000"
+                        strokeWidth={1}
+                        style={{ pointerEvents: 'none' }}
+                    />
+                );
+            }
+        }
+    }
 
     return elements;
 }

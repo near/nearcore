@@ -26,12 +26,13 @@ export const ThreadTimeline = ({ thread, messageTypes, minTimeMs, currentTimeMs,
         [thread, minTimeMs]
     );
 
-    const maxTimeMs = currentTimeMs - minTimeMs;
     const svgRef = useRef<SVGSVGElement>(null);
     const [svgWidth, setSvgWidth] = useState(800);
-    const [viewport, setViewport] = useState(
-        new Viewport(-1000, maxTimeMs + 1000, svgWidth, -1000, maxTimeMs + 1000, 1)
-    );
+
+    const availableTimeInWindows = currentTimeMs - minTimeMs;
+    const defaultViewport = new Viewport(availableTimeInWindows - 30000 - 500, availableTimeInWindows + 1000, svgWidth, availableTimeInWindows - 30000 - 500, availableTimeInWindows + 1000, 1);
+    const [currentViewport, setViewport] = useState(defaultViewport);
+    const viewport = currentViewport.isAllowedRangeTheSameAs(defaultViewport) ? currentViewport : defaultViewport;
 
     const colorMap = useMemo(() => new MessageTypeAndColorMap(events, windows, messageTypes), [events, windows, messageTypes]);
 
@@ -55,9 +56,9 @@ export const ThreadTimeline = ({ thread, messageTypes, minTimeMs, currentTimeMs,
         return items;
     }, [colorMap]);
 
-    const { legendRows, legendHeight, legendLayout } = useMemo(() => {
+    const { legendHeight, legendLayout } = useMemo(() => {
         if (legendItems.length === 0 || !isExpanded) {
-            return { legendRows: 0, legendHeight: 0, legendLayout: [] };
+            return { legendHeight: 0, legendLayout: [] };
         }
 
         // Greedy bin packing: fill rows left to right
@@ -77,7 +78,7 @@ export const ThreadTimeline = ({ thread, messageTypes, minTimeMs, currentTimeMs,
 
         const rows = currentRow + 1;
         const height = LEGEND_VERTICAL_MARGIN * 2 + LEGEND_HEIGHT_PER_ROW * rows;
-        return { legendRows: rows, legendHeight: height, legendLayout: layout };
+        return { legendHeight: height, legendLayout: layout };
     }, [legendItems, svgWidth, isExpanded]);
 
     const svgHeight = chartHeight + legendHeight;
@@ -85,6 +86,7 @@ export const ThreadTimeline = ({ thread, messageTypes, minTimeMs, currentTimeMs,
     const [hoveredEvent, setHoveredEvent] = useState<{ event: MergedEventToDisplay, x: number, y: number } | null>(null);
     const [hoveredLegendType, setHoveredLegendType] = useState<number | null>(null);
     const [hoveredCpuWindow, setHoveredCpuWindow] = useState<{ windowIndex: number, x: number, y: number } | null>(null);
+    const [hoveredQueue, setHoveredQueue] = useState<{ x: number, y: number } | null>(null);
 
     useEffect(() => {
         const svg = svgRef.current;
@@ -151,6 +153,10 @@ export const ThreadTimeline = ({ thread, messageTypes, minTimeMs, currentTimeMs,
                     hoveredWindowIndex: hoveredCpuWindow?.windowIndex ?? null,
                     onWindowHover: (windowIndex, x, y) => setHoveredCpuWindow({ windowIndex, x, y }),
                     onWindowLeave: () => setHoveredCpuWindow(null),
+                    queueCounts: thread.queue.pending_counts,
+                    hoveredQueue: hoveredQueue !== null,
+                    onQueueHover: (x, y) => setHoveredQueue({ x, y }),
+                    onQueueLeave: () => setHoveredQueue(null),
                 })}
             </g>
 
@@ -176,19 +182,28 @@ export const ThreadTimeline = ({ thread, messageTypes, minTimeMs, currentTimeMs,
                                     y={0}
                                     width={Math.max(0, beforeX2 - Math.max(0, beforeX1))}
                                     height={chartHeight}
-                                    fill="#444"
-                                    opacity={0.3}
+                                    fill="#eee"
                                 />
                             )}
                             {/* Area after last window */}
                             {afterX1 < svgWidth && (
                                 <rect
                                     x={Math.max(0, afterX1)}
-                                    y={0}
+                                    y={CPU_CHART_HEIGHT}
                                     width={Math.min(svgWidth, afterX2) - Math.max(0, afterX1)}
                                     height={chartHeight}
-                                    fill="#444"
-                                    opacity={0.3}
+                                    fill="#eee"
+                                />
+                            )}
+                            {/* Red line indicating current time */}
+                            {afterX1 < svgWidth && (
+                                <line
+                                    x1={Math.floor(afterX1) + 0.5}
+                                    y1={0}
+                                    x2={Math.floor(afterX1) + 0.5}
+                                    y2={chartHeight}
+                                    stroke="#f00"
+                                    strokeWidth={1}
                                 />
                             )}
                         </>
@@ -237,7 +252,7 @@ export const ThreadTimeline = ({ thread, messageTypes, minTimeMs, currentTimeMs,
 
                 const baseColor = colorMap.get(event.typeId).color;
                 const x1 = Math.max(0, xStart);
-                const x2 = Math.max(0, xStart) + width;
+                const x2 = Math.min(xStart + width, svgWidth);
 
                 // Determine opacity based on legend hover state
                 let opacity = event.leftUncertain || event.rightUncertain ? 0.6 : 0.9;
@@ -458,6 +473,63 @@ export const ThreadTimeline = ({ thread, messageTypes, minTimeMs, currentTimeMs,
                                 <td className="align-right top-padding">-</td>
                                 <td className="align-right top-padding">{idleMs.toFixed(2)}</td>
                                 <td className="align-right top-padding">{idlePercent.toFixed(1)}%</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            );
+        })()}
+
+        {/* Queue Tooltip */}
+        {hoveredQueue && (() => {
+            const queueCounts = thread.queue.pending_counts ? new Map(Object.entries(thread.queue.pending_counts)) : new Map();
+            const queueEntries: Array<{ typeName: string, count: number, typeId: number, color: string }> = [];
+
+            queueCounts.forEach((count, typeName) => {
+                const typeId = messageTypes.indexOf(typeName);
+                if (typeId !== -1 && count > 0) {
+                    const color = colorMap.get(typeId).color;
+                    queueEntries.push({ typeName, count, typeId, color });
+                }
+            });
+
+            // Sort by count descending
+            queueEntries.sort((a, b) => b.count - a.count);
+
+            const totalQueued = queueEntries.reduce((sum, entry) => sum + entry.count, 0);
+
+            const tooltipWidth = 300;
+            const shouldFlipLeft = hoveredQueue.x + tooltipWidth > globalThis.window.innerWidth;
+
+            return (
+                <div
+                    className="tooltip"
+                    style={{
+                        left: shouldFlipLeft ? hoveredQueue.x - tooltipWidth - 10 : hoveredQueue.x,
+                        top: hoveredQueue.y
+                    }}
+                >
+                    <div className="tooltip-title"><strong>Queued Messages</strong></div>
+                    <table>
+                        <thead>
+                            <tr>
+                                <th className="align-left">Type</th>
+                                <th className="align-right">Count</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {queueEntries.map(entry => (
+                                <tr key={entry.typeId}>
+                                    <td>
+                                        <span className="color-indicator" style={{ backgroundColor: entry.color }}></span>
+                                        {entry.typeName}
+                                    </td>
+                                    <td className="align-right">{entry.count}</td>
+                                </tr>
+                            ))}
+                            <tr className="bordered">
+                                <td><strong>Total</strong></td>
+                                <td className="align-right"><strong>{totalQueued}</strong></td>
                             </tr>
                         </tbody>
                     </table>

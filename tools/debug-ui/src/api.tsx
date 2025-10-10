@@ -548,6 +548,11 @@ export interface InstrumentedThread {
     message_types: string[];
     windows: InstrumentedWindow[];
     active_event: InstrumentedActiveEvent | null;
+    queue: InstrumentedQueue;
+}
+
+export interface InstrumentedQueue {
+    pending_counts: { [message_type: string]: number };
 }
 
 export interface InstrumentedActiveEvent {

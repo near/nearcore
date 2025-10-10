@@ -47,6 +47,7 @@ impl Actor for VeryHighMessageCountActor {}
 
 impl Handler<DummyMessage> for VeryHighMessageCountActor {
     fn handle(&mut self, _msg: DummyMessage) {
+        std::thread::sleep(std::time::Duration::from_millis(1));
         self.handle.send(DummyMessage);
     }
 }
