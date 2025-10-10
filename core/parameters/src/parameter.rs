@@ -211,7 +211,6 @@ pub enum Parameter {
     VmKind,
     EthImplicitAccounts,
     DiscardCustomSections,
-    SaturatingFloatToInt,
     ReftypesBulkMemory,
 
     // Congestion Control

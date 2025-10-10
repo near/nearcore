@@ -96,7 +96,7 @@ pub trait Compiler: Send {
             extended_const: false,
             mutable_global: features.mutable_global,
             relaxed_simd: false,
-            saturating_float_to_int: features.saturating_float_to_int,
+            saturating_float_to_int: true,
             sign_extension: features.sign_extension,
             memory_control: false,
         };

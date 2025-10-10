@@ -229,8 +229,6 @@ pub struct VMConfigView {
     pub vm_kind: crate::vm::VMKind,
     /// See [VMConfig::discard_custom_sections](crate::vm::Config::discard_custom_sections).
     pub discard_custom_sections: bool,
-    /// See [VMConfig::saturating_float_to_int](crate::vm::Config::saturating_float_to_int).
-    pub saturating_float_to_int: bool,
     /// See [VMConfig::global_contract_host_fns](crate::vm::Config::global_contract_host_fns).
     pub global_contract_host_fns: bool,
     /// See [VMConfig::reftypes_bulk_memory](crate::vm::Config::reftypes_bulk_memory).
@@ -269,7 +267,6 @@ impl From<crate::vm::Config> for VMConfigView {
             implicit_account_creation: config.implicit_account_creation,
             vm_kind: config.vm_kind,
             eth_implicit_accounts: config.eth_implicit_accounts,
-            saturating_float_to_int: config.saturating_float_to_int,
             global_contract_host_fns: config.global_contract_host_fns,
             reftypes_bulk_memory: config.reftypes_bulk_memory,
             deterministic_account_ids: config.deterministic_account_ids,
@@ -292,7 +289,6 @@ impl From<VMConfigView> for crate::vm::Config {
             implicit_account_creation: view.implicit_account_creation,
             vm_kind: view.vm_kind,
             eth_implicit_accounts: view.eth_implicit_accounts,
-            saturating_float_to_int: view.saturating_float_to_int,
             global_contract_host_fns: view.global_contract_host_fns,
             reftypes_bulk_memory: view.reftypes_bulk_memory,
             deterministic_account_ids: view.deterministic_account_ids,

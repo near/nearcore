@@ -198,7 +198,6 @@ expression: config_view
     "regular_op_cost": 822756,
     "vm_kind": "<REDACTED>",
     "discard_custom_sections": true,
-    "saturating_float_to_int": true,
     "global_contract_host_fns": true,
     "reftypes_bulk_memory": true,
     "deterministic_account_ids": false,
