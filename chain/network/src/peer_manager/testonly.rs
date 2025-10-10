@@ -8,6 +8,8 @@ use crate::client::StatePartOrHeader;
 use crate::client::StateRequestPart;
 use crate::config;
 use crate::network_protocol::SnapshotHostInfo;
+use crate::network_protocol::StateResponseInfo;
+use crate::network_protocol::StateResponseInfoV2;
 use crate::network_protocol::SyncSnapshotHosts;
 use crate::network_protocol::testonly as data;
 use crate::network_protocol::{
@@ -21,8 +23,6 @@ use crate::snapshot_hosts::SnapshotHostsCache;
 use crate::tcp;
 use crate::test_utils;
 use crate::types::StateRequestSenderForNetwork;
-use crate::types::StateResponseInfo;
-use crate::types::StateResponseInfoV2;
 use crate::types::{
     AccountKeys, ChainInfo, KnownPeerStatus, NetworkRequests, PeerManagerMessageRequest,
     ReasonForBan,
@@ -30,11 +30,9 @@ use crate::types::{
 use futures::FutureExt;
 use near_async::Message;
 use near_async::futures::FutureSpawnerExt;
-use near_async::messaging::IntoSender;
-use near_async::messaging::MessageWithCallback;
-use near_async::messaging::noop;
-use near_async::messaging::{self, CanSendAsync, IntoMultiSender};
-use near_async::messaging::{CanSend, Sender};
+use near_async::messaging::{
+    CanSend, CanSendAsync, Handler, IntoMultiSender, IntoSender, MessageWithCallback, Sender, noop,
+};
 use near_async::{ActorSystem, time};
 use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::state_sync::ShardStateSyncResponse;
@@ -66,7 +64,7 @@ impl Debug for WithNetworkState {
     }
 }
 
-impl messaging::Handler<WithNetworkState> for PeerManagerActor {
+impl Handler<WithNetworkState> for PeerManagerActor {
     fn handle(&mut self, WithNetworkState(f): WithNetworkState) {
         self.handle.spawn("with_network_state", f(self.state.clone()));
     }
