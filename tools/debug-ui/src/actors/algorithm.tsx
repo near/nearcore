@@ -224,6 +224,52 @@ export function getEventsToDisplay(
     return events;
 }
 
+/// Assigns rows to events based on overlaps (no stacking/merging)
+export function assignRowsNoStacking(events: EventToDisplay[], viewport: Viewport): { events: MergedEventToDisplay[], maxRow: number } {
+    const mergedEvents: MergedEventToDisplay[] = [];
+    const rowEndTimes: number[] = []; // Track the end time (in pixels) of the last event in each row
+
+    for (const event of events) {
+        const startPx = viewport.transform(event.startSMT);
+        const endPx = viewport.transform(event.endSMT);
+        const visualStart = startPx - LINE_STROKE_WIDTH / 2;
+        const visualEnd = endPx + LINE_STROKE_WIDTH / 2;
+        const eventDuration = event.endSMT - event.startSMT;
+
+        // Find the first available row where this event doesn't overlap
+        let assignedRow = 0;
+        for (let row = 0; row < rowEndTimes.length; row++) {
+            if (visualStart >= rowEndTimes[row] + EVENT_SPACING_PX) {
+                assignedRow = row;
+                break;
+            }
+            assignedRow = row + 1;
+        }
+
+        // Update or create row end time
+        if (assignedRow >= rowEndTimes.length) {
+            rowEndTimes.push(visualEnd);
+        } else {
+            rowEndTimes[assignedRow] = visualEnd;
+        }
+
+        // Create event (no merging, count is always 1)
+        mergedEvents.push({
+            startSMT: event.startSMT,
+            endSMT: event.endSMT,
+            leftUncertain: event.leftUncertain,
+            rightUncertain: event.rightUncertain,
+            typeId: event.typeId,
+            row: assignedRow,
+            count: 1,
+            totalDurationMs: eventDuration
+        });
+    }
+
+    const maxRow = Math.max(0, rowEndTimes.length - 1);
+    return { events: mergedEvents, maxRow };
+}
+
 /// Assigns rows to events so that overlapping events are displayed in different rows
 /// Also collapses visually overlapping events of the same type into single elements with a count
 export function assignRows(events: EventToDisplay[], viewport: Viewport): { events: MergedEventToDisplay[], maxRow: number } {

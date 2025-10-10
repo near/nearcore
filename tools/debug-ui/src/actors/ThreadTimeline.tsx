@@ -1,7 +1,7 @@
 import { useMemo, useState, useRef, useEffect, useCallback } from "react";
 import { InstrumentedThread } from "../api";
 import { CPU_CHART_HEIGHT, GRID_LABEL_TOP_MARGIN, LEGEND_HEIGHT_PER_ROW, LEGEND_VERTICAL_MARGIN, LINE_STROKE_WIDTH, ROW_HEIGHT, ROW_PADDING } from "./constants";
-import { assignRows, getEventsToDisplay, makeWindowsToDisplay, MessageTypeAndColorMap, MergedEventToDisplay, Viewport } from "./algorithm";
+import { assignRows, assignRowsNoStacking, getEventsToDisplay, makeWindowsToDisplay, MessageTypeAndColorMap, MergedEventToDisplay, Viewport } from "./algorithm";
 import { renderCpuChart } from "./cpu_chart";
 import { renderGridline } from "./gridline";
 import { HitDetector, clearCanvas, drawRect, drawLine, drawRoundedRect } from "./canvas_utils";
@@ -14,10 +14,11 @@ type ActorsViewProps = {
     currentTimeMs: number;
     chartMode: 'cpu' | 'dequeue';
     yAxisMode: 'auto' | 'fixed';
+    enableStacking: boolean;
     isExpanded: boolean;
 };
 
-export const ThreadTimeline = ({ thread, messageTypes, minTimeMs, currentTimeMs, chartMode, yAxisMode, isExpanded }: ActorsViewProps) => {
+export const ThreadTimeline = ({ thread, messageTypes, minTimeMs, currentTimeMs, chartMode, yAxisMode, enableStacking, isExpanded }: ActorsViewProps) => {
     const events = useMemo(
         () => getEventsToDisplay(thread, minTimeMs, currentTimeMs),
         [thread, minTimeMs, currentTimeMs]
@@ -40,8 +41,8 @@ export const ThreadTimeline = ({ thread, messageTypes, minTimeMs, currentTimeMs,
     const colorMap = useMemo(() => new MessageTypeAndColorMap(events, windows, messageTypes), [events, windows, messageTypes]);
 
     const { events: positionedEvents, maxRow } = useMemo(
-        () => assignRows(events, viewport),
-        [events, viewport]
+        () => enableStacking ? assignRows(events, viewport) : assignRowsNoStacking(events, viewport),
+        [events, viewport, enableStacking]
     );
 
     const gridTop = CPU_CHART_HEIGHT + GRID_LABEL_TOP_MARGIN;

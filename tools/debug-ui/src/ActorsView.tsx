@@ -14,12 +14,13 @@ const formatThreadName = (threadName: string): string => {
     return threadName.replace(/::/g, '::​')
 };
 
-const ThreadTimelineRow = ({ thread, minTimeMs, currentTimeMs, chartMode, yAxisMode }: {
+const ThreadTimelineRow = ({ thread, minTimeMs, currentTimeMs, chartMode, yAxisMode, enableStacking }: {
     thread: InstrumentedThread;
     minTimeMs: number;
     currentTimeMs: number;
     chartMode: 'cpu' | 'dequeue';
     yAxisMode: 'auto' | 'fixed';
+    enableStacking: boolean;
 }) => {
     const [isExpanded, setIsExpanded] = useState(false);
     const [resetKey, setResetKey] = useState(0);
@@ -53,6 +54,7 @@ const ThreadTimelineRow = ({ thread, minTimeMs, currentTimeMs, chartMode, yAxisM
                     currentTimeMs={currentTimeMs}
                     chartMode={chartMode}
                     yAxisMode={yAxisMode}
+                    enableStacking={enableStacking}
                     isExpanded={isExpanded}
                 />
             </div>
@@ -65,6 +67,7 @@ export const ActorsView = ({ addr }: ActorsViewProps) => {
     const [hasInitiallyFetched, setHasInitiallyFetched] = useState<boolean>(false);
     const [yAxisMode, setYAxisMode] = useState<'auto' | 'fixed'>('auto');
     const [timelineChartMode, setTimelineChartMode] = useState<'cpu' | 'dequeue'>('cpu');
+    const [enableStacking, setEnableStacking] = useState<boolean>(true);
     const fileInputRef = useRef<HTMLInputElement>(null);
 
     const {
@@ -200,6 +203,16 @@ export const ActorsView = ({ addr }: ActorsViewProps) => {
                         100%
                     </label>
                 </div>
+                <div className="y-axis-controls">
+                    <label className="radio-option">
+                        <input
+                            type="checkbox"
+                            checked={enableStacking}
+                            onChange={(e) => setEnableStacking(e.target.checked)}
+                        />
+                        Stack nearby events
+                    </label>
+                </div>
                 <div className="control-buttons">
                     <button
                         onClick={handleRefreshData}
@@ -242,6 +255,7 @@ export const ActorsView = ({ addr }: ActorsViewProps) => {
                             currentTimeMs={currentTimeMs}
                             chartMode={timelineChartMode}
                             yAxisMode={yAxisMode}
+                            enableStacking={enableStacking}
                         />
                     ))}
                 </div>
