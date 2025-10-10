@@ -919,9 +919,14 @@ impl JsonRpcHandler {
     > {
         if self.enable_debug_rpc {
             let response = all_actor_instrumentations_view(&Clock::real());
+            let serialized_response = serde_json::to_value(response).map_err(|err| {
+                near_jsonrpc_primitives::types::status::RpcStatusError::InternalError {
+                    error_message: format!("Failed to serialize instrumented threads: {:?}", err),
+                }
+            })?;
             let status_response =
                 near_jsonrpc_primitives::types::status::DebugStatusResponse::InstrumentedThreads(
-                    response,
+                    serialized_response,
                 );
             Ok(Some(near_jsonrpc_primitives::types::status::RpcDebugStatusResponse {
                 status_response,

@@ -19,8 +19,6 @@ schemars = { workspace = true, optional = true }
 thiserror.workspace = true
 time.workspace = true
 
-# TODO: Move View types here instead
-near-async.workspace = true
 near-crypto.workspace = true
 near-primitives = { workspace = true, features = ["rand"] }
 near-chain-configs.workspace = true
