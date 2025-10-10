@@ -792,7 +792,7 @@ mod tests {
                 return;
             }
         };
-        let cost = match tx_cost(config, &validated_tx.to_tx(), gas_price, PROTOCOL_VERSION) {
+        let cost = match tx_cost(config, &validated_tx.to_tx(), gas_price) {
             Ok(c) => c,
             Err(err) => {
                 assert_eq!(InvalidTxError::from(err), expected_err);
@@ -836,8 +836,7 @@ mod tests {
         };
         let (mut signer, mut access_key) = get_signer_and_access_key(state_update, &validated_tx)?;
 
-        let transaction_cost =
-            tx_cost(config, &validated_tx.to_tx(), gas_price, current_protocol_version)?;
+        let transaction_cost = tx_cost(config, &validated_tx.to_tx(), gas_price)?;
         let vr = verify_and_charge_tx_ephemeral(
             config,
             &mut signer,
@@ -2190,7 +2189,7 @@ mod tests {
                 Err(
                     UnsupportedProtocolFeature {
                         protocol_feature: "DeterministicAccountIds",
-                        version: 149,
+                        version: 80,
                     },
                 )
             "#]],

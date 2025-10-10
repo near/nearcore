@@ -100,6 +100,16 @@ pub(crate) fn execute_money_transfers(
     node_datas: &[NodeExecutionData],
     accounts: &[AccountId],
 ) -> Result<(), BalanceMismatchError> {
+    let default_delay = Duration::milliseconds(300);
+    execute_money_transfers_with_delay(test_loop, node_datas, accounts, default_delay)
+}
+
+pub(crate) fn execute_money_transfers_with_delay(
+    test_loop: &mut TestLoopV2,
+    node_datas: &[NodeExecutionData],
+    accounts: &[AccountId],
+    delay: Duration,
+) -> Result<(), BalanceMismatchError> {
     let clients = node_datas
         .iter()
         .map(|data| &test_loop.data.get(&data.client_sender.actor_handle()).client)
@@ -122,7 +132,7 @@ pub(crate) fn execute_money_transfers(
         *balances.get_mut(&receiver).unwrap() = balances[&receiver].checked_add(amount).unwrap();
         test_loop.send_adhoc_event_with_delay(
             format!("transaction {}", i),
-            Duration::milliseconds(300 * i as i64),
+            delay.saturating_mul(i as i32),
             move |data| {
                 let clients = node_data
                     .iter()
@@ -201,7 +211,7 @@ pub fn do_deploy_contract(
     tracing::info!(target: "test", "Deploying contract.");
     let nonce = get_next_nonce(&env.test_loop.data, &env.node_datas, contract_id);
     let tx = deploy_contract(&mut env.test_loop, &env.node_datas, rpc_id, contract_id, code, nonce);
-    env.test_loop.run_for(Duration::seconds(2));
+    env.test_loop.run_for(Duration::seconds(3));
     check_txs(&env.test_loop.data, &env.node_datas, rpc_id, &[tx]);
 }
 
@@ -225,7 +235,7 @@ pub fn do_call_contract(
         args,
         nonce,
     );
-    env.test_loop.run_for(Duration::seconds(2));
+    env.test_loop.run_for(Duration::seconds(3));
     check_txs(&env.test_loop.data, &env.node_datas, rpc_id, &[tx]);
 }
 

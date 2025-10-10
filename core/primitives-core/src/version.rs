@@ -312,9 +312,11 @@ pub enum ProtocolFeature {
     /// price rather than a pessimistic gas price. Also, introduce a new fee of
     /// 5% for gas refunds and charge the signer this fee for gas refund
     /// receipts.
-    ReducedGasRefunds,
+    #[deprecated]
+    _DeprecatedReducedGasRefunds,
     /// Move from ChunkStateWitness being a single struct to a versioned enum.
-    VersionedStateWitness,
+    #[deprecated]
+    _DeprecatedVersionedStateWitness,
     /// Increase max_congestion_missed_chunks from 5 to 125.
     /// At 125 missing chunks shard will be fully congested.
     /// At 100 missing chunks shard will be 80% congested, and transactions
@@ -424,12 +426,12 @@ impl ProtocolFeature {
             | ProtocolFeature::_DeprecatedBlockHeightForReceiptId
             | ProtocolFeature::_DeprecatedProduceOptimisticBlock => 77,
             ProtocolFeature::_DeprecatedSimpleNightshadeV6
-            | ProtocolFeature::VersionedStateWitness
+            | ProtocolFeature::_DeprecatedVersionedStateWitness
             | ProtocolFeature::ChunkPartChecks
             | ProtocolFeature::SaturatingFloatToInt
-            | ProtocolFeature::ReducedGasRefunds => 78,
+            | ProtocolFeature::_DeprecatedReducedGasRefunds => 78,
             ProtocolFeature::IncreaseMaxCongestionMissedChunks => 79,
-            ProtocolFeature::StatePartsCompression => 81,
+            ProtocolFeature::StatePartsCompression | ProtocolFeature::DeterministicAccountIds => 81,
             ProtocolFeature::Wasmtime => 82,
 
             // Nightly features:
@@ -438,7 +440,6 @@ impl ProtocolFeature {
             // that always enables this for mocknet (see config_mocknet function).
             ProtocolFeature::ShuffleShardAssignments => 143,
             ProtocolFeature::ExcludeExistingCodeFromWitnessForCodeLen => 148,
-            ProtocolFeature::DeterministicAccountIds => 150,
             ProtocolFeature::InvalidTxGenerateOutcomes => 151,
             // Place features that are not yet in Nightly below this line.
         }

@@ -1,6 +1,5 @@
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
-use std::str::FromStr;
 use std::sync::Arc;
 
 use crate::commands::apply_range;
@@ -13,7 +12,7 @@ use near_epoch_manager::shard_assignment::shard_id_to_index;
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::stateless_validation::state_witness::ChunkStateWitness;
-use near_primitives::types::{AccountId, BlockHeight, EpochId, ShardId};
+use near_primitives::types::{BlockHeight, EpochId, ShardId};
 use near_store::Store;
 use near_time::Clock;
 use nearcore::NearConfig;
@@ -166,7 +165,6 @@ impl GenerateWitnessesCmd {
             let CreateWitnessResult { state_witness, .. } = chain_store
                 .create_state_witness(
                     epoch_manager.as_ref(),
-                    AccountId::from_str("alice.near").unwrap(),
                     prev_block.header(),
                     prev_chunk_header,
                     &chunk,

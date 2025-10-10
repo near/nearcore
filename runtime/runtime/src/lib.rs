@@ -88,6 +88,7 @@ use smallvec::SmallVec;
 use std::cmp::max;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::fmt::Debug;
+use std::rc::Rc;
 use std::sync::Arc;
 use tracing::{debug, instrument};
 use verifier::ValidateReceiptMode;
@@ -584,7 +585,13 @@ impl Runtime {
                     data_id: *data_id,
                 });
                 match data {
-                    Some(value) => Ok(PromiseResult::Successful(value)),
+                    // TODO: Going from Vec<u8> to Rc<[u8]> shrinks the
+                    // allocated buffer to fit, which may re-allocate if the
+                    // capacity > len.
+                    // Most likely, capacity == len holds here anyway but it
+                    // would be better to use `Rc<u8>` already in `ReceivedData`
+                    // and `DataReceipt`.
+                    Some(value) => Ok(PromiseResult::Successful(Rc::from(value))),
                     None => Ok(PromiseResult::Failed),
                 }
             })
@@ -687,7 +694,7 @@ impl Runtime {
             GasRefundResult::default()
         } else {
             // Calculating and generating refunds
-            self.generate_refund_receipts(
+            self.refund_unspent_gas_and_deposits(
                 apply_state.gas_price,
                 receipt,
                 &action_receipt,
@@ -734,28 +741,10 @@ impl Runtime {
             .unwrap();
         // The balance that the current account should receive as a reward for function call
         // execution.
-        let receiver_reward = if apply_state.config.fees.refund_gas_price_changes {
-            // Use current gas price for reward calculation
-            let full_reward = safe_gas_to_balance(apply_state.gas_price, receiver_gas_reward)?;
-            // Pre NEP-536:
-            // When refunding the gas price difference, if we run a deficit,
-            // subtract it from contract rewards. This is a (arguably weird) bit
-            // of cross-financing the missing funds to pay gas at the current
-            // rate.
-            // We should charge the caller more but we can't at this point. The
-            // pessimistic gas pricing was not pessimistic enough, which may
-            // happen when receipts are delayed.
-            // To recover the losses, take as much as we can from the reward
-            // that rightfully belongs to the contract owner.
-            full_reward.saturating_sub(gas_refund_result.price_deficit)
-        } else {
-            // Use receipt gas price for reward calculation
-            safe_gas_to_balance(action_receipt.gas_price(), receiver_gas_reward)?
-            // Post NEP-536:
-            // No shenanigans here. We are not refunding gas price differences,
-            // we just use the receipt gas price and call it the correct price.
-            // No deficits to try and recover.
-        };
+        // Post NEP-536: We are not refunding gas price differences, we just use the receipt
+        // gas price and call it the correct price.
+        // No deficits to try and recover. Use receipt gas price for reward calculation
+        let receiver_reward = safe_gas_to_balance(action_receipt.gas_price(), receiver_gas_reward)?;
         if receiver_reward > Balance::ZERO {
             let mut account = get_account(state_update, account_id)?;
             if let Some(ref mut account) = account {
@@ -875,138 +864,6 @@ impl Runtime {
                 ))),
             },
         })
-    }
-
-    fn generate_refund_receipts(
-        &self,
-        current_gas_price: Balance,
-        receipt: &Receipt,
-        action_receipt: &VersionedActionReceipt,
-        result: &mut ActionResult,
-        config: &RuntimeConfig,
-    ) -> Result<GasRefundResult, RuntimeError> {
-        if config.fees.refund_gas_price_changes {
-            let price_deficit = self.refund_unspent_gas_and_unspent_gas_and_deposits(
-                current_gas_price,
-                receipt,
-                action_receipt,
-                result,
-                config,
-            )?;
-            Ok(GasRefundResult {
-                price_deficit,
-                price_surplus: Balance::ZERO,
-                refund_penalty: Balance::ZERO,
-            })
-        } else {
-            self.refund_unspent_gas_and_deposits(
-                current_gas_price,
-                receipt,
-                action_receipt,
-                result,
-                config,
-            )
-        }
-    }
-
-    /// How we used to handle refunds, prior to NEP-536.
-    ///
-    /// In the old model, we tried to always bill the user the exact gas price
-    /// of the block where the gas is spent. That means, a transaction uses a
-    /// different gas price on every hop. But gas is purchased all at the start,
-    /// at the receipt gas price.
-    ///
-    /// To deal with a price increase during execution, we charged a pessimistic
-    /// gas price. The pessimistic price is an estimation of how expensive gas
-    /// could realistically become while the transaction executes. It's not a
-    /// guaranteed to stay below that limit, though.
-    ///
-    /// The pessimistic price is usually several times higher than the real
-    /// execution price. Thus, it is important to refund the difference between
-    /// the purchase price and the execution price.
-    ///
-    /// NEP-536 removes this concept because we no longer want to waste runtime
-    /// throughput with a somewhat useless refund receipts for essentially every
-    /// function call.
-    fn refund_unspent_gas_and_unspent_gas_and_deposits(
-        &self,
-        current_gas_price: Balance,
-        receipt: &Receipt,
-        action_receipt: &VersionedActionReceipt,
-        result: &mut ActionResult,
-        config: &RuntimeConfig,
-    ) -> Result<Balance, RuntimeError> {
-        let total_deposit = total_deposit(&action_receipt.actions())?;
-        let prepaid_gas = total_prepaid_gas(&action_receipt.actions())?
-            .checked_add(total_prepaid_send_fees(config, &action_receipt.actions())?)
-            .ok_or(IntegerOverflowError)?;
-        let prepaid_exec_gas =
-            total_prepaid_exec_fees(config, &action_receipt.actions(), receipt.receiver_id())?
-                .checked_add(config.fees.fee(ActionCosts::new_action_receipt).exec_fee())
-                .ok_or(IntegerOverflowError)?;
-        let deposit_refund = if result.result.is_err() { total_deposit } else { Balance::ZERO };
-        let gas_refund = if result.result.is_err() {
-            prepaid_gas
-                .checked_add(prepaid_exec_gas)
-                .ok_or(IntegerOverflowError)?
-                .checked_sub(result.gas_burnt)
-                .unwrap()
-        } else {
-            prepaid_gas
-                .checked_add(prepaid_exec_gas)
-                .ok_or(IntegerOverflowError)?
-                .checked_sub(result.gas_used)
-                .unwrap()
-        };
-
-        // Refund for the unused portion of the gas at the price at which this gas was purchased.
-        let mut gas_balance_refund = safe_gas_to_balance(action_receipt.gas_price(), gas_refund)?;
-        let mut gas_deficit_amount = Balance::ZERO;
-        if current_gas_price > action_receipt.gas_price() {
-            // In a rare scenario, when the current gas price is higher than the purchased gas
-            // price, the difference is subtracted from the refund. If the refund doesn't have
-            // enough balance to cover the difference, then the remaining balance is considered
-            // the deficit and it's reported in the stats for the balance checker.
-            gas_deficit_amount = safe_gas_to_balance(
-                current_gas_price.checked_sub(action_receipt.gas_price()).unwrap(),
-                result.gas_burnt,
-            )?;
-            if gas_balance_refund >= gas_deficit_amount {
-                gas_balance_refund = gas_balance_refund.checked_sub(gas_deficit_amount).unwrap();
-                gas_deficit_amount = Balance::ZERO;
-            } else {
-                gas_deficit_amount = gas_deficit_amount.checked_sub(gas_balance_refund).unwrap();
-                gas_balance_refund = Balance::ZERO;
-            }
-        } else {
-            // Refund for the difference of the purchased gas price and the current gas price.
-            gas_balance_refund = safe_add_balance(
-                gas_balance_refund,
-                safe_gas_to_balance(
-                    action_receipt.gas_price().checked_sub(current_gas_price).unwrap(),
-                    result.gas_burnt,
-                )?,
-            )?;
-        }
-
-        if deposit_refund > Balance::ZERO {
-            result.new_receipts.push(Receipt::new_balance_refund(
-                receipt.balance_refund_receiver(),
-                deposit_refund,
-                receipt.priority(),
-            ));
-        }
-        if gas_balance_refund > Balance::ZERO {
-            // Gas refunds refund the allowance of the access key, so if the key exists on the
-            // account it will increase the allowance by the refund amount.
-            result.new_receipts.push(Receipt::new_gas_refund(
-                &action_receipt.signer_id(),
-                gas_balance_refund,
-                action_receipt.signer_public_key().clone(),
-                receipt.priority(),
-            ));
-        }
-        Ok(gas_deficit_amount)
     }
 
     /// How we handle refunds since NEP-536.
@@ -1809,29 +1666,25 @@ impl Runtime {
             let tx_hash = tx.hash();
             let block_height = processing_state.apply_state.block_height;
 
-            let cost = match tx_cost(
-                &processing_state.apply_state.config,
-                &tx.transaction,
-                gas_price,
-                protocol_version,
-            ) {
-                Ok(c) => c,
-                Err(error) => {
-                    metrics::TRANSACTION_PROCESSED_FAILED_TOTAL.inc();
-                    let tx_error = match error {
-                        IntegerOverflowError => InvalidTxError::CostOverflow,
-                    };
-                    let outcome = ExecutionOutcomeWithId::failed(tx, tx_error);
-                    let error = &error as &dyn std::error::Error;
-                    tracing::debug!(%tx_hash, error, "transaction cost calculation failed");
-                    Self::register_outcome(
-                        processing_state.protocol_version,
-                        &mut processing_state.outcomes,
-                        outcome,
-                    );
-                    continue;
-                }
-            };
+            let cost =
+                match tx_cost(&processing_state.apply_state.config, &tx.transaction, gas_price) {
+                    Ok(c) => c,
+                    Err(error) => {
+                        metrics::TRANSACTION_PROCESSED_FAILED_TOTAL.inc();
+                        let tx_error = match error {
+                            IntegerOverflowError => InvalidTxError::CostOverflow,
+                        };
+                        let outcome = ExecutionOutcomeWithId::failed(tx, tx_error);
+                        let error = &error as &dyn std::error::Error;
+                        tracing::debug!(%tx_hash, error, "transaction cost calculation failed");
+                        Self::register_outcome(
+                            processing_state.protocol_version,
+                            &mut processing_state.outcomes,
+                            outcome,
+                        );
+                        continue;
+                    }
+                };
 
             let verification_result = {
                 let mut account = accounts.get_mut(signer_id);
