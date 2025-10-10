@@ -191,7 +191,7 @@ export const ThreadTimeline = ({ thread, messageTypes, minTimeMs, currentTimeMs,
                                     x={Math.max(0, afterX1)}
                                     y={CPU_CHART_HEIGHT}
                                     width={Math.min(svgWidth, afterX2) - Math.max(0, afterX1)}
-                                    height={chartHeight}
+                                    height={chartHeight - CPU_CHART_HEIGHT}
                                     fill="#eee"
                                 />
                             )}
