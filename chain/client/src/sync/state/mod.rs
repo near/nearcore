@@ -7,7 +7,7 @@ mod task_tracker;
 mod util;
 
 use crate::metrics;
-use crate::sync::external::{ExternalConnection, create_bucket_readonly};
+use crate::sync::external::StateSyncConnection;
 use chain_requests::ChainSenderForStateSync;
 use downloader::StateSyncDownloader;
 use external::StateSyncDownloadSourceExternal;
@@ -17,11 +17,10 @@ use near_async::messaging::{AsyncSender, IntoSender};
 use near_async::time::{Clock, Duration};
 use near_chain::Chain;
 use near_chain::types::RuntimeAdapter;
-use near_chain_configs::{
-    ExternalStorageConfig, ExternalStorageLocation, StateSyncConfig, SyncConcurrency, SyncConfig,
-};
+use near_chain_configs::{ExternalStorageConfig, StateSyncConfig, SyncConcurrency, SyncConfig};
 use near_client_primitives::types::{ShardSyncStatus, StateSyncStatus};
 use near_epoch_manager::EpochManagerAdapter;
+use near_external_storage::S3AccessConfig;
 use near_network::client::StateResponse;
 use near_network::types::{PeerManagerMessageRequest, PeerManagerMessageResponse};
 use near_primitives::hash::CryptoHash;
@@ -111,32 +110,11 @@ impl StateSync {
                 external_storage_fallback_threshold,
             }) = &sync_config.sync
             {
-                let external = match location {
-                    ExternalStorageLocation::S3 { bucket, region, .. } => {
-                        let bucket = create_bucket_readonly(
-                            &bucket,
-                            &region,
-                            external_timeout.max(Duration::ZERO).unsigned_abs(),
-                        );
-                        if let Err(err) = bucket {
-                            panic!("Failed to create an S3 bucket: {}", err);
-                        }
-                        ExternalConnection::S3 { bucket: Arc::new(bucket.unwrap()) }
-                    }
-                    ExternalStorageLocation::Filesystem { root_dir } => {
-                        ExternalConnection::Filesystem { root_dir: root_dir.clone() }
-                    }
-                    ExternalStorageLocation::GCS { bucket, .. } => ExternalConnection::GCS {
-                        gcs_client: Arc::new(
-                            object_store::gcp::GoogleCloudStorageBuilder::from_env()
-                                .with_bucket_name(bucket)
-                                .build()
-                                .unwrap(),
-                        ),
-                        reqwest_client: Arc::new(reqwest::Client::default()),
-                        bucket: bucket.clone(),
-                    },
+                let s3_access_config = S3AccessConfig {
+                    timeout: external_timeout.max(Duration::ZERO).unsigned_abs(),
+                    is_readonly: true,
                 };
+                let external = StateSyncConnection::new(location, None, s3_access_config);
                 let num_concurrent_requests = if catchup {
                     *num_concurrent_requests_during_catchup
                 } else {

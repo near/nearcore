@@ -123,6 +123,7 @@ impl ActorSystem {
             num_threads,
             make_actor_fn,
             self.multithread_cancellation_receiver.clone(),
+            None,
         )
     }
 
@@ -135,6 +136,43 @@ impl ActorSystem {
     pub fn new_future_spawner(&self) -> Box<dyn FutureSpawner> {
         let handle = self.spawn_tokio_actor(EmptyActor);
         handle.future_spawner()
+    }
+}
+
+/// Spawns a future spawner that is NOT owned by any ActorSystem.
+/// Rather, the returned FutureSpawner, when dropped, will stop the runtime.
+pub fn new_owned_future_spawner() -> Box<dyn FutureSpawner> {
+    Box::new(OwnedFutureSpawner { handle: spawn_tokio_actor(EmptyActor, CancellationToken::new()) })
+}
+
+/// Spawns a multithreaded actor which is NOT owned by any ActorSystem.
+/// Rather, the returned handle, when dropped, will stop the actor and its runtime.
+pub fn new_owned_multithread_actor<A: Actor + Send + 'static>(
+    num_threads: usize,
+    make_actor_fn: impl Fn() -> A + Sync + Send + 'static,
+) -> MultithreadRuntimeHandle<A> {
+    let (cancellation_signal, cancellation_receiver) = crossbeam_channel::bounded::<()>(0);
+    spawn_multithread_actor(
+        num_threads,
+        make_actor_fn,
+        cancellation_receiver,
+        Some(cancellation_signal), // never cancelled
+    )
+}
+
+struct OwnedFutureSpawner {
+    handle: TokioRuntimeHandle<EmptyActor>,
+}
+
+impl FutureSpawner for OwnedFutureSpawner {
+    fn spawn_boxed(&self, description: &'static str, f: crate::futures::BoxFuture<'static, ()>) {
+        self.handle.future_spawner().spawn_boxed(description, f);
+    }
+}
+
+impl Drop for OwnedFutureSpawner {
+    fn drop(&mut self) {
+        self.handle.stop();
     }
 }
 

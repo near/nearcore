@@ -1,7 +1,7 @@
 use super::StateSyncDownloadSource;
 use super::task_tracker::TaskHandle;
 use super::util::{get_state_header_if_exists_in_storage, query_epoch_id_and_height_for_block};
-use crate::sync::external::{ExternalConnection, StateFileType, external_storage_location};
+use crate::sync::external::{StateFileType, StateSyncConnection, external_storage_location};
 use crate::sync::state::util::increment_download_count;
 use borsh::BorshDeserialize;
 use futures::FutureExt;
@@ -23,7 +23,7 @@ pub(super) struct StateSyncDownloadSourceExternal {
     pub store: Store,
     pub epoch_manager: Arc<dyn EpochManagerAdapter>,
     pub chain_id: String,
-    pub conn: ExternalConnection,
+    pub conn: StateSyncConnection,
     pub timeout: Duration,
     pub backoff: Duration,
 }
@@ -34,7 +34,7 @@ impl StateSyncDownloadSourceExternal {
         timeout: Duration,
         backoff: Duration,
         cancellation: CancellationToken,
-        conn: ExternalConnection,
+        conn: StateSyncConnection,
         shard_id: ShardId,
         location: String,
         file_type: StateFileType,

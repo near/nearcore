@@ -4877,6 +4877,7 @@
         "type": "object"
       },
       "ExternalStorageLocation": {
+        "description": "Supported external storage backends and their minimal config.",
         "oneOf": [
           {
             "additionalProperties": false,
@@ -4884,7 +4885,7 @@
               "S3": {
                 "properties": {
                   "bucket": {
-                    "description": "Location of state dumps on S3.",
+                    "description": "Location on S3.",
                     "type": "string"
                   },
                   "region": {
@@ -4906,6 +4907,7 @@
           },
           {
             "additionalProperties": false,
+            "description": "Local filesystem root for storing data.",
             "properties": {
               "Filesystem": {
                 "properties": {
@@ -4926,6 +4928,7 @@
           },
           {
             "additionalProperties": false,
+            "description": "Google Cloud Storage bucket name.",
             "properties": {
               "GCS": {
                 "properties": {

@@ -2,10 +2,12 @@ use anyhow::anyhow;
 use axum::Router;
 use axum::routing::get;
 use borsh::BorshDeserialize;
+use near_chain_configs::ExternalStorageLocation;
 use near_client::sync::external::{
-    ExternalConnection, StateFileType, create_bucket_readonly, external_storage_location,
+    StateFileType, StateSyncConnection, external_storage_location,
     external_storage_location_directory, get_num_parts_from_filename,
 };
+use near_external_storage::S3AccessConfig;
 use near_jsonrpc::client::{JsonRpcClient, new_client};
 use near_jsonrpc::primitives::errors::RpcErrorKind;
 use near_jsonrpc::primitives::types::config::RpcProtocolConfigRequest;
@@ -21,7 +23,6 @@ use near_store::Trie;
 use nearcore::state_sync::extract_part_id_from_part_file_name;
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
-use std::sync::Arc;
 use std::thread::sleep;
 use std::time::{Duration, Instant};
 use tokio::time::timeout;
@@ -220,34 +221,25 @@ struct DumpCheckIterInfo {
     state_roots: HashMap<ShardId, CryptoHash>,
 }
 
-fn create_external_connection(
+fn create_state_sync_connection(
     root_dir: Option<PathBuf>,
     bucket: Option<String>,
     region: Option<String>,
     gcs_bucket: Option<String>,
-) -> ExternalConnection {
-    if let Some(root_dir) = root_dir {
-        ExternalConnection::Filesystem { root_dir }
+) -> StateSyncConnection {
+    let location = if let Some(root_dir) = root_dir {
+        ExternalStorageLocation::Filesystem { root_dir }
     } else if let (Some(bucket), Some(region)) = (bucket, region) {
-        let bucket = create_bucket_readonly(&bucket, &region, Duration::from_secs(5))
-            .expect("Failed to create an S3 bucket");
-        ExternalConnection::S3 { bucket: Arc::new(bucket) }
+        ExternalStorageLocation::S3 { bucket, region }
     } else if let Some(bucket) = gcs_bucket {
-        ExternalConnection::GCS {
-            gcs_client: Arc::new(
-                object_store::gcp::GoogleCloudStorageBuilder::from_env()
-                    .with_bucket_name(&bucket)
-                    .build()
-                    .unwrap(),
-            ),
-            reqwest_client: Arc::new(reqwest::Client::default()),
-            bucket,
-        }
+        ExternalStorageLocation::GCS { bucket }
     } else {
         panic!(
             "Please provide --root-dir, or both of --s3-bucket and --s3-region, or --gcs-bucket"
         );
-    }
+    };
+    let s3_access_config = S3AccessConfig { timeout: Duration::from_secs(5), is_readonly: true };
+    StateSyncConnection::new(&location, None, s3_access_config)
 }
 
 fn validate_state_part(state_root: &StateRoot, part_id: PartId, part: &[u8]) -> bool {
@@ -505,7 +497,7 @@ async fn check_parts(
     epoch_height: u64,
     shard_id: ShardId,
     state_root: StateRoot,
-    external: &ExternalConnection,
+    external: &StateSyncConnection,
 ) -> anyhow::Result<bool> {
     let directory_path = external_storage_location_directory(
         &chain_id,
@@ -608,7 +600,7 @@ async fn check_headers(
     epoch_id: &EpochId,
     epoch_height: u64,
     shard_id: ShardId,
-    external: &ExternalConnection,
+    external: &StateSyncConnection,
 ) -> anyhow::Result<bool> {
     let directory_path = external_storage_location_directory(
         &chain_id,
@@ -668,7 +660,7 @@ async fn run_single_check(
         .with_label_values(&[&shard_id.to_string(), &chain_id.to_string()])
         .set(1);
 
-    let external = create_external_connection(
+    let external = create_state_sync_connection(
         root_dir.clone(),
         s3_bucket.clone(),
         s3_region.clone(),
@@ -716,7 +708,7 @@ async fn process_part_with_3_retries(
     shard_id: ShardId,
     state_root: StateRoot,
     num_parts: u64,
-    external: ExternalConnection,
+    external: StateSyncConnection,
 ) -> anyhow::Result<()> {
     let mut retries = 0;
     let mut res;
@@ -776,7 +768,7 @@ async fn process_header_with_3_retries(
     epoch_id: EpochId,
     epoch_height: u64,
     shard_id: ShardId,
-    external: ExternalConnection,
+    external: StateSyncConnection,
 ) -> anyhow::Result<()> {
     let mut retries = 0;
     let mut res: Result<Result<(), anyhow::Error>, tokio::time::error::Elapsed>;
@@ -821,7 +813,7 @@ async fn process_part(
     shard_id: ShardId,
     state_root: StateRoot,
     num_parts: u64,
-    external: ExternalConnection,
+    external: StateSyncConnection,
 ) -> anyhow::Result<()> {
     tracing::info!(part_id, "process_part started.");
     let file_type = StateFileType::StatePart { part_id, num_parts };
@@ -848,7 +840,7 @@ async fn process_header(
     epoch_id: EpochId,
     epoch_height: u64,
     shard_id: ShardId,
-    external: ExternalConnection,
+    external: StateSyncConnection,
 ) -> anyhow::Result<()> {
     tracing::info!("process_header started.");
     let file_type = StateFileType::StateHeader;

@@ -181,7 +181,7 @@ pub struct StoreOpener<'a> {
     migrator: Option<&'a dyn StoreMigrator>,
 
     /// Opener for an instance of cloud storage if one was configured.
-    cloud_storage_opener: Option<CloudStorageOpener>,
+    cloud: Option<CloudStorageOpener>,
 }
 
 /// Opener for a single RocksDB instance.
@@ -214,14 +214,13 @@ impl<'a> StoreOpener<'a> {
         let hot = DBOpener::new(home_dir, store_config, Temperature::Hot);
         let cold =
             cold_store_config.map(|config| DBOpener::new(home_dir, config, Temperature::Cold));
-        let cloud_storage_opener = cloud_storage_config
-            .map(|config| CloudStorageOpener::new(home_dir.to_path_buf(), config.clone()));
-        Self { hot, cold, migrator: None, cloud_storage_opener }
+        let cloud = cloud_storage_config.map(|config| CloudStorageOpener::new(config.clone()));
+        Self { hot, cold, migrator: None, cloud }
     }
 
     /// Returns true if this opener is for an archival node.
     fn is_archive(&self) -> bool {
-        self.cold.is_some() || self.cloud_storage_opener.is_some()
+        self.cold.is_some() || self.cloud.is_some()
     }
 
     /// Configures the opener with specified [`StoreMigrator`].
@@ -257,7 +256,9 @@ impl<'a> StoreOpener<'a> {
         let mode = Mode::ReadWrite;
         let hot_db = self.hot.open_unsafe(mode)?;
         let cold_db = self.cold.as_ref().map(|cold| cold.open_unsafe(mode)).transpose()?;
-        let storage = NodeStorage::from_rocksdb(hot_db, cold_db);
+        let mut storage = NodeStorage::from_rocksdb(hot_db, cold_db);
+        let cloud_storage = self.cloud.as_ref().map(|cloud| cloud.open());
+        storage.cloud_storage = cloud_storage;
         Ok(storage)
     }
 
@@ -360,16 +361,18 @@ impl<'a> StoreOpener<'a> {
         Ok((hot_db, hot_snapshot, cold_db, cold_snapshot))
     }
 
-    /// Opens the RocksDB database(s) for hot and cold (if configured) storages.
+    /// Opens the RocksDB database(s) for hot, cold (if configured), and cloud (if
+    /// configured) storages.
     ///
-    /// When opening in read-only mode, verifies that the database version is
-    /// what the node expects and fails if it isn’t.  If database doesn’t exist,
-    /// creates a new one unless mode is [`Mode::ReadWriteExisting`].  On the
-    /// other hand, if mode is [`Mode::Create`], fails if the database already
-    /// exists.
+    /// When opening in read-only mode, verifies that the database version is what the
+    /// node expects and fails if it isn’t.  If database doesn’t exist, creates a new one
+    /// unless mode is [`Mode::ReadWriteExisting`].  On the other hand, if mode is
+    /// [`Mode::Create`], fails if the database already exists.
     pub fn open_in_mode(&self, mode: Mode) -> Result<crate::NodeStorage, StoreOpenerError> {
         let (hot_db, hot_snapshot, cold_db, cold_snapshot) = self.open_dbs(mode)?;
-        let storage = NodeStorage::from_rocksdb(hot_db, cold_db);
+        let mut storage: NodeStorage = NodeStorage::from_rocksdb(hot_db, cold_db);
+        let cloud_storage = self.cloud.as_ref().map(|cloud| cloud.open());
+        storage.cloud_storage = cloud_storage;
 
         hot_snapshot.remove()?;
         cold_snapshot.remove()?;

@@ -845,18 +845,8 @@ fn test_apply_surplus_gas_for_transfer() {
         .checked_add(fees.fee(ActionCosts::transfer).exec_fee())
         .unwrap();
 
-    let expected_burnt_amount = if fees.refund_gas_price_changes {
-        GAS_PRICE.checked_mul(u128::from(exec_gas.as_gas())).unwrap()
-    } else {
-        gas_price.checked_mul(u128::from(exec_gas.as_gas())).unwrap()
-    };
-    let expected_receipts = if fees.refund_gas_price_changes {
-        // refund the surplus
-        1
-    } else {
-        // don't refund the surplus
-        0
-    };
+    let expected_burnt_amount = gas_price.checked_mul(u128::from(exec_gas.as_gas())).unwrap();
+    let expected_receipts = 0;
 
     assert!(result.stats.balance.gas_deficit_amount.is_zero());
     assert_eq!(result.stats.balance.tx_burnt_amount, expected_burnt_amount);
@@ -911,11 +901,8 @@ fn test_apply_deficit_gas_for_function_call_covered() {
             Gas::from_gas(gas).checked_add(expected_gas_burnt).unwrap().as_gas(),
         ))
         .unwrap();
-    let expected_gas_burnt_amount = if apply_state.config.fees.refund_gas_price_changes {
-        GAS_PRICE.checked_mul(u128::from(expected_gas_burnt.as_gas())).unwrap()
-    } else {
-        gas_price.checked_mul(u128::from(expected_gas_burnt.as_gas())).unwrap()
-    };
+    let expected_gas_burnt_amount =
+        gas_price.checked_mul(u128::from(expected_gas_burnt.as_gas())).unwrap();
     // With gas refund penalties enabled, we should see a reduced refund value
     let unspent_gas: Gas = Gas::from_gas(
         (total_receipt_cost.checked_sub(expected_gas_burnt_amount).unwrap().as_yoctonear()
@@ -941,19 +928,14 @@ fn test_apply_deficit_gas_for_function_call_covered() {
             Default::default(),
         )
         .unwrap();
-    if apply_state.config.fees.refund_gas_price_changes {
-        // We used part of the prepaid gas to paying extra fees.
-        assert!(result.stats.balance.gas_deficit_amount.is_zero());
-    } else {
-        assert_eq!(
-            result.stats.balance.gas_deficit_amount,
-            GAS_PRICE
-                .checked_sub(gas_price)
-                .unwrap()
-                .checked_mul(u128::from(expected_gas_burnt.as_gas()))
-                .unwrap()
-        );
-    }
+    assert_eq!(
+        result.stats.balance.gas_deficit_amount,
+        GAS_PRICE
+            .checked_sub(gas_price)
+            .unwrap()
+            .checked_mul(u128::from(expected_gas_burnt.as_gas()))
+            .unwrap()
+    );
     // The refund is less than the received amount.
     match result.outgoing_receipts[0].receipt() {
         ReceiptEnum::Action(ActionReceipt { actions, .. }) => {
@@ -1013,19 +995,11 @@ fn test_apply_deficit_gas_for_function_call_partial() {
             Gas::from_gas(gas).checked_add(expected_gas_burnt).unwrap().as_gas(),
         ))
         .unwrap();
-    let expected_deficit = if apply_state.config.fees.refund_gas_price_changes {
-        // Used full prepaid gas, but it still not enough to cover deficit.
-        let expected_gas_burnt_amount =
-            GAS_PRICE.checked_mul(u128::from(expected_gas_burnt.as_gas())).unwrap();
-        expected_gas_burnt_amount.checked_sub(total_receipt_cost).unwrap()
-    } else {
-        // The "deficit" is simply the value change due to gas price changes
-        GAS_PRICE
-            .checked_sub(gas_price)
-            .unwrap()
-            .checked_mul(u128::from(expected_gas_burnt.as_gas()))
-            .unwrap()
-    };
+    let expected_deficit = GAS_PRICE
+        .checked_sub(gas_price)
+        .unwrap()
+        .checked_mul(u128::from(expected_gas_burnt.as_gas()))
+        .unwrap();
 
     let result = runtime
         .apply(
@@ -1039,19 +1013,12 @@ fn test_apply_deficit_gas_for_function_call_partial() {
         )
         .unwrap();
     assert_eq!(result.stats.balance.gas_deficit_amount, expected_deficit);
-    if apply_state.config.fees.refund_gas_price_changes {
-        // Burnt all the fees + all prepaid gas.
-        assert_eq!(result.stats.balance.tx_burnt_amount, total_receipt_cost);
-        assert_eq!(result.outgoing_receipts.len(), 0);
-    } else {
-        // The deficit does not affect refunds in this config, hence we expect a
-        // normal refund of the unspent gas. However, this is small enough to
-        // cancel out, so we add the refund cost to tx_burnt and expect no
-        // refund. Like in the other case, this ends up burning all gas and not
-        // refunding anything.
-        assert_eq!(result.outgoing_receipts.len(), 0);
-        assert_eq!(result.stats.balance.tx_burnt_amount, total_receipt_cost);
-    }
+    // The deficit does not affect refunds, hence we should expect a
+    // normal refund of the unspent gas. However, this is small enough to
+    // cancel out, so we add the refund cost to tx_burnt and expect no
+    // refund. This ends up burning all gas and not refunding anything.
+    assert_eq!(result.outgoing_receipts.len(), 0);
+    assert_eq!(result.stats.balance.tx_burnt_amount, total_receipt_cost);
 }
 
 #[test]
@@ -1102,11 +1069,8 @@ fn test_apply_surplus_gas_for_function_call() {
             Gas::from_gas(gas).checked_add(expected_gas_burnt).unwrap().as_gas(),
         ))
         .unwrap();
-    let expected_gas_burnt_amount = if apply_state.config.fees.refund_gas_price_changes {
-        GAS_PRICE.checked_mul(u128::from(expected_gas_burnt.as_gas())).unwrap()
-    } else {
-        gas_price.checked_mul(u128::from(expected_gas_burnt.as_gas())).unwrap()
-    };
+    let expected_gas_burnt_amount =
+        gas_price.checked_mul(u128::from(expected_gas_burnt.as_gas())).unwrap();
 
     // With gas refund penalties enabled, we should see a reduced refund value
     let unspent_gas = Gas::from_gas(

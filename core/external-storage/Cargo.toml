@@ -1,0 +1,28 @@
+[package]
+name = "near-external-storage"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+description = "Common utilities for interacting with external storage backends (S3, GCS, filesystem)"
+repository.workspace = true
+license.workspace = true
+publish = true
+
+[lints]
+workspace = true
+
+[dependencies]
+anyhow.workspace = true
+object_store.workspace = true
+futures.workspace = true
+percent-encoding.workspace = true
+reqwest.workspace = true
+rust-s3.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tracing.workspace = true
+
+near-chain-configs.workspace = true
+
+[package.metadata.cargo-machete]
+ignored = ["rust-s3"]

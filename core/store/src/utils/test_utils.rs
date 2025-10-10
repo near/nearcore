@@ -1,4 +1,5 @@
 use crate::adapter::{StoreAdapter, StoreUpdateAdapter};
+use crate::archive::cloud_storage::CloudStorage;
 use crate::db::{ColdDB, TestDB};
 use crate::flat::{BlockInfo, FlatStorageManager, FlatStorageReadyStatus, FlatStorageStatus};
 use crate::metadata::{DB_VERSION, DbKind, DbVersion};
@@ -63,12 +64,13 @@ pub fn create_test_node_storage_with_cold(
     (storage, hot, cold)
 }
 
-/// Provides access to hot store, split store, and cold db.
+/// Provides access to hot store, split store, cold db, and cloud storage.
 /// Note that the split store contains both hot and cold stores.
 pub struct TestNodeStorage {
     pub hot_store: Store,
     pub split_store: Option<Store>,
     pub cold_db: Option<Arc<ColdDB>>,
+    pub cloud_storage: Option<Arc<CloudStorage>>,
 }
 
 pub fn create_test_split_storage() -> TestNodeStorage {
@@ -76,7 +78,12 @@ pub fn create_test_split_storage() -> TestNodeStorage {
     let hot_store = storage.get_hot_store();
     let split_store = storage.get_split_store().unwrap();
     let cold_db = storage.cold_db().unwrap();
-    TestNodeStorage { hot_store, split_store: Some(split_store), cold_db: Some(cold_db.clone()) }
+    TestNodeStorage {
+        hot_store,
+        split_store: Some(split_store),
+        cold_db: Some(cold_db.clone()),
+        cloud_storage: None,
+    }
 }
 
 pub struct TestTriesBuilder {

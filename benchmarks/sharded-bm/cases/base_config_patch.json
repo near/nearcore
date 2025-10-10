@@ -46,8 +46,8 @@
     },
     "consensus": {
         "min_block_production_delay": {
-            "secs": 1,
-            "nanos": 300000000
+            "secs": 0,
+            "nanos": 600000000
         },
         "max_block_production_delay": {
             "secs": 30,

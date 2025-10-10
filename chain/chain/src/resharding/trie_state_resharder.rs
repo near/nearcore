@@ -449,7 +449,7 @@ impl TrieStateResharder {
         &self,
         status: &mut TrieStateReshardingStatus,
     ) -> Result<(), Error> {
-        while !status.done() && !self.handle.is_cancelled() {
+        while !status.done() && !self.handle.0.is_cancelled() {
             self.process_batch_and_update_status(status, true)?;
         }
 
@@ -786,7 +786,7 @@ mod tests {
         assert_eq!(2, test.runtime.store().iter(DBCol::StateShardUIdMapping).count());
 
         // Test cancelling the resharding operation.
-        resharder.handle.stop();
+        resharder.handle.0.stop();
         resharder.resharding_blocking_impl(&mut update_status).unwrap();
         // The resharding status should not have changed after cancellation.
         assert_eq!(got_status, update_status);

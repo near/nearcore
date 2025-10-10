@@ -3,7 +3,7 @@ use near_chain_configs::Genesis;
 use near_parameters::{ExtCosts, RuntimeConfig, RuntimeConfigStore};
 use near_primitives::serialize::to_base64;
 use near_primitives::types::{AccountId, Balance, Gas};
-use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
+use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::{
     CostGasUsed, ExecutionOutcomeWithIdView, ExecutionStatusView, FinalExecutionStatus,
 };
@@ -57,9 +57,7 @@ fn setup_runtime_node_with_contract(wasm_binary: &[u8]) -> RuntimeNode {
         )
         .unwrap();
     assert_eq!(tx_result.status, FinalExecutionStatus::SuccessValue(Vec::new()));
-    let num_expected_receipts =
-        if ProtocolFeature::ReducedGasRefunds.enabled(PROTOCOL_VERSION) { 1 } else { 2 };
-    assert_eq!(tx_result.receipts_outcome.len(), num_expected_receipts);
+    assert_eq!(tx_result.receipts_outcome.len(), 1);
 
     let tx_result =
         node_user.deploy_contract(test_contract_account(), wasm_binary.to_vec()).unwrap();

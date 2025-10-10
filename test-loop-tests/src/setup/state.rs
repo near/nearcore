@@ -7,9 +7,8 @@ use near_async::test_loop::data::TestLoopDataHandle;
 use near_async::test_loop::sender::TestLoopSender;
 use near_async::time::Duration;
 use near_chain::resharding::resharding_actor::ReshardingActor;
-use near_chain_configs::{ClientConfig, Genesis};
+use near_chain_configs::{ClientConfig, CloudArchivalWriterHandle, Genesis};
 use near_chunks::shards_manager_actor::ShardsManagerActor;
-use near_client::archive::cloud_archival_actor::CloudArchivalActor;
 use near_client::archive::cold_store_actor::ColdStoreActor;
 use near_client::client_actor::ClientActorInner;
 use near_client::spice_data_distributor_actor::SpiceDataDistributorActor;
@@ -23,6 +22,7 @@ use near_primitives::epoch_manager::EpochConfigStore;
 use near_primitives::network::PeerId;
 use near_primitives::types::AccountId;
 use near_primitives::upgrade_schedule::ProtocolUpgradeVotingSchedule;
+use near_store::archive::cloud_storage::CloudStorage;
 use near_store::test_utils::TestNodeStorage;
 use nearcore::state_sync::StateSyncDumpHandle;
 use parking_lot::Mutex;
@@ -86,7 +86,8 @@ pub struct NodeExecutionData {
     pub state_sync_dumper_handle: TestLoopDataHandle<Arc<StateSyncDumpHandle>>,
     pub spice_data_distributor_sender: TestLoopSender<SpiceDataDistributorActor>,
     pub cold_store_sender: Option<TestLoopSender<ColdStoreActor>>,
-    pub cloud_archival_sender: Option<TestLoopSender<CloudArchivalActor>>,
+    pub cloud_storage_sender: TestLoopDataHandle<Option<Arc<CloudStorage>>>,
+    pub cloud_archival_writer_handle: TestLoopDataHandle<Option<CloudArchivalWriterHandle>>,
 }
 
 impl From<&NodeExecutionData> for AccountId {

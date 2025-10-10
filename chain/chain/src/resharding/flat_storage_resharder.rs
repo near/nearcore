@@ -298,7 +298,7 @@ impl FlatStorageResharder {
         metrics: &FlatStorageReshardingShardSplitMetrics,
     ) -> FlatStorageReshardingTaskResult {
         // Exit early if the task has already been cancelled.
-        if self.handle.is_cancelled() {
+        if self.handle.0.is_cancelled() {
             return FlatStorageReshardingTaskResult::Cancelled;
         }
 
@@ -380,7 +380,7 @@ impl FlatStorageResharder {
             if iter_exhausted {
                 return FlatStorageReshardingTaskResult::Successful { num_batches_done };
             }
-            if self.handle.is_cancelled() {
+            if self.handle.0.is_cancelled() {
                 return FlatStorageReshardingTaskResult::Cancelled;
             }
 
@@ -554,7 +554,7 @@ impl FlatStorageResharder {
         let mut total_batches = 0;
 
         loop {
-            if self.handle.is_cancelled() {
+            if self.handle.0.is_cancelled() {
                 return FlatStorageReshardingTaskResult::Cancelled;
             }
 
@@ -1197,7 +1197,7 @@ mod tests {
         store_update.commit().unwrap();
 
         // Cancel the task before executing it
-        flat_storage_resharder.handle.stop();
+        flat_storage_resharder.handle.0.stop();
 
         // Execute task - should be cancelled
         let task_result =
@@ -1243,7 +1243,7 @@ mod tests {
         assert_matches!(split_task_result, FlatStorageReshardingTaskResult::Successful { .. });
 
         // Cancel the task before execution
-        flat_storage_resharder.handle.stop();
+        flat_storage_resharder.handle.0.stop();
 
         // Execute task - should be cancelled
         let task_result = flat_storage_resharder.shard_catchup_task_interleaved(&[parent_shard]);

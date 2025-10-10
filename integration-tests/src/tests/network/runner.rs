@@ -89,9 +89,8 @@ fn setup_network_node(
         min_block_prod_time: 100,
         max_block_prod_time: 200,
         num_block_producer_seats: num_validators,
-        enable_split_store: config.archive,
-        enable_cloud_archival_writer: false,
-        save_trie_changes: true,
+        split_store_enabled: config.archive,
+        cloud_storage_enabled: false,
         state_sync_enabled: true,
     });
     client_config.ttl_account_id_router = config.ttl_account_id_router.try_into().unwrap();

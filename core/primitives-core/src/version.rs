@@ -264,7 +264,8 @@ pub enum ProtocolFeature {
     #[deprecated]
     _DeprecatedSimpleNightshadeV5,
     /// Resharding V3 - Adding "650" boundary.
-    SimpleNightshadeV6,
+    #[deprecated]
+    _DeprecatedSimpleNightshadeV6,
     /// Exclude contract code from the chunk state witness and distribute it to chunk validators separately.
     #[deprecated]
     _DeprecatedExcludeContractCodeFromStateWitness,
@@ -311,7 +312,8 @@ pub enum ProtocolFeature {
     /// price rather than a pessimistic gas price. Also, introduce a new fee of
     /// 5% for gas refunds and charge the signer this fee for gas refund
     /// receipts.
-    ReducedGasRefunds,
+    #[deprecated]
+    _DeprecatedReducedGasRefunds,
     /// Move from ChunkStateWitness being a single struct to a versioned enum.
     #[deprecated]
     _DeprecatedVersionedStateWitness,
@@ -423,11 +425,11 @@ impl ProtocolFeature {
             ProtocolFeature::_DeprecatedGlobalContracts
             | ProtocolFeature::_DeprecatedBlockHeightForReceiptId
             | ProtocolFeature::_DeprecatedProduceOptimisticBlock => 77,
-            ProtocolFeature::SimpleNightshadeV6
+            ProtocolFeature::_DeprecatedSimpleNightshadeV6
             | ProtocolFeature::_DeprecatedVersionedStateWitness
             | ProtocolFeature::ChunkPartChecks
             | ProtocolFeature::SaturatingFloatToInt
-            | ProtocolFeature::ReducedGasRefunds => 78,
+            | ProtocolFeature::_DeprecatedReducedGasRefunds => 78,
             ProtocolFeature::IncreaseMaxCongestionMissedChunks => 79,
             ProtocolFeature::StatePartsCompression | ProtocolFeature::DeterministicAccountIds => 81,
             ProtocolFeature::Wasmtime => 82,

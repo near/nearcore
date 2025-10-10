@@ -1,7 +1,6 @@
 use near_parameters::{Fee, RuntimeConfig, RuntimeFeesConfig, StorageUsageConfig};
 use near_primitives::num_rational::Rational32;
 use near_primitives::types::{Balance, Gas};
-use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use rand::{Rng, RngCore, thread_rng};
 
 pub fn random_config() -> RuntimeConfig {
@@ -26,7 +25,6 @@ pub fn random_config() -> RuntimeConfig {
                 (101 + rng.next_u32() % 10).try_into().unwrap(),
                 100,
             ),
-            refund_gas_price_changes: !ProtocolFeature::ReducedGasRefunds.enabled(PROTOCOL_VERSION),
             gas_refund_penalty: Rational32::new(rng.gen_range(0..=i32::MAX), i32::MAX),
             min_gas_refund_penalty: Gas::from_gas(rng.next_u64()),
         }),

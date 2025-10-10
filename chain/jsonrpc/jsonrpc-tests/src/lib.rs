@@ -119,9 +119,8 @@ pub fn create_test_setup_with_accounts_and_validity(
         min_block_prod_time: 100,
         max_block_prod_time: 200,
         num_block_producer_seats: num_validator_seats,
-        enable_split_store: false,
-        enable_cloud_archival_writer: false,
-        save_trie_changes: true,
+        split_store_enabled: false,
+        cloud_storage_enabled: false,
         state_sync_enabled: true,
     });
 

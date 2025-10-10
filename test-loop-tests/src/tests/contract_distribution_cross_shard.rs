@@ -169,6 +169,6 @@ fn call_contracts(
             *nonce += 1;
         }
     }
-    env.test_loop.run_for(Duration::seconds(2));
+    env.test_loop.run_for(Duration::seconds(3));
     check_txs(&env.test_loop.data, &env.node_datas, &rpc_id, &txs);
 }
