@@ -11,7 +11,7 @@
 			"gain_proportional": 200.0,
 			"gain_integral": 0.0,
 			"gain_derivative": 0.0,
-			"block_pause_threshold_ms": 3000,
+			"block_pause_threshold_ms": 3000
 		}
 	}
 }
