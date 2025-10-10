@@ -544,10 +544,12 @@ export interface InstrumentedThreads {
 
 export interface InstrumentedThread {
     thread_name: string;
+    actor_name: string;
     active_time_ns: number;
     message_types: string[];
     windows: InstrumentedWindow[];
     active_event: InstrumentedActiveEvent | null;
+    queue: InstrumentedQueue;
 }
 
 export interface InstrumentedActiveEvent {
@@ -580,21 +582,6 @@ export interface MessageStatsForType {
     total_time_ns: number;
 }
 
-export async function fetchAllQueuesView(addr: string): Promise<AllQueuesViewResponse> {
-    const response = await fetch(`http://${addr}/debug/api/all_queues`);
-    return await response.json();
-}
-
-export interface AllQueuesViewResponse {
-    status_response: {
-        AllQueuesView: AllQueuesView;
-    }
-}
-
-export interface AllQueuesView {
-    queues: Map<string, QueueView>;
-}
-
-export interface QueueView {
+export interface InstrumentedQueue {
     pending_counts: Map<string, number>;
 }

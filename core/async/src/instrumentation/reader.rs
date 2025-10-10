@@ -23,6 +23,7 @@ pub struct InstrumentedThreadsView {
 #[derive(Serialize, Debug)]
 pub struct InstrumentedThreadView {
     pub thread_name: String,
+    pub actor_name: String,
     pub active_time_ns: u64,
     pub message_types: Vec<String>,
     pub windows: Vec<InstrumentedWindowView>,
@@ -180,6 +181,7 @@ impl InstrumentedThread {
         }
         InstrumentedThreadView {
             thread_name: self.thread_name.clone(),
+            actor_name: self.actor_name.clone(),
             active_time_ns: (current_time_ns.saturating_sub(self.started_time_ns)) / 1_000_000,
             message_types: self.message_type_registry.to_vec(),
             windows,
