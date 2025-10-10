@@ -12,6 +12,7 @@ use near_schema_checker_lib::ProtocolSchema;
 use crate::Store;
 use crate::adapter::StoreAdapter;
 
+/// Versioned container for block-related data stored in the cloud archival.
 #[derive(Debug, Clone, BorshSerialize, BorshDeserialize, ProtocolSchema)]
 pub enum BlockData {
     V1(BlockDataV1),
@@ -29,6 +30,7 @@ pub struct BlockDataV1 {
     transaction_result_for_block: HashMap<CryptoHash, ExecutionOutcomeWithProof>,
 }
 
+/// Builds a `BlockData` object for the given block height by reading data from the store.
 pub fn build_block_data(store: &Store, block_height: BlockHeight) -> Result<BlockData, Error> {
     let store = store.chain_store();
     let block_hash = store.get_block_hash_by_height(block_height)?;

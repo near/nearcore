@@ -18,6 +18,9 @@ impl CloudStorageOpener {
         Self { config }
     }
 
+    /// Initializes a connection to the configured storage and returns a `CloudStorage`.
+    ///
+    /// Panics if the configured storage location is not supported.
     pub fn open(&self) -> Arc<CloudStorage> {
         let location = &self.config.storage;
         if !Self::is_storage_location_supported(location) {
@@ -29,6 +32,7 @@ impl CloudStorageOpener {
         Arc::new(cloud_storage)
     }
 
+    /// Returns `true` if the given storage backend is supported by cloud archival.
     pub fn is_storage_location_supported(location: &ExternalStorageLocation) -> bool {
         match location {
             ExternalStorageLocation::Filesystem { .. } | ExternalStorageLocation::GCS { .. } => {

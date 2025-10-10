@@ -4,14 +4,14 @@ use borsh::BorshDeserialize;
 
 use crate::archive::cloud_storage::{CloudStorage, CloudStorageFileID};
 
-/// Error surfaced while archiving data or performing sanity checks.
+/// Errors surfaced while retrieving data from the cloud archive.
 #[derive(thiserror::Error, Debug)]
 pub enum CloudRetrievalError {
-    #[error("Error when performing get from cloud archive: {file_id:?}. Error: {error}")]
+    #[error("Failed to retrieve {file_id:?} from the cloud archive:: {error}")]
     GetError { file_id: CloudStorageFileID, error: anyhow::Error },
-    #[error("Error when deserializing value from cloud archive: {file_id:?}. Error: {error}")]
+    #[error("Failed to deserialize {file_id:?} from the cloud archive: {error}")]
     DeserializeError { file_id: CloudStorageFileID, error: borsh::io::Error },
-    #[error("Error when listing directory in cloud archive: {dir}. Error: {error}")]
+    #[error("Failed to list directory in the cloud archive: {dir}; error: {error}")]
     ListError { dir: String, error: anyhow::Error },
 }
 
@@ -25,7 +25,7 @@ impl CloudStorage {
         Ok(head)
     }
 
-    /// Returns the cloud head from external storage, if any.
+    /// Returns the cloud head from external storage, if present.
     pub async fn get_cloud_head_if_exists(
         &self,
     ) -> Result<Option<BlockHeight>, CloudRetrievalError> {
@@ -36,6 +36,7 @@ impl CloudStorage {
         Ok(Some(cloud_head))
     }
 
+    /// Downloads the raw bytes for a given file in the cloud archive.
     async fn get(&self, file_id: CloudStorageFileID) -> Result<Vec<u8>, CloudRetrievalError> {
         let path = file_id.path();
         self.external
@@ -44,9 +45,12 @@ impl CloudStorage {
             .map_err(|error| CloudRetrievalError::GetError { file_id, error })
     }
 
-    /// Note: under the hood, it lists the containing directory recursively, use with caution!
+    /// Checks if a given file exists in the cloud archive.
+    ///
+    /// Note: Internally this may trigger a recursive directory listing — avoid calling it
+    /// on directories containing many files.
     async fn exists(&self, file_id: &CloudStorageFileID) -> Result<bool, CloudRetrievalError> {
-        let (dir, name) = file_id.containing_dir_and_name();
+        let (dir, name) = file_id.dir_and_file_name();
         let files = self
             .external
             .list(&dir)

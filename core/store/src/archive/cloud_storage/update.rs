@@ -7,12 +7,12 @@ use crate::archive::cloud_storage::{CloudStorage, CloudStorageFileID};
 /// Error surfaced while archiving data or performing sanity checks.
 #[derive(thiserror::Error, Debug)]
 pub enum CloudArchivingError {
-    #[error("Cloud archiving IO error: {message}")]
+    #[error("I/O error during cloud archiving: {message}")]
     IOError { message: String },
-    #[error("Cloud archiving chain error: {error}")]
+    #[error("Chain error during cloud archiving: {error}")]
     ChainError { error: near_chain_primitives::Error },
-    #[error("Error when performing put to cloud archival: {error}")]
-    PutError { error: anyhow::Error },
+    #[error("Failed to upload {file_id:?} to the cloud archive: {error}")]
+    PutError { file_id: CloudStorageFileID, error: anyhow::Error },
 }
 
 impl From<std::io::Error> for CloudArchivingError {
@@ -45,6 +45,8 @@ impl CloudStorage {
         self.put(CloudStorageFileID::Head, borsh::to_vec(&head)?).await
     }
 
+    /// Uploads the given value to the external cloud storage under the specified
+    /// `file_id`.
     async fn put(
         &self,
         file_id: CloudStorageFileID,
@@ -54,6 +56,6 @@ impl CloudStorage {
         self.external
             .put(&path, &value)
             .await
-            .map_err(|error| CloudArchivingError::PutError { error })
+            .map_err(|error| CloudArchivingError::PutError { file_id, error })
     }
 }
