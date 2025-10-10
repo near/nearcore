@@ -298,10 +298,13 @@ pub enum ProtocolFeature {
     /// Instead of sending code in the witness, the code checks the code-size using the internal trie nodes.
     ExcludeExistingCodeFromWitnessForCodeLen,
     /// Use the block height instead of the block hash to calculate the receipt ID.
-    BlockHeightForReceiptId,
+    #[deprecated]
+    _DeprecatedBlockHeightForReceiptId,
     /// Enable optimistic block production.
-    ProduceOptimisticBlock,
-    GlobalContracts,
+    #[deprecated]
+    _DeprecatedProduceOptimisticBlock,
+    #[deprecated]
+    _DeprecatedGlobalContracts,
     /// NEP: https://github.com/near/NEPs/pull/536
     ///
     /// Reduce the number of gas refund receipts by charging the current gas
@@ -310,7 +313,8 @@ pub enum ProtocolFeature {
     /// receipts.
     ReducedGasRefunds,
     /// Move from ChunkStateWitness being a single struct to a versioned enum.
-    VersionedStateWitness,
+    #[deprecated]
+    _DeprecatedVersionedStateWitness,
     /// Increase max_congestion_missed_chunks from 5 to 125.
     /// At 125 missing chunks shard will be fully congested.
     /// At 100 missing chunks shard will be 80% congested, and transactions
@@ -321,7 +325,7 @@ pub enum ProtocolFeature {
     /// are much less likely to get rejected with ShardStuck error.
     IncreaseMaxCongestionMissedChunks,
 
-    RefTypesBulkMemory,
+    Wasmtime,
     SaturatingFloatToInt,
     ChunkPartChecks,
     StatePartsCompression,
@@ -416,16 +420,17 @@ impl ProtocolFeature {
             | ProtocolFeature::_DeprecatedCurrentEpochStateSync => 74,
             ProtocolFeature::_DeprecatedSimpleNightshadeV4 => 75,
             ProtocolFeature::_DeprecatedSimpleNightshadeV5 => 76,
-            ProtocolFeature::GlobalContracts
-            | ProtocolFeature::BlockHeightForReceiptId
-            | ProtocolFeature::ProduceOptimisticBlock => 77,
+            ProtocolFeature::_DeprecatedGlobalContracts
+            | ProtocolFeature::_DeprecatedBlockHeightForReceiptId
+            | ProtocolFeature::_DeprecatedProduceOptimisticBlock => 77,
             ProtocolFeature::SimpleNightshadeV6
-            | ProtocolFeature::VersionedStateWitness
+            | ProtocolFeature::_DeprecatedVersionedStateWitness
             | ProtocolFeature::ChunkPartChecks
             | ProtocolFeature::SaturatingFloatToInt
             | ProtocolFeature::ReducedGasRefunds => 78,
             ProtocolFeature::IncreaseMaxCongestionMissedChunks => 79,
-            ProtocolFeature::RefTypesBulkMemory | ProtocolFeature::StatePartsCompression => 81,
+            ProtocolFeature::StatePartsCompression | ProtocolFeature::DeterministicAccountIds => 81,
+            ProtocolFeature::Wasmtime => 82,
 
             // Nightly features:
             ProtocolFeature::FixContractLoadingCost => 129,
@@ -433,7 +438,6 @@ impl ProtocolFeature {
             // that always enables this for mocknet (see config_mocknet function).
             ProtocolFeature::ShuffleShardAssignments => 143,
             ProtocolFeature::ExcludeExistingCodeFromWitnessForCodeLen => 148,
-            ProtocolFeature::DeterministicAccountIds => 150,
             ProtocolFeature::InvalidTxGenerateOutcomes => 151,
             // Place features that are not yet in Nightly below this line.
         }
@@ -448,10 +452,10 @@ impl ProtocolFeature {
 pub const PROD_GENESIS_PROTOCOL_VERSION: ProtocolVersion = 29;
 
 /// Minimum supported protocol version for the current binary
-pub const MIN_SUPPORTED_PROTOCOL_VERSION: ProtocolVersion = 77;
+pub const MIN_SUPPORTED_PROTOCOL_VERSION: ProtocolVersion = 80;
 
 /// Current protocol version used on the mainnet with all stable features.
-const STABLE_PROTOCOL_VERSION: ProtocolVersion = 81;
+const STABLE_PROTOCOL_VERSION: ProtocolVersion = 82;
 
 // On nightly, pick big enough version to support all features.
 const NIGHTLY_PROTOCOL_VERSION: ProtocolVersion = 151;

@@ -16,7 +16,8 @@ use std::marker::PhantomData;
 const MAX_NIBBLES: usize = AccountId::MAX_LEN * 2;
 // The order of subtrees matters - accounts must go first (!)
 // We don't want to go deeper into other subtrees when reaching a leaf in the accounts' tree.
-// Chunks are split by account IDs, not arbitrary byte sequences.
+// Chunks are split by account IDs, not arbitrary byte sequences. Therefore, also make sure
+// not to add any subtrees here that do not use account ID as key (or key prefix).
 const SUBTREES: [u8; 4] = [ACCOUNT, CONTRACT_CODE, ACCESS_KEY, CONTRACT_DATA];
 
 /// This represents a descent stage of a single subtree (e.g. accounts or access keys)
@@ -116,6 +117,21 @@ impl<NodePtr: Debug + Copy> TrieDescentStage<NodePtr> {
         match self {
             Self::CutOff | Self::AtLeaf { .. } => false,
             Self::InsideExtension { .. } | Self::AtBranch { .. } => true,
+        }
+    }
+
+    fn first_child(&self) -> Option<u8> {
+        match self {
+            Self::CutOff | Self::AtLeaf { .. } => None,
+            Self::InsideExtension { remaining_nibbles, .. } => Some(remaining_nibbles[0]),
+            Self::AtBranch { children, .. } => {
+                for i in 0..NUM_CHILDREN {
+                    if children[i].is_some() {
+                        return Some(i as u8);
+                    }
+                }
+                unreachable!("branch should have at least one child");
+            }
         }
     }
 
@@ -225,6 +241,12 @@ where
             self.descend_step(nibble, child_mem_usage, left_mem_usage);
         }
 
+        // The split path needs to be convertible into an account ID. Therefore, it has to be
+        // at least 2 bytes long, and include an even number of nibbles.
+        while self.nibbles.len() < AccountId::MIN_LEN * 2 || self.nibbles.len() % 2 != 0 {
+            self.force_next_step();
+        }
+
         // `middle_memory` is added to `right_memory`, because the boundary belongs to the right part.
         TrieSplit::new(self.nibbles, self.left_memory, self.right_memory + self.middle_memory)
     }
@@ -258,6 +280,18 @@ where
         Some((middle_child as u8, child_mem_usage, left_mem_usage))
     }
 
+    /// Force descent into the first available child. This is done to ensure the correct length
+    /// of the split path, even though further descent will not improve the memory usage balance.
+    fn force_next_step(&mut self) {
+        let children_mem_usage = self.aggregate_children_mem_usage();
+        let first_child = self.subtree_stages[0]
+            .first_child()
+            .expect("no child to force descend – the keys are expected to be account IDs");
+        let child_mem_usage = children_mem_usage[first_child as usize];
+        let left_mem_usage = children_mem_usage[0..first_child as usize].iter().sum();
+        self.descend_step(first_child, child_mem_usage, left_mem_usage);
+    }
+
     fn descend_step(&mut self, nibble: u8, child_mem_usage: u64, left_mem_usage: u64) {
         // Update left, right, and middle memory
         self.left_memory += left_mem_usage;
@@ -276,19 +310,29 @@ where
     }
 }
 
-/// Find the lowest child index `i` for which `sum(children_mem_usage[..i+1]) >= threshold`.
+/// Find the lowest child index `i` for which `sum(children_mem_usage[..i+1]) > threshold`.
 /// Returns `Some(i, sum(children_mem_usage[..i])` if such `i` exists, otherwise `None`.
+/// If no such `i` exists, returns the highest `i` for which `children_mem_usage[i] > 0`.
 fn find_middle_child(
     children_mem_usage: &[u64; NUM_CHILDREN],
     threshold: u64,
 ) -> Option<(usize, u64)> {
     let mut left_memory = 0u64;
     for i in 0..NUM_CHILDREN {
-        if left_memory + children_mem_usage[i] >= threshold {
+        if left_memory + children_mem_usage[i] > threshold {
             return Some((i, left_memory));
         }
         left_memory += children_mem_usage[i];
     }
+
+    // If middle child cannot be found, pick the last child, to cut off as much as possible
+    for i in (0..NUM_CHILDREN).rev() {
+        if children_mem_usage[i] > 0 {
+            left_memory -= children_mem_usage[i];
+            return Some((i, left_memory));
+        }
+    }
+
     None
 }
 
@@ -297,7 +341,7 @@ fn find_middle_child(
 ///
 /// **NOTE: This is an artificial value calculated according to `TRIE_COST`. Hence, it does not
 /// represent actual memory allocation, but the split ratio should be roughly consistent with that.**
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub struct TrieSplit {
     /// Nibbles making up the path which splits the trie
     pub split_path_nibbles: SmallVec<[u8; MAX_NIBBLES]>,
@@ -314,12 +358,18 @@ impl TrieSplit {
         right_memory: u64,
     ) -> Self {
         debug_assert!(split_path_nibbles.len() % 2 == 0);
+        debug_assert!(split_path_nibbles.len() >= AccountId::MIN_LEN * 2);
         Self { split_path_nibbles, left_memory, right_memory }
     }
 
     /// Get the split path as bytes
     pub fn split_path_bytes(&self) -> Vec<u8> {
         nibbles_to_bytes(&self.split_path_nibbles)
+    }
+
+    // Parse the split path into `AccountId`. Panics if parsing fails.
+    pub fn boundary_account(&self) -> AccountId {
+        std::str::from_utf8(&self.split_path_bytes()).unwrap().parse().unwrap()
     }
 }
 
@@ -365,11 +415,12 @@ mod tests {
         assert_eq!(find_middle_child(&children_mem_usage, threshold), None);
 
         let children_mem_usage = [100u64; NUM_CHILDREN];
-        let threshold = 2000;
-        assert_eq!(find_middle_child(&children_mem_usage, threshold), None);
-
-        let threshold = 1050;
+        let threshold = 1000;
         assert_eq!(find_middle_child(&children_mem_usage, threshold), Some((10, 1000)));
+
+        // If middle child cannot be found, the last child should be picked.
+        let threshold = 2000;
+        assert_eq!(find_middle_child(&children_mem_usage, threshold), Some((15, 1500)));
     }
 
     #[test]
@@ -693,6 +744,51 @@ mod tests {
         }
 
         #[test]
+        #[should_panic]
+        fn key_too_short() {
+            let mut arena = STArena::new("test".to_string());
+
+            // A single entry with 1-nibble key (not long enough for an account ID)
+            let mut subtrees = [new_leaf(&mut arena, &[], &[]); SUBTREES.len()];
+            subtrees[0] = new_leaf(&mut arena, &[1], &[1u8; 100]);
+            init(&mut arena, subtrees).find_mem_usage_split();
+        }
+
+        #[test]
+        #[should_panic]
+        fn odd_key_length() {
+            let mut arena = STArena::new("test".to_string());
+
+            // The keys in this subtree are long enough for an account ID, but each has an odd
+            // number of nibbles, hence cannot be correctly parsed as an account ID.
+            //
+            //    ROOT
+            //     │
+            //     1       <-- 4 nibbles extension (long enough for an account ID)
+            //     1
+            //     1
+            //     1
+            //     │
+            //  0  │  1    <-- branch (extra nibble here makes the keys odd-length)
+            //  ┌──┴──┐
+            //  │     │
+            //  X     X    <-- leaves with 100-byte values
+
+            let mut subtrees = [new_leaf(&mut arena, &[], &[]); SUBTREES.len()];
+            subtrees[0] = {
+                let leaf = new_leaf(&mut arena, &[], &[1u8; 100]);
+                let branch = {
+                    let mut children = [None; NUM_CHILDREN];
+                    children[0] = Some(leaf);
+                    children[1] = Some(leaf);
+                    new_branch(&mut arena, None, children)
+                };
+                new_extension(&mut arena, &[1, 1, 1, 1], branch)
+            };
+            init(&mut arena, subtrees).find_mem_usage_split();
+        }
+
+        #[test]
         fn search_trivial_accounts() {
             let mut arena = STArena::new("test".to_string());
 
@@ -705,12 +801,15 @@ mod tests {
             //  0  │  1   0  │  1
             //  ┌──┴──┐   ┌──┴──┐
             //  │     │   │     │
+            //  0     0   0     0   <-- extension zeroes to reach the minimum length (2 bytes)
+            //  0     0   0     0
+            //  │     │   │     │
             //  X     X   X     X    <-- leaves with 100-byte values
             //
-            // The expected split path is nibbles 1, 0 resulting in byte 0x10
+            // The expected split path is nibbles 1, 0, 0, 0 resulting in bytes 0x10, 0x00
 
             let accounts_subtree = {
-                let leaf = new_leaf(&mut arena, &[], &[1u8; 100]);
+                let leaf = new_leaf(&mut arena, &[0, 0], &[1u8; 100]);
                 let branch = {
                     let mut children = [None; NUM_CHILDREN];
                     children[0] = Some(leaf);
@@ -728,7 +827,7 @@ mod tests {
             let trie_descent = init(&mut arena, subtrees);
             let total_memory = trie_descent.total_memory();
             let split = trie_descent.find_mem_usage_split();
-            assert_eq!(split.split_path_bytes(), vec![0x10]);
+            assert_eq!(split.split_path_bytes(), vec![0x10, 0x00]);
             assert_eq!(split.left_memory + split.right_memory, total_memory);
 
             // Now add some heavy contract code under 0x11 path to change the optimal split path.
@@ -738,8 +837,236 @@ mod tests {
             let split = trie_descent.find_mem_usage_split();
             // The extra nibbles from extension in contract code subtree should *not* be included.
             // Trie descent is over when a leaf is reached in the accounts' subtree.
-            assert_eq!(split.split_path_bytes(), vec![0x11]);
+            assert_eq!(split.split_path_bytes(), vec![0x11, 0x00]);
             assert_eq!(split.left_memory + split.right_memory, total_memory);
+        }
+    }
+
+    mod find_trie_split {
+        use super::*;
+        use crate::test_utils::TestTriesBuilder;
+        use crate::trie::mem::iter::MemTrieIteratorInner;
+        use crate::trie::ops::interface::GenericTrieInternalStorage;
+        use crate::trie::update::TrieUpdateResult;
+        use crate::{Trie, TrieUpdate, set, set_access_key, set_account};
+        use itertools::Itertools;
+        use near_crypto::{ED25519PublicKey, PublicKey};
+        use near_primitives::account::AccessKey;
+        use near_primitives::hash::CryptoHash;
+        use near_primitives::test_utils::account_new;
+        use near_primitives::trie_key::TrieKey;
+        use near_primitives::types::{AccountId, Balance, StateChangeCause};
+        use rand::RngCore;
+        use rand::distributions::{Distribution, Uniform};
+        use rand::prelude::SliceRandom;
+        use rand::rngs::StdRng;
+        use rand::{Rng, SeedableRng};
+        use std::fmt::Debug;
+
+        impl<NodePtr, Value, Storage> TrieDescent<NodePtr, Value, Storage>
+        where
+            NodePtr: Debug + Copy,
+            Storage: GenericTrieInternalStorage<NodePtr, Value>,
+        {
+            /// Helper method to get the split yielded by a pre-defined key.
+            fn get_split(mut self, key_bytes: &[u8]) -> TrieSplit {
+                let key_nibbles = key_bytes
+                    .iter()
+                    .flat_map(|byte| {
+                        let (nib1, nib2) = byte_to_nibbles(*byte);
+                        [nib1, nib2]
+                    })
+                    .collect_vec();
+
+                for nibble in key_nibbles {
+                    let children_mem_usage = self.aggregate_children_mem_usage();
+                    let child_mem_usage = children_mem_usage[nibble as usize];
+                    let left_mem_usage = children_mem_usage[..nibble as usize].iter().sum();
+                    self.descend_step(nibble, child_mem_usage, left_mem_usage);
+                }
+
+                TrieSplit::new(
+                    self.nibbles,
+                    self.left_memory,
+                    self.right_memory + self.middle_memory,
+                )
+            }
+        }
+
+        /// Helper function to get the split yielded by the given boundary account.
+        /// Assumes the trie is using memtries.
+        fn get_memtrie_split(trie: &Trie, boundary_account: &AccountId) -> TrieSplit {
+            let key_bytes = boundary_account.as_bytes();
+            let memtries = trie.lock_memtries().unwrap();
+            let trie_storage = MemTrieIteratorInner::new(&memtries, trie);
+            TrieDescent::new(trie_storage).get_split(key_bytes)
+        }
+
+        impl TrieSplit {
+            /// Get difference between right and left memory
+            fn mem_diff(&self) -> i64 {
+                self.right_memory as i64 - self.left_memory as i64
+            }
+        }
+
+        #[test]
+        fn big_random_trie() {
+            // Seeds between 0 and 10000 were tested and these were picked as they uncovered
+            // some bugs and corner cases.
+            big_random_trie_inner(1).unwrap();
+            big_random_trie_inner(4).unwrap();
+            big_random_trie_inner(11).unwrap();
+            big_random_trie_inner(369).unwrap();
+        }
+
+        fn big_random_trie_inner(seed: u64) -> anyhow::Result<()> {
+            // Initialize an empty trie and start an update to populate it with some data
+            let (shard_tries, layout) =
+                TestTriesBuilder::new().with_in_memory_tries(true).with_flat_storage(true).build2();
+            let shard_uid = layout.get_shard_uid(0)?;
+            let trie = shard_tries.get_trie_for_shard(shard_uid, Trie::EMPTY_ROOT);
+            let mut trie_update = TrieUpdate::new(trie);
+
+            println!("Seed: {seed}");
+            let mut rng = StdRng::seed_from_u64(seed);
+
+            // Set up 1000 accounts with random IDs (between 5 and 15 characters)
+            // and random balance between 10 and 1000 NEAR.
+            let num_accounts = 1000;
+            let lengths = Uniform::try_from(5..=15)?;
+            let chars = Uniform::try_from('a'..='z')?;
+            let balances = Uniform::from(10_u128..=1000);
+            let mut rand_account = || -> anyhow::Result<AccountId> {
+                let length = lengths.sample(&mut rng);
+                let account_str: String = chars.sample_iter(&mut rng).take(length).collect();
+                Ok(account_str.parse()?)
+            };
+            let mut account_ids = (0..num_accounts)
+                .map(|_| rand_account())
+                .collect::<anyhow::Result<Vec<AccountId>>>()?;
+
+            for account_id in &account_ids {
+                let balance = Balance::from_near(balances.sample(&mut rng));
+                let account = account_new(balance, CryptoHash::default());
+                set_account(&mut trie_update, account_id.clone(), &account);
+
+                // Randomly assign access keys to approx. half of the accounts
+                if rng.gen_bool(0.5) {
+                    let mut pub_key_bytes = [0u8; 32];
+                    rng.fill_bytes(&mut pub_key_bytes);
+                    let pub_key = PublicKey::from(ED25519PublicKey::from(pub_key_bytes));
+                    let access_key = AccessKey::full_access();
+                    set_access_key(&mut trie_update, account_id.clone(), pub_key, &access_key);
+                }
+            }
+
+            // Add 20 contracts to randomly selected accounts. Each contract has between 100 and 200
+            // bytes of code, and between 5 and 10 data entries. Each data entry consists of
+            // a random key (between 10 and 20 bytes) and random value (between 50 and 100 bytes).
+            let num_contracts = 20;
+            let code_lengths = Uniform::try_from(100..=200)?;
+            let num_keys = Uniform::try_from(5..=10)?;
+            let key_lengths = Uniform::try_from(10..=20)?;
+            let value_lengths = Uniform::try_from(50..=100)?;
+            account_ids.shuffle(&mut rng);
+            for i in 0..num_contracts {
+                let account_id = &account_ids[i];
+                let code_length = code_lengths.sample(&mut rng);
+                let mut contract_code = vec![0u8; code_length];
+                rng.fill_bytes(&mut contract_code);
+                set(
+                    &mut trie_update,
+                    TrieKey::ContractCode { account_id: account_id.clone() },
+                    &contract_code,
+                );
+
+                let num_keys = num_keys.sample(&mut rng);
+                for _ in 0..num_keys {
+                    let key_length = key_lengths.sample(&mut rng);
+                    let mut key = vec![0u8; key_length];
+                    rng.fill_bytes(&mut key);
+                    let value_length = value_lengths.sample(&mut rng);
+                    let mut value = vec![0u8; value_length];
+                    rng.fill_bytes(&mut value);
+                    set(
+                        &mut trie_update,
+                        TrieKey::ContractData { account_id: account_id.clone(), key },
+                        &value,
+                    );
+                }
+            }
+
+            // Commit and apply all changes to the trie
+            trie_update.commit(StateChangeCause::InitialState);
+            let TrieUpdateResult { trie_changes, .. } = trie_update.finalize()?;
+            let mut store_update = shard_tries.store_update();
+            let new_root = shard_tries.apply_all(&trie_changes, shard_uid, &mut store_update);
+            shard_tries.apply_memtrie_changes(&trie_changes, shard_uid, 0);
+            store_update.commit()?;
+
+            // Find the boundary account
+            let trie =
+                shard_tries.get_trie_for_shard(shard_uid, new_root).recording_reads_new_recorder();
+            let trie_split = find_trie_split(&trie);
+            println!("Found trie split: {trie_split:?}");
+            let boundary_account = trie_split.boundary_account();
+            println!("Boundary account: {boundary_account:?}");
+
+            // Verify if running the algorithm on recorded storage gives the same result
+            let recorded_storage = trie.recorded_storage().unwrap();
+            let recorded_trie = Trie::from_recorded_storage(recorded_storage, new_root, true);
+            let recorded_trie_split = find_trie_split(&recorded_trie);
+            assert_eq!(trie_split, recorded_trie_split);
+
+            // Assert that previous and next account gives worse splits than the account found
+            // by `find_trie_split`. As the accounts are sorted, we don't need to check them all.
+            // If the split given by account at index `i` is better than the split given by accounts
+            // at `i-1` and `i+1`, it is also the best split of all the accounts.
+            account_ids.sort();
+            let (left_account, right_account) =
+                find_neighbor_accounts(&account_ids, &boundary_account);
+            let trie = shard_tries.get_trie_for_shard(shard_uid, new_root);
+
+            if let Some(left_account) = left_account {
+                let left_split = get_memtrie_split(&trie, left_account);
+                println!("Left account split: {left_split:?}");
+                assert!(left_split.mem_diff() >= trie_split.mem_diff());
+            }
+
+            if let Some(right_account) = right_account {
+                let right_split = get_memtrie_split(&trie, right_account);
+                println!("Right account split: {right_split:?}");
+
+                // `find_trie_split` finds the best possible split for which `right_memory >= left_memory`.
+                // Hence, it is acceptable that the absolute `mem_diff` for `right_split` is lower, as
+                // long as the `right_memory >= left_memory` condition doesn't hold.
+                assert!(
+                    right_split.mem_diff() >= trie_split.mem_diff() || right_split.mem_diff() < 0
+                );
+            }
+
+            Ok(())
+        }
+
+        /// Find neighbors of `boundary_account` in `account_ids` array.
+        /// Assumes that the array is sorted.
+        fn find_neighbor_accounts<'a>(
+            account_ids: &'a [AccountId],
+            boundary_account: &AccountId,
+        ) -> (Option<&'a AccountId>, Option<&'a AccountId>) {
+            let num_accounts = account_ids.len();
+            for i in 0..num_accounts {
+                let left_account = (i > 0).then(|| &account_ids[i - 1]);
+                if &account_ids[i] == boundary_account {
+                    let right_account = (i < num_accounts - 1).then(|| &account_ids[i + 1]);
+                    return (left_account, right_account);
+                }
+                if &account_ids[i] > boundary_account {
+                    let right_account = Some(&account_ids[i]);
+                    return (left_account, right_account);
+                }
+            }
+            unreachable!("neighbor accounts not found")
         }
     }
 }

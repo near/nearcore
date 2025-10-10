@@ -30,12 +30,9 @@ use near_primitives::sharding::ShardChunk;
 use near_primitives::stateless_validation::spice_chunk_endorsement::SpiceChunkEndorsement;
 use near_primitives::test_utils::{TestBlockBuilder, create_test_signer};
 use near_primitives::types::SpiceChunkId;
-use near_primitives::types::{
-    AccountId, Balance, BlockExecutionResults, ChunkExecutionResult, NumShards, ShardId,
-};
+use near_primitives::types::{AccountId, Balance, ChunkExecutionResult, NumShards, ShardId};
 use near_store::ShardUId;
 use near_store::adapter::StoreAdapter as _;
-use std::collections::HashMap;
 use std::str::FromStr as _;
 use std::sync::Arc;
 
@@ -746,11 +743,13 @@ fn test_witness_is_valid() {
         else {
             continue;
         };
+        let prev_block_execution_results =
+            actor.actor.core_processor.get_block_execution_results(&prev_block).unwrap().unwrap();
         let pre_validation_result = spice_pre_validate_chunk_state_witness(
             &state_witness,
             &block,
             &prev_block,
-            &BlockExecutionResults(HashMap::new()),
+            &prev_block_execution_results,
             actor.actor.epoch_manager.as_ref(),
             &actor.actor.chain_store,
         )

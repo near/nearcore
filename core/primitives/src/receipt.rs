@@ -1,4 +1,4 @@
-use crate::action::{GlobalContractIdentifier, base64};
+use crate::action::GlobalContractIdentifier;
 use crate::errors::EpochError;
 use crate::hash::CryptoHash;
 use crate::shard_layout::ShardLayout;
@@ -1024,7 +1024,7 @@ impl fmt::Debug for GlobalContractDistributionReceiptV1 {
             .field("id", &self.id)
             .field("target_shard", &self.target_shard)
             .field("already_delivered_shards", &self.already_delivered_shards)
-            .field("code", &format_args!("{}", base64(&self.code)))
+            .field("code", &..)
             .finish()
     }
 }

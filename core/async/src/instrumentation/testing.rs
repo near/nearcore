@@ -21,7 +21,7 @@ impl Actor for LongRunningTaskActor {
 }
 
 impl LongRunningTaskActor {
-    fn run_task(&mut self, ctx: &mut dyn crate::futures::DelayedActionRunner<Self>) {
+    fn run_task(&self, ctx: &mut dyn crate::futures::DelayedActionRunner<Self>) {
         let mut rng = rand::thread_rng();
         let duration = std::time::Duration::from_millis(rng.gen_range(3000..=15000));
         std::thread::sleep(duration);

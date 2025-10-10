@@ -1,5 +1,4 @@
 //! Chain Client Configuration
-use crate::ExternalStorageLocation::GCS;
 use crate::MutableConfigValue;
 use bytesize::ByteSize;
 #[cfg(feature = "schemars")]
@@ -14,7 +13,6 @@ use near_time::Duration;
 use near_time::{DurationAsStdSchemaProvider, DurationSchemarsProvider};
 use num_rational::Rational32;
 use std::cmp::max;
-use std::num::NonZero;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
@@ -205,21 +203,31 @@ pub struct ExternalStorageConfig {
     pub external_storage_fallback_threshold: u64,
 }
 
+/// Supported external storage backends and their minimal config.
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug, PartialEq)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub enum ExternalStorageLocation {
     S3 {
-        /// Location of state dumps on S3.
+        /// Location on S3.
         bucket: String,
         /// Data may only be available in certain locations.
         region: String,
     },
-    Filesystem {
-        root_dir: PathBuf,
-    },
-    GCS {
-        bucket: String,
-    },
+    /// Local filesystem root for storing data.
+    Filesystem { root_dir: PathBuf },
+    /// Google Cloud Storage bucket name.
+    GCS { bucket: String },
+}
+
+impl ExternalStorageLocation {
+    /// Human-readable backend name.
+    pub fn name(&self) -> &str {
+        match self {
+            Self::S3 { .. } => "S3",
+            Self::Filesystem { .. } => "Filesystem",
+            Self::GCS { .. } => "GCS",
+        }
+    }
 }
 
 fn default_state_parts_compression_level() -> i32 {
@@ -412,7 +420,7 @@ impl StateSyncConfig {
     pub fn gcs_with_bucket(bucket: String) -> Self {
         Self {
             sync: SyncConfig::ExternalStorage(ExternalStorageConfig {
-                location: GCS { bucket },
+                location: ExternalStorageLocation::GCS { bucket },
                 num_concurrent_requests: DEFAULT_STATE_SYNC_NUM_CONCURRENT_REQUESTS_EXTERNAL,
                 num_concurrent_requests_during_catchup:
                     DEFAULT_STATE_SYNC_NUM_CONCURRENT_REQUESTS_ON_CATCHUP_EXTERNAL,
@@ -675,14 +683,6 @@ pub fn default_orphan_state_witness_pool_size() -> usize {
 /// the OrphanStateWitnessPool.
 pub fn default_orphan_state_witness_max_size() -> ByteSize {
     ByteSize::mb(40)
-}
-
-/// Returns the default value for the thread count associated with rpc-handler actor (currently
-/// handling incoming transactions and chunk endorsement validations).
-/// In the benchmarks no performance gains were observed when increasing the number of threads
-/// above half of available cores.
-pub fn default_rpc_handler_thread_count() -> usize {
-    std::thread::available_parallelism().unwrap_or(NonZero::new(16 as usize).unwrap()).get() / 2
 }
 
 /// Config for the Chunk Distribution Network feature.

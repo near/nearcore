@@ -204,6 +204,12 @@ pub enum HostError {
     InvalidIteratorIndex {
         iterator_index: u64,
     },
+    /// Action index does not exist within the given receipt or does not hold
+    /// the expected type of action.
+    InvalidActionIndex {
+        receipt_index: u64,
+        action_index: u64,
+    },
     /// VM Logic returned an invalid account id
     InvalidAccountId,
     /// VM Logic returned an invalid method name
@@ -288,6 +294,8 @@ pub enum HostError {
     },
     /// Contract code hash is malformed.
     ContractCodeHashMalformed,
+    /// Data entry within DeterministicStateInit already exists.
+    DataEntryAlreadyExists,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -479,6 +487,12 @@ impl std::fmt::Display for HostError {
             InvalidReceiptIndex { receipt_index } => {
                 write!(f, "VM Logic returned an invalid receipt index: {:?}", receipt_index)
             }
+            InvalidActionIndex { receipt_index, action_index } => {
+                write!(
+                    f,
+                    "Action {action_index} in receipt {receipt_index} does not exist or has the wrong type of action."
+                )
+            }
             InvalidAccountId => write!(f, "VM Logic returned an invalid account id"),
             InvalidMethodName => write!(f, "VM Logic returned an invalid method name"),
             InvalidPublicKey => write!(f, "VM Logic provided an invalid public key"),
@@ -537,6 +551,7 @@ impl std::fmt::Display for HostError {
                 limit
             ),
             ContractCodeHashMalformed => write!(f, "contract code hash is malformed"),
+            DataEntryAlreadyExists => write!(f, "Data entry for given key already exists"),
         }
     }
 }

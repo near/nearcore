@@ -338,7 +338,7 @@ async fn propagate() {
         shards: info1.shards.clone(),
     });
 
-    let _: () = pms[1].actix.send_async(message).await.unwrap();
+    let _: () = pms[1].actor.send_async(message).await.unwrap();
 
     tracing::info!(target:"test", "Make sure that the message sent from #1 reaches #2 on the other side of the ring.");
     let want: HashSet<Arc<SnapshotHostInfo>> = std::iter::once(info1).collect();
@@ -436,7 +436,7 @@ async fn too_many_shards_truncate() {
         shards: too_many_shards.clone(),
     });
 
-    let _: () = pm.actix.send_async(message).await.unwrap();
+    let _: () = pm.actor.send_async(message).await.unwrap();
 
     tracing::info!(target:"test", "Receive the truncated SnapshotHostInfo message on peer1, make sure that the contents are correct.");
     let msg = peer1.events.recv_until(take_sync_snapshot_msg).await;
