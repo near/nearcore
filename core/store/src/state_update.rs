@@ -782,24 +782,6 @@ impl<'su> StateOperations<'su> {
     }
 }
 
-// FIXME: these all need some other solution
-impl<'su> StateOperations<'su> {
-    pub fn record_contract_call(
-        &mut self,
-        _: AccountId,
-        _: near_primitives::hash::CryptoHash,
-        _: &near_primitives::account::AccountContract,
-        _: near_primitives::apply::ApplyChunkReason,
-    ) -> Result<(), StorageError> {
-        todo!()
-    }
-
-    // FIXME: decouple from near_vm_runner!
-    pub fn record_contract_deploy(&mut self, _: near_vm_runner::ContractCode) {
-        todo!()
-    }
-}
-
 #[cfg(debug_assertions)]
 impl<'su> Drop for StateOperations<'su> {
     #[track_caller]

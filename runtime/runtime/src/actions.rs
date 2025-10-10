@@ -8,9 +8,12 @@ use crate::{ActionResult, ApplyState, metrics};
 use near_crypto::PublicKey;
 use near_parameters::{AccountCreationConfig, ActionCosts, RuntimeConfig, RuntimeFeesConfig};
 use near_primitives::account::{AccessKey, AccessKeyPermission, Account, AccountContract};
+use near_primitives::action::GlobalContractIdentifier;
 use near_primitives::action::delegate::{DelegateAction, SignedDelegateAction};
+use near_primitives::apply::ApplyChunkReason;
 use near_primitives::config::ViewConfig;
 use near_primitives::errors::{ActionError, ActionErrorKind, InvalidAccessKeyError, RuntimeError};
+use near_primitives::global_contract::ContractIsLocalError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{
     ActionReceipt, ActionReceiptV2, DataReceipt, PromiseYieldIndices, PromiseYieldTimeout, Receipt,
@@ -20,7 +23,7 @@ use near_primitives::transaction::{
     Action, AddKeyAction, DeleteAccountAction, DeleteKeyAction, DeployContractAction,
     FunctionCallAction, StakeAction,
 };
-use near_primitives::trie_key::{TrieKey, trie_key_parsers};
+use near_primitives::trie_key::{SmallKeyVec, TrieKey, trie_key_parsers};
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{
     AccountId, Balance, BlockHeight, EpochInfoProvider, Gas, StorageUsage,
@@ -29,6 +32,7 @@ use near_primitives::utils::account_is_implicit;
 use near_primitives::version::ProtocolVersion;
 use near_primitives_core::account::id::AccountType;
 use near_primitives_core::version::ProtocolFeature;
+use near_store::contract::ContractStorage;
 use near_store::state_update::StateOperations;
 use near_store::trie::AccessOptions;
 use near_store::{KeyLookupMode, StorageError};
@@ -144,6 +148,7 @@ pub(crate) fn execute_function_call(
 
 pub(crate) fn action_function_call(
     state_update: &mut StateOperations,
+    contract_store: &ContractStorage,
     apply_state: &ApplyState,
     account: &mut Account,
     receipt: &Receipt,
@@ -167,7 +172,9 @@ pub(crate) fn action_function_call(
     }
 
     let account_contract = account.contract();
-    state_update.record_contract_call(
+    record_contract_call(
+        contract_store,
+        state_update.trie(),
         account_id.clone(),
         code_hash,
         account_contract.as_ref(),
@@ -359,6 +366,54 @@ pub(crate) fn action_function_call(
         result.new_receipts.extend(new_receipts);
     }
 
+    Ok(())
+}
+
+/// Records an access to the contract code due to a function call.
+///
+/// The contract code is either included in the state witness or distributed
+/// separately from the witness (see `ExcludeContractCodeFromStateWitness` feature).
+/// In the former case, we record a Trie read from the `TrieKey::ContractCode` for each contract.
+/// In the latter case, the Trie read does not happen and the code-size does not contribute to
+/// the storage-proof limit. Instead we just record that the code with the given hash was called,
+/// so that we can identify which contract-code to distribute to the validators.
+pub fn record_contract_call(
+    contract_store: &ContractStorage,
+    trie: &near_store::Trie,
+    account_id: AccountId,
+    code_hash: CryptoHash,
+    account_contract: &AccountContract,
+    apply_reason: ApplyChunkReason,
+) -> Result<(), StorageError> {
+    // The recording of contracts when they are excluded from the witness are only for
+    // distributing them to the validators, and not needed for validating the chunks, thus we
+    // skip the recording if we are not applying the chunk for updating the shard.
+    if apply_reason != ApplyChunkReason::UpdateTrackedShard {
+        return Ok(());
+    }
+
+    // Only record the call if trie contains the contract (with the given hash) being called
+    // deployed to the given account. This avoids recording contracts that do not exist or are
+    // newly-deployed to the account. Note that the check below to see if the contract exists
+    // has no side effects (not charging gas or recording trie nodes)
+    let trie_key = match GlobalContractIdentifier::try_from(account_contract.clone()) {
+        Err(ContractIsLocalError::NotDeployed) => return Ok(()),
+        Err(ContractIsLocalError::Deployed(_)) => TrieKey::ContractCode { account_id },
+        Ok(identifier) => TrieKey::GlobalContractCode { identifier: identifier.into() },
+    };
+    let mut key = SmallKeyVec::new_const();
+    trie_key.append_into(&mut key);
+    let contract_ref = trie
+        .get_optimized_ref(&key, KeyLookupMode::MemOrFlatOrTrie, AccessOptions::NO_SIDE_EFFECTS)
+        .or_else(|err| {
+            // If the value for the trie key is not found, we treat it as if the contract does not exist.
+            // In this case, we ignore the error and skip recording the contract call below.
+            if matches!(err, StorageError::MissingTrieValue(_)) { Ok(None) } else { Err(err) }
+        })?;
+    let contract_exists = contract_ref.is_some_and(|value_ref| value_ref.value_hash() == code_hash);
+    if contract_exists {
+        contract_store.record_call(code_hash);
+    }
     Ok(())
 }
 
@@ -578,6 +633,7 @@ pub(crate) fn action_implicit_account_creation_transfer(
 
 pub(crate) fn action_deploy_contract(
     state_update: &mut StateOperations,
+    contract_store: &ContractStorage,
     account: &mut Account,
     account_id: &AccountId,
     deploy_contract: &DeployContractAction,
@@ -617,7 +673,7 @@ pub(crate) fn action_deploy_contract(
     // Inform the `store::contract::Storage` about the new deploy (so that the `get` method can
     // return the contract before the contract is written out to the underlying storage as part of
     // the `TrieUpdate` commit.)
-    state_update.record_contract_deploy(code);
+    contract_store.record_deploy(code);
     Ok(())
 }
 
@@ -1192,9 +1248,9 @@ mod tests {
     use near_primitives::types::Gas;
     use near_primitives::types::{EpochId, StateChangeCause};
     use near_primitives::version::PROTOCOL_VERSION;
-    use near_store::{set_account, state_update};
     use near_store::state_update::StateUpdate;
     use near_store::test_utils::TestTriesBuilder;
+    use near_store::{set_account, state_update};
     use std::sync::Arc;
 
     fn test_action_create_account(
@@ -1331,8 +1387,7 @@ mod tests {
     #[test]
     fn test_delete_account_too_large() {
         let tries = TestTriesBuilder::new().build();
-        let trie =
-            tries.get_trie_for_shard(ShardUId::single_shard(), CryptoHash::default());
+        let trie = tries.get_trie_for_shard(ShardUId::single_shard(), CryptoHash::default());
         let state_update = StateUpdate::new(trie);
         let mut update_op = state_update.start_update();
 
@@ -1356,6 +1411,7 @@ mod tests {
     fn test_delete_account_with_contract(storage_usage: u64) -> ActionResult {
         let tries = TestTriesBuilder::new().build();
         let trie = tries.get_trie_for_shard(ShardUId::single_shard(), CryptoHash::default());
+        let contract_store = ContractStorage::new_for_trie(&trie);
         let state_update = StateUpdate::new(trie);
         let account_id = "alice".parse::<AccountId>().unwrap();
         let deploy_action = DeployContractAction { code: [0; 10_000].to_vec() };
@@ -1369,6 +1425,7 @@ mod tests {
         let mut update_ops = state_update.start_update();
         let res = action_deploy_contract(
             &mut update_ops,
+            &contract_store,
             &mut account,
             &account_id,
             &deploy_action,

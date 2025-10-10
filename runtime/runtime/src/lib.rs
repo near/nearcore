@@ -339,6 +339,7 @@ impl Runtime {
         &self,
         action: &Action,
         state_update: &mut StateOperations,
+        contract_store: &ContractStorage,
         apply_state: &ApplyState,
         preparation_pipeline: &ReceiptPreparationPipeline,
         account: &mut Option<Account>,
@@ -400,6 +401,7 @@ impl Runtime {
             Action::DeployContract(deploy_contract) => {
                 action_deploy_contract(
                     state_update,
+                    contract_store,
                     account.as_mut().expect(EXPECT_ACCOUNT_EXISTS),
                     account_id,
                     deploy_contract,
@@ -450,6 +452,7 @@ impl Runtime {
                 let is_last_action = action_index + 1 == actions.len();
                 action_function_call(
                     state_update,
+                    contract_store,
                     apply_state,
                     account,
                     receipt,
@@ -540,6 +543,7 @@ impl Runtime {
     fn apply_action_receipt(
         &self,
         mut update_ops: StateOperations,
+        contract_store: &ContractStorage,
         apply_state: &ApplyState,
         preparation_pipeline: &ReceiptPreparationPipeline,
         receipt: &Receipt,
@@ -601,6 +605,7 @@ impl Runtime {
             let mut new_result = self.apply_action(
                 action,
                 &mut update_ops,
+                contract_store,
                 apply_state,
                 preparation_pipeline,
                 &mut account,
@@ -1088,6 +1093,7 @@ impl Runtime {
     ) -> Result<Option<ExecutionOutcomeWithId>, RuntimeError> {
         let ApplyProcessingReceiptState {
             ref state_update,
+            ref contract_storage,
             apply_state,
             epoch_info_provider,
             ref pipeline_manager,
@@ -1153,6 +1159,7 @@ impl Runtime {
                         return self
                             .apply_action_receipt(
                                 state_ops,
+                                contract_storage,
                                 apply_state,
                                 pipeline_manager,
                                 &ready_receipt,
@@ -1196,6 +1203,7 @@ impl Runtime {
                     return self
                         .apply_action_receipt(
                             state_ops,
+                            contract_storage,
                             apply_state,
                             pipeline_manager,
                             receipt,
@@ -1259,6 +1267,7 @@ impl Runtime {
                     return self
                         .apply_action_receipt(
                             state_ops,
+                            contract_storage,
                             apply_state,
                             pipeline_manager,
                             &yield_receipt,
@@ -1288,69 +1297,6 @@ impl Runtime {
         };
         // We didn't trigger execution, so we need to commit the state.
         state_ops.commit(/* PostponedReceipt */)?;
-        Ok(None)
-    }
-
-    /// Received a new action receipt. We'll first check how many input data items
-    /// were already received before and saved in the state.
-    /// And if we have all input data, then we can immediately execute the receipt.
-    /// If not, then we will postpone this receipt for later.
-    fn process_action_receipt(
-        &self,
-        receipt: &Receipt,
-        receipt_sink: &mut ReceiptSink,
-        validator_proposals: &mut Vec<ValidatorStake>,
-        mut state_ops: StateOperations,
-        apply_state: &ApplyState,
-        epoch_info_provider: &dyn EpochInfoProvider,
-        pipeline_manager: &ReceiptPreparationPipeline,
-        stats: &mut ChunkApplyStatsV0,
-        account_id: &AccountId,
-        action_receipt: VersionedActionReceipt<'_>,
-    ) -> Result<Option<ExecutionOutcomeWithId>, RuntimeError> {
-        let mut pending_data_count: u32 = 0;
-        for &data_id in action_receipt.input_data_ids() {
-            let key = TrieKey::ReceivedData { receiver_id: account_id.clone(), data_id };
-            if !state_ops.contains_key(key)? {
-                pending_data_count += 1;
-                // The data for a given data_id is not available, so we save a link to this
-                // receipt_id for the pending data_id into the state.
-                let key = TrieKey::PostponedReceiptId { receiver_id: account_id.clone(), data_id };
-                state_ops.set(key, *receipt.receipt_id());
-            }
-        }
-
-        if pending_data_count == 0 {
-            // All input data is available. Executing the receipt. It will cleanup
-            // input data from the state.
-            return self
-                .apply_action_receipt(
-                    state_ops,
-                    apply_state,
-                    pipeline_manager,
-                    receipt,
-                    receipt_sink,
-                    validator_proposals,
-                    stats,
-                    epoch_info_provider,
-                )
-                .map(Some);
-        } else {
-            // Not all input data is available now.
-            // Save the counter for the number of pending input data items into the state.
-            let key = TrieKey::PendingDataCount {
-                receiver_id: account_id.clone(),
-                receipt_id: *receipt.receipt_id(),
-            };
-            state_ops.set(key, pending_data_count);
-            // Save the receipt itself into the state.
-            let key = TrieKey::PostponedReceipt {
-                receiver_id: receipt.receiver_id().clone(),
-                receipt_id: *receipt.receipt_id(),
-            };
-            state_ops.set(key, receipt.clone());
-        }
-
         Ok(None)
     }
 
@@ -2895,6 +2841,7 @@ impl<'a> ApplyProcessingState<'a> {
             apply_state: self.apply_state,
             prefetcher: self.prefetcher,
             state_update: self.state_update,
+            contract_storage: self.contract_storage,
             epoch_info_provider: self.epoch_info_provider,
             total: self.total,
             stats: self.stats,
@@ -2914,6 +2861,7 @@ struct ApplyProcessingReceiptState<'a> {
     apply_state: &'a ApplyState,
     prefetcher: Option<TriePrefetcher>,
     state_update: StateUpdate,
+    contract_storage: ContractStorage,
     epoch_info_provider: &'a dyn EpochInfoProvider,
     total: TotalResourceGuard,
     stats: ChunkApplyStatsV0,
@@ -3105,6 +3053,7 @@ pub mod estimator {
         );
         let apply_result = Runtime {}.apply_action_receipt(
             state_update,
+            contract_storage,
             apply_state,
             &empty_pipeline,
             receipt,

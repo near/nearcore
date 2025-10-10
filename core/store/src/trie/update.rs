@@ -298,60 +298,6 @@ impl TrieUpdate {
         }
         fallback(&*key_buf)
     }
-
-    /// Records deployment of a contract due to a deploy-contract action.
-    pub fn record_contract_deploy(&self, code: ContractCode) {
-        self.contract_storage.record_deploy(code);
-    }
-
-    /// Records an access to the contract code due to a function call.
-    ///
-    /// The contract code is either included in the state witness or distributed
-    /// separately from the witness (see `ExcludeContractCodeFromStateWitness` feature).
-    /// In the former case, we record a Trie read from the `TrieKey::ContractCode` for each contract.
-    /// In the latter case, the Trie read does not happen and the code-size does not contribute to
-    /// the storage-proof limit. Instead we just record that the code with the given hash was called,
-    /// so that we can identify which contract-code to distribute to the validators.
-    pub fn record_contract_call(
-        &self,
-        account_id: AccountId,
-        code_hash: CryptoHash,
-        account_contract: &AccountContract,
-        apply_reason: ApplyChunkReason,
-    ) -> Result<(), StorageError> {
-        // The recording of contracts when they are excluded from the witness are only for
-        // distributing them to the validators, and not needed for validating the chunks, thus we
-        // skip the recording if we are not applying the chunk for updating the shard.
-        if apply_reason != ApplyChunkReason::UpdateTrackedShard {
-            return Ok(());
-        }
-
-        // Only record the call if trie contains the contract (with the given hash) being called
-        // deployed to the given account. This avoids recording contracts that do not exist or are
-        // newly-deployed to the account. Note that the check below to see if the contract exists
-        // has no side effects (not charging gas or recording trie nodes)
-        let trie_key = match GlobalContractIdentifier::try_from(account_contract.clone()) {
-            Err(ContractIsLocalError::NotDeployed) => return Ok(()),
-            Err(ContractIsLocalError::Deployed(_)) => TrieKey::ContractCode { account_id },
-            Ok(identifier) => TrieKey::GlobalContractCode { identifier: identifier.into() },
-        };
-        let mut key = SmallKeyVec::new_const();
-        trie_key.append_into(&mut key);
-        let contract_ref = self
-            .trie
-            .get_optimized_ref(&key, KeyLookupMode::MemOrFlatOrTrie, AccessOptions::NO_SIDE_EFFECTS)
-            .or_else(|err| {
-                // If the value for the trie key is not found, we treat it as if the contract does not exist.
-                // In this case, we ignore the error and skip recording the contract call below.
-                if matches!(err, StorageError::MissingTrieValue(_)) { Ok(None) } else { Err(err) }
-            })?;
-        let contract_exists =
-            contract_ref.is_some_and(|value_ref| value_ref.value_hash() == code_hash);
-        if contract_exists {
-            self.contract_storage.record_call(code_hash);
-        }
-        Ok(())
-    }
 }
 
 impl TrieAccess for TrieUpdate {
