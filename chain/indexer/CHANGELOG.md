@@ -1,6 +1,6 @@
 # Changelog
 
-## 2.9.x
+## 2.10.x
 
 ## Breaking changes
 
@@ -15,6 +15,10 @@ is created with `Indexer::from_near_node(..)`:
   let indexer = Indexer::from_near_node(indexer_config, near_config, &near_node);
   // take the required actors from near_node
 ```
+
+`IndexerChunkView` no longer contains local receipts as part of `receipts` field.
+A dedicated `local_receipts` is introduced instead.
+Note: transactions with `signer_id` equal to `receiver_id` are converted to local receipts.
 
 ## 1.38.x
 

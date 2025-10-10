@@ -14,6 +14,7 @@ pub struct IndexerChunkView {
     pub header: views::ChunkHeaderView,
     pub transactions: Vec<IndexerTransactionWithOutcome>,
     pub receipts: Vec<views::ReceiptView>,
+    pub local_receipts: Vec<views::ReceiptView>,
 }
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
