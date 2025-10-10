@@ -112,7 +112,7 @@ impl Actor for GCActor {
 }
 
 #[cfg(feature = "test_features")]
-#[derive(near_async::Message, Debug)]
+#[derive(Debug)]
 pub enum NetworkAdversarialMessage {
     StopGC,
     ResumeGC,

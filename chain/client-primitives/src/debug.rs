@@ -1,6 +1,5 @@
 //! Structs in this module are used for debug purposes, and might change at any time
 //! without backwards compatibility of JSON encoding.
-use near_async::Message;
 use near_primitives::congestion_info::CongestionInfo;
 use near_primitives::types::{EpochId, ShardId};
 use near_primitives::views::{
@@ -249,7 +248,7 @@ fn default_block_status_num_blocks() -> u64 {
 }
 
 // Different debug requests that can be sent by HTML pages, via GET.
-#[derive(Message, Debug)]
+#[derive(Debug)]
 pub enum DebugStatus {
     // Request for the current sync status
     SyncStatus,

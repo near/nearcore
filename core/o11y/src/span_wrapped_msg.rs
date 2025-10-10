@@ -1,4 +1,3 @@
-use near_async::messaging::Message;
 use tracing::{Span, debug_span};
 
 #[derive(Debug, Clone)]
@@ -6,8 +5,6 @@ pub struct SpanWrapped<T> {
     _span: Span,
     msg: T,
 }
-
-impl<T: Message> Message for SpanWrapped<T> {}
 
 impl<T> SpanWrapped<T> {
     pub fn span_unwrap(self) -> T {
@@ -35,7 +32,7 @@ pub trait SpanWrappedMessageExt: Sized {
     }
 }
 
-impl<T: Message> SpanWrappedMessageExt for T {}
+impl<T> SpanWrappedMessageExt for T {}
 
 // Quick and dirty way of getting the type name without the module path.
 // Does not work for more complex types like std::sync::Arc<std::sync::atomic::AtomicBool<...>>

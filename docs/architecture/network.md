@@ -460,7 +460,8 @@ happens asynchronously.
 
 We should not leak implementation details into the spec.
 
-Actor messages can be found by looking for `#[derive(Message)]`.
+Actor messages can be found by looking for structs used with the async messaging helpers (for
+example types that appear in `Handler<...>` implementations or multi-sender definitions).
 
 ## 10.2 Messages sent through TCP
 

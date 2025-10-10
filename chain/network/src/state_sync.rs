@@ -1,7 +1,5 @@
-use near_async::Message;
-
 /// State sync response from peers.
-#[derive(Message, Debug)]
+#[derive(Debug)]
 pub enum StateSyncResponse {
     HeaderResponse,
     PartResponse,
