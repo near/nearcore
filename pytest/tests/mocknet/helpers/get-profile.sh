@@ -24,6 +24,7 @@ fi
 gather_simple_perf() {
   # 4. Record perf
   echo "▶️ Recording perf data for PID $pid for ${record_secs}s..."
+  rm -f "perf.data"
   perf record -e cpu-clock -F 1000 -g --call-graph dwarf,65528 \
       -p "$pid" -o "perf.data" -- sleep "${record_secs}"
 
@@ -42,13 +43,14 @@ gather_extended_perf() {
   sudo sysctl kernel.sched_schedstats=1
   
   output_dir="./perf-data"
-  mkdir -p ${output_dir}
+  rm -rf ${output_dir} && mkdir -p ${output_dir}
   
   perf stat \
     -p ${pid} \
     --per-thread \
     -- sleep "${record_secs}" &> "${output_dir}/perf-stat.out"
 
+  rm -f "perf-on-cpu.data" "perf-off-cpu.data"
   perf record -e cpu-clock -F1000 \
     -g --call-graph fp,65528 \
     -p ${pid} -o perf-on-cpu.data -- sleep "${record_secs}"
