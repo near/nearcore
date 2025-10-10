@@ -4,11 +4,15 @@ use futures::FutureExt;
 use futures::future::BoxFuture;
 
 use crate::futures::{DelayedActionRunner, FutureSpawner};
+use crate::instrumentation::InstrumentedThreadWriterSharedPart;
 use crate::messaging::{
     AsyncSendError, CanSend, CanSendAsync, HandlerWithContext, Message, MessageWithCallback,
 };
 use crate::tokio::runtime_handle::{TokioRuntimeHandle, TokioRuntimeMessage};
 use crate::{next_message_sequence_num, pretty_type_name};
+use std::pin::Pin;
+use std::sync::Arc;
+use std::task::{Context, Poll};
 
 impl<A, M> CanSend<M> for TokioRuntimeHandle<A>
 where
@@ -104,7 +108,11 @@ where
 impl<A> FutureSpawner for TokioRuntimeHandle<A> {
     fn spawn_boxed(&self, description: &'static str, f: BoxFuture<'static, ()>) {
         tracing::debug!(target: "tokio_runtime", description, "spawning future");
-        self.runtime_handle.spawn(f);
+        self.runtime_handle.spawn(InstrumentingFuture::new(
+            description,
+            f,
+            self.instrumentation.clone(),
+        ));
     }
 }
 
@@ -133,5 +141,42 @@ where
             // It's ok for this to fail; it means the runtime is shutting down already.
             handle.send_message(message).ok();
         });
+    }
+}
+
+/// Instruments the future, recording executions and manages its existence in the queue.
+pub struct InstrumentingFuture {
+    description: &'static str,
+    future: futures::future::BoxFuture<'static, ()>,
+    instrumentation: Arc<InstrumentedThreadWriterSharedPart>,
+}
+
+impl InstrumentingFuture {
+    pub fn new(
+        description: &'static str,
+        future: futures::future::BoxFuture<'static, ()>,
+        shared_instrumentation: Arc<InstrumentedThreadWriterSharedPart>,
+    ) -> Self {
+        shared_instrumentation.queue().enqueue(description);
+        Self { description, future, instrumentation: shared_instrumentation }
+    }
+}
+
+impl Future for InstrumentingFuture {
+    type Output = ();
+
+    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        self.instrumentation.with_thread_local_writer(|writer| {
+            writer.start_event(
+                self.description,
+                0, /* we don't know the dequeue time unfortunately */
+            )
+        });
+        let result = Pin::new(&mut self.future).poll(cx);
+        self.instrumentation.with_thread_local_writer(|writer| writer.end_event(&self.description));
+        if let Poll::Ready(()) = result {
+            self.instrumentation.queue().dequeue(self.description);
+        }
+        result
     }
 }

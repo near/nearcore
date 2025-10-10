@@ -56,9 +56,9 @@ fn benchmark_writer_overhead(c: &mut Criterion) {
             format!("num_windows={}/events_per_window={}", NUM_WINDOWS, events_per_window),
             &events_per_window,
             |b, &events_per_window| {
-                b.iter(|| {
-                    let BenchSetup { clock, mut writer, .. } = BenchSetup::new();
+                let BenchSetup { clock, mut writer, .. } = BenchSetup::new();
 
+                b.iter(|| {
                     for _window in 0..NUM_WINDOWS {
                         // Generate events for this window
                         for event in 0..events_per_window {

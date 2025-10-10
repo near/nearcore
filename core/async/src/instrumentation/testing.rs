@@ -62,7 +62,7 @@ fn spawn_very_high_message_count_actor(actor_system: ActorSystem) {
 }
 
 fn spawn_periodic_futures_actor(actor_system: ActorSystem) {
-    let spawner = actor_system.new_future_spawner();
+    let spawner = actor_system.new_future_spawner("periodic futures instrumentation test");
     spawner.spawn("timer 1", async move {
         let mut interval = tokio::time::interval(std::time::Duration::from_millis(100));
         loop {

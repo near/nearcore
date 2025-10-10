@@ -157,7 +157,7 @@ impl PeerHandle {
         });
         let network_state = Arc::new(NetworkState::new(
             &clock,
-            &*actor_system.new_future_spawner(),
+            &*actor_system.new_future_spawner("network demux"),
             store,
             peer_store::PeerStore::new(&clock, network_cfg.peer_store.clone()).unwrap(),
             network_cfg.verify().unwrap(),

@@ -1,4 +1,9 @@
-use std::{collections::HashMap, sync::Arc, time::Instant};
+use std::{
+    cell::{RefCell, RefMut},
+    collections::HashMap,
+    sync::Arc,
+    time::Instant,
+};
 
 use near_time::Clock;
 
@@ -8,6 +13,10 @@ use crate::instrumentation::{
     data::{ALL_ACTOR_INSTRUMENTATIONS, InstrumentedThread},
     metrics::{MESSAGE_DEQUEUE_TIME, MESSAGE_PROCESSING_TIME},
 };
+
+thread_local! {
+    static THREAD_WRITER: RefCell<Option<InstrumentedThreadWriter>> = const { RefCell::new(None) };
+}
 
 pub struct InstrumentedThreadWriter {
     pub shared: Arc<InstrumentedThreadWriterSharedPart>,
@@ -137,5 +146,20 @@ impl InstrumentedThreadWriterSharedPart {
             type_name_registry: HashMap::new(),
             target,
         }
+    }
+
+    pub fn with_thread_local_writer(
+        self: &Arc<Self>,
+        f: impl FnOnce(&mut InstrumentedThreadWriter),
+    ) {
+        THREAD_WRITER.with(|cell| {
+            let mut borrow: RefMut<Option<InstrumentedThreadWriter>> = cell.borrow_mut();
+            if let Some(writer) = borrow.as_mut() {
+                f(writer)
+            } else {
+                *borrow = Some(self.new_writer_with_global_registration(None));
+                f(borrow.as_mut().unwrap())
+            }
+        })
     }
 }

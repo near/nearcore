@@ -565,7 +565,8 @@ pub fn start_with_config_and_synchronization(
         config.client_config.resharding_config.clone(),
     ));
 
-    let state_sync_spawner: Arc<dyn FutureSpawner> = actor_system.new_future_spawner().into();
+    let state_sync_spawner: Arc<dyn FutureSpawner> =
+        actor_system.new_future_spawner("state sync").into();
 
     let chunk_executor_adapter = LateBoundSender::new();
     let spice_chunk_validator_adapter = LateBoundSender::new();
@@ -717,7 +718,7 @@ pub fn start_with_config_and_synchronization(
             #[cfg(feature = "test_features")]
             _gc_actor.into_multi_sender(),
             Arc::new(entity_debug_handler),
-            actor_system.new_future_spawner().as_ref(),
+            actor_system.new_future_spawner("jsonrpc").as_ref(),
         );
     }
 
@@ -730,7 +731,7 @@ pub fn start_with_config_and_synchronization(
             client_actor.clone(),
             view_client_addr.clone(),
             rpc_handler.clone(),
-            actor_system.new_future_spawner().as_ref(),
+            actor_system.new_future_spawner("rosetta rpc").as_ref(),
         );
     }
 
