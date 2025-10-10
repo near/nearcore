@@ -22,7 +22,7 @@ const LIBS_THRESHOLDS: [(&str, usize); 9] = [
     ("near-jsonrpc-primitives", 134),
     ("near-chain-configs", 130),
     ("near-chain-primitives", 130),
-    ("near-client-primitives", 152),
+    ("near-client-primitives", 156),
     ("near-parameters", 67),
     ("near-crypto", 75),
     ("near-primitives-core", 60),

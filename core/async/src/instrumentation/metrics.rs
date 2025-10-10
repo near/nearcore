@@ -1,9 +1,7 @@
 use std::sync::LazyLock;
 
-use near_o11y::metrics::{
-    HistogramVec, IntGaugeVec, exponential_buckets, try_create_histogram_vec,
-    try_create_int_gauge_vec,
-};
+use prometheus::{HistogramOpts, Opts, Result};
+pub use prometheus::{HistogramVec, IntGaugeVec, exponential_buckets};
 
 pub(crate) static MESSAGE_DEQUEUE_TIME: LazyLock<HistogramVec> = LazyLock::new(|| {
     try_create_histogram_vec(
@@ -33,3 +31,28 @@ pub(crate) static QUEUE_PENDING_MESSAGES: LazyLock<IntGaugeVec> = LazyLock::new(
     )
     .unwrap()
 });
+
+// Note: the functions below are copied from near-o11y to avoid adding a dependency on it.
+// Once near-chain-primitives no longer depends on near-async, we can add near-o11y as a dependency
+// and remove these functions.
+fn try_create_histogram_vec(
+    name: &str,
+    help: &str,
+    labels: &[&str],
+    buckets: Option<Vec<f64>>,
+) -> Result<HistogramVec> {
+    let mut opts = HistogramOpts::new(name, help);
+    if let Some(buckets) = buckets {
+        opts = opts.buckets(buckets);
+    }
+    let histogram = HistogramVec::new(opts, labels)?;
+    prometheus::register(Box::new(histogram.clone()))?;
+    Ok(histogram)
+}
+
+fn try_create_int_gauge_vec(name: &str, help: &str, labels: &[&str]) -> Result<IntGaugeVec> {
+    let opts = Opts::new(name, help);
+    let gauge = IntGaugeVec::new(opts, labels)?;
+    prometheus::register(Box::new(gauge.clone()))?;
+    Ok(gauge)
+}

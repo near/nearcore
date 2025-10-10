@@ -15,6 +15,7 @@ workspace = true
 crossbeam-channel.workspace = true
 futures.workspace = true
 parking_lot.workspace = true
+prometheus.workspace = true
 rand = { workspace = true, optional = true }
 rayon.workspace = true
 serde.workspace = true
@@ -26,7 +27,6 @@ tracing.workspace = true
 
 near-async-derive.workspace = true
 near-time = { workspace = true, features = ["clock"] }
-near-o11y.workspace = true
 
 [dev-dependencies]
 tokio-util.workspace = true

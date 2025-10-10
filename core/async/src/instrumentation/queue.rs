@@ -7,11 +7,11 @@ use parking_lot::RwLock;
 use serde::Serialize;
 
 use crate::instrumentation::metrics::QUEUE_PENDING_MESSAGES;
-use near_o11y::metrics::prometheus::core::GenericGauge;
+use prometheus::core::GenericGauge;
 
 pub struct InstrumentedQueue {
     pending: RwLock<HashMap<String, AtomicU64>>,
-    pending_messages_gauge: GenericGauge<near_o11y::metrics::prometheus::core::AtomicI64>,
+    pending_messages_gauge: GenericGauge<prometheus::core::AtomicI64>,
 }
 
 impl InstrumentedQueue {
