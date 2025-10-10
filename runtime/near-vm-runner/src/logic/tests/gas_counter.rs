@@ -827,6 +827,121 @@ fn out_of_gas_delete_key() {
     }
 }
 
+/// see longer comment above for how this test works
+#[test]
+fn out_of_gas_deterministic_state_init() {
+    check_action_gas_exceeds_limit(
+        ActionCosts::deterministic_state_init_base,
+        1,
+        deterministic_state_init,
+    );
+
+    check_action_gas_exceeds_limit(
+        ActionCosts::deterministic_state_init_base,
+        1,
+        deterministic_state_init_by_account_id,
+    );
+
+    check_action_gas_exceeds_limit(
+        ActionCosts::deterministic_state_init_entry,
+        1,
+        deterministic_state_init_bytes,
+    );
+
+    check_action_gas_exceeds_limit(
+        ActionCosts::deterministic_state_init_byte,
+        1,
+        deterministic_state_init_bytes,
+    );
+
+    check_action_gas_exceeds_attached(
+        ActionCosts::deterministic_state_init_base,
+        1,
+        expect!["122371305185 burnt 10000000000000 used"],
+        deterministic_state_init,
+    );
+
+    check_action_gas_exceeds_attached(
+        ActionCosts::deterministic_state_init_entry,
+        1,
+        expect!["3977886210360 burnt 10000000000000 used"],
+        deterministic_state_init_bytes,
+    );
+
+    check_action_gas_exceeds_attached(
+        ActionCosts::deterministic_state_init_byte,
+        8,
+        expect!["3977886210430 burnt 10000000000000 used"],
+        deterministic_state_init_bytes,
+    );
+}
+
+/// function to trigger promise batch deterministic state init
+fn deterministic_state_init(logic: &mut TestVMLogic) -> Result<(), VMLogicError> {
+    let account_id = "rick.test";
+    let idx = promise_batch_create(logic, account_id)?;
+
+    let code_hash = logic.internal_mem_write(CryptoHash::hash_bytes(b"some code").as_bytes());
+    let serialized_amount = logic.internal_mem_write(&110u128.to_le_bytes());
+
+    logic.promise_batch_action_state_init(
+        idx,
+        code_hash.len,
+        code_hash.ptr,
+        serialized_amount.ptr,
+    )?;
+    Ok(())
+}
+
+/// function to trigger promise batch deterministic state init by account id
+///
+/// charges 1 entry and 8 bytes
+fn deterministic_state_init_by_account_id(logic: &mut TestVMLogic) -> Result<(), VMLogicError> {
+    let account_id = "rick.test";
+    let idx = promise_batch_create(logic, account_id)?;
+
+    let account_id = logic.internal_mem_write(b"global.near");
+    let serialized_amount = logic.internal_mem_write(&110u128.to_le_bytes());
+
+    logic.promise_batch_action_state_init_by_account_id(
+        idx,
+        account_id.len,
+        account_id.ptr,
+        serialized_amount.ptr,
+    )?;
+    Ok(())
+}
+
+/// function to trigger promise batch deterministic state init with data
+///
+/// charges 1 entry and 8 bytes
+fn deterministic_state_init_bytes(logic: &mut TestVMLogic) -> Result<(), VMLogicError> {
+    let account_id = "rick.test";
+    let idx = promise_batch_create(logic, account_id)?;
+
+    let code_hash = logic.internal_mem_write(CryptoHash::hash_bytes(b"some code").as_bytes());
+    let serialized_amount = logic.internal_mem_write(&110u128.to_le_bytes());
+
+    let action_index = logic.promise_batch_action_state_init(
+        idx,
+        code_hash.len,
+        code_hash.ptr,
+        serialized_amount.ptr,
+    )?;
+
+    let serialized_key = logic.internal_mem_write(b"key");
+    let serialized_value = logic.internal_mem_write(b"value");
+
+    logic.set_state_init_data_entry(
+        idx,
+        action_index,
+        serialized_key.len,
+        serialized_key.ptr,
+        serialized_value.len,
+        serialized_value.ptr,
+    )
+}
+
 /// function to trigger action + data receipt action costs
 fn create_promise_dependency(logic: &mut TestVMLogic) -> Result<(), VMLogicError> {
     let account_id = "rick.test";
@@ -871,14 +986,13 @@ fn test_memory_copy_aggregate_accounting() {
         )
         .gas(Gas::from_gigagas(10))
         .skip_near_vm()
-        .protocol_features(&[ProtocolFeature::RefTypesBulkMemory])
+        .protocol_features(&[ProtocolFeature::Wasmtime])
         .expects(&[expect![[r#"
             VMOutcome: balance 4 storage_usage 12 return data None burnt gas 0 used gas 0
             Err: PrepareError: Error happened while deserializing the module.
         "#]],
         expect![[r#"
-            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 91000008 used gas 91000008
-            Err: PrepareError: Error happened while deserializing the module.
+            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 146947416 used gas 146947416
         "#]]]);
 
     test_builder()
@@ -893,15 +1007,14 @@ fn test_memory_copy_aggregate_accounting() {
         )
         .gas(Gas::from_gigagas(10))
         .skip_near_vm()
-        .protocol_features(&[ProtocolFeature::RefTypesBulkMemory])
+        .protocol_features(&[ProtocolFeature::Wasmtime])
         .expects(&[expect![[r#"
             VMOutcome: balance 4 storage_usage 12 return data None burnt gas 0 used gas 0
             Err: PrepareError: Error happened while deserializing the module.
         "#]],
         // Gas use here should be roughly double that of the test above!
         expect![[r#"
-            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 91000008 used gas 91000008
-            Err: PrepareError: Error happened while deserializing the module.
+            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 167516316 used gas 167516316
         "#]]]);
 }
 
@@ -929,14 +1042,13 @@ fn test_memory_copy_full_memory() {
         )
         .gas(Gas::MAX)
         .skip_near_vm()
-        .protocol_features(&[ProtocolFeature::RefTypesBulkMemory])
+        .protocol_features(&[ProtocolFeature::Wasmtime])
         .expects(&[expect![[r#"
             VMOutcome: balance 4 storage_usage 12 return data None burnt gas 0 used gas 0
             Err: PrepareError: Error happened while deserializing the module.
         "#]],
         expect![[r#"
-            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 224983293 used gas 224983293
-            Err: PrepareError: Error happened while deserializing the module.
+            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 276071613848301 used gas 276071613848301
         "#]]]);
 }
 
@@ -966,13 +1078,13 @@ fn test_memory_copy_full_memory_out_of_gas() {
         )
         .gas(Gas::from_teragas(300))
         .skip_near_vm()
-        .protocol_features(&[ProtocolFeature::RefTypesBulkMemory])
+        .protocol_features(&[ProtocolFeature::Wasmtime])
         .expects(&[expect![[r#"
             VMOutcome: balance 4 storage_usage 12 return data None burnt gas 0 used gas 0
             Err: PrepareError: Error happened while deserializing the module.
         "#]],
         expect![[r#"
-            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 253304963 used gas 253304963
-            Err: PrepareError: Error happened while deserializing the module.
+            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 300000000000000 used gas 300000000000000
+            Err: Exceeded the maximum amount of gas allowed to burn per contract.
         "#]]]);
 }

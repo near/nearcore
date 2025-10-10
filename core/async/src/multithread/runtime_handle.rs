@@ -19,20 +19,29 @@ pub(super) struct MultithreadRuntimeMessage<A> {
 pub struct MultithreadRuntimeHandle<A> {
     sender: crossbeam_channel::Sender<MultithreadRuntimeMessage<A>>,
     pub(super) instrumentation: Arc<InstrumentedThreadWriterSharedPart>,
+    /// This is used in the case where the handle controls the lifetime of the runtime,
+    /// dropping (all of) which automatically stops the runtime, as an alterative of having
+    /// the ActorSystem control it.
+    cancellation_signal_holder: Option<crossbeam_channel::Sender<()>>,
 }
 
 impl<A> MultithreadRuntimeHandle<A> {
     fn new(
         sender: crossbeam_channel::Sender<MultithreadRuntimeMessage<A>>,
         instrumentation: Arc<InstrumentedThreadWriterSharedPart>,
+        cancellation_signal_holder: Option<crossbeam_channel::Sender<()>>,
     ) -> Self {
-        Self { sender, instrumentation }
+        Self { sender, instrumentation, cancellation_signal_holder }
     }
 }
 
 impl<A> Clone for MultithreadRuntimeHandle<A> {
     fn clone(&self) -> Self {
-        Self { sender: self.sender.clone(), instrumentation: self.instrumentation.clone() }
+        Self {
+            sender: self.sender.clone(),
+            instrumentation: self.instrumentation.clone(),
+            cancellation_signal_holder: self.cancellation_signal_holder.clone(),
+        }
     }
 }
 
@@ -63,10 +72,15 @@ impl<A> MultithreadRuntimeHandle<A> {
 }
 
 /// See ActorSystem::spawn_multithread_actor.
+///
+/// The `cancellation_signal_holder` is an optional sender that can be used to disable
+/// system-wide cancellation. If this sender is used, it is just the other side of the
+/// `cancellation_signal`.
 pub(crate) fn spawn_multithread_actor<A>(
     num_threads: usize,
     make_actor_fn: impl Fn() -> A + Sync + Send + 'static,
-    system_cancellation_signal: crossbeam_channel::Receiver<()>,
+    cancellation_signal: crossbeam_channel::Receiver<()>,
+    cancellation_signal_holder: Option<crossbeam_channel::Sender<()>>,
 ) -> MultithreadRuntimeHandle<A>
 where
     A: Actor + Send + 'static,
@@ -83,7 +97,8 @@ where
     let actor_name = std::any::type_name::<A>();
     let shared_instrumentation =
         InstrumentedThreadWriterSharedPart::new(actor_name.to_string(), instrumented_queue.clone());
-    let handle = MultithreadRuntimeHandle::new(sender, shared_instrumentation);
+    let handle =
+        MultithreadRuntimeHandle::new(sender, shared_instrumentation, cancellation_signal_holder);
     let threads_clone = threads.clone();
     let thread_index = Arc::new(AtomicUsize::new(0));
     let handle_clone = handle.clone();
@@ -95,7 +110,7 @@ where
         let window_update_ticker = crossbeam_channel::tick(Duration::from_secs(1));
         loop {
             crossbeam_channel::select! {
-                recv(system_cancellation_signal) -> _ => {
+                recv(cancellation_signal) -> _ => {
                     tracing::info!(target: "multithread_runtime", "cancellation received, exiting loop.");
                     return;
                 }

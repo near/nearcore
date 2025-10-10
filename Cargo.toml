@@ -44,6 +44,7 @@ members = [
     "core/crypto",
     "core/crypto/ed25519-batch",
     "core/dyn-configs",
+    "core/external-storage",
     "core/o11y",
     "core/parameters",
     "core/primitives",
@@ -139,7 +140,6 @@ unused_async = "deny"
 unexpected_cfgs = { level = "allow", check-cfg = ['cfg(enable_const_type_id)'] }
 
 [workspace.dependencies]
-actix = "0.13.0"
 anyhow = "1.0.62"
 arbitrary = { version = "1.2.3", features = ["derive"] }
 arc-swap = "1.5"
@@ -251,6 +251,7 @@ near-crypto = { path = "core/crypto", default-features = false }
 near-crypto-ed25519-batch = { path = "core/crypto/ed25519-batch" }
 near-dyn-configs = { path = "core/dyn-configs" }
 near-epoch-manager = { path = "chain/epoch-manager" }
+near-external-storage = { path = "core/external-storage" }
 near-flat-storage = { path = "tools/flat-storage" }
 near-fork-network = { path = "tools/fork-network" }
 near-fmt = { path = "utils/fmt" }
@@ -344,13 +345,7 @@ ripemd = "0.1.1"
 rkyv = "0.8.0"
 rlimit = "0.7"
 rlp = "0.5.2"
-rocksdb = { version = "0.21.0", default-features = false, features = [
-    "snappy",
-    "lz4",
-    "zstd",
-    "zlib",
-    "jemalloc",
-] }
+rocksdb = { version = "0.21.0", default-features = false }
 rusqlite = { version = "0.29.0", features = ["bundled", "chrono", "functions"] }
 rustc-demangle = "0.1"
 rust-s3 = { version = "0.32.3", features = ["blocking"] }

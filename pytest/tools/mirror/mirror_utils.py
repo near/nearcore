@@ -228,7 +228,7 @@ class MirrorProcess:
 
     def start(self):
         env = os.environ.copy()
-        env["RUST_LOG"] = "actix_web=warn,mio=warn,tokio_util=warn,actix_server=warn,actix_http=warn,indexer=info," + env.get(
+        env["RUST_LOG"] = "mio=warn,tokio_util=warn,indexer=info," + env.get(
             "RUST_LOG", "debug")
         config_path = dot_near() / f'{MIRROR_DIR}/config.json'
         with open(dot_near() / f'{MIRROR_DIR}/stdout', 'ab') as stdout, \

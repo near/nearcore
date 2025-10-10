@@ -82,6 +82,8 @@ pub enum Parameter {
 
     // Smart contract dynamic gas costs
     WasmRegularOpCost,
+    WasmLinearOpBaseCost,
+    WasmLinearOpUnitCost,
     WasmGrowMemCost,
     /// Base cost for a host function
     WasmBase,

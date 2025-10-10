@@ -261,7 +261,7 @@ pub(crate) fn call_burn_gas_contract(
     const CALLS_PER_BLOCK_HEIGHT: usize = 5;
     // Set to a value large enough, so that transactions from the past epoch are settled.
     // Must be less than epoch length, otherwise won't be triggered before the test is finished.
-    let tx_check_blocks_after_resharding = epoch_length - 2;
+    let tx_check_blocks_after_resharding = epoch_length - 1;
 
     let resharding_height = Cell::new(None);
     let nonce = Cell::new(102);
