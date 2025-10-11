@@ -1,4 +1,3 @@
-use crate::break_apart::BreakApart;
 use crate::functional::{SendAsyncFunction, SendFunction};
 use crate::futures::DelayedActionRunner;
 use futures::FutureExt;
@@ -135,12 +134,6 @@ impl<M> Sender<M> {
     /// Creates a sender that handles messages using the given function.
     pub fn from_fn(send: impl Fn(M) + Send + Sync + 'static) -> Self {
         Self::from_impl(SendFunction::new(send))
-    }
-
-    /// Creates an object that implements `CanSend<Inner>` for any message `Inner`
-    /// that can be converted to `M`.
-    pub fn break_apart(self) -> BreakApart<M> {
-        BreakApart { sender: self }
     }
 }
 
