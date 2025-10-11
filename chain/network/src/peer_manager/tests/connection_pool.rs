@@ -6,8 +6,7 @@ use crate::peer::peer_actor::ClosingReason;
 use crate::peer_manager;
 use crate::peer_manager::connection;
 use crate::peer_manager::network_state::LIMIT_PENDING_PEERS;
-use crate::peer_manager::peer_manager_actor::Event as PME;
-use crate::peer_manager::testonly::Event;
+use crate::peer_manager::peer_manager_actor::Event;
 use crate::private_messages::RegisterPeerError;
 use crate::tcp;
 use crate::testonly::make_rng;
@@ -111,10 +110,8 @@ async fn loop_connection() {
         .await;
     let reason = events
         .recv_until(|ev| match ev {
-            Event::PeerManager(PME::ConnectionClosed(ev)) if ev.stream_id == stream_id => {
-                Some(ev.reason)
-            }
-            Event::PeerManager(PME::HandshakeCompleted(ev)) if ev.stream_id == stream_id => {
+            Event::ConnectionClosed(ev) if ev.stream_id == stream_id => Some(ev.reason),
+            Event::HandshakeCompleted(ev) if ev.stream_id == stream_id => {
                 panic!("PeerManager accepted the handshake")
             }
             _ => None,
@@ -181,10 +178,8 @@ async fn owned_account_mismatch() {
         .await;
     let reason = events
         .recv_until(|ev| match ev {
-            Event::PeerManager(PME::ConnectionClosed(ev)) if ev.stream_id == stream_id => {
-                Some(ev.reason)
-            }
-            Event::PeerManager(PME::HandshakeCompleted(ev)) if ev.stream_id == stream_id => {
+            Event::ConnectionClosed(ev) if ev.stream_id == stream_id => Some(ev.reason),
+            Event::HandshakeCompleted(ev) if ev.stream_id == stream_id => {
                 panic!("PeerManager accepted the handshake")
             }
             _ => None,
@@ -308,12 +303,8 @@ async fn invalid_edge() {
             stream.write(&handshake).await;
             let reason = events
                 .recv_until(|ev| match ev {
-                    Event::PeerManager(PME::ConnectionClosed(ev)) if ev.stream_id == stream_id => {
-                        Some(ev.reason)
-                    }
-                    Event::PeerManager(PME::HandshakeCompleted(ev))
-                        if ev.stream_id == stream_id =>
-                    {
+                    Event::ConnectionClosed(ev) if ev.stream_id == stream_id => Some(ev.reason),
+                    Event::HandshakeCompleted(ev) if ev.stream_id == stream_id => {
                         panic!("PeerManager accepted the handshake")
                     }
                     _ => None,

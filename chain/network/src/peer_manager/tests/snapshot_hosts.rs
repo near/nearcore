@@ -1,9 +1,8 @@
 use crate::network_protocol::MAX_SHARDS_PER_SNAPSHOT_HOST_INFO;
 use crate::network_protocol::SnapshotHostInfo;
 use crate::network_protocol::SyncSnapshotHosts;
-use crate::peer;
 use crate::peer_manager;
-use crate::peer_manager::peer_manager_actor::Event as PME;
+use crate::peer_manager::peer_manager_actor::Event;
 use crate::tcp;
 use crate::testonly::{AsSet as _, make_rng};
 use crate::types::NetworkRequests;
@@ -42,12 +41,9 @@ fn make_snapshot_host_info(
 }
 
 /// Used to consume peer events until there's an event of type SyncSnapshotHosts
-fn take_sync_snapshot_msg(event: crate::peer::testonly::Event) -> Option<SyncSnapshotHosts> {
+fn take_sync_snapshot_msg(event: Event) -> Option<SyncSnapshotHosts> {
     match event {
-        peer::testonly::Event::Network(PME::MessageProcessed(
-            tcp::Tier::T2,
-            PeerMessage::SyncSnapshotHosts(msg),
-        )) => Some(msg),
+        Event::MessageProcessed(tcp::Tier::T2, PeerMessage::SyncSnapshotHosts(msg)) => Some(msg),
         _ => None,
     }
 }
