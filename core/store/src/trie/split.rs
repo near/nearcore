@@ -248,7 +248,19 @@ where
         }
 
         // `middle_memory` is added to `right_memory`, because the boundary belongs to the right part.
-        TrieSplit::new(self.nibbles, self.left_memory, self.right_memory + self.middle_memory)
+        let split1 = TrieSplit::new(
+            self.nibbles.clone(),
+            self.left_memory,
+            self.right_memory + self.middle_memory,
+        );
+
+        // If the middle account is big, it might be better to 'push' it to the left part.
+        // We do this by appending '-0' to the account ID.
+        self.nibbles.extend(bytes_to_nibbles("-0".as_bytes()));
+        let split2 =
+            TrieSplit::new(self.nibbles, self.left_memory + self.middle_memory, self.right_memory);
+
+        if split1.mem_diff() <= split2.mem_diff() { split1 } else { split2 }
     }
 
     /// Find the next step `(nibble, child_mem_usage, left_mem_usage)`.
@@ -359,6 +371,7 @@ impl TrieSplit {
     ) -> Self {
         debug_assert!(split_path_nibbles.len() % 2 == 0);
         debug_assert!(split_path_nibbles.len() >= AccountId::MIN_LEN * 2);
+        debug_assert!(split_path_nibbles.len() <= AccountId::MAX_LEN * 2);
         Self { split_path_nibbles, left_memory, right_memory }
     }
 
@@ -371,10 +384,22 @@ impl TrieSplit {
     pub fn boundary_account(&self) -> AccountId {
         std::str::from_utf8(&self.split_path_bytes()).unwrap().parse().unwrap()
     }
+
+    /// Get absolute difference between right and left memory
+    fn mem_diff(&self) -> u64 {
+        self.right_memory.abs_diff(self.left_memory)
+    }
 }
 
 fn byte_to_nibbles(byte: u8) -> (u8, u8) {
     (byte >> 4, byte & 0x0F)
+}
+
+fn bytes_to_nibbles(bytes: &[u8]) -> impl Iterator<Item = u8> {
+    bytes.iter().flat_map(|byte| {
+        let (nib1, nib2) = byte_to_nibbles(*byte);
+        [nib1, nib2]
+    })
 }
 
 fn nibbles_to_bytes(nibbles: &[u8]) -> Vec<u8> {
@@ -789,6 +814,27 @@ mod tests {
         }
 
         #[test]
+        fn big_middle_account() {
+            let mut arena = STArena::new("test".to_string());
+
+            let mut subtrees = [new_leaf(&mut arena, &[], &[]); SUBTREES.len()];
+            subtrees[0] = {
+                let mut children = [None; NUM_CHILDREN];
+                children[0] = Some(new_leaf(&mut arena, &[0, 0, 0], &[1u8; 100]));
+                children[1] = Some(new_leaf(&mut arena, &[0, 0, 0], &[1u8; 1000]));
+                children[2] = Some(new_leaf(&mut arena, &[0, 0, 0], &[1u8; 300]));
+                new_branch(&mut arena, None, children)
+            };
+            let split = init(&mut arena, subtrees).find_mem_usage_split();
+
+            // The 'middle' account is placed at 1, 0, 0, 0 path. However, using it as a boundary
+            // would result in a suboptimal split of roughly 100 bytes vs. 1300 bytes. There is a
+            // simple optimization implemented such cases, which appends '-0' to the boundary
+            // account ID. That's where the two extra bytes in the split path come from.
+            assert_eq!(split.split_path_bytes(), [0x10, 0x00, 0x2d, 0x30])
+        }
+
+        #[test]
         fn search_trivial_accounts() {
             let mut arena = STArena::new("test".to_string());
 
@@ -804,12 +850,12 @@ mod tests {
             //  0     0   0     0   <-- extension zeroes to reach the minimum length (2 bytes)
             //  0     0   0     0
             //  │     │   │     │
-            //  X     X   X     X    <-- leaves with 100-byte values
+            //  X     X   X     X    <-- leaves with 1000-byte values
             //
             // The expected split path is nibbles 1, 0, 0, 0 resulting in bytes 0x10, 0x00
 
             let accounts_subtree = {
-                let leaf = new_leaf(&mut arena, &[0, 0], &[1u8; 100]);
+                let leaf = new_leaf(&mut arena, &[0, 0], &[1u8; 1000]);
                 let branch = {
                     let mut children = [None; NUM_CHILDREN];
                     children[0] = Some(leaf);
@@ -831,7 +877,7 @@ mod tests {
             assert_eq!(split.left_memory + split.right_memory, total_memory);
 
             // Now add some heavy contract code under 0x11 path to change the optimal split path.
-            subtrees[1] = new_leaf(&mut arena, &[1, 1, 1, 1, 1, 1], &[1u8; 200]);
+            subtrees[1] = new_leaf(&mut arena, &[1, 1, 1, 1, 1, 1], &[1u8; 2000]);
             let trie_descent = init(&mut arena, subtrees);
             let total_memory = trie_descent.total_memory();
             let split = trie_descent.find_mem_usage_split();
@@ -846,10 +892,8 @@ mod tests {
         use super::*;
         use crate::test_utils::TestTriesBuilder;
         use crate::trie::mem::iter::MemTrieIteratorInner;
-        use crate::trie::ops::interface::GenericTrieInternalStorage;
         use crate::trie::update::TrieUpdateResult;
         use crate::{Trie, TrieUpdate, set, set_access_key, set_account};
-        use itertools::Itertools;
         use near_crypto::{ED25519PublicKey, PublicKey};
         use near_primitives::account::AccessKey;
         use near_primitives::hash::CryptoHash;
@@ -870,15 +914,7 @@ mod tests {
         {
             /// Helper method to get the split yielded by a pre-defined key.
             fn get_split(mut self, key_bytes: &[u8]) -> TrieSplit {
-                let key_nibbles = key_bytes
-                    .iter()
-                    .flat_map(|byte| {
-                        let (nib1, nib2) = byte_to_nibbles(*byte);
-                        [nib1, nib2]
-                    })
-                    .collect_vec();
-
-                for nibble in key_nibbles {
+                for nibble in bytes_to_nibbles(key_bytes) {
                     let children_mem_usage = self.aggregate_children_mem_usage();
                     let child_mem_usage = children_mem_usage[nibble as usize];
                     let left_mem_usage = children_mem_usage[..nibble as usize].iter().sum();
@@ -900,13 +936,6 @@ mod tests {
             let memtries = trie.lock_memtries().unwrap();
             let trie_storage = MemTrieIteratorInner::new(&memtries, trie);
             TrieDescent::new(trie_storage).get_split(key_bytes)
-        }
-
-        impl TrieSplit {
-            /// Get difference between right and left memory
-            fn mem_diff(&self) -> i64 {
-                self.right_memory as i64 - self.left_memory as i64
-            }
         }
 
         #[test]
@@ -1041,8 +1070,14 @@ mod tests {
                 // Hence, it is acceptable that the absolute `mem_diff` for `right_split` is lower, as
                 // long as the `right_memory >= left_memory` condition doesn't hold.
                 assert!(
-                    right_split.mem_diff() >= trie_split.mem_diff() || right_split.mem_diff() < 0
+                    right_split.mem_diff() >= trie_split.mem_diff()
+                        || right_split.left_memory > right_split.right_memory
                 );
+
+                // FIXME: In order to find the optimal split without that extra condition, the search
+                //        needs two be done in a two-fold way. First, descend down to the middle
+                //        account (as we currently do). Second, go back to the root, checking at
+                //        every level whether picking the right sibling doesn't result in a better split.
             }
 
             Ok(())
