@@ -123,6 +123,6 @@ impl<'a> EpochStoreUpdateAdapter<'a> {
     }
 
     pub fn set_epoch_sync_proof(&mut self, proof: &EpochSyncProof) {
-        self.store_update.set_ser(DBCol::EpochSyncProof, &[], &proof).unwrap();
+        self.store_update.set_ser(DBCol::EpochSyncProof, &[], proof).unwrap();
     }
 }
