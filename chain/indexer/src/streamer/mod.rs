@@ -69,8 +69,12 @@ pub async fn build_streamer_message(
         .collect::<Vec<_>>();
 
     for chunk in chunks {
-        let views::ChunkView { transactions, author, header, receipts: chunk_non_local_receipts } =
-            chunk;
+        let views::ChunkView {
+            transactions,
+            author,
+            header,
+            receipts: chunk_prev_outgoing_receipts,
+        } = chunk;
 
         let outcomes = shards_outcomes
             .remove(&header.shard_id)
@@ -113,8 +117,6 @@ pub async fn build_streamer_message(
             }
         }
 
-        let mut chunk_receipts = chunk_local_receipts;
-
         let mut receipt_execution_outcomes: Vec<IndexerExecutionOutcomeWithReceipt> = vec![];
         for (_, outcome) in receipt_outcomes {
             let IndexerExecutionOutcomeWithOptionalReceipt { execution_outcome, receipt } = outcome;
@@ -151,8 +153,6 @@ pub async fn build_streamer_message(
                 .push(IndexerExecutionOutcomeWithReceipt { execution_outcome, receipt });
         }
 
-        chunk_receipts.extend(chunk_non_local_receipts);
-
         // Find the shard index for the chunk by shard_id
         let shard_index = protocol_config_view
             .shard_layout
@@ -166,7 +166,7 @@ pub async fn build_streamer_message(
             author,
             header,
             transactions: indexer_transactions,
-            receipts: chunk_receipts,
+            receipts: chunk_prev_outgoing_receipts,
         });
     }
 
