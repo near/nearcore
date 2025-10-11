@@ -5016,6 +5016,7 @@ dependencies = [
  "near-chain-primitives",
  "near-chunks",
  "near-crypto",
+ "near-external-storage",
  "near-fmt",
  "near-o11y",
  "near-parameters",

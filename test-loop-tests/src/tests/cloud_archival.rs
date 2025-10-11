@@ -115,9 +115,7 @@ fn test_cloud_archival_with_split_store() {
 /// Verifies that while the cloud writer is paused, GC stop never exceeds the first block
 /// of the epoch containing `cloud_head` and the writer catches up after resuming.
 #[test]
-// TODO(cloud_archival): Enable once cloud head is persisted to external storage.
-#[cfg(ignore)]
-fn test_cloud_archival_paused() {
+fn test_cloud_archival_resume() {
     let gc_period_num_blocks = MIN_GC_NUM_EPOCHS_TO_KEEP * MIN_EPOCH_LENGTH;
     // Pause the cloud writer long enough so that, if it were possible, GC could overtake
     // `cloud_head`. Place `cloud_head` in the middle of the epoch so that the first block

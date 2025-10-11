@@ -1,7 +1,7 @@
 use itertools::Itertools;
 use near_chain_configs::test_genesis::{TestEpochConfigBuilder, TestGenesisBuilder};
 use near_chain_configs::test_utils::{TestClientConfigParams, test_cloud_archival_configs};
-use near_store::archive::cloud_storage::CloudStorageOpener;
+use near_store::archive::cloud_storage::opener::CloudStorageOpener;
 use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::Arc;
