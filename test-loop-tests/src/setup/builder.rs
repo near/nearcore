@@ -93,6 +93,10 @@ impl TestLoopBuilder {
         self.test_loop.clock()
     }
 
+    pub(crate) fn data_dir(&self) -> PathBuf {
+        self.test_loop_data_dir.path().to_path_buf()
+    }
+
     /// Set the genesis configuration for the test loop.
     pub(crate) fn genesis(mut self, genesis: Genesis) -> Self {
         self.genesis = Some(genesis);
@@ -145,6 +149,7 @@ impl TestLoopBuilder {
         mut self,
         modifier: impl Fn(&mut ClientConfig, usize) + 'static,
     ) -> Self {
+        assert!(self.config_modifier.is_none());
         self.config_modifier = Some(Box::new(modifier));
         self
     }
