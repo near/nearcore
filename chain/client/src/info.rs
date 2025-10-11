@@ -999,9 +999,8 @@ mod tests {
             min_block_prod_time: 1230,
             max_block_prod_time: 2340,
             num_block_producer_seats: 50,
-            enable_split_store: false,
-            enable_cloud_archival_writer: false,
-            save_trie_changes: true,
+            split_store_enabled: false,
+            cloud_storage_enabled: false,
             state_sync_enabled: true,
         });
         let validator = MutableConfigValue::new(None, "validator_signer");
@@ -1119,9 +1118,8 @@ mod tests {
             min_block_prod_time: 1230,
             max_block_prod_time: 2340,
             num_block_producer_seats: 50,
-            enable_split_store: false,
-            enable_cloud_archival_writer: false,
-            save_trie_changes: true,
+            split_store_enabled: false,
+            cloud_storage_enabled: false,
             state_sync_enabled: true,
         });
         let mut info_helper = InfoHelper::new(Clock::real(), noop().into_sender(), &client_config);

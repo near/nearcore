@@ -62,14 +62,14 @@ fn test_cloud_archival_base(params: TestCloudArchivalParameters) {
     if params.enable_split_store {
         split_store_archival_clients.insert(archival_id.clone());
     }
-    let cloud_archival_writers = [archival_id.clone()].into_iter().collect();
+    let cloud_storage_archival_clients = [archival_id.clone()].into_iter().collect();
 
     let mut env = TestLoopBuilder::new()
         .genesis(genesis)
         .epoch_config_store(epoch_config_store)
         .clients(all_clients)
         .split_store_archival_clients(split_store_archival_clients)
-        .cloud_archival_writers(cloud_archival_writers)
+        .cloud_storage_archival_clients(cloud_storage_archival_clients)
         .gc_num_epochs_to_keep(MIN_GC_NUM_EPOCHS_TO_KEEP)
         .build()
         .warmup();
