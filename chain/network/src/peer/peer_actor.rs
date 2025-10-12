@@ -36,7 +36,7 @@ use crate::types::{
 use ::time::Duration;
 use lru::LruCache;
 use near_async::futures::{DelayedActionRunner, DelayedActionRunnerExt, FutureSpawnerExt};
-use near_async::messaging::{self, CanSend, IntoSender, SendAsync};
+use near_async::messaging::{self, CanSend, CanSendAsync, IntoSender};
 use near_async::tokio::TokioRuntimeHandle;
 use near_async::{ActorSystem, Message, time};
 use near_crypto::Signature;

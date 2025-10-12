@@ -4,12 +4,16 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use crate::futures::DelayedActionRunner;
-use crate::messaging::{Actor, CanSend, HandlerWithContext, Message, MessageWithCallback};
+use crate::messaging::{
+    Actor, AsyncSendError, CanSend, CanSendAsync, HandlerWithContext, Message, MessageWithCallback,
+};
 use crate::time::Duration;
 
 use super::PendingEventsSender;
 use super::data::{TestLoopData, TestLoopDataHandle};
 use futures::FutureExt;
+use futures::channel::oneshot;
+use futures::future::BoxFuture;
 
 /// TestLoopSender implements the CanSend methods for an actor that can Handle them.
 ///
@@ -116,6 +120,30 @@ where
             Box::new(callback),
             self.sender_delay,
         );
+    }
+}
+
+impl<M, R, A> CanSendAsync<M, R> for TestLoopSender<A>
+where
+    M: Message + Debug + Send + 'static,
+    A: Actor + HandlerWithContext<M, R> + 'static,
+    R: Send + 'static,
+{
+    fn send_async(&self, msg: M) -> BoxFuture<'static, Result<R, AsyncSendError>> {
+        let mut this = self.clone();
+        let description = format!("{}({:?})", pretty_type_name::<A>(), &msg);
+        let (sender, receiver) = oneshot::channel::<R>();
+        let callback = move |data: &mut TestLoopData| {
+            let actor = data.get_mut(&this.actor_handle);
+            let result = actor.handle(msg, &mut this);
+            sender.send(result).ok();
+        };
+        self.pending_events_sender.send_with_delay(
+            description,
+            Box::new(callback),
+            self.sender_delay,
+        );
+        async move { Ok(receiver.await.unwrap()) }.boxed()
     }
 }
 

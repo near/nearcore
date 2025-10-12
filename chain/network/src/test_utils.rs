@@ -6,7 +6,7 @@ use crate::types::{
 };
 use futures::{Future, FutureExt};
 use near_async::Message;
-use near_async::messaging::{self, CanSend, MessageWithCallback};
+use near_async::messaging::{AsyncSendError, CanSend, CanSendAsync, Handler, MessageWithCallback};
 use near_crypto::{KeyType, SecretKey};
 use near_primitives::hash::hash;
 use near_primitives::network::PeerId;
@@ -107,7 +107,7 @@ pub fn expected_routing_tables(
 #[derive(Message, Debug)]
 pub struct GetInfo {}
 
-impl messaging::Handler<GetInfo, crate::types::NetworkInfo> for PeerManagerActor {
+impl Handler<GetInfo, crate::types::NetworkInfo> for PeerManagerActor {
     fn handle(&mut self, _msg: GetInfo) -> crate::types::NetworkInfo {
         self.get_network_info()
     }
@@ -125,7 +125,7 @@ impl StopSignal {
     }
 }
 
-impl messaging::Handler<StopSignal> for PeerManagerActor {
+impl Handler<StopSignal> for PeerManagerActor {
     fn handle(&mut self, msg: StopSignal) {
         debug!(target: "network", "Receive Stop Signal.");
 
@@ -166,6 +166,25 @@ impl CanSend<PeerManagerMessageRequest> for MockPeerManagerAdapter {
     fn send(&self, msg: PeerManagerMessageRequest) {
         self.requests.write().push_back(msg);
         self.notify.notify_one();
+    }
+}
+
+impl CanSendAsync<PeerManagerMessageRequest, PeerManagerMessageResponse>
+    for MockPeerManagerAdapter
+{
+    fn send_async(
+        &self,
+        message: PeerManagerMessageRequest,
+    ) -> futures::future::BoxFuture<'static, Result<PeerManagerMessageResponse, AsyncSendError>>
+    {
+        self.requests.write().push_back(message);
+        self.notify.notify_one();
+        async move {
+            Ok(PeerManagerMessageResponse::NetworkResponses(
+                NetworkResponses::NoResponse,
+            ))
+        }
+        .boxed()
     }
 }
 

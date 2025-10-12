@@ -137,16 +137,69 @@ impl<M> Sender<M> {
     }
 }
 
-/// Extension trait (not for anyone to implement), that allows a
-/// Sender<MessageWithCallback<M, R>> to be used to send a message and then
-/// getting a future of the response.
-///
-/// See `AsyncSendError` for reasons that the future may resolve to an error result.
-pub trait SendAsync<M, R: Send + 'static> {
-    fn send_async(&self, message: M) -> BoxFuture<'static, Result<R, AsyncSendError>>;
+/// Wraps a `CanSendAsync`. Similar to [`Sender<M>`] but for asynchronous messaging.
+pub struct AsyncSender<M: 'static, R: Send + 'static> {
+    sender: Arc<dyn CanSendAsync<M, R>>,
 }
 
-impl<M, R: Send + 'static, A: CanSend<MessageWithCallback<M, R>> + ?Sized> SendAsync<M, R> for A {
+impl<M, R: Send + 'static> Clone for AsyncSender<M, R> {
+    fn clone(&self) -> Self {
+        Self { sender: self.sender.clone() }
+    }
+}
+
+/// Extension functions to wrap a `CanSendAsync` as an [`AsyncSender`].
+pub trait IntoAsyncSender<M, R: Send> {
+    /// Convert an owned implementer into an [`AsyncSender`].
+    fn into_async_sender(self) -> AsyncSender<M, R>;
+    /// Convert a reference-counted implementer into an [`AsyncSender`].
+    fn as_async_sender(self: &Arc<Self>) -> AsyncSender<M, R>;
+}
+
+impl<M, R: Send + 'static, T: CanSendAsync<M, R>> IntoAsyncSender<M, R> for T {
+    fn into_async_sender(self) -> AsyncSender<M, R> {
+        AsyncSender::from_impl(self)
+    }
+
+    fn as_async_sender(self: &Arc<Self>) -> AsyncSender<M, R> {
+        AsyncSender::from_arc(self.clone())
+    }
+}
+
+impl<M, R: Send + 'static> AsyncSender<M, R> {
+    /// Sends a message asynchronously, forwarding to the underlying [`CanSendAsync`].
+    pub fn send_async(&self, message: M) -> BoxFuture<'static, Result<R, AsyncSendError>> {
+        self.sender.send_async(message)
+    }
+
+    fn from_impl(sender: impl CanSendAsync<M, R> + 'static) -> Self {
+        Self { sender: Arc::new(sender) }
+    }
+
+    fn from_arc<T: CanSendAsync<M, R> + 'static>(arc: Arc<T>) -> Self {
+        Self { sender: arc }
+    }
+
+    /// Creates an async sender backed by a synchronous function that returns the response.
+    pub fn from_async_fn(send_async: impl Fn(M) -> R + Send + Sync + 'static) -> Self {
+        Self::from_impl(SendAsyncFunction::new(send_async))
+    }
+}
+
+impl<M, R: Send + 'static> From<Sender<MessageWithCallback<M, R>>> for AsyncSender<M, R> {
+    fn from(sender: Sender<MessageWithCallback<M, R>>) -> Self {
+        AsyncSender::from_impl(sender)
+    }
+}
+
+impl<M, R: Send + 'static> CanSend<MessageWithCallback<M, R>> for AsyncSender<M, R> {
+    fn send(&self, message: MessageWithCallback<M, R>) {
+        let MessageWithCallback { message, callback } = message;
+        callback(self.send_async(message));
+    }
+}
+
+impl<M, R: Send + 'static> CanSendAsync<M, R> for Sender<MessageWithCallback<M, R>> {
     fn send_async(&self, message: M) -> BoxFuture<'static, Result<R, AsyncSendError>> {
         // To send a message and get a future of the response, we use a oneshot
         // channel that is resolved when the responder function is called. It's
@@ -174,7 +227,7 @@ impl<M, R: Send + 'static, A: CanSend<MessageWithCallback<M, R>> + ?Sized> SendA
 impl<M, R: Send + 'static> Sender<MessageWithCallback<M, R>> {
     /// Same as the above, but for a concrete Sender type.
     pub fn send_async(&self, message: M) -> BoxFuture<'static, Result<R, AsyncSendError>> {
-        self.sender.send_async(message)
+        CanSendAsync::send_async(self, message)
     }
 
     /// Creates a sender that would handle send_async messages by producing a
@@ -221,8 +274,6 @@ impl<T: Debug, R> Debug for MessageWithCallback<T, R> {
     }
 }
 
-pub type AsyncSender<M, R> = Sender<MessageWithCallback<M, R>>;
-
 /// Sometimes we want to be able to pass in a sender that has not yet been fully constructed.
 /// LateBoundSender can act as a placeholder to pass CanSend and CanSendAsync capabilities
 /// through to the inner object. bind() should be called when the inner object is ready.
@@ -254,6 +305,12 @@ impl<M, S: CanSend<M>> CanSend<M> for LateBoundSender<S> {
     }
 }
 
+impl<M, R, S: CanSendAsync<M, R>> CanSendAsync<M, R> for LateBoundSender<S> {
+    fn send_async(&self, message: M) -> BoxFuture<'static, Result<R, AsyncSendError>> {
+        self.sender.wait().send_async(message)
+    }
+}
+
 pub struct Noop;
 
 impl<M> CanSend<M> for Noop {
@@ -262,6 +319,18 @@ impl<M> CanSend<M> for Noop {
 
 impl<M> CanSend<M> for Arc<Noop> {
     fn send(&self, _message: M) {}
+}
+
+impl<M, R: Send + 'static> CanSendAsync<M, R> for Noop {
+    fn send_async(&self, _message: M) -> BoxFuture<'static, Result<R, AsyncSendError>> {
+        async { Err(AsyncSendError::Dropped) }.boxed()
+    }
+}
+
+impl<M, R: Send + 'static> CanSendAsync<M, R> for Arc<Noop> {
+    fn send_async(&self, _message: M) -> BoxFuture<'static, Result<R, AsyncSendError>> {
+        async { Err(AsyncSendError::Dropped) }.boxed()
+    }
 }
 
 /// Creates a no-op sender that does nothing with the message.
