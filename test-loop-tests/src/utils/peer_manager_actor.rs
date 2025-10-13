@@ -54,6 +54,10 @@ pub struct ClientSenderForTestLoopNetwork {
 #[derive(Clone, MultiSend, MultiSenderFrom)]
 pub struct TxRequestHandleSenderForTestLoopNetwork {
     pub transaction: AsyncSender<ProcessTxRequest, ProcessTxResponse>,
+}
+
+#[derive(Clone, MultiSend, MultiSenderFrom)]
+pub struct ChunkEndorsementSenderForTestLoopNetwork {
     pub chunk_endorsement: AsyncSender<ChunkEndorsementMessage, ()>,
     pub spice_chunk_endorsement: AsyncSender<SpiceChunkEndorsementMessage, ()>,
 }
@@ -221,6 +225,7 @@ struct OneClientSenders {
     client_sender: ClientSenderForTestLoopNetwork,
     view_client_sender: ViewClientSenderForTestLoopNetwork,
     rpc_handler_sender: TxRequestHandleSenderForTestLoopNetwork,
+    chunk_endorsement_handler_sender: ChunkEndorsementSenderForTestLoopNetwork,
     partial_witness_sender: PartialWitnessSenderForNetwork,
     shards_manager_sender: Sender<ShardsManagerRequestFromNetwork>,
     peer_manager_sender: Sender<TestLoopNetworkBlockInfo>,
@@ -249,6 +254,7 @@ fn to_drop_events_senders(s: TestLoopSender<UnreachableActor>) -> Arc<OneClientS
         client_sender: s.clone().into_multi_sender(),
         view_client_sender: s.clone().into_multi_sender(),
         rpc_handler_sender: s.clone().into_multi_sender(),
+        chunk_endorsement_handler_sender: s.clone().into_multi_sender(),
         partial_witness_sender: s.clone().into_multi_sender(),
         shards_manager_sender: s.clone().into_sender(),
         peer_manager_sender: s.clone().into_sender(),
@@ -275,6 +281,7 @@ impl TestLoopNetworkSharedState {
         ClientSenderForTestLoopNetwork: From<&'a D>,
         ViewClientSenderForTestLoopNetwork: From<&'a D>,
         TxRequestHandleSenderForTestLoopNetwork: From<&'a D>,
+        ChunkEndorsementSenderForTestLoopNetwork: From<&'a D>,
         PartialWitnessSenderForNetwork: From<&'a D>,
         Sender<ShardsManagerRequestFromNetwork>: From<&'a D>,
         Sender<TestLoopNetworkBlockInfo>: From<&'a D>,
@@ -291,6 +298,9 @@ impl TestLoopNetworkSharedState {
                 client_sender: ClientSenderForTestLoopNetwork::from(data),
                 view_client_sender: ViewClientSenderForTestLoopNetwork::from(data),
                 rpc_handler_sender: TxRequestHandleSenderForTestLoopNetwork::from(data),
+                chunk_endorsement_handler_sender: ChunkEndorsementSenderForTestLoopNetwork::from(
+                    data,
+                ),
                 partial_witness_sender: PartialWitnessSenderForNetwork::from(data),
                 shards_manager_sender: Sender::<ShardsManagerRequestFromNetwork>::from(data),
                 peer_manager_sender: Sender::<TestLoopNetworkBlockInfo>::from(data),
@@ -496,7 +506,7 @@ fn network_message_to_client_handler(
         NetworkRequests::ChunkEndorsement(target, endorsement) => {
             let future = shared_state
                 .senders_for_account(&my_account_id, &target)
-                .rpc_handler_sender
+                .chunk_endorsement_handler_sender
                 .send_async(ChunkEndorsementMessage(endorsement));
             drop(future);
             None
@@ -504,7 +514,7 @@ fn network_message_to_client_handler(
         NetworkRequests::SpiceChunkEndorsement(target, endorsement) => {
             let future = shared_state
                 .senders_for_account(&my_account_id, &target)
-                .rpc_handler_sender
+                .chunk_endorsement_handler_sender
                 .send_async(SpiceChunkEndorsementMessage(endorsement));
             drop(future);
             None

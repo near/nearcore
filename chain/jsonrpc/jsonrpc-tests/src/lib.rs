@@ -167,7 +167,7 @@ pub fn create_test_setup_with_accounts_and_validity(
         Some(TEST_SEED),
         noop().into_multi_sender(),
         SpiceClientConfig {
-            core_processor: spice_core_processor.clone(),
+            core_processor: spice_core_processor,
             chunk_executor_sender: noop().into_sender(),
             spice_chunk_validator_sender: noop().into_sender(),
             spice_data_distributor_sender: noop().into_sender(),
@@ -186,13 +186,11 @@ pub fn create_test_setup_with_accounts_and_validity(
         actor_system.clone(),
         rpc_handler_config,
         client_result.tx_pool,
-        client_result.chunk_endorsement_tracker,
         epoch_manager,
         shard_tracker,
         signer,
         runtime,
         noop().into_multi_sender(),
-        spice_core_processor,
     );
 
     // 9. Create Axum Router

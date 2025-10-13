@@ -32,7 +32,7 @@ use near_client::spice_data_distributor_actor::SpiceDataDistributorActor;
 use near_client::{
     ChunkValidationSenderForPartialWitness, ConfigUpdater, PartialWitnessActor, RpcHandler,
     RpcHandlerConfig, StartClientResult, StateRequestActor, ViewClientActorInner,
-    spawn_rpc_handler_actor, start_client,
+    spawn_chunk_endorsement_handler_actor, spawn_rpc_handler_actor, start_client,
 };
 use near_epoch_manager::EpochManager;
 use near_epoch_manager::EpochManagerAdapter;
@@ -451,7 +451,7 @@ pub fn start_with_config_and_synchronization(
 
     let cloud_archival_writer_handle = create_cloud_archival_writer(
         Clock::real(),
-        actor_system.new_future_spawner().into(),
+        actor_system.new_future_spawner("cloud_archival_writer").into(),
         config.config.cloud_archival_writer,
         config.genesis.config.genesis_height,
         runtime.clone(),
@@ -649,12 +649,15 @@ pub fn start_with_config_and_synchronization(
         actor_system.clone(),
         rpc_handler_config,
         tx_pool,
-        chunk_endorsement_tracker,
         view_epoch_manager.clone(),
         view_shard_tracker,
         config.validator_signer.clone(),
         view_runtime.clone(),
         network_adapter.as_multi_sender(),
+    );
+    let chunk_endorsement_handler = spawn_chunk_endorsement_handler_actor(
+        actor_system.clone(),
+        chunk_endorsement_tracker,
         spice_core_processor,
     );
 
@@ -682,6 +685,7 @@ pub fn start_with_config_and_synchronization(
             client_actor.clone(),
             view_client_addr.clone(),
             rpc_handler.clone(),
+            chunk_endorsement_handler,
         ),
         state_request_addr.clone().into_multi_sender(),
         network_adapter.as_multi_sender(),
