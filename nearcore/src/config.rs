@@ -414,7 +414,7 @@ pub struct Config {
     #[serde(skip_serializing_if = "Option::is_none")]
     /// If true, transactions for the next chunk will be prepared early, right after the previous chunk's
     /// post-state is ready. This can help produce chunks faster, for high-throughput chains.
-    pub early_prepare_transactions: Option<bool>,
+    pub enable_early_prepare_transactions: Option<bool>,
 }
 
 fn is_false(value: &bool) -> bool {
@@ -480,7 +480,7 @@ impl Default for Config {
             save_invalid_witnesses: false,
             transaction_request_handler_threads: 4,
             protocol_version_check_config_override: None,
-            early_prepare_transactions: None,
+            enable_early_prepare_transactions: None,
         }
     }
 }
@@ -756,8 +756,8 @@ impl NearConfig {
                 protocol_version_check: config
                     .protocol_version_check_config_override
                     .unwrap_or(ProtocolVersionCheckConfig::NextNext),
-                early_prepare_transactions: config
-                    .early_prepare_transactions
+                enable_early_prepare_transactions: config
+                    .enable_early_prepare_transactions
                     .unwrap_or(cfg!(feature = "nightly")), // Allows testing enabled and disabled in CI
             },
             #[cfg(feature = "tx_generator")]

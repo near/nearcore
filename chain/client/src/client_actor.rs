@@ -1318,7 +1318,7 @@ impl ClientActorInner {
     fn handle_on_post_state_ready(&mut self, msg: PostStateReadyMessage) {
         tracing::trace!(target: "client", ?msg, "Received PostStateReadyMessage");
 
-        if !self.client.config.early_prepare_transactions {
+        if !self.client.config.enable_early_prepare_transactions {
             return;
         }
         // Do not run early transaction preparation when the node is syncing. It will not produce

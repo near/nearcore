@@ -9994,7 +9994,7 @@
             "minItems": 2,
             "type": "array"
           },
-          "early_prepare_transactions": {
+          "enable_early_prepare_transactions": {
             "description": "If true, transactions for the next chunk will be prepared early, right after the previous chunk's\npost-state is ready. This can help produce chunks faster, for high-throughput chains.",
             "type": "boolean"
           },
@@ -10439,7 +10439,7 @@
           "save_invalid_witnesses",
           "transaction_request_handler_threads",
           "protocol_version_check",
-          "early_prepare_transactions"
+          "enable_early_prepare_transactions"
         ],
         "type": "object"
       },
