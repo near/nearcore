@@ -181,8 +181,8 @@ impl<M, R: Send + 'static> AsyncSender<M, R> {
     }
 
     /// Creates an async sender backed by a synchronous function that returns the response.
-    pub fn from_async_fn(send_async: impl Fn(M) -> R + Send + Sync + 'static) -> Self {
-        Self::from_impl(SendAsyncFunction::new(send_async))
+    pub fn from_fn(send: impl Fn(M) -> R + Send + Sync + 'static) -> Self {
+        Self::from_impl(SendAsyncFunction::new(send))
     }
 }
 

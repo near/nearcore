@@ -554,18 +554,17 @@ pub(crate) async fn start(
     cfg.event_sink = Sender::from_fn(move |event| send.send(event));
 
     let mut client_sender: ClientSenderForNetwork = noop().into_multi_sender();
-    client_sender.announce_account =
-        AsyncSender::from_async_fn(move |msg: AnnounceAccountRequest| {
-            // NOTE(robin-near): This is a pretty bad hack to preserve previous behavior
-            // of the test code.
-            // For some specific events we craft a response and send it back, while for
-            // most other events we send it to the sink (for what? I have no idea).
-            Ok(msg.0.iter().map(|(account, _)| account.clone()).collect())
-        });
+    client_sender.announce_account = AsyncSender::from_fn(move |msg: AnnounceAccountRequest| {
+        // NOTE(robin-near): This is a pretty bad hack to preserve previous behavior
+        // of the test code.
+        // For some specific events we craft a response and send it back, while for
+        // most other events we send it to the sink (for what? I have no idea).
+        Ok(msg.0.iter().map(|(account, _)| account.clone()).collect())
+    });
 
     let mut state_request_sender: StateRequestSenderForNetwork = noop().into_multi_sender();
     state_request_sender.state_request_part =
-        AsyncSender::from_async_fn(move |msg: StateRequestPart| {
+        AsyncSender::from_fn(move |msg: StateRequestPart| {
             // NOTE: See above comment for explanation about this code.
             let StateRequestPart { part_id, shard_id, sync_hash } = msg;
             let part = Some((part_id, vec![]));
