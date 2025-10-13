@@ -194,14 +194,16 @@ impl CloudArchivalWriter {
     async fn try_archive_data_impl(&self) -> Result<CloudArchivingResult, CloudArchivingError> {
         let cloud_head =
             self.get_cloud_head_local()?.expect("CLOUD_HEAD should exist in hot store");
+        let height_to_archive = cloud_head + 1;
         let hot_final_height = self.get_hot_final_head_height()?;
-        tracing::trace!(target: "cloud_archival", hot_final_height, "try_archive");
-        // We add +1 here because the next block should be finalized in order to archive
-        // `DBCol::NextBlockHashes`.
-        if cloud_head + 1 >= hot_final_height {
+        tracing::trace!(target: "cloud_archival", height_to_archive, hot_final_height, "try_archive");
+
+        // Archive only while the height to archive is below the finalized height, since
+        // the next block should be finalized first (for `DBCol::NextBlockHashes`).
+        if height_to_archive >= hot_final_height {
             return Ok(CloudArchivingResult::NoHeightArchived(cloud_head));
         }
-        let height_to_archive = cloud_head + 1;
+
         self.archive_data(height_to_archive).await?;
         self.update_cloud_head(height_to_archive).await?;
 
