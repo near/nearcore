@@ -146,8 +146,6 @@ fn derive_multi_send_impl(input: proc_macro2::TokenStream) -> proc_macro2::Token
             } else if last_segment.ident == "AsyncSender" {
                 let message_type = arguments[0].clone();
                 let result_type = arguments[1].clone();
-                let outer_msg_type =
-                    quote!(near_async::messaging::MessageWithCallback<#message_type, #result_type>);
                 tokens.push(quote! {
                     #(#cfg_attrs)*
                     impl near_async::messaging::CanSendAsync<#message_type, #result_type> for #struct_name {
@@ -155,14 +153,6 @@ fn derive_multi_send_impl(input: proc_macro2::TokenStream) -> proc_macro2::Token
                             -> near_async::futures::BoxFuture<'static, Result<#result_type, near_async::messaging::AsyncSendError>>
                         {
                             self.#field_name.send_async(message)
-                        }
-                    }
-                });
-                tokens.push(quote! {
-                    #(#cfg_attrs)*
-                    impl near_async::messaging::CanSend<#outer_msg_type> for #struct_name {
-                        fn send(&self, message: #outer_msg_type) {
-                            self.#field_name.send(message);
                         }
                     }
                 });
@@ -244,11 +234,6 @@ mod tests {
                     self.async_sender.send_async(message)
                 }
             }
-            impl near_async::messaging::CanSend<near_async::messaging::MessageWithCallback<String, u32> > for TestSenders {
-                fn send(&self, message: near_async::messaging::MessageWithCallback<String, u32>) {
-                    self.async_sender.send(message);
-                }
-            }
             impl near_async::messaging::CanSend<i32> for TestSenders {
                 fn send(&self, message: i32) {
                     self.qualified_sender.send(message);
@@ -257,11 +242,6 @@ mod tests {
             impl near_async::messaging::CanSendAsync<i32, String> for TestSenders {
                 fn send_async(&self, message: i32) -> near_async::futures::BoxFuture<'static, Result<String, near_async::messaging::AsyncSendError>> {
                     self.qualified_async_sender.send_async(message)
-                }
-            }
-            impl near_async::messaging::CanSend<near_async::messaging::MessageWithCallback<i32, String> > for TestSenders {
-                fn send(&self, message: near_async::messaging::MessageWithCallback<i32, String>) {
-                    self.qualified_async_sender.send(message);
                 }
             }
         };

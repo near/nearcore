@@ -3,9 +3,7 @@ use std::fmt::Debug;
 use futures::FutureExt;
 use futures::future::BoxFuture;
 
-use crate::messaging::{
-    AsyncSendError, CanSend, CanSendAsync, Handler, Message, MessageWithCallback,
-};
+use crate::messaging::{AsyncSendError, CanSend, CanSendAsync, Handler, Message};
 use crate::multithread::runtime_handle::{MultithreadRuntimeHandle, MultithreadRuntimeMessage};
 use crate::{next_message_sequence_num, pretty_type_name};
 
@@ -26,30 +24,6 @@ where
         let message = MultithreadRuntimeMessage { seq, function: Box::new(function) };
         if let Err(_) = self.sender.send(message) {
             tracing::info!(target: "multithread_runtime", seq, "Ignoring sync message, receiving actor is being shut down");
-        }
-    }
-}
-
-// Compatibility layer for multi-send style adapters.
-impl<A, M, R> CanSend<MessageWithCallback<M, R>> for MultithreadRuntimeHandle<A>
-where
-    A: Handler<M, R> + 'static,
-    M: Message + Debug + Send + 'static,
-    R: Send + 'static,
-{
-    fn send(&self, message: MessageWithCallback<M, R>) {
-        let seq = next_message_sequence_num();
-        let message_type = pretty_type_name::<A>();
-        tracing::trace!(target: "multithread_runtime", seq, message_type, "sending sync message with callback");
-
-        let function = move |actor: &mut A| {
-            let result = actor.handle(message.message);
-            (message.callback)(std::future::ready(Ok(result)).boxed());
-        };
-
-        let message = MultithreadRuntimeMessage { seq, function: Box::new(function) };
-        if let Err(_) = self.sender.send(message) {
-            tracing::info!(target: "multithread_runtime", seq, "Ignoring sync message with callback, receiving actor is being shut down");
         }
     }
 }
