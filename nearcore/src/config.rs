@@ -761,7 +761,7 @@ impl NearConfig {
                     .unwrap_or(ProtocolVersionCheckConfig::NextNext),
                 enable_early_prepare_transactions: config
                     .enable_early_prepare_transactions
-                    .unwrap_or(default_enable_early_prepare_transactions()),
+                    .unwrap_or_else(default_enable_early_prepare_transactions),
             },
             #[cfg(feature = "tx_generator")]
             tx_generator: config.tx_generator,
