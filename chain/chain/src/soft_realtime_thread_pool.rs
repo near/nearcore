@@ -6,9 +6,7 @@ use std::time::Duration;
 use crate::metrics::{THREAD_POOL_MAX_NUM_THREADS, THREAD_POOL_NUM_THREADS};
 use near_async::futures::AsyncComputationSpawner;
 use parking_lot::Mutex;
-use thread_priority::{
-    RealtimeThreadSchedulePolicy, ThreadBuilder, ThreadPriority, ThreadSchedulePolicy,
-};
+use thread_priority::{ThreadBuilder, ThreadPriority};
 use tracing::debug;
 
 type Job = Box<dyn FnOnce() + Send + 'static>;
@@ -27,7 +25,7 @@ pub(crate) struct ThreadPool {
     /// Name of the pool. Used for logging/debugging purposes.
     name: &'static str,
     /// Priority of spawned threads (must be in [0; 100] range)
-    priority: ThreadPriority,
+    _priority: ThreadPriority,
     /// Timeout after which an idle thread terminates.
     idle_timeout: Duration,
     /// Counter of currently running worker threads (active or idle).
@@ -47,7 +45,7 @@ impl ThreadPool {
     ) -> Self {
         Self {
             name,
-            priority: priority.try_into().expect("priority out of range"),
+            _priority: priority.try_into().expect("priority out of range"),
             idle_timeout,
             worker_counter: WorkerCounter::new(name, limit),
             idle_thread_queue: Default::default(),
@@ -77,8 +75,8 @@ impl ThreadPool {
         let counter_guard = self.worker_counter.new_thread();
         ThreadBuilder::default()
             .name(name)
-            .policy(ThreadSchedulePolicy::Realtime(RealtimeThreadSchedulePolicy::RoundRobin))
-            .priority(self.priority)
+            //.policy(ThreadSchedulePolicy::Realtime(RealtimeThreadSchedulePolicy::RoundRobin))
+            //.priority(self.priority)
             .spawn(move |res| {
                 if let Err(err) = res {
                     debug!(target: "chain::soft_realtime_thread_pool", name = name, err = %err, "Setting scheduler policy failed");
