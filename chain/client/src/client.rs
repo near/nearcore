@@ -221,6 +221,8 @@ pub struct AsyncComputationMultiSpawner {
     apply_chunks: ApplyChunksSpawner,
     /// Spawner to run 'epoch sync' tasks (defaults to `RayonAsyncComputationSpawner`)
     epoch_sync: Arc<dyn AsyncComputationSpawner>,
+    /// Spawner to run 'prepare transactions' tasks (defaults to `RayonAsyncComputationSpawner`)
+    prepare_transactions: Arc<dyn AsyncComputationSpawner>,
 }
 
 impl Default for AsyncComputationMultiSpawner {
@@ -228,6 +230,7 @@ impl Default for AsyncComputationMultiSpawner {
         Self {
             apply_chunks: Default::default(),
             epoch_sync: Arc::new(RayonAsyncComputationSpawner),
+            prepare_transactions: Arc::new(RayonAsyncComputationSpawner),
         }
     }
 }
@@ -235,7 +238,11 @@ impl Default for AsyncComputationMultiSpawner {
 impl AsyncComputationMultiSpawner {
     /// Use a custom spawner for all kinds of tasks.
     pub fn all_custom(spawner: Arc<dyn AsyncComputationSpawner>) -> Self {
-        Self { apply_chunks: ApplyChunksSpawner::Custom(spawner.clone()), epoch_sync: spawner }
+        Self {
+            apply_chunks: ApplyChunksSpawner::Custom(spawner.clone()),
+            epoch_sync: spawner.clone(),
+            prepare_transactions: spawner,
+        }
     }
 
     /// Use a custom spawner for 'apply chunks' tasks
@@ -365,6 +372,7 @@ impl Client {
             runtime_adapter.clone(),
             rng_seed,
             config.transaction_pool_size_limit,
+            multi_spawner.prepare_transactions,
         );
 
         let chunk_distribution_network = ChunkDistributionNetwork::from_config(&config);
@@ -624,7 +632,7 @@ impl Client {
         level = "debug",
         target = "client",
         skip_all,
-        fields(height, tag_block_production = true, tag_optimistic = true)
+        fields(%height, tag_block_production = true, tag_optimistic = true)
     )]
     pub fn produce_optimistic_block_on_head(
         &mut self,
@@ -715,7 +723,7 @@ impl Client {
         level = "debug",
         target = "client",
         skip_all,
-        fields(height, tag_block_production = true)
+        fields(%height, tag_block_production = true)
     )]
     pub fn produce_block_on_head(
         &mut self,
@@ -970,7 +978,7 @@ impl Client {
             hash = %block.hash(),
             height = block.header().height(),
             %peer_id,
-            was_requested
+            %was_requested
         )
     )]
     pub fn receive_block(
@@ -1014,7 +1022,7 @@ impl Client {
         level = "debug",
         target = "client",
         skip_all,
-        fields(was_requested, %peer_id)
+        fields(%was_requested, %peer_id)
     )]
     pub fn receive_block_impl(
         &mut self,
@@ -1222,7 +1230,7 @@ impl Client {
 
     /// Check if there are any blocks that has finished applying chunks, run post processing on these
     /// blocks.
-    #[instrument(level = "debug", target = "client", skip_all, fields(should_produce_chunk))]
+    #[instrument(level = "debug", target = "client", skip_all, fields(%should_produce_chunk))]
     pub fn postprocess_ready_blocks(
         &mut self,
         apply_chunks_done_sender: Option<ApplyChunksDoneSender>,
@@ -1538,7 +1546,7 @@ impl Client {
             %block_hash,
             ?status,
             ?provenance,
-            skip_produce_chunk,
+            %skip_produce_chunk,
             is_syncing = self.sync_handler.sync_status.is_syncing(),
             sync_status = ?self.sync_handler.sync_status
         )

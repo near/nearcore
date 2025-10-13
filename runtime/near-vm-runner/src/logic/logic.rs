@@ -18,12 +18,14 @@ use near_parameters::vm::Config;
 use near_parameters::{
     ActionCosts, ExtCosts, RuntimeFeesConfig, transfer_exec_fee, transfer_send_fee,
 };
+use near_primitives_core::account::AccountContract;
 use near_primitives_core::config::INLINE_DISK_VALUE_THRESHOLD;
 use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::types::{
     AccountId, Balance, Compute, EpochHeight, Gas, GasWeight, StorageUsage,
 };
 use std::mem::size_of;
+use std::rc::Rc;
 use std::sync::Arc;
 
 pub type Result<T, E = VMLogicError> = ::std::result::Result<T, E>;
@@ -725,6 +727,36 @@ impl<'a> VMLogic<'a> {
         )
     }
 
+    /// Populates a register with the ID of an account which would receive a refund.
+    ///
+    /// This is the ID of an account set for the current receipt by its
+    /// predecessor via [`Self::promise_set_refund_to()`], or
+    /// [`Self::predecessor_account_id()`] otherwise.
+    ///
+    /// # Errors
+    ///
+    /// If the registers exceed the memory limit returns `MemoryAccessViolation`.
+    ///
+    /// # Cost
+    ///
+    /// `base + write_register_base + write_register_byte * num_bytes`
+    pub fn refund_to_account_id(&mut self, register_id: u64) -> Result<()> {
+        self.result_state.gas_counter.pay_base(base)?;
+
+        if self.context.is_view() {
+            return Err(HostError::ProhibitedInView {
+                method_name: "refund_to_account_id".to_string(),
+            }
+            .into());
+        }
+        self.registers.set(
+            &mut self.result_state.gas_counter,
+            &self.config.limit_config,
+            register_id,
+            self.context.refund_to_account_id.as_bytes(),
+        )
+    }
+
     /// Reads input to the contract call into the register. Input is expected to be in JSON-format.
     /// If input is provided saves the bytes (potentially zero) of input into register. If input is
     /// not provided writes 0 bytes into the register.
@@ -735,11 +767,13 @@ impl<'a> VMLogic<'a> {
     pub fn input(&mut self, register_id: u64) -> Result<()> {
         self.result_state.gas_counter.pay_base(base)?;
 
-        self.registers.set(
+        let charge_bytes_gas = !self.config.deterministic_account_ids;
+        self.registers.set_rc_data(
             &mut self.result_state.gas_counter,
             &self.config.limit_config,
             register_id,
-            self.context.input.as_slice(),
+            Rc::clone(&self.context.input),
+            charge_bytes_gas,
         )
     }
 
@@ -2591,7 +2625,8 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
         let value = value.into_owned();
 
         self.pay_action_base(ActionCosts::deterministic_state_init_entry, sir)?;
-        let bytes = key_len.checked_add(value_len).ok_or(HostError::IntegerOverflow)?;
+        let bytes =
+            (key.len() as u64).checked_add(value.len() as u64).ok_or(HostError::IntegerOverflow)?;
         self.pay_action_per_byte(ActionCosts::deterministic_state_init_byte, bytes, sir)?;
 
         self.ext.set_deterministic_state_init_data_entry(receipt_idx, action_index, key, value)?;
@@ -3224,11 +3259,13 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
         {
             PromiseResult::NotReady => Ok(0),
             PromiseResult::Successful(data) => {
-                self.registers.set(
+                let charge_bytes_gas = !self.config.deterministic_account_ids;
+                self.registers.set_rc_data(
                     &mut self.result_state.gas_counter,
                     &self.config.limit_config,
                     register_id,
-                    data.as_slice(),
+                    Rc::clone(data),
+                    charge_bytes_gas,
                 )?;
                 Ok(1)
             }
@@ -3439,6 +3476,59 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
         self.result_state.checked_push_log(format!("ABORT: {}", message))?;
 
         Err(HostError::GuestPanic { panic_msg: message }.into())
+    }
+
+    /// Writes the code deployed on current contract being executed to the register.
+    ///
+    /// The output data in the register will either be empty, `CryptoHash`, or `AccountId`,
+    /// depending on the return value.
+    ///
+    /// # Returns
+    ///
+    /// Returns a different number depending on the type of contract that is stored on the account
+    ///  (and has been written to the register).
+    ///
+    /// * 0 if the contract code is None
+    /// * 1 if the contract code is Local(CryptoHash)
+    /// * 2 if the contract code is Global(CryptoHash)
+    /// * 3 if the contract code is GlobalByAccount(AccountId)
+    ///
+    /// # Cost
+    ///
+    /// `base` - the base cost for a simple host function call `write_memory_base` + 16 *
+    /// `write_memory_byte` - the cost of writing the data to the register
+    pub fn current_contract_code(&mut self, register_id: u64) -> Result<u64> {
+        self.result_state.gas_counter.pay_base(base)?;
+        match &self.context.account_contract {
+            AccountContract::None => Ok(0),
+            AccountContract::Local(crypto_hash) => {
+                self.registers.set(
+                    &mut self.result_state.gas_counter,
+                    &self.config.limit_config,
+                    register_id,
+                    crypto_hash.0,
+                )?;
+                Ok(1)
+            }
+            AccountContract::Global(crypto_hash) => {
+                self.registers.set(
+                    &mut self.result_state.gas_counter,
+                    &self.config.limit_config,
+                    register_id,
+                    crypto_hash.0,
+                )?;
+                Ok(2)
+            }
+            AccountContract::GlobalByAccount(account_id) => {
+                self.registers.set(
+                    &mut self.result_state.gas_counter,
+                    &self.config.limit_config,
+                    register_id,
+                    account_id.as_bytes(),
+                )?;
+                Ok(3)
+            }
+        }
     }
 
     // ###############

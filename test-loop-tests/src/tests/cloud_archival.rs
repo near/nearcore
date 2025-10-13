@@ -62,14 +62,14 @@ fn test_cloud_archival_base(params: TestCloudArchivalParameters) {
     if params.enable_split_store {
         split_store_archival_clients.insert(archival_id.clone());
     }
-    let cloud_archival_writers = [archival_id.clone()].into_iter().collect();
+    let cloud_storage_archival_clients = [archival_id.clone()].into_iter().collect();
 
     let mut env = TestLoopBuilder::new()
         .genesis(genesis)
         .epoch_config_store(epoch_config_store)
         .clients(all_clients)
         .split_store_archival_clients(split_store_archival_clients)
-        .cloud_archival_writers(cloud_archival_writers)
+        .cloud_storage_archival_clients(cloud_storage_archival_clients)
         .gc_num_epochs_to_keep(MIN_GC_NUM_EPOCHS_TO_KEEP)
         .build()
         .warmup();
@@ -115,9 +115,7 @@ fn test_cloud_archival_with_split_store() {
 /// Verifies that while the cloud writer is paused, GC stop never exceeds the first block
 /// of the epoch containing `cloud_head` and the writer catches up after resuming.
 #[test]
-// TODO(cloud_archival): Enable once cloud head is persisted to external storage.
-#[cfg(ignore)]
-fn test_cloud_archival_paused() {
+fn test_cloud_archival_resume() {
     let gc_period_num_blocks = MIN_GC_NUM_EPOCHS_TO_KEEP * MIN_EPOCH_LENGTH;
     // Pause the cloud writer long enough so that, if it were possible, GC could overtake
     // `cloud_head`. Place `cloud_head` in the middle of the epoch so that the first block

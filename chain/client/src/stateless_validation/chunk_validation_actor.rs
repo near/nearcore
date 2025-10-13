@@ -632,7 +632,7 @@ impl ChunkValidationActorInner {
                 shard_id: chunk_header.shard_id(),
             };
             let cached_shard_update_key = Chain::get_cached_shard_update_key(
-                &block_context,
+                &block_context.to_key_source(),
                 chunk_headers.iter(),
                 chunk_header.shard_id(),
             )?;

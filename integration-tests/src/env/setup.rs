@@ -148,9 +148,8 @@ fn setup(
             min_block_prod_time,
             max_block_prod_time,
             num_block_producer_seats: num_validator_seats,
-            enable_split_store: false,
-            enable_cloud_archival_writer: false,
-            save_trie_changes: true,
+            split_store_enabled: false,
+            cloud_storage_enabled: false,
             state_sync_enabled,
         });
         base.chunk_distribution_network = chunk_distribution_config;
@@ -455,8 +454,7 @@ pub fn setup_client_with_runtime(
     shard_tracker: ShardTracker,
     runtime: Arc<dyn RuntimeAdapter>,
     rng_seed: RngSeed,
-    enable_split_store: bool,
-    save_trie_changes: bool,
+    split_store_enabled: bool,
     save_tx_outcomes: bool,
     protocol_version_check: ProtocolVersionCheckConfig,
     snapshot_callbacks: Option<SnapshotCallbacks>,
@@ -469,9 +467,8 @@ pub fn setup_client_with_runtime(
         min_block_prod_time: 10,
         max_block_prod_time: 20,
         num_block_producer_seats: num_validator_seats,
-        enable_split_store: enable_split_store,
-        enable_cloud_archival_writer: false,
-        save_trie_changes,
+        split_store_enabled,
+        cloud_storage_enabled: false,
         state_sync_enabled: true,
     });
     config.save_tx_outcomes = save_tx_outcomes;
@@ -615,9 +612,8 @@ pub fn setup_tx_request_handler(
         min_block_prod_time: 10,
         max_block_prod_time: 20,
         num_block_producer_seats: 0,
-        enable_split_store: true,
-        enable_cloud_archival_writer: false,
-        save_trie_changes: true,
+        split_store_enabled: true,
+        cloud_storage_enabled: false,
         state_sync_enabled: true,
     });
     let config = RpcHandlerConfig {

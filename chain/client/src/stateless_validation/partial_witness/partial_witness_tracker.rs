@@ -25,8 +25,6 @@ use near_primitives::stateless_validation::{
 };
 use near_primitives::types::ShardId;
 use near_primitives::utils::compression::CompressedData;
-use near_primitives::version::ProtocolFeature;
-use near_vm_runner::logic::ProtocolVersion;
 use parking_lot::Mutex;
 use time::ext::InstantExt as _;
 
@@ -479,8 +477,6 @@ impl PartialEncodedStateWitnessTracker {
                 }
             };
 
-            let protocol_version =
-                self.epoch_manager.get_epoch_protocol_version(&key.chunk.epoch_id)?;
             let (mut witness, raw_witness_size) = {
                 let _span = tracing::debug_span!(
                     target: "client",
@@ -491,7 +487,7 @@ impl PartialEncodedStateWitnessTracker {
                     witness_type = ?key.witness_type,
                 )
                 .entered();
-                self.decode_state_witness(&encoded_witness, protocol_version)?
+                self.decode_state_witness(&encoded_witness)?
             };
             let witness_key = witness.production_key();
             if witness_key != key {
@@ -571,21 +567,10 @@ impl PartialEncodedStateWitnessTracker {
     fn decode_state_witness(
         &self,
         encoded_witness: &EncodedChunkStateWitness,
-        protocol_version: ProtocolVersion,
     ) -> Result<(ChunkStateWitness, ChunkStateWitnessSize), Error> {
         let decode_start = std::time::Instant::now();
 
-        let (witness, raw_witness_size) =
-            if ProtocolFeature::VersionedStateWitness.enabled(protocol_version) {
-                // If VersionedStateWitness is enabled, we expect the type of encoded_witness to be ChunkStateWitness
-                encoded_witness.decode()?
-            } else {
-                // If VersionedStateWitness is not enabled,
-                // we expect the type of encoded_witness to be ChunkStateWitnessV1 to maintain backward compatibility
-                // We then decode and wrap it in ChunkStateWitness::V1
-                let (witness, raw_witness_size) = encoded_witness.decode()?;
-                (ChunkStateWitness::V1(witness), raw_witness_size)
-            };
+        let (witness, raw_witness_size) = encoded_witness.decode()?;
         let decode_elapsed_seconds = decode_start.elapsed().as_secs_f64();
         let witness_shard = witness.latest_chunk_header().shard_id();
 

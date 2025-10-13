@@ -4,6 +4,7 @@ use crate::congestion_info::BlockCongestionInfo;
 use crate::hash::{CryptoHash, hash};
 use crate::merkle::combine_hash;
 use crate::network::PeerId;
+use crate::optimistic_block::OptimisticBlockKeySource;
 use crate::stateless_validation::chunk_endorsements_bitmap::ChunkEndorsementsBitmap;
 use crate::types::validator_stake::{ValidatorStake, ValidatorStakeIter, ValidatorStakeV1};
 use crate::types::{AccountId, Balance, BlockHeight, EpochId, MerkleHash, NumBlocks};
@@ -1346,6 +1347,15 @@ impl ApplyChunkBlockContext {
             random_seed: *header.random_value(),
             congestion_info,
             bandwidth_requests,
+        }
+    }
+
+    pub fn to_key_source(&self) -> OptimisticBlockKeySource {
+        OptimisticBlockKeySource {
+            height: self.height,
+            prev_block_hash: self.prev_block_hash,
+            block_timestamp: self.block_timestamp,
+            random_seed: self.random_seed,
         }
     }
 }

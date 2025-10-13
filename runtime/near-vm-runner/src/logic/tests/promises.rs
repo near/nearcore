@@ -8,6 +8,7 @@ use near_crypto::PublicKey;
 use near_parameters::{ActionCosts, ExtCosts};
 use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::types::Gas;
+use near_primitives_core::version::{PROTOCOL_VERSION, ProtocolFeature};
 use serde_json;
 
 fn vm_receipts<'a>(ext: &'a MockedExternal) -> Vec<impl serde::Serialize + 'a> {
@@ -17,7 +18,7 @@ fn vm_receipts<'a>(ext: &'a MockedExternal) -> Vec<impl serde::Serialize + 'a> {
 #[test]
 fn test_promise_results() {
     let promise_results = [
-        PromiseResult::Successful(b"test".to_vec()),
+        PromiseResult::Successful(b"test".to_vec().into()),
         PromiseResult::Failed,
         PromiseResult::NotReady,
     ];
@@ -33,6 +34,31 @@ fn test_promise_results() {
 
     // Only promise with result should write data into register
     logic.assert_read_register(b"test", 0);
+}
+
+#[test]
+fn test_promise_result_per_byte_gas_fee() {
+    const RESULT_SIZE: usize = 100;
+    let promise_results = [PromiseResult::Successful([0u8; RESULT_SIZE].into())];
+
+    let mut logic_builder = VMLogicBuilder::default();
+    logic_builder.context.promise_results = promise_results.into();
+    let mut logic = logic_builder.build();
+
+    logic.promise_result(0, 0).expect("promise_result should succeed");
+
+    if ProtocolFeature::DeterministicAccountIds.enabled(PROTOCOL_VERSION) {
+        assert_costs(map! {
+          ExtCosts::base: 1,
+          ExtCosts::write_register_base: 1,
+        });
+    } else {
+        assert_costs(map! {
+          ExtCosts::base: 1,
+          ExtCosts::write_register_base: 1,
+          ExtCosts::write_register_byte: RESULT_SIZE as u64,
+        });
+    }
 }
 
 #[test]
@@ -820,6 +846,13 @@ fn test_promise_batch_action_state_init() {
     let key = logic.internal_mem_write(b"key");
     let value = logic.internal_mem_write(b"value");
     let amount = logic.internal_mem_write(&110u128.to_le_bytes());
+    let key2_register = 0;
+    let value2_register = 1;
+    let key2 = b"key2";
+    logic.wrapped_internal_write_register(key2_register, key2).unwrap();
+    let value2 = b"value2";
+    logic.wrapped_internal_write_register(value2_register, value2).unwrap();
+    reset_costs_counter();
 
     let action_index = logic
         .promise_batch_action_state_init_by_account_id(
@@ -848,8 +881,26 @@ fn test_promise_batch_action_state_init() {
       ExtCosts::read_memory_byte: key.len + value.len,
     });
 
+    // also set by register
+    logic
+        .set_state_init_data_entry(
+            index,
+            action_index,
+            u64::MAX,
+            key2_register,
+            u64::MAX,
+            value2_register,
+        )
+        .expect("should successfully add data to state init action");
+
+    assert_costs(map! {
+      ExtCosts::base: 1,
+      ExtCosts::read_register_base: 2,
+      ExtCosts::read_register_byte: (key2.len() + value2.len()) as u64,
+    });
+
     let profile = logic.gas_counter().profile_data();
-    assert_eq!(logic.used_gas().unwrap(), 8_373_585_814_798, "unexpected gas usage {profile:?}");
+    assert_eq!(logic.used_gas().unwrap(), 8_586_074_959_513, "unexpected gas usage {profile:?}");
 
     // Check that all send costs have been charged as expected
 
@@ -873,7 +924,7 @@ fn test_promise_batch_action_state_init() {
     //    exec 0.000_070 per byte
     assert_eq!(
         profile.actions_profile[ActionCosts::deterministic_state_init_byte].as_gas(),
-        576_000_000,
+        1_296_000_000,
         "unexpected action gas usage {profile:?}"
     );
     // action_receipt_creation
@@ -902,7 +953,8 @@ fn test_promise_batch_action_state_init() {
                     "AccountId": "global.near"
                   },
                   "data": {
-                    "a2V5": "dmFsdWU="
+                    "a2V5": "dmFsdWU=",
+                    "a2V5Mg==": "dmFsdWUy"
                   }
                 }
               },

@@ -594,7 +594,7 @@ impl RunCmd {
             if let Some(handle) = cold_store_loop_handle {
                 handle.store(false, std::sync::atomic::Ordering::Relaxed);
             }
-            resharding_handle.stop();
+            resharding_handle.0.stop();
             near_async::shutdown_all_actors();
             // Disable the subscriber to properly shutdown the tracer.
             near_o11y::reload(Some("error"), None, Some("off"), None).unwrap();

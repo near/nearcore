@@ -615,8 +615,7 @@ impl RuntimeAdapter for NightshadeRuntime {
     ) -> Result<(), InvalidTxError> {
         let runtime_config = self.runtime_config_store.get_config(current_protocol_version);
 
-        let cost =
-            tx_cost(runtime_config, &validated_tx.to_tx(), gas_price, current_protocol_version)?;
+        let cost = tx_cost(runtime_config, &validated_tx.to_tx(), gas_price)?;
         let shard_uid = shard_layout
             .account_id_to_shard_uid(validated_tx.to_signed_tx().transaction.signer_id());
         let trie = self.tries.get_trie_for_shard(shard_uid, state_root);
@@ -837,23 +836,19 @@ impl RuntimeAdapter for NightshadeRuntime {
                     (&mut inserted.1, &mut inserted.2)
                 };
 
-                let verify_result = tx_cost(
-                    runtime_config,
-                    &validated_tx.to_tx(),
-                    prev_block.next_gas_price,
-                    protocol_version,
-                )
-                .map_err(InvalidTxError::from)
-                .and_then(|cost| {
-                    verify_and_charge_tx_ephemeral(
-                        runtime_config,
-                        signer,
-                        access_key,
-                        validated_tx.to_tx(),
-                        &cost,
-                        Some(next_block_height),
-                    )
-                });
+                let verify_result =
+                    tx_cost(runtime_config, &validated_tx.to_tx(), prev_block.next_gas_price)
+                        .map_err(InvalidTxError::from)
+                        .and_then(|cost| {
+                            verify_and_charge_tx_ephemeral(
+                                runtime_config,
+                                signer,
+                                access_key,
+                                validated_tx.to_tx(),
+                                &cost,
+                                Some(next_block_height),
+                            )
+                        });
 
                 match verify_result {
                     Ok(cost) => {

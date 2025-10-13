@@ -1,7 +1,7 @@
 use near_jsonrpc::client::new_http_client;
 use near_jsonrpc_tests::{NodeType, create_test_setup_with_node_type};
 
-#[actix::test]
+#[tokio::test]
 async fn test_status() {
     let setup = create_test_setup_with_node_type(NodeType::Validator);
 

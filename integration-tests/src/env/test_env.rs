@@ -78,7 +78,6 @@ pub struct TestEnv {
     // if not set, a default constant TEST_SEED will be injected
     pub(crate) seeds: HashMap<AccountId, RngSeed>,
     pub(crate) enable_split_store: bool,
-    pub(crate) save_trie_changes: bool,
     pub(crate) save_tx_outcomes: bool,
     pub(crate) protocol_version_check: ProtocolVersionCheckConfig,
 }
@@ -693,7 +692,6 @@ impl TestEnv {
             self.clients[idx].runtime_adapter.clone(),
             rng_seed,
             self.enable_split_store,
-            self.save_trie_changes,
             self.save_tx_outcomes,
             self.protocol_version_check,
             None,

@@ -54,7 +54,6 @@ impl Client {
         let CreateWitnessResult { state_witness, main_transition_shard_id, contract_updates } =
             self.chain.chain_store().create_state_witness(
                 self.epoch_manager.as_ref(),
-                my_signer.validator_id().clone(),
                 prev_block_header,
                 prev_chunk_header,
                 chunk,

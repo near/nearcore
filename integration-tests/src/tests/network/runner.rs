@@ -20,7 +20,7 @@ use near_client::{
 use near_epoch_manager::EpochManager;
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_network::PeerManagerActor;
-use near_network::actix::AutoStopActor;
+use near_network::auto_stop::AutoStopActor;
 use near_network::blacklist;
 use near_network::config;
 use near_network::tcp;
@@ -89,9 +89,8 @@ fn setup_network_node(
         min_block_prod_time: 100,
         max_block_prod_time: 200,
         num_block_producer_seats: num_validators,
-        enable_split_store: config.archive,
-        enable_cloud_archival_writer: false,
-        save_trie_changes: true,
+        split_store_enabled: config.archive,
+        cloud_storage_enabled: false,
         state_sync_enabled: true,
     });
     client_config.ttl_account_id_router = config.ttl_account_id_router.try_into().unwrap();
@@ -274,7 +273,7 @@ async fn check_routing_table(
             (info.runner.test_config[target].peer_id(), peers)
         })
         .collect();
-    let pm = info.get_node(u)?.actix.clone();
+    let pm = info.get_node(u)?.actor.clone();
     let resp = pm.send_async(PeerManagerMessageRequest::FetchRoutingTable).await?;
     let rt = match resp {
         PeerManagerMessageResponse::FetchRoutingTable(rt) => rt,
@@ -302,7 +301,7 @@ impl StateMachine {
             Action::AddEdge { from, to, force } => {
                 self.actions.push(Box::new(move |info: &mut RunningInfo| Box::pin(async move {
                     debug!(target: "test", num_prev_actions, action = ?action_clone, "runner.rs: Action");
-                    let pm = info.get_node(from)?.actix.clone();
+                    let pm = info.get_node(from)?.actor.clone();
                     let peer_info = info.runner.test_config[to].peer_info();
                     match tcp::Stream::connect(&peer_info, tcp::Tier::T2, &config::SocketOptions::default()).await {
                         Ok(stream) => {
@@ -405,7 +404,7 @@ pub(crate) struct Runner {
 }
 
 struct NodeHandle {
-    actix: AutoStopActor<PeerManagerActor>,
+    actor: AutoStopActor<PeerManagerActor>,
 }
 
 impl Runner {
@@ -545,7 +544,7 @@ impl Runner {
         let chain_genesis = self.chain_genesis.clone();
 
         Ok(NodeHandle {
-            actix: AutoStopActor(setup_network_node(
+            actor: AutoStopActor(setup_network_node(
                 self.actor_system.clone(),
                 account_id,
                 validators,
@@ -623,7 +622,7 @@ pub(crate) fn assert_expected_peers(node_id: usize, peers: Vec<usize>) -> Action
     Box::new(move |info: &mut RunningInfo| {
         let peers = peers.clone();
         Box::pin(async move {
-            let pm = &info.get_node(node_id)?.actix;
+            let pm = &info.get_node(node_id)?.actor;
             let network_info = pm.send_async(GetInfo {}).await?;
             let got: HashSet<_> = network_info
                 .connected_peers
@@ -651,7 +650,7 @@ pub(crate) fn check_expected_connections(
     Box::new(move |info: &mut RunningInfo| {
         Box::pin(async move {
             debug!(target: "test", node_id, expected_connections_lo, ?expected_connections_hi, "runner.rs: check_expected_connections");
-            let pm = &info.get_node(node_id)?.actix;
+            let pm = &info.get_node(node_id)?.actor;
             let res = pm.send_async(GetInfo {}).await?;
             if expected_connections_lo.is_some_and(|l| l > res.num_connected_peers) {
                 return Ok(ControlFlow::Continue(()));

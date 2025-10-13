@@ -17,9 +17,11 @@ use near_crypto::Secp256K1Signature;
 use near_parameters::{
     ActionCosts, ExtCosts, RuntimeFeesConfig, transfer_exec_fee, transfer_send_fee,
 };
+use near_primitives_core::account::AccountContract;
 use near_primitives_core::config::INLINE_DISK_VALUE_THRESHOLD;
 use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::types::{AccountId, Balance, EpochHeight, Gas, GasWeight, StorageUsage};
+use std::rc::Rc;
 use wasmtime::{Caller, Extern, Memory};
 
 // Lookup the memory export and cache it on success.
@@ -655,6 +657,37 @@ pub fn predecessor_account_id(caller: &mut Caller<'_, Ctx>, register_id: u64) ->
     )
 }
 
+/// Populates a register with the ID of an account which would receive a refund.
+///
+/// This is the ID of an account set for the current receipt by its
+/// predecessor via [`Self::promise_set_refund_to()`], or
+/// [`Self::predecessor_account_id()`] otherwise.
+///
+/// # Errors
+///
+/// If the registers exceed the memory limit returns `MemoryAccessViolation`.
+///
+/// # Cost
+///
+/// `base + write_register_base + write_register_byte * num_bytes`
+pub fn refund_to_account_id(caller: &mut Caller<'_, Ctx>, register_id: u64) -> Result<()> {
+    let ctx = caller.data_mut();
+    ctx.result_state.gas_counter.pay_base(base)?;
+
+    if ctx.context.is_view() {
+        return Err(HostError::ProhibitedInView {
+            method_name: "refund_to_account_id".to_string(),
+        }
+        .into());
+    }
+    ctx.registers.set(
+        &mut ctx.result_state.gas_counter,
+        &ctx.config.limit_config,
+        register_id,
+        ctx.context.refund_to_account_id.as_bytes(),
+    )
+}
+
 /// Reads input to the contract call into the register. Input is expected to be in JSON-format.
 /// If input is provided saves the bytes (potentially zero) of input into register. If input is
 /// not provided writes 0 bytes into the register.
@@ -666,11 +699,13 @@ pub fn input(caller: &mut Caller<'_, Ctx>, register_id: u64) -> Result<()> {
     let ctx = caller.data_mut();
     ctx.result_state.gas_counter.pay_base(base)?;
 
-    ctx.registers.set(
+    let charge_bytes_gas = !ctx.config.deterministic_account_ids;
+    ctx.registers.set_rc_data(
         &mut ctx.result_state.gas_counter,
         &ctx.config.limit_config,
         register_id,
-        ctx.context.input.as_slice(),
+        Rc::clone(&ctx.context.input),
+        charge_bytes_gas,
     )
 }
 
@@ -2779,7 +2814,8 @@ pub fn set_state_init_data_entry(
         ActionCosts::deterministic_state_init_entry,
         sir,
     )?;
-    let bytes = key_len.checked_add(value_len).ok_or(HostError::IntegerOverflow)?;
+    let bytes =
+        (key.len() as u64).checked_add(value.len() as u64).ok_or(HostError::IntegerOverflow)?;
     pay_action_per_byte(
         &mut ctx.result_state.gas_counter,
         &ctx.fees_config,
@@ -3569,11 +3605,13 @@ pub fn promise_result(
     {
         PromiseResult::NotReady => Ok(0),
         PromiseResult::Successful(data) => {
-            ctx.registers.set(
+            let charge_bytes_gas = !ctx.config.deterministic_account_ids;
+            ctx.registers.set_rc_data(
                 &mut ctx.result_state.gas_counter,
                 &ctx.config.limit_config,
                 register_id,
-                data.as_slice(),
+                Rc::clone(data),
+                charge_bytes_gas,
             )?;
             Ok(1)
         }
@@ -3809,6 +3847,60 @@ pub fn abort(
     ctx.result_state.checked_push_log(format!("ABORT: {}", message))?;
 
     Err(HostError::GuestPanic { panic_msg: message }.into())
+}
+
+/// Writes the code deployed on current contract being executed to the register.
+///
+/// The output data in the register will either be empty, `CryptoHash`, or `AccountId`,
+/// depending on the return value.
+///
+/// # Returns
+///
+/// Returns a different number depending on the type of contract that is stored on the account
+///  (and has been written to the register).
+///
+/// * 0 if the contract code is None
+/// * 1 if the contract code is Local(CryptoHash)
+/// * 2 if the contract code is Global(CryptoHash)
+/// * 3 if the contract code is GlobalByAccount(AccountId)
+///
+/// # Cost
+///
+/// `base` - the base cost for a simple host function call `write_memory_base` + 16 *
+/// `write_memory_byte` - the cost of writing the data to the register
+pub fn current_contract_code(caller: &mut Caller<'_, Ctx>, register_id: u64) -> Result<u64> {
+    let ctx = caller.data_mut();
+    ctx.result_state.gas_counter.pay_base(base)?;
+    match &ctx.context.account_contract {
+        AccountContract::None => Ok(0),
+        AccountContract::Local(crypto_hash) => {
+            ctx.registers.set(
+                &mut ctx.result_state.gas_counter,
+                &ctx.config.limit_config,
+                register_id,
+                crypto_hash.0,
+            )?;
+            Ok(1)
+        }
+        AccountContract::Global(crypto_hash) => {
+            ctx.registers.set(
+                &mut ctx.result_state.gas_counter,
+                &ctx.config.limit_config,
+                register_id,
+                crypto_hash.0,
+            )?;
+            Ok(2)
+        }
+        AccountContract::GlobalByAccount(account_id) => {
+            ctx.registers.set(
+                &mut ctx.result_state.gas_counter,
+                &ctx.config.limit_config,
+                register_id,
+                account_id.as_bytes(),
+            )?;
+            Ok(3)
+        }
+    }
 }
 
 // ###############

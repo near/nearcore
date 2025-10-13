@@ -17,7 +17,7 @@ use near_primitives::stateless_validation::state_witness::{
 use near_primitives::stateless_validation::stored_chunk_state_transition_data::{
     StoredChunkStateTransitionData, StoredChunkStateTransitionDataV1,
 };
-use near_primitives::types::{AccountId, EpochId, ShardId};
+use near_primitives::types::{EpochId, ShardId};
 use near_primitives::version::ProtocolFeature;
 use std::collections::HashMap;
 
@@ -61,7 +61,6 @@ impl ChainStore {
     pub fn create_state_witness(
         &self,
         epoch_manager: &dyn EpochManagerAdapter,
-        chunk_producer: AccountId,
         prev_block_header: &BlockHeader,
         prev_chunk_header: &ShardChunkHeader,
         chunk: &ShardChunk,
@@ -128,7 +127,6 @@ impl ChainStore {
 
         let protocol_version = epoch_manager.get_epoch_protocol_version(&epoch_id)?;
         let state_witness = ChunkStateWitness::new(
-            chunk_producer,
             epoch_id,
             chunk_header,
             main_transition,
@@ -144,7 +142,6 @@ impl ChainStore {
             } else {
                 vec![]
             },
-            protocol_version,
         );
         Ok(CreateWitnessResult { state_witness, contract_updates, main_transition_shard_id })
     }

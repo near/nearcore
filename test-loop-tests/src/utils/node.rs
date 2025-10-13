@@ -1,6 +1,7 @@
 use std::sync::Arc;
 use std::task::Poll;
 
+use near_async::messaging::CanSend;
 use near_async::test_loop::TestLoopV2;
 use near_async::test_loop::data::TestLoopData;
 use near_async::time::Duration;
@@ -101,6 +102,7 @@ impl<'a> TestLoopNode<'a> {
         );
     }
 
+    #[track_caller]
     pub fn run_tx(
         &self,
         test_loop: &mut TestLoopV2,

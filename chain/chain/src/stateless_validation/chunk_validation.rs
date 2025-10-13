@@ -31,7 +31,7 @@ use near_primitives::shard_layout::{ShardLayout, ShardUId};
 use near_primitives::sharding::{ChunkHash, ReceiptProof, ShardChunkHeader};
 use near_primitives::state::PartialState;
 use near_primitives::stateless_validation::state_witness::{
-    ChunkStateWitness, ChunkStateWitnessV1, EncodedChunkStateWitness,
+    ChunkStateWitness, EncodedChunkStateWitness,
 };
 use near_primitives::stateless_validation::{
     ChunkProductionKey, WitnessProductionKey, WitnessType,
@@ -452,7 +452,7 @@ pub fn pre_validate_chunk_state_witness(
         MainTransition::Genesis { .. } => CachedShardUpdateKey::new(CryptoHash::default()),
         MainTransition::NewChunk { new_chunk_data, shard_id, .. } => {
             Chain::get_cached_shard_update_key(
-                &new_chunk_data.block,
+                &new_chunk_data.block.to_key_source(),
                 last_chunk_block.chunks().iter_raw(),
                 *shard_id,
             )?
@@ -528,8 +528,7 @@ fn validate_source_receipt_proofs(
         )?;
 
         // Arrange the receipts in the order in which they should be applied.
-        let receipts_shuffle_salt = get_receipts_shuffle_salt(epoch_manager, block)?;
-        shuffle_receipt_proofs(&mut block_receipt_proofs, receipts_shuffle_salt);
+        shuffle_receipt_proofs(&mut block_receipt_proofs, get_receipts_shuffle_salt(block));
         for proof in block_receipt_proofs {
             receipts_to_apply.extend(proof.0.iter().cloned());
         }
@@ -990,14 +989,7 @@ impl Chain {
                     .with_label_values(&[shard_id_label.as_str()])
                     .start_timer();
 
-            let protocol_version = self
-                .epoch_manager
-                .get_epoch_protocol_version(&witness.production_key().chunk.epoch_id)?;
-            if ProtocolFeature::VersionedStateWitness.enabled(protocol_version) {
-                let _witness: ChunkStateWitness = encoded_witness.decode()?.0;
-            } else {
-                let _witness: ChunkStateWitnessV1 = encoded_witness.decode()?.0;
-            };
+            let _witness: ChunkStateWitness = encoded_witness.decode()?.0;
             decode_timer.observe_duration();
             (encoded_witness, raw_witness_size)
         };
