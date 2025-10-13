@@ -182,10 +182,8 @@ impl StateUpdate {
                         unreachable!("written but no value?")
                     }
                     state_value::Type::Serialized(_) => return None,
-                    state_value::Type::Deserialized(deserialized)
-                        if was_absent || was_written =>
-                    {
-                        todo!("serialize dat data mate")
+                    state_value::Type::Deserialized(deserialized) if was_absent || was_written => {
+                        Some(deserialized.serialize())
                     }
                     state_value::Type::Deserialized(_) => return None,
                 };
@@ -712,35 +710,50 @@ impl<'su> StateOperations<'su> {
     }
 
     /// Remove all values with the provided `TrieKey` prefix.
-    pub fn remove_prefix(&mut self, key: TrieKeyPrefix) -> Result<(), StorageError> {
+    pub fn remove_prefix(&mut self, prefix: TrieKeyPrefix) -> Result<(), StorageError> {
+        for (key, op) in self.operations.range_mut(prefix.range_start()..) {
+            // FIXME: this is relatively inefficient, but we cannot construct invalid AccountIds
+            // that may be otherwise necessary if we wanted to construct a `TrieKey` that
+            // represents an end bound.
+            if !prefix.contains(key) {
+                break;
+            }
+            op.operations |= OperationValue::WRITTEN;
+            op.value = state_value::Type::Absent;
+        }
+        {
+            let mut committed_state = self.state_update.state.lock();
+            for (key, committed) in committed_state.committed.range_mut(prefix.range_start()..) {
+                if !prefix.contains(key) {
+                    break;
+                }
+                self.remove(key.clone());
+            }
+        }
+
         let lock = self.trie().lock_for_iter();
         let mut iterator = lock.iter()?;
-        let mut prefix = SmallKeyVec::new();
-        key.append_into(&mut prefix);
-        iterator.seek_prefix(&prefix);
+        let mut serialized_key = SmallKeyVec::new();
+        prefix.append_into(&mut serialized_key);
+        iterator.seek_prefix(&serialized_key);
+        let mut to_remove = Vec::new();
         for result in iterator {
             let (key, value) = result?;
-            todo!("removing {:?}", key);
+            let full_key = prefix
+                .clone()
+                .parse_full(&key)
+                .map_err(|e| StorageError::StorageInconsistentState(e.to_string()))?;
+            to_remove.push(full_key);
         }
-        // TODO: remove all values that match this prefix in the btreemaps too.
         drop(lock);
-        Ok(())
-        // let public_keys = state_update
-        //     .locked_iter(&trie_key_parsers::get_raw_prefix_for_access_keys(account_id), &lock)?
-        //     .map(|raw_key| {
-        //         trie_key_parsers::parse_public_key_from_access_key_key(&raw_key?, account_id).map_err(
-        //             |_e| {
-        //                 StorageError::StorageInconsistentState(
-        //                     "Can't parse public key from raw key for AccessKey".to_string(),
-        //                 )
-        //             },
-        //         )
-        //     })
-        //     .collect::<Result<Vec<_>, _>>()?;
 
-        // for public_key in public_keys {
-        //     state_update.remove(TrieKey::AccessKey { account_id: account_id.clone(), public_key });
-        // }
+        // FIXME: This intermediate vector is unfortunate and could be avoided if `self.remove` did
+        // not interact with the `self.trie()` borrow.
+        for key in to_remove {
+            self.remove(key);
+        }
+
+        Ok(())
     }
 
     /// Commit the changes to the [`StateUpdate`].
@@ -913,7 +926,9 @@ pub mod state_value {
     /// A value that can be eventually written out to the database.
     ///
     // FIXME: seal this so that implementing this is only possible in this module.
-    pub trait Deserialized: Any + Send + Sync {}
+    pub trait Deserialized: Any + Send + Sync {
+        fn serialize(&self) -> Vec<u8>;
+    }
 
     /// A value that can be eventually written out to the database.
     ///
@@ -965,7 +980,11 @@ mod state_value_impls {
 
     macro_rules! borsh_state_value {
         ($ty: ty) => {
-            impl Deserialized for $ty {}
+            impl Deserialized for $ty {
+                fn serialize(&self) -> Vec<u8> {
+                    borsh::to_vec(self).expect("TODO(state_update): error handling?")
+                }
+            }
 
             impl Deserializable for $ty {
                 fn deserialize(bytes: Vec<u8>) -> Result<Arc<Self>, StorageError> {
@@ -997,7 +1016,11 @@ mod state_value_impls {
     borsh_state_value!(ReceiptOrStateStoredReceipt<'static>);
     borsh_state_value!(BandwidthSchedulerState);
 
-    impl Deserialized for Vec<u8> {}
+    impl Deserialized for Vec<u8> {
+        fn serialize(&self) -> Vec<u8> {
+            self.to_vec()
+        }
+    }
     impl Deserializable for Vec<u8> {
         fn deserialize(bytes: Vec<u8>) -> Result<Arc<Self>, StorageError> {
             Ok(Arc::new(bytes))

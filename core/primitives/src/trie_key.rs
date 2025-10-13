@@ -1,7 +1,7 @@
 use crate::types::AccountId;
 use crate::{action::GlobalContractIdentifier, hash::CryptoHash};
 use borsh::{BorshDeserialize, BorshSerialize};
-use near_crypto::PublicKey;
+use near_crypto::{ED25519PublicKey, PublicKey};
 use near_primitives_core::types::{NonceIndex, ShardId};
 use near_schema_checker_lib::ProtocolSchema;
 use std::mem::size_of;
@@ -496,9 +496,18 @@ impl TrieKey {
 }
 
 #[repr(u8)]
+#[derive(Clone)]
 pub enum TrieKeyPrefix {
     AccessKey { account_id: AccountId } = col::ACCESS_KEY,
     ContractData { account_id: AccountId } = col::CONTRACT_DATA,
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum ParseFullTrieKeyError {
+    #[error("could not parse the public key out of serialized access key")]
+    PublicKeyFromAccessKey(#[source] std::io::Error),
+    #[error("could not parse the data key out of contract data key")]
+    DataKeyFromContractDataKey(#[source] std::io::Error),
 }
 
 impl TrieKeyPrefix {
@@ -516,8 +525,51 @@ impl TrieKeyPrefix {
             }
         }
     }
-}
 
+    pub fn parse_full(self, full: &[u8]) -> Result<TrieKey, ParseFullTrieKeyError> {
+        match self {
+            TrieKeyPrefix::AccessKey { account_id } => {
+                let public_key =
+                    trie_key_parsers::parse_public_key_from_access_key_key(full, &account_id)
+                        .map_err(ParseFullTrieKeyError::PublicKeyFromAccessKey)?;
+                Ok(TrieKey::AccessKey { account_id, public_key })
+            }
+            TrieKeyPrefix::ContractData { account_id } => {
+                let key =
+                    trie_key_parsers::parse_data_key_from_contract_data_key(full, &account_id)
+                        .map_err(ParseFullTrieKeyError::DataKeyFromContractDataKey)?;
+                Ok(TrieKey::ContractData { account_id, key: key.to_vec() })
+            }
+        }
+    }
+
+    pub fn range_start(&self) -> TrieKey {
+        match self {
+            TrieKeyPrefix::AccessKey { account_id } => {
+                let public_key = PublicKey::empty(near_crypto::KeyType::ED25519);
+                TrieKey::AccessKey { account_id: account_id.clone(), public_key }
+            }
+            TrieKeyPrefix::ContractData { account_id } => {
+                TrieKey::ContractData { account_id: account_id.clone(), key: vec![] }
+            }
+        }
+    }
+
+    pub fn contains(&self, key: &TrieKey) -> bool {
+        match (self, key) {
+            (
+                TrieKeyPrefix::AccessKey { account_id },
+                TrieKey::AccessKey { account_id: other_account_id, public_key: _ },
+            ) => account_id == other_account_id,
+            (
+                TrieKeyPrefix::ContractData { account_id },
+                TrieKey::ContractData { account_id: other_account_id, key: _ },
+            ) => account_id == other_account_id,
+            (TrieKeyPrefix::AccessKey { account_id: _ }, _) => false,
+            (TrieKeyPrefix::ContractData { account_id: _ }, _) => false,
+        }
+    }
+}
 
 mod trie_key_buffer {
     /// Buffers into which [`TrieKey`s](super::TrieKey) can be encoded.
