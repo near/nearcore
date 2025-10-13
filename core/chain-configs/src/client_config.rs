@@ -681,6 +681,13 @@ pub fn default_orphan_state_witness_max_size() -> ByteSize {
     ByteSize::mb(40)
 }
 
+/// Returns the default value for `enable_early_prepare_transactions`.
+/// Enabled on nightly as it remains disabled in production builds, and CI will run both with
+/// this enabled and disabled.
+pub fn default_enable_early_prepare_transactions() -> bool {
+    cfg!(feature = "nightly")
+}
+
 /// Config for the Chunk Distribution Network feature.
 /// This allows nodes to push and pull chunks from a central stream.
 /// The two benefits of this approach are: (1) less request/response traffic

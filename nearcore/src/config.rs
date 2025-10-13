@@ -19,7 +19,8 @@ use near_chain_configs::{
     NUM_BLOCK_PRODUCER_SEATS, NUM_BLOCKS_PER_YEAR, PROTOCOL_REWARD_RATE,
     PROTOCOL_UPGRADE_STAKE_THRESHOLD, ProtocolVersionCheckConfig, ReshardingConfig,
     StateSyncConfig, TRANSACTION_VALIDITY_PERIOD, TrackedShardsConfig,
-    default_chunk_validation_threads, default_chunk_wait_mult, default_enable_multiline_logging,
+    default_chunk_validation_threads, default_chunk_wait_mult,
+    default_enable_early_prepare_transactions, default_enable_multiline_logging,
     default_epoch_sync, default_header_sync_expected_height_per_second,
     default_header_sync_initial_timeout, default_header_sync_progress_timeout,
     default_header_sync_stall_ban_timeout, default_log_summary_period,
@@ -760,7 +761,7 @@ impl NearConfig {
                     .unwrap_or(ProtocolVersionCheckConfig::NextNext),
                 enable_early_prepare_transactions: config
                     .enable_early_prepare_transactions
-                    .unwrap_or(cfg!(feature = "nightly")), // Allows testing enabled and disabled in CI
+                    .unwrap_or(default_enable_early_prepare_transactions()),
             },
             #[cfg(feature = "tx_generator")]
             tx_generator: config.tx_generator,
