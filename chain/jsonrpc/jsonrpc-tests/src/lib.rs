@@ -179,7 +179,6 @@ pub fn create_test_setup_with_accounts_and_validity(
         actor_system.clone(),
         rpc_handler_config,
         client_result.tx_pool,
-        client_result.chunk_endorsement_tracker,
         epoch_manager,
         shard_tracker,
         signer,
