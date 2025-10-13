@@ -9995,7 +9995,7 @@
             "type": "array"
           },
           "enable_early_prepare_transactions": {
-            "description": "If true, transactions for the next chunk will be prepared early, right after the previous chunk's\npost-state is ready. This can help produce chunks faster, for high-throughput chains.",
+            "description": "If true, transactions for the next chunk will be prepared early, right after the previous chunk's\npost-state is ready. This can help produce chunks faster, for high-throughput chains.\nThe current implementation increases latency on low-load chains, which will be fixed in the future.\nThe default is disabled.",
             "type": "boolean"
           },
           "enable_multiline_logging": {

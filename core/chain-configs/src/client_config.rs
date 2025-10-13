@@ -897,6 +897,8 @@ pub struct ClientConfig {
     pub protocol_version_check: ProtocolVersionCheckConfig,
     /// If true, transactions for the next chunk will be prepared early, right after the previous chunk's
     /// post-state is ready. This can help produce chunks faster, for high-throughput chains.
+    /// The current implementation increases latency on low-load chains, which will be fixed in the future.
+    /// The default is disabled.
     pub enable_early_prepare_transactions: bool,
 }
 
