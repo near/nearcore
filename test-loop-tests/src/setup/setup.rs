@@ -13,7 +13,7 @@ use near_chain::types::RuntimeAdapter;
 use near_chain::{ApplyChunksIterationMode, ApplyChunksSpawner, ChainGenesis};
 use near_chain_configs::{MutableConfigValue, ReshardingHandle};
 use near_chunks::shards_manager_actor::ShardsManagerActor;
-use near_client::archive::cloud_archival_actor::create_cloud_archival_actor;
+use near_client::archive::cloud_archival_actor::create_cloud_archival_writer;
 use near_client::archive::cold_store_actor::create_cold_store_actor;
 use near_client::chunk_executor_actor::ChunkExecutorActor;
 use near_client::client_actor::ClientActorInner;
@@ -368,21 +368,19 @@ pub fn setup_client(
         None
     };
 
-    let cloud_archival_sender = if client_config.cloud_archival_writer.is_some() {
-        let cloud_archival_actor = create_cloud_archival_actor(
-            client_config.cloud_archival_writer.clone(),
-            genesis.config.genesis_height,
-            runtime_adapter.as_ref(),
-            storage.hot_store,
-        )
-        .unwrap()
-        .unwrap();
-        let sender = LateBoundSender::new();
-        let sender = test_loop.data.register_actor(identifier, cloud_archival_actor, Some(sender));
-        Some(sender)
-    } else {
-        None
-    };
+    let cloud_storage_sender = test_loop.data.register_data(storage.cloud_storage.clone());
+
+    let cloud_archival_writer_handle = create_cloud_archival_writer(
+        test_loop.clock(),
+        Arc::new(test_loop.future_spawner(identifier)),
+        client_config.cloud_archival_writer.clone(),
+        genesis.config.genesis_height,
+        runtime_adapter.clone(),
+        storage.hot_store,
+        storage.cloud_storage.as_ref(),
+    )
+    .unwrap();
+    let cloud_archival_writer_handle = test_loop.data.register_data(cloud_archival_writer_handle);
 
     let resharding_actor = ReshardingActor::new(
         epoch_manager.clone(),
@@ -510,7 +508,8 @@ pub fn setup_client(
         state_sync_dumper_handle,
         spice_data_distributor_sender,
         cold_store_sender,
-        cloud_archival_sender,
+        cloud_storage_sender,
+        cloud_archival_writer_handle,
     };
 
     // Add the client to the network shared state before returning data

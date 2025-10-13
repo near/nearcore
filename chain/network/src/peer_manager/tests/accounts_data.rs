@@ -1,9 +1,8 @@
 use crate::concurrency::rate;
 use crate::network_protocol::SyncAccountsData;
 use crate::network_protocol::testonly as data;
-use crate::peer;
 use crate::peer_manager;
-use crate::peer_manager::peer_manager_actor::Event as PME;
+use crate::peer_manager::peer_manager_actor::Event;
 use crate::peer_manager::testonly;
 use crate::peer_manager::testonly::start as start_pm;
 use crate::tcp;
@@ -38,17 +37,19 @@ async fn broadcast() {
     .await;
 
     let take_incremental_sync = |ev| match ev {
-        peer::testonly::Event::Network(PME::MessageProcessed(
-            tcp::Tier::T2,
-            PeerMessage::SyncAccountsData(msg),
-        )) if msg.incremental => Some(msg),
+        Event::MessageProcessed(tcp::Tier::T2, PeerMessage::SyncAccountsData(msg))
+            if msg.incremental =>
+        {
+            Some(msg)
+        }
         _ => None,
     };
     let take_full_sync = |ev| match ev {
-        peer::testonly::Event::Network(PME::MessageProcessed(
-            tcp::Tier::T2,
-            PeerMessage::SyncAccountsData(msg),
-        )) if !msg.incremental => Some(msg),
+        Event::MessageProcessed(tcp::Tier::T2, PeerMessage::SyncAccountsData(msg))
+            if !msg.incremental =>
+        {
+            Some(msg)
+        }
         _ => None,
     };
 
