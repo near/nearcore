@@ -17,7 +17,6 @@ strum.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
 
-near-async.workspace = true
 near-time.workspace = true
 near-chain-primitives.workspace = true
 near-chunks-primitives.workspace = true
