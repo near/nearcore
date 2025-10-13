@@ -7,7 +7,6 @@ use near_chain_configs::{CloudStorageConfig, ExternalStorageLocation};
 use crate::archive::cloud_storage::CloudStorage;
 
 /// Opener for the external archival storage, which results in an `CloudStorage` instance.
-#[allow(unused)]
 pub struct CloudStorageOpener {
     /// Configuration for the external storage.
     config: CloudStorageConfig,

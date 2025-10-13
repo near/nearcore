@@ -163,9 +163,15 @@ impl NodeStorage {
     }
 
     pub fn get_split_db(&self) -> Option<Arc<SplitDB>> {
-        self.cold_storage
-            .as_ref()
-            .map(|cold_db| SplitDB::new(self.hot_storage.clone(), cold_db.clone()))
+        let split_db = match self.cold_storage.as_ref() {
+            Some(cold_db) => SplitDB::new(
+                self.hot_storage.clone(),
+                Some(cold_db.clone()),
+                self.cloud_storage(),
+            ),
+            None => SplitDB::new(self.hot_storage.clone(), None, self.cloud_storage.clone()),
+        };
+        Some(split_db)
     }
 
     /// Returns underlying database for given temperature.
@@ -210,12 +216,14 @@ impl NodeStorage {
         })
     }
 
-    pub fn new_with_cold(hot: Arc<dyn Database>, cold: Arc<dyn Database>) -> Self {
-        Self {
-            hot_storage: hot,
-            cold_storage: Some(Arc::new(crate::db::ColdDB::new(cold))),
-            cloud_storage: None,
-        }
+    pub fn new_archive(
+        hot: Arc<dyn Database>,
+        cold: Option<Arc<dyn Database>>,
+        cloud: Option<Arc<CloudStorage>>,
+    ) -> Self {
+        assert!(cold.is_some() || cloud.is_some());
+        let cold_storage = cold.map(|cold| Arc::new(crate::db::ColdDB::new(cold)));
+        Self { hot_storage: hot, cold_storage, cloud_storage: cloud }
     }
 
     pub fn cold_db(&self) -> Option<&Arc<crate::db::ColdDB>> {

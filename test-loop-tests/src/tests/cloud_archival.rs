@@ -9,7 +9,8 @@ use near_primitives::types::{AccountId, BlockHeight, BlockHeightDelta};
 
 use crate::setup::builder::TestLoopBuilder;
 use crate::utils::cloud_archival::{
-    gc_and_heads_sanity_checks, pause_and_resume_writer_with_sanity_checks, run_node_until, test_view_client,
+    gc_and_heads_sanity_checks, pause_and_resume_writer_with_sanity_checks, run_node_until,
+    test_view_client,
 };
 
 const MIN_GC_NUM_EPOCHS_TO_KEEP: u64 = 3;
@@ -76,7 +77,6 @@ fn test_cloud_archival_base(params: TestCloudArchivalParameters) {
         .cloud_storage_archival_clients(cloud_storage_archival_clients)
         .gc_num_epochs_to_keep(MIN_GC_NUM_EPOCHS_TO_KEEP);
 
-    
     if params.test_view_client_at_height.is_some() {
         let data_dir = builder.data_dir();
         builder = builder.config_modifier(move |config, client_index| {
@@ -87,7 +87,7 @@ fn test_cloud_archival_base(params: TestCloudArchivalParameters) {
             config.cloud_archival_reader = Some(reader_config);
         });
     }
-    
+
     let mut env = builder.build().warmup();
 
     if let Some(resume_height) = params.pause_writer_until_height {
@@ -154,7 +154,9 @@ fn test_cloud_archival_resume() {
 #[test]
 fn test_cloud_archival_block_available() {
     let block_height = Some(MIN_EPOCH_LENGTH / 2);
-    test_cloud_archival_base(TestCloudArchivalParametersBuilder::default()
-    //.enable_split_store(true)
-    .test_view_client_at_height(block_height).build());
+    test_cloud_archival_base(
+        TestCloudArchivalParametersBuilder::default()
+            .test_view_client_at_height(block_height)
+            .build(),
+    );
 }

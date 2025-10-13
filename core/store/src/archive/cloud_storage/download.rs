@@ -1,8 +1,10 @@
+use near_primitives::block::Block;
 use near_primitives::types::BlockHeight;
 
 use borsh::BorshDeserialize;
 
-use crate::archive::cloud_storage::{CloudStorage, CloudStorageFileID};
+use crate::archive::cloud_storage::CloudStorage;
+use crate::archive::cloud_storage::file_id::CloudStorageFileID;
 
 /// Errors surfaced while retrieving data from the cloud archive.
 #[derive(thiserror::Error, Debug)]
@@ -16,33 +18,45 @@ pub enum CloudRetrievalError {
 }
 
 impl CloudStorage {
-    /// Returns the cloud head from external storage.
-    pub async fn get_cloud_head(&self) -> Result<BlockHeight, CloudRetrievalError> {
-        let file_id = CloudStorageFileID::Head;
-        let value = self.get(file_id.clone()).await?;
-        let head = BlockHeight::try_from_slice(&value)
-            .map_err(|error| CloudRetrievalError::DeserializeError { file_id, error })?;
-        Ok(head)
-    }
-
     /// Returns the cloud head from external storage, if present.
     pub async fn get_cloud_head_if_exists(
         &self,
     ) -> Result<Option<BlockHeight>, CloudRetrievalError> {
-        if !self.exists(&CloudStorageFileID::Head).await? {
+        let file_id = CloudStorageFileID::Head;
+        if !self.exists(&file_id).await? {
             return Ok(None);
         }
-        let cloud_head = self.get_cloud_head().await?;
+        let cloud_head = self.get(&file_id).await?;
         Ok(Some(cloud_head))
     }
 
+    /// Returns the cloud head from external storage.
+    pub async fn get_cloud_head(&self) -> Result<BlockHeight, CloudRetrievalError> {
+        let file_id = CloudStorageFileID::Head;
+        self.get(&file_id).await
+    }
+
+    #[allow(unused)]
+    async fn get_block(&self, block_height: BlockHeight) -> Result<Block, CloudRetrievalError> {
+        let file_id = CloudStorageFileID::Block(block_height);
+        self.get(&file_id).await
+    }
+
+    async fn get<T: BorshDeserialize>(&self, file_id: &CloudStorageFileID) -> Result<T, CloudRetrievalError>{
+        let bytes = self.download(file_id).await?;
+        deserialize(&bytes, file_id)
+    }
+
     /// Downloads the raw bytes for a given file in the cloud archive.
-    async fn get(&self, file_id: CloudStorageFileID) -> Result<Vec<u8>, CloudRetrievalError> {
+    async fn download(
+        &self,
+        file_id: &CloudStorageFileID,
+    ) -> Result<Vec<u8>, CloudRetrievalError> {
         let path = file_id.path();
         self.external
             .get(&path)
             .await
-            .map_err(|error| CloudRetrievalError::GetError { file_id, error })
+            .map_err(|error| CloudRetrievalError::GetError { file_id: file_id.clone(), error })
     }
 
     /// Checks if a given file exists in the cloud archive.
@@ -58,4 +72,9 @@ impl CloudStorage {
             .map_err(|error| CloudRetrievalError::ListError { dir, error })?;
         Ok(files.contains(&name))
     }
+}
+
+fn deserialize<T: BorshDeserialize>(bytes: &[u8], file_id: &CloudStorageFileID) -> Result<T, CloudRetrievalError> {
+     T::try_from_slice(bytes)
+        .map_err(|error| CloudRetrievalError::DeserializeError { file_id: file_id.clone(), error })
 }

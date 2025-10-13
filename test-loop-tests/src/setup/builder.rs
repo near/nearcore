@@ -1,7 +1,6 @@
 use itertools::Itertools;
 use near_chain_configs::test_genesis::{TestEpochConfigBuilder, TestGenesisBuilder};
 use near_chain_configs::test_utils::{TestClientConfigParams, test_cloud_archival_configs};
-use near_store::archive::cloud_storage::opener::CloudStorageOpener;
 use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -20,7 +19,7 @@ use near_primitives::types::AccountId;
 use near_primitives::upgrade_schedule::ProtocolUpgradeVotingSchedule;
 use near_primitives::version::get_protocol_upgrade_schedule;
 use near_store::genesis::initialize_genesis_state;
-use near_store::test_utils::{TestNodeStorage, create_test_split_storage, create_test_store};
+use near_store::test_utils::{TestNodeStorage, create_test_node_storage};
 
 use crate::utils::peer_manager_actor::{TestLoopNetworkSharedState, UnreachableActor};
 
@@ -382,22 +381,9 @@ impl<'a> NodeStateBuilder<'a> {
     }
 
     fn setup_storage(&self) -> TestNodeStorage {
-        let mut storage = if self.enable_split_store {
-            create_test_split_storage()
-        } else {
-            TestNodeStorage {
-                hot_store: create_test_store(),
-                split_store: None,
-                cold_db: None,
-                cloud_storage: None,
-            }
-        };
-        if self.enable_cloud_storage {
-            let (_, writer_config) = test_cloud_archival_configs(self.tempdir_path.clone());
-            let cloud_storage = CloudStorageOpener::new(writer_config.cloud_storage).open();
-            storage.cloud_storage = Some(cloud_storage);
-        }
-
+        let cloud_storage_root_dir =
+            if self.enable_cloud_storage { Some(self.tempdir_path.clone()) } else { None };
+        let storage = create_test_node_storage(self.enable_split_store, cloud_storage_root_dir);
         initialize_genesis_state(storage.hot_store.clone(), &self.genesis, None);
         storage
     }
