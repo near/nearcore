@@ -47,6 +47,9 @@ fn setup(num_nodes: usize, epoch_length: BlockHeightDelta) -> TestLoopEnv {
         .genesis(genesis)
         .epoch_config_store_from_genesis()
         .clients(accounts)
+        .config_modifier(|config, _| {
+            config.early_prepare_transactions = true;
+        })
         .build()
         .warmup()
 }
