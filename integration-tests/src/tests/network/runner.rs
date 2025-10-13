@@ -9,9 +9,9 @@ use near_chain::{Chain, ChainGenesis, ChainStore};
 use near_chain_configs::test_utils::TestClientConfigParams;
 use near_chain_configs::{ClientConfig, Genesis, GenesisConfig, MutableConfigValue};
 use near_chunks::shards_manager_actor::start_shards_manager;
-use near_client::ChunkValidationActorInner;
 use near_client::adapter::client_sender_for_network;
 use near_client::client_actor::SpiceClientConfig;
+use near_client::{ChunkValidationActorInner, spawn_chunk_endorsement_handler_actor};
 use near_client::{
     PartialWitnessActor, RpcHandlerConfig, StartClientResult, StateRequestActor,
     ViewClientActorInner, spawn_rpc_handler_actor, start_client,
@@ -168,13 +168,14 @@ fn setup_network_node(
         actor_system.clone(),
         rpc_handler_config,
         tx_pool,
-        chunk_endorsement_tracker,
         epoch_manager.clone(),
         shard_tracker.clone(),
         validator_signer.clone(),
         runtime.clone(),
         network_adapter.as_multi_sender(),
     );
+    let chunk_endorsement_handler =
+        spawn_chunk_endorsement_handler_actor(actor_system.clone(), chunk_endorsement_tracker);
     let shards_manager_actor = start_shards_manager(
         actor_system.clone(),
         epoch_manager.clone(),
@@ -220,7 +221,12 @@ fn setup_network_node(
         actor_system,
         db.clone(),
         config,
-        client_sender_for_network(client_actor, view_client_addr, rpc_handler),
+        client_sender_for_network(
+            client_actor,
+            view_client_addr,
+            rpc_handler,
+            chunk_endorsement_handler,
+        ),
         state_request_addr.into_multi_sender(),
         network_adapter.as_multi_sender(),
         shards_manager_adapter.as_sender(),
