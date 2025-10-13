@@ -1,7 +1,7 @@
 use futures::channel::mpsc::{UnboundedReceiver, UnboundedSender, unbounded};
 use itertools::Itertools as _;
 use near_async::futures::AsyncComputationSpawner;
-use near_async::messaging::{Handler, IntoAsyncSender, IntoSender, Message, Sender, noop};
+use near_async::messaging::{Handler, IntoAsyncSender, IntoSender, Sender, noop};
 use near_async::time::Clock;
 use near_chain::ApplyChunksIterationMode;
 use near_chain::ChainStoreAccess;
@@ -67,7 +67,7 @@ struct TestActor {
 
 impl<M> Handler<M> for TestActor
 where
-    M: Message,
+    M: Send + 'static,
     ChunkExecutorActor: Handler<M>,
 {
     fn handle(&mut self, msg: M) {
@@ -179,7 +179,7 @@ impl TestActor {
 
     fn handle_with_internal_events<M>(&mut self, msg: M)
     where
-        M: Message,
+        M: Send + 'static,
         ChunkExecutorActor: Handler<M>,
     {
         self.actor.handle(msg);

@@ -4,14 +4,14 @@ use futures::FutureExt;
 use futures::future::BoxFuture;
 
 use crate::futures::{DelayedActionRunner, FutureSpawner};
-use crate::messaging::{AsyncSendError, CanSend, CanSendAsync, HandlerWithContext, Message};
+use crate::messaging::{AsyncSendError, CanSend, CanSendAsync, HandlerWithContext};
 use crate::tokio::runtime_handle::{TokioRuntimeHandle, TokioRuntimeMessage};
 use crate::{next_message_sequence_num, pretty_type_name};
 
 impl<A, M> CanSend<M> for TokioRuntimeHandle<A>
 where
     A: HandlerWithContext<M> + 'static,
-    M: Message + Debug + Send + 'static,
+    M: Debug + Send + 'static,
 {
     fn send(&self, message: M) {
         let seq = next_message_sequence_num();
@@ -32,7 +32,7 @@ where
 impl<A, M, R> CanSendAsync<M, R> for TokioRuntimeHandle<A>
 where
     A: HandlerWithContext<M, R> + 'static,
-    M: Message + Debug + Send + 'static,
+    M: Debug + Send + 'static,
     R: Send + 'static,
 {
     fn send_async(&self, message: M) -> BoxFuture<'static, Result<R, AsyncSendError>> {

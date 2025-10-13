@@ -3,14 +3,14 @@ use std::fmt::Debug;
 use futures::FutureExt;
 use futures::future::BoxFuture;
 
-use crate::messaging::{AsyncSendError, CanSend, CanSendAsync, Handler, Message};
+use crate::messaging::{AsyncSendError, CanSend, CanSendAsync, Handler};
 use crate::multithread::runtime_handle::{MultithreadRuntimeHandle, MultithreadRuntimeMessage};
 use crate::{next_message_sequence_num, pretty_type_name};
 
 impl<A, M> CanSend<M> for MultithreadRuntimeHandle<A>
 where
     A: Handler<M> + 'static,
-    M: Message + Debug + Send + 'static,
+    M: Debug + Send + 'static,
 {
     fn send(&self, message: M) {
         let seq = next_message_sequence_num();
@@ -31,7 +31,7 @@ where
 impl<A, M, R> CanSendAsync<M, R> for MultithreadRuntimeHandle<A>
 where
     A: Handler<M, R> + 'static,
-    M: Message + Debug + Send + 'static,
+    M: Debug + Send + 'static,
     R: Send + 'static,
 {
     fn send_async(&self, message: M) -> BoxFuture<'static, Result<R, AsyncSendError>> {

@@ -1,6 +1,6 @@
 use assert_matches::assert_matches;
 use near_async::futures::AsyncComputationSpawner;
-use near_async::messaging::{Handler, IntoAsyncSender, IntoSender, Message, Sender, noop};
+use near_async::messaging::{Handler, IntoAsyncSender, IntoSender, Sender, noop};
 use near_async::time::Clock;
 use near_chain::spice_core::{CoreStatementsProcessor, ExecutionResultEndorsed};
 use near_chain::test_utils::{
@@ -266,7 +266,7 @@ struct TestActor {
 
 impl<M> Handler<M> for TestActor
 where
-    M: Message,
+    M: Send + 'static,
     SpiceChunkValidatorActor: Handler<M>,
 {
     fn handle(&mut self, msg: M) {

@@ -15,9 +15,7 @@ use std::sync::Arc;
 
 use assert_matches::assert_matches;
 use itertools::Itertools as _;
-use near_async::messaging::Sender;
-use near_async::messaging::{Handler, Message};
-use near_async::messaging::{IntoAsyncSender, IntoSender, noop};
+use near_async::messaging::{Handler, IntoAsyncSender, IntoSender, Sender, noop};
 use near_async::time::Clock;
 use near_chain::Block;
 use near_chain::test_utils::{
@@ -609,7 +607,7 @@ fn get_incoming_data<T>(
     message: T,
 ) -> (SpiceIncomingPartialData, Option<AccountId>)
 where
-    T: Message,
+    T: Send + 'static,
     SpiceDataDistributorActor: Handler<T>,
 {
     let (outgoing_sc, mut outgoing_rc) = unbounded_channel();

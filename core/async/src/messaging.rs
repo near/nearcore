@@ -30,19 +30,13 @@ pub trait Actor {
     fn stop_actor(&mut self) {}
 }
 
-/// All handled messages shall implement this trait.
-/// TODO(#14005): The reason this exists is to allow CanSend<M> to be
-/// implemented at the same time as CanSend<MessageWithCallback<M, R>>. Once we
-/// remove MessageWithCallback, we should not need this anymore.
-pub trait Message {}
-
 /// Trait for handling a message.
 /// This works in unison with the [`CanSend`] trait. An actor implements the Handler trait for all
 /// messages it would like to handle, while the CanSend trait implements the logic to send the
 /// message to the actor. Handle and CanSend are typically not both implemented by the same struct.
 pub trait Handler<M, R = ()>
 where
-    M: Message,
+    M: Send + 'static,
     R: Send,
 {
     fn handle(&mut self, msg: M) -> R;
@@ -56,7 +50,7 @@ where
 /// HandlerWithContext, not both.
 pub trait HandlerWithContext<M, R = ()>
 where
-    M: Message,
+    M: Send + 'static,
     R: Send,
 {
     fn handle(&mut self, msg: M, ctx: &mut dyn DelayedActionRunner<Self>) -> R;
@@ -65,7 +59,7 @@ where
 impl<A, M, R> HandlerWithContext<M, R> for A
 where
     A: Actor + Handler<M, R>,
-    M: Message,
+    M: Send + 'static,
     R: Send,
 {
     fn handle(&mut self, msg: M, ctx: &mut dyn DelayedActionRunner<Self>) -> R {
