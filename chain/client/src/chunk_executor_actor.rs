@@ -32,6 +32,7 @@ use near_epoch_manager::shard_tracker::ShardTracker;
 use near_network::types::PeerManagerAdapter;
 use near_primitives::hash::CryptoHash;
 use near_primitives::sandbox::state_patch::SandboxStatePatch;
+use near_primitives::shard_layout::ShardLayout;
 use near_primitives::sharding::ReceiptProof;
 use near_primitives::sharding::ShardChunk;
 use near_primitives::sharding::ShardProof;
@@ -482,6 +483,9 @@ impl ChunkExecutorActor {
             should_save_state_transition_data,
         )?;
         chain_update.commit()?;
+        // TODO(spice): Consider if we should update flat storage head here instead of during block
+        // post-processing.
+        self.gc_memtrie_roots(&block, &shard_layout)?;
         Ok(())
     }
 
@@ -770,6 +774,20 @@ impl ChunkExecutorActor {
                 }
             };
             self.save_verified_receipts(&verified_receipts)?;
+        }
+        Ok(())
+    }
+
+    fn gc_memtrie_roots(&self, block: &Block, shard_layout: &ShardLayout) -> Result<(), Error> {
+        for shard_uid in shard_layout.shard_uids() {
+            let tries = self.runtime_adapter.get_tries();
+            let last_final_block = block.header().last_final_block();
+            if last_final_block != &CryptoHash::default() {
+                let header = self.chain_store.get_block_header(last_final_block).unwrap();
+                if let Some(prev_height) = header.prev_height() {
+                    tries.delete_memtrie_roots_up_to_height(shard_uid, prev_height);
+                }
+            }
         }
         Ok(())
     }
