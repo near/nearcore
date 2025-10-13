@@ -10,8 +10,10 @@ use near_primitives::serialize;
 use near_primitives::state::ValueRef;
 use near_primitives::stateless_validation::contract_distribution::ContractUpdates;
 use near_primitives::trie_key::col::{ACCESS_KEY, CONTRACT_DATA};
-use near_primitives::trie_key::{SmallKeyVec, TrieKey};
-use near_primitives::types::AccountId;
+use near_primitives::trie_key::{SmallKeyVec, TrieKey, TrieKeyPrefix};
+use near_primitives::types::{
+    AccountId, RawStateChange, RawStateChangesWithTrieKey, StateChangeCause,
+};
 use parking_lot::Mutex;
 use state_value::{Deserializable, Deserialized};
 use std::any::Any;
@@ -148,14 +150,59 @@ impl StateUpdate {
         Self { trie: self.trie.recording_reads_new_recorder(), state: self.state.clone() }
     }
 
-    pub fn finalize(self) -> Result<TrieUpdateResult, StorageError> {
-        // TODO
-        Ok(TrieUpdateResult {
-            trie: self.trie,
-            trie_changes: TrieChanges::empty(CryptoHash::default()),
-            state_changes: vec![],
-            contract_updates: ContractUpdates::default(),
-        })
+    pub fn finalize(
+        self,
+        contract_updates: ContractUpdates,
+        cause: StateChangeCause,
+    ) -> Result<TrieUpdateResult, StorageError> {
+        let state = self.state.lock();
+        let mut state_changes = Vec::with_capacity(state.committed.len());
+        let trie_changes = self.trie.update(
+            state.committed.iter().filter_map(|(k, v)| {
+                let was_absent = (v.operations & OperationValue::ABSENT_IN_TRIE) != 0;
+                let was_written = (v.operations & OperationValue::WRITTEN) != 0;
+
+                let encoded_value = match &v.value {
+                    // If we know the value is already absent in trie, we don't need to bother
+                    // removing it.
+                    state_value::Type::Absent if was_absent => {
+                        return None;
+                    }
+                    state_value::Type::Absent => None,
+                    state_value::Type::Present if was_absent || was_written => {
+                        unreachable!("written but no value?")
+                    }
+                    // Don't have anything to write out here
+                    state_value::Type::Present => return None,
+                    state_value::Type::TrieValueRef(_) if was_absent || was_written => {
+                        unreachable!("written but no value?")
+                    }
+                    state_value::Type::TrieValueRef(_) => return None,
+                    state_value::Type::Serialized(_) if was_absent || was_written => {
+                        unreachable!("written but no value?")
+                    }
+                    state_value::Type::Serialized(_) => return None,
+                    state_value::Type::Deserialized(deserialized)
+                        if was_absent || was_written =>
+                    {
+                        todo!("serialize dat data mate")
+                    }
+                    state_value::Type::Deserialized(_) => return None,
+                };
+                state_changes.push(RawStateChangesWithTrieKey {
+                    trie_key: k.clone(),
+                    changes: vec![RawStateChange {
+                        cause: cause.clone(),
+                        data: encoded_value.clone(),
+                    }],
+                });
+                let mut key = Vec::with_capacity(k.len());
+                k.append_into(&mut key);
+                Some((key, encoded_value))
+            }),
+            AccessOptions::DEFAULT,
+        )?;
+        Ok(TrieUpdateResult { trie: self.trie, trie_changes, state_changes, contract_updates })
     }
 }
 
@@ -665,10 +712,35 @@ impl<'su> StateOperations<'su> {
     }
 
     /// Remove all values with the provided `TrieKey` prefix.
-    pub fn remove_prefix(&mut self, _key: TrieKeyPrefix) -> Result<(), StorageError> {
-        // static_assertions::assert_eq_size!(RemoveValue, ());
-        // self.set(key, RemoveValue);
-        todo!()
+    pub fn remove_prefix(&mut self, key: TrieKeyPrefix) -> Result<(), StorageError> {
+        let lock = self.trie().lock_for_iter();
+        let mut iterator = lock.iter()?;
+        let mut prefix = SmallKeyVec::new();
+        key.append_into(&mut prefix);
+        iterator.seek_prefix(&prefix);
+        for result in iterator {
+            let (key, value) = result?;
+            todo!("removing {:?}", key);
+        }
+        // TODO: remove all values that match this prefix in the btreemaps too.
+        drop(lock);
+        Ok(())
+        // let public_keys = state_update
+        //     .locked_iter(&trie_key_parsers::get_raw_prefix_for_access_keys(account_id), &lock)?
+        //     .map(|raw_key| {
+        //         trie_key_parsers::parse_public_key_from_access_key_key(&raw_key?, account_id).map_err(
+        //             |_e| {
+        //                 StorageError::StorageInconsistentState(
+        //                     "Can't parse public key from raw key for AccessKey".to_string(),
+        //                 )
+        //             },
+        //         )
+        //     })
+        //     .collect::<Result<Vec<_>, _>>()?;
+
+        // for public_key in public_keys {
+        //     state_update.remove(TrieKey::AccessKey { account_id: account_id.clone(), public_key });
+        // }
     }
 
     /// Commit the changes to the [`StateUpdate`].
@@ -790,12 +862,6 @@ impl<'su> Drop for StateOperations<'su> {
             panic!("StateUpdateOperation is dropped without commiting or discarding contents");
         }
     }
-}
-
-#[repr(u8)]
-pub enum TrieKeyPrefix {
-    AccessKey { account_id: AccountId } = ACCESS_KEY,
-    ContractData { account_id: AccountId } = CONTRACT_DATA,
 }
 
 pub mod state_value {

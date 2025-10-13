@@ -495,6 +495,30 @@ impl TrieKey {
     }
 }
 
+#[repr(u8)]
+pub enum TrieKeyPrefix {
+    AccessKey { account_id: AccountId } = col::ACCESS_KEY,
+    ContractData { account_id: AccountId } = col::CONTRACT_DATA,
+}
+
+impl TrieKeyPrefix {
+    pub fn append_into(&self, buf: &mut impl trie_key_buffer::TrieKeyBuffer) {
+        match self {
+            Self::AccessKey { account_id } => {
+                buf.reserve(1 + account_id.len());
+                buf.push(col::ACCESS_KEY);
+                buf.extend(account_id.as_bytes());
+            }
+            Self::ContractData { account_id } => {
+                buf.reserve(1 + account_id.len());
+                buf.push(col::CONTRACT_DATA);
+                buf.extend(account_id.as_bytes());
+            }
+        }
+    }
+}
+
+
 mod trie_key_buffer {
     /// Buffers into which [`TrieKey`s](super::TrieKey) can be encoded.
     pub trait TrieKeyBuffer {

@@ -56,8 +56,7 @@ use near_primitives::transaction::{
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{
     AccountId, Balance, BlockHeight, Compute, EpochHeight, EpochId, EpochInfoProvider, Gas,
-    RawStateChangesWithTrieKey, ShardId, StateRoot,
-    validator_stake::ValidatorStake,
+    RawStateChangesWithTrieKey, ShardId, StateRoot, validator_stake::ValidatorStake,
 };
 use near_primitives::utils::{
     create_action_hash_from_receipt_id, create_receipt_id_from_receipt_id,
@@ -694,8 +693,14 @@ impl Runtime {
 
         // Committing or rolling back state.
         match &result.result {
-            Ok(_) => update_ops.in_place_commit(/* ReceiptProcessing */)?,
-            Err(_) => update_ops.reset(),
+            Ok(_) => {
+                contract_store.commit_deploys();
+                update_ops.in_place_commit(/* ReceiptProcessing */)?
+            }
+            Err(_) => {
+                contract_store.rollback_deploys();
+                update_ops.reset()
+            }
         };
         // If the receipt is a refund, then we consider it free without burnt gas.
         let gas_burnt: Gas =
@@ -2465,8 +2470,15 @@ impl Runtime {
             let callback = &on_post_state_ready.callback;
             callback(post_state);
         }
+        let contract_updates = processing_state.contract_storage.finalize();
         let TrieUpdateResult { trie, trie_changes, state_changes, contract_updates } =
-            processing_state.state_update.finalize()?;
+            processing_state.state_update.finalize(
+                contract_updates,
+                // FIXME(state_update): add new cause for chunk
+                near_primitives::types::StateChangeCause::TransactionProcessing {
+                    tx_hash: Default::default(),
+                },
+            )?;
         if let Some(prefetcher) = processing_state.prefetcher {
             // Only clear the prefetcher queue after finalize is done because as part of receipt
             // processing we also prefetch account data and access keys that are accessed in
@@ -2614,7 +2626,13 @@ fn missing_chunk_apply_result(
     bandwidth_scheduler_output: &BandwidthSchedulerOutput,
 ) -> Result<ApplyResult, RuntimeError> {
     let TrieUpdateResult { trie, trie_changes, state_changes, contract_updates } =
-        processing_state.state_update.finalize()?;
+        processing_state.state_update.finalize(
+            processing_state.contract_storage.finalize(),
+            // FIXME(state_update): new change cause for this case
+            near_primitives::types::StateChangeCause::TransactionProcessing {
+                tx_hash: Default::default(),
+            },
+        )?;
     let proof = trie.recorded_storage();
 
     // For old chunks, copy the congestion info exactly as it came in,

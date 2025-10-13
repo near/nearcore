@@ -158,7 +158,7 @@ impl ContractStorage {
     ///
     /// Note that there can be multiple calls to `commit_deploys`. Each commit moves the uncommitted deployments
     /// to the committed list and clears the uncommitted list.
-    pub(crate) fn commit_deploys(&self) {
+    pub fn commit_deploys(&self) {
         let mut guard = self.tracker.lock();
         let tracker = guard.as_mut().expect("must not be called after finalizing");
         tracker.commit_deploys();
@@ -168,7 +168,7 @@ impl ContractStorage {
     ///
     /// Note that there can be multiple calls to `rollback_deploys`. Each rollback clears the uncommitted deployments
     /// but does not modify the list of committed deployments.
-    pub(crate) fn rollback_deploys(&self) {
+    pub fn rollback_deploys(&self) {
         let mut guard = self.tracker.lock();
         let tracker = guard.as_mut().expect("must not be called after finalizing");
         tracker.rollback_deploys();
@@ -182,7 +182,7 @@ impl ContractStorage {
     /// NOTE: The same contract may be deployed multiple times to different accounts. Thus, if a contract that was previously
     /// deployed to an account is now deployed to a different account, we still include the contract in the list of `contracts_deployed`.
     /// This can be optimized later by checking if the deployed contract already exists in the storage and excluding from the returned list.
-    pub(crate) fn finalize(self) -> ContractUpdates {
+    pub fn finalize(self) -> ContractUpdates {
         let mut guard = self.tracker.lock();
         let tracker = guard.take().expect("finalize must be called only once");
         tracker.finalize()

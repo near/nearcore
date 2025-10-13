@@ -719,12 +719,12 @@ pub(crate) fn action_delete_account(
     }
     state_update.remove(TrieKey::Account { account_id: account_id.clone() });
     state_update.remove(TrieKey::ContractCode { account_id: account_id.clone() });
-    state_update.remove_prefix(near_store::state_update::TrieKeyPrefix::AccessKey {
+    state_update.remove_prefix(near_primitives::trie_key::TrieKeyPrefix::AccessKey {
         account_id: account_id.clone(),
-    });
-    state_update.remove_prefix(near_store::state_update::TrieKeyPrefix::ContractData {
+    })?;
+    state_update.remove_prefix(near_primitives::trie_key::TrieKeyPrefix::ContractData {
         account_id: account_id.clone(),
-    });
+    })?;
     *actor_id = receipt.predecessor_id().clone();
     *account = None;
     Ok(())
@@ -1250,6 +1250,7 @@ mod tests {
     use near_primitives::version::PROTOCOL_VERSION;
     use near_store::state_update::StateUpdate;
     use near_store::test_utils::TestTriesBuilder;
+    use near_store::trie::update;
     use near_store::{set_account, state_update};
     use std::sync::Arc;
 
@@ -1355,7 +1356,7 @@ mod tests {
         account_id: &AccountId,
         code_hash: &CryptoHash,
         storage_usage: u64,
-        state_update: &mut StateOperations,
+        update_op: &mut StateOperations,
     ) -> ActionResult {
         let mut account = Some(Account::new(
             Balance::from_yoctonear(100),
@@ -1371,7 +1372,7 @@ mod tests {
             ReceiptPriority::NoPriority,
         );
         let res = action_delete_account(
-            state_update,
+            update_op,
             &mut account,
             &mut actor_id,
             &receipt,
@@ -1380,6 +1381,7 @@ mod tests {
             &DeleteAccountAction { beneficiary_id: "bob".parse().unwrap() },
             PROTOCOL_VERSION,
         );
+        update_op.in_place_commit().unwrap();
         assert!(res.is_ok());
         action_result
     }
@@ -1397,6 +1399,7 @@ mod tests {
             Account::MAX_ACCOUNT_DELETION_STORAGE_USAGE + 1,
             &mut update_op,
         );
+        update_op.commit().unwrap();
         assert_eq!(
             action_result.result,
             Err(ActionError {
@@ -1433,13 +1436,17 @@ mod tests {
             None,
             apply_state.current_protocol_version,
         );
+        update_ops.in_place_commit().unwrap();
         assert!(res.is_ok());
-        test_delete_large_account(
+        let res = test_delete_large_account(
             &account_id,
             &account.local_contract_hash().unwrap_or_default(),
             storage_usage,
             &mut update_ops,
-        )
+        );
+        update_ops.commit().unwrap();
+        res
+
     }
 
     #[test]
