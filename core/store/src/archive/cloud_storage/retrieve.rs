@@ -7,7 +7,7 @@ use crate::archive::cloud_storage::{CloudStorage, CloudStorageFileID};
 /// Errors surfaced while retrieving data from the cloud archive.
 #[derive(thiserror::Error, Debug)]
 pub enum CloudRetrievalError {
-    #[error("Failed to retrieve {file_id:?} from the cloud archive:: {error}")]
+    #[error("Failed to retrieve {file_id:?} from the cloud archive: {error}")]
     GetError { file_id: CloudStorageFileID, error: anyhow::Error },
     #[error("Failed to deserialize {file_id:?} from the cloud archive: {error}")]
     DeserializeError { file_id: CloudStorageFileID, error: borsh::io::Error },

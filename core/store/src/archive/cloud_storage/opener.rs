@@ -39,7 +39,7 @@ impl CloudStorageOpener {
                 true
             }
             // TODO(cloud_archival) Add S3 support
-            _ => false,
+            ExternalStorageLocation::S3 { .. } => false,
         }
     }
 }
