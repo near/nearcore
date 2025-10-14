@@ -29,9 +29,9 @@ use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{BlockHeight, EpochId, ShardId};
 use near_primitives::validator_signer::ValidatorSigner;
+use near_store::ShardUId;
 use near_store::adapter::chain_store::ChainStoreAdapter;
 use near_store::state_update::StateUpdate;
-use near_store::ShardUId;
 use parking_lot::Mutex;
 #[cfg(feature = "test_features")]
 use rand::{Rng, SeedableRng};

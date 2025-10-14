@@ -14,9 +14,9 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::optimistic_block::CachedShardUpdateKey;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::ShardId;
+use near_store::ShardUId;
 use near_store::adapter::StoreAdapter;
 use near_store::state_update::StateUpdate;
-use near_store::ShardUId;
 use parking_lot::Mutex;
 
 /// Inputs required to create a `PrepareTransactionsJob`.
