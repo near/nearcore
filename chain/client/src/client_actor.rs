@@ -574,7 +574,15 @@ impl Handler<SpanWrapped<OptimisticBlockMessage>> for ClientActorInner {
 
 impl Handler<SpanWrapped<BlockResponse>> for ClientActorInner {
     fn handle(&mut self, msg: SpanWrapped<BlockResponse>) {
-        let BlockResponse { block, peer_id, was_requested } = msg.span_unwrap();
+        let unwrapped_msg = msg.span_unwrap();
+        let _span = debug_span!(
+            target: "client",
+            "BlockResponse",
+            height = unwrapped_msg.block.header().height(),
+            tag_block_production = true,
+        )
+        .entered();
+        let BlockResponse { block, peer_id, was_requested } = unwrapped_msg;
         debug!(target: "client", block_height = block.header().height(), block_hash = ?block.header().hash(), "BlockResponse");
         let blocks_at_height =
             self.client.chain.chain_store().get_all_block_hashes_by_height(block.header().height());
@@ -689,6 +697,12 @@ impl Handler<SpanWrapped<StateResponseReceived>> for ClientActorInner {
 
 impl Handler<SpanWrapped<SetNetworkInfo>> for ClientActorInner {
     fn handle(&mut self, msg: SpanWrapped<SetNetworkInfo>) {
+        let _span = debug_span!(
+            target: "client",
+            "SetNetworkInfo",
+            tag_block_production = true,
+        )
+        .entered();
         let msg = msg.span_unwrap();
         // SetNetworkInfo is a large message. Avoid printing it at the `debug` verbosity.
         self.network_info = msg.0;
