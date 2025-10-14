@@ -340,6 +340,22 @@ impl ViewClientActorInner {
             }
             Err(err) => Err(QueryError::Unreachable { error_message: err.to_string() }),
         }?;
+        // FIXME: another option is to store in db execution head and just use that in view client
+        // no matter what for now. Would we want final_execution_head, etc. later on?
+        let header = {
+            // FIXME: unwrap()
+            let mut block = self.chain.get_block(header.hash()).unwrap();
+            // FIXME: Use headers: only need epoch_id and block hash to be fair so having only
+            // block_hash with epoch_manager extracting epoch_id based on that may work as well
+            while !self.chain.spice_core_processor.all_execution_results_exist(&block).unwrap()
+                && !block.header().is_genesis()
+            {
+                // FIXME: unwrap()
+                block = self.chain.get_block(block.header().prev_hash()).unwrap();
+            }
+            // FIXME: clone()
+            block.header().clone()
+        };
 
         let shard_id = self
             .query_shard_uid(&msg.request, *header.epoch_id())
