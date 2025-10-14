@@ -102,6 +102,11 @@ pub struct StateOperations<'su> {
     /// Can be reads, writes as well as other operations, which will affect how this value would
     /// get handled when committed or finalized.
     operations: BTreeMap<TrieKey, OperationValue>,
+    /// When `StateOperations` are dropped without manually committing or discarding, we can try
+    /// doing a similar operation during drop.
+    ///
+    /// Ideally the code should manually handle the commits (as it is a fallible operation.)
+    on_drop: OnDrop,
 }
 
 struct OperationValue {
@@ -139,6 +144,7 @@ impl StateUpdate {
             clock_created: state_guard.max_clock,
             state_update: self,
             operations: Default::default(),
+            on_drop: Default::default(),
         }
     }
 
@@ -221,9 +227,8 @@ impl StateValue {
             StateValue::TrieValueRef(value_ref) => value_ref.len(),
             StateValue::Serialized(token) => token.len(),
             StateValue::Deserialized(deserialized) => {
-                // FIXME(nagisa): this may not be necessary if the stored type is `Vec<u8>`. This
-                // probably should be a method on `Deserialized`.
-                todo!("serialize on the fly, take length")
+                // FIXME(state_update): maybe also memoize serialized data for borsh types?
+                deserialized.len()
             }
         }
     }
@@ -233,7 +238,8 @@ impl StateValue {
             StateValue::TrieValueRef(value_ref) => (value_ref.hash, value_ref.len()),
             StateValue::Serialized(token) => (token.value_hash(), token.len()),
             StateValue::Deserialized(deserialized) => {
-                todo!("serialize on the fly, hash and take length")
+                // FIXME(state_update): maybe also memoize serialized data for borsh types?
+                deserialized.value_hash_len()
             }
         }
     }
@@ -342,16 +348,7 @@ impl<'su> StateOperations<'su> {
         access_options: AccessOptions,
     ) -> Result<Option<StateValue>, StorageError> {
         // FIXME: this needs to handle pure accesses specially.
-        self.get_ref_or(key, |t, k| {
-            let mut key_buf = SmallKeyVec::new_const();
-            k.append_into(&mut key_buf);
-            let optref = t.get_optimized_ref(&*key_buf, key_mode, access_options);
-            Ok(Some(match optref? {
-                Some(OptimizedValueRef::Ref(r)) => StateValue::TrieValueRef(r),
-                Some(OptimizedValueRef::AvailableValue(v)) => StateValue::Serialized(Arc::new(v)),
-                None => return Ok(None),
-            }))
-        })
+        self.get_ref_or(key, Self::default_fetch(key_mode, access_options))
     }
 
     /// This is a more flexible version of [`Self::get_ref`], allowing custom [`Trie`] access.
@@ -591,7 +588,8 @@ impl<'su> StateOperations<'su> {
     /// Note that this operation will not access the underlying [`Trie`] until the [`StateUpdate`]
     /// is finalized and written out to the underlying storage.
     pub fn set<V: Deserialized>(&mut self, key: TrieKey, value: V) -> () {
-        match self.operations.entry(key) {
+        let dbg_key = key.clone();
+        let after = match self.operations.entry(key) {
             btree_map::Entry::Vacant(e) => {
                 let value = state_value::Type::Deserialized(Arc::new(value));
                 e.insert(OperationValue { operations: OperationValue::WRITTEN, value })
@@ -688,25 +686,21 @@ impl<'su> StateOperations<'su> {
     where
         V: Deserialized + Deserializable,
     {
-        // TODO
-        Err(StorageError::UnexpectedTrieValue)
+        self.get_or(
+            key,
+            Self::default_fetch(KeyLookupMode::MemOrFlatOrTrie, AccessOptions::NO_SIDE_EFFECTS),
+            AccessOptions::NO_SIDE_EFFECTS,
+        )
     }
 
     /// Fetch the [`OptimizedValueRef`] "purely".
     ///
     /// Value read this way does not cause any observable side-effects on the underlying storage.
-    //
-    // FIXME: StateUpdate cannot serve `OptimizedValueRef`s. If the value is written-to, we cannot
-    // materialize `OVR::AvailableValue()` variant of it as it would store serialized data. Making
-    // `value_hash` not straightforward to compute. The only option I can think of is replacing
-    // `OptimizedValueRef` with our own enum that would store either the `ValueRef` or the
-    // deserialized value.
-    pub fn pure_get_ref(
-        &mut self,
-        key: TrieKey,
-    ) -> Result<Option<&OptimizedValueRef>, StorageError> {
-        // TODO
-        Err(StorageError::UnexpectedTrieValue)
+    pub fn pure_get_ref(&mut self, key: TrieKey) -> Result<Option<StateValue>, StorageError> {
+        self.get_ref_or(
+            key,
+            Self::default_fetch(KeyLookupMode::MemOrFlatOrTrie, AccessOptions::NO_SIDE_EFFECTS),
+        )
     }
 
     /// Remove all values with the provided `TrieKey` prefix.
@@ -756,11 +750,15 @@ impl<'su> StateOperations<'su> {
         Ok(())
     }
 
+    pub fn ptr(&self) -> *const () {
+        Arc::as_ptr(&self.state_update.state) as _
+    }
+
     /// Commit the changes to the [`StateUpdate`].
     ///
     /// If you'd like to discard the changes accumulated in this type, see [`Self::discard`].
     pub fn in_place_commit(&mut self) -> Result<(), StorageError> {
-        let Self { clock_created, state_update, operations } = self;
+        let Self { clock_created, state_update, operations, on_drop: _ } = self;
         let mut state_update_state = state_update.state.lock();
         let clock_at_create = *clock_created;
         let last_operation_clock = if state_update_state.max_clock <= clock_at_create {
@@ -823,6 +821,7 @@ impl<'su> StateOperations<'su> {
                 }
             }
         }
+
         Ok(())
     }
 
@@ -835,7 +834,7 @@ impl<'su> StateOperations<'su> {
     /// This is roughly equivalent to `discard`ing the current instance and creating a new one,
     /// only that it occurs in-place.
     pub fn reset(&mut self) {
-        let Self { clock_created, state_update, operations } = self;
+        let Self { clock_created, state_update, operations, on_drop: _ } = self;
         let state_update_state = state_update.state.lock();
         operations.clear();
         *clock_created = state_update_state.max_clock;
@@ -867,12 +866,68 @@ impl<'su> StateOperations<'su> {
     }
 }
 
-#[cfg(debug_assertions)]
+#[derive(Default)]
+enum OnDrop {
+    /// [`OnDrop::Panic`] when debug assertions are enabled, [`OnDrop::Discard`] otherwise.
+    ///
+    /// This is the default.
+    #[default]
+    DebugPanicReleaseDiscard,
+    /// Attempt to commit the changes into the `StateUpdate`.
+    ///
+    /// This should ideally be only limited to test use, as this operation is fallible. Any commits
+    /// should ideally be executed with manual call to [`StateOperations::commit`].
+    Commit,
+    /// Discard the data.
+    Discard,
+    /// Always panic if a non-empty `StateOperations` is dropped.
+    Panic,
+}
+
+impl<'su> StateOperations<'su> {
+    /// Request that on drop of this collection of operations a commit attempt is made.
+    pub fn commit_on_drop(mut self) -> Self {
+        self.on_drop = OnDrop::Commit;
+        self
+    }
+
+    pub fn discard_on_drop(mut self) -> Self {
+        self.on_drop = OnDrop::Discard;
+        self
+    }
+
+    pub fn panic_on_drop(mut self) -> Self {
+        self.on_drop = OnDrop::Panic;
+        self
+    }
+}
+
 impl<'su> Drop for StateOperations<'su> {
     #[track_caller]
     fn drop(&mut self) {
         if !self.operations.is_empty() {
-            panic!("StateUpdateOperation is dropped without commiting or discarding contents");
+            match self.on_drop {
+                OnDrop::DebugPanicReleaseDiscard if cfg!(debug_assertions) => {
+                    if !std::thread::panicking() {
+                        panic!(
+                            "StateOperations is dropped without commiting or discarding contents"
+                        )
+                    }
+                }
+                OnDrop::DebugPanicReleaseDiscard | OnDrop::Discard => {}
+                OnDrop::Commit => match self.in_place_commit() {
+                    Ok(_) => {}
+                    Err(_) if std::thread::panicking() => {}
+                    Err(e) => panic!("StateOperations could not be committed during drop: {e}"),
+                },
+                OnDrop::Panic => {
+                    if !std::thread::panicking() {
+                        panic!(
+                            "StateOperations is dropped without commiting or discarding contents"
+                        )
+                    }
+                }
+            }
         }
     }
 }
@@ -928,6 +983,8 @@ pub mod state_value {
     // FIXME: seal this so that implementing this is only possible in this module.
     pub trait Deserialized: Any + Send + Sync {
         fn serialize(&self) -> Vec<u8>;
+        fn len(&self) -> usize;
+        fn value_hash_len(&self) -> (near_primitives::hash::CryptoHash, usize);
     }
 
     /// A value that can be eventually written out to the database.
@@ -984,6 +1041,14 @@ mod state_value_impls {
                 fn serialize(&self) -> Vec<u8> {
                     borsh::to_vec(self).expect("TODO(state_update): error handling?")
                 }
+
+                fn len(&self) -> usize {
+                    todo!("len for borsh types")
+                }
+
+                fn value_hash_len(&self) -> (CryptoHash, usize) {
+                    todo!("value_hash_len for borsh types")
+                }
             }
 
             impl Deserializable for $ty {
@@ -1019,6 +1084,14 @@ mod state_value_impls {
     impl Deserialized for Vec<u8> {
         fn serialize(&self) -> Vec<u8> {
             self.to_vec()
+        }
+
+        fn len(&self) -> usize {
+            self.len()
+        }
+
+        fn value_hash_len(&self) -> (CryptoHash, usize) {
+            (near_primitives::hash::hash(self), self.len())
         }
     }
     impl Deserializable for Vec<u8> {

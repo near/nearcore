@@ -524,8 +524,8 @@ impl ReceiptSinkV2 {
         side_effects: bool,
         params: &BandwidthSchedulerParams,
     ) -> Result<Option<BandwidthRequest>, StorageError> {
-        let mut update_op = state_update.start_update();
-        let mut update_op2 = state_update.start_update();
+        let mut update_op = state_update.start_update().commit_on_drop();
+        let mut update_op2 = state_update.start_update().commit_on_drop();
         // Get (group) sizes of receipts stored in outgoing buffer to the shard.
         let mut receipt_sizes_iter = self.get_receipt_group_sizes_for_buffer_to_shard(
             to_shard,

@@ -541,7 +541,7 @@ impl Runtime {
     // Executes when all Receipt `input_data_ids` are in the state
     fn apply_action_receipt(
         &self,
-        mut update_ops: StateOperations,
+        update_ops: StateOperations,
         contract_store: &ContractStorage,
         apply_state: &ApplyState,
         preparation_pipeline: &ReceiptPreparationPipeline,
@@ -556,6 +556,8 @@ impl Runtime {
             "apply_action_receipt",
         )
         .entered();
+        let mut update_ops = update_ops.discard_on_drop();
+
         let action_receipt: VersionedActionReceipt = match receipt.versioned_receipt() {
             VersionedReceiptEnum::Action(action_receipt)
             | VersionedReceiptEnum::PromiseYield(action_receipt) => action_receipt,
@@ -838,6 +840,7 @@ impl Runtime {
                 }
             })
             .collect::<Result<_, _>>()?;
+        update_ops.commit().expect("TODO(state_update): error handling");
 
         let status = match result.result {
             Ok(ReturnData::ReceiptIndex(receipt_index)) => ExecutionStatus::SuccessReceiptId(
@@ -1106,7 +1109,7 @@ impl Runtime {
             ..
         } = *processing_state;
         let account_id = receipt.receiver_id();
-        let mut state_ops = state_update.start_update();
+        let mut state_ops = state_update.start_update().discard_on_drop();
 
         match receipt.versioned_receipt() {
             VersionedReceiptEnum::Data(data_receipt) => {
@@ -1286,7 +1289,6 @@ impl Runtime {
                     // If the user happens to call `promise_yield_resume` multiple times, it may so
                     // happen that multiple PromiseResume receipts are delivered. We can safely
                     // ignore all but the first.
-                    return Ok(None);
                 }
             }
             VersionedReceiptEnum::GlobalContractDistribution(_) => {
@@ -1297,7 +1299,6 @@ impl Runtime {
                     &mut state_ops,
                     receipt_sink,
                 )?;
-                return Ok(None);
             }
         };
         // We didn't trigger execution, so we need to commit the state.
@@ -1463,7 +1464,7 @@ impl Runtime {
             _ = prefetcher.prefetch_transactions_data(&signed_txs);
         }
 
-        let mut update_ops = processing_state.state_update.start_update();
+        let mut update_ops = processing_state.state_update.start_update().discard_on_drop();
         // Step 1: update validator accounts.
         if let Some(validator_accounts_update) = validator_accounts_update {
             self.update_validator_accounts(&mut update_ops, validator_accounts_update)?;
@@ -2928,7 +2929,7 @@ fn schedule_contract_preparation<R: MaybeRefReceipt>(
     state_update: &StateUpdate,
     mut iterator: impl Iterator<Item = R>,
 ) -> Option<usize> {
-    let mut update_ops = state_update.start_update();
+    let mut update_ops = state_update.start_update().discard_on_drop();
     let scheduled_receipt_offset = iterator.position(|peek| {
         let peek = peek.as_ref();
         let account_id = peek.receiver_id();
@@ -2994,7 +2995,6 @@ fn schedule_contract_preparation<R: MaybeRefReceipt>(
         }
         handle_receipt(pipeline_manager, &mut update_ops, account_id, peek)
     })?;
-    update_ops.discard();
     Some(scheduled_receipt_offset.saturating_add(1))
 }
 

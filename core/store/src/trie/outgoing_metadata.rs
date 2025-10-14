@@ -417,10 +417,10 @@ fn subtract_gas_checked(total: &mut u128, delta: Gas) {
 #[cfg(test)]
 mod tests {
     use super::{ReceiptGroup, ReceiptGroupV0, ReceiptGroupsConfig, ReceiptGroupsQueue};
-    use crate::Trie;
     use crate::state_update::{StateOperations, StateUpdate};
     use crate::test_utils::TestTriesBuilder;
     use crate::trie::receipts_column_helper::TrieQueue;
+    use crate::{Trie, state_update};
     use bytesize::ByteSize;
     use near_primitives::bandwidth_scheduler::{
         BandwidthRequest, BandwidthRequestValues, BandwidthSchedulerParams,
@@ -657,14 +657,11 @@ mod tests {
         // Then perform random pushes and pops.
         let mut next_receipt_to_push_idx = 0;
         loop {
-            let mut update_op = state_update.start_update();
             let can_push = next_receipt_to_push_idx < receipts.len();
             let can_pop = !buffered_receipts.is_empty();
-
             if !can_pop && !can_push {
                 break;
             }
-
             let should_push = if !can_pop {
                 true
             } else if !can_push {
@@ -673,6 +670,7 @@ mod tests {
                 rng.r#gen::<bool>()
             };
 
+            let mut update_op = state_update.start_update().commit_on_drop();
             if should_push {
                 let (receipt_size, receipt_gas) = receipts[next_receipt_to_push_idx];
                 next_receipt_to_push_idx += 1;
@@ -688,6 +686,7 @@ mod tests {
                     .unwrap();
                 test_queue.update_on_receipt_popped(receipt_size, receipt_gas);
             }
+            update_op.in_place_commit().unwrap();
 
             if rng.r#gen::<bool>() {
                 // Reload the queue from trie. Tests that all changes are persisted after every operation.

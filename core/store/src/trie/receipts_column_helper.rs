@@ -179,13 +179,16 @@ pub trait TrieQueue {
         match modified_item {
             Some(item) => {
                 state_update.set(key, item);
-                self.write_indices(state_update);
             }
             None => {
-                // Modify function returned None, remove the first item.
-                let _removed = self.pop_front(state_update)?;
+                self.indices_mut().first_index += 1;
             }
         }
+        // SUBTLE: Ordinarily it would not be necessary to write the indices if `modify_fn` returns
+        // a `Some` as the indices woudln't really have changed. However some users modify their
+        // indices inside `modify_fn` itself (e.g. `ReceiptsGroupQueue::update_on_receipt_popped`)
+        // which won't be written out if we don't write the indices here.
+        self.write_indices(state_update);
         Ok(())
     }
 
@@ -247,10 +250,10 @@ pub trait TrieQueue {
     /// memory in at least one layer. But we still want to avoid it in
     /// production.
     #[cfg(debug_assertions)]
-    fn debug_check_unchanged(&self, trie: &mut StateOperations) {
+    fn debug_check_unchanged(&self, update_ops: &mut StateOperations) {
         // FIXME: this should only use pure operations, otherwise using debug vs non-debug can
         // affect the state witness
-        debug_assert_eq!(self.indices(), self.load_indices(trie).unwrap());
+        debug_assert_eq!(self.indices(), self.load_indices(update_ops).unwrap());
     }
 
     #[cfg(not(debug_assertions))]
@@ -261,8 +264,11 @@ pub trait TrieQueue {
 
 impl DelayedReceiptQueue {
     pub fn load(trie: &mut StateOperations) -> Result<Self, StorageError> {
-        let indices: TrieQueueIndices =
-            trie.get(TrieKey::DelayedReceiptIndices)?.cloned().unwrap_or_default();
+        let indices: TrieQueueIndices = trie
+            .get::<DelayedReceiptIndices>(TrieKey::DelayedReceiptIndices)?
+            .cloned()
+            .unwrap_or_default()
+            .into();
         Ok(Self { indices: indices.into() })
     }
 }
@@ -271,11 +277,11 @@ impl TrieQueue for DelayedReceiptQueue {
     type Item = ReceiptOrStateStoredReceipt<'static>;
 
     fn load_indices(&self, trie: &mut StateOperations) -> Result<TrieQueueIndices, StorageError> {
-        Ok(TrieQueueIndices::from(
-            trie.get::<DelayedReceiptIndices>(TrieKey::DelayedReceiptIndices)?
-                .cloned()
-                .unwrap_or_default(),
-        ))
+        Ok(trie
+            .get::<DelayedReceiptIndices>(TrieKey::DelayedReceiptIndices)?
+            .cloned()
+            .unwrap_or_default()
+            .into())
     }
 
     fn indices(&self) -> TrieQueueIndices {
@@ -287,7 +293,8 @@ impl TrieQueue for DelayedReceiptQueue {
     }
 
     fn write_indices(&self, state_update: &mut StateOperations) {
-        state_update.set(TrieKey::DelayedReceiptIndices, self.indices.clone());
+        state_update
+            .set(TrieKey::DelayedReceiptIndices, DelayedReceiptIndices::from(self.indices.clone()));
     }
 
     fn trie_key(&self, index: u64) -> TrieKey {
@@ -435,20 +442,18 @@ mod tests {
 
         // load a queue to fill it with receipts
         {
-            let mut update_op = state_update.start_update();
+            let mut update_op = state_update.start_update().commit_on_drop();
             let mut queue =
                 DelayedReceiptQueue::load(&mut update_op).expect("creating queue must not fail");
-            update_op.commit().unwrap();
-            check_push_to_receipt_queue(input_receipts, &state_update, &mut queue);
+            check_push_to_receipt_queue(input_receipts, &mut update_op, &mut queue);
         }
 
         // drop queue and load another one to see if values are persisted
         {
-            let mut update_op = state_update.start_update();
+            let mut update_op = state_update.start_update().commit_on_drop();
             let mut queue =
                 DelayedReceiptQueue::load(&mut update_op).expect("creating queue must not fail");
-            update_op.commit().unwrap();
-            check_receipt_queue_contains_receipts(input_receipts, &state_update, &mut queue);
+            check_receipt_queue_contains_receipts(input_receipts, &mut update_op, &mut queue);
         }
     }
 
@@ -472,22 +477,20 @@ mod tests {
         for id in 0..2u32 {
             // load a buffer to fill it with receipts
             {
-                let mut update_op = state_update.start_update();
+                let mut update_op = state_update.start_update().commit_on_drop();
                 let mut buffers = ShardsOutgoingReceiptBuffer::load(&mut update_op)
                     .expect("creating buffers must not fail");
-                update_op.commit().unwrap();
                 let mut buffer = buffers.to_shard(ShardId::from(id));
-                check_push_to_receipt_queue(input_receipts, &state_update, &mut buffer);
+                check_push_to_receipt_queue(input_receipts, &mut update_op, &mut buffer);
             }
 
             // drop queue and load another one to see if values are persisted
             {
-                let mut update_op = state_update.start_update();
+                let mut update_op = state_update.start_update().commit_on_drop();
                 let mut buffers = ShardsOutgoingReceiptBuffer::load(&mut update_op)
                     .expect("creating buffers must not fail");
-                update_op.commit().unwrap();
                 let mut buffer = buffers.to_shard(ShardId::from(id));
-                check_receipt_queue_contains_receipts(input_receipts, &state_update, &mut buffer);
+                check_receipt_queue_contains_receipts(input_receipts, &mut update_op, &mut buffer);
             }
         }
     }
@@ -509,22 +512,21 @@ mod tests {
     #[track_caller]
     fn check_outgoing_receipt_buffer_combined(input_receipts: &[Receipt]) {
         let state_update = init_state();
-        let mut update_op = state_update.start_update();
+        let mut update_op = state_update.start_update().commit_on_drop();
         // load shard_buffers once and hold on to it for the entire duration
         let mut shard_buffers = ShardsOutgoingReceiptBuffer::load(&mut update_op)
             .expect("creating buffers must not fail");
-        update_op.commit().unwrap();
         for id in 0..2u32 {
             // load a buffer to fill it with receipts
             {
                 let mut buffer = shard_buffers.to_shard(ShardId::from(id));
-                check_push_to_receipt_queue(input_receipts, &state_update, &mut buffer);
+                check_push_to_receipt_queue(input_receipts, &mut update_op, &mut buffer);
             }
 
             // drop queue and load another one to see if values are persisted
             {
                 let mut buffer = shard_buffers.to_shard(ShardId::from(id));
-                check_receipt_queue_contains_receipts(input_receipts, &state_update, &mut buffer);
+                check_receipt_queue_contains_receipts(input_receipts, &mut update_op, &mut buffer);
             }
         }
     }
@@ -534,16 +536,15 @@ mod tests {
     #[track_caller]
     fn check_push_to_receipt_queue(
         input_receipts: &[Receipt],
-        state_update: &StateUpdate,
+        update_op: &mut StateOperations,
         queue: &mut impl TrieQueue<Item = ReceiptOrStateStoredReceipt<'static>>,
     ) {
-        let mut update_op = state_update.start_update();
         for receipt in input_receipts {
             let receipt = ReceiptOrStateStoredReceipt::Receipt(Cow::Owned(receipt.clone()));
-            queue.push_back(&mut update_op, receipt).expect("pushing must not fail");
+            queue.push_back(update_op, receipt).expect("pushing must not fail");
         }
         let iterated_receipts: Vec<ReceiptOrStateStoredReceipt> = queue
-            .iter(&mut update_op, true)
+            .iter(update_op, true)
             .collect::<Result<_, _>>()
             .expect("iterating should not fail");
         let iterated_receipts: Vec<Receipt> =
@@ -558,13 +559,12 @@ mod tests {
     #[track_caller]
     fn check_receipt_queue_contains_receipts(
         input_receipts: &[Receipt],
-        state_update: &StateUpdate,
+        update_op: &mut StateOperations,
         queue: &mut impl TrieQueue<Item = ReceiptOrStateStoredReceipt<'static>>,
     ) {
-        let mut update_op = state_update.start_update();
         // check 2: assert newly loaded queue still contains the receipts
         let iterated_receipts: Vec<ReceiptOrStateStoredReceipt> = queue
-            .iter(&mut update_op, true)
+            .iter(update_op, true)
             .collect::<Result<_, _>>()
             .expect("iterating should not fail");
         let iterated_receipts: Vec<Receipt> =
@@ -573,8 +573,7 @@ mod tests {
 
         // check 3: pop receipts from queue and check if all are returned in the right order
         let mut popped = vec![];
-        let mut update = state_update.start_update();
-        while let Some(receipt) = queue.pop_front(&mut update).expect("pop must not fail") {
+        while let Some(receipt) = queue.pop_front(update_op).expect("pop must not fail") {
             let receipt = receipt.into_receipt();
             popped.push(receipt);
         }
@@ -582,15 +581,14 @@ mod tests {
     }
 
     fn init_state() -> StateUpdate {
-        todo!()
-        // let shard_layout_version = 1;
-        // let shard_layout = ShardLayout::multi_shard(2, shard_layout_version);
-        // let shard_uid = shard_layout.shard_uids().next().unwrap();
-        // let state_root = Trie::EMPTY_ROOT;
+        let shard_layout_version = 1;
+        let shard_layout = ShardLayout::multi_shard(2, shard_layout_version);
+        let shard_uid = shard_layout.shard_uids().next().unwrap();
+        let state_root = Trie::EMPTY_ROOT;
 
-        // let tries = TestTriesBuilder::new().with_shard_layout(shard_layout).build();
-        // let trie = tries.get_trie_for_shard(shard_uid, state_root);
-        // TrieUpdate::new(trie)
+        let tries = TestTriesBuilder::new().with_shard_layout(shard_layout).build();
+        let trie = tries.get_trie_for_shard(shard_uid, state_root);
+        StateUpdate::new(trie)
     }
 
     // Queue used to test the TrieQueue trait.
@@ -726,7 +724,7 @@ mod tests {
 
         // Run 20_000 random operations on the queue
         for i in 0..20_000 {
-            let mut update_op = state_update.start_update();
+            let mut update_op = state_update.start_update().commit_on_drop();
             maybe_reload_queue(&mut update_op, &mut trie_queue, rng);
 
             let op = generate_random_operation(rng, i);
@@ -793,6 +791,7 @@ mod tests {
                 }
                 let memory_items =
                     memory_queue.iter().take(prefix_len).copied().collect::<Vec<_>>();
+                drop(trie_iter);
                 assert_eq!(trie_items, memory_items);
             }
         }

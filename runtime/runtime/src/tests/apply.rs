@@ -2847,7 +2847,9 @@ fn test_congestion_buffering() {
         // (a) check receipts are held back in buffer
         let state = tries.get_trie_for_shard(local_shard_uid, root);
         let state_update = StateUpdate::new(state);
-        let buffers = ShardsOutgoingReceiptBuffer::load(&mut state_update.start_update()).unwrap();
+        let buffers =
+            ShardsOutgoingReceiptBuffer::load(&mut state_update.start_update().commit_on_drop())
+                .unwrap();
         let capped_i = std::cmp::min(i, n);
         assert_eq!(0, apply_result.outgoing_receipts.len());
         assert_eq!(capped_i, buffers.buffer_len(receiver_shard).unwrap());
@@ -2906,7 +2908,9 @@ fn test_congestion_buffering() {
 
         let state = tries.get_trie_for_shard(local_shard_uid, root);
         let state_update = StateUpdate::new(state);
-        let buffers = ShardsOutgoingReceiptBuffer::load(&mut state_update.start_update()).unwrap();
+        let buffers =
+            ShardsOutgoingReceiptBuffer::load(&mut state_update.start_update().commit_on_drop())
+                .unwrap();
 
         // (b) check receipts are removed from the buffer
         let max_forwarded = i * forwarded_per_chunk;

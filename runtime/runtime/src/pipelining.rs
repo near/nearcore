@@ -187,7 +187,7 @@ impl ReceiptPreparationPipeline {
                             let Ok(Some(value_ref)) = state_update.pure_get_ref(key) else {
                                 continue;
                             };
-                            value_ref.value_hash()
+                            value_ref.value_hash_len().0
                         }
                     };
                     let key = PrepareTaskKey { receipt_id: receipt.get_hash(), action_index };

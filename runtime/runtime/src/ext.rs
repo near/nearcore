@@ -288,11 +288,8 @@ impl<'a, 'su> External for RuntimeExt<'a, 'su> {
         match removed {
             None => {}
             // Value has already been accessed.
-            Some(StateValue::Deserialized(_v)) => {
-                todo!(
-                    "previously we would charge for this regardless, so we gotta calculate the length anyway"
-                )
-                // access_tracker.deref_removed_value_bytes(u64::from(v.len()))?;
+            Some(StateValue::Deserialized(v)) => {
+                access_tracker.deref_removed_value_bytes(u64::try_from(v.len()).unwrap())?;
             }
             Some(StateValue::Serialized(token)) => {
                 access_tracker.deref_removed_value_bytes(u64::try_from(token.len()).unwrap())?;
