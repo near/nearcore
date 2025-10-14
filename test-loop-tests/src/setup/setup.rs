@@ -394,6 +394,7 @@ pub fn setup_client(
         runtime_adapter.store().chain_store(),
         spice_core_processor.clone(),
         validator_signer.clone(),
+        shard_tracker.clone(),
         network_adapter.as_multi_sender(),
         chunk_executor_adapter.as_sender(),
         spice_chunk_validator_adapter.as_sender(),

@@ -19,7 +19,7 @@ use near_network::client::{
     ProcessTxResponse, SpiceChunkEndorsementMessage,
 };
 use near_network::shards_manager::ShardsManagerRequestFromNetwork;
-use near_network::spice_data_distribution::SpiceIncomingPartialData;
+use near_network::spice_data_distribution::{SpiceIncomingPartialData, SpicePartialDataRequest};
 use near_network::state_witness::{
     ChunkContractAccessesMessage, ChunkStateWitnessAckMessage, ContractCodeRequestMessage,
     ContractCodeResponseMessage, PartialEncodedContractDeploysMessage,
@@ -68,6 +68,7 @@ pub struct ViewClientSenderForTestLoopNetwork {
 pub struct SpiceDataDistributorSenderForTestLoopNetwork {
     pub receipts: Sender<SpiceDistributorOutgoingReceipts>,
     pub incoming_data: Sender<SpiceIncomingPartialData>,
+    pub data_requests: Sender<SpicePartialDataRequest>,
 }
 
 /// This message is used to allow TestLoopPeerManagerActor to construct NetworkInfo for each
@@ -719,6 +720,14 @@ fn network_message_to_spice_data_distributor_handler(
                     .spice_data_distributor_actor
                     .send(SpiceIncomingPartialData { data: partial_data.clone() });
             }
+            None
+        }
+        NetworkRequests::SpicePartialDataRequest { producer, request } => {
+            assert!(producer != my_account_id, "Sending message to self not supported.");
+            shared_state
+                .senders_for_account(&my_account_id, &producer)
+                .spice_data_distributor_actor
+                .send(request);
             None
         }
         _ => Some(request),
