@@ -429,12 +429,8 @@ pub fn validate_action(
     match action {
         Action::CreateAccount(_) => Ok(()),
         Action::DeployContract(a) => validate_deploy_contract_action(limit_config, a),
-        Action::DeployGlobalContract(a) => {
-            validate_deploy_global_contract_action(limit_config, a, current_protocol_version)
-        }
-        Action::UseGlobalContract(_) => {
-            validate_use_global_contract_action(current_protocol_version)
-        }
+        Action::DeployGlobalContract(a) => validate_deploy_global_contract_action(limit_config, a),
+        Action::UseGlobalContract(_) => validate_use_global_contract_action(),
         Action::FunctionCall(a) => validate_function_call_action(limit_config, a),
         Action::Transfer(_) => Ok(()),
         Action::Stake(a) => validate_stake_action(a),
@@ -480,10 +476,7 @@ fn validate_deploy_contract_action(
 fn validate_deploy_global_contract_action(
     limit_config: &LimitConfig,
     action: &DeployGlobalContractAction,
-    current_protocol_version: ProtocolVersion,
 ) -> Result<(), ActionsValidationError> {
-    check_global_contracts_enabled(current_protocol_version)?;
-
     if action.code.len() as u64 > limit_config.max_contract_size {
         return Err(ActionsValidationError::ContractSizeExceeded {
             size: action.code.len() as u64,
@@ -495,10 +488,8 @@ fn validate_deploy_global_contract_action(
 }
 
 /// Validates `UseGlobalContractAction`.
-fn validate_use_global_contract_action(
-    current_protocol_version: ProtocolVersion,
-) -> Result<(), ActionsValidationError> {
-    check_global_contracts_enabled(current_protocol_version)
+fn validate_use_global_contract_action() -> Result<(), ActionsValidationError> {
+    Ok(())
 }
 
 /// Validates `FunctionCallAction`. Checks that the method name length doesn't exceed the limit and
@@ -648,18 +639,6 @@ fn truncate_string(s: &str, limit: usize) -> String {
         }
     }
     unreachable!()
-}
-
-fn check_global_contracts_enabled(
-    current_protocol_version: ProtocolVersion,
-) -> Result<(), ActionsValidationError> {
-    if !ProtocolFeature::GlobalContracts.enabled(current_protocol_version) {
-        return Err(ActionsValidationError::UnsupportedProtocolFeature {
-            protocol_feature: "GlobalContracts".to_owned(),
-            version: current_protocol_version,
-        });
-    }
-    Ok(())
 }
 
 #[cfg(test)]
@@ -813,7 +792,7 @@ mod tests {
                 return;
             }
         };
-        let cost = match tx_cost(config, &validated_tx.to_tx(), gas_price, PROTOCOL_VERSION) {
+        let cost = match tx_cost(config, &validated_tx.to_tx(), gas_price) {
             Ok(c) => c,
             Err(err) => {
                 assert_eq!(InvalidTxError::from(err), expected_err);
@@ -857,8 +836,7 @@ mod tests {
         };
         let (mut signer, mut access_key) = get_signer_and_access_key(state_update, &validated_tx)?;
 
-        let transaction_cost =
-            tx_cost(config, &validated_tx.to_tx(), gas_price, current_protocol_version)?;
+        let transaction_cost = tx_cost(config, &validated_tx.to_tx(), gas_price)?;
         let vr = verify_and_charge_tx_ephemeral(
             config,
             &mut signer,
@@ -2211,7 +2189,7 @@ mod tests {
                 Err(
                     UnsupportedProtocolFeature {
                         protocol_feature: "DeterministicAccountIds",
-                        version: 149,
+                        version: 80,
                     },
                 )
             "#]],

@@ -1,8 +1,9 @@
 use crate::config::SocketOptions;
 use crate::network_protocol::testonly as data;
 use crate::network_protocol::{Encoding, Handshake, PartialEdgeInfo, PeerMessage};
-use crate::peer_manager::testonly::{ActorHandler, Event};
-use crate::peer_manager::{self, peer_manager_actor};
+use crate::peer_manager;
+use crate::peer_manager::peer_manager_actor::Event;
+use crate::peer_manager::testonly::ActorHandler;
 use crate::tcp;
 use crate::testonly::make_rng;
 use crate::testonly::stream;
@@ -93,7 +94,7 @@ async fn wait_for_edge(actor_handler: &mut ActorHandler) -> Edge {
     actor_handler
         .events
         .recv_until(|ev| match ev {
-            Event::PeerManager(peer_manager_actor::Event::EdgesAdded(ev)) => Some(ev[0].clone()),
+            Event::EdgesAdded(ev) => Some(ev[0].clone()),
             _ => None,
         })
         .await

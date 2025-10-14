@@ -7,6 +7,7 @@ use near_async::time::Duration;
 use near_primitives::types::AccountId;
 use near_store::Store;
 use near_store::adapter::StoreAdapter;
+use near_store::archive::cloud_storage::CloudStorage;
 use near_store::db::ColdDB;
 use near_store::test_utils::TestNodeStorage;
 use std::sync::Arc;
@@ -102,7 +103,8 @@ impl TestLoopEnv {
             Some((split_store, cold_db)) => (Some(split_store), Some(cold_db)),
             None => (None, None),
         };
-        let storage = TestNodeStorage { hot_store, split_store, cold_db };
+        let cloud_storage = self.get_cloud_storage(node_data);
+        let storage = TestNodeStorage { hot_store, split_store, cold_db, cloud_storage };
 
         NodeSetupState { account_id, client_config, storage }
     }
@@ -120,6 +122,11 @@ impl TestLoopEnv {
             self.test_loop.data.get(&node_data.view_client_sender.actor_handle());
         let split_store = view_client_actor.chain.chain_store.store();
         Some((split_store, cold_db))
+    }
+
+    fn get_cloud_storage(&self, node_data: &NodeExecutionData) -> Option<Arc<CloudStorage>> {
+        let cloud_storage = self.test_loop.data.get(&node_data.cloud_storage_sender);
+        cloud_storage.clone()
     }
 
     /// Function to restart a node in test loop environment. This function takes in the new_identifier

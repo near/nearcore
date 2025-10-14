@@ -1,5 +1,6 @@
 use near_primitives_core::hash::CryptoHash;
 pub use near_primitives_core::types::*;
+use std::rc::Rc;
 
 pub type PublicKey = Vec<u8>;
 pub type PromiseIndex = u64;
@@ -36,7 +37,7 @@ impl ReturnData {
 pub enum PromiseResult {
     /// Current version of the protocol never returns `PromiseResult::NotReady`.
     NotReady,
-    Successful(Vec<u8>),
+    Successful(Rc<[u8]>),
     Failed,
 }
 

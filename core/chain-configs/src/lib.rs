@@ -10,13 +10,14 @@ pub mod test_utils;
 mod updatable_config;
 
 pub use client_config::{
-    ChunkDistributionNetworkConfig, ChunkDistributionUris, ClientConfig, CloudArchivalHandle,
-    CloudArchivalReaderConfig, CloudArchivalWriterConfig, CloudStorageConfig,
+    ChunkDistributionNetworkConfig, ChunkDistributionUris, ClientConfig, CloudArchivalReaderConfig,
+    CloudArchivalWriterConfig, CloudArchivalWriterHandle, CloudStorageConfig,
     DEFAULT_GC_NUM_EPOCHS_TO_KEEP, DEFAULT_STATE_PARTS_COMPRESSION_LEVEL, DumpConfig,
     EpochSyncConfig, ExternalStorageConfig, ExternalStorageLocation, GCConfig, LogSummaryStyle,
     MIN_GC_NUM_EPOCHS_TO_KEEP, ProtocolVersionCheckConfig, ReshardingConfig, ReshardingHandle,
     StateSyncConfig, SyncConcurrency, SyncConfig, TrackedShardsConfig,
-    default_chunk_validation_threads, default_chunk_wait_mult, default_enable_multiline_logging,
+    default_chunk_validation_threads, default_chunk_wait_mult,
+    default_enable_early_prepare_transactions, default_enable_multiline_logging,
     default_epoch_sync, default_header_sync_expected_height_per_second,
     default_header_sync_initial_timeout, default_header_sync_progress_timeout,
     default_header_sync_stall_ban_timeout, default_log_summary_period,

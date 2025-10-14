@@ -31,7 +31,7 @@ use crate::store::{
 };
 use crate::types::{
     AcceptedBlock, ApplyChunkBlockContext, BlockEconomicsConfig, BlockType, ChainConfig,
-    RuntimeAdapter, StorageDataSource,
+    PrepareTransactionsBlockContext, RuntimeAdapter, StorageDataSource,
 };
 pub use crate::update_shard::{
     NewChunkData, NewChunkResult, OldChunkData, OldChunkResult, ShardContext, StorageContext,
@@ -80,6 +80,7 @@ use near_primitives::sharding::{
     StateSyncInfo,
 };
 use near_primitives::state_sync::ReceiptProofResponse;
+use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::stateless_validation::state_witness::{
     ChunkStateWitness, ChunkStateWitnessSize,
 };
@@ -143,7 +144,22 @@ pub type ApplyChunksDoneSender = near_async::messaging::Sender<SpanWrapped<Apply
 /// preparing transactions for inclusion in the next chunk.
 #[derive(Message, Debug)]
 pub struct PostStateReadyMessage {
+    /// Post-State of the shard after applying the chunk
     pub post_state: PostState,
+    /// ShardUId of the applied chunk
+    pub shard_uid: ShardUId,
+    /// prev_prev_block from the perspective of early transaction preparation for the next chunk.
+    /// Contains the header of the block at height H when the applied chunk is at height H+1 and
+    /// transactions should be prepared for height H+2.
+    /// The last known header when the chunk is applied on top of an optimistic block.
+    pub prev_prev_block_header: BlockHeader,
+    /// Block context used to prepare transactions for the next height.
+    pub prev_block_context: PrepareTransactionsBlockContext,
+    /// Application key for the applied chunk.
+    pub key: CachedShardUpdateKey,
+    /// Transactions included in the applied chunk. They weren't removed from the transaction pool
+    /// yet and should be skipped when preparing transactions for the next chunk.
+    pub prev_chunk_tx_hashes: HashSet<CryptoHash>,
 }
 
 pub type PostStateReadySender = near_async::messaging::Sender<SpanWrapped<PostStateReadyMessage>>;
@@ -1323,8 +1339,11 @@ impl Chain {
                 state_patch: SandboxStatePatch::default(),
             };
 
-            let cached_shard_update_key =
-                Self::get_cached_shard_update_key(&block_context, &chunks, shard_id)?;
+            let cached_shard_update_key = Self::get_cached_shard_update_key(
+                &block_context.to_key_source(),
+                &chunks,
+                shard_id,
+            )?;
             shard_update_keys.push(cached_shard_update_key);
             let job = self.get_update_shard_job(
                 cached_shard_update_key,
@@ -2347,12 +2366,10 @@ impl Chain {
             // TODO(spice): move incoming receipts collection inside apply_chunks_preprocessing
             HashMap::default()
         } else {
-            let receipts_shuffle_salt =
-                get_receipts_shuffle_salt(self.epoch_manager.as_ref(), &block)?;
             self.collect_incoming_receipts_from_chunks(
                 &block.chunks(),
                 &prev_hash,
-                receipts_shuffle_salt,
+                get_receipts_shuffle_salt(&block),
             )?
         };
 
@@ -2609,12 +2626,10 @@ impl Chain {
             let prev_block = self.chain_store.get_block(block.header().prev_hash())?.clone();
             let prev_hash = *prev_block.hash();
 
-            let receipts_shuffle_salt =
-                get_receipts_shuffle_salt(self.epoch_manager.as_ref(), &block)?;
             let receipts_by_shard = self.collect_incoming_receipts_from_chunks(
                 &block.chunks(),
                 &prev_hash,
-                receipts_shuffle_salt,
+                get_receipts_shuffle_salt(&block),
             )?;
 
             let work = self.apply_chunks_preprocessing(
@@ -3049,8 +3064,11 @@ impl Chain {
                 chunk_header.is_new_chunk(),
             )?;
 
-            let cached_shard_update_key =
-                Self::get_cached_shard_update_key(&block_context, chunk_headers, shard_id)?;
+            let cached_shard_update_key = Self::get_cached_shard_update_key(
+                &block_context.to_key_source(),
+                chunk_headers,
+                shard_id,
+            )?;
             update_shard_args.push((block_context, cached_shard_update_key));
         }
 
@@ -3147,7 +3165,7 @@ impl Chain {
     /// Get a key which can uniquely define result of applying a chunk based on
     /// block execution context and other chunks.
     pub fn get_cached_shard_update_key(
-        block_context: &ApplyChunkBlockContext,
+        block: &OptimisticBlockKeySource,
         chunk_headers: &Chunks,
         shard_id: ShardId,
     ) -> Result<CachedShardUpdateKey, Error> {
@@ -3155,12 +3173,6 @@ impl Chain {
             size_of::<CryptoHash>() + size_of::<CryptoHash>() + size_of::<u64>();
 
         let mut bytes: Vec<u8> = Vec::with_capacity(BYTES_LEN);
-        let block = OptimisticBlockKeySource {
-            height: block_context.height,
-            prev_block_hash: block_context.prev_block_hash,
-            block_timestamp: block_context.block_timestamp,
-            random_seed: block_context.random_seed,
-        };
         bytes.extend_from_slice(&hash(&borsh::to_vec(&block)?).0);
 
         let chunks_key_source: Vec<_> = chunk_headers.iter_raw().map(|c| c.chunk_hash()).collect();
@@ -3194,6 +3206,7 @@ impl Chain {
         let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(prev_hash)?;
         let shard_layout = self.epoch_manager.get_shard_layout(&epoch_id)?;
         let shard_id = shard_layout.get_shard_id(shard_index)?;
+        let shard_uid = ShardUId::from_shard_id_and_layout(shard_id, &shard_layout);
         let shard_context = self.get_shard_context(prev_hash, &epoch_id, shard_id, mode)?;
         if !shard_context.should_apply_chunk {
             return Ok(None);
@@ -3218,6 +3231,7 @@ impl Chain {
         }
         debug!(target: "chain", %shard_id, ?cached_shard_update_key, "Creating ShardUpdate job");
 
+        let mut on_post_state_ready = None;
         let shard_update_reason = if is_new_chunk {
             // Validate new chunk and collect incoming receipts for it.
             let prev_chunk_extra = self.get_chunk_extra(prev_hash, &shard_context.shard_uid)?;
@@ -3265,8 +3279,19 @@ impl Chain {
             )?;
             let old_receipts = collect_receipts_from_response(&old_receipts);
             let receipts = [new_receipts, old_receipts].concat();
-            let transactions =
-                SignedValidPeriodTransactions::new(chunk.into_transactions(), tx_valid_list);
+            let chunk_transactions = chunk.into_transactions();
+            on_post_state_ready = self.get_on_post_state_ready_callback(
+                &block,
+                prev_block,
+                epoch_id,
+                shard_uid,
+                cached_shard_update_key,
+                chunk_headers,
+                &chunk_transactions,
+            );
+
+            let transactions: SignedValidPeriodTransactions =
+                SignedValidPeriodTransactions::new(chunk_transactions, tx_valid_list);
 
             ShardUpdateReason::NewChunk(NewChunkData {
                 gas_limit: chunk_header.gas_limit(),
@@ -3288,8 +3313,6 @@ impl Chain {
             })
         };
 
-        let on_post_state_ready = self.get_on_post_state_ready_callback();
-
         let runtime = self.runtime_adapter.clone();
         Ok(Some((
             shard_id,
@@ -3310,17 +3333,83 @@ impl Chain {
     /// available. runtime can send the post-state to client which will being transaction
     /// preparation using it. Runtime cannot directly send the message because it doesn't have
     /// access to the near-async crate.
-    fn get_on_post_state_ready_callback(&self) -> Option<PostStateReadyCallback> {
-        match &self.on_post_state_ready_sender {
-            Some(sender) => {
-                let sender = sender.clone();
-                let closure = move |state: PostState| {
-                    sender.send(PostStateReadyMessage { post_state: state }.into());
-                };
-                Some(PostStateReadyCallback::new(Box::new(closure)))
-            }
-            None => None,
+    fn get_on_post_state_ready_callback(
+        &self,
+        block: &ApplyChunkBlockContext,
+        prev_block: &Block,
+        epoch_id: EpochId,
+        shard_uid: ShardUId,
+        cached_shard_update_key: CachedShardUpdateKey,
+        chunk_headers: &Chunks,
+        chunk_transactions: &[SignedTransaction],
+    ) -> Option<PostStateReadyCallback> {
+        let Some(sender) = &self.on_post_state_ready_sender else {
+            return None;
+        };
+
+        // Create the callback only when this node is the chunk producer for the next height. It's
+        // used only for early prepare transactions, doesn't make sense to call it if the node isn't
+        // a chunk producer.
+        let cpk = ChunkProductionKey {
+            shard_id: shard_uid.shard_id(),
+            epoch_id: epoch_id,
+            height_created: block.height + 1,
+        };
+        let Some(signer) = self.validator_signer.get() else {
+            return None;
+        };
+        let Ok(producer) = self.epoch_manager.get_chunk_producer_info(&cpk) else {
+            return None;
+        };
+        if signer.validator_id() != producer.account_id() {
+            return None;
         }
+
+        // PrepareTransactionsBlockContext used to prepare transactions for the next block after the
+        // one that is being currently processed. We might not have a full block here here
+        // (sometimes it's optimistic), but we can build the context from the available data.
+        // Assume that next epoch id is the same as the current one. This will not be true on epoch
+        // boundaries, but that is ok. On epoch id mismatch the result of early transaction
+        // preparation will be ignored.
+        let next_chunk_prepare_context = {
+            let gas_used = chunk_headers.compute_gas_used();
+            let gas_limit = chunk_headers.compute_gas_limit();
+            PrepareTransactionsBlockContext {
+                next_gas_price: Block::compute_next_gas_price(
+                    prev_block.header().next_gas_price(),
+                    gas_used,
+                    gas_limit,
+                    self.block_economics_config.gas_price_adjustment_rate(),
+                    self.block_economics_config.min_gas_price(),
+                    self.block_economics_config.max_gas_price(),
+                ),
+                height: block.height,
+                next_epoch_id: epoch_id,
+                congestion_info: block.congestion_info.clone(),
+            }
+        };
+
+        // Transactions included in the current chunk, they aren't removed from the pool yet and
+        // should be skipped when preparing the next chunk.
+        let tx_hashes: HashSet<CryptoHash> =
+            chunk_transactions.iter().map(|tx| tx.get_hash()).collect();
+
+        let sender = sender.clone();
+        let prev_block_header: BlockHeader = prev_block.header().clone();
+        let closure = move |state: PostState| {
+            sender.send(
+                PostStateReadyMessage {
+                    post_state: state,
+                    shard_uid,
+                    prev_block_context: next_chunk_prepare_context.clone(),
+                    prev_prev_block_header: prev_block_header.clone(),
+                    key: cached_shard_update_key,
+                    prev_chunk_tx_hashes: tx_hashes.clone(),
+                }
+                .into(),
+            );
+        };
+        Some(PostStateReadyCallback::new(Box::new(closure)))
     }
 
     fn min_chunk_prev_height(&self, block: &Block) -> Result<BlockHeight, Error> {

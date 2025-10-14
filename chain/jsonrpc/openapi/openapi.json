@@ -4877,6 +4877,7 @@
         "type": "object"
       },
       "ExternalStorageLocation": {
+        "description": "Supported external storage backends and their minimal config.",
         "oneOf": [
           {
             "additionalProperties": false,
@@ -4884,7 +4885,7 @@
               "S3": {
                 "properties": {
                   "bucket": {
-                    "description": "Location of state dumps on S3.",
+                    "description": "Location on S3.",
                     "type": "string"
                   },
                   "region": {
@@ -4906,6 +4907,7 @@
           },
           {
             "additionalProperties": false,
+            "description": "Local filesystem root for storing data.",
             "properties": {
               "Filesystem": {
                 "properties": {
@@ -4926,6 +4928,7 @@
           },
           {
             "additionalProperties": false,
+            "description": "Google Cloud Storage bucket name.",
             "properties": {
               "GCS": {
                 "properties": {
@@ -9991,6 +9994,10 @@
             "minItems": 2,
             "type": "array"
           },
+          "enable_early_prepare_transactions": {
+            "description": "If true, transactions for the next chunk will be prepared early, right after the previous chunk's\npost-state is ready. This can help produce chunks faster, for high-throughput chains.\nThe current implementation increases latency on low-load chains, which will be fixed in the future.\nThe default is disabled.",
+            "type": "boolean"
+          },
           "enable_multiline_logging": {
             "type": "boolean"
           },
@@ -10431,7 +10438,8 @@
           "save_latest_witnesses",
           "save_invalid_witnesses",
           "transaction_request_handler_threads",
-          "protocol_version_check"
+          "protocol_version_check",
+          "enable_early_prepare_transactions"
         ],
         "type": "object"
       },
@@ -15115,6 +15123,18 @@
             ],
             "description": "Describes limits for VM and Runtime.\n\nTODO: Consider changing this to `VMLimitConfigView` to avoid dependency\non runtime."
           },
+          "linear_op_base_cost": {
+            "description": "Base gas cost of a linear operation",
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "linear_op_unit_cost": {
+            "description": "Unit gas cost of a linear operation",
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
           "reftypes_bulk_memory": {
             "description": "See [VMConfig::reftypes_bulk_memory](crate::vm::Config::reftypes_bulk_memory).",
             "type": "boolean"
@@ -15150,6 +15170,8 @@
           "ext_costs",
           "grow_mem_cost",
           "regular_op_cost",
+          "linear_op_base_cost",
+          "linear_op_unit_cost",
           "vm_kind",
           "discard_custom_sections",
           "saturating_float_to_int",

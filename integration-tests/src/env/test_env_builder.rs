@@ -567,7 +567,6 @@ impl TestEnvBuilder {
                         runtime,
                         rng_seed,
                         self.enable_split_store,
-                        self.save_trie_changes,
                         self.save_tx_outcomes,
                         self.protocol_version_check,
                         Some(snapshot_callbacks),
@@ -613,7 +612,6 @@ impl TestEnvBuilder {
             paused_blocks: Default::default(),
             seeds,
             enable_split_store: self.enable_split_store,
-            save_trie_changes: self.save_trie_changes,
             save_tx_outcomes: self.save_tx_outcomes,
             protocol_version_check: self.protocol_version_check,
         }

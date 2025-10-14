@@ -17,6 +17,7 @@ axum-test.workspace = true
 borsh.workspace = true
 reqwest = { workspace = true, features = ["json"] }
 serde_json.workspace = true
+tokio.workspace = true
 
 near-time.workspace = true
 near-async.workspace = true
@@ -35,7 +36,6 @@ nearcore.workspace = true
 tempfile.workspace = true
 
 [dev-dependencies]
-actix.workspace = true
 near-primitives-core.workspace = true
 near-test-contracts.workspace = true
 
