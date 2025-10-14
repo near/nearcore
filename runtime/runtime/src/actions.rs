@@ -23,7 +23,7 @@ use near_primitives::transaction::{
     Action, AddKeyAction, DeleteAccountAction, DeleteKeyAction, DeployContractAction,
     FunctionCallAction, StakeAction,
 };
-use near_primitives::trie_key::{SmallKeyVec, TrieKey, trie_key_parsers};
+use near_primitives::trie_key::{SmallKeyVec, TrieKey};
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{
     AccountId, Balance, BlockHeight, EpochInfoProvider, Gas, StorageUsage,
@@ -1246,12 +1246,10 @@ mod tests {
     use near_primitives::errors::InvalidAccessKeyError;
     use near_primitives::transaction::CreateAccountAction;
     use near_primitives::types::Gas;
-    use near_primitives::types::{EpochId, StateChangeCause};
+    use near_primitives::types::EpochId;
     use near_primitives::version::PROTOCOL_VERSION;
     use near_store::state_update::StateUpdate;
     use near_store::test_utils::TestTriesBuilder;
-    use near_store::trie::update;
-    use near_store::{set_account, state_update};
     use std::sync::Arc;
 
     fn test_action_create_account(

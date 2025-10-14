@@ -11,7 +11,7 @@ use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{AccountId, Balance};
 use near_primitives_core::deterministic_account_id::DeterministicAccountStateInit;
 use near_store::state_update::StateOperations;
-use near_store::{StorageError, TrieUpdate};
+use near_store::StorageError;
 use near_vm_runner::logic::ProtocolVersion;
 
 /// State machine of a deterministic account id on chain.

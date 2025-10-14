@@ -9,8 +9,8 @@ use near_primitives::congestion_info::CongestionControl;
 use near_primitives::errors::RuntimeError;
 use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::trie_key::TrieKey;
-use near_primitives::types::{EpochInfoProvider, ShardId, ShardIndex, StateChangeCause};
-use near_store::state_update::{StateOperations, StateUpdate};
+use near_primitives::types::{EpochInfoProvider, ShardId, ShardIndex};
+use near_store::state_update::StateUpdate;
 use scheduler::{BandwidthScheduler, GrantedBandwidth, ShardStatus};
 
 use crate::ApplyState;

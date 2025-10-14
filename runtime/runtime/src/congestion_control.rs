@@ -21,7 +21,7 @@ use near_store::trie::outgoing_metadata::{OutgoingMetadatas, ReceiptGroupsConfig
 use near_store::trie::receipts_column_helper::{
     DelayedReceiptQueue, ShardsOutgoingReceiptBuffer, TrieQueue,
 };
-use near_store::{StorageError, TrieAccess, TrieUpdate};
+use near_store::StorageError;
 use std::borrow::Cow;
 use std::collections::HashMap;
 

@@ -70,7 +70,6 @@ use near_store::trie::AccessOptions;
 use near_store::trie::receipts_column_helper::DelayedReceiptQueue;
 use near_store::trie::update::TrieUpdateResult;
 use near_store::{KeyLookupMode, PartialStorage, StorageError, Trie, TrieChanges, state_update};
-use near_vm_runner::ContractCode;
 use near_vm_runner::ContractRuntimeCache;
 use near_vm_runner::ProfileDataV3;
 use near_vm_runner::logic::ReturnData;
@@ -1132,8 +1131,7 @@ impl Runtime {
                     state_ops.remove(postponed_receipt_key());
                     // Checking how many input data items is pending for the receipt.
                     let receiver_id = account_id.clone();
-                    let data_count_key =
-                        TrieKey::PendingDataCount { receiver_id, receipt_id: receipt_id.clone() };
+                    let data_count_key = TrieKey::PendingDataCount { receiver_id, receipt_id };
                     let pending_data_count =
                         state_ops.mutate::<u32>(data_count_key)?.ok_or_else(|| {
                             StorageError::StorageInconsistentState(
@@ -1145,11 +1143,11 @@ impl Runtime {
                         // some receipt related fields from the state and execute the receipt.
                         state_ops.remove(TrieKey::PendingDataCount {
                             receiver_id: account_id.clone(),
-                            receipt_id: receipt_id.clone(),
+                            receipt_id,
                         });
                         let receipt_key = TrieKey::PostponedReceipt {
                             receiver_id: account_id.clone(),
-                            receipt_id: receipt_id.clone(),
+                            receipt_id,
                         };
                         let ready_receipt = state_ops
                             .take::<Receipt>(
@@ -1540,18 +1538,18 @@ impl Runtime {
     ) {
         #[cfg(feature = "sandbox")]
         {
+            use near_primitives::state_record::StateRecord;
+            use near_vm_runner::ContractCode;
             for record in state_patch {
                 match record {
                     StateRecord::Account { account_id, account } => {
                         state_update.set(TrieKey::Account { account_id }, account);
                     }
                     StateRecord::Data { account_id, data_key, value } => {
-                        state_update
-                            .set(
-                                TrieKey::ContractData { key: data_key.into(), account_id },
-                                Vec::from(value),
-                            )
-                            .unwrap();
+                        state_update.set(
+                            TrieKey::ContractData { key: data_key.into(), account_id },
+                            Vec::from(value),
+                        );
                     }
                     StateRecord::Contract { account_id, code } => {
                         // Recompute contract code hash.
@@ -1561,9 +1559,7 @@ impl Runtime {
                             panic!("account failure");
                         };
                         assert_eq!(*code.hash(), acc.contract().local_code().unwrap_or_default());
-                        state_update
-                            .set(TrieKey::ContractCode { account_id }, code.into_code())
-                            .unwrap();
+                        state_update.set(TrieKey::ContractCode { account_id }, code.into_code());
                     }
                     StateRecord::AccessKey { account_id, public_key, access_key } => {
                         state_update.set(TrieKey::AccessKey { account_id, public_key }, access_key);
@@ -1573,7 +1569,7 @@ impl Runtime {
                     ),
                 }
             }
-            state_update.commit().expect("TODO(state_update): error handling");
+            state_update.in_place_commit().expect("TODO(state_update): error handling");
         }
     }
 
@@ -1763,7 +1759,6 @@ impl Runtime {
             },
         );
 
-        let default_hash = CryptoHash::default();
         let (maybe_expired_txs, _) =
             signed_txs.get_potentially_expired_transactions_and_expiration_flags();
         let mut state_ops = processing_state.state_update.start_update();

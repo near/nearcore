@@ -237,7 +237,7 @@ impl<'a, 'su> External for RuntimeExt<'a, 'su> {
         // fail for the evicted values, this will record the TTN fees unconditionally.
         let result = self
             .update_op
-            .get_ref(storage_key.clone(), mode, deref_options)
+            .get_ref(storage_key, mode, deref_options)
             .map_err(wrap_storage_error)
             .map(|option| {
                 option.map(|value_ptr| {
@@ -285,19 +285,13 @@ impl<'a, 'su> External for RuntimeExt<'a, 'su> {
             .update_op
             .get_ref(storage_key.clone(), mode, options)
             .map_err(wrap_storage_error)?;
-        match removed {
-            None => {}
-            // Value has already been accessed.
-            Some(StateValue::Deserialized(v)) => {
-                access_tracker.deref_removed_value_bytes(u64::try_from(v.len()).unwrap())?;
-            }
-            Some(StateValue::Serialized(token)) => {
-                access_tracker.deref_removed_value_bytes(u64::try_from(token.len()).unwrap())?;
-            }
-            Some(StateValue::TrieValueRef(v)) => {
-                access_tracker.deref_removed_value_bytes(u64::try_from(v.len()).unwrap())?;
-            }
+        let len = match removed {
+            None => 0,
+            Some(StateValue::Deserialized(v)) => u64::try_from(v.len()).unwrap(),
+            Some(StateValue::Serialized(token)) => u64::try_from(token.len()).unwrap(),
+            Some(StateValue::TrieValueRef(v)) => u64::try_from(v.len()).unwrap(),
         };
+        access_tracker.deref_removed_value_bytes(len)?;
         let removed =
             self.update_op.take(storage_key, mode, options).map_err(wrap_storage_error)?;
         let _delta =
@@ -307,7 +301,7 @@ impl<'a, 'su> External for RuntimeExt<'a, 'su> {
             target: "io_tracer",
             storage_op = "remove",
             key = base64(&key),
-            evicted_len = removed.as_ref().map(Vec::len),
+            evicted_len = len,
             tn_mem_reads = _delta.mem_reads,
             tn_db_reads = _delta.db_reads,
         );

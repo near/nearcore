@@ -1,7 +1,7 @@
 use crate::types::AccountId;
 use crate::{action::GlobalContractIdentifier, hash::CryptoHash};
 use borsh::{BorshDeserialize, BorshSerialize};
-use near_crypto::{ED25519PublicKey, PublicKey};
+use near_crypto::PublicKey;
 use near_primitives_core::types::{NonceIndex, ShardId};
 use near_schema_checker_lib::ProtocolSchema;
 use std::mem::size_of;

@@ -420,7 +420,7 @@ mod tests {
     use crate::state_update::{StateOperations, StateUpdate};
     use crate::test_utils::TestTriesBuilder;
     use crate::trie::receipts_column_helper::TrieQueue;
-    use crate::{Trie, state_update};
+    use crate::Trie;
     use bytesize::ByteSize;
     use near_primitives::bandwidth_scheduler::{
         BandwidthRequest, BandwidthRequestValues, BandwidthSchedulerParams,
