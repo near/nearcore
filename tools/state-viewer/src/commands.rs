@@ -89,9 +89,10 @@ pub(crate) fn apply_block(
             epoch_manager,
             shard_id,
             &shard_layout,
-            block_hash,
+            block.header(),
             prev_block.chunks()[shard_index].height_included(),
             ReceiptFilter::TargetShard,
+            |_, _| None,
         )
         .unwrap();
         let receipts = collect_receipts_from_response(&receipt_proof_response);
