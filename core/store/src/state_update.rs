@@ -15,6 +15,8 @@ use near_primitives::types::{
     AccountId, RawStateChange, RawStateChangesWithTrieKey, StateChangeCause,
 };
 use parking_lot::RwLock;
+use rayon::iter::{IndexedParallelIterator, IntoParallelIterator, ParallelIterator};
+use rayon::slice::ParallelSlice;
 use state_value::{Deserializable, Deserialized};
 use std::any::Any;
 use std::collections::{BTreeMap, btree_map};
@@ -162,9 +164,12 @@ impl StateUpdate {
         cause: StateChangeCause,
     ) -> Result<TrieUpdateResult, StorageError> {
         let state = self.state.read();
-        let mut state_changes = Vec::with_capacity(state.committed.len());
-        let trie_changes = self.trie.update(
-            state.committed.iter().filter_map(|(k, v)| {
+
+        let mut committed = state.committed.iter().collect::<Vec<_>>();
+        let mut state_changes = committed
+            .par_chunks(8)
+            .flat_map_iter(|vs| vs)
+            .filter_map(|&(k, v)| {
                 let was_absent = (v.operations & OperationValue::ABSENT_IN_TRIE) != 0;
                 let was_written = (v.operations & OperationValue::WRITTEN) != 0;
 
@@ -193,19 +198,17 @@ impl StateUpdate {
                     }
                     state_value::Type::Deserialized(_) => return None,
                 };
-                state_changes.push(RawStateChangesWithTrieKey {
+                Some(RawStateChangesWithTrieKey {
                     trie_key: k.clone(),
                     changes: vec![RawStateChange {
                         cause: cause.clone(),
                         data: encoded_value.clone(),
                     }],
-                });
-                let mut key = Vec::with_capacity(k.len());
-                k.append_into(&mut key);
-                Some((key, encoded_value))
-            }),
-            AccessOptions::DEFAULT,
-        )?;
+                })
+            })
+            .collect::<Vec<_>>();
+
+        let trie_changes = self.trie.update2(&*state_changes)?;
         Ok(TrieUpdateResult { trie: self.trie, trie_changes, state_changes, contract_updates })
     }
 }

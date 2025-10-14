@@ -27,7 +27,7 @@ use near_primitives::state::{FlatStateValue, ValueRef};
 use near_primitives::state_record::StateRecord;
 use near_primitives::trie_key::trie_key_parsers::parse_account_id_prefix;
 use near_primitives::trie_key::{SmallKeyVec, TrieKey};
-use near_primitives::types::{AccountId, StateRoot, StateRootNode};
+use near_primitives::types::{AccountId, RawStateChangesWithTrieKey, StateRoot, StateRootNode};
 use near_schema_checker_lib::ProtocolSchema;
 use near_vm_runner::ContractCode;
 use ops::insert_delete::GenericTrieUpdateInsertDelete;
@@ -37,6 +37,7 @@ use ops::interface::{GenericTrieValue, UpdatedNodeId};
 use ops::resharding::{GenericTrieUpdateRetain, RetainMode};
 use parking_lot::{RwLock, RwLockReadGuard};
 pub use raw_node::{Children, RawTrieNode, RawTrieNodeWithSize};
+use rayon::iter::{IntoParallelIterator, IntoParallelRefIterator, ParallelIterator};
 use std::collections::HashMap;
 use std::fmt::Write;
 use std::hash::Hash;
@@ -1584,6 +1585,133 @@ impl Trie {
             Some(optimized_ref) => Ok(Some(self.deref_optimized(opts, &optimized_ref)?)),
             None => Ok(None),
         }
+    }
+
+    pub fn update2(
+        &self,
+        changes: &[RawStateChangesWithTrieKey],
+    ) -> Result<TrieChanges, StorageError> {
+        // Call `get` for contract codes requested to be recorded.
+        if AccessOptions::DEFAULT.enable_state_witness_recording {
+            if let Some(recorder) = &self.recorder {
+                recorder.codes_to_record.par_iter().for_each_init(
+                    SmallKeyVec::new_const,
+                    |key_buf, c| {
+                        let trie_key = TrieKey::ContractCode { account_id: c.clone() };
+                        key_buf.clear();
+                        trie_key.append_into(key_buf);
+                        let _ = self.get(&key_buf, AccessOptions::DEFAULT);
+                    },
+                );
+            }
+        };
+
+        if self.memtries.is_some() {
+            self.update_with_memtrie2(changes)
+        } else {
+            self.update_with_trie_storage2(changes)
+        }
+    }
+
+    fn update_with_memtrie2(
+        &self,
+        changes: &[RawStateChangesWithTrieKey],
+    ) -> Result<TrieChanges, StorageError> {
+        // Get trie_update for memtrie
+        let guard = self.memtries.as_ref().unwrap().read();
+        let tracking_mode = match &self.recorder {
+            Some(recorder) if AccessOptions::DEFAULT.enable_state_witness_recording => {
+                TrackingMode::RefcountsAndAccesses(recorder)
+            }
+            Some(_) | None => TrackingMode::Refcounts,
+        };
+        let mut trie_update = guard.update(self.root, tracking_mode)?;
+
+        // Get trie_update for all child memtries
+        let child_guards = self
+            .children_memtries
+            .iter()
+            .map(|(shard_uid, memtrie)| (shard_uid, memtrie.read()))
+            .collect_vec();
+        let mut child_updates = child_guards
+            .iter()
+            .map(|(shard_uid, memtrie)| {
+                // It's fine to use tracking mode as None here because the recording is handled by
+                // the parent memtrie and doesn't need to be tracked for children.
+                (shard_uid, memtrie.update(self.root, TrackingMode::None).unwrap())
+            })
+            .collect_vec();
+
+        let all_updates = child_updates
+            .iter_mut()
+            .map(|v| &mut v.1)
+            .chain(std::iter::once(&mut trie_update))
+            .collect::<Vec<_>>();
+
+        // Update all child memtries. This [presence of child memtries? --nagisa] is a rare case
+        // where parent shard has forks at the resharding epoch boundary.
+        all_updates
+            .into_par_iter()
+            .map(|update| {
+                // changes.par_chunks(8).flat_map_iter(|v| v)
+                changes
+                    .iter()
+                    .map(|v| {
+                        let mut key = SmallKeyVec::new_const();
+                        v.trie_key.append_into(&mut key);
+                        match &v.changes[0].data {
+                            Some(arr) => update.insert(&key, arr.clone())?,
+                            None => update.generic_delete(0, &key, AccessOptions::DEFAULT)?,
+                        }
+                        Ok::<_, StorageError>(())
+                    })
+                    .collect::<Result<(), StorageError>>()
+                // .try_reduce(|| (), |_, _| Ok(()))?;
+            })
+            .try_reduce(|| (), |_, _| Ok(()))?;
+
+        let mut trie_changes = trie_update.to_trie_changes();
+        for (shard_uid, trie_update) in child_updates {
+            trie_changes
+                .children_memtrie_changes
+                .insert(**shard_uid, trie_update.to_memtrie_changes_only());
+        }
+
+        Ok(trie_changes)
+    }
+
+    fn update_with_trie_storage2(
+        &self,
+        changes: &[RawStateChangesWithTrieKey],
+    ) -> Result<TrieChanges, StorageError> {
+        let mut trie_update = TrieStorageUpdate::new(&self);
+        let root_node =
+            self.move_node_to_mutable(&mut trie_update, &self.root, AccessOptions::DEFAULT)?;
+        // changes.par_chunks(8).flat_map_iter(|v| v).map(|v| {
+        changes
+            .iter()
+            .map(|v| {
+                let mut key_buffer = SmallKeyVec::new_const();
+                v.trie_key.append_into(&mut key_buffer);
+                match &v.changes[0].data {
+                    Some(vec) => trie_update.generic_insert(
+                        root_node.0,
+                        &key_buffer,
+                        GenericTrieValue::MemtrieAndDisk(vec.clone()),
+                        AccessOptions::DEFAULT,
+                    ),
+                    None => trie_update.generic_delete(0, &key_buffer, AccessOptions::DEFAULT),
+                }
+            })
+            .collect::<Result<(), StorageError>>()?;
+        //}).try_reduce(|| (), |_, _| Ok(()))?;
+
+        #[cfg(test)]
+        {
+            self.memory_usage_verify(&trie_update, GenericNodeOrIndex::Updated(root_node.0));
+        }
+
+        trie_update.flatten_nodes(&self.root, root_node.0)
     }
 
     pub fn update<I>(&self, changes: I, opts: AccessOptions) -> Result<TrieChanges, StorageError>
