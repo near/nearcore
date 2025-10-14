@@ -32,6 +32,8 @@ pub struct InstrumentedThreadWriterSharedPart {
     queue: Arc<InstrumentedQueue>,
 }
 
+const NANOS_TO_SECONDS: f64 = 1_000_000_000.0;
+
 impl InstrumentedThreadWriter {
     pub fn start_event(&mut self, message_type: &str, dequeue_time_ns: u64) {
         let start_time_ns =
@@ -47,7 +49,7 @@ impl InstrumentedThreadWriter {
         self.advance_window_if_needed_internal(start_time_ns);
         MESSAGE_DEQUEUE_TIME
             .with_label_values(&[&self.target.actor_name, message_type])
-            .observe(dequeue_time_ns as f64 / 1_000_000.0);
+            .observe(dequeue_time_ns as f64 / NANOS_TO_SECONDS);
         self.target.start_event(message_type_id, start_time_ns, dequeue_time_ns);
     }
 
@@ -62,7 +64,7 @@ impl InstrumentedThreadWriter {
 
         MESSAGE_PROCESSING_TIME
             .with_label_values(&[&self.target.actor_name, message_type])
-            .observe(total_elapsed_ns as f64 / 1_000_000.0);
+            .observe(total_elapsed_ns as f64 / NANOS_TO_SECONDS);
     }
 
     pub fn advance_window_if_needed(&mut self) {
