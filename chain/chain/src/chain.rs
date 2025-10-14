@@ -244,8 +244,14 @@ impl ApplyChunksResultCache {
     }
 }
 
-type BlockApplyChunksResult =
-    (BlockToApply, Vec<(ShardId, CachedShardUpdateKey, Result<ShardUpdateResult, Error>)>);
+pub type BlockShardResults = Vec<(ShardId, CachedShardUpdateKey, Result<ShardUpdateResult, Error>)>;
+
+pub type BlockApplyChunksResult = (BlockToApply, BlockShardResults);
+
+pub enum BlockToPostProcess {
+    Normal(Arc<Block>, BlockPreprocessInfo, BlockShardResults),
+    Optimistic(BlockHeight, BlockShardResults),
+}
 
 /// Parallel or sequential applying of chunks for tracked shards.
 /// Default behavior uses Rayon, but can be configured to use sequential processing for testing.
@@ -1391,6 +1397,32 @@ impl Chain {
         Ok(())
     }
 
+    pub fn get_blocks_to_postprocess(&mut self) -> Vec<BlockToPostProcess> {
+        let mut res = vec![];
+        while let Ok((block, shard_results)) = self.apply_chunks_receiver.try_recv() {
+            match block {
+                BlockToApply::Normal(block_hash) => {
+                    let (block, block_preprocess_info) =
+                        self.blocks_in_processing.remove(&block_hash).unwrap_or_else(|| {
+                            panic!(
+                                "block {:?} finished applying chunks but not in blocks_in_processing pool",
+                                block_hash
+                            )
+                        });
+                    res.push(BlockToPostProcess::Normal(
+                        block,
+                        block_preprocess_info,
+                        shard_results,
+                    ))
+                }
+                BlockToApply::Optimistic(height) => {
+                    res.push(BlockToPostProcess::Optimistic(height, shard_results))
+                }
+            }
+        }
+        res
+    }
+
     /// Checks if any block has finished applying chunks and postprocesses these blocks to complete
     /// their processing. Return a list of blocks that have finished processing.
     /// If there are no blocks that are ready to be postprocessed, it returns immediately
@@ -1399,18 +1431,22 @@ impl Chain {
     #[instrument(level = "debug", target = "chain", skip_all)]
     pub fn postprocess_ready_blocks(
         &mut self,
+        blocks_to_postprocess: Vec<BlockToPostProcess>,
         block_processing_artifacts: &mut BlockProcessingArtifact,
         apply_chunks_done_sender: Option<ApplyChunksDoneSender>,
     ) -> (Vec<AcceptedBlock>, HashMap<CryptoHash, Error>) {
         let mut accepted_blocks = vec![];
         let mut errors = HashMap::new();
-        while let Ok((block, apply_result)) = self.apply_chunks_receiver.try_recv() {
+        for block in blocks_to_postprocess {
             match block {
-                BlockToApply::Normal(block_hash) => {
-                    let apply_result = apply_result.into_iter().map(|res| (res.0, res.2)).collect();
+                BlockToPostProcess::Normal(block, preprocess_info, shard_results) => {
+                    let shard_results =
+                        shard_results.into_iter().map(|res| (res.0, res.2)).collect();
+                    let block_hash = *block.hash();
                     match self.postprocess_ready_block(
-                        block_hash,
-                        apply_result,
+                        block,
+                        preprocess_info,
+                        shard_results,
                         block_processing_artifacts,
                         apply_chunks_done_sender.clone(),
                     ) {
@@ -1422,10 +1458,10 @@ impl Chain {
                         }
                     }
                 }
-                BlockToApply::Optimistic(block_height) => {
+                BlockToPostProcess::Optimistic(block_height, shard_results) => {
                     self.postprocess_optimistic_block(
                         block_height,
-                        apply_result,
+                        shard_results,
                         block_processing_artifacts,
                         apply_chunks_done_sender.clone(),
                     );
@@ -1809,19 +1845,13 @@ impl Chain {
     )]
     fn postprocess_ready_block(
         &mut self,
-        block_hash: CryptoHash,
+        block: Arc<Block>,
+        block_preprocess_info: BlockPreprocessInfo,
         apply_results: Vec<(ShardId, Result<ShardUpdateResult, Error>)>,
         block_processing_artifacts: &mut BlockProcessingArtifact,
         apply_chunks_done_sender: Option<ApplyChunksDoneSender>,
     ) -> Result<AcceptedBlock, Error> {
         let timer = metrics::BLOCK_POSTPROCESSING_TIME.start_timer();
-        let (block, block_preprocess_info) =
-            self.blocks_in_processing.remove(&block_hash).unwrap_or_else(|| {
-                panic!(
-                    "block {:?} finished applying chunks but not in blocks_in_processing pool",
-                    block_hash
-                )
-            });
         Span::current().record("height", block.header().height());
         let epoch_id = block.header().epoch_id();
         let shard_layout = self.epoch_manager.get_shard_layout(&epoch_id)?;
@@ -1848,7 +1878,7 @@ impl Chain {
         ) {
             Err(err) => {
                 self.maybe_mark_block_invalid(*block.hash(), &err);
-                self.blocks_delay_tracker.mark_block_errored(&block_hash, err.to_string());
+                self.blocks_delay_tracker.mark_block_errored(block.hash(), err.to_string());
                 return Err(err);
             }
             Ok(new_head) => new_head,
@@ -1958,7 +1988,7 @@ impl Chain {
         let shard_layout = self.epoch_manager.get_shard_layout(epoch_id)?;
         self.blocks_delay_tracker.finish_block_processing(
             &shard_layout,
-            &block_hash,
+            block.hash(),
             new_head.clone(),
         );
 
@@ -1971,7 +2001,7 @@ impl Chain {
 
         self.check_orphans(*block.hash(), block_processing_artifacts, apply_chunks_done_sender);
 
-        self.check_if_upgrade_needed(&block_hash);
+        self.check_if_upgrade_needed(block.hash());
 
         // Determine the block status of this block (whether it is a side fork and updates the chain head)
         // Block status is needed in Client::on_block_accepted_with_optional_chunk_produce to
