@@ -1919,6 +1919,14 @@ impl Client {
             outgoing_receipts: receipts,
         });
 
+        // if the file `ubuntu/near-test-helpers/crash-before_persist_chunk` exists, remove the
+        // file and crash the node
+        if std::fs::exists("ubuntu/near-test-helpers/crash-before_persist_chunk").unwrap_or(false) {
+            std::fs::remove_file("ubuntu/near-test-helpers/crash-before_persist_chunk")
+                .expect("Failed to remove the crash file");
+            panic!("crash-before_persist_chunk");
+        }
+
         persist_chunk(
             Arc::clone(&partial_chunk_arc),
             Some(shard_chunk),
