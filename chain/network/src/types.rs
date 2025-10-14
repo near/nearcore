@@ -13,7 +13,7 @@ pub use crate::network_protocol::{
 use crate::routing::routing_table_view::RoutingTableInfo;
 pub use crate::state_sync::StateSyncResponse;
 use near_async::messaging::{AsyncSender, Sender};
-use near_async::{Message, MultiSend, MultiSendMessage, MultiSenderFrom, time};
+use near_async::{Message, MultiSend, MultiSenderFrom, time};
 use near_crypto::PublicKey;
 use near_primitives::block::{ApprovalMessage, Block};
 use near_primitives::epoch_sync::CompressedEpochSyncProof;
@@ -449,16 +449,12 @@ pub struct PeerManagerAdapter {
     pub state_sync_event_sender: Sender<StateSyncEvent>,
 }
 
-#[derive(Clone, MultiSend, MultiSenderFrom, MultiSendMessage)]
-#[multi_send_message_derive(Debug)]
-#[multi_send_input_derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, MultiSend, MultiSenderFrom)]
 pub struct PeerManagerSenderForNetwork {
     pub tier3_request_sender: Sender<Tier3Request>,
 }
 
-#[derive(Clone, MultiSend, MultiSenderFrom, MultiSendMessage)]
-#[multi_send_message_derive(Debug)]
-#[multi_send_input_derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, MultiSend, MultiSenderFrom)]
 pub struct StateRequestSenderForNetwork {
     pub state_request_header: AsyncSender<StateRequestHeader, Option<StatePartOrHeader>>,
     pub state_request_part: AsyncSender<StateRequestPart, Option<StatePartOrHeader>>,

@@ -3,8 +3,8 @@ use crate::network_protocol::{
     Encoding, Handshake, HandshakeFailureReason, PartialEdgeInfo, PeerMessage, PeersRequest,
     PeersResponse, T2MessageBody,
 };
-use crate::peer::testonly::{Event, PeerConfig, PeerHandle};
-use crate::peer_manager::peer_manager_actor::Event as PME;
+use crate::peer::testonly::{PeerConfig, PeerHandle};
+use crate::peer_manager::peer_manager_actor::Event;
 use crate::tcp;
 use crate::testonly::make_rng;
 use crate::testonly::stream::Stream;
@@ -54,7 +54,7 @@ async fn test_peer_communication(
 
     let message_processed = |want| {
         move |ev| match ev {
-            Event::Network(PME::MessageProcessed(_, got)) if got == want => Some(()),
+            Event::MessageProcessed(_, got) if got == want => Some(()),
             _ => None,
         }
     };
