@@ -27,8 +27,8 @@ use near_async::messaging::IntoSender;
 use near_async::messaging::{CanSend, Sender};
 use near_async::time::{Clock, Duration, Instant};
 use near_chain::chain::{
-    ApplyChunksDoneSender, BlockCatchUpRequest, BlockMissingChunks, BlocksCatchUpState,
-    VerifyBlockHashAndSignatureResult,
+    ApplyChunksDoneSender, BlockCatchUpRequest, BlockMissingChunks, BlockToPostProcess,
+    BlocksCatchUpState, VerifyBlockHashAndSignatureResult,
 };
 use near_chain::orphan::OrphanMissingChunks;
 use near_chain::rayon_spawner::RayonAsyncComputationSpawner;
@@ -38,8 +38,9 @@ use near_chain::state_snapshot_actor::SnapshotCallbacks;
 use near_chain::test_utils::format_hash;
 use near_chain::types::{ChainConfig, LatestKnown, RuntimeAdapter};
 use near_chain::{
-    ApplyChunksIterationMode, ApplyChunksSpawner, BlockProcessingArtifact, BlockStatus, Chain,
-    ChainGenesis, ChainStoreAccess, ChunksReadiness, Doomslug, DoomslugThresholdMode, Provenance,
+    ApplyChunksIterationMode, ApplyChunksSpawner, BlockPreprocessInfo, BlockProcessingArtifact,
+    BlockStatus, Chain, ChainGenesis, ChainStoreAccess, ChunksReadiness, Doomslug,
+    DoomslugThresholdMode, Provenance,
 };
 use near_chain_configs::{ClientConfig, MutableValidatorSigner, UpdatableClientConfig};
 use near_chunks::adapter::ShardsManagerRequestFromClient;
@@ -1233,10 +1234,14 @@ impl Client {
         apply_chunks_done_sender: Option<ApplyChunksDoneSender>,
         should_produce_chunk: bool,
     ) -> (Vec<CryptoHash>, HashMap<CryptoHash, near_chain::Error>) {
+        let blocks_to_postprocess = self.chain.get_blocks_to_postprocess();
+
         let mut block_processing_artifacts = BlockProcessingArtifact::default();
-        let (accepted_blocks, errors) = self
-            .chain
-            .postprocess_ready_blocks(&mut block_processing_artifacts, apply_chunks_done_sender);
+        let (accepted_blocks, errors) = self.chain.postprocess_ready_blocks(
+            blocks_to_postprocess,
+            &mut block_processing_artifacts,
+            apply_chunks_done_sender,
+        );
         if accepted_blocks.iter().any(|accepted_block| accepted_block.status.is_new_head()) {
             let head = self.chain.head().unwrap();
             let header_head = self.chain.header_head().unwrap();

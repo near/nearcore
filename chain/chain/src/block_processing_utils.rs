@@ -16,7 +16,7 @@ use std::sync::Arc;
 pub(crate) const MAX_PROCESSING_BLOCKS: usize = 5;
 
 /// Contains information from preprocessing a block
-pub(crate) struct BlockPreprocessInfo {
+pub struct BlockPreprocessInfo {
     /// This field has two related but actually different meanings. For the first block of an
     /// epoch, this will be set to false if we need to download state for shards we'll track in
     /// the future but don't track currently. This implies the first meaning, which is that if
