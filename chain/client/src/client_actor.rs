@@ -87,10 +87,6 @@ use rand::seq::SliceRandom;
 use rand::{Rng, thread_rng};
 use std::fmt;
 use std::sync::Arc;
-use thread_priority::{
-    RealtimeThreadSchedulePolicy, ThreadPriority, ThreadSchedulePolicy,
-    set_thread_priority_and_policy, thread_native_id,
-};
 use tokio::sync::broadcast;
 use tracing::{debug, debug_span, error, info, trace, warn};
 
@@ -971,16 +967,6 @@ impl fmt::Display for SyncRequirement {
 
 impl ClientActorInner {
     pub fn start(&mut self, ctx: &mut dyn DelayedActionRunner<Self>) {
-        // Elevate the OS scheduling priority for the client actor runtime thread.
-        let priority = ThreadPriority::try_from(80u8).expect("priority out of range");
-        if let Err(err) = set_thread_priority_and_policy(
-            thread_native_id(),
-            priority,
-            ThreadSchedulePolicy::Realtime(RealtimeThreadSchedulePolicy::RoundRobin),
-        ) {
-            error!(target: "client", %err, "Failed to set client actor thread priority");
-        }
-
         // Start syncing job.
         self.start_sync(ctx);
 
