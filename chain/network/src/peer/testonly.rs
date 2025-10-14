@@ -105,6 +105,7 @@ impl PeerHandle {
             noop().into_multi_sender(),
             vec![],
             noop().into_multi_sender(),
+            noop().into_sender(),
         ));
         let actor = AutoStopActor(
             PeerActor::spawn(clock, actor_system, stream, cfg.force_encoding, network_state)

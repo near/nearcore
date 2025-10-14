@@ -17,7 +17,8 @@ use near_async::messaging::Handler;
 use near_async::messaging::Sender;
 use near_async::time::Duration;
 use near_chain::Block;
-use near_chain::spice_core::CoreStatementsProcessor;
+use near_chain::spice_core::SpiceCoreReader;
+use near_chain::spice_core_writer_actor::ProcessedBlock;
 use near_chain_configs::MutableValidatorSigner;
 use near_chain_primitives::ApplyChunksMode;
 use near_epoch_manager::EpochManagerAdapter;
@@ -50,7 +51,6 @@ use near_store::adapter::StoreAdapter;
 use near_store::adapter::chain_store::ChainStoreAdapter;
 
 use crate::chunk_executor_actor::ExecutorIncomingUnverifiedReceipts;
-use crate::chunk_executor_actor::ProcessedBlock;
 use crate::chunk_executor_actor::receipt_proof_exists;
 use crate::spice_chunk_validator_actor::SpiceChunkStateWitnessMessage;
 
@@ -175,7 +175,7 @@ impl ReceiveDataError {
 pub struct SpiceDataDistributorActor {
     chain_store: ChainStoreAdapter,
     epoch_manager: Arc<dyn EpochManagerAdapter>,
-    pub(crate) core_processor: CoreStatementsProcessor,
+    pub(crate) core_reader: SpiceCoreReader,
     rs_encoders: ReedSolomonEncoderCache,
     validator_signer: MutableValidatorSigner,
     shard_tracker: ShardTracker,
@@ -324,7 +324,6 @@ impl SpiceDataDistributorActor {
     pub fn new(
         epoch_manager: Arc<dyn EpochManagerAdapter>,
         chain_store: ChainStoreAdapter,
-        core_processor: CoreStatementsProcessor,
         validator_signer: MutableValidatorSigner,
         shard_tracker: ShardTracker,
         network_adapter: PeerManagerAdapter,
@@ -333,6 +332,7 @@ impl SpiceDataDistributorActor {
     ) -> Self {
         const DATA_PARTS_RATIO: f64 = 0.6;
         const PENDING_PARTIAL_DATA_CAP: NonZeroUsize = NonZeroUsize::new(10).unwrap();
+        let core_reader = SpiceCoreReader::new(chain_store.clone(), epoch_manager.clone());
         Self {
             // TODO(spice): Evaluate whether the same data parts ratio makes sense for all data
             // distributed.
@@ -340,7 +340,7 @@ impl SpiceDataDistributorActor {
             data_parts: HashMap::new(),
             epoch_manager,
             chain_store,
-            core_processor,
+            core_reader,
             validator_signer,
             shard_tracker,
             network_adapter,
@@ -686,7 +686,7 @@ impl SpiceDataDistributorActor {
                 debug_assert_eq!(block_hash, block.hash());
                 // TODO(spice): Check for unsuccessful validations as well.
                 if self
-                    .core_processor
+                    .core_reader
                     .endorsement_exists(block_hash, *shard_id, me)
                     .map_err(near_chain::Error::from)?
                 {
