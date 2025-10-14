@@ -200,14 +200,10 @@ impl StateUpdate {
                 };
                 Some(RawStateChangesWithTrieKey {
                     trie_key: k.clone(),
-                    changes: vec![RawStateChange {
-                        cause: cause.clone(),
-                        data: encoded_value.clone(),
-                    }],
+                    changes: vec![RawStateChange { cause: cause.clone(), data: encoded_value }],
                 })
             })
             .collect::<Vec<_>>();
-
         let trie_changes = self.trie.update2(&*state_changes)?;
         Ok(TrieUpdateResult { trie: self.trie, trie_changes, state_changes, contract_updates })
     }
