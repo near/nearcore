@@ -1245,8 +1245,8 @@ mod tests {
     use near_primitives::congestion_info::BlockCongestionInfo;
     use near_primitives::errors::InvalidAccessKeyError;
     use near_primitives::transaction::CreateAccountAction;
-    use near_primitives::types::Gas;
     use near_primitives::types::EpochId;
+    use near_primitives::types::Gas;
     use near_primitives::version::PROTOCOL_VERSION;
     use near_store::state_update::StateUpdate;
     use near_store::test_utils::TestTriesBuilder;
@@ -1442,7 +1442,6 @@ mod tests {
         );
         update_ops.commit().unwrap();
         res
-
     }
 
     #[test]
