@@ -450,6 +450,7 @@ impl ChunkExecutorActor {
             block_height=?block.header().height(),
             head_height=?self.chain_store.head().map(|tip| tip.height),
             "processing chunk application results");
+        near_chain::metrics::BLOCK_HEIGHT_SPICE_EXECUTION_HEAD.set(block.header().height() as i64);
         let epoch_id = self.epoch_manager.get_epoch_id(&block_hash)?;
         let shard_layout = self.epoch_manager.get_shard_layout(&epoch_id)?;
         for result in &results {
