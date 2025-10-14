@@ -14,7 +14,7 @@ use near_primitives::trie_key::{SmallKeyVec, TrieKey, TrieKeyPrefix};
 use near_primitives::types::{
     AccountId, RawStateChange, RawStateChangesWithTrieKey, StateChangeCause,
 };
-use parking_lot::Mutex;
+use parking_lot::RwLock;
 use state_value::{Deserializable, Deserialized};
 use std::any::Any;
 use std::collections::{BTreeMap, btree_map};
@@ -78,7 +78,7 @@ struct CommittedValue {
 /// ensuring absence of data races.
 pub struct StateUpdate {
     trie: crate::Trie,
-    state: Arc<Mutex<StateUpdateState>>,
+    state: Arc<RwLock<StateUpdateState>>,
 }
 
 /// A collection of state operations pending an inclusion into a [`StateUpdate`].
@@ -131,7 +131,7 @@ impl StateUpdate {
     pub fn new(trie: crate::Trie) -> Self {
         StateUpdate {
             trie,
-            state: Arc::new(Mutex::new(StateUpdateState {
+            state: Arc::new(RwLock::new(StateUpdateState {
                 max_clock: 0,
                 committed: Default::default(),
             })),
@@ -139,7 +139,7 @@ impl StateUpdate {
     }
 
     pub fn start_update(&self) -> StateOperations {
-        let state_guard = self.state.lock();
+        let state_guard = self.state.read();
         StateOperations {
             clock_created: state_guard.max_clock,
             state_update: self,
@@ -161,7 +161,7 @@ impl StateUpdate {
         contract_updates: ContractUpdates,
         cause: StateChangeCause,
     ) -> Result<TrieUpdateResult, StorageError> {
-        let state = self.state.lock();
+        let state = self.state.read();
         let mut state_changes = Vec::with_capacity(state.committed.len());
         let trie_changes = self.trie.update(
             state.committed.iter().filter_map(|(k, v)| {
@@ -276,7 +276,7 @@ impl<'su> StateOperations<'su> {
             ),
             btree_map::Entry::Vacant(e) => {
                 let committed_value = {
-                    let state_update_guard = self.state_update.state.lock();
+                    let state_update_guard = self.state_update.state.read();
                     state_update_guard
                         .committed
                         .get(e.key())
@@ -716,8 +716,8 @@ impl<'su> StateOperations<'su> {
             op.value = state_value::Type::Absent;
         }
         {
-            let mut committed_state = self.state_update.state.lock();
-            for (key, committed) in committed_state.committed.range_mut(prefix.range_start()..) {
+            let mut committed_state = self.state_update.state.read();
+            for (key, committed) in committed_state.committed.range(prefix.range_start()..) {
                 if !prefix.contains(key) {
                     break;
                 }
@@ -759,7 +759,7 @@ impl<'su> StateOperations<'su> {
     /// If you'd like to discard the changes accumulated in this type, see [`Self::discard`].
     pub fn in_place_commit(&mut self) -> Result<(), StorageError> {
         let Self { clock_created, state_update, operations, on_drop: _ } = self;
-        let mut state_update_state = state_update.state.lock();
+        let mut state_update_state = state_update.state.write();
         let clock_at_create = *clock_created;
         let last_operation_clock = if state_update_state.max_clock <= clock_at_create {
             clock_at_create + 1
@@ -835,7 +835,7 @@ impl<'su> StateOperations<'su> {
     /// only that it occurs in-place.
     pub fn reset(&mut self) {
         let Self { clock_created, state_update, operations, on_drop: _ } = self;
-        let state_update_state = state_update.state.lock();
+        let state_update_state = state_update.state.read();
         operations.clear();
         *clock_created = state_update_state.max_clock;
     }
