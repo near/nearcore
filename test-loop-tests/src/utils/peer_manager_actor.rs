@@ -55,7 +55,6 @@ pub struct ClientSenderForTestLoopNetwork {
 pub struct TxRequestHandleSenderForTestLoopNetwork {
     pub transaction: AsyncSender<ProcessTxRequest, ProcessTxResponse>,
     pub chunk_endorsement: AsyncSender<ChunkEndorsementMessage, ()>,
-    pub spice_chunk_endorsement: AsyncSender<SpiceChunkEndorsementMessage, ()>,
 }
 
 #[derive(Clone, MultiSend, MultiSenderFrom)]
@@ -225,6 +224,7 @@ struct OneClientSenders {
     shards_manager_sender: Sender<ShardsManagerRequestFromNetwork>,
     peer_manager_sender: Sender<TestLoopNetworkBlockInfo>,
     spice_data_distributor_actor: SpiceDataDistributorSenderForTestLoopNetwork,
+    spice_core_writer_sender: Sender<SpiceChunkEndorsementMessage>,
 }
 
 /// This actor can be used in situations when we don't expect any events to reach it.
@@ -252,7 +252,8 @@ fn to_drop_events_senders(s: TestLoopSender<UnreachableActor>) -> Arc<OneClientS
         partial_witness_sender: s.clone().into_multi_sender(),
         shards_manager_sender: s.clone().into_sender(),
         peer_manager_sender: s.clone().into_sender(),
-        spice_data_distributor_actor: s.into_multi_sender(),
+        spice_data_distributor_actor: s.clone().into_multi_sender(),
+        spice_core_writer_sender: s.into_sender(),
     })
 }
 
@@ -279,6 +280,7 @@ impl TestLoopNetworkSharedState {
         Sender<ShardsManagerRequestFromNetwork>: From<&'a D>,
         Sender<TestLoopNetworkBlockInfo>: From<&'a D>,
         SpiceDataDistributorSenderForTestLoopNetwork: From<&'a D>,
+        Sender<SpiceChunkEndorsementMessage>: From<&'a D>,
     {
         let account_id = AccountId::from(data);
         let peer_id = PeerId::from(data);
@@ -297,6 +299,7 @@ impl TestLoopNetworkSharedState {
                 spice_data_distributor_actor: SpiceDataDistributorSenderForTestLoopNetwork::from(
                     data,
                 ),
+                spice_core_writer_sender: Sender::<SpiceChunkEndorsementMessage>::from(data),
             }),
         );
     }
@@ -502,11 +505,10 @@ fn network_message_to_client_handler(
             None
         }
         NetworkRequests::SpiceChunkEndorsement(target, endorsement) => {
-            let future = shared_state
+            shared_state
                 .senders_for_account(&my_account_id, &target)
-                .rpc_handler_sender
-                .send_async(SpiceChunkEndorsementMessage(endorsement));
-            drop(future);
+                .spice_core_writer_sender
+                .send(SpiceChunkEndorsementMessage(endorsement));
             None
         }
         NetworkRequests::EpochSyncRequest { peer_id } => {

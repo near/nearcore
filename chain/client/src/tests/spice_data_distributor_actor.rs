@@ -1,6 +1,7 @@
 use near_chain::ChainStoreAccess;
-use near_chain::spice_core::CoreStatementsProcessor;
+use near_chain::spice_core_writer_actor::{ProcessedBlock, SpiceCoreWriterActor};
 use near_crypto::Signature;
+use near_network::client::SpiceChunkEndorsementMessage;
 use near_primitives::spice_partial_data::{
     SpiceDataCommitment, SpiceDataIdentifier, SpiceDataPart, SpicePartialData,
     SpiceVerifiedPartialData, testonly_create_spice_partial_data,
@@ -48,9 +49,7 @@ use near_store::adapter::StoreAdapter;
 use tokio::sync::mpsc::error::TryRecvError;
 use tokio::sync::mpsc::{UnboundedSender, unbounded_channel};
 
-use crate::chunk_executor_actor::{
-    ExecutorIncomingUnverifiedReceipts, ProcessedBlock, save_receipt_proof,
-};
+use crate::chunk_executor_actor::{ExecutorIncomingUnverifiedReceipts, save_receipt_proof};
 use crate::spice_chunk_validator_actor::SpiceChunkStateWitnessMessage;
 use crate::spice_data_distributor_actor::{
     DataIsKnownError, Error, ReceiveDataError, SpiceDataDistributorActor,
@@ -185,10 +184,6 @@ fn new_actor(
     let signer = Arc::new(create_test_signer(account_id.as_str()));
     let validator_signer = MutableConfigValue::new(Some(signer), "validator_signer");
     let epoch_manager = chain.epoch_manager.clone();
-    let core_processor = CoreStatementsProcessor::new_with_noop_senders(
-        chain.chain_store.store().chain_store(),
-        epoch_manager.clone(),
-    );
 
     let network_adapter = PeerManagerAdapter {
         async_request_sender: noop().into_sender(),
@@ -207,7 +202,6 @@ fn new_actor(
     SpiceDataDistributorActor::new(
         epoch_manager,
         chain.chain_store.store().chain_store(),
-        core_processor,
         validator_signer,
         network_adapter,
         Sender::from_fn({
@@ -846,14 +840,17 @@ fn test_incoming_partial_data_for_already_endorsed_witness() {
         chunk_extra: ChunkExtra::new_with_only_state_root(&CryptoHash::default()),
         outgoing_receipts_root: CryptoHash::default(),
     };
-    actor
-        .core_processor
-        .process_chunk_endorsement(SpiceChunkEndorsement::new(
-            witness.chunk_id().clone(),
-            execution_result,
-            &signer,
-        ))
-        .unwrap();
+    let mut core_writer_actor = SpiceCoreWriterActor::new(
+        chain.runtime_adapter.store().chain_store(),
+        chain.epoch_manager.clone(),
+        noop().into_sender(),
+        noop().into_sender(),
+    );
+    core_writer_actor.handle(SpiceChunkEndorsementMessage(SpiceChunkEndorsement::new(
+        witness.chunk_id().clone(),
+        execution_result,
+        &signer,
+    )));
 
     let SpiceIncomingPartialData { data } = incoming_data;
     let result = actor.receive_data(data);

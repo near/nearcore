@@ -5,11 +5,13 @@ use near_async::messaging::Handler;
 use near_async::messaging::IntoSender;
 use near_async::messaging::Message;
 use near_async::messaging::Sender;
+use near_async::messaging::noop;
 use near_async::time::Clock;
 use near_chain::ApplyChunksIterationMode;
 use near_chain::ChainStoreAccess;
-use near_chain::spice_core::CoreStatementsProcessor;
-use near_chain::spice_core::ExecutionResultEndorsed;
+use near_chain::spice_core_writer_actor::ExecutionResultEndorsed;
+use near_chain::spice_core_writer_actor::ProcessedBlock;
+use near_chain::spice_core_writer_actor::SpiceCoreWriterActor;
 use near_chain::stateless_validation::spice_chunk_validation::spice_pre_validate_chunk_state_witness;
 use near_chain::stateless_validation::spice_chunk_validation::spice_validate_chunk_state_witness;
 use near_chain::test_utils::{
@@ -21,6 +23,7 @@ use near_chain_configs::MutableValidatorSigner;
 use near_chain_configs::test_genesis::{TestGenesisBuilder, ValidatorsSpec};
 use near_chain_configs::{Genesis, MutableConfigValue, TrackedShardsConfig};
 use near_epoch_manager::shard_tracker::ShardTracker;
+use near_network::client::SpiceChunkEndorsementMessage;
 use near_network::types::{NetworkRequests, PeerManagerAdapter, PeerManagerMessageRequest};
 use near_o11y::testonly::init_test_logger;
 use near_primitives::hash::CryptoHash;
@@ -33,13 +36,13 @@ use near_primitives::types::SpiceChunkId;
 use near_primitives::types::{AccountId, Balance, ChunkExecutionResult, NumShards, ShardId};
 use near_store::ShardUId;
 use near_store::adapter::StoreAdapter as _;
+use parking_lot::RwLock;
 use std::str::FromStr as _;
 use std::sync::Arc;
 
 use crate::chunk_executor_actor::ChunkExecutorActor;
 use crate::chunk_executor_actor::ExecutorApplyChunksDone;
 use crate::chunk_executor_actor::ExecutorIncomingUnverifiedReceipts;
-use crate::chunk_executor_actor::ProcessedBlock;
 use crate::spice_data_distributor_actor::SpiceDataDistributorAdapter;
 use crate::spice_data_distributor_actor::SpiceDistributorOutgoingReceipts;
 use crate::spice_data_distributor_actor::SpiceDistributorStateWitness;
@@ -104,11 +107,6 @@ impl TestActor {
         let chain_genesis = ChainGenesis::new(&genesis.config);
         let runtime = chain.runtime_adapter.clone();
 
-        let spice_core_processor = CoreStatementsProcessor::new_with_noop_senders(
-            runtime.store().chain_store(),
-            epoch_manager.clone(),
-        );
-
         let (spawner, tasks_rc) = FakeSpawner::new();
         let (actor_sc, actor_rc) = unbounded();
         let chunk_executor_adapter = Sender::from_fn(move |event: ExecutorApplyChunksDone| {
@@ -145,6 +143,14 @@ impl TestActor {
                 }
             }),
         };
+        let core_writer_actor = Arc::new(RwLock::new(SpiceCoreWriterActor::new(
+            runtime.store().chain_store(),
+            epoch_manager.clone(),
+            noop().into_sender(),
+            noop().into_sender(),
+        )));
+        let core_writer_sender =
+            Sender::from_fn(move |message| core_writer_actor.write().handle(message));
 
         let actor = ChunkExecutorActor::new(
             runtime.store().clone(),
@@ -154,10 +160,10 @@ impl TestActor {
             shard_tracker,
             network_adapter,
             validator_signer,
-            spice_core_processor,
             Arc::new(spawner),
             ApplyChunksIterationMode::Sequential,
             chunk_executor_adapter,
+            core_writer_sender,
             data_distributor_adapter,
         );
         TestActor { chain, actor, actor_rc, tasks_rc }
@@ -386,7 +392,10 @@ fn record_endorsements(actors: &mut [TestActor], block: &Block) {
                 &signer,
             );
             for actor in actors.iter() {
-                actor.actor.core_processor.process_chunk_endorsement(endorsement.clone()).unwrap();
+                actor
+                    .actor
+                    .core_writer_sender
+                    .send(SpiceChunkEndorsementMessage(endorsement.clone()));
             }
         }
     }
@@ -744,7 +753,7 @@ fn test_witness_is_valid() {
             continue;
         };
         let prev_block_execution_results =
-            actor.actor.core_processor.get_block_execution_results(&prev_block).unwrap().unwrap();
+            actor.actor.core_reader.get_block_execution_results(&prev_block).unwrap().unwrap();
         let pre_validation_result = spice_pre_validate_chunk_state_witness(
             &state_witness,
             &block,
