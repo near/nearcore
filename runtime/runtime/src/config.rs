@@ -309,11 +309,8 @@ pub fn calculate_tx_cost(
         .checked_add_result(total_prepaid_send_fees(config, &actions)?)?;
     let mut gas_remaining =
         prepaid_gas.checked_add_result(fees.fee(ActionCosts::new_action_receipt).exec_fee())?;
-    gas_remaining = gas_remaining.checked_add_result(total_prepaid_exec_fees(
-        config,
-        actions,
-        receiver_id,
-    )?)?;
+    gas_remaining =
+        gas_remaining.checked_add_result(total_prepaid_exec_fees(config, actions, receiver_id)?)?;
     let burnt_amount = safe_gas_to_balance(receipt_gas_price, gas_burnt)?;
     let remaining_gas_amount = safe_gas_to_balance(receipt_gas_price, gas_remaining)?;
     let mut total_cost = safe_add_balance(burnt_amount, remaining_gas_amount)?;
