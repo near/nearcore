@@ -187,8 +187,25 @@ impl<A: Actor + Send + 'static> TokioRuntimeBuilder<A> {
                         tracing::debug!(target: "tokio_runtime", seq, "Executing message");
                         let dequeue_time_ns = shared_instrumentation.current_time().saturating_sub(message.enqueued_time_ns);
                         shared_instrumentation.with_thread_local_writer(|writer| writer.start_event(message.name, dequeue_time_ns));
-                        (message.function)(&mut actor.actor, &mut runtime_handle);
+                        let start_time = shared_instrumentation.current_time();
+                        if message.name == "BlockResponse" {
+                            let _span = tracing::debug_span!(
+                                target: "client",
+                                "BlockResponseOuter",
+                                tag_block_production = true,
+                            )
+                            .entered();
+                            (message.function)(&mut actor.actor, &mut runtime_handle);
+                        } else {
+                            (message.function)(&mut actor.actor, &mut runtime_handle);
+                        }
+                        let total_elapsed_ns = shared_instrumentation.current_time().saturating_sub(start_time);
                         shared_instrumentation.with_thread_local_writer(|writer| writer.end_event(message.name));
+                        if message.name == "BlockResponse" || message.name == "SetNetworkInfo" {
+                            if total_elapsed_ns > 100_000_000 {
+                                tracing::warn!(target: "tokio_runtime", seq, total_elapsed_ns, "Processing of {} took too long", message.name);
+                            }
+                        }
                     }
                     // Note: If the sender is closed, that stops being a selectable option.
                     // This is valid: we can spawn a tokio runtime without a handle, just to keep
