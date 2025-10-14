@@ -352,7 +352,7 @@ impl<'su> StateOperations<'su> {
     }
 
     /// This is a more flexible version of [`Self::get_ref`], allowing custom [`Trie`] access.
-    fn get_ref_or(
+    pub fn get_ref_or(
         &mut self,
         key: TrieKey,
         fetch: impl Fn(&Trie, &TrieKey) -> Result<Option<StateValue>, StorageError>,
@@ -400,7 +400,7 @@ impl<'su> StateOperations<'su> {
     }
 
     /// This is a more flexible version of [`Self::get`], allowing custom [`Trie`] access.
-    fn get_or<V>(
+    pub fn get_or<V>(
         &mut self,
         key: TrieKey,
         fetch: impl Fn(&Trie, &TrieKey) -> Result<Option<StateValue>, StorageError>,
@@ -985,11 +985,11 @@ pub mod state_value {
         fn serialize(&self) -> Vec<u8>;
         fn len(&self) -> usize;
         fn value_hash_len(&self) -> (near_primitives::hash::CryptoHash, usize);
+        fn type_name(&self) -> &'static str {
+            std::any::type_name_of_val(self)
+        }
     }
 
-    /// A value that can be eventually written out to the database.
-    ///
-    // FIXME: seal this so that implementing this is only possible in this module.
     pub trait Deserializable {
         fn deserialize(bytes: Vec<u8>) -> Result<Arc<Self>, StorageError>;
     }
@@ -1043,7 +1043,8 @@ mod state_value_impls {
                 }
 
                 fn len(&self) -> usize {
-                    todo!("len for borsh types")
+                    // FIXME: maybe somehow memoize this serialization?
+                    borsh::object_length(self).expect("shoudn't fail!")
                 }
 
                 fn value_hash_len(&self) -> (CryptoHash, usize) {

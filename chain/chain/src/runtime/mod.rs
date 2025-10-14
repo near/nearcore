@@ -25,6 +25,7 @@ use near_primitives::sandbox::state_patch::SandboxStatePatch;
 use near_primitives::shard_layout::{ShardLayout, ShardUId};
 use near_primitives::state_part::{PartId, StatePart};
 use near_primitives::transaction::{SignedTransaction, ValidatedTransaction};
+use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{
     AccountId, Balance, BlockHeight, EpochHeight, EpochId, EpochInfoProvider, Gas, MerkleHash,
     ShardId, StateRoot, StateRootNode,
@@ -38,9 +39,10 @@ use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
 use near_store::db::CLOUD_HEAD_KEY;
 use near_store::db::metadata::DbKind;
 use near_store::flat::FlatStorageManager;
+use near_store::state_update::StateUpdate;
 use near_store::{
     ApplyStatePartResult, COLD_HEAD_KEY, DBCol, ShardTries, StateSnapshotConfig, Store, Trie,
-    TrieConfig, TrieUpdate, WrappedTrieChanges, get_access_key, get_account, set_account,
+    TrieConfig, WrappedTrieChanges,
 };
 use near_vm_runner::ContractCode;
 use near_vm_runner::{ContractRuntimeCache, precompile_contract};
@@ -676,7 +678,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         // Start recording trie reads to enforce storage proof size limits and potentially provide a
         // proof that the prepared transactions are valid.
         trie = trie.recording_reads_new_recorder();
-        let state_update = TrieUpdate::new(trie);
+        let state_update = StateUpdate::new(trie);
 
         self.prepare_transactions_extra(
             state_update,
@@ -704,7 +706,7 @@ impl RuntimeAdapter for NightshadeRuntime {
     )]
     fn prepare_transactions_extra(
         &self,
-        storage: TrieUpdate,
+        storage: StateUpdate,
         shard_id: ShardId,
         prev_block: PrepareTransactionsBlockContext,
         transaction_groups: &mut dyn TransactionGroupIterator,
@@ -724,7 +726,8 @@ impl RuntimeAdapter for NightshadeRuntime {
         // invalid transactions to be included.
         let next_block_height = prev_block.height + 1;
 
-        let mut state_update = TrieUpdateWitnessSizeWrapper::new(storage);
+        let mut state_update =
+            TrieUpdateWitnessSizeWrapper::new(storage.start_update().discard_on_drop());
 
         // Total amount of gas burnt for converting transactions towards receipts.
         let mut total_gas_burnt = Gas::ZERO;
@@ -822,15 +825,19 @@ impl RuntimeAdapter for NightshadeRuntime {
                     debug_assert_eq!(signer_id, id);
                     (signer, key)
                 } else {
-                    let signer = get_account(&state_update, signer_id);
+                    let key = TrieKey::Account { account_id: signer_id.clone() };
+                    let signer = state_update.get::<Account>(key);
                     let signer = signer.transpose().and_then(|v| v.ok());
-                    let access_key =
-                        get_access_key(&state_update, signer_id, validated_tx.public_key());
+                    let key = TrieKey::AccessKey {
+                        account_id: signer_id.clone(),
+                        public_key: validated_tx.public_key().clone(),
+                    };
+                    let access_key = state_update.get::<AccessKey>(key);
                     let access_key = access_key.transpose().and_then(|v| v.ok());
                     let inserted = signer_access_key.insert((
                         signer_id.clone(),
-                        signer.ok_or(Error::InvalidTransactions)?,
-                        access_key.ok_or(Error::InvalidTransactions)?,
+                        signer.ok_or(Error::InvalidTransactions)?.clone(),
+                        access_key.ok_or(Error::InvalidTransactions)?.clone(),
                     ));
                     (&mut inserted.1, &mut inserted.2)
                 };
@@ -870,7 +877,8 @@ impl RuntimeAdapter for NightshadeRuntime {
                 // groups, but only because pool guarantees that iteration is grouped by account_id
                 // and its public keys. It does however also mean that we must remember the account
                 // state as this code might operate over multiple access keys for the account.
-                set_account(&mut state_update.trie_update, signer_id, &account);
+                let key = TrieKey::Account { account_id: signer_id };
+                state_update.set(key, account);
             }
         }
         // NOTE: this state update must not be committed or finalized!

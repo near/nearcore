@@ -1619,7 +1619,7 @@ fn prepare_transactions_extra(
 
     let mut trie = env.runtime.tries.get_trie_for_shard(shard_uid, env.state_roots[0]);
     trie = trie.recording_reads_new_recorder();
-    let state_update = TrieUpdate::new(trie);
+    let state_update = StateUpdate::new(trie);
 
     env.runtime.prepare_transactions_extra(
         state_update,

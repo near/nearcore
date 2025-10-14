@@ -1083,20 +1083,13 @@ impl Runtime {
                     state_ops.set(key, receipt.clone());
                 }
             }
-            VersionedReceiptEnum::PromiseYield(_) => {
-                // Received a new PromiseYield receipt. We simply store it and await
-                // the corresponding PromiseResume receipt.
-                match receipt.receipt() {
-                    ReceiptEnum::PromiseYield(action_receipt) => {
-                        assert!(action_receipt.input_data_ids.len() == 1);
-                        let key = TrieKey::PromiseYieldReceipt {
-                            receiver_id: receipt.receiver_id().clone(),
-                            data_id: action_receipt.input_data_ids[0],
-                        };
-                        state_ops.set(key, receipt.clone());
-                    }
-                    _ => unreachable!("Expected PromiseYield receipt"),
+            VersionedReceiptEnum::PromiseYield(action_receipt) => {
+                assert!(action_receipt.input_data_ids().len() == 1);
+                let key = TrieKey::PromiseYieldReceipt {
+                    receiver_id: receipt.receiver_id().clone(),
+                    data_id: action_receipt.input_data_ids()[0],
                 };
+                state_ops.set(key, receipt.clone());
             }
             VersionedReceiptEnum::PromiseResume(data_receipt) => {
                 let data_id = data_receipt.data_id;

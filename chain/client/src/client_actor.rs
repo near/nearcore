@@ -1335,7 +1335,7 @@ impl ClientActorInner {
         self.client.chunk_producer.start_prepare_transactions_job(
             msg.key,
             msg.shard_uid,
-            msg.post_state.trie_update,
+            msg.post_state.state_update,
             msg.prev_block_context,
             msg.prev_chunk_tx_hashes,
             tx_validity_period_check,

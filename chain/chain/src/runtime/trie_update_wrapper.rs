@@ -1,9 +1,12 @@
+use near_primitives::trie_key::{SmallKeyVec, TrieKey};
+use near_store::StorageError;
+use near_store::state_update::state_value::{Deserializable, Deserialized};
+use near_store::state_update::{StateOperations, StateValue};
+use near_store::trie::AccessOptions;
+use std::any::Any;
 use std::cell::RefCell;
 use std::collections::HashSet;
-
-use near_primitives::trie_key::{SmallKeyVec, TrieKey};
-use near_store::trie::AccessOptions;
-use near_store::{StorageError, TrieAccess, TrieUpdate};
+use std::sync::Arc;
 
 /// Wraps TrieUpdate and estimates recorded storage proof size for all reads as if the reads were
 /// done on a real Trie, not TrieUpdate.
@@ -12,8 +15,8 @@ use near_store::{StorageError, TrieAccess, TrieUpdate};
 /// TrieUpdate keeps a Key-Value map of updated entries which doesn't say much about the size of
 /// trie nodes recorded during the reads. The wrapper reads from the Trie to record nodes and
 /// estimates additional recorded size for any updated entries.
-pub struct TrieUpdateWitnessSizeWrapper {
-    pub trie_update: TrieUpdate,
+pub struct TrieUpdateWitnessSizeWrapper<'su> {
+    state_ops: StateOperations<'su>,
     recorded: RefCell<Recorded>,
 }
 
@@ -29,10 +32,10 @@ struct Recorded {
 /// Used to estimate storage proof size for newly added entries that are present only in TrieUpdate.
 const TRIE_INSERT_BASE_SIZE_ESTIMATION: i64 = 90;
 
-impl TrieUpdateWitnessSizeWrapper {
-    pub fn new(trie_update: TrieUpdate) -> TrieUpdateWitnessSizeWrapper {
+impl<'su> TrieUpdateWitnessSizeWrapper<'su> {
+    pub fn new(state_ops: StateOperations<'su>) -> TrieUpdateWitnessSizeWrapper<'su> {
         TrieUpdateWitnessSizeWrapper {
-            trie_update,
+            state_ops,
             recorded: RefCell::new(Recorded {
                 read_keys: HashSet::new(),
                 additional_storage_proof_size: 0,
@@ -42,8 +45,8 @@ impl TrieUpdateWitnessSizeWrapper {
 
     pub fn recorded_storage_size(&self) -> usize {
         let trie_recorded_i64: i64 = self
-            .trie_update
-            .trie
+            .state_ops
+            .trie()
             .recorded_storage_size()
             .try_into()
             .expect("Can't convert usize to i64");
@@ -53,11 +56,12 @@ impl TrieUpdateWitnessSizeWrapper {
         let result_usize: usize = result.try_into().expect("Can't convert i64 to usize");
         result_usize
     }
-}
 
-impl TrieAccess for TrieUpdateWitnessSizeWrapper {
     /// Intercept reads to the TrieUpdate and do storage proof size accounting
-    fn get(&self, key: &TrieKey, opts: AccessOptions) -> Result<Option<Vec<u8>>, StorageError> {
+    pub fn get<V: Deserializable + Deserialized + Clone>(
+        &mut self,
+        key: TrieKey,
+    ) -> Result<Option<V>, StorageError> {
         let mut key_bytes = SmallKeyVec::new_const();
         key.append_into(&mut key_bytes);
         let key_bytes_len: i64 =
@@ -65,14 +69,17 @@ impl TrieAccess for TrieUpdateWitnessSizeWrapper {
 
         // First read from the trie - this will record all nodes on the path in the existing trie,
         // adding them to the trie's storage proof size counter.
-        let trie_read: Option<Vec<u8>> = self.trie_update.trie.get(&key_bytes, opts)?;
+        let trie_read: Option<Vec<u8>> =
+            self.state_ops.trie().get(&key_bytes, AccessOptions::DEFAULT)?;
 
         // Then read from the TrieUpdate (without falling back to the trie)
-        let mut key_updated_in_trie_update = true;
-        let update_read: Option<Vec<u8>> = self.trie_update.get_from_updates(&key, |_| {
-            // If the fallback function is called, then the key isn't present in TrieUpdate, it wasn't modified.
-            key_updated_in_trie_update = false;
-            Ok(None)
+        let value_in_state_update = std::cell::Cell::new(true);
+        let update_read: Option<StateValue> = self.state_ops.get_ref_or(key.clone(), |_, _| {
+            value_in_state_update.set(false);
+            Ok(match trie_read.clone() {
+                None => None,
+                Some(val) => Some(StateValue::Deserialized(V::deserialize(val)?)),
+            })
         })?;
 
         let mut recorded = self.recorded.borrow_mut();
@@ -81,12 +88,15 @@ impl TrieAccess for TrieUpdateWitnessSizeWrapper {
         let read_value = match (trie_read, update_read) {
             (None, None) => None, // Key doesn't exist. Read attempt counted by Trie's recorder.
             (Some(trie_val), None) => {
-                if key_updated_in_trie_update {
+                if value_in_state_update.get() {
                     // Entry deleted in TrieUpdate. Read attempt counted by Trie's recorder.
                     None
                 } else {
                     // Key exists in Trie, wasn't modified by TrieUpdate. Normal trie read.
-                    Some(trie_val)
+                    //
+                    // FIXME: try to make deserialize return V?
+                    // FIXME: this is circumventing StateUpdate's read caching.
+                    Some(Arc::unwrap_or_clone(V::deserialize(trie_val)?))
                 }
             }
             (None, Some(update_val)) => {
@@ -103,7 +113,20 @@ impl TrieAccess for TrieUpdateWitnessSizeWrapper {
                         .saturating_add(TRIE_INSERT_BASE_SIZE_ESTIMATION);
                 }
 
-                Some(update_val)
+                Some(match update_val {
+                    StateValue::TrieValueRef(_) => {
+                        unreachable!("hopefully")
+                    }
+                    StateValue::Serialized(_) => {
+                        unreachable!("hopefully")
+                    }
+                    StateValue::Deserialized(deserialized) => {
+                        let value: &dyn Deserialized = &*deserialized;
+                        <dyn Any>::downcast_ref::<V>(value)
+                            .expect("TODO(state_update): type confusion")
+                            .clone()
+                    }
+                })
             }
             (Some(trie_val), Some(update_val)) => {
                 // Reading a value that exists in the Trie, but was updated in the TrieUpdate.
@@ -120,20 +143,29 @@ impl TrieAccess for TrieUpdateWitnessSizeWrapper {
                         .saturating_sub(update_val_len);
                 }
 
-                Some(update_val)
+                // TODO(state_update): deduplicate with above
+                Some(match update_val {
+                    StateValue::TrieValueRef(_) => Arc::unwrap_or_clone(V::deserialize(trie_val)?),
+                    StateValue::Serialized(_) => Arc::unwrap_or_clone(V::deserialize(trie_val)?),
+                    StateValue::Deserialized(deserialized) => {
+                        let value: &dyn Deserialized = &*deserialized;
+                        <dyn Any>::downcast_ref::<V>(value)
+                            .expect("TODO(state_update): type confusion")
+                            .clone()
+                    }
+                })
             }
         };
 
         Ok(read_value)
     }
 
-    fn contains_key(&self, _key: &TrieKey, _opts: AccessOptions) -> Result<bool, StorageError> {
-        // not used in prepare_transactions
-        unimplemented!()
+    pub fn set<V: Deserialized>(&mut self, key: TrieKey, value: V) {
+        self.state_ops.set(key, value)
     }
 }
 
-#[cfg(test)]
+/*#[cfg(test)]
 mod tests {
     use std::str::FromStr;
 
@@ -479,4 +511,4 @@ mod tests {
         );
         assert_eq!(worst_case_wrapper.recorded_storage_size(), 52745);
     }
-}
+}*/

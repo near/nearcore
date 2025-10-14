@@ -15,13 +15,14 @@ use near_primitives::optimistic_block::CachedShardUpdateKey;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::ShardId;
 use near_store::adapter::StoreAdapter;
-use near_store::{ShardUId, TrieUpdate};
+use near_store::state_update::StateUpdate;
+use near_store::ShardUId;
 use parking_lot::Mutex;
 
 /// Inputs required to create a `PrepareTransactionsJob`.
 pub struct PrepareTransactionsJobInputs {
     pub runtime_adapter: Arc<dyn RuntimeAdapter>,
-    pub state: TrieUpdate,
+    pub state: StateUpdate,
     pub shard_uid: ShardUId,
     pub prev_block_context: PrepareTransactionsBlockContext,
     pub tx_pool: Arc<Mutex<ShardedTransactionPool>>,
@@ -34,7 +35,7 @@ impl PrepareTransactionsJobInputs {
     #[cfg(test)]
     pub fn new_for_test(
         runtime: Arc<dyn RuntimeAdapter>,
-        state: TrieUpdate,
+        state: StateUpdate,
         shard_uid: ShardUId,
         tx_pool: Arc<Mutex<ShardedTransactionPool>>,
     ) -> Self {
@@ -280,8 +281,9 @@ mod tests {
     use near_primitives::transaction::{SignedTransaction, ValidatedTransaction};
     use near_primitives::types::{AccountId, Balance, BlockHeight};
     use near_store::genesis::initialize_genesis_state;
+    use near_store::state_update::StateUpdate;
     use near_store::test_utils::{TestTriesBuilder, create_test_store};
-    use near_store::{ShardUId, TrieUpdate, get_genesis_state_roots};
+    use near_store::{ShardUId, get_genesis_state_roots};
     use parking_lot::Mutex;
 
     use crate::prepare_transactions::{
@@ -317,7 +319,7 @@ mod tests {
     // Sets up store, genesis, runtime, tries and state for a single account,
     // Returns a Nightshade runtime and a TrieUpdate on top of the genesis state,
     // suitable for creating PrepareTransactionsJob.
-    fn setup_state(account_id: AccountId) -> (Arc<NightshadeRuntime>, TrieUpdate) {
+    fn setup_state(account_id: AccountId) -> (Arc<NightshadeRuntime>, StateUpdate) {
         let store = create_test_store();
         let genesis = TestGenesisBuilder::new()
             .add_user_account_simple(account_id, Balance::from_near(1))
@@ -332,7 +334,8 @@ mod tests {
             .expect("Genesis state roots must exist");
         let root = roots.iter().next().expect("Genesis state root for shard must exist");
         let tries = TestTriesBuilder::new().with_store(store).build();
-        (runtime, tries.new_trie_update(ShardUId::single_shard(), *root))
+        let trie = tries.get_trie_for_shard(ShardUId::single_shard(), *root);
+        (runtime, StateUpdate::new(trie))
     }
 
     // Sets up a transaction pool with `num_txs` transactions from `account_id`
@@ -354,7 +357,7 @@ mod tests {
     struct TestData {
         shard_uid: ShardUId,
         runtime: Arc<NightshadeRuntime>,
-        state: TrieUpdate,
+        state: StateUpdate,
         tx_pool: Arc<Mutex<ShardedTransactionPool>>,
     }
 
