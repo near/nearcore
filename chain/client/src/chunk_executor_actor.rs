@@ -270,11 +270,11 @@ enum TryApplyChunksOutcome {
 
 impl TryApplyChunksOutcome {
     fn missing_execution_results(
-        core_processor: &CoreStatementsProcessor,
+        core_reader: &SpiceCoreReader,
         epoch_manager: &dyn EpochManagerAdapter,
         prev_block: &Block,
     ) -> Result<Self, Error> {
-        let execution_results = core_processor.get_execution_results_by_shard_id(&prev_block)?;
+        let execution_results = core_reader.get_execution_results_by_shard_id(&prev_block)?;
         let shard_layout = epoch_manager.get_shard_layout(prev_block.header().epoch_id())?;
         let missing_shard_ids = shard_layout
             .shard_ids()
@@ -333,7 +333,7 @@ impl ChunkExecutorActor {
             self.core_reader.get_block_execution_results(&prev_block)?
         else {
             return TryApplyChunksOutcome::missing_execution_results(
-                &self.core_processor,
+                &self.core_reader,
                 self.epoch_manager.as_ref(),
                 &prev_block,
             );
