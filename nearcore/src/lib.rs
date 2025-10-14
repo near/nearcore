@@ -32,7 +32,7 @@ use near_client::spice_data_distributor_actor::SpiceDataDistributorActor;
 use near_client::{
     ChunkValidationSenderForPartialWitness, ConfigUpdater, PartialWitnessActor, RpcHandler,
     RpcHandlerConfig, StartClientResult, StateRequestActor, ViewClientActorInner,
-    spawn_rpc_handler_actor, start_client,
+    spawn_chunk_endorsement_handler_actor, spawn_rpc_handler_actor, start_client,
 };
 use near_epoch_manager::EpochManager;
 use near_epoch_manager::EpochManagerAdapter;
@@ -451,7 +451,7 @@ pub fn start_with_config_and_synchronization(
 
     let cloud_archival_writer_handle = create_cloud_archival_writer(
         Clock::real(),
-        actor_system.new_future_spawner().into(),
+        actor_system.new_future_spawner("cloud_archival_writer").into(),
         config.config.cloud_archival_writer,
         config.genesis.config.genesis_height,
         runtime.clone(),
@@ -561,7 +561,8 @@ pub fn start_with_config_and_synchronization(
         config.client_config.resharding_config.clone(),
     ));
 
-    let state_sync_spawner: Arc<dyn FutureSpawner> = actor_system.new_future_spawner().into();
+    let state_sync_spawner: Arc<dyn FutureSpawner> =
+        actor_system.new_future_spawner("state sync").into();
 
     let chunk_executor_adapter = LateBoundSender::new();
     let spice_chunk_validator_adapter = LateBoundSender::new();
@@ -648,12 +649,15 @@ pub fn start_with_config_and_synchronization(
         actor_system.clone(),
         rpc_handler_config,
         tx_pool,
-        chunk_endorsement_tracker,
         view_epoch_manager.clone(),
         view_shard_tracker,
         config.validator_signer.clone(),
         view_runtime.clone(),
         network_adapter.as_multi_sender(),
+    );
+    let chunk_endorsement_handler = spawn_chunk_endorsement_handler_actor(
+        actor_system.clone(),
+        chunk_endorsement_tracker,
         spice_core_processor,
     );
 
@@ -681,6 +685,7 @@ pub fn start_with_config_and_synchronization(
             client_actor.clone(),
             view_client_addr.clone(),
             rpc_handler.clone(),
+            chunk_endorsement_handler,
         ),
         state_request_addr.clone().into_multi_sender(),
         network_adapter.as_multi_sender(),
@@ -713,7 +718,7 @@ pub fn start_with_config_and_synchronization(
             #[cfg(feature = "test_features")]
             _gc_actor.into_multi_sender(),
             Arc::new(entity_debug_handler),
-            actor_system.new_future_spawner().as_ref(),
+            actor_system.new_future_spawner("jsonrpc").as_ref(),
         );
     }
 
@@ -726,7 +731,7 @@ pub fn start_with_config_and_synchronization(
             client_actor.clone(),
             view_client_addr.clone(),
             rpc_handler.clone(),
-            actor_system.new_future_spawner().as_ref(),
+            actor_system.new_future_spawner("rosetta rpc").as_ref(),
         );
     }
 
@@ -738,6 +743,11 @@ pub fn start_with_config_and_synchronization(
         config.tx_generator.unwrap_or_default(),
         rpc_handler.clone().into_multi_sender(),
         view_client_addr.clone().into_multi_sender(),
+    );
+
+    #[cfg(feature = "actor_instrumentation_test")]
+    near_async::instrumentation::testing::spawn_actors_for_testing_instrumentation(
+        actor_system.clone(),
     );
 
     // To avoid a clippy warning for redundant clones, due to the conditional feature tx_generator.

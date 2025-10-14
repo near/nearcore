@@ -1,4 +1,5 @@
 use crate::client_actor::ClientActorInner;
+use crate::rpc_handler::ChunkEndorsementHandler;
 use crate::{RpcHandler, ViewClientActorInner};
 use near_async::messaging::IntoSender;
 use near_async::multithread::MultithreadRuntimeHandle;
@@ -9,6 +10,7 @@ pub fn client_sender_for_network(
     client_addr: TokioRuntimeHandle<ClientActorInner>,
     view_client_addr: MultithreadRuntimeHandle<ViewClientActorInner>,
     rpc_handler: MultithreadRuntimeHandle<RpcHandler>,
+    chunk_endorsement_handler: MultithreadRuntimeHandle<ChunkEndorsementHandler>,
 ) -> ClientSenderForNetwork {
     ClientSenderForNetwork {
         block: client_addr.clone().into_sender(),
@@ -20,10 +22,10 @@ pub fn client_sender_for_network(
         state_response: client_addr.clone().into_sender(),
         tx_status_request: view_client_addr.clone().into_sender(),
         tx_status_response: view_client_addr.clone().into_sender(),
-        transaction: rpc_handler.clone().into_sender(),
+        transaction: rpc_handler.into_sender(),
         announce_account: view_client_addr.into_sender(),
-        chunk_endorsement: rpc_handler.clone().into_sender(),
-        spice_chunk_endorsement: rpc_handler.into_sender(),
+        chunk_endorsement: chunk_endorsement_handler.clone().into_sender(),
+        spice_chunk_endorsement: chunk_endorsement_handler.into_sender(),
         epoch_sync_request: client_addr.clone().into_sender(),
         epoch_sync_response: client_addr.clone().into_sender(),
         optimistic_block_receiver: client_addr.into_sender(),

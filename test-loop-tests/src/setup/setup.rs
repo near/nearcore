@@ -22,8 +22,8 @@ use near_client::spice_chunk_validator_actor::SpiceChunkValidatorActor;
 use near_client::spice_data_distributor_actor::SpiceDataDistributorActor;
 use near_client::sync_jobs_actor::SyncJobsActor;
 use near_client::{
-    AsyncComputationMultiSpawner, Client, PartialWitnessActor, RpcHandler, RpcHandlerConfig,
-    StateRequestActor, ViewClientActorInner,
+    AsyncComputationMultiSpawner, ChunkEndorsementHandler, Client, PartialWitnessActor, RpcHandler,
+    RpcHandlerConfig, StateRequestActor, ViewClientActorInner,
 };
 use near_client::{
     ChunkValidationActorInner, ChunkValidationSender, ChunkValidationSenderForPartialWitness,
@@ -301,12 +301,14 @@ pub fn setup_client(
     let rpc_handler = RpcHandler::new(
         rpc_handler_config,
         client_actor.client.chunk_producer.sharded_tx_pool.clone(),
-        client_actor.client.chunk_endorsement_tracker.clone(),
         epoch_manager.clone(),
         shard_tracker.clone(),
         validator_signer.clone(),
         runtime_adapter.clone(),
         network_adapter.as_multi_sender(),
+    );
+    let chunk_endorsement_handler = ChunkEndorsementHandler::new(
+        client_actor.client.chunk_endorsement_tracker.clone(),
         spice_core_processor.clone(),
     );
 
@@ -461,6 +463,8 @@ pub fn setup_client(
     let state_request_sender = test_loop.data.register_actor(identifier, state_request_actor, None);
     let rpc_handler_sender =
         test_loop.data.register_actor(identifier, rpc_handler, Some(rpc_handler_adapter));
+    let chunk_endorsement_handler_sender =
+        test_loop.data.register_actor(identifier, chunk_endorsement_handler, None);
     let shards_manager_sender =
         test_loop.data.register_actor(identifier, shards_manager, Some(shards_manager_adapter));
     let partial_witness_sender = test_loop.data.register_actor(
@@ -501,6 +505,7 @@ pub fn setup_client(
         view_client_sender,
         state_request_sender,
         rpc_handler_sender,
+        chunk_endorsement_handler_sender,
         shards_manager_sender,
         partial_witness_sender,
         peer_manager_sender,

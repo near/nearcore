@@ -1,6 +1,6 @@
 use itertools::Itertools;
 use near_async::Message;
-use near_o11y::span_wrapped_msg::SpanWrapped;
+use near_async::span_wrapped_msg::SpanWrapped;
 use near_pool::types::TransactionGroupIterator;
 use near_pool::{InsertTransactionResult, PoolIteratorWrapper, TransactionPool};
 use near_primitives::shard_layout::{ShardLayout, ShardUId};

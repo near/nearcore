@@ -48,7 +48,7 @@ impl Handler<ProcessTxRequest, ProcessTxResponse> for RpcHandler {
     }
 }
 
-impl Handler<ChunkEndorsementMessage> for RpcHandler {
+impl Handler<ChunkEndorsementMessage> for ChunkEndorsementHandler {
     #[perf]
     fn handle(&mut self, msg: ChunkEndorsementMessage) {
         if let Err(err) = self.chunk_endorsement_tracker.process_chunk_endorsement(msg.0) {
@@ -57,7 +57,7 @@ impl Handler<ChunkEndorsementMessage> for RpcHandler {
     }
 }
 
-impl Handler<SpiceChunkEndorsementMessage> for RpcHandler {
+impl Handler<SpiceChunkEndorsementMessage> for ChunkEndorsementHandler {
     #[perf]
     fn handle(&mut self, msg: SpiceChunkEndorsementMessage) {
         if let Err(err) = self.spice_core_processor.process_chunk_endorsement(msg.0) {
@@ -67,31 +67,37 @@ impl Handler<SpiceChunkEndorsementMessage> for RpcHandler {
 }
 
 impl messaging::Actor for RpcHandler {}
+impl messaging::Actor for ChunkEndorsementHandler {}
 
 pub fn spawn_rpc_handler_actor(
     actor_system: ActorSystem,
     config: RpcHandlerConfig,
     tx_pool: Arc<Mutex<ShardedTransactionPool>>,
-    chunk_endorsement_tracker: Arc<ChunkEndorsementTracker>,
     epoch_manager: Arc<dyn EpochManagerAdapter>,
     shard_tracker: ShardTracker,
     validator_signer: MutableValidatorSigner,
     runtime: Arc<dyn RuntimeAdapter>,
     network_adapter: PeerManagerAdapter,
-    spice_core_processor: CoreStatementsProcessor,
 ) -> MultithreadRuntimeHandle<RpcHandler> {
     let actor = RpcHandler::new(
         config.clone(),
         tx_pool,
-        chunk_endorsement_tracker,
         epoch_manager,
         shard_tracker,
         validator_signer,
         runtime,
         network_adapter,
-        spice_core_processor,
     );
     actor_system.spawn_multithread_actor(config.handler_threads, move || actor.clone())
+}
+
+pub fn spawn_chunk_endorsement_handler_actor(
+    actor_system: ActorSystem,
+    chunk_endorsement_tracker: Arc<ChunkEndorsementTracker>,
+    spice_core_processor: CoreStatementsProcessor,
+) -> MultithreadRuntimeHandle<ChunkEndorsementHandler> {
+    let actor = ChunkEndorsementHandler::new(chunk_endorsement_tracker, spice_core_processor);
+    actor_system.spawn_multithread_actor(4, move || actor.clone())
 }
 
 #[derive(Clone)]
@@ -111,7 +117,6 @@ pub struct RpcHandler {
     config: RpcHandlerConfig,
 
     tx_pool: Arc<Mutex<ShardedTransactionPool>>,
-    chunk_endorsement_tracker: Arc<ChunkEndorsementTracker>,
 
     chain_store: ChainStoreAdapter,
     epoch_manager: Arc<dyn EpochManagerAdapter>,
@@ -119,34 +124,44 @@ pub struct RpcHandler {
     validator_signer: MutableValidatorSigner,
     runtime: Arc<dyn RuntimeAdapter>,
     network_adapter: PeerManagerAdapter,
+}
+
+#[derive(Clone)]
+pub struct ChunkEndorsementHandler {
+    chunk_endorsement_tracker: Arc<ChunkEndorsementTracker>,
     spice_core_processor: CoreStatementsProcessor,
+}
+
+impl ChunkEndorsementHandler {
+    pub fn new(
+        chunk_endorsement_tracker: Arc<ChunkEndorsementTracker>,
+        spice_core_processor: CoreStatementsProcessor,
+    ) -> Self {
+        Self { chunk_endorsement_tracker, spice_core_processor }
+    }
 }
 
 impl RpcHandler {
     pub fn new(
         config: RpcHandlerConfig,
         tx_pool: Arc<Mutex<ShardedTransactionPool>>,
-        chunk_endorsement_tracker: Arc<ChunkEndorsementTracker>,
         epoch_manager: Arc<dyn EpochManagerAdapter>,
         shard_tracker: ShardTracker,
         validator_signer: MutableValidatorSigner,
         runtime: Arc<dyn RuntimeAdapter>,
         network_adapter: PeerManagerAdapter,
-        spice_core_processor: CoreStatementsProcessor,
     ) -> Self {
         let chain_store = runtime.store().chain_store();
 
         Self {
             config,
             tx_pool,
-            chunk_endorsement_tracker,
             validator_signer,
             chain_store,
             epoch_manager,
             runtime,
             shard_tracker,
             network_adapter,
-            spice_core_processor,
         }
     }
 

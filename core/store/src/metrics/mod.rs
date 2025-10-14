@@ -615,7 +615,7 @@ pub fn spawn_db_metrics_loop(actor_system: ActorSystem, storage: &NodeStorage, p
     let hot_store = storage.get_hot_store();
     let cold_store = storage.get_cold_store();
 
-    actor_system.new_future_spawner().spawn("db metrics loop", async move {
+    actor_system.new_future_spawner("db metrics loop").spawn("db metrics loop", async move {
         tracing::debug!(target:"metrics", "Starting the db metrics loop.");
         let start = tokio::time::Instant::now();
         let mut interval = tokio::time::interval_at(start, period.unsigned_abs());

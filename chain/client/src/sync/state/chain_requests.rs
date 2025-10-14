@@ -1,6 +1,6 @@
 use near_async::messaging::AsyncSender;
+use near_async::span_wrapped_msg::SpanWrapped;
 use near_async::{Message, MultiSend, MultiSenderFrom};
-use near_o11y::span_wrapped_msg::SpanWrapped;
 use near_primitives::hash::CryptoHash;
 use near_primitives::state_sync::ShardStateSyncResponseHeader;
 use near_primitives::types::ShardId;
