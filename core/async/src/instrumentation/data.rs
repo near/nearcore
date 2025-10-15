@@ -323,9 +323,9 @@ impl InstrumentedEventBuffer {
         self.len.store(len + 1, Ordering::Release);
     }
 
-    pub fn clear(&self) {
+    fn clear(&self) {
         // Relaxed because the synchronization is performed via the RwLock (which
-        // is guaranteed because this function takes &mut self).
+        // is guaranteed because the caller of this function takes &mut self).
         self.len.store(0, std::sync::atomic::Ordering::Relaxed);
     }
 }
