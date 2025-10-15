@@ -28,7 +28,7 @@ pub static ALL_ACTOR_INSTRUMENTATIONS: LazyLock<AllActorInstrumentations> =
     });
 
 /// Tracks recent thread activity for the past number of windows.
-/// Each window is about 1 second (configurable).
+/// Each window is 500 milliseconds (configurable).
 /// The actor thread which handles messages is the one pushing events to this struct,
 /// and a debugging thread may pull it to display recent activity.
 /// It is very important that pushing events is as efficient as possible: it should not be
