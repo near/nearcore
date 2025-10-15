@@ -32,4 +32,8 @@ instrumentation_testing = ["rand"]
 
 [dev-dependencies]
 tokio-util.workspace = true
+criterion.workspace = true
 
+[[bench]]
+name = "instrumentation"
+harness = false
