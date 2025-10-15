@@ -1,5 +1,6 @@
 import './App.scss';
 import { NavLink, Navigate, Route, Routes, useParams } from 'react-router-dom';
+import { ActorsView } from './ActorsView';
 import { ChainAndChunkInfoView } from './ChainAndChunkInfoView';
 import { ClusterView } from './ClusterView';
 import { EpochInfoView } from './EpochInfoView';
@@ -45,6 +46,9 @@ export const App = () => {
                 <NavLink to="../entity_debug" className={navLinkClassName}>
                     Entity Debug
                 </NavLink>
+                <NavLink to="../actors" className={navLinkClassName}>
+                    Actors
+                </NavLink>
             </div>
             <Routes>
                 <Route path="last_blocks" element={<LatestBlocksView addr={addr} />} />
@@ -64,6 +68,7 @@ export const App = () => {
                 <Route path="validator_info" element={<div>TODO</div>} />
                 <Route path="cluster" element={<ClusterView initialAddr={addr} />} />
                 <Route path="entity_debug" element={<EntityDebugView addr={addr} />} />
+                <Route path="actors" element={<ActorsView addr={addr} />} />
             </Routes>
         </div>
     );
