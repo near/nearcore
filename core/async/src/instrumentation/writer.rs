@@ -11,11 +11,14 @@ use crate::instrumentation::queue::InstrumentedQueue;
 use crate::instrumentation::{
     WINDOW_SIZE_NS,
     data::{ALL_ACTOR_INSTRUMENTATIONS, InstrumentedThread},
+    metrics::{MESSAGE_DEQUEUE_TIME, MESSAGE_PROCESSING_TIME},
 };
 
 thread_local! {
     static THREAD_WRITER: RefCell<Option<InstrumentedThreadWriter>> = const { RefCell::new(None) };
 }
+
+const NANOS_PER_SECOND: f64 = 1_000_000_000.0;
 
 pub struct InstrumentedThreadWriter {
     pub shared: Arc<InstrumentedThreadWriterSharedPart>,
@@ -44,17 +47,24 @@ impl InstrumentedThreadWriter {
             id
         };
         self.advance_window_if_needed_internal(start_time_ns);
+        MESSAGE_DEQUEUE_TIME
+            .with_label_values(&[&self.target.actor_name, message_type])
+            .observe(dequeue_time_ns as f64 / NANOS_PER_SECOND);
         self.target.start_event(message_type_id, start_time_ns, dequeue_time_ns);
     }
 
     // End an event for a specific message type.
     // Note: easier to ask for message type here instead of storing a reverse mapping,
     // as the caller knows it.
-    pub fn end_event(&mut self, _message_type: &str) {
+    pub fn end_event(&mut self, message_type: &str) {
         let end_time_ns =
             self.shared.clock.now().duration_since(self.shared.reference_instant).as_nanos() as u64;
         self.advance_window_if_needed_internal(end_time_ns);
-        let _total_elapsed_ns = self.target.end_event(end_time_ns);
+        let total_elapsed_ns = self.target.end_event(end_time_ns);
+
+        MESSAGE_PROCESSING_TIME
+            .with_label_values(&[&self.target.actor_name, message_type])
+            .observe(total_elapsed_ns as f64 / NANOS_PER_SECOND);
     }
 
     pub fn advance_window_if_needed(&mut self) {
