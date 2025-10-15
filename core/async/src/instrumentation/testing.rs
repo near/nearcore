@@ -1,7 +1,7 @@
 use crate::ActorSystem;
 use crate::futures::{DelayedActionRunnerExt, FutureSpawnerExt};
 use crate::messaging::CanSend;
-use crate::messaging::{Actor, Handler, Message};
+use crate::messaging::{Actor, Handler};
 use crate::tokio::TokioRuntimeHandle;
 use rand::Rng;
 use time::Duration;
@@ -40,8 +40,6 @@ struct VeryHighMessageCountActor {
 
 #[derive(Debug)]
 struct DummyMessage;
-
-impl Message for DummyMessage {}
 
 impl Actor for VeryHighMessageCountActor {}
 
