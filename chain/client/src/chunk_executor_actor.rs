@@ -2,7 +2,6 @@ use std::collections::HashMap;
 use std::collections::HashSet;
 use std::sync::Arc;
 
-use near_async::Message;
 use near_async::futures::AsyncComputationSpawner;
 use near_async::futures::AsyncComputationSpawnerExt;
 use near_async::messaging::CanSend;
@@ -122,7 +121,7 @@ impl ChunkExecutorActor {
 impl near_async::messaging::Actor for ChunkExecutorActor {}
 
 /// Message with incoming unverified receipts corresponding to the block.
-#[derive(Message, Debug)]
+#[derive(Debug)]
 pub struct ExecutorIncomingUnverifiedReceipts {
     pub block_hash: CryptoHash,
     pub receipt_proof: ReceiptProof,
@@ -166,12 +165,12 @@ impl ExecutorIncomingUnverifiedReceipts {
 }
 
 /// Message that should be sent once block is processed.
-#[derive(Message, Debug)]
+#[derive(Debug)]
 pub struct ProcessedBlock {
     pub block_hash: CryptoHash,
 }
 
-#[derive(Message, Debug)]
+#[derive(Debug)]
 pub struct ExecutorApplyChunksDone {
     pub block_hash: CryptoHash,
     pub apply_results: Vec<ShardUpdateResult>,
@@ -451,6 +450,7 @@ impl ChunkExecutorActor {
             block_height=?block.header().height(),
             head_height=?self.chain_store.head().map(|tip| tip.height),
             "processing chunk application results");
+        near_chain::metrics::BLOCK_HEIGHT_SPICE_EXECUTION_HEAD.set(block.header().height() as i64);
         let epoch_id = self.epoch_manager.get_epoch_id(&block_hash)?;
         let shard_layout = self.epoch_manager.get_shard_layout(&epoch_id)?;
         for result in &results {

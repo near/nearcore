@@ -5,8 +5,7 @@ use crate::types::{
     StateSyncEvent, Tier3Request,
 };
 use futures::{Future, FutureExt};
-use near_async::Message;
-use near_async::messaging::{self, CanSend, MessageWithCallback};
+use near_async::messaging::{AsyncSendError, CanSend, CanSendAsync, Handler};
 use near_crypto::{KeyType, SecretKey};
 use near_primitives::hash::hash;
 use near_primitives::network::PeerId;
@@ -104,17 +103,17 @@ pub fn expected_routing_tables(
 }
 
 /// `GetInfo` gets `NetworkInfo` from `PeerManager`.
-#[derive(Message, Debug)]
+#[derive(Debug)]
 pub struct GetInfo {}
 
-impl messaging::Handler<GetInfo, crate::types::NetworkInfo> for PeerManagerActor {
+impl Handler<GetInfo, crate::types::NetworkInfo> for PeerManagerActor {
     fn handle(&mut self, _msg: GetInfo) -> crate::types::NetworkInfo {
         self.get_network_info()
     }
 }
 
 // `StopSignal is used to stop PeerManagerActor for unit tests
-#[derive(Message, Default, Debug)]
+#[derive(Default, Debug)]
 pub struct StopSignal {
     pub should_panic: bool,
 }
@@ -125,7 +124,7 @@ impl StopSignal {
     }
 }
 
-impl messaging::Handler<StopSignal> for PeerManagerActor {
+impl Handler<StopSignal> for PeerManagerActor {
     fn handle(&mut self, msg: StopSignal) {
         debug!(target: "network", "Receive Stop Signal.");
 
@@ -144,28 +143,29 @@ pub struct MockPeerManagerAdapter {
     pub notify: Notify,
 }
 
-impl CanSend<MessageWithCallback<PeerManagerMessageRequest, PeerManagerMessageResponse>>
-    for MockPeerManagerAdapter
-{
-    fn send(
-        &self,
-        message: MessageWithCallback<PeerManagerMessageRequest, PeerManagerMessageResponse>,
-    ) {
-        self.requests.write().push_back(message.message);
-        self.notify.notify_one();
-        (message.callback)(
-            std::future::ready(Ok(PeerManagerMessageResponse::NetworkResponses(
-                NetworkResponses::NoResponse,
-            )))
-            .boxed(),
-        );
-    }
-}
-
 impl CanSend<PeerManagerMessageRequest> for MockPeerManagerAdapter {
     fn send(&self, msg: PeerManagerMessageRequest) {
         self.requests.write().push_back(msg);
         self.notify.notify_one();
+    }
+}
+
+impl CanSendAsync<PeerManagerMessageRequest, PeerManagerMessageResponse>
+    for MockPeerManagerAdapter
+{
+    fn send_async(
+        &self,
+        message: PeerManagerMessageRequest,
+    ) -> futures::future::BoxFuture<'static, Result<PeerManagerMessageResponse, AsyncSendError>>
+    {
+        self.requests.write().push_back(message);
+        self.notify.notify_one();
+        async move {
+            Ok(PeerManagerMessageResponse::NetworkResponses(
+                NetworkResponses::NoResponse,
+            ))
+        }
+        .boxed()
     }
 }
 
@@ -216,7 +216,7 @@ impl MockPeerManagerAdapter {
     }
 }
 
-#[derive(Message, Clone, Debug)]
+#[derive(Clone, Debug)]
 pub struct SetAdvOptions {
     pub set_max_peers: Option<u64>,
 }

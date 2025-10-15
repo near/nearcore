@@ -6,7 +6,7 @@ use std::task::Poll;
 use assert_matches::assert_matches;
 use itertools::Itertools;
 use near_async::futures::FutureSpawnerExt;
-use near_async::messaging::{AsyncSendError, CanSend, SendAsync};
+use near_async::messaging::{AsyncSendError, CanSend, CanSendAsync};
 use near_async::test_loop::TestLoopV2;
 use near_async::test_loop::data::TestLoopData;
 use near_async::test_loop::futures::TestLoopFutureSpawner;

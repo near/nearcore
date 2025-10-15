@@ -50,7 +50,6 @@ use crate::{DoomslugThresholdMode, metrics};
 use crossbeam_channel::{Receiver, Sender, unbounded};
 use itertools::Itertools;
 use lru::LruCache;
-use near_async::Message;
 use near_async::futures::AsyncComputationSpawner;
 use near_async::futures::AsyncComputationSpawnerExt;
 use near_async::messaging::{IntoMultiSender, noop};
@@ -141,10 +140,10 @@ const ACCEPTABLE_TIME_DIFFERENCE: i64 = 12 * 10;
 /// `ApplyChunksDoneMessage` is a message that signals the finishing of applying chunks of a block.
 /// Upon receiving this message, ClientActors know that it's time to finish processing the blocks that
 /// just finished applying chunks.
-#[derive(Message, Debug)]
+#[derive(Debug)]
 pub struct ApplyChunksDoneMessage;
 
-#[derive(Message, Debug)]
+#[derive(Debug)]
 pub struct NewChunkAppliedMessage {
     pub result: NewChunkResult,
     pub block_context: ApplyChunkBlockContext,
@@ -163,7 +162,7 @@ pub struct ApplyChunksDoneSender {
 /// This message is sent from a callback in the runtime to the Client actor before the post-state,
 /// is finalized. Client actor may use this information to start other tasks earlier, e.g.
 /// preparing transactions for inclusion in the next chunk.
-#[derive(Message, Debug)]
+#[derive(Debug)]
 pub struct PostStateReadyMessage {
     /// Post-State of the shard after applying the chunk
     pub post_state: PostState,
@@ -4072,7 +4071,6 @@ pub fn collect_receipts_from_response(
     )
 }
 
-#[derive(Message)]
 pub struct BlockCatchUpRequest {
     pub sync_hash: CryptoHash,
     pub block_hash: CryptoHash,
@@ -4092,14 +4090,14 @@ impl Debug for BlockCatchUpRequest {
     }
 }
 
-#[derive(Message, Debug)]
+#[derive(Debug)]
 pub struct BlockCatchUpResponse {
     pub sync_hash: CryptoHash,
     pub block_hash: CryptoHash,
     pub results: Vec<(ShardId, Result<ShardUpdateResult, Error>)>,
 }
 
-#[derive(Message, Debug)]
+#[derive(Debug)]
 pub struct ChunkStateWitnessMessage {
     pub witness: ChunkStateWitness,
     pub raw_witness_size: ChunkStateWitnessSize,

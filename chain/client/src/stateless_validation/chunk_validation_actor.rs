@@ -14,7 +14,7 @@ use lru::LruCache;
 use near_async::futures::{AsyncComputationSpawner, AsyncComputationSpawnerExt};
 use near_async::messaging::{Actor, Handler, Sender};
 use near_async::multithread::MultithreadRuntimeHandle;
-use near_async::{ActorSystem, Message, MultiSend, MultiSenderFrom};
+use near_async::{ActorSystem, MultiSend, MultiSenderFrom};
 use near_chain::chain::{ChunkStateWitnessMessage, NewChunkData, StorageContext};
 use near_chain::stateless_validation::chunk_validation::{
     self, MainStateTransitionCache, MainTransition, PendingValidateWitnessCache,
@@ -74,7 +74,7 @@ pub struct ChunkValidationSender {
 
 /// Message to notify the chunk validation actor about new blocks
 /// so it can process orphan witnesses that were waiting for these blocks.
-#[derive(Message, Debug)]
+#[derive(Debug)]
 pub struct BlockNotificationMessage {
     pub block: Arc<Block>,
 }

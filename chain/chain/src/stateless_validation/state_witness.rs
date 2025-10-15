@@ -1,7 +1,7 @@
 use crate::store::ChainStoreAccess;
 use crate::{BlockHeader, ChainStore, ReceiptFilter, get_incoming_receipts_for_shard};
 use near_async::messaging::Sender;
-use near_async::{Message, MultiSend, MultiSenderFrom};
+use near_async::{MultiSend, MultiSenderFrom};
 use near_chain_primitives::Error;
 use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_assignment::shard_id_to_uid;
@@ -21,7 +21,7 @@ use near_primitives::types::{EpochId, ShardId};
 use near_primitives::version::ProtocolFeature;
 use std::collections::HashMap;
 
-#[derive(Message, Debug)]
+#[derive(Debug)]
 pub struct DistributeStateWitnessRequest {
     pub state_witness: ChunkStateWitness,
     pub contract_updates: ContractUpdates,

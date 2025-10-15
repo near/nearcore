@@ -1,10 +1,7 @@
 use futures::channel::mpsc::{UnboundedReceiver, UnboundedSender, unbounded};
 use itertools::Itertools as _;
 use near_async::futures::AsyncComputationSpawner;
-use near_async::messaging::Handler;
-use near_async::messaging::IntoSender;
-use near_async::messaging::Message;
-use near_async::messaging::Sender;
+use near_async::messaging::{Handler, IntoAsyncSender, IntoSender, Sender, noop};
 use near_async::time::Clock;
 use near_chain::ApplyChunksIterationMode;
 use near_chain::ChainStoreAccess;
@@ -70,7 +67,7 @@ struct TestActor {
 
 impl<M> Handler<M> for TestActor
 where
-    M: Message,
+    M: Send + 'static,
     ChunkExecutorActor: Handler<M>,
 {
     fn handle(&mut self, msg: M) {
@@ -115,9 +112,9 @@ impl TestActor {
             actor_sc.unbounded_send(event).unwrap();
         });
         let network_adapter = PeerManagerAdapter {
-            async_request_sender: near_async::messaging::noop().into_sender(),
-            set_chain_info_sender: near_async::messaging::noop().into_sender(),
-            state_sync_event_sender: near_async::messaging::noop().into_sender(),
+            async_request_sender: noop().into_async_sender(),
+            set_chain_info_sender: noop().into_sender(),
+            state_sync_event_sender: noop().into_sender(),
             request_sender: Sender::from_fn({
                 let outgoing_sc = outgoing_sc.clone();
                 move |message: PeerManagerMessageRequest| {
@@ -182,7 +179,7 @@ impl TestActor {
 
     fn handle_with_internal_events<M>(&mut self, msg: M)
     where
-        M: Message,
+        M: Send + 'static,
         ChunkExecutorActor: Handler<M>,
     {
         self.actor.handle(msg);

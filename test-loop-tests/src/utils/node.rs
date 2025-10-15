@@ -17,6 +17,7 @@ use near_primitives::views::{
 };
 
 use crate::setup::state::NodeExecutionData;
+use crate::utils::account::{create_validator_id, rpc_account_id};
 use crate::utils::transactions::TransactionRunner;
 
 /// Represents single node in multinode test loop setup. It simplifies
@@ -36,6 +37,14 @@ impl<'a> TestLoopNode<'a> {
             .rfind(|data| &data.account_id == account_id)
             .unwrap_or_else(|| panic!("client with account id {account_id} not found"));
         Self { data }
+    }
+
+    pub fn rpc(node_datas: &'a [NodeExecutionData]) -> Self {
+        Self::for_account(node_datas, &rpc_account_id())
+    }
+
+    pub fn validator(node_datas: &'a [NodeExecutionData], validator_index: usize) -> Self {
+        Self::for_account(node_datas, &create_validator_id(validator_index))
     }
 
     #[allow(unused)]
