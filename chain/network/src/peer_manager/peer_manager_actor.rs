@@ -731,9 +731,10 @@ impl PeerManagerActor {
                         let peer_id = &d.data.peer_id;
                         KnownProducer {
                             account_id: account_id.clone(),
+                            // TODO: fill in the address.
                             addr: None,
                             peer_id: peer_id.clone(),
-                            next_hops: self.state.graph.routing_table._view_route(&peer_id),
+                            next_hops: self.state.graph.routing_table.view_route(&peer_id),
                         }
                     })
                 })
