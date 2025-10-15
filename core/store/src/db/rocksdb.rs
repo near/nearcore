@@ -142,17 +142,7 @@ impl RocksDB {
         temp: Temperature,
         columns: &[DBCol],
     ) -> io::Result<(DB, Options)> {
-        let mut options = rocksdb_options(store_config, mode);
-        if let Some(wal_dir_cfg) = &store_config.rocksdb.wal_dir {
-            if !wal_dir_cfg.is_absolute() {
-                return Err(io::Error::other("RocksDB wal_dir must be an absolute path"));
-            }
-            std::fs::create_dir_all(&wal_dir_cfg).map_err(io::Error::other)?;
-            let wal_dir_str = wal_dir_cfg
-                .to_str()
-                .ok_or_else(|| io::Error::other("wal_dir contains non-UTF-8 characters"))?;
-            options.set_wal_dir(wal_dir_str);
-        }
+        let options = rocksdb_options(store_config, mode);
         let cfs = cf_descriptors(columns, store_config, temp);
         let db = if mode.read_only() {
             DB::open_cf_descriptors_read_only(&options, path, cfs, false)
@@ -573,7 +563,6 @@ fn common_rocksdb_options(rocksdb_config: &RocksDbConfig) -> Options {
         max_bytes_for_level_base,
         max_total_wal_size,
         parallelism,
-        wal_dir: _,
         cf_high_load_overrides: _,
         cf_medium_load_overrides: _,
         cf_low_load_overrides: _,

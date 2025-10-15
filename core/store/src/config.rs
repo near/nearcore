@@ -472,13 +472,6 @@ pub struct RocksDbConfig {
     #[serde(default)]
     pub parallelism: Option<i32>,
 
-    /// Optional directory for RocksDB WAL files.
-    ///
-    /// Must be an absolute path. When set, WAL writes are placed on this path
-    /// which allows separating sequential WAL I/O from main SST/compaction I/O.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub wal_dir: Option<std::path::PathBuf>,
-
     /// Column-family tuning overrides for write-heavy columns.
     ///
     /// Applies to: PartialChunks, State, TrieChanges.
@@ -508,7 +501,6 @@ impl Default for RocksDbConfig {
             max_bytes_for_level_base: default_rocksdb_max_bytes_for_level_base(),
             max_total_wal_size: default_rocksdb_max_total_wal_size(),
             parallelism: None,
-            wal_dir: None,
             cf_high_load_overrides: None,
             cf_medium_load_overrides: None,
             cf_low_load_overrides: None,
