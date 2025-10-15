@@ -24,7 +24,7 @@ use near_primitives::views::{FinalExecutionStatus, QueryRequest};
 use near_store::adapter::StoreAdapter;
 use near_store::adapter::trie_store::TrieStoreAdapter;
 use near_store::db::refcount::decode_value_with_rc;
-use near_store::trie::receipts_column_helper::{ShardsOutgoingReceiptBuffer, TrieQueue};
+use near_store::trie::receipts_column_helper_trie::{ShardsOutgoingReceiptBuffer, TrieQueue};
 use near_store::{DBCol, ShardUId, StorageError, Trie, TrieDBStorage, get};
 use rand::seq::SliceRandom;
 use rand::{Rng, SeedableRng};
@@ -994,7 +994,7 @@ pub(crate) fn promise_yield_repro_missing_trie_value(
             let indices_left_child_shard = get_promise_yield_indices(left_child_shard_uid);
             let indices_right_child_shard = get_promise_yield_indices(right_child_shard_uid);
 
-            tracing::debug!(target: "test", height=tip.height, epoch=?tip.epoch_id, 
+            tracing::debug!(target: "test", height=tip.height, epoch=?tip.epoch_id,
                     ?indices_parent_shard, ?indices_left_child_shard, ?indices_right_child_shard, "promise yield indices");
 
             // At any height, if the shard exists and it is tracked, the promise yield indices trie
@@ -1197,7 +1197,7 @@ pub(crate) fn delayed_receipts_repro_missing_trie_value(
             let indices_left_child_shard = get_delayed_receipts_indices(left_child_shard_uid);
             let indices_right_child_shard = get_delayed_receipts_indices(right_child_shard_uid);
 
-            tracing::debug!(target: "test", height=tip.height, epoch=?tip.epoch_id, 
+            tracing::debug!(target: "test", height=tip.height, epoch=?tip.epoch_id,
                     ?indices_parent_shard, ?indices_left_child_shard, ?indices_right_child_shard, "delayed receipts indices");
 
             // At any height, if the shard exists and it is tracked, the delayed receipts indices

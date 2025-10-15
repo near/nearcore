@@ -23,7 +23,8 @@ use near_primitives::types::{
 use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::{StateItem, ViewStateResult};
 use near_primitives_core::config::ViewConfig;
-use near_store::{TrieUpdate, get_access_key, get_account};
+use near_store::state_update::StateUpdate;
+use near_store::{Trie, TrieUpdate, get_access_key, get_account};
 use near_vm_runner::logic::{ProtocolVersion, ReturnData};
 use near_vm_runner::{ContractCode, ContractRuntimeCache};
 use std::{str, sync::Arc, time::Instant};
@@ -93,7 +94,7 @@ impl TrieViewer {
         account_id: &AccountId,
     ) -> Result<ContractCode, errors::ViewContractCodeError> {
         let account = self.view_account(state_update, account_id)?;
-        account.contract().into_owned().code(account_id, &state_update)?.ok_or_else(|| {
+        account.contract().into_owned().code(account_id, state_update)?.ok_or_else(|| {
             errors::ViewContractCodeError::NoContractCode {
                 contract_account_id: account_id.clone(),
             }
@@ -198,7 +199,7 @@ impl TrieViewer {
 
     pub fn call_function(
         &self,
-        mut state_update: TrieUpdate,
+        trie: Trie,
         view_state: ViewApplyState,
         contract_id: &AccountId,
         method_name: &str,
@@ -207,8 +208,8 @@ impl TrieViewer {
         epoch_info_provider: &dyn EpochInfoProvider,
     ) -> Result<Vec<u8>, errors::CallFunctionError> {
         let now = Instant::now();
-        let root = *state_update.get_root();
-        let account = get_account(&state_update, contract_id)?.ok_or_else(|| {
+        let root = *trie.get_root();
+        let account = get_account(&trie, contract_id)?.ok_or_else(|| {
             errors::CallFunctionError::AccountDoesNotExist {
                 requested_account_id: contract_id.clone(),
             }
@@ -262,17 +263,19 @@ impl TrieViewer {
             receipt: ReceiptEnum::Action(action_receipt.clone()),
             priority: 0,
         });
+        let contract_storage = near_store::contract::ContractStorage::new_for_trie(&trie);
+        let state_update = StateUpdate::new(trie);
         let pipeline = ReceiptPreparationPipeline::new(
             Arc::clone(config),
             apply_state.cache.as_ref().map(|v| v.handle()),
-            state_update.contract_storage(),
+            contract_storage,
         );
         let view_config = Some(ViewConfig { max_gas_burnt: self.max_gas_burnt_view });
-        let code_hash = account.contract().into_owned().hash(&state_update)?;
+        let mut update_ops = state_update.start_update();
+        let code_hash = account.contract().into_owned().hash(&mut update_ops)?;
         let contract = pipeline.get_contract(&receipt, code_hash, 0, view_config.clone());
-
         let mut runtime_ext = RuntimeExt::new(
-            &mut state_update,
+            &mut update_ops,
             &mut receipt_manager,
             contract_id.clone(),
             account,
@@ -298,6 +301,7 @@ impl TrieViewer {
             view_config,
         )
         .map_err(|e| errors::CallFunctionError::InternalError { error_message: e.to_string() })?;
+        update_ops.discard();
         let elapsed = now.elapsed();
         let time_ms =
             (elapsed.as_secs() as f64 / 1_000.0) + f64::from(elapsed.subsec_nanos()) / 1_000_000.0;

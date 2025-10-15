@@ -10,7 +10,8 @@ use near_primitives::receipt::Receipt;
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{AccountId, Balance};
 use near_primitives_core::deterministic_account_id::DeterministicAccountStateInit;
-use near_store::{StorageError, TrieUpdate};
+use near_store::StorageError;
+use near_store::state_update::StateOperations;
 use near_vm_runner::logic::ProtocolVersion;
 
 /// State machine of a deterministic account id on chain.
@@ -46,7 +47,7 @@ impl AccountState {
 }
 
 pub(crate) fn action_deterministic_state_init(
-    state_update: &mut TrieUpdate,
+    state_update: &mut StateOperations,
     apply_state: &ApplyState,
     account: &mut Option<Account>,
     account_id: &AccountId,
@@ -163,7 +164,7 @@ pub(crate) fn create_deterministic_account(
 /// (It would be possible to read value refs first and subtract their length but
 /// that is unnecessary work since the pre-condition above holds at the moment.)
 fn deploy_deterministic_account(
-    state_update: &mut TrieUpdate,
+    state_update: &mut StateOperations,
     account: &mut Account,
     account_id: &AccountId,
     state_init: &DeterministicAccountStateInit,

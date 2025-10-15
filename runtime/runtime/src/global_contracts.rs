@@ -12,7 +12,8 @@ use near_primitives::global_contract::ContractIsLocalError;
 use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::receipt::{GlobalContractDistributionReceipt, Receipt, ReceiptEnum};
 use near_primitives::trie_key::{GlobalContractCodeIdentifier, TrieKey};
-use near_primitives::types::{AccountId, EpochInfoProvider, ShardId, StateChangeCause};
+use near_primitives::types::{AccountId, EpochInfoProvider, ShardId};
+use near_store::state_update::StateOperations;
 use near_store::trie::AccessOptions;
 use near_store::{KeyLookupMode, StorageError, TrieAccess as _, TrieUpdate};
 use near_vm_runner::logic::ProtocolVersion;
@@ -61,7 +62,7 @@ pub(crate) fn action_deploy_global_contract(
 }
 
 pub(crate) fn action_use_global_contract(
-    state_update: &mut TrieUpdate,
+    state_update: &mut StateOperations,
     account_id: &AccountId,
     account: &mut Account,
     action: &UseGlobalContractAction,
@@ -80,7 +81,7 @@ pub(crate) fn action_use_global_contract(
 }
 
 pub(crate) fn use_global_contract(
-    state_update: &mut TrieUpdate,
+    state_update: &mut StateOperations,
     account_id: &AccountId,
     account: &mut Account,
     contract_identifier: &GlobalContractIdentifier,
@@ -88,7 +89,7 @@ pub(crate) fn use_global_contract(
     result: &mut ActionResult,
 ) -> Result<(), RuntimeError> {
     let key = TrieKey::GlobalContractCode { identifier: contract_identifier.clone().into() };
-    if !state_update.contains_key(&key, AccessOptions::DEFAULT)? {
+    if !state_update.contains_key(key)? {
         result.result = Err(ActionErrorKind::GlobalContractDoesNotExist {
             identifier: contract_identifier.clone(),
         }
@@ -124,7 +125,7 @@ pub(crate) fn apply_global_contract_distribution_receipt(
     receipt: &Receipt,
     apply_state: &ApplyState,
     epoch_info_provider: &dyn EpochInfoProvider,
-    state_update: &mut TrieUpdate,
+    state_update: &mut StateOperations,
     receipt_sink: &mut ReceiptSink,
 ) -> Result<(), RuntimeError> {
     let _span = tracing::debug_span!(
@@ -136,7 +137,7 @@ pub(crate) fn apply_global_contract_distribution_receipt(
     let ReceiptEnum::GlobalContractDistribution(global_contract_data) = receipt.receipt() else {
         unreachable!("given receipt should be an global contract distribution receipt")
     };
-    apply_distribution_current_shard(receipt, global_contract_data, apply_state, state_update);
+    apply_distribution_current_shard(global_contract_data, apply_state, state_update);
     forward_distribution_next_shard(
         receipt,
         global_contract_data,
@@ -179,10 +180,9 @@ fn initiate_distribution(
 }
 
 fn apply_distribution_current_shard(
-    receipt: &Receipt,
     global_contract_data: &GlobalContractDistributionReceipt,
     apply_state: &ApplyState,
-    state_update: &mut TrieUpdate,
+    state_update: &mut StateOperations,
 ) {
     let config = apply_state.config.wasm_config.clone();
     let trie_key = TrieKey::GlobalContractCode {
@@ -196,7 +196,6 @@ fn apply_distribution_current_shard(
         },
     };
     state_update.set(trie_key, global_contract_data.code().to_vec());
-    state_update.commit(StateChangeCause::ReceiptProcessing { receipt_hash: receipt.get_hash() });
     let code_hash = match global_contract_data.id() {
         GlobalContractIdentifier::CodeHash(hash) => Some(*hash),
         GlobalContractIdentifier::AccountId(_) => None,
@@ -213,7 +212,7 @@ fn forward_distribution_next_shard(
     global_contract_data: &GlobalContractDistributionReceipt,
     apply_state: &ApplyState,
     epoch_info_provider: &dyn EpochInfoProvider,
-    state_update: &mut TrieUpdate,
+    state_update: &mut StateOperations,
     receipt_sink: &mut ReceiptSink,
 ) -> Result<(), RuntimeError> {
     let shard_layout = epoch_info_provider.shard_layout(&apply_state.epoch_id)?;
@@ -245,16 +244,16 @@ fn forward_distribution_next_shard(
     Ok(())
 }
 
-pub(crate) trait AccountContractAccessExt {
-    fn hash(self, store: &TrieUpdate) -> Result<CryptoHash, StorageError>;
+pub(crate) trait AccountContractAccessExt<Store> {
+    fn hash(self, store: Store) -> Result<CryptoHash, StorageError>;
     fn code(
         self,
         local_account_id: &AccountId,
-        store: &TrieUpdate,
+        store: Store,
     ) -> Result<Option<ContractCode>, StorageError>;
 }
 
-impl AccountContractAccessExt for AccountContract {
+impl AccountContractAccessExt<&TrieUpdate> for AccountContract {
     fn code(
         self,
         local_account_id: &AccountId,
@@ -279,12 +278,37 @@ impl AccountContractAccessExt for AccountContract {
     }
 }
 
-pub(crate) trait GlobalContractAccessExt {
-    fn hash(self, store: &TrieUpdate) -> Result<CryptoHash, StorageError>;
-    fn code(self, store: &TrieUpdate) -> Result<Option<ContractCode>, StorageError>;
+impl<'su> AccountContractAccessExt<&mut StateOperations<'su>> for AccountContract {
+    fn code(
+        self,
+        local_account_id: &AccountId,
+        store: &mut StateOperations<'su>,
+    ) -> Result<Option<ContractCode>, StorageError> {
+        let local_hash = match GlobalContractIdentifier::try_from(self) {
+            Ok(identifier) => return identifier.code(store),
+            Err(ContractIsLocalError::NotDeployed) => return Ok(None),
+            Err(ContractIsLocalError::Deployed(local_hash)) => local_hash,
+        };
+        let key = TrieKey::ContractCode { account_id: local_account_id.clone() };
+        let code = store.get::<Vec<u8>>(key)?;
+        Ok(code.map(|code| ContractCode::new(code.to_vec(), Some(local_hash))))
+    }
+
+    fn hash(self, store: &mut StateOperations<'su>) -> Result<CryptoHash, StorageError> {
+        match GlobalContractIdentifier::try_from(self) {
+            Ok(gci) => return gci.hash(store),
+            Err(ContractIsLocalError::NotDeployed) => return Ok(CryptoHash::default()),
+            Err(ContractIsLocalError::Deployed(local_hash)) => Ok(local_hash),
+        }
+    }
 }
 
-impl GlobalContractAccessExt for GlobalContractIdentifier {
+pub(crate) trait GlobalContractAccessExt<Store> {
+    fn hash(self, store: Store) -> Result<CryptoHash, StorageError>;
+    fn code(self, store: Store) -> Result<Option<ContractCode>, StorageError>;
+}
+
+impl GlobalContractAccessExt<&TrieUpdate> for GlobalContractIdentifier {
     fn hash(self, store: &TrieUpdate) -> Result<CryptoHash, StorageError> {
         if let GlobalContractIdentifier::CodeHash(crypto_hash) = self {
             return Ok(crypto_hash);
@@ -310,5 +334,33 @@ impl GlobalContractAccessExt for GlobalContractIdentifier {
         };
         let code = store.get(&key, AccessOptions::DEFAULT)?;
         Ok(code.map(|code| ContractCode::new(code, code_hash)))
+    }
+}
+
+impl<'su> GlobalContractAccessExt<&mut StateOperations<'su>> for GlobalContractIdentifier {
+    fn hash(self, store: &mut StateOperations<'su>) -> Result<CryptoHash, StorageError> {
+        if let GlobalContractIdentifier::CodeHash(crypto_hash) = self {
+            return Ok(crypto_hash);
+        }
+        let key = TrieKey::GlobalContractCode { identifier: self.clone().into() };
+        let value_ref = store
+            .get_ref(key, KeyLookupMode::MemOrFlatOrTrie, AccessOptions::DEFAULT)?
+            .ok_or_else(|| {
+                StorageError::StorageInconsistentState(format!(
+                    "Global contract identifier not found {:?}",
+                    self
+                ))
+            })?;
+        Ok(value_ref.value_hash_len().0)
+    }
+
+    fn code(self, store: &mut StateOperations<'su>) -> Result<Option<ContractCode>, StorageError> {
+        let key = TrieKey::GlobalContractCode { identifier: self.clone().into() };
+        let code_hash = match self {
+            GlobalContractIdentifier::AccountId(_) => None,
+            GlobalContractIdentifier::CodeHash(hash) => Some(hash),
+        };
+        let code = store.get::<Vec<u8>>(key)?;
+        Ok(code.map(|code| ContractCode::new(code.to_vec(), code_hash)))
     }
 }

@@ -29,8 +29,9 @@ use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{BlockHeight, EpochId, ShardId};
 use near_primitives::validator_signer::ValidatorSigner;
+use near_store::ShardUId;
 use near_store::adapter::chain_store::ChainStoreAdapter;
-use near_store::{ShardUId, TrieUpdate};
+use near_store::state_update::StateUpdate;
 use parking_lot::Mutex;
 #[cfg(feature = "test_features")]
 use rand::{Rng, SeedableRng};
@@ -551,7 +552,7 @@ impl ChunkProducer {
         &mut self,
         shard_update_key: CachedShardUpdateKey,
         shard_uid: ShardUId,
-        state: TrieUpdate,
+        state: StateUpdate,
         prev_block_context: PrepareTransactionsBlockContext,
         prev_chunk_tx_hashes: HashSet<CryptoHash>,
         tx_validity_period_check: impl Fn(&SignedTransaction) -> bool + Send + 'static,

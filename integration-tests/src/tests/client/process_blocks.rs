@@ -3336,7 +3336,6 @@ mod contract_precompilation_tests {
 
     use super::*;
     use near_primitives::test_utils::MockEpochInfoProvider;
-    use near_store::TrieUpdate;
     use near_vm_runner::{ContractCode, FilesystemContractRuntimeCache};
     use node_runtime::state_viewer::TrieViewer;
     use node_runtime::state_viewer::ViewApplyState;
@@ -3435,7 +3434,6 @@ mod contract_precompilation_tests {
             .runtime_adapter
             .get_trie_for_shard(shard_id, block.header().prev_hash(), state_root, false)
             .unwrap();
-        let state_update = TrieUpdate::new(trie);
 
         let mut logs = vec![];
         let view_state = ViewApplyState {
@@ -3450,7 +3448,7 @@ mod contract_precompilation_tests {
         };
         viewer
             .call_function(
-                state_update,
+                trie,
                 view_state,
                 &"test0".parse().unwrap(),
                 "log_something",

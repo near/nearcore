@@ -22,7 +22,7 @@ pub use crate::verifier::{
 use bandwidth_scheduler::{BandwidthSchedulerOutput, run_bandwidth_scheduler};
 use config::{total_prepaid_send_fees, tx_cost};
 use congestion_control::ReceiptSink;
-pub use congestion_control::bootstrap_congestion_info;
+pub use congestion_control::{bootstrap_congestion_info, bootstrap_congestion_info_trie};
 use global_contracts::{
     AccountContractAccessExt, action_deploy_global_contract, action_use_global_contract,
     apply_global_contract_distribution_receipt,
@@ -48,7 +48,6 @@ use near_primitives::receipt::{
     VersionedReceiptEnum,
 };
 use near_primitives::sandbox::state_patch::SandboxStatePatch;
-use near_primitives::state_record::StateRecord;
 use near_primitives::stateless_validation::contract_distribution::ContractUpdates;
 use near_primitives::transaction::{
     Action, ExecutionMetadata, ExecutionOutcome, ExecutionOutcomeWithId, ExecutionStatus, LogEntry,
@@ -57,8 +56,7 @@ use near_primitives::transaction::{
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{
     AccountId, Balance, BlockHeight, Compute, EpochHeight, EpochId, EpochInfoProvider, Gas,
-    RawStateChangesWithTrieKey, ShardId, StateChangeCause, StateRoot,
-    validator_stake::ValidatorStake,
+    RawStateChangesWithTrieKey, ShardId, StateRoot, validator_stake::ValidatorStake,
 };
 use near_primitives::utils::{
     create_action_hash_from_receipt_id, create_receipt_id_from_receipt_id,
@@ -66,16 +64,12 @@ use near_primitives::utils::{
 };
 use near_primitives::version::{ProtocolFeature, ProtocolVersion};
 use near_primitives_core::apply::ApplyChunkReason;
+use near_store::contract::ContractStorage;
+use near_store::state_update::{StateOperations, StateUpdate};
 use near_store::trie::AccessOptions;
 use near_store::trie::receipts_column_helper::DelayedReceiptQueue;
 use near_store::trie::update::TrieUpdateResult;
-use near_store::{
-    PartialStorage, StorageError, Trie, TrieAccess, TrieChanges, TrieUpdate, get, get_access_key,
-    get_account, get_postponed_receipt, get_promise_yield_receipt, get_pure, get_received_data,
-    has_received_data, remove_postponed_receipt, remove_promise_yield_receipt, set, set_access_key,
-    set_account, set_postponed_receipt, set_promise_yield_receipt, set_received_data,
-};
-use near_vm_runner::ContractCode;
+use near_store::{KeyLookupMode, PartialStorage, StorageError, Trie, TrieChanges, state_update};
 use near_vm_runner::ContractRuntimeCache;
 use near_vm_runner::ProfileDataV3;
 use near_vm_runner::logic::ReturnData;
@@ -115,17 +109,12 @@ mod verifier;
 const EXPECT_ACCOUNT_EXISTS: &str = "account exists, checked above";
 
 pub struct PostState {
-    pub trie_update: TrieUpdate,
+    pub state_update: StateUpdate,
 }
 
 impl Debug for PostState {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "PostState {{ trie_update: committed: {}, prospective: {} }}",
-            self.trie_update.committed_len(),
-            self.trie_update.prospective_len()
-        )
+        f.debug_struct("PostState").finish()
     }
 }
 
@@ -345,7 +334,8 @@ impl Runtime {
     fn apply_action(
         &self,
         action: &Action,
-        state_update: &mut TrieUpdate,
+        state_update: &mut StateOperations,
+        contract_store: &ContractStorage,
         apply_state: &ApplyState,
         preparation_pipeline: &ReceiptPreparationPipeline,
         account: &mut Option<Account>,
@@ -359,11 +349,6 @@ impl Runtime {
         epoch_info_provider: &dyn EpochInfoProvider,
         stats: &mut ChunkApplyStatsV0,
     ) -> Result<ActionResult, RuntimeError> {
-        let _span = tracing::debug_span!(
-            target: "runtime",
-            "apply_action",
-        )
-        .entered();
         let exec_fees = exec_fee(&apply_state.config, action, receipt.receiver_id());
         let mut result = ActionResult::default();
         result.gas_used = exec_fees;
@@ -387,13 +372,13 @@ impl Runtime {
             return Ok(result);
         }
         // Permission validation
-        if let Err(e) = check_actor_permissions(action, account, actor_id, account_id) {
+        if let Err(e) = check_actor_permissions(action, account.as_ref(), actor_id, account_id) {
             result.result = Err(e);
             return Ok(result);
         }
-        metrics::ACTION_CALLED_COUNT.with_label_values(&[action.as_ref()]).inc();
         match action {
             Action::CreateAccount(_) => {
+                metrics::ACTION_CALLED_COUNT.create_account.inc();
                 action_create_account(
                     &apply_state.config.fees,
                     &apply_state.config.account_creation_config,
@@ -405,8 +390,10 @@ impl Runtime {
                 );
             }
             Action::DeployContract(deploy_contract) => {
+                metrics::ACTION_CALLED_COUNT.deploy_contract.inc();
                 action_deploy_contract(
                     state_update,
+                    contract_store,
                     account.as_mut().expect(EXPECT_ACCOUNT_EXISTS),
                     account_id,
                     deploy_contract,
@@ -416,6 +403,7 @@ impl Runtime {
                 )?;
             }
             Action::DeployGlobalContract(deploy_global_contract) => {
+                metrics::ACTION_CALLED_COUNT.deploy_global_contract.inc();
                 let account = account.as_mut().expect(EXPECT_ACCOUNT_EXISTS);
                 action_deploy_global_contract(
                     account,
@@ -427,6 +415,7 @@ impl Runtime {
                 )?;
             }
             Action::UseGlobalContract(use_global_contract) => {
+                metrics::ACTION_CALLED_COUNT.use_global_contract.inc();
                 let account = account.as_mut().expect(EXPECT_ACCOUNT_EXISTS);
                 action_use_global_contract(
                     state_update,
@@ -438,6 +427,7 @@ impl Runtime {
                 )?;
             }
             Action::DeterministicStateInit(deterministic_state_init_action) => {
+                metrics::ACTION_CALLED_COUNT.deterministic_state_init.inc();
                 deterministic_account_id::action_deterministic_state_init(
                     state_update,
                     apply_state,
@@ -449,14 +439,16 @@ impl Runtime {
                 )?;
             }
             Action::FunctionCall(function_call) => {
+                metrics::ACTION_CALLED_COUNT.function_call.inc();
                 let account = account.as_mut().expect(EXPECT_ACCOUNT_EXISTS);
                 let account_contract = account.contract();
-                let code_hash = account_contract.into_owned().hash(&state_update)?;
+                let code_hash = account_contract.into_owned().hash(&mut *state_update)?;
                 let contract =
                     preparation_pipeline.get_contract(receipt, code_hash, action_index, None);
                 let is_last_action = action_index + 1 == actions.len();
                 action_function_call(
                     state_update,
+                    contract_store,
                     apply_state,
                     account,
                     receipt,
@@ -474,6 +466,7 @@ impl Runtime {
                 )?;
             }
             Action::Transfer(TransferAction { deposit }) => {
+                metrics::ACTION_CALLED_COUNT.transfer.inc();
                 action_transfer_or_implicit_account_creation(
                     account,
                     *deposit,
@@ -487,6 +480,7 @@ impl Runtime {
                 )?;
             }
             Action::Stake(stake) => {
+                metrics::ACTION_CALLED_COUNT.stake.inc();
                 action_stake(
                     account.as_mut().expect(EXPECT_ACCOUNT_EXISTS),
                     &mut result,
@@ -497,6 +491,7 @@ impl Runtime {
                 )?;
             }
             Action::AddKey(add_key) => {
+                metrics::ACTION_CALLED_COUNT.add_key.inc();
                 action_add_key(
                     apply_state,
                     state_update,
@@ -507,6 +502,7 @@ impl Runtime {
                 )?;
             }
             Action::DeleteKey(delete_key) => {
+                metrics::ACTION_CALLED_COUNT.delete_key.inc();
                 action_delete_key(
                     &apply_state.config.fees,
                     state_update,
@@ -517,6 +513,7 @@ impl Runtime {
                 )?;
             }
             Action::DeleteAccount(delete_account) => {
+                metrics::ACTION_CALLED_COUNT.delete_account.inc();
                 action_delete_account(
                     state_update,
                     account,
@@ -529,6 +526,7 @@ impl Runtime {
                 )?;
             }
             Action::Delegate(signed_delegate_action) => {
+                metrics::ACTION_CALLED_COUNT.delegate.inc();
                 apply_delegate_action(
                     state_update,
                     apply_state,
@@ -546,7 +544,8 @@ impl Runtime {
     // Executes when all Receipt `input_data_ids` are in the state
     fn apply_action_receipt(
         &self,
-        state_update: &mut TrieUpdate,
+        update_ops: StateOperations,
+        contract_store: &ContractStorage,
         apply_state: &ApplyState,
         preparation_pipeline: &ReceiptPreparationPipeline,
         receipt: &Receipt,
@@ -555,11 +554,8 @@ impl Runtime {
         stats: &mut ChunkApplyStatsV0,
         epoch_info_provider: &dyn EpochInfoProvider,
     ) -> Result<ExecutionOutcomeWithId, RuntimeError> {
-        let _span = tracing::debug_span!(
-            target: "runtime",
-            "apply_action_receipt",
-        )
-        .entered();
+        let mut update_ops = update_ops.discard_on_drop();
+
         let action_receipt: VersionedActionReceipt = match receipt.versioned_receipt() {
             VersionedReceiptEnum::Action(action_receipt)
             | VersionedReceiptEnum::PromiseYield(action_receipt) => action_receipt,
@@ -571,36 +567,25 @@ impl Runtime {
             .input_data_ids()
             .iter()
             .map(|data_id| {
-                let ReceivedData { data } = get_received_data(state_update, account_id, *data_id)?
+                let data_id = *data_id;
+                let key = TrieKey::ReceivedData { receiver_id: account_id.clone(), data_id };
+                let data: Arc<ReceivedData> = update_ops
+                    .take(key, KeyLookupMode::MemOrFlatOrTrie, AccessOptions::DEFAULT)?
                     .ok_or_else(|| {
                         StorageError::StorageInconsistentState(
                             "received data should be in the state".to_string(),
                         )
                     })?;
-                state_update.remove(TrieKey::ReceivedData {
-                    receiver_id: account_id.clone(),
-                    data_id: *data_id,
-                });
-                match data {
-                    // TODO: Going from Vec<u8> to Rc<[u8]> shrinks the
-                    // allocated buffer to fit, which may re-allocate if the
-                    // capacity > len.
-                    // Most likely, capacity == len holds here anyway but it
-                    // would be better to use `Rc<u8>` already in `ReceivedData`
-                    // and `DataReceipt`.
+                match Arc::unwrap_or_clone(data).data {
                     Some(value) => Ok(PromiseResult::Successful(Rc::from(value))),
                     None => Ok(PromiseResult::Failed),
                 }
             })
             .collect::<Result<Arc<[PromiseResult]>, RuntimeError>>()?;
+        update_ops.in_place_commit(/* ReceiptProcessingStarted */)?;
 
-        // state_update might already have some updates so we need to make sure we commit it before
-        // executing the actual receipt
-        state_update.commit(StateChangeCause::ActionReceiptProcessingStarted {
-            receipt_hash: receipt.get_hash(),
-        });
-
-        let mut account = get_account(state_update, account_id)?;
+        let account_key = TrieKey::Account { account_id: account_id.clone() };
+        let mut account = update_ops.get::<Account>(account_key.clone())?.cloned();
         let mut actor_id = receipt.predecessor_id().clone();
         let mut result = ActionResult::default();
         let exec_fees = apply_state.config.fees.fee(ActionCosts::new_action_receipt).exec_fee();
@@ -618,7 +603,8 @@ impl Runtime {
             );
             let mut new_result = self.apply_action(
                 action,
-                state_update,
+                &mut update_ops,
+                contract_store,
                 apply_state,
                 preparation_pipeline,
                 &mut account,
@@ -654,10 +640,10 @@ impl Runtime {
 
         // Going to check balance covers account's storage.
         if result.result.is_ok() {
-            if let Some(ref account) = account {
-                match check_storage_stake(account, account.amount(), &apply_state.config) {
+            if let Some(account) = account {
+                match check_storage_stake(&account, account.amount(), &apply_state.config) {
                     Ok(()) => {
-                        set_account(state_update, account_id.clone(), account);
+                        update_ops.set(account_key, account);
                     }
                     Err(StorageStakingError::LackBalanceForStorageStaking(amount)) => {
                         result.merge(ActionResult {
@@ -708,12 +694,12 @@ impl Runtime {
         // Committing or rolling back state.
         match &result.result {
             Ok(_) => {
-                state_update.commit(StateChangeCause::ReceiptProcessing {
-                    receipt_hash: receipt.get_hash(),
-                });
+                contract_store.commit_deploys();
+                update_ops.in_place_commit(/* ReceiptProcessing */)?
             }
             Err(_) => {
-                state_update.rollback();
+                contract_store.rollback_deploys();
+                update_ops.reset()
             }
         };
         // If the receipt is a refund, then we consider it free without burnt gas.
@@ -743,18 +729,15 @@ impl Runtime {
         // No deficits to try and recover. Use receipt gas price for reward calculation
         let receiver_reward = safe_gas_to_balance(action_receipt.gas_price(), receiver_gas_reward)?;
         if receiver_reward > Balance::ZERO {
-            let mut account = get_account(state_update, account_id)?;
-            if let Some(ref mut account) = account {
+            let key = TrieKey::Account { account_id: account_id.clone() };
+            if let Some(account) = update_ops.mutate::<Account>(key)? {
                 // Validators receive the remaining execution reward that was not given to the
                 // account holder. If the account doesn't exist by the end of the execution, the
                 // validators receive the full reward.
                 tx_burnt_amount = tx_burnt_amount.checked_sub(receiver_reward).unwrap();
                 account.set_amount(safe_add_balance(account.amount(), receiver_reward)?);
-                set_account(state_update, account_id.clone(), account);
-                state_update.commit(StateChangeCause::ActionReceiptGasReward {
-                    receipt_hash: receipt.get_hash(),
-                });
             }
+            update_ops.in_place_commit(/* ActionReceiptGasReward */)?;
         }
 
         stats.balance.tx_burnt_amount =
@@ -823,8 +806,11 @@ impl Runtime {
                         | ReceiptEnum::PromiseYieldV2(_)
                 );
 
-                let res =
-                    receipt_sink.forward_or_buffer_receipt(new_receipt, apply_state, state_update);
+                let res = receipt_sink.forward_or_buffer_receipt(
+                    new_receipt,
+                    apply_state,
+                    &mut update_ops,
+                );
                 if let Err(e) = res {
                     Some(Err(e))
                 } else if is_action {
@@ -834,6 +820,7 @@ impl Runtime {
                 }
             })
             .collect::<Result<_, _>>()?;
+        update_ops.commit().expect("TODO(state_update): error handling");
 
         let status = match result.result {
             Ok(ReturnData::ReceiptIndex(receipt_index)) => ExecutionStatus::SuccessReceiptId(
@@ -961,7 +948,8 @@ impl Runtime {
         validator_proposals: &mut Vec<ValidatorStake>,
     ) -> Result<Option<ExecutionOutcomeWithId>, RuntimeError> {
         let ApplyProcessingReceiptState {
-            ref mut state_update,
+            ref state_update,
+            ref contract_storage,
             apply_state,
             epoch_info_provider,
             ref pipeline_manager,
@@ -969,66 +957,64 @@ impl Runtime {
             ..
         } = *processing_state;
         let account_id = receipt.receiver_id();
+        let mut state_ops = state_update.start_update().discard_on_drop();
+
         match receipt.versioned_receipt() {
             VersionedReceiptEnum::Data(data_receipt) => {
                 // Received a new data receipt.
                 // Saving the data into the state keyed by the data_id.
-                set_received_data(
-                    state_update,
-                    account_id.clone(),
-                    data_receipt.data_id,
-                    &ReceivedData { data: data_receipt.data.clone() },
-                );
+                let receiver_id = account_id.clone();
+                let key = TrieKey::ReceivedData { receiver_id, data_id: data_receipt.data_id };
+                state_ops.set(key, ReceivedData { data: data_receipt.data.clone() });
+
                 // Check if there is already a receipt that was postponed and was awaiting for the
                 // given data_id.
                 // If we don't have a postponed receipt yet, we don't need to do anything for now.
-                if let Some(receipt_id) = get(
-                    state_update,
-                    &TrieKey::PostponedReceiptId {
-                        receiver_id: account_id.clone(),
-                        data_id: data_receipt.data_id,
-                    },
-                )? {
+                let postponed_receipt_key = || TrieKey::PostponedReceiptId {
+                    receiver_id: account_id.clone(),
+                    data_id: data_receipt.data_id,
+                };
+                if let Some(&receipt_id) = state_ops.get::<CryptoHash>(postponed_receipt_key())? {
                     // There is already a receipt that is awaiting for the just received data.
                     // Removing this pending data_id for the receipt from the state.
-                    state_update.remove(TrieKey::PostponedReceiptId {
-                        receiver_id: account_id.clone(),
-                        data_id: data_receipt.data_id,
-                    });
+                    state_ops.remove(postponed_receipt_key());
                     // Checking how many input data items is pending for the receipt.
-                    let pending_data_count: u32 = get(
-                        state_update,
-                        &TrieKey::PendingDataCount { receiver_id: account_id.clone(), receipt_id },
-                    )?
-                    .ok_or_else(|| {
-                        StorageError::StorageInconsistentState(
-                            "pending data count should be in the state".to_string(),
-                        )
-                    })?;
-                    if pending_data_count == 1 {
+                    let receiver_id = account_id.clone();
+                    let data_count_key = TrieKey::PendingDataCount { receiver_id, receipt_id };
+                    let pending_data_count =
+                        state_ops.mutate::<u32>(data_count_key)?.ok_or_else(|| {
+                            StorageError::StorageInconsistentState(
+                                "pending data count should be in the state".to_string(),
+                            )
+                        })?;
+                    if *pending_data_count == 1 {
                         // It was the last input data pending for this receipt. We'll cleanup
                         // some receipt related fields from the state and execute the receipt.
-
-                        // Removing pending data count from the state.
-                        state_update.remove(TrieKey::PendingDataCount {
+                        state_ops.remove(TrieKey::PendingDataCount {
                             receiver_id: account_id.clone(),
                             receipt_id,
                         });
-                        // Fetching the receipt itself.
-                        let ready_receipt =
-                            get_postponed_receipt(state_update, account_id, receipt_id)?
-                                .ok_or_else(|| {
-                                    StorageError::StorageInconsistentState(
-                                        "pending receipt should be in the state".to_string(),
-                                    )
-                                })?;
-                        // Removing the receipt from the state.
-                        remove_postponed_receipt(state_update, account_id, receipt_id);
+                        let receipt_key = TrieKey::PostponedReceipt {
+                            receiver_id: account_id.clone(),
+                            receipt_id,
+                        };
+                        let ready_receipt = state_ops
+                            .take::<Receipt>(
+                                receipt_key,
+                                KeyLookupMode::MemOrFlatOrTrie,
+                                AccessOptions::DEFAULT,
+                            )?
+                            .ok_or_else(|| {
+                                StorageError::StorageInconsistentState(
+                                    "pending receipt should be in the state".to_string(),
+                                )
+                            })?;
                         // Executing the receipt. It will read all the input data and clean it up
                         // from the state.
                         return self
                             .apply_action_receipt(
-                                state_update,
+                                state_ops,
+                                contract_storage,
                                 apply_state,
                                 pipeline_manager,
                                 &ready_receipt,
@@ -1041,68 +1027,95 @@ impl Runtime {
                     } else {
                         // There is still some pending data for the receipt, so we update the
                         // pending data count in the state.
-                        set(
-                            state_update,
-                            TrieKey::PendingDataCount {
-                                receiver_id: account_id.clone(),
-                                receipt_id,
-                            },
-                            &(pending_data_count.checked_sub(1).ok_or_else(|| {
+                        *pending_data_count =
+                            pending_data_count.checked_sub(1).ok_or_else(|| {
                                 StorageError::StorageInconsistentState(
                                     "pending data count is 0, but there is a new DataReceipt"
                                         .to_string(),
                                 )
-                            })?),
-                        );
+                            })?;
                     }
                 }
             }
             VersionedReceiptEnum::Action(action_receipt) => {
-                let executed = self.process_action_receipt(
-                    receipt,
-                    receipt_sink,
-                    validator_proposals,
-                    state_update,
-                    apply_state,
-                    epoch_info_provider,
-                    pipeline_manager,
-                    stats,
-                    account_id,
-                    action_receipt,
-                )?;
-
-                if executed.is_some() {
-                    return Ok(executed);
+                let mut pending_data_count: u32 = 0;
+                for &data_id in action_receipt.input_data_ids() {
+                    let key = TrieKey::ReceivedData { receiver_id: account_id.clone(), data_id };
+                    if !state_ops.contains_key(key)? {
+                        pending_data_count += 1;
+                        // The data for a given data_id is not available, so we save a link to this
+                        // receipt_id for the pending data_id into the state.
+                        let key = TrieKey::PostponedReceiptId {
+                            receiver_id: account_id.clone(),
+                            data_id,
+                        };
+                        state_ops.set(key, *receipt.receipt_id());
+                    }
+                }
+                if pending_data_count == 0 {
+                    // All input data is available. Executing the receipt. It will cleanup
+                    // input data from the state.
+                    return self
+                        .apply_action_receipt(
+                            state_ops,
+                            contract_storage,
+                            apply_state,
+                            pipeline_manager,
+                            receipt,
+                            receipt_sink,
+                            validator_proposals,
+                            stats,
+                            epoch_info_provider,
+                        )
+                        .map(Some);
+                } else {
+                    // Not all input data is available now.
+                    // Save the counter for the number of pending input data items into the state.
+                    let key = TrieKey::PendingDataCount {
+                        receiver_id: account_id.clone(),
+                        receipt_id: *receipt.receipt_id(),
+                    };
+                    state_ops.set(key, pending_data_count);
+                    // Save the receipt itself into the state.
+                    let key = TrieKey::PostponedReceipt {
+                        receiver_id: receipt.receiver_id().clone(),
+                        receipt_id: *receipt.receipt_id(),
+                    };
+                    state_ops.set(key, receipt.clone());
                 }
             }
-            VersionedReceiptEnum::PromiseYield(_) => {
-                // Received a new PromiseYield receipt. We simply store it and await
-                // the corresponding PromiseResume receipt.
-                set_promise_yield_receipt(state_update, receipt);
+            VersionedReceiptEnum::PromiseYield(action_receipt) => {
+                assert!(action_receipt.input_data_ids().len() == 1);
+                let key = TrieKey::PromiseYieldReceipt {
+                    receiver_id: receipt.receiver_id().clone(),
+                    data_id: action_receipt.input_data_ids()[0],
+                };
+                state_ops.set(key, receipt.clone());
             }
             VersionedReceiptEnum::PromiseResume(data_receipt) => {
+                let data_id = data_receipt.data_id;
+                let key = TrieKey::PromiseYieldReceipt { receiver_id: account_id.clone(), data_id };
                 // Received a new PromiseResume receipt delivering input data for a PromiseYield.
                 // It is guaranteed that the PromiseYield has exactly one input data dependency
                 // and that it arrives first, so we can simply find and execute it.
-                if let Some(yield_receipt) =
-                    get_promise_yield_receipt(state_update, account_id, data_receipt.data_id)?
-                {
+                if let Some(yield_receipt) = state_ops.get::<Receipt>(key)?.cloned() {
                     // Remove the receipt from the state
-                    remove_promise_yield_receipt(state_update, account_id, data_receipt.data_id);
+                    state_ops.remove(TrieKey::PromiseYieldReceipt {
+                        receiver_id: account_id.clone(),
+                        data_id,
+                    });
 
                     // Save the data into the state keyed by the data_id
-                    set_received_data(
-                        state_update,
-                        account_id.clone(),
-                        data_receipt.data_id,
-                        &ReceivedData { data: data_receipt.data.clone() },
-                    );
+                    let key = TrieKey::ReceivedData { receiver_id: account_id.clone(), data_id };
+                    let data = ReceivedData { data: data_receipt.data.clone() };
+                    state_ops.set(key, data);
 
                     // Execute the PromiseYield receipt. It will read the input data and clean it
                     // up from the state.
                     return self
                         .apply_action_receipt(
-                            state_update,
+                            state_ops,
+                            contract_storage,
                             apply_state,
                             pipeline_manager,
                             &yield_receipt,
@@ -1116,7 +1129,6 @@ impl Runtime {
                     // If the user happens to call `promise_yield_resume` multiple times, it may so
                     // happen that multiple PromiseResume receipts are delivered. We can safely
                     // ignore all but the first.
-                    return Ok(None);
                 }
             }
             VersionedReceiptEnum::GlobalContractDistribution(_) => {
@@ -1124,82 +1136,13 @@ impl Runtime {
                     receipt,
                     apply_state,
                     epoch_info_provider,
-                    state_update,
+                    &mut state_ops,
                     receipt_sink,
                 )?;
-                return Ok(None);
             }
         };
         // We didn't trigger execution, so we need to commit the state.
-        state_update
-            .commit(StateChangeCause::PostponedReceipt { receipt_hash: receipt.get_hash() });
-        Ok(None)
-    }
-
-    /// Received a new action receipt. We'll first check how many input data items
-    /// were already received before and saved in the state.
-    /// And if we have all input data, then we can immediately execute the receipt.
-    /// If not, then we will postpone this receipt for later.
-    fn process_action_receipt(
-        &self,
-        receipt: &Receipt,
-        receipt_sink: &mut ReceiptSink,
-        validator_proposals: &mut Vec<ValidatorStake>,
-        state_update: &mut TrieUpdate,
-        apply_state: &ApplyState,
-        epoch_info_provider: &dyn EpochInfoProvider,
-        pipeline_manager: &ReceiptPreparationPipeline,
-        stats: &mut ChunkApplyStatsV0,
-        account_id: &AccountId,
-        action_receipt: VersionedActionReceipt<'_>,
-    ) -> Result<Option<ExecutionOutcomeWithId>, RuntimeError> {
-        let mut pending_data_count: u32 = 0;
-        for data_id in action_receipt.input_data_ids() {
-            if !has_received_data(state_update, account_id, *data_id)? {
-                pending_data_count += 1;
-                // The data for a given data_id is not available, so we save a link to this
-                // receipt_id for the pending data_id into the state.
-                set(
-                    state_update,
-                    TrieKey::PostponedReceiptId {
-                        receiver_id: account_id.clone(),
-                        data_id: *data_id,
-                    },
-                    receipt.receipt_id(),
-                )
-            }
-        }
-
-        if pending_data_count == 0 {
-            // All input data is available. Executing the receipt. It will cleanup
-            // input data from the state.
-            return self
-                .apply_action_receipt(
-                    state_update,
-                    apply_state,
-                    pipeline_manager,
-                    receipt,
-                    receipt_sink,
-                    validator_proposals,
-                    stats,
-                    epoch_info_provider,
-                )
-                .map(Some);
-        } else {
-            // Not all input data is available now.
-            // Save the counter for the number of pending input data items into the state.
-            set(
-                state_update,
-                TrieKey::PendingDataCount {
-                    receiver_id: account_id.clone(),
-                    receipt_id: *receipt.receipt_id(),
-                },
-                &pending_data_count,
-            );
-            // Save the receipt itself into the state.
-            set_postponed_receipt(state_update, receipt);
-        }
-
+        state_ops.commit(/* PostponedReceipt */)?;
         Ok(None)
     }
 
@@ -1208,11 +1151,12 @@ impl Runtime {
     /// shard.
     fn update_validator_accounts(
         &self,
-        state_update: &mut TrieUpdate,
+        state_update: &mut StateOperations,
         validator_accounts_update: &ValidatorAccountsUpdate,
     ) -> Result<(), RuntimeError> {
         for (account_id, max_of_stakes) in &validator_accounts_update.stake_info {
-            if let Some(mut account) = get_account(state_update, account_id)? {
+            let key = TrieKey::Account { account_id: account_id.clone() };
+            if let Some(account) = state_update.mutate::<Account>(key)? {
                 if let Some(reward) = validator_accounts_update.validator_rewards.get(account_id) {
                     debug!(target: "runtime", "account {} adding reward {} to stake {}", account_id, reward, account.locked());
                     account.set_locked(account.locked().checked_add(*reward).ok_or_else(|| {
@@ -1258,8 +1202,6 @@ impl Runtime {
                         )
                     },
                 )?);
-
-                set_account(state_update, account_id.clone(), &account);
             } else if *max_of_stakes > Balance::ZERO {
                 // if max_of_stakes > 0, it means that the account must have locked balance
                 // and therefore must exist
@@ -1274,7 +1216,8 @@ impl Runtime {
         if let Some(account_id) = &validator_accounts_update.protocol_treasury_account_id {
             // If protocol treasury stakes, then the rewards was already distributed above.
             if !validator_accounts_update.stake_info.contains_key(account_id) {
-                let mut account = get_account(state_update, account_id)?.ok_or_else(|| {
+                let key = TrieKey::Account { account_id: account_id.clone() };
+                let account = state_update.mutate::<Account>(key)?.ok_or_else(|| {
                     StorageError::StorageInconsistentState(format!(
                         "Protocol treasury account {} is not found",
                         account_id
@@ -1296,11 +1239,8 @@ impl Runtime {
                         )
                     },
                 )?);
-                set_account(state_update, account_id.clone(), &account);
             }
         }
-        state_update.commit(StateChangeCause::ValidatorAccountsUpdate);
-
         Ok(())
     }
 
@@ -1347,8 +1287,14 @@ impl Runtime {
         // 2. Process transactions.
         // 3. Process receipts.
         // 4. Validate and apply the state update.
-        let mut processing_state =
-            ApplyProcessingState::new(&apply_state, trie, epoch_info_provider);
+        let contract_storage = near_store::contract::ContractStorage::new_for_trie(&trie);
+        let state_update = state_update::StateUpdate::new(trie);
+        let mut processing_state = ApplyProcessingState::new(
+            &apply_state,
+            state_update,
+            contract_storage,
+            epoch_info_provider,
+        );
         processing_state.stats.transactions_num = signed_txs.len().try_into().unwrap();
         processing_state.stats.incoming_receipts_num = incoming_receipts.len().try_into().unwrap();
         processing_state.stats.is_new_chunk = !apply_state.is_new_chunk;
@@ -1358,16 +1304,14 @@ impl Runtime {
             _ = prefetcher.prefetch_transactions_data(&signed_txs);
         }
 
+        let mut update_ops = processing_state.state_update.start_update().discard_on_drop();
         // Step 1: update validator accounts.
         if let Some(validator_accounts_update) = validator_accounts_update {
-            self.update_validator_accounts(
-                &mut processing_state.state_update,
-                validator_accounts_update,
-            )?;
+            self.update_validator_accounts(&mut update_ops, validator_accounts_update)?;
         }
 
         let delayed_receipts = DelayedReceiptQueueWrapper::new(
-            DelayedReceiptQueue::load(&processing_state.state_update)?,
+            DelayedReceiptQueue::load(&mut update_ops)?,
             epoch_info_provider,
             apply_state.shard_id,
             apply_state.epoch_id,
@@ -1376,13 +1320,14 @@ impl Runtime {
         // Bandwidth scheduler should be run for every chunk, including the missing ones.
         let bandwidth_scheduler_output = run_bandwidth_scheduler(
             apply_state,
-            &mut processing_state.state_update,
+            &processing_state.state_update,
             epoch_info_provider,
             &mut processing_state.stats.bandwidth_scheduler,
         )?;
 
         // If the chunk is missing, exit early and don't process any receipts.
         if !apply_state.is_new_chunk {
+            update_ops.discard();
             return missing_chunk_apply_result(
                 &delayed_receipts,
                 processing_state,
@@ -1390,19 +1335,19 @@ impl Runtime {
             );
         }
 
-        let mut processing_state =
-            processing_state.into_processing_receipt_state(incoming_receipts, delayed_receipts);
-        let own_congestion_info =
-            apply_state.own_congestion_info(&processing_state.state_update)?;
+        let own_congestion_info = apply_state.own_congestion_info(&mut update_ops)?;
         let mut receipt_sink = ReceiptSink::new(
-            &processing_state.state_update.trie,
+            &mut update_ops,
             apply_state,
             own_congestion_info,
             bandwidth_scheduler_output,
             processing_state.epoch_info_provider,
         )?;
         // Forward buffered receipts from previous chunks.
-        receipt_sink.forward_from_buffer(&mut processing_state.state_update, apply_state)?;
+        receipt_sink.forward_from_buffer(&mut update_ops, apply_state)?;
+        update_ops.commit(/* Apply Preparation */).expect("TODO(state_update): error handling");
+        let mut processing_state =
+            processing_state.into_processing_receipt_state(incoming_receipts, delayed_receipts);
 
         // Step 2: process transactions.
         self.process_transactions(&mut processing_state, signed_txs, &mut receipt_sink)?;
@@ -1428,37 +1373,46 @@ impl Runtime {
         )
     }
 
-    fn apply_state_patch(&self, state_update: &mut TrieUpdate, state_patch: SandboxStatePatch) {
-        if state_patch.is_empty() {
-            return;
-        }
-        for record in state_patch {
-            match record {
-                StateRecord::Account { account_id, account } => {
-                    set_account(state_update, account_id, &account);
+    fn apply_state_patch(
+        &self,
+        #[allow(unused_variables)] state_update: &mut StateOperations,
+        #[allow(unused_variables)] state_patch: SandboxStatePatch,
+    ) {
+        #[cfg(feature = "sandbox")]
+        {
+            use near_primitives::state_record::StateRecord;
+            use near_vm_runner::ContractCode;
+            for record in state_patch {
+                match record {
+                    StateRecord::Account { account_id, account } => {
+                        state_update.set(TrieKey::Account { account_id }, account);
+                    }
+                    StateRecord::Data { account_id, data_key, value } => {
+                        state_update.set(
+                            TrieKey::ContractData { key: data_key.into(), account_id },
+                            Vec::from(value),
+                        );
+                    }
+                    StateRecord::Contract { account_id, code } => {
+                        // Recompute contract code hash.
+                        let code = ContractCode::new(code, None);
+                        let key = TrieKey::Account { account_id: account_id.clone() };
+                        let Ok(Some(acc)) = state_update.get::<Account>(key) else {
+                            panic!("account failure");
+                        };
+                        assert_eq!(*code.hash(), acc.contract().local_code().unwrap_or_default());
+                        state_update.set(TrieKey::ContractCode { account_id }, code.into_code());
+                    }
+                    StateRecord::AccessKey { account_id, public_key, access_key } => {
+                        state_update.set(TrieKey::AccessKey { account_id, public_key }, access_key);
+                    }
+                    _ => unimplemented!(
+                        "patch_state can only patch Account, AccessKey, Contract and Data kind of StateRecord"
+                    ),
                 }
-                StateRecord::Data { account_id, data_key, value } => {
-                    state_update.set(
-                        TrieKey::ContractData { key: data_key.into(), account_id },
-                        value.into(),
-                    );
-                }
-                StateRecord::Contract { account_id, code } => {
-                    let acc = get_account(state_update, &account_id).expect("Failed to read state").expect("Code state record should be preceded by the corresponding account record");
-                    // Recompute contract code hash.
-                    let code = ContractCode::new(code, None);
-                    state_update.set_code(account_id, &code);
-                    assert_eq!(*code.hash(), acc.contract().local_code().unwrap_or_default());
-                }
-                StateRecord::AccessKey { account_id, public_key, access_key } => {
-                    set_access_key(state_update, account_id, public_key, &access_key);
-                }
-                _ => unimplemented!(
-                    "patch_state can only patch Account, AccessKey, Contract and Data kind of StateRecord"
-                ),
             }
+            state_update.in_place_commit().expect("TODO(state_update): error handling");
         }
-        state_update.commit(StateChangeCause::Migration);
     }
 
     /// insert the outcome into the processing state depending on whether the protocol feature
@@ -1620,28 +1574,36 @@ impl Runtime {
                     .par_chunks(chunk_size)
                     .zip(tx_expiration_flags.par_chunks(chunk_size))
                     .for_each(|(txs, expiration_flags)| {
+                        let mut state_ops = processing_state.state_update.start_update();
                         for (tx, non_expired) in txs.iter().zip(expiration_flags) {
                             if !non_expired {
                                 continue;
                             }
                             let signer_id = tx.transaction.signer_id();
                             let pubkey = tx.transaction.public_key();
+                            // FIXME(nagisa): this does not need to maintain the maps anymore (we
+                            // can grab it effectively from `StateUpdate` now.
                             accounts.entry(signer_id).or_insert_with(|| {
-                                get_account(&processing_state.state_update, signer_id)
+                                let key = TrieKey::Account { account_id: signer_id.clone() };
+                                Ok(state_ops.get::<Account>(key)?.cloned())
                             });
                             access_keys.entry((signer_id, pubkey)).or_insert_with(|| {
-                                get_access_key(&processing_state.state_update, signer_id, pubkey)
+                                let key = TrieKey::AccessKey {
+                                    account_id: signer_id.clone(),
+                                    public_key: pubkey.clone(),
+                                };
+                                Ok(state_ops.get::<AccessKey>(key)?.cloned())
                             });
                         }
+                        state_ops.commit(/* FIXME(nagisa) */).expect("TODO(state_update): error handling");
                     });
                 (accounts, access_keys)
             },
         );
 
-        let default_hash = CryptoHash::default();
-        let mut last_tx_hash = &default_hash;
         let (maybe_expired_txs, _) =
             signed_txs.get_potentially_expired_transactions_and_expiration_flags();
+        let mut state_ops = processing_state.state_update.start_update();
 
         for (tx, maybe_validation_error) in maybe_expired_txs.iter().zip(validations) {
             metrics::TRANSACTION_PROCESSED_TOTAL.inc();
@@ -1656,7 +1618,6 @@ impl Runtime {
                 continue;
             }
 
-            last_tx_hash = tx.hash();
             let signer_id = tx.transaction.signer_id();
             let pubkey = tx.transaction.public_key();
             let gas_price = processing_state.apply_state.gas_price;
@@ -1816,7 +1777,7 @@ impl Runtime {
                 receipt_sink.forward_or_buffer_receipt(
                     receipt,
                     &processing_state.apply_state,
-                    &mut processing_state.state_update,
+                    &mut state_ops,
                 )?;
             }
             let compute = outcome.outcome.compute_usage;
@@ -1834,21 +1795,21 @@ impl Runtime {
             .metrics
             .tx_processing_done(processing_state.total.gas, processing_state.total.compute);
 
+        // FIXME: code should/could instead create state operations for every transaction and
+        // commit the mutation eagerly.
         for (id, account) in accounts {
             if let Ok(Some(account)) = account {
-                set_account(&mut processing_state.state_update, id.clone(), &account);
+                let key = TrieKey::Account { account_id: id.clone() };
+                state_ops.set(key, account);
             }
         }
         for ((id, pk), ak) in access_keys {
             if let Ok(Some(ak)) = ak {
-                set_access_key(&mut processing_state.state_update, id.clone(), pk.clone(), &ak);
+                let key = TrieKey::AccessKey { account_id: id.clone(), public_key: pk.clone() };
+                state_ops.set(key, ak);
             }
         }
-
-        processing_state
-            .state_update
-            .commit(StateChangeCause::TransactionProcessing { tx_hash: *last_tx_hash });
-
+        state_ops.commit().expect("TODO(state_update): error handling");
         Ok(())
     }
 
@@ -1871,9 +1832,7 @@ impl Runtime {
             compute_usage = tracing::field::Empty,
         )
         .entered();
-
-        let state_update = &mut processing_state.state_update;
-        let trie = state_update.trie();
+        let trie = processing_state.state_update.trie();
         let recorded_storage_size_before = trie.recorded_storage_size();
         let storage_proof_size_upper_bound_before = trie.recorded_storage_size_upper_bound();
 
@@ -1887,7 +1846,6 @@ impl Runtime {
 
         let shard_id_str = processing_state.apply_state.shard_id.to_string();
         let trie = processing_state.state_update.trie();
-
         let recorded_storage_diff = trie.recorded_storage_size() - recorded_storage_size_before;
         let recorded_storage_upper_bound_diff =
             trie.recorded_storage_size_upper_bound() - storage_proof_size_upper_bound_before;
@@ -1938,6 +1896,7 @@ impl Runtime {
         let local_processing_start = std::time::Instant::now();
         let local_receipt_count = processing_state.local_receipts.len();
         let local_receipts = std::mem::take(&mut processing_state.local_receipts);
+        processing_state.outcomes.reserve(local_receipt_count);
         if let Some(prefetcher) = &mut processing_state.prefetcher {
             // Prefetcher is allowed to fail
             let (front, back) = local_receipts.as_slices();
@@ -1956,13 +1915,15 @@ impl Runtime {
 
         for receipt in &local_receipts {
             if processing_state.total.compute >= compute_limit
-                || processing_state.state_update.trie.check_proof_size_limit_exceed()
+                || processing_state.state_update.trie().check_proof_size_limit_exceed()
             {
+                let mut update_op = processing_state.state_update.start_update();
                 processing_state.delayed_receipts.push(
-                    &mut processing_state.state_update,
+                    &mut update_op,
                     &receipt,
                     &processing_state.apply_state,
                 )?;
+                update_op.commit(/* ... */).expect("TODO(state_update): error handling");
             } else {
                 if let Some(nsi) = &mut next_schedule_after {
                     *nsi = nsi.saturating_sub(1);
@@ -1984,7 +1945,7 @@ impl Runtime {
                     &mut processing_state,
                     receipt_sink,
                     validator_proposals,
-                )?
+                )?;
             }
         }
 
@@ -2020,46 +1981,59 @@ impl Runtime {
         let mut processed_delayed_receipts = vec![];
 
         let mut next_schedule_after = {
+            let mut peek_update = processing_state.state_update.start_update();
             let mut prep_lookahead_iter =
-                processing_state.delayed_receipts.peek_iter(&processing_state.state_update);
-            schedule_contract_preparation(
+                processing_state.delayed_receipts.peek_iter(&mut peek_update);
+            let res = schedule_contract_preparation(
                 &mut processing_state.pipeline_manager,
                 &processing_state.state_update,
                 &mut prep_lookahead_iter,
-            )
+            );
+            drop(prep_lookahead_iter);
+            peek_update.discard();
+            res
         };
 
         loop {
             if processing_state.total.compute >= compute_limit
-                || processing_state.state_update.trie.check_proof_size_limit_exceed()
+                || processing_state.state_update.trie().check_proof_size_limit_exceed()
             {
                 break;
             }
 
-            let receipt = if let Some(receipt) = processing_state
-                .delayed_receipts
-                .pop(&mut processing_state.state_update, &processing_state.apply_state.config)?
-            {
-                receipt.into_receipt()
-            } else {
-                // Break loop if there are no more receipts to be processed.
-                break;
-            };
+            let receipt = {
+                let mut update_op = processing_state.state_update.start_update();
 
-            // TODO(resharding): Add metric for tracking number of
-            delayed_receipt_count += 1;
-            if let Some(nsi) = &mut next_schedule_after {
-                *nsi = nsi.saturating_sub(1);
-                if *nsi == 0 {
-                    let mut prep_lookahead_iter =
-                        processing_state.delayed_receipts.peek_iter(&processing_state.state_update);
-                    next_schedule_after = schedule_contract_preparation(
-                        &mut processing_state.pipeline_manager,
-                        &processing_state.state_update,
-                        &mut prep_lookahead_iter,
-                    );
+                let receipt = if let Some(receipt) = processing_state
+                    .delayed_receipts
+                    .pop(&mut update_op, &processing_state.apply_state.config)?
+                {
+                    receipt.into_receipt()
+                } else {
+                    // Break loop if there are no more receipts to be processed.
+                    update_op.commit(/* ... */).expect("TODO(state_update): error handling");
+                    break;
+                };
+
+                // TODO(resharding): Add metric for tracking number of
+                delayed_receipt_count += 1;
+                if let Some(nsi) = &mut next_schedule_after {
+                    *nsi = nsi.saturating_sub(1);
+                    if *nsi == 0 {
+                        let mut prep_lookahead_iter =
+                            processing_state.delayed_receipts.peek_iter(&mut update_op);
+                        next_schedule_after = schedule_contract_preparation(
+                            &mut processing_state.pipeline_manager,
+                            &processing_state.state_update,
+                            &mut prep_lookahead_iter,
+                        );
+                        drop(prep_lookahead_iter);
+                    }
                 }
-            }
+
+                update_op.commit(/* ... */).expect("TODO(state_update): error handling");
+                receipt
+            };
 
             if let Some(prefetcher) = &mut processing_state.prefetcher {
                 // Prefetcher is allowed to fail
@@ -2119,7 +2093,6 @@ impl Runtime {
             // Prefetcher is allowed to fail
             _ = prefetcher.prefetch_receipts_data(&processing_state.incoming_receipts);
         }
-
         let mut prep_lookahead_iter = processing_state.incoming_receipts.iter();
         // Advance the preparation by one step (stagger it) so that we're preparing one interesting
         // receipt in advance.
@@ -2129,6 +2102,7 @@ impl Runtime {
             &mut prep_lookahead_iter,
         );
 
+        processing_state.outcomes.reserve(processing_state.incoming_receipts.len());
         for receipt in processing_state.incoming_receipts {
             // Validating new incoming no matter whether we have available gas or not. We don't
             // want to store invalid receipts in state as delayed.
@@ -2140,13 +2114,15 @@ impl Runtime {
             )
             .map_err(RuntimeError::ReceiptValidationError)?;
             if processing_state.total.compute >= compute_limit
-                || processing_state.state_update.trie.check_proof_size_limit_exceed()
+                || processing_state.state_update.trie().check_proof_size_limit_exceed()
             {
+                let mut update_op = processing_state.state_update.start_update();
                 processing_state.delayed_receipts.push(
-                    &mut processing_state.state_update,
+                    &mut update_op,
                     receipt,
                     &processing_state.apply_state,
                 )?;
+                update_op.commit(/* ...? */).expect("TODO(state_update): error handling");
             } else {
                 if let Some(nsi) = &mut next_schedule_after {
                     *nsi = nsi.saturating_sub(1);
@@ -2161,7 +2137,6 @@ impl Runtime {
                         );
                     }
                 }
-
                 self.process_receipt_with_metrics(
                     &receipt,
                     &mut processing_state,
@@ -2236,7 +2211,7 @@ impl Runtime {
             metrics::CHUNK_RECEIPTS_LIMITED_BY
                 .with_label_values(&[shard_id_str.as_str(), "compute_limit"])
                 .inc();
-        } else if processing_state.state_update.trie.check_proof_size_limit_exceed() {
+        } else if processing_state.state_update.trie().check_proof_size_limit_exceed() {
             metrics::CHUNK_RECEIPTS_LIMITED_BY
                 .with_label_values(&[shard_id_str.as_str(), "storage_proof_size_limit"])
                 .inc();
@@ -2270,7 +2245,7 @@ impl Runtime {
         let apply_state = processing_state.apply_state;
         let epoch_info_provider = processing_state.epoch_info_provider;
         let mut stats = processing_state.stats;
-        let mut state_update = processing_state.state_update;
+        let mut state_ops = processing_state.state_update.start_update();
         let pending_delayed_receipts = processing_state.delayed_receipts;
         let processed_delayed_receipts = process_receipts_result.processed_delayed_receipts;
         let promise_yield_result = process_receipts_result.promise_yield_result;
@@ -2279,11 +2254,7 @@ impl Runtime {
         if promise_yield_result.promise_yield_indices
             != promise_yield_result.initial_promise_yield_indices
         {
-            set(
-                &mut state_update,
-                TrieKey::PromiseYieldIndices,
-                &promise_yield_result.promise_yield_indices,
-            );
+            state_ops.set(TrieKey::PromiseYieldIndices, promise_yield_result.promise_yield_indices);
         }
 
         // Congestion info needs a final touch to select an allowed shard if
@@ -2307,16 +2278,16 @@ impl Runtime {
         );
 
         let bandwidth_requests = receipt_sink.generate_bandwidth_requests(
-            &state_update,
+            &processing_state.state_update,
             &shard_layout,
             true,
             &mut stats,
         )?;
 
-        state_update.commit(StateChangeCause::UpdatedDelayedReceipts);
-        self.apply_state_patch(&mut state_update, state_patch);
+        self.apply_state_patch(&mut state_ops, state_patch);
+        state_ops.commit().expect("TODO(state_update): error handling");
         let chunk_recorded_size_upper_bound =
-            state_update.trie.recorded_storage_size_upper_bound() as f64;
+            processing_state.state_update.trie().recorded_storage_size_upper_bound() as f64;
         let shard_id_str = apply_state.shard_id.to_string();
         metrics::CHUNK_RECORDED_SIZE_UPPER_BOUND
             .with_label_values(&[shard_id_str.as_str()])
@@ -2324,14 +2295,22 @@ impl Runtime {
 
         // Call `on_post_state_ready` with a clone of the `state_update` if requested.
         if let Some(on_post_state_ready) = &apply_state.on_post_state_ready {
-            let post_state = PostState { trie_update: state_update.clone_for_tx_preparation() };
+            let post_state = PostState {
+                state_update: processing_state.state_update.clone_for_tx_preparation(),
+            };
             let callback = &on_post_state_ready.callback;
             callback(post_state);
         }
+        let contract_updates = processing_state.contract_storage.finalize();
         let TrieUpdateResult { trie, trie_changes, state_changes, contract_updates } =
-            state_update.finalize()?;
-
-        if let Some(prefetcher) = &processing_state.prefetcher {
+            processing_state.state_update.finalize(
+                contract_updates,
+                // FIXME(state_update): add new cause for chunk
+                near_primitives::types::StateChangeCause::TransactionProcessing {
+                    tx_hash: Default::default(),
+                },
+            )?;
+        if let Some(prefetcher) = processing_state.prefetcher {
             // Only clear the prefetcher queue after finalize is done because as part of receipt
             // processing we also prefetch account data and access keys that are accessed in
             // finalize. This data can take a very long time otherwise if not prefetched.
@@ -2414,7 +2393,10 @@ fn get_batchable_signature_and_public_key(
 }
 
 impl ApplyState {
-    fn own_congestion_info(&self, trie: &dyn TrieAccess) -> Result<CongestionInfo, RuntimeError> {
+    fn own_congestion_info(
+        &self,
+        trie: &mut StateOperations,
+    ) -> Result<CongestionInfo, RuntimeError> {
         if let Some(congestion_info) = self.congestion_info.get(&self.shard_id) {
             return Ok(congestion_info.congestion_info);
         }
@@ -2435,7 +2417,7 @@ fn action_transfer_or_implicit_account_creation(
     is_refund: bool,
     action_receipt: &VersionedActionReceipt,
     receipt: &Receipt,
-    state_update: &mut TrieUpdate,
+    state_update: &mut StateOperations,
     apply_state: &ApplyState,
     actor_id: &mut AccountId,
     epoch_info_provider: &dyn EpochInfoProvider,
@@ -2475,7 +2457,13 @@ fn missing_chunk_apply_result(
     bandwidth_scheduler_output: &BandwidthSchedulerOutput,
 ) -> Result<ApplyResult, RuntimeError> {
     let TrieUpdateResult { trie, trie_changes, state_changes, contract_updates } =
-        processing_state.state_update.finalize()?;
+        processing_state.state_update.finalize(
+            processing_state.contract_storage.finalize(),
+            // FIXME(state_update): new change cause for this case
+            near_primitives::types::StateChangeCause::TransactionProcessing {
+                tx_hash: Default::default(),
+            },
+        )?;
     let proof = trie.recorded_storage();
 
     // For old chunks, copy the congestion info exactly as it came in,
@@ -2522,32 +2510,34 @@ fn resolve_promise_yield_timeouts(
     receipt_sink: &mut ReceiptSink,
     compute_limit: u64,
 ) -> Result<ResolvePromiseYieldTimeoutsResult, RuntimeError> {
-    let mut state_update = &mut processing_state.state_update;
+    let mut state_update = processing_state.state_update.start_update();
     let total = &mut processing_state.total;
     let apply_state = &processing_state.apply_state;
 
-    let mut promise_yield_indices: PromiseYieldIndices =
-        get(state_update, &TrieKey::PromiseYieldIndices)?.unwrap_or_default();
+    let key = TrieKey::PromiseYieldIndices;
+    let mut promise_yield_indices =
+        state_update.get::<PromiseYieldIndices>(key)?.cloned().unwrap_or_default();
     let initial_promise_yield_indices = promise_yield_indices.clone();
     let mut new_receipt_index: usize = 0;
 
     let mut processed_yield_timeouts = vec![];
     let yield_processing_start = std::time::Instant::now();
     while promise_yield_indices.first_index < promise_yield_indices.next_available_index {
-        if total.compute >= compute_limit || state_update.trie.check_proof_size_limit_exceed() {
+        if total.compute >= compute_limit || state_update.trie().check_proof_size_limit_exceed() {
             break;
         }
 
         let queue_entry_key =
             TrieKey::PromiseYieldTimeout { index: promise_yield_indices.first_index };
-
-        let queue_entry =
-            get::<PromiseYieldTimeout>(state_update, &queue_entry_key)?.ok_or_else(|| {
+        let queue_entry = state_update
+            .get::<PromiseYieldTimeout>(queue_entry_key.clone())?
+            .ok_or_else(|| {
                 StorageError::StorageInconsistentState(format!(
                     "PromiseYield timeout queue entry #{} should be in the state",
                     promise_yield_indices.first_index
                 ))
-            })?;
+            })?
+            .clone();
 
         // Queue entries are ordered by expires_at
         if queue_entry.expires_at > apply_state.block_height {
@@ -2559,7 +2549,7 @@ fn resolve_promise_yield_timeouts(
             receiver_id: queue_entry.account_id.clone(),
             data_id: queue_entry.data_id,
         };
-        if state_update.contains_key(&promise_yield_key, AccessOptions::DEFAULT)? {
+        if state_update.contains_key(promise_yield_key)? {
             let new_receipt_id = create_receipt_id_from_receipt_id(
                 &queue_entry.data_id,
                 apply_state.block_height,
@@ -2595,6 +2585,7 @@ fn resolve_promise_yield_timeouts(
         // Math checked above: first_index is less than next_available_index
         promise_yield_indices.first_index += 1;
     }
+    state_update.commit().expect("TODO: error handling");
     processing_state.metrics.yield_timeouts_done(
         processed_yield_timeouts.len() as u64,
         yield_processing_start.elapsed(),
@@ -2646,7 +2637,8 @@ struct ApplyProcessingState<'a> {
     protocol_version: ProtocolVersion,
     apply_state: &'a ApplyState,
     prefetcher: Option<TriePrefetcher>,
-    state_update: TrieUpdate,
+    state_update: StateUpdate,
+    contract_storage: near_store::contract::ContractStorage,
     epoch_info_provider: &'a dyn EpochInfoProvider,
     total: TotalResourceGuard,
     stats: ChunkApplyStatsV0,
@@ -2655,12 +2647,12 @@ struct ApplyProcessingState<'a> {
 impl<'a> ApplyProcessingState<'a> {
     fn new(
         apply_state: &'a ApplyState,
-        trie: Trie,
+        state_update: StateUpdate,
+        contract_storage: ContractStorage,
         epoch_info_provider: &'a dyn EpochInfoProvider,
     ) -> Self {
         let protocol_version = apply_state.current_protocol_version;
-        let prefetcher = TriePrefetcher::new_if_enabled(&trie);
-        let state_update = TrieUpdate::new(trie);
+        let prefetcher = TriePrefetcher::new_if_enabled(state_update.trie());
         let total = TotalResourceGuard {
             span: tracing::Span::current(),
             // This contains the gas "burnt" for refund receipts. Even though we don't actually
@@ -2675,6 +2667,7 @@ impl<'a> ApplyProcessingState<'a> {
             apply_state,
             prefetcher,
             state_update,
+            contract_storage,
             epoch_info_provider,
             total,
             stats,
@@ -2689,7 +2682,7 @@ impl<'a> ApplyProcessingState<'a> {
         let pipeline_manager = pipelining::ReceiptPreparationPipeline::new(
             Arc::clone(&self.apply_state.config),
             self.apply_state.cache.as_ref().map(|v| v.handle()),
-            self.state_update.contract_storage(),
+            self.contract_storage.clone(),
         );
         ApplyProcessingReceiptState {
             pipeline_manager,
@@ -2697,6 +2690,7 @@ impl<'a> ApplyProcessingState<'a> {
             apply_state: self.apply_state,
             prefetcher: self.prefetcher,
             state_update: self.state_update,
+            contract_storage: self.contract_storage,
             epoch_info_provider: self.epoch_info_provider,
             total: self.total,
             stats: self.stats,
@@ -2715,7 +2709,8 @@ struct ApplyProcessingReceiptState<'a> {
     protocol_version: ProtocolVersion,
     apply_state: &'a ApplyState,
     prefetcher: Option<TriePrefetcher>,
-    state_update: TrieUpdate,
+    state_update: StateUpdate,
+    contract_storage: ContractStorage,
     epoch_info_provider: &'a dyn EpochInfoProvider,
     total: TotalResourceGuard,
     stats: ChunkApplyStatsV0,
@@ -2761,9 +2756,10 @@ impl<'a> MaybeRefReceipt for &'a ReceiptOrStateStoredReceipt<'a> {
 /// are processed.
 fn schedule_contract_preparation<R: MaybeRefReceipt>(
     pipeline_manager: &mut pipelining::ReceiptPreparationPipeline,
-    state_update: &TrieUpdate,
+    state_update: &StateUpdate,
     mut iterator: impl Iterator<Item = R>,
 ) -> Option<usize> {
+    let mut update_ops = state_update.start_update().discard_on_drop();
     let scheduled_receipt_offset = iterator.position(|peek| {
         let peek = peek.as_ref();
         let account_id = peek.receiver_id();
@@ -2771,7 +2767,7 @@ fn schedule_contract_preparation<R: MaybeRefReceipt>(
         // function.
         fn handle_receipt(
             mgr: &mut ReceiptPreparationPipeline,
-            state_update: &TrieUpdate,
+            update_op: &mut StateOperations,
             account_id: &AccountId,
             receipt: &Receipt,
         ) -> bool {
@@ -2783,21 +2779,21 @@ fn schedule_contract_preparation<R: MaybeRefReceipt>(
                     // This returns `true` if work may have been scheduled (thus we currently
                     // prepare actions in at most 2 "interesting" receipts in parallel due to
                     // staggering.)
-                    mgr.submit(receipt, state_update, None)
+                    mgr.submit(receipt, update_op, None)
                 }
                 ReceiptEnum::Data(dr) => {
                     let key = TrieKey::PostponedReceiptId {
                         receiver_id: account_id.clone(),
                         data_id: dr.data_id,
                     };
-                    let Ok(Some(rid)) = get_pure::<CryptoHash>(state_update, &key) else {
+                    let Ok(Some(&rid)) = update_op.pure_get::<CryptoHash>(key) else {
                         return false;
                     };
                     let key = TrieKey::PendingDataCount {
                         receiver_id: account_id.clone(),
                         receipt_id: rid,
                     };
-                    let Ok(Some(data_count)) = get_pure::<u32>(state_update, &key) else {
+                    let Ok(Some(&data_count)) = update_op.pure_get::<u32>(key) else {
                         return false;
                     };
                     if data_count > 1 {
@@ -2807,25 +2803,27 @@ fn schedule_contract_preparation<R: MaybeRefReceipt>(
                         receiver_id: account_id.clone(),
                         receipt_id: rid,
                     };
-                    let Ok(Some(pr)) = get_pure::<Receipt>(state_update, &key) else {
+                    let Ok(Some(pr)) = update_op.pure_get::<Receipt>(key) else {
                         return false;
                     };
-                    return handle_receipt(mgr, state_update, account_id, &pr);
+                    let pr = pr.clone();
+                    return handle_receipt(mgr, update_op, account_id, &pr);
                 }
                 ReceiptEnum::PromiseResume(dr) => {
                     let key = TrieKey::PromiseYieldReceipt {
                         receiver_id: account_id.clone(),
                         data_id: dr.data_id,
                     };
-                    let Ok(Some(yr)) = get_pure::<Receipt>(state_update, &key) else {
+                    let Ok(Some(yr)) = update_op.pure_get::<Receipt>(key) else {
                         return false;
                     };
-                    return handle_receipt(mgr, state_update, account_id, &yr);
+                    let yr = yr.clone();
+                    return handle_receipt(mgr, update_op, account_id, &yr);
                 }
                 ReceiptEnum::GlobalContractDistribution(_) => false,
             }
         }
-        handle_receipt(pipeline_manager, state_update, account_id, peek)
+        handle_receipt(pipeline_manager, &mut update_ops, account_id, peek)
     })?;
     Some(scheduled_receipt_offset.saturating_add(1))
 }
@@ -2848,14 +2846,17 @@ pub mod estimator {
     use near_primitives::transaction::ExecutionOutcomeWithId;
     use near_primitives::types::EpochInfoProvider;
     use near_primitives::types::validator_stake::ValidatorStake;
+    use near_store::ShardUId;
+    use near_store::contract::ContractStorage;
+    use near_store::state_update::StateOperations;
     use near_store::trie::outgoing_metadata::{OutgoingMetadatas, ReceiptGroupsConfig};
     use near_store::trie::receipts_column_helper::ShardsOutgoingReceiptBuffer;
-    use near_store::{ShardUId, TrieUpdate};
     use std::collections::HashMap;
     use std::num::NonZeroU64;
 
     pub fn apply_action_receipt(
-        state_update: &mut TrieUpdate,
+        mut state_update: StateOperations,
+        contract_storage: &ContractStorage,
         apply_state: &ApplyState,
         receipt: &Receipt,
         outgoing_receipts: &mut Vec<Receipt>,
@@ -2872,7 +2873,7 @@ pub mod estimator {
         // ShardId used in EstimatorContext::testbed
         let shard_uid: ShardUId = ShardUId::single_shard();
         let outgoing_metadatas = OutgoingMetadatas::load(
-            state_update,
+            &mut state_update,
             std::iter::once(shard_uid.shard_id()),
             ReceiptGroupsConfig::default_config(),
         )?;
@@ -2885,7 +2886,7 @@ pub mod estimator {
         let sink = ReceiptSinkV2 {
             own_congestion_info: congestion_info,
             outgoing_limit,
-            outgoing_buffers: ShardsOutgoingReceiptBuffer::load(&state_update.trie)?,
+            outgoing_buffers: ShardsOutgoingReceiptBuffer::load(&mut state_update)?,
             outgoing_receipts: Vec::new(),
             outgoing_metadatas,
             bandwidth_scheduler_output: BandwidthSchedulerOutput::no_granted_bandwidth(params),
@@ -2896,10 +2897,11 @@ pub mod estimator {
         let empty_pipeline = ReceiptPreparationPipeline::new(
             std::sync::Arc::clone(&apply_state.config),
             apply_state.cache.as_ref().map(|c| c.handle()),
-            state_update.contract_storage(),
+            contract_storage.clone(),
         );
         let apply_result = Runtime {}.apply_action_receipt(
             state_update,
+            contract_storage,
             apply_state,
             &empty_pipeline,
             receipt,

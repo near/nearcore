@@ -37,6 +37,7 @@ use near_primitives::types::{
 };
 use near_primitives::utils::create_receipt_id_from_transaction;
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
+use near_store::state_update::StateUpdate;
 use near_store::test_utils::TestTriesBuilder;
 use near_store::trie::AccessOptions;
 use near_store::trie::receipts_column_helper::ShardsOutgoingReceiptBuffer;
@@ -2809,7 +2810,10 @@ fn test_congestion_buffering() {
 
         // (a) check receipts are held back in buffer
         let state = tries.get_trie_for_shard(local_shard_uid, root);
-        let buffers = ShardsOutgoingReceiptBuffer::load(&state).unwrap();
+        let state_update = StateUpdate::new(state);
+        let buffers =
+            ShardsOutgoingReceiptBuffer::load(&mut state_update.start_update().commit_on_drop())
+                .unwrap();
         let capped_i = std::cmp::min(i, n);
         assert_eq!(0, apply_result.outgoing_receipts.len());
         assert_eq!(capped_i, buffers.buffer_len(receiver_shard).unwrap());
@@ -2867,7 +2871,10 @@ fn test_congestion_buffering() {
         root = commit_apply_result(&apply_result, &mut apply_state, &tries, local_shard_uid);
 
         let state = tries.get_trie_for_shard(local_shard_uid, root);
-        let buffers = ShardsOutgoingReceiptBuffer::load(&state).unwrap();
+        let state_update = StateUpdate::new(state);
+        let buffers =
+            ShardsOutgoingReceiptBuffer::load(&mut state_update.start_update().commit_on_drop())
+                .unwrap();
 
         // (b) check receipts are removed from the buffer
         let max_forwarded = i * forwarded_per_chunk;

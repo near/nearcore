@@ -12,8 +12,8 @@ use near_primitives::congestion_info::CongestionInfo;
 use near_primitives::errors::StorageError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{
-    BufferedReceiptIndices, DelayedReceiptIndices, PromiseYieldIndices, PromiseYieldTimeout,
-    Receipt, ReceivedData, VersionedReceiptEnum,
+    DelayedReceiptIndices, PromiseYieldIndices, PromiseYieldTimeout, Receipt, ReceivedData,
+    VersionedReceiptEnum,
 };
 use near_primitives::trie_key::{TrieKey, trie_key_parsers};
 use near_primitives::types::{AccountId, BlockHeight, Nonce, NonceIndex, StateRoot};
@@ -219,25 +219,6 @@ pub fn has_promise_yield_receipt(
     )
 }
 
-pub fn get_buffered_receipt_indices(
-    trie: &dyn TrieAccess,
-) -> Result<BufferedReceiptIndices, StorageError> {
-    Ok(get(trie, &TrieKey::BufferedReceiptIndices)?.unwrap_or_default())
-}
-
-pub fn get_bandwidth_scheduler_state(
-    trie: &dyn TrieAccess,
-) -> Result<Option<BandwidthSchedulerState>, StorageError> {
-    get(trie, &TrieKey::BandwidthSchedulerState)
-}
-
-pub fn set_bandwidth_scheduler_state(
-    state_update: &mut TrieUpdate,
-    scheduler_state: &BandwidthSchedulerState,
-) {
-    set(state_update, TrieKey::BandwidthSchedulerState, scheduler_state);
-}
-
 pub fn set_access_key(
     state_update: &mut TrieUpdate,
     account_id: AccountId,
@@ -296,56 +277,6 @@ pub fn get_access_key_raw(
     )
 }
 
-/// Removes account, code and all access keys associated to it.
-pub fn remove_account(
-    state_update: &mut TrieUpdate,
-    account_id: &AccountId,
-) -> Result<(), StorageError> {
-    state_update.remove(TrieKey::Account { account_id: account_id.clone() });
-    state_update.remove(TrieKey::ContractCode { account_id: account_id.clone() });
-
-    // Removing access keys
-    let lock = state_update.trie().lock_for_iter();
-    let public_keys = state_update
-        .locked_iter(&trie_key_parsers::get_raw_prefix_for_access_keys(account_id), &lock)?
-        .map(|raw_key| {
-            trie_key_parsers::parse_public_key_from_access_key_key(&raw_key?, account_id).map_err(
-                |_e| {
-                    StorageError::StorageInconsistentState(
-                        "Can't parse public key from raw key for AccessKey".to_string(),
-                    )
-                },
-            )
-        })
-        .collect::<Result<Vec<_>, _>>()?;
-    drop(lock);
-
-    for public_key in public_keys {
-        state_update.remove(TrieKey::AccessKey { account_id: account_id.clone(), public_key });
-    }
-
-    // Removing contract data
-    let lock = state_update.trie().lock_for_iter();
-    let data_keys = state_update
-        .locked_iter(&trie_key_parsers::get_raw_prefix_for_contract_data(account_id, &[]), &lock)?
-        .map(|raw_key| {
-            trie_key_parsers::parse_data_key_from_contract_data_key(&raw_key?, account_id)
-                .map_err(|_e| {
-                    StorageError::StorageInconsistentState(
-                        "Can't parse data key from raw key for ContractData".to_string(),
-                    )
-                })
-                .map(Vec::from)
-        })
-        .collect::<Result<Vec<_>, _>>()?;
-    drop(lock);
-
-    for key in data_keys {
-        state_update.remove(TrieKey::ContractData { account_id: account_id.clone(), key });
-    }
-    Ok(())
-}
-
 pub fn get_genesis_state_roots(store: &Store) -> io::Result<Option<Vec<StateRoot>>> {
     store.get_ser::<Vec<StateRoot>>(DBCol::BlockMisc, GENESIS_STATE_ROOTS_KEY)
 }
@@ -377,4 +308,10 @@ pub fn set_genesis_height(store_update: &mut StoreUpdate, genesis_height: &Block
     store_update
         .set_ser::<BlockHeight>(DBCol::BlockMisc, GENESIS_HEIGHT_KEY, genesis_height)
         .expect("Borsh cannot fail");
+}
+
+pub fn get_bandwidth_scheduler_state(
+    trie: &dyn TrieAccess,
+) -> Result<Option<BandwidthSchedulerState>, StorageError> {
+    get(trie, &TrieKey::BandwidthSchedulerState)
 }

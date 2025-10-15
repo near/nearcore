@@ -11,10 +11,10 @@ use near_primitives::receipt::{
     DataReceipt, Receipt, ReceiptEnum, ReceiptOrStateStoredReceipt, ReceiptV1,
 };
 use near_primitives::types::{ShardId, StateChangeCause, StateRoot};
-use near_store::trie::receipts_column_helper::{DelayedReceiptQueue, TrieQueue};
+use near_store::trie::receipts_column_helper_trie::{DelayedReceiptQueue, TrieQueue};
 use near_store::{ShardTries, ShardUId, Store, TrieUpdate};
 use nearcore::NearConfig;
-use node_runtime::bootstrap_congestion_info;
+use node_runtime::bootstrap_congestion_info_trie;
 
 use crate::util::load_trie;
 
@@ -127,7 +127,8 @@ impl BootstrapCmd {
         let trie = runtime.get_trie_for_shard(shard_id, &prev_hash, state_root, true).unwrap();
 
         let start_time = std::time::Instant::now();
-        let congestion_info = bootstrap_congestion_info(&trie, &runtime_config, shard_id).unwrap();
+        let congestion_info =
+            bootstrap_congestion_info_trie(&trie, &runtime_config, shard_id).unwrap();
         let duration = start_time.elapsed();
 
         println!("{:?} - {:?} - {:?}", shard_id, congestion_info, duration);

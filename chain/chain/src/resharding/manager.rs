@@ -15,7 +15,7 @@ use near_store::adapter::StoreAdapter;
 use near_store::adapter::trie_store::get_shard_uid_mapping;
 use near_store::flat::BlockInfo;
 use near_store::trie::ops::resharding::RetainMode;
-use near_store::trie::outgoing_metadata::ReceiptGroupsQueue;
+use near_store::trie::outgoing_metadata_trie::ReceiptGroupsQueue;
 use near_store::{ShardTries, ShardUId, Store, TrieAccess, TrieChanges};
 use std::collections::BTreeMap;
 use std::io;

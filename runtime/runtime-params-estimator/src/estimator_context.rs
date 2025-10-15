@@ -18,10 +18,12 @@ use near_primitives::transaction::{ExecutionStatus, SignedTransaction};
 use near_primitives::types::{Balance, Gas, MerkleHash};
 use near_primitives::version::PROTOCOL_VERSION;
 use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
+use near_store::contract::ContractStorage;
 use near_store::flat::{
     BlockInfo, FlatStateChanges, FlatStateDelta, FlatStateDeltaMetadata, FlatStorage,
     FlatStorageManager, FlatStorageReadyStatus, FlatStorageStatus,
 };
+use near_store::state_update::StateUpdate;
 use near_store::{ShardTries, ShardUId, StateSnapshotConfig, TrieUpdate};
 use near_store::{TrieCache, TrieCachingStorage, TrieConfig};
 use near_vm_runner::FilesystemContractRuntimeCache;
@@ -481,7 +483,9 @@ impl Testbed<'_> {
     ///
     /// Use this method to estimate action exec costs.
     pub(crate) fn apply_action_receipt(&self, receipt: &Receipt, metric: GasMetric) -> GasCost {
-        let mut state_update = TrieUpdate::new(self.trie());
+        let trie = self.trie();
+        let contract_storage = ContractStorage::new_for_trie(&trie);
+        let state_update = StateUpdate::new(trie);
         let mut outgoing_receipts = vec![];
         let mut validator_proposals = vec![];
         let mut stats =
@@ -489,8 +493,10 @@ impl Testbed<'_> {
         // TODO: mock is not accurate, potential DB requests are skipped in the mock!
         let epoch_info_provider = MockEpochInfoProvider::default();
         let clock = GasCost::measure(metric);
+        let update_op = state_update.start_update();
         let exec_result = node_runtime::estimator::apply_action_receipt(
-            &mut state_update,
+            update_op,
+            &contract_storage,
             &self.apply_state,
             receipt,
             &mut outgoing_receipts,

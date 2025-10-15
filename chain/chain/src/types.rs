@@ -43,8 +43,8 @@ use near_primitives::version::PROD_GENESIS_PROTOCOL_VERSION;
 use near_primitives::version::{MIN_GAS_PRICE_NEP_92_FIX, ProtocolVersion};
 use near_primitives::views::{QueryRequest, QueryResponse};
 use near_schema_checker_lib::ProtocolSchema;
-use near_store::TrieUpdate;
 use near_store::flat::FlatStorageManager;
+use near_store::state_update::StateUpdate;
 use near_store::{PartialStorage, ShardTries, Store, Trie, WrappedTrieChanges};
 use near_vm_runner::ContractCode;
 use near_vm_runner::ContractRuntimeCache;
@@ -490,7 +490,7 @@ pub trait RuntimeAdapter: Send + Sync {
     ///   were removed from the pool.
     fn prepare_transactions_extra(
         &self,
-        storage: TrieUpdate,
+        storage: StateUpdate,
         shard_id: ShardId,
         prev_block: PrepareTransactionsBlockContext,
         transaction_groups: &mut dyn TransactionGroupIterator,

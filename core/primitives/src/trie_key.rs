@@ -107,7 +107,9 @@ pub mod col {
     ];
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, BorshDeserialize, BorshSerialize, ProtocolSchema)]
+#[derive(
+    Debug, Clone, PartialEq, Eq, PartialOrd, Ord, BorshDeserialize, BorshSerialize, ProtocolSchema,
+)]
 #[borsh(use_discriminant = true)]
 #[repr(u8)]
 pub enum GlobalContractCodeIdentifier {
@@ -145,7 +147,9 @@ impl From<GlobalContractIdentifier> for GlobalContractCodeIdentifier {
 }
 
 /// Describes the key of a specific key-value record in a state trie.
-#[derive(Debug, Clone, PartialEq, Eq, BorshDeserialize, BorshSerialize, ProtocolSchema)]
+#[derive(
+    Debug, Clone, PartialEq, Eq, PartialOrd, Ord, BorshDeserialize, BorshSerialize, ProtocolSchema,
+)]
 #[borsh(use_discriminant = true)]
 #[repr(u8)]
 pub enum TrieKey {
@@ -487,6 +491,82 @@ impl TrieKey {
             // correspond to the data stored for that account id, so always returning None here.
             TrieKey::GlobalContractCode { .. } => None,
             TrieKey::GasKey { account_id, .. } => Some(account_id.clone()),
+        }
+    }
+}
+
+#[repr(u8)]
+#[derive(Clone)]
+pub enum TrieKeyPrefix {
+    AccessKey { account_id: AccountId } = col::ACCESS_KEY,
+    ContractData { account_id: AccountId } = col::CONTRACT_DATA,
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum ParseFullTrieKeyError {
+    #[error("could not parse the public key out of serialized access key")]
+    PublicKeyFromAccessKey(#[source] std::io::Error),
+    #[error("could not parse the data key out of contract data key")]
+    DataKeyFromContractDataKey(#[source] std::io::Error),
+}
+
+impl TrieKeyPrefix {
+    pub fn append_into(&self, buf: &mut impl trie_key_buffer::TrieKeyBuffer) {
+        match self {
+            Self::AccessKey { account_id } => {
+                buf.reserve(1 + account_id.len());
+                buf.push(col::ACCESS_KEY);
+                buf.extend(account_id.as_bytes());
+            }
+            Self::ContractData { account_id } => {
+                buf.reserve(1 + account_id.len());
+                buf.push(col::CONTRACT_DATA);
+                buf.extend(account_id.as_bytes());
+            }
+        }
+    }
+
+    pub fn parse_full(self, full: &[u8]) -> Result<TrieKey, ParseFullTrieKeyError> {
+        match self {
+            TrieKeyPrefix::AccessKey { account_id } => {
+                let public_key =
+                    trie_key_parsers::parse_public_key_from_access_key_key(full, &account_id)
+                        .map_err(ParseFullTrieKeyError::PublicKeyFromAccessKey)?;
+                Ok(TrieKey::AccessKey { account_id, public_key })
+            }
+            TrieKeyPrefix::ContractData { account_id } => {
+                let key =
+                    trie_key_parsers::parse_data_key_from_contract_data_key(full, &account_id)
+                        .map_err(ParseFullTrieKeyError::DataKeyFromContractDataKey)?;
+                Ok(TrieKey::ContractData { account_id, key: key.to_vec() })
+            }
+        }
+    }
+
+    pub fn range_start(&self) -> TrieKey {
+        match self {
+            TrieKeyPrefix::AccessKey { account_id } => {
+                let public_key = PublicKey::empty(near_crypto::KeyType::ED25519);
+                TrieKey::AccessKey { account_id: account_id.clone(), public_key }
+            }
+            TrieKeyPrefix::ContractData { account_id } => {
+                TrieKey::ContractData { account_id: account_id.clone(), key: vec![] }
+            }
+        }
+    }
+
+    pub fn contains(&self, key: &TrieKey) -> bool {
+        match (self, key) {
+            (
+                TrieKeyPrefix::AccessKey { account_id },
+                TrieKey::AccessKey { account_id: other_account_id, public_key: _ },
+            ) => account_id == other_account_id,
+            (
+                TrieKeyPrefix::ContractData { account_id },
+                TrieKey::ContractData { account_id: other_account_id, key: _ },
+            ) => account_id == other_account_id,
+            (TrieKeyPrefix::AccessKey { account_id: _ }, _) => false,
+            (TrieKeyPrefix::ContractData { account_id: _ }, _) => false,
         }
     }
 }

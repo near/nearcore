@@ -23,7 +23,7 @@ use near_primitives::version::PROD_GENESIS_PROTOCOL_VERSION;
 use near_store::adapter::StoreUpdateAdapter;
 use near_store::{Store, get_genesis_state_roots};
 use near_vm_runner::logic::ProtocolVersion;
-use node_runtime::bootstrap_congestion_info;
+use node_runtime::bootstrap_congestion_info_trie;
 
 impl Chain {
     /// Builds genesis block and chunks from the current configuration obtained through the arguments.
@@ -336,7 +336,7 @@ fn get_genesis_congestion_info(
     // genesis and doesn't have this block in flat state and memtrie.
     let trie = runtime.get_view_trie_for_shard(shard_id, prev_hash, state_root)?;
     let runtime_config = runtime.get_runtime_config(protocol_version);
-    let congestion_info = bootstrap_congestion_info(&trie, runtime_config, shard_id)?;
+    let congestion_info = bootstrap_congestion_info_trie(&trie, runtime_config, shard_id)?;
     tracing::debug!(target: "chain", %shard_id, ?state_root, ?congestion_info, "Computed genesis congestion info.");
     Ok(congestion_info)
 }

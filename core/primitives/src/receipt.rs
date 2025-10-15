@@ -112,14 +112,14 @@ pub enum Receipt {
 /// for more details.
 ///
 /// This struct is versioned so that it can be enhanced in the future.
-#[derive(PartialEq, Eq, Debug, ProtocolSchema)]
+#[derive(PartialEq, Eq, Debug, ProtocolSchema, Clone)]
 pub enum StateStoredReceipt<'a> {
     V0(StateStoredReceiptV0<'a>),
     V1(StateStoredReceiptV1<'a>),
 }
 
 /// The V0 of StateStoredReceipt. It contains the receipt and metadata.
-#[derive(BorshDeserialize, BorshSerialize, PartialEq, Eq, Debug, ProtocolSchema)]
+#[derive(BorshDeserialize, BorshSerialize, PartialEq, Eq, Debug, ProtocolSchema, Clone)]
 pub struct StateStoredReceiptV0<'a> {
     /// The receipt.
     pub receipt: Cow<'a, Receipt>,
@@ -132,14 +132,14 @@ pub struct StateStoredReceiptV0<'a> {
 /// The receipts start being stored as V1 after the protocol change that introduced
 /// outgoing buffer metadata. Having a separate variant makes it clear whether the
 /// outgoing buffer metadata should be updated when a receipt is stored/removed.
-#[derive(BorshDeserialize, BorshSerialize, PartialEq, Eq, Debug, ProtocolSchema)]
+#[derive(BorshDeserialize, BorshSerialize, PartialEq, Eq, Debug, ProtocolSchema, Clone)]
 pub struct StateStoredReceiptV1<'a> {
     pub receipt: Cow<'a, Receipt>,
     pub metadata: StateStoredReceiptMetadata,
 }
 
 /// The metadata associated with the receipt stored in state.
-#[derive(BorshDeserialize, BorshSerialize, PartialEq, Eq, Debug, ProtocolSchema)]
+#[derive(BorshDeserialize, BorshSerialize, PartialEq, Eq, Debug, ProtocolSchema, Clone)]
 pub struct StateStoredReceiptMetadata {
     /// The congestion gas of the receipt when it was stored in the state.
     /// Please see [compute_receipt_congestion_gas] for more details.
@@ -165,7 +165,7 @@ const STATE_STORED_RECEIPT_TAG: u8 = u8::MAX;
 /// from the state. The borrowed ownership can be used when pushing receipts
 /// into the state. In that case the receipt should never need to be cloned. The
 /// serialization only needs a reference.
-#[derive(PartialEq, Eq, Debug, ProtocolSchema)]
+#[derive(PartialEq, Eq, Debug, ProtocolSchema, Clone)]
 pub enum ReceiptOrStateStoredReceipt<'a> {
     Receipt(Cow<'a, Receipt>),
     StateStoredReceipt(StateStoredReceipt<'a>),

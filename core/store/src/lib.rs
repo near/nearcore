@@ -38,6 +38,7 @@ pub mod genesis;
 pub mod metrics;
 pub mod migrations;
 mod node_storage;
+pub mod state_update;
 mod store;
 pub mod trie;
 mod utils;

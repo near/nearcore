@@ -8,8 +8,9 @@ use near_primitives::chunk_apply_stats::BandwidthSchedulerStats;
 use near_primitives::congestion_info::CongestionControl;
 use near_primitives::errors::RuntimeError;
 use near_primitives::hash::{CryptoHash, hash};
-use near_primitives::types::{EpochInfoProvider, ShardId, ShardIndex, StateChangeCause};
-use near_store::{TrieUpdate, get_bandwidth_scheduler_state, set_bandwidth_scheduler_state};
+use near_primitives::trie_key::TrieKey;
+use near_primitives::types::{EpochInfoProvider, ShardId, ShardIndex};
+use near_store::state_update::StateUpdate;
 use scheduler::{BandwidthScheduler, GrantedBandwidth, ShardStatus};
 
 use crate::ApplyState;
@@ -45,7 +46,7 @@ impl BandwidthSchedulerOutput {
 /// of outgoing receipts can be sent between shards at the current height.
 pub fn run_bandwidth_scheduler(
     apply_state: &ApplyState,
-    state_update: &mut TrieUpdate,
+    state_update: &StateUpdate,
     epoch_info_provider: &dyn EpochInfoProvider,
     stats: &mut BandwidthSchedulerStats,
 ) -> Result<BandwidthSchedulerOutput, RuntimeError> {
@@ -56,10 +57,12 @@ pub fn run_bandwidth_scheduler(
         height = apply_state.block_height,
         shard_id = %apply_state.shard_id)
     .entered();
-
+    let mut update_ops = state_update.start_update();
     // Read the current scheduler state from the Trie
-    let mut scheduler_state = match get_bandwidth_scheduler_state(state_update)? {
-        Some(prev_state) => prev_state,
+    let scheduler_state =
+        update_ops.get::<BandwidthSchedulerState>(TrieKey::BandwidthSchedulerState)?;
+    let mut scheduler_state = match scheduler_state {
+        Some(prev_state) => prev_state.clone(),
         None => {
             tracing::debug!(target: "runtime", "Bandwidth scheduler state not found - initializing");
             BandwidthSchedulerState::V1(BandwidthSchedulerStateV1 {
@@ -133,10 +136,11 @@ pub fn run_bandwidth_scheduler(
     };
 
     // Save the updated scheduler state to the trie.
-    set_bandwidth_scheduler_state(state_update, &scheduler_state);
-    state_update.commit(StateChangeCause::BandwidthSchedulerStateUpdate);
-
+    // FIXME: this serializes the entire thing into memory before hashing it up. Serializer could
+    // feed into the hasher directly.
     let scheduler_state_hash: CryptoHash = hash(&borsh::to_vec(&scheduler_state).unwrap());
+    update_ops.set(TrieKey::BandwidthSchedulerState, scheduler_state);
+    update_ops.commit(/*StateChangeCause::BandwidthSchedulerStateUpdate*/).expect("TODO(state_update): error handling");
 
     stats.time_to_run_ms = start_time.elapsed().as_millis();
     Ok(BandwidthSchedulerOutput { granted_bandwidth, params, scheduler_state_hash })

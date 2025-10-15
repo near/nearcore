@@ -11,7 +11,7 @@ use near_primitives::types::AccountId;
 use near_primitives::types::StateRoot;
 use near_store::genesis::GenesisStateApplier;
 use near_store::test_utils::TestTriesBuilder;
-use near_store::{ShardTries, TrieUpdate};
+use near_store::{ShardTries, Trie};
 use node_runtime::{Runtime, state_viewer::TrieViewer};
 use testlib::runtime_utils::{add_test_contract, alice_account, bob_account};
 
@@ -27,11 +27,11 @@ pub fn get_runtime_and_trie() -> (Runtime, ShardTries, StateRoot) {
     get_runtime_and_trie_from_genesis(&genesis)
 }
 
-pub fn get_test_trie_viewer() -> (TrieViewer, TrieUpdate) {
+pub fn get_test_trie_viewer() -> (TrieViewer, Trie) {
     let (_, tries, root) = get_runtime_and_trie();
     let trie_viewer = TrieViewer::default();
-    let state_update = tries.new_trie_update(TEST_SHARD_UID, root);
-    (trie_viewer, state_update)
+    let trie = tries.get_trie_for_shard(TEST_SHARD_UID, root);
+    (trie_viewer, trie)
 }
 
 pub fn get_runtime_and_trie_from_genesis(genesis: &Genesis) -> (Runtime, ShardTries, StateRoot) {
