@@ -116,40 +116,41 @@ pub async fn build_streamer_message(
         let mut chunk_receipts = chunk_local_receipts;
 
         let mut receipt_execution_outcomes: Vec<IndexerExecutionOutcomeWithReceipt> = vec![];
-        for (_, outcome) in receipt_outcomes {
-            let IndexerExecutionOutcomeWithOptionalReceipt { execution_outcome, receipt } = outcome;
-            let receipt = if let Some(receipt) = receipt {
-                receipt
-            } else {
-                // Attempt to extract the receipt or decide to fetch it based on cache access success
-                let maybe_receipt =
-                    DELAYED_LOCAL_RECEIPTS_CACHE.write().remove(&execution_outcome.id);
+        // FIXME: For spice make sure to write dbcol::Receipts
+        // for (_, outcome) in receipt_outcomes {
+        //     let IndexerExecutionOutcomeWithOptionalReceipt { execution_outcome, receipt } = outcome;
+        //     let receipt = if let Some(receipt) = receipt {
+        //         receipt
+        //     } else {
+        //         // Attempt to extract the receipt or decide to fetch it based on cache access success
+        //         let maybe_receipt =
+        //             DELAYED_LOCAL_RECEIPTS_CACHE.write().remove(&execution_outcome.id);
 
-                // Depending on whether you got the receipt from the cache, proceed
-                if let Some(receipt) = maybe_receipt {
-                    // Receipt was found in cache
-                    receipt
-                } else {
-                    // Receipt not found in cache or failed to acquire lock, proceed to look it up
-                    // in the history of blocks (up to 1000 blocks back)
-                    tracing::warn!(
-                        target: INDEXER,
-                        "Receipt {} is missing in block and in DELAYED_LOCAL_RECEIPTS_CACHE, looking for it in up to 1000 blocks back in time",
-                        execution_outcome.id,
-                    );
-                    lookup_delayed_local_receipt_in_previous_blocks(
-                        &client,
-                        &runtime_config,
-                        block.clone(),
-                        execution_outcome.id,
-                        shard_tracker,
-                    )
-                    .await?
-                }
-            };
-            receipt_execution_outcomes
-                .push(IndexerExecutionOutcomeWithReceipt { execution_outcome, receipt });
-        }
+        //         // Depending on whether you got the receipt from the cache, proceed
+        //         if let Some(receipt) = maybe_receipt {
+        //             // Receipt was found in cache
+        //             receipt
+        //         } else {
+        //             // Receipt not found in cache or failed to acquire lock, proceed to look it up
+        //             // in the history of blocks (up to 1000 blocks back)
+        //             tracing::warn!(
+        //                 target: INDEXER,
+        //                 "Receipt {} is missing in block and in DELAYED_LOCAL_RECEIPTS_CACHE, looking for it in up to 1000 blocks back in time",
+        //                 execution_outcome.id,
+        //             );
+        //             lookup_delayed_local_receipt_in_previous_blocks(
+        //                 &client,
+        //                 &runtime_config,
+        //                 block.clone(),
+        //                 execution_outcome.id,
+        //                 shard_tracker,
+        //             )
+        //             .await?
+        //         }
+        //     };
+        //     receipt_execution_outcomes
+        //         .push(IndexerExecutionOutcomeWithReceipt { execution_outcome, receipt });
+        // }
 
         chunk_receipts.extend(chunk_non_local_receipts);
 
