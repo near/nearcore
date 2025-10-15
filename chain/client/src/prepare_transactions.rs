@@ -149,22 +149,15 @@ impl PrepareTransactionsJob {
         // Lock the state, if the job is currently running this will wait until the job finishes and
         // frees the lock.
         let mut state = self.state.lock();
-        match &*state {
-            PrepareTransactionsJobState::Finished(_) => {
-                // Job finished, take the result
-                match std::mem::replace(
-                    &mut *state,
-                    PrepareTransactionsJobState::FinishedResultTaken,
-                ) {
-                    PrepareTransactionsJobState::Finished(result) => return Some(result),
-                    _ => unreachable!(),
-                };
-            }
+        let previous_state =
+            std::mem::replace(&mut *state, PrepareTransactionsJobState::FinishedResultTaken);
+        *state = match previous_state {
+            PrepareTransactionsJobState::Finished(result) => return Some(result),
+            // Job has not even started by the time it's time to take the result. Discard it.
             PrepareTransactionsJobState::NotStarted(_) => {
-                // Job has not even started by the time it's time to take the result. Discard it.
-                *state = PrepareTransactionsJobState::NotStartedInTime;
+                PrepareTransactionsJobState::NotStartedInTime
             }
-            _ => {}
+            _ => previous_state,
         };
         None
     }
