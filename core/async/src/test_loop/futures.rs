@@ -1,28 +1,14 @@
-//! Support for futures in TestLoop.
+//! Utilities that let the deterministic TestLoop runtime drive async-style workloads.
 //!
-//! There are two key features this file provides for TestLoop:
+//! This module exposes two adapters that translate runtime interactions into TestLoop events:
+//! - `TestLoopFutureSpawner` implements [`FutureSpawner`] by enqueueing futures onto the loop so
+//!   any `spawn_boxed` call becomes a scheduled callback that the loop will poll to completion.
+//! - `TestLoopAsyncComputationSpawner` implements [`AsyncComputationSpawner`] by scheduling
+//!   blocking or synchronous computations through the loop, optionally delaying them via a
+//!   caller-provided function.
 //!
-//!   1. A general way to spawn futures and have the TestLoop drive the futures.
-//!      To support this, pass test_loop.future_spawner() the &dyn FutureSpawner
-//!      to any component that needs to spawn futures.
-//!
-//!      This causes any futures spawned during the test to end up as a callback in the
-//!      test loop. The event will eventually be executed by the drive_futures function,
-//!      which will drive the future until it is either suspended or completed. If suspended,
-//!      then the waker of the future (called when the future is ready to resume) will place
-//!      the event back into the test loop to be executed again.
-//!
-//!   2. A way to send a message to the TestLoop and expect a response as a
-//!      future, which will resolve whenever the TestLoop handles the message.
-//!      To support this, use MessageWithCallback<Request, Response> as the
-//!      event type, and in the handler, call (event.responder)(result)
-//!      (possibly asynchronously) to complete the future.
-//!
-//!      This is needed to support the AsyncSender interface, which is required
-//!      by some components as they expect a response to each message. The way
-//!      this is implemented is by implementing a conversion from
-//!      DelaySender<MessageWithCallback<Request, Response>> to
-//!      AsyncSender<Request, Response>.
+//! Using these adapters keeps all side effects observable and controllable by tests that advance
+//! the loop manually.
 
 use super::PendingEventsSender;
 use super::data::TestLoopData;
@@ -34,8 +20,7 @@ use parking_lot::Mutex;
 use std::sync::Arc;
 use std::task::Context;
 
-/// A DelaySender is a FutureSpawner that can be used to
-/// spawn futures into the test loop. We give it a convenient alias.
+/// Alias so the pending event sender can be handed to components that expect a [`FutureSpawner`].
 pub type TestLoopFutureSpawner = PendingEventsSender;
 
 impl FutureSpawner for TestLoopFutureSpawner {
@@ -45,9 +30,7 @@ impl FutureSpawner for TestLoopFutureSpawner {
             sender: self.clone(),
             description: description.to_string(),
         });
-        let callback = move |_: &mut TestLoopData| {
-            drive_futures(&task);
-        };
+        let callback = move |_: &mut TestLoopData| drive_futures(&task);
         self.send(format!("FutureSpawn({})", description), Box::new(callback));
     }
 }
@@ -69,22 +52,20 @@ impl ArcWake for FutureTask {
 }
 
 fn drive_futures(task: &Arc<FutureTask>) {
-    // The following is copied from the Rust async book.
-    // Take the future, and if it has not yet completed (is still Some),
-    // poll it in an attempt to complete it.
+    // Mirrors the single-threaded executor from the Rust async book. If the task still owns a
+    // future, poll it; on Pending, stash it back so the next wake-up can retry.
     let mut future_slot = task.future.lock();
     if let Some(mut future) = future_slot.take() {
         let waker = waker_ref(&task);
         let context = &mut Context::from_waker(&*waker);
         if future.as_mut().poll(context).is_pending() {
-            // We're still not done processing the future, so put it
-            // back in its task to be run again in the future.
+            // Not done yet; store the future again so the waker can reschedule it.
             *future_slot = Some(future);
         }
     }
 }
 
-/// AsyncComputationSpawner that spawns the computation in the TestLoop.
+/// [`AsyncComputationSpawner`] implementation that schedules the computation via the TestLoop.
 pub struct TestLoopAsyncComputationSpawner {
     sender: PendingEventsSender,
     artificial_delay: Box<dyn Fn(&str) -> Duration + Send + Sync>,

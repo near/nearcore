@@ -1,4 +1,4 @@
-use crate::messaging::{AsyncSendError, CanSend, CanSendAsync, MessageWithCallback};
+use crate::messaging::{AsyncSendError, CanSend, CanSendAsync};
 use futures::FutureExt;
 use futures::future::BoxFuture;
 use std::marker::PhantomData;
@@ -32,16 +32,6 @@ impl<M: 'static, R: Send + 'static, F: Fn(M) -> R + Send + Sync + 'static>
 {
     pub fn new(f: F) -> Self {
         Self { f, _phantom: PhantomData }
-    }
-}
-
-impl<M: 'static, R: Send + 'static, F: Fn(M) -> R + Send + Sync + 'static>
-    CanSend<MessageWithCallback<M, R>> for SendAsyncFunction<M, R, F>
-{
-    fn send(&self, message: MessageWithCallback<M, R>) {
-        let MessageWithCallback { message, callback: responder } = message;
-        let result = Ok((self.f)(message));
-        responder(async move { result }.boxed());
     }
 }
 
