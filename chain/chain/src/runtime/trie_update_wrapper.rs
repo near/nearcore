@@ -57,7 +57,7 @@ impl<'su> TrieUpdateWitnessSizeWrapper<'su> {
         result_usize
     }
 
-    /// Intercept reads to the TrieUpdate and do storage proof size accounting
+    /// Intercept reads and do storage proof size accounting
     pub fn get<V: Deserializable + Deserialized + Clone>(
         &mut self,
         key: TrieKey,
