@@ -1,4 +1,4 @@
-pub use near_async_derive::{Message, MultiSend, MultiSenderFrom};
+pub use near_async_derive::{MultiSend, MultiSenderFrom};
 
 mod functional;
 pub mod futures;

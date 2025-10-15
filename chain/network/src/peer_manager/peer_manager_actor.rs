@@ -30,7 +30,7 @@ use crate::types::{
 use ::time::ext::InstantExt as _;
 use anyhow::Context as _;
 use near_async::futures::{DelayedActionRunner, DelayedActionRunnerExt, FutureSpawnerExt};
-use near_async::messaging::{self, SendAsync, Sender};
+use near_async::messaging::{self, CanSendAsync, Sender};
 use near_async::tokio::TokioRuntimeHandle;
 use near_async::{ActorSystem, time};
 use near_o11y::span_wrapped_msg::SpanWrappedMessageExt;

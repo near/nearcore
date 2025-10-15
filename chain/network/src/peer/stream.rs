@@ -2,9 +2,8 @@ use crate::peer_manager::connection;
 use crate::stats::metrics;
 use crate::tcp;
 use bytesize::{GIB, MIB};
-use near_async::Message;
 use near_async::futures::{FutureSpawner, FutureSpawnerExt};
-use near_async::messaging::{self, MessageWithCallback};
+use near_async::messaging::{AsyncSender, Sender};
 use std::io;
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -37,7 +36,7 @@ pub(crate) enum RecvError {
     MessageTooLarge { got_bytes: usize, want_max_bytes: usize },
 }
 
-#[derive(Message, PartialEq, Eq, Clone, Debug)]
+#[derive(PartialEq, Eq, Clone, Debug)]
 pub(crate) struct Frame(pub Vec<u8>);
 
 /// Stream critical error.
@@ -47,7 +46,7 @@ pub(crate) struct Frame(pub Vec<u8>);
 /// WARNING: send/recv loops might not get closed if Actor won't call ctx.stop()!.
 // TODO(gprusak): once we implement cancellation support for structured concurrency,
 // send/recv loops should be cancelled and return before the error is reported to Actor.
-#[derive(thiserror::Error, Debug, Message)]
+#[derive(thiserror::Error, Debug)]
 pub(crate) enum Error {
     #[error("send: {0}")]
     Send(#[source] SendError),
@@ -60,13 +59,13 @@ pub(crate) struct FramedStream {
     stats: Arc<connection::Stats>,
     send_buf_size_metric: Arc<metrics::IntGaugeGuard>,
     /// Sender to send the error to the PeerActor.
-    error_sender: messaging::Sender<Error>,
+    error_sender: Sender<Error>,
 }
 
 impl FramedStream {
     pub fn spawn(
-        error_sender: messaging::Sender<Error>,
-        frame_sender: messaging::Sender<MessageWithCallback<Frame, ()>>,
+        error_sender: Sender<Error>,
+        frame_sender: AsyncSender<Frame, ()>,
         future_spawner: &dyn FutureSpawner,
         stream: tcp::Stream,
         stats: Arc<connection::Stats>,
@@ -136,7 +135,7 @@ impl FramedStream {
     async fn run_recv_loop(
         peer_addr: SocketAddr,
         read: ReadHalf,
-        frame_sender: messaging::Sender<MessageWithCallback<Frame, ()>>,
+        frame_sender: AsyncSender<Frame, ()>,
         stats: Arc<connection::Stats>,
     ) -> Result<(), RecvError> {
         const READ_BUFFER_CAPACITY: usize = 8 * 1024;
