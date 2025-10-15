@@ -167,17 +167,6 @@ fn extract_cfg_attributes(attrs: &[syn::Attribute]) -> Vec<syn::Attribute> {
     attrs.iter().filter(|attr| attr.path().is_ident("cfg")).cloned().collect()
 }
 
-/// Simply derives `impl Message for X` for any type `X`.
-#[proc_macro_derive(Message)]
-pub fn derive_message(input: TokenStream) -> TokenStream {
-    let ast: syn::DeriveInput = syn::parse(input).unwrap();
-    let struct_name = ast.ident;
-    quote! {
-        impl near_async::messaging::Message for #struct_name {}
-    }
-    .into()
-}
-
 #[cfg(test)]
 mod tests {
     use quote::quote;

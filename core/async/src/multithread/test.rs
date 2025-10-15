@@ -1,5 +1,5 @@
 use crate::ActorSystem;
-use crate::messaging::{Actor, CanSend, CanSendAsync, Handler, Message};
+use crate::messaging::{Actor, CanSend, CanSendAsync, Handler};
 use futures::executor::block_on;
 use std::sync::Arc;
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
@@ -14,8 +14,6 @@ fn test_multithread_actor_basic() {
     struct MessageA(String);
     #[derive(Debug)]
     struct MessageB(i32);
-    impl Message for MessageA {}
-    impl Message for MessageB {}
 
     impl Handler<MessageA> for MyActor {
         fn handle(&mut self, msg: MessageA) {
@@ -47,7 +45,6 @@ fn test_multithread_actor_multithreading() {
 
     #[derive(Debug, Clone)]
     struct MessageA(Arc<Semaphore>, Arc<Semaphore>);
-    impl Message for MessageA {}
 
     impl Handler<MessageA> for MyActor {
         fn handle(&mut self, msg: MessageA) {
