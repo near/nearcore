@@ -126,7 +126,7 @@ impl ChunkExecutorActor {
 impl near_async::messaging::Actor for ChunkExecutorActor {}
 
 /// Message with incoming unverified receipts corresponding to the block.
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct ExecutorIncomingUnverifiedReceipts {
     pub block_hash: CryptoHash,
     pub receipt_proof: ReceiptProof,

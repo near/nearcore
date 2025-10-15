@@ -399,6 +399,7 @@ pub fn setup_client(
         epoch_manager.clone(),
         runtime_adapter.store().chain_store(),
         validator_signer.clone(),
+        shard_tracker.clone(),
         network_adapter.as_multi_sender(),
         chunk_executor_adapter.as_sender(),
         spice_chunk_validator_adapter.as_sender(),
