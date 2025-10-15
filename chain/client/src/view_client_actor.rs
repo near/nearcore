@@ -347,7 +347,7 @@ impl ViewClientActorInner {
             let mut block = self.chain.get_block(header.hash()).unwrap();
             // FIXME: Use headers: only need epoch_id and block hash to be fair so having only
             // block_hash with epoch_manager extracting epoch_id based on that may work as well
-            while !self.chain.spice_core_processor.all_execution_results_exist(&block).unwrap()
+            while !self.chain.spice_core_reader.all_execution_results_exist(&block).unwrap()
                 && !block.header().is_genesis()
             {
                 // FIXME: unwrap()
