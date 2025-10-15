@@ -1,5 +1,6 @@
-use crate::messaging::{CanSend, MessageWithCallback};
+use crate::messaging::{AsyncSendError, CanSend, CanSendAsync, MessageWithCallback};
 use futures::FutureExt;
+use futures::future::BoxFuture;
 use std::marker::PhantomData;
 
 /// Allows a Sender to be created from a raw function.
@@ -41,5 +42,14 @@ impl<M: 'static, R: Send + 'static, F: Fn(M) -> R + Send + Sync + 'static>
         let MessageWithCallback { message, callback: responder } = message;
         let result = Ok((self.f)(message));
         responder(async move { result }.boxed());
+    }
+}
+
+impl<M: 'static, R: Send + 'static, F: Fn(M) -> R + Send + Sync + 'static> CanSendAsync<M, R>
+    for SendAsyncFunction<M, R, F>
+{
+    fn send_async(&self, message: M) -> BoxFuture<'static, Result<R, AsyncSendError>> {
+        let result = (self.f)(message);
+        async move { Ok(result) }.boxed()
     }
 }

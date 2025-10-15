@@ -58,7 +58,7 @@ impl<A, M, R> CanSendAsync<M, R> for MultithreadRuntimeHandle<A>
 where
     A: Handler<M, R> + 'static,
     M: Message + Debug + Send + 'static,
-    R: Debug + Send + 'static,
+    R: Send + 'static,
 {
     fn send_async(&self, message: M) -> BoxFuture<'static, Result<R, AsyncSendError>> {
         let seq = next_message_sequence_num();
