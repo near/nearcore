@@ -14,8 +14,9 @@ use near_chain::chain::{NewChunkData, NewChunkResult, ShardContext, StorageConte
 use near_chain::sharding::get_receipts_shuffle_salt;
 use near_chain::sharding::shuffle_receipt_proofs;
 use near_chain::spice_chunk_application::build_spice_apply_chunk_block_context;
-use near_chain::spice_core::CoreStatementsProcessor;
-use near_chain::spice_core::ExecutionResultEndorsed;
+use near_chain::spice_core::SpiceCoreReader;
+use near_chain::spice_core_writer_actor::ExecutionResultEndorsed;
+use near_chain::spice_core_writer_actor::ProcessedBlock;
 use near_chain::types::ApplyChunkResult;
 use near_chain::types::{ApplyChunkBlockContext, RuntimeAdapter, StorageDataSource};
 use near_chain::update_shard::{ShardUpdateReason, ShardUpdateResult, process_shard_update};
@@ -28,6 +29,7 @@ use near_chain_primitives::ApplyChunksMode;
 use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_assignment::shard_id_to_uid;
 use near_epoch_manager::shard_tracker::ShardTracker;
+use near_network::client::SpiceChunkEndorsementMessage;
 use near_network::types::PeerManagerAdapter;
 use near_primitives::hash::CryptoHash;
 use near_primitives::sandbox::state_patch::SandboxStatePatch;
@@ -55,6 +57,7 @@ use near_store::Store;
 use near_store::StoreUpdate;
 use near_store::TrieDBStorage;
 use near_store::TrieStorage;
+use near_store::adapter::StoreAdapter;
 use near_store::adapter::trie_store::TrieStoreAdapter;
 use node_runtime::SignedValidPeriodTransactions;
 use rayon::iter::IntoParallelIterator as _;
@@ -75,13 +78,14 @@ pub struct ChunkExecutorActor {
     apply_chunks_spawner: Arc<dyn AsyncComputationSpawner>,
     apply_chunks_iteration_mode: ApplyChunksIterationMode,
     myself_sender: Sender<ExecutorApplyChunksDone>,
+    pub(crate) core_writer_sender: Sender<SpiceChunkEndorsementMessage>,
     data_distributor_adapter: SpiceDataDistributorAdapter,
 
     blocks_in_execution: HashSet<CryptoHash>,
     pending_unverified_receipts: HashMap<CryptoHash, Vec<ExecutorIncomingUnverifiedReceipts>>,
 
     pub(crate) validator_signer: MutableValidatorSigner,
-    pub(crate) core_processor: CoreStatementsProcessor,
+    pub(crate) core_reader: SpiceCoreReader,
 }
 
 impl ChunkExecutorActor {
@@ -93,12 +97,13 @@ impl ChunkExecutorActor {
         shard_tracker: ShardTracker,
         network_adapter: PeerManagerAdapter,
         validator_signer: MutableValidatorSigner,
-        core_processor: CoreStatementsProcessor,
         apply_chunks_spawner: Arc<dyn AsyncComputationSpawner>,
         apply_chunks_iteration_mode: ApplyChunksIterationMode,
         myself_sender: Sender<ExecutorApplyChunksDone>,
+        core_writer_sender: Sender<SpiceChunkEndorsementMessage>,
         data_distributor_adapter: SpiceDataDistributorAdapter,
     ) -> Self {
+        let core_reader = SpiceCoreReader::new(store.chain_store(), epoch_manager.clone());
         Self {
             chain_store: ChainStore::new(store, true, genesis.transaction_validity_period),
             runtime_adapter,
@@ -110,8 +115,9 @@ impl ChunkExecutorActor {
             myself_sender,
             blocks_in_execution: HashSet::new(),
             validator_signer,
-            core_processor,
+            core_reader,
             data_distributor_adapter,
+            core_writer_sender,
             pending_unverified_receipts: HashMap::new(),
         }
     }
@@ -161,12 +167,6 @@ impl ExecutorIncomingUnverifiedReceipts {
         }
         Ok(VerifiedReceipts { receipt_proof: self.receipt_proof, block_hash: self.block_hash })
     }
-}
-
-/// Message that should be sent once block is processed.
-#[derive(Debug)]
-pub struct ProcessedBlock {
-    pub block_hash: CryptoHash,
 }
 
 #[derive(Debug)]
@@ -257,7 +257,7 @@ impl ChunkExecutorActor {
         let store = self.chain_store.store();
 
         let Some(prev_block_execution_results) =
-            self.core_processor.get_block_execution_results(&prev_block)?
+            self.core_reader.get_block_execution_results(&prev_block)?
         else {
             return Ok(TryApplyChunksOutcome::NotReady);
         };
@@ -519,9 +519,7 @@ impl ChunkExecutorActor {
                 &self.network_adapter.clone().into_sender(),
                 &my_signer,
             );
-            self.core_processor
-                .process_chunk_endorsement(endorsement)
-                .expect("Node should always be able to record it's own endorsement");
+            self.core_writer_sender.send(SpiceChunkEndorsementMessage(endorsement));
         }
 
         let state_witness =
@@ -710,7 +708,6 @@ impl ChunkExecutorActor {
             self.runtime_adapter.clone(),
             // Since we don't produce blocks, this argument is irrelevant.
             DoomslugThresholdMode::NoApprovals,
-            self.core_processor.clone(),
         )
     }
 
@@ -743,10 +740,10 @@ impl ChunkExecutorActor {
         block_hash: &CryptoHash,
     ) -> Result<ReceiptVerificationContext, Error> {
         let block = self.chain_store.get_block(block_hash)?;
-        if !self.core_processor.all_execution_results_exist(&block)? {
+        if !self.core_reader.all_execution_results_exist(&block)? {
             return Ok(ReceiptVerificationContext::NotReady);
         }
-        let execution_results = self.core_processor.get_execution_results_by_shard_id(&block)?;
+        let execution_results = self.core_reader.get_execution_results_by_shard_id(&block)?;
         Ok(ReceiptVerificationContext::Ready { execution_results })
     }
 
