@@ -1,4 +1,7 @@
-use crate::client::{ClientSenderForNetwork, SetNetworkInfo, StateRequestHeader, StateRequestPart};
+use crate::client::{
+    ClientSenderForNetwork, SetNetworkInfo, SpiceChunkEndorsementMessage, StateRequestHeader,
+    StateRequestPart,
+};
 use crate::config;
 use crate::debug::{DebugStatus, GetDebugStatus};
 use crate::network_protocol::{self, T2MessageBody};
@@ -219,6 +222,7 @@ impl PeerManagerActor {
         shards_manager_adapter: Sender<ShardsManagerRequestFromNetwork>,
         partial_witness_adapter: PartialWitnessSenderForNetwork,
         spice_data_distributor_adapter: SpiceDataDistributorSenderForNetwork,
+        spice_core_writer_adapter: Sender<SpiceChunkEndorsementMessage>,
         genesis_id: GenesisId,
     ) -> anyhow::Result<TokioRuntimeHandle<Self>> {
         let config = config.verify().context("config")?;
@@ -256,6 +260,7 @@ impl PeerManagerActor {
             partial_witness_adapter,
             whitelist_nodes,
             spice_data_distributor_adapter,
+            spice_core_writer_adapter,
         ));
         handle.spawn("PeerManagerActor server", {
             let handle = handle.clone();
@@ -1280,6 +1285,14 @@ impl PeerManagerActor {
                     &self.clock,
                     &target,
                     T1MessageBody::SpiceChunkEndorsement(endorsement).into(),
+                );
+                NetworkResponses::NoResponse
+            }
+            NetworkRequests::SpicePartialDataRequest { producer, request } => {
+                self.state.send_message_to_account(
+                    &self.clock,
+                    &producer,
+                    T1MessageBody::SpicePartialDataRequest(request).into(),
                 );
                 NetworkResponses::NoResponse
             }

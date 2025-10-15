@@ -111,6 +111,7 @@ pub(crate) struct NetworkState {
     pub shards_manager_adapter: Sender<ShardsManagerRequestFromNetwork>,
     pub partial_witness_adapter: PartialWitnessSenderForNetwork,
     pub spice_data_distributor_adapter: SpiceDataDistributorSenderForNetwork,
+    pub spice_core_writer_adapter: Sender<SpiceChunkEndorsementMessage>,
 
     /// Network-related info about the chain.
     pub chain_info: ArcSwap<Option<ChainInfo>>,
@@ -190,6 +191,7 @@ impl NetworkState {
         partial_witness_adapter: PartialWitnessSenderForNetwork,
         whitelist_nodes: Vec<WhitelistNode>,
         spice_data_distributor_adapter: SpiceDataDistributorSenderForNetwork,
+        spice_core_writer_adapter: Sender<SpiceChunkEndorsementMessage>,
     ) -> Self {
         Self {
             ops_spawner: new_owned_future_spawner(),
@@ -245,6 +247,7 @@ impl NetworkState {
             created_at: clock.now(),
             tier1_advertise_proxies_mutex: tokio::sync::Mutex::new(()),
             spice_data_distributor_adapter,
+            spice_core_writer_adapter,
         }
     }
 
@@ -793,12 +796,11 @@ impl NetworkState {
                     None
                 }
                 T1MessageBody::SpiceChunkEndorsement(endorsement) => {
-                    if cfg!(feature = "protocol_feature_spice") {
-                        self.client
-                            .send_async(SpiceChunkEndorsementMessage(endorsement))
-                            .await
-                            .ok();
-                    }
+                    self.spice_core_writer_adapter.send(SpiceChunkEndorsementMessage(endorsement));
+                    None
+                }
+                T1MessageBody::SpicePartialDataRequest(request) => {
+                    self.spice_data_distributor_adapter.send(request);
                     None
                 }
             },
