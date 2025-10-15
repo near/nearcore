@@ -11,7 +11,7 @@ use near_async::time::{self, Clock};
 use near_chain::rayon_spawner::RayonAsyncComputationSpawner;
 use near_chain::resharding::resharding_actor::ReshardingActor;
 pub use near_chain::runtime::NightshadeRuntime;
-use near_chain::spice_core::CoreStatementsProcessor;
+use near_chain::spice_core_writer_actor::SpiceCoreWriterActor;
 use near_chain::state_snapshot_actor::{
     SnapshotCallbacks, StateSnapshotActor, get_delete_snapshot_callback, get_make_snapshot_callback,
 };
@@ -43,7 +43,6 @@ use near_primitives::genesis::GenesisId;
 use near_primitives::types::EpochId;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_store::adapter::StoreAdapter as _;
-use near_store::adapter::chain_store::ChainStoreAdapter;
 use near_store::db::metadata::DbKind;
 use near_store::genesis::initialize_sharded_genesis_state;
 use near_store::metrics::spawn_db_metrics_loop;
@@ -223,8 +222,6 @@ fn get_split_store(config: &NearConfig, storage: &NodeStorage) -> anyhow::Result
 }
 
 fn new_spice_client_config(
-    epoch_manager: Arc<dyn EpochManagerAdapter>,
-    chain_store: ChainStoreAdapter,
     chunk_executor_adapter: &Arc<LateBoundSender<TokioRuntimeHandle<ChunkExecutorActor>>>,
     spice_chunk_validator_adapter: &Arc<
         LateBoundSender<TokioRuntimeHandle<SpiceChunkValidatorActor>>,
@@ -232,28 +229,21 @@ fn new_spice_client_config(
     spice_data_distributor_adapter: &Arc<
         LateBoundSender<TokioRuntimeHandle<SpiceDataDistributorActor>>,
     >,
+    spice_core_writer_adapter: &Arc<LateBoundSender<TokioRuntimeHandle<SpiceCoreWriterActor>>>,
 ) -> SpiceClientConfig {
     let spice_client_config = if cfg!(feature = "protocol_feature_spice") {
-        let core_processor = CoreStatementsProcessor::new(
-            chain_store,
-            epoch_manager,
-            chunk_executor_adapter.as_sender(),
-            spice_chunk_validator_adapter.as_sender(),
-        );
         SpiceClientConfig {
-            core_processor,
             chunk_executor_sender: chunk_executor_adapter.as_sender(),
             spice_chunk_validator_sender: spice_chunk_validator_adapter.as_sender(),
             spice_data_distributor_sender: spice_data_distributor_adapter.as_sender(),
+            spice_core_writer_sender: spice_core_writer_adapter.as_sender(),
         }
     } else {
-        let core_processor =
-            CoreStatementsProcessor::new_with_noop_senders(chain_store, epoch_manager);
         SpiceClientConfig {
-            core_processor,
             chunk_executor_sender: noop().into_sender(),
             spice_chunk_validator_sender: noop().into_sender(),
             spice_data_distributor_sender: noop().into_sender(),
+            spice_core_writer_sender: noop().into_sender(),
         }
     };
     spice_client_config
@@ -267,7 +257,6 @@ fn spawn_spice_actors(
     shard_tracker: ShardTracker,
     runtime: Arc<NightshadeRuntime>,
     network_adapter: PeerManagerAdapter,
-    core_processor: CoreStatementsProcessor,
     chunk_executor_adapter: &Arc<LateBoundSender<TokioRuntimeHandle<ChunkExecutorActor>>>,
     spice_chunk_validator_adapter: &Arc<
         LateBoundSender<TokioRuntimeHandle<SpiceChunkValidatorActor>>,
@@ -275,11 +264,20 @@ fn spawn_spice_actors(
     spice_data_distributor_adapter: &Arc<
         LateBoundSender<TokioRuntimeHandle<SpiceDataDistributorActor>>,
     >,
+    spice_core_writer_adapter: &Arc<LateBoundSender<TokioRuntimeHandle<SpiceCoreWriterActor>>>,
 ) {
+    let spice_core_writer_actor = SpiceCoreWriterActor::new(
+        runtime.store().chain_store(),
+        epoch_manager.clone(),
+        chunk_executor_adapter.as_sender(),
+        spice_chunk_validator_adapter.as_sender(),
+    );
+    let spice_core_writer_addr = actor_system.spawn_tokio_actor(spice_core_writer_actor);
+    spice_core_writer_adapter.bind(spice_core_writer_addr);
+
     let spice_data_distributor_actor = SpiceDataDistributorActor::new(
         epoch_manager.clone(),
         runtime.store().chain_store(),
-        core_processor.clone(),
         validator_signer.clone(),
         network_adapter.clone(),
         chunk_executor_adapter.as_sender(),
@@ -296,13 +294,13 @@ fn spawn_spice_actors(
         shard_tracker,
         network_adapter.clone(),
         validator_signer.clone(),
-        core_processor.clone(),
         {
             let thread_limit = runtime.get_shard_layout(PROTOCOL_VERSION).num_shards() as usize;
             ApplyChunksSpawner::default().into_spawner(thread_limit)
         },
         Default::default(),
         chunk_executor_adapter.as_sender(),
+        spice_core_writer_adapter.as_sender(),
         spice_data_distributor_adapter.as_multi_sender(),
     );
     let chunk_executor_addr = actor_system.spawn_tokio_actor(chunk_executor_actor);
@@ -315,7 +313,7 @@ fn spawn_spice_actors(
         epoch_manager,
         network_adapter,
         validator_signer,
-        core_processor,
+        spice_core_writer_adapter.as_sender(),
         ApplyChunksSpawner::default(),
     );
     let spice_chunk_validator_addr = actor_system.spawn_tokio_actor(spice_chunk_validator_actor);
@@ -567,14 +565,13 @@ pub fn start_with_config_and_synchronization(
     let chunk_executor_adapter = LateBoundSender::new();
     let spice_chunk_validator_adapter = LateBoundSender::new();
     let spice_data_distributor_adapter = LateBoundSender::new();
+    let spice_core_writer_adapter = LateBoundSender::new();
     let spice_client_config = new_spice_client_config(
-        epoch_manager.clone(),
-        runtime.store().chain_store(),
         &chunk_executor_adapter,
         &spice_chunk_validator_adapter,
         &spice_data_distributor_adapter,
+        &spice_core_writer_adapter,
     );
-    let spice_core_processor = spice_client_config.core_processor.clone();
 
     let StartClientResult {
         client_actor,
@@ -619,10 +616,10 @@ pub fn start_with_config_and_synchronization(
             shard_tracker.clone(),
             runtime.clone(),
             network_adapter.as_multi_sender(),
-            spice_core_processor.clone(),
             &chunk_executor_adapter,
             &spice_chunk_validator_adapter,
             &spice_data_distributor_adapter,
+            &spice_core_writer_adapter,
         );
     }
 
@@ -655,7 +652,6 @@ pub fn start_with_config_and_synchronization(
         config.validator_signer.clone(),
         view_runtime.clone(),
         network_adapter.as_multi_sender(),
-        spice_core_processor,
     );
 
     let state_sync_dumper = StateSyncDumper {
@@ -691,6 +687,11 @@ pub fn start_with_config_and_synchronization(
             spice_data_distributor_adapter.as_multi_sender()
         } else {
             noop().into_multi_sender()
+        },
+        if cfg!(feature = "protocol_feature_spice") {
+            spice_core_writer_adapter.as_sender()
+        } else {
+            noop().into_sender()
         },
         genesis_id,
     )

@@ -18,7 +18,7 @@ use crate::signature_verification::{
     verify_chunk_header_signature_with_epoch_manager,
 };
 use crate::soft_realtime_thread_pool::ApplyChunksSpawner;
-use crate::spice_core::CoreStatementsProcessor;
+use crate::spice_core::SpiceCoreReader;
 use crate::state_snapshot_actor::SnapshotCallbacks;
 use crate::state_sync::ChainStateSyncAdapter;
 use crate::stateless_validation::chunk_endorsement::{
@@ -47,7 +47,6 @@ use crate::{DoomslugThresholdMode, metrics};
 use crossbeam_channel::{Receiver, Sender, unbounded};
 use itertools::Itertools;
 use lru::LruCache;
-use near_async::Message;
 use near_async::futures::AsyncComputationSpawner;
 use near_async::futures::AsyncComputationSpawnerExt;
 use near_async::messaging::{IntoMultiSender, noop};
@@ -133,7 +132,7 @@ const ACCEPTABLE_TIME_DIFFERENCE: i64 = 12 * 10;
 /// `ApplyChunksDoneMessage` is a message that signals the finishing of applying chunks of a block.
 /// Upon receiving this message, ClientActors know that it's time to finish processing the blocks that
 /// just finished applying chunks.
-#[derive(Message, Debug)]
+#[derive(Debug)]
 pub struct ApplyChunksDoneMessage;
 
 pub type ApplyChunksDoneSender = near_async::messaging::Sender<SpanWrapped<ApplyChunksDoneMessage>>;
@@ -142,7 +141,7 @@ pub type ApplyChunksDoneSender = near_async::messaging::Sender<SpanWrapped<Apply
 /// This message is sent from a callback in the runtime to the Client actor before the post-state,
 /// is finalized. Client actor may use this information to start other tasks earlier, e.g.
 /// preparing transactions for inclusion in the next chunk.
-#[derive(Message, Debug)]
+#[derive(Debug)]
 pub struct PostStateReadyMessage {
     /// Post-State of the shard after applying the chunk
     pub post_state: PostState,
@@ -315,8 +314,8 @@ pub struct Chain {
     /// Manages all tasks related to resharding.
     pub resharding_manager: ReshardingManager,
     validator_signer: MutableValidatorSigner,
-    /// For spice keeps track of core statements.
-    pub spice_core_processor: CoreStatementsProcessor,
+    /// Allows reading spice core statements.
+    pub spice_core_reader: SpiceCoreReader,
     /// Determines whether client should exit if the protocol version is not supported
     /// in the next or next next epoch.
     protocol_version_check: ProtocolVersionCheckConfig,
@@ -395,10 +394,7 @@ impl Chain {
             noop().into_multi_sender(),
         );
         let num_shards = runtime_adapter.get_shard_layout(PROTOCOL_VERSION).num_shards() as usize;
-        let spice_core_processor = CoreStatementsProcessor::new_with_noop_senders(
-            store.chain_store(),
-            epoch_manager.clone(),
-        );
+        let spice_core_reader = SpiceCoreReader::new(store.chain_store(), epoch_manager.clone());
         Ok(Chain {
             clock: clock.clone(),
             chain_store,
@@ -428,7 +424,7 @@ impl Chain {
             snapshot_callbacks: None,
             resharding_manager,
             validator_signer,
-            spice_core_processor,
+            spice_core_reader,
             protocol_version_check: Default::default(),
             on_post_state_ready_sender: None,
         })
@@ -447,7 +443,6 @@ impl Chain {
         apply_chunks_iteration_mode: ApplyChunksIterationMode,
         validator_signer: MutableValidatorSigner,
         resharding_sender: ReshardingSender,
-        spice_core_processor: CoreStatementsProcessor,
         on_post_state_ready_sender: Option<PostStateReadySender>,
     ) -> Result<Chain, Error> {
         let state_roots = get_genesis_state_roots(runtime_adapter.store())?
@@ -568,6 +563,8 @@ impl Chain {
         let max_num_shards =
             runtime_adapter.get_shard_layout(PROTOCOL_VERSION).num_shards() as usize;
         let apply_chunks_spawner = apply_chunks_spawner.into_spawner(max_num_shards);
+        let spice_core_reader =
+            SpiceCoreReader::new(chain_store.store().chain_store(), epoch_manager.clone());
         Ok(Chain {
             clock: clock.clone(),
             chain_store,
@@ -597,7 +594,7 @@ impl Chain {
             snapshot_callbacks,
             resharding_manager,
             validator_signer,
-            spice_core_processor,
+            spice_core_reader,
             protocol_version_check: chain_config.protocol_version_check,
             on_post_state_ready_sender,
         })
@@ -1444,7 +1441,6 @@ impl Chain {
             self.epoch_manager.clone(),
             self.runtime_adapter.clone(),
             self.doomslug_threshold_mode,
-            self.spice_core_processor.clone(),
         )
     }
 
@@ -2377,9 +2373,7 @@ impl Chain {
         self.check_if_finalizable(header)?;
 
         if cfg!(feature = "protocol_feature_spice") {
-            self.spice_core_processor
-                .validate_core_statements_in_block(&block)
-                .map_err(Box::new)?;
+            self.spice_core_reader.validate_core_statements_in_block(&block).map_err(Box::new)?;
         } else {
             if block.is_spice_block() {
                 return Err(Error::Other(
@@ -3922,7 +3916,6 @@ pub fn collect_receipts_from_response(
     )
 }
 
-#[derive(Message)]
 pub struct BlockCatchUpRequest {
     pub sync_hash: CryptoHash,
     pub block_hash: CryptoHash,
@@ -3942,14 +3935,14 @@ impl Debug for BlockCatchUpRequest {
     }
 }
 
-#[derive(Message, Debug)]
+#[derive(Debug)]
 pub struct BlockCatchUpResponse {
     pub sync_hash: CryptoHash,
     pub block_hash: CryptoHash,
     pub results: Vec<(ShardId, Result<ShardUpdateResult, Error>)>,
 }
 
-#[derive(Message, Debug)]
+#[derive(Debug)]
 pub struct ChunkStateWitnessMessage {
     pub witness: ChunkStateWitness,
     pub raw_witness_size: ChunkStateWitnessSize,

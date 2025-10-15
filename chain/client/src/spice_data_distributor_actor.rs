@@ -6,14 +6,14 @@ use std::sync::Arc;
 use borsh::BorshDeserialize;
 use borsh::BorshSerialize;
 use lru::LruCache;
-use near_async::Message;
 use near_async::MultiSend;
 use near_async::MultiSenderFrom;
 use near_async::messaging::CanSend;
 use near_async::messaging::Handler;
 use near_async::messaging::Sender;
 use near_chain::Block;
-use near_chain::spice_core::CoreStatementsProcessor;
+use near_chain::spice_core::SpiceCoreReader;
+use near_chain::spice_core_writer_actor::ProcessedBlock;
 use near_chain_configs::MutableValidatorSigner;
 use near_epoch_manager::EpochManagerAdapter;
 use near_network::spice_data_distribution::SpiceIncomingPartialData;
@@ -44,7 +44,6 @@ use near_store::adapter::StoreAdapter;
 use near_store::adapter::chain_store::ChainStoreAdapter;
 
 use crate::chunk_executor_actor::ExecutorIncomingUnverifiedReceipts;
-use crate::chunk_executor_actor::ProcessedBlock;
 use crate::chunk_executor_actor::receipt_proof_exists;
 use crate::spice_chunk_validator_actor::SpiceChunkStateWitnessMessage;
 
@@ -137,7 +136,7 @@ impl ReceiveDataError {
 pub struct SpiceDataDistributorActor {
     chain_store: ChainStoreAdapter,
     epoch_manager: Arc<dyn EpochManagerAdapter>,
-    pub(crate) core_processor: CoreStatementsProcessor,
+    pub(crate) core_reader: SpiceCoreReader,
     rs_encoders: ReedSolomonEncoderCache,
     validator_signer: MutableValidatorSigner,
 
@@ -176,13 +175,13 @@ impl ReedSolomonEncoderSerialize for SpiceData {}
 
 impl ReedSolomonEncoderDeserialize for SpiceData {}
 
-#[derive(Message, Debug)]
+#[derive(Debug)]
 pub struct SpiceDistributorOutgoingReceipts {
     pub block_hash: CryptoHash,
     pub receipt_proofs: Vec<ReceiptProof>,
 }
 
-#[derive(Message, Debug)]
+#[derive(Debug)]
 pub struct SpiceDistributorStateWitness {
     pub state_witness: SpiceChunkStateWitness,
 }
@@ -257,7 +256,6 @@ impl SpiceDataDistributorActor {
     pub fn new(
         epoch_manager: Arc<dyn EpochManagerAdapter>,
         chain_store: ChainStoreAdapter,
-        core_processor: CoreStatementsProcessor,
         validator_signer: MutableValidatorSigner,
         network_adapter: PeerManagerAdapter,
         executor_sender: Sender<ExecutorIncomingUnverifiedReceipts>,
@@ -265,6 +263,7 @@ impl SpiceDataDistributorActor {
     ) -> Self {
         const DATA_PARTS_RATIO: f64 = 0.6;
         const PENDING_PARTIAL_DATA_CAP: NonZeroUsize = NonZeroUsize::new(10).unwrap();
+        let core_reader = SpiceCoreReader::new(chain_store.clone(), epoch_manager.clone());
         Self {
             // TODO(spice): Evaluate whether the same data parts ratio makes sense for all data
             // distributed.
@@ -272,7 +271,7 @@ impl SpiceDataDistributorActor {
             data_parts: HashMap::new(),
             epoch_manager,
             chain_store,
-            core_processor,
+            core_reader,
             validator_signer,
             network_adapter,
             executor_sender,
@@ -592,7 +591,7 @@ impl SpiceDataDistributorActor {
                 debug_assert_eq!(block_hash, block.hash());
                 // TODO(spice): Check for unsuccessful validations as well.
                 if self
-                    .core_processor
+                    .core_reader
                     .endorsement_exists(block_hash, *shard_id, me)
                     .map_err(near_chain::Error::from)?
                 {

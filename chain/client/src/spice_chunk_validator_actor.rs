@@ -4,8 +4,9 @@ use std::sync::Arc;
 
 use near_async::futures::{AsyncComputationSpawner, AsyncComputationSpawnerExt as _};
 use near_async::messaging::{Handler, IntoSender as _, Sender};
-use near_async::{Message, MultiSend, MultiSenderFrom};
-use near_chain::spice_core::{CoreStatementsProcessor, ExecutionResultEndorsed};
+use near_async::{MultiSend, MultiSenderFrom};
+use near_chain::spice_core::SpiceCoreReader;
+use near_chain::spice_core_writer_actor::{ExecutionResultEndorsed, ProcessedBlock};
 use near_chain::stateless_validation::spice_chunk_validation::{
     spice_pre_validate_chunk_state_witness, spice_validate_chunk_state_witness,
 };
@@ -13,6 +14,7 @@ use near_chain::types::RuntimeAdapter;
 use near_chain::{ApplyChunksSpawner, Block, ChainGenesis, ChainStore, Error};
 use near_chain_configs::MutableValidatorSigner;
 use near_epoch_manager::EpochManagerAdapter;
+use near_network::client::SpiceChunkEndorsementMessage;
 use near_network::types::{NetworkRequests, PeerManagerAdapter, PeerManagerMessageRequest};
 use near_o11y::span_wrapped_msg::SpanWrapped;
 use near_performance_metrics_macros::perf;
@@ -24,8 +26,7 @@ use near_primitives::types::BlockExecutionResults;
 use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_store::Store;
-
-use crate::chunk_executor_actor::ProcessedBlock;
+use near_store::adapter::StoreAdapter as _;
 
 pub struct SpiceChunkValidatorActor {
     chain_store: ChainStore,
@@ -34,14 +35,15 @@ pub struct SpiceChunkValidatorActor {
     network_adapter: PeerManagerAdapter,
 
     validator_signer: MutableValidatorSigner,
-    core_processor: CoreStatementsProcessor,
+    core_reader: SpiceCoreReader,
+    core_writer_sender: Sender<SpiceChunkEndorsementMessage>,
 
     /// Map holding witnesses we cannot process yet keyed by the block hash witness is for.
     pending_witnesses: HashMap<CryptoHash, Vec<SpiceChunkStateWitness>>,
     validation_spawner: Arc<dyn AsyncComputationSpawner>,
 }
 
-#[derive(Message, Debug)]
+#[derive(Debug)]
 pub struct SpiceChunkStateWitnessMessage {
     pub witness: SpiceChunkStateWitness,
     pub raw_witness_size: ChunkStateWitnessSize,
@@ -57,9 +59,10 @@ impl SpiceChunkValidatorActor {
         epoch_manager: Arc<dyn EpochManagerAdapter>,
         network_adapter: PeerManagerAdapter,
         validator_signer: MutableValidatorSigner,
-        core_processor: CoreStatementsProcessor,
+        core_writer_sender: Sender<SpiceChunkEndorsementMessage>,
         validation_spawner: ApplyChunksSpawner,
     ) -> Self {
+        let core_reader = SpiceCoreReader::new(store.chain_store(), epoch_manager.clone());
         // TODO(spice): Assess if this limit still makes sense for spice.
         // See ChunkValidator::new in c/c/s/s/chunk_validator/mod.rs for rationale used currently.
         let validation_thread_limit =
@@ -71,7 +74,8 @@ impl SpiceChunkValidatorActor {
             epoch_manager,
             network_adapter,
             validator_signer,
-            core_processor,
+            core_reader,
+            core_writer_sender,
             validation_spawner: validation_spawner.into_spawner(validation_thread_limit),
         }
     }
@@ -186,7 +190,7 @@ impl SpiceChunkValidatorActor {
         let prev_block = self.chain_store.get_block(block.header().prev_hash())?;
 
         let Some(prev_block_execution_results) =
-            self.core_processor.get_block_execution_results(&prev_block)?
+            self.core_reader.get_block_execution_results(&prev_block)?
         else {
             tracing::debug!(
                 target: "spice_chunk_validator",
@@ -211,7 +215,7 @@ impl SpiceChunkValidatorActor {
         let prev_hash = *block.header().prev_hash();
         let prev_block = self.chain_store.get_block(&prev_hash)?;
         let Some(prev_block_execution_results) =
-            self.core_processor.get_block_execution_results(&prev_block)?
+            self.core_reader.get_block_execution_results(&prev_block)?
         else {
             tracing::debug!(
                 target: "spice_chunk_validator",
@@ -271,8 +275,8 @@ impl SpiceChunkValidatorActor {
         let epoch_manager = self.epoch_manager.clone();
         let runtime_adapter = self.runtime_adapter.clone();
         let network_sender = self.network_adapter.clone().into_sender();
-        let core_processor = self.core_processor.clone();
         let block_height = block.header().height();
+        let core_writer_sender = self.core_writer_sender.clone();
         self.validation_spawner.spawn("spice_stateless_validation", move || {
             // TODO(spice): Implement saving of invalid witnesses.
             let chunk_execution_result = match spice_validate_chunk_state_witness(
@@ -308,9 +312,7 @@ impl SpiceChunkValidatorActor {
                 &network_sender,
                 &signer,
             );
-            core_processor
-                .process_chunk_endorsement(endorsement)
-                .expect("Node should always be able to record it's own endorsement");
+            core_writer_sender.send(SpiceChunkEndorsementMessage(endorsement));
         });
         Ok(())
     }

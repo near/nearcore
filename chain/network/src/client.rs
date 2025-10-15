@@ -1,7 +1,7 @@
 use crate::network_protocol::StateResponseInfo;
 use crate::types::{NetworkInfo, ReasonForBan};
 use near_async::messaging::{AsyncSender, Sender};
-use near_async::{Message, MultiSend, MultiSenderFrom};
+use near_async::{MultiSend, MultiSenderFrom};
 use near_o11y::span_wrapped_msg::SpanWrapped;
 use near_primitives::block::{Approval, Block, BlockHeader};
 use near_primitives::epoch_sync::CompressedEpochSyncProof;
@@ -18,48 +18,48 @@ use near_primitives::views::FinalExecutionOutcomeView;
 use std::sync::Arc;
 
 /// Transaction status query
-#[derive(Message, Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TxStatusRequest {
     pub tx_hash: CryptoHash,
     pub signer_account_id: AccountId,
 }
 
 /// Transaction status response
-#[derive(Message, Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TxStatusResponse(pub Box<FinalExecutionOutcomeView>);
 
 /// Request a block.
-#[derive(Message, Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BlockRequest(pub CryptoHash);
 
 /// Block response.
-#[derive(Message, Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BlockResponse {
     pub block: Arc<Block>,
     pub peer_id: PeerId,
     pub was_requested: bool,
 }
 
-#[derive(Message, Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BlockApproval(pub Approval, pub PeerId);
 
 /// Request headers.
-#[derive(Message, Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BlockHeadersRequest(pub Vec<CryptoHash>);
 
 /// Headers response.
-#[derive(Message, Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BlockHeadersResponse(pub Vec<Arc<BlockHeader>>, pub PeerId);
 
 /// State request header.
-#[derive(Message, Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StateRequestHeader {
     pub shard_id: ShardId,
     pub sync_hash: CryptoHash,
 }
 
 /// State request part.
-#[derive(Message, Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StateRequestPart {
     pub shard_id: ShardId,
     pub sync_hash: CryptoHash,
@@ -103,16 +103,16 @@ impl StateResponse {
     }
 }
 
-#[derive(Message, Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StateResponseReceived {
     pub peer_id: PeerId,
     pub state_response: StateResponse,
 }
 
-#[derive(Message, Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SetNetworkInfo(pub NetworkInfo);
 
-#[derive(Message, Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProcessTxRequest {
     pub transaction: SignedTransaction,
     pub is_forwarded: bool,
@@ -137,27 +137,27 @@ pub enum ProcessTxResponse {
 /// Account announcements that needs to be validated before being processed.
 /// They are paired with last epoch id known to this announcement, in order to accept only
 /// newer announcements.
-#[derive(Message, Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AnnounceAccountRequest(pub Vec<(AnnounceAccount, Option<EpochId>)>);
 
-#[derive(Message, Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ChunkEndorsementMessage(pub ChunkEndorsement);
 
-#[derive(Message, Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SpiceChunkEndorsementMessage(pub SpiceChunkEndorsement);
 
-#[derive(Message, Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EpochSyncRequestMessage {
     pub from_peer: PeerId,
 }
 
-#[derive(Message, Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EpochSyncResponseMessage {
     pub from_peer: PeerId,
     pub proof: CompressedEpochSyncProof,
 }
 
-#[derive(Message, Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OptimisticBlockMessage {
     pub optimistic_block: OptimisticBlock,
     pub from_peer: PeerId,
@@ -178,7 +178,6 @@ pub struct ClientSenderForNetwork {
     pub announce_account:
         AsyncSender<AnnounceAccountRequest, Result<Vec<AnnounceAccount>, ReasonForBan>>,
     pub chunk_endorsement: AsyncSender<ChunkEndorsementMessage, ()>,
-    pub spice_chunk_endorsement: AsyncSender<SpiceChunkEndorsementMessage, ()>,
     pub epoch_sync_request: Sender<EpochSyncRequestMessage>,
     pub epoch_sync_response: Sender<EpochSyncResponseMessage>,
     pub optimistic_block_receiver: Sender<SpanWrapped<OptimisticBlockMessage>>,

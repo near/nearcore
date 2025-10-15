@@ -2,6 +2,7 @@ use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 
 use near_async::time::{Clock, Duration};
+use near_primitives::version::ProtocolFeature;
 use parking_lot::RwLock;
 use rocksdb::DB;
 use tokio::sync::mpsc;
@@ -47,6 +48,7 @@ pub async fn build_streamer_message(
     let chunks = client.fetch_block_new_chunks(&block, shard_tracker).await?;
 
     let protocol_config_view = client.fetch_protocol_config(block.header.hash).await?;
+    let protocol_version = protocol_config_view.protocol_version;
     let shard_ids = protocol_config_view.shard_layout.shard_ids();
 
     let runtime_config_store = near_parameters::RuntimeConfigStore::new(None);
@@ -84,9 +86,19 @@ pub async fn build_streamer_message(
         let indexer_transactions = transactions
             .into_iter()
             .filter_map(|transaction| {
-                let outcome = outcomes.remove(&transaction.hash)?;
-                debug_assert!(!outcome.execution_outcome.outcome.receipt_ids.is_empty());
-                Some(IndexerTransactionWithOutcome { outcome, transaction })
+                let outcome = outcomes.remove(&transaction.hash);
+                if outcome.is_none()
+                    && ProtocolFeature::InvalidTxGenerateOutcomes.enabled(protocol_version)
+                {
+                    error!(
+                        target: INDEXER,
+                        tx_hash = %transaction.hash,
+                        shard_id = %header.shard_id,
+                        block_hash = %block.header.hash,
+                        "unexpected missing transaction outcome"
+                    );
+                }
+                outcome.map(|outcome| IndexerTransactionWithOutcome { outcome, transaction })
             })
             .collect::<Vec<IndexerTransactionWithOutcome>>();
         // All transaction outcomes have been removed.

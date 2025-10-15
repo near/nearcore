@@ -1,7 +1,7 @@
 use crate::ActorSystem;
 use crate::instrumentation::all_actor_instrumentations_view;
 use crate::instrumentation::test_utils::get_total_times;
-use crate::messaging::{Actor, CanSend, CanSendAsync, Handler, Message};
+use crate::messaging::{Actor, CanSend, CanSendAsync, Handler};
 use futures::executor::block_on;
 use near_time::Clock;
 use std::sync::Arc;
@@ -18,8 +18,6 @@ fn test_multithread_actor_basic() {
     struct MessageA(String);
     #[derive(Debug)]
     struct MessageB(i32);
-    impl Message for MessageA {}
-    impl Message for MessageB {}
 
     impl Handler<MessageA> for MyActor {
         fn handle(&mut self, msg: MessageA) {
@@ -51,7 +49,6 @@ fn test_multithread_actor_multithreading() {
 
     #[derive(Debug, Clone)]
     struct MessageA(Arc<Semaphore>, Arc<Semaphore>);
-    impl Message for MessageA {}
 
     impl Handler<MessageA> for MyActor {
         fn handle(&mut self, msg: MessageA) {
@@ -101,7 +98,6 @@ fn test_instrumentation() {
     struct MessageA {
         delay: Duration,
     }
-    impl Message for MessageA {}
 
     impl Handler<MessageA> for MyActor {
         fn handle(&mut self, msg: MessageA) {
