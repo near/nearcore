@@ -2,6 +2,7 @@ use crate::futures::{DelayedActionRunner, FutureSpawner};
 use crate::instrumentation::queue::InstrumentedQueue;
 use crate::instrumentation::writer::InstrumentedThreadWriterSharedPart;
 use crate::messaging::Actor;
+use crate::pretty_type_name;
 use crate::tokio::runtime::AsyncDroppableRuntime;
 use std::sync::Arc;
 use std::time::Duration;
@@ -171,11 +172,13 @@ impl<A: Actor + Send + 'static> TokioRuntimeBuilder<A> {
             loop {
                 tokio::select! {
                     _ = self.system_cancellation_signal.cancelled() => {
-                        tracing::info!(target: "tokio_runtime", "Shutting down Tokio runtime due to ActorSystem shutdown");
+                        let actor_name = pretty_type_name::<A>();
+                        tracing::info!(target: "tokio_runtime", actor_name, "Shutting down Tokio runtime due to ActorSystem shutdown");
                         break;
                     }
                     _ = runtime_handle.cancel.cancelled() => {
-                        tracing::debug!(target: "tokio_runtime", "Shutting down Tokio runtime due to targeted cancellation");
+                        let actor_name = pretty_type_name::<A>();
+                        tracing::info!(target: "tokio_runtime", actor_name, "Shutting down Tokio runtime due to targeted cancellation");
                         break;
                     }
                     _ = window_update_timer.tick() => {
