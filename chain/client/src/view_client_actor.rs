@@ -345,11 +345,24 @@ impl ViewClientActorInner {
         let header = {
             // FIXME: unwrap()
             let mut block = self.chain.get_block(header.hash()).unwrap();
+
             // FIXME: Use headers: only need epoch_id and block hash to be fair so having only
             // block_hash with epoch_manager extracting epoch_id based on that may work as well
-            while !self.chain.spice_core_reader.all_execution_results_exist(&block).unwrap()
-                && !block.header().is_genesis()
-            {
+            while !block.header().is_genesis() {
+                let shard_id = self
+                    .query_shard_uid(&msg.request, *header.epoch_id())
+                    .map_err(|err| QueryError::InternalError { error_message: err.to_string() })?;
+                let shard_uid =
+                    shard_id_to_uid(self.epoch_manager.as_ref(), shard_id, header.epoch_id())
+                        .map_err(|err| QueryError::InternalError {
+                            error_message: err.to_string(),
+                        })?;
+
+                match self.chain.get_chunk_extra(header.hash(), &shard_uid) {
+                    Ok(_) => break,
+                    Err(near_chain::Error::DBNotFoundErr(_)) => {}
+                    Err(err) => panic!("{err:?}"),
+                }
                 // FIXME: unwrap()
                 block = self.chain.get_block(block.header().prev_hash()).unwrap();
             }
