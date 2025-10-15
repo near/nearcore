@@ -5,8 +5,7 @@ use std::sync::atomic::AtomicBool;
 
 use near_async::time::Duration;
 use near_chain::types::{
-    PrepareTransactionsBlockContext, PrepareTransactionsLimit, PreparedTransactions,
-    RuntimeAdapter, SkippedTransactions,
+    PrepareTransactionsBlockContext, PrepareTransactionsLimit, PreparedTransactions, RuntimeAdapter,
 };
 use near_chunks::client::ShardedTransactionPool;
 use near_client_primitives::types::Error;
@@ -97,7 +96,6 @@ impl PrepareTransactionsJob {
             *state = previous_state;
             return;
         };
-
         let tx_pool = inputs.tx_pool.clone();
         let mut tx_pool_guard = tx_pool.lock();
 
@@ -126,17 +124,40 @@ impl PrepareTransactionsJob {
 
         // Run the job. The state is locked so no other methods will read or modify it
         // until the preparation finishes.
-        let result = self.do_prepare_transactions(inputs, &mut *tx_pool_guard);
-
-        match result {
-            Ok(prepared) if prepared.limited_by == Some(PrepareTransactionsLimit::Cancelled) => {
-                // In case of cancelled preparation discard the result
-                *state = PrepareTransactionsJobState::Cancelled;
-            }
-            good_result => {
-                *state = PrepareTransactionsJobState::Finished(good_result);
-            }
+        let Some(mut iter) = tx_pool_guard.get_pool_iterator(inputs.shard_uid) else {
+            let result = PreparedTransactions { transactions: Vec::new(), limited_by: None };
+            *state = PrepareTransactionsJobState::Finished(Ok(result));
+            return;
         };
+        let result = inputs.runtime_adapter.prepare_transactions_extra(
+            inputs.state,
+            inputs.shard_uid.shard_id(),
+            inputs.prev_block_context,
+            &mut iter,
+            &inputs.tx_validity_period_check,
+            inputs.prev_chunk_tx_hashes,
+            inputs.time_limit,
+            Some((&self).cancel.clone()),
+        );
+        drop(iter);
+        match result {
+            Ok((prepared, skipped)) => {
+                *state = if prepared.limited_by == Some(PrepareTransactionsLimit::Cancelled) {
+                    // In case of cancelled preparation discard the result
+                    PrepareTransactionsJobState::Cancelled
+                } else {
+                    PrepareTransactionsJobState::Finished(Ok(prepared.clone()))
+                };
+                // Allow `take_result` to proceed before we reintroduce transactions. The
+                // transaction pools are still locked so there is no risk of inconsistent data.
+                drop(state);
+                tx_pool_guard.reintroduce_transactions(inputs.shard_uid, prepared.transactions);
+                tx_pool_guard.reintroduce_transactions(inputs.shard_uid, skipped.0);
+            }
+            Err(e) => {
+                *state = PrepareTransactionsJobState::Finished(Err(e.into()));
+            }
+        }
     }
 
     /// Take the finished job result.
@@ -164,34 +185,6 @@ impl PrepareTransactionsJob {
         self.cancel.store(true, std::sync::atomic::Ordering::Relaxed);
         // We may already have the data here, shouldn't be necessary to discard it all...
         *self.state.lock() = PrepareTransactionsJobState::Cancelled;
-    }
-
-    fn do_prepare_transactions(
-        &self,
-        inputs: PrepareTransactionsJobInputs,
-        tx_pool: &mut ShardedTransactionPool,
-    ) -> Result<PreparedTransactions, Error> {
-        let (prepared, skipped) =
-            if let Some(mut iter) = tx_pool.get_pool_iterator(inputs.shard_uid) {
-                inputs.runtime_adapter.prepare_transactions_extra(
-                    inputs.state,
-                    inputs.shard_uid.shard_id(),
-                    inputs.prev_block_context,
-                    &mut iter,
-                    &inputs.tx_validity_period_check,
-                    inputs.prev_chunk_tx_hashes,
-                    inputs.time_limit,
-                    Some(self.cancel.clone()),
-                )?
-            } else {
-                (
-                    PreparedTransactions { transactions: Vec::new(), limited_by: None },
-                    SkippedTransactions(Vec::new()),
-                )
-            };
-        tx_pool.reintroduce_transactions(inputs.shard_uid, prepared.transactions.clone());
-        tx_pool.reintroduce_transactions(inputs.shard_uid, skipped.0);
-        Ok(prepared)
     }
 }
 
