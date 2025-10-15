@@ -518,7 +518,8 @@ each instance. Only messages implementing <code>Message</code>, can be sent
 using between threads. Each actor has its own queue; Processing of messages
 happens asynchronously.</p>
 <p>We should not leak implementation details into the spec.</p>
-<p>Actor messages can be found by looking for <code>#[derive(Message)]</code>.</p>
+<p>Actor messages can be found by looking for structs used with the async messaging helpers (for
+example types that appear in <code>Handler&lt;...&gt;</code> implementations or multi-sender definitions).</p>
 <h2 id="102-messages-sent-through-tcp"><a class="header" href="#102-messages-sent-through-tcp">10.2 Messages sent through TCP</a></h2>
 <p>Near is using <code>borsh</code> serialization to exchange messages between nodes (See
 <a href="https://borsh.io/">borsh.io</a>). We should be careful when making changes to
