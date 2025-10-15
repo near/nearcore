@@ -982,7 +982,7 @@ impl SpiceDataDistributorActor {
         let Some(data) = self.recent_distribution_data.get(&data_id) else {
             // TODO(spice): Make sure we send requests for data only after we know it may be
             // available and make this into error.
-            tracing::debug!(target:"spice_data_distribution", ?data_id, ?requester,"received request for unknown data");
+            tracing::debug!(target:"spice_data_distribution", ?data_id, ?requester, "received request for unknown data");
             return Ok(());
         };
         // TODO(spice): Check that requester is one of the recipients and implement a
