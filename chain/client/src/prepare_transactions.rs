@@ -92,54 +92,51 @@ impl PrepareTransactionsJob {
     /// Run the job to prepare transactions.
     pub fn run_job(&self) {
         let mut state = self.state.lock();
-        if let PrepareTransactionsJobState::NotStarted(_) = &*state {
-            match std::mem::replace(&mut *state, PrepareTransactionsJobState::Running) {
-                PrepareTransactionsJobState::NotStarted(inputs) => {
-                    let tx_pool = inputs.tx_pool.clone();
-                    let mut tx_pool_guard = tx_pool.lock();
+        let previous_state = std::mem::replace(&mut *state, PrepareTransactionsJobState::Running);
+        let PrepareTransactionsJobState::NotStarted(inputs) = previous_state else {
+            *state = previous_state;
+            return;
+        };
 
-                    // Usually the prepare transactions job runs in parallel with chunk application, before the
-                    // block that contains the applied chunk is postprocessed.
-                    //
-                    // However in rare cases (weird thread scheduling, testloop reordering things) it might
-                    // happen that the job starts after the block is postprocessed.
-                    //
-                    // In such cases it's better to discard the job and prepare transactions the normal way, in
-                    // `produce_chunk` which happens right after postprocessing the block.
-                    //
-                    // This is because the job is not aware of the block that was just postprocessed. If we run
-                    // the job, there's a risk that transactions that were created using the latest
-                    // postprocessed block will be rejected because the job isn't aware of the latest block.
-                    // This happens is some testloop tests and makes them fail.
-                    if let Ok(_hash) = inputs
-                        .runtime_adapter
-                        .store()
-                        .chain_store()
-                        .get_block_hash_by_height(inputs.prev_block_context.height)
-                    {
-                        *state = PrepareTransactionsJobState::NotStartedInTime;
-                        return;
-                    }
+        let tx_pool = inputs.tx_pool.clone();
+        let mut tx_pool_guard = tx_pool.lock();
 
-                    // Run the job. The state is locked so no other methods will read or modify it
-                    // until the preparation finishes.
-                    let result = self.do_prepare_transactions(inputs, &mut *tx_pool_guard);
-
-                    match result {
-                        Ok(prepared)
-                            if prepared.limited_by == Some(PrepareTransactionsLimit::Cancelled) =>
-                        {
-                            // In case of cancelled preparation discard the result
-                            *state = PrepareTransactionsJobState::Cancelled;
-                        }
-                        good_result => {
-                            *state = PrepareTransactionsJobState::Finished(good_result);
-                        }
-                    };
-                }
-                _ => unreachable!(),
-            }
+        // Usually the prepare transactions job runs in parallel with chunk application, before the
+        // block that contains the applied chunk is postprocessed.
+        //
+        // However in rare cases (weird thread scheduling, testloop reordering things) it might
+        // happen that the job starts after the block is postprocessed.
+        //
+        // In such cases it's better to discard the job and prepare transactions the normal way, in
+        // `produce_chunk` which happens right after postprocessing the block.
+        //
+        // This is because the job is not aware of the block that was just postprocessed. If we run
+        // the job, there's a risk that transactions that were created using the latest
+        // postprocessed block will be rejected because the job isn't aware of the latest block.
+        // This happens is some testloop tests and makes them fail.
+        if let Ok(_hash) = inputs
+            .runtime_adapter
+            .store()
+            .chain_store()
+            .get_block_hash_by_height(inputs.prev_block_context.height)
+        {
+            *state = PrepareTransactionsJobState::NotStartedInTime;
+            return;
         }
+
+        // Run the job. The state is locked so no other methods will read or modify it
+        // until the preparation finishes.
+        let result = self.do_prepare_transactions(inputs, &mut *tx_pool_guard);
+
+        match result {
+            Ok(prepared) if prepared.limited_by == Some(PrepareTransactionsLimit::Cancelled) => {
+                // In case of cancelled preparation discard the result
+                *state = PrepareTransactionsJobState::Cancelled;
+            }
+            good_result => {
+                *state = PrepareTransactionsJobState::Finished(good_result);
+            }
+        };
     }
 
     /// Take the finished job result.
@@ -165,6 +162,7 @@ impl PrepareTransactionsJob {
     /// Cancel the job.
     fn cancel(&self) {
         self.cancel.store(true, std::sync::atomic::Ordering::Relaxed);
+        // We may already have the data here, shouldn't be necessary to discard it all...
         *self.state.lock() = PrepareTransactionsJobState::Cancelled;
     }
 
