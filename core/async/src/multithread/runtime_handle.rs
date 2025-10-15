@@ -1,4 +1,5 @@
 use crate::messaging::Actor;
+use crate::pretty_type_name;
 use std::sync::Arc;
 
 /// MultithreadRuntimeMessage is a type alias for a boxed function that can be sent to the multithread runtime,
@@ -66,12 +67,14 @@ where
         loop {
             crossbeam_channel::select! {
                 recv(cancellation_signal) -> _ => {
-                    tracing::info!(target: "multithread_runtime", "cancellation received, exiting loop.");
+                    let actor_name = pretty_type_name::<A>();
+                    tracing::info!(target: "multithread_runtime", actor_name, "cancellation received, exiting loop.");
                     return;
                 }
                 recv(receiver) -> message => {
                     let Ok(message) = message else {
-                        tracing::warn!(target: "multithread_runtime", "message queue closed, exiting event loop.");
+                    let actor_name = pretty_type_name::<A>();
+                        tracing::warn!(target: "multithread_runtime", actor_name, "message queue closed, exiting event loop.");
                         return;
                     };
                     let seq = message.seq;

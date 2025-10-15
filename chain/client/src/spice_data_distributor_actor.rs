@@ -7,7 +7,6 @@ use borsh::BorshDeserialize;
 use borsh::BorshSerialize;
 use itertools::Itertools as _;
 use lru::LruCache;
-use near_async::Message;
 use near_async::MultiSend;
 use near_async::MultiSenderFrom;
 use near_async::futures::DelayedActionRunner;
@@ -230,13 +229,13 @@ impl ReedSolomonEncoderSerialize for SpiceData {}
 
 impl ReedSolomonEncoderDeserialize for SpiceData {}
 
-#[derive(Message, Debug)]
+#[derive(Debug)]
 pub struct SpiceDistributorOutgoingReceipts {
     pub block_hash: CryptoHash,
     pub receipt_proofs: Vec<ReceiptProof>,
 }
 
-#[derive(Message, Debug)]
+#[derive(Debug)]
 pub struct SpiceDistributorStateWitness {
     pub state_witness: SpiceChunkStateWitness,
 }

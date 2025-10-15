@@ -43,7 +43,7 @@ use near_primitives::errors::{
 };
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{
-    ActionReceipt, DataReceipt, PromiseYieldIndices, PromiseYieldTimeout, Receipt, ReceiptEnum,
+    DataReceipt, PromiseYieldIndices, PromiseYieldTimeout, Receipt, ReceiptEnum,
     ReceiptOrStateStoredReceipt, ReceiptV0, ReceivedData, VersionedActionReceipt,
     VersionedReceiptEnum,
 };
@@ -339,10 +339,7 @@ impl Runtime {
         if log.is_empty() {
             return;
         }
-        let log_str = log.iter().fold(String::new(), |acc, s| {
-            if acc.is_empty() { s.to_string() } else { acc + "\n" + s }
-        });
-        debug!(target: "runtime", "{}", log_str);
+        debug!(target: "runtime", "{}", log.join("\n"));
     }
 
     fn apply_action(
@@ -1762,19 +1759,14 @@ impl Runtime {
                     tx_hash,
                     processing_state.apply_state.block_height,
                 );
-                let receipt = Receipt::V0(ReceiptV0 {
-                    predecessor_id: signer_id.clone(),
-                    receiver_id: tx.transaction.receiver_id().clone(),
+                let receipt = Receipt::from_tx(
                     receipt_id,
-                    receipt: ReceiptEnum::Action(ActionReceipt {
-                        signer_id: signer_id.clone(),
-                        signer_public_key: pubkey.clone(),
-                        gas_price: verification_result.receipt_gas_price,
-                        output_data_receivers: vec![],
-                        input_data_ids: vec![],
-                        actions: tx.transaction.actions().to_vec(),
-                    }),
-                });
+                    signer_id.clone(),
+                    tx.transaction.receiver_id().clone(),
+                    pubkey.clone(),
+                    verification_result.receipt_gas_price,
+                    tx.transaction.actions().to_vec(),
+                );
                 let gas_burnt = verification_result.gas_burnt;
                 let compute_usage = gas_burnt.as_gas();
                 let outcome = ExecutionOutcomeWithId {
