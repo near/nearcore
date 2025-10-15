@@ -270,10 +270,12 @@ fn simulate_single_outgoing_message(actors: &mut [TestActor], message: &Outgoing
         }) => {
             for receipt_proof in receipt_proofs {
                 actors.iter_mut().for_each(|actor| {
-                    actor.handle_with_internal_events(ExecutorIncomingUnverifiedReceipts {
-                        block_hash: *block_hash,
-                        receipt_proof: receipt_proof.clone(),
-                    });
+                    if actor.actor.validator_signer.get().is_some() {
+                        actor.handle_with_internal_events(ExecutorIncomingUnverifiedReceipts {
+                            block_hash: *block_hash,
+                            receipt_proof: receipt_proof.clone(),
+                        });
+                    }
                 });
             }
         }
@@ -406,6 +408,23 @@ fn test_executing_blocks() {
     for (i, block) in blocks.iter().enumerate() {
         for actor in &mut actors {
             assert!(!block_executed(&actor, &block), "block #{} is already executed", i + 1);
+            actor
+                .handle_with_internal_events(ProcessedBlock { block_hash: *block.header().hash() });
+            assert!(block_executed(&actor, &block), "failed to execute block #{}", i + 1);
+        }
+        simulate_outgoing_messages(&mut actors, &mut outgoing_rc);
+        record_endorsements(&mut actors, &block);
+    }
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_non_validator_executing_blocks() {
+    let (outgoing_sc, mut outgoing_rc) = unbounded();
+    let mut actors = setup_with_non_validator(outgoing_sc);
+    let blocks = produce_n_blocks(&mut actors, 5);
+    for (i, block) in blocks.iter().enumerate() {
+        for actor in &mut actors {
             actor
                 .handle_with_internal_events(ProcessedBlock { block_hash: *block.header().hash() });
             assert!(block_executed(&actor, &block), "failed to execute block #{}", i + 1);
