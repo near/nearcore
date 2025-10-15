@@ -1108,7 +1108,11 @@ impl From<ShardChunkHeader> for ChunkHeaderView {
             chunk_hash: hash,
             prev_block_hash: *inner.prev_block_hash(),
             outcome_root: *inner.prev_outcome_root(),
-            prev_state_root: *inner.prev_state_root(),
+            prev_state_root: if cfg!(feature = "protocol_feature_spice") {
+                CryptoHash::default()
+            } else {
+                *inner.prev_state_root()
+            },
             encoded_merkle_root: *inner.encoded_merkle_root(),
             encoded_length: inner.encoded_length(),
             height_created: inner.height_created(),
