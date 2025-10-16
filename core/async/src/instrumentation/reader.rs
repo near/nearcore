@@ -248,20 +248,3 @@ impl InstrumentedThread {
         }
     }
 }
-
-impl AllActorInstrumentations {
-    pub fn to_view(&self, clock: &Clock) -> InstrumentedThreadsView {
-        #[allow(clippy::needless_collect)] // to avoid long locking
-        let threads = self.threads.read().values().cloned().collect::<Vec<_>>();
-        let current_time_ns = clock.now().duration_since(self.reference_instant).as_nanos() as u64;
-        let current_time_unix_ms = (clock.now_utc().unix_timestamp_nanos() / 1000000) as u64;
-        let mut threads =
-            threads.into_iter().map(|thread| thread.to_view(current_time_ns)).collect::<Vec<_>>();
-        threads.sort_by_key(|thread| -(thread.active_time_ns as i128));
-        InstrumentedThreadsView {
-            current_time_unix_ms,
-            current_time_relative_ms: current_time_ns / 1_000_000,
-            threads,
-        }
-    }
-}

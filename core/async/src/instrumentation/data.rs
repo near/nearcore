@@ -3,18 +3,39 @@ use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, LazyLock};
 use std::time::Instant;
 
+use near_time::Clock;
 use parking_lot::RwLock;
 
 use crate::instrumentation::queue::InstrumentedQueue;
+use crate::instrumentation::reader::InstrumentedThreadsView;
 use crate::instrumentation::{NUM_WINDOWS, WINDOW_SIZE_NS};
 /// it needs to be at least NUM_WINDOWS + 1, but we round up to a power of two for efficiency
 const WINDOW_ARRAY_SIZE: usize = NUM_WINDOWS + 4;
 
+/// Top-level struct containing all actor instrumentations.
 pub struct AllActorInstrumentations {
     /// This is the instant that all timestamps are in reference to.
     pub reference_instant: Instant,
     /// Map from the actor's unique identifier to its instrumentation data.
     pub threads: RwLock<HashMap<usize, Arc<InstrumentedThread>>>,
+}
+
+impl AllActorInstrumentations {
+    /// Converts the entire data structure into a view that can be serialized.
+    pub fn to_view(&self, clock: &Clock) -> InstrumentedThreadsView {
+        #[allow(clippy::needless_collect)] // to avoid long locking
+        let threads = self.threads.read().values().cloned().collect::<Vec<_>>();
+        let current_time_ns = clock.now().duration_since(self.reference_instant).as_nanos() as u64;
+        let current_time_unix_ms = (clock.now_utc().unix_timestamp_nanos() / 1000000) as u64;
+        let mut threads =
+            threads.into_iter().map(|thread| thread.to_view(current_time_ns)).collect::<Vec<_>>();
+        threads.sort_by_key(|thread| -(thread.active_time_ns as i128));
+        InstrumentedThreadsView {
+            current_time_unix_ms,
+            current_time_relative_ms: current_time_ns / 1_000_000,
+            threads,
+        }
+    }
 }
 
 pub static ALL_ACTOR_INSTRUMENTATIONS: LazyLock<AllActorInstrumentations> =
