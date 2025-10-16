@@ -28,7 +28,7 @@ near-async-derive.workspace = true
 near-time = { workspace = true, features = ["clock"] }
 
 [features]
-instrumentation_testing = ["rand"]
+actor_instrumentation_testing = ["rand"]
 
 [dev-dependencies]
 tokio-util.workspace = true

@@ -7,7 +7,7 @@ pub mod queue;
 pub mod reader;
 #[cfg(test)]
 pub(crate) mod test_utils;
-#[cfg(feature = "instrumentation_testing")]
+#[cfg(feature = "actor_instrumentation_testing")]
 pub mod testing;
 #[cfg(test)]
 mod tests;

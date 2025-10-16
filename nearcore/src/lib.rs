@@ -742,7 +742,7 @@ pub fn start_with_config_and_synchronization(
         view_client_addr.clone().into_multi_sender(),
     );
 
-    #[cfg(feature = "actor_instrumentation_test")]
+    #[cfg(feature = "actor_instrumentation_testing")]
     near_async::instrumentation::testing::spawn_actors_for_testing_instrumentation(
         actor_system.clone(),
     );

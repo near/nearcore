@@ -147,7 +147,7 @@ io_trace = ["node-runtime/io_trace"]
 
 calimero_zero_storage = ["near-primitives/calimero_zero_storage"]
 tx_generator = ["near-transactions-generator"]
-actor_instrumentation_test = ["near-async/instrumentation_testing"]
+actor_instrumentation_testing = ["near-async/actor_instrumentation_testing"]
 
 [package.metadata.cargo-machete]
 ignored = [
