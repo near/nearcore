@@ -108,15 +108,16 @@ where
         loop {
             crossbeam_channel::select! {
                 recv(cancellation_signal) -> _ => {
-                    tracing::info!(target: "multithread_runtime", actor_name, "cancellation received, exiting loop.");
+                    tracing::info!(target: "multithread_runtime", actor_name, thread_id, "cancellation received, exiting loop.");
                     return;
                 }
                 recv(window_update_ticker) -> _ => {
+                    tracing::debug!(target: "multithread_runtime", actor_name, thread_id, "Updating instrumentation window");
                     instrumentation.advance_window_if_needed();
                 }
                 recv(receiver) -> message => {
                     let Ok(message) = message else {
-                        tracing::warn!(target: "multithread_runtime", actor_name, "message queue closed, exiting event loop.");
+                        tracing::warn!(target: "multithread_runtime", actor_name, thread_id, "message queue closed, exiting event loop.");
                         return;
                     };
                     instrumented_queue.dequeue(message.name);
