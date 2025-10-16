@@ -338,6 +338,7 @@ rand_xorshift = "0.3"
 rayon = "1.10"
 redis = "0.23.0"
 reed-solomon-erasure = { version = "6.0.0", features = ["simd-accel"] }
+reed-solomon-simd = "3.0.1"
 regex = "1.7.1"
 region = "3.0"
 reqwest = { version = "0.12.0", features = ["blocking", "native-tls-vendored"] }
