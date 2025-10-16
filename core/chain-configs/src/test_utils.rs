@@ -20,8 +20,9 @@ use crate::{
     GCConfig, Genesis, GenesisConfig, INITIAL_GAS_LIMIT, LogSummaryStyle, MAX_INFLATION_RATE,
     MIN_GAS_PRICE, MutableConfigValue, NUM_BLOCKS_PER_YEAR, PROTOCOL_REWARD_RATE,
     PROTOCOL_TREASURY_ACCOUNT, ReshardingConfig, StateSyncConfig, TRANSACTION_VALIDITY_PERIOD,
-    TrackedShardsConfig, default_orphan_state_witness_max_size,
-    default_orphan_state_witness_pool_size, default_produce_chunk_add_transactions_time_limit,
+    TrackedShardsConfig, default_enable_early_prepare_transactions,
+    default_orphan_state_witness_max_size, default_orphan_state_witness_pool_size,
+    default_produce_chunk_add_transactions_time_limit,
 };
 
 /// Returns the default value for the thread count associated with rpc-handler actor (currently
@@ -363,6 +364,7 @@ impl ClientConfig {
             save_invalid_witnesses: false,
             transaction_request_handler_threads: default_rpc_handler_thread_count(),
             protocol_version_check: Default::default(),
+            enable_early_prepare_transactions: default_enable_early_prepare_transactions(),
         }
     }
 }

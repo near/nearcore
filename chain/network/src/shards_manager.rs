@@ -1,11 +1,11 @@
-use near_async::{Message, time::Instant};
+use near_async::time::Instant;
 use near_primitives::{hash::CryptoHash, sharding::PartialEncodedChunk};
 
 use crate::types::{
     PartialEncodedChunkForwardMsg, PartialEncodedChunkRequestMsg, PartialEncodedChunkResponseMsg,
 };
 
-#[derive(Message, Debug, strum::IntoStaticStr, Clone, PartialEq, Eq)]
+#[derive(Debug, strum::IntoStaticStr, Clone, PartialEq, Eq)]
 #[allow(clippy::large_enum_variant)]
 pub enum ShardsManagerRequestFromNetwork {
     ProcessPartialEncodedChunk(PartialEncodedChunk),

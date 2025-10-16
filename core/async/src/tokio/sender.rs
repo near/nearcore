@@ -4,16 +4,14 @@ use futures::FutureExt;
 use futures::future::BoxFuture;
 
 use crate::futures::{DelayedActionRunner, FutureSpawner};
-use crate::messaging::{
-    AsyncSendError, CanSend, CanSendAsync, HandlerWithContext, Message, MessageWithCallback,
-};
+use crate::messaging::{AsyncSendError, CanSend, CanSendAsync, HandlerWithContext};
 use crate::tokio::runtime_handle::{TokioRuntimeHandle, TokioRuntimeMessage};
 use crate::{next_message_sequence_num, pretty_type_name};
 
 impl<A, M> CanSend<M> for TokioRuntimeHandle<A>
 where
     A: HandlerWithContext<M> + 'static,
-    M: Message + Debug + Send + 'static,
+    M: Debug + Send + 'static,
 {
     fn send(&self, message: M) {
         let seq = next_message_sequence_num();
@@ -31,41 +29,11 @@ where
     }
 }
 
-// Compatibility layer for multi-send style adapters.
-impl<A, M, R> CanSend<MessageWithCallback<M, R>> for TokioRuntimeHandle<A>
-where
-    A: HandlerWithContext<M, R> + 'static,
-    M: Message + Debug + Send + 'static,
-    R: Send + 'static,
-{
-    fn send(&self, message: MessageWithCallback<M, R>) {
-        let seq = next_message_sequence_num();
-        let message_type = pretty_type_name::<A>();
-        tracing::trace!(
-            target: "tokio_runtime",
-            seq,
-            message_type,
-            ?message,
-            "sending sync message with callback"
-        );
-
-        let function = move |actor: &mut A, ctx: &mut dyn DelayedActionRunner<A>| {
-            let result = actor.handle(message.message, ctx);
-            (message.callback)(std::future::ready(Ok(result)).boxed());
-        };
-
-        let message = TokioRuntimeMessage { seq, function: Box::new(function) };
-        if let Err(_) = self.sender.send(message) {
-            tracing::info!(target: "tokio_runtime", seq, "Ignoring sync message with callback, receiving actor is being shut down");
-        }
-    }
-}
-
 impl<A, M, R> CanSendAsync<M, R> for TokioRuntimeHandle<A>
 where
     A: HandlerWithContext<M, R> + 'static,
-    M: Message + Debug + Send + 'static,
-    R: Debug + Send + 'static,
+    M: Debug + Send + 'static,
+    R: Send + 'static,
 {
     fn send_async(&self, message: M) -> BoxFuture<'static, Result<R, AsyncSendError>> {
         let seq = next_message_sequence_num();
