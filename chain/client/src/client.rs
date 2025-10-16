@@ -183,6 +183,9 @@ pub struct Client {
     chunk_producer_accounts_cache: Option<(EpochId, Arc<Vec<AccountId>>)>,
     /// Reed-Solomon encoder for shadow chunk validation.
     shadow_validation_reed_solomon: OnceLock<Arc<ReedSolomon>>,
+
+    /// (block, shard_id) for which we produced an early chunk and normal chunk production should be skipped.
+    produced_early_chunk: HashSet<(CryptoHash, ShardId)>,
 }
 
 impl AsRef<Client> for Client {
@@ -427,6 +430,7 @@ impl Client {
             last_optimistic_block_produced: None,
             chunk_producer_accounts_cache: None,
             shadow_validation_reed_solomon: OnceLock::new(),
+            produced_early_chunk: HashSet::new(),
         })
     }
 
@@ -1240,6 +1244,14 @@ impl Client {
     ) -> (Vec<CryptoHash>, HashMap<CryptoHash, near_chain::Error>) {
         let blocks_to_postprocess = self.chain.get_blocks_to_postprocess();
 
+        if blocks_to_postprocess.len() == 1 {
+            if let Err(err) =
+                self.handle_likely_accepted_block(&blocks_to_postprocess[0], !should_produce_chunk)
+            {
+                tracing::error!(target: "client", ?err, "handle_likely_accepted_block failed");
+            }
+        }
+
         let mut block_processing_artifacts = BlockProcessingArtifact::default();
         let (accepted_blocks, errors) = self.chain.postprocess_ready_blocks(
             blocks_to_postprocess,
@@ -1268,6 +1280,160 @@ impl Client {
         self.last_time_head_progress_made =
             max(self.chain.get_last_time_head_updated(), self.last_time_head_progress_made);
         (accepted_blocks_hashes, errors)
+    }
+
+    /// Handle a block that is very likely to get accepted in a moment.
+    fn handle_likely_accepted_block(
+        &mut self,
+        block_to_postprocess: &BlockToPostProcess,
+        skip_produce_chunk: bool,
+    ) -> Result<(), Error> {
+        let (block, preprocess_info, shard_results) = match block_to_postprocess {
+            BlockToPostProcess::Normal(block, preprocess_info, shard_results) => {
+                (block, preprocess_info, shard_results)
+            }
+            BlockToPostProcess::Optimistic(_, _) => return Ok(()),
+        };
+
+        if preprocess_info.provenance == Provenance::SYNC {
+            return Ok(());
+        }
+
+        if shard_results.iter().any(|sr| sr.2.is_err()) {
+            return Ok(());
+        }
+
+        if block.header().height() < self.chain.head().map(|h| h.height)? {
+            // Not new head, ignore
+            return Ok(());
+        }
+
+        if block.header().chunk_mask().iter().any(|present| !present) {
+            // Missing chunk, ignore
+            return Ok(());
+        }
+
+        let Some(signer) = self.validator_signer.get() else {
+            return Ok(());
+        };
+
+        let prev_header = self.chain.get_block_header(block.header().prev_hash())?;
+        if prev_header.epoch_id() != block.header().epoch_id()
+            || self.epoch_manager.is_next_block_epoch_start(block.header().prev_hash())?
+        {
+            println!("jandebug: Epoch boundary, skipping");
+            return Ok(());
+        }
+
+        // Update epoch manager
+        let last_final_block = block.header().last_final_block();
+        let last_finalized_height = if last_final_block == &CryptoHash::default() {
+            //self.chain.chain_store().get_genesis_height()
+            return Ok(());
+        } else {
+            self.chain.chain_store().get_block_header(last_final_block)?.height()
+        };
+        // println!(
+        //     "jandebug: Would save block info #{} (hash: {:?}), final height: {}",
+        //     block.header().height(),
+        //     block.header().hash(),
+        //     last_finalized_height
+        // );
+
+        self.epoch_manager
+            .record_block_info(
+                BlockInfo::from_header(block.header(), last_finalized_height),
+                *block.header().random_value(),
+            )?
+            .commit()
+            .unwrap(); // TODO - unwrap
+        let block_status = BlockStatus::Next;
+
+        if !self.reconcile_transaction_pool(block_status, &block) {
+            return Ok(());
+        }
+
+        let get_shard_result =
+            |block_hash: &CryptoHash, shard_id: ShardId| -> Option<ShardUpdateResult> {
+                if block_hash != block.header().hash() {
+                    return None;
+                }
+
+                for (res_shard_id, _, res) in shard_results {
+                    if *res_shard_id == shard_id {
+                        return Some(res.as_ref().unwrap().clone());
+                    }
+                }
+                None
+            };
+
+        let mut chunk_extras = HashMap::new();
+        for (res_shard_id, _, res) in shard_results {
+            match res.as_ref().unwrap() {
+                ShardUpdateResult::NewChunk(NewChunkResult { gas_limit, apply_result, .. }) => {
+                    let (outcome_root, _outcome_paths) =
+                        ApplyChunkResult::compute_outcomes_proof(&apply_result.outcomes);
+                    chunk_extras.insert(
+                        res_shard_id,
+                        ChunkExtra::new(
+                            &apply_result.new_root,
+                            outcome_root,
+                            apply_result.validator_proposals.clone(),
+                            apply_result.total_gas_burnt,
+                            *gas_limit,
+                            apply_result.total_balance_burnt,
+                            apply_result.congestion_info,
+                            apply_result.bandwidth_requests.clone(),
+                        ),
+                    );
+                }
+                ShardUpdateResult::OldChunk(OldChunkResult { shard_uid, apply_result }) => {
+                    // The chunk is missing but some fields may need to be updated
+                    // anyway. Prepare a chunk extra as a copy of the old chunk
+                    // extra and apply changes to it.
+                    if let Ok(old_extra) =
+                        self.chain.get_chunk_extra(block.header().prev_hash(), &shard_uid)
+                    {
+                        let mut new_extra = ChunkExtra::clone(&old_extra);
+                        *new_extra.state_root_mut() = apply_result.new_root;
+                        chunk_extras.insert(res_shard_id, new_extra);
+                    }
+                }
+            };
+        }
+        let get_chunk_extra = |block_hash: &CryptoHash, shard_id: ShardId| -> Option<ChunkExtra> {
+            if block_hash != block.hash() {
+                return None;
+            }
+
+            chunk_extras.get(&shard_id).cloned()
+        };
+
+        let get_incoming_receipts =
+            |block_hash: &CryptoHash, shard_id: ShardId| -> Option<Arc<Vec<ReceiptProof>>> {
+                if block_hash != block.hash() {
+                    return None;
+                }
+
+                preprocess_info.incoming_receipts.get(&shard_id).cloned().map(Arc::new)
+            };
+
+        let can_produce_with_provenance = preprocess_info.provenance != Provenance::SYNC;
+        let can_produce_with_sync_status = !self.sync_handler.sync_status.is_syncing();
+        if can_produce_with_provenance && can_produce_with_sync_status && !skip_produce_chunk {
+            self.produce_chunks(
+                &block,
+                &signer,
+                true,
+                get_shard_result,
+                get_chunk_extra,
+                get_incoming_receipts,
+            );
+        } else {
+            tracing::debug!(target: "client", can_produce_with_provenance, can_produce_with_sync_status, skip_produce_chunk, "not producing a chunk");
+        }
+
+        Ok(())
     }
 
     /// Process the result of block processing from chain, finish the steps that can't be done
@@ -1818,6 +1984,11 @@ impl Client {
         let epoch_id =
             self.epoch_manager.get_epoch_id_from_prev_block(block.header().hash()).unwrap();
         for shard_id in self.epoch_manager.shard_ids(&epoch_id).unwrap() {
+            if self.produced_early_chunk.remove(&(*block.hash(), shard_id)) {
+                println!("jandebug: Chunk already produced skipping");
+                continue;
+            }
+
             let next_height = block.header().height() + 1;
             let epoch_manager = self.epoch_manager.as_ref();
             let _timer = metrics::PRODUCE_AND_DISTRIBUTE_CHUNK_TIME
@@ -1855,7 +2026,12 @@ impl Client {
             };
 
             let ProduceChunkResult { chunk, encoded_chunk_parts_paths, receipts } = match result {
-                Ok(Some(res)) => res,
+                Ok(Some(res)) => {
+                    if is_early_produce {
+                        self.produced_early_chunk.insert((*block.hash(), shard_id));
+                    }
+                    res
+                }
                 Ok(None) => continue,
                 Err(err) => {
                     error!(target: "client", ?shard_id, ?err, "error producing chunk");
