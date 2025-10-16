@@ -50,9 +50,7 @@ use near_epoch_manager::shard_assignment::shard_id_to_uid;
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_network::types::{AccountKeys, ChainInfo, PeerManagerMessageRequest, SetChainInfo};
 use near_network::types::{NetworkRequests, PeerManagerAdapter, ReasonForBan};
-use near_primitives::block::{
-    Approval, ApprovalInner, ApprovalMessage, Block, BlockHeader, ChunkType, Tip,
-};
+use near_primitives::block::{Approval, ApprovalInner, ApprovalMessage, Block, BlockHeader, Tip};
 use near_primitives::block_header::ApprovalType;
 use near_primitives::epoch_block_info::BlockInfo;
 use near_primitives::epoch_info::RngSeed;
@@ -1929,15 +1927,6 @@ impl Client {
         get_chunk_extra: impl Fn(&CryptoHash, ShardId) -> Option<ChunkExtra>,
         get_incoming_receipts: impl Fn(&CryptoHash, ShardId) -> Option<Arc<Vec<ReceiptProof>>>,
     ) {
-        let mut new_chunks = 0;
-        let mut old_chunks = 0;
-        for c in block.chunks().iter() {
-            match c {
-                ChunkType::New(_) => new_chunks += 1,
-                ChunkType::Old(_) => old_chunks += 1,
-            }
-        }
-
         let validator_id = signer.validator_id().clone();
         let epoch_id =
             self.epoch_manager.get_epoch_id_from_prev_block(block.header().hash()).unwrap();
