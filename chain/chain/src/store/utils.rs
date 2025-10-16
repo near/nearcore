@@ -238,18 +238,19 @@ pub fn get_incoming_receipts_for_shard(
                 receipts_proofs
             }
             Err(err) => {
-                tracing::debug!(
-                    target: "chain",
-                    ?err,
-                    "could not find receipts from block with missing chunks"
-                );
-
-                // This can happen when all chunks are missing in a block
-                // and then we can safely assume that there aren't any
-                // incoming receipts. It would be nicer to explicitly check
-                // that condition rather than relying on errors when reading
-                // from the db.
-                Arc::new(vec![])
+                if header.chunk_mask().iter().all(|chunk_present| !chunk_present) {
+                    // This can happen when all chunks are missing in a block
+                    // and then we can safely assume that there aren't any
+                    // incoming receipts.
+                    Arc::new(vec![])
+                } else {
+                    tracing::error!(
+                        target: "chain",
+                        ?err,
+                        "could not find receipts from block with missing chunks"
+                    );
+                    return Err(err);
+                }
             }
         };
 
