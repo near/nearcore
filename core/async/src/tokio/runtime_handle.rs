@@ -2,7 +2,6 @@ use crate::futures::{DelayedActionRunner, FutureSpawner};
 use crate::instrumentation::queue::InstrumentedQueue;
 use crate::instrumentation::writer::InstrumentedThreadWriterSharedPart;
 use crate::messaging::Actor;
-use crate::pretty_type_name;
 use crate::tokio::runtime::AsyncDroppableRuntime;
 use std::sync::Arc;
 use std::time::Duration;
@@ -79,12 +78,12 @@ impl<A> TokioRuntimeHandle<A> {
 /// See ActorSystem::spawn_tokio_actor.
 pub(crate) fn spawn_tokio_actor<A>(
     actor: A,
-    actor_name: String,
     system_cancellation_signal: CancellationToken,
 ) -> TokioRuntimeHandle<A>
 where
     A: Actor + Send + 'static,
 {
+    let actor_name = actor.description().to_string();
     let runtime_builder = TokioRuntimeBuilder::new(actor_name, system_cancellation_signal);
     let handle = runtime_builder.handle();
     runtime_builder.spawn_tokio_actor(actor);
@@ -163,17 +162,16 @@ impl<A: Actor + Send + 'static> TokioRuntimeBuilder<A> {
             // The runtime gets dropped as soon as this loop exits, cancelling all other futures on
             // the same tokio runtime.
             let _runtime = AsyncDroppableRuntime::new(runtime);
+            let actor_name = actor.description();
             let mut actor = CallStopWhenDropping { actor };
             let mut window_update_timer = tokio::time::interval(Duration::from_secs(1));
             loop {
                 tokio::select! {
                     _ = self.system_cancellation_signal.cancelled() => {
-                        let actor_name = pretty_type_name::<A>();
                         tracing::info!(target: "tokio_runtime", actor_name, "Shutting down Tokio runtime due to ActorSystem shutdown");
                         break;
                     }
                     _ = runtime_handle.cancel.cancelled() => {
-                        let actor_name = pretty_type_name::<A>();
                         tracing::info!(target: "tokio_runtime", actor_name, "Shutting down Tokio runtime due to targeted cancellation");
                         break;
                     }

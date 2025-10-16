@@ -1,7 +1,6 @@
 use crate::instrumentation::queue::InstrumentedQueue;
 use crate::instrumentation::writer::InstrumentedThreadWriterSharedPart;
 use crate::messaging::Actor;
-use crate::pretty_type_name;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
@@ -104,11 +103,11 @@ where
         let thread_id = thread_index.fetch_add(1, Ordering::Relaxed);
         let mut instrumentation = handle_clone.instrumentation.new_writer_with_global_registration(Some(thread_id));
         let mut actor = make_actor_fn();
+        let actor_name = actor.description();
         let window_update_ticker = crossbeam_channel::tick(Duration::from_secs(1));
         loop {
             crossbeam_channel::select! {
                 recv(cancellation_signal) -> _ => {
-                    let actor_name = pretty_type_name::<A>();
                     tracing::info!(target: "multithread_runtime", actor_name, "cancellation received, exiting loop.");
                     return;
                 }
@@ -117,7 +116,6 @@ where
                 }
                 recv(receiver) -> message => {
                     let Ok(message) = message else {
-                        let actor_name = pretty_type_name::<A>();
                         tracing::warn!(target: "multithread_runtime", actor_name, "message queue closed, exiting event loop.");
                         return;
                     };
