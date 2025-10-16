@@ -25,16 +25,6 @@ pub struct MultithreadRuntimeHandle<A> {
     pub(super) instrumentation: Arc<InstrumentedThreadWriterSharedPart>,
 }
 
-impl<A> MultithreadRuntimeHandle<A> {
-    fn new(
-        sender: crossbeam_channel::Sender<MultithreadRuntimeMessage<A>>,
-        cancellation_signal_holder: Option<crossbeam_channel::Sender<()>>,
-        instrumentation: Arc<InstrumentedThreadWriterSharedPart>,
-    ) -> Self {
-        Self { sender, cancellation_signal_holder, instrumentation }
-    }
-}
-
 impl<A> Clone for MultithreadRuntimeHandle<A> {
     fn clone(&self) -> Self {
         Self {
@@ -93,8 +83,11 @@ where
     let actor_name = std::any::type_name::<A>();
     let shared_instrumentation =
         InstrumentedThreadWriterSharedPart::new(actor_name.to_string(), instrumented_queue.clone());
-    let handle =
-        MultithreadRuntimeHandle::new(sender, cancellation_signal_holder, shared_instrumentation);
+    let handle = MultithreadRuntimeHandle {
+        sender,
+        cancellation_signal_holder,
+        instrumentation: shared_instrumentation,
+    };
     let threads_clone = threads.clone();
     let thread_index = Arc::new(AtomicUsize::new(0));
     let handle_clone = handle.clone();
