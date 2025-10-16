@@ -122,6 +122,10 @@ fn validity_period_validate_is_ancestor(
     let prev_height = prev_block_header.height();
     let base_block_hash = base_header.hash();
 
+    if base_header.hash() == prev_block_header.hash() {
+        return Ok(());
+    }
+
     // Base can't be an ancestor of prev if its height is bigger
     if base_height > prev_height {
         return Err(InvalidTxError::InvalidChain);
