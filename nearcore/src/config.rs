@@ -19,7 +19,8 @@ use near_chain_configs::{
     NUM_BLOCK_PRODUCER_SEATS, NUM_BLOCKS_PER_YEAR, PROTOCOL_REWARD_RATE,
     PROTOCOL_UPGRADE_STAKE_THRESHOLD, ProtocolVersionCheckConfig, ReshardingConfig,
     StateSyncConfig, TRANSACTION_VALIDITY_PERIOD, TrackedShardsConfig,
-    default_chunk_validation_threads, default_chunk_wait_mult, default_enable_multiline_logging,
+    default_chunk_validation_threads, default_chunk_wait_mult,
+    default_enable_early_prepare_transactions, default_enable_multiline_logging,
     default_epoch_sync, default_header_sync_expected_height_per_second,
     default_header_sync_initial_timeout, default_header_sync_progress_timeout,
     default_header_sync_stall_ban_timeout, default_log_summary_period,
@@ -410,6 +411,13 @@ pub struct Config {
     ///
     /// Use [`Self::contract_cache_path()`] to access this field.
     pub(crate) contract_cache_path: Option<PathBuf>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    /// If true, transactions for the next chunk will be prepared early, right after the previous chunk's
+    /// post-state is ready. This can help produce chunks faster, for high-throughput chains.
+    /// The current implementation increases latency on low-load chains, which will be fixed in the future.
+    /// The default is disabled.
+    pub enable_early_prepare_transactions: Option<bool>,
 }
 
 fn is_false(value: &bool) -> bool {
@@ -475,6 +483,7 @@ impl Default for Config {
             save_invalid_witnesses: false,
             transaction_request_handler_threads: 4,
             protocol_version_check_config_override: None,
+            enable_early_prepare_transactions: None,
         }
     }
 }
@@ -750,6 +759,9 @@ impl NearConfig {
                 protocol_version_check: config
                     .protocol_version_check_config_override
                     .unwrap_or(ProtocolVersionCheckConfig::NextNext),
+                enable_early_prepare_transactions: config
+                    .enable_early_prepare_transactions
+                    .unwrap_or_else(default_enable_early_prepare_transactions),
             },
             #[cfg(feature = "tx_generator")]
             tx_generator: config.tx_generator,

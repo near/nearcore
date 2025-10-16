@@ -1,5 +1,3 @@
-use near_async::Message;
-
 /// This file is contains all types used for communication between `Actors` within this crate.
 /// They are not meant to be used outside.
 use crate::network_protocol::PeerMessage;
@@ -18,7 +16,7 @@ pub(crate) enum RegisterPeerError {
     InvalidEdge,
 }
 
-#[derive(Message, Clone, Debug)]
+#[derive(Clone, Debug)]
 pub(crate) struct SendMessage {
     pub message: Arc<PeerMessage>,
 }

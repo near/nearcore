@@ -4228,7 +4228,6 @@ dependencies = [
 name = "near-client-primitives"
 version = "0.0.0"
 dependencies = [
- "near-async",
  "near-chain-primitives",
  "near-chunks-primitives",
  "near-crypto",
@@ -4699,7 +4698,6 @@ dependencies = [
  "bencher",
  "clap",
  "itoa",
- "near-async",
  "near-crypto",
  "near-fmt",
  "near-primitives-core",
@@ -5016,6 +5014,7 @@ dependencies = [
  "near-chain-primitives",
  "near-chunks",
  "near-crypto",
+ "near-external-storage",
  "near-fmt",
  "near-o11y",
  "near-parameters",

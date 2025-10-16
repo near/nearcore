@@ -1772,9 +1772,10 @@ impl<T: ChainAccess> TxMirror<T> {
             validate_genesis: false,
         };
         let near_config =
-            indexer_config.load_near_config().context("failed to load near config")?;
+            indexer_config.load_near_config().context("failed to load near config").unwrap();
         let near_node = Indexer::start_near_node(&indexer_config, near_config.clone())
-            .context("failed to start near node")?;
+            .context("failed to start near node")
+            .unwrap();
         let target_indexer = Indexer::from_near_node(indexer_config, near_config, &near_node);
         let mut target_stream = target_indexer.streamer();
         let NearNode { client, view_client, rpc_handler, .. } = near_node;
@@ -1786,7 +1787,8 @@ impl<T: ChainAccess> TxMirror<T> {
             &view_client,
             &client,
         )
-        .await?;
+        .await
+        .unwrap();
         *target_height.write() = first_target_height;
         *target_head.write() = first_target_head;
         clients_tx

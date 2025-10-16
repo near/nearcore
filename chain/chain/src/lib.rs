@@ -46,6 +46,7 @@ pub mod signature_verification;
 mod soft_realtime_thread_pool;
 pub mod spice_chunk_application;
 pub mod spice_core;
+pub mod spice_core_writer_actor;
 pub mod state_snapshot_actor;
 pub mod state_sync;
 pub mod stateless_validation;

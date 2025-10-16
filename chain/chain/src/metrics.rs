@@ -58,6 +58,13 @@ pub static BLOCK_ORDINAL_HEAD: LazyLock<IntGauge> = LazyLock::new(|| {
     try_create_int_gauge("near_block_ordinal_head", "Ordinal of the current head of the blockchain")
         .unwrap()
 });
+pub static BLOCK_HEIGHT_SPICE_EXECUTION_HEAD: LazyLock<IntGauge> = LazyLock::new(|| {
+    try_create_int_gauge(
+        "near_block_height_spice_execution_head",
+        "Height of the latest executed block of the blockchain",
+    )
+    .unwrap()
+});
 pub static VALIDATOR_AMOUNT_STAKED: LazyLock<IntGauge> = LazyLock::new(|| {
     try_create_int_gauge(
         "near_validators_stake_total",
