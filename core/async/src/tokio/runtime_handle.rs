@@ -123,14 +123,18 @@ impl<A: Actor + Send + 'static> TokioRuntimeBuilder<A> {
         let instrumented_queue = InstrumentedQueue::new(&actor_name);
         let shared_instrumentation =
             InstrumentedThreadWriterSharedPart::new(actor_name, instrumented_queue);
+
+        // Start a background task that just initializes the thread-local writer.
+        // This ensures the instrumentation is aware of the actor's existence even if
+        // it doesn't process any messages for a while.
         runtime.spawn({
             let shared_instrumentation = shared_instrumentation.clone();
             async move {
                 shared_instrumentation.with_thread_local_writer(|_writer| {});
             }
         });
-        let cancel = CancellationToken::new();
 
+        let cancel = CancellationToken::new();
         let handle = TokioRuntimeHandle {
             sender,
             runtime_handle: runtime.handle().clone(),
