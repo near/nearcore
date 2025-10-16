@@ -7,6 +7,7 @@ use near_primitives::block::BlockHeader;
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
+use near_primitives::sharding::ReceiptProof;
 use near_primitives::sharding::{ShardChunk, ShardChunkHeader};
 use near_primitives::state_sync::ReceiptProofResponse;
 use near_primitives::types::{BlockHeight, BlockHeightDelta, ShardId};
@@ -173,21 +174,25 @@ pub fn get_incoming_receipts_for_shard(
     epoch_manager: &dyn EpochManagerAdapter,
     target_shard_id: ShardId,
     target_shard_layout: &ShardLayout,
-    block_hash: CryptoHash,
+    block_header: &BlockHeader,
     last_chunk_height_included: BlockHeight,
     receipts_filter: ReceiptFilter,
+    get_incoming_receipts: impl Fn(&CryptoHash, ShardId) -> Option<Arc<Vec<ReceiptProof>>>,
 ) -> Result<Vec<ReceiptProofResponse>, Error> {
     let _span =
-            tracing::debug_span!(target: "chain", "get_incoming_receipts_for_shard", ?target_shard_id, ?block_hash, last_chunk_height_included).entered();
+            tracing::debug_span!(target: "chain", "get_incoming_receipts_for_shard", ?target_shard_id, block_hash = ?block_header.hash(), last_chunk_height_included).entered();
 
     let mut ret = vec![];
 
     let mut current_shard_id = target_shard_id;
-    let mut current_block_hash = block_hash;
+    let mut current_block_hash = *block_header.hash();
     let mut current_shard_layout = target_shard_layout.clone();
 
+    let mut header = Arc::new(block_header.clone());
     loop {
-        let header = chain_store.get_block_header(&current_block_hash)?;
+        if *header.hash() != current_block_hash {
+            header = chain_store.get_block_header(&current_block_hash)?;
+        }
 
         if header.height() < last_chunk_height_included {
             panic!("get_incoming_receipts_for_shard failed");
@@ -215,7 +220,11 @@ pub fn get_incoming_receipts_for_shard(
         }
 
         let maybe_receipts_proofs =
-            chain_store.get_incoming_receipts(&current_block_hash, current_shard_id);
+            match get_incoming_receipts(&current_block_hash, current_shard_id) {
+                Some(r) => Ok(r),
+                None => chain_store.get_incoming_receipts(&current_block_hash, current_shard_id),
+            };
+
         let receipts_proofs = match maybe_receipts_proofs {
             Ok(receipts_proofs) => {
                 tracing::debug!(

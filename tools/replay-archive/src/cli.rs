@@ -376,9 +376,10 @@ impl ReplayController {
             self.epoch_manager.as_ref(),
             shard_id,
             &shard_layout,
-            *block_header.hash(),
+            block_header,
             prev_chunk_height_included,
             ReceiptFilter::TargetShard,
+            |_, _| None,
         )?;
         let receipts = collect_receipts_from_response(&receipt_response);
         Ok(receipts)

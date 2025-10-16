@@ -3303,9 +3303,10 @@ impl Chain {
                 self.epoch_manager.as_ref(),
                 shard_id,
                 &shard_layout,
-                *prev_hash,
+                prev_block.header(),
                 prev_chunk_height_included,
                 ReceiptFilter::TargetShard,
+                |_, _| None,
             )?;
             let old_receipts = collect_receipts_from_response(&old_receipts);
             let receipts = [new_receipts, old_receipts].concat();

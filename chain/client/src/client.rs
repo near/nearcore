@@ -28,7 +28,7 @@ use near_async::messaging::{CanSend, Sender};
 use near_async::time::{Clock, Duration, Instant};
 use near_chain::chain::{
     ApplyChunksDoneSender, BlockCatchUpRequest, BlockMissingChunks, BlockToPostProcess,
-    BlocksCatchUpState, VerifyBlockHashAndSignatureResult,
+    BlocksCatchUpState, NewChunkResult, OldChunkResult, VerifyBlockHashAndSignatureResult,
 };
 use near_chain::orphan::OrphanMissingChunks;
 use near_chain::rayon_spawner::RayonAsyncComputationSpawner;
@@ -36,11 +36,11 @@ use near_chain::resharding::types::ReshardingSender;
 use near_chain::spice_core::CoreStatementsProcessor;
 use near_chain::state_snapshot_actor::SnapshotCallbacks;
 use near_chain::test_utils::format_hash;
-use near_chain::types::{ChainConfig, LatestKnown, RuntimeAdapter};
+use near_chain::types::{ApplyChunkResult, ChainConfig, LatestKnown, RuntimeAdapter};
+use near_chain::update_shard::ShardUpdateResult;
 use near_chain::{
-    ApplyChunksIterationMode, ApplyChunksSpawner, BlockPreprocessInfo, BlockProcessingArtifact,
-    BlockStatus, Chain, ChainGenesis, ChainStoreAccess, ChunksReadiness, Doomslug,
-    DoomslugThresholdMode, Provenance,
+    ApplyChunksIterationMode, ApplyChunksSpawner, BlockProcessingArtifact, BlockStatus, Chain,
+    ChainGenesis, ChainStoreAccess, ChunksReadiness, Doomslug, DoomslugThresholdMode, Provenance,
 };
 use near_chain_configs::{ClientConfig, MutableValidatorSigner, UpdatableClientConfig};
 use near_chunks::adapter::ShardsManagerRequestFromClient;
@@ -51,8 +51,11 @@ use near_epoch_manager::shard_assignment::shard_id_to_uid;
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_network::types::{AccountKeys, ChainInfo, PeerManagerMessageRequest, SetChainInfo};
 use near_network::types::{NetworkRequests, PeerManagerAdapter, ReasonForBan};
-use near_primitives::block::{Approval, ApprovalInner, ApprovalMessage, Block, BlockHeader, Tip};
+use near_primitives::block::{
+    Approval, ApprovalInner, ApprovalMessage, Block, BlockHeader, ChunkType, Tip,
+};
 use near_primitives::block_header::ApprovalType;
+use near_primitives::epoch_block_info::BlockInfo;
 use near_primitives::epoch_info::RngSeed;
 use near_primitives::errors::EpochError;
 use near_primitives::hash::CryptoHash;
@@ -61,12 +64,13 @@ use near_primitives::network::PeerId;
 use near_primitives::optimistic_block::OptimisticBlock;
 use near_primitives::receipt::Receipt;
 use near_primitives::sharding::{
-    EncodedShardChunk, PartialEncodedChunk, ShardChunk, ShardChunkHeader, ShardChunkWithEncoding,
-    StateSyncInfo, StateSyncInfoV1,
+    EncodedShardChunk, PartialEncodedChunk, ReceiptProof, ShardChunk, ShardChunkHeader,
+    ShardChunkWithEncoding, StateSyncInfo, StateSyncInfoV1,
 };
 use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::transaction::{SignedTransaction, ValidatedTransaction};
-use near_primitives::types::{AccountId, ApprovalStake, BlockHeight, EpochId, NumBlocks};
+use near_primitives::types::chunk_extra::ChunkExtra;
+use near_primitives::types::{AccountId, ApprovalStake, BlockHeight, EpochId, NumBlocks, ShardId};
 use near_primitives::unwrap_or_return;
 use near_primitives::upgrade_schedule::ProtocolUpgradeVotingSchedule;
 use near_primitives::utils::MaybeValidated;
@@ -1634,7 +1638,7 @@ impl Client {
             let can_produce_with_provenance = provenance != Provenance::SYNC;
             let can_produce_with_sync_status = !self.sync_handler.sync_status.is_syncing();
             if can_produce_with_provenance && can_produce_with_sync_status && !skip_produce_chunk {
-                self.produce_chunks(&block, &signer);
+                self.produce_chunks(&block, &signer, false, |_, _| None, |_, _| None, |_, _| None);
             } else {
                 tracing::debug!(target: "client", can_produce_with_provenance, can_produce_with_sync_status, skip_produce_chunk, "not producing a chunk");
             }
@@ -1759,7 +1763,57 @@ impl Client {
         tag_block_production = true,
         tag_chunk_distribution = true,
     ))]
-    fn produce_chunks(&mut self, block: &Block, signer: &Arc<ValidatorSigner>) {
+    fn produce_chunks(
+        &mut self,
+        block: &Block,
+        signer: &Arc<ValidatorSigner>,
+        is_early_produce: bool,
+        get_shard_result: impl Fn(&CryptoHash, ShardId) -> Option<ShardUpdateResult>,
+        get_chunk_extra: impl Fn(&CryptoHash, ShardId) -> Option<ChunkExtra>,
+        get_incoming_receipts: impl Fn(&CryptoHash, ShardId) -> Option<Arc<Vec<ReceiptProof>>>,
+    ) {
+        let mut new_chunks = 0;
+        let mut old_chunks = 0;
+        for c in block.chunks().iter() {
+            match c {
+                ChunkType::New(_) => new_chunks += 1,
+                ChunkType::Old(_) => old_chunks += 1,
+            }
+        }
+        println!(
+            "jandebug: {}: produce_chunks #{} (new/old: {}/{}) (prev_height: {}) (epoch: {:?}) (next epoch: {:?})",
+            signer.validator_id(),
+            block.header().height(),
+            new_chunks,
+            old_chunks,
+            self.chain
+                .get_block_header(block.header().prev_hash())
+                .map(|h| h.height())
+                .unwrap_or(1337),
+            block.header().epoch_id(),
+            block.header().next_epoch_id(),
+        );
+        /*
+        if is_early_produce {
+            println!("jandebug: EARLY producing");
+            if old_chunks > 0 {
+                println!("jandebug: Missing chunks, bailing");
+                return;
+            }
+            if block.header().height() < 10004 {
+                println!("jandebug: too early, bailing");
+                return;
+            }
+            self.produced_early_chunk.insert(*block.hash());
+        } else if self.produced_early_chunk.contains(block.hash()) {
+            println!("jandebug: Skipping normal production for block #{}", block.header().height());
+            self.produced_early_chunk.remove(block.hash());
+            return;
+        } else {
+            println!("jandebug: doing normal production for block #{}", block.header().height());
+        }
+        */
+
         let validator_id = signer.validator_id().clone();
         let epoch_id =
             self.epoch_manager.get_epoch_id_from_prev_block(block.header().hash()).unwrap();
@@ -1794,6 +1848,9 @@ impl Client {
                     shard_id,
                     signer,
                     chain_validate,
+                    is_early_produce,
+                    &get_shard_result,
+                    &get_chunk_extra,
                 )
             };
 
@@ -1808,9 +1865,12 @@ impl Client {
             if !cfg!(feature = "protocol_feature_spice") {
                 if let Err(err) = self.send_chunk_state_witness_to_chunk_validators(
                     &epoch_id,
-                    block.header(),
+                    block,
                     &last_header,
                     chunk.to_shard_chunk(),
+                    &get_shard_result,
+                    &get_chunk_extra,
+                    &get_incoming_receipts,
                 ) {
                     tracing::error!(target: "client", ?err, "Failed to send chunk state witness to chunk validators");
                 }
