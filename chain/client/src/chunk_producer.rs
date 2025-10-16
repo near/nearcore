@@ -298,6 +298,9 @@ impl ChunkProducer {
         };
 
         let cached_transactions = self.get_cached_prepared_transactions(prev_block, shard_uid)?;
+        if is_early_produce && cached_transactions.is_none() {
+            return Ok(None);
+        }
         let prepared_transactions = {
             #[cfg(feature = "test_features")]
             match self.adversarial.produce_mode {
