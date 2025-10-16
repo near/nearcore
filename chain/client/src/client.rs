@@ -23,7 +23,7 @@ use crate::sync::state::{StateSync, StateSyncResult};
 use crate::{ProduceChunkResult, metrics};
 use itertools::Itertools;
 use near_async::futures::{AsyncComputationSpawner, FutureSpawner};
-use near_async::messaging::IntoSender;
+use near_async::messaging::IntoAsyncSender;
 use near_async::messaging::{CanSend, Sender};
 use near_async::time::{Clock, Duration, Instant};
 use near_chain::chain::{
@@ -33,7 +33,6 @@ use near_chain::chain::{
 use near_chain::orphan::OrphanMissingChunks;
 use near_chain::rayon_spawner::RayonAsyncComputationSpawner;
 use near_chain::resharding::types::ReshardingSender;
-use near_chain::spice_core::CoreStatementsProcessor;
 use near_chain::state_snapshot_actor::SnapshotCallbacks;
 use near_chain::test_utils::format_hash;
 use near_chain::types::{ChainConfig, LatestKnown, RuntimeAdapter};
@@ -275,7 +274,6 @@ impl Client {
         myself_sender: ClientSenderForClient,
         chunk_validation_sender: ChunkValidationSender,
         upgrade_schedule: ProtocolUpgradeVotingSchedule,
-        spice_core_processor: CoreStatementsProcessor,
     ) -> Result<Self, Error> {
         let doomslug_threshold_mode = if enable_doomslug {
             DoomslugThresholdMode::TwoThirds
@@ -302,7 +300,6 @@ impl Client {
             apply_chunks_iteration_mode,
             validator_signer.clone(),
             resharding_sender.clone(),
-            spice_core_processor,
             Some(myself_sender.on_post_state_ready.clone()),
         )?;
         chain.init_flat_storage()?;
@@ -336,7 +333,7 @@ impl Client {
             runtime_adapter.store().clone(),
             epoch_manager.clone(),
             runtime_adapter.clone(),
-            network_adapter.clone().into_sender(),
+            network_adapter.clone().into_async_sender(),
             config.state_sync_external_timeout,
             config.state_sync_p2p_timeout,
             config.state_sync_retry_backoff,
@@ -925,7 +922,7 @@ impl Client {
             self.epoch_manager.get_epoch_protocol_version(&next_epoch_id)?;
 
         let core_statements = if cfg!(feature = "protocol_feature_spice") {
-            Some(self.chain.spice_core_processor.core_statement_for_next_block(&prev_header)?)
+            Some(self.chain.spice_core_reader.core_statement_for_next_block(&prev_header)?)
         } else {
             None
         };
@@ -2183,7 +2180,7 @@ impl Client {
                             self.runtime_adapter.store().clone(),
                             self.epoch_manager.clone(),
                             self.runtime_adapter.clone(),
-                            self.network_adapter.clone().into_sender(),
+                            self.network_adapter.clone().into_async_sender(),
                             self.config.state_sync_external_timeout,
                             self.config.state_sync_p2p_timeout,
                             self.config.state_sync_retry_backoff,
