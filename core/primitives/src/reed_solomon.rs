@@ -54,24 +54,18 @@ pub fn reed_solomon_decode<T: BorshDeserialize>(
         return Err(Error::other(err));
     }
 
-    // Copy filled parts in chunks into a preallocated buffer,
-    // then truncate to the exact encoded length to remove padding.
+    // Copy filled parts in chunks into a preallocated buffer.
     let mut buf = Vec::with_capacity(encoded_length);
     for part_opt in parts.iter() {
         let part = part_opt.as_ref().expect("Missing shard");
-        if buf.len() >= encoded_length {
-            break;
-        }
         let remaining = encoded_length - buf.len();
         let take_len = remaining.min(part.len());
         buf.extend_from_slice(&part[..take_len]);
     }
-    // Ensure exact size in case the last part overshot due to padding logic.
-    if buf.len() > encoded_length {
-        buf.truncate(encoded_length);
-    }
-
-    T::try_from_slice(&buf)
+    // Decode exactly up to encoded_length bytes,
+    // using (min()) to avoid panic.
+    let end = encoded_length.min(buf.len());
+    T::try_from_slice(&buf[..end])
 }
 
 pub fn reed_solomon_part_length(encoded_length: usize, data_parts: usize) -> usize {
