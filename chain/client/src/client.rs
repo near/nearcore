@@ -1314,11 +1314,11 @@ impl Client {
             return Ok(());
         };
 
+        // Epoch boundary, skip
         let prev_header = self.chain.get_block_header(block.header().prev_hash())?;
         if prev_header.epoch_id() != block.header().epoch_id()
             || self.epoch_manager.is_next_block_epoch_start(block.header().prev_hash())?
         {
-            println!("jandebug: Epoch boundary, skipping");
             return Ok(());
         }
 
@@ -1330,12 +1330,6 @@ impl Client {
         } else {
             self.chain.chain_store().get_block_header(last_final_block)?.height()
         };
-        // println!(
-        //     "jandebug: Would save block info #{} (hash: {:?}), final height: {}",
-        //     block.header().height(),
-        //     block.header().hash(),
-        //     last_finalized_height
-        // );
 
         self.epoch_manager
             .record_block_info(
@@ -1943,46 +1937,13 @@ impl Client {
                 ChunkType::Old(_) => old_chunks += 1,
             }
         }
-        println!(
-            "jandebug: {}: produce_chunks #{} (new/old: {}/{}) (prev_height: {}) (epoch: {:?}) (next epoch: {:?})",
-            signer.validator_id(),
-            block.header().height(),
-            new_chunks,
-            old_chunks,
-            self.chain
-                .get_block_header(block.header().prev_hash())
-                .map(|h| h.height())
-                .unwrap_or(1337),
-            block.header().epoch_id(),
-            block.header().next_epoch_id(),
-        );
-        /*
-        if is_early_produce {
-            println!("jandebug: EARLY producing");
-            if old_chunks > 0 {
-                println!("jandebug: Missing chunks, bailing");
-                return;
-            }
-            if block.header().height() < 10004 {
-                println!("jandebug: too early, bailing");
-                return;
-            }
-            self.produced_early_chunk.insert(*block.hash());
-        } else if self.produced_early_chunk.contains(block.hash()) {
-            println!("jandebug: Skipping normal production for block #{}", block.header().height());
-            self.produced_early_chunk.remove(block.hash());
-            return;
-        } else {
-            println!("jandebug: doing normal production for block #{}", block.header().height());
-        }
-        */
 
         let validator_id = signer.validator_id().clone();
         let epoch_id =
             self.epoch_manager.get_epoch_id_from_prev_block(block.header().hash()).unwrap();
         for shard_id in self.epoch_manager.shard_ids(&epoch_id).unwrap() {
             if self.produced_early_chunk.remove(&(*block.hash(), shard_id)) {
-                println!("jandebug: Chunk already produced skipping");
+                // Already produced chunk during early production
                 continue;
             }
 
