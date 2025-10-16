@@ -1,7 +1,7 @@
 use crate::Client;
+use near_chain::Block;
 use near_chain::get_chunk_clone_from_header;
 use near_chain::stateless_validation::state_witness::CreateWitnessResult;
-use near_chain::{Block, BlockHeader};
 use near_chain_primitives::Error;
 use near_primitives::sharding::{ShardChunk, ShardChunkHeader};
 
@@ -20,9 +20,7 @@ impl Client {
             let chunk = get_chunk_clone_from_header(&self.chain.chain_store, chunk)?;
             // TODO(resharding) This doesn't work if shard layout changes.
             let prev_chunk_header = prev_block_chunks.get(shard_index).unwrap();
-            if let Err(err) =
-                self.shadow_validate_chunk(prev_block.header(), prev_chunk_header, &chunk)
-            {
+            if let Err(err) = self.shadow_validate_chunk(&prev_block, prev_chunk_header, &chunk) {
                 near_chain::stateless_validation::metrics::SHADOW_CHUNK_VALIDATION_FAILED_TOTAL
                     .inc();
                 tracing::error!(
@@ -39,16 +37,19 @@ impl Client {
 
     fn shadow_validate_chunk(
         &self,
-        prev_block_header: &BlockHeader,
+        prev_block: &Block,
         prev_chunk_header: &ShardChunkHeader,
         chunk: &ShardChunk,
     ) -> Result<(), Error> {
         let CreateWitnessResult { state_witness, .. } =
             self.chain.chain_store().create_state_witness(
                 self.epoch_manager.as_ref(),
-                prev_block_header,
+                prev_block,
                 prev_chunk_header,
                 chunk,
+                |_, _| None,
+                |_, _| None,
+                |_, _| None,
             )?;
         if self.config.save_latest_witnesses {
             self.chain.chain_store.save_latest_chunk_state_witness(&state_witness)?;

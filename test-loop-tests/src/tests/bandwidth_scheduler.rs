@@ -303,9 +303,10 @@ fn analyze_workload_blocks(
                 epoch_manager,
                 shard_id,
                 &cur_shard_layout,
-                *block.hash(),
+                block.header(),
                 prev_height_included,
                 ReceiptFilter::TargetShard,
+                |_, _| None,
             )
             .unwrap();
 
