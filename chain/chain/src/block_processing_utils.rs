@@ -30,8 +30,8 @@ pub struct BlockPreprocessInfo {
     /// point in Client::run_catchup()
     pub(crate) is_caught_up: bool,
     pub(crate) state_sync_info: Option<StateSyncInfo>,
-    pub(crate) incoming_receipts: HashMap<ShardId, Vec<ReceiptProof>>,
-    pub(crate) provenance: Provenance,
+    pub incoming_receipts: HashMap<ShardId, Vec<ReceiptProof>>,
+    pub provenance: Provenance,
     /// Used to get notified when the applying chunks of a block finishes.
     pub(crate) apply_chunks_done_waiter: ApplyChunksDoneWaiter,
     /// Used to calculate block processing time metric.
