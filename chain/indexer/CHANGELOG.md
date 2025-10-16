@@ -18,7 +18,6 @@ is created with `Indexer::from_near_node(..)`:
 
 `IndexerChunkView` no longer contains local receipts as part of `receipts` field.
 A dedicated `local_receipts` is introduced instead.
-Note: transactions with `signer_id` equal to `receiver_id` are converted to local receipts.
 
 ## 1.38.x
 
