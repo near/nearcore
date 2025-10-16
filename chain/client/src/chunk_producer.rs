@@ -398,6 +398,12 @@ impl ChunkProducer {
             .with_label_values(&[&shard_id.to_string()])
             .inc_by(num_filtered_transactions as u64);
 
+        if is_early_produce {
+            metrics::EARLY_CHUNKS_PRODUCED_TOTAL.with_label_values(&[&shard_id.to_string()]).inc();
+        } else {
+            metrics::LATE_CHUNKS_PRODUCED_TOTAL.with_label_values(&[&shard_id.to_string()]).inc();
+        }
+
         self.chunk_production_info.put(
             (next_height, shard_id),
             ChunkProduction {
