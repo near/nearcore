@@ -62,8 +62,7 @@ pub fn reed_solomon_decode<T: BorshDeserialize>(
         let take_len = remaining.min(part.len());
         buf.extend_from_slice(&part[..take_len]);
     }
-    // Decode exactly up to encoded_length bytes,
-    // using (min()) to avoid panic.
+    // Decode exactly up to encoded_length bytes, using min() to avoid panic.
     let end = encoded_length.min(buf.len());
     T::try_from_slice(&buf[..end])
 }
