@@ -1,10 +1,10 @@
+use std::collections::HashMap;
 use std::sync::atomic::Ordering;
 
 use near_time::Clock;
 use serde::Serialize;
 
 use crate::instrumentation::WINDOW_SIZE_NS;
-use crate::instrumentation::queue::InstrumentedQueueView;
 use crate::instrumentation::{
     NUM_WINDOWS,
     data::{
@@ -28,7 +28,7 @@ pub struct InstrumentedThreadView {
     pub message_types: Vec<String>,
     pub windows: Vec<InstrumentedWindowView>,
     pub active_event: Option<InstrumentedActiveEventView>,
-    pub queue: InstrumentedQueueView,
+    pub queue: HashMap<String, u64>,
 }
 
 #[derive(Serialize, Debug)]
@@ -244,7 +244,7 @@ impl InstrumentedThread {
             message_types: self.message_type_registry.to_vec(),
             windows,
             active_event,
-            queue: self.queue.to_view(),
+            queue: self.queue.get_pending_events(),
         }
     }
 }

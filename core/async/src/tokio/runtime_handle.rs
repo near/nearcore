@@ -69,14 +69,10 @@ impl<A> TokioRuntimeHandle<A> {
         message: TokioRuntimeMessage<A>,
     ) -> Result<(), mpsc::error::SendError<TokioRuntimeMessage<A>>> {
         let name = message.name;
-        self.instrumentation.queue().enqueue(name);
-        let result = self.sender.send(message);
-        if result.is_ok() {
-            Ok(())
-        } else {
-            self.instrumentation.queue().dequeue(name);
-            result
-        }
+        self.sender.send(message).map(|_| {
+            // Only increment the queue if the message was successfully sent.
+            self.instrumentation.queue().enqueue(name);
+        })
     }
 }
 
@@ -182,6 +178,7 @@ impl<A: Actor + Send + 'static> TokioRuntimeBuilder<A> {
                         break;
                     }
                     _ = window_update_timer.tick() => {
+                        tracing::debug!(target: "tokio_runtime", "Advancing instrumentation window");
                         shared_instrumentation.with_thread_local_writer(|writer| writer.advance_window_if_needed());
                     }
                     Some(message) = receiver.recv() => {

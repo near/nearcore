@@ -61,14 +61,10 @@ impl<A> MultithreadRuntimeHandle<A> {
         message: MultithreadRuntimeMessage<A>,
     ) -> Result<(), crossbeam_channel::SendError<MultithreadRuntimeMessage<A>>> {
         let name = message.name;
-        self.instrumentation.queue().enqueue(name);
-        let result = self.sender.send(message);
-        if result.is_ok() {
-            Ok(())
-        } else {
-            self.instrumentation.queue().dequeue(name);
-            result
-        }
+        self.sender.send(message).map(|_| {
+            // Only increment the queue if the message was successfully sent.
+            self.instrumentation.queue().enqueue(name);
+        })
     }
 }
 

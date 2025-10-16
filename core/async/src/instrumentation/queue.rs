@@ -4,8 +4,8 @@ use std::sync::Arc;
 use std::sync::atomic::AtomicU64;
 
 use parking_lot::RwLock;
-use serde::Serialize;
 
+/// InstrumentedQueue keeps track of the number of pending messages of each type in the queue.
 pub struct InstrumentedQueue {
     pending: RwLock<HashMap<String, AtomicU64>>,
 }
@@ -38,23 +38,11 @@ impl InstrumentedQueue {
         }
     }
 
-    pub fn get_pending_counts(&self) -> HashMap<String, u64> {
+    pub fn get_pending_events(&self) -> HashMap<String, u64> {
         let pending = self.pending.read();
         pending
             .iter()
             .map(|(k, v)| (k.clone(), v.load(std::sync::atomic::Ordering::Relaxed)))
             .collect()
-    }
-}
-
-#[derive(Serialize, Debug)]
-pub struct InstrumentedQueueView {
-    pub pending_counts: HashMap<String, u64>,
-}
-
-impl InstrumentedQueue {
-    pub fn to_view(&self) -> InstrumentedQueueView {
-        let pending_counts = self.get_pending_counts();
-        InstrumentedQueueView { pending_counts }
     }
 }

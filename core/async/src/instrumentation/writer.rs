@@ -1,22 +1,22 @@
-use std::{
-    cell::{RefCell, RefMut},
-    collections::HashMap,
-    sync::Arc,
-    time::Instant,
-};
+use std::cell::{RefCell, RefMut};
+use std::collections::HashMap;
+use std::sync::Arc;
+use std::time::Instant;
 
 use near_time::Clock;
 
+use crate::instrumentation::WINDOW_SIZE_NS;
+use crate::instrumentation::data::{ALL_ACTOR_INSTRUMENTATIONS, InstrumentedThread};
 use crate::instrumentation::queue::InstrumentedQueue;
-use crate::instrumentation::{
-    WINDOW_SIZE_NS,
-    data::{ALL_ACTOR_INSTRUMENTATIONS, InstrumentedThread},
-};
 
 thread_local! {
     static THREAD_WRITER: RefCell<Option<InstrumentedThreadWriter>> = const { RefCell::new(None) };
 }
 
+/// Writer that can be used to record instrumentation events for a specific
+/// thread. It is associated with a specific actor thread, and maintains a
+/// mapping from message type names. The actor thread will use the mutable
+/// reference to this struct to record events.
 pub struct InstrumentedThreadWriter {
     pub shared: Arc<InstrumentedThreadWriterSharedPart>,
     current_window_start_time_ns: u64,
@@ -24,6 +24,10 @@ pub struct InstrumentedThreadWriter {
     target: Arc<InstrumentedThread>,
 }
 
+/// Shared part of the instrumentation that is shared between all threads of an
+/// actor. Most importantly, it contains the reference to the queue, which is
+/// shared between all threads. It also contains the clock and reference
+/// instant to compute timestamps.
 pub struct InstrumentedThreadWriterSharedPart {
     actor_name: String,
     clock: Clock,
@@ -32,6 +36,7 @@ pub struct InstrumentedThreadWriterSharedPart {
 }
 
 impl InstrumentedThreadWriter {
+    /// Start an event for a specific message type, also recording the time spent in the queue.
     pub fn start_event(&mut self, message_type: &str, dequeue_time_ns: u64) {
         let start_time_ns =
             self.shared.clock.now().duration_since(self.shared.reference_instant).as_nanos() as u64;
@@ -57,6 +62,7 @@ impl InstrumentedThreadWriter {
         let _total_elapsed_ns = self.target.end_event(end_time_ns);
     }
 
+    /// Advance the current window if needed, based on the current time.
     pub fn advance_window_if_needed(&mut self) {
         let current_time_ns =
             self.shared.clock.now().duration_since(self.shared.reference_instant).as_nanos() as u64;
@@ -97,7 +103,7 @@ impl InstrumentedThreadWriterSharedPart {
         self.clock.now().duration_since(self.reference_instant).as_nanos() as u64
     }
 
-    pub fn queue(&self) -> &Arc<InstrumentedQueue> {
+    pub fn queue(&self) -> &InstrumentedQueue {
         &self.queue
     }
 

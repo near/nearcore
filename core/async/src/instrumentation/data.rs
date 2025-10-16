@@ -1,11 +1,7 @@
-use std::{
-    collections::HashMap,
-    sync::{
-        Arc, LazyLock,
-        atomic::{AtomicU64, AtomicUsize, Ordering},
-    },
-    time::Instant,
-};
+use std::collections::HashMap;
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+use std::sync::{Arc, LazyLock};
+use std::time::Instant;
 
 use parking_lot::RwLock;
 

@@ -108,7 +108,7 @@ where
 }
 
 /// Instruments the future, recording executions and manages its existence in the queue.
-pub struct InstrumentingFuture {
+struct InstrumentingFuture {
     description: &'static str,
     future: futures::future::BoxFuture<'static, ()>,
     instrumentation: Arc<InstrumentedThreadWriterSharedPart>,
