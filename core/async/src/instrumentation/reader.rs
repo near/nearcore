@@ -1,18 +1,13 @@
 use std::collections::HashMap;
 use std::sync::atomic::Ordering;
 
-use near_time::Clock;
 use serde::Serialize;
 
-use crate::instrumentation::WINDOW_SIZE_NS;
-use crate::instrumentation::{
-    NUM_WINDOWS,
-    data::{
-        AggregatedMessageTypeStats, AllActorInstrumentations, InstrumentedEvent,
-        InstrumentedEventBuffer, InstrumentedThread, InstrumentedWindow, InstrumentedWindowSummary,
-        MessageTypeRegistry,
-    },
+use crate::instrumentation::data::{
+    AggregatedMessageTypeStats, InstrumentedEvent, InstrumentedEventBuffer, InstrumentedThread,
+    InstrumentedWindow, InstrumentedWindowSummary, MessageTypeRegistry,
 };
+use crate::instrumentation::{NUM_WINDOWS, WINDOW_SIZE_NS};
 
 #[derive(Serialize, Debug)]
 pub struct InstrumentedThreadsView {
