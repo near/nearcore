@@ -45,6 +45,10 @@ nightly = [
 ]
 io_trace = ["near-fmt", "strum"]
 sandbox = []
+# You can use these features when building the workspace to disable instrumentation at relevant
+# levels workspace-wide.
+max_level_info = ["tracing/max_level_info", "tracing/release_max_level_info"]
+max_level_debug = ["tracing/max_level_debug", "tracing/release_max_level_debug"]
 
 [[bench]]
 name = "metrics"
