@@ -3311,7 +3311,6 @@ version = "0.0.0"
 dependencies = [
  "anyhow",
  "assert_matches",
- "async-trait",
  "aurora-engine-transactions",
  "aurora-engine-types",
  "borsh",
