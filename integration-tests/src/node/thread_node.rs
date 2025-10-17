@@ -1,6 +1,5 @@
 use std::sync::Arc;
 
-use async_trait::async_trait;
 use near_chain_configs::Genesis;
 use near_crypto::{InMemorySigner, Signer};
 use near_primitives::types::AccountId;
@@ -33,7 +32,6 @@ impl Drop for ThreadNode {
     }
 }
 
-#[async_trait]
 impl Node for ThreadNode {
     fn genesis(&self) -> &Genesis {
         &self.config.genesis
