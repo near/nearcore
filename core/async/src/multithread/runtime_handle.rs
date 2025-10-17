@@ -1,6 +1,7 @@
 use crate::instrumentation::queue::InstrumentedQueue;
 use crate::instrumentation::writer::InstrumentedThreadWriterSharedPart;
 use crate::messaging::Actor;
+use crate::pretty_type_name;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
@@ -71,16 +72,17 @@ pub(crate) fn spawn_multithread_actor<A>(
 where
     A: Actor + Send + 'static,
 {
+    let actor_name = pretty_type_name::<A>();
     tracing::info!(
-        "Starting multithread actor of type {} with {} threads",
-        std::any::type_name::<A>(),
-        num_threads
+        target: "multithread_runtime",
+        actor_name,
+        num_threads,
+        "Starting multithread actor",
     );
     let threads =
         Arc::new(rayon::ThreadPoolBuilder::new().num_threads(num_threads).build().unwrap());
     let (sender, receiver) = crossbeam_channel::unbounded::<MultithreadRuntimeMessage<A>>();
-    let instrumented_queue = InstrumentedQueue::new(std::any::type_name::<A>());
-    let actor_name = std::any::type_name::<A>();
+    let instrumented_queue = InstrumentedQueue::new(actor_name);
     let shared_instrumentation =
         InstrumentedThreadWriterSharedPart::new(actor_name.to_string(), instrumented_queue.clone());
     let handle = MultithreadRuntimeHandle {

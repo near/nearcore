@@ -186,7 +186,7 @@ impl<A: Actor + Send + 'static> TokioRuntimeBuilder<A> {
                     Some(message) = receiver.recv() => {
                         let seq = message.seq;
                         shared_instrumentation.queue().dequeue(message.name);
-                        tracing::debug!(target: "tokio_runtime", seq, "Executing message");
+                        tracing::debug!(target: "tokio_runtime", seq, actor_name, "Executing message");
                         let dequeue_time_ns = shared_instrumentation.current_time().saturating_sub(message.enqueued_time_ns);
                         shared_instrumentation.with_thread_local_writer(|writer| writer.start_event(message.name, dequeue_time_ns));
                         (message.function)(&mut actor.actor, &mut runtime_handle);

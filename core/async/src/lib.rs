@@ -120,7 +120,7 @@ impl ActorSystem {
         &self,
     ) -> TokioRuntimeBuilder<A> {
         TokioRuntimeBuilder::new(
-            std::any::type_name::<A>().to_string(),
+            pretty_type_name::<A>().to_string(),
             self.tokio_cancellation_signal.clone(),
         )
     }
