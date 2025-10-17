@@ -1987,6 +1987,10 @@ impl Client {
         get_chunk_extra: impl Fn(&CryptoHash, ShardId) -> Option<ChunkExtra>,
         get_incoming_receipts: impl Fn(&CryptoHash, ShardId) -> Option<Arc<Vec<ReceiptProof>>>,
     ) {
+        if is_early_produce {
+            tracing::warn!(target: "client", "skipping early chunk production for block {}", block.header().height());
+            return;
+        }
         let validator_id = signer.validator_id().clone();
         let epoch_id =
             self.epoch_manager.get_epoch_id_from_prev_block(block.header().hash()).unwrap();
