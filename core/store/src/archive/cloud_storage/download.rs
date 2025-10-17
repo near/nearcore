@@ -42,16 +42,16 @@ impl CloudStorage {
         self.get(&file_id).await
     }
 
-    async fn get<T: BorshDeserialize>(&self, file_id: &CloudStorageFileID) -> Result<T, CloudRetrievalError>{
+    async fn get<T: BorshDeserialize>(
+        &self,
+        file_id: &CloudStorageFileID,
+    ) -> Result<T, CloudRetrievalError> {
         let bytes = self.download(file_id).await?;
         deserialize(&bytes, file_id)
     }
 
     /// Downloads the raw bytes for a given file in the cloud archive.
-    async fn download(
-        &self,
-        file_id: &CloudStorageFileID,
-    ) -> Result<Vec<u8>, CloudRetrievalError> {
+    async fn download(&self, file_id: &CloudStorageFileID) -> Result<Vec<u8>, CloudRetrievalError> {
         let path = file_id.path();
         self.external
             .get(&path)
@@ -74,7 +74,10 @@ impl CloudStorage {
     }
 }
 
-fn deserialize<T: BorshDeserialize>(bytes: &[u8], file_id: &CloudStorageFileID) -> Result<T, CloudRetrievalError> {
-     T::try_from_slice(bytes)
+fn deserialize<T: BorshDeserialize>(
+    bytes: &[u8],
+    file_id: &CloudStorageFileID,
+) -> Result<T, CloudRetrievalError> {
+    T::try_from_slice(bytes)
         .map_err(|error| CloudRetrievalError::DeserializeError { file_id: file_id.clone(), error })
 }
