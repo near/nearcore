@@ -11,6 +11,7 @@ pub use crate::network_protocol::{
     StateResponseInfoV1, StateResponseInfoV2,
 };
 use crate::routing::routing_table_view::RoutingTableInfo;
+use crate::spice_data_distribution::SpicePartialDataRequest;
 pub use crate::state_sync::StateSyncResponse;
 use near_async::messaging::{AsyncSender, Sender};
 use near_async::{MultiSend, MultiSenderFrom, time};
@@ -321,6 +322,8 @@ pub enum NetworkRequests {
     SpicePartialData { partial_data: SpicePartialData, recipients: HashSet<AccountId> },
     /// Message for a spice chunk endorsement, sent by a chunk validator to all validators.
     SpiceChunkEndorsement(AccountId, SpiceChunkEndorsement),
+    /// Message requesting spice partial data.
+    SpicePartialDataRequest { request: SpicePartialDataRequest, producer: AccountId },
 }
 
 #[derive(Debug, strum::IntoStaticStr)]

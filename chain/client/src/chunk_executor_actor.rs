@@ -14,8 +14,9 @@ use near_chain::chain::{NewChunkData, NewChunkResult, ShardContext, StorageConte
 use near_chain::sharding::get_receipts_shuffle_salt;
 use near_chain::sharding::shuffle_receipt_proofs;
 use near_chain::spice_chunk_application::build_spice_apply_chunk_block_context;
-use near_chain::spice_core::CoreStatementsProcessor;
-use near_chain::spice_core::ExecutionResultEndorsed;
+use near_chain::spice_core::SpiceCoreReader;
+use near_chain::spice_core_writer_actor::ExecutionResultEndorsed;
+use near_chain::spice_core_writer_actor::ProcessedBlock;
 use near_chain::types::ApplyChunkResult;
 use near_chain::types::{RuntimeAdapter, StorageDataSource};
 use near_chain::update_shard::{ShardUpdateReason, ShardUpdateResult, process_shard_update};
@@ -28,6 +29,7 @@ use near_chain_primitives::ApplyChunksMode;
 use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_assignment::shard_id_to_uid;
 use near_epoch_manager::shard_tracker::ShardTracker;
+use near_network::client::SpiceChunkEndorsementMessage;
 use near_network::types::PeerManagerAdapter;
 use near_primitives::block::ApplyChunkBlockContext;
 use near_primitives::hash::CryptoHash;
@@ -56,6 +58,7 @@ use near_store::Store;
 use near_store::StoreUpdate;
 use near_store::TrieDBStorage;
 use near_store::TrieStorage;
+use near_store::adapter::StoreAdapter;
 use near_store::adapter::trie_store::TrieStoreAdapter;
 use node_runtime::SignedValidPeriodTransactions;
 use rayon::iter::IntoParallelIterator as _;
@@ -76,13 +79,14 @@ pub struct ChunkExecutorActor {
     apply_chunks_spawner: Arc<dyn AsyncComputationSpawner>,
     apply_chunks_iteration_mode: ApplyChunksIterationMode,
     myself_sender: Sender<ExecutorApplyChunksDone>,
+    pub(crate) core_writer_sender: Sender<SpiceChunkEndorsementMessage>,
     data_distributor_adapter: SpiceDataDistributorAdapter,
 
     blocks_in_execution: HashSet<CryptoHash>,
     pending_unverified_receipts: HashMap<CryptoHash, Vec<ExecutorIncomingUnverifiedReceipts>>,
 
     pub(crate) validator_signer: MutableValidatorSigner,
-    pub(crate) core_processor: CoreStatementsProcessor,
+    pub(crate) core_reader: SpiceCoreReader,
 }
 
 impl ChunkExecutorActor {
@@ -94,12 +98,13 @@ impl ChunkExecutorActor {
         shard_tracker: ShardTracker,
         network_adapter: PeerManagerAdapter,
         validator_signer: MutableValidatorSigner,
-        core_processor: CoreStatementsProcessor,
         apply_chunks_spawner: Arc<dyn AsyncComputationSpawner>,
         apply_chunks_iteration_mode: ApplyChunksIterationMode,
         myself_sender: Sender<ExecutorApplyChunksDone>,
+        core_writer_sender: Sender<SpiceChunkEndorsementMessage>,
         data_distributor_adapter: SpiceDataDistributorAdapter,
     ) -> Self {
+        let core_reader = SpiceCoreReader::new(store.chain_store(), epoch_manager.clone());
         Self {
             chain_store: ChainStore::new(store, true, genesis.transaction_validity_period),
             runtime_adapter,
@@ -111,8 +116,9 @@ impl ChunkExecutorActor {
             myself_sender,
             blocks_in_execution: HashSet::new(),
             validator_signer,
-            core_processor,
+            core_reader,
             data_distributor_adapter,
+            core_writer_sender,
             pending_unverified_receipts: HashMap::new(),
         }
     }
@@ -121,7 +127,7 @@ impl ChunkExecutorActor {
 impl near_async::messaging::Actor for ChunkExecutorActor {}
 
 /// Message with incoming unverified receipts corresponding to the block.
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct ExecutorIncomingUnverifiedReceipts {
     pub block_hash: CryptoHash,
     pub receipt_proof: ReceiptProof,
@@ -164,12 +170,6 @@ impl ExecutorIncomingUnverifiedReceipts {
     }
 }
 
-/// Message that should be sent once block is processed.
-#[derive(Debug)]
-pub struct ProcessedBlock {
-    pub block_hash: CryptoHash,
-}
-
 #[derive(Debug)]
 pub struct ExecutorApplyChunksDone {
     pub block_hash: CryptoHash,
@@ -179,6 +179,12 @@ pub struct ExecutorApplyChunksDone {
 impl Handler<ExecutorIncomingUnverifiedReceipts> for ChunkExecutorActor {
     fn handle(&mut self, receipts: ExecutorIncomingUnverifiedReceipts) {
         let block_hash = receipts.block_hash;
+        tracing::debug!(
+            target: "chunk_executor",
+            %block_hash,
+            receipt_proofs=?receipts.receipt_proof,
+            "received receipts",
+        );
         self.pending_unverified_receipts.entry(block_hash).or_default().push(receipts);
 
         if let Err(err) = self.try_process_next_blocks(&block_hash) {
@@ -191,10 +197,10 @@ impl Handler<ProcessedBlock> for ChunkExecutorActor {
     fn handle(&mut self, ProcessedBlock { block_hash }: ProcessedBlock) {
         match self.try_apply_chunks(&block_hash) {
             Ok(TryApplyChunksOutcome::Scheduled) => {}
-            Ok(TryApplyChunksOutcome::NotReady) => {
+            Ok(TryApplyChunksOutcome::NotReady(reason)) => {
                 // We will retry applying it by looking at all next blocks after receiving
                 // additional execution result endorsements or receipts.
-                tracing::debug!(target: "chunk_executor", %block_hash, "not yet ready for processing");
+                tracing::debug!(target: "chunk_executor", ?reason, %block_hash, "not yet ready for processing");
             }
             Ok(TryApplyChunksOutcome::BlockAlreadyAccepted) => {
                 tracing::warn!(
@@ -236,10 +242,75 @@ impl Handler<ExecutorApplyChunksDone> for ChunkExecutorActor {
     }
 }
 
+// Though it's useful for debugging clippy treats all fields as dead code.
+#[allow(dead_code)]
+#[derive(Debug)]
+enum NotReadyToApplyChunksReason {
+    MissingExecutionResults {
+        prev_block_hash: CryptoHash,
+        missing_shard_ids: Vec<ShardId>,
+    },
+    PreviousBlockIsNotExecuted {
+        prev_block_hash: CryptoHash,
+        prev_block_shard_id: ShardId,
+    },
+    MissingReceipts {
+        prev_block_hash: CryptoHash,
+        missing_receipts_from_shard_ids: HashSet<ShardId>,
+        missing_receipts_to_shard_id: ShardId,
+    },
+}
+
 enum TryApplyChunksOutcome {
     Scheduled,
-    NotReady,
+    NotReady(NotReadyToApplyChunksReason),
     BlockAlreadyAccepted,
+}
+
+impl TryApplyChunksOutcome {
+    fn missing_execution_results(
+        core_reader: &SpiceCoreReader,
+        epoch_manager: &dyn EpochManagerAdapter,
+        prev_block: &Block,
+    ) -> Result<Self, Error> {
+        let execution_results = core_reader.get_execution_results_by_shard_id(&prev_block)?;
+        let shard_layout = epoch_manager.get_shard_layout(prev_block.header().epoch_id())?;
+        let missing_shard_ids = shard_layout
+            .shard_ids()
+            .filter(|shard_id| !execution_results.contains_key(shard_id))
+            .collect();
+        Ok(TryApplyChunksOutcome::NotReady(NotReadyToApplyChunksReason::MissingExecutionResults {
+            prev_block_hash: *prev_block.hash(),
+            missing_shard_ids,
+        }))
+    }
+
+    fn previous_block_is_not_executed(
+        prev_block_hash: CryptoHash,
+        prev_block_shard_id: ShardId,
+    ) -> Self {
+        TryApplyChunksOutcome::NotReady(NotReadyToApplyChunksReason::PreviousBlockIsNotExecuted {
+            prev_block_hash,
+            prev_block_shard_id,
+        })
+    }
+
+    fn missing_receipts(
+        prev_block_hash: CryptoHash,
+        proofs: &[ReceiptProof],
+        to_shard_id: ShardId,
+        prev_block_shard_ids: &[ShardId],
+    ) -> Self {
+        let mut missing_receipts: HashSet<ShardId> = prev_block_shard_ids.iter().copied().collect();
+        for proof in proofs {
+            missing_receipts.remove(&proof.1.from_shard_id);
+        }
+        TryApplyChunksOutcome::NotReady(NotReadyToApplyChunksReason::MissingReceipts {
+            prev_block_hash,
+            missing_receipts_from_shard_ids: missing_receipts,
+            missing_receipts_to_shard_id: to_shard_id,
+        })
+    }
 }
 
 impl ChunkExecutorActor {
@@ -258,9 +329,13 @@ impl ChunkExecutorActor {
         let store = self.chain_store.store();
 
         let Some(prev_block_execution_results) =
-            self.core_processor.get_block_execution_results(&prev_block)?
+            self.core_reader.get_block_execution_results(&prev_block)?
         else {
-            return Ok(TryApplyChunksOutcome::NotReady);
+            return TryApplyChunksOutcome::missing_execution_results(
+                &self.core_reader,
+                self.epoch_manager.as_ref(),
+                &prev_block,
+            );
         };
 
         // TODO(spice): refactor try_process_pending_unverified_receipts to take prev_block_execution_results as argument.
@@ -293,26 +368,22 @@ impl ChunkExecutorActor {
                 }
 
                 if !self.chunk_extra_exists(prev_block_hash, prev_block_shard_id)? {
-                    tracing::debug!(
-                        target: "chunk_executor",
-                        %block_hash,
-                        %prev_block_hash,
-                        %prev_block_shard_id,
-                        "previous block is not executed yet");
-                    return Ok(TryApplyChunksOutcome::NotReady);
+                    return Ok(TryApplyChunksOutcome::previous_block_is_not_executed(
+                        *prev_block_hash,
+                        prev_block_shard_id,
+                    ));
                 }
 
                 let proofs =
                     get_receipt_proofs_for_shard(&store, prev_block_hash, prev_block_shard_id)?;
                 if proofs.len() != prev_block_shard_ids.len() {
-                    tracing::debug!(
-                        target: "chunk_executor",
-                        %block_hash,
-                        %prev_block_hash,
-                        %prev_block_shard_id,
-                        "missing receipts to apply all tracked chunks for a block"
-                    );
-                    return Ok(TryApplyChunksOutcome::NotReady);
+                    let to_shard_id = prev_block_shard_id;
+                    return Ok(TryApplyChunksOutcome::missing_receipts(
+                        *prev_block_hash,
+                        &proofs,
+                        to_shard_id,
+                        &prev_block_shard_ids,
+                    ));
                 }
                 all_receipts.insert(prev_block_shard_id, proofs);
             }
@@ -337,8 +408,8 @@ impl ChunkExecutorActor {
         for next_block_hash in next_block_hashes {
             match self.try_apply_chunks(&next_block_hash)? {
                 TryApplyChunksOutcome::Scheduled => {}
-                TryApplyChunksOutcome::NotReady => {
-                    tracing::debug!(target: "chunk_executor", %next_block_hash, "not yet ready for processing");
+                TryApplyChunksOutcome::NotReady(reason) => {
+                    tracing::debug!(target: "chunk_executor", ?reason, %next_block_hash, "not yet ready for processing");
                 }
                 TryApplyChunksOutcome::BlockAlreadyAccepted => {}
             }
@@ -457,11 +528,7 @@ impl ChunkExecutorActor {
             let ShardUpdateResult::NewChunk(new_chunk_result) = result else {
                 panic!("missing chunks are not expected in SPICE");
             };
-            let Some(my_signer) = self.validator_signer.get() else {
-                // If node isn't validator it shouldn't send outgoing receipts, endorsed and witnesses.
-                // RPC nodes can still apply chunks and tracks multiple shards.
-                continue;
-            };
+
             let shard_id = new_chunk_result.shard_uid.shard_id();
             let (outgoing_receipts_root, receipt_proofs) =
                 Chain::create_receipts_proofs_from_outgoing_receipts(
@@ -470,8 +537,13 @@ impl ChunkExecutorActor {
                     new_chunk_result.apply_result.outgoing_receipts.clone(),
                 )?;
             self.save_produced_receipts(&block_hash, &receipt_proofs)?;
-            self.send_outgoing_receipts(&block, receipt_proofs);
 
+            let Some(my_signer) = self.validator_signer.get() else {
+                // If node isn't validator it shouldn't send outgoing receipts, endorsed and witnesses.
+                // RPC nodes can still apply chunks and tracks multiple shards.
+                continue;
+            };
+            self.send_outgoing_receipts(&block, receipt_proofs);
             self.distribute_witness(&block, my_signer, new_chunk_result, outgoing_receipts_root)?;
         }
 
@@ -520,9 +592,7 @@ impl ChunkExecutorActor {
                 &self.network_adapter.clone().into_sender(),
                 &my_signer,
             );
-            self.core_processor
-                .process_chunk_endorsement(endorsement)
-                .expect("Node should always be able to record it's own endorsement");
+            self.core_writer_sender.send(SpiceChunkEndorsementMessage(endorsement));
         }
 
         let state_witness =
@@ -712,7 +782,6 @@ impl ChunkExecutorActor {
             self.runtime_adapter.clone(),
             // Since we don't produce blocks, this argument is irrelevant.
             DoomslugThresholdMode::NoApprovals,
-            self.core_processor.clone(),
         )
     }
 
@@ -745,10 +814,10 @@ impl ChunkExecutorActor {
         block_hash: &CryptoHash,
     ) -> Result<ReceiptVerificationContext, Error> {
         let block = self.chain_store.get_block(block_hash)?;
-        if !self.core_processor.all_execution_results_exist(&block)? {
+        if !self.core_reader.all_execution_results_exist(&block)? {
             return Ok(ReceiptVerificationContext::NotReady);
         }
-        let execution_results = self.core_processor.get_execution_results_by_shard_id(&block)?;
+        let execution_results = self.core_reader.get_execution_results_by_shard_id(&block)?;
         Ok(ReceiptVerificationContext::Ready { execution_results })
     }
 

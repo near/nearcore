@@ -5,7 +5,6 @@
 //! Unfortunately, this is not the case today. We are in the process of refactoring ClientActor
 //! <https://github.com/near/nearcore/issues/7899>
 
-use crate::chunk_executor_actor::ProcessedBlock;
 #[cfg(feature = "test_features")]
 pub use crate::chunk_producer::AdvProduceChunksMode;
 #[cfg(feature = "test_features")]
@@ -39,7 +38,7 @@ use near_chain::chain::{
     ApplyChunksDoneMessage, BlockCatchUpRequest, BlockCatchUpResponse, PostStateReadyMessage,
 };
 use near_chain::resharding::types::ReshardingSender;
-use near_chain::spice_core::CoreStatementsProcessor;
+use near_chain::spice_core_writer_actor::ProcessedBlock;
 use near_chain::state_snapshot_actor::SnapshotCallbacks;
 use near_chain::stateless_validation::state_witness::PartialWitnessSenderForClient;
 use near_chain::test_utils::format_hash;
@@ -128,10 +127,10 @@ pub struct StartClientResult {
 }
 
 pub struct SpiceClientConfig {
-    pub core_processor: CoreStatementsProcessor,
     pub chunk_executor_sender: Sender<ProcessedBlock>,
     pub spice_chunk_validator_sender: Sender<ProcessedBlock>,
     pub spice_data_distributor_sender: Sender<ProcessedBlock>,
+    pub spice_core_writer_sender: Sender<ProcessedBlock>,
 }
 
 /// Starts client in a separate tokio runtime (thread).
@@ -191,7 +190,6 @@ pub fn start_client(
         client_sender_for_client.as_multi_sender(),
         chunk_validation_adapter.as_multi_sender(),
         protocol_upgrade_schedule,
-        spice_client_config.core_processor,
     )
     .unwrap();
 
@@ -242,6 +240,7 @@ pub fn start_client(
         spice_client_config.chunk_executor_sender,
         spice_client_config.spice_chunk_validator_sender,
         spice_client_config.spice_data_distributor_sender,
+        spice_client_config.spice_core_writer_sender,
     )
     .unwrap();
     let tx_pool = client_actor_inner.client.chunk_producer.sharded_tx_pool.clone();
@@ -324,6 +323,10 @@ pub struct ClientActorInner {
     /// information. Since data may arrive before blocks it needs to be aware of new blocks.
     /// Without spice should be a noop sender.
     spice_data_distributor_sender: Sender<ProcessedBlock>,
+
+    /// With spice, spice core writer processes all core statements.
+    /// Should be noop sender otherwise.
+    spice_core_writer_sender: Sender<ProcessedBlock>,
 }
 
 impl messaging::Actor for ClientActorInner {
@@ -395,6 +398,7 @@ impl ClientActorInner {
         chunk_executor_sender: Sender<ProcessedBlock>,
         spice_chunk_validator_sender: Sender<ProcessedBlock>,
         spice_data_distributor_sender: Sender<ProcessedBlock>,
+        spice_core_writer_sender: Sender<ProcessedBlock>,
     ) -> Result<Self, Error> {
         if let Some(vs) = &client.validator_signer.get() {
             info!(target: "client", "Starting validator node: {}", vs.validator_id());
@@ -436,6 +440,7 @@ impl ClientActorInner {
             chunk_executor_sender,
             spice_chunk_validator_sender,
             spice_data_distributor_sender,
+            spice_core_writer_sender,
         })
     }
 }
@@ -1559,7 +1564,7 @@ impl ClientActorInner {
             self.chunk_executor_sender.send(ProcessedBlock { block_hash: accepted_block });
             self.spice_chunk_validator_sender.send(ProcessedBlock { block_hash: accepted_block });
             self.spice_data_distributor_sender.send(ProcessedBlock { block_hash: accepted_block });
-            self.client.chain.spice_core_processor.send_execution_result_endorsements(&block);
+            self.spice_core_writer_sender.send(ProcessedBlock { block_hash: accepted_block });
         }
     }
 

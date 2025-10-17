@@ -585,6 +585,7 @@ pub(crate) async fn start(
         noop().into_sender(),
         noop().into_multi_sender(),
         noop().into_multi_sender(),
+        noop().into_sender(),
         genesis_id,
     )
     .unwrap();

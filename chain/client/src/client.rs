@@ -33,7 +33,6 @@ use near_chain::chain::{
 use near_chain::orphan::OrphanMissingChunks;
 use near_chain::rayon_spawner::RayonAsyncComputationSpawner;
 use near_chain::resharding::types::ReshardingSender;
-use near_chain::spice_core::CoreStatementsProcessor;
 use near_chain::state_snapshot_actor::SnapshotCallbacks;
 use near_chain::stateless_validation::state_witness::PartialWitnessSenderForClient;
 use near_chain::test_utils::format_hash;
@@ -276,7 +275,6 @@ impl Client {
         myself_sender: ClientSenderForClient,
         chunk_validation_sender: ChunkValidationSender,
         upgrade_schedule: ProtocolUpgradeVotingSchedule,
-        spice_core_processor: CoreStatementsProcessor,
     ) -> Result<Self, Error> {
         let doomslug_threshold_mode = if enable_doomslug {
             DoomslugThresholdMode::TwoThirds
@@ -304,7 +302,6 @@ impl Client {
             validator_signer.clone(),
             resharding_sender.clone(),
             partial_witness_adapter.clone(),
-            spice_core_processor,
             Some(myself_sender.on_post_state_ready.clone()),
         )?;
         chain.init_flat_storage()?;
@@ -975,7 +972,7 @@ impl Client {
             self.epoch_manager.get_epoch_protocol_version(&next_epoch_id)?;
 
         let core_statements = if cfg!(feature = "protocol_feature_spice") {
-            Some(self.chain.spice_core_processor.core_statement_for_next_block(&prev_header)?)
+            Some(self.chain.spice_core_reader.core_statement_for_next_block(&prev_header)?)
         } else {
             None
         };

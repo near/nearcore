@@ -278,12 +278,9 @@ fn test_spice_chain_with_missing_chunks() {
             }
         }
 
-        if !client.chain.spice_core_processor.all_execution_results_exist(&block).unwrap() {
-            let execution_results = client
-                .chain
-                .spice_core_processor
-                .get_execution_results_by_shard_id(&block)
-                .unwrap();
+        if !client.chain.spice_core_reader.all_execution_results_exist(&block).unwrap() {
+            let execution_results =
+                client.chain.spice_core_reader.get_execution_results_by_shard_id(&block).unwrap();
             missed_execution = true;
             println!(
                 "not all execution result for block at height: {}; execution_results: {:?}",

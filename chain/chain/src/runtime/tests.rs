@@ -1,6 +1,6 @@
 use super::*;
 use crate::spice_core::CoreStatementsProcessor;
-use crate::types::{ChainConfig, RuntimeStorageConfig};
+use crate::types::{BlockType, ChainConfig, RuntimeStorageConfig};
 use crate::{Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode};
 use borsh::BorshDeserialize;
 use near_async::messaging::{IntoMultiSender, noop};
@@ -1551,10 +1551,6 @@ fn get_test_env_with_chain_and_pool() -> (TestEnv, Chain, TransactionPool) {
         MutableConfigValue::new(None, "validator_signer"),
         noop().into_multi_sender(),
         noop().into_multi_sender(),
-        CoreStatementsProcessor::new_with_noop_senders(
-            env.runtime.store().chain_store(),
-            env.epoch_manager.clone(),
-        ),
         None,
     )
     .unwrap();
