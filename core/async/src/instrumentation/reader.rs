@@ -3,9 +3,10 @@ use std::sync::atomic::Ordering;
 
 use serde::Serialize;
 
-use crate::instrumentation::data::{
-    AggregatedMessageTypeStats, InstrumentedEvent, InstrumentedEventBuffer, InstrumentedThread,
-    InstrumentedWindow, InstrumentedWindowSummary, MessageTypeRegistry,
+use crate::instrumentation::data::{InstrumentedThread, MessageTypeRegistry};
+use crate::instrumentation::instrumented_window::{
+    AggregatedMessageTypeStats, InstrumentedEvent, InstrumentedEventBuffer, InstrumentedWindow,
+    InstrumentedWindowSummary,
 };
 use crate::instrumentation::{NUM_WINDOWS, WINDOW_SIZE_NS};
 

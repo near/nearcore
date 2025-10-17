@@ -3,6 +3,7 @@ use near_time::Clock;
 use crate::instrumentation::{data::ALL_ACTOR_INSTRUMENTATIONS, reader::InstrumentedThreadsView};
 
 pub(crate) mod data;
+mod instrumented_window;
 pub mod queue;
 pub mod reader;
 #[cfg(test)]
