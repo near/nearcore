@@ -13,6 +13,7 @@ use near_chain::update_shard::ShardUpdateResult;
 use near_chain_primitives::Error;
 use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::{ReceiptProof, ShardChunk, ShardChunkHeader};
+use near_primitives::stateless_validation::WitnessType;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{EpochId, ShardId};
 
@@ -56,7 +57,7 @@ impl Client {
         // This can happen when optimistic block production starts before chunks from the
         // previous block finish applying (race condition with early OB production).
         // The witness would have already been sent at the correct height.
-        let expected_height = prev_block_header.height() + 1;
+        let expected_height = prev_block.header().height() + 1;
         if height != expected_height {
             tracing::debug!(
                 target: "client",
