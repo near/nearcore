@@ -361,35 +361,30 @@ jobs:
       # Keep the number of uploads here in sync with codecov.yml’s after_n_build value
       # codecov will send a comment only after having received this number of uploads.
       - uses: codecov/codecov-action@eaaf4bedf32dbdc6b720b63067d99c4d77d6047d
-        continue-on-error: true
         with:
           files: unit-linux.json
-          fail_ci_if_error: true
+          fail_ci_if_error: false
           flags: unittests
       - uses: codecov/codecov-action@eaaf4bedf32dbdc6b720b63067d99c4d77d6047d
-        continue-on-error: true
         with:
           files: unit-linux-nightly.json
-          fail_ci_if_error: true
+          fail_ci_if_error: false
           flags: unittests-nightly
       # TODO(#13341): Remove separate spice test checks once spice tests can run as part of nightly or stable tests.
       - uses: codecov/codecov-action@eaaf4bedf32dbdc6b720b63067d99c4d77d6047d
-        continue-on-error: true
         with:
           files: unit-linux-spice.json
-          fail_ci_if_error: true
+          fail_ci_if_error: false
           flags: unittests-spice
       - uses: codecov/codecov-action@eaaf4bedf32dbdc6b720b63067d99c4d77d6047d
-        continue-on-error: true
         with:
           files: py.json
-          fail_ci_if_error: true
+          fail_ci_if_error: false
           flags: pytests
       - uses: codecov/codecov-action@eaaf4bedf32dbdc6b720b63067d99c4d77d6047d
-        continue-on-error: true
         with:
           files: py-nightly.json
-          fail_ci_if_error: true
+          fail_ci_if_error: false
           flags: pytests-nightly
 
   publishable_packages_check:
