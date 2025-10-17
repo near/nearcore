@@ -7,7 +7,7 @@ use near_primitives::types::Balance;
 
 use crate::setup::builder::TestLoopBuilder;
 use crate::utils::account::{
-    create_account_ids, create_validators_spec, rpc_account_id, validators_spec_clients_with_rpc,
+    create_account_ids, create_validators_spec, validators_spec_clients_with_rpc,
 };
 use crate::utils::node::TestLoopNode;
 
@@ -34,7 +34,7 @@ fn test_cross_shard_token_transfer() {
         .clients(clients)
         .build()
         .warmup();
-    let rpc_node = TestLoopNode::for_account(&env.node_datas, &rpc_account_id());
+    let rpc_node = TestLoopNode::rpc(&env.node_datas);
 
     let sender_account = &user_accounts[0];
     let receiver_account = &user_accounts[1];

@@ -14,8 +14,8 @@ fn test_restart_node() {
     let num_validators = 4;
     let validators_spec = create_validators_spec(num_validators, 0);
     let clients = validators_spec_clients(&validators_spec);
-    let client_to_restart = clients[0].clone();
-    let stable_client = clients[1].clone();
+    let validator_index_to_restart = 0;
+    let stable_validator_index = 1;
     let epoch_length = 4;
     let genesis = TestLoopBuilder::new_genesis_builder()
         .epoch_length(epoch_length)
@@ -30,7 +30,7 @@ fn test_restart_node() {
         .warmup();
 
     let kill_height = 2 * epoch_length;
-    TestLoopNode::for_account(&env.node_datas, &client_to_restart)
+    TestLoopNode::validator(&env.node_datas, validator_index_to_restart)
         .run_until_head_height(&mut env.test_loop, kill_height);
 
     // kill node
@@ -38,14 +38,14 @@ fn test_restart_node() {
     let killed_node_state = env.kill_node(&node_identifier);
 
     let restart_height = kill_height + 2 * epoch_length;
-    TestLoopNode::for_account(&env.node_datas, &stable_client)
+    TestLoopNode::validator(&env.node_datas, stable_validator_index)
         .run_until_head_height(&mut env.test_loop, restart_height);
     // restart node
     let new_node_identifier = format!("{}-restart", node_identifier);
     env.restart_node(&new_node_identifier, killed_node_state);
 
-    let restarted_node = TestLoopNode::for_account(&env.node_datas, &client_to_restart);
-    let stable_node = TestLoopNode::for_account(&env.node_datas, &stable_client);
+    let restarted_node = TestLoopNode::validator(&env.node_datas, validator_index_to_restart);
+    let stable_node = TestLoopNode::validator(&env.node_datas, stable_validator_index);
     assert_eq!(restarted_node.head(env.test_loop_data()).height, kill_height);
 
     // Give a few blocks for the restarted node to catch up
