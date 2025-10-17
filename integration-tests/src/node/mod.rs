@@ -4,7 +4,6 @@ pub use crate::node::process_node::ProcessNode;
 pub use crate::node::runtime_node::RuntimeNode;
 pub use crate::node::thread_node::ThreadNode;
 use crate::user::User;
-use async_trait::async_trait;
 use near_chain_configs::Genesis;
 use near_chain_configs::MutableConfigValue;
 use near_chain_configs::TrackedShardsConfig;
@@ -48,13 +47,12 @@ pub enum NodeConfig {
     Process(NearConfig),
 }
 
-#[async_trait]
 pub trait Node: Send + Sync {
     fn genesis(&self) -> &Genesis;
 
     fn account_id(&self) -> Option<AccountId>;
 
-    async fn start(&mut self);
+    fn start(&mut self);
 
     fn kill(&mut self);
 

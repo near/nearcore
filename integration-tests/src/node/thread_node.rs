@@ -1,4 +1,3 @@
-use std::path::PathBuf;
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -23,6 +22,7 @@ pub struct ThreadNode {
     pub signer: Arc<Signer>,
     pub dir: tempfile::TempDir,
     account_id: AccountId,
+    runtime: tokio::runtime::Runtime,
 }
 
 impl Drop for ThreadNode {
@@ -31,12 +31,6 @@ impl Drop for ThreadNode {
             handle.stop();
         }
     }
-}
-
-async fn start_thread(config: NearConfig, path: PathBuf) -> ActorSystem {
-    let actor_system = ActorSystem::new();
-    start_with_config(&path, config, actor_system.clone()).await.expect("start_with_config");
-    actor_system
 }
 
 #[async_trait]
@@ -49,8 +43,11 @@ impl Node for ThreadNode {
         self.config.validator_signer.get().map(|vs| vs.validator_id().clone())
     }
 
-    async fn start(&mut self) {
-        let handle = start_thread(self.config.clone(), self.dir.path().to_path_buf()).await;
+    fn start(&mut self) {
+        let handle = ActorSystem::new();
+        self.runtime
+            .block_on(start_with_config(self.dir.path(), self.config.clone(), handle.clone()))
+            .expect("Failed to start ThreadNode");
         self.state = ThreadNodeState::Running(handle);
     }
 
@@ -104,6 +101,11 @@ impl ThreadNode {
             signer,
             dir: tempfile::Builder::new().prefix("thread_node").tempdir().unwrap(),
             account_id,
+            runtime: tokio::runtime::Builder::new_multi_thread()
+                .enable_all()
+                .worker_threads(1)
+                .build()
+                .expect("Failed to create Tokio runtime"),
         }
     }
 }

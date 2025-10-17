@@ -7,9 +7,8 @@ use near_o11y::testonly::init_test_module_logger;
 use std::thread;
 use std::time::Duration;
 use testlib::runtime_utils::alice_account;
-use tokio::runtime::Runtime;
 
-fn create_thread_nodes_rpc() -> (Vec<ThreadNode>, Runtime) {
+fn create_thread_nodes_rpc() -> Vec<ThreadNode> {
     init_test_module_logger("runtime");
     let nodes = create_nodes_from_seeds(vec![
         "alice.near".to_string(),
@@ -27,9 +26,8 @@ fn create_thread_nodes_rpc() -> (Vec<ThreadNode>, Runtime) {
     let account_names: Vec<_> = nodes.iter().map(|node| node.account_id().unwrap()).collect();
 
     assert_eq!(account_names[0], alice_account());
-    let rt = Runtime::new().unwrap();
     for i in 0..nodes.len() {
-        rt.block_on(nodes[i].start());
+        nodes[i].start();
     }
     // Let the nodes boot up a bit.
     for _ in 0..100 {
@@ -40,13 +38,13 @@ fn create_thread_nodes_rpc() -> (Vec<ThreadNode>, Runtime) {
         thread::sleep(Duration::from_millis(100));
     }
 
-    (nodes, rt)
+    nodes
 }
 
 /// Macro for running testnet tests using ThreadNode and RPCUser.
 macro_rules! run_testnet_test {
     ($f:expr) => {
-        let (mut nodes, _rt) = create_thread_nodes_rpc();
+        let mut nodes = create_thread_nodes_rpc();
         let node = nodes.remove(0);
         $f(node);
         drop(nodes);

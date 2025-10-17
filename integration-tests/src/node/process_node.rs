@@ -4,7 +4,6 @@ use std::sync::Arc;
 use std::time::Duration;
 use std::{env, thread};
 
-use async_trait::async_trait;
 use rand::Rng;
 use tracing::error;
 
@@ -31,7 +30,6 @@ pub struct ProcessNode {
     account_id: AccountId,
 }
 
-#[async_trait]
 impl Node for ProcessNode {
     fn genesis(&self) -> &Genesis {
         &self.config.genesis
@@ -41,7 +39,7 @@ impl Node for ProcessNode {
         self.config.validator_signer.get().map(|vs| vs.validator_id().clone())
     }
 
-    async fn start(&mut self) {
+    fn start(&mut self) {
         match self.state {
             ProcessNodeState::Stopped => {
                 unsafe {
