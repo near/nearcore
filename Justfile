@@ -98,17 +98,8 @@ codecov RULE:
     {{ just_executable() }} {{ RULE }}
     mkdir -p coverage/codecov
     # If coverage profiling produced corrupted/empty .profraw (e.g. due to a segfault),
-    # `cargo llvm-cov report` can fail sometimes. Retry once before falling back to an empty JSON.
-    for attempt in 1 2; do
-        cargo llvm-cov report --profile dev-release --codecov --output-path coverage/codecov/new.json && break
-        if [ $attempt -eq 1 ]; then
-            echo "llvm-cov report failed, retrying..."
-            sleep 1
-        else
-            echo "llvm-cov report failed after retry, using empty coverage"
-            echo '{}' > coverage/codecov/new.json
-        fi
-    done
+    # `cargo llvm-cov report` can fail. Fall back to an empty JSON so CI proceeds.
+    cargo llvm-cov report --profile dev-release --codecov --output-path coverage/codecov/new.json || echo '{}' > coverage/codecov/new.json
 
 # generate a codecov report for RULE, CI version
 codecov-ci RULE:
