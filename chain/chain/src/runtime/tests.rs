@@ -1,6 +1,5 @@
 use super::*;
-use crate::spice_core::CoreStatementsProcessor;
-use crate::types::{BlockType, ChainConfig, RuntimeStorageConfig};
+use crate::types::{ChainConfig, RuntimeStorageConfig};
 use crate::{Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode};
 use borsh::BorshDeserialize;
 use near_async::messaging::{IntoMultiSender, noop};
