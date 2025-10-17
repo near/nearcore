@@ -186,6 +186,7 @@ impl NearVM {
         let key = get_contract_cache_key(*code.hash(), &self.config, near_vm_vm_hash());
         let record = CompiledContractInfo {
             wasm_bytes: code.code().len() as u64,
+            is_component: false,
             compiled: match &executable_or_error {
                 Ok(executable) => {
                     let code = executable
@@ -193,7 +194,7 @@ impl NearVM {
                         .map_err(|_e| CacheError::SerializationError { hash: key.0 })?;
                     CompiledContract::Code(code)
                 }
-                Err(err) => CompiledContract::CompileModuleError(err.clone()),
+                Err(err) => CompiledContract::CompileError(err.clone()),
             },
         };
         cache.put(&key, record).map_err(CacheError::WriteError)?;
@@ -253,7 +254,7 @@ impl NearVM {
                 };
 
                 match &compiled_contract_info.compiled {
-                    CompiledContract::CompileModuleError(err) => Ok::<_, VMRunnerError>(to_any((
+                    CompiledContract::CompileError(err) => Ok::<_, VMRunnerError>(to_any((
                         compiled_contract_info.wasm_bytes,
                         Err(err.clone()),
                     ))),
