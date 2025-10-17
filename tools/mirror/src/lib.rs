@@ -2003,7 +2003,7 @@ impl<T: ChainAccess> TxMirror<T> {
 
         let tx_block_queue2 = tx_block_queue.clone();
         let _index_target_task = tokio::task::spawn(async move {
-            let res = Self::index_target_loop(
+            let res = Box::pin(Self::index_target_loop(
                 tracker2,
                 tx_block_queue2,
                 target_home,
@@ -2012,7 +2012,7 @@ impl<T: ChainAccess> TxMirror<T> {
                 unstake_tx,
                 target_height2,
                 target_head2,
-            )
+            ))
             .await;
             target_indexer_done_tx.send(res).unwrap();
         });

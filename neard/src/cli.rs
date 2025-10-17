@@ -571,13 +571,13 @@ impl RunCmd {
             let config_updater = ConfigUpdater::new(rx_config_update);
 
             let nearcore::NearNode { cold_store_loop_handle, resharding_handle, .. } =
-                nearcore::start_with_config_and_synchronization(
+                Box::pin(nearcore::start_with_config_and_synchronization(
                     home_dir,
                     near_config,
                     ActorSystem::new(),
                     Some(tx_crash),
                     Some(config_updater),
-                )
+                ))
                 .await
                 .expect("start_with_config");
 

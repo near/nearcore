@@ -348,7 +348,8 @@ pub async fn start_with_config(
     config: NearConfig,
     actor_system: ActorSystem,
 ) -> anyhow::Result<NearNode> {
-    start_with_config_and_synchronization(home_dir, config, actor_system, None, None).await
+    Box::pin(start_with_config_and_synchronization(home_dir, config, actor_system, None, None))
+        .await
 }
 
 pub async fn start_with_config_and_synchronization(
