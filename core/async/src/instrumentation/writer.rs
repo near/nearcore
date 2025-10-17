@@ -18,7 +18,7 @@ thread_local! {
 /// mapping from message type names. The actor thread will use the mutable
 /// reference to this struct to record events.
 pub struct InstrumentedThreadWriter {
-    pub shared: Arc<InstrumentedThreadWriterSharedPart>,
+    shared: Arc<InstrumentedThreadWriterSharedPart>,
     current_window_start_time_ns: u64,
     type_name_registry: HashMap<String, u32>,
     target: Arc<InstrumentedThread>,
