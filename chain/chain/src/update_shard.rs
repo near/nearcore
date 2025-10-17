@@ -30,7 +30,7 @@ pub struct NewChunkResult {
 
 /// Result of updating a shard for some block when it doesn't have a new chunk
 /// for this shard, so previous chunk header is copied.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct OldChunkResult {
     pub shard_uid: ShardUId,
     /// Note that despite the naming, no transactions are applied in this case.
@@ -39,10 +39,19 @@ pub struct OldChunkResult {
 }
 
 /// Result for a shard update for a single block.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum ShardUpdateResult {
     NewChunk(NewChunkResult),
     OldChunk(OldChunkResult),
+}
+
+impl ShardUpdateResult {
+    pub fn apply_result(&self) -> &ApplyChunkResult {
+        match self {
+            ShardUpdateResult::NewChunk(new) => &new.apply_result,
+            ShardUpdateResult::OldChunk(old) => &old.apply_result,
+        }
+    }
 }
 
 /// Subset of the `NewChunkData` required to reproduce the chunk application context on another

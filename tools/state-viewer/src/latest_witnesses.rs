@@ -165,10 +165,13 @@ impl GenerateWitnessesCmd {
             let CreateWitnessResult { state_witness, .. } = chain_store
                 .create_state_witness(
                     epoch_manager.as_ref(),
-                    prev_block.header(),
+                    &prev_block,
                     prev_chunk_header,
                     &chunk,
                     false,
+                    |_, _| None,
+                    |_, _| None,
+                    |_, _| None,
                 )
                 .unwrap();
             let processing_done_tracker = ProcessingDoneTracker::new();

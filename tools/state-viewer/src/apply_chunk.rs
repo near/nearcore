@@ -77,9 +77,10 @@ fn get_incoming_receipts(
         epoch_manager,
         shard_id,
         &shard_layout,
-        *prev_hash,
+        &*chain_store.get_block_header(prev_hash)?,
         prev_height_included,
         ReceiptFilter::TargetShard,
+        |_, _| None,
     )?);
     Ok(collect_receipts_from_response(&responses))
 }

@@ -114,9 +114,12 @@ impl Client {
             self.epoch_manager.get_prev_chunk_header(&prev_block, shard_chunk.shard_id()).unwrap();
         self.send_chunk_state_witness_to_chunk_validators(
             &self.epoch_manager.get_epoch_id_from_prev_block(shard_chunk.prev_block()).unwrap(),
-            prev_block.header(),
+            &prev_block,
             &prev_chunk_header,
             &shard_chunk,
+            |_, _| None,
+            |_, _| None,
+            |_, _| None,
         )
         .unwrap();
         shard_chunk
@@ -141,6 +144,9 @@ fn create_chunk_on_height_for_shard(
             shard_id,
             &signer,
             &client.chain.transaction_validity_check(last_block.header().clone().into()),
+            false,
+            |_, _| None,
+            |_, _| None,
         )
         .unwrap()
         .unwrap()
@@ -169,6 +175,9 @@ pub fn create_chunk(
                 ShardId::new(0),
                 &signer,
                 &client.chain.transaction_validity_check(last_block.header().clone().into()),
+                false,
+                |_, _| None,
+                |_, _| None,
             )
             .unwrap()
             .unwrap();

@@ -483,6 +483,16 @@ pub trait EpochManagerAdapter: Send + Sync {
         random_value: CryptoHash,
     ) -> Result<StoreUpdate, EpochError>;
 
+    fn add_block_info_to_cache(&self, block_info: BlockInfo);
+
+    fn remove_block_info_from_cache(&self, block_hash: &CryptoHash);
+
+    fn record_block_info(
+        &self,
+        block_info: BlockInfo,
+        random_value: CryptoHash,
+    ) -> Result<StoreUpdate, EpochError>;
+
     /// Epoch active protocol version.
     fn get_epoch_protocol_version(
         &self,
@@ -890,6 +900,22 @@ impl EpochManagerAdapter for EpochManagerHandle {
     ) -> Result<StoreUpdate, EpochError> {
         let mut epoch_manager = self.write();
         epoch_manager.add_validator_proposals(block_info, random_value)
+    }
+
+    fn add_block_info_to_cache(&self, block_info: BlockInfo) {
+        self.write().blocks_info.push(*block_info.hash(), Arc::new(block_info));
+    }
+
+    fn remove_block_info_from_cache(&self, block_hash: &CryptoHash) {
+        self.write().blocks_info.lock().pop(block_hash);
+    }
+
+    fn record_block_info(
+        &self,
+        block_info: BlockInfo,
+        random_value: CryptoHash,
+    ) -> Result<StoreUpdate, EpochError> {
+        self.write().record_block_info(block_info, random_value.0)
     }
 
     fn init_after_epoch_sync(
