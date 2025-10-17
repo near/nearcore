@@ -188,7 +188,7 @@ async fn slow_test_add_access_key_with_allowance_testnet() {
 }
 
 #[tokio::test]
-async fn slow_test_delete_access_key_with_allowance_testnet() {
+async fn ultra_slow_test_delete_access_key_with_allowance_testnet() {
     run_testnet_test!(test_delete_access_key_with_allowance);
 }
 
