@@ -343,15 +343,15 @@ pub struct NearNode {
     pub shard_tracker: ShardTracker,
 }
 
-pub fn start_with_config(
+pub async fn start_with_config(
     home_dir: &Path,
     config: NearConfig,
     actor_system: ActorSystem,
 ) -> anyhow::Result<NearNode> {
-    start_with_config_and_synchronization(home_dir, config, actor_system, None, None)
+    start_with_config_and_synchronization(home_dir, config, actor_system, None, None).await
 }
 
-pub fn start_with_config_and_synchronization(
+pub async fn start_with_config_and_synchronization(
     home_dir: &Path,
     config: NearConfig,
     actor_system: ActorSystem,
@@ -716,7 +716,8 @@ pub fn start_with_config_and_synchronization(
             _gc_actor.into_multi_sender(),
             Arc::new(entity_debug_handler),
             actor_system.new_future_spawner().as_ref(),
-        );
+        )
+        .await;
     }
 
     #[cfg(feature = "rosetta_rpc")]

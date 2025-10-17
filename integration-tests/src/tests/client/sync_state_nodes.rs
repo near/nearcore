@@ -54,7 +54,9 @@ async fn slow_test_sync_state_nodes() {
 
     let actor_system = ActorSystem::new();
     let nearcore::NearNode { view_client: view_client1, .. } =
-        start_with_config(dir1.path(), near1, actor_system.clone()).expect("start_with_config");
+        start_with_config(dir1.path(), near1, actor_system.clone())
+            .await
+            .expect("start_with_config");
 
     let view_client2_holder = Arc::new(RwLock::new(None));
     let actor_system_clone = actor_system.clone();
@@ -85,6 +87,7 @@ async fn slow_test_sync_state_nodes() {
 
                             let nearcore::NearNode { view_client: view_client2, .. } =
                                 start_with_config(dir2.path(), near2, actor_system.clone())
+                                    .await
                                     .expect("start_with_config");
                             *view_client2_holder2 = Some(view_client2);
                         }
@@ -174,10 +177,12 @@ async fn ultra_slow_test_sync_state_nodes_multishard() {
     near4.client_config.max_block_production_delay = near1.client_config.max_block_production_delay;
 
     let nearcore::NearNode { view_client: view_client1, .. } =
-        start_with_config(dir1.path(), near1, actor_system.clone()).expect("start_with_config");
+        start_with_config(dir1.path(), near1, actor_system.clone())
+            .await
+            .expect("start_with_config");
 
-    start_with_config(dir3.path(), near3, actor_system.clone()).expect("start_with_config");
-    start_with_config(dir4.path(), near4, actor_system.clone()).expect("start_with_config");
+    start_with_config(dir3.path(), near3, actor_system.clone()).await.expect("start_with_config");
+    start_with_config(dir4.path(), near4, actor_system.clone()).await.expect("start_with_config");
 
     let view_client2_holder = Arc::new(RwLock::new(None));
     let actor_system_clone = actor_system.clone();
@@ -216,6 +221,7 @@ async fn ultra_slow_test_sync_state_nodes_multishard() {
 
                             let nearcore::NearNode { view_client: view_client2, .. } =
                                 start_with_config(dir2.path(), near2, actor_system.clone())
+                                    .await
                                     .expect("start_with_config");
                             *view_client2_holder2 = Some(view_client2);
                         }
@@ -307,7 +313,9 @@ async fn ultra_slow_test_sync_state_dump() {
     near1.config.store.enable_state_snapshot();
 
     let nearcore::NearNode { view_client: view_client1, .. } =
-        start_with_config(dir1.path(), near1, actor_system.clone()).expect("start_with_config");
+        start_with_config(dir1.path(), near1, actor_system.clone())
+            .await
+            .expect("start_with_config");
 
     let view_client2_holder = Arc::new(RwLock::new(None));
     let actor_system = actor_system.clone();
@@ -347,6 +355,7 @@ async fn ultra_slow_test_sync_state_dump() {
 
                         let nearcore::NearNode { view_client: view_client2, .. } =
                             start_with_config(dir2.path(), near2, actor_system.clone())
+                                .await
                                 .expect("start_with_config");
                         *view_client2_holder2 = Some(view_client2);
                     }
@@ -638,7 +647,9 @@ async fn slow_test_state_sync_headers() {
         view_client: view_client1,
         state_request_client: state_request_client1,
         ..
-    } = start_with_config(dir1.path(), near1, actor_system.clone()).expect("start_with_config");
+    } = start_with_config(dir1.path(), near1, actor_system.clone())
+        .await
+        .expect("start_with_config");
 
     // First we need to find sync_hash. That is done in 3 steps:
     // 1. Get the latest block
@@ -781,7 +792,9 @@ async fn slow_test_state_sync_headers_no_tracked_shards() {
         near1.config.state_sync_enabled = false;
         near1.client_config.state_sync_enabled = false;
 
-        start_with_config(dir1.path(), near1, actor_system.clone()).expect("start_with_config");
+        start_with_config(dir1.path(), near1, actor_system.clone())
+            .await
+            .expect("start_with_config");
 
         let mut near2 =
             load_test_config("test2", tcp::ListenerAddr::reserve_for_test(), genesis.clone());
@@ -796,7 +809,9 @@ async fn slow_test_state_sync_headers_no_tracked_shards() {
             view_client: view_client2,
             state_request_client: state_request_client2,
             ..
-        } = start_with_config(dir2.path(), near2, actor_system.clone()).expect("start_with_config");
+        } = start_with_config(dir2.path(), near2, actor_system.clone())
+            .await
+            .expect("start_with_config");
 
         // First we need to find sync_hash. That is done in 3 steps:
         // 1. Get the latest block

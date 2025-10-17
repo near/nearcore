@@ -1,6 +1,7 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use async_trait::async_trait;
 use near_chain_configs::Genesis;
 use near_crypto::{InMemorySigner, Signer};
 use near_primitives::types::AccountId;
@@ -32,12 +33,13 @@ impl Drop for ThreadNode {
     }
 }
 
-fn start_thread(config: NearConfig, path: PathBuf) -> ActorSystem {
+async fn start_thread(config: NearConfig, path: PathBuf) -> ActorSystem {
     let actor_system = ActorSystem::new();
-    start_with_config(&path, config, actor_system.clone()).expect("start_with_config");
+    start_with_config(&path, config, actor_system.clone()).await.expect("start_with_config");
     actor_system
 }
 
+#[async_trait]
 impl Node for ThreadNode {
     fn genesis(&self) -> &Genesis {
         &self.config.genesis
@@ -47,8 +49,8 @@ impl Node for ThreadNode {
         self.config.validator_signer.get().map(|vs| vs.validator_id().clone())
     }
 
-    fn start(&mut self) {
-        let handle = start_thread(self.config.clone(), self.dir.path().to_path_buf());
+    async fn start(&mut self) {
+        let handle = start_thread(self.config.clone(), self.dir.path().to_path_buf()).await;
         self.state = ThreadNodeState::Running(handle);
     }
 

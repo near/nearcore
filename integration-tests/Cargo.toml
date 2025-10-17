@@ -13,6 +13,7 @@ workspace = true
 
 [dependencies]
 anyhow.workspace = true
+async-trait.workspace = true
 bytesize.workspace = true
 borsh.workspace = true
 chrono.workspace = true

@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use async_trait::async_trait;
 use near_chain_configs::Genesis;
 use near_crypto::{InMemorySigner, Signer};
 use near_parameters::{RuntimeConfig, RuntimeConfigStore};
@@ -79,6 +80,7 @@ impl RuntimeNode {
     }
 }
 
+#[async_trait]
 impl Node for RuntimeNode {
     fn genesis(&self) -> &Genesis {
         &self.genesis
@@ -88,7 +90,7 @@ impl Node for RuntimeNode {
         Some(self.account_id.clone())
     }
 
-    fn start(&mut self) {}
+    async fn start(&mut self) {}
 
     fn kill(&mut self) {}
 
