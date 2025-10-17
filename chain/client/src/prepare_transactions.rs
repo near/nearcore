@@ -5,8 +5,7 @@ use std::sync::atomic::AtomicBool;
 
 use near_async::time::Duration;
 use near_chain::types::{
-    PrepareTransactionsBlockContext, PrepareTransactionsLimit, PreparedTransactions,
-    RuntimeAdapter, SkippedTransactions,
+    PrepareTransactionsBlockContext, PrepareTransactionsLimit, PreparedTransactions, RuntimeAdapter,
 };
 use near_chunks::client::ShardedTransactionPool;
 use near_client_primitives::types::Error;
@@ -92,52 +91,71 @@ impl PrepareTransactionsJob {
     /// Run the job to prepare transactions.
     pub fn run_job(&self) {
         let mut state = self.state.lock();
-        if let PrepareTransactionsJobState::NotStarted(_) = &*state {
-            match std::mem::replace(&mut *state, PrepareTransactionsJobState::Running) {
-                PrepareTransactionsJobState::NotStarted(inputs) => {
-                    let tx_pool = inputs.tx_pool.clone();
-                    let mut tx_pool_guard = tx_pool.lock();
+        let previous_state = std::mem::replace(&mut *state, PrepareTransactionsJobState::Running);
+        let PrepareTransactionsJobState::NotStarted(inputs) = previous_state else {
+            *state = previous_state;
+            return;
+        };
+        let tx_pool = inputs.tx_pool.clone();
+        let mut tx_pool_guard = tx_pool.lock();
 
-                    // Usually the prepare transactions job runs in parallel with chunk application, before the
-                    // block that contains the applied chunk is postprocessed.
-                    //
-                    // However in rare cases (weird thread scheduling, testloop reordering things) it might
-                    // happen that the job starts after the block is postprocessed.
-                    //
-                    // In such cases it's better to discard the job and prepare transactions the normal way, in
-                    // `produce_chunk` which happens right after postprocessing the block.
-                    //
-                    // This is because the job is not aware of the block that was just postprocessed. If we run
-                    // the job, there's a risk that transactions that were created using the latest
-                    // postprocessed block will be rejected because the job isn't aware of the latest block.
-                    // This happens is some testloop tests and makes them fail.
-                    if let Ok(_hash) = inputs
-                        .runtime_adapter
-                        .store()
-                        .chain_store()
-                        .get_block_hash_by_height(inputs.prev_block_context.height)
-                    {
-                        *state = PrepareTransactionsJobState::NotStartedInTime;
-                        return;
-                    }
+        // Usually the prepare transactions job runs in parallel with chunk application, before the
+        // block that contains the applied chunk is postprocessed.
+        //
+        // However in rare cases (weird thread scheduling, testloop reordering things) it might
+        // happen that the job starts after the block is postprocessed.
+        //
+        // In such cases it's better to discard the job and prepare transactions the normal way, in
+        // `produce_chunk` which happens right after postprocessing the block.
+        //
+        // This is because the job is not aware of the block that was just postprocessed. If we run
+        // the job, there's a risk that transactions that were created using the latest
+        // postprocessed block will be rejected because the job isn't aware of the latest block.
+        // This happens is some testloop tests and makes them fail.
+        if let Ok(_hash) = inputs
+            .runtime_adapter
+            .store()
+            .chain_store()
+            .get_block_hash_by_height(inputs.prev_block_context.height)
+        {
+            *state = PrepareTransactionsJobState::NotStartedInTime;
+            return;
+        }
 
-                    // Run the job. The state is locked so no other methods will read or modify it
-                    // until the preparation finishes.
-                    let result = self.do_prepare_transactions(inputs, &mut *tx_pool_guard);
-
-                    match result {
-                        Ok(prepared)
-                            if prepared.limited_by == Some(PrepareTransactionsLimit::Cancelled) =>
-                        {
-                            // In case of cancelled preparation discard the result
-                            *state = PrepareTransactionsJobState::Cancelled;
-                        }
-                        good_result => {
-                            *state = PrepareTransactionsJobState::Finished(good_result);
-                        }
-                    };
-                }
-                _ => unreachable!(),
+        // Run the job. The state is locked so no other methods will read or modify it
+        // until the preparation finishes.
+        let Some(mut iter) = tx_pool_guard.get_pool_iterator(inputs.shard_uid) else {
+            let result = PreparedTransactions { transactions: Vec::new(), limited_by: None };
+            *state = PrepareTransactionsJobState::Finished(Ok(result));
+            return;
+        };
+        let result = inputs.runtime_adapter.prepare_transactions_extra(
+            inputs.state,
+            inputs.shard_uid.shard_id(),
+            inputs.prev_block_context,
+            &mut iter,
+            &inputs.tx_validity_period_check,
+            inputs.prev_chunk_tx_hashes,
+            inputs.time_limit,
+            Some((&self).cancel.clone()),
+        );
+        drop(iter);
+        match result {
+            Ok((prepared, skipped)) => {
+                *state = if prepared.limited_by == Some(PrepareTransactionsLimit::Cancelled) {
+                    // In case of cancelled preparation discard the result
+                    PrepareTransactionsJobState::Cancelled
+                } else {
+                    PrepareTransactionsJobState::Finished(Ok(prepared.clone()))
+                };
+                // Allow `take_result` to proceed before we reintroduce transactions. The
+                // transaction pools are still locked so there is no risk of inconsistent data.
+                drop(state);
+                tx_pool_guard.reintroduce_transactions(inputs.shard_uid, prepared.transactions);
+                tx_pool_guard.reintroduce_transactions(inputs.shard_uid, skipped.0);
+            }
+            Err(e) => {
+                *state = PrepareTransactionsJobState::Finished(Err(e.into()));
             }
         }
     }
@@ -149,22 +167,15 @@ impl PrepareTransactionsJob {
         // Lock the state, if the job is currently running this will wait until the job finishes and
         // frees the lock.
         let mut state = self.state.lock();
-        match &*state {
-            PrepareTransactionsJobState::Finished(_) => {
-                // Job finished, take the result
-                match std::mem::replace(
-                    &mut *state,
-                    PrepareTransactionsJobState::FinishedResultTaken,
-                ) {
-                    PrepareTransactionsJobState::Finished(result) => return Some(result),
-                    _ => unreachable!(),
-                };
-            }
+        let previous_state =
+            std::mem::replace(&mut *state, PrepareTransactionsJobState::FinishedResultTaken);
+        *state = match previous_state {
+            PrepareTransactionsJobState::Finished(result) => return Some(result),
+            // Job has not even started by the time it's time to take the result. Discard it.
             PrepareTransactionsJobState::NotStarted(_) => {
-                // Job has not even started by the time it's time to take the result. Discard it.
-                *state = PrepareTransactionsJobState::NotStartedInTime;
+                PrepareTransactionsJobState::NotStartedInTime
             }
-            _ => {}
+            _ => previous_state,
         };
         None
     }
@@ -172,35 +183,8 @@ impl PrepareTransactionsJob {
     /// Cancel the job.
     fn cancel(&self) {
         self.cancel.store(true, std::sync::atomic::Ordering::Relaxed);
+        // We may already have the data here, shouldn't be necessary to discard it all...
         *self.state.lock() = PrepareTransactionsJobState::Cancelled;
-    }
-
-    fn do_prepare_transactions(
-        &self,
-        inputs: PrepareTransactionsJobInputs,
-        tx_pool: &mut ShardedTransactionPool,
-    ) -> Result<PreparedTransactions, Error> {
-        let (prepared, skipped) =
-            if let Some(mut iter) = tx_pool.get_pool_iterator(inputs.shard_uid) {
-                inputs.runtime_adapter.prepare_transactions_extra(
-                    inputs.state,
-                    inputs.shard_uid.shard_id(),
-                    inputs.prev_block_context,
-                    &mut iter,
-                    &inputs.tx_validity_period_check,
-                    inputs.prev_chunk_tx_hashes,
-                    inputs.time_limit,
-                    Some(self.cancel.clone()),
-                )?
-            } else {
-                (
-                    PreparedTransactions { transactions: Vec::new(), limited_by: None },
-                    SkippedTransactions(Vec::new()),
-                )
-            };
-        tx_pool.reintroduce_transactions(inputs.shard_uid, prepared.transactions.clone());
-        tx_pool.reintroduce_transactions(inputs.shard_uid, skipped.0);
-        Ok(prepared)
     }
 }
 
