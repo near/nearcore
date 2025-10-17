@@ -62,3 +62,14 @@ To add a new test scenario:
    - `before_test_setup()` - Run commands before test creation
    - `amend_configs_before_test_start()` - Modify node configs before start
    - `after_test_start()` - Run commands after test starts
+
+4. Scenario building blocks
+
+For more complex actions, you need to define the behaviour by scheduling actions using `run-cmd` in the mirror lib.
+
+As a rule of thumb, if the `run-cmd` is too long, consider uploading it as a helper script. (see `send-stake-proposal.sh`)
+
+Some of the functions are already defined in `base.py` and can be used in your `after_test_start()` override.
+- `_schedule_upgrade_nodes_every_n_minutes`: for a uniform upgrade.
+- `_schedule_binary_upgrade`: if you want more granular control over how the hosts are upgraded.
+- `_send_stake_proposal`: if you need to stake or unstake validators.

@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # This script is used to send a stake proposal to the mocknet cluster.
+# If no value is provided as argument, the stake amount is read from the validator_key.json file
 
 # Read validator data from validators.json
 # TODO: consider querying near-cli to get validator balance, it should be
@@ -15,17 +16,22 @@ fi
 our_account_id=$(jq -r '.account_id' ~/.near/validator_key.json)
 our_public_key=$(jq -r '.public_key' ~/.near/validator_key.json)
 
-# Find our validator in the validators.json file
-validator_data=$(jq -r --arg account_id "$our_account_id" '.[] | select(.account_id == $account_id)' "$validators_file")
+# if no value is provided, read from the file
+if [ -z "$1" ]; then
+    # Find our validator in the validators.json file
+    validator_data=$(jq -r --arg account_id "$our_account_id" '.[] | select(.account_id == $account_id)' "$validators_file")
 
-if [ -z "$validator_data" ]; then
-    echo "Error: Could not find validator with account_id $our_account_id in validators.json"
-    exit 1
-fi
+    if [ -z "$validator_data" ]; then
+        echo "Error: Could not find validator with account_id $our_account_id in validators.json"
+        exit 1
+    fi
 
-# Extract amount and convert from yoctonear to NEAR (integer only)
-amount_yoctonear=$(echo "$validator_data" | jq -r '.amount')
-amount_near=$(echo "$amount_yoctonear / 1000000000000000000000000" | bc | cut -d. -f1)
+    # Extract amount and convert from yoctonear to NEAR (integer only)
+    amount_yoctonear=$(echo "$validator_data" | jq -r '.amount')
+    amount_near=$(echo "$amount_yoctonear / 1000000000000000000000000" | bc | cut -d. -f1)
+else
+    amount_near=$1
+ fi
 
 echo "Found validator: $our_account_id"
 echo "Public key: $our_public_key"
