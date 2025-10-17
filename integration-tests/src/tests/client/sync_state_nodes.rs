@@ -33,6 +33,7 @@ use near_store::db::RocksDB;
 
 /// One client is in front, another must sync to it using state (fast) sync.
 #[tokio::test]
+#[allow(clippy::large_stack_frames)]
 async fn slow_test_sync_state_nodes() {
     init_integration_logger();
 
@@ -54,19 +55,21 @@ async fn slow_test_sync_state_nodes() {
 
     let actor_system = ActorSystem::new();
     let nearcore::NearNode { view_client: view_client1, .. } =
-        start_with_config(dir1.path(), near1, actor_system.clone()).expect("start_with_config");
+        start_with_config(dir1.path(), near1, actor_system.clone())
+            .await
+            .expect("start_with_config");
 
-    let view_client2_holder = Arc::new(RwLock::new(None));
+    let view_client2_holder = Arc::new(tokio::sync::RwLock::new(None));
     let actor_system_clone = actor_system.clone();
 
-    wait_or_timeout(100, 60000, move || {
+    Box::pin(wait_or_timeout(100, 60000, move || {
         let view_client2_holder = view_client2_holder.clone();
         let genesis = genesis.clone();
         let dir2 = dir2.clone();
         let actor_system = actor_system.clone();
         let view_client1 = view_client1.clone();
         async move {
-            if view_client2_holder.read().is_none() {
+            if view_client2_holder.read().await.is_none() {
                 let view_client2_holder2 = view_client2_holder.clone();
                 let genesis2 = genesis.clone();
                 let dir2 = dir2.clone();
@@ -74,7 +77,7 @@ async fn slow_test_sync_state_nodes() {
 
                 match &view_client1.send_async(GetBlock::latest()).await {
                     Ok(Ok(b)) if b.header.height >= 101 => {
-                        let mut view_client2_holder2 = view_client2_holder2.write();
+                        let mut view_client2_holder2 = view_client2_holder2.write().await;
 
                         if view_client2_holder2.is_none() {
                             let mut near2 = load_test_config("test2", port2, genesis2.clone());
@@ -85,6 +88,7 @@ async fn slow_test_sync_state_nodes() {
 
                             let nearcore::NearNode { view_client: view_client2, .. } =
                                 start_with_config(dir2.path(), near2, actor_system.clone())
+                                    .await
                                     .expect("start_with_config");
                             *view_client2_holder2 = Some(view_client2);
                         }
@@ -96,7 +100,7 @@ async fn slow_test_sync_state_nodes() {
                 };
             }
 
-            if let Some(view_client2) = { view_client2_holder.write().clone() } {
+            if let Some(view_client2) = { view_client2_holder.write().await.clone() } {
                 match &view_client2.send_async(GetBlock::latest()).await {
                     Ok(Ok(b)) if b.header.height >= 101 => {
                         return ControlFlow::Break(());
@@ -109,7 +113,7 @@ async fn slow_test_sync_state_nodes() {
             }
             ControlFlow::Continue(())
         }
-    })
+    }))
     .await
     .unwrap();
     drop(_dir1);
@@ -120,6 +124,7 @@ async fn slow_test_sync_state_nodes() {
 
 /// One client is in front, another must sync to it using state (fast) sync.
 #[tokio::test]
+#[allow(clippy::large_stack_frames)]
 async fn ultra_slow_test_sync_state_nodes_multishard() {
     init_integration_logger();
 
@@ -174,15 +179,17 @@ async fn ultra_slow_test_sync_state_nodes_multishard() {
     near4.client_config.max_block_production_delay = near1.client_config.max_block_production_delay;
 
     let nearcore::NearNode { view_client: view_client1, .. } =
-        start_with_config(dir1.path(), near1, actor_system.clone()).expect("start_with_config");
+        start_with_config(dir1.path(), near1, actor_system.clone())
+            .await
+            .expect("start_with_config");
 
-    start_with_config(dir3.path(), near3, actor_system.clone()).expect("start_with_config");
-    start_with_config(dir4.path(), near4, actor_system.clone()).expect("start_with_config");
+    start_with_config(dir3.path(), near3, actor_system.clone()).await.expect("start_with_config");
+    start_with_config(dir4.path(), near4, actor_system.clone()).await.expect("start_with_config");
 
-    let view_client2_holder = Arc::new(RwLock::new(None));
+    let view_client2_holder = Arc::new(tokio::sync::RwLock::new(None));
     let actor_system_clone = actor_system.clone();
 
-    wait_or_timeout(100, 60000, move || {
+    Box::pin(wait_or_timeout(100, 60000, move || {
         let value = view_client2_holder.clone();
         let view_client2_holder = view_client2_holder.clone();
         let genesis = genesis.clone();
@@ -190,7 +197,7 @@ async fn ultra_slow_test_sync_state_nodes_multishard() {
         let actor_system = actor_system.clone();
         let view_client1 = view_client1.clone();
         async move {
-            if value.read().is_none() {
+            if value.read().await.is_none() {
                 let view_client2_holder2 = view_client2_holder.clone();
                 let genesis2 = genesis.clone();
                 let dir2 = dir2.clone();
@@ -198,7 +205,7 @@ async fn ultra_slow_test_sync_state_nodes_multishard() {
                 let actor_system = actor_system.clone();
                 match &view_client1.send_async(GetBlock::latest()).await {
                     Ok(Ok(b)) if b.header.height >= 101 => {
-                        let mut view_client2_holder2 = view_client2_holder2.write();
+                        let mut view_client2_holder2 = view_client2_holder2.write().await;
 
                         if view_client2_holder2.is_none() {
                             let mut near2 = load_test_config("test2", port2, genesis2);
@@ -216,6 +223,7 @@ async fn ultra_slow_test_sync_state_nodes_multishard() {
 
                             let nearcore::NearNode { view_client: view_client2, .. } =
                                 start_with_config(dir2.path(), near2, actor_system.clone())
+                                    .await
                                     .expect("start_with_config");
                             *view_client2_holder2 = Some(view_client2);
                         }
@@ -227,7 +235,7 @@ async fn ultra_slow_test_sync_state_nodes_multishard() {
                 }
             }
 
-            if let Some(view_client2) = { view_client2_holder.write().clone() } {
+            if let Some(view_client2) = { view_client2_holder.write().await.clone() } {
                 match &view_client2.send_async(GetBlock::latest()).await {
                     Ok(Ok(b)) if b.header.height >= 101 => {
                         return ControlFlow::Break(());
@@ -248,7 +256,7 @@ async fn ultra_slow_test_sync_state_nodes_multishard() {
             }
             ControlFlow::Continue(())
         }
-    })
+    }))
     .await
     .unwrap();
     drop(_dir1);
@@ -307,7 +315,9 @@ async fn ultra_slow_test_sync_state_dump() {
     near1.config.store.enable_state_snapshot();
 
     let nearcore::NearNode { view_client: view_client1, .. } =
-        start_with_config(dir1.path(), near1, actor_system.clone()).expect("start_with_config");
+        start_with_config(dir1.path(), near1, actor_system.clone())
+            .await
+            .expect("start_with_config");
 
     let view_client2_holder = Arc::new(RwLock::new(None));
     let actor_system = actor_system.clone();
@@ -347,6 +357,7 @@ async fn ultra_slow_test_sync_state_dump() {
 
                         let nearcore::NearNode { view_client: view_client2, .. } =
                             start_with_config(dir2.path(), near2, actor_system.clone())
+                                .await
                                 .expect("start_with_config");
                         *view_client2_holder2 = Some(view_client2);
                     }
@@ -638,7 +649,9 @@ async fn slow_test_state_sync_headers() {
         view_client: view_client1,
         state_request_client: state_request_client1,
         ..
-    } = start_with_config(dir1.path(), near1, actor_system.clone()).expect("start_with_config");
+    } = start_with_config(dir1.path(), near1, actor_system.clone())
+        .await
+        .expect("start_with_config");
 
     // First we need to find sync_hash. That is done in 3 steps:
     // 1. Get the latest block
@@ -781,7 +794,9 @@ async fn slow_test_state_sync_headers_no_tracked_shards() {
         near1.config.state_sync_enabled = false;
         near1.client_config.state_sync_enabled = false;
 
-        start_with_config(dir1.path(), near1, actor_system.clone()).expect("start_with_config");
+        start_with_config(dir1.path(), near1, actor_system.clone())
+            .await
+            .expect("start_with_config");
 
         let mut near2 =
             load_test_config("test2", tcp::ListenerAddr::reserve_for_test(), genesis.clone());
@@ -796,7 +811,9 @@ async fn slow_test_state_sync_headers_no_tracked_shards() {
             view_client: view_client2,
             state_request_client: state_request_client2,
             ..
-        } = start_with_config(dir2.path(), near2, actor_system.clone()).expect("start_with_config");
+        } = start_with_config(dir2.path(), near2, actor_system.clone())
+            .await
+            .expect("start_with_config");
 
         // First we need to find sync_hash. That is done in 3 steps:
         // 1. Get the latest block

@@ -44,6 +44,7 @@ async fn ultra_slow_test_sync_state_stake_change() {
     let actor_system = ActorSystem::new();
     let nearcore::NearNode { view_client: view_client1, rpc_handler: tx_processor1, .. } =
         start_with_config(dir1.path(), near1.clone(), actor_system.clone())
+            .await
             .expect("start_with_config");
 
     let genesis_hash = *genesis_block(&genesis).hash();
@@ -84,6 +85,7 @@ async fn ultra_slow_test_sync_state_stake_change() {
                 started.store(true, Ordering::SeqCst);
                 let nearcore::NearNode { view_client: view_client2, .. } =
                     start_with_config(&dir2_path, near2, actor_system.clone())
+                        .await
                         .expect("start_with_config");
 
                 wait_or_timeout(100, 30000, move || {

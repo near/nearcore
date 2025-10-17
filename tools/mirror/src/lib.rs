@@ -1774,6 +1774,7 @@ impl<T: ChainAccess> TxMirror<T> {
         let near_config =
             indexer_config.load_near_config().context("failed to load near config").unwrap();
         let near_node = Indexer::start_near_node(&indexer_config, near_config.clone())
+            .await
             .context("failed to start near node")
             .unwrap();
         let target_indexer = Indexer::from_near_node(indexer_config, near_config, &near_node);
@@ -2002,7 +2003,7 @@ impl<T: ChainAccess> TxMirror<T> {
 
         let tx_block_queue2 = tx_block_queue.clone();
         let _index_target_task = tokio::task::spawn(async move {
-            let res = Self::index_target_loop(
+            let res = Box::pin(Self::index_target_loop(
                 tracker2,
                 tx_block_queue2,
                 target_home,
@@ -2011,7 +2012,7 @@ impl<T: ChainAccess> TxMirror<T> {
                 unstake_tx,
                 target_height2,
                 target_head2,
-            )
+            ))
             .await;
             target_indexer_done_tx.send(res).unwrap();
         });
@@ -2162,7 +2163,7 @@ async fn run<P: AsRef<Path>>(
         .await
     } else {
         TxMirror::new(
-            crate::online::ChainAccess::new(source_home)?,
+            crate::online::ChainAccess::new(source_home).await?,
             target_home.as_ref(),
             mirror_db_path.as_deref(),
             secret,
