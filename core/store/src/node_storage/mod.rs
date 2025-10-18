@@ -51,9 +51,9 @@ impl NodeStorage {
         home_dir: &std::path::Path,
         store_config: &'a StoreConfig,
         cold_store_config: Option<&'a StoreConfig>,
-        cloud_archival_config: Option<&'a CloudStorageConfig>,
+        cloud_storage_config: Option<&'a CloudStorageConfig>,
     ) -> StoreOpener<'a> {
-        StoreOpener::new(home_dir, store_config, cold_store_config, cloud_archival_config)
+        StoreOpener::new(home_dir, store_config, cold_store_config, cloud_storage_config)
     }
 
     /// Initializes an opener for a new temporary test store.

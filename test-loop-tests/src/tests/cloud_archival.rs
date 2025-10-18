@@ -5,7 +5,6 @@ use near_chain_configs::test_genesis::{TestEpochConfigBuilder, ValidatorsSpec};
 use near_o11y::testonly::init_test_logger;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::{AccountId, BlockHeight, BlockHeightDelta};
-use near_store::archive::cloud_storage::config::test_cloud_archival_configs;
 
 use crate::setup::builder::TestLoopBuilder;
 use crate::utils::cloud_archival::{
@@ -22,6 +21,7 @@ const MIN_NUM_EPOCHS_TO_WAIT: u64 = MIN_GC_NUM_EPOCHS_TO_KEEP + 1;
 #[derive(derive_builder::Builder)]
 #[builder(pattern = "owned", build_fn(skip))]
 struct TestCloudArchivalParameters {
+    /// If true, disables the cloud archival writer for this test.
     disable_writer: bool,
     /// Number of epochs the test should run; must be at least
     /// `MINIMUM_NUM_EPOCHS_TO_WAIT`.
@@ -82,13 +82,11 @@ fn test_cloud_archival_base(params: TestCloudArchivalParameters) {
         .gc_num_epochs_to_keep(MIN_GC_NUM_EPOCHS_TO_KEEP);
 
     if !params.disable_writer {
-        let data_dir = builder.data_dir();
         builder = builder.config_modifier(move |config, client_index| {
             if client_index != archival_index {
                 return;
             }
-            let (_, writer_config) = test_cloud_archival_configs(&data_dir);
-            config.cloud_archival_writer = Some(writer_config);
+            config.cloud_archival_writer = Some(Default::default());
         });
     }
 

@@ -1,9 +1,7 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use near_chain_configs::{
-    CloudArchivalWriterConfig, ExternalStorageLocation, default_archival_writer_polling_interval,
-};
+use near_chain_configs::ExternalStorageLocation;
 
 use crate::archive::cloud_storage::CloudStorage;
 use crate::archive::cloud_storage::opener::CloudStorageOpener;
@@ -19,22 +17,15 @@ pub struct CloudStorageConfig {
     pub credentials_file: Option<PathBuf>,
 }
 
-pub fn test_cloud_archival_configs(
-    root_dir: impl Into<PathBuf> + Clone,
-) -> (CloudStorageConfig, CloudArchivalWriterConfig) {
+/// Creates a test cloud archival configuration using a local filesystem path.
+pub fn test_cloud_archival_config(root_dir: impl Into<PathBuf> + Clone) -> CloudStorageConfig {
     let storage_dir = root_dir.into().join("cloud_archival");
-    let cloud_storage_config = CloudStorageConfig {
-        location: ExternalStorageLocation::Filesystem { root_dir: storage_dir },
-        credentials_file: None,
-    };
-    let writer_config = CloudArchivalWriterConfig {
-        archive_block_data: true,
-        polling_interval: default_archival_writer_polling_interval(),
-    };
-    (cloud_storage_config, writer_config)
+    let location = ExternalStorageLocation::Filesystem { root_dir: storage_dir };
+    CloudStorageConfig { location, credentials_file: None }
 }
 
+/// Initializes a test cloud storage instance based on the test configuration.
 pub fn create_test_cloud_storage(root_dir: PathBuf) -> Arc<CloudStorage> {
-    let (config, _) = test_cloud_archival_configs(root_dir);
+    let config = test_cloud_archival_config(root_dir);
     CloudStorageOpener::new(config).open()
 }

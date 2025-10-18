@@ -35,6 +35,7 @@ impl CloudStorage {
         self.get(&file_id).await
     }
 
+    /// Retrieves and deserializes a file from the cloud archive.
     async fn get<T: BorshDeserialize>(
         &self,
         file_id: &CloudStorageFileID,
@@ -67,6 +68,7 @@ impl CloudStorage {
     }
 }
 
+/// Deserializes raw bytes into a typed value using Borsh format.
 fn deserialize<T: BorshDeserialize>(
     bytes: &[u8],
     file_id: &CloudStorageFileID,

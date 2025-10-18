@@ -227,7 +227,7 @@ impl<'a> ConfigValidator<'a> {
         let Some(cloud_archival_config) = &self.config.cloud_archival else {
             if self.config.cloud_archival_writer.is_some() {
                 let error_message =
-                    "`cloud_archival` is None, but `cloud_archival_writer` is configured."
+                    "`cloud_archival` is disabled, but `cloud_archival_writer` is enabled."
                         .to_string();
                 self.validation_errors.push_config_semantics_error(error_message);
             }
@@ -235,8 +235,7 @@ impl<'a> ConfigValidator<'a> {
         };
 
         if !self.config.archive {
-            let error_message =
-                "`archive` is false, but `cloud_archival` is configured.".to_string();
+            let error_message = "`archive` is false, but `cloud_archival` is enabled.".to_string();
             self.validation_errors.push_config_semantics_error(error_message);
         }
         if self.config.cloud_archival_writer.is_none() && self.config.cold_store.is_none() {
@@ -300,8 +299,7 @@ impl<'a> ConfigValidator<'a> {
 #[cfg(test)]
 mod tests {
     use near_chain_configs::{StateSyncConfig, TrackedShardsConfig};
-    use near_jsonrpc::RpcConfig;
-    use near_store::archive::cloud_storage::config::test_cloud_archival_configs;
+    use near_store::archive::cloud_storage::config::test_cloud_archival_config;
 
     use super::*;
 
@@ -413,48 +411,32 @@ mod tests {
 
     #[test]
     #[should_panic(
-        expected = "\\nconfig.json semantic issue: `archive` is false, but `cloud_archival_*` is configured."
+        expected = "\\nconfig.json semantic issue: `archive` is false, but `cloud_archival` is configured."
     )]
-    fn test_cloud_archival_reader_set_archive_is_false() {
+    fn test_cloud_archival_set_archive_is_false() {
         let mut config = Config::default();
-        let (cloud_archival_config, _) = test_cloud_archival_configs("");
-        config.cloud_archival = Some(cloud_archival_config);
+        config.cloud_archival = Some(test_cloud_archival_config(""));
         config.archive = false;
         validate_config(&config).unwrap();
     }
 
     #[test]
     #[should_panic(
-        expected = "\\nconfig.json semantic issue: `archive` is false, but `cloud_archival_*` is configured."
+        expected = "\\nconfig.json semantic issue: `cloud_archival_writer` is enabled, but `cloud_archival` is disabled."
     )]
-    fn test_cloud_archival_writer_set_archive_is_false() {
+    fn test_cloud_archival_writer_set_but_cloud_archival_disabled() {
         let mut config = Config::default();
-        let (_, writer_config) = test_cloud_archival_configs("");
-        config.cloud_archival_writer = Some(writer_config);
-        config.archive = false;
+        config.cloud_archival_writer = Some(Default::default());
         validate_config(&config).unwrap();
     }
 
     #[test]
     #[should_panic(
-        expected = "\\nconfig.json semantic issue: `cloud_archival_reader` is enabled, but `cold_store` is missing."
+        expected = "\\nconfig.json semantic issue: Cloud archival is enabled in reader mode, but `cold_store` is missing."
     )]
     fn test_cloud_archival_reader_without_cold_store() {
         let mut config = Config::default();
-        let (cloud_archival_config, _) = test_cloud_archival_configs("");
-        config.cloud_archival = Some(cloud_archival_config);
-        validate_config(&config).unwrap();
-    }
-
-    #[test]
-    #[should_panic(
-        expected = "\\nconfig.json semantic issue: Cloud archival is enabled, but since it is not running in `cloud_archival_reader` mode, `rpc` must be disabled."
-    )]
-    fn test_cloud_archival_not_reader_yet_rpc() {
-        let mut config = Config::default();
-        let (_, writer_config) = test_cloud_archival_configs("");
-        config.cloud_archival_writer = Some(writer_config);
-        config.rpc = Some(RpcConfig::default());
+        config.cloud_archival = Some(test_cloud_archival_config(""));
         validate_config(&config).unwrap();
     }
 
@@ -464,23 +446,7 @@ mod tests {
     )]
     fn test_cloud_archival_writer_tracks_no_shards() {
         let mut config = Config::default();
-        let (_, mut writer_config) = test_cloud_archival_configs("");
-        writer_config.archive_block_data = false;
-        config.cloud_archival_writer = Some(writer_config);
-        validate_config(&config).unwrap();
-    }
-
-    #[test]
-    #[should_panic(
-        expected = "\\nconfig.json semantic issue: `cloud_archival_reader` and `cloud_archival_writer` storage configs must be equal."
-    )]
-    fn test_cloud_archival_storage_configs_mismatch() {
-        let mut config = Config::default();
-        let (mut cloud_archival_config, writer_config) = test_cloud_archival_configs("");
-        cloud_archival_config.location =
-            ExternalStorageLocation::Filesystem { root_dir: "x".into() };
-        config.cloud_archival = Some(cloud_archival_config);
-        config.cloud_archival_writer = Some(writer_config);
+        config.cloud_archival_writer = Some(Default::default());
         validate_config(&config).unwrap();
     }
 
@@ -490,7 +456,7 @@ mod tests {
     )]
     fn test_cloud_archival_storage_s3_not_supported() {
         let mut config = Config::default();
-        let (mut cloud_archival_config, _) = test_cloud_archival_configs("");
+        let mut cloud_archival_config = test_cloud_archival_config("");
         cloud_archival_config.location =
             ExternalStorageLocation::S3 { bucket: "".into(), region: "".into() };
         config.cloud_archival = Some(cloud_archival_config);
