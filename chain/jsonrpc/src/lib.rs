@@ -8,6 +8,8 @@ use axum::http::header::{ACCEPT, AUTHORIZATION, CONTENT_TYPE};
 use axum::http::{Method, StatusCode};
 use axum::response::{Html, IntoResponse, Response};
 use axum::routing::{get, post};
+use tower_http::services::ServeFile;
+use std::io::prelude::*;
 use near_async::futures::{FutureSpawner, FutureSpawnerExt};
 use near_async::messaging::{AsyncSendError, AsyncSender, CanSend, CanSendAsync, Sender};
 use near_chain_configs::{ClientConfig, GenesisConfig, ProtocolConfigView};
@@ -1697,13 +1699,21 @@ pub fn create_jsonrpc_app(
         gc_sender,
     });
 
+    let bytes = include_bytes!("../../../chain/jsonrpc/openapi/openapi.json");
+    let mut file = std::fs::File::create("openapi.json").unwrap();
+    file.write_all(bytes).unwrap();
+
     // Build router
     let mut app = Router::new()
         .route("/", post(rpc_handler))
         .route("/status", get(status_handler).head(status_handler))
         .route("/health", get(health_handler).head(health_handler))
         .route("/network_info", get(network_info_handler))
-        .route("/metrics", get(prometheus_handler));
+        .route("/metrics", get(prometheus_handler))
+        .route_service(
+            "/openapi.json",
+            ServeFile::new("openapi.json"),
+        );
 
     if enable_debug_rpc {
         app = app
