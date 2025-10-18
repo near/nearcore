@@ -233,10 +233,12 @@ impl<'a> ConfigValidator<'a> {
             }
             return;
         };
-        if !CloudStorageOpener::is_storage_location_supported(&cloud_archival_config.location) {
+        if !CloudStorageOpener::is_storage_location_supported(
+            &cloud_archival_config.cloud_storage.location,
+        ) {
             let error_message = format!(
                 "{} is not supported cloud storage location.",
-                cloud_archival_config.location.name()
+                cloud_archival_config.cloud_storage.location.name()
             );
             self.validation_errors.push_config_semantics_error(error_message);
         }
@@ -458,7 +460,7 @@ mod tests {
     fn test_cloud_archival_storage_s3_not_supported() {
         let mut config = Config::default();
         let mut cloud_archival_config = test_cloud_archival_config("");
-        cloud_archival_config.location =
+        cloud_archival_config.cloud_storage.location =
             ExternalStorageLocation::S3 { bucket: "".into(), region: "".into() };
         config.cloud_archival = Some(cloud_archival_config);
         validate_config(&config).unwrap();
