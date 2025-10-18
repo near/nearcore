@@ -1,7 +1,6 @@
 use itertools::Itertools;
 use near_chain_configs::test_genesis::{TestEpochConfigBuilder, TestGenesisBuilder};
-use near_chain_configs::test_utils::{TestClientConfigParams, test_cloud_archival_configs};
-use near_store::archive::cloud_storage::opener::CloudStorageOpener;
+use near_chain_configs::test_utils::TestClientConfigParams;
 use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -20,7 +19,7 @@ use near_primitives::types::AccountId;
 use near_primitives::upgrade_schedule::ProtocolUpgradeVotingSchedule;
 use near_primitives::version::get_protocol_upgrade_schedule;
 use near_store::genesis::initialize_genesis_state;
-use near_store::test_utils::{TestNodeStorage, create_test_split_storage, create_test_store};
+use near_store::test_utils::{TestNodeStorage, create_test_node_storage};
 
 use crate::utils::peer_manager_actor::{TestLoopNetworkSharedState, UnreachableActor};
 
@@ -39,9 +38,9 @@ pub(crate) struct TestLoopBuilder {
     /// constructing fresh new tempdir, use the provided one (to test with
     /// existing data from a previous test loop run).
     test_loop_data_dir: TempDir,
-    /// Accounts whose clients should be configured as a split store archival node.
+    /// Accounts whose clients should be configured as cold DB split store archival node.
     /// This should be a subset of the accounts in the `clients` list.
-    split_store_archival_clients: HashSet<AccountId>,
+    cold_storage_archival_clients: HashSet<AccountId>,
     /// Accounts whose clients should be configured as a cloud archival node.
     /// This should be a subset of the accounts in the `clients` list.
     cloud_storage_archival_clients: HashSet<AccountId>,
@@ -70,7 +69,7 @@ impl TestLoopBuilder {
             epoch_config_store: None,
             clients: vec![],
             test_loop_data_dir: tempfile::tempdir().unwrap(),
-            split_store_archival_clients: HashSet::new(),
+            cold_storage_archival_clients: HashSet::new(),
             cloud_storage_archival_clients: HashSet::new(),
             gc_num_epochs_to_keep: None,
             runtime_config_store: None,
@@ -121,10 +120,10 @@ impl TestLoopBuilder {
         self
     }
 
-    /// Set the accounts whose clients should be configured as split store archival nodes in the test loop.
+    /// Set the accounts whose clients should be configured as cold DB split store archival nodes in the test loop.
     /// These accounts should be a subset of the accounts provided to the `clients` method.
-    pub(crate) fn split_store_archival_clients(mut self, clients: HashSet<AccountId>) -> Self {
-        self.split_store_archival_clients = clients;
+    pub(crate) fn cold_storage_archival_clients(mut self, clients: HashSet<AccountId>) -> Self {
+        self.cold_storage_archival_clients = clients;
         self
     }
 
@@ -145,6 +144,7 @@ impl TestLoopBuilder {
         mut self,
         modifier: impl Fn(&mut ClientConfig, usize) + 'static,
     ) -> Self {
+        assert!(self.config_modifier.is_none());
         self.config_modifier = Some(Box::new(modifier));
         self
     }
@@ -192,7 +192,7 @@ impl TestLoopBuilder {
     fn ensure_clients(self) -> Self {
         assert!(!self.clients.is_empty(), "Clients must be provided to the test loop");
         assert!(
-            self.split_store_archival_clients
+            self.cold_storage_archival_clients
                 .is_subset(&HashSet::from_iter(self.clients.iter().cloned())),
             "Archival accounts must be subset of the clients"
         );
@@ -248,7 +248,7 @@ impl TestLoopBuilder {
     fn setup_node_state(&self, idx: usize) -> NodeSetupState {
         let account_id = self.clients[idx].clone();
         let genesis = self.genesis.as_ref().unwrap();
-        let enable_split_store = self.split_store_archival_clients.contains(&account_id);
+        let enable_cold_storage = self.cold_storage_archival_clients.contains(&account_id);
         let enable_cloud_storage = self.cloud_storage_archival_clients.contains(&account_id);
         let config_modifier = |client_config: &mut ClientConfig| {
             if let Some(num_epochs) = self.gc_num_epochs_to_keep {
@@ -272,7 +272,7 @@ impl TestLoopBuilder {
         let tempdir_path = self.test_loop_data_dir.path().to_path_buf();
         NodeStateBuilder::new(genesis.clone(), tempdir_path)
             .account_id(account_id.clone())
-            .split_store(enable_split_store)
+            .cold_storage(enable_cold_storage)
             .cloud_storage(enable_cloud_storage)
             .config_modifier(config_modifier)
             .build()
@@ -284,7 +284,7 @@ pub struct NodeStateBuilder<'a> {
     tempdir_path: PathBuf,
 
     account_id: Option<AccountId>,
-    enable_split_store: bool,
+    enable_cold_storage: bool,
     enable_cloud_storage: bool,
     config_modifier: Option<Box<dyn Fn(&mut ClientConfig) + 'a>>,
 }
@@ -295,7 +295,7 @@ impl<'a> NodeStateBuilder<'a> {
             genesis,
             tempdir_path,
             account_id: None,
-            enable_split_store: false,
+            enable_cold_storage: false,
             enable_cloud_storage: false,
             config_modifier: None,
         }
@@ -306,8 +306,8 @@ impl<'a> NodeStateBuilder<'a> {
         self
     }
 
-    pub fn split_store(mut self, enable_split_store: bool) -> Self {
-        self.enable_split_store = enable_split_store;
+    pub fn cold_storage(mut self, enable_cold_storage: bool) -> Self {
+        self.enable_cold_storage = enable_cold_storage;
         self
     }
 
@@ -330,15 +330,9 @@ impl<'a> NodeStateBuilder<'a> {
             min_block_prod_time: MIN_BLOCK_PROD_TIME,
             max_block_prod_time: 2000,
             num_block_producer_seats: 4,
-            split_store_enabled: self.enable_split_store,
-            cloud_storage_enabled: self.enable_cloud_storage,
+            archive: self.enable_cold_storage || self.enable_cloud_storage,
             state_sync_enabled: false,
         });
-        if self.enable_cloud_storage {
-            let (_, writer_config) = test_cloud_archival_configs(self.tempdir_path.clone());
-            client_config.cloud_archival_writer = Some(writer_config);
-        }
-
         client_config.epoch_length = self.genesis.config.epoch_length;
         client_config.max_block_wait_delay = Duration::seconds(6);
         client_config.state_sync_enabled = true;
@@ -377,22 +371,9 @@ impl<'a> NodeStateBuilder<'a> {
     }
 
     fn setup_storage(&self) -> TestNodeStorage {
-        let mut storage = if self.enable_split_store {
-            create_test_split_storage()
-        } else {
-            TestNodeStorage {
-                hot_store: create_test_store(),
-                split_store: None,
-                cold_db: None,
-                cloud_storage: None,
-            }
-        };
-        if self.enable_cloud_storage {
-            let (_, writer_config) = test_cloud_archival_configs(self.tempdir_path.clone());
-            let cloud_storage = CloudStorageOpener::new(writer_config.cloud_storage).open();
-            storage.cloud_storage = Some(cloud_storage);
-        }
-
+        let home_dir = Some(self.tempdir_path.clone());
+        let storage =
+            create_test_node_storage(self.enable_cold_storage, self.enable_cloud_storage, home_dir);
         initialize_genesis_state(storage.hot_store.clone(), &self.genesis, None);
         storage
     }

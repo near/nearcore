@@ -20,10 +20,12 @@ use near_chain::{
     ApplyChunksSpawner, Chain, ChainGenesis, PartialWitnessValidationThreadPool,
     WitnessCreationThreadPool,
 };
-use near_chain_configs::{CloudArchivalWriterHandle, MutableValidatorSigner, ReshardingHandle};
+use near_chain_configs::{MutableValidatorSigner, ReshardingHandle};
 use near_chunks::shards_manager_actor::start_shards_manager;
 use near_client::adapter::client_sender_for_network;
-use near_client::archive::cloud_archival_actor::create_cloud_archival_writer;
+use near_client::archive::cloud_archival_writer::{
+    CloudArchivalWriterHandle, create_cloud_archival_writer,
+};
 use near_client::archive::cold_store_actor::create_cold_store_actor;
 use near_client::chunk_executor_actor::ChunkExecutorActor;
 use near_client::gc_actor::GCActor;
@@ -189,7 +191,7 @@ pub fn open_storage(home_dir: &Path, near_config: &NearConfig) -> anyhow::Result
 
     assert_eq!(
         near_config.config.archive,
-        storage.is_local_archive()? || near_config.client_config.is_cloud_archive()
+        storage.is_local_archive()? || storage.is_cloud_archive()
     );
     Ok(storage)
 }

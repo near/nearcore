@@ -1,5 +1,4 @@
-use near_chain_configs::CloudStorageConfig;
-
+use crate::archive::cloud_storage::config::CloudStorageConfig;
 use crate::archive::cloud_storage::opener::CloudStorageOpener;
 use crate::config::StateSnapshotType;
 use crate::db::rocksdb::RocksDB;
