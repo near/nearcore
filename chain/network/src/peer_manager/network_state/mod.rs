@@ -194,7 +194,7 @@ impl NetworkState {
         spice_core_writer_adapter: Sender<SpiceChunkEndorsementMessage>,
     ) -> Self {
         Self {
-            ops_spawner: new_owned_future_spawner(),
+            ops_spawner: new_owned_future_spawner("NetworkState ops"),
             graph: crate::routing::Graph::new(
                 clock.clone(),
                 crate::routing::GraphConfig {

@@ -1,5 +1,6 @@
 use crate::functional::{SendAsyncFunction, SendFunction};
 use crate::futures::DelayedActionRunner;
+use crate::pretty_type_name;
 use futures::FutureExt;
 use futures::future::BoxFuture;
 use std::fmt::{Debug, Display};
@@ -28,6 +29,11 @@ pub trait Actor {
 
     /// Called by the actor runtime right before the actor is dropped.
     fn stop_actor(&mut self) {}
+
+    /// Returns a description of the actor. By default, it returns the type name of the actor.
+    fn description(&self) -> &'static str {
+        pretty_type_name::<Self>()
+    }
 }
 
 /// Trait for handling a message.

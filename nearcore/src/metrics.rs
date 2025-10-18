@@ -192,7 +192,7 @@ pub fn spawn_trie_metrics_loop(
 ) {
     tracing::debug!(target:"metrics", "Spawning the trie metrics loop.");
 
-    actor_system.new_future_spawner().spawn("trie metrics loop", async move {
+    actor_system.new_future_spawner("trie metrics loop").spawn("trie metrics loop", async move {
         tracing::debug!(target:"metrics", "Starting the spawn metrics loop.");
 
         let start = tokio::time::Instant::now();

@@ -2,6 +2,7 @@ pub use near_async_derive::{MultiSend, MultiSenderFrom};
 
 mod functional;
 pub mod futures;
+pub mod instrumentation;
 pub mod messaging;
 pub mod multithread;
 pub mod test_loop;
@@ -29,14 +30,25 @@ pub(crate) fn next_message_sequence_num() -> u64 {
 // Quick and dirty way of getting the type name without the module path.
 // Does not work for more complex types like std::sync::Arc<std::sync::atomic::AtomicBool<...>>
 // example near_chunks::shards_manager_actor::ShardsManagerActor -> ShardsManagerActor
-fn pretty_type_name<T>() -> &'static str {
-    type_name::<T>().split("::").last().unwrap()
+// To support using it with "SpanWrapped<>" types, we trim the trailing '>' characters.
+fn pretty_type_name<T>() -> &'static str
+where
+    T: ?Sized,
+{
+    type_name::<T>().rsplit("::").next().unwrap().trim_end_matches('>')
 }
 
 /// Actor that doesn't handle any messages and does nothing. It's used to host a runtime that can
 /// run futures only.
-struct EmptyActor;
-impl Actor for EmptyActor {}
+struct EmptyActor {
+    description: &'static str,
+}
+
+impl Actor for EmptyActor {
+    fn description(&self) -> &'static str {
+        self.description
+    }
+}
 
 /// Represents a collection of actors, so that they can be shutdown together.
 #[derive(Clone)]
@@ -107,7 +119,10 @@ impl ActorSystem {
     pub fn new_tokio_builder<A: messaging::Actor + Send + 'static>(
         &self,
     ) -> TokioRuntimeBuilder<A> {
-        TokioRuntimeBuilder::new(self.tokio_cancellation_signal.clone())
+        TokioRuntimeBuilder::new(
+            pretty_type_name::<A>().to_string(),
+            self.tokio_cancellation_signal.clone(),
+        )
     }
 
     /// Spawns a multi-threaded actor which handles messages in a synchronous thread pool.
@@ -132,16 +147,19 @@ impl ActorSystem {
     ///
     /// This is useful for keeping track of spawned futures and their lifetimes.
     /// Behind the scenes, this builds a new EmptyActor each time.
-    pub fn new_future_spawner(&self) -> Box<dyn FutureSpawner> {
-        let handle = self.spawn_tokio_actor(EmptyActor);
+    pub fn new_future_spawner(&self, description: &'static str) -> Box<dyn FutureSpawner> {
+        let handle =
+            spawn_tokio_actor(EmptyActor { description }, self.tokio_cancellation_signal.clone());
         handle.future_spawner()
     }
 }
 
 /// Spawns a future spawner that is NOT owned by any ActorSystem.
 /// Rather, the returned FutureSpawner, when dropped, will stop the runtime.
-pub fn new_owned_future_spawner() -> Box<dyn FutureSpawner> {
-    Box::new(OwnedFutureSpawner { handle: spawn_tokio_actor(EmptyActor, CancellationToken::new()) })
+pub fn new_owned_future_spawner(description: &'static str) -> Box<dyn FutureSpawner> {
+    Box::new(OwnedFutureSpawner {
+        handle: spawn_tokio_actor(EmptyActor { description }, CancellationToken::new()),
+    })
 }
 
 /// Spawns a multithreaded actor which is NOT owned by any ActorSystem.
