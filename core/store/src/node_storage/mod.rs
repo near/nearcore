@@ -1,9 +1,9 @@
 pub(super) mod opener;
 
 use crate::archive::cloud_storage::CloudStorage;
+use crate::archive::cloud_storage::config::CloudStorageConfig;
 use crate::db::{Database, SplitDB, metadata};
 use crate::{Store, StoreConfig};
-use near_chain_configs::CloudStorageConfig;
 use opener::StoreOpener;
 use std::io;
 use std::str::FromStr;
@@ -51,9 +51,9 @@ impl NodeStorage {
         home_dir: &std::path::Path,
         store_config: &'a StoreConfig,
         cold_store_config: Option<&'a StoreConfig>,
-        cloud_storage_config: Option<&'a CloudStorageConfig>,
+        cloud_archival_config: Option<&'a CloudStorageConfig>,
     ) -> StoreOpener<'a> {
-        StoreOpener::new(home_dir, store_config, cold_store_config, cloud_storage_config)
+        StoreOpener::new(home_dir, store_config, cold_store_config, cloud_archival_config)
     }
 
     /// Initializes an opener for a new temporary test store.
@@ -210,12 +210,18 @@ impl NodeStorage {
         })
     }
 
-    pub fn new_with_cold(hot: Arc<dyn Database>, cold: Arc<dyn Database>) -> Self {
-        Self {
-            hot_storage: hot,
-            cold_storage: Some(Arc::new(crate::db::ColdDB::new(cold))),
-            cloud_storage: None,
-        }
+    pub fn is_cloud_archive(&self) -> bool {
+        self.cloud_storage.is_some()
+    }
+
+    pub fn new_archive(
+        hot: Arc<dyn Database>,
+        cold: Option<Arc<dyn Database>>,
+        cloud: Option<Arc<CloudStorage>>,
+    ) -> Self {
+        assert!(cold.is_some() || cloud.is_some());
+        let cold_storage = cold.map(|cold| Arc::new(crate::db::ColdDB::new(cold)));
+        Self { hot_storage: hot, cold_storage, cloud_storage: cloud }
     }
 
     pub fn cold_db(&self) -> Option<&Arc<crate::db::ColdDB>> {

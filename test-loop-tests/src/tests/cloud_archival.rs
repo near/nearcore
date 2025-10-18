@@ -5,6 +5,7 @@ use near_chain_configs::test_genesis::{TestEpochConfigBuilder, ValidatorsSpec};
 use near_o11y::testonly::init_test_logger;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::{AccountId, BlockHeight, BlockHeightDelta};
+use near_store::archive::cloud_storage::config::test_cloud_archival_configs;
 
 use crate::setup::builder::TestLoopBuilder;
 use crate::utils::cloud_archival::{
@@ -21,11 +22,12 @@ const MIN_NUM_EPOCHS_TO_WAIT: u64 = MIN_GC_NUM_EPOCHS_TO_KEEP + 1;
 #[derive(derive_builder::Builder)]
 #[builder(pattern = "owned", build_fn(skip))]
 struct TestCloudArchivalParameters {
+    disable_writer: bool,
     /// Number of epochs the test should run; must be at least
     /// `MINIMUM_NUM_EPOCHS_TO_WAIT`.
     num_epochs_to_wait: u64,
     /// Whether to run the cold-store loop.
-    enable_split_store: bool,
+    enable_cold_storage: bool,
     /// Height up to which the cloud archival writer should be paused.
     pause_writer_until_height: Option<BlockHeight>,
 }
@@ -34,9 +36,15 @@ impl TestCloudArchivalParametersBuilder {
     fn build(self) -> TestCloudArchivalParameters {
         let num_epochs_to_wait = self.num_epochs_to_wait.unwrap_or(MIN_NUM_EPOCHS_TO_WAIT);
         assert!(num_epochs_to_wait >= MIN_NUM_EPOCHS_TO_WAIT);
+        let disable_writer = self.disable_writer.unwrap_or_default();
+        let pause_writer_until_height = self.pause_writer_until_height.unwrap_or_default();
+        if disable_writer {
+            assert!(pause_writer_until_height.is_none());
+        }
         TestCloudArchivalParameters {
-            enable_split_store: self.enable_split_store.unwrap_or(false),
-            pause_writer_until_height: self.pause_writer_until_height.unwrap_or_default(),
+            disable_writer,
+            enable_cold_storage: self.enable_cold_storage.unwrap_or(false),
+            pause_writer_until_height,
             num_epochs_to_wait,
         }
     }
@@ -58,21 +66,33 @@ fn test_cloud_archival_base(params: TestCloudArchivalParameters) {
 
     let archival_id: AccountId = "archival".parse().unwrap();
     let all_clients = vec![archival_id.clone(), validator_id];
-    let mut split_store_archival_clients = HashSet::<AccountId>::new();
-    if params.enable_split_store {
-        split_store_archival_clients.insert(archival_id.clone());
+    let mut cold_storage_archival_clients = HashSet::<AccountId>::new();
+    if params.enable_cold_storage {
+        cold_storage_archival_clients.insert(archival_id.clone());
     }
     let cloud_storage_archival_clients = [archival_id.clone()].into_iter().collect();
+    let archival_index = all_clients.iter().position(|id| id == &archival_id).unwrap();
 
-    let mut env = TestLoopBuilder::new()
+    let mut builder = TestLoopBuilder::new()
         .genesis(genesis)
         .epoch_config_store(epoch_config_store)
         .clients(all_clients)
-        .split_store_archival_clients(split_store_archival_clients)
+        .cold_storage_archival_clients(cold_storage_archival_clients)
         .cloud_storage_archival_clients(cloud_storage_archival_clients)
-        .gc_num_epochs_to_keep(MIN_GC_NUM_EPOCHS_TO_KEEP)
-        .build()
-        .warmup();
+        .gc_num_epochs_to_keep(MIN_GC_NUM_EPOCHS_TO_KEEP);
+
+    if !params.disable_writer {
+        let data_dir = builder.data_dir();
+        builder = builder.config_modifier(move |config, client_index| {
+            if client_index != archival_index {
+                return;
+            }
+            let (_, writer_config) = test_cloud_archival_configs(&data_dir);
+            config.cloud_archival_writer = Some(writer_config);
+        });
+    }
+
+    let mut env = builder.build().warmup();
 
     if let Some(resume_height) = params.pause_writer_until_height {
         pause_and_resume_writer_with_sanity_checks(
@@ -80,7 +100,7 @@ fn test_cloud_archival_base(params: TestCloudArchivalParameters) {
             resume_height,
             MIN_EPOCH_LENGTH,
             &archival_id,
-            params.enable_split_store,
+            params.enable_cold_storage,
         );
     }
 
@@ -91,7 +111,7 @@ fn test_cloud_archival_base(params: TestCloudArchivalParameters) {
     gc_and_heads_sanity_checks(
         &env,
         &archival_id,
-        params.enable_split_store,
+        params.enable_cold_storage,
         Some(MIN_EPOCH_LENGTH),
     );
 
@@ -104,11 +124,11 @@ fn test_cloud_archival_basic() {
     test_cloud_archival_base(TestCloudArchivalParametersBuilder::default().build());
 }
 
-/// Verifies that both `cloud_head` and `cold_head` progress with split store enabled.
+/// Verifies that both `cloud_head` and `cold_head` progress with cold DB enabled.
 #[test]
-fn test_cloud_archival_with_split_store() {
+fn test_cloud_archival_with_cold() {
     test_cloud_archival_base(
-        TestCloudArchivalParametersBuilder::default().enable_split_store(true).build(),
+        TestCloudArchivalParametersBuilder::default().enable_cold_storage(true).build(),
     );
 }
 
@@ -120,13 +140,13 @@ fn test_cloud_archival_resume() {
     // Pause the cloud writer long enough so that, if it were possible, GC could overtake
     // `cloud_head`. Place `cloud_head` in the middle of the epoch so that the first block
     // of the epoch containing `cloud_head` could potentially be garbage collected.
-    let resume_writer_height = 2 * gc_period_num_blocks + MIN_EPOCH_LENGTH / 2;
+    let resume_writer_height = Some(2 * gc_period_num_blocks + MIN_EPOCH_LENGTH / 2);
     // After resuming writer, wait one more GC window to expose potential crash.
     let num_epochs_to_wait = 3 * MIN_GC_NUM_EPOCHS_TO_KEEP;
     test_cloud_archival_base(
         TestCloudArchivalParametersBuilder::default()
             .num_epochs_to_wait(num_epochs_to_wait)
-            .pause_writer_until_height(Some(resume_writer_height))
+            .pause_writer_until_height(resume_writer_height)
             .build(),
     );
 }
