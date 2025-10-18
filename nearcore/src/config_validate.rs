@@ -227,12 +227,19 @@ impl<'a> ConfigValidator<'a> {
         let Some(cloud_archival_config) = &self.config.cloud_archival else {
             if self.config.cloud_archival_writer.is_some() {
                 let error_message =
-                    "`cloud_archival` is disabled, but `cloud_archival_writer` is enabled."
+                    "`cloud_archival_writer` is enabled, but `cloud_archival` is disabled."
                         .to_string();
                 self.validation_errors.push_config_semantics_error(error_message);
             }
             return;
         };
+        if !CloudStorageOpener::is_storage_location_supported(&cloud_archival_config.location) {
+            let error_message = format!(
+                "{} is not supported cloud storage location.",
+                cloud_archival_config.location.name()
+            );
+            self.validation_errors.push_config_semantics_error(error_message);
+        }
 
         if !self.config.archive {
             let error_message = "`archive` is false, but `cloud_archival` is enabled.".to_string();
@@ -242,13 +249,6 @@ impl<'a> ConfigValidator<'a> {
             let error_message =
                 "Cloud archival is enabled in reader mode, but `cold_store` is missing."
                     .to_string();
-            self.validation_errors.push_config_semantics_error(error_message);
-        }
-        if !CloudStorageOpener::is_storage_location_supported(&cloud_archival_config.location) {
-            let error_message = format!(
-                "{} is not supported cloud storage location.",
-                cloud_archival_config.location.name()
-            );
             self.validation_errors.push_config_semantics_error(error_message);
         }
 
@@ -411,7 +411,7 @@ mod tests {
 
     #[test]
     #[should_panic(
-        expected = "\\nconfig.json semantic issue: `archive` is false, but `cloud_archival` is configured."
+        expected = "\\nconfig.json semantic issue: `archive` is false, but `cloud_archival` is enabled."
     )]
     fn test_cloud_archival_set_archive_is_false() {
         let mut config = Config::default();
@@ -446,6 +446,7 @@ mod tests {
     )]
     fn test_cloud_archival_writer_tracks_no_shards() {
         let mut config = Config::default();
+        config.cloud_archival = Some(test_cloud_archival_config(""));
         config.cloud_archival_writer = Some(Default::default());
         validate_config(&config).unwrap();
     }

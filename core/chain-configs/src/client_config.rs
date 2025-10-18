@@ -241,7 +241,7 @@ pub fn default_archival_writer_polling_interval() -> Duration {
 /// Configuration for a cloud-based archival writer. If this config is present, the writer is enabled and
 /// writes chunk-related data based on the tracked shards. This config also controls additional archival
 /// behavior such as block data and polling interval.
-#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, Default)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct CloudArchivalWriterConfig {
     /// Determines whether block-related data should be written to cloud storage.
@@ -253,6 +253,15 @@ pub struct CloudArchivalWriterConfig {
     #[cfg_attr(feature = "schemars", schemars(with = "DurationAsStdSchemaProvider"))]
     #[serde(default = "default_archival_writer_polling_interval")]
     pub polling_interval: Duration,
+}
+
+impl Default for CloudArchivalWriterConfig {
+    fn default() -> Self {
+        Self {
+            archive_block_data: false,
+            polling_interval: default_archival_writer_polling_interval(),
+        }
+    }
 }
 
 /// A handle that allows the main process to interrupt other.

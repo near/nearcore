@@ -116,7 +116,7 @@ pub fn create_test_node_storage(
     );
     TestNodeStorage {
         hot_store: storage.get_hot_store(),
-        split_store: Some(storage.get_split_store().unwrap()),
+        split_store: storage.get_split_store(),
         cold_db: storage.cold_db().cloned(),
         cloud_storage: storage.get_cloud_storage().cloned(),
     }
