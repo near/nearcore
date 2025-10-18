@@ -83,6 +83,7 @@ pub fn get_chain_with_genesis(clock: Clock, genesis: Genesis) -> Chain {
         ApplyChunksIterationMode::Sequential,
         MutableConfigValue::new(None, "validator_signer"),
         noop().into_multi_sender(),
+        noop().into_multi_sender(),
         None,
     )
     .unwrap()
@@ -172,6 +173,7 @@ pub fn setup_with_tx_validity_period(
         ApplyChunksSpawner::Custom(Arc::new(RayonAsyncComputationSpawner)),
         ApplyChunksIterationMode::Sequential,
         MutableConfigValue::new(None, "validator_signer"),
+        noop().into_multi_sender(),
         noop().into_multi_sender(),
         None,
     )
