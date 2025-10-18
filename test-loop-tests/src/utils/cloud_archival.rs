@@ -1,6 +1,8 @@
+use near_async::messaging::Handler;
 use near_chain::types::Tip;
+use near_client::GetBlock;
 use near_client::archive::cloud_archival_writer::CloudArchivalWriterHandle;
-use near_primitives::types::{AccountId, BlockHeight, BlockHeightDelta};
+use near_primitives::types::{AccountId, BlockHeight, BlockHeightDelta, BlockId, BlockReference};
 use near_store::adapter::StoreAdapter;
 use near_store::db::CLOUD_HEAD_KEY;
 use near_store::{COLD_HEAD_KEY, DBCol};
@@ -95,4 +97,12 @@ fn get_cloud_head(env: &TestLoopEnv, writer_id: &AccountId) -> BlockHeight {
     let archival_node = TestLoopNode::for_account(&env.node_datas, writer_id);
     let hot_store = archival_node.client(env.test_loop_data()).chain.chain_store().store();
     hot_store.get_ser::<Tip>(DBCol::BlockMisc, CLOUD_HEAD_KEY).unwrap().unwrap().height
+}
+
+pub fn test_view_client(env: &mut TestLoopEnv, archival_id: &AccountId, height: BlockHeight) {
+    let archival_node = TestLoopNode::for_account(&env.node_datas, archival_id);
+    let view_client_handle = archival_node.data().view_client_sender.actor_handle();
+    let view_client = env.test_loop.data.get_mut(&view_client_handle);
+    let block_reference = BlockReference::BlockId(BlockId::Height(height));
+    let _block = view_client.handle(GetBlock(block_reference)).unwrap();
 }

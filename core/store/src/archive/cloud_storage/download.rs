@@ -1,3 +1,4 @@
+use near_primitives::block::Block;
 use near_primitives::types::BlockHeight;
 
 use borsh::BorshDeserialize;
@@ -31,6 +32,12 @@ impl CloudStorage {
     /// Returns the cloud head from external storage.
     pub async fn get_cloud_head(&self) -> Result<BlockHeight, CloudRetrievalError> {
         self.get(&CloudStorageFileID::Head).await
+    }
+
+    #[allow(unused)]
+    async fn get_block(&self, block_height: BlockHeight) -> Result<Block, CloudRetrievalError> {
+        let file_id = CloudStorageFileID::Block(block_height);
+        self.get(&file_id).await
     }
 
     /// Retrieves and deserializes a file from the cloud archive.
