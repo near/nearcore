@@ -30,7 +30,7 @@ fn test_restart_node() {
         .warmup();
 
     let kill_height = 2 * epoch_length;
-    TestLoopNode::validator(&env.node_datas, validator_index_to_restart)
+    TestLoopNode::from(&env.node_datas[validator_index_to_restart])
         .run_until_head_height(&mut env.test_loop, kill_height);
 
     // kill node
@@ -38,14 +38,14 @@ fn test_restart_node() {
     let killed_node_state = env.kill_node(&node_identifier);
 
     let restart_height = kill_height + 2 * epoch_length;
-    TestLoopNode::validator(&env.node_datas, stable_validator_index)
+    TestLoopNode::from(&env.node_datas[stable_validator_index])
         .run_until_head_height(&mut env.test_loop, restart_height);
     // restart node
     let new_node_identifier = format!("{}-restart", node_identifier);
     env.restart_node(&new_node_identifier, killed_node_state);
 
-    let restarted_node = TestLoopNode::validator(&env.node_datas, validator_index_to_restart);
-    let stable_node = TestLoopNode::validator(&env.node_datas, stable_validator_index);
+    let restarted_node = TestLoopNode::from(&env.node_datas[validator_index_to_restart]);
+    let stable_node = TestLoopNode::from(&env.node_datas[stable_validator_index]);
     assert_eq!(restarted_node.head(env.test_loop_data()).height, kill_height);
 
     // Give a few blocks for the restarted node to catch up

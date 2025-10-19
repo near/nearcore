@@ -51,7 +51,7 @@ fn resharding_example_test() {
         .build()
         .warmup();
 
-    let node = TestLoopNode::validator(&env.node_datas, 0);
+    let node = TestLoopNode::from(&env.node_datas[0]);
     let epoch_manager = node.client(&env.test_loop.data).chain.epoch_manager.clone();
     let epoch_id = node.head(env.test_loop_data()).epoch_id;
     assert_eq!(epoch_manager.get_epoch_config(&epoch_id).unwrap().shard_layout, base_shard_layout);

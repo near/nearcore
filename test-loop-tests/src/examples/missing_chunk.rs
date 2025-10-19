@@ -30,7 +30,7 @@ fn missing_chunk_example_test() {
         .clients(clients)
         .build()
         .warmup();
-    let validator_node = TestLoopNode::validator(&env.node_datas, 0);
+    let validator_node = TestLoopNode::from(&env.node_datas[0]);
 
     // Note: waiting for height H results in chunk already produced for H+1.
     // That is why if we want to have missing chunk at H we do the following:
