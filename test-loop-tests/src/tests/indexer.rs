@@ -1,16 +1,20 @@
+use std::sync::atomic::AtomicU64;
+
 use assert_matches::assert_matches;
 use near_async::futures::FutureSpawnerExt;
 use near_async::messaging::CanSend;
 use near_async::time::Duration;
 use near_client::client_actor::AdvProduceChunksMode;
 use near_client::{NetworkAdversarialMessage, ProcessTxRequest};
+use near_crypto::Signer;
 use near_indexer::{AwaitForNodeSyncedEnum, IndexerConfig, StreamerMessage, SyncModeEnum, start};
 use near_o11y::testonly::init_test_logger;
 use near_primitives::gas::Gas;
+use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::test_utils::create_user_test_signer;
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{AccountId, Balance, Finality, NumBlocks};
+use near_primitives::types::{AccountId, Balance, BlockHeight, Finality, Nonce, NumBlocks};
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_primitives::views::ExecutionStatusView;
 use near_store::StoreConfig;
@@ -73,6 +77,22 @@ fn test_indexer_local_receipt() {
 }
 
 #[test]
+fn test_indexer_delayed_local_receipt() {
+    init_test_logger();
+
+    let mut env = setup();
+    deploy_test_contract(&mut env);
+    let delayed_receipt_executed_height = generate_delayed_receipt(&mut env);
+
+    let mut indexer_receiver =
+        start_indexer(&env, SyncModeEnum::BlockHeight(delayed_receipt_executed_height));
+    let msg = receive_indexer_message(&mut env, &mut indexer_receiver);
+    assert_eq!(msg.shards[0].receipt_execution_outcomes.len(), 1);
+
+    shutdown(env);
+}
+
+#[test]
 fn test_indexer_failed_local_tx() {
     init_test_logger();
     if !ProtocolFeature::InvalidTxGenerateOutcomes.enabled(PROTOCOL_VERSION) {
@@ -85,10 +105,7 @@ fn test_indexer_failed_local_tx() {
         &env.test_loop,
         NetworkAdversarialMessage::AdvProduceChunks(AdvProduceChunksMode::ProduceWithoutTx),
     );
-    let tx = create_local_tx(&env);
-    let process_tx_request =
-        ProcessTxRequest { transaction: tx, is_forwarded: false, check_only: false };
-    validator_node.data().rpc_handler_sender.send(process_tx_request);
+    send_validator_tx(&env, create_local_tx(&env));
     // Wait for the transaction to expire. This will happen because the chunk producer
     // does not include any transactions in the chunks (enabled by the adversarial message above).
     validator_node.run_for_number_of_blocks(&mut env.test_loop, (TX_VALIDITY_PERIOD + 1) as usize);
@@ -122,6 +139,7 @@ fn user_account() -> AccountId {
 }
 
 const TX_VALIDITY_PERIOD: NumBlocks = 5;
+const GAS_LIMIT: Gas = Gas::from_teragas(300);
 
 fn setup() -> TestLoopEnv {
     let validators_spec = create_validators_spec(1, 0);
@@ -129,7 +147,8 @@ fn setup() -> TestLoopEnv {
     let genesis = TestLoopBuilder::new_genesis_builder()
         .shard_layout(ShardLayout::single_shard())
         .validators_spec(validators_spec)
-        .add_user_account_simple(user_account(), Balance::from_near(1))
+        .gas_limit(GAS_LIMIT)
+        .add_user_account_simple(user_account(), Balance::from_near(1000))
         .transaction_validity_period(TX_VALIDITY_PERIOD)
         .build();
     let env = TestLoopBuilder::new()
@@ -192,20 +211,73 @@ fn shutdown(env: TestLoopEnv) {
     env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }
 
+fn next_nonce() -> Nonce {
+    static NEXT_VALUE: AtomicU64 = AtomicU64::new(1);
+    NEXT_VALUE.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+}
+
+fn tx_block_hash(env: &TestLoopEnv) -> CryptoHash {
+    TestLoopNode::rpc(&env.node_datas).head(env.test_loop_data()).last_block_hash
+}
+
+fn user_signer() -> Signer {
+    create_user_test_signer(&user_account())
+}
+
+fn send_validator_tx(env: &TestLoopEnv, tx: SignedTransaction) {
+    let process_tx_request =
+        ProcessTxRequest { transaction: tx, is_forwarded: false, check_only: false };
+    TestLoopNode::validator(&env.node_datas, 0).data().rpc_handler_sender.send(process_tx_request);
+}
+
 fn create_local_tx(env: &TestLoopEnv) -> SignedTransaction {
-    let rpc_node = TestLoopNode::rpc(&env.node_datas);
-    let block_hash = rpc_node.head(env.test_loop_data()).last_block_hash;
-    let nonce = 1;
-    let tx = SignedTransaction::call(
-        nonce,
+    SignedTransaction::call(
+        next_nonce(),
         user_account(),
         user_account(),
-        &create_user_test_signer(&user_account()),
+        &user_signer(),
         Balance::ZERO,
         "does_not_matter".to_owned(),
         vec![],
         Gas::from_teragas(100),
-        block_hash,
+        tx_block_hash(env),
+    )
+}
+
+fn create_burn_gas_tx(env: &TestLoopEnv) -> SignedTransaction {
+    let gas_to_burn = GAS_LIMIT.checked_div(2).unwrap().checked_add(Gas::from_gas(1)).unwrap();
+    SignedTransaction::call(
+        next_nonce(),
+        user_account(),
+        user_account(),
+        &user_signer(),
+        Balance::ZERO,
+        "burn_gas_raw".to_owned(),
+        gas_to_burn.as_gas().to_le_bytes().to_vec(),
+        GAS_LIMIT,
+        tx_block_hash(env),
+    )
+}
+
+fn generate_delayed_receipt(env: &mut TestLoopEnv) -> BlockHeight {
+    // Each transaction generates local receipt consuming more than a half
+    // the chunk space, so exactly one receipt execution will be delayed.
+    for _ in 0..3 {
+        send_validator_tx(&env, create_burn_gas_tx(&env));
+    }
+    let validator_node = TestLoopNode::validator(&env.node_datas, 0);
+    validator_node.run_for_number_of_blocks(&mut env.test_loop, 3);
+    let delayed_receipt_executed_height = validator_node.head(env.test_loop_data()).height;
+    delayed_receipt_executed_height
+}
+
+fn deploy_test_contract(env: &mut TestLoopEnv) {
+    let tx = SignedTransaction::deploy_contract(
+        next_nonce(),
+        &user_account(),
+        near_test_contracts::rs_contract().to_vec(),
+        &user_signer(),
+        tx_block_hash(env),
     );
-    tx
+    TestLoopNode::rpc(&env.node_datas).run_tx(&mut env.test_loop, tx, Duration::seconds(3));
 }
