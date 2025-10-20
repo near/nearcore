@@ -565,11 +565,7 @@ impl ChunkExecutorActor {
             let ShardUpdateResult::NewChunk(new_chunk_result) = result else {
                 panic!("missing chunks are not expected in SPICE");
             };
-            let Some(my_signer) = self.validator_signer.get() else {
-                // If node isn't validator it shouldn't send outgoing receipts, endorsed and witnesses.
-                // RPC nodes can still apply chunks and tracks multiple shards.
-                continue;
-            };
+
             let shard_id = new_chunk_result.shard_uid.shard_id();
             let (outgoing_receipts_root, receipt_proofs) =
                 Chain::create_receipts_proofs_from_outgoing_receipts(
@@ -578,8 +574,13 @@ impl ChunkExecutorActor {
                     new_chunk_result.apply_result.outgoing_receipts.clone(),
                 )?;
             self.save_produced_receipts(&block_hash, &receipt_proofs)?;
-            self.send_outgoing_receipts(&block, receipt_proofs);
 
+            let Some(my_signer) = self.validator_signer.get() else {
+                // If node isn't validator it shouldn't send outgoing receipts, endorsed and witnesses.
+                // RPC nodes can still apply chunks and tracks multiple shards.
+                continue;
+            };
+            self.send_outgoing_receipts(&block, receipt_proofs);
             self.distribute_witness(&block, my_signer, new_chunk_result, outgoing_receipts_root)?;
         }
 

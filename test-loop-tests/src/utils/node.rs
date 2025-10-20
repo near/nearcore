@@ -18,7 +18,7 @@ use near_primitives::views::{
 };
 
 use crate::setup::state::NodeExecutionData;
-use crate::utils::account::{create_validator_id, rpc_account_id};
+use crate::utils::account::rpc_account_id;
 use crate::utils::transactions::TransactionRunner;
 
 /// Represents single node in multinode test loop setup. It simplifies
@@ -27,6 +27,12 @@ use crate::utils::transactions::TransactionRunner;
 /// transactions, waiting for blocks to be produces, querying state, etc.
 pub struct TestLoopNode<'a> {
     data: &'a NodeExecutionData,
+}
+
+impl<'a> From<&'a NodeExecutionData> for TestLoopNode<'a> {
+    fn from(value: &'a NodeExecutionData) -> Self {
+        Self { data: value }
+    }
 }
 
 impl<'a> TestLoopNode<'a> {
@@ -42,10 +48,6 @@ impl<'a> TestLoopNode<'a> {
 
     pub fn rpc(node_datas: &'a [NodeExecutionData]) -> Self {
         Self::for_account(node_datas, &rpc_account_id())
-    }
-
-    pub fn validator(node_datas: &'a [NodeExecutionData], validator_index: usize) -> Self {
-        Self::for_account(node_datas, &create_validator_id(validator_index))
     }
 
     #[allow(unused)]
