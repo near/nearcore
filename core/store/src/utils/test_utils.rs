@@ -1,6 +1,7 @@
 use crate::adapter::{StoreAdapter, StoreUpdateAdapter};
 use crate::archive::cloud_storage::CloudStorage;
-use crate::db::{ColdDB, TestDB};
+use crate::archive::cloud_storage::config::create_test_cloud_storage;
+use crate::db::{ColdDB, Database, TestDB};
 use crate::flat::{BlockInfo, FlatStorageManager, FlatStorageReadyStatus, FlatStorageStatus};
 use crate::metadata::{DB_VERSION, DbKind, DbVersion};
 use crate::trie::AccessOptions;
@@ -22,6 +23,7 @@ use near_primitives::types::{Balance, StateRoot};
 use rand::Rng;
 use rand::seq::SliceRandom;
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::str::{FromStr, from_utf8};
 use std::sync::Arc;
 
@@ -35,7 +37,7 @@ fn create_in_memory_node_storage(version: DbVersion, hot_kind: DbKind) -> NodeSt
 /// Creates an in-memory node storage.
 ///
 /// In tests you’ll often want to use [`create_test_store`] or
-/// [`create_test_split_storage`] (for archival nodes) instead.
+/// [`create_test_node_storage_archive`] (for archival nodes) instead.
 /// It initializes the db version and db kind to sensible defaults -
 /// the current version and rpc kind.
 pub fn create_in_memory_rpc_node_storage() -> NodeStorage {
@@ -47,21 +49,39 @@ pub fn create_test_store() -> Store {
     create_in_memory_node_storage(DB_VERSION, DbKind::RPC).get_hot_store()
 }
 
+/// Creates a test archival node storage.
+fn create_test_node_storage_archive(
+    cold_enabled: bool,
+    cloud_enabled: bool,
+    version: DbVersion,
+    hot_kind: DbKind,
+    home_dir: Option<PathBuf>,
+) -> (NodeStorage, Arc<TestDB>, Option<Arc<TestDB>>) {
+    let hot = TestDB::new();
+    let cold = if cold_enabled { Some(TestDB::new()) } else { None };
+    let cold_db = cold.as_ref().map(|cold| cold.clone() as Arc<dyn Database>);
+    let cloud =
+        if cloud_enabled { Some(create_test_cloud_storage(home_dir.unwrap())) } else { None };
+    let storage = NodeStorage::new_archive(hot.clone(), cold_db, cloud);
+
+    let hot_store = storage.get_hot_store();
+    hot_store.set_db_version(version).unwrap();
+    hot_store.set_db_kind(hot_kind).unwrap();
+    if let Some(cold_store) = storage.get_cold_store() {
+        cold_store.set_db_version(version).unwrap();
+        cold_store.set_db_kind(DbKind::Cold).unwrap();
+    }
+    (storage, hot, cold)
+}
+
 /// Creates an in-memory node storage with ColdDB
 pub fn create_test_node_storage_with_cold(
     version: DbVersion,
     hot_kind: DbKind,
 ) -> (NodeStorage, Arc<TestDB>, Arc<TestDB>) {
-    let hot = TestDB::new();
-    let cold = TestDB::new();
-    let storage = NodeStorage::new_with_cold(hot.clone(), cold.clone());
-
-    storage.get_hot_store().set_db_version(version).unwrap();
-    storage.get_hot_store().set_db_kind(hot_kind).unwrap();
-    storage.get_cold_store().unwrap().set_db_version(version).unwrap();
-    storage.get_cold_store().unwrap().set_db_kind(DbKind::Cold).unwrap();
-
-    (storage, hot, cold)
+    let (storage, hot, cold) =
+        create_test_node_storage_archive(true, false, version, hot_kind, None);
+    (storage, hot, cold.unwrap())
 }
 
 /// Provides access to hot store, split store, cold db, and cloud storage.
@@ -73,16 +93,32 @@ pub struct TestNodeStorage {
     pub cloud_storage: Option<Arc<CloudStorage>>,
 }
 
-pub fn create_test_split_storage() -> TestNodeStorage {
-    let (storage, _, _) = create_test_node_storage_with_cold(DB_VERSION, DbKind::Hot);
-    let hot_store = storage.get_hot_store();
-    let split_store = storage.get_split_store().unwrap();
-    let cold_db = storage.cold_db().unwrap();
+pub fn create_test_node_storage(
+    cold_enabled: bool,
+    cloud_enabled: bool,
+    home_dir: Option<PathBuf>,
+) -> TestNodeStorage {
+    if !cold_enabled && !cloud_enabled {
+        return TestNodeStorage {
+            hot_store: create_test_store(),
+            split_store: None,
+            cold_db: None,
+            cloud_storage: None,
+        };
+    }
+    let hot_kind = if cold_enabled { DbKind::Hot } else { DbKind::RPC };
+    let (storage, _, _) = create_test_node_storage_archive(
+        cold_enabled,
+        cloud_enabled,
+        DB_VERSION,
+        hot_kind,
+        home_dir,
+    );
     TestNodeStorage {
-        hot_store,
-        split_store: Some(split_store),
-        cold_db: Some(cold_db.clone()),
-        cloud_storage: None,
+        hot_store: storage.get_hot_store(),
+        split_store: storage.get_split_store(),
+        cold_db: storage.cold_db().cloned(),
+        cloud_storage: storage.get_cloud_storage().cloned(),
     }
 }
 

@@ -24,7 +24,6 @@ fn resharding_example_test() {
     let epoch_length = 5;
     let validators_spec = create_validators_spec(1, 0);
     let clients = validators_spec_clients(&validators_spec);
-    let validator_id = clients[0].clone();
     let genesis = TestLoopBuilder::new_genesis_builder()
         .protocol_version(PROTOCOL_VERSION - 1)
         .validators_spec(validators_spec)
@@ -52,7 +51,7 @@ fn resharding_example_test() {
         .build()
         .warmup();
 
-    let node = TestLoopNode::for_account(&env.node_datas, &validator_id);
+    let node = TestLoopNode::from(&env.node_datas[0]);
     let epoch_manager = node.client(&env.test_loop.data).chain.epoch_manager.clone();
     let epoch_id = node.head(env.test_loop_data()).epoch_id;
     assert_eq!(epoch_manager.get_epoch_config(&epoch_id).unwrap().shard_layout, base_shard_layout);

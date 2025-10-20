@@ -3209,23 +3209,6 @@
         ],
         "type": "object"
       },
-      "CloudArchivalReaderConfig": {
-        "description": "Configuration for a cloud-based archival reader.",
-        "properties": {
-          "cloud_storage": {
-            "allOf": [
-              {
-                "$ref": "#/components/schemas/CloudStorageConfig"
-              }
-            ],
-            "description": "Configures the external storage used by the archival node."
-          }
-        },
-        "required": [
-          "cloud_storage"
-        ],
-        "type": "object"
-      },
       "CloudArchivalWriterConfig": {
         "description": "Configuration for a cloud-based archival writer. If this config is present, the writer is enabled and\nwrites chunk-related data based on the tracked shards. This config also controls additional archival\nbehavior such as block data and polling interval.",
         "properties": {
@@ -3233,14 +3216,6 @@
             "default": false,
             "description": "Determines whether block-related data should be written to cloud storage.",
             "type": "boolean"
-          },
-          "cloud_storage": {
-            "allOf": [
-              {
-                "$ref": "#/components/schemas/CloudStorageConfig"
-              }
-            ],
-            "description": "Configures the external storage used by the archival node."
           },
           "polling_interval": {
             "allOf": [
@@ -3255,31 +3230,6 @@
             "description": "Interval at which the system checks for new blocks or chunks to archive."
           }
         },
-        "required": [
-          "cloud_storage"
-        ],
-        "type": "object"
-      },
-      "CloudStorageConfig": {
-        "description": "Configures the external storage used by the archival node.",
-        "properties": {
-          "credentials_file": {
-            "description": "Location of a json file with credentials allowing access to the bucket.",
-            "nullable": true,
-            "type": "string"
-          },
-          "storage": {
-            "allOf": [
-              {
-                "$ref": "#/components/schemas/ExternalStorageLocation"
-              }
-            ],
-            "description": "The storage to persist the archival data."
-          }
-        },
-        "required": [
-          "storage"
-        ],
         "type": "object"
       },
       "CompilationError": {
@@ -9954,20 +9904,6 @@
             "format": "uint",
             "minimum": 0,
             "type": "integer"
-          },
-          "cloud_archival_reader": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/CloudArchivalReaderConfig"
-              },
-              {
-                "enum": [
-                  null
-                ],
-                "nullable": true
-              }
-            ],
-            "description": "Configuration for a cloud-based archival reader."
           },
           "cloud_archival_writer": {
             "anyOf": [

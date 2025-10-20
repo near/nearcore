@@ -80,7 +80,7 @@ fn test_indexer_failed_local_tx() {
     }
 
     let mut env = setup();
-    let validator_node = TestLoopNode::validator(&env.node_datas, 0);
+    let validator_node = TestLoopNode::from(&env.node_datas[0]);
     validator_node.send_adversarial_message(
         &env.test_loop,
         NetworkAdversarialMessage::AdvProduceChunks(AdvProduceChunksMode::ProduceWithoutTx),

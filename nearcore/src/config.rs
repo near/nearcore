@@ -11,10 +11,9 @@ use near_chain_configs::test_utils::{
 use near_chain_configs::{
     BLOCK_PRODUCER_KICKOUT_THRESHOLD, CHUNK_PRODUCER_KICKOUT_THRESHOLD,
     CHUNK_VALIDATOR_ONLY_KICKOUT_THRESHOLD, ChunkDistributionNetworkConfig, ClientConfig,
-    CloudArchivalReaderConfig, CloudArchivalWriterConfig, CloudStorageConfig,
-    EXPECTED_EPOCH_LENGTH, EpochSyncConfig, FAST_EPOCH_LENGTH, FISHERMEN_THRESHOLD,
-    GAS_PRICE_ADJUSTMENT_RATE, GCConfig, GENESIS_CONFIG_FILENAME, Genesis, GenesisConfig,
-    GenesisValidationMode, INITIAL_GAS_LIMIT, LogSummaryStyle, MAX_INFLATION_RATE,
+    CloudArchivalWriterConfig, EXPECTED_EPOCH_LENGTH, EpochSyncConfig, FAST_EPOCH_LENGTH,
+    FISHERMEN_THRESHOLD, GAS_PRICE_ADJUSTMENT_RATE, GCConfig, GENESIS_CONFIG_FILENAME, Genesis,
+    GenesisConfig, GenesisValidationMode, INITIAL_GAS_LIMIT, LogSummaryStyle, MAX_INFLATION_RATE,
     MIN_BLOCK_PRODUCTION_DELAY, MIN_GAS_PRICE, MutableConfigValue, MutableValidatorSigner,
     NUM_BLOCK_PRODUCER_SEATS, NUM_BLOCKS_PER_YEAR, PROTOCOL_REWARD_RATE,
     PROTOCOL_UPGRADE_STAKE_THRESHOLD, ProtocolVersionCheckConfig, ReshardingConfig,
@@ -55,6 +54,7 @@ use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner
 use near_primitives::version::PROTOCOL_VERSION;
 #[cfg(feature = "rosetta_rpc")]
 use near_rosetta_rpc::RosettaRpcConfig;
+use near_store::archive::cloud_storage::config::CloudStorageConfig;
 use near_store::config::{SplitStorageConfig, StateSnapshotType};
 use near_store::{StateSnapshotConfig, Store, TrieConfig};
 use near_telemetry::TelemetryConfig;
@@ -272,9 +272,9 @@ pub struct Config {
 
     #[serde(skip_serializing_if = "is_false")]
     pub archive: bool,
-    /// Configuration for a cloud-based archival reader.
+    /// Configuration for a cloud-based archival node.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub cloud_archival_reader: Option<CloudArchivalReaderConfig>,
+    pub cloud_archival: Option<CloudStorageConfig>,
     /// Configuration for a cloud-based archival writer. If this config is present, the writer is enabled and
     /// writes chunk-related data based on the tracked shards.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -446,7 +446,7 @@ impl Default for Config {
             tracked_shards: None,
             tracked_shard_schedule: None,
             archive: false,
-            cloud_archival_reader: None,
+            cloud_archival: None,
             cloud_archival_writer: None,
             save_trie_changes: None,
             save_tx_outcomes: None,
@@ -615,24 +615,9 @@ impl Config {
         )
     }
 
-    /// Returns the cloud storage config. Checks if configs are equal if both cloud archival reader and
-    /// writers are enabled.
+    /// Returns the cloud archival storage config.
     pub fn cloud_storage_config(&self) -> Option<&CloudStorageConfig> {
-        if let (Some(reader), Some(writer)) =
-            (&self.cloud_archival_reader, &self.cloud_archival_writer)
-        {
-            assert_eq!(
-                reader.cloud_storage, writer.cloud_storage,
-                "Cloud archival reader and writer storage configs are not equal."
-            );
-        }
-        if let Some(reader) = &self.cloud_archival_reader {
-            return Some(&reader.cloud_storage);
-        }
-        if let Some(writer) = &self.cloud_archival_writer {
-            return Some(&writer.cloud_storage);
-        }
-        None
+        self.cloud_archival.as_ref()
     }
 
     pub fn contract_cache_path(&self) -> PathBuf {
@@ -716,7 +701,6 @@ impl NearConfig {
                 doomslug_step_period: config.consensus.doomslug_step_period,
                 tracked_shards_config: config.tracked_shards_config(),
                 archive: config.archive,
-                cloud_archival_reader: config.cloud_archival_reader,
                 cloud_archival_writer: config.cloud_archival_writer,
                 save_trie_changes: config.save_trie_changes.unwrap_or(!config.archive),
                 save_tx_outcomes: config.save_tx_outcomes.unwrap_or(is_archive_or_rpc),

@@ -1,5 +1,4 @@
 use std::cmp::min;
-use std::path::PathBuf;
 
 use chrono::{DateTime, Utc};
 use near_crypto::{InMemorySigner, PublicKey};
@@ -13,16 +12,13 @@ use near_primitives::version::PROTOCOL_VERSION;
 use near_time::{Clock, Duration};
 use num_rational::{Ratio, Rational32};
 
-use crate::client_config::default_archival_writer_polling_interval;
 use crate::{
-    ClientConfig, CloudArchivalReaderConfig, CloudArchivalWriterConfig, CloudStorageConfig,
-    EpochSyncConfig, ExternalStorageLocation, FAST_EPOCH_LENGTH, GAS_PRICE_ADJUSTMENT_RATE,
-    GCConfig, Genesis, GenesisConfig, INITIAL_GAS_LIMIT, LogSummaryStyle, MAX_INFLATION_RATE,
-    MIN_GAS_PRICE, MutableConfigValue, NUM_BLOCKS_PER_YEAR, PROTOCOL_REWARD_RATE,
-    PROTOCOL_TREASURY_ACCOUNT, ReshardingConfig, StateSyncConfig, TRANSACTION_VALIDITY_PERIOD,
-    TrackedShardsConfig, default_enable_early_prepare_transactions,
-    default_orphan_state_witness_max_size, default_orphan_state_witness_pool_size,
-    default_produce_chunk_add_transactions_time_limit,
+    ClientConfig, EpochSyncConfig, FAST_EPOCH_LENGTH, GAS_PRICE_ADJUSTMENT_RATE, GCConfig, Genesis,
+    GenesisConfig, INITIAL_GAS_LIMIT, LogSummaryStyle, MAX_INFLATION_RATE, MIN_GAS_PRICE,
+    MutableConfigValue, NUM_BLOCKS_PER_YEAR, PROTOCOL_REWARD_RATE, PROTOCOL_TREASURY_ACCOUNT,
+    ReshardingConfig, StateSyncConfig, TRANSACTION_VALIDITY_PERIOD, TrackedShardsConfig,
+    default_enable_early_prepare_transactions, default_orphan_state_witness_max_size,
+    default_orphan_state_witness_pool_size, default_produce_chunk_add_transactions_time_limit,
 };
 
 /// Returns the default value for the thread count associated with rpc-handler actor (currently
@@ -244,31 +240,13 @@ pub fn get_initial_supply(records: &[StateRecord]) -> Balance {
     total_supply
 }
 
-pub fn test_cloud_archival_configs(
-    root_dir: impl Into<PathBuf>,
-) -> (CloudArchivalReaderConfig, CloudArchivalWriterConfig) {
-    let storage_dir = root_dir.into().join("cloud_archival");
-    let cloud_storage = CloudStorageConfig {
-        storage: ExternalStorageLocation::Filesystem { root_dir: storage_dir },
-        credentials_file: None,
-    };
-    let reader_config = CloudArchivalReaderConfig { cloud_storage: cloud_storage.clone() };
-    let writer_config = CloudArchivalWriterConfig {
-        cloud_storage,
-        archive_block_data: true,
-        polling_interval: default_archival_writer_polling_interval(),
-    };
-    (reader_config, writer_config)
-}
-
 /// Common parameters used to set up test client.
 pub struct TestClientConfigParams {
     pub skip_sync_wait: bool,
     pub min_block_prod_time: u64,
     pub max_block_prod_time: u64,
     pub num_block_producer_seats: NumSeats,
-    pub split_store_enabled: bool,
-    pub cloud_storage_enabled: bool,
+    pub archive: bool,
     pub state_sync_enabled: bool,
 }
 
@@ -279,11 +257,9 @@ impl ClientConfig {
             min_block_prod_time,
             max_block_prod_time,
             num_block_producer_seats,
-            split_store_enabled,
-            cloud_storage_enabled,
+            archive,
             state_sync_enabled,
         } = params;
-        let archive = split_store_enabled || cloud_storage_enabled;
 
         ClientConfig {
             version: Default::default(),
@@ -328,7 +304,6 @@ impl ClientConfig {
             gc: GCConfig { gc_blocks_limit: 100, ..GCConfig::default() },
             tracked_shards_config: TrackedShardsConfig::NoShards,
             archive,
-            cloud_archival_reader: None,
             cloud_archival_writer: None,
             save_trie_changes: true,
             save_untracked_partial_chunks_parts: true,

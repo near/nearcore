@@ -163,7 +163,7 @@ fn test_spice_chain() {
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn test_spice_chain_with_missing_chunks() {
     use crate::utils::account::{
-        create_account_id, create_validators_spec, rpc_account_id, validators_spec_clients_with_rpc,
+        create_account_id, create_validators_spec, validators_spec_clients_with_rpc,
     };
     use crate::utils::node::TestLoopNode;
 
@@ -195,7 +195,7 @@ fn test_spice_chain_with_missing_chunks() {
         .build()
         .warmup();
 
-    let rpc_node = TestLoopNode::for_account(&env.node_datas, &rpc_account_id());
+    let rpc_node = TestLoopNode::rpc(&env.node_datas);
     let client = rpc_node.client(env.test_loop_data());
     let epoch_manager = client.epoch_manager.clone();
     let node_with_missing_chunks = epoch_manager

@@ -61,16 +61,6 @@ def fetch_forknet_details(forknet_name, bm_params):
             f"Expected {num_cp_instances} instances, got {len(nodes_data)}")
         sys.exit(1)
 
-    # cratch to refresh the local keystore
-    for node_data in nodes_data:
-        columns = node_data.split()
-        name, zone = columns[0], columns[2]
-        login_cmd = [
-            "gcloud", "compute", "ssh", "--zone", zone, f"ubuntu@{name}",
-            "--project", "nearone-mocknet", "--command", "pwd"
-        ]
-        subprocess.run(login_cmd, text=True, check=True)
-
     cp_instances = list(map(lambda x: x.split(), nodes_data[:num_cp_instances]))
     cp_instance_names = [instance[0] for instance in cp_instances]
     cp_instance_zones = [instance[2] for instance in cp_instances]
