@@ -7,10 +7,12 @@ use crate::trie::{AccessOptions, NUM_CHILDREN};
 use crate::{NibbleSlice, Trie};
 use derive_where::derive_where;
 use near_primitives::trie_key::col::{ACCESS_KEY, ACCOUNT, CONTRACT_CODE, CONTRACT_DATA};
+use near_primitives::trie_key::{ACCESS_KEY_SEPARATOR, ACCOUNT_DATA_SEPARATOR};
 use near_primitives::types::AccountId;
 use smallvec::SmallVec;
 use std::fmt::Debug;
 use std::marker::PhantomData;
+use std::str::FromStr;
 
 const MAX_NIBBLES: usize = AccountId::MAX_LEN * 2;
 // The order of subtrees matters - accounts must go first (!)
@@ -79,13 +81,8 @@ impl<NodePtr: Debug, Value> From<Option<GenericTrieNodeWithSize<NodePtr, Value>>
     }
 }
 
-fn extension_to_nibbles(extension: &[u8]) -> SmallVec<[u8; MAX_NIBBLES]> {
-    let (nibble_slice, _) = NibbleSlice::from_encoded(extension);
-    nibble_slice.iter().collect()
-}
-
 impl<NodePtr: Debug + Copy> TrieDescentStage<NodePtr> {
-    /// Memory usage of the subtree under the current node.
+    /// Memory usage of the subtree under the current node (including the node itself).
     fn subtree_memory_usage(&self) -> u64 {
         match self {
             Self::CutOff => 0,
@@ -118,6 +115,7 @@ impl<NodePtr: Debug + Copy> TrieDescentStage<NodePtr> {
         }
     }
 
+    /// Memory usage of the subtree under a descendant node (including the descendant node itself)
     fn descendant_mem_usage<Value, Getter>(&self, get_node: Getter, nibbles: &[u8]) -> u64
     where
         Getter: Fn(NodePtr) -> GenericTrieNodeWithSize<NodePtr, Value>,
@@ -145,6 +143,9 @@ impl<NodePtr: Debug + Copy> TrieDescentStage<NodePtr> {
         }
     }
 
+    /// Memory usage of children subtrees. For a branch node these are actual children.
+    /// For an extension, as single 'virtual' child will be listed under the index representing
+    /// the next nibble in the extension.
     fn children_memory_usage<Value, Getter>(&self, get_node: Getter) -> [u64; NUM_CHILDREN]
     where
         Getter: Fn(NodePtr) -> GenericTrieNodeWithSize<NodePtr, Value>,
@@ -152,6 +153,8 @@ impl<NodePtr: Debug + Copy> TrieDescentStage<NodePtr> {
         let mut result = [0; NUM_CHILDREN];
         match self {
             Self::CutOff | Self::AtLeaf { .. } => {}
+            // If there is only one nibble remaining, and the extension has a child node (i.e. it is
+            // not a leaf with extension), we return the child's memory usage.
             Self::InsideExtension { child: Some(child), remaining_nibbles, .. }
                 if remaining_nibbles.len() == 1 =>
             {
@@ -268,9 +271,9 @@ where
 
         for subtree_key in SUBTREES {
             let mut subtree_stage: TrieDescentStage<NodePtr> = get_node(root_ptr).into();
-            let (nib1, nib2) = byte_to_nibbles(subtree_key);
-            subtree_stage.descend(nib1, get_node);
-            subtree_stage.descend(nib2, get_node);
+            let nibbles = byte_to_nibbles(subtree_key);
+            subtree_stage.descend(nibbles[0], get_node);
+            subtree_stage.descend(nibbles[1], get_node);
             middle_memory += subtree_stage.subtree_memory_usage();
             subtree_stages.push(subtree_stage);
         }
@@ -321,10 +324,9 @@ where
         while let Some((nibble, child_mem_usage, left_mem_usage)) = self.next_step() {
             self.descend_step(nibble, child_mem_usage, left_mem_usage);
 
-            if let Some(current_split) = self.current_split() {
-                if current_split.mem_diff() < best_split.mem_diff() {
-                    best_split = current_split;
-                }
+            let Some(current_split) = self.best_split_at_current_path() else { continue };
+            if current_split.mem_diff() < best_split.mem_diff() {
+                best_split = current_split;
             }
         }
 
@@ -333,7 +335,7 @@ where
         // into the first child.
         if self.nibbles.len() % 2 != 0 {
             self.force_next_step();
-            if let Some(current_split) = self.current_split() {
+            if let Some(current_split) = self.best_split_at_current_path() {
                 if current_split.mem_diff() < best_split.mem_diff() {
                     best_split = current_split;
                 }
@@ -378,23 +380,24 @@ where
         ))
     }
 
-    fn current_split_account(&self) -> Option<AccountId> {
-        if self.nibbles.len() % 2 != 0 {
-            return None;
-        }
-        let bytes = nibbles_to_bytes(&self.nibbles);
-        let account_str = std::str::from_utf8(&bytes).ok()?;
-        account_str.parse().ok()
+    /// Current split path parsed as account ID.
+    fn current_account(&self) -> Option<AccountId> {
+        nibbles_to_account_id(&self.nibbles)
     }
 
+    /// Get memory usage of data 'attached' to the account represented by the current path.
+    /// This includes data which is not stored at the current path, but in subtrees, namely:
+    ///  * access keys
+    ///  * contract data
+    /// Contract code is **not included** as it is stored at account ID path, not in a subtree.
     fn attached_data_mem_usage(&self) -> u64 {
-        if self.current_split_account().is_none() {
+        if self.current_account().is_none() {
             return 0;
         }
         let get_node =
             |ptr| self.trie_storage.get_node_with_size(ptr, AccessOptions::DEFAULT).unwrap();
-        let access_key_separator = [0u8, 2u8]; // 0x02
-        let contract_data_separator = [2u8, 12u8]; // ','
+        let access_key_separator = byte_to_nibbles(ACCESS_KEY_SEPARATOR);
+        let contract_data_separator = byte_to_nibbles(ACCOUNT_DATA_SEPARATOR);
         let access_key_mem_usage =
             self.subtree_stages[2].descendant_mem_usage(get_node, &access_key_separator);
         let contract_data_mem_usage =
@@ -402,38 +405,35 @@ where
         access_key_mem_usage + contract_data_mem_usage
     }
 
-    fn current_split(&self) -> Option<TrieSplit> {
-        if self.nibbles.len() % 2 != 0 {
-            return None;
-        }
-        // We consider two splits and pick the better one:
-        //   a) split at current path – all the middle memory is put in the right child
-        //   b) append "-0" suffix – the current node is put in the left child, but all its
-        //      descendants go to the right child
-        let curr_node_mem = self.current_nodes_mem_usage();
-        let attached_data_mem = self.attached_data_mem_usage();
-        let (left1, right1) = (self.left_memory, self.right_memory + self.middle_memory);
-        let (left2, right2) = (
-            self.left_memory + curr_node_mem + attached_data_mem,
-            self.right_memory + self.middle_memory - curr_node_mem - attached_data_mem,
-        );
+    /// Find best split at the current path. Considers two splits and picks the better one:
+    ///  a) split at current path – all the middle memory is put in the right child,
+    ///  b) append "-0" suffix – the current node is put in the left child, but all its
+    ///     descendants go to the right child.
+    /// Returns `None` if current path is not a valid account ID (neither as-is, nor with -0 suffix).
+    fn best_split_at_current_path(&self) -> Option<TrieSplit> {
+        let split_a = self.current_account().map(|_| {
+            // When splitting at the current path, middle memory goes to the right, as the boundary
+            // account is included in the right child.
+            TrieSplit::new(
+                self.nibbles.clone(),
+                self.left_memory,
+                self.right_memory + self.middle_memory,
+            )
+        });
+
         let mut ext_nibbles = self.nibbles.clone();
         ext_nibbles.extend(bytes_to_nibbles("-0".as_bytes()));
-        let ext_bytes = nibbles_to_bytes(&ext_nibbles);
-        let ext_account: Option<AccountId> =
-            std::str::from_utf8(&ext_bytes).ok().and_then(|s| s.parse().ok());
+        let split_b = nibbles_to_account_id(&ext_nibbles).map(|_| {
+            // When splitting at the suffixed path, nodes at the current path go to the left
+            // together with their 'attached data'. All children accounts go to the right.
+            let curr_nodes_mem = self.current_nodes_mem_usage();
+            let attached_data_mem = self.attached_data_mem_usage();
+            let left = self.left_memory + curr_nodes_mem + attached_data_mem;
+            let right = self.right_memory + self.middle_memory - curr_nodes_mem - attached_data_mem;
+            TrieSplit::new(ext_nibbles, left, right)
+        });
 
-        if self.current_split_account().is_some() {
-            if left1.abs_diff(right1) <= left2.abs_diff(right2) {
-                Some(TrieSplit::new(self.nibbles.clone(), left1, right1))
-            } else {
-                Some(TrieSplit::new(ext_nibbles, left2, right2))
-            }
-        } else if ext_account.is_some() {
-            Some(TrieSplit::new(ext_nibbles, left2, right2))
-        } else {
-            None
-        }
+        [split_a, split_b].into_iter().flatten().min_by_key(|split| split.mem_diff())
     }
 
     /// Force descent into the first available child. This is done to ensure the correct length
@@ -470,8 +470,9 @@ where
 }
 
 /// Find the lowest child index `i` for which `sum(children_mem_usage[..i+1]) > threshold`.
-/// Returns `Some(i, sum(children_mem_usage[..i])` if such `i` exists, otherwise `None`.
+/// Returns `Some(i, sum(children_mem_usage[..i])` if such `i` exists.
 /// If no such `i` exists, returns the highest `i` for which `children_mem_usage[i] > 0`.
+/// If all children's memory usage is 0, returns `None`.
 fn find_middle_child(
     children_mem_usage: &[u64; NUM_CHILDREN],
     threshold: u64,
@@ -538,19 +539,29 @@ impl TrieSplit {
     }
 }
 
-fn byte_to_nibbles(byte: u8) -> (u8, u8) {
-    (byte >> 4, byte & 0x0F)
+fn byte_to_nibbles(byte: u8) -> [u8; 2] {
+    [byte >> 4, byte & 0x0F]
 }
 
 fn bytes_to_nibbles(bytes: &[u8]) -> impl Iterator<Item = u8> {
-    bytes.iter().flat_map(|byte| {
-        let (nib1, nib2) = byte_to_nibbles(*byte);
-        [nib1, nib2]
-    })
+    bytes.iter().flat_map(|b| byte_to_nibbles(*b))
 }
 
 fn nibbles_to_bytes(nibbles: &[u8]) -> Vec<u8> {
     nibbles.chunks_exact(2).map(|pair| (pair[0] << 4) | pair[1]).collect()
+}
+
+fn nibbles_to_account_id(nibbles: &[u8]) -> Option<AccountId> {
+    if nibbles.len() % 2 != 0 {
+        return None;
+    }
+    let bytes = nibbles_to_bytes(nibbles);
+    let account_str = std::str::from_utf8(&bytes).ok()?;
+    AccountId::from_str(account_str).ok()
+}
+fn extension_to_nibbles(extension: &[u8]) -> SmallVec<[u8; MAX_NIBBLES]> {
+    let (nibble_slice, _) = NibbleSlice::from_encoded(extension);
+    nibble_slice.iter().collect()
 }
 
 pub fn find_trie_split(trie: &Trie) -> TrieSplit {
@@ -597,10 +608,10 @@ mod tests {
 
     #[test]
     fn nibble_ops() {
-        assert_eq!(byte_to_nibbles(0x00), (0x00, 0x00));
-        assert_eq!(byte_to_nibbles(0x01), (0x00, 0x01));
-        assert_eq!(byte_to_nibbles(0x10), (0x01, 0x00));
-        assert_eq!(byte_to_nibbles(0x11), (0x01, 0x01));
+        assert_eq!(byte_to_nibbles(0x00), [0x00, 0x00]);
+        assert_eq!(byte_to_nibbles(0x01), [0x00, 0x01]);
+        assert_eq!(byte_to_nibbles(0x10), [0x01, 0x00]);
+        assert_eq!(byte_to_nibbles(0x11), [0x01, 0x01]);
 
         assert_eq!(nibbles_to_bytes(&[]), &[] as &[u8]);
         assert_eq!(nibbles_to_bytes(&[0x01]), &[] as &[u8]);
@@ -862,13 +873,13 @@ mod tests {
             subtrees: [MemTrieNodeId; SUBTREES.len()],
         ) -> TrieDescent<MemTrieNodeId, FlatStateValue, TestStorage<'_>> {
             let subtree_nibbles = SUBTREES.iter().map(|key| byte_to_nibbles(*key)).collect_vec();
-            let first_nibble = subtree_nibbles[0].0;
-            for (nib1, _) in &subtree_nibbles {
-                assert_eq!(first_nibble, *nib1); // ensure all subtrees have the same first nibble
+            let first_nibble = subtree_nibbles[0][0];
+            for nibbles in &subtree_nibbles {
+                assert_eq!(first_nibble, nibbles[0]); // ensure all subtrees have the same first nibble
             }
             let mut children = [None; NUM_CHILDREN];
             for i in 0..SUBTREES.len() {
-                let idx = subtree_nibbles[i].1 as usize;
+                let idx = subtree_nibbles[i][1] as usize;
                 assert!(children[idx].is_none()); // ensure all subtrees have a different second nibble
                 children[idx] = Some(subtrees[i]);
             }
