@@ -33,7 +33,6 @@ use near_store::db::RocksDB;
 
 /// One client is in front, another must sync to it using state (fast) sync.
 #[tokio::test]
-#[allow(clippy::large_stack_frames)]
 async fn slow_test_sync_state_nodes() {
     init_integration_logger();
 
@@ -62,7 +61,7 @@ async fn slow_test_sync_state_nodes() {
     let view_client2_holder = Arc::new(tokio::sync::RwLock::new(None));
     let actor_system_clone = actor_system.clone();
 
-    Box::pin(wait_or_timeout(100, 60000, move || {
+    wait_or_timeout(100, 60000, move || {
         let view_client2_holder = view_client2_holder.clone();
         let genesis = genesis.clone();
         let dir2 = dir2.clone();
@@ -113,7 +112,7 @@ async fn slow_test_sync_state_nodes() {
             }
             ControlFlow::Continue(())
         }
-    }))
+    })
     .await
     .unwrap();
     drop(_dir1);
@@ -124,7 +123,6 @@ async fn slow_test_sync_state_nodes() {
 
 /// One client is in front, another must sync to it using state (fast) sync.
 #[tokio::test]
-#[allow(clippy::large_stack_frames)]
 async fn ultra_slow_test_sync_state_nodes_multishard() {
     init_integration_logger();
 
@@ -189,7 +187,7 @@ async fn ultra_slow_test_sync_state_nodes_multishard() {
     let view_client2_holder = Arc::new(tokio::sync::RwLock::new(None));
     let actor_system_clone = actor_system.clone();
 
-    Box::pin(wait_or_timeout(100, 60000, move || {
+    wait_or_timeout(100, 60000, move || {
         let value = view_client2_holder.clone();
         let view_client2_holder = view_client2_holder.clone();
         let genesis = genesis.clone();
@@ -256,7 +254,7 @@ async fn ultra_slow_test_sync_state_nodes_multishard() {
             }
             ControlFlow::Continue(())
         }
-    }))
+    })
     .await
     .unwrap();
     drop(_dir1);
