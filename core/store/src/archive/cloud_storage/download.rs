@@ -21,18 +21,16 @@ impl CloudStorage {
     pub async fn get_cloud_head_if_exists(
         &self,
     ) -> Result<Option<BlockHeight>, CloudRetrievalError> {
-        let file_id = CloudStorageFileID::Head;
-        if !self.exists(&file_id).await? {
+        if !self.exists(&CloudStorageFileID::Head).await? {
             return Ok(None);
         }
-        let cloud_head = self.get(&file_id).await?;
+        let cloud_head = self.get_cloud_head().await?;
         Ok(Some(cloud_head))
     }
 
     /// Returns the cloud head from external storage.
     pub async fn get_cloud_head(&self) -> Result<BlockHeight, CloudRetrievalError> {
-        let file_id = CloudStorageFileID::Head;
-        self.get(&file_id).await
+        self.get(&CloudStorageFileID::Head).await
     }
 
     /// Retrieves and deserializes a file from the cloud archive.
@@ -41,7 +39,10 @@ impl CloudStorage {
         file_id: &CloudStorageFileID,
     ) -> Result<T, CloudRetrievalError> {
         let bytes = self.download(file_id).await?;
-        deserialize(&bytes, file_id)
+        T::try_from_slice(&bytes).map_err(|error| CloudRetrievalError::DeserializeError {
+            file_id: file_id.clone(),
+            error,
+        })
     }
 
     /// Downloads the raw bytes for a given file in the cloud archive.
@@ -66,13 +67,4 @@ impl CloudStorage {
             .map_err(|error| CloudRetrievalError::ListError { dir, error })?;
         Ok(files.contains(&name))
     }
-}
-
-/// Deserializes raw bytes into a typed value using Borsh format.
-fn deserialize<T: BorshDeserialize>(
-    bytes: &[u8],
-    file_id: &CloudStorageFileID,
-) -> Result<T, CloudRetrievalError> {
-    T::try_from_slice(bytes)
-        .map_err(|error| CloudRetrievalError::DeserializeError { file_id: file_id.clone(), error })
 }
