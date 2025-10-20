@@ -195,7 +195,18 @@ pub enum BlockToApply {
     Optimistic(BlockHeight),
 }
 
-#[derive(Hash, PartialEq, Eq, Clone, Copy, Debug)]
+#[derive(
+    Hash,
+    PartialEq,
+    Eq,
+    Clone,
+    Copy,
+    Debug,
+    Default,
+    BorshSerialize,
+    BorshDeserialize,
+    ProtocolSchema,
+)]
 pub struct CachedShardUpdateKey(CryptoHash);
 
 impl CachedShardUpdateKey {

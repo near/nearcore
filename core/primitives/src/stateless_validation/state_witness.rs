@@ -3,6 +3,7 @@ use std::fmt::Debug;
 
 use super::ChunkProductionKey;
 use crate::block::ApplyChunkBlockContext;
+use crate::optimistic_block::CachedShardUpdateKey;
 use crate::receipt::Receipt;
 #[cfg(feature = "solomon")]
 use crate::reed_solomon::{ReedSolomonEncoderDeserialize, ReedSolomonEncoderSerialize};
@@ -290,6 +291,9 @@ pub struct ChunkValidateWitness {
 /// doc me
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
 pub struct ChunkStateWitnessV3 {
+    // key for main state transition
+    // just to avoid recomputation which is too annoying
+    pub cached_shard_update_key: CachedShardUpdateKey,
     pub chunk_apply_witness: Option<ChunkApplyWitness>,
     pub chunk_validate_witness: Option<ChunkValidateWitness>,
 }
@@ -517,6 +521,13 @@ impl ChunkStateWitness {
             panic!("ChunkApplyWitness is not given");
         };
         &chunk_apply_witness.receipts
+    }
+
+    pub fn cached_shard_update_key(&self) -> &CachedShardUpdateKey {
+        let ChunkStateWitness::V3(witness) = self else {
+            panic!("ChunkStateWitness is not V3");
+        };
+        &witness.cached_shard_update_key
     }
 }
 

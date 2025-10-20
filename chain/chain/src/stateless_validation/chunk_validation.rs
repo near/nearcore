@@ -100,13 +100,29 @@ pub struct ChunkStateWitnessValidationResult {
 // pub type MainStateTransitionCache =
 // Arc<Mutex<HashMap<ShardUId, LruCache<CryptoHash, ChunkStateWitnessValidationResult>>>>;
 type CachedOnceCell = Arc<OnceLock<Result<ChunkStateWitnessValidationResult, Error>>>;
+
+// pub enum ValidationProgress {
+//     // (validate witness, pre validation output)
+//     WaitingForOptimistic(ChunkStateWitness, PreValidationOutput),
+//     Validated(CachedOnceCell),
+// }
+
+// pub type MainStateTransitionCache =
+// Arc<Mutex<HashMap<ShardUId, LruCache<CachedShardUpdateKey, ValidationProgress>>>>;
+
 pub type MainStateTransitionCache =
     Arc<Mutex<HashMap<ShardUId, LruCache<CachedShardUpdateKey, CachedOnceCell>>>>;
 
 /// Cache for storing pending Validate witnesses that arrived before their Apply witness
 /// Shared among chunk validation actors
-pub type PendingValidateWitnessCache =
-    Arc<Mutex<HashMap<ShardUId, LruCache<WitnessProductionKey, ChunkStateWitness>>>>;
+pub type PendingValidateWitnessCache = Arc<
+    Mutex<
+        HashMap<
+            ShardUId,
+            LruCache<(WitnessProductionKey, CachedShardUpdateKey), ChunkStateWitness>,
+        >,
+    >,
+>;
 
 /// The number of state witness validation results to cache per shard.
 /// This number needs to be small because result contains outgoing receipts, which can be large.

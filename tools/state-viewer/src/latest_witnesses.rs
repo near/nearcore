@@ -10,6 +10,7 @@ use near_chain::{Chain, ChainGenesis, ChainStore, DoomslugThresholdMode};
 use near_epoch_manager::EpochManager;
 use near_epoch_manager::shard_assignment::shard_id_to_index;
 use near_epoch_manager::shard_tracker::ShardTracker;
+use near_primitives::optimistic_block::CachedShardUpdateKey;
 use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::stateless_validation::state_witness::ChunkStateWitness;
 use near_primitives::types::{BlockHeight, EpochId, ShardId};
@@ -169,6 +170,7 @@ impl GenerateWitnessesCmd {
                     prev_chunk_header,
                     &chunk,
                     false,
+                    CachedShardUpdateKey::default(),
                     |_, _| None,
                     |_, _| None,
                     |_, _| None,

@@ -12,6 +12,7 @@ use near_client::{
     BlockNotificationMessage, ChunkValidationActorInner, HandleOrphanWitnessOutcome,
 };
 use near_o11y::testonly::init_integration_logger;
+use near_primitives::optimistic_block::CachedShardUpdateKey;
 use near_primitives::sharding::ShardChunkHeaderV3;
 use near_primitives::sharding::{
     ChunkHash, ReceiptProof, ShardChunkHeader, ShardChunkHeaderInner, ShardProof,
@@ -185,6 +186,7 @@ fn setup_orphan_witness_test() -> OrphanWitnessTestEnv {
             &block1.chunks()[0],
             &chunk2,
             false,
+            CachedShardUpdateKey::default(),
             |_, _| None,
             |_, _| None,
             |_, _| None,

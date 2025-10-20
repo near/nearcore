@@ -378,18 +378,20 @@ impl ChunkValidationActorInner {
             chunk_header.shard_id(),
             &witness.epoch_id(),
         )?;
+        let witness_key = witness.production_key();
+        let witness_type = witness_key.witness_type;
+
         let witness = {
-            let witness_key = witness.production_key();
-            let witness_type = witness_key.witness_type;
             if witness_type == WitnessType::Validate {
                 // Check if we received the Apply witness for this Validate witness
                 let mut apply_witness_key = witness_key.clone();
                 apply_witness_key.witness_type = WitnessType::Optimistic;
+                let cached_shard_update_key = *witness.cached_shard_update_key();
                 let mut shard_cache = self.pending_validate_witness_cache.lock();
                 let cache = shard_cache
                     .entry(shard_uid)
                     .or_insert_with(|| LruCache::new(NonZeroUsize::new(20).unwrap()));
-                if cache.contains(&apply_witness_key) {
+                if cache.contains(&(apply_witness_key, cached_shard_update_key)) {
                     // well very likely apply chunk is in processing so we are good to go
                     println!(
                         "Validate - found Optimistic, height: {}",
@@ -399,18 +401,21 @@ impl ChunkValidationActorInner {
                 } else {
                     // Store Validate witness as pending
                     println!("Validate - pending, height: {}", chunk_header.height_created());
-                    cache.put(witness_key, witness);
+                    cache.put((witness_key, cached_shard_update_key), witness);
                     return Ok(());
                 }
             } else if witness_type == WitnessType::Optimistic {
                 // Check if we received the Validate witness for this Optimistic witness
-                let mut validate_witness_key = witness_key.clone();
+                let mut validate_witness_key: WitnessProductionKey = witness_key.clone();
                 validate_witness_key.witness_type = WitnessType::Validate;
+                let cached_shard_update_key = *witness.cached_shard_update_key();
                 let mut shard_cache = self.pending_validate_witness_cache.lock();
                 let cache = shard_cache
                     .entry(shard_uid)
                     .or_insert_with(|| LruCache::new(NonZeroUsize::new(20).unwrap()));
-                if let Some(validate_witness) = cache.pop(&validate_witness_key) {
+                if let Some(validate_witness) =
+                    cache.pop(&(validate_witness_key, cached_shard_update_key))
+                {
                     // We have both witnesses, combine them
                     println!("Optimistic - merging, height: {}", chunk_header.height_created());
                     let ChunkStateWitness::V3(ChunkStateWitnessV3 {
@@ -429,6 +434,7 @@ impl ChunkValidationActorInner {
                     };
                     println!("Optimistic - merged");
                     ChunkStateWitness::V3(ChunkStateWitnessV3 {
+                        cached_shard_update_key,
                         chunk_apply_witness: Some(chunk_apply_witness),
                         chunk_validate_witness: Some(chunk_validate_witness),
                     })
@@ -436,7 +442,7 @@ impl ChunkValidationActorInner {
                     // put whatever. we don't need real value.
                     println!("Optimistic - executing, height: {}", chunk_header.height_created());
                     cache.put(
-                        witness_key,
+                        (witness_key, cached_shard_update_key),
                         ChunkStateWitness::new_dummy(
                             chunk_header.height_created(),
                             chunk_header.shard_id(),
@@ -562,7 +568,9 @@ impl ChunkValidationActorInner {
         let chunk_producer_name =
             self.epoch_manager.get_chunk_producer_info(&chunk_production_key)?.take_account_id();
 
-        let pre_validation_result = if witness_type != WitnessType::Optimistic {
+        let pre_validation_result: PreValidationOutput = if witness_type != WitnessType::Optimistic
+        {
+            // non-optimistic
             let expected_epoch_id =
                 self.epoch_manager.get_epoch_id_from_prev_block(&prev_block_hash)?;
             if expected_epoch_id != chunk_production_key.epoch_id {
@@ -591,6 +599,7 @@ impl ChunkValidationActorInner {
                 err
             })?
         } else {
+            // optimistic
             let prev_block_header = self.chain_store.get_block_header(&prev_block_hash)?;
             let transaction_validity_check_results = state_witness
                 .transactions()
