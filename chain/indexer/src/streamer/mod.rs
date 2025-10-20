@@ -2,6 +2,7 @@ use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 
 use near_async::time::{Clock, Duration};
+use near_primitives::types::{Balance, ShardId};
 use near_primitives::version::ProtocolFeature;
 use parking_lot::RwLock;
 use rocksdb::DB;
@@ -15,7 +16,9 @@ use near_indexer_primitives::{
 };
 use near_parameters::RuntimeConfig;
 use near_primitives::hash::CryptoHash;
-use near_primitives::views;
+use near_primitives::views::{
+    BlockView, ChunkView, ExecutionOutcomeWithIdView, ExecutionStatusView, ReceiptView,
+};
 
 use self::errors::FailedToFetchData;
 use self::utils::convert_transactions_sir_into_local_receipts;
@@ -31,7 +34,7 @@ mod metrics;
 mod utils;
 
 static DELAYED_LOCAL_RECEIPTS_CACHE: std::sync::LazyLock<
-    Arc<RwLock<HashMap<CryptoHash, views::ReceiptView>>>,
+    Arc<RwLock<HashMap<CryptoHash, ReceiptView>>>,
 > = std::sync::LazyLock::new(|| Arc::new(RwLock::new(HashMap::new())));
 
 const INTERVAL: Duration = Duration::milliseconds(250);
@@ -41,7 +44,7 @@ const INTERVAL: Duration = Duration::milliseconds(250);
 /// and returns everything together in one struct
 pub async fn build_streamer_message(
     client: &IndexerViewClientFetcher,
-    block: views::BlockView,
+    block: BlockView,
     shard_tracker: &ShardTracker,
 ) -> Result<StreamerMessage, FailedToFetchData> {
     let _timer = metrics::BUILD_STREAMER_MESSAGE_TIME.start_timer();
@@ -50,11 +53,12 @@ pub async fn build_streamer_message(
     let protocol_config_view = client.fetch_protocol_config(block.header.hash).await?;
     let protocol_version = protocol_config_view.protocol_version;
     let shard_ids = protocol_config_view.shard_layout.shard_ids();
+    let prev_block = client.fetch_block(block.header.prev_hash).await?;
 
     let runtime_config_store = near_parameters::RuntimeConfigStore::new(None);
     let runtime_config = runtime_config_store.get_config(protocol_config_view.protocol_version);
 
-    let mut shards_outcomes = client.fetch_outcomes(block.header.hash).await?;
+    let mut shards_outcomes = client.fetch_outcomes_with_receipts(block.header.hash).await?;
     let mut state_changes = client
         .fetch_state_changes(
             block.header.hash,
@@ -71,16 +75,12 @@ pub async fn build_streamer_message(
         .collect::<Vec<_>>();
 
     for chunk in chunks {
-        let views::ChunkView {
-            transactions,
-            author,
-            header,
-            receipts: chunk_prev_outgoing_receipts,
-        } = chunk;
+        let ChunkView { transactions, author, header, receipts: chunk_prev_outgoing_receipts } =
+            chunk;
 
         let outcomes = shards_outcomes
             .remove(&header.shard_id)
-            .expect("Execution outcomes for given shard should be present");
+            .expect("execution outcomes for given shard should be present");
         let outcome_count = outcomes.len();
         let mut outcomes = outcomes
             .into_iter()
@@ -109,15 +109,12 @@ pub async fn build_streamer_message(
         let mut receipt_outcomes = outcomes;
 
         let chunk_local_receipts = convert_transactions_sir_into_local_receipts(
-            &client,
-            &runtime_config,
             indexer_transactions
                 .iter()
-                .filter(|tx| tx.transaction.signer_id == tx.transaction.receiver_id)
-                .collect::<Vec<&IndexerTransactionWithOutcome>>(),
-            &block,
-        )
-        .await?;
+                .filter(|tx| tx.transaction.signer_id == tx.transaction.receiver_id),
+            &runtime_config,
+            prev_block.header.gas_price,
+        );
 
         // Add local receipts to corresponding outcomes
         for receipt in &chunk_local_receipts {
@@ -213,99 +210,95 @@ pub async fn build_streamer_message(
 async fn lookup_delayed_local_receipt_in_previous_blocks(
     client: &IndexerViewClientFetcher,
     runtime_config: &RuntimeConfig,
-    block: views::BlockView,
+    block: BlockView,
     receipt_id: CryptoHash,
     shard_tracker: &ShardTracker,
-) -> Result<views::ReceiptView, FailedToFetchData> {
-    let mut prev_block_tried = 0u16;
-    let mut prev_block_hash = block.header.prev_hash;
-    'find_local_receipt: loop {
-        if prev_block_tried > 1000 {
-            panic!("Failed to find local receipt in 1000 prev blocks");
-        }
-        // Log a warning every 100 blocks
+) -> Result<ReceiptView, FailedToFetchData> {
+    let mut cur_block = client.fetch_block(block.header.prev_hash).await?;
+    for prev_block_tried in 0..1000 {
         if prev_block_tried % 100 == 0 {
             tracing::warn!(
                 target: INDEXER,
-                "Still looking for receipt {} in previous blocks. {} blocks back already",
-                receipt_id,
+                block_hash = %block.header.hash,
+                %receipt_id,
                 prev_block_tried,
+                "still looking for receipt in previous blocks",
             );
         }
-        let prev_block = match client.fetch_block(prev_block_hash).await {
-            Ok(block) => block,
-            Err(err) => panic!("Unable to get previous block: {:?}", err),
-        };
-
-        prev_block_hash = prev_block.header.prev_hash;
+        let cur_block_new_chunks = client.fetch_block_new_chunks(&block, shard_tracker).await?;
+        let cur_block_outcomes = client.fetch_outcomes(block.header.hash).await?;
+        let prev_block = client.fetch_block(cur_block.header.prev_hash).await?;
 
         if let Some(receipt) = find_local_receipt_by_id_in_block(
-            &client,
-            &runtime_config,
-            prev_block,
             receipt_id,
-            shard_tracker,
-        )
-        .await?
-        {
+            cur_block.header.hash,
+            cur_block_new_chunks,
+            cur_block_outcomes,
+            &runtime_config,
+            prev_block.header.gas_price,
+        ) {
             tracing::debug!(
                 target: INDEXER,
-                "Found receipt {} in previous block {}",
-                receipt_id,
+                %receipt_id,
                 prev_block_tried,
+                "found receipt in previous block",
             );
             metrics::LOCAL_RECEIPT_LOOKUP_IN_HISTORY_BLOCKS_BACK.set(prev_block_tried as i64);
-            break 'find_local_receipt Ok(receipt);
+            return Ok(receipt);
         }
-
-        prev_block_tried += 1;
+        cur_block = prev_block;
     }
+    panic!("failed to find local receipt in 1000 prev blocks");
 }
 
-/// Function that tries to find specific local receipt by it's ID and returns it
-/// otherwise returns None
-async fn find_local_receipt_by_id_in_block(
-    client: &IndexerViewClientFetcher,
+fn find_local_receipt_by_id_in_block(
+    receipt_id: CryptoHash,
+    block_hash: CryptoHash,
+    block_new_chunks: Vec<ChunkView>,
+    mut block_execution_outcomes: HashMap<ShardId, Vec<ExecutionOutcomeWithIdView>>,
     runtime_config: &RuntimeConfig,
-    block: views::BlockView,
-    receipt_id: near_primitives::hash::CryptoHash,
-    shard_tracker: &ShardTracker,
-) -> Result<Option<views::ReceiptView>, FailedToFetchData> {
-    let chunks = client.fetch_block_new_chunks(&block, shard_tracker).await?;
-
-    let mut shards_outcomes = client.fetch_outcomes(block.header.hash).await?;
-
-    for chunk in chunks {
-        let views::ChunkView { header, transactions, .. } = chunk;
-
-        let outcomes = shards_outcomes
+    prev_block_gas_price: Balance,
+) -> Option<ReceiptView> {
+    for chunk in block_new_chunks {
+        let ChunkView { header, transactions, .. } = chunk;
+        let shard_outcomes = block_execution_outcomes
             .remove(&header.shard_id)
-            .expect("Execution outcomes for given shard should be present");
+            .expect("execution outcomes for given shard should be present");
 
-        if let Some((transaction, outcome)) =
-            transactions.into_iter().zip(outcomes.into_iter()).find(|(_, outcome)| {
-                outcome
-                    .execution_outcome
-                    .outcome
-                    .receipt_ids
-                    .first()
-                    .expect("The transaction ExecutionOutcome should have one receipt id in vec")
-                    == &receipt_id
-            })
-        {
-            let indexer_transaction = IndexerTransactionWithOutcome { transaction, outcome };
-            let local_receipts = convert_transactions_sir_into_local_receipts(
-                &client,
-                &runtime_config,
-                vec![&indexer_transaction],
-                &block,
-            )
-            .await?;
+        let Some(tx_outcome) = shard_outcomes.into_iter().find(|outcome| {
+            if let ExecutionStatusView::SuccessReceiptId(outcome_receipt_id) =
+                outcome.outcome.status
+            {
+                outcome_receipt_id == receipt_id
+            } else {
+                false
+            }
+        }) else {
+            continue;
+        };
+        let tx_hash = tx_outcome.id;
+        let tx = transactions.into_iter().find(|tx| tx.hash == tx_hash)
+            .unwrap_or_else(|| panic!(
+                "failed to find transaction {} that generated local receipt {} in block {} shard {}",
+                tx_hash, receipt_id, block_hash, header.shard_id
+            ));
+        let indexer_tx = IndexerTransactionWithOutcome {
+            transaction: tx,
+            outcome: IndexerExecutionOutcomeWithOptionalReceipt {
+                execution_outcome: tx_outcome,
+                receipt: None,
+            },
+        };
 
-            return Ok(local_receipts.into_iter().next());
-        }
+        let local_receipts = convert_transactions_sir_into_local_receipts(
+            [&indexer_tx],
+            &runtime_config,
+            prev_block_gas_price,
+        );
+        assert_eq!(local_receipts.len(), 1);
+        return local_receipts.into_iter().next();
     }
-    Ok(None)
+    None
 }
 
 /// Function that starts Streamer's busy loop. Every half a seconds it fetches the status

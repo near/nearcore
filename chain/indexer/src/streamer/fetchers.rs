@@ -125,14 +125,23 @@ impl IndexerViewClientFetcher {
             .map_err(|err| FailedToFetchData::String(err.to_string()))?)
     }
 
-    /// Fetch all ExecutionOutcomeWithId for current block
-    /// Returns a HashMap where the key is shard id IndexerExecutionOutcomeWithOptionalReceipt
     pub(crate) async fn fetch_outcomes(
+        &self,
+        block_hash: CryptoHash,
+    ) -> Result<HashMap<ShardId, Vec<ExecutionOutcomeWithIdView>>, FailedToFetchData> {
+        tracing::debug!(target: INDEXER, ?block_hash, "fetch outcomes for block");
+        self.sender
+            .send_async(GetExecutionOutcomesForBlock { block_hash })
+            .await?
+            .map_err(FailedToFetchData::String)
+    }
+
+    pub(crate) async fn fetch_outcomes_with_receipts(
         &self,
         block_hash: CryptoHash,
     ) -> Result<HashMap<ShardId, Vec<IndexerExecutionOutcomeWithOptionalReceipt>>, FailedToFetchData>
     {
-        tracing::debug!(target: INDEXER, ?block_hash, "fetching outcomes for block");
+        tracing::debug!(target: INDEXER, ?block_hash, "fetch outcomes with receipts for block");
         let outcomes = self
             .sender
             .send_async(GetExecutionOutcomesForBlock { block_hash })
@@ -144,7 +153,7 @@ impl IndexerViewClientFetcher {
             Vec<IndexerExecutionOutcomeWithOptionalReceipt>,
         > = HashMap::new();
         for (shard_id, shard_outcomes) in outcomes {
-            tracing::debug!(target: INDEXER, "Fetching outcomes with receipts for shard: {}", shard_id);
+            tracing::debug!(target: INDEXER, %shard_id, "fetch outcomes with receipts for shard");
             let mut outcomes_with_receipts: Vec<IndexerExecutionOutcomeWithOptionalReceipt> =
                 vec![];
             for outcome in shard_outcomes {
