@@ -349,7 +349,7 @@ pub struct Chain {
     partial_witness_adapter: PartialWitnessSenderForClient,
     /// LRU cache to track (prev_block_hash, shard_id) pairs for which chunk apply witness was sent.
     /// This helps avoid sending full state witnesses when apply witness was already sent.
-    pub chunk_apply_witness_sent_cache: Arc<SyncLruCache<(BlockHeight, ShardId), ()>>,
+    pub chunk_apply_witness_sent_cache: Arc<SyncLruCache<CachedShardUpdateKey, ()>>,
     /// Used to receive `PostStateReady` messages from the runtime.
     on_post_state_ready_sender: Option<PostStateReadySender>,
 }
@@ -1870,7 +1870,7 @@ impl Chain {
     }
 
     fn send_chunk_apply_witness(
-        cache: Arc<SyncLruCache<(BlockHeight, ShardId), ()>>,
+        cache: Arc<SyncLruCache<CachedShardUpdateKey, ()>>,
         witness_sender: PartialWitnessSenderForClient,
         epoch_manager: Arc<dyn EpochManagerAdapter>,
         result: &Result<ShardUpdateResult, Error>,
@@ -1889,7 +1889,12 @@ impl Chain {
             return Err(Error::Other("Chunk header is missing".to_string()));
         };
         let shard_id = chunk_header.shard_id();
-        if cache.contains(&(block_context.height, shard_id)) {
+        let cached_shard_update_key = Chain::get_cached_shard_update_key(
+            &block_context.to_key_source(),
+            chunks.iter(),
+            shard_id,
+        )?;
+        if cache.contains(&cached_shard_update_key) {
             return Ok(());
         }
 
@@ -1925,7 +1930,7 @@ impl Chain {
         // Record that we sent chunk apply witness for this (prev_block_hash, shard_id) pair
         // this may fail in case of block miss
         // assert_eq!(block_context.height, chunk_header.height_created());
-        cache.put((block_context.height, shard_id), ());
+        cache.put(cached_shard_update_key, ());
 
         let main_state_transition = ChunkStateTransition {
             block_hash: Default::default(),
@@ -1935,6 +1940,7 @@ impl Chain {
 
         witness_sender.distribute_chunk_state_witness.send(DistributeStateWitnessRequest {
             state_witness: ChunkStateWitness::V3(ChunkStateWitnessV3 {
+                cached_shard_update_key,
                 chunk_apply_witness: Some(ChunkApplyWitness {
                     epoch_id: prev_block_epoch_id,
                     chunk_header,

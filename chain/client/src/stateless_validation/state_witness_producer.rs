@@ -3,7 +3,7 @@ use std::sync::Arc;
 use crate::Client;
 use crate::stateless_validation::chunk_validator::send_chunk_endorsement_to_block_producers;
 use near_async::messaging::{CanSend, IntoSender};
-use near_chain::Block;
+use near_chain::{Block, Chain};
 // unused import removed
 use near_chain::stateless_validation::state_witness::{
     CreateWitnessResult, DistributeStateWitnessRequest,
@@ -11,11 +11,12 @@ use near_chain::stateless_validation::state_witness::{
 use near_chain::update_shard::ShardUpdateResult;
 // unused import removed
 use near_chain_primitives::Error;
+use near_primitives::block::ApplyChunkBlockContext;
 use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::{ReceiptProof, ShardChunk, ShardChunkHeader};
 use near_primitives::stateless_validation::WitnessType;
 use near_primitives::types::chunk_extra::ChunkExtra;
-use near_primitives::types::{EpochId, ShardId};
+use near_primitives::types::{Balance, EpochId, ShardId};
 
 impl Client {
     /// Distributes the chunk state witness to chunk validators that are
@@ -33,9 +34,22 @@ impl Client {
         let chunk_header = chunk.cloned_header();
         let shard_id = chunk_header.shard_id();
         let height = chunk_header.height_created();
+        let cached_shard_update_key = {
+            let prev_block_context = ApplyChunkBlockContext::from_header(
+                prev_block.header(),
+                Balance::ZERO, // doesn't matter and I would need prev prev block for this
+                prev_block.block_congestion_info(),
+                prev_block.block_bandwidth_requests(),
+            );
+            Chain::get_cached_shard_update_key(
+                &prev_block_context.to_key_source(),
+                prev_block.chunks().iter_raw(),
+                prev_chunk_header.shard_id(),
+            )?
+        };
         let apply_witness_sent = {
             let lock = self.chain.chunk_apply_witness_sent_cache.lock();
-            lock.contains(&(prev_chunk_header.height_created(), shard_id))
+            lock.contains(&cached_shard_update_key)
         };
 
         let witness_type =
@@ -80,6 +94,7 @@ impl Client {
                 prev_chunk_header,
                 chunk,
                 apply_witness_sent,
+                cached_shard_update_key,
                 get_shard_result,
                 get_chunk_extra,
                 get_incoming_receipts,

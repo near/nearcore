@@ -9,6 +9,7 @@ use near_epoch_manager::shard_assignment::shard_id_to_uid;
 use near_o11y::log_assert_fail;
 use near_primitives::block::Block;
 use near_primitives::hash::{CryptoHash, hash};
+use near_primitives::optimistic_block::CachedShardUpdateKey;
 use near_primitives::receipt::Receipt;
 use near_primitives::sharding::{ChunkHash, ReceiptProof, ShardChunk, ShardChunkHeader};
 use near_primitives::stateless_validation::WitnessType;
@@ -69,6 +70,7 @@ impl ChainStore {
         prev_chunk_header: &ShardChunkHeader,
         chunk: &ShardChunk,
         apply_witness_sent: bool,
+        cached_shard_update_key: CachedShardUpdateKey,
         get_shard_result: impl Fn(&CryptoHash, ShardId) -> Option<ShardUpdateResult>,
         get_chunk_extra: impl Fn(&CryptoHash, ShardId) -> Option<ChunkExtra>,
         get_incoming_receipts: impl Fn(&CryptoHash, ShardId) -> Option<Arc<Vec<ReceiptProof>>>,
@@ -123,6 +125,7 @@ impl ChainStore {
                 chunk_header.height_created()
             );
             let state_witness = ChunkStateWitness::V3(ChunkStateWitnessV3 {
+                cached_shard_update_key,
                 chunk_apply_witness: None,
                 chunk_validate_witness: Some(ChunkValidateWitness {
                     epoch_id,

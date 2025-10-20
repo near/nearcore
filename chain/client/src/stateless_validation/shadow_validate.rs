@@ -3,6 +3,7 @@ use near_chain::Block;
 use near_chain::get_chunk_clone_from_header;
 use near_chain::stateless_validation::state_witness::CreateWitnessResult;
 use near_chain_primitives::Error;
+use near_primitives::optimistic_block::CachedShardUpdateKey;
 use near_primitives::sharding::{ShardChunk, ShardChunkHeader};
 
 impl Client {
@@ -48,6 +49,7 @@ impl Client {
                 prev_chunk_header,
                 chunk,
                 false,
+                CachedShardUpdateKey::default(),
                 |_, _| None,
                 |_, _| None,
                 |_, _| None,
