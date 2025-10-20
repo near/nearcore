@@ -773,7 +773,7 @@ impl ChunkExecutorActor {
         self.get_chunk_extra(block_hash, shard_id).map(|option| option.is_some())
     }
 
-    fn chain_update(&mut self) -> ChainUpdate {
+    fn chain_update(&mut self) -> ChainUpdate<'_> {
         ChainUpdate::new(
             &mut self.chain_store,
             self.epoch_manager.clone(),

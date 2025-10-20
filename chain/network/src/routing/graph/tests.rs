@@ -1,3 +1,5 @@
+#![allow(clippy::cloned_ref_to_slice_refs)]
+
 use super::{Graph, GraphConfig};
 use crate::network_protocol::Edge;
 use crate::network_protocol::testonly as data;

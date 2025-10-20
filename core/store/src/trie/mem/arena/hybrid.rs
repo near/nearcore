@@ -154,7 +154,7 @@ impl ArenaMut for HybridArena {
         &mut self.memory
     }
 
-    fn alloc(&mut self, size: usize) -> ArenaSliceMut<Self::Memory> {
+    fn alloc(&mut self, size: usize) -> ArenaSliceMut<'_, Self::Memory> {
         let ArenaSliceMut { mut pos, len, .. } =
             self.allocator.allocate(&mut self.memory.owned_memory, size);
         pos.chunk = pos.chunk + self.memory.chunks_offset();

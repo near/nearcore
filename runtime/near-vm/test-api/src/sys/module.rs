@@ -9,19 +9,7 @@ use near_vm_engine::RuntimeError;
 use near_vm_types::InstanceConfig;
 use near_vm_vm::{InstanceHandle, Instantiatable, Resolver};
 use std::fmt;
-use std::io;
 use std::sync::Arc;
-use thiserror::Error;
-
-#[derive(Error, Debug)]
-pub enum IoCompileError {
-    /// An IO error
-    #[error(transparent)]
-    Io(#[from] io::Error),
-    /// A compilation error
-    #[error(transparent)]
-    Compile(#[from] CompileError),
-}
 
 /// A WebAssembly Module contains stateless WebAssembly
 /// code that has already been compiled and can be instantiated

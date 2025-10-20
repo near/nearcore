@@ -511,11 +511,11 @@ impl RunCmd {
             near_config.rpc_config = None;
         } else {
             if let Some(rpc_addr) = self.rpc_addr {
-                near_config.rpc_config.get_or_insert(Default::default()).addr =
+                near_config.rpc_config.get_or_insert_with(Default::default).addr =
                     tcp::ListenerAddr::new(rpc_addr.parse().unwrap());
             }
             if let Some(rpc_prometheus_addr) = self.rpc_prometheus_addr {
-                near_config.rpc_config.get_or_insert(Default::default()).prometheus_addr =
+                near_config.rpc_config.get_or_insert_with(Default::default).prometheus_addr =
                     Some(rpc_prometheus_addr);
             }
         }

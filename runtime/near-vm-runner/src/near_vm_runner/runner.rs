@@ -498,7 +498,7 @@ impl near_vm_vm::Tunables for &NearVM {
     }
 
     /// Instrumentation configuration: gas accounting config
-    fn gas_cfg(&self) -> Box<dyn finite_wasm::wasmparser::VisitOperator<Output = u64>> {
+    fn gas_cfg(&self) -> Box<dyn finite_wasm::wasmparser::VisitOperator<'_, Output = u64>> {
         Box::new(GasCostCfg(u64::from(self.config.regular_op_cost)))
     }
 }

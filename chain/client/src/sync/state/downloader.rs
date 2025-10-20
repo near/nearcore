@@ -50,7 +50,7 @@ impl StateSyncDownloader {
         shard_id: ShardId,
         sync_hash: CryptoHash,
         cancel: CancellationToken,
-    ) -> BoxFuture<Result<ShardStateSyncResponseHeader, near_chain::Error>> {
+    ) -> BoxFuture<'_, Result<ShardStateSyncResponseHeader, near_chain::Error>> {
         let store = self.store.clone();
         let validation_sender = self.header_validation_sender.clone();
         let preferred_source = self.preferred_source.clone();

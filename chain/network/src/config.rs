@@ -78,7 +78,7 @@ impl ValidatorConfig {
         self.signer.get().map(|s| s.validator_id().clone())
     }
 
-    pub fn frozen_view(&self) -> FrozenValidatorConfig {
+    pub fn frozen_view(&self) -> FrozenValidatorConfig<'_> {
         FrozenValidatorConfig { signer: self.signer.get(), proxies: &self.proxies }
     }
 }

@@ -1435,7 +1435,7 @@ impl Chain {
         (accepted_blocks, errors)
     }
 
-    fn chain_update(&mut self) -> ChainUpdate {
+    fn chain_update(&mut self) -> ChainUpdate<'_> {
         ChainUpdate::new(
             &mut self.chain_store,
             self.epoch_manager.clone(),
