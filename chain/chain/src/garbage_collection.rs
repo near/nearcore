@@ -11,6 +11,7 @@ use near_epoch_manager::shard_tracker::ShardTracker;
 use near_primitives::block::Block;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::{ShardLayout, get_block_shard_uid};
+use near_primitives::sharding::ReceiptProof;
 use near_primitives::state_sync::{StateHeaderKey, StatePartKey};
 use near_primitives::types::{BlockHeight, BlockHeightDelta, EpochId, NumBlocks, ShardId};
 use near_primitives::utils::{
@@ -714,10 +715,15 @@ impl<'a> ChainStoreUpdate<'a> {
 
             if cfg!(feature = "protocol_feature_spice") {
                 for to_shard_id in shard_layout.shard_ids() {
-                    self.gc_col(
-                        DBCol::receipt_proofs(),
-                        &get_receipt_proof_key(&block_hash, shard_id, to_shard_id),
-                    );
+                    let key = get_receipt_proof_key(&block_hash, shard_id, to_shard_id);
+                    if let Some(receipt_proofs) =
+                        self.store().get_ser::<ReceiptProof>(DBCol::receipt_proofs(), &key)?
+                    {
+                        for receipt in &receipt_proofs.0 {
+                            self.gc_col(DBCol::Receipts, receipt.get_hash().as_ref());
+                        }
+                    }
+                    self.gc_col(DBCol::receipt_proofs(), &key);
                 }
             }
 

@@ -959,8 +959,13 @@ pub(crate) fn save_receipt_proof(
 ) -> Result<(), std::io::Error> {
     let &ReceiptProof(_, ShardProof { from_shard_id, to_shard_id, .. }) = receipt_proof;
     let key = get_receipt_proof_key(block_hash, from_shard_id, to_shard_id);
-    let value = borsh::to_vec(&receipt_proof)?;
+    let value = borsh::to_vec(&receipt_proof).unwrap();
     store_update.set(DBCol::receipt_proofs(), &key, &value);
+    // Storing DBCol::Receipts is required for indexer to work.
+    for receipt in &receipt_proof.0 {
+        let bytes = borsh::to_vec(&receipt).unwrap();
+        store_update.increment_refcount(DBCol::Receipts, receipt.get_hash().as_ref(), &bytes);
+    }
     Ok(())
 }
 
