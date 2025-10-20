@@ -362,6 +362,7 @@ impl ClientActorInner {
                     .iter()
                     .enumerate()
                     .map(|(shard_index, chunk)| {
+                        // TODO(spice): chunks in spice no longer contain prev state root.
                         if cfg!(feature = "protocol_feature_spice") {
                             return (0, 0);
                         }

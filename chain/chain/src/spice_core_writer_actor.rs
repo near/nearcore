@@ -1,5 +1,4 @@
 use itertools::Itertools;
-use near_async::Message;
 use near_async::messaging::{Handler, Sender};
 use near_cache::SyncLruCache;
 use near_chain_primitives::Error;
@@ -28,13 +27,13 @@ use std::sync::Arc;
 use crate::spice_core::SpiceCoreReader;
 
 /// Message that should be sent once executions results for all chunks in a block are endorsed.
-#[derive(Message, Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct ExecutionResultEndorsed {
     pub block_hash: CryptoHash,
 }
 
 /// Message that should be sent once block is processed.
-#[derive(Message, Debug)]
+#[derive(Debug)]
 pub struct ProcessedBlock {
     pub block_hash: CryptoHash,
 }

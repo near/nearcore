@@ -2,7 +2,6 @@ use std::collections::HashMap;
 use std::collections::HashSet;
 use std::sync::Arc;
 
-use near_async::Message;
 use near_async::futures::AsyncComputationSpawner;
 use near_async::futures::AsyncComputationSpawnerExt;
 use near_async::messaging::CanSend;
@@ -10,6 +9,7 @@ use near_async::messaging::Handler;
 use near_async::messaging::IntoSender;
 use near_async::messaging::Sender;
 use near_chain::ApplyChunksIterationMode;
+use near_chain::BlockHeader;
 use near_chain::ChainStoreAccess;
 use near_chain::chain::{NewChunkData, NewChunkResult, ShardContext, StorageContext};
 use near_chain::sharding::get_receipts_shuffle_salt;
@@ -19,6 +19,7 @@ use near_chain::spice_core::SpiceCoreReader;
 use near_chain::spice_core_writer_actor::ExecutionResultEndorsed;
 use near_chain::spice_core_writer_actor::ProcessedBlock;
 use near_chain::types::ApplyChunkResult;
+use near_chain::types::Tip;
 use near_chain::types::{ApplyChunkBlockContext, RuntimeAdapter, StorageDataSource};
 use near_chain::update_shard::{ShardUpdateReason, ShardUpdateResult, process_shard_update};
 use near_chain::{
@@ -60,6 +61,7 @@ use near_store::StoreUpdate;
 use near_store::TrieDBStorage;
 use near_store::TrieStorage;
 use near_store::adapter::StoreAdapter;
+use near_store::adapter::chain_store::ChainStoreAdapter;
 use near_store::adapter::trie_store::TrieStoreAdapter;
 use node_runtime::SignedValidPeriodTransactions;
 use rayon::iter::IntoParallelIterator as _;
@@ -128,7 +130,7 @@ impl ChunkExecutorActor {
 impl near_async::messaging::Actor for ChunkExecutorActor {}
 
 /// Message with incoming unverified receipts corresponding to the block.
-#[derive(Message, PartialEq, Debug)]
+#[derive(Debug, PartialEq)]
 pub struct ExecutorIncomingUnverifiedReceipts {
     pub block_hash: CryptoHash,
     pub receipt_proof: ReceiptProof,
@@ -171,10 +173,17 @@ impl ExecutorIncomingUnverifiedReceipts {
     }
 }
 
-#[derive(Message, Debug)]
+#[derive(Debug)]
 pub struct ExecutorApplyChunksDone {
     pub block_hash: CryptoHash,
-    pub apply_results: Vec<ShardUpdateResult>,
+    pub apply_results: Result<Vec<ShardUpdateResult>, FailedToApplyChunkError>,
+}
+
+#[derive(Debug, thiserror::Error)]
+#[error("failed to apply chunk")]
+pub struct FailedToApplyChunkError {
+    shard_id: ShardId,
+    err: Error,
 }
 
 impl Handler<ExecutorIncomingUnverifiedReceipts> for ChunkExecutorActor {
@@ -195,9 +204,11 @@ impl Handler<ExecutorIncomingUnverifiedReceipts> for ChunkExecutorActor {
 }
 
 impl Handler<ProcessedBlock> for ChunkExecutorActor {
+    // TODO(spice): Implement pub(crate) handle functions in ChunkExecutorActor that would return
+    // errors/results and use them in tests to make sure we are testing correct errors.
     fn handle(&mut self, ProcessedBlock { block_hash }: ProcessedBlock) {
         match self.try_apply_chunks(&block_hash) {
-            Ok(TryApplyChunksOutcome::Scheduled) => {}
+            Ok(TryApplyChunksOutcome::Scheduled) | Ok(TryApplyChunksOutcome::BlockTooOld) => {}
             Ok(TryApplyChunksOutcome::NotReady(reason)) => {
                 // We will retry applying it by looking at all next blocks after receiving
                 // additional execution result endorsements or receipts.
@@ -266,6 +277,7 @@ enum TryApplyChunksOutcome {
     Scheduled,
     NotReady(NotReadyToApplyChunksReason),
     BlockAlreadyAccepted,
+    BlockTooOld,
 }
 
 impl TryApplyChunksOutcome {
@@ -324,6 +336,16 @@ impl ChunkExecutorActor {
             return Ok(TryApplyChunksOutcome::BlockAlreadyAccepted);
         }
         let block = self.chain_store.get_block(block_hash)?;
+        if !is_descendant_of_final_execution_head(&self.chain_store, block.header()) {
+            tracing::warn!(
+                target: "chunk_executor",
+                ?block_hash,
+                block_height=%block.header().height(),
+                "block's parent is too old (past spice final execution head) so block cannot be applied",
+            );
+            return Ok(TryApplyChunksOutcome::BlockTooOld);
+        }
+
         let header = block.header();
         let prev_block_hash = header.prev_hash();
         let prev_block = self.chain_store.get_block(&prev_block_hash)?;
@@ -408,7 +430,7 @@ impl ChunkExecutorActor {
         }
         for next_block_hash in next_block_hashes {
             match self.try_apply_chunks(&next_block_hash)? {
-                TryApplyChunksOutcome::Scheduled => {}
+                TryApplyChunksOutcome::Scheduled | TryApplyChunksOutcome::BlockTooOld => {}
                 TryApplyChunksOutcome::NotReady(reason) => {
                     tracing::debug!(target: "chunk_executor", ?reason, %next_block_hash, "not yet ready for processing");
                 }
@@ -494,9 +516,7 @@ impl ChunkExecutorActor {
                 do_apply_chunks(iteration_mode, &block_hash, block.header().height(), jobs)
                     .into_iter()
                     .map(|(shard_id, result)| {
-                        result.unwrap_or_else(|err| {
-                    panic!("failed to apply block {block_hash:?} chunk for shard {shard_id}: {err}")
-                })
+                        result.map_err(|err| FailedToApplyChunkError { shard_id, err })
                     })
                     .collect();
             apply_done_sender.send(ExecutorApplyChunksDone { block_hash, apply_results });
@@ -514,9 +534,25 @@ impl ChunkExecutorActor {
     fn process_apply_chunk_results(
         &mut self,
         block_hash: CryptoHash,
-        results: Vec<ShardUpdateResult>,
+        results: Result<Vec<ShardUpdateResult>, FailedToApplyChunkError>,
     ) -> Result<(), Error> {
         let block = self.chain_store.get_block(&block_hash).unwrap();
+        if !is_descendant_of_final_execution_head(&self.chain_store, block.header()) {
+            tracing::warn!(
+                target: "chunk_executor",
+                ?block_hash,
+                block_height=%block.header().height(),
+                "encountered too old block application; discarding",
+            );
+            return Ok(());
+        }
+        let results = match results {
+            Ok(results) => results,
+            Err(err) => {
+                panic!("failed to apply block {block_hash:?}: {err}")
+            }
+        };
+
         tracing::debug!(target: "chunk_executor",
             ?block_hash,
             block_height=?block.header().height(),
@@ -555,10 +591,12 @@ impl ChunkExecutorActor {
             results,
             should_save_state_transition_data,
         )?;
+        let final_execution_head = chain_update.update_spice_final_execution_head(&block)?;
         chain_update.commit()?;
-        // TODO(spice): Consider if we should update flat storage head here instead of during block
-        // post-processing.
-        self.gc_memtrie_roots(&block, &shard_layout)?;
+        if let Some(final_execution_head) = final_execution_head {
+            self.update_flat_storage_head(&shard_layout, &final_execution_head)?;
+            self.gc_memtrie_roots(&shard_layout, &final_execution_head)?;
+        }
         Ok(())
     }
 
@@ -848,16 +886,46 @@ impl ChunkExecutorActor {
         Ok(())
     }
 
-    fn gc_memtrie_roots(&self, block: &Block, shard_layout: &ShardLayout) -> Result<(), Error> {
+    fn update_flat_storage_head(
+        &self,
+        shard_layout: &ShardLayout,
+        final_execution_head: &Tip,
+    ) -> Result<(), Error> {
+        // TODO(spice): Evaluate if using block before final_execution_head still makes sense for
+        // spice. For now it's used mainly because it's used for updating flat head without spice
+        // with the following reasoning:
+        // Using prev_block_hash should be required for `StateSnapshot` to be able to make snapshot of
+        // flat storage at the epoch boundary.
+        let new_flat_head = final_execution_head.prev_block_hash;
+        // TODO(spice): handle state sync and resharding edge cases when updating flat head.
+
+        if new_flat_head == CryptoHash::default() {
+            return Ok(());
+        }
+
+        let flat_storage_manager = self.runtime_adapter.get_flat_storage_manager();
+        for shard_uid in shard_layout.shard_uids() {
+            if flat_storage_manager.get_flat_storage_for_shard(shard_uid).is_none() {
+                continue;
+            }
+            flat_storage_manager.update_flat_storage_for_shard(shard_uid, new_flat_head)?;
+        }
+        Ok(())
+    }
+
+    fn gc_memtrie_roots(
+        &self,
+        shard_layout: &ShardLayout,
+        final_execution_head: &Tip,
+    ) -> Result<(), Error> {
+        let header =
+            self.chain_store.get_block_header(&final_execution_head.last_block_hash).unwrap();
+        let Some(prev_height) = header.prev_height() else {
+            return Ok(());
+        };
         for shard_uid in shard_layout.shard_uids() {
             let tries = self.runtime_adapter.get_tries();
-            let last_final_block = block.header().last_final_block();
-            if last_final_block != &CryptoHash::default() {
-                let header = self.chain_store.get_block_header(last_final_block).unwrap();
-                if let Some(prev_height) = header.prev_height() {
-                    tries.delete_memtrie_roots_up_to_height(shard_uid, prev_height);
-                }
-            }
+            tries.delete_memtrie_roots_up_to_height(shard_uid, prev_height);
         }
         Ok(())
     }
@@ -947,4 +1015,29 @@ fn do_apply_chunks(
             work.into_par_iter().map(|(shard_id, task)| (shard_id, task(&parent_span))).collect()
         }
     }
+}
+
+pub(crate) fn is_descendant_of_final_execution_head(
+    chain_store: &ChainStoreAdapter,
+    header: &BlockHeader,
+) -> bool {
+    let final_execution_head = match chain_store.spice_final_execution_head() {
+        Ok(final_header) => final_header,
+        // Without final execution head we are either executing on genesis and don't have it yet or
+        // executing on top of non-spice blocks. In both cases we can assume that all blocks are on
+        // top of final_execution_head until it's set.
+        Err(Error::DBNotFoundErr(_)) => return true,
+        Err(err) => panic!("failed to find final execution head: {err:?}"),
+    };
+    let mut height = header.height();
+    if height <= final_execution_head.height {
+        return false;
+    }
+    let mut prev_hash = *header.prev_hash();
+    while height > final_execution_head.height {
+        let header = chain_store.get_block_header(&prev_hash).unwrap();
+        prev_hash = *header.prev_hash();
+        height = header.height();
+    }
+    height == final_execution_head.height
 }

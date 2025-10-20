@@ -47,7 +47,6 @@ use crate::{DoomslugThresholdMode, metrics};
 use crossbeam_channel::{Receiver, Sender, unbounded};
 use itertools::Itertools;
 use lru::LruCache;
-use near_async::Message;
 use near_async::futures::AsyncComputationSpawner;
 use near_async::futures::AsyncComputationSpawnerExt;
 use near_async::messaging::{IntoMultiSender, noop};
@@ -133,7 +132,7 @@ const ACCEPTABLE_TIME_DIFFERENCE: i64 = 12 * 10;
 /// `ApplyChunksDoneMessage` is a message that signals the finishing of applying chunks of a block.
 /// Upon receiving this message, ClientActors know that it's time to finish processing the blocks that
 /// just finished applying chunks.
-#[derive(Message, Debug)]
+#[derive(Debug)]
 pub struct ApplyChunksDoneMessage;
 
 pub type ApplyChunksDoneSender = near_async::messaging::Sender<SpanWrapped<ApplyChunksDoneMessage>>;
@@ -142,7 +141,7 @@ pub type ApplyChunksDoneSender = near_async::messaging::Sender<SpanWrapped<Apply
 /// This message is sent from a callback in the runtime to the Client actor before the post-state,
 /// is finalized. Client actor may use this information to start other tasks earlier, e.g.
 /// preparing transactions for inclusion in the next chunk.
-#[derive(Message, Debug)]
+#[derive(Debug)]
 pub struct PostStateReadyMessage {
     /// Post-State of the shard after applying the chunk
     pub post_state: PostState,
@@ -2122,6 +2121,11 @@ impl Chain {
         block: &Block,
         shard_id: ShardId,
     ) -> Result<(), Error> {
+        // In spice we need to keep flat head and memtries until execution.
+        if cfg!(feature = "protocol_feature_spice") {
+            return Ok(());
+        }
+
         let epoch_id = block.header().epoch_id();
         let shard_uid = shard_id_to_uid(self.epoch_manager.as_ref(), shard_id, epoch_id)?;
 
@@ -2133,15 +2137,13 @@ impl Chain {
             }
         }
 
-        if !cfg!(feature = "protocol_feature_spice") {
-            // Garbage collect memtrie roots.
-            let tries = self.runtime_adapter.get_tries();
-            let last_final_block = block.header().last_final_block();
-            if last_final_block != &CryptoHash::default() {
-                let header = self.chain_store.get_block_header(last_final_block).unwrap();
-                if let Some(prev_height) = header.prev_height() {
-                    tries.delete_memtrie_roots_up_to_height(shard_uid, prev_height);
-                }
+        // Garbage collect memtrie roots.
+        let tries = self.runtime_adapter.get_tries();
+        let last_final_block = block.header().last_final_block();
+        if last_final_block != &CryptoHash::default() {
+            let header = self.chain_store.get_block_header(last_final_block).unwrap();
+            if let Some(prev_height) = header.prev_height() {
+                tries.delete_memtrie_roots_up_to_height(shard_uid, prev_height);
             }
         }
         Ok(())
@@ -3919,7 +3921,6 @@ pub fn collect_receipts_from_response(
     )
 }
 
-#[derive(Message)]
 pub struct BlockCatchUpRequest {
     pub sync_hash: CryptoHash,
     pub block_hash: CryptoHash,
@@ -3939,14 +3940,14 @@ impl Debug for BlockCatchUpRequest {
     }
 }
 
-#[derive(Message, Debug)]
+#[derive(Debug)]
 pub struct BlockCatchUpResponse {
     pub sync_hash: CryptoHash,
     pub block_hash: CryptoHash,
     pub results: Vec<(ShardId, Result<ShardUpdateResult, Error>)>,
 }
 
-#[derive(Message, Debug)]
+#[derive(Debug)]
 pub struct ChunkStateWitnessMessage {
     pub witness: ChunkStateWitness,
     pub raw_witness_size: ChunkStateWitnessSize,

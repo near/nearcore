@@ -1,6 +1,6 @@
 use assert_matches::assert_matches;
 use near_async::futures::AsyncComputationSpawner;
-use near_async::messaging::{Handler, IntoSender as _, Message, Sender, noop};
+use near_async::messaging::{Handler, IntoAsyncSender, IntoSender, Sender, noop};
 use near_async::time::Clock;
 use near_chain::spice_core::SpiceCoreReader;
 use near_chain::spice_core_writer_actor::{
@@ -271,7 +271,7 @@ struct TestActor {
 
 impl<M> Handler<M> for TestActor
 where
-    M: Message,
+    M: Send + 'static,
     SpiceChunkValidatorActor: Handler<M>,
 {
     fn handle(&mut self, msg: M) {
@@ -304,9 +304,9 @@ fn setup_with_genesis(genesis: Genesis, signer: Arc<ValidatorSigner>) -> TestAct
 
     let (network_sc, network_rc) = unbounded_channel();
     let network_adapter = PeerManagerAdapter {
-        async_request_sender: near_async::messaging::noop().into_sender(),
-        set_chain_info_sender: near_async::messaging::noop().into_sender(),
-        state_sync_event_sender: near_async::messaging::noop().into_sender(),
+        async_request_sender: noop().into_async_sender(),
+        set_chain_info_sender: noop().into_sender(),
+        state_sync_event_sender: noop().into_sender(),
         request_sender: Sender::from_fn({
             move |event: PeerManagerMessageRequest| {
                 network_sc.send(event).unwrap();

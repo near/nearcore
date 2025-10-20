@@ -1,6 +1,6 @@
 use crate::ActorSystem;
 use crate::futures::{DelayedActionRunner, DelayedActionRunnerExt, FutureSpawnerExt};
-use crate::messaging::{Actor, CanSend, CanSendAsync, Handler, Message};
+use crate::messaging::{Actor, CanSend, CanSendAsync, Handler};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
@@ -15,8 +15,6 @@ async fn test_tokio_actor_basic() {
     struct MessageA(String);
     #[derive(Debug)]
     struct MessageB(i32);
-    impl Message for MessageA {}
-    impl Message for MessageB {}
 
     impl Handler<MessageA> for MyActor {
         fn handle(&mut self, msg: MessageA) {
@@ -79,7 +77,6 @@ async fn test_tokio_actor_futures_delayed_actions_and_lifetime() {
 
     #[derive(Debug)]
     struct MessageA(String);
-    impl Message for MessageA {}
 
     impl Handler<MessageA> for MyActor {
         fn handle(&mut self, msg: MessageA) {
@@ -196,7 +193,6 @@ async fn test_tokio_runtime_shutdown() {
 
     #[derive(Debug)]
     struct MessageA;
-    impl Message for MessageA {}
     impl Handler<MessageA> for MyActor {
         fn handle(&mut self, _msg: MessageA) {
             println!("Received MessageA");
@@ -267,7 +263,6 @@ async fn test_tokio_builder() {
 
     #[derive(Debug)]
     struct MessageA(u64);
-    impl Message for MessageA {}
 
     impl Handler<MessageA, u64> for MyActor {
         fn handle(&mut self, msg: MessageA) -> u64 {

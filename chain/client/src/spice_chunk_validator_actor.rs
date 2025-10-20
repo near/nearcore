@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use near_async::futures::{AsyncComputationSpawner, AsyncComputationSpawnerExt as _};
 use near_async::messaging::{Handler, IntoSender as _, Sender};
-use near_async::{Message, MultiSend, MultiSenderFrom};
+use near_async::{MultiSend, MultiSenderFrom};
 use near_chain::spice_core::SpiceCoreReader;
 use near_chain::spice_core_writer_actor::{ExecutionResultEndorsed, ProcessedBlock};
 use near_chain::stateless_validation::spice_chunk_validation::{
@@ -43,7 +43,7 @@ pub struct SpiceChunkValidatorActor {
     validation_spawner: Arc<dyn AsyncComputationSpawner>,
 }
 
-#[derive(Message, PartialEq, Debug)]
+#[derive(Debug, PartialEq)]
 pub struct SpiceChunkStateWitnessMessage {
     pub witness: SpiceChunkStateWitness,
     pub raw_witness_size: ChunkStateWitnessSize,
