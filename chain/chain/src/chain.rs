@@ -2121,6 +2121,11 @@ impl Chain {
         block: &Block,
         shard_id: ShardId,
     ) -> Result<(), Error> {
+        // In spice we need to keep flat head and memtries until execution.
+        if cfg!(feature = "protocol_feature_spice") {
+            return Ok(());
+        }
+
         let epoch_id = block.header().epoch_id();
         let shard_uid = shard_id_to_uid(self.epoch_manager.as_ref(), shard_id, epoch_id)?;
 
@@ -2132,15 +2137,13 @@ impl Chain {
             }
         }
 
-        if !cfg!(feature = "protocol_feature_spice") {
-            // Garbage collect memtrie roots.
-            let tries = self.runtime_adapter.get_tries();
-            let last_final_block = block.header().last_final_block();
-            if last_final_block != &CryptoHash::default() {
-                let header = self.chain_store.get_block_header(last_final_block).unwrap();
-                if let Some(prev_height) = header.prev_height() {
-                    tries.delete_memtrie_roots_up_to_height(shard_uid, prev_height);
-                }
+        // Garbage collect memtrie roots.
+        let tries = self.runtime_adapter.get_tries();
+        let last_final_block = block.header().last_final_block();
+        if last_final_block != &CryptoHash::default() {
+            let header = self.chain_store.get_block_header(last_final_block).unwrap();
+            if let Some(prev_height) = header.prev_height() {
+                tries.delete_memtrie_roots_up_to_height(shard_uid, prev_height);
             }
         }
         Ok(())
