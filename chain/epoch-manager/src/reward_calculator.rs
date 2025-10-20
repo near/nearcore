@@ -28,7 +28,6 @@ pub struct ValidatorOnlineThresholds {
 
 #[derive(Clone, Debug)]
 pub struct RewardCalculator {
-    pub max_inflation_rate: Rational32,
     pub num_blocks_per_year: u64,
     pub epoch_length: u64,
     pub protocol_reward_rate: Rational32,
@@ -40,7 +39,6 @@ pub struct RewardCalculator {
 impl RewardCalculator {
     pub fn new(config: &GenesisConfig, epoch_length: u64) -> Self {
         RewardCalculator {
-            max_inflation_rate: config.max_inflation_rate,
             num_blocks_per_year: config.num_blocks_per_year,
             epoch_length,
             protocol_reward_rate: config.protocol_reward_rate,
@@ -61,12 +59,11 @@ impl RewardCalculator {
         protocol_version: ProtocolVersion,
         epoch_duration: u64,
         online_thresholds: ValidatorOnlineThresholds,
+        max_inflation_rate: Rational32,
     ) -> (HashMap<AccountId, Balance>, Balance) {
         let mut res = HashMap::new();
         let num_validators = validator_block_chunk_stats.len();
         let use_hardcoded_value = protocol_version > self.genesis_protocol_version;
-        let max_inflation_rate =
-            if use_hardcoded_value { Rational32::new_raw(1, 20) } else { self.max_inflation_rate };
         let protocol_reward_rate = if use_hardcoded_value {
             Rational32::new_raw(1, 10)
         } else {
@@ -152,8 +149,8 @@ mod tests {
     #[test]
     fn test_zero_produced_and_expected() {
         let epoch_length = 1;
+        let max_inflation_rate = Ratio::new(0, 1);
         let reward_calculator = RewardCalculator {
-            max_inflation_rate: Ratio::new(0, 1),
             num_blocks_per_year: 1000000,
             epoch_length,
             protocol_reward_rate: Ratio::new(0, 1),
@@ -191,6 +188,7 @@ mod tests {
                 online_max_threshold: Ratio::new(1, 1),
                 endorsement_cutoff_threshold: None,
             },
+            max_inflation_rate,
         );
         assert_eq!(
             result.0,
@@ -206,8 +204,8 @@ mod tests {
     #[test]
     fn test_reward_validator_different_online() {
         let epoch_length = 1000;
+        let max_inflation_rate = Ratio::new(1, 100);
         let reward_calculator = RewardCalculator {
-            max_inflation_rate: Ratio::new(1, 100),
             num_blocks_per_year: 1000,
             epoch_length,
             protocol_reward_rate: Ratio::new(0, 10),
@@ -255,6 +253,7 @@ mod tests {
                 online_max_threshold: Ratio::new(99, 100),
                 endorsement_cutoff_threshold: None,
             },
+            max_inflation_rate,
         );
         // Total reward is 10_000_000. Divided by 3 equal stake validators - each gets 3_333_333.
         // test1 with 94.5% online gets 50% because of linear between (0.99-0.9) online.
@@ -274,8 +273,8 @@ mod tests {
     #[test]
     fn test_reward_chunk_only_producer() {
         let epoch_length = 1000;
+        let max_inflation_rate = Ratio::new(1, 100);
         let reward_calculator = RewardCalculator {
-            max_inflation_rate: Ratio::new(1, 100),
             num_blocks_per_year: 1000,
             epoch_length,
             protocol_reward_rate: Ratio::new(0, 10),
@@ -335,6 +334,7 @@ mod tests {
                 online_max_threshold: Ratio::new(99, 100),
                 endorsement_cutoff_threshold: None,
             },
+            max_inflation_rate,
         );
         // Total reward is 10_000_000. Divided by 4 equal stake validators - each gets 2_500_000.
         // test1 with 94.5% online gets 50% because of linear between (0.99-0.9) online.
@@ -356,8 +356,8 @@ mod tests {
     #[test]
     fn test_reward_stateless_validation() {
         let epoch_length = 1000;
+        let max_inflation_rate = Ratio::new(1, 100);
         let reward_calculator = RewardCalculator {
-            max_inflation_rate: Ratio::new(1, 100),
             num_blocks_per_year: 1000,
             epoch_length,
             protocol_reward_rate: Ratio::new(0, 10),
@@ -423,6 +423,7 @@ mod tests {
                 online_max_threshold: Ratio::new(99, 100),
                 endorsement_cutoff_threshold: None,
             },
+            max_inflation_rate,
         );
         // Total reward is 10_000_000. Divided by 4 equal stake validators - each gets 2_500_000.
         // test1 with 94.5% online gets 50% because of linear between (0.99-0.9) online.
@@ -444,8 +445,8 @@ mod tests {
     #[test]
     fn test_reward_stateless_validation_with_endorsement_cutoff() {
         let epoch_length = 1000;
+        let max_inflation_rate = Ratio::new(1, 100);
         let reward_calculator = RewardCalculator {
-            max_inflation_rate: Ratio::new(1, 100),
             num_blocks_per_year: 1000,
             epoch_length,
             protocol_reward_rate: Ratio::new(0, 10),
@@ -511,6 +512,7 @@ mod tests {
                 online_max_threshold: Ratio::new(99, 100),
                 endorsement_cutoff_threshold: Some(50),
             },
+            max_inflation_rate,
         );
         // "test2" does not get reward since its uptime ratio goes below online_min_threshold,
         // because its endorsement ratio is below the cutoff threshold.
@@ -535,8 +537,8 @@ mod tests {
     #[test]
     fn test_reward_no_overflow() {
         let epoch_length = 60 * 60 * 12;
+        let max_inflation_rate = Ratio::new(5, 100);
         let reward_calculator = RewardCalculator {
-            max_inflation_rate: Ratio::new(5, 100),
             num_blocks_per_year: 60 * 60 * 24 * 365,
             // half a day
             epoch_length,
@@ -569,6 +571,7 @@ mod tests {
                 online_max_threshold: Ratio::new(1, 1),
                 endorsement_cutoff_threshold: None,
             },
+            max_inflation_rate,
         );
     }
 }
