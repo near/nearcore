@@ -146,16 +146,11 @@ impl Indexer {
         })
     }
 
-    pub async fn start_near_node(
+    pub fn start_near_node(
         indexer_config: &IndexerConfig,
         near_config: NearConfig,
-    ) -> anyhow::Result<NearNode> {
-        Box::pin(nearcore::start_with_config(
-            &indexer_config.home_dir,
-            near_config,
-            ActorSystem::new(),
-        ))
-        .await
+    ) -> impl Future<Output = anyhow::Result<NearNode>> {
+        nearcore::start_with_config(&indexer_config.home_dir, near_config, ActorSystem::new())
     }
 
     pub fn from_near_node(

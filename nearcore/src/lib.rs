@@ -343,21 +343,37 @@ pub struct NearNode {
     pub shard_tracker: ShardTracker,
 }
 
-pub async fn start_with_config(
+pub fn start_with_config(
     home_dir: &Path,
     config: NearConfig,
     actor_system: ActorSystem,
-) -> anyhow::Result<NearNode> {
-    Box::pin(start_with_config_and_synchronization(home_dir, config, actor_system, None, None))
-        .await
+) -> impl Future<Output = anyhow::Result<NearNode>> {
+    start_with_config_and_synchronization(home_dir, config, actor_system, None, None)
 }
 
-pub async fn start_with_config_and_synchronization(
+pub fn start_with_config_and_synchronization(
     home_dir: &Path,
     config: NearConfig,
     actor_system: ActorSystem,
     // 'shutdown_signal' will notify the corresponding `oneshot::Receiver` when an instance of
     // `ClientActor` gets dropped.
+    shutdown_signal: Option<broadcast::Sender<()>>,
+    config_updater: Option<ConfigUpdater>,
+) -> impl Future<Output = anyhow::Result<NearNode>> {
+    // Pins the future to avoid large stack frame.
+    Box::pin(start_with_config_and_synchronization_impl(
+        home_dir,
+        config,
+        actor_system,
+        shutdown_signal,
+        config_updater,
+    ))
+}
+
+pub async fn start_with_config_and_synchronization_impl(
+    home_dir: &Path,
+    config: NearConfig,
+    actor_system: ActorSystem,
     shutdown_signal: Option<broadcast::Sender<()>>,
     config_updater: Option<ConfigUpdater>,
 ) -> anyhow::Result<NearNode> {
