@@ -9,6 +9,6 @@
 # their contracts.  See
 # https://near.zulipchat.com/#narrow/channel/295306-contract-runtime/topic/bulk.20memory.20support
 # for more details.
-channel = "1.86.0"
+channel = "1.90.0"
 components = ["rustfmt", "clippy", "rust-analyzer", "rust-src"]
 targets = ["wasm32-unknown-unknown"]
