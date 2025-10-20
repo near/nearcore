@@ -21,7 +21,6 @@ pub struct ThreadNode {
     pub signer: Arc<Signer>,
     pub dir: tempfile::TempDir,
     account_id: AccountId,
-    runtime: tokio::runtime::Runtime,
 }
 
 impl Drop for ThreadNode {
@@ -43,7 +42,7 @@ impl Node for ThreadNode {
 
     fn start(&mut self) {
         let handle = ActorSystem::new();
-        self.runtime
+        tokio::runtime::Handle::current()
             .block_on(start_with_config(self.dir.path(), self.config.clone(), handle.clone()))
             .expect("Failed to start ThreadNode");
         self.state = ThreadNodeState::Running(handle);
@@ -99,11 +98,6 @@ impl ThreadNode {
             signer,
             dir: tempfile::Builder::new().prefix("thread_node").tempdir().unwrap(),
             account_id,
-            runtime: tokio::runtime::Builder::new_multi_thread()
-                .enable_all()
-                .worker_threads(1)
-                .build()
-                .expect("Failed to create Tokio runtime"),
         }
     }
 }
