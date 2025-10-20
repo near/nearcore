@@ -141,8 +141,9 @@ impl RewardCalculator {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use near_primitives::epoch_manager::EpochConfigStore;
     use near_primitives::types::{BlockChunkValidatorStats, ChunkStats, ValidatorStats};
-    use near_primitives::version::PROTOCOL_VERSION;
+    use near_primitives::version::{PROD_GENESIS_PROTOCOL_VERSION, PROTOCOL_VERSION};
     use num_rational::Ratio;
     use std::collections::HashMap;
 
@@ -537,7 +538,7 @@ mod tests {
     #[test]
     fn test_reward_no_overflow() {
         let epoch_length = 60 * 60 * 12;
-        let max_inflation_rate = Ratio::new(5, 100);
+        let max_inflation_rate = Ratio::new(1, 40);
         let reward_calculator = RewardCalculator {
             num_blocks_per_year: 60 * 60 * 24 * 365,
             // half a day
@@ -573,5 +574,62 @@ mod tests {
             },
             max_inflation_rate,
         );
+    }
+
+    #[test]
+    fn test_adjust_max_inflation() {
+        let epoch_length = 1;
+        let account_id: AccountId = "test1".parse().unwrap();
+        let reward_calculator = RewardCalculator {
+            num_blocks_per_year: 1000000,
+            epoch_length,
+            protocol_reward_rate: Ratio::new(0, 1), // Unused, would only be used for genesis_protocol_version
+            protocol_treasury_account: "near".parse().unwrap(),
+            num_seconds_per_year: 1000000,
+            genesis_protocol_version: PROD_GENESIS_PROTOCOL_VERSION,
+        };
+        let validator_stake = HashMap::from([(account_id.clone(), 100)]);
+        let total_supply = 1_000_000_000;
+
+        // Check rewards match the expected protocol version schedule.
+        for chain_id in ["mainnet", "testnet"] {
+            let epoch_configs = EpochConfigStore::for_chain_id(chain_id, None).unwrap();
+            for (protocol_version, expected_total) in [
+                // Prior to inflation reduction
+                (80, 50),
+                // After inflation reduction
+                (PROTOCOL_VERSION, 25),
+            ] {
+                let epoch_config = epoch_configs.get_config(protocol_version);
+                let validator_block_chunk_stats = HashMap::from([(
+                    account_id.clone(),
+                    BlockChunkValidatorStats {
+                        block_stats: ValidatorStats { produced: 1, expected: 1 },
+                        chunk_stats: ChunkStats::default(),
+                    },
+                )]);
+                let (rewards, total) = reward_calculator.calculate_reward(
+                    validator_block_chunk_stats,
+                    &validator_stake,
+                    total_supply,
+                    protocol_version,
+                    epoch_length * NUM_NS_IN_SECOND,
+                    ValidatorOnlineThresholds {
+                        online_min_threshold: Ratio::new(9, 10),
+                        online_max_threshold: Ratio::new(99, 100),
+                        endorsement_cutoff_threshold: None,
+                    },
+                    epoch_config.max_inflation_rate,
+                );
+                assert_eq!(expected_total, total);
+                let expected_protocol_reward = expected_total / 10;
+                let expected_validator_reward = expected_total - expected_protocol_reward;
+                assert_eq!(
+                    Some(&expected_protocol_reward),
+                    rewards.get(&reward_calculator.protocol_treasury_account),
+                );
+                assert_eq!(Some(&expected_validator_reward), rewards.get(&account_id));
+            }
+        }
     }
 }

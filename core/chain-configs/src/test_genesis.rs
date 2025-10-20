@@ -138,7 +138,7 @@ impl Default for TestEpochConfigBuilder {
             minimum_stake_ratio: Rational32::new(16i32, 1_000_000i32),
             chunk_producer_assignment_changes_limit: 5,
             shuffle_shard_assignment_for_chunk_producers: false,
-            max_inflation_rate: Rational32::new(1, 20),
+            max_inflation_rate: Rational32::new(1, 40),
             // consider them ineffective
             num_block_producer_seats_per_shard: vec![1],
             genesis_protocol_version: None,
