@@ -49,6 +49,7 @@ sandbox = []
 # levels workspace-wide.
 max_level_info = ["tracing/max_level_info", "tracing/release_max_level_info"]
 max_level_debug = ["tracing/max_level_debug", "tracing/release_max_level_debug"]
+max_level_trace = ["tracing/max_level_trace", "tracing/release_max_level_trace"]
 
 [[bench]]
 name = "metrics"
