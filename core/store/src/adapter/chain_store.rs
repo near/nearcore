@@ -1,5 +1,5 @@
 use super::{StoreAdapter, StoreUpdateAdapter, StoreUpdateHolder};
-use crate::db::GC_STOP_HEIGHT_KEY;
+use crate::db::{GC_STOP_HEIGHT_KEY, SPICE_FINAL_EXECUTION_HEAD_KEY};
 use crate::{
     CHUNK_TAIL_KEY, DBCol, FINAL_HEAD_KEY, FORK_TAIL_KEY, HEAD_KEY, HEADER_HEAD_KEY,
     LARGEST_TARGET_HEIGHT_KEY, Store, StoreUpdate, TAIL_KEY, get_genesis_height,
@@ -106,6 +106,13 @@ impl ChainStoreAdapter {
         option_to_not_found(
             self.store.caching_get_ser(DBCol::BlockMisc, FINAL_HEAD_KEY),
             "FINAL HEAD",
+        )
+    }
+
+    pub fn spice_final_execution_head(&self) -> Result<Arc<Tip>, Error> {
+        option_to_not_found(
+            self.store.caching_get_ser(DBCol::BlockMisc, SPICE_FINAL_EXECUTION_HEAD_KEY),
+            "SPICE FINAL EXECUTION HEAD",
         )
     }
 

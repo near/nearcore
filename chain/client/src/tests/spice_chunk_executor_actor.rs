@@ -13,6 +13,7 @@ use near_chain::stateless_validation::spice_chunk_validation::spice_validate_chu
 use near_chain::test_utils::{
     get_chain_with_genesis, get_fake_next_block_chunk_headers, process_block_sync,
 };
+use near_chain::types::Tip;
 use near_chain::{Block, Chain, ChainGenesis};
 use near_chain::{BlockProcessingArtifact, Provenance};
 use near_chain_configs::MutableValidatorSigner;
@@ -36,9 +37,9 @@ use parking_lot::RwLock;
 use std::str::FromStr as _;
 use std::sync::Arc;
 
-use crate::chunk_executor_actor::ChunkExecutorActor;
 use crate::chunk_executor_actor::ExecutorApplyChunksDone;
 use crate::chunk_executor_actor::ExecutorIncomingUnverifiedReceipts;
+use crate::chunk_executor_actor::{ChunkExecutorActor, is_descendant_of_final_execution_head};
 use crate::spice_data_distributor_actor::SpiceDataDistributorAdapter;
 use crate::spice_data_distributor_actor::SpiceDistributorOutgoingReceipts;
 use crate::spice_data_distributor_actor::SpiceDistributorStateWitness;
@@ -165,14 +166,30 @@ impl TestActor {
         TestActor { chain, actor, actor_rc, tasks_rc }
     }
 
+    fn drain_tasks(&mut self) -> Vec<Box<dyn FnOnce() + Send>> {
+        let mut tasks = Vec::new();
+        while let Ok(Some(task)) = self.tasks_rc.try_next() {
+            tasks.push(task)
+        }
+        tasks
+    }
+
+    fn drain_events(&mut self) -> Vec<ExecutorApplyChunksDone> {
+        let mut events = Vec::new();
+        while let Ok(Some(event)) = self.actor_rc.try_next() {
+            events.push(event);
+        }
+        events
+    }
+
     fn run_internal_events(&mut self) {
         loop {
             let mut events_processed = 0;
-            while let Ok(Some(task)) = self.tasks_rc.try_next() {
+            for task in self.drain_tasks() {
                 events_processed += 1;
                 task();
             }
-            while let Ok(Some(event)) = self.actor_rc.try_next() {
+            for event in self.drain_events() {
                 events_processed += 1;
                 self.actor.handle(event);
             }
@@ -580,6 +597,86 @@ fn test_executing_forks() {
 
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_not_executing_forks_past_final_execution_head() {
+    let (outgoing_sc, _outgoing_rc) = unbounded();
+    let mut actors = setup_with_shards(1, outgoing_sc);
+    let genesis = actors[0].chain.genesis_block();
+    let fork_block = produce_block(&mut actors, &genesis);
+    let genesis_height = genesis.header().height();
+    let mut prev_block = genesis;
+
+    loop {
+        let block = produce_block(&mut actors, &prev_block);
+        for actor in &mut actors {
+            actor.handle_with_internal_events(ProcessedBlock { block_hash: *block.hash() });
+        }
+        assert!(block_executed(&actors[0], &block));
+        prev_block = block;
+
+        let Ok(final_execution_head) = actors[0].chain.chain_store.spice_final_execution_head()
+        else {
+            continue;
+        };
+        if final_execution_head.height > genesis_height {
+            break;
+        }
+    }
+    for actor in &mut actors {
+        actor.handle_with_internal_events(ProcessedBlock { block_hash: *fork_block.hash() });
+    }
+    assert!(!block_executed(&actors[0], &fork_block));
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_not_applying_forks_past_final_execution_head() {
+    let (outgoing_sc, _outgoing_rc) = unbounded();
+    let mut actors = setup_with_shards(1, outgoing_sc);
+    assert_eq!(actors.len(), 1);
+    let genesis = actors[0].chain.genesis_block();
+
+    let fork_block = produce_block(&mut actors, &genesis);
+    actors[0].actor.handle(ProcessedBlock { block_hash: *fork_block.hash() });
+    // Delaying internal tasks and events simulates a race of fork block processing starting and
+    // final execution head moving while it's ongoing.
+    let fork_tasks = actors[0].drain_tasks();
+    let fork_events = actors[0].drain_events();
+
+    let mut blocks = Vec::new();
+    #[allow(clippy::redundant_clone)]
+    let mut prev_block = genesis.clone();
+    loop {
+        let block = produce_block(&mut actors, &prev_block);
+        actors[0].actor.handle(ProcessedBlock { block_hash: *block.hash() });
+        blocks.push(block.clone());
+        let last_final_block = block.header().last_final_block();
+        if last_final_block != &CryptoHash::default() && last_final_block != genesis.hash() {
+            break;
+        }
+        prev_block = block;
+    }
+
+    actors[0].run_internal_events();
+    for block in blocks {
+        assert!(block_executed(&actors[0], &block));
+    }
+
+    let final_execution_head = actors[0].chain.chain_store.spice_final_execution_head().unwrap();
+    assert!(final_execution_head.height > genesis.header().height());
+
+    for task in fork_tasks {
+        task();
+    }
+    for event in fork_events {
+        actors[0].handle(event);
+    }
+    actors[0].run_internal_events();
+
+    assert!(!block_executed(&actors[0], &fork_block));
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn test_not_executing_with_bad_receipts() {
     let (outgoing_sc, mut outgoing_rc) = unbounded();
     let mut actors = setup_with_shards(2, outgoing_sc);
@@ -791,4 +888,71 @@ fn test_witness_is_valid() {
         count_witnesses += 1;
     }
     assert!(count_witnesses > 0);
+}
+
+#[test]
+fn test_is_descendant_of_final_execution_head_with_long_forks() {
+    let signer = Arc::new(create_test_signer("test1"));
+    let mut chain = {
+        let genesis = TestGenesisBuilder::new()
+            .validators_spec(ValidatorsSpec::desired_roles(&[signer.validator_id().as_str()], &[]))
+            .build();
+        get_chain_with_genesis(Clock::real(), genesis)
+    };
+    let genesis = chain.genesis_block();
+
+    let mut block_height = genesis.header().height();
+    let mut new_block = |chain: &mut Chain, prev_block: &Block| {
+        block_height += 1;
+        let block = TestBlockBuilder::new(Clock::real(), prev_block, signer.clone())
+            .height(block_height)
+            .build();
+        let mut store_update = chain.chain_store.store_update();
+        store_update.save_block(block.clone());
+        store_update.save_block_header(block.header().clone()).unwrap();
+        store_update.commit().unwrap();
+        block
+    };
+
+    let mut last_block = new_block(&mut chain, &genesis);
+
+    let mut store_update = chain.chain_store.store_update();
+    store_update.save_spice_final_execution_head(&Tip::from_header(last_block.header())).unwrap();
+    store_update.commit().unwrap();
+
+    let mut last_fork_block = new_block(&mut chain, &genesis);
+    for _ in 0..2 {
+        last_block = new_block(&mut chain, &last_block);
+        last_fork_block = new_block(&mut chain, &last_fork_block);
+    }
+
+    assert_eq!(
+        is_descendant_of_final_execution_head(&chain.chain_store, last_block.header()),
+        true
+    );
+    assert_eq!(
+        is_descendant_of_final_execution_head(&chain.chain_store, last_fork_block.header()),
+        false
+    );
+}
+
+#[test]
+fn test_is_descendant_of_final_execution_head_returns_false_for_final_execution_head() {
+    let signer = Arc::new(create_test_signer("test1"));
+    let mut chain = {
+        let genesis = TestGenesisBuilder::new()
+            .validators_spec(ValidatorsSpec::desired_roles(&[signer.validator_id().as_str()], &[]))
+            .build();
+        get_chain_with_genesis(Clock::real(), genesis)
+    };
+    let genesis = chain.genesis_block();
+
+    let block = TestBlockBuilder::new(Clock::real(), &genesis, signer).build();
+    let mut store_update = chain.chain_store.store_update();
+    store_update.save_block(block.clone());
+    store_update.save_block_header(block.header().clone()).unwrap();
+    store_update.save_spice_final_execution_head(&Tip::from_header(block.header())).unwrap();
+    store_update.commit().unwrap();
+
+    assert_eq!(is_descendant_of_final_execution_head(&chain.chain_store, block.header()), false);
 }
