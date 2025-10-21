@@ -216,6 +216,18 @@ impl ViewClientActorInner {
         &self,
         reference: &BlockReference,
     ) -> Result<Option<Arc<BlockHeader>>, near_chain::Error> {
+        // FIXME: add TODO(spice):
+        if cfg!(feature = "protocol_feature_spice") {
+            return match self.chain.chain_store().spice_final_execution_head() {
+                Ok(tip) => self.chain.get_block_header(&tip.last_block_hash).map(Some),
+                Err(near_chain::Error::DBNotFoundErr(_)) => {
+                    // FIXME: This should be either genesis or last block before spice.
+                    Ok(Some(self.chain.genesis().clone().into()))
+                }
+                Err(err) => Err(err),
+            };
+        }
+
         match reference {
             BlockReference::BlockId(BlockId::Height(block_height)) => {
                 self.chain.get_block_header_by_height(*block_height).map(Some)
@@ -342,33 +354,35 @@ impl ViewClientActorInner {
         }?;
         // FIXME: another option is to store in db execution head and just use that in view client
         // no matter what for now. Would we want final_execution_head, etc. later on?
-        let header = {
-            // FIXME: unwrap()
-            let mut block = self.chain.get_block(header.hash()).unwrap();
+        // let header = {
+        //     // FIXME: unwrap()
+        //     let mut block = self.chain.get_block(header.hash()).unwrap();
 
-            // FIXME: Use headers: only need epoch_id and block hash to be fair so having only
-            // block_hash with epoch_manager extracting epoch_id based on that may work as well
-            while !block.header().is_genesis() {
-                let shard_id = self
-                    .query_shard_uid(&msg.request, *header.epoch_id())
-                    .map_err(|err| QueryError::InternalError { error_message: err.to_string() })?;
-                let shard_uid =
-                    shard_id_to_uid(self.epoch_manager.as_ref(), shard_id, header.epoch_id())
-                        .map_err(|err| QueryError::InternalError {
-                            error_message: err.to_string(),
-                        })?;
+        //     // FIXME: Use headers: only need epoch_id and block hash to be fair so having only
+        //     // block_hash with epoch_manager extracting epoch_id based on that may work as well
+        //     while !block.header().is_genesis() {
+        //         let shard_id = self
+        //             .query_shard_uid(&msg.request, *header.epoch_id())
+        //             .map_err(|err| QueryError::InternalError { error_message: err.to_string() })?;
+        //         let shard_uid =
+        //             shard_id_to_uid(self.epoch_manager.as_ref(), shard_id, header.epoch_id())
+        //                 .map_err(|err| QueryError::InternalError {
+        //                     error_message: err.to_string(),
+        //                 })?;
 
-                match self.chain.get_chunk_extra(header.hash(), &shard_uid) {
-                    Ok(_) => break,
-                    Err(near_chain::Error::DBNotFoundErr(_)) => {}
-                    Err(err) => panic!("{err:?}"),
-                }
-                // FIXME: unwrap()
-                block = self.chain.get_block(block.header().prev_hash()).unwrap();
-            }
-            // FIXME: clone()
-            block.header().clone()
-        };
+        //         match self.chain.get_chunk_extra(header.hash(), &shard_uid) {
+        //             Ok(_) => break,
+        //             Err(near_chain::Error::DBNotFoundErr(_)) => {}
+        //             Err(err) => panic!("{err:?}"),
+        //         }
+        //         // FIXME: Here after gc it fails - were we usually hitting genesis?
+        //         // ; yes - become match above doesn't actually break :D :facepalm:
+        //         // FIXME: unwrap()
+        //         block = self.chain.get_block(block.header().prev_hash()).unwrap();
+        //     }
+        //     // FIXME: clone()
+        //     block.header().clone()
+        // };
 
         let shard_id = self
             .query_shard_uid(&msg.request, *header.epoch_id())
