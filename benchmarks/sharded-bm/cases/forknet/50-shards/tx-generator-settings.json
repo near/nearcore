@@ -1,5 +1,6 @@
 {
 	"tx_generator": {
+		"active_accounts_proportion": 0.2,
 		"schedule": [
 			{ "tps": 1000, "duration_s": 180 },
 			{ "tps": 2000, "duration_s": 180 },
