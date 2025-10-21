@@ -1027,6 +1027,7 @@ mod tests {
             Default::default(),
             validator.clone(),
             noop().into_multi_sender(),
+            noop().into_multi_sender(),
             None,
         )
         .unwrap();

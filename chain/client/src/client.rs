@@ -13,7 +13,6 @@ use crate::stateless_validation::chunk_endorsement::ChunkEndorsementTracker;
 use crate::stateless_validation::chunk_validation_actor::{
     BlockNotificationMessage, ChunkValidationSender,
 };
-use crate::stateless_validation::partial_witness::partial_witness_actor::PartialWitnessSenderForClient;
 use crate::sync::block::BlockSync;
 use crate::sync::epoch::EpochSync;
 use crate::sync::handler::SyncHandler;
@@ -24,6 +23,7 @@ use crate::{ProduceChunkResult, metrics};
 use itertools::Itertools;
 use near_async::futures::{AsyncComputationSpawner, FutureSpawner};
 use near_async::messaging::IntoAsyncSender;
+use near_async::messaging::IntoMultiSender;
 use near_async::messaging::{CanSend, Sender};
 use near_async::time::{Clock, Duration, Instant};
 use near_chain::chain::{
@@ -34,6 +34,7 @@ use near_chain::orphan::OrphanMissingChunks;
 use near_chain::rayon_spawner::RayonAsyncComputationSpawner;
 use near_chain::resharding::types::ReshardingSender;
 use near_chain::state_snapshot_actor::SnapshotCallbacks;
+use near_chain::stateless_validation::state_witness::PartialWitnessSenderForClient;
 use near_chain::test_utils::format_hash;
 use near_chain::types::{ChainConfig, LatestKnown, RuntimeAdapter};
 use near_chain::{
@@ -300,6 +301,7 @@ impl Client {
             apply_chunks_iteration_mode,
             validator_signer.clone(),
             resharding_sender.clone(),
+            partial_witness_adapter.clone(),
             Some(myself_sender.on_post_state_ready.clone()),
         )?;
         chain.init_flat_storage()?;
@@ -1093,8 +1095,10 @@ impl Client {
             return;
         }
 
-        self.chain
-            .preprocess_optimistic_block(block, Some(self.myself_sender.apply_chunks_done.clone()));
+        self.chain.preprocess_optimistic_block(
+            block,
+            Some(self.myself_sender.clone().into_multi_sender()),
+        );
     }
 
     /// To protect ourselves from spamming, we do some pre-check on block
@@ -1379,7 +1383,7 @@ impl Client {
         self.process_blocks_with_missing_chunks(apply_chunks_done_sender);
 
         self.chain
-            .maybe_process_optimistic_block(Some(self.myself_sender.apply_chunks_done.clone()));
+            .maybe_process_optimistic_block(Some(self.myself_sender.clone().into_multi_sender()));
     }
 
     /// Called asynchronously when the ShardsManager finishes processing a chunk but the chunk
@@ -1470,6 +1474,8 @@ impl Client {
         approval: Approval,
         next_block_producer: AccountId,
     ) {
+        let _span =
+            tracing::debug_span!(target: "client", "send_block_approval_to_account").entered();
         let validator_signer = self.validator_signer.get();
         let my_account_id = validator_signer.as_ref().map(|x| x.validator_id());
         if Some(&next_block_producer) == my_account_id {

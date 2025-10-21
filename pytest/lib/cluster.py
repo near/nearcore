@@ -289,10 +289,15 @@ class BaseNode(object):
                    check_storage: bool = True,
                    timeout: float = 4,
                    verbose: bool = False):
-        with session(timeout) as s:
-            r = s.get("http://%s:%s/status" % self.rpc_addr())
-            r.raise_for_status()
-            status = json.loads(r.content)
+        # macOS can sporadically raise EADDRNOTAVAIL during rapid local tests.
+        # Wrap the status GET in a short retry to smooth over transient socket errors.
+        def _fetch_status():
+            with session(timeout) as s:
+                r = s.get("http://%s:%s/status" % self.rpc_addr())
+                r.raise_for_status()
+                return json.loads(r.content)
+
+        status = nretry(_fetch_status, timeout=timeout)
         if verbose:
             logger.info(f'Status: {status}')
         if check_storage and status['sync_info']['syncing'] == False:
