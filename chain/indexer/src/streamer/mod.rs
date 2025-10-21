@@ -392,7 +392,6 @@ pub async fn start(
                 Box::pin(build_streamer_message(&view_client, block, &shard_tracker)).await;
             let Ok(streamer_message) = streamer_message else {
                 tracing::error!(target: INDEXER, ?block_height, ?streamer_message, "Failed to build StreamerMessage. Skipping.");
-                streamer_message.unwrap();
                 continue;
             };
 
