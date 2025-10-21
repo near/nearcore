@@ -112,7 +112,7 @@ impl ChainStoreAdapter {
     pub fn spice_final_execution_head(&self) -> Result<Arc<Tip>, Error> {
         option_to_not_found(
             self.store.caching_get_ser(DBCol::BlockMisc, SPICE_FINAL_EXECUTION_HEAD_KEY),
-            "SPICE FINAL EXECUTION HEAD KEY",
+            "SPICE FINAL EXECUTION HEAD",
         )
     }
 
