@@ -123,7 +123,7 @@ impl EpochConfig {
             minimum_stake_ratio: Rational32::new(160i32, 1_000_000i32),
             chunk_producer_assignment_changes_limit: 5,
             shuffle_shard_assignment_for_chunk_producers: false,
-            max_inflation_rate: Rational32::new(1, 20),
+            max_inflation_rate: Rational32::new(1, 40),
         }
     }
 
@@ -152,7 +152,7 @@ impl EpochConfig {
             minimum_stake_ratio: Rational32::new(160i32, 1_000_000i32),
             chunk_producer_assignment_changes_limit: 5,
             shuffle_shard_assignment_for_chunk_producers: false,
-            max_inflation_rate: Rational32::new(1, 20),
+            max_inflation_rate: Rational32::new(1, 40),
         }
     }
 
@@ -180,7 +180,7 @@ impl EpochConfig {
             minimum_stake_ratio: Rational32::new(160i32, 1_000_000i32),
             chunk_producer_assignment_changes_limit: 5,
             shuffle_shard_assignment_for_chunk_producers: false,
-            max_inflation_rate: Rational32::new(1, 20),
+            max_inflation_rate: Rational32::new(1, 40),
         }
     }
 }
@@ -538,7 +538,7 @@ mod tests {
             assert_eq!(epoch_config.num_chunk_validator_seats, 500);
         }
     }
-    
+
     #[test]
     fn test_protocol_upgrade_81() {
         for chain_id in ["mainnet", "testnet"] {

@@ -502,7 +502,7 @@ fn test_validator_reward_one_validator() {
         60,
         0,
         reward_calculator.clone(),
-        Rational32::new(1, 20),
+        Rational32::new(1, 40),
     );
     let rng_seed = [0; 32];
     let h = hash_range(5);
@@ -545,7 +545,7 @@ fn test_validator_reward_one_validator() {
     let mut validator_stakes = HashMap::new();
     validator_stakes.insert("test2".parse().unwrap(), stake_amount);
 
-    let max_inflation_rate = Ratio::new(5, 100);
+    let max_inflation_rate = Ratio::new(1, 40);
     let (validator_reward, inflation) = reward_calculator.calculate_reward(
         validator_online_ratio,
         &validator_stakes,
@@ -606,7 +606,7 @@ fn test_validator_reward_weight_by_stake() {
         60,
         0,
         reward_calculator.clone(),
-        Rational32::new(1, 20),
+        Rational32::new(1, 40),
     );
     let h = hash_range(5);
     record_with_block_info(
@@ -648,7 +648,7 @@ fn test_validator_reward_weight_by_stake() {
     let mut validators_stakes = HashMap::new();
     validators_stakes.insert("test1".parse().unwrap(), stake_amount1);
     validators_stakes.insert("test2".parse().unwrap(), stake_amount2);
-    let max_inflation_rate = Ratio::new(5, 100);
+    let max_inflation_rate = Ratio::new(1, 40);
     let (validator_reward, inflation) = reward_calculator.calculate_reward(
         validator_online_ratio,
         &validators_stakes,
@@ -775,7 +775,7 @@ fn test_reward_multiple_shards() {
     let mut validators_stakes = HashMap::new();
     validators_stakes.insert("test1".parse().unwrap(), stake_amount);
     validators_stakes.insert("test2".parse().unwrap(), stake_amount);
-    let max_inflation_rate = Ratio::new(5, 100);
+    let max_inflation_rate = Ratio::new(1, 40);
     let (validator_reward, inflation) = reward_calculator.calculate_reward(
         validator_online_ratio,
         &validators_stakes,
@@ -875,7 +875,7 @@ fn test_expected_chunks() {
     let total_supply = stake_amount.checked_mul(validators.len().try_into().unwrap()).unwrap();
 
     let epoch_config =
-        epoch_config(epoch_length, num_shards, 3, 3, 90, 60, 60, Rational32::new(1, 20));
+        epoch_config(epoch_length, num_shards, 3, 3, 90, 60, 60, Rational32::new(1, 40));
     let epoch_manager = EpochManager::new(
         create_test_store(),
         epoch_config,
@@ -1066,7 +1066,7 @@ fn test_rewards_with_kickouts() {
         10,
         0,
         reward_calculator,
-        Rational32::new(1, 20),
+        Rational32::new(1, 40),
     )
     .into_handle();
 
@@ -1123,24 +1123,24 @@ fn test_rewards_with_kickouts() {
             2,
             // test3 should still be rewarded even though it is in the kickouts for unstaking
             HashMap::from([
-                ("near".parse().unwrap(), Balance::from_yoctonear(1585)),
-                ("test1".parse().unwrap(), Balance::from_yoctonear(4756)),
-                ("test3".parse().unwrap(), Balance::from_yoctonear(4756)),
+                ("near".parse().unwrap(), Balance::from_yoctonear(792)),
+                ("test1".parse().unwrap(), Balance::from_yoctonear(2378)),
+                ("test3".parse().unwrap(), Balance::from_yoctonear(2378)),
             ]),
         ),
         (
             3,
             HashMap::from([
-                ("near".parse().unwrap(), Balance::from_yoctonear(1585)),
-                ("test1".parse().unwrap(), Balance::from_yoctonear(4756)),
-                ("test3".parse().unwrap(), Balance::from_yoctonear(4756)),
+                ("near".parse().unwrap(), Balance::from_yoctonear(792)),
+                ("test1".parse().unwrap(), Balance::from_yoctonear(2378)),
+                ("test3".parse().unwrap(), Balance::from_yoctonear(2378)),
             ]),
         ),
         (
             4,
             HashMap::from([
-                ("near".parse().unwrap(), Balance::from_yoctonear(1585)),
-                ("test1".parse().unwrap(), Balance::from_yoctonear(14269)),
+                ("near".parse().unwrap(), Balance::from_yoctonear(792)),
+                ("test1".parse().unwrap(), Balance::from_yoctonear(7135)),
             ]),
         ),
     ]);
@@ -1581,7 +1581,7 @@ fn test_chunk_validator_kickout_using_production_stats() {
     let total_supply = stake_amount.checked_mul(validators.len().try_into().unwrap()).unwrap();
     let num_shards = 2;
     let epoch_config =
-        epoch_config(epoch_length, num_shards, 2, 2, 90, 40, 75, Rational32::new(1, 20));
+        epoch_config(epoch_length, num_shards, 2, 2, 90, 40, 75, Rational32::new(1, 40));
     let em = EpochManager::new(
         create_test_store(),
         epoch_config,
@@ -1665,7 +1665,7 @@ fn test_chunk_validator_kickout_using_endorsement_stats() {
     let total_supply = stake_amount.checked_mul(validators.len().try_into().unwrap()).unwrap();
     let num_shards = 2;
     let epoch_config =
-        epoch_config(epoch_length, num_shards, 2, 2, 90, 40, 75, Rational32::new(1, 20));
+        epoch_config(epoch_length, num_shards, 2, 2, 90, 40, 75, Rational32::new(1, 40));
     let em = EpochManager::new(
         create_test_store(),
         epoch_config,
@@ -2119,7 +2119,7 @@ fn check_kickout(epoch_info: &EpochInfo, reasons: &[(&str, ValidatorKickoutReaso
 fn test_protocol_version_switch() {
     let store = create_test_store();
 
-    let epoch_config = epoch_config(2, 1, 2, 100, 90, 60, 0, Rational32::new(1, 20))
+    let epoch_config = epoch_config(2, 1, 2, 100, 90, 60, 0, Rational32::new(1, 40))
         .for_protocol_version(PROTOCOL_VERSION);
     let genesis_protocol_version = 0;
     let config_store = EpochConfigStore::test(BTreeMap::from_iter(vec![
@@ -2159,9 +2159,9 @@ fn test_protocol_version_switch() {
 fn test_protocol_version_switch_with_shard_layout_change() {
     let store = create_test_store();
 
-    let old_epoch_config = epoch_config(2, 1, 2, 100, 90, 60, 0, Rational32::new(1, 20))
+    let old_epoch_config = epoch_config(2, 1, 2, 100, 90, 60, 0, Rational32::new(1, 40))
         .for_protocol_version(PROTOCOL_VERSION);
-    let new_epoch_config = epoch_config(2, 4, 2, 100, 90, 60, 0, Rational32::new(1, 20))
+    let new_epoch_config = epoch_config(2, 4, 2, 100, 90, 60, 0, Rational32::new(1, 40))
         .for_protocol_version(PROTOCOL_VERSION);
     let genesis_protocol_version = PROTOCOL_VERSION - 1;
     let config_store = EpochConfigStore::test(BTreeMap::from_iter(vec![
@@ -2417,7 +2417,7 @@ fn test_chunk_producers() {
 
 #[test]
 fn test_validator_kickout_determinism() {
-    let mut epoch_config = epoch_config(5, 2, 4, 4, 90, 80, 90, Rational32::new(1, 20))
+    let mut epoch_config = epoch_config(5, 2, 4, 4, 90, 80, 90, Rational32::new(1, 40))
         .for_protocol_version(PROTOCOL_VERSION);
     epoch_config.validator_max_kickout_stake_perc = 99;
     let accounts = vec![
@@ -2499,7 +2499,7 @@ fn test_validator_kickout_determinism() {
 /// so the validator with the lower endorsement ratio is kicked out.
 #[test]
 fn test_chunk_validators_with_different_endorsement_ratio() {
-    let mut epoch_config = epoch_config(5, 2, 2, 2, 90, 90, 70, Rational32::new(1, 20))
+    let mut epoch_config = epoch_config(5, 2, 2, 2, 90, 90, 70, Rational32::new(1, 40))
         .for_protocol_version(PROTOCOL_VERSION);
     // Set the max kickout stake percentage so that only one of the chunk validators
     // is kicked out, and the other chunk validator is exempted from kickout.
@@ -2557,7 +2557,7 @@ fn test_chunk_validators_with_different_endorsement_ratio() {
 /// so the validator with the lower stake is kicked out.
 #[test]
 fn test_chunk_validators_with_same_endorsement_ratio_and_different_stake() {
-    let mut epoch_config = epoch_config(5, 2, 2, 2, 90, 90, 70, Rational32::new(1, 20))
+    let mut epoch_config = epoch_config(5, 2, 2, 2, 90, 90, 70, Rational32::new(1, 40))
         .for_protocol_version(PROTOCOL_VERSION);
     // Set the max kickout stake percentage so that only one of the chunk validators
     // is kicked out, and the other chunk validator is exempted from kickout.
@@ -2615,7 +2615,7 @@ fn test_chunk_validators_with_same_endorsement_ratio_and_different_stake() {
 /// so we select the exempted validator based on the ordering of the account id.
 #[test]
 fn test_chunk_validators_with_same_endorsement_ratio_and_stake() {
-    let mut epoch_config = epoch_config(5, 2, 2, 2, 90, 90, 70, Rational32::new(1, 20))
+    let mut epoch_config = epoch_config(5, 2, 2, 2, 90, 90, 70, Rational32::new(1, 40))
         .for_protocol_version(PROTOCOL_VERSION);
     // Set the max kickout stake percentage so that only one of the chunk validators
     // is kicked out, and the other chunk validator is exempted from kickout.
@@ -2673,7 +2673,7 @@ fn test_chunk_validators_with_same_endorsement_ratio_and_stake() {
 /// checks that validators that don't meet their kickout thresholds are kicked out.
 #[test]
 fn test_validator_kickout_sanity() {
-    let epoch_config = epoch_config(5, 2, 4, 4, 90, 80, 90, Rational32::new(1, 20))
+    let epoch_config = epoch_config(5, 2, 4, 4, 90, 80, 90, Rational32::new(1, 40))
         .for_protocol_version(PROTOCOL_VERSION);
     let accounts = vec![
         ("test0".parse().unwrap(), Balance::from_yoctonear(1000)),
@@ -2812,7 +2812,7 @@ fn test_validator_kickout_sanity() {
 /// This test does not test kickouts at all.
 #[test]
 fn test_chunk_endorsement_stats() {
-    let epoch_config = epoch_config(5, 2, 4, 100, 90, 80, 0, Rational32::new(1, 20))
+    let epoch_config = epoch_config(5, 2, 4, 100, 90, 80, 0, Rational32::new(1, 40))
         .for_protocol_version(PROTOCOL_VERSION);
     let accounts = vec![
         ("test0".parse().unwrap(), Balance::from_yoctonear(1000)),
@@ -2895,7 +2895,7 @@ fn test_chunk_endorsement_stats() {
 #[test]
 /// Test that the stake of validators kicked out in an epoch doesn't exceed the max_kickout_stake_ratio
 fn test_max_kickout_stake_ratio() {
-    let mut epoch_config = epoch_config(5, 2, 4, 100, 90, 80, 0, Rational32::new(1, 20))
+    let mut epoch_config = epoch_config(5, 2, 4, 100, 90, 80, 0, Rational32::new(1, 40))
         .for_protocol_version(PROTOCOL_VERSION);
     let accounts = vec![
         ("test0".parse().unwrap(), Balance::from_yoctonear(1000)),
@@ -3014,7 +3014,7 @@ fn test_max_kickout_stake_ratio() {
 
 /// Common test scenario for a couple of tests exercising chunk validator kickouts.
 fn test_chunk_validator_kickout(expected_kickouts: HashMap<AccountId, ValidatorKickoutReason>) {
-    let mut epoch_config = epoch_config(5, 2, 4, 100, 80, 80, 80, Rational32::new(1, 20))
+    let mut epoch_config = epoch_config(5, 2, 4, 100, 80, 80, 80, Rational32::new(1, 40))
         .for_protocol_version(PROTOCOL_VERSION);
     let accounts = vec![
         ("test0".parse().unwrap(), Balance::from_yoctonear(1000)),
@@ -3082,7 +3082,7 @@ fn test_chunk_validator_kicked_out_for_low_endorsement() {
 #[test]
 /// Tests that a validator is not kicked out due to low endorsement only (as long as it produces most of its blocks and chunks).
 fn test_block_and_chunk_producer_not_kicked_out_for_low_endorsements() {
-    let mut epoch_config = epoch_config(5, 2, 4, 100, 80, 80, 80, Rational32::new(1, 20))
+    let mut epoch_config = epoch_config(5, 2, 4, 100, 80, 80, 80, Rational32::new(1, 40))
         .for_protocol_version(PROTOCOL_VERSION);
     let accounts = vec![
         ("test0".parse().unwrap(), Balance::from_yoctonear(1000)),
