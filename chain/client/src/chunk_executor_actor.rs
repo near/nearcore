@@ -208,7 +208,7 @@ impl Handler<ProcessedBlock> for ChunkExecutorActor {
     // errors/results and use them in tests to make sure we are testing correct errors.
     fn handle(&mut self, ProcessedBlock { block_hash }: ProcessedBlock) {
         match self.try_apply_chunks(&block_hash) {
-            Ok(TryApplyChunksOutcome::Scheduled) | Ok(TryApplyChunksOutcome::BlockTooOld) => {}
+            Ok(TryApplyChunksOutcome::Scheduled) | Ok(TryApplyChunksOutcome::BlockIrrelevant) => {}
             Ok(TryApplyChunksOutcome::NotReady(reason)) => {
                 // We will retry applying it by looking at all next blocks after receiving
                 // additional execution result endorsements or receipts.
@@ -277,7 +277,7 @@ enum TryApplyChunksOutcome {
     Scheduled,
     NotReady(NotReadyToApplyChunksReason),
     BlockAlreadyAccepted,
-    BlockTooOld,
+    BlockIrrelevant,
 }
 
 impl TryApplyChunksOutcome {
@@ -343,7 +343,7 @@ impl ChunkExecutorActor {
                 block_height=%block.header().height(),
                 "block's parent is too old (past spice final execution head) so block cannot be applied",
             );
-            return Ok(TryApplyChunksOutcome::BlockTooOld);
+            return Ok(TryApplyChunksOutcome::BlockIrrelevant);
         }
 
         let header = block.header();
@@ -430,7 +430,7 @@ impl ChunkExecutorActor {
         }
         for next_block_hash in next_block_hashes {
             match self.try_apply_chunks(&next_block_hash)? {
-                TryApplyChunksOutcome::Scheduled | TryApplyChunksOutcome::BlockTooOld => {}
+                TryApplyChunksOutcome::Scheduled | TryApplyChunksOutcome::BlockIrrelevant => {}
                 TryApplyChunksOutcome::NotReady(reason) => {
                     tracing::debug!(target: "chunk_executor", ?reason, %next_block_hash, "not yet ready for processing");
                 }
