@@ -2,7 +2,7 @@ use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 
 use near_async::time::{Clock, Duration};
-use near_primitives::types::{Balance, ShardId};
+use near_primitives::types::Balance;
 use near_primitives::version::ProtocolFeature;
 use parking_lot::RwLock;
 use rocksdb::DB;
@@ -16,9 +16,7 @@ use near_indexer_primitives::{
 };
 use near_parameters::RuntimeConfig;
 use near_primitives::hash::CryptoHash;
-use near_primitives::views::{
-    BlockView, ChunkView, ExecutionOutcomeWithIdView, ExecutionStatusView, ReceiptView,
-};
+use near_primitives::views::{BlockView, ChunkView, ExecutionStatusView, ReceiptView};
 
 use self::errors::FailedToFetchData;
 use self::utils::convert_transactions_sir_into_local_receipts;
