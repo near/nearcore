@@ -11,7 +11,7 @@ use crate::INDEXER;
 pub(crate) fn convert_transactions_sir_into_local_receipts<'a>(
     tx_iter: impl IntoIterator<Item = &'a IndexerTransactionWithOutcome>,
     runtime_config: &RuntimeConfig,
-    prev_block_gas_price: Balance,
+    gas_price: Balance,
 ) -> Vec<ReceiptView> {
     let mut local_receipts = Vec::new();
     for indexer_tx in tx_iter {
@@ -30,14 +30,9 @@ pub(crate) fn convert_transactions_sir_into_local_receipts<'a>(
         };
         let actions: Vec<_> =
             tx.actions.iter().cloned().map(Action::try_from).map(Result::unwrap).collect();
-        let cost = calculate_tx_cost(
-            &tx.receiver_id,
-            &tx.signer_id,
-            &actions,
-            &runtime_config,
-            prev_block_gas_price,
-        )
-        .unwrap();
+        let cost =
+            calculate_tx_cost(&tx.receiver_id, &tx.signer_id, &actions, &runtime_config, gas_price)
+                .unwrap();
         let receipt = Receipt::from_tx(
             receipt_id,
             tx.signer_id.clone(),
