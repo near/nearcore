@@ -332,6 +332,7 @@ def start_nodes(args, enable_tx_generator=False):
 
         run_remote_cmd(CommandContext(run_cmd_args))
 
+        # this is terrible. Every time we add a new field to the tx_generator we have to add it here. :( This needs to be fixed
         run_cmd_args = copy.deepcopy(args)
         run_cmd_args.host_filter = f"({'|'.join(args.forknet_details['cp_instance_names'])})"
         run_cmd_args.cmd = f"\
@@ -341,6 +342,8 @@ def start_nodes(args, enable_tx_generator=False):
             | .[\"tx_generator\"] += {{\"schedule\": $sched }} \
             | $patch[0].tx_generator.controller as $ctrl   \
             | .[\"tx_generator\"] += {{\"controller\": $ctrl }} \
+            | $patch[0].tx_generator.active_accounts_proportion as $active \
+            | .[\"tx_generator\"] += {{\"active_accounts_proportion\": $active }} \
             ' {CONFIG_PATH} > tmp.$$.json && mv tmp.$$.json {CONFIG_PATH} || rm tmp.$$.json \
         "
 
