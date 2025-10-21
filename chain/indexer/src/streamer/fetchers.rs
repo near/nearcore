@@ -142,12 +142,7 @@ impl IndexerViewClientFetcher {
     ) -> Result<HashMap<ShardId, Vec<IndexerExecutionOutcomeWithOptionalReceipt>>, FailedToFetchData>
     {
         tracing::debug!(target: INDEXER, ?block_hash, "fetch outcomes with receipts for block");
-        let outcomes = self
-            .sender
-            .send_async(GetExecutionOutcomesForBlock { block_hash })
-            .await?
-            .map_err(FailedToFetchData::String)?;
-
+        let outcomes = self.fetch_outcomes(block_hash).await?;
         let mut shard_execution_outcomes_with_receipts: HashMap<
             ShardId,
             Vec<IndexerExecutionOutcomeWithOptionalReceipt>,
