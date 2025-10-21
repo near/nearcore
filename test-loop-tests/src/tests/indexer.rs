@@ -1,6 +1,8 @@
+use std::iter::repeat_with;
 use std::sync::atomic::AtomicU64;
 
 use assert_matches::assert_matches;
+use itertools::Itertools;
 use near_async::futures::FutureSpawnerExt;
 use near_async::time::Duration;
 use near_client::NetworkAdversarialMessage;
@@ -87,7 +89,7 @@ fn test_indexer_delayed_local_receipt() {
     let gas_to_burn = GAS_LIMIT.checked_div(2).unwrap().checked_add(Gas::from_gas(1)).unwrap();
     // Use 5 transactions so execution of the last receipt is delayed by 2 blocks.
     // This way we ensure that the receipt can be found beyond previous block.
-    let txs = [(); 5].map(|_| create_burn_gas_tx(&env, gas_to_burn)).to_vec();
+    let txs = repeat_with(|| create_burn_gas_tx(&env, gas_to_burn)).take(5).collect_vec();
     let validator_node = TestLoopNode::from(&env.node_datas[0]);
     for tx in &txs {
         validator_node.submit_tx(tx.clone());
