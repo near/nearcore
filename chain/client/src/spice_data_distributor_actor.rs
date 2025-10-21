@@ -425,6 +425,7 @@ impl SpiceDataDistributorActor {
     fn recipients_and_producers(
         &self,
         data_id: &SpiceDataIdentifier,
+        // FIXME: BlockHeader would be enough.
         block: &Block,
     ) -> Result<(HashSet<AccountId>, Vec<AccountId>), Error> {
         let (recipients, producers) = match data_id {
@@ -925,7 +926,7 @@ impl SpiceDataDistributorActor {
         Ok(())
     }
 
-    fn schedule_data_fetching(&self, ctx: &mut dyn DelayedActionRunner<Self>) {
+    fn schedule_data_fetching(&mut self, ctx: &mut dyn DelayedActionRunner<Self>) {
         self.request_waiting_on_data();
 
         ctx.run_later(
@@ -938,18 +939,32 @@ impl SpiceDataDistributorActor {
         );
     }
 
-    fn request_waiting_on_data(&self) {
+    fn request_waiting_on_data(&mut self) {
         // TODO(spice): Allow requesting data without signer using route back.
         let Some(signer) = self.validator_signer.get() else {
             tracing::debug!(target: "spice_data_distribution", "no validator signer to request waiting on data");
             return;
         };
         let me = signer.validator_id();
+        let mut too_old_ids = Vec::new();
         for id in &self.waiting_on_data {
-            let block = self
+            let Ok(block) = self
                 .chain_store
+                // FIXME: Encountered panic when expecting block to be available after gc. Likely
+                // we started to wait, but then data went out of the recent_distribution_data cache
+                // so weren't able to get it.
+                // - How to handle similar cases:
+                //   - if we are waiting for the witness and certification head moved pass the
+                //     block - we should stop waiting on it. My guess would be that this was the
+                //     reason for crash.
+                //   - if we are waiting on receipts - we should always be able to get them within
+                //     epoch;
+                //     - for this make sure we serve receipts from store (if not already).
                 .get_block(id.block_hash())
-                .expect("block for which we wait on data should always be available");
+            else {
+                too_old_ids.push(id.clone());
+                continue;
+            };
             let (_recipients, mut producers) = self.recipients_and_producers(&id, &block).expect(
                 "producers and recipients that we wait on data for should always be available",
             );
@@ -966,6 +981,10 @@ impl SpiceDataDistributorActor {
                     producer: producers.swap_remove(0),
                 },
             ));
+        }
+        for id in too_old_ids {
+            tracing::warn!(target: "spice_data_distribution", ?id, "stopping to wait for data since relevant block is no longer available");
+            self.waiting_on_data.remove(&id);
         }
     }
 
