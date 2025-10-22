@@ -1298,6 +1298,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         genesis_config.minimum_stake_ratio = epoch_config.minimum_stake_ratio;
         genesis_config.shuffle_shard_assignment_for_chunk_producers =
             epoch_config.shuffle_shard_assignment_for_chunk_producers;
+        genesis_config.max_inflation_rate = epoch_config.max_inflation_rate;
 
         let runtime_config =
             self.runtime_config_store.get_config(protocol_version).as_ref().clone();
