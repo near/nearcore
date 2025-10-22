@@ -98,7 +98,6 @@ where
         let thread_id = thread_index.fetch_add(1, Ordering::Relaxed);
         let mut instrumentation = handle_clone.instrumentation.new_writer_with_global_registration(Some(thread_id));
         let mut actor = make_actor_fn();
-        let actor_name = actor.description();
         let window_update_ticker = crossbeam_channel::tick(Duration::from_secs(1));
         loop {
             crossbeam_channel::select! {
