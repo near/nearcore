@@ -2121,6 +2121,11 @@ impl Chain {
         block: &Block,
         shard_id: ShardId,
     ) -> Result<(), Error> {
+        // In spice we need to keep flat head and memtries until execution.
+        if cfg!(feature = "protocol_feature_spice") {
+            return Ok(());
+        }
+
         let epoch_id = block.header().epoch_id();
         let shard_uid = shard_id_to_uid(self.epoch_manager.as_ref(), shard_id, epoch_id)?;
 
