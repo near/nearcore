@@ -7,10 +7,11 @@ use near_async::test_loop::TestLoopV2;
 use near_async::test_loop::data::TestLoopData;
 use near_async::time::Duration;
 use near_chain::types::Tip;
-use near_client::Client;
+use near_client::{Client, ProcessTxRequest};
 use near_epoch_manager::shard_assignment::{account_id_to_shard_id, shard_id_to_uid};
 use near_primitives::errors::InvalidTxError;
-use near_primitives::transaction::SignedTransaction;
+use near_primitives::hash::CryptoHash;
+use near_primitives::transaction::{ExecutionOutcomeWithIdAndProof, SignedTransaction};
 use near_primitives::types::{AccountId, BlockHeight};
 use near_primitives::views::{
     AccountView, FinalExecutionOutcomeView, FinalExecutionStatus, QueryRequest, QueryResponse,
@@ -112,6 +113,36 @@ impl<'a> TestLoopNode<'a> {
             },
             maximum_duration,
         );
+    }
+
+    pub fn submit_tx(&self, tx: SignedTransaction) {
+        let process_tx_request =
+            ProcessTxRequest { transaction: tx, is_forwarded: false, check_only: false };
+        self.data.rpc_handler_sender.send(process_tx_request);
+    }
+
+    pub fn run_until_outcome_available(
+        &self,
+        test_loop: &mut TestLoopV2,
+        tx_hash_or_receipt_id: CryptoHash,
+        maximum_duration: Duration,
+    ) -> ExecutionOutcomeWithIdAndProof {
+        let mut ret = None;
+        test_loop.run_until(
+            |test_loop_data| match self
+                .client(test_loop_data)
+                .chain
+                .get_execution_outcome(&tx_hash_or_receipt_id)
+            {
+                Ok(outcome) => {
+                    ret = Some(outcome);
+                    true
+                }
+                Err(_) => false,
+            },
+            maximum_duration,
+        );
+        ret.unwrap()
     }
 
     #[track_caller]
