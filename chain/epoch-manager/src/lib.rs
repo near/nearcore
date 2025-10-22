@@ -674,6 +674,7 @@ impl EpochManager {
                 epoch_protocol_version,
                 epoch_duration,
                 online_thresholds,
+                epoch_config.max_inflation_rate,
             )
         };
         let next_next_epoch_config = self.config.for_protocol_version(next_next_epoch_version);

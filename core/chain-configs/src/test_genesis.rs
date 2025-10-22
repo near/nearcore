@@ -42,6 +42,7 @@ pub struct TestEpochConfigBuilder {
     minimum_stake_ratio: Rational32,
     chunk_producer_assignment_changes_limit: NumSeats,
     shuffle_shard_assignment_for_chunk_producers: bool,
+    max_inflation_rate: Rational32,
 
     // not used any more
     num_block_producer_seats_per_shard: Vec<NumSeats>,
@@ -137,6 +138,7 @@ impl Default for TestEpochConfigBuilder {
             minimum_stake_ratio: Rational32::new(16i32, 1_000_000i32),
             chunk_producer_assignment_changes_limit: 5,
             shuffle_shard_assignment_for_chunk_producers: false,
+            max_inflation_rate: Rational32::new(1, 40),
             // consider them ineffective
             num_block_producer_seats_per_shard: vec![1],
             genesis_protocol_version: None,
@@ -251,6 +253,7 @@ impl TestEpochConfigBuilder {
             shuffle_shard_assignment_for_chunk_producers: self
                 .shuffle_shard_assignment_for_chunk_producers,
             num_block_producer_seats_per_shard: self.num_block_producer_seats_per_shard,
+            max_inflation_rate: self.max_inflation_rate,
         };
         tracing::debug!("Epoch config: {:#?}", epoch_config);
         epoch_config

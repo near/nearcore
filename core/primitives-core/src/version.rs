@@ -424,7 +424,10 @@ impl ProtocolFeature {
             | ProtocolFeature::SaturatingFloatToInt
             | ProtocolFeature::ReducedGasRefunds => 78,
             ProtocolFeature::IncreaseMaxCongestionMissedChunks => 79,
-            ProtocolFeature::RefTypesBulkMemory | ProtocolFeature::StatePartsCompression => 81,
+            ProtocolFeature::RefTypesBulkMemory
+            | ProtocolFeature::StatePartsCompression
+	    | ProtocolFeature::DeterministicAccountIds => 82,
+            ProtocolFeature::Wasmtime => 83,
 
             // Nightly features:
             ProtocolFeature::FixContractLoadingCost => 129,
@@ -449,7 +452,7 @@ pub const PROD_GENESIS_PROTOCOL_VERSION: ProtocolVersion = 29;
 pub const MIN_SUPPORTED_PROTOCOL_VERSION: ProtocolVersion = 77;
 
 /// Current protocol version used on the mainnet with all stable features.
-const STABLE_PROTOCOL_VERSION: ProtocolVersion = 81;
+const STABLE_PROTOCOL_VERSION: ProtocolVersion = 83;
 
 // On nightly, pick big enough version to support all features.
 const NIGHTLY_PROTOCOL_VERSION: ProtocolVersion = 150;

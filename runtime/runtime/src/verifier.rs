@@ -2022,6 +2022,201 @@ mod tests {
     }
 
     #[test]
+    fn test_validate_deterministic_state_init_receiver() {
+        use expect_test::{Expect, expect};
+        fn check_validate_state_init(
+            receiver: &str,
+            protocol_version: ProtocolVersion,
+            want: Expect,
+        ) {
+            let validation_result = validate_actions(
+                &test_limit_config(),
+                &[Action::DeterministicStateInit(Box::new(DeterministicStateInitAction {
+                    state_init: DeterministicAccountStateInit::V1(
+                        DeterministicAccountStateInitV1 {
+                            code: GlobalContractIdentifier::AccountId("ft.near".parse().unwrap()),
+                            data: Default::default(),
+                        },
+                    ),
+                    deposit: Balance::ZERO,
+                }))],
+                &receiver.parse().unwrap(),
+                protocol_version,
+            );
+
+            want.assert_debug_eq(&validation_result);
+        }
+
+        // correct receiver
+        check_validate_state_init(
+            "0s69284a5453e7be5632b28b6a01baecf6c12c156d",
+            ProtocolFeature::DeterministicAccountIds.protocol_version(),
+            expect![[r#"
+                Ok(
+                    (),
+                )
+            "#]],
+        );
+
+        // deterministic id but incorrect receiver
+        check_validate_state_init(
+            "0s1234567890123456789012345678901234567890",
+            ProtocolFeature::DeterministicAccountIds.protocol_version(),
+            expect![[r#"
+                Err(
+                    InvalidDeterministicStateInitReceiver {
+                        receiver_id: AccountId(
+                            "0s1234567890123456789012345678901234567890",
+                        ),
+                        derived_id: AccountId(
+                            "0s69284a5453e7be5632b28b6a01baecf6c12c156d",
+                        ),
+                    },
+                )
+            "#]],
+        );
+
+        // named receiver (invalid)
+        check_validate_state_init(
+            "alice.near",
+            ProtocolFeature::DeterministicAccountIds.protocol_version(),
+            expect![[r#"
+                Err(
+                    InvalidDeterministicStateInitReceiver {
+                        receiver_id: AccountId(
+                            "alice.near",
+                        ),
+                        derived_id: AccountId(
+                            "0s69284a5453e7be5632b28b6a01baecf6c12c156d",
+                        ),
+                    },
+                )
+            "#]],
+        );
+        // NEAR implicit receiver (invalid)
+        check_validate_state_init(
+            "eab5a5da5a83e1ffb05ed0905a104e09b7e13159fd4daf82e43d047887ce4e47",
+            ProtocolFeature::DeterministicAccountIds.protocol_version(),
+            expect![[r#"
+                Err(
+                    InvalidDeterministicStateInitReceiver {
+                        receiver_id: AccountId(
+                            "eab5a5da5a83e1ffb05ed0905a104e09b7e13159fd4daf82e43d047887ce4e47",
+                        ),
+                        derived_id: AccountId(
+                            "0s69284a5453e7be5632b28b6a01baecf6c12c156d",
+                        ),
+                    },
+                )
+            "#]],
+        );
+
+        // Without protocol features enabled, again with all receiver variations
+        for receiver in [
+            "alice.near",
+            "0s69284a5453e7be5632b28b6a01baecf6c12c156d",
+            "0s1234567890123456789012345678901234567890",
+            "eab5a5da5a83e1ffb05ed0905a104e09b7e13159fd4daf82e43d047887ce4e47",
+        ] {
+            check_validate_state_init(
+                receiver,
+                ProtocolFeature::DeterministicAccountIds.protocol_version() - 1,
+                expect![[r#"
+                Err(
+                    UnsupportedProtocolFeature {
+                        protocol_feature: "DeterministicAccountIds",
+                        version: 81,
+                    },
+                )
+            "#]],
+            );
+        }
+    }
+
+    #[test]
+    fn test_validate_deterministic_state_init_data() {
+        use expect_test::{Expect, expect};
+        fn check_validate_state_init(
+            data: BTreeMap<Vec<u8>, Vec<u8>>,
+            protocol_version: ProtocolVersion,
+            want: Expect,
+        ) {
+            let state_init = DeterministicAccountStateInit::V1(DeterministicAccountStateInitV1 {
+                code: GlobalContractIdentifier::AccountId("ft.near".parse().unwrap()),
+                data,
+            });
+            let receiver = derive_near_deterministic_account_id(&state_init);
+            let validation_result = validate_actions(
+                &test_limit_config(),
+                &[Action::DeterministicStateInit(Box::new(DeterministicStateInitAction {
+                    state_init,
+                    deposit: Balance::ZERO,
+                }))],
+                &receiver,
+                protocol_version,
+            );
+
+            want.assert_debug_eq(&validation_result);
+        }
+
+        fn make_payload(key_size: usize, value_size: usize) -> BTreeMap<Vec<u8>, Vec<u8>> {
+            let key = vec![1u8; key_size];
+            let value = vec![2u8; value_size];
+            BTreeMap::from_iter([(key, value)])
+        }
+
+        // small payload
+        check_validate_state_init(
+            make_payload(10, 20),
+            ProtocolFeature::DeterministicAccountIds.protocol_version(),
+            expect![[r#"
+                Ok(
+                    (),
+                )
+            "#]],
+        );
+
+        // key and value exactly at limit
+        check_validate_state_init(
+            make_payload(2_048, 4_194_304),
+            ProtocolFeature::DeterministicAccountIds.protocol_version(),
+            expect![[r#"
+                Ok(
+                    (),
+                )
+            "#]],
+        );
+
+        // key above limit
+        check_validate_state_init(
+            make_payload(2_049, 4_194_304),
+            ProtocolFeature::DeterministicAccountIds.protocol_version(),
+            expect![[r#"
+                Err(
+                    DeterministicStateInitKeyLengthExceeded {
+                        length: 2049,
+                        limit: 2048,
+                    },
+                )
+            "#]],
+        );
+
+        // value above limit
+        check_validate_state_init(
+            make_payload(2_048, 4_194_305),
+            ProtocolFeature::DeterministicAccountIds.protocol_version(),
+            expect![[r#"
+                Err(
+                    DeterministicStateInitValueLengthExceeded {
+                        length: 4194305,
+                        limit: 4194304,
+                    },
+                )
+            "#]],
+        );
+    }
+
+    #[test]
     fn test_truncate_string() {
         fn check(input: &str, limit: usize, want: &str) {
             let got = truncate_string(input, limit);
