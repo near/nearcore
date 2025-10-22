@@ -2,6 +2,7 @@ use std::path::Path;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
+use futures::future::join_all;
 use near_chain_configs::test_utils::{TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
 use near_primitives::num_rational::Ratio;
 use rand::Rng;
@@ -41,7 +42,7 @@ struct TestNode {
     genesis_hash: CryptoHash,
 }
 
-fn init_test_staking(
+async fn init_test_staking(
     paths: Vec<&Path>,
     num_node_seats: NumSeats,
     num_validator_seats: NumSeats,
@@ -85,18 +86,17 @@ fn init_test_staking(
         config
     });
     let actor_system = ActorSystem::new();
-    configs
-        .enumerate()
-        .map(|(i, config)| {
-            let genesis_hash = genesis_hash(&config.genesis);
-            let nearcore::NearNode { client, view_client, rpc_handler: tx_processor, .. } =
-                start_with_config(paths[i], config.clone(), actor_system.clone())
-                    .expect("start_with_config");
-            let account_id = format!("near.{}", i).parse::<AccountId>().unwrap();
-            let signer = Arc::new(InMemorySigner::test_signer(&account_id));
-            TestNode { account_id, signer, config, client, view_client, tx_processor, genesis_hash }
-        })
-        .collect()
+    let futures = configs.enumerate().map(async |(i, config)| {
+        let genesis_hash = genesis_hash(&config.genesis);
+        let nearcore::NearNode { client, view_client, rpc_handler: tx_processor, .. } =
+            start_with_config(paths[i], config.clone(), actor_system.clone())
+                .await
+                .expect("start_with_config");
+        let account_id = format!("near.{}", i).parse::<AccountId>().unwrap();
+        let signer = Arc::new(InMemorySigner::test_signer(&account_id));
+        TestNode { account_id, signer, config, client, view_client, tx_processor, genesis_hash }
+    });
+    join_all(futures).await
 }
 
 /// Runs one validator network, sends staking transaction for the second node and
@@ -115,7 +115,8 @@ async fn slow_test_stake_nodes() {
         false,
         10,
         false,
-    );
+    )
+    .await;
 
     let tx = SignedTransaction::stake(
         1,
@@ -179,7 +180,8 @@ async fn slow_test_validator_kickout() {
         false,
         TESTING_INIT_STAKE.as_near() as u64 + 1,
         false,
-    );
+    )
+    .await;
     let mut rng = rand::thread_rng();
     let stakes = (0..num_nodes / 2).map(|_| {
         Balance::from_near(1).checked_add(Balance::from_yoctonear(rng.gen_range(1..100))).unwrap()
@@ -314,7 +316,8 @@ async fn ultra_slow_test_validator_join() {
         false,
         10,
         false,
-    );
+    )
+    .await;
     let signer = Arc::new(InMemorySigner::test_signer(&test_nodes[1].account_id));
     let unstake_transaction = SignedTransaction::stake(
         1,
@@ -428,7 +431,8 @@ async fn slow_test_inflation() {
         true,
         10,
         false,
-    );
+    )
+    .await;
     let initial_total_supply = test_nodes[0].config.genesis.config.total_supply;
     let max_inflation_rate = test_nodes[0].config.genesis.config.max_inflation_rate;
 

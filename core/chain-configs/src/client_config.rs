@@ -234,25 +234,6 @@ fn default_state_parts_compression_level() -> i32 {
     DEFAULT_STATE_PARTS_COMPRESSION_LEVEL
 }
 
-/// Configures the external storage used by the archival node.
-#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
-#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-pub struct CloudStorageConfig {
-    /// The storage to persist the archival data.
-    pub storage: ExternalStorageLocation,
-    /// Location of a json file with credentials allowing access to the bucket.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub credentials_file: Option<PathBuf>,
-}
-
-/// Configuration for a cloud-based archival reader.
-#[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
-#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-pub struct CloudArchivalReaderConfig {
-    /// Configures the external storage used by the archival node.
-    pub cloud_storage: CloudStorageConfig,
-}
-
 pub fn default_archival_writer_polling_interval() -> Duration {
     Duration::seconds(1)
 }
@@ -263,9 +244,6 @@ pub fn default_archival_writer_polling_interval() -> Duration {
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct CloudArchivalWriterConfig {
-    /// Configures the external storage used by the archival node.
-    pub cloud_storage: CloudStorageConfig,
-
     /// Determines whether block-related data should be written to cloud storage.
     #[serde(default)]
     pub archive_block_data: bool,
@@ -275,6 +253,15 @@ pub struct CloudArchivalWriterConfig {
     #[cfg_attr(feature = "schemars", schemars(with = "DurationAsStdSchemaProvider"))]
     #[serde(default = "default_archival_writer_polling_interval")]
     pub polling_interval: Duration,
+}
+
+impl Default for CloudArchivalWriterConfig {
+    fn default() -> Self {
+        Self {
+            archive_block_data: false,
+            polling_interval: default_archival_writer_polling_interval(),
+        }
+    }
 }
 
 /// A handle that allows the main process to interrupt other.
@@ -308,16 +295,6 @@ impl InterruptHandle {
 
     fn set(&self, keep_going: bool) -> () {
         self.keep_going.store(keep_going, std::sync::atomic::Ordering::Relaxed);
-    }
-}
-
-/// A handle that allows the main process to interrupt cloud archival writer if needed.
-#[derive(Clone)]
-pub struct CloudArchivalWriterHandle(pub InterruptHandle);
-
-impl CloudArchivalWriterHandle {
-    pub fn new() -> Self {
-        Self(InterruptHandle::new())
     }
 }
 
@@ -814,8 +791,6 @@ pub struct ClientConfig {
     pub tracked_shards_config: TrackedShardsConfig,
     /// Not clear old data, set `true` for archive nodes.
     pub archive: bool,
-    /// Configuration for a cloud-based archival reader.
-    pub cloud_archival_reader: Option<CloudArchivalReaderConfig>,
     /// Configuration for a cloud-based archival writer. If this config is present, the writer is enabled and
     /// writes chunk-related data based on the tracked shards.
     pub cloud_archival_writer: Option<CloudArchivalWriterConfig>,
@@ -907,13 +882,6 @@ pub struct ClientConfig {
     /// The current implementation increases latency on low-load chains, which will be fixed in the future.
     /// The default is disabled.
     pub enable_early_prepare_transactions: bool,
-}
-
-impl ClientConfig {
-    /// Whether the node is configured as cloud reader or cloud writer archival node.
-    pub fn is_cloud_archive(&self) -> bool {
-        self.cloud_archival_reader.is_some() || self.cloud_archival_writer.is_some()
-    }
 }
 
 #[cfg(feature = "schemars")]

@@ -13,7 +13,7 @@ use near_chain::types::RuntimeAdapter;
 use near_chain::{ApplyChunksIterationMode, ApplyChunksSpawner, ChainGenesis};
 use near_chain_configs::{MutableConfigValue, ReshardingHandle};
 use near_chunks::shards_manager_actor::ShardsManagerActor;
-use near_client::archive::cloud_archival_actor::create_cloud_archival_writer;
+use near_client::archive::cloud_archival_writer::create_cloud_archival_writer;
 use near_client::archive::cold_store_actor::create_cold_store_actor;
 use near_client::chunk_executor_actor::ChunkExecutorActor;
 use near_client::client_actor::ClientActorInner;
@@ -348,7 +348,7 @@ pub fn setup_client(
     // We don't send messages to `GCActor` so adapter is not needed.
     test_loop.data.register_actor(identifier, gc_actor, None);
 
-    let cold_store_sender = if storage.split_store.is_some() {
+    let cold_store_sender = if storage.cold_db.is_some() {
         let (cold_store_actor, _) = create_cold_store_actor(
             Some(client_config.save_trie_changes),
             &SplitStorageConfig::default(),
@@ -399,6 +399,7 @@ pub fn setup_client(
         epoch_manager.clone(),
         runtime_adapter.store().chain_store(),
         validator_signer.clone(),
+        shard_tracker.clone(),
         network_adapter.as_multi_sender(),
         chunk_executor_adapter.as_sender(),
         spice_chunk_validator_adapter.as_sender(),

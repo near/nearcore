@@ -359,11 +359,6 @@ impl Runtime {
         epoch_info_provider: &dyn EpochInfoProvider,
         stats: &mut ChunkApplyStatsV0,
     ) -> Result<ActionResult, RuntimeError> {
-        let _span = tracing::debug_span!(
-            target: "runtime",
-            "apply_action",
-        )
-        .entered();
         let exec_fees = exec_fee(&apply_state.config, action, receipt.receiver_id());
         let mut result = ActionResult::default();
         result.gas_used = exec_fees;
@@ -391,9 +386,9 @@ impl Runtime {
             result.result = Err(e);
             return Ok(result);
         }
-        metrics::ACTION_CALLED_COUNT.with_label_values(&[action.as_ref()]).inc();
         match action {
             Action::CreateAccount(_) => {
+                metrics::ACTION_CALLED_COUNT.create_account.inc();
                 action_create_account(
                     &apply_state.config.fees,
                     &apply_state.config.account_creation_config,
@@ -405,6 +400,7 @@ impl Runtime {
                 );
             }
             Action::DeployContract(deploy_contract) => {
+                metrics::ACTION_CALLED_COUNT.deploy_contract.inc();
                 action_deploy_contract(
                     state_update,
                     account.as_mut().expect(EXPECT_ACCOUNT_EXISTS),
@@ -416,6 +412,7 @@ impl Runtime {
                 )?;
             }
             Action::DeployGlobalContract(deploy_global_contract) => {
+                metrics::ACTION_CALLED_COUNT.deploy_global_contract.inc();
                 let account = account.as_mut().expect(EXPECT_ACCOUNT_EXISTS);
                 action_deploy_global_contract(
                     account,
@@ -427,6 +424,7 @@ impl Runtime {
                 )?;
             }
             Action::UseGlobalContract(use_global_contract) => {
+                metrics::ACTION_CALLED_COUNT.use_global_contract.inc();
                 let account = account.as_mut().expect(EXPECT_ACCOUNT_EXISTS);
                 action_use_global_contract(
                     state_update,
@@ -438,6 +436,7 @@ impl Runtime {
                 )?;
             }
             Action::DeterministicStateInit(deterministic_state_init_action) => {
+                metrics::ACTION_CALLED_COUNT.deterministic_state_init.inc();
                 deterministic_account_id::action_deterministic_state_init(
                     state_update,
                     apply_state,
@@ -449,6 +448,7 @@ impl Runtime {
                 )?;
             }
             Action::FunctionCall(function_call) => {
+                metrics::ACTION_CALLED_COUNT.function_call.inc();
                 let account = account.as_mut().expect(EXPECT_ACCOUNT_EXISTS);
                 let account_contract = account.contract();
                 let code_hash = account_contract.into_owned().hash(&state_update)?;
@@ -474,6 +474,7 @@ impl Runtime {
                 )?;
             }
             Action::Transfer(TransferAction { deposit }) => {
+                metrics::ACTION_CALLED_COUNT.transfer.inc();
                 action_transfer_or_implicit_account_creation(
                     account,
                     *deposit,
@@ -487,6 +488,7 @@ impl Runtime {
                 )?;
             }
             Action::Stake(stake) => {
+                metrics::ACTION_CALLED_COUNT.stake.inc();
                 action_stake(
                     account.as_mut().expect(EXPECT_ACCOUNT_EXISTS),
                     &mut result,
@@ -497,6 +499,7 @@ impl Runtime {
                 )?;
             }
             Action::AddKey(add_key) => {
+                metrics::ACTION_CALLED_COUNT.add_key.inc();
                 action_add_key(
                     apply_state,
                     state_update,
@@ -507,6 +510,7 @@ impl Runtime {
                 )?;
             }
             Action::DeleteKey(delete_key) => {
+                metrics::ACTION_CALLED_COUNT.delete_key.inc();
                 action_delete_key(
                     &apply_state.config.fees,
                     state_update,
@@ -517,6 +521,7 @@ impl Runtime {
                 )?;
             }
             Action::DeleteAccount(delete_account) => {
+                metrics::ACTION_CALLED_COUNT.delete_account.inc();
                 action_delete_account(
                     state_update,
                     account,
@@ -529,6 +534,7 @@ impl Runtime {
                 )?;
             }
             Action::Delegate(signed_delegate_action) => {
+                metrics::ACTION_CALLED_COUNT.delegate.inc();
                 apply_delegate_action(
                     state_update,
                     apply_state,
@@ -555,11 +561,6 @@ impl Runtime {
         stats: &mut ChunkApplyStatsV0,
         epoch_info_provider: &dyn EpochInfoProvider,
     ) -> Result<ExecutionOutcomeWithId, RuntimeError> {
-        let _span = tracing::debug_span!(
-            target: "runtime",
-            "apply_action_receipt",
-        )
-        .entered();
         let action_receipt: VersionedActionReceipt = match receipt.versioned_receipt() {
             VersionedReceiptEnum::Action(action_receipt)
             | VersionedReceiptEnum::PromiseYield(action_receipt) => action_receipt,
@@ -1938,6 +1939,7 @@ impl Runtime {
         let local_processing_start = std::time::Instant::now();
         let local_receipt_count = processing_state.local_receipts.len();
         let local_receipts = std::mem::take(&mut processing_state.local_receipts);
+        processing_state.outcomes.reserve(local_receipt_count);
         if let Some(prefetcher) = &mut processing_state.prefetcher {
             // Prefetcher is allowed to fail
             let (front, back) = local_receipts.as_slices();
@@ -2129,6 +2131,7 @@ impl Runtime {
             &mut prep_lookahead_iter,
         );
 
+        processing_state.outcomes.reserve(processing_state.incoming_receipts.len());
         for receipt in processing_state.incoming_receipts {
             // Validating new incoming no matter whether we have available gas or not. We don't
             // want to store invalid receipts in state as delayed.

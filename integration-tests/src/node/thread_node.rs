@@ -1,4 +1,3 @@
-use std::path::PathBuf;
 use std::sync::Arc;
 
 use near_chain_configs::Genesis;
@@ -32,12 +31,6 @@ impl Drop for ThreadNode {
     }
 }
 
-fn start_thread(config: NearConfig, path: PathBuf) -> ActorSystem {
-    let actor_system = ActorSystem::new();
-    start_with_config(&path, config, actor_system.clone()).expect("start_with_config");
-    actor_system
-}
-
 impl Node for ThreadNode {
     fn genesis(&self) -> &Genesis {
         &self.config.genesis
@@ -48,7 +41,10 @@ impl Node for ThreadNode {
     }
 
     fn start(&mut self) {
-        let handle = start_thread(self.config.clone(), self.dir.path().to_path_buf());
+        let handle = ActorSystem::new();
+        tokio::runtime::Handle::current()
+            .block_on(start_with_config(self.dir.path(), self.config.clone(), handle.clone()))
+            .expect("Failed to start ThreadNode");
         self.state = ThreadNodeState::Running(handle);
     }
 

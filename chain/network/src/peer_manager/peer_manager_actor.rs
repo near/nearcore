@@ -1287,6 +1287,14 @@ impl PeerManagerActor {
                 );
                 NetworkResponses::NoResponse
             }
+            NetworkRequests::SpicePartialDataRequest { producer, request } => {
+                self.state.send_message_to_account(
+                    &self.clock,
+                    &producer,
+                    T1MessageBody::SpicePartialDataRequest(request).into(),
+                );
+                NetworkResponses::NoResponse
+            }
         }
     }
 

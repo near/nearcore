@@ -43,7 +43,7 @@ pub struct SpiceChunkValidatorActor {
     validation_spawner: Arc<dyn AsyncComputationSpawner>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct SpiceChunkStateWitnessMessage {
     pub witness: SpiceChunkStateWitness,
     pub raw_witness_size: ChunkStateWitnessSize,

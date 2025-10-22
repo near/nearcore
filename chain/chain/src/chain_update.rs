@@ -665,4 +665,31 @@ impl<'a> ChainUpdate<'a> {
         );
         Ok(true)
     }
+
+    /// Updates spice final execution head based on last executed block and returns new spice final
+    /// execution head.
+    pub fn update_spice_final_execution_head(
+        &mut self,
+        block: &Block,
+    ) -> Result<Option<Arc<Tip>>, Error> {
+        let mut final_execution_head = match self.chain_store_update.spice_final_execution_head() {
+            Ok(head) => Some(head),
+            Err(Error::DBNotFoundErr(_)) => None,
+            Err(err) => return Err(err),
+        };
+        if block.header().last_final_block() == &CryptoHash::default() {
+            return Ok(final_execution_head);
+        }
+        let last_final_block_header =
+            self.chain_store_update.get_block_header(block.header().last_final_block()).unwrap();
+
+        if final_execution_head.is_none()
+            || final_execution_head.as_ref().unwrap().height < last_final_block_header.height()
+        {
+            let tip = Arc::new(Tip::from_header(&last_final_block_header));
+            self.chain_store_update.save_spice_final_execution_head(&tip)?;
+            final_execution_head = Some(tip);
+        }
+        Ok(final_execution_head)
+    }
 }

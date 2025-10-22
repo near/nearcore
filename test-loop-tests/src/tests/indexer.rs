@@ -60,8 +60,10 @@ fn test_indexer_local_receipt() {
     let mut indexer_receiver = start_indexer(&env, SyncModeEnum::BlockHeight(tx_included_height));
     let msg = receive_indexer_message(&mut env, &mut indexer_receiver);
     let indexer_shard = &msg.shards[0];
-    let chunk_view = indexer_shard.chunk.as_ref().unwrap();
-    assert_eq!(chunk_view.transactions.len(), 1);
+    let indexer_chunk = indexer_shard.chunk.as_ref().unwrap();
+    assert_eq!(indexer_chunk.transactions.len(), 1);
+    assert_eq!(indexer_chunk.local_receipts.len(), 1);
+    assert!(indexer_chunk.receipts.is_empty());
     assert_eq!(indexer_shard.receipt_execution_outcomes.len(), 1);
     let receipt_execution_outcome = &indexer_shard.receipt_execution_outcomes[0];
     assert_eq!(receipt_execution_outcome.receipt.receipt_id, receipt_id);
@@ -78,7 +80,7 @@ fn test_indexer_failed_local_tx() {
     }
 
     let mut env = setup();
-    let validator_node = TestLoopNode::validator(&env.node_datas, 0);
+    let validator_node = TestLoopNode::from(&env.node_datas[0]);
     validator_node.send_adversarial_message(
         &env.test_loop,
         NetworkAdversarialMessage::AdvProduceChunks(AdvProduceChunksMode::ProduceWithoutTx),
@@ -103,9 +105,11 @@ fn test_indexer_failed_local_tx() {
     let mut indexer_receiver = start_indexer(&env, SyncModeEnum::BlockHeight(tx_included_height));
     let msg = receive_indexer_message(&mut env, &mut indexer_receiver);
     let indexer_shard = &msg.shards[0];
-    let chunk_view = indexer_shard.chunk.as_ref().unwrap();
-    assert_eq!(chunk_view.transactions.len(), 1);
-    let outcome = &chunk_view.transactions[0].outcome.execution_outcome.outcome;
+    let indexer_chunk = indexer_shard.chunk.as_ref().unwrap();
+    assert_eq!(indexer_chunk.transactions.len(), 1);
+    assert!(indexer_chunk.local_receipts.is_empty());
+    assert!(indexer_chunk.receipts.is_empty());
+    let outcome = &indexer_chunk.transactions[0].outcome.execution_outcome.outcome;
     assert_matches!(outcome.status, ExecutionStatusView::Failure(_));
     assert!(outcome.receipt_ids.is_empty());
     assert!(indexer_shard.receipt_execution_outcomes.is_empty());

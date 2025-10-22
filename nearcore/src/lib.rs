@@ -20,10 +20,12 @@ use near_chain::{
     ApplyChunksSpawner, Chain, ChainGenesis, PartialWitnessValidationThreadPool,
     WitnessCreationThreadPool,
 };
-use near_chain_configs::{CloudArchivalWriterHandle, MutableValidatorSigner, ReshardingHandle};
+use near_chain_configs::{MutableValidatorSigner, ReshardingHandle};
 use near_chunks::shards_manager_actor::start_shards_manager;
 use near_client::adapter::client_sender_for_network;
-use near_client::archive::cloud_archival_actor::create_cloud_archival_writer;
+use near_client::archive::cloud_archival_writer::{
+    CloudArchivalWriterHandle, create_cloud_archival_writer,
+};
 use near_client::archive::cold_store_actor::create_cold_store_actor;
 use near_client::chunk_executor_actor::ChunkExecutorActor;
 use near_client::gc_actor::GCActor;
@@ -189,7 +191,7 @@ pub fn open_storage(home_dir: &Path, near_config: &NearConfig) -> anyhow::Result
 
     assert_eq!(
         near_config.config.archive,
-        storage.is_local_archive()? || near_config.client_config.is_cloud_archive()
+        storage.is_local_archive()? || storage.is_cloud_archive()
     );
     Ok(storage)
 }
@@ -279,6 +281,7 @@ fn spawn_spice_actors(
         epoch_manager.clone(),
         runtime.store().chain_store(),
         validator_signer.clone(),
+        shard_tracker.clone(),
         network_adapter.clone(),
         chunk_executor_adapter.as_sender(),
         spice_chunk_validator_adapter.as_sender(),
@@ -346,7 +349,7 @@ pub fn start_with_config(
     home_dir: &Path,
     config: NearConfig,
     actor_system: ActorSystem,
-) -> anyhow::Result<NearNode> {
+) -> impl Future<Output = anyhow::Result<NearNode>> {
     start_with_config_and_synchronization(home_dir, config, actor_system, None, None)
 }
 
@@ -356,6 +359,23 @@ pub fn start_with_config_and_synchronization(
     actor_system: ActorSystem,
     // 'shutdown_signal' will notify the corresponding `oneshot::Receiver` when an instance of
     // `ClientActor` gets dropped.
+    shutdown_signal: Option<broadcast::Sender<()>>,
+    config_updater: Option<ConfigUpdater>,
+) -> impl Future<Output = anyhow::Result<NearNode>> {
+    // Pins the future to avoid large stack frame.
+    Box::pin(start_with_config_and_synchronization_impl(
+        home_dir,
+        config,
+        actor_system,
+        shutdown_signal,
+        config_updater,
+    ))
+}
+
+pub async fn start_with_config_and_synchronization_impl(
+    home_dir: &Path,
+    config: NearConfig,
+    actor_system: ActorSystem,
     shutdown_signal: Option<broadcast::Sender<()>>,
     config_updater: Option<ConfigUpdater>,
 ) -> anyhow::Result<NearNode> {
@@ -716,7 +736,8 @@ pub fn start_with_config_and_synchronization(
             _gc_actor.into_multi_sender(),
             Arc::new(entity_debug_handler),
             actor_system.new_future_spawner("jsonrpc").as_ref(),
-        );
+        )
+        .await;
     }
 
     #[cfg(feature = "rosetta_rpc")]

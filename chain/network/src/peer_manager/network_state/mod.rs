@@ -799,6 +799,10 @@ impl NetworkState {
                     self.spice_core_writer_adapter.send(SpiceChunkEndorsementMessage(endorsement));
                     None
                 }
+                T1MessageBody::SpicePartialDataRequest(request) => {
+                    self.spice_data_distributor_adapter.send(request);
+                    None
+                }
             },
             TieredMessageBody::T2(body) => match *body {
                 T2MessageBody::TxStatusRequest(account_id, tx_hash) => self
