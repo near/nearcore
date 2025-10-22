@@ -33,7 +33,7 @@ use wasmtime::{
 };
 
 mod component;
-mod logic;
+pub(crate) mod logic;
 
 /// The maximum amount of concurrent calls this engine can handle.
 /// If this limit is reached, invocations will block until an execution slot is available.

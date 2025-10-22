@@ -1,4 +1,5 @@
 use crate::logic::errors::{FunctionCallError, MethodResolveError, VMRunnerError};
+use crate::logic::logic::Promise;
 use crate::logic::recorded_storage_counter::RecordedStorageCounter;
 use crate::logic::vmstate::Registers;
 use crate::logic::{Config, ExecutionResultState, External, VMContext, VMOutcome};
@@ -13,7 +14,7 @@ use near_primitives_core::gas::Gas;
 use near_primitives_core::types::Balance;
 use std::sync::Arc;
 use wasmtime::component::{
-    Component, ComponentExportIndex, HasSelf, Instance, InstancePre, Linker,
+    Component, ComponentExportIndex, HasSelf, Instance, InstancePre, Linker, ResourceTable,
 };
 use wasmtime::{CallHook, Engine, ResourcesRequired, Store, StoreLimits, StoreLimitsBuilder};
 
@@ -22,6 +23,8 @@ mod host;
 
 #[repr(C)]
 pub struct Ctx {
+    // NOTE: this must be the first field in the struct, since instrumentation assumes that to be
+    // the case
     remaining_gas: u64,
 
     limits: StoreLimits,
@@ -42,11 +45,15 @@ pub struct Ctx {
     /// Registers can be used by the guest to store blobs of data without moving them across
     /// host-guest boundary.
     registers: Registers,
+    /// The DAG of promises, indexed by promise id.
+    promises: Vec<Promise>,
 
     /// Tracks size of the recorded trie storage proof.
     recorded_storage_counter: RecordedStorageCounter,
 
     result_state: ExecutionResultState,
+
+    table: ResourceTable,
 }
 
 impl Ctx {
@@ -93,7 +100,9 @@ impl Ctx {
             current_account_locked_balance,
             recorded_storage_counter,
             registers: Registers::default(),
+            promises: Vec::default(),
             result_state,
+            table: ResourceTable::default(),
         }
     }
 }

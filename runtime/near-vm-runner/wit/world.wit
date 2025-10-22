@@ -129,7 +129,76 @@ interface runtime {
    // Logs the string.
    log: func(s: string);
 
-   // TODO: promises
+   // TODO: Document promise API
+
+   resource promise-action {}
+
+   resource promise {
+      constructor(account-id: value-or-register);
+      then: func(account-id: value-or-register) -> promise;
+      and: static func(promises: list<borrow<promise>>) -> promise;
+      set-refund-to: func(account-id: value-or-register);
+      state-init: func(code-hash: value-or-register, amount: u128) -> promise-action;
+      state-init-by-account-id: func(account-id: value-or-register, amount: u128) -> promise-action;
+      set-state-init-data-entry: func(action: promise-action, key: value-or-register, value: value-or-register);
+
+
+      create-account: func();
+      deploy-contract: func(code: value-or-register);
+      deploy-global-contract: func(code: value-or-register);
+      deploy-global-contract-by-account-id: func(code: value-or-register);
+      use-global-contract: func(code-hash: value-or-register);
+      use-global-contract-by-account-id: func(account-id: value-or-register);
+      function-call: func(method: value-or-register, arguments: value-or-register, amount: u128, gas: u64, gas-weight: u64);
+      transfer: func(amount: u128);
+      stake: func(amount: u128, public-key: value-or-register);
+      add-key-with-full-access: func(public-key: value-or-register, nonce: u64);
+      add-key-with-function-call: func(public-key: value-or-register, nonce: u64, allowance: u128, receiver: value-or-register, method-names: value-or-register);
+      delete-key: func(public-key: value-or-register);
+      delete-account: func(beneficiary-id: value-or-register);
+
+      yield-create: static func(method-name: value-or-register, arguments: value-or-register, gas: u64, gas-weight: u64, register-id: u64) -> promise;
+      yield-resume: static func(data-id: value-or-register, payload: value-or-register) -> bool;
+
+
+      // If the current function is invoked by a callback we can access the execution results of the
+      // promises that caused the callback. This function returns the number of complete and
+      // incomplete callbacks.
+      //
+      // Note, we are only going to have incomplete callbacks once we have promise_or combinator.
+      //
+      // * If there is only one callback returns `1`;
+      // * If there are multiple callbacks (e.g. created through `promise_and`) returns their number;
+      // * If the function was called not through the callback returns `0`.
+      get-results-count: static func() -> u64;
+
+      // If the current function is invoked by a callback we can access the execution results of the
+      // promises that caused the callback. This function returns the result in blob format and
+      // places it into the register.
+      //
+      // * If promise result is complete and successful copies its blob into the register;
+      // * If promise result is complete and failed or incomplete keeps register unused;
+      //
+      // # Returns
+      //
+      // * If promise result is not complete returns `none`;
+      // * If promise result is complete and successful returns `some(ok)`;
+      // * If promise result is complete and failed returns `some(err)`.
+      get-result: static func(idx: u64, register-id: u64) -> option<result>;
+
+      // When this promise finishes executing its result is considered to be the result of
+      // the current function.
+      return: func();
+   }
+
+   enum contract-code-kind {
+      local,
+      global,
+      global-by-account,
+   }
+
+   // Populates a register with the ID of an account which would receive a refund.
+   current-contract-code: func(register-id: u64) -> option<contract-code-kind>;
 
    // Populates a register with the ID of an account which would receive a refund.
    refund-to-account-id: func(register-id: u64);
