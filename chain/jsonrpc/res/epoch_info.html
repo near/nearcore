@@ -152,7 +152,7 @@
                 // Use 2 bits to encode the validator's role in a given epoch.
                 // 00 -- not participated
                 // 01 -- block producer
-                // 10 -- chunk only producer
+                // 10 -- chunk producer
                 epoch.block_producers.forEach(validator => {
                     let account_id = validator.account_id;
                     let value = 2 ** (index * 2);
@@ -260,7 +260,7 @@
                 <th>First block</th>
                 <th>Epoch start</th>
                 <th>Block producers</th>
-                <th>Chunk only producers</th>
+                <th>Chunk producers</th>
             </tr>
         </thead>
         <tbody class="js-tbody-epochs">
