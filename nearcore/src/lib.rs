@@ -349,7 +349,7 @@ pub fn start_with_config(
     home_dir: &Path,
     config: NearConfig,
     actor_system: ActorSystem,
-) -> anyhow::Result<NearNode> {
+) -> impl Future<Output = anyhow::Result<NearNode>> {
     start_with_config_and_synchronization(home_dir, config, actor_system, None, None)
 }
 
@@ -359,6 +359,23 @@ pub fn start_with_config_and_synchronization(
     actor_system: ActorSystem,
     // 'shutdown_signal' will notify the corresponding `oneshot::Receiver` when an instance of
     // `ClientActor` gets dropped.
+    shutdown_signal: Option<broadcast::Sender<()>>,
+    config_updater: Option<ConfigUpdater>,
+) -> impl Future<Output = anyhow::Result<NearNode>> {
+    // Pins the future to avoid large stack frame.
+    Box::pin(start_with_config_and_synchronization_impl(
+        home_dir,
+        config,
+        actor_system,
+        shutdown_signal,
+        config_updater,
+    ))
+}
+
+pub async fn start_with_config_and_synchronization_impl(
+    home_dir: &Path,
+    config: NearConfig,
+    actor_system: ActorSystem,
     shutdown_signal: Option<broadcast::Sender<()>>,
     config_updater: Option<ConfigUpdater>,
 ) -> anyhow::Result<NearNode> {
@@ -718,7 +735,8 @@ pub fn start_with_config_and_synchronization(
             _gc_actor.into_multi_sender(),
             Arc::new(entity_debug_handler),
             actor_system.new_future_spawner().as_ref(),
-        );
+        )
+        .await;
     }
 
     #[cfg(feature = "rosetta_rpc")]

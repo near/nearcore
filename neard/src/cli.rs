@@ -578,6 +578,7 @@ impl RunCmd {
                     Some(tx_crash),
                     Some(config_updater),
                 )
+                .await
                 .expect("start_with_config");
 
             let sig = loop {

@@ -13,7 +13,7 @@ use near_client::ViewClientActorInner;
 use near_client::client_actor::ClientActorInner;
 use near_store::db::RocksDB;
 
-fn start_nodes(
+async fn start_nodes(
     temp_dir: &std::path::Path,
     num_shards: NumShards,
     num_nodes: NumSeats,
@@ -69,7 +69,9 @@ fn start_nodes(
         let dir = temp_dir.join(format!("node{i}"));
         std::fs::create_dir(&dir).unwrap();
         let nearcore::NearNode { client, view_client, .. } =
-            start_with_config(&dir, near_config, actor_system.clone()).expect("start_with_config");
+            start_with_config(&dir, near_config, actor_system.clone())
+                .await
+                .expect("start_with_config");
         res.push((client, view_client))
     }
     (genesis, rpc_addrs, res)
@@ -159,7 +161,8 @@ impl NodeCluster {
             epoch_length,
             genesis_height,
             self.save_tx_outcomes,
-        );
+        )
+        .await;
         f(genesis, rpc_addrs, clients).await;
         shutdown_all_actors();
         RocksDB::block_until_all_instances_are_dropped();
