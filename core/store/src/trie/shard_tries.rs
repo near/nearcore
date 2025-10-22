@@ -106,13 +106,6 @@ impl ShardTries {
         TrieUpdate::new(self.get_view_trie_for_shard(shard_uid, state_root))
     }
 
-    #[tracing::instrument(
-        level = "trace",
-        target = "store::trie::shard_tries",
-        "ShardTries::get_trie_cache_for",
-        skip_all,
-        fields(is_view)
-    )]
     pub(crate) fn get_trie_cache_for(
         &self,
         shard_uid: ShardUId,

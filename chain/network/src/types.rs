@@ -11,9 +11,10 @@ pub use crate::network_protocol::{
     StateResponseInfoV1, StateResponseInfoV2,
 };
 use crate::routing::routing_table_view::RoutingTableInfo;
+use crate::spice_data_distribution::SpicePartialDataRequest;
 pub use crate::state_sync::StateSyncResponse;
 use near_async::messaging::{AsyncSender, Sender};
-use near_async::{Message, MultiSend, MultiSenderFrom, time};
+use near_async::{MultiSend, MultiSenderFrom, time};
 use near_crypto::PublicKey;
 use near_primitives::block::{ApprovalMessage, Block};
 use near_primitives::epoch_sync::CompressedEpochSyncProof;
@@ -93,7 +94,7 @@ pub enum ReasonForBan {
 
 /// Banning signal sent from Peer instance to PeerManager
 /// just before Peer instance is stopped.
-#[derive(Message, Debug)]
+#[derive(Debug)]
 pub struct Ban {
     pub peer_id: PeerId,
     pub ban_reason: ReasonForBan,
@@ -171,11 +172,11 @@ pub struct ChainInfo {
     pub tier1_accounts: Arc<AccountKeys>,
 }
 
-#[derive(Debug, Message)]
+#[derive(Debug)]
 pub struct SetChainInfo(pub ChainInfo);
 
 /// Public actor interface of `PeerManagerActor`.
-#[derive(Message, Debug, strum::IntoStaticStr)]
+#[derive(Debug, strum::IntoStaticStr)]
 #[allow(clippy::large_enum_variant)]
 pub enum PeerManagerMessageRequest {
     NetworkRequests(NetworkRequests),
@@ -321,9 +322,11 @@ pub enum NetworkRequests {
     SpicePartialData { partial_data: SpicePartialData, recipients: HashSet<AccountId> },
     /// Message for a spice chunk endorsement, sent by a chunk validator to all validators.
     SpiceChunkEndorsement(AccountId, SpiceChunkEndorsement),
+    /// Message requesting spice partial data.
+    SpicePartialDataRequest { request: SpicePartialDataRequest, producer: AccountId },
 }
 
-#[derive(Debug, Message, strum::IntoStaticStr)]
+#[derive(Debug, strum::IntoStaticStr)]
 pub enum StateSyncEvent {
     StatePartReceived(ShardId, u64),
 }
@@ -562,7 +565,7 @@ pub struct AccountIdOrPeerTrackingShard {
     pub min_height: BlockHeight,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Message)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 /// An inbound request to which a response should be sent over Tier3
 pub struct Tier3Request {
     /// Target peer to send the response to

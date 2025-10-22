@@ -142,12 +142,11 @@ async fn network_status(
 
     let (network_info, earliest_block) = tokio::try_join!(
         state.client_addr.send_async(near_client::GetNetworkInfo {}.span_wrap()),
-        near_async::messaging::SendAsync::send_async(
-            &state.view_client_addr,
-            near_client::GetBlock(near_primitives::types::BlockReference::SyncCheckpoint(
+        state.view_client_addr.send_async(near_client::GetBlock(
+            near_primitives::types::BlockReference::SyncCheckpoint(
                 near_primitives::types::SyncCheckpoint::EarliestAvailable
-            )),
-        ),
+            )
+        )),
     )?;
     let network_info = network_info.map_err(errors::ErrorKind::InternalError)?;
     let genesis_block_identifier = state.genesis.block_id.clone();

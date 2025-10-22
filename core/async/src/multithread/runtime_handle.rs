@@ -1,11 +1,17 @@
+use crate::instrumentation::queue::InstrumentedQueue;
+use crate::instrumentation::writer::InstrumentedThreadWriterSharedPart;
 use crate::messaging::Actor;
 use crate::pretty_type_name;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::time::Duration;
 
 /// MultithreadRuntimeMessage is a type alias for a boxed function that can be sent to the multithread runtime,
 /// as well as a description for debugging purposes.
 pub(super) struct MultithreadRuntimeMessage<A> {
     pub(super) seq: u64,
+    pub(super) enqueued_time_ns: u64,
+    pub(super) name: &'static str,
     pub(super) function: Box<dyn FnOnce(&mut A) + Send>,
 }
 
@@ -17,6 +23,7 @@ pub struct MultithreadRuntimeHandle<A> {
     /// dropping (all of) which automatically stops the runtime, as an alterative of having
     /// the ActorSystem control it.
     cancellation_signal_holder: Option<crossbeam_channel::Sender<()>>,
+    pub(super) instrumentation: Arc<InstrumentedThreadWriterSharedPart>,
 }
 
 impl<A> Clone for MultithreadRuntimeHandle<A> {
@@ -24,6 +31,7 @@ impl<A> Clone for MultithreadRuntimeHandle<A> {
         Self {
             sender: self.sender.clone(),
             cancellation_signal_holder: self.cancellation_signal_holder.clone(),
+            instrumentation: self.instrumentation.clone(),
         }
     }
 }
@@ -34,6 +42,19 @@ where
 {
     pub fn sender(&self) -> Arc<MultithreadRuntimeHandle<A>> {
         Arc::new(self.clone())
+    }
+}
+
+impl<A> MultithreadRuntimeHandle<A> {
+    pub(super) fn send_message(
+        &self,
+        message: MultithreadRuntimeMessage<A>,
+    ) -> Result<(), crossbeam_channel::SendError<MultithreadRuntimeMessage<A>>> {
+        let name = message.name;
+        self.sender.send(message).map(|_| {
+            // Only increment the queue if the message was successfully sent.
+            self.instrumentation.queue().enqueue(name);
+        })
     }
 }
 
@@ -51,35 +72,55 @@ pub(crate) fn spawn_multithread_actor<A>(
 where
     A: Actor + Send + 'static,
 {
+    let actor_name = pretty_type_name::<A>();
     tracing::info!(
-        "Starting multithread actor of type {} with {} threads",
-        std::any::type_name::<A>(),
-        num_threads
+        target: "multithread_runtime",
+        actor_name,
+        num_threads,
+        "Starting multithread actor",
     );
     let threads =
         Arc::new(rayon::ThreadPoolBuilder::new().num_threads(num_threads).build().unwrap());
     let (sender, receiver) = crossbeam_channel::unbounded::<MultithreadRuntimeMessage<A>>();
-    let handle = MultithreadRuntimeHandle { sender, cancellation_signal_holder };
+    let instrumented_queue = InstrumentedQueue::new(actor_name);
+    let shared_instrumentation =
+        InstrumentedThreadWriterSharedPart::new(actor_name.to_string(), instrumented_queue.clone());
+    let handle = MultithreadRuntimeHandle {
+        sender,
+        cancellation_signal_holder,
+        instrumentation: shared_instrumentation,
+    };
     let threads_clone = threads.clone();
+    let thread_index = Arc::new(AtomicUsize::new(0));
+    let handle_clone = handle.clone();
     threads.spawn_broadcast(move |_| {
         let _threads = threads_clone.clone();
+        let thread_id = thread_index.fetch_add(1, Ordering::Relaxed);
+        let mut instrumentation = handle_clone.instrumentation.new_writer_with_global_registration(Some(thread_id));
         let mut actor = make_actor_fn();
+        let window_update_ticker = crossbeam_channel::tick(Duration::from_secs(1));
         loop {
             crossbeam_channel::select! {
                 recv(cancellation_signal) -> _ => {
-                    let actor_name = pretty_type_name::<A>();
-                    tracing::info!(target: "multithread_runtime", actor_name, "cancellation received, exiting loop.");
+                    tracing::info!(target: "multithread_runtime", actor_name, thread_id, "cancellation received, exiting loop.");
                     return;
+                }
+                recv(window_update_ticker) -> _ => {
+                    tracing::debug!(target: "multithread_runtime", actor_name, thread_id, "Updating instrumentation window");
+                    instrumentation.advance_window_if_needed();
                 }
                 recv(receiver) -> message => {
                     let Ok(message) = message else {
-                    let actor_name = pretty_type_name::<A>();
-                        tracing::warn!(target: "multithread_runtime", actor_name, "message queue closed, exiting event loop.");
+                        tracing::warn!(target: "multithread_runtime", actor_name, thread_id, "message queue closed, exiting event loop.");
                         return;
                     };
+                    instrumented_queue.dequeue(message.name);
                     let seq = message.seq;
+                    let dequeue_time_ns = handle_clone.instrumentation.current_time().saturating_sub(message.enqueued_time_ns);
+                    instrumentation.start_event(message.name, dequeue_time_ns);
                     tracing::debug!(target: "multithread_runtime", seq, "Executing message");
                     (message.function)(&mut actor);
+                    instrumentation.end_event(message.name);
                 }
             }
         }

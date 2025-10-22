@@ -27,11 +27,9 @@ use crate::types::{
     AccountKeys, ChainInfo, KnownPeerStatus, NetworkRequests, PeerManagerMessageRequest,
     ReasonForBan,
 };
-use futures::FutureExt;
-use near_async::Message;
 use near_async::futures::FutureSpawnerExt;
 use near_async::messaging::{
-    CanSend, CanSendAsync, Handler, IntoMultiSender, IntoSender, MessageWithCallback, Sender, noop,
+    AsyncSender, CanSend, CanSendAsync, Handler, IntoMultiSender, IntoSender, Sender, noop,
 };
 use near_async::{ActorSystem, time};
 use near_primitives::network::{AnnounceAccount, PeerId};
@@ -53,7 +51,6 @@ use std::sync::Arc;
 /// This gives 5 file descriptors per PeerActor (4 + 1 TCP socket).
 pub(crate) const FDS_PER_PEER: usize = 5;
 
-#[derive(Message)]
 struct WithNetworkState(
     Box<dyn Send + FnOnce(Arc<NetworkState>) -> Pin<Box<dyn Send + 'static + Future<Output = ()>>>>,
 );
@@ -555,28 +552,25 @@ pub(crate) async fn start(
     cfg.event_sink = Sender::from_fn(move |event| send.send(event));
 
     let mut client_sender: ClientSenderForNetwork = noop().into_multi_sender();
-    client_sender.announce_account =
-        Sender::from_fn(move |msg: MessageWithCallback<AnnounceAccountRequest, _>| {
-            // NOTE(robin-near): This is a pretty bad hack to preserve previous behavior
-            // of the test code.
-            // For some specific events we craft a response and send it back, while for
-            // most other events we send it to the sink (for what? I have no idea).
-            let result = Ok(msg.message.0.iter().map(|(account, _)| account.clone()).collect());
-            (msg.callback)(std::future::ready(Ok(result)).boxed());
-        });
+    client_sender.announce_account = AsyncSender::from_fn(move |msg: AnnounceAccountRequest| {
+        // NOTE(robin-near): This is a pretty bad hack to preserve previous behavior
+        // of the test code.
+        // For some specific events we craft a response and send it back, while for
+        // most other events we send it to the sink (for what? I have no idea).
+        Ok(msg.0.iter().map(|(account, _)| account.clone()).collect())
+    });
 
     let mut state_request_sender: StateRequestSenderForNetwork = noop().into_multi_sender();
     state_request_sender.state_request_part =
-        Sender::from_fn(move |msg: MessageWithCallback<StateRequestPart, _>| {
+        AsyncSender::from_fn(move |msg: StateRequestPart| {
             // NOTE: See above comment for explanation about this code.
-            let StateRequestPart { part_id, shard_id, sync_hash } = msg.message;
+            let StateRequestPart { part_id, shard_id, sync_hash } = msg;
             let part = Some((part_id, vec![]));
             let state_response =
                 ShardStateSyncResponse::V2(ShardStateSyncResponseV2 { header: None, part });
-            let result = Some(StatePartOrHeader(Box::new(StateResponseInfo::V2(Box::new(
+            Some(StatePartOrHeader(Box::new(StateResponseInfo::V2(Box::new(
                 StateResponseInfoV2 { shard_id, sync_hash, state_response },
-            )))));
-            (msg.callback)(std::future::ready(Ok(result)).boxed());
+            )))))
         });
 
     let actor_system = ActorSystem::new();
@@ -591,6 +585,7 @@ pub(crate) async fn start(
         noop().into_sender(),
         noop().into_multi_sender(),
         noop().into_multi_sender(),
+        noop().into_sender(),
         genesis_id,
     )
     .unwrap();

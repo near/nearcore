@@ -6,6 +6,7 @@ use futures::{StreamExt, TryStreamExt};
 use itertools::any;
 use near_async::futures::{FutureSpawner, respawn_for_parallelism};
 use near_async::messaging::AsyncSender;
+use near_async::time::Duration;
 use near_chain::BlockHeader;
 use near_chain::types::RuntimeAdapter;
 use near_client_primitives::types::ShardSyncStatus;
@@ -70,6 +71,7 @@ pub(super) async fn run_state_sync_for_shard(
     cancel: CancellationToken,
     future_spawner: Arc<dyn FutureSpawner>,
     concurrency_limit: u8,
+    min_delay_before_reattempt: Duration,
 ) -> Result<(), near_chain::Error> {
     tracing::info!("Running state sync for shard {}", shard_id);
     *status.lock() = ShardSyncStatus::StateDownloadHeader;
@@ -129,6 +131,14 @@ pub(super) async fn run_state_sync_for_shard(
                 res.as_ref().err().map(|_| parts_to_download[task_index])
             })
             .collect();
+        // Wait before retrying the failed parts
+        if !parts_to_download.is_empty() {
+            let deadline = downloader.clock.now() + min_delay_before_reattempt;
+            tokio::select! {
+                _ = downloader.clock.sleep_until(deadline) => {}
+                _ = cancel.cancelled() => {}
+            }
+        }
     }
 
     return_if_cancelled!(cancel);

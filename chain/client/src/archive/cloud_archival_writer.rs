@@ -7,12 +7,12 @@ use futures::FutureExt;
 use near_async::futures::FutureSpawner;
 use near_async::time::Clock;
 use near_chain::types::{RuntimeAdapter, Tip};
-use near_chain_configs::{CloudArchivalWriterConfig, CloudArchivalWriterHandle};
+use near_chain_configs::{CloudArchivalWriterConfig, InterruptHandle};
 use near_primitives::types::BlockHeight;
 use near_store::adapter::StoreAdapter;
 use near_store::archive::cloud_storage::CloudStorage;
-use near_store::archive::cloud_storage::retrieve::CloudRetrievalError;
-use near_store::archive::cloud_storage::update::CloudArchivingError;
+use near_store::archive::cloud_storage::download::CloudRetrievalError;
+use near_store::archive::cloud_storage::upload::CloudArchivingError;
 use near_store::db::{CLOUD_HEAD_KEY, DBTransaction};
 use near_store::{DBCol, FINAL_HEAD_KEY, Store};
 use time::Duration;
@@ -79,6 +79,16 @@ impl From<CloudArchivingError> for CloudArchivalInitializationError {
 impl From<CloudRetrievalError> for CloudArchivalInitializationError {
     fn from(error: CloudRetrievalError) -> Self {
         CloudArchivalInitializationError::RetrievalError { error }
+    }
+}
+
+/// A handle that allows the main process to interrupt cloud archival writer if needed.
+#[derive(Clone)]
+pub struct CloudArchivalWriterHandle(pub InterruptHandle);
+
+impl CloudArchivalWriterHandle {
+    pub fn new() -> Self {
+        Self(InterruptHandle::new())
     }
 }
 

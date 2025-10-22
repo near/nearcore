@@ -4,7 +4,6 @@ use near_async::messaging::{CanSendAsync, IntoMultiSender, IntoSender, LateBound
 use near_async::time::{self, Clock};
 use near_async::tokio::TokioRuntimeHandle;
 use near_chain::rayon_spawner::RayonAsyncComputationSpawner;
-use near_chain::spice_core::CoreStatementsProcessor;
 use near_chain::types::RuntimeAdapter;
 use near_chain::{Chain, ChainGenesis, ChainStore};
 use near_chain_configs::test_utils::TestClientConfigParams;
@@ -33,7 +32,6 @@ use near_primitives::genesis::GenesisId;
 use near_primitives::network::PeerId;
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::types::{AccountId, ValidatorId};
-use near_store::adapter::StoreAdapter as _;
 use near_store::genesis::initialize_genesis_state;
 use near_store::test_utils::create_in_memory_rpc_node_storage;
 use near_telemetry::{TelemetryActor, TelemetryConfig};
@@ -89,8 +87,7 @@ fn setup_network_node(
         min_block_prod_time: 100,
         max_block_prod_time: 200,
         num_block_producer_seats: num_validators,
-        split_store_enabled: config.archive,
-        cloud_storage_enabled: false,
+        archive: config.archive,
         state_sync_enabled: true,
     });
     client_config.ttl_account_id_router = config.ttl_account_id_router.try_into().unwrap();
@@ -111,10 +108,6 @@ fn setup_network_node(
     let network_adapter = LateBoundSender::new();
     let shards_manager_adapter = LateBoundSender::new();
     let adv = near_client::adversarial::Controls::default();
-    let spice_core_processor = CoreStatementsProcessor::new_with_noop_senders(
-        runtime.store().chain_store(),
-        epoch_manager.clone(),
-    );
     let StartClientResult { client_actor, tx_pool, chunk_endorsement_tracker, .. } = start_client(
         Clock::real(),
         actor_system.clone(),
@@ -124,7 +117,7 @@ fn setup_network_node(
         shard_tracker.clone(),
         runtime.clone(),
         config.node_id(),
-        actor_system.new_future_spawner().into(),
+        actor_system.new_future_spawner("state sync").into(),
         network_adapter.as_multi_sender(),
         shards_manager_adapter.as_sender(),
         validator_signer.clone(),
@@ -138,10 +131,10 @@ fn setup_network_node(
         None,
         noop().into_multi_sender(),
         SpiceClientConfig {
-            core_processor: spice_core_processor.clone(),
             chunk_executor_sender: noop().into_sender(),
             spice_chunk_validator_sender: noop().into_sender(),
             spice_data_distributor_sender: noop().into_sender(),
+            spice_core_writer_sender: noop().into_sender(),
         },
     );
     let view_client_addr = ViewClientActorInner::spawn_multithread_actor(
@@ -180,7 +173,6 @@ fn setup_network_node(
         validator_signer.clone(),
         runtime.clone(),
         network_adapter.as_multi_sender(),
-        spice_core_processor,
     );
     let shards_manager_actor = start_shards_manager(
         actor_system.clone(),
@@ -233,6 +225,7 @@ fn setup_network_node(
         shards_manager_adapter.as_sender(),
         partial_witness_actor.into_multi_sender(),
         noop().into_multi_sender(),
+        noop().into_sender(),
         genesis_id,
     )
     .unwrap();
