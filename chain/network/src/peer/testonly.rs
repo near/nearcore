@@ -93,7 +93,7 @@ impl PeerHandle {
         });
         let network_state = Arc::new(NetworkState::new(
             &clock,
-            &*actor_system.new_future_spawner(),
+            &*actor_system.new_future_spawner("network demux"),
             store,
             peer_store::PeerStore::new(&clock, network_cfg.peer_store.clone()).unwrap(),
             network_cfg.verify().unwrap(),
@@ -105,6 +105,7 @@ impl PeerHandle {
             noop().into_multi_sender(),
             vec![],
             noop().into_multi_sender(),
+            noop().into_sender(),
         ));
         let actor = AutoStopActor(
             PeerActor::spawn(clock, actor_system, stream, cfg.force_encoding, network_state)

@@ -24,7 +24,7 @@ use near_vm_runner::ContractCode;
 use crate::setup::builder::TestLoopBuilder;
 use crate::setup::env::TestLoopEnv;
 use crate::utils::account::{
-    create_account_ids, create_validators_spec, rpc_account_id, validators_spec_clients_with_rpc,
+    create_account_ids, create_validators_spec, validators_spec_clients_with_rpc,
 };
 use crate::utils::node::TestLoopNode;
 use crate::utils::transactions;
@@ -493,13 +493,13 @@ impl GlobalContractsTestEnv {
     }
 
     fn execute_tx(&mut self, tx: SignedTransaction) -> FinalExecutionOutcomeView {
-        TestLoopNode::for_account(&self.env.node_datas, &rpc_account_id())
+        TestLoopNode::rpc(&self.env.node_datas)
             .execute_tx(&mut self.env.test_loop, tx, Duration::seconds(5))
             .unwrap()
     }
 
     fn run_tx(&mut self, tx: SignedTransaction) {
-        TestLoopNode::for_account(&self.env.node_datas, &rpc_account_id()).run_tx(
+        TestLoopNode::rpc(&self.env.node_datas).run_tx(
             &mut self.env.test_loop,
             tx,
             Duration::seconds(5),
@@ -521,7 +521,7 @@ impl GlobalContractsTestEnv {
     }
 
     fn runtime_query(&self, account_id: &AccountId, query: QueryRequest) -> QueryResponse {
-        TestLoopNode::for_account(&self.env.node_datas, &rpc_account_id()).runtime_query(
+        TestLoopNode::rpc(&self.env.node_datas).runtime_query(
             self.env.test_loop_data(),
             account_id,
             query,

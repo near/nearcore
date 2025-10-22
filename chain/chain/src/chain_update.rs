@@ -2,7 +2,7 @@ use crate::approval_verification::verify_approvals_and_threshold_orphan;
 use crate::block_processing_utils::BlockPreprocessInfo;
 use crate::chain::collect_receipts_from_response;
 use crate::metrics::{SHARD_LAYOUT_NUM_SHARDS, SHARD_LAYOUT_VERSION};
-use crate::spice_core::CoreStatementsProcessor;
+use crate::spice_core::record_uncertified_chunks_for_block;
 use crate::store::utils::get_block_header_on_chain_by_height;
 use crate::store::{ChainStore, ChainStoreAccess, ChainStoreUpdate};
 use crate::types::{
@@ -41,7 +41,6 @@ pub struct ChainUpdate<'a> {
     runtime_adapter: Arc<dyn RuntimeAdapter>,
     chain_store_update: ChainStoreUpdate<'a>,
     doomslug_threshold_mode: DoomslugThresholdMode,
-    spice_core_processor: CoreStatementsProcessor,
 }
 
 impl<'a> ChainUpdate<'a> {
@@ -50,16 +49,9 @@ impl<'a> ChainUpdate<'a> {
         epoch_manager: Arc<dyn EpochManagerAdapter>,
         runtime_adapter: Arc<dyn RuntimeAdapter>,
         doomslug_threshold_mode: DoomslugThresholdMode,
-        spice_core_processor: CoreStatementsProcessor,
     ) -> Self {
         let chain_store_update: ChainStoreUpdate<'_> = chain_store.store_update();
-        Self::new_impl(
-            epoch_manager,
-            runtime_adapter,
-            doomslug_threshold_mode,
-            chain_store_update,
-            spice_core_processor,
-        )
+        Self::new_impl(epoch_manager, runtime_adapter, doomslug_threshold_mode, chain_store_update)
     }
 
     fn new_impl(
@@ -67,15 +59,8 @@ impl<'a> ChainUpdate<'a> {
         runtime_adapter: Arc<dyn RuntimeAdapter>,
         doomslug_threshold_mode: DoomslugThresholdMode,
         chain_store_update: ChainStoreUpdate<'a>,
-        spice_core_processor: CoreStatementsProcessor,
     ) -> Self {
-        ChainUpdate {
-            epoch_manager,
-            runtime_adapter,
-            chain_store_update,
-            doomslug_threshold_mode,
-            spice_core_processor,
-        }
+        ChainUpdate { epoch_manager, runtime_adapter, chain_store_update, doomslug_threshold_mode }
     }
 
     pub fn check_protocol_version(
@@ -318,7 +303,11 @@ impl<'a> ChainUpdate<'a> {
         self.chain_store_update.inc_block_refcount(prev_hash)?;
 
         if cfg!(feature = "protocol_feature_spice") {
-            self.chain_store_update.merge(self.spice_core_processor.record_block(&block)?);
+            record_uncertified_chunks_for_block(
+                &mut self.chain_store_update,
+                self.epoch_manager.as_ref(),
+                &block,
+            )?;
         }
 
         // Update the chain head if it's the new tip
@@ -675,5 +664,32 @@ impl<'a> ChainUpdate<'a> {
             new_chunk_extra.into(),
         );
         Ok(true)
+    }
+
+    /// Updates spice final execution head based on last executed block and returns new spice final
+    /// execution head.
+    pub fn update_spice_final_execution_head(
+        &mut self,
+        block: &Block,
+    ) -> Result<Option<Arc<Tip>>, Error> {
+        let mut final_execution_head = match self.chain_store_update.spice_final_execution_head() {
+            Ok(head) => Some(head),
+            Err(Error::DBNotFoundErr(_)) => None,
+            Err(err) => return Err(err),
+        };
+        if block.header().last_final_block() == &CryptoHash::default() {
+            return Ok(final_execution_head);
+        }
+        let last_final_block_header =
+            self.chain_store_update.get_block_header(block.header().last_final_block()).unwrap();
+
+        if final_execution_head.is_none()
+            || final_execution_head.as_ref().unwrap().height < last_final_block_header.height()
+        {
+            let tip = Arc::new(Tip::from_header(&last_final_block_header));
+            self.chain_store_update.save_spice_final_execution_head(&tip)?;
+            final_execution_head = Some(tip);
+        }
+        Ok(final_execution_head)
     }
 }

@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use futures::StreamExt;
-use near_async::messaging::{AsyncSender, IntoMultiSender, SendAsync};
+use near_async::messaging::{AsyncSender, CanSendAsync, IntoMultiSender};
 use near_chain_configs::ProtocolConfigView;
 use near_client::{
     GetBlock, GetChunk, GetExecutionOutcomesForBlock, GetProtocolConfig, GetReceipt,

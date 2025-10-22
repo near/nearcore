@@ -10,9 +10,7 @@ use axum::response::{Html, IntoResponse, Response};
 use axum::routing::{get, post};
 use near_async::futures::{FutureSpawner, FutureSpawnerExt};
 use near_async::instrumentation::all_actor_instrumentations_view;
-use near_async::messaging::{
-    AsyncSendError, AsyncSender, CanSend, MessageWithCallback, SendAsync, Sender,
-};
+use near_async::messaging::{AsyncSendError, AsyncSender, CanSend, CanSendAsync, Sender};
 use near_async::time::Clock;
 use near_chain_configs::{ClientConfig, GenesisConfig, ProtocolConfigView};
 use near_client::{
@@ -527,7 +525,7 @@ impl JsonRpcHandler {
 
     async fn client_send<M, R, F, E>(&self, msg: M) -> Result<R, E>
     where
-        ClientSenderForRpc: CanSend<MessageWithCallback<M, Result<R, F>>>,
+        ClientSenderForRpc: CanSendAsync<M, Result<R, F>>,
         R: Send + 'static,
         F: Send + 'static,
         E: RpcFrom<F> + RpcFrom<AsyncSendError>,
@@ -541,7 +539,7 @@ impl JsonRpcHandler {
 
     async fn view_client_send<M, T, E, F>(&self, msg: M) -> Result<T, E>
     where
-        ViewClientSenderForRpc: CanSend<MessageWithCallback<M, Result<T, F>>>,
+        ViewClientSenderForRpc: CanSendAsync<M, Result<T, F>>,
         T: Send + 'static,
         E: RpcFrom<AsyncSendError> + RpcFrom<F>,
         F: Send + 'static,
@@ -555,7 +553,7 @@ impl JsonRpcHandler {
 
     async fn peer_manager_send<M, T, E>(&self, msg: M) -> Result<T, E>
     where
-        PeerManagerSenderForRpc: CanSend<MessageWithCallback<M, T>>,
+        PeerManagerSenderForRpc: CanSendAsync<M, T>,
         T: Send + 'static,
         E: RpcFrom<AsyncSendError> + Send + 'static,
     {
@@ -1775,7 +1773,7 @@ pub fn create_jsonrpc_app(
 /// Prometheus metrics (i.e. covering the `/metrics` path).
 ///
 /// Starts HTTP server(s) listening for RPC requests using the provided future spawner.
-pub fn start_http(
+pub async fn start_http(
     config: RpcConfig,
     genesis_config: GenesisConfig,
     client_sender: ClientSenderForRpc,
@@ -1804,10 +1802,13 @@ pub fn start_http(
         entity_debug_handler,
     );
 
-    // Start main server
+    // Bind to socket here, so callers can be sure they can connect once this function returns.
+    // Otherwise, the future_spawner may schedule the server start later, and clients may fail
+    // to connect especially in tests.
     let socket_addr: SocketAddr = addr.to_string().parse().unwrap();
+    let listener = tokio::net::TcpListener::bind(&socket_addr).await.unwrap();
+    // Start main server
     future_spawner.spawn("JSON RPC", async move {
-        let listener = tokio::net::TcpListener::bind(&socket_addr).await.unwrap();
         if let Err(e) = axum::serve(listener, app).await {
             error!(target:"network", "HTTP server error: {:?}", e);
         }
@@ -1821,9 +1822,13 @@ pub fn start_http(
             .route("/metrics", get(prometheus_handler))
             .layer(get_cors(&cors_allowed_origins));
 
+        // Bind to socket here, so callers can be sure they can connect once this function returns.
+        // Otherwise, the future_spawner may schedule the server start later, and clients may fail
+        // to connect especially in tests.
         let socket_addr: SocketAddr = prometheus_addr.parse().unwrap();
+        let listener = tokio::net::TcpListener::bind(&socket_addr).await.unwrap();
+        // Start Prometheus server
         future_spawner.spawn("Prometheus Metrics", async move {
-            let listener = tokio::net::TcpListener::bind(&socket_addr).await.unwrap();
             if let Err(e) = axum::serve(listener, prometheus_app).await {
                 error!(target:"network", "Prometheus server error: {:?}", e);
             }

@@ -5,8 +5,6 @@ use axum_test::TestServer;
 use near_async::ActorSystem;
 use near_async::messaging::{IntoMultiSender, IntoSender, noop};
 use near_chain::ChainGenesis;
-use near_chain::spice_core::CoreStatementsProcessor;
-use near_chain::types::RuntimeAdapter as _;
 use near_chain_configs::test_utils::TestClientConfigParams;
 use near_chain_configs::{ClientConfig, Genesis, MutableConfigValue, TrackedShardsConfig};
 use near_client::adversarial::Controls;
@@ -21,7 +19,6 @@ use near_primitives::epoch_info::RngSeed;
 use near_primitives::network::PeerId;
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::types::{AccountId, NumSeats};
-use near_store::adapter::StoreAdapter as _;
 use near_store::genesis::initialize_genesis_state;
 use near_store::test_utils::create_test_store;
 use near_time::Clock;
@@ -119,8 +116,7 @@ pub fn create_test_setup_with_accounts_and_validity(
         min_block_prod_time: 100,
         max_block_prod_time: 200,
         num_block_producer_seats: num_validator_seats,
-        split_store_enabled: false,
-        cloud_storage_enabled: false,
+        archive: false,
         state_sync_enabled: true,
     });
 
@@ -140,10 +136,6 @@ pub fn create_test_setup_with_accounts_and_validity(
     );
 
     // 7. Create ClientActor
-    let spice_core_processor = CoreStatementsProcessor::new_with_noop_senders(
-        runtime.store().chain_store(),
-        epoch_manager.clone(),
-    );
     let client_result = start_client(
         Clock::real(),
         actor_system.clone(),
@@ -153,7 +145,7 @@ pub fn create_test_setup_with_accounts_and_validity(
         shard_tracker.clone(),
         runtime.clone(),
         PeerId::new(PublicKey::empty(KeyType::ED25519)),
-        actor_system.new_future_spawner().into(),
+        actor_system.new_future_spawner("state sync").into(),
         noop().into_multi_sender(),
         noop().into_sender(),
         signer.clone(),
@@ -167,10 +159,10 @@ pub fn create_test_setup_with_accounts_and_validity(
         Some(TEST_SEED),
         noop().into_multi_sender(),
         SpiceClientConfig {
-            core_processor: spice_core_processor.clone(),
             chunk_executor_sender: noop().into_sender(),
             spice_chunk_validator_sender: noop().into_sender(),
             spice_data_distributor_sender: noop().into_sender(),
+            spice_core_writer_sender: noop().into_sender(),
         },
     );
 
@@ -192,7 +184,6 @@ pub fn create_test_setup_with_accounts_and_validity(
         signer,
         runtime,
         noop().into_multi_sender(),
-        spice_core_processor,
     );
 
     // 9. Create Axum Router

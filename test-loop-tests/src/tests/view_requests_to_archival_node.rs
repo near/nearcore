@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
 use itertools::Itertools;
-use near_async::messaging::{Handler, Message};
+use near_async::messaging::Handler;
 use near_async::test_loop::TestLoopV2;
 use near_async::test_loop::data::TestLoopDataHandle;
 use near_async::time::Duration;
@@ -77,7 +77,7 @@ fn slow_test_view_requests_to_archival_node() {
         .genesis(genesis)
         .epoch_config_store(epoch_config_store)
         .clients(all_clients)
-        .split_store_archival_clients(archival_clients)
+        .cold_storage_archival_clients(archival_clients)
         .gc_num_epochs_to_keep(GC_NUM_EPOCHS_TO_KEEP)
         .build()
         .warmup();
@@ -140,7 +140,7 @@ impl<'a> ViewClientTester<'a> {
     /// Sends a message to the `[ViewClientActorInner]` for the client at position `idx`.
     fn send<M, R>(&mut self, request: M, idx: usize) -> R
     where
-        M: Message,
+        M: Send + 'static,
         R: Send,
         ViewClientActorInner: Handler<M, R>,
     {

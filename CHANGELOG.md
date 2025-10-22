@@ -21,7 +21,8 @@
 * Gas optimization: Calls to the existing host functions `input` and `promise_result` no longer charge gas per byte (`wasm_write_memory_byte`), thanks to an optimization that eliminates unnecessary data copying. [#14405](https://github.com/near/nearcore/pull/14405)
 
 ### Non-protocol Changes
-**No Changes**
+
+* Indexer changes, including breaking changes in the API. See the [indexer changelog](https://github.com/near/nearcore/blob/master/chain/indexer/CHANGELOG.md) for details.
 
 ## [2.9.0]
 

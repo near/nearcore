@@ -1,8 +1,9 @@
 use near_primitives::types::BlockHeight;
 
 use crate::Store;
+use crate::archive::cloud_storage::CloudStorage;
 use crate::archive::cloud_storage::block_data::build_block_data;
-use crate::archive::cloud_storage::{CloudStorage, CloudStorageFileID};
+use crate::archive::cloud_storage::file_id::CloudStorageFileID;
 
 /// Error surfaced while archiving data or performing sanity checks.
 #[derive(thiserror::Error, Debug)]
@@ -37,17 +38,17 @@ impl CloudStorage {
         let block_data = build_block_data(hot_store, block_height)?;
         let file_id = CloudStorageFileID::Block(block_height);
         let blob = borsh::to_vec(&block_data)?;
-        self.put(file_id, blob).await
+        self.upload(file_id, blob).await
     }
 
     /// Persists the cloud head to external storage.
     pub async fn update_cloud_head(&self, head: BlockHeight) -> Result<(), CloudArchivingError> {
-        self.put(CloudStorageFileID::Head, borsh::to_vec(&head)?).await
+        self.upload(CloudStorageFileID::Head, borsh::to_vec(&head)?).await
     }
 
     /// Uploads the given value to the external cloud storage under the specified
     /// `file_id`.
-    async fn put(
+    async fn upload(
         &self,
         file_id: CloudStorageFileID,
         value: Vec<u8>,
