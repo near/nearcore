@@ -469,7 +469,7 @@ pub async fn start_with_config_and_synchronization_impl(
 
     let cloud_archival_writer_handle = create_cloud_archival_writer(
         Clock::real(),
-        actor_system.new_future_spawner().into(),
+        actor_system.new_future_spawner("cloud archival").into(),
         config.config.cloud_archival_writer,
         config.genesis.config.genesis_height,
         runtime.clone(),
@@ -579,7 +579,8 @@ pub async fn start_with_config_and_synchronization_impl(
         config.client_config.resharding_config.clone(),
     ));
 
-    let state_sync_spawner: Arc<dyn FutureSpawner> = actor_system.new_future_spawner().into();
+    let state_sync_spawner: Arc<dyn FutureSpawner> =
+        actor_system.new_future_spawner("state sync").into();
 
     let chunk_executor_adapter = LateBoundSender::new();
     let spice_chunk_validator_adapter = LateBoundSender::new();
@@ -734,7 +735,7 @@ pub async fn start_with_config_and_synchronization_impl(
             #[cfg(feature = "test_features")]
             _gc_actor.into_multi_sender(),
             Arc::new(entity_debug_handler),
-            actor_system.new_future_spawner().as_ref(),
+            actor_system.new_future_spawner("jsonrpc").as_ref(),
         )
         .await;
     }
@@ -748,7 +749,7 @@ pub async fn start_with_config_and_synchronization_impl(
             client_actor.clone(),
             view_client_addr.clone(),
             rpc_handler.clone(),
-            actor_system.new_future_spawner().as_ref(),
+            actor_system.new_future_spawner("rosetta rpc").as_ref(),
         );
     }
 
@@ -760,6 +761,11 @@ pub async fn start_with_config_and_synchronization_impl(
         config.tx_generator.unwrap_or_default(),
         rpc_handler.clone().into_multi_sender(),
         view_client_addr.clone().into_multi_sender(),
+    );
+
+    #[cfg(feature = "actor_instrumentation_testing")]
+    near_async::instrumentation::testing::spawn_actors_for_testing_instrumentation(
+        actor_system.clone(),
     );
 
     // To avoid a clippy warning for redundant clones, due to the conditional feature tx_generator.
