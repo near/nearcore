@@ -4011,6 +4011,7 @@ dependencies = [
  "crossbeam-channel",
  "futures",
  "near-async-derive",
+ "near-o11y",
  "near-time",
  "parking_lot 0.12.1",
  "rand 0.8.5",

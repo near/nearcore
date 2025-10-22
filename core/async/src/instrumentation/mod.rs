@@ -4,6 +4,7 @@ use crate::instrumentation::{data::ALL_ACTOR_INSTRUMENTATIONS, reader::Instrumen
 
 pub(crate) mod data;
 mod instrumented_window;
+mod metrics;
 pub mod queue;
 pub mod reader;
 #[cfg(test)]

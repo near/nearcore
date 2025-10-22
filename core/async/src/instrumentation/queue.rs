@@ -5,14 +5,21 @@ use std::sync::atomic::AtomicU64;
 
 use parking_lot::RwLock;
 
+use crate::instrumentation::metrics::QUEUE_PENDING_MESSAGES;
+use near_o11y::metrics::prometheus;
+
 /// InstrumentedQueue keeps track of the number of pending messages of each type in the queue.
 pub struct InstrumentedQueue {
     pending: RwLock<HashMap<String, AtomicU64>>,
+    pending_messages_gauge: prometheus::core::GenericGauge<prometheus::core::AtomicI64>,
 }
 
 impl InstrumentedQueue {
-    pub fn new(_queue_name: &str) -> Arc<Self> {
-        let queue = Arc::new(Self { pending: RwLock::new(HashMap::new()) });
+    pub fn new(queue_name: &str) -> Arc<Self> {
+        let queue = Arc::new(Self {
+            pending: RwLock::new(HashMap::new()),
+            pending_messages_gauge: QUEUE_PENDING_MESSAGES.with_label_values(&[queue_name]),
+        });
         queue
     }
 
@@ -22,6 +29,7 @@ impl InstrumentedQueue {
             let pending = self.pending.read();
             if let Some(counter) = pending.get(message_type) {
                 counter.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                self.pending_messages_gauge.inc();
                 return;
             }
         }
@@ -29,12 +37,14 @@ impl InstrumentedQueue {
         let mut pending = self.pending.write();
         let counter = pending.entry(message_type.to_string()).or_insert_with(|| AtomicU64::new(0));
         counter.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        self.pending_messages_gauge.inc();
     }
 
     pub fn dequeue(&self, message_type: &str) {
         let pending = self.pending.read();
         if let Some(counter) = pending.get(message_type) {
             counter.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
+            self.pending_messages_gauge.dec();
         }
     }
 
