@@ -969,6 +969,7 @@ mod tests {
     use near_epoch_manager::test_utils::*;
     use near_network::test_utils::peer_id_from_seed;
     use near_store::genesis::initialize_genesis_state;
+    use num_rational::Rational32;
 
     #[test]
     fn test_pretty_number() {
@@ -1091,6 +1092,7 @@ mod tests {
             90,
             0,
             default_reward_calculator(),
+            Rational32::new(0, 1),
         )
         .into_handle();
 
