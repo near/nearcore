@@ -1734,7 +1734,7 @@ pub fn create_jsonrpc_app(
 /// Prometheus metrics (i.e. covering the `/metrics` path).
 ///
 /// Starts HTTP server(s) listening for RPC requests using the provided future spawner.
-pub fn start_http(
+pub async fn start_http(
     config: RpcConfig,
     genesis_config: GenesisConfig,
     client_sender: ClientSenderForRpc,
@@ -1763,10 +1763,13 @@ pub fn start_http(
         entity_debug_handler,
     );
 
-    // Start main server
+    // Bind to socket here, so callers can be sure they can connect once this function returns.
+    // Otherwise, the future_spawner may schedule the server start later, and clients may fail
+    // to connect especially in tests.
     let socket_addr: SocketAddr = addr.to_string().parse().unwrap();
+    let listener = tokio::net::TcpListener::bind(&socket_addr).await.unwrap();
+    // Start main server
     future_spawner.spawn("JSON RPC", async move {
-        let listener = tokio::net::TcpListener::bind(&socket_addr).await.unwrap();
         if let Err(e) = axum::serve(listener, app).await {
             error!(target:"network", "HTTP server error: {:?}", e);
         }
@@ -1780,9 +1783,13 @@ pub fn start_http(
             .route("/metrics", get(prometheus_handler))
             .layer(get_cors(&cors_allowed_origins));
 
+        // Bind to socket here, so callers can be sure they can connect once this function returns.
+        // Otherwise, the future_spawner may schedule the server start later, and clients may fail
+        // to connect especially in tests.
         let socket_addr: SocketAddr = prometheus_addr.parse().unwrap();
+        let listener = tokio::net::TcpListener::bind(&socket_addr).await.unwrap();
+        // Start Prometheus server
         future_spawner.spawn("Prometheus Metrics", async move {
-            let listener = tokio::net::TcpListener::bind(&socket_addr).await.unwrap();
             if let Err(e) = axum::serve(listener, prometheus_app).await {
                 error!(target:"network", "Prometheus server error: {:?}", e);
             }

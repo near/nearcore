@@ -44,6 +44,12 @@ fn create_thread_nodes_rpc() -> Vec<ThreadNode> {
 /// Macro for running testnet tests using ThreadNode and RPCUser.
 macro_rules! run_testnet_test {
     ($f:expr) => {
+        let rt = tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(1)
+            .enable_all()
+            .build()
+            .expect("Failed to create Tokio runtime");
+        let _guard = rt.enter();
         let mut nodes = create_thread_nodes_rpc();
         let node = nodes.remove(0);
         $f(node);
