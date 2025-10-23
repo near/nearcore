@@ -6,10 +6,10 @@ use near_primitives_core::types::{NonceIndex, ShardId};
 use near_schema_checker_lib::ProtocolSchema;
 use std::mem::size_of;
 
-pub(crate) const ACCOUNT_DATA_SEPARATOR: u8 = b',';
+pub const ACCOUNT_DATA_SEPARATOR: u8 = b',';
 // The use of `ACCESS_KEY` as a separator is a historical artefact.
 // Changing it would require a very long DB migration for basically no benefits.
-pub(crate) const ACCESS_KEY_SEPARATOR: u8 = col::ACCESS_KEY;
+pub const ACCESS_KEY_SEPARATOR: u8 = col::ACCESS_KEY;
 
 /// Type identifiers used for DB key generation to store values in the key-value storage.
 pub mod col {
