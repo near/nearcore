@@ -28,6 +28,13 @@ world test {
     export write-one-megabyte: func();
     export read-n-megabytes: func();
     export read-value: func();
+    export log-something: func();
+    export loop-forever: func();
+    export panic-with-message: func();
+    export panic-after-logging: func();
+    export run-test: func();
+    export run-test-with-storage-change: func();
+    export sum-with-input: func();
     export out-of-memory: func();
     export sanity-check: func();
 }",
@@ -233,6 +240,50 @@ impl Guest for Component {
             let value = read_register(1);
             value_return(ValueOrRegister::Value(&value));
         }
+    }
+
+    fn log_something() {
+        log("hello");
+    }
+
+    fn loop_forever() {
+        loop {}
+    }
+
+    fn panic_with_message() {
+        panic(Some("WAT?"));
+    }
+
+    fn panic_after_logging() {
+        log("hello");
+        panic(Some("WAT?"));
+    }
+
+    fn run_test() {
+        value_return(ValueOrRegister::Value(&10i32.to_le_bytes()));
+    }
+
+    fn run_test_with_storage_change() {
+        let key = b"hello";
+        let value = b"world";
+        storage_write(ValueOrRegister::Value(key), ValueOrRegister::Value(value), 0);
+    }
+
+    fn sum_with_input() {
+        input(0);
+        if register_len(0) != Some(2 * size_of::<u64>() as u64) {
+            panic(None)
+        }
+        let data = read_register(0);
+
+        let mut key = [0u8; size_of::<u64>()];
+        let mut value = [0u8; size_of::<u64>()];
+        key.copy_from_slice(&data[..size_of::<u64>()]);
+        value.copy_from_slice(&data[size_of::<u64>()..]);
+        let key = u64::from_le_bytes(key);
+        let value = u64::from_le_bytes(value);
+        let result = key + value;
+        value_return(ValueOrRegister::Value(&result.to_le_bytes()));
     }
 
     fn out_of_memory() {
