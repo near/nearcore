@@ -40,11 +40,23 @@ world test {
 
 use bindings::near::nearcore::runtime::*;
 use bindings::Guest;
+use core::array;
+
+impl From<u128> for U128 {
+    fn from(value: u128) -> Self {
+        Self { lo: value as _, hi: (value >> 64) as _ }
+    }
+}
 
 impl From<U128> for u128 {
     fn from(U128 { lo, hi }: U128) -> Self {
         (u128::from(hi) << 64) | u128::from(lo)
     }
+}
+
+pub fn from_base64(s: &str) -> Vec<u8> {
+    let engine = &base64::engine::general_purpose::STANDARD;
+    base64::Engine::decode(engine, s).unwrap()
 }
 
 pub struct Component;
@@ -232,6 +244,15 @@ impl Guest for Component {
 
     /// Calls all host functions, either directly or via callback.
     fn sanity_check() {
+        fn insert_account_id_prefix(
+            prefix: &str,
+            account_id: Vec<u8>,
+        ) -> Result<Vec<u8>, std::string::FromUtf8Error> {
+            let mut id = String::from_utf8(account_id)?;
+            id.insert_str(0, prefix);
+            Ok(id.as_bytes().to_vec())
+        }
+
         // #############
         // # Registers #
         // #############
@@ -243,10 +264,10 @@ impl Guest for Component {
         // # Context API #
         // ###############
         current_account_id(1);
-        let _account_id = read_register(1);
+        let account_id = read_register(1);
 
         signer_account_pk(1);
-        let _account_public_key = read_register(1);
+        let account_public_key = read_register(1);
 
         signer_account_id(1);
         predecessor_account_id(1);
@@ -262,7 +283,7 @@ impl Guest for Component {
         // #################
         let _balance = account_balance();
         let _balance = attached_deposit();
-        let _available_gas = prepaid_gas() - used_gas();
+        let available_gas = prepaid_gas() - used_gas();
 
         // ############
         // # Math API #
@@ -276,9 +297,125 @@ impl Guest for Component {
         // #####################
         value_return(ValueOrRegister::Value(value.as_bytes()));
 
+        // Calling host functions that terminate execution via promises.
+        let method_name_panic = b"sanity_check_panic";
+        let args_panic = b"";
+        let gas_per_promise = available_gas / 50;
+        let promise = Promise::new(ValueOrRegister::Value(&account_id));
+        promise.function_call(
+            ValueOrRegister::Value(method_name_panic),
+            ValueOrRegister::Value(args_panic),
+            0u128.into(),
+            gas_per_promise,
+            0,
+        );
+
         log(value);
 
-        // TODO: Add support for promises
+        // ################
+        // # Promises API #
+        // ################
+        let method_name_noop = b"noop";
+        let args_noop = b"";
+        let promise = Promise::new(ValueOrRegister::Value(&account_id));
+        promise.function_call(
+            ValueOrRegister::Value(method_name_noop),
+            ValueOrRegister::Value(args_noop),
+            0u128.into(),
+            gas_per_promise,
+            0,
+        );
+        let promises_then: [_; 2] = array::from_fn(|_| {
+            let promise = promise.then(ValueOrRegister::Value(&account_id));
+            promise.function_call(
+                ValueOrRegister::Value(method_name_noop),
+                ValueOrRegister::Value(args_noop),
+                0u128.into(),
+                gas_per_promise,
+                0,
+            );
+            promise
+        });
+        let _and = Promise::and(&[&promises_then[0], &promises_then[1]]);
+
+        _ = promises_then[1].then(ValueOrRegister::Value(&account_id));
+
+        // #######################
+        // # Promise API actions #
+        // #######################
+        let new_account_id = insert_account_id_prefix("foo.", account_id.clone()).unwrap();
+        let amount_non_zero = 50_000_000_000_000_000_000_000u128;
+        let contract_code = from_base64(input_args["contract_code"].as_str().unwrap());
+        let method_deployed_contract = input_args["method_name"].as_str().unwrap().as_bytes();
+        let args_deployed_contract = from_base64(input_args["method_args"].as_str().unwrap());
+        let promise = Promise::new(ValueOrRegister::Value(&new_account_id));
+        promise.create_account();
+        promise.transfer(amount_non_zero.into());
+        promise.deploy_contract(ValueOrRegister::Value(&contract_code));
+        promise.deploy_global_contract(ValueOrRegister::Value(&contract_code));
+        promise.deploy_global_contract_by_account_id(ValueOrRegister::Value(&contract_code));
+        promise.function_call(
+            ValueOrRegister::Value(method_deployed_contract),
+            ValueOrRegister::Value(&args_deployed_contract),
+            0u128.into(),
+            gas_per_promise,
+            0,
+        );
+        promise.function_call(
+            ValueOrRegister::Value(method_deployed_contract),
+            ValueOrRegister::Value(&args_deployed_contract),
+            0u128.into(),
+            0,
+            1,
+        );
+        promise.add_key_with_full_access(ValueOrRegister::Value(&account_public_key), 0);
+        promise.delete_key(ValueOrRegister::Value(&account_public_key));
+        promise.add_key_with_function_call(
+            ValueOrRegister::Value(&account_public_key),
+            1,
+            0u128.into(),
+            ValueOrRegister::Value(&new_account_id),
+            ValueOrRegister::Value(method_deployed_contract),
+        );
+        promise.delete_account(ValueOrRegister::Value(&account_id));
+
+        // Create a new account as `DeleteAccountAction` fails after `StakeAction`.
+        let new_account_id = insert_account_id_prefix("bar.", account_id.clone()).unwrap();
+        let amount_stake = 30_000_000_000_000_000_000_000u128;
+        let promise = Promise::new(ValueOrRegister::Value(&new_account_id));
+        promise.create_account();
+        promise.transfer(amount_non_zero.into());
+        promise.stake(amount_stake.into(), ValueOrRegister::Value(&account_public_key));
+
+        // #######################
+        // # Promise API results #
+        // #######################
+        // Invoking `promise_results_count` and `promise_result` via a callback to
+        // ensure there is a promise whose result can be accessed.
+        let promise = Promise::new(ValueOrRegister::Value(&account_id));
+        promise.function_call(
+            ValueOrRegister::Value(method_name_noop),
+            ValueOrRegister::Value(args_noop),
+            0u128.into(),
+            gas_per_promise,
+            0,
+        );
+        let method_name_promise_results = b"sanity_check_promise_results";
+        let args_promise_results = b"";
+        let then = promise.then(ValueOrRegister::Value(&account_id));
+        promise.function_call(
+            ValueOrRegister::Value(method_name_promise_results),
+            ValueOrRegister::Value(args_promise_results),
+            0u128.into(),
+            gas_per_promise,
+            0,
+        );
+        then.return_();
+
+        // ###############
+        // # Storage API #
+        // ###############
+        // For storage funcs, cover both cases of key being unused and being used.
 
         let key = "hi";
         assert_eq!(
