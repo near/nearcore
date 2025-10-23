@@ -10,11 +10,10 @@ use crate::logic::{GasCounter, HostError, ReturnData, alt_bn128, bls12381};
 use crate::wasmtime_runner::ErrorContainer;
 use crate::wasmtime_runner::component::Ctx;
 use crate::wasmtime_runner::component::bindings::near::nearcore::{finite_wasm, runtime};
-use crate::wasmtime_runner::logic::{
-    pay_action_base, pay_action_per_byte, pay_gas_for_new_receipt,
-};
 use near_crypto::Secp256K1Signature;
-use near_parameters::{ActionCosts, ExtCosts::*, transfer_exec_fee, transfer_send_fee};
+use near_parameters::{
+    ActionCosts, ExtCosts::*, RuntimeFeesConfig, transfer_exec_fee, transfer_send_fee,
+};
 use near_primitives_core::account::AccountContract;
 use near_primitives_core::config::INLINE_DISK_VALUE_THRESHOLD;
 use near_primitives_core::gas::Gas;
@@ -36,17 +35,68 @@ impl From<runtime::U128> for u128 {
 }
 
 impl runtime::U128 {
-    fn read(self, gas_counter: &mut GasCounter) -> crate::logic::logic::Result<u128> {
-        gas_counter.pay_base(read_memory_base)?;
-        gas_counter.pay_per(read_memory_byte, 16)?;
+    fn read(self, gas_counter: &mut GasCounter) -> wasmtime::Result<u128> {
+        gas_counter.pay_base(read_memory_base).map_err(ErrorContainer::new)?;
+        gas_counter.pay_per(read_memory_byte, 16).map_err(ErrorContainer::new)?;
         Ok(u128::from(self))
     }
 
-    fn write(v: u128, gas_counter: &mut GasCounter) -> crate::logic::logic::Result<Self> {
-        gas_counter.pay_base(write_memory_base)?;
-        gas_counter.pay_per(write_memory_byte, 16)?;
+    fn write(v: u128, gas_counter: &mut GasCounter) -> wasmtime::Result<Self> {
+        gas_counter.pay_base(write_memory_base).map_err(ErrorContainer::new)?;
+        gas_counter.pay_per(write_memory_byte, 16).map_err(ErrorContainer::new)?;
         Ok(Self::from(v))
     }
+}
+
+fn get_public_key(public_key: &[u8]) -> wasmtime::Result<near_crypto::PublicKey> {
+    let public_key = PublicKeyBuffer::new(public_key).decode().map_err(ErrorContainer::new)?;
+    Ok(public_key)
+}
+
+/// A helper function to pay base cost gas fee for batching an action.
+fn pay_action_base(
+    gas_counter: &mut GasCounter,
+    fees_config: &RuntimeFeesConfig,
+    action: ActionCosts,
+    sir: bool,
+) -> wasmtime::Result<()> {
+    let base_fee = fees_config.fee(action);
+    let burn_gas = base_fee.send_fee(sir);
+    let use_gas = burn_gas
+        .checked_add(base_fee.exec_fee())
+        .ok_or(HostError::IntegerOverflow)
+        .map_err(ErrorContainer::new)?;
+    gas_counter.pay_action_accumulated(burn_gas, use_gas, action).map_err(ErrorContainer::new)?;
+    Ok(())
+}
+
+/// A helper function to pay per byte gas fee for batching an action.
+fn pay_action_per_byte(
+    gas_counter: &mut GasCounter,
+    fees_config: &RuntimeFeesConfig,
+    action: ActionCosts,
+    num_bytes: u64,
+    sir: bool,
+) -> wasmtime::Result<()> {
+    let per_byte_fee = fees_config.fee(action);
+    let burn_gas = per_byte_fee
+        .send_fee(sir)
+        .checked_mul(num_bytes)
+        .ok_or(HostError::IntegerOverflow)
+        .map_err(ErrorContainer::new)?;
+
+    let use_gas = burn_gas
+        .checked_add(
+            per_byte_fee
+                .exec_fee()
+                .checked_mul(num_bytes)
+                .ok_or(HostError::IntegerOverflow)
+                .map_err(ErrorContainer::new)?,
+        )
+        .ok_or(HostError::IntegerOverflow)
+        .map_err(ErrorContainer::new)?;
+    gas_counter.pay_action_accumulated(burn_gas, use_gas, action).map_err(ErrorContainer::new)?;
+    Ok(())
 }
 
 impl runtime::ValueOrRegister {
@@ -54,16 +104,65 @@ impl runtime::ValueOrRegister {
         &'a self,
         gas_counter: &mut GasCounter,
         registers: &'a Registers,
-    ) -> crate::logic::logic::Result<&'a [u8]> {
+    ) -> wasmtime::Result<&'a [u8]> {
         match self {
             Self::Value(buf) => {
-                gas_counter.pay_base(read_memory_base)?;
-                gas_counter.pay_per(read_memory_byte, buf.len() as _)?;
+                gas_counter.pay_base(read_memory_base).map_err(ErrorContainer::new)?;
+                gas_counter
+                    .pay_per(read_memory_byte, buf.len() as _)
+                    .map_err(ErrorContainer::new)?;
                 Ok(buf)
             }
-            Self::Register(register_id) => registers.get(gas_counter, *register_id),
+            Self::Register(register_id) => {
+                let buf = registers.get(gas_counter, *register_id).map_err(ErrorContainer::new)?;
+                Ok(buf)
+            }
         }
     }
+}
+
+/// A helper function to pay gas fee for creating a new receipt without actions.
+/// # Args:
+/// * `sir`: whether contract call is addressed to itself;
+/// * `data_dependencies`: other contracts that this execution will be waiting on (or rather
+///   their data receipts), where bool indicates whether this is sender=receiver communication.
+///
+/// # Cost
+///
+/// This is a convenience function that encapsulates several costs:
+/// `burnt_gas := dispatch cost of the receipt + base dispatch cost of the data receipt`
+/// `used_gas := burnt_gas + exec cost of the receipt + base exec cost of the data receipt`
+/// Notice that we prepay all base cost upon the creation of the data dependency, we are going to
+/// pay for the content transmitted through the dependency upon the actual creation of the
+/// DataReceipt.
+fn pay_gas_for_new_receipt(
+    gas_counter: &mut GasCounter,
+    fees_config: &RuntimeFeesConfig,
+    sir: bool,
+    data_dependencies: &[bool],
+) -> wasmtime::Result<()> {
+    let mut burn_gas = fees_config.fee(ActionCosts::new_action_receipt).send_fee(sir);
+    let mut use_gas = fees_config.fee(ActionCosts::new_action_receipt).exec_fee();
+    for dep in data_dependencies {
+        // Both creation and execution for data receipts are considered burnt gas.
+        burn_gas = burn_gas
+            .checked_add(fees_config.fee(ActionCosts::new_data_receipt_base).send_fee(*dep))
+            .ok_or(HostError::IntegerOverflow)
+            .map_err(ErrorContainer::new)?
+            .checked_add(fees_config.fee(ActionCosts::new_data_receipt_base).exec_fee())
+            .ok_or(HostError::IntegerOverflow)
+            .map_err(ErrorContainer::new)?;
+    }
+    use_gas = use_gas
+        .checked_add(burn_gas)
+        .ok_or(HostError::IntegerOverflow)
+        .map_err(ErrorContainer::new)?;
+    // This should go to `new_data_receipt_base` and `new_action_receipt` in parts.
+    // But we have to keep charing these two together unless we make a protocol change.
+    gas_counter
+        .pay_action_accumulated(burn_gas, use_gas, ActionCosts::new_action_receipt)
+        .map_err(ErrorContainer::new)?;
+    Ok(())
 }
 
 impl Ctx {
@@ -156,7 +255,9 @@ impl Ctx {
             sir,
         )?;
 
-        self.ext.append_action_deploy_global_contract(receipt_idx, code, mode)?;
+        self.ext
+            .append_action_deploy_global_contract(receipt_idx, code, mode)
+            .map_err(ErrorContainer::new)?;
         Ok(())
     }
 }
@@ -403,7 +504,8 @@ impl runtime::Host for Ctx {
             account_id,
         )?;
         self.result_state.gas_counter.pay_base(validator_stake_base)?;
-        let balance = self.ext.validator_stake(&account_id)?.unwrap_or_default();
+        let balance =
+            self.ext.validator_stake(&account_id).map_err(ErrorContainer::new)?.unwrap_or_default();
         let v = runtime::U128::write(balance.as_yoctonear(), &mut self.result_state.gas_counter)?;
         Ok(v)
     }
@@ -411,7 +513,7 @@ impl runtime::Host for Ctx {
     fn validator_total_stake(&mut self) -> wasmtime::Result<runtime::U128> {
         self.result_state.gas_counter.pay_base(base)?;
         self.result_state.gas_counter.pay_base(validator_total_stake_base)?;
-        let total_stake = self.ext.validator_total_stake()?;
+        let total_stake = self.ext.validator_total_stake().map_err(ErrorContainer::new)?;
         let v =
             runtime::U128::write(total_stake.as_yoctonear(), &mut self.result_state.gas_counter)?;
         Ok(v)
@@ -985,9 +1087,14 @@ impl runtime::Host for Ctx {
         }
         self.result_state.gas_counter.pay_per(storage_write_key_byte, key.len() as u64)?;
         self.result_state.gas_counter.pay_per(storage_write_value_byte, value.len() as u64)?;
-        let evicted = self.ext.storage_set(&mut self.result_state.gas_counter, &key, &value)?;
+        let evicted = self
+            .ext
+            .storage_set(&mut self.result_state.gas_counter, &key, &value)
+            .map_err(ErrorContainer::new)?;
         let storage_config = &self.fees_config.storage_usage_config;
-        self.recorded_storage_counter.observe_size(self.ext.get_recorded_storage_size())?;
+        self.recorded_storage_counter
+            .observe_size(self.ext.get_recorded_storage_size())
+            .map_err(ErrorContainer::new)?;
         match evicted {
             Some(old_value) => {
                 // Inner value can't overflow, because the value length is limited.
@@ -1046,7 +1153,7 @@ impl runtime::Host for Ctx {
         }
         self.result_state.gas_counter.pay_per(storage_read_key_byte, key.len() as u64)?;
         let read = self.ext.storage_get(&mut self.result_state.gas_counter, &key);
-        let read = match read? {
+        let read = match read.map_err(ErrorContainer::new)? {
             Some(read) => {
                 // Here we'll do u32 -> usize -> u64, which is always infallible
                 let read_len = read.len() as usize;
@@ -1062,7 +1169,9 @@ impl runtime::Host for Ctx {
             None => None,
         };
 
-        self.recorded_storage_counter.observe_size(self.ext.get_recorded_storage_size())?;
+        self.recorded_storage_counter
+            .observe_size(self.ext.get_recorded_storage_size())
+            .map_err(ErrorContainer::new)?;
         match read {
             Some(value) => {
                 self.registers.set(
@@ -1099,9 +1208,14 @@ impl runtime::Host for Ctx {
             .into());
         }
         self.result_state.gas_counter.pay_per(storage_remove_key_byte, key.len() as u64)?;
-        let removed = self.ext.storage_remove(&mut self.result_state.gas_counter, &key)?;
+        let removed = self
+            .ext
+            .storage_remove(&mut self.result_state.gas_counter, &key)
+            .map_err(ErrorContainer::new)?;
         let storage_config = &self.fees_config.storage_usage_config;
-        self.recorded_storage_counter.observe_size(self.ext.get_recorded_storage_size())?;
+        self.recorded_storage_counter
+            .observe_size(self.ext.get_recorded_storage_size())
+            .map_err(ErrorContainer::new)?;
         match removed {
             Some(value) => {
                 // Inner value can't overflow, because the key/value length is limited.
@@ -1138,9 +1252,14 @@ impl runtime::Host for Ctx {
             .into());
         }
         self.result_state.gas_counter.pay_per(storage_has_key_byte, key.len() as u64)?;
-        let res = self.ext.storage_has_key(&mut self.result_state.gas_counter, &key);
+        let res = self
+            .ext
+            .storage_has_key(&mut self.result_state.gas_counter, &key)
+            .map_err(ErrorContainer::new);
 
-        self.recorded_storage_counter.observe_size(self.ext.get_recorded_storage_size())?;
+        self.recorded_storage_counter
+            .observe_size(self.ext.get_recorded_storage_size())
+            .map_err(ErrorContainer::new)?;
         Ok(res?)
     }
 }
@@ -1171,7 +1290,8 @@ impl runtime::HostPromise for Ctx {
         )?;
         let sir = account_id == self.context.current_account_id;
         pay_gas_for_new_receipt(&mut self.result_state.gas_counter, &self.fees_config, sir, &[])?;
-        let new_receipt_idx = self.ext.create_action_receipt(vec![], account_id)?;
+        let new_receipt_idx =
+            self.ext.create_action_receipt(vec![], account_id).map_err(ErrorContainer::new)?;
 
         self.checked_push_promise(Promise::Receipt(new_receipt_idx))
     }
@@ -1212,7 +1332,10 @@ impl runtime::HostPromise for Ctx {
             .collect();
         pay_gas_for_new_receipt(&mut self.result_state.gas_counter, &self.fees_config, sir, &deps)?;
 
-        let new_receipt_idx = self.ext.create_action_receipt(receipt_dependencies, account_id)?;
+        let new_receipt_idx = self
+            .ext
+            .create_action_receipt(receipt_dependencies, account_id)
+            .map_err(ErrorContainer::new)?;
 
         self.checked_push_promise(Promise::Receipt(new_receipt_idx))
     }
@@ -1333,12 +1456,15 @@ impl runtime::HostPromise for Ctx {
             ActionCosts::deterministic_state_init_base,
             sir,
         )?;
-        self.result_state.deduct_balance(amount)?;
-        let action = self.ext.append_action_deterministic_state_init(
-            receipt_idx,
-            GlobalContractIdentifier::CodeHash(CryptoHash(code_hash)),
-            amount,
-        )?;
+        self.result_state.deduct_balance(amount).map_err(ErrorContainer::new)?;
+        let action = self
+            .ext
+            .append_action_deterministic_state_init(
+                receipt_idx,
+                GlobalContractIdentifier::CodeHash(CryptoHash(code_hash)),
+                amount,
+            )
+            .map_err(ErrorContainer::new)?;
         let action = self.table.push(action)?;
         Ok(action)
     }
@@ -1372,12 +1498,15 @@ impl runtime::HostPromise for Ctx {
             ActionCosts::deterministic_state_init_base,
             sir,
         )?;
-        self.result_state.deduct_balance(amount)?;
-        let action = self.ext.append_action_deterministic_state_init(
-            receipt_idx,
-            GlobalContractIdentifier::AccountId(account_id),
-            amount,
-        )?;
+        self.result_state.deduct_balance(amount).map_err(ErrorContainer::new)?;
+        let action = self
+            .ext
+            .append_action_deterministic_state_init(
+                receipt_idx,
+                GlobalContractIdentifier::AccountId(account_id),
+                amount,
+            )
+            .map_err(ErrorContainer::new)?;
         let action = self.table.push(action)?;
         Ok(action)
     }
@@ -1423,7 +1552,9 @@ impl runtime::HostPromise for Ctx {
         )?;
 
         let action_index = self.table.get(&action).copied()?;
-        self.ext.set_deterministic_state_init_data_entry(receipt_idx, action_index, key, value)?;
+        self.ext
+            .set_deterministic_state_init_data_entry(receipt_idx, action_index, key, value)
+            .map_err(ErrorContainer::new)?;
 
         Ok(())
     }
@@ -1446,7 +1577,7 @@ impl runtime::HostPromise for Ctx {
             sir,
         )?;
 
-        self.ext.append_action_create_account(receipt_idx)?;
+        self.ext.append_action_create_account(receipt_idx).map_err(ErrorContainer::new)?;
         Ok(())
     }
 
@@ -1491,7 +1622,7 @@ impl runtime::HostPromise for Ctx {
             sir,
         )?;
 
-        self.ext.append_action_deploy_contract(receipt_idx, code)?;
+        self.ext.append_action_deploy_contract(receipt_idx, code).map_err(ErrorContainer::new)?;
         Ok(())
     }
 
@@ -1558,7 +1689,9 @@ impl runtime::HostPromise for Ctx {
             sir,
         )?;
 
-        self.ext.append_action_use_global_contract(receipt_idx, contract_id)?;
+        self.ext
+            .append_action_use_global_contract(receipt_idx, contract_id)
+            .map_err(ErrorContainer::new)?;
         Ok(())
     }
 
@@ -1599,7 +1732,9 @@ impl runtime::HostPromise for Ctx {
             sir,
         )?;
 
-        self.ext.append_action_use_global_contract(receipt_idx, contract_id)?;
+        self.ext
+            .append_action_use_global_contract(receipt_idx, contract_id)
+            .map_err(ErrorContainer::new)?;
         Ok(())
     }
 
@@ -1651,15 +1786,17 @@ impl runtime::HostPromise for Ctx {
         )?;
         // Prepaid gas
         self.result_state.gas_counter.prepay_gas(Gas::from_gas(gas))?;
-        self.result_state.deduct_balance(amount)?;
-        self.ext.append_action_function_call_weight(
-            receipt_idx,
-            method_name,
-            arguments,
-            amount,
-            Gas::from_gas(gas),
-            GasWeight(gas_weight),
-        )?;
+        self.result_state.deduct_balance(amount).map_err(ErrorContainer::new)?;
+        self.ext
+            .append_action_function_call_weight(
+                receipt_idx,
+                method_name,
+                arguments,
+                amount,
+                Gas::from_gas(gas),
+                GasWeight(gas_weight),
+            )
+            .map_err(ErrorContainer::new)?;
         Ok(())
     }
 
@@ -1703,8 +1840,8 @@ impl runtime::HostPromise for Ctx {
             use_gas,
             ActionCosts::transfer,
         )?;
-        self.result_state.deduct_balance(amount)?;
-        self.ext.append_action_transfer(receipt_idx, amount)?;
+        self.result_state.deduct_balance(amount).map_err(ErrorContainer::new)?;
+        self.ext.append_action_transfer(receipt_idx, amount).map_err(ErrorContainer::new)?;
         Ok(())
     }
 
@@ -1733,11 +1870,7 @@ impl runtime::HostPromise for Ctx {
             ActionCosts::stake,
             sir,
         )?;
-        self.ext.append_action_stake(
-            receipt_idx,
-            amount,
-            PublicKeyBuffer::new(public_key).decode()?,
-        );
+        self.ext.append_action_stake(receipt_idx, amount, get_public_key(public_key)?);
         Ok(())
     }
 
@@ -1766,7 +1899,7 @@ impl runtime::HostPromise for Ctx {
         )?;
         self.ext.append_action_add_key_with_full_access(
             receipt_idx,
-            PublicKeyBuffer::new(public_key).decode()?,
+            get_public_key(public_key)?,
             nonce,
         );
         Ok(())
@@ -1821,14 +1954,16 @@ impl runtime::HostPromise for Ctx {
             sir,
         )?;
 
-        self.ext.append_action_add_key_with_function_call(
-            receipt_idx,
-            PublicKeyBuffer::new(public_key).decode()?,
-            nonce,
-            allowance,
-            receiver_id,
-            method_names,
-        )?;
+        self.ext
+            .append_action_add_key_with_function_call(
+                receipt_idx,
+                get_public_key(public_key)?,
+                nonce,
+                allowance,
+                receiver_id,
+                method_names,
+            )
+            .map_err(ErrorContainer::new)?;
         Ok(())
     }
 
@@ -1854,7 +1989,7 @@ impl runtime::HostPromise for Ctx {
             ActionCosts::delete_key,
             sir,
         )?;
-        self.ext.append_action_delete_key(receipt_idx, PublicKeyBuffer::new(public_key).decode()?);
+        self.ext.append_action_delete_key(receipt_idx, get_public_key(public_key)?);
         Ok(())
     }
 
@@ -1886,7 +2021,9 @@ impl runtime::HostPromise for Ctx {
             sir,
         )?;
 
-        self.ext.append_action_delete_account(receipt_idx, beneficiary_id)?;
+        self.ext
+            .append_action_delete_account(receipt_idx, beneficiary_id)
+            .map_err(ErrorContainer::new)?;
         Ok(())
     }
 
@@ -1930,8 +2067,10 @@ impl runtime::HostPromise for Ctx {
             true,
             &[true],
         )?;
-        let (new_receipt_idx, data_id) =
-            self.ext.create_promise_yield_receipt(self.context.current_account_id.clone())?;
+        let (new_receipt_idx, data_id) = self
+            .ext
+            .create_promise_yield_receipt(self.context.current_account_id.clone())
+            .map_err(ErrorContainer::new)?;
 
         let new_promise_idx = self.checked_push_promise(Promise::Receipt(new_receipt_idx))?;
         pay_action_base(
@@ -1947,14 +2086,16 @@ impl runtime::HostPromise for Ctx {
             num_bytes,
             true,
         )?;
-        self.ext.append_action_function_call_weight(
-            new_receipt_idx,
-            method_name,
-            arguments,
-            Balance::ZERO,
-            Gas::from_gas(gas),
-            GasWeight(gas_weight),
-        )?;
+        self.ext
+            .append_action_function_call_weight(
+                new_receipt_idx,
+                method_name,
+                arguments,
+                Balance::ZERO,
+                Gas::from_gas(gas),
+                GasWeight(gas_weight),
+            )
+            .map_err(ErrorContainer::new)?;
 
         self.registers.set(
             &mut self.result_state.gas_counter,
@@ -1996,7 +2137,8 @@ impl runtime::HostPromise for Ctx {
             .map_err(ErrorContainer::new)?;
         let data_id = CryptoHash(data_id);
         let payload = payload.into();
-        let v = self.ext.submit_promise_resume_data(data_id, payload)?;
+        let v =
+            self.ext.submit_promise_resume_data(data_id, payload).map_err(ErrorContainer::new)?;
         Ok(v)
     }
 

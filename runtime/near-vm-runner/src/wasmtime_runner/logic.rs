@@ -1926,7 +1926,7 @@ pub fn sleep_nanos(_caller: &mut Caller<'_, Ctx>, nanos: u64) -> Result<()> {
 /// Notice that we prepay all base cost upon the creation of the data dependency, we are going to
 /// pay for the content transmitted through the dependency upon the actual creation of the
 /// DataReceipt.
-pub fn pay_gas_for_new_receipt(
+fn pay_gas_for_new_receipt(
     gas_counter: &mut GasCounter,
     fees_config: &RuntimeFeesConfig,
     sir: bool,

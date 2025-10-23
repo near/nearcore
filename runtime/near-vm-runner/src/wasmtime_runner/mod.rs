@@ -7,7 +7,9 @@ use crate::logic::errors::{
 use crate::logic::logic::Promise;
 use crate::logic::recorded_storage_counter::RecordedStorageCounter;
 use crate::logic::vmstate::Registers;
-use crate::logic::{Config, ExecutionResultState, External, GasCounter, VMContext, VMOutcome};
+use crate::logic::{
+    Config, ExecutionResultState, External, GasCounter, HostError, VMContext, VMOutcome,
+};
 use crate::runner::VMResult;
 use crate::{
     CompiledContract, CompiledContractInfo, Contract, ContractCode, ContractRuntimeCache,
@@ -25,6 +27,7 @@ use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 use std::sync::{Arc, LazyLock};
 use tracing::warn;
+use wasmtime::component::ResourceTableError;
 use wasmtime::component::types::ComponentItem;
 use wasmtime::{
     CallHook, CodeBuilder, Engine, Extern, ExternType, Instance, InstanceAllocationStrategy,
@@ -33,7 +36,7 @@ use wasmtime::{
 };
 
 mod component;
-pub(crate) mod logic;
+mod logic;
 
 /// The maximum amount of concurrent calls this engine can handle.
 /// If this limit is reached, invocations will block until an execution slot is available.
@@ -330,6 +333,9 @@ impl IntoVMError for anyhow::Error {
                 }));
             };
             return Err(VMRunnerError::Nondeterministic(nondeterministic_message.into()));
+        }
+        if cause.is::<ResourceTableError>() {
+            return Ok(FunctionCallError::HostError(HostError::MemoryAccessViolation));
         }
         // FIXME: this can blow up in size and would get stored in the storage in case this was a
         // production runtime. Something more proper should be done here.

@@ -351,5 +351,36 @@ fn attach_unspent_gas_but_use_all_gas() {
             }
             other => panic!("unexpected actions: {other:?}"),
         }
+
+        if vm_kind == VMKind::Wasmtime {
+            let mut context = create_context(vec![]);
+            context.prepaid_gas = Gas::from_teragas(100);
+
+            let mut config = Arc::unwrap_or_clone(config);
+            config.component_model = true;
+            config.limit_config.max_tables_per_contract = Some(3);
+            let config = Arc::new(config);
+            let code = near_test_contracts::component_rs_contract().to_vec();
+            let code = ContractCode::new(code, None);
+            let mut external = MockedExternal::with_code(code);
+            let fees = Arc::new(RuntimeFeesConfig::test());
+            let runtime = vm_kind.runtime(config.clone()).expect("runtime has not been compiled");
+
+            let gas_counter = context.make_gas_counter(&config);
+            let outcome = runtime
+                .prepare(&external, None, gas_counter, "attach-unspent-gas-but-use-all-gas")
+                .run(&mut external, &context, fees)
+                .unwrap_or_else(|err| panic!("Failed execution: {:?}", err));
+
+            let err = outcome.aborted.as_ref().unwrap();
+            assert!(matches!(err, FunctionCallError::HostError(HostError::GasExceeded)), "{err:?}");
+
+            match &external.action_log[..] {
+                [_, MockAction::FunctionCallWeight { prepaid_gas: gas, .. }, _] => {
+                    assert_eq!(*gas, Gas::ZERO)
+                }
+                other => panic!("unexpected actions: {other:?}"),
+            }
+        }
     });
 }
