@@ -11,14 +11,18 @@ from datetime import datetime, timedelta, timezone
 from dataclasses import dataclass
 
 from mirror import (CommandContext, amend_binaries_cmd, clear_scheduled_cmds,
-                    get_nodes_status, hard_reset_cmd, new_test_cmd,
+                    get_nodes_pending_new_test, hard_reset_cmd, new_test_cmd,
                     run_remote_cmd, run_remote_download_file,
                     run_remote_upload_file, start_nodes_cmd, start_traffic_cmd,
                     stop_nodes_cmd, update_config_cmd)
-from utils import ScheduleMode
+from utils import ScheduleMode, PartitionSelector
 
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 from configured_logger import logger
+
+
+def time_to_str(time):
+    return time.astimezone(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')
 
 
 class NodeHardware:
@@ -171,14 +175,13 @@ class TestSetup:
         Wait for the network to be ready.
         """
         ctx = CommandContext(self.args)
+        not_ready_nodes = ctx.get_targeted()
         while True:
-            nodes = ctx.get_targeted()
-            not_ready_nodes = get_nodes_status(nodes)
+            not_ready_nodes = get_nodes_pending_new_test(not_ready_nodes)
             if len(not_ready_nodes) == 0:
                 break
 
-            not_ready_nodes_msg = f"{not_ready_nodes[:5]}..." if len(
-                not_ready_nodes) > 5 else not_ready_nodes
+            not_ready_nodes_msg = f"{[node.name() for node in not_ready_nodes[:3]]}..."
             logger.info(
                 f"Waiting for network to be ready. {len(not_ready_nodes)} nodes not ready: {not_ready_nodes_msg}"
             )
@@ -253,22 +256,31 @@ class TestSetup:
         if self.neard_upgrade_binary_url == '':
             return
 
-        def time_to_str(time):
-            return time.astimezone(
-                timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')
-
-        ref_time = datetime.now() + timedelta(
+        reference_time = datetime.now() + timedelta(
             minutes=self.upgrade_delay_minutes)
         for i in range(1, 5):
-            restart_time = ref_time + timedelta(minutes=i * minutes)
-            start_nodes_args = copy.deepcopy(self.args)
-            start_nodes_args.host_type = 'nodes'
-            start_nodes_args.select_partition = (i, 4)
-            start_nodes_args.binary_idx = 1
-            start_nodes_args.on = ScheduleMode(mode="calendar",
-                                               value=time_to_str(restart_time))
-            start_nodes_args.schedule_id = f"up-start-{i}"
-            start_nodes_cmd(CommandContext(start_nodes_args))
+            self.schedule_binary_upgrade(reference_time,
+                                         i * minutes,
+                                         binary_idx=1,
+                                         partition=PartitionSelector(
+                                             selector=(i, i),
+                                             total_partitions=4))
+
+    def schedule_binary_upgrade(self,
+                                reference_time: datetime | None,
+                                minutes: int,
+                                binary_idx: int,
+                                partition: PartitionSelector | None = None):
+        upgrade_time = (reference_time or
+                        datetime.now()) + timedelta(minutes=minutes)
+        start_nodes_args = copy.deepcopy(self.args)
+        start_nodes_args.host_type = 'nodes'
+        start_nodes_args.binary_idx = binary_idx
+        start_nodes_args.select_partition = partition
+        start_nodes_args.on = ScheduleMode(mode="calendar",
+                                           value=time_to_str(upgrade_time))
+        start_nodes_args.schedule_id = f"start-neard{binary_idx}-in-{minutes}m"
+        start_nodes_cmd(CommandContext(start_nodes_args))
 
     def after_test_start(self):
         """
