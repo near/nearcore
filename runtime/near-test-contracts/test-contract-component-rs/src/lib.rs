@@ -36,7 +36,13 @@ world test {
     export run-test-with-storage-change: func();
     export sum-with-input: func();
     export out-of-memory: func();
+    export attach-unspent-gas-but-use-all-gas: func();
+    export do-ripemd: func();
+    export noop: func();
     export sanity-check: func();
+    export sanity-check-promise-results: func();
+    export sanity-check-panic: func();
+    export sanity-check-panic-string: func();
 }",
         ownership: Borrowing { duplicate_if_necessary: true },
         generate_all,
@@ -293,6 +299,42 @@ impl Guest for Component {
         }
     }
 
+    fn attach_unspent_gas_but_use_all_gas() {
+        let account_id = "alice.near";
+        let promise = Promise::new(ValueOrRegister::Value(account_id.as_bytes()));
+
+        let method_name = "f";
+        let amount = 1u128;
+        let gas_fixed = 0;
+        let gas_weight = 1;
+        promise.function_call(
+            ValueOrRegister::Value(method_name.as_bytes()),
+            ValueOrRegister::Value(&[]),
+            amount.into(),
+            gas_fixed,
+            gas_weight,
+        );
+
+        let promise = Promise::new(ValueOrRegister::Value(account_id.as_bytes()));
+
+        let gas_fixed = 10u64.pow(14);
+        let gas_weight = 0;
+        promise.function_call(
+            ValueOrRegister::Value(method_name.as_bytes()),
+            ValueOrRegister::Value(&[]),
+            amount.into(),
+            gas_fixed,
+            gas_weight,
+        );
+    }
+
+    fn do_ripemd() {
+        let data = b"tesdsst";
+        ripemd160(ValueOrRegister::Value(data), 0);
+    }
+
+    fn noop() {}
+
     /// Calls all host functions, either directly or via callback.
     fn sanity_check() {
         fn insert_account_id_prefix(
@@ -349,13 +391,23 @@ impl Guest for Component {
         value_return(ValueOrRegister::Value(value.as_bytes()));
 
         // Calling host functions that terminate execution via promises.
-        let method_name_panic = b"sanity_check_panic";
+        let method_name_panic = b"sanity-check-panic";
         let args_panic = b"";
         let gas_per_promise = available_gas / 50;
         let promise = Promise::new(ValueOrRegister::Value(&account_id));
         promise.function_call(
             ValueOrRegister::Value(method_name_panic),
             ValueOrRegister::Value(args_panic),
+            0u128.into(),
+            gas_per_promise,
+            0,
+        );
+        let method_name_panic_string = b"sanity-check-panic-string";
+        let args_panic_string = b"";
+        let promise = Promise::new(ValueOrRegister::Value(&account_id));
+        promise.function_call(
+            ValueOrRegister::Value(method_name_panic_string),
+            ValueOrRegister::Value(args_panic_string),
             0u128.into(),
             gas_per_promise,
             0,
@@ -387,8 +439,8 @@ impl Guest for Component {
             );
             promise
         });
-        let _and = Promise::and(&[&promises_then[0], &promises_then[1]]);
-
+        _ = Promise::and(&[&promises_then[0], &promises_then[1]]);
+        _ = Promise::new(ValueOrRegister::Value(&account_id));
         _ = promises_then[1].then(ValueOrRegister::Value(&account_id));
 
         // #######################
@@ -451,10 +503,10 @@ impl Guest for Component {
             gas_per_promise,
             0,
         );
-        let method_name_promise_results = b"sanity_check_promise_results";
+        let method_name_promise_results = b"sanity-check-promise-results";
         let args_promise_results = b"";
         let then = promise.then(ValueOrRegister::Value(&account_id));
-        promise.function_call(
+        then.function_call(
             ValueOrRegister::Value(method_name_promise_results),
             ValueOrRegister::Value(args_promise_results),
             0u128.into(),
@@ -542,5 +594,20 @@ impl Guest for Component {
             30,
         ];
         alt_bn128_pairing_check(ValueOrRegister::Value(&buffer));
+    }
+
+    /// Callback for a promise created in `sanity_check`. It calls host functions
+    /// which use the results of earlier promises.
+    fn sanity_check_promise_results() {
+        assert_eq!(Promise::get_results_count(), 1);
+        Promise::get_result(0, 0);
+    }
+
+    fn sanity_check_panic() {
+        panic(None);
+    }
+
+    fn sanity_check_panic_string() {
+        panic(Some("xyz"));
     }
 }
