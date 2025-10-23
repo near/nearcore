@@ -42,7 +42,7 @@ use near_store::db::{
     GC_STOP_HEIGHT_KEY, SPICE_FINAL_EXECUTION_HEAD_KEY, STATE_SYNC_DUMP_KEY, StoreStatistics,
 };
 use near_store::{
-    CHUNK_TAIL_KEY, DBCol, FINAL_HEAD_KEY, FORK_TAIL_KEY, HEAD_KEY, HEADER_HEAD_KEY,
+    CHUNK_TAIL_KEY, DBCol, FINAL_HEAD_KEY, FORK_TAIL_KEY, HEAD_KEY, HEADER_HEAD_KEY, IntoArc,
     KeyForStateChanges, LARGEST_TARGET_HEIGHT_KEY, LATEST_KNOWN_KEY, PartialStorage, Store,
     StoreUpdate, TAIL_KEY, WrappedTrieChanges,
 };
@@ -1803,7 +1803,7 @@ impl<'a> ChainStoreUpdate<'a> {
         self.store_updates.push(store_update);
     }
 
-    fn write_col_misc<T: BorshSerialize>(
+    fn write_col_misc<T: BorshSerialize + IntoArc>(
         store_update: &mut StoreUpdate,
         key: &[u8],
         value: &mut Option<T>,
@@ -2032,7 +2032,7 @@ impl<'a> ChainStoreUpdate<'a> {
                 store_update.set_ser(
                     DBCol::OutcomeIds,
                     &get_block_shard_id(block_hash, *shard_id),
-                    &ids,
+                    ids,
                 )?;
             }
         }
