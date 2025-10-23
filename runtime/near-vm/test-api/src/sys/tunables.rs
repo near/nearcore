@@ -156,7 +156,7 @@ impl Tunables for BaseTunables {
     }
 
     /// Instrumentation configuration: gas accounting config
-    fn gas_cfg(&self) -> Box<dyn finite_wasm::wasmparser::VisitOperator<Output = u64>> {
+    fn gas_cfg(&'_ self) -> Box<dyn finite_wasm::wasmparser::VisitOperator<'_, Output = u64>> {
         Box::new(SimpleGasCostCfg(self.regular_op_cost))
     }
 }

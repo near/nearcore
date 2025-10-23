@@ -49,7 +49,7 @@ impl FlatStorageChunkView {
 
     // TODO: this should be changed to check the values that haven't yet been applied, like in get_value() and contains_key(),
     // because otherwise we're iterating over old state that might have been updated by `self.block_hash`
-    pub fn iter_range(&self, from: Option<&[u8]>, to: Option<&[u8]>) -> FlatStateIterator {
+    pub fn iter_range(&self, from: Option<&[u8]>, to: Option<&[u8]>) -> FlatStateIterator<'_> {
         self.store.iter_range(self.flat_storage.shard_uid(), from, to)
     }
 

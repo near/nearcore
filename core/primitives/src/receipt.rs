@@ -459,7 +459,7 @@ impl Receipt {
         }
     }
 
-    pub fn versioned_receipt(&self) -> VersionedReceiptEnum {
+    pub fn versioned_receipt(&self) -> VersionedReceiptEnum<'_> {
         match self {
             Receipt::V0(receipt) => VersionedReceiptEnum::from(&receipt.receipt),
             Receipt::V1(receipt) => VersionedReceiptEnum::from(&receipt.receipt),

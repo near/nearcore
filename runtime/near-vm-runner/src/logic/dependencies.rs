@@ -49,7 +49,7 @@ pub trait MemoryLike {
     ///
     /// Not all implementations support borrowing the memory directly.  In those
     /// cases, the data is copied into a vector.
-    fn view_memory(&self, slice: MemSlice) -> Result<Cow<[u8]>, ()>;
+    fn view_memory(&self, slice: MemSlice) -> Result<Cow<'_, [u8]>, ()>;
 
     /// Reads the content of the given memory interval.
     ///

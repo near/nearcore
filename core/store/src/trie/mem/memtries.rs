@@ -156,7 +156,7 @@ impl MemTries {
     pub fn get_root(
         &self,
         state_root: &CryptoHash,
-    ) -> Result<MemTrieNodePtr<HybridArenaMemory>, StorageError> {
+    ) -> Result<MemTrieNodePtr<'_, HybridArenaMemory>, StorageError> {
         assert_ne!(state_root, &CryptoHash::default());
         self.roots.get(state_root).map(|ids| ids[0].as_ptr(self.arena.memory())).ok_or_else(|| {
             StorageError::StorageInconsistentState(format!(

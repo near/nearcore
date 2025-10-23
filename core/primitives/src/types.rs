@@ -977,7 +977,7 @@ pub mod chunk_extra {
         }
 
         #[inline]
-        pub fn validator_proposals(&self) -> ValidatorStakeIter {
+        pub fn validator_proposals(&self) -> ValidatorStakeIter<'_> {
             match self {
                 Self::V1(v1) => ValidatorStakeIter::v1(&v1.validator_proposals),
                 Self::V2(v2) => ValidatorStakeIter::new(&v2.validator_proposals),

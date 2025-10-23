@@ -1032,7 +1032,7 @@ impl BlockHeader {
     }
 
     #[inline]
-    pub fn prev_validator_proposals(&self) -> ValidatorStakeIter {
+    pub fn prev_validator_proposals(&self) -> ValidatorStakeIter<'_> {
         match self {
             BlockHeader::BlockHeaderV1(header) => {
                 ValidatorStakeIter::v1(&header.inner_rest.prev_validator_proposals)

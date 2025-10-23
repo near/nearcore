@@ -327,7 +327,7 @@ impl EpochInfo {
     }
 
     #[inline]
-    pub fn validators_iter(&self) -> ValidatorStakeIter {
+    pub fn validators_iter(&self) -> ValidatorStakeIter<'_> {
         match self {
             Self::V1(v1) => ValidatorStakeIter::v1(&v1.validators),
             Self::V2(v2) => ValidatorStakeIter::new(&v2.validators),
@@ -337,7 +337,7 @@ impl EpochInfo {
     }
 
     #[inline]
-    pub fn fishermen_iter(&self) -> ValidatorStakeIter {
+    pub fn fishermen_iter(&self) -> ValidatorStakeIter<'_> {
         match self {
             Self::V1(v1) => ValidatorStakeIter::v1(&v1.fishermen),
             Self::V2(v2) => ValidatorStakeIter::new(&v2.fishermen),

@@ -252,11 +252,6 @@ mod tests {
     use super::*;
     use std::str::FromStr;
 
-    #[derive(serde::Deserialize, serde::Serialize)]
-    struct Struct {
-        hash: CryptoHash,
-    }
-
     #[test]
     fn test_hash_borsh() {
         fn value<T: BorshSerialize>(want: &str, value: T) {

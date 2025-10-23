@@ -123,7 +123,7 @@ impl Memory {
     /// but it doesn't obey rust's rules involving data races, especially concurrent ones.
     /// Therefore, if this memory is shared between multiple threads, a single memory
     /// location can be mutated concurrently without synchronization.
-    pub fn view<T: ValueType>(&self) -> MemoryView<T> {
+    pub fn view<T: ValueType>(&self) -> MemoryView<'_, T> {
         let base = self.data_ptr();
 
         let length = self.size().bytes().0 / std::mem::size_of::<T>();

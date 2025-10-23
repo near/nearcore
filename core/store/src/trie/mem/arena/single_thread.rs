@@ -90,7 +90,7 @@ impl ArenaMut for STArena {
         &mut self.memory
     }
 
-    fn alloc(&mut self, size: usize) -> ArenaSliceMut<Self::Memory> {
+    fn alloc(&mut self, size: usize) -> ArenaSliceMut<'_, Self::Memory> {
         self.allocator.allocate(&mut self.memory, size)
     }
 }

@@ -72,11 +72,11 @@ pub struct EpochManagerHandle {
 }
 
 impl EpochManagerHandle {
-    pub fn write(&self) -> RwLockWriteGuard<EpochManager> {
+    pub fn write(&self) -> RwLockWriteGuard<'_, EpochManager> {
         self.inner.write()
     }
 
-    pub fn read(&self) -> RwLockReadGuard<EpochManager> {
+    pub fn read(&self) -> RwLockReadGuard<'_, EpochManager> {
         self.inner.read()
     }
 }

@@ -204,7 +204,7 @@ pub fn part_filename(part_id: u64, num_parts: u64) -> String {
     format!("state_part_{:06}_of_{:06}", part_id, num_parts)
 }
 
-pub fn match_filename(s: &str) -> Option<regex::Captures> {
+pub fn match_filename(s: &str) -> Option<regex::Captures<'_>> {
     let re = regex::Regex::new(r"^state_part_(\d{6})_of_(\d{6})$").unwrap();
     re.captures(s)
 }

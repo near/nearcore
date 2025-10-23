@@ -122,19 +122,19 @@ pub trait StoreAdapter {
 pub trait StoreUpdateAdapter: Sized {
     fn store_update(&mut self) -> &mut StoreUpdate;
 
-    fn chain_store_update(&mut self) -> chain_store::ChainStoreUpdateAdapter {
+    fn chain_store_update(&mut self) -> chain_store::ChainStoreUpdateAdapter<'_> {
         chain_store::ChainStoreUpdateAdapter::new(self.store_update())
     }
 
-    fn epoch_store_update(&mut self) -> epoch_store::EpochStoreUpdateAdapter {
+    fn epoch_store_update(&mut self) -> epoch_store::EpochStoreUpdateAdapter<'_> {
         epoch_store::EpochStoreUpdateAdapter::new(self.store_update())
     }
 
-    fn flat_store_update(&mut self) -> flat_store::FlatStoreUpdateAdapter {
+    fn flat_store_update(&mut self) -> flat_store::FlatStoreUpdateAdapter<'_> {
         flat_store::FlatStoreUpdateAdapter::new(self.store_update())
     }
 
-    fn trie_store_update(&mut self) -> trie_store::TrieStoreUpdateAdapter {
+    fn trie_store_update(&mut self) -> trie_store::TrieStoreUpdateAdapter<'_> {
         trie_store::TrieStoreUpdateAdapter::new(self.store_update())
     }
 }

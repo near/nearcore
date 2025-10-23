@@ -113,7 +113,7 @@ impl BlockInfo {
     }
 
     #[inline]
-    pub fn proposals_iter(&self) -> ValidatorStakeIter {
+    pub fn proposals_iter(&self) -> ValidatorStakeIter<'_> {
         match self {
             Self::V1(info) => ValidatorStakeIter::v1(&info.proposals),
             Self::V2(info) => ValidatorStakeIter::new(&info.proposals),

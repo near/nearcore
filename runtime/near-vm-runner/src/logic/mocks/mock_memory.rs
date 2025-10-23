@@ -29,7 +29,7 @@ impl MemoryLike for MockedMemory {
         }
     }
 
-    fn view_memory(&self, slice: MemSlice) -> Result<Cow<[u8]>, ()> {
+    fn view_memory(&self, slice: MemSlice) -> Result<Cow<'_, [u8]>, ()> {
         self.0.get(slice.range::<usize>()?).map(Cow::Borrowed).ok_or(())
     }
 

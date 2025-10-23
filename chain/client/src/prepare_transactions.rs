@@ -57,6 +57,7 @@ impl PrepareTransactionsJobInputs {
     }
 }
 
+#[allow(clippy::large_enum_variant)]
 enum PrepareTransactionsJobState {
     /// Job created, but not running yet
     NotStarted(PrepareTransactionsJobInputs),

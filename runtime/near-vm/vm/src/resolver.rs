@@ -51,6 +51,7 @@ impl From<VMExtern> for Export {
 /// This struct owns the original `host_env`, thus when it gets dropped
 /// it calls the `drop` function on it.
 #[derive(Debug, PartialEq)]
+#[allow(unpredictable_function_pointer_comparisons)]
 pub struct ExportFunctionMetadata {
     /// This field is stored here to be accessible by `Drop`.
     ///

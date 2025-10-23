@@ -415,7 +415,7 @@ impl ShardChunkHeader {
     }
 
     #[inline]
-    pub fn prev_validator_proposals(&self) -> ValidatorStakeIter {
+    pub fn prev_validator_proposals(&self) -> ValidatorStakeIter<'_> {
         match self {
             Self::V1(header) => ValidatorStakeIter::v1(&header.inner.prev_validator_proposals),
             Self::V2(header) => ValidatorStakeIter::v1(&header.inner.prev_validator_proposals),

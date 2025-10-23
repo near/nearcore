@@ -62,7 +62,7 @@ impl LogCounter {
                         &level.as_str(),
                         target,
                         file.unwrap_or(""),
-                        &line.map_or("".to_string(), |x| x.to_string()),
+                        &line.map_or_else(String::new, |x| x.to_string()),
                     ])
                     .inc()
             }

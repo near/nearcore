@@ -23,7 +23,7 @@ impl super::NetworkState {
     fn tier1_validator_config(
         &self,
         accounts_data: &AccountDataCacheSnapshot,
-    ) -> Option<FrozenValidatorConfig> {
+    ) -> Option<FrozenValidatorConfig<'_>> {
         let signer = self.config.validator.signer.get();
         if signer
             .as_ref()

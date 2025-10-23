@@ -288,7 +288,7 @@ impl ShardsOutgoingReceiptBuffer {
         Ok(Self { shards_indices })
     }
 
-    pub fn to_shard(&mut self, shard_id: ShardId) -> OutgoingReceiptBuffer {
+    pub fn to_shard(&mut self, shard_id: ShardId) -> OutgoingReceiptBuffer<'_> {
         OutgoingReceiptBuffer { shard_id, parent: self }
     }
 

@@ -1693,14 +1693,14 @@ impl Trie {
     /// This only uses the on-disk trie. If memtrie iteration is desired, see
     /// `lock_for_iter`.
     #[inline]
-    pub fn disk_iter(&self) -> Result<DiskTrieIterator, StorageError> {
+    pub fn disk_iter(&self) -> Result<DiskTrieIterator<'_>, StorageError> {
         self.disk_iter_with_prune_condition(None)
     }
 
     pub fn disk_iter_with_max_depth(
         &self,
         max_depth: usize,
-    ) -> Result<DiskTrieIterator, StorageError> {
+    ) -> Result<DiskTrieIterator<'_>, StorageError> {
         let prune_condition = Box::new(move |key_nibbles: &Vec<u8>| key_nibbles.len() > max_depth);
         self.disk_iter_with_prune_condition(Some(prune_condition))
     }
@@ -1709,7 +1709,7 @@ impl Trie {
     pub fn disk_iter_with_prune_condition(
         &self,
         prune_condition: Option<Box<dyn Fn(&Vec<u8>) -> bool>>,
-    ) -> Result<DiskTrieIterator, StorageError> {
+    ) -> Result<DiskTrieIterator<'_>, StorageError> {
         DiskTrieIterator::new(DiskTrieIteratorInner::new(self), prune_condition)
     }
 

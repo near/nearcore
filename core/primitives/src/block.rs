@@ -370,7 +370,7 @@ impl Block {
         }
     }
 
-    pub fn chunks(&self) -> Chunks {
+    pub fn chunks(&self) -> Chunks<'_> {
         Chunks::new(&self)
     }
 
