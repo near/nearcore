@@ -6,17 +6,21 @@ use near_async::messaging::CanSend;
 use near_async::test_loop::TestLoopV2;
 use near_async::test_loop::data::TestLoopData;
 use near_async::time::Duration;
+use near_chain::Block;
 use near_chain::types::Tip;
 use near_client::{Client, ProcessTxRequest};
 use near_epoch_manager::shard_assignment::{account_id_to_shard_id, shard_id_to_uid};
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::CryptoHash;
+use near_primitives::sharding::ShardChunk;
 use near_primitives::transaction::{ExecutionOutcomeWithIdAndProof, SignedTransaction};
-use near_primitives::types::{AccountId, BlockHeight};
+use near_primitives::types::{AccountId, BlockHeight, ShardId};
 use near_primitives::views::{
     AccountView, FinalExecutionOutcomeView, FinalExecutionStatus, QueryRequest, QueryResponse,
     QueryResponseKind,
 };
+use near_store::adapter::trie_store::TrieStoreAdapter;
+use near_store::{Trie, TrieDBStorage};
 
 use crate::setup::state::NodeExecutionData;
 use crate::utils::account::rpc_account_id;
@@ -67,6 +71,47 @@ impl<'a> TestLoopNode<'a> {
 
     pub fn head(&self, test_loop_data: &TestLoopData) -> Arc<Tip> {
         self.client(test_loop_data).chain.head().unwrap()
+    }
+
+    pub fn head_block(&self, test_loop_data: &TestLoopData) -> Arc<Block> {
+        let block_hash = self.client(test_loop_data).chain.head().unwrap().last_block_hash;
+        self.block(test_loop_data, block_hash)
+    }
+
+    pub fn trie(
+        &self,
+        test_loop_data: &TestLoopData,
+        block_hash: CryptoHash,
+        shard_id: ShardId,
+    ) -> Trie {
+        let client = self.client(test_loop_data);
+        let block = self.block(test_loop_data, block_hash);
+        let shard_uid =
+            shard_id_to_uid(client.epoch_manager.as_ref(), shard_id, block.header().epoch_id())
+                .unwrap();
+        let chunk_extra = client.chain.get_chunk_extra(&block_hash, &shard_uid).unwrap();
+        let trie = Trie::new(
+            Arc::new(TrieDBStorage::new(
+                TrieStoreAdapter::new(client.runtime_adapter.store().clone()),
+                shard_uid,
+            )),
+            *chunk_extra.state_root(),
+            None,
+        );
+        trie
+    }
+
+    pub fn block(&self, test_loop_data: &TestLoopData, block_hash: CryptoHash) -> Arc<Block> {
+        self.client(test_loop_data).chain.get_block(&block_hash).unwrap()
+    }
+
+    pub fn block_chunks(&self, test_loop_data: &TestLoopData, block: &Block) -> Vec<ShardChunk> {
+        let chain_store = self.client(test_loop_data).chain.chain_store();
+        block
+            .chunks()
+            .iter_raw()
+            .map(|chunk_header| chain_store.get_chunk(chunk_header.chunk_hash()).unwrap())
+            .collect()
     }
 
     pub fn run_until_head_height(&self, test_loop: &mut TestLoopV2, height: BlockHeight) {
