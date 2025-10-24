@@ -269,6 +269,7 @@
         "pids",
         "pinnable",
         "pipenv",
+        "Pippenger",
         "pkill",
         "pmap",
         "postprocesses",

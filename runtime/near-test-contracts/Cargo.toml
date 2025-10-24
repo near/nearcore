@@ -20,6 +20,9 @@ wasm-smith = { workspace = true, features = ["wasmparser"] }
 rand = { workspace = true, features = ["small_rng"] }
 arbitrary.workspace = true
 
+[build-dependencies]
+wit-component.workspace = true
+
 [features]
 nightly = []
 test_features = []

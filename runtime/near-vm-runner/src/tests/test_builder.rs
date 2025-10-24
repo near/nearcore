@@ -39,6 +39,7 @@ pub(crate) fn test_builder() -> TestBuilder {
     }
     TestBuilder {
         code: ContractCode::new(Vec::new(), None),
+        component_code: ContractCode::new(Vec::new(), None),
         context,
         protocol_versions: vec![u32::MAX],
         skip,
@@ -50,6 +51,7 @@ pub(crate) fn test_builder() -> TestBuilder {
 
 pub(crate) struct TestBuilder {
     code: ContractCode,
+    component_code: ContractCode,
     context: VMContext,
     protocol_versions: Vec<ProtocolVersion>,
     skip: HashSet<VMKind>,
@@ -61,13 +63,20 @@ pub(crate) struct TestBuilder {
 impl TestBuilder {
     pub(crate) fn wat(mut self, wat: &str) -> Self {
         let wasm = wat::parse_str(wat)
-            .unwrap_or_else(|err| panic!("failed to parse input wasm: {err}\n{wat}"));
+            .unwrap_or_else(|err| panic!("failed to parse input Wasm: {err}\n{wat}"));
         self.code = ContractCode::new(wasm, None);
         self
     }
 
     pub(crate) fn wasm(mut self, wasm: &[u8]) -> Self {
         self.code = ContractCode::new(wasm.to_vec(), None);
+        self
+    }
+
+    pub(crate) fn component_wat(mut self, wat: &str) -> Self {
+        let wasm = wat::parse_str(wat)
+            .unwrap_or_else(|err| panic!("failed to parse input component Wasm: {err}\n{wat}"));
+        self.component_code = ContractCode::new(wasm, None);
         self
     }
 
@@ -156,8 +165,13 @@ impl TestBuilder {
     }
 
     #[track_caller]
-    pub(crate) fn expect(self, want: &expect_test::Expect) {
+    pub(crate) fn expect(self, want: &expect_test::Expect) -> Self {
         self.expects(std::iter::once(want))
+    }
+
+    #[track_caller]
+    pub(crate) fn component_expect(self, want: &expect_test::Expect) {
+        self.component_expects(std::iter::once(want))
     }
 
     pub(crate) fn configs(&self) -> impl Iterator<Item = Arc<RuntimeConfig>> {
@@ -169,7 +183,53 @@ impl TestBuilder {
     }
 
     #[track_caller]
-    pub(crate) fn expects<'a, I>(mut self, wants: I)
+    fn run(
+        &self,
+        results: &mut Vec<(VMKind, String)>,
+        vm_kind: VMKind,
+        protocol_version: ProtocolVersion,
+        config: Arc<near_parameters::vm::Config>,
+        code: &ContractCode,
+    ) {
+        let mut fake_external = MockedExternal::with_code(code.clone_for_tests());
+        let fees = Arc::new(RuntimeFeesConfig::test());
+        let context = self.context.clone();
+        let gas_counter = context.make_gas_counter(&config);
+        let Some(runtime) = vm_kind.runtime(config) else {
+            panic!("runtime for {:?} has not been compiled", vm_kind);
+        };
+        println!("Running {:?} for protocol version {}", vm_kind, protocol_version);
+        let outcome = runtime
+            .prepare(&fake_external, None, gas_counter, &self.method)
+            .run(&mut fake_external, &context, fees)
+            .expect("execution failed");
+
+        let mut got = String::new();
+
+        if !self.opaque_outcome {
+            fmt_outcome_without_abort(&outcome, &mut got).unwrap();
+            writeln!(&mut got).unwrap();
+        }
+
+        if let Some(err) = outcome.aborted {
+            let err_str = err.to_string();
+            assert!(
+                err_str.len() < 1000,
+                "errors should be bounded in size to prevent abuse \
+                         via exhausting the storage space. Got: {err_str}"
+            );
+            if self.opaque_error {
+                writeln!(&mut got, "Err: ...").unwrap();
+            } else {
+                writeln!(&mut got, "Err: {err_str}").unwrap();
+            }
+        };
+
+        results.push((vm_kind, got));
+    }
+
+    #[track_caller]
+    pub(crate) fn expects<'a, I>(mut self, wants: I) -> Self
     where
         I: IntoIterator<Item = &'a expect_test::Expect>,
         I::IntoIter: ExactSizeIterator,
@@ -194,45 +254,70 @@ impl TestBuilder {
                 }
 
                 let runtime_config = runtime_config_store.get_config_mut(protocol_version);
-                Arc::get_mut(&mut Arc::get_mut(runtime_config).unwrap().wasm_config)
-                    .unwrap()
-                    .vm_kind = vm_kind;
-                let mut fake_external = MockedExternal::with_code(self.code.clone_for_tests());
-                let config = runtime_config.wasm_config.clone();
-                let fees = Arc::new(RuntimeFeesConfig::test());
-                let context = self.context.clone();
-                let gas_counter = context.make_gas_counter(&config);
-                let Some(runtime) = vm_kind.runtime(config) else {
-                    panic!("runtime for {:?} has not been compiled", vm_kind);
-                };
-                println!("Running {:?} for protocol version {}", vm_kind, protocol_version);
-                let outcome = runtime
-                    .prepare(&fake_external, None, gas_counter, &self.method)
-                    .run(&mut fake_external, &context, fees)
-                    .expect("execution failed");
+                let config =
+                    Arc::get_mut(&mut Arc::get_mut(runtime_config).unwrap().wasm_config).unwrap();
+                config.vm_kind = vm_kind;
+                self.run(
+                    &mut results,
+                    vm_kind,
+                    protocol_version,
+                    Arc::clone(&runtime_config.wasm_config),
+                    &self.code,
+                );
+            }
 
-                let mut got = String::new();
+            if !results.is_empty() {
+                want.assert_eq(&results[0].1);
+                for i in 1..results.len() {
+                    if results[i].1 != results[0].1 {
+                        panic!(
+                            "Inconsistent VM Output:\n{:?}:\n{}\n\n{:?}:\n{}",
+                            results[0].0, results[0].1, results[i].0, results[i].1
+                        )
+                    }
+                }
+            }
+        }
+        self
+    }
 
-                if !self.opaque_outcome {
-                    fmt_outcome_without_abort(&outcome, &mut got).unwrap();
-                    writeln!(&mut got).unwrap();
+    #[track_caller]
+    pub(crate) fn component_expects<'a, I>(mut self, wants: I)
+    where
+        I: IntoIterator<Item = &'a expect_test::Expect>,
+        I::IntoIter: ExactSizeIterator,
+    {
+        self.protocol_versions.sort();
+        let mut runtime_config_store = RuntimeConfigStore::new(None);
+        let wants = wants.into_iter();
+        assert_eq!(
+            wants.len(),
+            self.protocol_versions.len(),
+            "specified {} protocol versions but only {} expectation",
+            self.protocol_versions.len(),
+            wants.len(),
+        );
+
+        for (want, &protocol_version) in wants.zip(&self.protocol_versions) {
+            let mut results = vec![];
+            for vm_kind in [VMKind::Wasmtime] {
+                if self.skip.contains(&vm_kind) {
+                    println!("Skipping {:?}", vm_kind);
+                    continue;
                 }
 
-                if let Some(err) = outcome.aborted {
-                    let err_str = err.to_string();
-                    assert!(
-                        err_str.len() < 1000,
-                        "errors should be bounded in size to prevent abuse \
-                         via exhausting the storage space. Got: {err_str}"
-                    );
-                    if self.opaque_error {
-                        writeln!(&mut got, "Err: ...").unwrap();
-                    } else {
-                        writeln!(&mut got, "Err: {err_str}").unwrap();
-                    }
-                };
-
-                results.push((vm_kind, got));
+                let runtime_config = runtime_config_store.get_config_mut(protocol_version);
+                let config =
+                    Arc::get_mut(&mut Arc::get_mut(runtime_config).unwrap().wasm_config).unwrap();
+                config.vm_kind = vm_kind;
+                config.component_model = true;
+                self.run(
+                    &mut results,
+                    vm_kind,
+                    protocol_version,
+                    Arc::clone(&runtime_config.wasm_config),
+                    &self.component_code,
+                );
             }
 
             if !results.is_empty() {
