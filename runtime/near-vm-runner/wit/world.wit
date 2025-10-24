@@ -12,11 +12,6 @@ interface runtime {
      register(u64),
    }
 
-   enum ecrecover-malleability {
-      no-extra-checks,
-      rejecting-upper-range,
-   }
-
    record u128 {
      lo: u64,
      hi: u64,
@@ -118,16 +113,17 @@ interface runtime {
    // Hashes the given value using RIPEMD-160 and returns it into `register_id`.
    ripemd160: func(value: value-or-register, register-id: u64);
 
-   // Recovers an ECDSA signer address and returns it into `register_id`.
+   // Recovers an ECDSA signer address from a 32-byte message `hash` and a corresponding `signature`
+   // along with `v` recovery byte.
    //
    // Takes in an additional flag to check for malleability of the signature
    // which is generally only ideal for transactions.
    //
-   // Returns a bool indicating success or failure.
-   ecrecover: func(hash: value-or-register, sig: value-or-register, v: u8, malleability: ecrecover-malleability, register-id: u64)-> bool;
+   // Returns 64 bytes representing the public key if the recovery was successful.
+   ecrecover: func(hash: list<u8>, signature: list<u8>, v: u8, malleability-flag: bool) -> option<public-key>;
 
    // Sets the blob of data as the return value of the contract.
-   value-return: func(value: value-or-register);
+   value-return: func(value: list<u8>);
 
    // Panics with the string.
    panic: func(s: option<string>);

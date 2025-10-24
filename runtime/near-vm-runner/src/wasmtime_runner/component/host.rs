@@ -799,28 +799,30 @@ impl runtime::Host for Ctx {
 
     fn ecrecover(
         &mut self,
-        hash: runtime::ValueOrRegister,
-        sig: runtime::ValueOrRegister,
+        hash: Vec<u8>,
+        signature: Vec<u8>,
         v: u8,
-        malleability: runtime::EcrecoverMalleability,
-        register_id: u64,
-    ) -> wasmtime::Result<bool> {
-        self.result_state.gas_counter.pay_base(ecrecover_base)?;
-
+        malleability: bool,
+    ) -> wasmtime::Result<Option<Resource<PublicKey>>> {
+        self.result_state.gas_counter.pay_base(ecrecover_base).map_err(ErrorContainer::new)?;
+        self.result_state.gas_counter.pay_base(read_memory_base).map_err(ErrorContainer::new)?;
+        self.result_state
+            .gas_counter
+            .pay_per(read_memory_byte, signature.len() as _)
+            .map_err(ErrorContainer::new)?;
         let signature = {
-            let vec = sig.as_bytes(&mut self.result_state.gas_counter, &self.registers)?;
-            if vec.len() != 64 {
+            if signature.len() != 64 {
                 return Err(ErrorContainer::new(HostError::ECRecoverError {
                     msg: format!(
                         "The length of the signature: {}, exceeds the limit of 64 bytes",
-                        vec.len()
+                        signature.len()
                     ),
                 })
                 .into());
             }
 
             let mut bytes = [0u8; 65];
-            bytes[0..64].copy_from_slice(&vec);
+            bytes[0..64].copy_from_slice(&signature);
 
             if v < 4 {
                 bytes[64] = v as u8;
@@ -833,41 +835,46 @@ impl runtime::Host for Ctx {
             }
         };
 
+        self.result_state.gas_counter.pay_base(read_memory_base).map_err(ErrorContainer::new)?;
+        self.result_state
+            .gas_counter
+            .pay_per(read_memory_byte, hash.len() as _)
+            .map_err(ErrorContainer::new)?;
         let hash = {
-            let vec = hash.as_bytes(&mut self.result_state.gas_counter, &self.registers)?;
-            if vec.len() != 32 {
+            if hash.len() != 32 {
                 return Err(ErrorContainer::new(HostError::ECRecoverError {
                     msg: format!(
                         "The length of the hash: {}, exceeds the limit of 32 bytes",
-                        vec.len()
+                        hash.len()
                     ),
                 })
                 .into());
             }
 
             let mut bytes = [0u8; 32];
-            bytes.copy_from_slice(&vec);
+            bytes.copy_from_slice(&hash);
             bytes
         };
 
-        if !signature.check_signature_values(match malleability {
-            runtime::EcrecoverMalleability::NoExtraChecks => false,
-            runtime::EcrecoverMalleability::RejectingUpperRange => true,
-        }) {
-            return Ok(false);
+        if !signature.check_signature_values(malleability) {
+            return Ok(None);
         }
 
         if let Ok(pk) = signature.recover(hash) {
-            self.registers.set(
-                &mut self.result_state.gas_counter,
-                &self.config.limit_config,
-                register_id,
-                pk.as_ref(),
-            )?;
-            return Ok(true);
+            let pk = PublicKey::from(pk);
+            self.result_state
+                .gas_counter
+                .pay_base(write_register_base)
+                .map_err(ErrorContainer::new)?;
+            self.result_state
+                .gas_counter
+                .pay_per(write_register_byte, pk.len() as _)
+                .map_err(ErrorContainer::new)?;
+            let pk = self.table.push(pk)?;
+            return Ok(Some(pk));
         };
 
-        Ok(false)
+        Ok(None)
     }
 
     fn ed25519_verify(
@@ -926,11 +933,15 @@ impl runtime::Host for Ctx {
         }
     }
 
-    fn value_return(&mut self, value: runtime::ValueOrRegister) -> wasmtime::Result<()> {
+    fn value_return(&mut self, value: Vec<u8>) -> wasmtime::Result<()> {
         self.result_state.gas_counter.pay_base(base).map_err(ErrorContainer::new)?;
-        let return_val = value.as_bytes(&mut self.result_state.gas_counter, &self.registers)?;
+        self.result_state.gas_counter.pay_base(read_memory_base).map_err(ErrorContainer::new)?;
+        self.result_state
+            .gas_counter
+            .pay_per(read_memory_byte, value.len() as _)
+            .map_err(ErrorContainer::new)?;
         let mut burn_gas: Gas = Gas::ZERO;
-        let num_bytes = return_val.len() as u64;
+        let num_bytes = value.len() as u64;
         if num_bytes > self.config.limit_config.max_length_returned_data {
             return Err(ErrorContainer::new(HostError::ReturnedValueLengthExceeded {
                 length: num_bytes,
@@ -969,7 +980,7 @@ impl runtime::Host for Ctx {
             burn_gas,
             ActionCosts::new_data_receipt_byte,
         )?;
-        self.result_state.return_data = ReturnData::Value(return_val.into());
+        self.result_state.return_data = ReturnData::Value(value);
         Ok(())
     }
 

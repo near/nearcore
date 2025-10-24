@@ -77,69 +77,69 @@ pub struct Component;
 impl Guest for Component {
     fn ext_storage_usage() {
         let n = storage_usage();
-        value_return(ValueOrRegister::Value(&n.to_le_bytes()))
+        value_return(&n.to_le_bytes())
     }
 
     fn ext_block_index() {
         let n = block_height();
-        value_return(ValueOrRegister::Value(&n.to_le_bytes()))
+        value_return(&n.to_le_bytes())
     }
 
     fn ext_block_timestamp() {
         let n = block_timestamp();
-        value_return(ValueOrRegister::Value(&n.to_le_bytes()))
+        value_return(&n.to_le_bytes())
     }
 
     fn ext_prepaid_gas() {
         let n = prepaid_gas();
-        value_return(ValueOrRegister::Value(&n.to_le_bytes()))
+        value_return(&n.to_le_bytes())
     }
 
     fn ext_random_seed() {
         let data = random_seed();
-        value_return(ValueOrRegister::Value(&data))
+        value_return(&data)
     }
 
     fn ext_predecessor_account_id() {
         let data = predecessor_account_id();
-        value_return(ValueOrRegister::Value(data.to_string().as_bytes()))
+        value_return(data.to_string().as_bytes())
     }
 
     fn ext_signer_pk() {
         let data = signer_account_pk();
-        value_return(ValueOrRegister::Value(&data.to_bytes()))
+        value_return(&data.to_bytes())
     }
 
     fn ext_signer_id() {
         let data = signer_account_id();
-        value_return(ValueOrRegister::Value(data.to_string().as_bytes()))
+        value_return(data.to_string().as_bytes())
     }
 
     fn ext_account_id() {
         let data = current_account_id();
-        value_return(ValueOrRegister::Value(data.to_string().as_bytes()))
+        value_return(data.to_string().as_bytes())
     }
 
     fn ext_account_balance() {
         let n = account_balance();
-        value_return(ValueOrRegister::Value(&u128::from(n).to_le_bytes()))
+        value_return(&u128::from(n).to_le_bytes())
     }
 
     fn ext_attached_deposit() {
         let n = attached_deposit();
-        value_return(ValueOrRegister::Value(&u128::from(n).to_le_bytes()))
+        value_return(&u128::from(n).to_le_bytes())
     }
 
     fn ext_validator_total_stake() {
         let n = validator_total_stake();
-        value_return(ValueOrRegister::Value(&u128::from(n).to_le_bytes()))
+        value_return(&u128::from(n).to_le_bytes())
     }
 
     fn ext_sha256() {
         let bytes = input();
         sha256(ValueOrRegister::Value(&bytes), 0);
         let result = read_register(0);
-        value_return(ValueOrRegister::Value(&result));
+        value_return(&result);
     }
 
     fn ext_used_gas() {
@@ -154,14 +154,14 @@ impl Guest for Component {
         assert_eq!(a, 1346269);
         let gas = used_gas() - initial_used_gas;
         let result = gas.to_le_bytes();
-        value_return(ValueOrRegister::Value(&result));
+        value_return(&result);
     }
 
     fn ext_validator_stake() {
         let account_id = String::from_utf8(input()).unwrap();
         let account_id = AccountId::from_string(&account_id).unwrap();
         let result = validator_stake(&account_id);
-        value_return(ValueOrRegister::Value(&u128::from(result).to_le_bytes()));
+        value_return(&u128::from(result).to_le_bytes());
     }
     /// Write key-value pair into storage.
     /// Input is the byte array where the value is `u64` represented by last 8 bytes and key is represented by the first
@@ -174,9 +174,9 @@ impl Guest for Component {
         let key = &data[0..data_len - value_len];
         let value = &data[data_len - value_len..];
         if storage_write(ValueOrRegister::Value(key), ValueOrRegister::Value(value), 1) {
-            value_return(ValueOrRegister::Value(&1u64.to_le_bytes()));
+            value_return(&1u64.to_le_bytes());
         } else {
-            value_return(ValueOrRegister::Value(&0u64.to_le_bytes()));
+            value_return(&0u64.to_le_bytes());
         }
     }
 
@@ -229,7 +229,7 @@ impl Guest for Component {
         assert_eq!(key.len(), size_of::<u64>());
         if storage_read(ValueOrRegister::Value(&key), 1) {
             let value = read_register(1);
-            value_return(ValueOrRegister::Value(&value));
+            value_return(&value);
         }
     }
 
@@ -251,7 +251,7 @@ impl Guest for Component {
     }
 
     fn run_test() {
-        value_return(ValueOrRegister::Value(&10i32.to_le_bytes()));
+        value_return(&10i32.to_le_bytes());
     }
 
     fn run_test_with_storage_change() {
@@ -271,7 +271,7 @@ impl Guest for Component {
         let key = u64::from_le_bytes(key);
         let value = u64::from_le_bytes(value);
         let result = key + value;
-        value_return(ValueOrRegister::Value(&result.to_le_bytes()));
+        value_return(&result.to_le_bytes());
     }
 
     fn out_of_memory() {
@@ -364,7 +364,7 @@ impl Guest for Component {
         // #####################
         // # Miscellaneous API #
         // #####################
-        value_return(ValueOrRegister::Value(value.as_bytes()));
+        value_return(value.as_bytes());
 
         // Calling host functions that terminate execution via promises.
         let method_name_panic = b"sanity-check-panic";
