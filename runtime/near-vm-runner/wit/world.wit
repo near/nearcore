@@ -96,22 +96,20 @@ interface runtime {
    // same method/block.
    random-seed: func() -> list<u8>;
 
-   // Hashes the given value using sha256 and returns it into `register-id`.
-   sha256: func(value: value-or-register, register-id: u64);
+   // Hashes the random sequence of bytes using sha256.
+   sha256: func(value: list<u8>) -> list<u8>;
 
-   // Hashes the given value using keccak256 and returns it into `register_id`.
-   keccak256: func(value: value-or-register, register-id: u64);
+   // Hashes the random sequence of bytes using keccak256.
+   keccak256: func(value: list<u8>) -> list<u8>;
 
-   // Hashes the given value using keccak512 and returns it into `register_id`.
-   keccak512: func(value: value-or-register, register-id: u64);
+   // Hashes the random sequence of bytes using keccak512.
+   keccak512: func(value: list<u8>) -> list<u8>;
 
-   // Verify an ED25519 signature given a message and a public key.
-   //
-   // Returns a bool indicating success or failure.
-   ed25519-verify: func(signature: value-or-register, message: list<u8>, public-key: borrow<public-key>) -> bool;
+   // Verifies signature of message using provided ED25519 Public Key
+   ed25519-verify: func(signature: list<u8>, message: list<u8>, public-key: borrow<public-key>) -> bool;
 
-   // Hashes the given value using RIPEMD-160 and returns it into `register_id`.
-   ripemd160: func(value: value-or-register, register-id: u64);
+   // Hashes the bytes using the RIPEMD-160 hash function.
+   ripemd160: func(value: list<u8>) -> list<u8>;
 
    // Recovers an ECDSA signer address from a 32-byte message `hash` and a corresponding `signature`
    // along with `v` recovery byte.

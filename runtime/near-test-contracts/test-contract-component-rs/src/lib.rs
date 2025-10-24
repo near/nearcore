@@ -137,8 +137,7 @@ impl Guest for Component {
 
     fn ext_sha256() {
         let bytes = input();
-        sha256(ValueOrRegister::Value(&bytes), 0);
-        let result = read_register(0);
+        let result = sha256(&bytes);
         value_return(&result);
     }
 
@@ -311,8 +310,7 @@ impl Guest for Component {
     }
 
     fn do_ripemd() {
-        let data = b"tesdsst";
-        ripemd160(ValueOrRegister::Value(data), 0);
+        _ = ripemd160(b"tesdsst");
     }
 
     fn noop() {}
@@ -359,7 +357,7 @@ impl Guest for Component {
         // ############
         _ = random_seed();
         let value = "hello";
-        sha256(ValueOrRegister::Value(value.as_bytes()), 1);
+        _ = sha256(value.as_bytes());
 
         // #####################
         // # Miscellaneous API #
@@ -538,7 +536,7 @@ impl Guest for Component {
         // # Math Extensions #
         // ###################
         let buffer = [65u8; 10];
-        ripemd160(ValueOrRegister::Value(&buffer), 1);
+        ripemd160(&buffer);
 
         // #################
         // # alt_bn128 API #

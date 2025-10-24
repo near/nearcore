@@ -95,6 +95,12 @@ fn pay_action_per_byte(
     Ok(())
 }
 
+fn pay_for_writing_bytes(gas_counter: &mut GasCounter, n: usize) -> wasmtime::Result<()> {
+    gas_counter.pay_base(write_memory_base).map_err(ErrorContainer::new)?;
+    gas_counter.pay_per(write_memory_byte, n as _).map_err(ErrorContainer::new)?;
+    Ok(())
+}
+
 impl runtime::ValueOrRegister {
     fn as_bytes<'a>(
         &'a self,
@@ -162,6 +168,28 @@ fn pay_gas_for_new_receipt(
 }
 
 impl Ctx {
+    fn pay_for_reading_bytes(&mut self, n: usize) -> wasmtime::Result<()> {
+        self.result_state.gas_counter.pay_base(read_memory_base).map_err(ErrorContainer::new)?;
+        let n =
+            u64::try_from(n).map_err(|_| ErrorContainer::new(HostError::MemoryAccessViolation))?;
+        self.result_state.gas_counter.pay_per(read_memory_byte, n).map_err(ErrorContainer::new)?;
+        Ok(())
+    }
+
+    fn pay_for_writing_bytes(&mut self, n: usize) -> wasmtime::Result<()> {
+        pay_for_writing_bytes(&mut self.result_state.gas_counter, n)
+    }
+
+    fn pay_for_reading_string(&mut self, n: usize) -> wasmtime::Result<()> {
+        self.pay_for_reading_bytes(n)?;
+        self.result_state.gas_counter.pay_base(utf8_decoding_base).map_err(ErrorContainer::new)?;
+        self.result_state
+            .gas_counter
+            .pay_per(utf8_decoding_byte, n as _)
+            .map_err(ErrorContainer::new)?;
+        Ok(())
+    }
+
     fn read_account_id(&mut self, account_id: &Resource<AccountId>) -> wasmtime::Result<AccountId> {
         self.result_state.gas_counter.pay_base(read_register_base).map_err(ErrorContainer::new)?;
         let account_id = self.table.get(account_id)?;
@@ -339,8 +367,7 @@ impl finite_wasm::Host for Ctx {
 impl runtime::Host for Ctx {
     fn write_register(&mut self, register_id: u64, data: Vec<u8>) -> wasmtime::Result<()> {
         self.result_state.gas_counter.pay_base(base).map_err(ErrorContainer::new)?;
-        self.result_state.gas_counter.pay_base(read_memory_base)?;
-        self.result_state.gas_counter.pay_per(read_memory_byte, data.len() as _)?;
+        self.pay_for_reading_bytes(data.len())?;
         self.registers.set(
             &mut self.result_state.gas_counter,
             &self.config.limit_config,
@@ -454,11 +481,7 @@ impl runtime::Host for Ctx {
 
     fn input(&mut self) -> wasmtime::Result<Vec<u8>> {
         self.result_state.gas_counter.pay_base(base).map_err(ErrorContainer::new)?;
-        self.result_state.gas_counter.pay_base(write_memory_base).map_err(ErrorContainer::new)?;
-        self.result_state
-            .gas_counter
-            .pay_per(write_memory_byte, self.context.input.len() as _)
-            .map_err(ErrorContainer::new)?;
+        self.pay_for_writing_bytes(self.context.input.len())?;
         Ok(self.context.input.to_vec())
     }
 
@@ -697,84 +720,52 @@ impl runtime::Host for Ctx {
 
     fn random_seed(&mut self) -> wasmtime::Result<Vec<u8>> {
         self.result_state.gas_counter.pay_base(base).map_err(ErrorContainer::new)?;
-        self.result_state.gas_counter.pay_base(write_memory_base).map_err(ErrorContainer::new)?;
-        self.result_state
-            .gas_counter
-            .pay_per(write_memory_byte, self.context.random_seed.len() as _)
-            .map_err(ErrorContainer::new)?;
+        self.pay_for_writing_bytes(self.context.random_seed.len())?;
         Ok(self.context.random_seed.clone())
     }
 
-    fn sha256(
-        &mut self,
-        value: runtime::ValueOrRegister,
-        register_id: u64,
-    ) -> wasmtime::Result<()> {
-        self.result_state.gas_counter.pay_base(sha256_base)?;
-        let value = value.as_bytes(&mut self.result_state.gas_counter, &self.registers)?;
-        self.result_state.gas_counter.pay_per(sha256_byte, value.len() as u64)?;
+    fn sha256(&mut self, value: Vec<u8>) -> wasmtime::Result<Vec<u8>> {
+        self.result_state.gas_counter.pay_base(sha256_base).map_err(ErrorContainer::new)?;
+        self.pay_for_reading_bytes(value.len())?;
+        self.result_state
+            .gas_counter
+            .pay_per(sha256_byte, value.len() as u64)
+            .map_err(ErrorContainer::new)?;
 
         use sha2::Digest;
 
         let value_hash = sha2::Sha256::digest(&value);
-        self.registers.set(
-            &mut self.result_state.gas_counter,
-            &self.config.limit_config,
-            register_id,
-            value_hash.as_slice(),
-        )?;
-        Ok(())
+        self.pay_for_writing_bytes(value_hash.len())?;
+        Ok(value_hash.to_vec())
     }
 
-    fn keccak256(
-        &mut self,
-        value: runtime::ValueOrRegister,
-        register_id: u64,
-    ) -> wasmtime::Result<()> {
+    fn keccak256(&mut self, value: Vec<u8>) -> wasmtime::Result<Vec<u8>> {
         self.result_state.gas_counter.pay_base(keccak256_base)?;
-        let value = value.as_bytes(&mut self.result_state.gas_counter, &self.registers)?;
+        self.pay_for_reading_bytes(value.len())?;
         self.result_state.gas_counter.pay_per(keccak256_byte, value.len() as u64)?;
 
         use sha3::Digest;
 
         let value_hash = sha3::Keccak256::digest(&value);
-        self.registers.set(
-            &mut self.result_state.gas_counter,
-            &self.config.limit_config,
-            register_id,
-            value_hash.as_slice(),
-        )?;
-        Ok(())
+        self.pay_for_writing_bytes(value_hash.len())?;
+        Ok(value_hash.to_vec())
     }
 
-    fn keccak512(
-        &mut self,
-        value: runtime::ValueOrRegister,
-        register_id: u64,
-    ) -> wasmtime::Result<()> {
+    fn keccak512(&mut self, value: Vec<u8>) -> wasmtime::Result<Vec<u8>> {
         self.result_state.gas_counter.pay_base(keccak512_base)?;
-        let value = value.as_bytes(&mut self.result_state.gas_counter, &self.registers)?;
+        self.pay_for_reading_bytes(value.len())?;
         self.result_state.gas_counter.pay_per(keccak512_byte, value.len() as u64)?;
 
         use sha3::Digest;
 
         let value_hash = sha3::Keccak512::digest(&value);
-        self.registers.set(
-            &mut self.result_state.gas_counter,
-            &self.config.limit_config,
-            register_id,
-            value_hash.as_slice(),
-        )?;
-        Ok(())
+        self.pay_for_writing_bytes(value_hash.len())?;
+        Ok(value_hash.to_vec())
     }
 
-    fn ripemd160(
-        &mut self,
-        value: runtime::ValueOrRegister,
-        register_id: u64,
-    ) -> wasmtime::Result<()> {
+    fn ripemd160(&mut self, value: Vec<u8>) -> wasmtime::Result<Vec<u8>> {
         self.result_state.gas_counter.pay_base(ripemd160_base)?;
-        let value = value.as_bytes(&mut self.result_state.gas_counter, &self.registers)?;
+        self.pay_for_reading_bytes(value.len())?;
 
         let message_blocks = value
             .len()
@@ -788,13 +779,8 @@ impl runtime::Host for Ctx {
         use ripemd::Digest;
 
         let value_hash = ripemd::Ripemd160::digest(&value);
-        self.registers.set(
-            &mut self.result_state.gas_counter,
-            &self.config.limit_config,
-            register_id,
-            value_hash.as_slice(),
-        )?;
-        Ok(())
+        self.pay_for_writing_bytes(value_hash.len())?;
+        Ok(value_hash.to_vec())
     }
 
     fn ecrecover(
@@ -805,11 +791,7 @@ impl runtime::Host for Ctx {
         malleability: bool,
     ) -> wasmtime::Result<Option<Resource<PublicKey>>> {
         self.result_state.gas_counter.pay_base(ecrecover_base).map_err(ErrorContainer::new)?;
-        self.result_state.gas_counter.pay_base(read_memory_base).map_err(ErrorContainer::new)?;
-        self.result_state
-            .gas_counter
-            .pay_per(read_memory_byte, signature.len() as _)
-            .map_err(ErrorContainer::new)?;
+        self.pay_for_reading_bytes(signature.len())?;
         let signature = {
             if signature.len() != 64 {
                 return Err(ErrorContainer::new(HostError::ECRecoverError {
@@ -835,11 +817,7 @@ impl runtime::Host for Ctx {
             }
         };
 
-        self.result_state.gas_counter.pay_base(read_memory_base).map_err(ErrorContainer::new)?;
-        self.result_state
-            .gas_counter
-            .pay_per(read_memory_byte, hash.len() as _)
-            .map_err(ErrorContainer::new)?;
+        self.pay_for_reading_bytes(hash.len())?;
         let hash = {
             if hash.len() != 32 {
                 return Err(ErrorContainer::new(HostError::ECRecoverError {
@@ -879,21 +857,23 @@ impl runtime::Host for Ctx {
 
     fn ed25519_verify(
         &mut self,
-        signature: runtime::ValueOrRegister,
+        signature: Vec<u8>,
         message: Vec<u8>,
         public_key: Resource<PublicKey>,
     ) -> wasmtime::Result<bool> {
         use ed25519_dalek::Verifier;
 
-        self.result_state.gas_counter.pay_base(ed25519_verify_base)?;
+        self.result_state.gas_counter.pay_base(ed25519_verify_base).map_err(ErrorContainer::new)?;
 
+        self.pay_for_reading_bytes(signature.len())?;
         let signature: ed25519_dalek::Signature = {
-            let vec = signature.as_bytes(&mut self.result_state.gas_counter, &self.registers)?;
-            let b = <&[u8; ed25519_dalek::SIGNATURE_LENGTH]>::try_from(&vec[..]).map_err(|_| {
-                ErrorContainer::new(HostError::Ed25519VerifyInvalidInput {
-                    msg: "invalid signature length".to_string(),
-                })
-            })?;
+            let b = <&[u8; ed25519_dalek::SIGNATURE_LENGTH]>::try_from(&signature[..]).map_err(
+                |_| {
+                    ErrorContainer::new(HostError::Ed25519VerifyInvalidInput {
+                        msg: "invalid signature length".to_string(),
+                    })
+                },
+            )?;
             // Sanity-check that was performed by ed25519-dalek in from_bytes before version 2,
             // but was removed with version 2. It is not actually any good a check, but we need
             // it to avoid costs changing.
@@ -903,11 +883,7 @@ impl runtime::Host for Ctx {
             ed25519_dalek::Signature::from_bytes(b)
         };
 
-        self.result_state.gas_counter.pay_base(read_memory_base).map_err(ErrorContainer::new)?;
-        self.result_state
-            .gas_counter
-            .pay_per(read_memory_byte, message.len() as _)
-            .map_err(ErrorContainer::new)?;
+        self.pay_for_reading_bytes(message.len())?;
         self.result_state
             .gas_counter
             .pay_per(ed25519_verify_byte, message.len() as _)
@@ -935,11 +911,7 @@ impl runtime::Host for Ctx {
 
     fn value_return(&mut self, value: Vec<u8>) -> wasmtime::Result<()> {
         self.result_state.gas_counter.pay_base(base).map_err(ErrorContainer::new)?;
-        self.result_state.gas_counter.pay_base(read_memory_base).map_err(ErrorContainer::new)?;
-        self.result_state
-            .gas_counter
-            .pay_per(read_memory_byte, value.len() as _)
-            .map_err(ErrorContainer::new)?;
+        self.pay_for_reading_bytes(value.len())?;
         let mut burn_gas: Gas = Gas::ZERO;
         let num_bytes = value.len() as u64;
         if num_bytes > self.config.limit_config.max_length_returned_data {
@@ -987,7 +959,7 @@ impl runtime::Host for Ctx {
     fn panic(&mut self, s: Option<String>) -> wasmtime::Result<()> {
         self.result_state.gas_counter.pay_base(base).map_err(ErrorContainer::new)?;
         let panic_msg = if let Some(s) = s {
-            self.result_state.gas_counter.pay_base(utf8_decoding_base)?;
+            self.pay_for_reading_string(s.len())?;
             let max_len = self
                 .result_state
                 .config
@@ -1000,9 +972,6 @@ impl runtime::Host for Ctx {
                     .total_log_length_exceeded(s.len() as _)
                     .map_err(Into::into);
             }
-            self.result_state.gas_counter.pay_base(read_memory_base)?;
-            self.result_state.gas_counter.pay_per(read_memory_byte, s.len() as _)?;
-            self.result_state.gas_counter.pay_per(utf8_decoding_byte, s.len() as _)?;
             s
         } else {
             "explicit guest panic".to_string()
@@ -1345,12 +1314,10 @@ impl runtime::HostPromise for Ctx {
         let memory_len = promises
             .len()
             .checked_mul(size_of::<u64>())
-            .and_then(|n| u64::try_from(n).ok())
             .ok_or(HostError::IntegerOverflow)
             .map_err(ErrorContainer::new)?;
-        self.result_state.gas_counter.pay_per(promise_and_per_promise, memory_len)?;
-        self.result_state.gas_counter.pay_base(read_memory_base)?;
-        self.result_state.gas_counter.pay_per(read_memory_byte, memory_len)?;
+        self.pay_for_reading_bytes(memory_len)?;
+        self.result_state.gas_counter.pay_per(promise_and_per_promise, memory_len as _)?;
 
         let mut receipt_dependencies = vec![];
         for promise in promises {
@@ -2187,16 +2154,7 @@ impl runtime::HostAccountId for Ctx {
         &mut self,
         account_id: String,
     ) -> wasmtime::Result<Result<Resource<AccountId>, ()>> {
-        self.result_state.gas_counter.pay_base(read_memory_base).map_err(ErrorContainer::new)?;
-        self.result_state
-            .gas_counter
-            .pay_per(read_memory_byte, account_id.len() as _)
-            .map_err(ErrorContainer::new)?;
-        self.result_state.gas_counter.pay_base(utf8_decoding_base).map_err(ErrorContainer::new)?;
-        self.result_state
-            .gas_counter
-            .pay_per(utf8_decoding_byte, account_id.len() as u64)
-            .map_err(ErrorContainer::new)?;
+        self.pay_for_reading_string(account_id.len())?;
         match account_id.parse() {
             Ok(account_id) => {
                 let account_id = self.table.push(account_id)?;
@@ -2208,11 +2166,7 @@ impl runtime::HostAccountId for Ctx {
 
     fn to_string(&mut self, account_id: Resource<AccountId>) -> wasmtime::Result<String> {
         let account_id = self.table.get(&account_id)?;
-        self.result_state.gas_counter.pay_base(write_memory_base).map_err(ErrorContainer::new)?;
-        self.result_state
-            .gas_counter
-            .pay_per(write_memory_byte, account_id.len() as _)
-            .map_err(ErrorContainer::new)?;
+        pay_for_writing_bytes(&mut self.result_state.gas_counter, account_id.len())?;
         Ok(account_id.to_string())
     }
 
@@ -2227,16 +2181,7 @@ impl runtime::HostPublicKey for Ctx {
         &mut self,
         public_key: String,
     ) -> wasmtime::Result<Result<Resource<PublicKey>, ()>> {
-        self.result_state.gas_counter.pay_base(read_memory_base).map_err(ErrorContainer::new)?;
-        self.result_state
-            .gas_counter
-            .pay_per(read_memory_byte, public_key.len() as _)
-            .map_err(ErrorContainer::new)?;
-        self.result_state.gas_counter.pay_base(utf8_decoding_base).map_err(ErrorContainer::new)?;
-        self.result_state
-            .gas_counter
-            .pay_per(utf8_decoding_byte, public_key.len() as u64)
-            .map_err(ErrorContainer::new)?;
+        self.pay_for_reading_string(public_key.len())?;
         match public_key.parse() {
             Ok(public_key) => {
                 let public_key = self.table.push(public_key)?;
