@@ -172,7 +172,7 @@ impl Guest for Component {
 
         let key = &data[0..data_len - value_len];
         let value = &data[data_len - value_len..];
-        if storage_write(ValueOrRegister::Value(key), ValueOrRegister::Value(value), 1) {
+        if storage_write(key, value, 1) {
             value_return(&1u64.to_le_bytes());
         } else {
             value_return(&0u64.to_le_bytes());
@@ -182,17 +182,13 @@ impl Guest for Component {
     fn write_block_height() {
         let block_height = block_height();
         let value = b"hello";
-        storage_write(
-            ValueOrRegister::Value(&block_height.to_le_bytes()),
-            ValueOrRegister::Value(value),
-            0,
-        );
+        storage_write(&block_height.to_le_bytes(), value, 0);
     }
 
     fn write_random_value() {
         let data = random_seed();
         let value = b"hello";
-        storage_write(ValueOrRegister::Value(&data), ValueOrRegister::Value(value), 1);
+        storage_write(&data, value, 1);
     }
 
     /// Write a 1MB value under the given key.
@@ -203,7 +199,7 @@ impl Guest for Component {
         let key = key[0];
 
         let value = vec![key; 1_000_000];
-        storage_write(ValueOrRegister::Value(&[key]), ValueOrRegister::Value(&value), 0);
+        storage_write(&[key], &value, 0);
     }
 
     /// Read n megabytes of data between from..to
@@ -217,17 +213,15 @@ impl Guest for Component {
         let to = input_data[1];
 
         for key in from..to {
-            let result = storage_read(ValueOrRegister::Value(&[key]), 0);
-            assert_eq!(result, true);
-            assert_eq!(register_len(0), Some(1_000_000));
+            let result = storage_read(&[key]).unwrap();
+            assert_eq!(result.len(), 1_000_000);
         }
     }
 
     fn read_value() {
         let key = input();
         assert_eq!(key.len(), size_of::<u64>());
-        if storage_read(ValueOrRegister::Value(&key), 1) {
-            let value = read_register(1);
+        if let Some(value) = storage_read(&key) {
             value_return(&value);
         }
     }
@@ -256,7 +250,7 @@ impl Guest for Component {
     fn run_test_with_storage_change() {
         let key = b"hello";
         let value = b"world";
-        storage_write(ValueOrRegister::Value(key), ValueOrRegister::Value(value), 0);
+        storage_write(key, value, 0);
     }
 
     fn sum_with_input() {
@@ -497,32 +491,18 @@ impl Guest for Component {
         // For storage funcs, cover both cases of key being unused and being used.
 
         let key = "hi";
-        assert_eq!(
-            storage_write(
-                ValueOrRegister::Value(key.as_bytes()),
-                ValueOrRegister::Value(value.as_bytes()),
-                1,
-            ),
-            false,
-        );
-        assert_eq!(
-            storage_write(
-                ValueOrRegister::Value(key.as_bytes()),
-                ValueOrRegister::Value(value.as_bytes()),
-                1,
-            ),
-            true,
-        );
+        assert_eq!(storage_write(key.as_bytes(), value.as_bytes(), 1,), false);
+        assert_eq!(storage_write(key.as_bytes(), value.as_bytes(), 1,), true);
 
         let unused_key = "abcdefg";
-        assert_eq!(storage_read(ValueOrRegister::Value(unused_key.as_bytes()), 1), false);
-        assert_eq!(storage_read(ValueOrRegister::Value(key.as_bytes()), 1), true);
+        assert_eq!(storage_read(unused_key.as_bytes()), None);
+        assert_eq!(storage_read(key.as_bytes()), Some(value.as_bytes().into()));
 
-        assert_eq!(storage_has_key(ValueOrRegister::Value(unused_key.as_bytes())), false);
-        assert_eq!(storage_has_key(ValueOrRegister::Value(key.as_bytes())), true);
+        assert_eq!(storage_has_key(unused_key.as_bytes()), false);
+        assert_eq!(storage_has_key(key.as_bytes()), true);
 
-        assert_eq!(storage_remove(ValueOrRegister::Value(unused_key.as_bytes()), 1), false);
-        assert_eq!(storage_remove(ValueOrRegister::Value(key.as_bytes()), 1), true);
+        assert_eq!(storage_remove(unused_key.as_bytes(), 1), false);
+        assert_eq!(storage_remove(key.as_bytes(), 1), true);
 
         // #################
         // # Validator API #

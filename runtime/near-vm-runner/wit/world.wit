@@ -204,27 +204,18 @@ interface runtime {
    refund-to-account-id: func(register-id: u64);
 
    // Writes key-value into storage.
-   // * If key is not in use it inserts the key-value pair and does not modify the register. Returns `false`;
-   // * If key is in use it inserts the key-value and copies the old value into the `register-id`. Returns `true`.
-   //
-   storage-write: func(key: value-or-register, value: value-or-register, register-id: u64) -> bool;
+   // If another key-value existed in the storage with the same key it returns `true`, otherwise `false`.
+   storage-write: func(key: list<u8>, value: list<u8>, register-id: u64) -> bool;
 
    // Reads the value stored under the given key.
-   // * If key is used copies the content of the value into the `register-id`, even if the content
-   //   is zero bytes. Returns `true`;
-   // * If key is not present then does not modify the register. Returns `false`;
-   storage-read: func(key: value-or-register, register-id: u64) -> bool;
+   storage-read: func(key: list<u8>) -> option<list<u8>>;
 
    // Removes the value stored under the given key.
-   // * If key is used, removes the key-value from the trie and copies the content of the value
-   //   into the `register_id`, even if the content is zero bytes. Returns `true`;
-   // * If key is not present then does not modify the register. Returns `false`.
-   storage-remove: func(key: value-or-register, register-id: u64) -> bool;
+   // If key-value existed returns `true`, otherwise `false`.
+   storage-remove: func(key: list<u8>, register-id: u64) -> bool;
 
-   // Checks if there is a key-value pair.
-   // * If key is used returns `true`, even if the value is zero bytes;
-   // * Otherwise returns `false`.
-   storage-has-key: func(key: value-or-register) -> bool;
+   // Checks if there is a key-value in the storage.
+   storage-has-key: func(key: list<u8>) -> bool;
 
    // Get the stake of an account, if the account is currently a validator.
    validator-stake: func(account-id: borrow<account-id>) -> u128;

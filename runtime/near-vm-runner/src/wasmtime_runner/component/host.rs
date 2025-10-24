@@ -1027,8 +1027,8 @@ impl runtime::Host for Ctx {
 
     fn storage_write(
         &mut self,
-        key: runtime::ValueOrRegister,
-        value: runtime::ValueOrRegister,
+        key: Vec<u8>,
+        value: Vec<u8>,
         register_id: u64,
     ) -> wasmtime::Result<bool> {
         self.result_state.gas_counter.pay_base(base).map_err(ErrorContainer::new)?;
@@ -1038,8 +1038,8 @@ impl runtime::Host for Ctx {
             })
             .into());
         }
-        self.result_state.gas_counter.pay_base(storage_write_base)?;
-        let key = key.as_bytes(&mut self.result_state.gas_counter, &self.registers)?;
+        self.result_state.gas_counter.pay_base(storage_write_base).map_err(ErrorContainer::new)?;
+        self.pay_for_reading_bytes(key.len())?;
         if key.len() as u64 > self.config.limit_config.max_length_storage_key {
             return Err(ErrorContainer::new(HostError::KeyLengthExceeded {
                 length: key.len() as u64,
@@ -1047,7 +1047,7 @@ impl runtime::Host for Ctx {
             })
             .into());
         }
-        let value = value.as_bytes(&mut self.result_state.gas_counter, &self.registers)?;
+        self.pay_for_reading_bytes(value.len())?;
         if value.len() as u64 > self.config.limit_config.max_length_storage_value {
             return Err(ErrorContainer::new(HostError::ValueLengthExceeded {
                 length: value.len() as u64,
@@ -1055,8 +1055,14 @@ impl runtime::Host for Ctx {
             })
             .into());
         }
-        self.result_state.gas_counter.pay_per(storage_write_key_byte, key.len() as u64)?;
-        self.result_state.gas_counter.pay_per(storage_write_value_byte, value.len() as u64)?;
+        self.result_state
+            .gas_counter
+            .pay_per(storage_write_key_byte, key.len() as u64)
+            .map_err(ErrorContainer::new)?;
+        self.result_state
+            .gas_counter
+            .pay_per(storage_write_value_byte, value.len() as u64)
+            .map_err(ErrorContainer::new)?;
         let evicted = self
             .ext
             .storage_set(&mut self.result_state.gas_counter, &key, &value)
@@ -1106,14 +1112,10 @@ impl runtime::Host for Ctx {
         }
     }
 
-    fn storage_read(
-        &mut self,
-        key: runtime::ValueOrRegister,
-        register_id: u64,
-    ) -> wasmtime::Result<bool> {
+    fn storage_read(&mut self, key: Vec<u8>) -> wasmtime::Result<Option<Vec<u8>>> {
         self.result_state.gas_counter.pay_base(base).map_err(ErrorContainer::new)?;
-        self.result_state.gas_counter.pay_base(storage_read_base)?;
-        let key = key.as_bytes(&mut self.result_state.gas_counter, &self.registers)?;
+        self.result_state.gas_counter.pay_base(storage_read_base).map_err(ErrorContainer::new)?;
+        self.pay_for_reading_bytes(key.len())?;
         if key.len() as u64 > self.config.limit_config.max_length_storage_key {
             return Err(ErrorContainer::new(HostError::KeyLengthExceeded {
                 length: key.len() as u64,
@@ -1121,18 +1123,28 @@ impl runtime::Host for Ctx {
             })
             .into());
         }
-        self.result_state.gas_counter.pay_per(storage_read_key_byte, key.len() as u64)?;
+        self.result_state
+            .gas_counter
+            .pay_per(storage_read_key_byte, key.len() as u64)
+            .map_err(ErrorContainer::new)?;
         let read = self.ext.storage_get(&mut self.result_state.gas_counter, &key);
         let read = match read.map_err(ErrorContainer::new)? {
             Some(read) => {
                 // Here we'll do u32 -> usize -> u64, which is always infallible
                 let read_len = read.len() as usize;
-                self.result_state.gas_counter.pay_per(storage_read_value_byte, read_len as u64)?;
+                self.result_state
+                    .gas_counter
+                    .pay_per(storage_read_value_byte, read_len as u64)
+                    .map_err(ErrorContainer::new)?;
                 if read_len > INLINE_DISK_VALUE_THRESHOLD {
-                    self.result_state.gas_counter.pay_base(storage_large_read_overhead_base)?;
                     self.result_state
                         .gas_counter
-                        .pay_per(storage_large_read_overhead_byte, read_len as u64)?;
+                        .pay_base(storage_large_read_overhead_base)
+                        .map_err(ErrorContainer::new)?;
+                    self.result_state
+                        .gas_counter
+                        .pay_per(storage_large_read_overhead_byte, read_len as u64)
+                        .map_err(ErrorContainer::new)?;
                 }
                 Some(read.deref(&mut FreeGasCounter)?)
             }
@@ -1144,23 +1156,14 @@ impl runtime::Host for Ctx {
             .map_err(ErrorContainer::new)?;
         match read {
             Some(value) => {
-                self.registers.set(
-                    &mut self.result_state.gas_counter,
-                    &self.config.limit_config,
-                    register_id,
-                    value,
-                )?;
-                Ok(true)
+                self.pay_for_writing_bytes(value.len())?;
+                Ok(Some(value))
             }
-            None => Ok(false),
+            None => Ok(None),
         }
     }
 
-    fn storage_remove(
-        &mut self,
-        key: runtime::ValueOrRegister,
-        register_id: u64,
-    ) -> wasmtime::Result<bool> {
+    fn storage_remove(&mut self, key: Vec<u8>, register_id: u64) -> wasmtime::Result<bool> {
         self.result_state.gas_counter.pay_base(base).map_err(ErrorContainer::new)?;
         if self.context.is_view() {
             return Err(ErrorContainer::new(HostError::ProhibitedInView {
@@ -1168,8 +1171,8 @@ impl runtime::Host for Ctx {
             })
             .into());
         }
-        self.result_state.gas_counter.pay_base(storage_remove_base)?;
-        let key = key.as_bytes(&mut self.result_state.gas_counter, &self.registers)?;
+        self.result_state.gas_counter.pay_base(storage_remove_base).map_err(ErrorContainer::new)?;
+        self.pay_for_reading_bytes(key.len())?;
         if key.len() as u64 > self.config.limit_config.max_length_storage_key {
             return Err(ErrorContainer::new(HostError::KeyLengthExceeded {
                 length: key.len() as u64,
@@ -1210,10 +1213,13 @@ impl runtime::Host for Ctx {
         }
     }
 
-    fn storage_has_key(&mut self, key: runtime::ValueOrRegister) -> wasmtime::Result<bool> {
+    fn storage_has_key(&mut self, key: Vec<u8>) -> wasmtime::Result<bool> {
         self.result_state.gas_counter.pay_base(base).map_err(ErrorContainer::new)?;
-        self.result_state.gas_counter.pay_base(storage_has_key_base)?;
-        let key = key.as_bytes(&mut self.result_state.gas_counter, &self.registers)?;
+        self.result_state
+            .gas_counter
+            .pay_base(storage_has_key_base)
+            .map_err(ErrorContainer::new)?;
+        self.pay_for_reading_bytes(key.len())?;
         if key.len() as u64 > self.config.limit_config.max_length_storage_key {
             return Err(ErrorContainer::new(HostError::KeyLengthExceeded {
                 length: key.len() as u64,
