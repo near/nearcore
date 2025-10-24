@@ -22,6 +22,17 @@ interface runtime {
      hi: u64,
    }
 
+   resource account-id {
+      from-string: static func(account-id: string) -> result<account-id>;
+      to-string: func() -> string;
+   }
+
+   resource public-key {
+      from-string: static func(public-key: string) -> result<public-key>;
+      to-string: func() -> string;
+      to-bytes: func() -> list<u8>;
+   }
+
    // Reads the entire content from the register `register-id`
    read-register: func(register-id: u64) -> list<u8>;
 
@@ -34,29 +45,22 @@ interface runtime {
    // register will lose the pre-existing data if any.
    write-register: func(register-id: u64, data: list<u8>);
 
-   // Saves the account id of the current contract that we execute into the register.
-   current-account-id: func(register-id: u64);
+   // The id of the account that owns the current contract.
+   current-account-id: func() -> account-id;
 
-   // All contract calls are a result of some transaction that was signed by some account using
-   // some access key and submitted into a memory pool (either through the wallet using RPC or by
-   // a node itself). This function returns the id of that account. Saves the bytes of the signer
-   // account id into the register.
-   signer-account-id: func(register-id: u64);
+   // The id of the account that either signed the original transaction or issued the initial
+   // cross-contract call.
+   signer-account-id: func() -> account-id;
 
-   // Saves the public key fo the access key that was used by the signer into the register. In
-   // rare situations smart contract might want to know the exact access key that was used to send
-   // the original transaction, e.g. to increase the allowance or manipulate with the public key.
-   signer-account-pk: func(register-id: u64);
+   // The public key of the account that did the signing.
+   signer-account-pk: func() -> public-key;
 
-   // All contract calls are a result of a receipt, this receipt might be created by a transaction
-   // that does function invocation on the contract or another contract as a result of
-   // cross-contract call. Saves the bytes of the predecessor account id into the register.
-   predecessor-account-id: func(register-id: u64);
+   // The id of the account that was the previous contract in the chain of cross-contract calls.
+   // If this is the first contract, it is equal to `signer_account_id`.
+   predecessor-account-id: func() -> account-id;
 
-   // Reads input to the contract call into the register. Input is expected to be in JSON-format.
-   // If input is provided saves the bytes (potentially zero) of input into register. If input is
-   // not provided writes 0 bytes into the register.
-   input: func(register-id: u64);
+   // The input to the contract call serialized as bytes.
+   input: func() -> list<u8>;
 
    // Returns the current block height.
    block-height: func() -> u64;
@@ -92,8 +96,10 @@ interface runtime {
    // The gas that was already burnt during the contract execution (cannot exceed `prepaid_gas`)
    used-gas: func() -> u64;
 
-   // Writes random seed into the register.
-   random-seed: func(register-id: u64);
+   // Returns the random seed from the current block. This 32 byte hash is based on the VRF value from
+   // the block. This value is not modified in any way each time this function is called within the
+   // same method/block.
+   random-seed: func() -> list<u8>;
 
    // Hashes the given value using sha256 and returns it into `register-id`.
    sha256: func(value: value-or-register, register-id: u64);
@@ -107,7 +113,7 @@ interface runtime {
    // Verify an ED25519 signature given a message and a public key.
    //
    // Returns a bool indicating success or failure.
-   ed25519-verify: func(signature: value-or-register, message: value-or-register, public-key: value-or-register) -> bool;
+   ed25519-verify: func(signature: value-or-register, message: list<u8>, public-key: borrow<public-key>) -> bool;
 
    // Hashes the given value using RIPEMD-160 and returns it into `register_id`.
    ripemd160: func(value: value-or-register, register-id: u64);
@@ -134,12 +140,12 @@ interface runtime {
    resource promise-action {}
 
    resource promise {
-      constructor(account-id: value-or-register);
-      then: func(account-id: value-or-register) -> promise;
+      constructor(account-id: borrow<account-id>);
+      then: func(account-id: borrow<account-id>) -> promise;
       and: static func(promises: list<borrow<promise>>) -> promise;
-      set-refund-to: func(account-id: value-or-register);
+      set-refund-to: func(account-id: borrow<account-id>);
       state-init: func(code-hash: value-or-register, amount: u128) -> promise-action;
-      state-init-by-account-id: func(account-id: value-or-register, amount: u128) -> promise-action;
+      state-init-by-account-id: func(account-id: borrow<account-id>, amount: u128) -> promise-action;
       set-state-init-data-entry: func(action: promise-action, key: value-or-register, value: value-or-register);
 
 
@@ -148,14 +154,14 @@ interface runtime {
       deploy-global-contract: func(code: value-or-register);
       deploy-global-contract-by-account-id: func(code: value-or-register);
       use-global-contract: func(code-hash: value-or-register);
-      use-global-contract-by-account-id: func(account-id: value-or-register);
+      use-global-contract-by-account-id: func(account-id: borrow<account-id>);
       function-call: func(method: value-or-register, arguments: value-or-register, amount: u128, gas: u64, gas-weight: u64);
       transfer: func(amount: u128);
-      stake: func(amount: u128, public-key: value-or-register);
-      add-key-with-full-access: func(public-key: value-or-register, nonce: u64);
-      add-key-with-function-call: func(public-key: value-or-register, nonce: u64, allowance: u128, receiver: value-or-register, method-names: value-or-register);
-      delete-key: func(public-key: value-or-register);
-      delete-account: func(beneficiary-id: value-or-register);
+      stake: func(amount: u128, public-key: borrow<public-key>);
+      add-key-with-full-access: func(public-key: borrow<public-key>, nonce: u64);
+      add-key-with-function-call: func(public-key: borrow<public-key>, nonce: u64, allowance: u128, receiver-id: borrow<account-id>, method-names: value-or-register);
+      delete-key: func(public-key: borrow<public-key>);
+      delete-account: func(beneficiary-id: borrow<account-id>);
 
       yield-create: static func(method-name: value-or-register, arguments: value-or-register, gas: u64, gas-weight: u64, register-id: u64) -> promise;
       yield-resume: static func(data-id: value-or-register, payload: value-or-register) -> bool;
@@ -227,7 +233,7 @@ interface runtime {
    storage-has-key: func(key: value-or-register) -> bool;
 
    // Get the stake of an account, if the account is currently a validator.
-   validator-stake: func(account-id: value-or-register) -> u128;
+   validator-stake: func(account-id: borrow<account-id>) -> u128;
 
    // Get the total validator stake of the current epoch.
    validator-total-stake: func() -> u128;

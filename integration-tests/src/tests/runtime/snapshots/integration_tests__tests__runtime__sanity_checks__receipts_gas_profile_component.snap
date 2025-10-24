@@ -112,7 +112,7 @@ expression: receipts_gas_profile
         CostGasUsed {
             cost_category: "WASM_HOST_COST",
             cost: "BASE",
-            gas_used: 16680390993,
+            gas_used: 15886086660,
         },
         CostGasUsed {
             cost_category: "WASM_HOST_COST",
@@ -157,22 +157,22 @@ expression: receipts_gas_profile
         CostGasUsed {
             cost_category: "WASM_HOST_COST",
             cost: "READ_MEMORY_BASE",
-            gas_used: 182690424000,
+            gas_used: 143542476000,
         },
         CostGasUsed {
             cost_category: "WASM_HOST_COST",
             cost: "READ_MEMORY_BYTE",
-            gas_used: 4953136899,
+            gas_used: 3432603699,
         },
         CostGasUsed {
             cost_category: "WASM_HOST_COST",
             cost: "READ_REGISTER_BASE",
-            gas_used: 7551495558,
+            gas_used: 45308973348,
         },
         CostGasUsed {
             cost_category: "WASM_HOST_COST",
             cost: "READ_REGISTER_BYTE",
-            gas_used: 25034748,
+            gas_used: 44944272,
         },
         CostGasUsed {
             cost_category: "WASM_HOST_COST",
@@ -262,12 +262,12 @@ expression: receipts_gas_profile
         CostGasUsed {
             cost_category: "WASM_HOST_COST",
             cost: "UTF8_DECODING_BASE",
-            gas_used: 43564906854,
+            gas_used: 9335337183,
         },
         CostGasUsed {
             cost_category: "WASM_HOST_COST",
             cost: "UTF8_DECODING_BYTE",
-            gas_used: 96804719028,
+            gas_used: 18661150656,
         },
         CostGasUsed {
             cost_category: "WASM_HOST_COST",
@@ -287,22 +287,22 @@ expression: receipts_gas_profile
         CostGasUsed {
             cost_category: "WASM_HOST_COST",
             cost: "WRITE_MEMORY_BASE",
-            gas_used: 19626564027,
+            gas_used: 22430358888,
         },
         CostGasUsed {
             cost_category: "WASM_HOST_COST",
             cost: "WRITE_MEMORY_BYTE",
-            gas_used: 866159496,
+            gas_used: 928806252,
         },
         CostGasUsed {
             cost_category: "WASM_HOST_COST",
             cost: "WRITE_REGISTER_BASE",
-            gas_used: 37251792318,
+            gas_used: 31520747346,
         },
         CostGasUsed {
             cost_category: "WASM_HOST_COST",
             cost: "WRITE_REGISTER_BYTE",
-            gas_used: 1155675456,
+            gas_used: 1034025408,
         },
     ],
     [

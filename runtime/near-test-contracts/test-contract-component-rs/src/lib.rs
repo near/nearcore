@@ -96,33 +96,28 @@ impl Guest for Component {
     }
 
     fn ext_random_seed() {
-        random_seed(0);
-        let data = read_register(0);
+        let data = random_seed();
         value_return(ValueOrRegister::Value(&data))
     }
 
     fn ext_predecessor_account_id() {
-        predecessor_account_id(0);
-        let data = read_register(0);
-        value_return(ValueOrRegister::Value(&data))
+        let data = predecessor_account_id();
+        value_return(ValueOrRegister::Value(data.to_string().as_bytes()))
     }
 
     fn ext_signer_pk() {
-        signer_account_pk(0);
-        let data = read_register(0);
-        value_return(ValueOrRegister::Value(&data))
+        let data = signer_account_pk();
+        value_return(ValueOrRegister::Value(&data.to_bytes()))
     }
 
     fn ext_signer_id() {
-        signer_account_id(0);
-        let data = read_register(0);
-        value_return(ValueOrRegister::Value(&data))
+        let data = signer_account_id();
+        value_return(ValueOrRegister::Value(data.to_string().as_bytes()))
     }
 
     fn ext_account_id() {
-        current_account_id(0);
-        let data = read_register(0);
-        value_return(ValueOrRegister::Value(&data))
+        let data = current_account_id();
+        value_return(ValueOrRegister::Value(data.to_string().as_bytes()))
     }
 
     fn ext_account_balance() {
@@ -141,8 +136,7 @@ impl Guest for Component {
     }
 
     fn ext_sha256() {
-        input(0);
-        let bytes = read_register(0);
+        let bytes = input();
         sha256(ValueOrRegister::Value(&bytes), 0);
         let result = read_register(0);
         value_return(ValueOrRegister::Value(&result));
@@ -164,20 +158,18 @@ impl Guest for Component {
     }
 
     fn ext_validator_stake() {
-        input(0);
-        let account_id = read_register(0);
-        let result = validator_stake(ValueOrRegister::Value(&account_id));
+        let account_id = String::from_utf8(input()).unwrap();
+        let account_id = AccountId::from_string(&account_id).unwrap();
+        let result = validator_stake(&account_id);
         value_return(ValueOrRegister::Value(&u128::from(result).to_le_bytes()));
     }
     /// Write key-value pair into storage.
     /// Input is the byte array where the value is `u64` represented by last 8 bytes and key is represented by the first
     /// `register_len(0) - 8` bytes.
     fn write_key_value() {
-        input(0);
-        let data_len = register_len(0).unwrap() as usize;
+        let data = input();
+        let data_len = data.len();
         let value_len = size_of::<u64>();
-        let data = read_register(0);
-        assert_eq!(data.len(), data_len);
 
         let key = &data[0..data_len - value_len];
         let value = &data[data_len - value_len..];
@@ -199,8 +191,7 @@ impl Guest for Component {
     }
 
     fn write_random_value() {
-        random_seed(0);
-        let data = read_register(0);
+        let data = random_seed();
         let value = b"hello";
         storage_write(ValueOrRegister::Value(&data), ValueOrRegister::Value(value), 1);
     }
@@ -208,11 +199,9 @@ impl Guest for Component {
     /// Write a 1MB value under the given key.
     /// Key is of type u8. Value is made up of the key repeated a million times.
     fn write_one_megabyte() {
-        input(0);
-        if register_len(0) != Some(size_of::<u8>() as u64) {
-            panic(None);
-        }
-        let key = read_register(0)[0];
+        let key = input();
+        assert_eq!(key.len(), size_of::<u8>());
+        let key = key[0];
 
         let value = vec![key; 1_000_000];
         storage_write(ValueOrRegister::Value(&[key]), ValueOrRegister::Value(&value), 0);
@@ -222,9 +211,8 @@ impl Guest for Component {
     /// Reads values that were written using `write_one_megabyte`.
     /// The input is a pair of u8 values `from` and `to.
     fn read_n_megabytes() {
-        input(0);
-        assert_eq!(register_len(0), Some(2 * size_of::<u8>() as u64));
-        let input_data = read_register(0);
+        let input_data = input();
+        assert_eq!(input_data.len(), 2 * size_of::<u8>());
 
         let from = input_data[0];
         let to = input_data[1];
@@ -237,11 +225,8 @@ impl Guest for Component {
     }
 
     fn read_value() {
-        input(0);
-        if register_len(0) != Some(size_of::<u64>() as u64) {
-            panic(None)
-        }
-        let key = read_register(0);
+        let key = input();
+        assert_eq!(key.len(), size_of::<u64>());
         if storage_read(ValueOrRegister::Value(&key), 1) {
             let value = read_register(1);
             value_return(ValueOrRegister::Value(&value));
@@ -276,11 +261,8 @@ impl Guest for Component {
     }
 
     fn sum_with_input() {
-        input(0);
-        if register_len(0) != Some(2 * size_of::<u64>() as u64) {
-            panic(None)
-        }
-        let data = read_register(0);
+        let data = input();
+        assert_eq!(data.len(), 2 * size_of::<u64>());
 
         let mut key = [0u8; size_of::<u64>()];
         let mut value = [0u8; size_of::<u64>()];
@@ -300,8 +282,8 @@ impl Guest for Component {
     }
 
     fn attach_unspent_gas_but_use_all_gas() {
-        let account_id = "alice.near";
-        let promise = Promise::new(ValueOrRegister::Value(account_id.as_bytes()));
+        let account_id = AccountId::from_string("alice.near").unwrap();
+        let promise = Promise::new(&account_id);
 
         let method_name = "f";
         let amount = 1u128;
@@ -315,7 +297,7 @@ impl Guest for Component {
             gas_weight,
         );
 
-        let promise = Promise::new(ValueOrRegister::Value(account_id.as_bytes()));
+        let promise = Promise::new(&account_id);
 
         let gas_fixed = 10u64.pow(14);
         let gas_weight = 0;
@@ -337,33 +319,27 @@ impl Guest for Component {
 
     /// Calls all host functions, either directly or via callback.
     fn sanity_check() {
-        fn insert_account_id_prefix(
-            prefix: &str,
-            account_id: Vec<u8>,
-        ) -> Result<Vec<u8>, std::string::FromUtf8Error> {
-            let mut id = String::from_utf8(account_id)?;
+        fn insert_account_id_prefix(prefix: &str, account_id: &AccountId) -> String {
+            let mut id = account_id.to_string();
             id.insert_str(0, prefix);
-            Ok(id.as_bytes().to_vec())
+            id
         }
 
         // #############
         // # Registers #
         // #############
-        input(0);
-        let input_data = read_register(0);
+        let input_data = input();
         let input_args: serde_json::Value = serde_json::from_slice(&input_data).unwrap();
 
         // ###############
         // # Context API #
         // ###############
-        current_account_id(1);
-        let account_id = read_register(1);
+        let account_id = current_account_id();
 
-        signer_account_pk(1);
-        let account_public_key = read_register(1);
+        let account_public_key = signer_account_pk();
 
-        signer_account_id(1);
-        predecessor_account_id(1);
+        _ = signer_account_id();
+        _ = predecessor_account_id();
 
         // input() already called when reading the input of the contract call
         let _ = block_height();
@@ -381,7 +357,7 @@ impl Guest for Component {
         // ############
         // # Math API #
         // ############
-        random_seed(1);
+        _ = random_seed();
         let value = "hello";
         sha256(ValueOrRegister::Value(value.as_bytes()), 1);
 
@@ -394,7 +370,7 @@ impl Guest for Component {
         let method_name_panic = b"sanity-check-panic";
         let args_panic = b"";
         let gas_per_promise = available_gas / 50;
-        let promise = Promise::new(ValueOrRegister::Value(&account_id));
+        let promise = Promise::new(&account_id);
         promise.function_call(
             ValueOrRegister::Value(method_name_panic),
             ValueOrRegister::Value(args_panic),
@@ -404,7 +380,7 @@ impl Guest for Component {
         );
         let method_name_panic_string = b"sanity-check-panic-string";
         let args_panic_string = b"";
-        let promise = Promise::new(ValueOrRegister::Value(&account_id));
+        let promise = Promise::new(&account_id);
         promise.function_call(
             ValueOrRegister::Value(method_name_panic_string),
             ValueOrRegister::Value(args_panic_string),
@@ -420,7 +396,7 @@ impl Guest for Component {
         // ################
         let method_name_noop = b"noop";
         let args_noop = b"";
-        let promise = Promise::new(ValueOrRegister::Value(&account_id));
+        let promise = Promise::new(&account_id);
         promise.function_call(
             ValueOrRegister::Value(method_name_noop),
             ValueOrRegister::Value(args_noop),
@@ -429,7 +405,7 @@ impl Guest for Component {
             0,
         );
         let promises_then: [_; 2] = array::from_fn(|_| {
-            let promise = promise.then(ValueOrRegister::Value(&account_id));
+            let promise = promise.then(&account_id);
             promise.function_call(
                 ValueOrRegister::Value(method_name_noop),
                 ValueOrRegister::Value(args_noop),
@@ -440,18 +416,19 @@ impl Guest for Component {
             promise
         });
         _ = Promise::and(&[&promises_then[0], &promises_then[1]]);
-        _ = Promise::new(ValueOrRegister::Value(&account_id));
-        _ = promises_then[1].then(ValueOrRegister::Value(&account_id));
+        _ = Promise::new(&account_id);
+        _ = promises_then[1].then(&account_id);
 
         // #######################
         // # Promise API actions #
         // #######################
-        let new_account_id = insert_account_id_prefix("foo.", account_id.clone()).unwrap();
+        let new_account_id =
+            AccountId::from_string(&insert_account_id_prefix("foo.", &account_id)).unwrap();
         let amount_non_zero = 50_000_000_000_000_000_000_000u128;
         let contract_code = from_base64(input_args["contract_code"].as_str().unwrap());
         let method_deployed_contract = input_args["method_name"].as_str().unwrap().as_bytes();
         let args_deployed_contract = from_base64(input_args["method_args"].as_str().unwrap());
-        let promise = Promise::new(ValueOrRegister::Value(&new_account_id));
+        let promise = Promise::new(&new_account_id);
         promise.create_account();
         promise.transfer(amount_non_zero.into());
         promise.deploy_contract(ValueOrRegister::Value(&contract_code));
@@ -471,31 +448,32 @@ impl Guest for Component {
             0,
             1,
         );
-        promise.add_key_with_full_access(ValueOrRegister::Value(&account_public_key), 0);
-        promise.delete_key(ValueOrRegister::Value(&account_public_key));
+        promise.add_key_with_full_access(&account_public_key, 0);
+        promise.delete_key(&account_public_key);
         promise.add_key_with_function_call(
-            ValueOrRegister::Value(&account_public_key),
+            &account_public_key,
             1,
             0u128.into(),
-            ValueOrRegister::Value(&new_account_id),
+            &new_account_id,
             ValueOrRegister::Value(method_deployed_contract),
         );
-        promise.delete_account(ValueOrRegister::Value(&account_id));
+        promise.delete_account(&account_id);
 
         // Create a new account as `DeleteAccountAction` fails after `StakeAction`.
-        let new_account_id = insert_account_id_prefix("bar.", account_id.clone()).unwrap();
+        let new_account_id =
+            AccountId::from_string(&insert_account_id_prefix("bar.", &account_id)).unwrap();
         let amount_stake = 30_000_000_000_000_000_000_000u128;
-        let promise = Promise::new(ValueOrRegister::Value(&new_account_id));
+        let promise = Promise::new(&new_account_id);
         promise.create_account();
         promise.transfer(amount_non_zero.into());
-        promise.stake(amount_stake.into(), ValueOrRegister::Value(&account_public_key));
+        promise.stake(amount_stake.into(), &account_public_key);
 
         // #######################
         // # Promise API results #
         // #######################
         // Invoking `promise_results_count` and `promise_result` via a callback to
         // ensure there is a promise whose result can be accessed.
-        let promise = Promise::new(ValueOrRegister::Value(&account_id));
+        let promise = Promise::new(&account_id);
         promise.function_call(
             ValueOrRegister::Value(method_name_noop),
             ValueOrRegister::Value(args_noop),
@@ -505,7 +483,7 @@ impl Guest for Component {
         );
         let method_name_promise_results = b"sanity-check-promise-results";
         let args_promise_results = b"";
-        let then = promise.then(ValueOrRegister::Value(&account_id));
+        let then = promise.then(&account_id);
         then.function_call(
             ValueOrRegister::Value(method_name_promise_results),
             ValueOrRegister::Value(args_promise_results),
@@ -552,7 +530,8 @@ impl Guest for Component {
         // # Validator API #
         // #################
         let validator_id = input_args["validator_id"].as_str().unwrap();
-        let _stake = validator_stake(ValueOrRegister::Value(validator_id.as_bytes()));
+        let validator_id = AccountId::from_string(validator_id).unwrap();
+        let _stake = validator_stake(&validator_id);
         let _stake = validator_total_stake();
 
         // ###################
