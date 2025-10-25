@@ -720,6 +720,7 @@ impl PeerManagerActor {
                 Some(e) => e.nonce(),
                 None => 0,
             },
+            protocol_version: cp.protocol_version,
         };
         NetworkInfo {
             connected_peers: tier2.ready.values().map(connected_peer).collect(),

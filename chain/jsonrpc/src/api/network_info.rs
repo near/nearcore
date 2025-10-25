@@ -34,7 +34,10 @@ impl RpcFrom<NetworkInfoResponse> for RpcNetworkInfoResponse {
             active_peers: network_info_response
                 .connected_peers
                 .iter()
-                .map(|pi| pi.clone().rpc_into())
+                .map(|pi| {
+                    let pi: PeerInfo = pi.clone().into();
+                    pi.rpc_into()
+        })
                 .collect(),
             num_active_peers: network_info_response.num_connected_peers,
             peer_max_count: network_info_response.peer_max_count,

@@ -5,8 +5,7 @@ use near_primitives::merkle::{MerklePath, PartialMerkleTree};
 use near_primitives::network::PeerId;
 use near_primitives::sharding::{ChunkHash, ShardChunk};
 use near_primitives::types::{
-    AccountId, BlockHeight, BlockReference, EpochId, EpochReference, MaybeBlockId, ShardId,
-    TransactionOrReceiptId,
+    AccountId, BlockHeight, BlockReference, EpochId, EpochReference, MaybeBlockId, ProtocolVersion, ShardId, TransactionOrReceiptId
 };
 use near_primitives::views::validator_stake_view::ValidatorStakeView;
 use near_primitives::views::{
@@ -599,6 +598,24 @@ pub struct PeerInfo {
 }
 
 #[derive(Clone, Debug)]
+pub struct PeerInfoDebugView {
+    pub id: PeerId,
+    pub addr: Option<std::net::SocketAddr>,
+    pub account_id: Option<AccountId>,
+    pub protocol_version: ProtocolVersion,
+}
+
+impl From<PeerInfoDebugView> for PeerInfo {
+    fn from(peer_info: PeerInfoDebugView) -> Self {
+        Self {
+            id: peer_info.id,
+            addr: peer_info.addr,
+            account_id: peer_info.account_id,
+        }   
+    }
+}
+
+#[derive(Clone, Debug)]
 pub struct KnownProducer {
     pub account_id: AccountId,
     pub addr: Option<std::net::SocketAddr>,
@@ -608,7 +625,7 @@ pub struct KnownProducer {
 
 #[derive(Debug)]
 pub struct NetworkInfoResponse {
-    pub connected_peers: Vec<PeerInfo>,
+    pub connected_peers: Vec<PeerInfoDebugView>,
     pub num_connected_peers: usize,
     pub peer_max_count: u32,
     pub sent_bytes_per_sec: u64,

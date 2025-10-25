@@ -80,6 +80,7 @@ use near_primitives::views::{DetailedDebugStatus, ValidatorInfo};
 #[cfg(feature = "test_features")]
 use near_store::DBCol;
 use near_telemetry::TelemetryEvent;
+use near_primitives::types::ProtocolVersion;
 use parking_lot::Mutex;
 use rand::seq::SliceRandom;
 use rand::{Rng, thread_rng};
@@ -858,11 +859,12 @@ impl Handler<SpanWrapped<Status>, Result<StatusResponse, StatusError>> for Clien
 }
 
 /// Private to public API conversion.
-fn make_peer_info(from: near_network::types::PeerInfo) -> near_client_primitives::types::PeerInfo {
-    near_client_primitives::types::PeerInfo {
+fn make_peer_info(from: near_network::types::PeerInfo, protocol_version: ProtocolVersion) -> near_client_primitives::types::PeerInfoDebugView {
+    near_client_primitives::types::PeerInfoDebugView {
         id: from.id,
         addr: from.addr,
         account_id: from.account_id,
+        protocol_version,
     }
 }
 
@@ -884,7 +886,7 @@ impl Handler<SpanWrapped<GetNetworkInfo>, Result<NetworkInfoResponse, String>>
     fn handle(&mut self, _msg: SpanWrapped<GetNetworkInfo>) -> Result<NetworkInfoResponse, String> {
         Ok(NetworkInfoResponse {
             connected_peers: (self.network_info.connected_peers.iter())
-                .map(|fpi| make_peer_info(fpi.full_peer_info.peer_info.clone()))
+                .map(|fpi| make_peer_info(fpi.full_peer_info.peer_info.clone(), fpi.protocol_version))
                 .collect(),
             num_connected_peers: self.network_info.num_connected_peers,
             peer_max_count: self.network_info.peer_max_count,

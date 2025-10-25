@@ -86,6 +86,7 @@ export interface PeerInfoView {
     last_time_received_message_millis: number;
     connection_established_time_millis: number;
     is_outbound_peer: boolean;
+    protocol_version: number;
     nonce: number;
 }
 

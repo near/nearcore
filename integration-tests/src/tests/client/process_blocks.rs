@@ -541,6 +541,7 @@ async fn client_sync_headers() {
                 connection_established_time: near_async::time::Instant::now(),
                 peer_type: PeerType::Outbound,
                 nonce: 1,
+                protocol_version: PROTOCOL_VERSION,
             }],
             num_connected_peers: 1,
             peer_max_count: 1,

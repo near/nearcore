@@ -80,6 +80,7 @@ export const Tier1View = ({ addr }: Tier1ViewProps) => {
                 <td>{JSON.stringify(peer.tracked_shards)}</td>
                 <td>{JSON.stringify(peer.archival)}</td>
                 <td>{peer.is_outbound_peer ? 'OUT' : 'IN'}</td>
+                <td>{peer.protocol_version}</td>
                 <td>{formatDurationInMillis(peer.connection_established_time_millis)}</td>
                 <td>{formatTraffic(peer.received_bytes_per_sec, peer.sent_bytes_per_sec)}</td>
             </tr>
@@ -117,6 +118,7 @@ export const Tier1View = ({ addr }: Tier1ViewProps) => {
                 <td></td>
                 <td></td>
                 <td></td>
+                <td></td>
             </tr>
         );
     }
@@ -132,6 +134,7 @@ export const Tier1View = ({ addr }: Tier1ViewProps) => {
             <tr key={accountKey}>
                 <td></td>
                 <td>{accountKey.substring(8, 14)}...</td>
+                <td></td>
                 <td></td>
                 <td></td>
                 <td></td>
@@ -159,6 +162,7 @@ export const Tier1View = ({ addr }: Tier1ViewProps) => {
                         <th>Tracked Shards</th>
                         <th>Archival</th>
                         <th>Connection type</th>
+                        <th>Protocol version</th>
                         <th>First connection</th>
                         <th>Traffic (last minute)</th>
                     </tr>

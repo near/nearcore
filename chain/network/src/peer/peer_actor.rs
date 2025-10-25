@@ -697,6 +697,7 @@ impl PeerActor {
         let now = self.clock.now();
         let conn = Arc::new(connection::Connection {
             tier,
+            protocol_version: handshake.protocol_version,
             handle: self.handle.clone(),
             peer_info: peer_info.clone(),
             owned_account: handshake.owned_account.clone(),

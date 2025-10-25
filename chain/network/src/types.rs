@@ -31,7 +31,7 @@ use near_primitives::stateless_validation::contract_distribution::{
 use near_primitives::stateless_validation::partial_witness::PartialEncodedStateWitness;
 use near_primitives::stateless_validation::state_witness::ChunkStateWitnessAck;
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{AccountId, BlockHeight, EpochHeight, ShardId};
+use near_primitives::types::{AccountId, BlockHeight, EpochHeight, ProtocolVersion, ShardId};
 use near_schema_checker_lib::ProtocolSchema;
 use std::collections::{HashMap, HashSet};
 use std::fmt::Debug;
@@ -409,6 +409,8 @@ pub struct ConnectedPeerInfo {
     pub peer_type: PeerType,
     /// Nonce used for the connection with the peer.
     pub nonce: u64,
+    /// Protocol version used for the connection with the peer.
+    pub protocol_version: ProtocolVersion,
 }
 
 #[derive(Debug, Default, Clone, actix::MessageResponse, PartialEq, Eq)]

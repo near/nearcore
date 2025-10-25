@@ -19,7 +19,7 @@ use near_crypto::PublicKey;
 use near_o11y::span_wrapped_msg::SpanWrappedMessageExt;
 use near_primitives::genesis::GenesisId;
 use near_primitives::network::PeerId;
-use near_primitives::types::ShardId;
+use near_primitives::types::{ProtocolVersion, ShardId};
 use std::collections::{HashMap, hash_map::Entry};
 use std::fmt;
 use std::future::Future;
@@ -127,6 +127,8 @@ pub(crate) struct Connection {
     pub send_accounts_data_demux: demux::Demux<Vec<Arc<SignedAccountData>>, ()>,
     /// Demultiplexer for the calls to send_snapshot_hosts().
     pub send_snapshot_hosts_demux: demux::Demux<Vec<Arc<SnapshotHostInfo>>, ()>,
+    /// Protocol version used for the connection with the peer.
+    pub protocol_version: ProtocolVersion,
 }
 
 impl fmt::Debug for Connection {
