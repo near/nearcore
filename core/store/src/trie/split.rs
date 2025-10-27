@@ -24,14 +24,29 @@ const MAX_NIBBLES: usize = AccountId::MAX_LEN * 2;
 // not to add any subtrees here that do not use account ID as key (or key prefix).
 const SUBTREES: [u8; 4] = [ACCOUNT, CONTRACT_CODE, ACCESS_KEY, CONTRACT_DATA];
 
+enum SubtreeIdx {
+    Account = 0,
+    #[allow(dead_code)]
+    ContractCode = 1,
+    AccessKey = 2,
+    ContractData = 3,
+}
+
+// Subtrees which store data related to an account in a subtree rather than in a single node
+// identified by the account ID. The data is separated from the account ID by a separator byte.
+const ATTACHED_DATA: [(SubtreeIdx, u8); 2] = [
+    (SubtreeIdx::AccessKey, ACCESS_KEY_SEPARATOR),
+    (SubtreeIdx::ContractData, ACCOUNT_DATA_SEPARATOR),
+];
+
 #[derive(Error, Debug)]
-pub enum SplitError {
+pub enum FindSplitError {
     #[error(transparent)]
     Storage(#[from] StorageError),
     #[error("no root in trie")]
     NoRoot,
     #[error("split not found – trie is empty or contains invalid keys")]
-    SplitNotFound,
+    NotFound,
     #[error("key in the trie is not a valid account ID (too short or odd length). nibbles: {0:?}")]
     InvalidKey(Vec<u8>),
     #[error("split key is not valid UTF-8 string")]
@@ -40,7 +55,7 @@ pub enum SplitError {
     AccountId(#[from] ParseAccountError),
 }
 
-type SplitResult<T> = Result<T, SplitError>;
+type FindSplitResult<T> = Result<T, FindSplitError>;
 
 /// This represents a descent stage of a single subtree (e.g. accounts or access keys)
 /// in a descent that involves multiple subtrees.
@@ -114,15 +129,15 @@ impl<NodePtr: Debug + Copy> TrieDescentStage<NodePtr> {
     }
 
     /// Memory usage of the current node itself, **excluding** all descendant nodes.
-    fn node_memory_usage<Value, Getter>(&self, get_node: Getter) -> SplitResult<u64>
+    fn node_memory_usage<Value, Getter>(&self, get_node: Getter) -> FindSplitResult<u64>
     where
         Getter: Fn(NodePtr) -> Result<GenericTrieNodeWithSize<NodePtr, Value>, StorageError>,
     {
-        Ok(match self {
-            TrieDescentStage::AtLeaf { memory_usage } => *memory_usage,
+        match self {
+            TrieDescentStage::AtLeaf { memory_usage } => Ok(*memory_usage),
             TrieDescentStage::AtBranch { memory_usage, .. } => {
                 let children_mem_usage: u64 = self.children_memory_usage(get_node)?.iter().sum();
-                *memory_usage - children_mem_usage
+                Ok(*memory_usage - children_mem_usage)
             }
             TrieDescentStage::InsideExtension {
                 memory_usage,
@@ -130,10 +145,10 @@ impl<NodePtr: Debug + Copy> TrieDescentStage<NodePtr> {
                 remaining_nibbles,
             } if remaining_nibbles.len() == 1 => {
                 let child_mem_usage = get_node(*child)?.memory_usage;
-                *memory_usage - child_mem_usage
+                Ok(*memory_usage - child_mem_usage)
             }
-            _ => 0,
-        })
+            _ => Ok(0),
+        }
     }
 
     /// Memory usage of the subtree under a descendant node (including the descendant node itself)
@@ -141,7 +156,7 @@ impl<NodePtr: Debug + Copy> TrieDescentStage<NodePtr> {
         &self,
         get_node: Getter,
         nibbles: &[u8],
-    ) -> SplitResult<u64>
+    ) -> FindSplitResult<u64>
     where
         Getter: Fn(NodePtr) -> Result<GenericTrieNodeWithSize<NodePtr, Value>, StorageError>,
     {
@@ -174,7 +189,7 @@ impl<NodePtr: Debug + Copy> TrieDescentStage<NodePtr> {
     fn children_memory_usage<Value, Getter>(
         &self,
         get_node: Getter,
-    ) -> SplitResult<[u64; NUM_CHILDREN]>
+    ) -> FindSplitResult<[u64; NUM_CHILDREN]>
     where
         Getter: Fn(NodePtr) -> Result<GenericTrieNodeWithSize<NodePtr, Value>, StorageError>,
     {
@@ -236,7 +251,7 @@ impl<NodePtr: Debug + Copy> TrieDescentStage<NodePtr> {
         }
     }
 
-    fn descend<Value, Getter>(&mut self, nibble: u8, get_node: Getter) -> SplitResult<()>
+    fn descend<Value, Getter>(&mut self, nibble: u8, get_node: Getter) -> FindSplitResult<()>
     where
         Getter: Fn(NodePtr) -> Result<GenericTrieNodeWithSize<NodePtr, Value>, StorageError>,
     {
@@ -296,8 +311,8 @@ where
     NodePtr: Debug + Copy,
     Storage: GenericTrieInternalStorage<NodePtr, Value>,
 {
-    pub fn new(trie_storage: Storage) -> SplitResult<Self> {
-        let root_ptr = trie_storage.get_root().ok_or(SplitError::NoRoot)?;
+    pub fn new(trie_storage: Storage) -> FindSplitResult<Self> {
+        let root_ptr = trie_storage.get_root().ok_or(FindSplitError::NoRoot)?;
         let get_node = |ptr| trie_storage.get_node_with_size(ptr, AccessOptions::DEFAULT);
         let mut subtree_stages = SmallVec::new();
         let mut middle_memory = 0;
@@ -322,12 +337,16 @@ where
         })
     }
 
+    fn accounts(&self) -> &TrieDescentStage<NodePtr> {
+        &self.subtree_stages[SubtreeIdx::Account as usize]
+    }
+
     fn total_memory(&self) -> u64 {
         self.left_memory + self.right_memory + self.middle_memory
     }
 
     /// Aggregate children memory usage across all subtrees
-    fn aggregate_children_mem_usage(&self) -> SplitResult<[u64; NUM_CHILDREN]> {
+    fn aggregate_children_mem_usage(&self) -> FindSplitResult<[u64; NUM_CHILDREN]> {
         let get_node = |ptr| self.trie_storage.get_node_with_size(ptr, AccessOptions::DEFAULT);
         let mut children_mem_usage = [0u64; NUM_CHILDREN];
         for subtree in &self.subtree_stages {
@@ -341,7 +360,7 @@ where
 
     /// Get total memory usage of the 'current nodes' i.e. nodes that we are currently visiting
     /// in each subtree. It is the memory used by the nodes themselves, **excluding descendants**.
-    fn current_nodes_mem_usage(&self) -> SplitResult<u64> {
+    fn current_nodes_mem_usage(&self) -> FindSplitResult<u64> {
         let get_node = |ptr| self.trie_storage.get_node_with_size(ptr, AccessOptions::DEFAULT);
         let mut result = 0;
         for subtree in &self.subtree_stages {
@@ -352,7 +371,7 @@ where
 
     /// Find the key (nibbles) which splits the trie into two parts with possibly equal
     /// memory usage. Returns the key and the memory usage of the left and right part.
-    pub fn find_mem_usage_split(mut self) -> SplitResult<TrieSplit> {
+    pub fn find_mem_usage_split(mut self) -> FindSplitResult<TrieSplit> {
         // dummy split that will be worse than any actual split
         let mut best_split = TrieSplit::dummy();
 
@@ -377,11 +396,7 @@ where
             }
         }
 
-        if best_split.mem_diff() < u64::MAX {
-            Ok(best_split)
-        } else {
-            Err(SplitError::SplitNotFound)
-        }
+        if best_split.is_dummy() { Err(FindSplitError::NotFound) } else { Ok(best_split) }
     }
 
     /// Find the next step `(nibble, child_mem_usage, left_mem_usage)`.
@@ -389,9 +404,9 @@ where
     ///     * `child_mem_usage` – memory usage of the middle child
     ///     * `left_mem_usage` – total memory usage of left siblings of the middle child
     /// Returns `None` if the end of the searched is reached.
-    fn next_step(&self) -> SplitResult<Option<(u8, u64, u64)>> {
+    fn next_step(&self) -> FindSplitResult<Option<(u8, u64, u64)>> {
         // Stop when a leaf is reached in the accounts subtree
-        if !self.subtree_stages[0].can_descend() {
+        if !self.accounts().can_descend() {
             tracing::debug!(target = "memtrie", "leaf reached in accounts subtree");
             return Ok(None);
         }
@@ -415,11 +430,10 @@ where
 
         // Stop if the further path does not exist in the accounts subtree
         let middle_child = middle_child as u8;
-        Ok(self.subtree_stages[0].can_descend_nibble(middle_child).then_some((
-            middle_child,
-            child_mem_usage,
-            left_mem_usage,
-        )))
+        if !self.accounts().can_descend_nibble(middle_child) {
+            return Ok(None);
+        }
+        Ok(Some((middle_child, child_mem_usage, left_mem_usage)))
     }
 
     /// Current split path parsed as account ID.
@@ -432,18 +446,18 @@ where
     ///  * access keys
     ///  * contract data
     /// Contract code is **not included** as it is stored at account ID path, not in a subtree.
-    fn attached_data_mem_usage(&self) -> SplitResult<u64> {
+    fn attached_data_mem_usage(&self) -> FindSplitResult<u64> {
         if self.current_account().is_none() {
             return Ok(0);
         }
         let get_node = |ptr| self.trie_storage.get_node_with_size(ptr, AccessOptions::DEFAULT);
-        let access_key_separator = byte_to_nibbles(ACCESS_KEY_SEPARATOR);
-        let contract_data_separator = byte_to_nibbles(ACCOUNT_DATA_SEPARATOR);
-        let access_key_mem_usage =
-            self.subtree_stages[2].descendant_mem_usage(get_node, &access_key_separator)?;
-        let contract_data_mem_usage =
-            self.subtree_stages[3].descendant_mem_usage(get_node, &contract_data_separator)?;
-        Ok(access_key_mem_usage + contract_data_mem_usage)
+        let mut result = 0;
+        for (idx, separator) in ATTACHED_DATA {
+            let separator = byte_to_nibbles(separator);
+            let subtree = &self.subtree_stages[idx as usize];
+            result += subtree.descendant_mem_usage(get_node, &separator)?;
+        }
+        Ok(result)
     }
 
     /// Find best split at the current path. Considers two splits and picks the better one:
@@ -451,7 +465,7 @@ where
     ///  b) append "-0" suffix – the current node is put in the left child, but all its
     ///     descendants go to the right child.
     /// Returns `None` if current path is not a valid account ID (neither as-is, nor with -0 suffix).
-    fn best_split_at_current_path(&self) -> SplitResult<Option<TrieSplit>> {
+    fn best_split_at_current_path(&self) -> FindSplitResult<Option<TrieSplit>> {
         let split_a = self.current_account().map(|account_id| {
             // When splitting at the current path, middle memory goes to the right, as the boundary
             // account is included in the right child.
@@ -469,7 +483,7 @@ where
                 let left = self.left_memory + curr_nodes_mem + attached_data_mem;
                 let right =
                     self.right_memory + self.middle_memory - curr_nodes_mem - attached_data_mem;
-                Ok::<_, SplitError>(TrieSplit::new(account_id, left, right))
+                Ok::<_, FindSplitError>(TrieSplit::new(account_id, left, right))
             })
             .transpose()?;
 
@@ -478,11 +492,12 @@ where
 
     /// Force descent into the first available child. This is done to ensure the correct length
     /// of the split path, even though further descent will not improve the memory usage balance.
-    fn force_next_step(&mut self) -> SplitResult<()> {
+    fn force_next_step(&mut self) -> FindSplitResult<()> {
         let children_mem_usage = self.aggregate_children_mem_usage()?;
-        let first_child = self.subtree_stages[0]
+        let first_child = self
+            .accounts()
             .first_child()
-            .ok_or_else(|| SplitError::InvalidKey(self.nibbles.to_vec()))?;
+            .ok_or_else(|| FindSplitError::InvalidKey(self.nibbles.to_vec()))?;
         let child_mem_usage = children_mem_usage[first_child as usize];
         let left_mem_usage = children_mem_usage[0..first_child as usize].iter().sum();
         self.descend_step(first_child, child_mem_usage, left_mem_usage)
@@ -493,7 +508,7 @@ where
         nibble: u8,
         child_mem_usage: u64,
         left_mem_usage: u64,
-    ) -> SplitResult<()> {
+    ) -> FindSplitResult<()> {
         let parent_mem_usage = self.current_nodes_mem_usage()?;
         // Left siblings and parents are lower than the current path, so their mem usage is added to the left
         self.left_memory += left_mem_usage + parent_mem_usage;
@@ -567,6 +582,10 @@ impl TrieSplit {
         Self::new(account_id, 0, u64::MAX)
     }
 
+    fn is_dummy(&self) -> bool {
+        self.mem_diff() == u64::MAX
+    }
+
     /// Get the split path as bytes
     pub fn split_path_bytes(&self) -> &[u8] {
         self.boundary_account.as_bytes()
@@ -608,7 +627,7 @@ fn extension_to_nibbles(extension: &[u8]) -> SmallVec<[u8; MAX_NIBBLES]> {
     nibble_slice.iter().collect()
 }
 
-pub fn find_trie_split(trie: &Trie) -> SplitResult<TrieSplit> {
+pub fn find_trie_split(trie: &Trie) -> FindSplitResult<TrieSplit> {
     match trie.lock_memtries() {
         Some(memtries) => {
             let trie_storage = MemTrieIteratorInner::new(&memtries, trie);
@@ -1154,7 +1173,7 @@ mod tests {
             Storage: GenericTrieInternalStorage<NodePtr, Value>,
         {
             /// Helper method to get the split yielded by a pre-defined key.
-            fn get_split(mut self, key_bytes: &[u8]) -> SplitResult<TrieSplit> {
+            fn get_split(mut self, key_bytes: &[u8]) -> FindSplitResult<TrieSplit> {
                 for nibble in bytes_to_nibbles(key_bytes) {
                     let children_mem_usage = self.aggregate_children_mem_usage()?;
                     let child_mem_usage = children_mem_usage[nibble as usize];
@@ -1173,7 +1192,10 @@ mod tests {
 
         /// Helper function to get the split yielded by the given boundary account.
         /// Assumes the trie is using memtries.
-        fn get_memtrie_split(trie: &Trie, boundary_account: &AccountId) -> SplitResult<TrieSplit> {
+        fn get_memtrie_split(
+            trie: &Trie,
+            boundary_account: &AccountId,
+        ) -> FindSplitResult<TrieSplit> {
             let key_bytes = boundary_account.as_bytes();
             let memtries = trie.lock_memtries().unwrap();
             let trie_storage = MemTrieIteratorInner::new(&memtries, trie);
