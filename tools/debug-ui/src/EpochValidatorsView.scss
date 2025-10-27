@@ -1,3 +1,18 @@
+.voting-tracker-table {
+    border-collapse: collapse;
+    margin-bottom: 20px;
+    .version-value {
+        width: 10%;
+        text-align: center;
+        vertical-align: middle;
+    }
+    .majority-version {
+        @extend .version-value;
+        font-weight: bold;
+        background-color: rgb(166, 198, 166);
+    }
+}
+
 .epoch-validators-table {
     td {
         vertical-align: middle;
