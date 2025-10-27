@@ -119,7 +119,7 @@ export const ThreadTimeline = ({ thread, messageTypes, minTimeMs, currentTimeMs,
             viewport,
             hoveredLegendType,
             hoveredWindowIndex: hoveredCpuWindow?.windowIndex ?? null,
-            queueCounts: thread.queue.pending_counts,
+            queueCounts: thread.queue,
             hoveredQueue: hoveredQueue !== null,
         });
 
@@ -281,7 +281,7 @@ export const ThreadTimeline = ({ thread, messageTypes, minTimeMs, currentTimeMs,
                 });
             });
         }
-    }, [canvasWidth, canvasHeight, windows, chartMode, yAxisMode, colorMap, viewport, hoveredLegendType, hoveredCpuWindow, hoveredQueue, hoveredEvent, thread.queue.pending_counts, gridTop, chartHeight, eventsTop, isExpanded, positionedEvents, legendHeight, legendItems, legendLayout]);
+    }, [canvasWidth, canvasHeight, windows, chartMode, yAxisMode, colorMap, viewport, hoveredLegendType, hoveredCpuWindow, hoveredQueue, hoveredEvent, thread.queue, gridTop, chartHeight, eventsTop, isExpanded, positionedEvents, legendHeight, legendItems, legendLayout]);
 
     // Render canvas whenever dependencies change
     useEffect(() => {
@@ -524,7 +524,7 @@ export const ThreadTimeline = ({ thread, messageTypes, minTimeMs, currentTimeMs,
 
         {/* Queue Tooltip */}
         {hoveredQueue && (() => {
-            const queueCounts = thread.queue.pending_counts ? new Map(Object.entries(thread.queue.pending_counts)) : new Map();
+            const queueCounts = thread.queue ? new Map(Object.entries(thread.queue)) : new Map();
             const queueEntries: Array<{ typeName: string, count: number, typeId: number, color: string }> = [];
 
             queueCounts.forEach((count, typeName) => {
