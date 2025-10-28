@@ -16,6 +16,8 @@ use crate::utils::account::{
 };
 use crate::utils::node::TestLoopNode;
 
+/// Example test that creates a chunk which, when applied, creates a delayed receipt.
+/// Requires "test_features" feature to be enabled.
 #[test]
 fn delayed_receipt_example_test() {
     init_test_logger();
