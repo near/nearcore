@@ -80,56 +80,56 @@
             border: none;
         }
 
-        th:nth-child(3) {
+        th:nth-child(4) {
             border-left: $current-border;
             border-top: $current-border;
             border-right: $current-border;
         }
 
-        th:nth-child(2) {
+        th:nth-child(3) {
             border-left: $next-border;
         }
     }
 
-    thead tr:nth-child(2) th,
+    thead tr:nth-child(3) th,
     tbody td {
-        &:nth-child(2) {
+        &:nth-child(3) {
             border-left: $next-border;
         }
 
-        &:nth-child(2),
         &:nth-child(3),
-        &:nth-child(4) {
+        &:nth-child(4),
+        &:nth-child(5) {
             &:not(:has(.kickout)):not(:has(.kickout-reason)) {
                 opacity: 0.5;
             }
         }
 
-        &:nth-child(5) {
+        &:nth-child(6) {
             border-left: $current-border;
         }
 
-        &:nth-child(9) {
+        &:nth-child(10) {
             border-right: $current-border;
         }
     }
 
-    thead tr:nth-child(2) th {
-        &:nth-child(5),
+    thead tr:nth-child(3) th {
         &:nth-child(6),
         &:nth-child(7),
         &:nth-child(8),
-        &:nth-child(9) {
+        &:nth-child(9),
+        &:nth-child(10){
             background-color: #d6ffd0;
         }
     }
 
     tbody tr:last-child td {
-        &:nth-child(5),
         &:nth-child(6),
         &:nth-child(7),
         &:nth-child(8),
-        &:nth-child(9) {
+        &:nth-child(9),
+        &:nth-child(10) {
             border-bottom: $current-border;
         }
     }
