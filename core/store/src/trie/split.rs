@@ -18,12 +18,13 @@ use std::str::FromStr;
 use thiserror::Error;
 
 const MAX_NIBBLES: usize = AccountId::MAX_LEN * 2;
-// The order of subtrees matters - accounts must go first (!)
-// We don't want to go deeper into other subtrees when reaching a leaf in the accounts' tree.
-// Chunks are split by account IDs, not arbitrary byte sequences. Therefore, also make sure
-// not to add any subtrees here that do not use account ID as key (or key prefix).
+
+// NOTE: The order of subtrees in this array should match `SubtreeIdx` enum.
+// Also, do not add any subtrees here that do not use account ID as key (or key prefix).
+// The reason for this is that chunks are split by account IDs, not arbitrary byte sequences.
 const SUBTREES: [u8; 4] = [ACCOUNT, CONTRACT_CODE, ACCESS_KEY, CONTRACT_DATA];
 
+// NOTE: These indices should match the order of `SUBTREES` array.
 enum SubtreeIdx {
     Account = 0,
     #[allow(dead_code)]
@@ -48,7 +49,7 @@ pub enum FindSplitError {
     #[error("split not found – trie is empty or contains invalid keys")]
     NotFound,
     #[error("key in the trie is not a valid account ID (too short or odd length). nibbles: {0:?}")]
-    InvalidKey(Vec<u8>),
+    Key(Vec<u8>),
     #[error("split key is not valid UTF-8 string")]
     Utf8(#[from] std::str::Utf8Error),
     #[error("split key is not a valid account ID")]
@@ -497,7 +498,7 @@ where
         let first_child = self
             .accounts()
             .first_child()
-            .ok_or_else(|| FindSplitError::InvalidKey(self.nibbles.to_vec()))?;
+            .ok_or_else(|| FindSplitError::Key(self.nibbles.to_vec()))?;
         let child_mem_usage = children_mem_usage[first_child as usize];
         let left_mem_usage = children_mem_usage[0..first_child as usize].iter().sum();
         self.descend_step(first_child, child_mem_usage, left_mem_usage)
