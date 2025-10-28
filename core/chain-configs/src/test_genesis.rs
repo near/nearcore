@@ -347,6 +347,10 @@ impl TestGenesisBuilder {
         self
     }
 
+    pub fn shard_layout_single_shard(self) -> Self {
+        self.shard_layout(ShardLayout::single_shard())
+    }
+
     pub fn gas_prices(mut self, min: Balance, max: Balance) -> Self {
         self.min_gas_price = min;
         self.max_gas_price = max;
