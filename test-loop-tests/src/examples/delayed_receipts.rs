@@ -1,14 +1,14 @@
 use std::iter::repeat_with;
 
+use assert_matches::assert_matches;
 use itertools::Itertools;
 use near_async::time::Duration;
+use near_chain::Error;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::gas::Gas;
-use near_primitives::receipt::{DelayedReceiptIndices, StateStoredReceipt};
 use near_primitives::test_utils::create_user_test_signer;
 use near_primitives::transaction::{ExecutionStatus, SignedTransaction};
-use near_primitives::trie_key::TrieKey;
-use near_primitives::types::{Balance, Nonce, ShardId};
+use near_primitives::types::{Balance, Nonce};
 
 use crate::setup::builder::TestLoopBuilder;
 use crate::utils::account::{
@@ -17,7 +17,8 @@ use crate::utils::account::{
 use crate::utils::node::TestLoopNode;
 
 /// Example test that creates a chunk which, when applied, creates a delayed receipt.
-/// Requires "test_features" feature to be enabled.
+/// Requires "test_features" feature to be enabled in order to use `burn_gas_raw`
+/// function from the test contract.
 #[test]
 fn delayed_receipt_example_test() {
     init_test_logger();
@@ -85,32 +86,34 @@ fn delayed_receipt_example_test() {
         Duration::seconds(2),
     );
 
-    let trie = rpc_node.trie(
-        env.test_loop_data(),
-        rpc_node.head(env.test_loop_data()).last_block_hash,
-        ShardId::new(0),
+    let tx_included_height = rpc_node.head(env.test_loop_data()).height;
+    let chain = &rpc_node.client(env.test_loop_data()).chain;
+    let tx_receipt_ids = txs
+        .iter()
+        .map(|tx| {
+            match chain.get_execution_outcome(tx.hash()).unwrap().outcome_with_id.outcome.status {
+                ExecutionStatus::SuccessReceiptId(receipt_id) => receipt_id,
+                status => panic!("unexpected tx {tx:?} outcome status {status:?}"),
+            }
+        })
+        .collect_vec();
+    let receipt_outcomes = tx_receipt_ids
+        .iter()
+        .map(|receipt_id| chain.get_execution_outcome(receipt_id))
+        .collect_vec();
+    // All transactions result in local receipts, so those are executed in the same chunk,
+    // except for the last one which is delayed.
+    assert!(receipt_outcomes[0].is_ok());
+    assert!(receipt_outcomes[1].is_ok());
+    assert_matches!(receipt_outcomes[2], Err(Error::DBNotFoundErr(_)));
+
+    rpc_node.run_until_outcome_available(
+        &mut env.test_loop,
+        tx_receipt_ids[2].clone(),
+        Duration::seconds(1),
     );
-    let delayed_receipt_indices: DelayedReceiptIndices =
-        near_store::get(&trie, &TrieKey::DelayedReceiptIndices).unwrap().unwrap();
-    assert_eq!(
-        delayed_receipt_indices,
-        DelayedReceiptIndices { first_index: 0, next_available_index: 1 }
-    );
-    let delayed_receipt: StateStoredReceipt = near_store::get(
-        &trie,
-        &TrieKey::DelayedReceipt { index: delayed_receipt_indices.first_index },
-    )
-    .unwrap()
-    .unwrap();
-    let last_tx_outcome = rpc_node
-        .client(env.test_loop_data())
-        .chain
-        .get_execution_outcome(txs.last().unwrap().hash())
-        .unwrap();
-    assert_eq!(
-        last_tx_outcome.outcome_with_id.outcome.status,
-        ExecutionStatus::SuccessReceiptId(*delayed_receipt.get_receipt().receipt_id())
-    );
+    let last_receipts_executed_height = rpc_node.head(env.test_loop_data()).height;
+    assert_eq!(last_receipts_executed_height, tx_included_height + 1);
 
     env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }
