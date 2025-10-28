@@ -26,6 +26,11 @@ docker-nearcore-nightly: DOCKER_TAG ?= nearcore-nightly
 docker-nearcore-nightly:
 	docker build -t $(DOCKER_TAG) -f Dockerfile --build-arg=make_target=neard-nightly-release --progress=plain .
 
+#? docker-nearcore-debug: build nearcore docker image with tag 'nearcore-debug'
+docker-nearcore-debug: DOCKER_TAG ?= nearcore-debug
+docker-nearcore-debug:
+	docker build -t $(DOCKER_TAG) -f Dockerfile --build-arg=make_target=neard-debug --progress=plain .
+
 
 release: neard-release
 	$(MAKE) sandbox-release

@@ -191,7 +191,7 @@ def main():
     nodes = []
 
     logger.info("Build the container")
-    run(('make', 'DOCKER_TAG=' + _DOCKER_IMAGE_TAG, 'docker-nearcore'))
+    run(('make', 'DOCKER_TAG=' + _DOCKER_IMAGE_TAG, 'docker-nearcore-debug'))
     try:
         dot_near = pathlib.Path.home() / '.near'
 
