@@ -2,8 +2,9 @@ import { partition } from 'lodash';
 import { useQuery } from '@tanstack/react-query';
 import { useId, useState } from 'react';
 import { Tooltip } from 'react-tooltip';
-import { EpochInfoView, ValidatorKickoutReason, fetchEpochInfo } from './api';
+import { EpochInfoView, ValidatorKickoutReason, fetchEpochInfo, fetchEntity, ApiEntityDataEntry, ApiEntityData } from './api';
 import './EpochValidatorsView.scss';
+import { EntityQuery, EntityQueryWithParams } from './entity_debug/types';
 
 interface ProducedAndExpected {
     produced: number;
@@ -219,11 +220,14 @@ export const EpochValidatorsView = ({ addr }: EpochValidatorViewProps) => {
     const [enteredEpochId, setEnteredEpochId] = useState<string>('');
     const [currentEpochId, setCurrentEpochId] = useState<string | null>(null);
     const [validators, setValidators] = useState<Validators | null>(null);
+    const [validatorProtocolVersion, setValidatorProtocolVersion] = useState<Map<string, string> | null>(null);
     const [maxStake, setMaxStake] = useState<number>(0);
     const [totalStake, setTotalStake] = useState<number>(0);
+    const [totalVotingStake, setTotalVotingStake] = useState<number>(0);
     const [maxExpectedBlocks, setMaxExpectedBlocks] = useState<number>(0);
     const [maxExpectedChunks, setMaxExpectedChunks] = useState<number>(0);
     const [maxExpectedEndorsements, setMaxExpectedEndorsements] = useState<number>(0);
+    const [votingTrackerData, setVotingTrackerData] = useState<Map<string, number> | null>(null);
 
     const {
         data: epochData,
@@ -246,6 +250,40 @@ export const EpochValidatorsView = ({ addr }: EpochValidatorViewProps) => {
             setMaxExpectedBlocks(maxExpectedBlocks);
             setMaxExpectedChunks(maxExpectedChunks);
             setMaxExpectedEndorsements(maxExpectedEndorsements);
+        },
+        keepPreviousData: true,
+    });
+
+    const {
+        data: versionTrackerData,
+        error: versionTrackerError,
+        isLoading: versionTrackerLoading,
+    } = useQuery(['versionTracker', addr,validators !== null ], () =>  {
+            const query: EntityQuery = {
+                EpochInfoAggregator: null,
+            };
+            const queryWithParams: EntityQueryWithParams = { ...query };
+            return fetchEntity(addr, queryWithParams);
+        }, {
+        onSuccess: (data) => {
+            const validatorProtocolVersion = new Map<string, string>();
+            const entries = data as ApiEntityData;
+            const versionTracker = entries.entries.find((entry: ApiEntityDataEntry) => entry.name === 'version_tracker');
+            const sorted_validators = validators?.sorted();
+            let versions = new Map<string, number>();
+            let total_voting_stake = 0;
+            (versionTracker?.value as ApiEntityData).entries.forEach((entry: ApiEntityDataEntry) => {
+                const validator_idx = parseInt(entry.name, 10);
+                const version = entry.value as string;
+                const current_stake = versions.get(version) ?? 0;
+                const _stake = sorted_validators?.[validator_idx]?.current?.stake ?? 0;
+                validatorProtocolVersion.set(sorted_validators?.[validator_idx]?.accountId ?? '', version);
+                total_voting_stake += _stake;
+                versions.set(version, current_stake + _stake);
+            });
+            setVotingTrackerData(versions);
+            setTotalVotingStake(total_voting_stake);
+            setValidatorProtocolVersion(validatorProtocolVersion);
         },
         keepPreviousData: true,
     });
@@ -287,11 +325,43 @@ export const EpochValidatorsView = ({ addr }: EpochValidatorViewProps) => {
         setEnteredEpochId(event.target.value);
     };
 
+    function renderVotingTracker(
+        votingTrackerData: Map<string, number> | null,
+        totalVotingStake: number
+    ): JSX.Element {
+        if (votingTrackerData === null || votingTrackerData.size <= 1) {
+            return <></>;
+        }
+        const sorted_voting_tracker = Array.from(votingTrackerData.entries()).sort((a, b) => b[1] - a[1]);
+        return (
+            <table className="voting-tracker-table">
+                <caption>Voting Tracker</caption>
+                <thead>
+                    <tr>
+                        <th>Protocol Version</th>
+                        <th>Stake</th>
+                        <th>Percentage</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {sorted_voting_tracker.map(([version, stake]) => (
+                        <tr key={version}>
+                            <td className={(stake / totalVotingStake )> .8 ? 'majority-version' : 'version-value'}>{version}</td>
+                            <td>{(stake / 1e24).toLocaleString('en-US')}</td>
+                            <td>{(stake / totalVotingStake * 100).toFixed(2)}%</td>
+                        </tr>
+                    ))}
+                </tbody>
+            </table>
+        );
+    }
+
     function renderTableHeaders(epochData: any): JSX.Element {
         return (
             <thead>
                 <tr>
                     <th></th>
+                    <th/>
                     <th colSpan={3}>
                         Next Epoch {epochData?.status_response.EpochInfo[0].epoch_height}
                     </th>
@@ -304,6 +374,7 @@ export const EpochValidatorsView = ({ addr }: EpochValidatorViewProps) => {
                 </tr>
                 <tr>
                     <th>Validator</th>
+                    <th>PV</th>
                     <th className="small-text">Roles (shards)</th>
                     <th>Stake</th>
                     <th>Proposal</th>
@@ -324,6 +395,7 @@ export const EpochValidatorsView = ({ addr }: EpochValidatorViewProps) => {
 
     function renderTableBody(
         validators: Validators | null,
+        validatorProtocolVersion: Map<string, string> | null,
         maxStake: number,
         totalStake: number,
         maxExpectedBlocks: number,
@@ -336,6 +408,7 @@ export const EpochValidatorsView = ({ addr }: EpochValidatorViewProps) => {
                     return (
                         <tr key={validator.accountId}>
                             <td>{validator.accountId}</td>
+                            <td>{validatorProtocolVersion?.get(validator.accountId) ?? ''}</td>
                             <td>
                                 {renderRoles(
                                     validator.roles[0],
@@ -410,6 +483,7 @@ export const EpochValidatorsView = ({ addr }: EpochValidatorViewProps) => {
                 {renderTableHeaders(epochData)}
                 {renderTableBody(
                     validators,
+                    validatorProtocolVersion,
                     maxStake,
                     totalStake,
                     maxExpectedBlocks,
@@ -468,7 +542,7 @@ export const EpochValidatorsView = ({ addr }: EpochValidatorViewProps) => {
                     →
                 </button>
             </div>
-
+            {renderVotingTracker(votingTrackerData, totalVotingStake)}
             <input
                 type="text"
                 placeholder="Enter Epoch ID"
