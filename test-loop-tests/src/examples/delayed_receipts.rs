@@ -109,7 +109,7 @@ fn delayed_receipt_example_test() {
 
     rpc_node.run_until_outcome_available(
         &mut env.test_loop,
-        tx_receipt_ids[2].clone(),
+        tx_receipt_ids[2],
         Duration::seconds(1),
     );
     let last_receipts_executed_height = rpc_node.head(env.test_loop_data()).height;
