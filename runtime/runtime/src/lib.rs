@@ -1625,6 +1625,7 @@ impl Runtime {
                             if !non_expired {
                                 continue;
                             }
+
                             let signer_id = tx.transaction.signer_id();
                             let pubkey = tx.transaction.public_key();
                             accounts.entry(signer_id).or_insert_with(|| {
