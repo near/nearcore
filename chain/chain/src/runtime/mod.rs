@@ -505,22 +505,26 @@ impl NightshadeRuntime {
         })
     }
 
+    fn check_dynamic_resharding_impl(
+        &self,
+        shard_trie: &Trie,
+        shard_id: ShardId,
+    ) -> Result<(), FindSplitError> {
+        let start = Instant::now();
+        let mem_usage = total_mem_usage(shard_trie)?;
+        // TODO(dynamic_resharding): For the actual resharding trigger, this will be a proper threshold instead of 0
+        if mem_usage > 0 {
+            let trie_split = find_trie_split(shard_trie)?;
+            let elapsed = start.elapsed();
+            info!(target: "runtime", ?shard_id, ?mem_usage, ?trie_split, ?elapsed, "dynamic resharding dry run");
+        }
+        Ok(())
+    }
+
     /// Check if dynamic resharding should be scheduled for the given shard.
     /// This is only a dry-run and will **not** actually trigger resharding.
     fn check_dynamic_resharding(&self, shard_trie: &Trie, shard_id: ShardId) -> Result<(), Error> {
-        let inner = || -> Result<(), FindSplitError> {
-            let start = Instant::now();
-            let mem_usage = total_mem_usage(shard_trie)?;
-            // For the actual resharding trigger, this will be a proper threshold instead of 0
-            if mem_usage > 0 {
-                let trie_split = find_trie_split(shard_trie)?;
-                let elapsed = start.elapsed();
-                info!(target: "runtime", ?shard_id, ?mem_usage, ?trie_split, ?elapsed, "dynamic resharding dry run");
-            }
-            Ok(())
-        };
-
-        match inner() {
+        match self.check_dynamic_resharding_impl(shard_trie, shard_id) {
             Err(FindSplitError::Storage(err)) => Err(err)?,
             Err(err) => {
                 error!(target: "runtime", ?shard_id, ?err, "dynamic resharding check failed")
@@ -996,14 +1000,16 @@ impl RuntimeAdapter for NightshadeRuntime {
         let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(&block.prev_block_hash)?;
         let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
         let config = self.runtime_config_store.get_config(protocol_version);
-        let proof_limit = config.witness_config.main_storage_proof_size_soft_limit;
-        trie = trie.recording_reads_with_proof_size_limit(proof_limit);
 
+        // TODO(dynamic_resharding): Use recording for this when actual resharding (not dry run) is triggered
         if self.dynamic_resharding_dry_run
             && self.epoch_manager.is_next_block_epoch_start(&block.prev_block_hash)?
         {
             self.check_dynamic_resharding(&trie, shard_id)?;
         }
+
+        let proof_limit = config.witness_config.main_storage_proof_size_soft_limit;
+        trie = trie.recording_reads_with_proof_size_limit(proof_limit);
 
         match self.process_state_update(
             trie,

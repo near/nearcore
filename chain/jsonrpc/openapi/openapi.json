@@ -9931,7 +9931,7 @@
             "type": "array"
           },
           "dynamic_resharding_dry_run": {
-            "description": "If true, the runtime will do a dynamic resharding 'dry run' at the final block of each epoch.\nThis means calculating tentative boundary accounts for splitting the tracked shards.",
+            "description": "If true, the runtime will do a dynamic resharding 'dry run' at the last block of each epoch.\nThis means calculating tentative boundary accounts for splitting the tracked shards.",
             "type": "boolean"
           },
           "enable_early_prepare_transactions": {

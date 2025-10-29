@@ -418,7 +418,7 @@ pub struct Config {
     /// The current implementation increases latency on low-load chains, which will be fixed in the future.
     /// The default is disabled.
     pub enable_early_prepare_transactions: Option<bool>,
-    /// If true, the runtime will do a dynamic resharding 'dry run' at the final block of each epoch.
+    /// If true, the runtime will do a dynamic resharding 'dry run' at the last block of each epoch.
     /// This means calculating tentative boundary accounts for splitting the tracked shards.
     /// The default is disabled.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
