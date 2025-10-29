@@ -340,6 +340,7 @@ impl ClientConfig {
             transaction_request_handler_threads: default_rpc_handler_thread_count(),
             protocol_version_check: Default::default(),
             enable_early_prepare_transactions: default_enable_early_prepare_transactions(),
+            dynamic_resharding_dry_run: false,
         }
     }
 }

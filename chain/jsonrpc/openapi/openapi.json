@@ -9930,6 +9930,10 @@
             "minItems": 2,
             "type": "array"
           },
+          "dynamic_resharding_dry_run": {
+            "description": "If true, the runtime will do a dynamic resharding 'dry run' at the final block of each epoch.\nThis means calculating tentative boundary accounts for splitting the tracked shards.",
+            "type": "boolean"
+          },
           "enable_early_prepare_transactions": {
             "description": "If true, transactions for the next chunk will be prepared early, right after the previous chunk's\npost-state is ready. This can help produce chunks faster, for high-throughput chains.\nThe current implementation increases latency on low-load chains, which will be fixed in the future.\nThe default is disabled.",
             "type": "boolean"
@@ -10375,7 +10379,8 @@
           "save_invalid_witnesses",
           "transaction_request_handler_threads",
           "protocol_version_check",
-          "enable_early_prepare_transactions"
+          "enable_early_prepare_transactions",
+          "dynamic_resharding_dry_run"
         ],
         "type": "object"
       },

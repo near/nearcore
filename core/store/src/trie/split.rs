@@ -641,6 +641,23 @@ pub fn find_trie_split(trie: &Trie) -> FindSplitResult<TrieSplit> {
     }
 }
 
+pub fn total_mem_usage(trie: &Trie) -> FindSplitResult<u64> {
+    match trie.lock_memtries() {
+        Some(memtries) => {
+            let trie_storage = MemTrieIteratorInner::new(&memtries, trie);
+            let root_id = trie_storage.get_root().ok_or(FindSplitError::NoRoot)?;
+            let root_node = trie_storage.get_node_with_size(root_id, AccessOptions::DEFAULT)?;
+            Ok(root_node.memory_usage)
+        }
+        None => {
+            let trie_storage = DiskTrieIteratorInner::new(trie);
+            let root_id = trie_storage.get_root().ok_or(FindSplitError::NoRoot)?;
+            let root_node = trie_storage.get_node_with_size(root_id, AccessOptions::DEFAULT)?;
+            Ok(root_node.memory_usage)
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

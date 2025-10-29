@@ -38,6 +38,7 @@ use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
 use near_store::db::CLOUD_HEAD_KEY;
 use near_store::db::metadata::DbKind;
 use near_store::flat::FlatStorageManager;
+use near_store::trie::{FindSplitError, find_trie_split, total_mem_usage};
 use near_store::{
     ApplyStatePartResult, COLD_HEAD_KEY, DBCol, ShardTries, StateSnapshotConfig, Store, Trie,
     TrieConfig, TrieUpdate, WrappedTrieChanges, get_access_key, get_account, set_account,
@@ -79,6 +80,7 @@ pub struct NightshadeRuntime {
     gc_num_epochs_to_keep: u64,
     state_parts_compression_lvl: i32,
     is_cloud_archival_writer: bool,
+    dynamic_resharding_dry_run: bool,
 }
 
 impl NightshadeRuntime {
@@ -95,6 +97,7 @@ impl NightshadeRuntime {
         state_snapshot_config: StateSnapshotConfig,
         state_parts_compression_lvl: i32,
         is_cloud_archival_writer: bool,
+        dynamic_resharding_dry_run: bool,
     ) -> Arc<Self> {
         let runtime_config_store = match runtime_config_store {
             Some(store) => store,
@@ -134,6 +137,7 @@ impl NightshadeRuntime {
             gc_num_epochs_to_keep: gc_num_epochs_to_keep.max(MIN_GC_NUM_EPOCHS_TO_KEEP),
             state_parts_compression_lvl,
             is_cloud_archival_writer,
+            dynamic_resharding_dry_run,
         })
     }
 
@@ -499,6 +503,31 @@ impl NightshadeRuntime {
             block_height,
             block_hash: *block_hash,
         })
+    }
+
+    /// Check if dynamic resharding should be scheduled for the given shard.
+    /// This is only a dry-run and will **not** actually trigger resharding.
+    fn check_dynamic_resharding(&self, shard_trie: &Trie, shard_id: ShardId) -> Result<(), Error> {
+        let inner = || -> Result<(), FindSplitError> {
+            let start = Instant::now();
+            let mem_usage = total_mem_usage(shard_trie)?;
+            // For the actual resharding trigger, this will be a proper threshold instead of 0
+            if mem_usage > 0 {
+                let trie_split = find_trie_split(shard_trie)?;
+                let elapsed = start.elapsed();
+                info!(target: "runtime", ?shard_id, ?mem_usage, ?trie_split, ?elapsed, "dynamic resharding dry run");
+            }
+            Ok(())
+        };
+
+        match inner() {
+            Err(FindSplitError::Storage(err)) => Err(err)?,
+            Err(err) => {
+                error!(target: "runtime", ?shard_id, ?err, "dynamic resharding check failed")
+            }
+            Ok(()) => {}
+        }
+        Ok(())
     }
 }
 
@@ -969,6 +998,12 @@ impl RuntimeAdapter for NightshadeRuntime {
         let config = self.runtime_config_store.get_config(protocol_version);
         let proof_limit = config.witness_config.main_storage_proof_size_soft_limit;
         trie = trie.recording_reads_with_proof_size_limit(proof_limit);
+
+        if self.dynamic_resharding_dry_run
+            && self.epoch_manager.is_next_block_epoch_start(&block.prev_block_hash)?
+        {
+            self.check_dynamic_resharding(&trie, shard_id)?;
+        }
 
         match self.process_state_update(
             trie,
