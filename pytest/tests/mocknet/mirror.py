@@ -768,18 +768,18 @@ class PartitionSelectorParser(Action):
                 parser.error(
                     f"Invalid input '{values}'. Expected format 'i/n' or 'i-j/n' where i is integer and 0 < i <= n."
                 )
-            selector = (i, i)
+            partitions_range = (i, i)
         else:
             i, j = int(match.group(1)), int(match.group(3))
             if i <= 0 or i > j or j > total_partitions:
                 parser.error(
                     f"Invalid input '{values}'. Expected format 'i/n' or 'i-j/n' where i and j are integers and 0 < i <= j <= n."
                 )
-            selector = (i, j)
+            partitions_range = (i, j)
 
         setattr(
             namespace, self.dest,
-            PartitionSelector(selector=selector,
+            PartitionSelector(partitions_range=partitions_range,
                               total_partitions=total_partitions))
 
 

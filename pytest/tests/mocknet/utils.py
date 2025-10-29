@@ -142,15 +142,15 @@ def build_stake_distribution(distribution_type: str | None,
 
 class PartitionSelector(BaseModel):
     # Range of partitions to select.
-    # The selector is a tuple of two integers, the first is the start index and the second is the end index.
+    # The partitions_range is a tuple of two integers, the first is the start index and the second is the end index.
     # The end index is inclusive.
-    selector: tuple[int, int]
+    partitions_range: tuple[int, int]
     # Number of partitions to split the nodes into.
     total_partitions: int
 
     def __call__(self, nodes: list) -> list:
         # For the results to be deterministic, the nodes must be sorted by name.
-        i, j = self.selector
+        i, j = self.partitions_range
         if len(nodes) < self.total_partitions:
             raise ValueError(
                 f'Partitioning {len(nodes)} nodes in {self.total_partitions} groups will result in empty groups.'

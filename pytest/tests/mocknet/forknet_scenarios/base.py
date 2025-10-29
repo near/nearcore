@@ -263,7 +263,7 @@ class TestSetup:
                                          i * minutes,
                                          binary_idx=1,
                                          partition=PartitionSelector(
-                                             selector=(i, i),
+                                             partitions_range=(i, i),
                                              total_partitions=4))
 
     def schedule_binary_upgrade(self,
