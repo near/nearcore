@@ -17,7 +17,7 @@
 | - | - |
 | `INITIAL_SUPPLY` | `10**33` yoctoNEAR |
 | `MIN_GAS_PRICE` | `10**5` yoctoNEAR |
-| `REWARD_PCT_PER_YEAR` | `0.05` |
+| `REWARD_PCT_PER_YEAR` | `0.025` |
 | `EPOCH_LENGTH` | `43,200` blocks |
 | `EPOCHS_A_YEAR` | `730` epochs |
 | `INITIAL_MAX_STORAGE` | `10 * 2**40` bytes == `10` TB |
