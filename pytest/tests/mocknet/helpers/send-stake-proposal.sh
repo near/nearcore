@@ -31,7 +31,7 @@ if [ -z "$1" ]; then
     amount_near=$(echo "$amount_yoctonear / 1000000000000000000000000" | bc | cut -d. -f1)
 else
     amount_near=$1
- fi
+fi
 
 echo "Found validator: $our_account_id"
 echo "Public key: $our_public_key"
