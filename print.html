@@ -5583,7 +5583,7 @@ It will check that this receipt does not have data dependencies (which is only t
 <div class="table-wrapper"><table><thead><tr><th>Name</th><th>Value</th></tr></thead><tbody>
 <tr><td><code>INITIAL_SUPPLY</code></td><td><code>10**33</code> yoctoNEAR</td></tr>
 <tr><td><code>MIN_GAS_PRICE</code></td><td><code>10**5</code> yoctoNEAR</td></tr>
-<tr><td><code>REWARD_PCT_PER_YEAR</code></td><td><code>0.05</code></td></tr>
+<tr><td><code>REWARD_PCT_PER_YEAR</code></td><td><code>0.025</code></td></tr>
 <tr><td><code>EPOCH_LENGTH</code></td><td><code>43,200</code> blocks</td></tr>
 <tr><td><code>EPOCHS_A_YEAR</code></td><td><code>730</code> epochs</td></tr>
 <tr><td><code>INITIAL_MAX_STORAGE</code></td><td><code>10 * 2**40</code> bytes == <code>10</code> TB</td></tr>
@@ -5684,7 +5684,7 @@ At the end of every epoch <code>T</code>, next algorithm gets executed to determ
 <p>Total reward every epoch <code>t</code> is equal to:</p>
 <pre><code class="language-python">total_reward[t] = floor(totalSupply * max_inflation_rate * epoch_length)
 </code></pre>
-<p>where <code>max_inflation_rate</code> is the genesis parameter while <code>totalSupply</code> and <code>epoch_length</code> are
+<p>where <code>max_inflation_rate</code> is taken from the epoch config while <code>totalSupply</code> and <code>epoch_length</code> are
 taken from the last block in the epoch.</p>
 <p>After that a fraction of the reward goes to the treasury and the remaining amount will be used for computing validator rewards:</p>
 <pre><code class="language-python">treasury_reward[t] = floor(reward[t] * protocol_reward_rate)
