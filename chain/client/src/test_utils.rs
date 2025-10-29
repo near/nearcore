@@ -102,7 +102,7 @@ impl Client {
             create_chunk_on_height_for_shard(self, height, shard_id);
         let shard_chunk = chunk.to_shard_chunk().clone();
         let signer = self.validator_signer.get();
-        self.persist_and_distribute_encoded_chunk(
+        self.distribute_and_persist_encoded_chunk(
             chunk,
             merkle_paths,
             receipts,

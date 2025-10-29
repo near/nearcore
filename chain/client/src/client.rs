@@ -1807,7 +1807,7 @@ impl Client {
                     tracing::error!(target: "client", ?err, "Failed to send chunk state witness to chunk validators");
                 }
             }
-            self.persist_and_distribute_encoded_chunk(
+            self.distribute_and_persist_encoded_chunk(
                 chunk,
                 encoded_chunk_parts_paths,
                 receipts,
@@ -1824,7 +1824,7 @@ impl Client {
         tag_block_production = true,
         tag_chunk_distribution = true,
     ))]
-    pub fn persist_and_distribute_encoded_chunk(
+    pub fn distribute_and_persist_encoded_chunk(
         &mut self,
         chunk: ShardChunkWithEncoding,
         merkle_paths: Vec<MerklePath>,
