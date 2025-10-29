@@ -140,7 +140,7 @@ Total reward every epoch `t` is equal to:
 total_reward[t] = floor(totalSupply * max_inflation_rate * epoch_length)
 ```
 
-where `max_inflation_rate` is the genesis parameter while `totalSupply` and `epoch_length` are
+where `max_inflation_rate` is taken from the epoch config while `totalSupply` and `epoch_length` are
 taken from the last block in the epoch.
 
 After that a fraction of the reward goes to the treasury and the remaining amount will be used for computing validator rewards:
