@@ -116,8 +116,7 @@ pub fn create_test_setup_with_accounts_and_validity(
         min_block_prod_time: 100,
         max_block_prod_time: 200,
         num_block_producer_seats: num_validator_seats,
-        split_store_enabled: false,
-        cloud_storage_enabled: false,
+        archive: false,
         state_sync_enabled: true,
     });
 
@@ -146,7 +145,7 @@ pub fn create_test_setup_with_accounts_and_validity(
         shard_tracker.clone(),
         runtime.clone(),
         PeerId::new(PublicKey::empty(KeyType::ED25519)),
-        actor_system.new_future_spawner().into(),
+        actor_system.new_future_spawner("state sync").into(),
         noop().into_multi_sender(),
         noop().into_sender(),
         signer.clone(),

@@ -969,6 +969,7 @@ mod tests {
     use near_epoch_manager::test_utils::*;
     use near_network::test_utils::peer_id_from_seed;
     use near_store::genesis::initialize_genesis_state;
+    use num_rational::Rational32;
 
     #[test]
     fn test_pretty_number() {
@@ -997,8 +998,7 @@ mod tests {
             min_block_prod_time: 1230,
             max_block_prod_time: 2340,
             num_block_producer_seats: 50,
-            split_store_enabled: false,
-            cloud_storage_enabled: false,
+            archive: false,
             state_sync_enabled: true,
         });
         let validator = MutableConfigValue::new(None, "validator_signer");
@@ -1092,6 +1092,7 @@ mod tests {
             90,
             0,
             default_reward_calculator(),
+            Rational32::new(0, 1),
         )
         .into_handle();
 
@@ -1111,8 +1112,7 @@ mod tests {
             min_block_prod_time: 1230,
             max_block_prod_time: 2340,
             num_block_producer_seats: 50,
-            split_store_enabled: false,
-            cloud_storage_enabled: false,
+            archive: false,
             state_sync_enabled: true,
         });
         let mut info_helper = InfoHelper::new(Clock::real(), noop().into_sender(), &client_config);

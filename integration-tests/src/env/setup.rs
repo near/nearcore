@@ -147,8 +147,7 @@ fn setup(
             min_block_prod_time,
             max_block_prod_time,
             num_block_producer_seats: num_validator_seats,
-            split_store_enabled: false,
-            cloud_storage_enabled: false,
+            archive: false,
             state_sync_enabled,
         });
         base.chunk_distribution_network = chunk_distribution_config;
@@ -210,7 +209,7 @@ fn setup(
         shard_tracker.clone(),
         runtime.clone(),
         PeerId::new(PublicKey::empty(KeyType::ED25519)),
-        actor_system.new_future_spawner().into(),
+        actor_system.new_future_spawner("state sync").into(),
         network_adapter.clone(),
         shards_manager_adapter_for_client.as_sender(),
         signer.clone(),
@@ -461,8 +460,7 @@ pub fn setup_client_with_runtime(
         min_block_prod_time: 10,
         max_block_prod_time: 20,
         num_block_producer_seats: num_validator_seats,
-        split_store_enabled,
-        cloud_storage_enabled: false,
+        archive: split_store_enabled,
         state_sync_enabled: true,
     });
     config.save_tx_outcomes = save_tx_outcomes;
@@ -496,7 +494,7 @@ pub fn setup_client_with_runtime(
         apply_chunks_iteration_mode,
         partial_witness_adapter,
         resharding_sender,
-        actor_system.new_future_spawner().into(),
+        actor_system.new_future_spawner("state sync").into(),
         noop().into_multi_sender(), // state sync ignored for these tests
         noop().into_multi_sender(), // apply chunks ping not necessary for these tests
         chunk_validation_sender,
@@ -598,8 +596,7 @@ pub fn setup_tx_request_handler(
         min_block_prod_time: 10,
         max_block_prod_time: 20,
         num_block_producer_seats: 0,
-        split_store_enabled: true,
-        cloud_storage_enabled: false,
+        archive: true,
         state_sync_enabled: true,
     });
     let config = RpcHandlerConfig {

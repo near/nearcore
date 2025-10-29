@@ -14,15 +14,20 @@ where
 {
     fn send(&self, message: M) {
         let seq = next_message_sequence_num();
-        let message_type = pretty_type_name::<A>();
+        let message_type = pretty_type_name::<M>();
         tracing::trace!(target: "multithread_runtime", seq, message_type, "sending sync message");
 
         let function = |actor: &mut A| {
             actor.handle(message);
         };
 
-        let message = MultithreadRuntimeMessage { seq, function: Box::new(function) };
-        if let Err(_) = self.sender.send(message) {
+        let message = MultithreadRuntimeMessage {
+            seq,
+            enqueued_time_ns: self.instrumentation.current_time(),
+            name: message_type,
+            function: Box::new(function),
+        };
+        if let Err(_) = self.send_message(message) {
             tracing::info!(target: "multithread_runtime", seq, "Ignoring sync message, receiving actor is being shut down");
         }
     }
@@ -36,7 +41,7 @@ where
 {
     fn send_async(&self, message: M) -> BoxFuture<'static, Result<R, AsyncSendError>> {
         let seq = next_message_sequence_num();
-        let message_type = pretty_type_name::<A>();
+        let message_type = pretty_type_name::<M>();
         tracing::trace!(target: "multithread_runtime", seq, message_type, ?message, "sending async message");
 
         let (sender, receiver) = tokio::sync::oneshot::channel();
@@ -46,8 +51,13 @@ where
             sender.send(result).ok(); // OK if the sender doesn't care about the result anymore.
         };
 
-        let message = MultithreadRuntimeMessage { seq, function: Box::new(function) };
-        if let Err(_) = self.sender.send(message) {
+        let message = MultithreadRuntimeMessage {
+            seq,
+            enqueued_time_ns: self.instrumentation.current_time(),
+            name: message_type,
+            function: Box::new(function),
+        };
+        if let Err(_) = self.send_message(message) {
             async { Err(AsyncSendError::Dropped) }.boxed()
         } else {
             future.boxed()

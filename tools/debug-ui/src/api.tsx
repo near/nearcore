@@ -112,31 +112,31 @@ export type SyncStatusView =
     | 'AwaitingPeers'
     | 'NoSync'
     | {
-          EpochSync: { epoch_ord: number };
-      }
+        EpochSync: { epoch_ord: number };
+    }
     | {
-          HeaderSync: {
-              start_height: number;
-              current_height: number;
-              highest_height: number;
-          };
-      }
+        HeaderSync: {
+            start_height: number;
+            current_height: number;
+            highest_height: number;
+        };
+    }
     | {
-          StateSync: {
-              sync_hash: string;
-              sync_status: { [shard_id: number]: string };
-              download_tasks: string[];
-              computation_tasks: string[];
-          };
-      }
+        StateSync: {
+            sync_hash: string;
+            sync_status: { [shard_id: number]: string };
+            download_tasks: string[];
+            computation_tasks: string[];
+        };
+    }
     | 'StateSyncDone'
     | {
-          BlockSync: {
-              start_height: number;
-              current_height: number;
-              highest_height: number;
-          };
-      };
+        BlockSync: {
+            start_height: number;
+            current_height: number;
+            highest_height: number;
+        };
+    };
 
 export interface ShardSyncDownloadView {
     downloads: { error: boolean; done: boolean }[];
@@ -520,3 +520,64 @@ export async function fetchEntity(
     }
     return response.json();
 }
+
+export const INSTRUMENTED_WINDOW_LEN_MS = 500;
+
+export async function fetchInstrumentedThreadsView(
+    addr: string
+): Promise<InstrumentedThreadsViewResponse> {
+    const response = await fetch(`http://${addr}/debug/api/instrumented_threads`);
+    return await response.json();
+}
+
+export interface InstrumentedThreadsViewResponse {
+    status_response: {
+        InstrumentedThreads: InstrumentedThreads;
+    }
+}
+
+export interface InstrumentedThreads {
+    threads: InstrumentedThread[];
+    current_time_unix_ms: number;
+    current_time_relative_ms: number;
+}
+
+export interface InstrumentedThread {
+    thread_name: string;
+    active_time_ns: number;
+    message_types: string[];
+    windows: InstrumentedWindow[];
+    active_event: InstrumentedActiveEvent | null;
+    queue: { [message_type: string]: number };
+}
+
+export interface InstrumentedActiveEvent {
+    message_type: number;
+    active_for_ns: number;
+}
+
+export interface InstrumentedWindow {
+    start_time_ms: number;
+    end_time_ms: number;
+    events: InstrumentedEvent[];
+    events_overfilled: boolean;
+    summary: InstrumentedWindowSummary;
+    dequeue_summary: InstrumentedWindowSummary;
+}
+
+export interface InstrumentedEvent {
+    m: number;
+    s: boolean;
+    t: number;
+}
+
+export interface InstrumentedWindowSummary {
+    message_stats_by_type: MessageStatsForType[];
+}
+
+export interface MessageStatsForType {
+    m: number;
+    c: number;
+    t: number;
+}
+
