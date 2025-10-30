@@ -780,8 +780,8 @@ impl RuntimeAdapter for NightshadeRuntime {
 
         // Add new transactions to the result until some limit is hit or the transactions run out.
         'add_txs_loop: while let Some(transaction_group_iter) = transaction_groups.next() {
-            if next_block_height % 10 == 0 {
-                // Make every 10th chunk empty
+            if next_block_height % 20 == 0 || next_block_height % 20 == 1 {
+                // Make every 20th and 21st chunk empty
                 break;
             }
 
