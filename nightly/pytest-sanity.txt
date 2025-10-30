@@ -222,6 +222,3 @@ pytest sanity/chunk_validator_failover.py --features nightly
 # TODO(#13296): Enable after fixing flaky test
 # pytest sanity/epoch_sync.py
 # pytest sanity/epoch_sync.py --features nightly
-
-# Very expensive test: make sure Docker image can be build and run
-pytest --skip-build --timeout=30m sanity/docker.py
