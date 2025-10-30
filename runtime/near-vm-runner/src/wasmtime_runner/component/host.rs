@@ -12,8 +12,9 @@ use crate::wasmtime_runner::ErrorContainer;
 use crate::wasmtime_runner::component::Ctx;
 use crate::wasmtime_runner::component::bindings::near::nearcore::{finite_wasm, runtime};
 use near_crypto::{PublicKey, Secp256K1Signature};
+use near_parameters::ExtCosts::*;
 use near_parameters::{
-    ActionCosts, ExtCosts::*, RuntimeFeesConfig, transfer_exec_fee, transfer_send_fee,
+    ActionCosts, ExtCosts, RuntimeFeesConfig, transfer_exec_fee, transfer_send_fee,
 };
 use near_primitives_core::account::AccountContract;
 use near_primitives_core::config::INLINE_DISK_VALUE_THRESHOLD;
@@ -35,18 +36,14 @@ impl From<runtime::U128> for u128 {
     }
 }
 
-impl runtime::U128 {
-    fn read(self, gas_counter: &mut GasCounter) -> wasmtime::Result<u128> {
-        gas_counter.pay_base(read_memory_base).map_err(ErrorContainer::new)?;
-        gas_counter.pay_per(read_memory_byte, 16).map_err(ErrorContainer::new)?;
-        Ok(u128::from(self))
-    }
+fn pay_base(gas_counter: &mut GasCounter, cost: ExtCosts) -> wasmtime::Result<()> {
+    gas_counter.pay_base(cost).map_err(ErrorContainer::new)?;
+    Ok(())
+}
 
-    fn write(v: u128, gas_counter: &mut GasCounter) -> wasmtime::Result<Self> {
-        gas_counter.pay_base(write_memory_base).map_err(ErrorContainer::new)?;
-        gas_counter.pay_per(write_memory_byte, 16).map_err(ErrorContainer::new)?;
-        Ok(Self::from(v))
-    }
+fn pay_per(gas_counter: &mut GasCounter, cost: ExtCosts, num: u64) -> wasmtime::Result<()> {
+    gas_counter.pay_per(cost, num).map_err(ErrorContainer::new)?;
+    Ok(())
 }
 
 /// A helper function to pay base cost gas fee for batching an action.
@@ -81,14 +78,13 @@ fn pay_action_per_byte(
         .ok_or(HostError::IntegerOverflow)
         .map_err(ErrorContainer::new)?;
 
+    let charge = per_byte_fee
+        .exec_fee()
+        .checked_mul(num_bytes)
+        .ok_or(HostError::IntegerOverflow)
+        .map_err(ErrorContainer::new)?;
     let use_gas = burn_gas
-        .checked_add(
-            per_byte_fee
-                .exec_fee()
-                .checked_mul(num_bytes)
-                .ok_or(HostError::IntegerOverflow)
-                .map_err(ErrorContainer::new)?,
-        )
+        .checked_add(charge)
         .ok_or(HostError::IntegerOverflow)
         .map_err(ErrorContainer::new)?;
     gas_counter.pay_action_accumulated(burn_gas, use_gas, action).map_err(ErrorContainer::new)?;
@@ -96,9 +92,23 @@ fn pay_action_per_byte(
 }
 
 fn pay_for_writing_bytes(gas_counter: &mut GasCounter, n: usize) -> wasmtime::Result<()> {
-    gas_counter.pay_base(write_memory_base).map_err(ErrorContainer::new)?;
-    gas_counter.pay_per(write_memory_byte, n as _).map_err(ErrorContainer::new)?;
+    pay_base(gas_counter, write_memory_base)?;
+    pay_per(gas_counter, write_memory_byte, n as _)?;
     Ok(())
+}
+
+impl runtime::U128 {
+    fn read(self, gas_counter: &mut GasCounter) -> wasmtime::Result<u128> {
+        pay_base(gas_counter, read_memory_base)?;
+        pay_per(gas_counter, read_memory_byte, 16)?;
+        Ok(u128::from(self))
+    }
+
+    fn write(v: u128, gas_counter: &mut GasCounter) -> wasmtime::Result<Self> {
+        pay_base(gas_counter, write_memory_base)?;
+        pay_per(gas_counter, write_memory_byte, 16)?;
+        Ok(Self::from(v))
+    }
 }
 
 impl runtime::ValueOrRegister {
@@ -109,10 +119,8 @@ impl runtime::ValueOrRegister {
     ) -> wasmtime::Result<&'a [u8]> {
         match self {
             Self::Value(buf) => {
-                gas_counter.pay_base(read_memory_base).map_err(ErrorContainer::new)?;
-                gas_counter
-                    .pay_per(read_memory_byte, buf.len() as _)
-                    .map_err(ErrorContainer::new)?;
+                pay_base(gas_counter, read_memory_base)?;
+                pay_per(gas_counter, read_memory_byte, buf.len() as _)?;
                 Ok(buf)
             }
             Self::Register(register_id) => {
@@ -168,11 +176,21 @@ fn pay_gas_for_new_receipt(
 }
 
 impl Ctx {
+    fn pay_base(&mut self, cost: ExtCosts) -> wasmtime::Result<()> {
+        pay_base(&mut self.result_state.gas_counter, cost)?;
+        Ok(())
+    }
+
+    fn pay_per(&mut self, cost: ExtCosts, num: u64) -> wasmtime::Result<()> {
+        pay_per(&mut self.result_state.gas_counter, cost, num)?;
+        Ok(())
+    }
+
     fn pay_for_reading_bytes(&mut self, n: usize) -> wasmtime::Result<()> {
-        self.result_state.gas_counter.pay_base(read_memory_base).map_err(ErrorContainer::new)?;
+        self.pay_base(read_memory_base)?;
         let n =
             u64::try_from(n).map_err(|_| ErrorContainer::new(HostError::MemoryAccessViolation))?;
-        self.result_state.gas_counter.pay_per(read_memory_byte, n).map_err(ErrorContainer::new)?;
+        self.pay_per(read_memory_byte, n)?;
         Ok(())
     }
 
@@ -182,31 +200,22 @@ impl Ctx {
 
     fn pay_for_reading_string(&mut self, n: usize) -> wasmtime::Result<()> {
         self.pay_for_reading_bytes(n)?;
-        self.result_state.gas_counter.pay_base(utf8_decoding_base).map_err(ErrorContainer::new)?;
-        self.result_state
-            .gas_counter
-            .pay_per(utf8_decoding_byte, n as _)
-            .map_err(ErrorContainer::new)?;
+        self.pay_base(utf8_decoding_base)?;
+        self.pay_per(utf8_decoding_byte, n as _)?;
         Ok(())
     }
 
     fn read_account_id(&mut self, account_id: &Resource<AccountId>) -> wasmtime::Result<AccountId> {
-        self.result_state.gas_counter.pay_base(read_register_base).map_err(ErrorContainer::new)?;
+        self.pay_base(read_register_base)?;
         let account_id = self.table.get(account_id)?;
-        self.result_state
-            .gas_counter
-            .pay_per(read_register_byte, account_id.len() as _)
-            .map_err(ErrorContainer::new)?;
+        pay_per(&mut self.result_state.gas_counter, read_register_byte, account_id.len() as _)?;
         Ok(account_id.clone())
     }
 
     fn read_public_key(&mut self, public_key: &Resource<PublicKey>) -> wasmtime::Result<PublicKey> {
-        self.result_state.gas_counter.pay_base(read_register_base).map_err(ErrorContainer::new)?;
+        self.pay_base(read_register_base)?;
         let public_key = self.table.get(public_key)?;
-        self.result_state
-            .gas_counter
-            .pay_per(read_register_byte, public_key.len() as _)
-            .map_err(ErrorContainer::new)?;
+        pay_per(&mut self.result_state.gas_counter, read_register_byte, public_key.len() as _)?;
         Ok(public_key.clone())
     }
 
@@ -263,7 +272,7 @@ impl Ctx {
         mode: GlobalContractDeployMode,
         method_name: &str,
     ) -> wasmtime::Result<()> {
-        self.result_state.gas_counter.pay_base(base).map_err(ErrorContainer::new)?;
+        self.pay_base(base)?;
         if self.context.is_view() {
             return Err(ErrorContainer::new(HostError::ProhibitedInView {
                 method_name: method_name.to_owned(),
@@ -314,29 +323,18 @@ macro_rules! bls12381_impl {
         $bls12381_element:ident,
         $impl_fn_name:ident
     ) => {
-        fn $fn_name(
-            &mut self,
-            value: runtime::ValueOrRegister,
-            register_id: u64,
-        ) -> wasmtime::Result<Result<(), ()>> {
-            self.result_state.gas_counter.pay_base($bls12381_base)?;
+        fn $fn_name(&mut self, value: Vec<u8>) -> wasmtime::Result<Result<Vec<u8>, ()>> {
+            self.pay_base($bls12381_base)?;
+            self.pay_for_reading_bytes(value.len())?;
 
-            let data = value.as_bytes(&mut self.result_state.gas_counter, &self.registers)?;
+            let elements_count = value.len() / $ITEM_SIZE;
+            self.pay_per($bls12381_element, elements_count as u64)?;
 
-            let elements_count = data.len() / $ITEM_SIZE;
-            self.result_state.gas_counter.pay_per($bls12381_element, elements_count as u64)?;
-
-            let res_option = bls12381::$impl_fn_name(&data)?;
+            let res_option = bls12381::$impl_fn_name(&value).map_err(ErrorContainer::new)?;
 
             if let Some(res) = res_option {
-                self.registers.set(
-                    &mut self.result_state.gas_counter,
-                    &self.config.limit_config,
-                    register_id,
-                    res.as_slice(),
-                )?;
-
-                Ok(Ok(()))
+                self.pay_for_writing_bytes(res.len())?;
+                Ok(Ok(res))
             } else {
                 Ok(Err(()))
             }
@@ -347,7 +345,10 @@ macro_rules! bls12381_impl {
 impl finite_wasm::Host for Ctx {
     fn gas_exhausted(&mut self) -> wasmtime::Result<()> {
         // Burn all remaining gas
-        self.result_state.gas_counter.burn_gas(self.result_state.gas_counter.remaining_gas())?;
+        self.result_state
+            .gas_counter
+            .burn_gas(self.result_state.gas_counter.remaining_gas())
+            .map_err(ErrorContainer::new)?;
         // This function will only ever be called by instrumentation on overflow, otherwise
         // `finite_wasm_gas` will be called with the out-of-budget charge
 
@@ -366,7 +367,7 @@ impl finite_wasm::Host for Ctx {
 
 impl runtime::Host for Ctx {
     fn write_register(&mut self, register_id: u64, data: Vec<u8>) -> wasmtime::Result<()> {
-        self.result_state.gas_counter.pay_base(base).map_err(ErrorContainer::new)?;
+        self.pay_base(base)?;
         self.pay_for_reading_bytes(data.len())?;
         self.registers.set(
             &mut self.result_state.gas_counter,
@@ -378,32 +379,29 @@ impl runtime::Host for Ctx {
     }
 
     fn read_register(&mut self, register_id: u64) -> wasmtime::Result<Vec<u8>> {
-        self.result_state.gas_counter.pay_base(base).map_err(ErrorContainer::new)?;
+        self.pay_base(base)?;
         let buf = self.registers.get(&mut self.result_state.gas_counter, register_id)?;
-        self.result_state.gas_counter.pay_base(write_memory_base)?;
-        self.result_state.gas_counter.pay_per(write_memory_byte, buf.len() as _)?;
+        pay_base(&mut self.result_state.gas_counter, write_memory_base)?;
+        pay_per(&mut self.result_state.gas_counter, write_memory_byte, buf.len() as _)?;
         Ok(buf.into())
     }
 
     fn register_len(&mut self, register_id: u64) -> wasmtime::Result<Option<u64>> {
-        self.result_state.gas_counter.pay_base(base).map_err(ErrorContainer::new)?;
+        self.pay_base(base)?;
         Ok(self.registers.get_len(register_id))
     }
 
     fn current_account_id(&mut self) -> wasmtime::Result<Resource<AccountId>> {
-        self.result_state.gas_counter.pay_base(base).map_err(ErrorContainer::new)?;
+        self.pay_base(base)?;
         let account_id = self.context.current_account_id.clone();
-        self.result_state.gas_counter.pay_base(write_register_base).map_err(ErrorContainer::new)?;
-        self.result_state
-            .gas_counter
-            .pay_per(write_register_byte, account_id.len() as _)
-            .map_err(ErrorContainer::new)?;
+        self.pay_base(write_register_base)?;
+        self.pay_per(write_register_byte, account_id.len() as _)?;
         let account_id = self.table.push(account_id)?;
         Ok(account_id)
     }
 
     fn signer_account_id(&mut self) -> wasmtime::Result<Resource<AccountId>> {
-        self.result_state.gas_counter.pay_base(base).map_err(ErrorContainer::new)?;
+        self.pay_base(base)?;
 
         if self.context.is_view() {
             return Err(ErrorContainer::new(HostError::ProhibitedInView {
@@ -412,17 +410,14 @@ impl runtime::Host for Ctx {
             .into());
         }
         let account_id = self.context.signer_account_id.clone();
-        self.result_state.gas_counter.pay_base(write_register_base).map_err(ErrorContainer::new)?;
-        self.result_state
-            .gas_counter
-            .pay_per(write_register_byte, account_id.len() as _)
-            .map_err(ErrorContainer::new)?;
+        self.pay_base(write_register_base)?;
+        self.pay_per(write_register_byte, account_id.len() as _)?;
         let account_id = self.table.push(account_id)?;
         Ok(account_id)
     }
 
     fn signer_account_pk(&mut self) -> wasmtime::Result<Resource<PublicKey>> {
-        self.result_state.gas_counter.pay_base(base).map_err(ErrorContainer::new)?;
+        self.pay_base(base)?;
 
         if self.context.is_view() {
             return Err(ErrorContainer::new(HostError::ProhibitedInView {
@@ -433,17 +428,14 @@ impl runtime::Host for Ctx {
         let public_key = PublicKeyBuffer::new(&self.context.signer_account_pk)
             .decode()
             .map_err(ErrorContainer::new)?;
-        self.result_state.gas_counter.pay_base(write_register_base).map_err(ErrorContainer::new)?;
-        self.result_state
-            .gas_counter
-            .pay_per(write_register_byte, public_key.len() as _)
-            .map_err(ErrorContainer::new)?;
+        self.pay_base(write_register_base)?;
+        self.pay_per(write_register_byte, public_key.len() as _)?;
         let public_key = self.table.push(public_key)?;
         Ok(public_key)
     }
 
     fn predecessor_account_id(&mut self) -> wasmtime::Result<Resource<AccountId>> {
-        self.result_state.gas_counter.pay_base(base).map_err(ErrorContainer::new)?;
+        self.pay_base(base)?;
 
         if self.context.is_view() {
             return Err(ErrorContainer::new(HostError::ProhibitedInView {
@@ -452,17 +444,14 @@ impl runtime::Host for Ctx {
             .into());
         }
         let account_id = self.context.predecessor_account_id.clone();
-        self.result_state.gas_counter.pay_base(write_register_base).map_err(ErrorContainer::new)?;
-        self.result_state
-            .gas_counter
-            .pay_per(write_register_byte, account_id.len() as _)
-            .map_err(ErrorContainer::new)?;
+        self.pay_base(write_register_base)?;
+        self.pay_per(write_register_byte, account_id.len() as _)?;
         let account_id = self.table.push(account_id)?;
         Ok(account_id)
     }
 
     fn refund_to_account_id(&mut self, register_id: u64) -> wasmtime::Result<()> {
-        self.result_state.gas_counter.pay_base(base).map_err(ErrorContainer::new)?;
+        self.pay_base(base)?;
 
         if self.context.is_view() {
             return Err(ErrorContainer::new(HostError::ProhibitedInView {
@@ -480,23 +469,23 @@ impl runtime::Host for Ctx {
     }
 
     fn input(&mut self) -> wasmtime::Result<Vec<u8>> {
-        self.result_state.gas_counter.pay_base(base).map_err(ErrorContainer::new)?;
+        self.pay_base(base)?;
         self.pay_for_writing_bytes(self.context.input.len())?;
         Ok(self.context.input.to_vec())
     }
 
     fn block_height(&mut self) -> wasmtime::Result<u64> {
-        self.result_state.gas_counter.pay_base(base).map_err(ErrorContainer::new)?;
+        self.pay_base(base)?;
         Ok(self.context.block_height)
     }
 
     fn block_timestamp(&mut self) -> wasmtime::Result<u64> {
-        self.result_state.gas_counter.pay_base(base).map_err(ErrorContainer::new)?;
+        self.pay_base(base)?;
         Ok(self.context.block_timestamp)
     }
 
     fn epoch_height(&mut self) -> wasmtime::Result<u64> {
-        self.result_state.gas_counter.pay_base(base).map_err(ErrorContainer::new)?;
+        self.pay_base(base)?;
         Ok(self.context.epoch_height)
     }
 
@@ -504,12 +493,9 @@ impl runtime::Host for Ctx {
         &mut self,
         account_id: Resource<AccountId>,
     ) -> wasmtime::Result<runtime::U128> {
-        self.result_state.gas_counter.pay_base(base).map_err(ErrorContainer::new)?;
-        self.result_state
-            .gas_counter
-            .pay_base(validator_stake_base)
-            .map_err(ErrorContainer::new)?;
-        self.result_state.gas_counter.pay_base(read_register_base).map_err(ErrorContainer::new)?;
+        self.pay_base(base)?;
+        self.pay_base(validator_stake_base)?;
+        self.pay_base(read_register_base)?;
         let account_id = self.table.get(&account_id)?;
         let balance =
             self.ext.validator_stake(account_id).map_err(ErrorContainer::new)?.unwrap_or_default();
@@ -518,8 +504,8 @@ impl runtime::Host for Ctx {
     }
 
     fn validator_total_stake(&mut self) -> wasmtime::Result<runtime::U128> {
-        self.result_state.gas_counter.pay_base(base).map_err(ErrorContainer::new)?;
-        self.result_state.gas_counter.pay_base(validator_total_stake_base)?;
+        self.pay_base(base)?;
+        self.pay_base(validator_total_stake_base)?;
         let total_stake = self.ext.validator_total_stake().map_err(ErrorContainer::new)?;
         let v =
             runtime::U128::write(total_stake.as_yoctonear(), &mut self.result_state.gas_counter)?;
@@ -527,12 +513,12 @@ impl runtime::Host for Ctx {
     }
 
     fn storage_usage(&mut self) -> wasmtime::Result<u64> {
-        self.result_state.gas_counter.pay_base(base).map_err(ErrorContainer::new)?;
+        self.pay_base(base)?;
         Ok(self.result_state.current_storage_usage)
     }
 
     fn account_balance(&mut self) -> wasmtime::Result<runtime::U128> {
-        self.result_state.gas_counter.pay_base(base).map_err(ErrorContainer::new)?;
+        self.pay_base(base)?;
         let v = runtime::U128::write(
             self.result_state.current_account_balance.as_yoctonear(),
             &mut self.result_state.gas_counter,
@@ -541,7 +527,7 @@ impl runtime::Host for Ctx {
     }
 
     fn account_locked_balance(&mut self) -> wasmtime::Result<runtime::U128> {
-        self.result_state.gas_counter.pay_base(base).map_err(ErrorContainer::new)?;
+        self.pay_base(base)?;
         let v = runtime::U128::write(
             self.current_account_locked_balance.as_yoctonear(),
             &mut self.result_state.gas_counter,
@@ -550,7 +536,7 @@ impl runtime::Host for Ctx {
     }
 
     fn attached_deposit(&mut self) -> wasmtime::Result<runtime::U128> {
-        self.result_state.gas_counter.pay_base(base).map_err(ErrorContainer::new)?;
+        self.pay_base(base)?;
         let v = runtime::U128::write(
             self.context.attached_deposit.as_yoctonear(),
             &mut self.result_state.gas_counter,
@@ -559,7 +545,7 @@ impl runtime::Host for Ctx {
     }
 
     fn prepaid_gas(&mut self) -> wasmtime::Result<u64> {
-        self.result_state.gas_counter.pay_base(base).map_err(ErrorContainer::new)?;
+        self.pay_base(base)?;
         if self.context.is_view() {
             return Err(ErrorContainer::new(HostError::ProhibitedInView {
                 method_name: "prepaid_gas".to_string(),
@@ -570,7 +556,7 @@ impl runtime::Host for Ctx {
     }
 
     fn used_gas(&mut self) -> wasmtime::Result<u64> {
-        self.result_state.gas_counter.pay_base(base).map_err(ErrorContainer::new)?;
+        self.pay_base(base)?;
         if self.context.is_view() {
             return Err(ErrorContainer::new(HostError::ProhibitedInView {
                 method_name: "used_gas".to_string(),
@@ -580,66 +566,38 @@ impl runtime::Host for Ctx {
         Ok(self.result_state.gas_counter.used_gas().as_gas())
     }
 
-    fn alt_bn128_g1_multiexp(
-        &mut self,
-        value: runtime::ValueOrRegister,
-        register_id: u64,
-    ) -> wasmtime::Result<()> {
-        self.result_state.gas_counter.pay_base(alt_bn128_g1_multiexp_base)?;
-        let data = value.as_bytes(&mut self.result_state.gas_counter, &self.registers)?;
+    fn alt_bn128_g1_multiexp(&mut self, value: Vec<u8>) -> wasmtime::Result<Vec<u8>> {
+        self.pay_base(alt_bn128_g1_multiexp_base)?;
+        self.pay_for_reading_bytes(value.len())?;
 
-        let elements = alt_bn128::split_elements(&data).map_err(ErrorContainer::new)?;
-        self.result_state
-            .gas_counter
-            .pay_per(alt_bn128_g1_multiexp_element, elements.len() as u64)?;
+        let elements = alt_bn128::split_elements(&value).map_err(ErrorContainer::new)?;
+        self.pay_per(alt_bn128_g1_multiexp_element, elements.len() as u64)?;
 
         let res = alt_bn128::g1_multiexp(elements).map_err(ErrorContainer::new)?;
-
-        self.registers.set(
-            &mut self.result_state.gas_counter,
-            &self.config.limit_config,
-            register_id,
-            res,
-        )?;
-        Ok(())
+        self.pay_for_writing_bytes(res.len())?;
+        Ok(res.into())
     }
 
-    fn alt_bn128_g1_sum(
-        &mut self,
-        value: runtime::ValueOrRegister,
-        register_id: u64,
-    ) -> wasmtime::Result<()> {
-        self.result_state.gas_counter.pay_base(alt_bn128_g1_sum_base)?;
-        let data = value.as_bytes(&mut self.result_state.gas_counter, &self.registers)?;
+    fn alt_bn128_g1_sum(&mut self, value: Vec<u8>) -> wasmtime::Result<Vec<u8>> {
+        self.pay_base(alt_bn128_g1_sum_base)?;
+        self.pay_for_reading_bytes(value.len())?;
 
-        let elements = alt_bn128::split_elements(&data).map_err(ErrorContainer::new)?;
-        self.result_state.gas_counter.pay_per(alt_bn128_g1_sum_element, elements.len() as u64)?;
+        let elements = alt_bn128::split_elements(&value).map_err(ErrorContainer::new)?;
+        self.pay_per(alt_bn128_g1_sum_element, elements.len() as u64)?;
 
         let res = alt_bn128::g1_sum(elements).map_err(ErrorContainer::new)?;
-
-        self.registers.set(
-            &mut self.result_state.gas_counter,
-            &self.config.limit_config,
-            register_id,
-            res,
-        )?;
-        Ok(())
+        self.pay_for_writing_bytes(res.len())?;
+        Ok(res.into())
     }
 
-    fn alt_bn128_pairing_check(
-        &mut self,
-        value: runtime::ValueOrRegister,
-    ) -> wasmtime::Result<bool> {
-        self.result_state.gas_counter.pay_base(alt_bn128_pairing_check_base)?;
-        let data = value.as_bytes(&mut self.result_state.gas_counter, &self.registers)?;
+    fn alt_bn128_pairing_check(&mut self, value: Vec<u8>) -> wasmtime::Result<bool> {
+        self.pay_base(alt_bn128_pairing_check_base)?;
+        self.pay_for_reading_bytes(value.len())?;
 
-        let elements = alt_bn128::split_elements(&data).map_err(ErrorContainer::new)?;
-        self.result_state
-            .gas_counter
-            .pay_per(alt_bn128_pairing_check_element, elements.len() as u64)?;
+        let elements = alt_bn128::split_elements(&value).map_err(ErrorContainer::new)?;
+        self.pay_per(alt_bn128_pairing_check_element, elements.len() as u64)?;
 
         let res = alt_bn128::pairing_check(elements).map_err(ErrorContainer::new)?;
-
         Ok(res)
     }
 
@@ -679,22 +637,19 @@ impl runtime::Host for Ctx {
         map_fp2_to_g2
     );
 
-    fn bls12381_pairing_check(
-        &mut self,
-        value: runtime::ValueOrRegister,
-    ) -> wasmtime::Result<Result<bool, ()>> {
-        self.result_state.gas_counter.pay_base(bls12381_pairing_base)?;
+    fn bls12381_pairing_check(&mut self, value: Vec<u8>) -> wasmtime::Result<Result<bool, ()>> {
+        self.pay_base(bls12381_pairing_base)?;
 
         const BLS_P1_SIZE: usize = 96;
         const BLS_P2_SIZE: usize = 192;
         const ITEM_SIZE: usize = BLS_P1_SIZE + BLS_P2_SIZE;
 
-        let data = value.as_bytes(&mut self.result_state.gas_counter, &self.registers)?;
-        let elements_count = data.len() / ITEM_SIZE;
+        self.pay_for_reading_bytes(value.len())?;
+        let elements_count = value.len() / ITEM_SIZE;
 
-        self.result_state.gas_counter.pay_per(bls12381_pairing_element, elements_count as u64)?;
+        self.pay_per(bls12381_pairing_element, elements_count as u64)?;
 
-        match bls12381::pairing_check(&data)? {
+        match bls12381::pairing_check(&value)? {
             0 => Ok(Ok(true)),
             1 => Ok(Err(())),
             2 => Ok(Ok(false)),
@@ -719,18 +674,15 @@ impl runtime::Host for Ctx {
     );
 
     fn random_seed(&mut self) -> wasmtime::Result<Vec<u8>> {
-        self.result_state.gas_counter.pay_base(base).map_err(ErrorContainer::new)?;
+        self.pay_base(base)?;
         self.pay_for_writing_bytes(self.context.random_seed.len())?;
         Ok(self.context.random_seed.clone())
     }
 
     fn sha256(&mut self, value: Vec<u8>) -> wasmtime::Result<Vec<u8>> {
-        self.result_state.gas_counter.pay_base(sha256_base).map_err(ErrorContainer::new)?;
+        self.pay_base(sha256_base)?;
         self.pay_for_reading_bytes(value.len())?;
-        self.result_state
-            .gas_counter
-            .pay_per(sha256_byte, value.len() as u64)
-            .map_err(ErrorContainer::new)?;
+        self.pay_per(sha256_byte, value.len() as u64)?;
 
         use sha2::Digest;
 
@@ -740,9 +692,9 @@ impl runtime::Host for Ctx {
     }
 
     fn keccak256(&mut self, value: Vec<u8>) -> wasmtime::Result<Vec<u8>> {
-        self.result_state.gas_counter.pay_base(keccak256_base)?;
+        self.pay_base(keccak256_base)?;
         self.pay_for_reading_bytes(value.len())?;
-        self.result_state.gas_counter.pay_per(keccak256_byte, value.len() as u64)?;
+        self.pay_per(keccak256_byte, value.len() as u64)?;
 
         use sha3::Digest;
 
@@ -752,9 +704,9 @@ impl runtime::Host for Ctx {
     }
 
     fn keccak512(&mut self, value: Vec<u8>) -> wasmtime::Result<Vec<u8>> {
-        self.result_state.gas_counter.pay_base(keccak512_base)?;
+        self.pay_base(keccak512_base)?;
         self.pay_for_reading_bytes(value.len())?;
-        self.result_state.gas_counter.pay_per(keccak512_byte, value.len() as u64)?;
+        self.pay_per(keccak512_byte, value.len() as u64)?;
 
         use sha3::Digest;
 
@@ -764,7 +716,7 @@ impl runtime::Host for Ctx {
     }
 
     fn ripemd160(&mut self, value: Vec<u8>) -> wasmtime::Result<Vec<u8>> {
-        self.result_state.gas_counter.pay_base(ripemd160_base)?;
+        self.pay_base(ripemd160_base)?;
         self.pay_for_reading_bytes(value.len())?;
 
         let message_blocks = value
@@ -774,7 +726,7 @@ impl runtime::Host for Ctx {
             / 64
             + 1;
 
-        self.result_state.gas_counter.pay_per(ripemd160_block, message_blocks as u64)?;
+        self.pay_per(ripemd160_block, message_blocks as u64)?;
 
         use ripemd::Digest;
 
@@ -790,7 +742,7 @@ impl runtime::Host for Ctx {
         v: u8,
         malleability: bool,
     ) -> wasmtime::Result<Option<Resource<PublicKey>>> {
-        self.result_state.gas_counter.pay_base(ecrecover_base).map_err(ErrorContainer::new)?;
+        self.pay_base(ecrecover_base)?;
         self.pay_for_reading_bytes(signature.len())?;
         let signature = {
             if signature.len() != 64 {
@@ -863,8 +815,7 @@ impl runtime::Host for Ctx {
     ) -> wasmtime::Result<bool> {
         use ed25519_dalek::Verifier;
 
-        self.result_state.gas_counter.pay_base(ed25519_verify_base).map_err(ErrorContainer::new)?;
-
+        self.pay_base(ed25519_verify_base)?;
         self.pay_for_reading_bytes(signature.len())?;
         let signature: ed25519_dalek::Signature = {
             let b = <&[u8; ed25519_dalek::SIGNATURE_LENGTH]>::try_from(&signature[..]).map_err(
@@ -884,10 +835,7 @@ impl runtime::Host for Ctx {
         };
 
         self.pay_for_reading_bytes(message.len())?;
-        self.result_state
-            .gas_counter
-            .pay_per(ed25519_verify_byte, message.len() as _)
-            .map_err(ErrorContainer::new)?;
+        self.pay_per(ed25519_verify_byte, message.len() as _)?;
 
         let public_key: ed25519_dalek::VerifyingKey = {
             let public_key = self.read_public_key(&public_key)?;
@@ -910,7 +858,7 @@ impl runtime::Host for Ctx {
     }
 
     fn value_return(&mut self, value: Vec<u8>) -> wasmtime::Result<()> {
-        self.result_state.gas_counter.pay_base(base).map_err(ErrorContainer::new)?;
+        self.pay_base(base)?;
         self.pay_for_reading_bytes(value.len())?;
         let mut burn_gas: Gas = Gas::ZERO;
         let num_bytes = value.len() as u64;
@@ -947,17 +895,16 @@ impl runtime::Host for Ctx {
                 .ok_or(HostError::IntegerOverflow)
                 .map_err(ErrorContainer::new)?;
         }
-        self.result_state.gas_counter.pay_action_accumulated(
-            burn_gas,
-            burn_gas,
-            ActionCosts::new_data_receipt_byte,
-        )?;
+        self.result_state
+            .gas_counter
+            .pay_action_accumulated(burn_gas, burn_gas, ActionCosts::new_data_receipt_byte)
+            .map_err(ErrorContainer::new)?;
         self.result_state.return_data = ReturnData::Value(value);
         Ok(())
     }
 
     fn panic(&mut self, s: Option<String>) -> wasmtime::Result<()> {
-        self.result_state.gas_counter.pay_base(base).map_err(ErrorContainer::new)?;
+        self.pay_base(base)?;
         let panic_msg = if let Some(s) = s {
             self.pay_for_reading_string(s.len())?;
             let max_len = self
@@ -980,10 +927,10 @@ impl runtime::Host for Ctx {
     }
 
     fn log(&mut self, s: String) -> wasmtime::Result<()> {
-        self.result_state.gas_counter.pay_base(base).map_err(ErrorContainer::new)?;
+        self.pay_base(base)?;
         self.result_state.check_can_add_a_log_message()?;
-        self.result_state.gas_counter.pay_base(log_base)?;
-        self.result_state.gas_counter.pay_per(log_byte, s.len() as u64)?;
+        self.pay_base(log_base)?;
+        self.pay_per(log_byte, s.len() as u64)?;
         self.result_state.checked_push_log(s)?;
         Ok(())
     }
@@ -992,7 +939,7 @@ impl runtime::Host for Ctx {
         &mut self,
         register_id: u64,
     ) -> wasmtime::Result<Option<runtime::ContractCodeKind>> {
-        self.result_state.gas_counter.pay_base(base).map_err(ErrorContainer::new)?;
+        self.pay_base(base)?;
         match &self.context.account_contract {
             AccountContract::None => Ok(None),
             AccountContract::Local(crypto_hash) => {
@@ -1031,14 +978,14 @@ impl runtime::Host for Ctx {
         value: Vec<u8>,
         register_id: u64,
     ) -> wasmtime::Result<bool> {
-        self.result_state.gas_counter.pay_base(base).map_err(ErrorContainer::new)?;
+        self.pay_base(base)?;
         if self.context.is_view() {
             return Err(ErrorContainer::new(HostError::ProhibitedInView {
                 method_name: "storage_write".to_string(),
             })
             .into());
         }
-        self.result_state.gas_counter.pay_base(storage_write_base).map_err(ErrorContainer::new)?;
+        self.pay_base(storage_write_base)?;
         self.pay_for_reading_bytes(key.len())?;
         if key.len() as u64 > self.config.limit_config.max_length_storage_key {
             return Err(ErrorContainer::new(HostError::KeyLengthExceeded {
@@ -1055,14 +1002,8 @@ impl runtime::Host for Ctx {
             })
             .into());
         }
-        self.result_state
-            .gas_counter
-            .pay_per(storage_write_key_byte, key.len() as u64)
-            .map_err(ErrorContainer::new)?;
-        self.result_state
-            .gas_counter
-            .pay_per(storage_write_value_byte, value.len() as u64)
-            .map_err(ErrorContainer::new)?;
+        self.pay_per(storage_write_key_byte, key.len() as u64)?;
+        self.pay_per(storage_write_value_byte, value.len() as u64)?;
         let evicted = self
             .ext
             .storage_set(&mut self.result_state.gas_counter, &key, &value)
@@ -1113,8 +1054,8 @@ impl runtime::Host for Ctx {
     }
 
     fn storage_read(&mut self, key: Vec<u8>) -> wasmtime::Result<Option<Vec<u8>>> {
-        self.result_state.gas_counter.pay_base(base).map_err(ErrorContainer::new)?;
-        self.result_state.gas_counter.pay_base(storage_read_base).map_err(ErrorContainer::new)?;
+        self.pay_base(base)?;
+        self.pay_base(storage_read_base)?;
         self.pay_for_reading_bytes(key.len())?;
         if key.len() as u64 > self.config.limit_config.max_length_storage_key {
             return Err(ErrorContainer::new(HostError::KeyLengthExceeded {
@@ -1123,28 +1064,24 @@ impl runtime::Host for Ctx {
             })
             .into());
         }
-        self.result_state
-            .gas_counter
-            .pay_per(storage_read_key_byte, key.len() as u64)
-            .map_err(ErrorContainer::new)?;
+        self.pay_per(storage_read_key_byte, key.len() as u64)?;
         let read = self.ext.storage_get(&mut self.result_state.gas_counter, &key);
         let read = match read.map_err(ErrorContainer::new)? {
             Some(read) => {
                 // Here we'll do u32 -> usize -> u64, which is always infallible
                 let read_len = read.len() as usize;
-                self.result_state
-                    .gas_counter
-                    .pay_per(storage_read_value_byte, read_len as u64)
-                    .map_err(ErrorContainer::new)?;
+                pay_per(
+                    &mut self.result_state.gas_counter,
+                    storage_read_value_byte,
+                    read_len as u64,
+                )?;
                 if read_len > INLINE_DISK_VALUE_THRESHOLD {
-                    self.result_state
-                        .gas_counter
-                        .pay_base(storage_large_read_overhead_base)
-                        .map_err(ErrorContainer::new)?;
-                    self.result_state
-                        .gas_counter
-                        .pay_per(storage_large_read_overhead_byte, read_len as u64)
-                        .map_err(ErrorContainer::new)?;
+                    pay_base(&mut self.result_state.gas_counter, storage_large_read_overhead_base)?;
+                    pay_per(
+                        &mut self.result_state.gas_counter,
+                        storage_large_read_overhead_byte,
+                        read_len as u64,
+                    )?;
                 }
                 Some(read.deref(&mut FreeGasCounter)?)
             }
@@ -1164,14 +1101,14 @@ impl runtime::Host for Ctx {
     }
 
     fn storage_remove(&mut self, key: Vec<u8>, register_id: u64) -> wasmtime::Result<bool> {
-        self.result_state.gas_counter.pay_base(base).map_err(ErrorContainer::new)?;
+        self.pay_base(base)?;
         if self.context.is_view() {
             return Err(ErrorContainer::new(HostError::ProhibitedInView {
                 method_name: "storage_remove".to_string(),
             })
             .into());
         }
-        self.result_state.gas_counter.pay_base(storage_remove_base).map_err(ErrorContainer::new)?;
+        self.pay_base(storage_remove_base)?;
         self.pay_for_reading_bytes(key.len())?;
         if key.len() as u64 > self.config.limit_config.max_length_storage_key {
             return Err(ErrorContainer::new(HostError::KeyLengthExceeded {
@@ -1180,7 +1117,7 @@ impl runtime::Host for Ctx {
             })
             .into());
         }
-        self.result_state.gas_counter.pay_per(storage_remove_key_byte, key.len() as u64)?;
+        self.pay_per(storage_remove_key_byte, key.len() as u64)?;
         let removed = self
             .ext
             .storage_remove(&mut self.result_state.gas_counter, &key)
@@ -1214,11 +1151,8 @@ impl runtime::Host for Ctx {
     }
 
     fn storage_has_key(&mut self, key: Vec<u8>) -> wasmtime::Result<bool> {
-        self.result_state.gas_counter.pay_base(base).map_err(ErrorContainer::new)?;
-        self.result_state
-            .gas_counter
-            .pay_base(storage_has_key_base)
-            .map_err(ErrorContainer::new)?;
+        self.pay_base(base)?;
+        self.pay_base(storage_has_key_base)?;
         self.pay_for_reading_bytes(key.len())?;
         if key.len() as u64 > self.config.limit_config.max_length_storage_key {
             return Err(ErrorContainer::new(HostError::KeyLengthExceeded {
@@ -1227,7 +1161,7 @@ impl runtime::Host for Ctx {
             })
             .into());
         }
-        self.result_state.gas_counter.pay_per(storage_has_key_byte, key.len() as u64)?;
+        self.pay_per(storage_has_key_byte, key.len() as u64)?;
         let res = self
             .ext
             .storage_has_key(&mut self.result_state.gas_counter, &key)
@@ -1249,7 +1183,7 @@ impl runtime::HostPromiseAction for Ctx {
 
 impl runtime::HostPromise for Ctx {
     fn new(&mut self, account_id: Resource<AccountId>) -> wasmtime::Result<Resource<PromiseIndex>> {
-        self.result_state.gas_counter.pay_base(base).map_err(ErrorContainer::new)?;
+        self.pay_base(base)?;
         if self.context.is_view() {
             return Err(ErrorContainer::new(HostError::ProhibitedInView {
                 method_name: "promise_batch_create".to_string(),
@@ -1270,7 +1204,7 @@ impl runtime::HostPromise for Ctx {
         promise: Resource<PromiseIndex>,
         account_id: Resource<AccountId>,
     ) -> wasmtime::Result<Resource<PromiseIndex>> {
-        self.result_state.gas_counter.pay_base(base).map_err(ErrorContainer::new)?;
+        self.pay_base(base)?;
         if self.context.is_view() {
             return Err(ErrorContainer::new(HostError::ProhibitedInView {
                 method_name: "promise_batch_then".to_string(),
@@ -1309,21 +1243,21 @@ impl runtime::HostPromise for Ctx {
         &mut self,
         promises: Vec<Resource<PromiseIndex>>,
     ) -> wasmtime::Result<Resource<PromiseIndex>> {
-        self.result_state.gas_counter.pay_base(base).map_err(ErrorContainer::new)?;
+        self.pay_base(base)?;
         if self.context.is_view() {
             return Err(ErrorContainer::new(HostError::ProhibitedInView {
                 method_name: "promise_and".to_string(),
             })
             .into());
         }
-        self.result_state.gas_counter.pay_base(promise_and_base)?;
+        self.pay_base(promise_and_base)?;
         let memory_len = promises
             .len()
             .checked_mul(size_of::<u64>())
             .ok_or(HostError::IntegerOverflow)
             .map_err(ErrorContainer::new)?;
         self.pay_for_reading_bytes(memory_len)?;
-        self.result_state.gas_counter.pay_per(promise_and_per_promise, memory_len as _)?;
+        self.pay_per(promise_and_per_promise, memory_len as _)?;
 
         let mut receipt_dependencies = vec![];
         for promise in promises {
@@ -1360,7 +1294,7 @@ impl runtime::HostPromise for Ctx {
         promise: Resource<PromiseIndex>,
         account_id: Resource<AccountId>,
     ) -> wasmtime::Result<()> {
-        self.result_state.gas_counter.pay_base(base).map_err(ErrorContainer::new)?;
+        self.pay_base(base)?;
         if self.context.is_view() {
             return Err(ErrorContainer::new(HostError::ProhibitedInView {
                 method_name: "promise_set_refund_to".to_string(),
@@ -1392,7 +1326,7 @@ impl runtime::HostPromise for Ctx {
         code_hash: runtime::ValueOrRegister,
         amount: runtime::U128,
     ) -> wasmtime::Result<Resource<ActionIndex>> {
-        self.result_state.gas_counter.pay_base(base).map_err(ErrorContainer::new)?;
+        self.pay_base(base)?;
         if self.context.is_view() {
             return Err(ErrorContainer::new(HostError::ProhibitedInView {
                 method_name: "promise_batch_action_state_init".to_string(),
@@ -1434,7 +1368,7 @@ impl runtime::HostPromise for Ctx {
         account_id: Resource<AccountId>,
         amount: runtime::U128,
     ) -> wasmtime::Result<Resource<ActionIndex>> {
-        self.result_state.gas_counter.pay_base(base).map_err(ErrorContainer::new)?;
+        self.pay_base(base)?;
         if self.context.is_view() {
             return Err(ErrorContainer::new(HostError::ProhibitedInView {
                 method_name: "promise_batch_action_state_init_by_account_id".to_string(),
@@ -1473,7 +1407,7 @@ impl runtime::HostPromise for Ctx {
         key: runtime::ValueOrRegister,
         value: runtime::ValueOrRegister,
     ) -> wasmtime::Result<()> {
-        self.result_state.gas_counter.pay_base(base).map_err(ErrorContainer::new)?;
+        self.pay_base(base)?;
         if self.context.is_view() {
             return Err(ErrorContainer::new(HostError::ProhibitedInView {
                 method_name: "set_state_init_data_entry".to_string(),
@@ -1515,7 +1449,7 @@ impl runtime::HostPromise for Ctx {
     }
 
     fn create_account(&mut self, promise: Resource<PromiseIndex>) -> wasmtime::Result<()> {
-        self.result_state.gas_counter.pay_base(base).map_err(ErrorContainer::new)?;
+        self.pay_base(base)?;
         if self.context.is_view() {
             return Err(ErrorContainer::new(HostError::ProhibitedInView {
                 method_name: "promise_batch_action_create_account".to_string(),
@@ -1541,7 +1475,7 @@ impl runtime::HostPromise for Ctx {
         promise: Resource<PromiseIndex>,
         code: runtime::ValueOrRegister,
     ) -> wasmtime::Result<()> {
-        self.result_state.gas_counter.pay_base(base).map_err(ErrorContainer::new)?;
+        self.pay_base(base)?;
         if self.context.is_view() {
             return Err(ErrorContainer::new(HostError::ProhibitedInView {
                 method_name: "promise_batch_action_deploy_contract".to_string(),
@@ -1612,7 +1546,7 @@ impl runtime::HostPromise for Ctx {
         promise: Resource<PromiseIndex>,
         code_hash: runtime::ValueOrRegister,
     ) -> wasmtime::Result<()> {
-        self.result_state.gas_counter.pay_base(base).map_err(ErrorContainer::new)?;
+        self.pay_base(base)?;
         if self.context.is_view() {
             return Err(ErrorContainer::new(HostError::ProhibitedInView {
                 method_name: "promise_batch_action_use_global_contract".to_string(),
@@ -1655,7 +1589,7 @@ impl runtime::HostPromise for Ctx {
         promise: Resource<PromiseIndex>,
         account_id: Resource<AccountId>,
     ) -> wasmtime::Result<()> {
-        self.result_state.gas_counter.pay_base(base).map_err(ErrorContainer::new)?;
+        self.pay_base(base)?;
         if self.context.is_view() {
             return Err(ErrorContainer::new(HostError::ProhibitedInView {
                 method_name: "promise_batch_action_use_global_contract_by_account_id".to_string(),
@@ -1698,7 +1632,7 @@ impl runtime::HostPromise for Ctx {
         gas: u64,
         gas_weight: u64,
     ) -> wasmtime::Result<()> {
-        self.result_state.gas_counter.pay_base(base).map_err(ErrorContainer::new)?;
+        self.pay_base(base)?;
         if self.context.is_view() {
             return Err(ErrorContainer::new(HostError::ProhibitedInView {
                 method_name: "promise_batch_action_function_call".to_string(),
@@ -1756,7 +1690,7 @@ impl runtime::HostPromise for Ctx {
         promise: Resource<PromiseIndex>,
         amount: runtime::U128,
     ) -> wasmtime::Result<()> {
-        self.result_state.gas_counter.pay_base(base).map_err(ErrorContainer::new)?;
+        self.pay_base(base)?;
         if self.context.is_view() {
             return Err(ErrorContainer::new(HostError::ProhibitedInView {
                 method_name: "promise_batch_action_transfer".to_string(),
@@ -1786,11 +1720,10 @@ impl runtime::HostPromise for Ctx {
             .checked_add(exec_fee)
             .ok_or(HostError::IntegerOverflow)
             .map_err(ErrorContainer::new)?;
-        self.result_state.gas_counter.pay_action_accumulated(
-            burn_gas,
-            use_gas,
-            ActionCosts::transfer,
-        )?;
+        self.result_state
+            .gas_counter
+            .pay_action_accumulated(burn_gas, use_gas, ActionCosts::transfer)
+            .map_err(ErrorContainer::new)?;
         self.result_state.deduct_balance(amount).map_err(ErrorContainer::new)?;
         self.ext.append_action_transfer(receipt_idx, amount).map_err(ErrorContainer::new)?;
         Ok(())
@@ -1802,7 +1735,7 @@ impl runtime::HostPromise for Ctx {
         amount: runtime::U128,
         public_key: Resource<PublicKey>,
     ) -> wasmtime::Result<()> {
-        self.result_state.gas_counter.pay_base(base).map_err(ErrorContainer::new)?;
+        self.pay_base(base)?;
         if self.context.is_view() {
             return Err(ErrorContainer::new(HostError::ProhibitedInView {
                 method_name: "promise_batch_action_stake".to_string(),
@@ -1830,7 +1763,7 @@ impl runtime::HostPromise for Ctx {
         public_key: Resource<PublicKey>,
         nonce: u64,
     ) -> wasmtime::Result<()> {
-        self.result_state.gas_counter.pay_base(base).map_err(ErrorContainer::new)?;
+        self.pay_base(base)?;
         if self.context.is_view() {
             return Err(ErrorContainer::new(HostError::ProhibitedInView {
                 method_name: "promise_batch_action_add_key_with_full_access".to_string(),
@@ -1859,7 +1792,7 @@ impl runtime::HostPromise for Ctx {
         receiver_id: Resource<AccountId>,
         method_names: runtime::ValueOrRegister,
     ) -> wasmtime::Result<()> {
-        self.result_state.gas_counter.pay_base(base).map_err(ErrorContainer::new)?;
+        self.pay_base(base)?;
         if self.context.is_view() {
             return Err(ErrorContainer::new(HostError::ProhibitedInView {
                 method_name: "promise_batch_action_add_key_with_function_call".to_string(),
@@ -1912,7 +1845,7 @@ impl runtime::HostPromise for Ctx {
         promise: Resource<PromiseIndex>,
         public_key: Resource<PublicKey>,
     ) -> wasmtime::Result<()> {
-        self.result_state.gas_counter.pay_base(base).map_err(ErrorContainer::new)?;
+        self.pay_base(base)?;
         if self.context.is_view() {
             return Err(ErrorContainer::new(HostError::ProhibitedInView {
                 method_name: "promise_batch_action_delete_key".to_string(),
@@ -1937,7 +1870,7 @@ impl runtime::HostPromise for Ctx {
         promise: Resource<PromiseIndex>,
         beneficiary_id: Resource<AccountId>,
     ) -> wasmtime::Result<()> {
-        self.result_state.gas_counter.pay_base(base).map_err(ErrorContainer::new)?;
+        self.pay_base(base)?;
         if self.context.is_view() {
             return Err(ErrorContainer::new(HostError::ProhibitedInView {
                 method_name: "promise_batch_action_delete_account".to_string(),
@@ -1970,14 +1903,14 @@ impl runtime::HostPromise for Ctx {
         gas_weight: u64,
         register_id: u64,
     ) -> wasmtime::Result<Resource<PromiseIndex>> {
-        self.result_state.gas_counter.pay_base(base).map_err(ErrorContainer::new)?;
+        self.pay_base(base)?;
         if self.context.is_view() {
             return Err(ErrorContainer::new(HostError::ProhibitedInView {
                 method_name: "promise_yield_create".to_string(),
             })
             .into());
         }
-        self.result_state.gas_counter.pay_base(yield_create_base)?;
+        self.pay_base(yield_create_base)?;
 
         let method_name =
             method_name.as_bytes(&mut self.result_state.gas_counter, &self.registers)?;
@@ -1990,7 +1923,7 @@ impl runtime::HostPromise for Ctx {
 
         // Input can't be large enough to overflow, WebAssembly address space is 32-bits.
         let num_bytes = method_name.len() as u64 + arguments.len() as u64;
-        self.result_state.gas_counter.pay_per(yield_create_byte, num_bytes)?;
+        self.pay_per(yield_create_byte, num_bytes)?;
         // Prepay gas for the callback so that it cannot be used for this execution any longer.
         self.result_state.gas_counter.prepay_gas(Gas::from_gas(gas))?;
 
@@ -2046,17 +1979,17 @@ impl runtime::HostPromise for Ctx {
         data_id: runtime::ValueOrRegister,
         payload: runtime::ValueOrRegister,
     ) -> wasmtime::Result<bool> {
-        self.result_state.gas_counter.pay_base(base).map_err(ErrorContainer::new)?;
+        self.pay_base(base)?;
         if self.context.is_view() {
             return Err(ErrorContainer::new(HostError::ProhibitedInView {
                 method_name: "promise_submit_data".to_string(),
             })
             .into());
         }
-        self.result_state.gas_counter.pay_base(yield_resume_base)?;
+        self.pay_base(yield_resume_base)?;
         let payload = payload.as_bytes(&mut self.result_state.gas_counter, &self.registers)?;
         let payload_len = payload.len() as u64;
-        self.result_state.gas_counter.pay_per(yield_resume_byte, payload_len)?;
+        pay_per(&mut self.result_state.gas_counter, yield_resume_byte, payload_len)?;
         let data_id = data_id.as_bytes(&mut self.result_state.gas_counter, &self.registers)?;
         if payload_len > self.config.limit_config.max_yield_payload_size {
             return Err(ErrorContainer::new(HostError::YieldPayloadLength {
@@ -2078,7 +2011,7 @@ impl runtime::HostPromise for Ctx {
     }
 
     fn get_results_count(&mut self) -> wasmtime::Result<u64> {
-        self.result_state.gas_counter.pay_base(base).map_err(ErrorContainer::new)?;
+        self.pay_base(base)?;
         if self.context.is_view() {
             return Err(ErrorContainer::new(HostError::ProhibitedInView {
                 method_name: "promise_results_count".to_string(),
@@ -2093,7 +2026,7 @@ impl runtime::HostPromise for Ctx {
         result_idx: u64,
         register_id: u64,
     ) -> wasmtime::Result<Option<Result<(), ()>>> {
-        self.result_state.gas_counter.pay_base(base).map_err(ErrorContainer::new)?;
+        self.pay_base(base)?;
         if self.context.is_view() {
             return Err(ErrorContainer::new(HostError::ProhibitedInView {
                 method_name: "promise_result".to_string(),
@@ -2124,8 +2057,8 @@ impl runtime::HostPromise for Ctx {
     }
 
     fn return_(&mut self, promise: Resource<PromiseIndex>) -> wasmtime::Result<()> {
-        self.result_state.gas_counter.pay_base(base).map_err(ErrorContainer::new)?;
-        self.result_state.gas_counter.pay_base(promise_return)?;
+        self.pay_base(base)?;
+        self.pay_base(promise_return)?;
         if self.context.is_view() {
             return Err(ErrorContainer::new(HostError::ProhibitedInView {
                 method_name: "promise_return".to_string(),
@@ -2199,21 +2132,15 @@ impl runtime::HostPublicKey for Ctx {
 
     fn to_string(&mut self, public_key: Resource<PublicKey>) -> wasmtime::Result<String> {
         let public_key = self.table.get(&public_key)?;
-        self.result_state.gas_counter.pay_base(write_memory_base).map_err(ErrorContainer::new)?;
-        self.result_state
-            .gas_counter
-            .pay_per(write_memory_byte, public_key.len() as _)
-            .map_err(ErrorContainer::new)?;
+        pay_base(&mut self.result_state.gas_counter, write_memory_base)?;
+        pay_per(&mut self.result_state.gas_counter, write_memory_byte, public_key.len() as _)?;
         Ok(public_key.to_string())
     }
 
     fn to_bytes(&mut self, public_key: Resource<PublicKey>) -> wasmtime::Result<Vec<u8>> {
         let public_key = self.table.get(&public_key)?;
-        self.result_state.gas_counter.pay_base(write_memory_base).map_err(ErrorContainer::new)?;
-        self.result_state
-            .gas_counter
-            .pay_per(write_memory_byte, public_key.len() as _)
-            .map_err(ErrorContainer::new)?;
+        pay_base(&mut self.result_state.gas_counter, write_memory_base)?;
+        pay_per(&mut self.result_state.gas_counter, write_memory_byte, public_key.len() as _)?;
         match public_key {
             PublicKey::ED25519(public_key) => {
                 let public_key = public_key.as_ref();

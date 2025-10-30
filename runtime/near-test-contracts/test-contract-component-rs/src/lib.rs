@@ -529,14 +529,14 @@ impl Guest for Component {
             81, 73, 60, 142, 130, 217, 176, 20, 69, 75, 40, 167, 41, 180, 244, 5, 142, 215, 135,
             35,
         ];
-        alt_bn128_g1_multiexp(ValueOrRegister::Value(&buffer), 1);
+        _ = alt_bn128_g1_multiexp(&buffer);
         let buffer: [u8; 65] = [
             0, 11, 49, 94, 29, 152, 111, 116, 138, 248, 2, 184, 8, 159, 80, 169, 45, 149, 48, 32,
             49, 37, 6, 133, 105, 171, 194, 120, 44, 195, 17, 180, 35, 137, 154, 4, 192, 211, 244,
             93, 200, 2, 44, 0, 64, 26, 108, 139, 147, 88, 235, 242, 23, 253, 52, 110, 236, 67, 99,
             176, 2, 186, 198, 228, 25,
         ];
-        alt_bn128_g1_sum(ValueOrRegister::Value(&buffer), 1);
+        _ = alt_bn128_g1_sum(&buffer);
         let buffer: [u8; 192] = [
             80, 12, 4, 181, 61, 254, 153, 52, 127, 228, 174, 24, 144, 95, 235, 26, 197, 188, 219,
             91, 4, 47, 98, 98, 202, 199, 94, 67, 211, 223, 197, 21, 65, 221, 184, 75, 69, 202, 13,
@@ -550,7 +550,7 @@ impl Guest for Component {
             172, 194, 232, 45, 151, 46, 248, 206, 193, 250, 145, 84, 78, 176, 74, 210, 0, 106, 168,
             30,
         ];
-        alt_bn128_pairing_check(ValueOrRegister::Value(&buffer));
+        alt_bn128_pairing_check(&buffer);
     }
 
     /// Callback for a promise created in `sanity_check`. It calls host functions

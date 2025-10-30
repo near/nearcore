@@ -223,35 +223,47 @@ interface runtime {
    // Get the total validator stake of the current epoch.
    validator-total-stake: func() -> u128;
 
-   // Computes multiexp on alt_bn128 curve using Pippenger's algorithm \sum_i
-   // mul_i g_{1 i} should be equal result.
-   alt-bn128-g1-multiexp: func(value: value-or-register, register-id: u64);
+   // Compute alt_bn128 g1 multiexp.
+   //
+   // `alt_bn128` is a specific curve from the Barreto-Naehrig(BN) family. It is particularly
+   // well-suited for ZK proofs.
+   //
+   // See also: [EIP-196](https://eips.ethereum.org/EIPS/eip-196)
+   alt-bn128-g1-multiexp: func(value: list<u8>) -> list<u8>;
 
-   // Computes sum for signed g1 group elements on alt_bn128 curve \sum_i
-   // (-1)^{sign_i} g_{1 i} should be equal result.
-   alt-bn128-g1-sum: func(value: value-or-register, register-id: u64);
+   // Compute alt_bn128 g1 sum.
+   //
+   // `alt_bn128` is a specific curve from the Barreto-Naehrig(BN) family. It is particularly
+   // well-suited for ZK proofs.
+   //
+   // See also: [EIP-196](https://eips.ethereum.org/EIPS/eip-196)
+   alt-bn128-g1-sum: func(value: list<u8>) -> list<u8>;
 
-   // Computes pairing check on alt_bn128 curve.
-   // \sum_i e(g_{1 i}, g_{2 i}) should be equal one (in additive notation), e(g1, g2) is Ate pairing
-   alt-bn128-pairing-check: func(value: value-or-register) -> bool;
+   // Compute pairing check
+   //
+   // `alt_bn128` is a specific curve from the Barreto-Naehrig(BN) family. It is particularly
+   // well-suited for ZK proofs.
+   //
+   // See also: [EIP-197](https://eips.ethereum.org/EIPS/eip-197)
+   alt-bn128-pairing-check: func(value: list<u8>) -> bool;
 
-   bls12381-p1-sum: func(value: value-or-register, register-id: u64) -> result;
+   bls12381-p1-sum: func(value: list<u8>) -> result<list<u8>>;
 
-   bls12381-p2-sum: func(value: value-or-register, register-id: u64) -> result;
+   bls12381-p2-sum: func(value: list<u8>) -> result<list<u8>>;
 
-   bls12381-g1-multiexp: func(value: value-or-register, register-id: u64) -> result;
+   bls12381-g1-multiexp: func(value: list<u8>) -> result<list<u8>>;
 
-   bls12381-g2-multiexp: func(value: value-or-register, register-id: u64) -> result;
+   bls12381-g2-multiexp: func(value: list<u8>) -> result<list<u8>>;
 
-   bls12381-map-fp-to-g1: func(value: value-or-register, register-id: u64) -> result;
+   bls12381-map-fp-to-g1: func(value: list<u8>) -> result<list<u8>>;
 
-   bls12381-map-fp2-to-g2: func(value: value-or-register, register-id: u64) -> result;
+   bls12381-map-fp2-to-g2: func(value: list<u8>) -> result<list<u8>>;
 
-   bls12381-pairing-check: func(value: value-or-register) -> result<bool>;
+   bls12381-pairing-check: func(value: list<u8>) -> result<bool>;
 
-   bls12381-p1-decompress: func(value: value-or-register, register-id: u64) -> result;
+   bls12381-p1-decompress: func(value: list<u8>) -> result<list<u8>>;
 
-   bls12381-p2-decompress: func(value: value-or-register, register-id: u64) -> result;
+   bls12381-p2-decompress: func(value: list<u8>) -> result<list<u8>>;
 }
 
 world imports {
