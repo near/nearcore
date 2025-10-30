@@ -5,7 +5,6 @@ use crate::logic::types::{
     ActionIndex, GlobalContractDeployMode, GlobalContractIdentifier, PromiseIndex, PromiseResult,
     ReceiptIndex,
 };
-use crate::logic::vmstate::Registers;
 use crate::logic::{GasCounter, HostError, ReturnData, alt_bn128, bls12381};
 use crate::wasmtime_runner::ErrorContainer;
 use crate::wasmtime_runner::component::Ctx;
@@ -107,26 +106,6 @@ impl runtime::U128 {
         pay_base(gas_counter, write_memory_base)?;
         pay_per(gas_counter, write_memory_byte, 16)?;
         Ok(Self::from(v))
-    }
-}
-
-impl runtime::ValueOrRegister {
-    fn as_bytes<'a>(
-        &'a self,
-        gas_counter: &mut GasCounter,
-        registers: &'a Registers,
-    ) -> wasmtime::Result<&'a [u8]> {
-        match self {
-            Self::Value(buf) => {
-                pay_base(gas_counter, read_memory_base)?;
-                pay_per(gas_counter, read_memory_byte, buf.len() as _)?;
-                Ok(buf)
-            }
-            Self::Register(register_id) => {
-                let buf = registers.get(gas_counter, *register_id).map_err(ErrorContainer::new)?;
-                Ok(buf)
-            }
-        }
     }
 }
 
@@ -367,18 +346,18 @@ impl runtime::Host for Ctx {
     fn write_register(&mut self, register_id: u64, data: Vec<u8>) -> wasmtime::Result<()> {
         self.pay_base(base)?;
         self.pay_for_reading_bytes(data.len())?;
-        self.registers.set(
-            &mut self.result_state.gas_counter,
-            &self.config.limit_config,
-            register_id,
-            data,
-        )?;
+        self.registers
+            .set(&mut self.result_state.gas_counter, &self.config.limit_config, register_id, data)
+            .map_err(ErrorContainer::new)?;
         Ok(())
     }
 
     fn read_register(&mut self, register_id: u64) -> wasmtime::Result<Vec<u8>> {
         self.pay_base(base)?;
-        let buf = self.registers.get(&mut self.result_state.gas_counter, register_id)?;
+        let buf = self
+            .registers
+            .get(&mut self.result_state.gas_counter, register_id)
+            .map_err(ErrorContainer::new)?;
         pay_base(&mut self.result_state.gas_counter, write_memory_base)?;
         pay_per(&mut self.result_state.gas_counter, write_memory_byte, buf.len() as _)?;
         Ok(buf.into())
@@ -457,12 +436,14 @@ impl runtime::Host for Ctx {
             })
             .into());
         }
-        self.registers.set(
-            &mut self.result_state.gas_counter,
-            &self.config.limit_config,
-            register_id,
-            self.context.refund_to_account_id.as_bytes(),
-        )?;
+        self.registers
+            .set(
+                &mut self.result_state.gas_counter,
+                &self.config.limit_config,
+                register_id,
+                self.context.refund_to_account_id.as_bytes(),
+            )
+            .map_err(ErrorContainer::new)?;
         Ok(())
     }
 
@@ -941,30 +922,36 @@ impl runtime::Host for Ctx {
         match &self.context.account_contract {
             AccountContract::None => Ok(None),
             AccountContract::Local(crypto_hash) => {
-                self.registers.set(
-                    &mut self.result_state.gas_counter,
-                    &self.config.limit_config,
-                    register_id,
-                    crypto_hash.0,
-                )?;
+                self.registers
+                    .set(
+                        &mut self.result_state.gas_counter,
+                        &self.config.limit_config,
+                        register_id,
+                        crypto_hash.0,
+                    )
+                    .map_err(ErrorContainer::new)?;
                 Ok(Some(runtime::ContractCodeKind::Local))
             }
             AccountContract::Global(crypto_hash) => {
-                self.registers.set(
-                    &mut self.result_state.gas_counter,
-                    &self.config.limit_config,
-                    register_id,
-                    crypto_hash.0,
-                )?;
+                self.registers
+                    .set(
+                        &mut self.result_state.gas_counter,
+                        &self.config.limit_config,
+                        register_id,
+                        crypto_hash.0,
+                    )
+                    .map_err(ErrorContainer::new)?;
                 Ok(Some(runtime::ContractCodeKind::Global))
             }
             AccountContract::GlobalByAccount(account_id) => {
-                self.registers.set(
-                    &mut self.result_state.gas_counter,
-                    &self.config.limit_config,
-                    register_id,
-                    account_id.as_bytes(),
-                )?;
+                self.registers
+                    .set(
+                        &mut self.result_state.gas_counter,
+                        &self.config.limit_config,
+                        register_id,
+                        account_id.as_bytes(),
+                    )
+                    .map_err(ErrorContainer::new)?;
                 Ok(Some(runtime::ContractCodeKind::GlobalByAccount))
             }
         }
@@ -1026,12 +1013,14 @@ impl runtime::Host for Ctx {
                     .checked_add(value.len() as u64)
                     .ok_or(InconsistentStateError::IntegerOverflow)
                     .map_err(ErrorContainer::new)?;
-                self.registers.set(
-                    &mut self.result_state.gas_counter,
-                    &self.config.limit_config,
-                    register_id,
-                    old_value,
-                )?;
+                self.registers
+                    .set(
+                        &mut self.result_state.gas_counter,
+                        &self.config.limit_config,
+                        register_id,
+                        old_value,
+                    )
+                    .map_err(ErrorContainer::new)?;
                 Ok(true)
             }
             None => {
@@ -1136,12 +1125,14 @@ impl runtime::Host for Ctx {
                             + storage_config.num_extra_bytes_record,
                     )
                     .ok_or_else(|| ErrorContainer::new(InconsistentStateError::IntegerOverflow))?;
-                self.registers.set(
-                    &mut self.result_state.gas_counter,
-                    &self.config.limit_config,
-                    register_id,
-                    value,
-                )?;
+                self.registers
+                    .set(
+                        &mut self.result_state.gas_counter,
+                        &self.config.limit_config,
+                        register_id,
+                        value,
+                    )
+                    .map_err(ErrorContainer::new)?;
                 Ok(true)
             }
             None => Ok(false),
@@ -1401,8 +1392,8 @@ impl runtime::HostPromise for Ctx {
         &mut self,
         promise: Resource<PromiseIndex>,
         action: Resource<ActionIndex>,
-        key: runtime::ValueOrRegister,
-        value: runtime::ValueOrRegister,
+        key: Vec<u8>,
+        value: Vec<u8>,
     ) -> wasmtime::Result<()> {
         self.pay_base(base)?;
         if self.context.is_view() {
@@ -1414,10 +1405,8 @@ impl runtime::HostPromise for Ctx {
 
         let promise_idx = self.table.get(&promise).copied()?;
         let (receipt_idx, sir) = self.promise_idx_to_receipt_idx_with_sir(promise_idx)?;
-        let key = key.as_bytes(&mut self.result_state.gas_counter, &self.registers)?;
-        let key = key.to_vec();
-        let value = value.as_bytes(&mut self.result_state.gas_counter, &self.registers)?;
-        let value = value.to_vec();
+        self.pay_for_reading_bytes(key.len())?;
+        self.pay_for_reading_bytes(value.len())?;
 
         pay_action_base(
             &mut self.result_state.gas_counter,
@@ -1954,20 +1943,18 @@ impl runtime::HostPromise for Ctx {
             )
             .map_err(ErrorContainer::new)?;
 
-        self.registers.set(
-            &mut self.result_state.gas_counter,
-            &self.config.limit_config,
-            register_id,
-            *data_id.as_bytes(),
-        )?;
+        self.registers
+            .set(
+                &mut self.result_state.gas_counter,
+                &self.config.limit_config,
+                register_id,
+                *data_id.as_bytes(),
+            )
+            .map_err(ErrorContainer::new)?;
         Ok(new_promise_idx)
     }
 
-    fn yield_resume(
-        &mut self,
-        data_id: runtime::ValueOrRegister,
-        payload: runtime::ValueOrRegister,
-    ) -> wasmtime::Result<bool> {
+    fn yield_resume(&mut self, data_id: Vec<u8>, payload: Vec<u8>) -> wasmtime::Result<bool> {
         self.pay_base(base)?;
         if self.context.is_view() {
             return Err(ErrorContainer::new(HostError::ProhibitedInView {
@@ -1976,10 +1963,10 @@ impl runtime::HostPromise for Ctx {
             .into());
         }
         self.pay_base(yield_resume_base)?;
-        let payload = payload.as_bytes(&mut self.result_state.gas_counter, &self.registers)?;
+        self.pay_for_reading_bytes(payload.len())?;
         let payload_len = payload.len() as u64;
         pay_per(&mut self.result_state.gas_counter, yield_resume_byte, payload_len)?;
-        let data_id = data_id.as_bytes(&mut self.result_state.gas_counter, &self.registers)?;
+        self.pay_for_reading_bytes(data_id.len())?;
         if payload_len > self.config.limit_config.max_yield_payload_size {
             return Err(ErrorContainer::new(HostError::YieldPayloadLength {
                 length: payload_len,
@@ -1988,7 +1975,7 @@ impl runtime::HostPromise for Ctx {
             .into());
         }
 
-        let data_id: [_; CryptoHash::LENGTH] = (&*data_id)
+        let data_id: [_; CryptoHash::LENGTH] = data_id
             .try_into()
             .map_err(|_| HostError::DataIdMalformed)
             .map_err(ErrorContainer::new)?;
@@ -2032,13 +2019,15 @@ impl runtime::HostPromise for Ctx {
             PromiseResult::NotReady => Ok(None),
             PromiseResult::Successful(data) => {
                 let charge_bytes_gas = !self.config.deterministic_account_ids;
-                self.registers.set_rc_data(
-                    &mut self.result_state.gas_counter,
-                    &self.config.limit_config,
-                    register_id,
-                    Rc::clone(data),
-                    charge_bytes_gas,
-                )?;
+                self.registers
+                    .set_rc_data(
+                        &mut self.result_state.gas_counter,
+                        &self.config.limit_config,
+                        register_id,
+                        Rc::clone(data),
+                        charge_bytes_gas,
+                    )
+                    .map_err(ErrorContainer::new)?;
                 Ok(Some(Ok(())))
             }
             PromiseResult::Failed => Ok(Some(Err(()))),
