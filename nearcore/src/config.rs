@@ -418,6 +418,11 @@ pub struct Config {
     /// The current implementation increases latency on low-load chains, which will be fixed in the future.
     /// The default is disabled.
     pub enable_early_prepare_transactions: Option<bool>,
+    /// If true, the runtime will do a dynamic resharding 'dry run' at the last block of each epoch.
+    /// This means calculating tentative boundary accounts for splitting the tracked shards.
+    /// The default is disabled.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub dynamic_resharding_dry_run: bool,
 }
 
 fn is_false(value: &bool) -> bool {
@@ -484,6 +489,7 @@ impl Default for Config {
             transaction_request_handler_threads: 4,
             protocol_version_check_config_override: None,
             enable_early_prepare_transactions: None,
+            dynamic_resharding_dry_run: false,
         }
     }
 }
@@ -746,6 +752,7 @@ impl NearConfig {
                 enable_early_prepare_transactions: config
                     .enable_early_prepare_transactions
                     .unwrap_or_else(default_enable_early_prepare_transactions),
+                dynamic_resharding_dry_run: config.dynamic_resharding_dry_run,
             },
             #[cfg(feature = "tx_generator")]
             tx_generator: config.tx_generator,
@@ -838,6 +845,7 @@ impl NightshadeRuntime {
             state_snapshot_config,
             config.client_config.state_sync.parts_compression_lvl,
             config.client_config.cloud_archival_writer.is_some(),
+            config.client_config.dynamic_resharding_dry_run,
         ))
     }
 }
