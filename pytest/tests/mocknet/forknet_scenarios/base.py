@@ -9,6 +9,7 @@ import tempfile
 import time
 from datetime import datetime, timedelta, timezone
 from dataclasses import dataclass
+from enum import Enum
 
 from mirror import (CommandContext, amend_binaries_cmd, clear_scheduled_cmds,
                     get_nodes_pending_new_test, hard_reset_cmd, new_test_cmd,
@@ -281,6 +282,35 @@ class TestSetup:
                                            value=time_to_str(upgrade_time))
         start_nodes_args.schedule_id = f"start-neard{binary_idx}-in-{minutes}m"
         start_nodes_cmd(CommandContext(start_nodes_args))
+
+    class StakeAction(Enum):
+        STAKE = "stake"
+        UNSTAKE = "unstake"
+
+    def _send_stake_proposal(self,
+                             action: StakeAction,
+                             reference_time: datetime | None = None,
+                             minutes: int | None = None,
+                             partition: PartitionSelector | None = None):
+        """
+        Send a stake proposal to the nodes.
+        Either stake the full amount or unstake the full amount.
+        Can either be scheduled or run immediately.
+        """
+        run_cmd_args = copy.deepcopy(self.args)
+        run_cmd_args.host_type = 'nodes'
+        run_cmd_args.select_partition = partition
+        run_cmd_args.cmd = f"sh .near/neard-runner/send-stake-proposal.sh"
+        if action == self.StakeAction.UNSTAKE:
+            run_cmd_args.cmd += " 0"
+
+        if minutes is not None:
+            stake_time = (reference_time or
+                          datetime.now()) + timedelta(minutes=minutes)
+            run_cmd_args.on = ScheduleMode(mode="calendar",
+                                           value=time_to_str(stake_time))
+            run_cmd_args.schedule_id = f"stake-proposal-{action.value}"
+        run_remote_cmd(CommandContext(run_cmd_args))
 
     def after_test_start(self):
         """
