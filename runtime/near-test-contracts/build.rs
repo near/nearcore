@@ -27,6 +27,7 @@ fn try_main() -> Result<(), Error> {
     let is_nightly = std::env::var_os("CARGO_FEATURE_nightly").is_some();
     let test_features = &env::var(TEST_FEATURES_ENV);
     println!("cargo:rerun-if-env-changed={TEST_FEATURES_ENV}");
+    println!("cargo:rerun-if-changed=wit");
     println!("debug: test_features = {test_features:?}");
 
     let path = build_contract(

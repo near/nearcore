@@ -138,26 +138,26 @@ interface runtime {
       then: func(account-id: borrow<account-id>) -> promise;
       and: static func(promises: list<borrow<promise>>) -> promise;
       set-refund-to: func(account-id: borrow<account-id>);
-      state-init: func(code-hash: value-or-register, amount: u128) -> promise-action;
+      state-init: func(code-hash: list<u8>, amount: u128) -> promise-action;
       state-init-by-account-id: func(account-id: borrow<account-id>, amount: u128) -> promise-action;
       set-state-init-data-entry: func(action: promise-action, key: value-or-register, value: value-or-register);
 
 
       create-account: func();
-      deploy-contract: func(code: value-or-register);
-      deploy-global-contract: func(code: value-or-register);
-      deploy-global-contract-by-account-id: func(code: value-or-register);
-      use-global-contract: func(code-hash: value-or-register);
+      deploy-contract: func(code: list<u8>);
+      deploy-global-contract: func(code: list<u8>);
+      deploy-global-contract-by-account-id: func(code: list<u8>);
+      use-global-contract: func(code-hash: list<u8>);
       use-global-contract-by-account-id: func(account-id: borrow<account-id>);
-      function-call: func(method: value-or-register, arguments: value-or-register, amount: u128, gas: u64, gas-weight: u64);
+      function-call: func(method: list<u8>, arguments: list<u8>, amount: u128, gas: u64, gas-weight: u64);
       transfer: func(amount: u128);
       stake: func(amount: u128, public-key: borrow<public-key>);
       add-key-with-full-access: func(public-key: borrow<public-key>, nonce: u64);
-      add-key-with-function-call: func(public-key: borrow<public-key>, nonce: u64, allowance: u128, receiver-id: borrow<account-id>, method-names: value-or-register);
+      add-key-with-function-call: func(public-key: borrow<public-key>, nonce: u64, allowance: u128, receiver-id: borrow<account-id>, method-names: list<list<u8>>);
       delete-key: func(public-key: borrow<public-key>);
       delete-account: func(beneficiary-id: borrow<account-id>);
 
-      yield-create: static func(method-name: value-or-register, arguments: value-or-register, gas: u64, gas-weight: u64, register-id: u64) -> promise;
+      yield-create: static func(method: list<u8>, arguments: list<u8>, gas: u64, gas-weight: u64, register-id: u64) -> promise;
       yield-resume: static func(data-id: value-or-register, payload: value-or-register) -> bool;
 
 

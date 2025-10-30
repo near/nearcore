@@ -5,7 +5,6 @@ use crate::logic::types::{
     ActionIndex, GlobalContractDeployMode, GlobalContractIdentifier, PromiseIndex, PromiseResult,
     ReceiptIndex,
 };
-use crate::logic::utils::split_method_names;
 use crate::logic::vmstate::Registers;
 use crate::logic::{GasCounter, HostError, ReturnData, alt_bn128, bls12381};
 use crate::wasmtime_runner::ErrorContainer;
@@ -268,7 +267,7 @@ impl Ctx {
     fn promise_batch_action_deploy_global_contract_impl(
         &mut self,
         promise: Resource<PromiseIndex>,
-        code: runtime::ValueOrRegister,
+        code: Vec<u8>,
         mode: GlobalContractDeployMode,
         method_name: &str,
     ) -> wasmtime::Result<()> {
@@ -279,7 +278,7 @@ impl Ctx {
             })
             .into());
         }
-        let code = code.as_bytes(&mut self.result_state.gas_counter, &self.registers)?;
+        self.pay_for_reading_bytes(code.len())?;
         let code_len = code.len() as u64;
         let limit = self.config.limit_config.max_contract_size;
         if code_len > limit {
@@ -289,7 +288,6 @@ impl Ctx {
             })
             .into());
         }
-        let code = code.into();
 
         let promise_idx = self.table.get(&promise).copied()?;
         let (receipt_idx, sir) = self.promise_idx_to_receipt_idx_with_sir(promise_idx)?;
@@ -1323,7 +1321,7 @@ impl runtime::HostPromise for Ctx {
     fn state_init(
         &mut self,
         promise: Resource<PromiseIndex>,
-        code_hash: runtime::ValueOrRegister,
+        code_hash: Vec<u8>,
         amount: runtime::U128,
     ) -> wasmtime::Result<Resource<ActionIndex>> {
         self.pay_base(base)?;
@@ -1333,9 +1331,8 @@ impl runtime::HostPromise for Ctx {
             })
             .into());
         }
-        let code_hash_bytes =
-            code_hash.as_bytes(&mut self.result_state.gas_counter, &self.registers)?;
-        let code_hash: [_; CryptoHash::LENGTH] = (&*code_hash_bytes)
+        self.pay_for_reading_bytes(code_hash.len())?;
+        let code_hash: [_; CryptoHash::LENGTH] = code_hash
             .try_into()
             .map_err(|_| ErrorContainer::new(HostError::ContractCodeHashMalformed))?;
         let amount = amount.read(&mut self.result_state.gas_counter)?;
@@ -1473,7 +1470,7 @@ impl runtime::HostPromise for Ctx {
     fn deploy_contract(
         &mut self,
         promise: Resource<PromiseIndex>,
-        code: runtime::ValueOrRegister,
+        code: Vec<u8>,
     ) -> wasmtime::Result<()> {
         self.pay_base(base)?;
         if self.context.is_view() {
@@ -1482,7 +1479,7 @@ impl runtime::HostPromise for Ctx {
             })
             .into());
         }
-        let code = code.as_bytes(&mut self.result_state.gas_counter, &self.registers)?;
+        self.pay_for_reading_bytes(code.len())?;
         let code_len = code.len() as u64;
         let limit = self.config.limit_config.max_contract_size;
         if code_len > limit {
@@ -1492,7 +1489,6 @@ impl runtime::HostPromise for Ctx {
             })
             .into());
         }
-        let code = code.into();
 
         let promise_idx = self.table.get(&promise).copied()?;
         let (receipt_idx, sir) = self.promise_idx_to_receipt_idx_with_sir(promise_idx)?;
@@ -1518,7 +1514,7 @@ impl runtime::HostPromise for Ctx {
     fn deploy_global_contract(
         &mut self,
         promise: Resource<PromiseIndex>,
-        code: runtime::ValueOrRegister,
+        code: Vec<u8>,
     ) -> wasmtime::Result<()> {
         self.promise_batch_action_deploy_global_contract_impl(
             promise,
@@ -1531,7 +1527,7 @@ impl runtime::HostPromise for Ctx {
     fn deploy_global_contract_by_account_id(
         &mut self,
         promise: Resource<PromiseIndex>,
-        code: runtime::ValueOrRegister,
+        code: Vec<u8>,
     ) -> wasmtime::Result<()> {
         self.promise_batch_action_deploy_global_contract_impl(
             promise,
@@ -1544,7 +1540,7 @@ impl runtime::HostPromise for Ctx {
     fn use_global_contract(
         &mut self,
         promise: Resource<PromiseIndex>,
-        code_hash: runtime::ValueOrRegister,
+        code_hash: Vec<u8>,
     ) -> wasmtime::Result<()> {
         self.pay_base(base)?;
         if self.context.is_view() {
@@ -1553,9 +1549,8 @@ impl runtime::HostPromise for Ctx {
             })
             .into());
         }
-        let code_hash_bytes =
-            code_hash.as_bytes(&mut self.result_state.gas_counter, &self.registers)?;
-        let code_hash: [_; CryptoHash::LENGTH] = (&*code_hash_bytes)
+        self.pay_for_reading_bytes(code_hash.len())?;
+        let code_hash: [_; CryptoHash::LENGTH] = code_hash
             .try_into()
             .map_err(|_| ErrorContainer::new(HostError::ContractCodeHashMalformed))?;
         let contract_id = GlobalContractIdentifier::CodeHash(CryptoHash(code_hash));
@@ -1626,8 +1621,8 @@ impl runtime::HostPromise for Ctx {
     fn function_call(
         &mut self,
         promise: Resource<PromiseIndex>,
-        method: runtime::ValueOrRegister,
-        arguments: runtime::ValueOrRegister,
+        method: Vec<u8>,
+        arguments: Vec<u8>,
         amount: runtime::U128,
         gas: u64,
         gas_weight: u64,
@@ -1641,20 +1636,17 @@ impl runtime::HostPromise for Ctx {
         }
         let amount = amount.read(&mut self.result_state.gas_counter)?;
         let amount = Balance::from_yoctonear(amount);
-        let method_name = method.as_bytes(&mut self.result_state.gas_counter, &self.registers)?;
-        if method_name.is_empty() {
+        if method.is_empty() {
             return Err(ErrorContainer::new(HostError::EmptyMethodName).into());
         }
-        let arguments = arguments.as_bytes(&mut self.result_state.gas_counter, &self.registers)?;
-
-        let method_name = method_name.to_owned();
-        let arguments = arguments.to_owned();
+        self.pay_for_reading_bytes(method.len())?;
+        self.pay_for_reading_bytes(arguments.len())?;
 
         let promise_idx = self.table.get(&promise).copied()?;
         let (receipt_idx, sir) = self.promise_idx_to_receipt_idx_with_sir(promise_idx)?;
 
         // Input can't be large enough to overflow
-        let num_bytes = method_name.len() as u64 + arguments.len() as u64;
+        let num_bytes = method.len() as u64 + arguments.len() as u64;
 
         pay_action_base(
             &mut self.result_state.gas_counter,
@@ -1675,7 +1667,7 @@ impl runtime::HostPromise for Ctx {
         self.ext
             .append_action_function_call_weight(
                 receipt_idx,
-                method_name,
+                method,
                 arguments,
                 amount,
                 Gas::from_gas(gas),
@@ -1790,7 +1782,7 @@ impl runtime::HostPromise for Ctx {
         nonce: u64,
         allowance: runtime::U128,
         receiver_id: Resource<AccountId>,
-        method_names: runtime::ValueOrRegister,
+        methods: Vec<Vec<u8>>,
     ) -> wasmtime::Result<()> {
         self.pay_base(base)?;
         if self.context.is_view() {
@@ -1804,15 +1796,15 @@ impl runtime::HostPromise for Ctx {
             Balance::from_yoctonear(allowance.read(&mut self.result_state.gas_counter)?);
         let allowance = if allowance > Balance::ZERO { Some(allowance) } else { None };
         let receiver_id = self.read_account_id(&receiver_id)?;
-        let raw_method_names =
-            method_names.as_bytes(&mut self.result_state.gas_counter, &self.registers)?;
-        let method_names = split_method_names(raw_method_names).map_err(ErrorContainer::new)?;
+        for method in &methods {
+            self.pay_for_reading_bytes(method.len())?;
+        }
 
         let promise_idx = self.table.get(&promise).copied()?;
         let (receipt_idx, sir) = self.promise_idx_to_receipt_idx_with_sir(promise_idx)?;
 
         // +1 is to account for null-terminating characters.
-        let num_bytes = method_names.iter().map(|v| v.len() as u64 + 1).sum::<u64>();
+        let num_bytes = methods.iter().map(|v| v.len() as u64 + 1).sum::<u64>();
         pay_action_base(
             &mut self.result_state.gas_counter,
             &self.fees_config,
@@ -1834,7 +1826,7 @@ impl runtime::HostPromise for Ctx {
                 nonce,
                 allowance,
                 receiver_id,
-                method_names,
+                methods,
             )
             .map_err(ErrorContainer::new)?;
         Ok(())
@@ -1897,8 +1889,8 @@ impl runtime::HostPromise for Ctx {
 
     fn yield_create(
         &mut self,
-        method_name: runtime::ValueOrRegister,
-        arguments: runtime::ValueOrRegister,
+        method: Vec<u8>,
+        arguments: Vec<u8>,
         gas: u64,
         gas_weight: u64,
         register_id: u64,
@@ -1912,17 +1904,14 @@ impl runtime::HostPromise for Ctx {
         }
         self.pay_base(yield_create_base)?;
 
-        let method_name =
-            method_name.as_bytes(&mut self.result_state.gas_counter, &self.registers)?;
-        if method_name.is_empty() {
+        if method.is_empty() {
             return Err(ErrorContainer::new(HostError::EmptyMethodName).into());
         }
-        let arguments = arguments.as_bytes(&mut self.result_state.gas_counter, &self.registers)?;
-        let method_name = method_name.to_owned();
-        let arguments = arguments.to_owned();
+        self.pay_for_reading_bytes(method.len())?;
+        self.pay_for_reading_bytes(arguments.len())?;
 
         // Input can't be large enough to overflow, WebAssembly address space is 32-bits.
-        let num_bytes = method_name.len() as u64 + arguments.len() as u64;
+        let num_bytes = method.len() as u64 + arguments.len() as u64;
         self.pay_per(yield_create_byte, num_bytes)?;
         // Prepay gas for the callback so that it cannot be used for this execution any longer.
         self.result_state.gas_counter.prepay_gas(Gas::from_gas(gas))?;
@@ -1957,7 +1946,7 @@ impl runtime::HostPromise for Ctx {
         self.ext
             .append_action_function_call_weight(
                 new_receipt_idx,
-                method_name,
+                method,
                 arguments,
                 Balance::ZERO,
                 Gas::from_gas(gas),

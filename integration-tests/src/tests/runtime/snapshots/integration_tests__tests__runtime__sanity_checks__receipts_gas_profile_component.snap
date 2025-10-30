@@ -287,22 +287,22 @@ expression: receipts_gas_profile
         CostGasUsed {
             cost_category: "WASM_HOST_COST",
             cost: "WRITE_MEMORY_BASE",
-            gas_used: 30841743471,
+            gas_used: 36449333193,
         },
         CostGasUsed {
             cost_category: "WASM_HOST_COST",
             cost: "WRITE_MEMORY_BYTE",
-            gas_used: 1084061256,
+            gas_used: 1432704072,
         },
         CostGasUsed {
             cost_category: "WASM_HOST_COST",
             cost: "WRITE_REGISTER_BASE",
-            gas_used: 22924179888,
+            gas_used: 17193134916,
         },
         CostGasUsed {
             cost_category: "WASM_HOST_COST",
             cost: "WRITE_REGISTER_BYTE",
-            gas_used: 817336260,
+            gas_used: 330736068,
         },
     ],
     [

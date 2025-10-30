@@ -283,8 +283,8 @@ impl Guest for Component {
         let gas_fixed = 0;
         let gas_weight = 1;
         promise.function_call(
-            ValueOrRegister::Value(method_name.as_bytes()),
-            ValueOrRegister::Value(&[]),
+            method_name.as_bytes(),
+            &[],
             amount.into(),
             gas_fixed,
             gas_weight,
@@ -295,8 +295,8 @@ impl Guest for Component {
         let gas_fixed = 10u64.pow(14);
         let gas_weight = 0;
         promise.function_call(
-            ValueOrRegister::Value(method_name.as_bytes()),
-            ValueOrRegister::Value(&[]),
+            method_name.as_bytes(),
+            &[],
             amount.into(),
             gas_fixed,
             gas_weight,
@@ -364,8 +364,8 @@ impl Guest for Component {
         let gas_per_promise = available_gas / 50;
         let promise = Promise::new(&account_id);
         promise.function_call(
-            ValueOrRegister::Value(method_name_panic),
-            ValueOrRegister::Value(args_panic),
+            method_name_panic,
+            args_panic,
             0u128.into(),
             gas_per_promise,
             0,
@@ -374,8 +374,8 @@ impl Guest for Component {
         let args_panic_string = b"";
         let promise = Promise::new(&account_id);
         promise.function_call(
-            ValueOrRegister::Value(method_name_panic_string),
-            ValueOrRegister::Value(args_panic_string),
+            method_name_panic_string,
+            args_panic_string,
             0u128.into(),
             gas_per_promise,
             0,
@@ -390,8 +390,8 @@ impl Guest for Component {
         let args_noop = b"";
         let promise = Promise::new(&account_id);
         promise.function_call(
-            ValueOrRegister::Value(method_name_noop),
-            ValueOrRegister::Value(args_noop),
+            method_name_noop,
+            args_noop,
             0u128.into(),
             gas_per_promise,
             0,
@@ -399,8 +399,8 @@ impl Guest for Component {
         let promises_then: [_; 2] = array::from_fn(|_| {
             let promise = promise.then(&account_id);
             promise.function_call(
-                ValueOrRegister::Value(method_name_noop),
-                ValueOrRegister::Value(args_noop),
+                method_name_noop,
+                args_noop,
                 0u128.into(),
                 gas_per_promise,
                 0,
@@ -423,19 +423,19 @@ impl Guest for Component {
         let promise = Promise::new(&new_account_id);
         promise.create_account();
         promise.transfer(amount_non_zero.into());
-        promise.deploy_contract(ValueOrRegister::Value(&contract_code));
-        promise.deploy_global_contract(ValueOrRegister::Value(&contract_code));
-        promise.deploy_global_contract_by_account_id(ValueOrRegister::Value(&contract_code));
+        promise.deploy_contract(&contract_code);
+        promise.deploy_global_contract(&contract_code);
+        promise.deploy_global_contract_by_account_id(&contract_code);
         promise.function_call(
-            ValueOrRegister::Value(method_deployed_contract),
-            ValueOrRegister::Value(&args_deployed_contract),
+            method_deployed_contract,
+            &args_deployed_contract,
             0u128.into(),
             gas_per_promise,
             0,
         );
         promise.function_call(
-            ValueOrRegister::Value(method_deployed_contract),
-            ValueOrRegister::Value(&args_deployed_contract),
+            method_deployed_contract,
+            &args_deployed_contract,
             0u128.into(),
             0,
             1,
@@ -447,7 +447,7 @@ impl Guest for Component {
             1,
             0u128.into(),
             &new_account_id,
-            ValueOrRegister::Value(method_deployed_contract),
+            &[method_deployed_contract],
         );
         promise.delete_account(&account_id);
 
@@ -467,8 +467,8 @@ impl Guest for Component {
         // ensure there is a promise whose result can be accessed.
         let promise = Promise::new(&account_id);
         promise.function_call(
-            ValueOrRegister::Value(method_name_noop),
-            ValueOrRegister::Value(args_noop),
+            method_name_noop,
+            args_noop,
             0u128.into(),
             gas_per_promise,
             0,
@@ -477,8 +477,8 @@ impl Guest for Component {
         let args_promise_results = b"";
         let then = promise.then(&account_id);
         then.function_call(
-            ValueOrRegister::Value(method_name_promise_results),
-            ValueOrRegister::Value(args_promise_results),
+            method_name_promise_results,
+            args_promise_results,
             0u128.into(),
             gas_per_promise,
             0,
