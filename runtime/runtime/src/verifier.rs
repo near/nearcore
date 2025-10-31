@@ -1257,7 +1257,7 @@ mod tests {
             &config,
             &mut state_update,
             gas_price,
-            SignedTransaction::from_actions_v1(
+            SignedTransaction::from_actions_v2(
                 1,
                 alice_account(),
                 bob_account(),

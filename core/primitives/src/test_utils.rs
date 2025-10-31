@@ -14,7 +14,7 @@ use crate::stateless_validation::chunk_endorsements_bitmap::ChunkEndorsementsBit
 use crate::transaction::{
     Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, DeleteKeyAction,
     DeployContractAction, FunctionCallAction, SignedTransaction, StakeAction, Transaction,
-    TransactionV0, TransactionV1, TransferAction,
+    TransactionV0, TransactionV2, TransferAction,
 };
 use crate::types::validator_stake::ValidatorStake;
 use crate::types::{AccountId, Balance, EpochId, EpochInfoProvider, Gas, Nonce};
@@ -56,7 +56,7 @@ impl Transaction {
         })
     }
 
-    pub fn new_v1(
+    pub fn new_v2(
         signer_id: AccountId,
         public_key: PublicKey,
         receiver_id: AccountId,
@@ -64,7 +64,7 @@ impl Transaction {
         block_hash: CryptoHash,
         priority_fee: u64,
     ) -> Self {
-        Transaction::V1(TransactionV1 {
+        Transaction::V2(TransactionV2 {
             signer_id,
             public_key,
             nonce,
@@ -78,14 +78,14 @@ impl Transaction {
     pub fn actions_mut(&mut self) -> &mut Vec<Action> {
         match self {
             Transaction::V0(tx) => &mut tx.actions,
-            Transaction::V1(tx) => &mut tx.actions,
+            Transaction::V2(tx) => &mut tx.actions,
         }
     }
 
     pub fn nonce_mut(&mut self) -> &mut Nonce {
         match self {
             Transaction::V0(tx) => &mut tx.nonce,
-            Transaction::V1(tx) => &mut tx.nonce,
+            Transaction::V2(tx) => &mut tx.nonce,
         }
     }
 
@@ -169,8 +169,8 @@ impl SignedTransaction {
         .sign(signer)
     }
 
-    /// Explicitly create v1 transaction to test in cases where errors are expected.
-    pub fn from_actions_v1(
+    /// Explicitly create v2 transaction to test in cases where errors are expected.
+    pub fn from_actions_v2(
         nonce: Nonce,
         signer_id: AccountId,
         receiver_id: AccountId,
@@ -179,7 +179,7 @@ impl SignedTransaction {
         block_hash: CryptoHash,
         priority_fee: u64,
     ) -> Self {
-        Transaction::V1(TransactionV1 {
+        Transaction::V2(TransactionV2 {
             nonce,
             signer_id,
             public_key: signer.public_key(),

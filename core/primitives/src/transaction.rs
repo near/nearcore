@@ -46,7 +46,7 @@ pub struct TransactionV0 {
 }
 
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Debug, Clone, ProtocolSchema)]
-pub struct TransactionV1 {
+pub struct TransactionV2 {
     /// An account on which behalf transaction is signed
     pub signer_id: AccountId,
     /// A public key of the access key which was used to sign an account.
@@ -76,63 +76,63 @@ impl Transaction {
 #[derive(Eq, PartialEq, Debug, Clone)]
 pub enum Transaction {
     V0(TransactionV0),
-    V1(TransactionV1),
+    V2(TransactionV2),
 }
 
 impl Transaction {
     pub fn signer_id(&self) -> &AccountId {
         match self {
             Transaction::V0(tx) => &tx.signer_id,
-            Transaction::V1(tx) => &tx.signer_id,
+            Transaction::V2(tx) => &tx.signer_id,
         }
     }
 
     pub fn receiver_id(&self) -> &AccountId {
         match self {
             Transaction::V0(tx) => &tx.receiver_id,
-            Transaction::V1(tx) => &tx.receiver_id,
+            Transaction::V2(tx) => &tx.receiver_id,
         }
     }
 
     pub fn public_key(&self) -> &PublicKey {
         match self {
             Transaction::V0(tx) => &tx.public_key,
-            Transaction::V1(tx) => &tx.public_key,
+            Transaction::V2(tx) => &tx.public_key,
         }
     }
 
     pub fn nonce(&self) -> Nonce {
         match self {
             Transaction::V0(tx) => tx.nonce,
-            Transaction::V1(tx) => tx.nonce,
+            Transaction::V2(tx) => tx.nonce,
         }
     }
 
     pub fn actions(&self) -> &[Action] {
         match self {
             Transaction::V0(tx) => &tx.actions,
-            Transaction::V1(tx) => &tx.actions,
+            Transaction::V2(tx) => &tx.actions,
         }
     }
 
     pub fn take_actions(self) -> Vec<Action> {
         match self {
             Transaction::V0(tx) => tx.actions,
-            Transaction::V1(tx) => tx.actions,
+            Transaction::V2(tx) => tx.actions,
         }
     }
 
     pub fn block_hash(&self) -> &CryptoHash {
         match self {
             Transaction::V0(tx) => &tx.block_hash,
-            Transaction::V1(tx) => &tx.block_hash,
+            Transaction::V2(tx) => &tx.block_hash,
         }
     }
 
     pub fn priority_fee(&self) -> Option<u64> {
         match self {
             Transaction::V0(_) => None,
-            Transaction::V1(tx) => Some(tx.priority_fee),
+            Transaction::V2(tx) => Some(tx.priority_fee),
         }
     }
 }
@@ -141,8 +141,8 @@ impl BorshSerialize for Transaction {
     fn serialize<W: Write>(&self, writer: &mut W) -> Result<(), Error> {
         match self {
             Transaction::V0(tx) => tx.serialize(writer)?,
-            Transaction::V1(tx) => {
-                BorshSerialize::serialize(&1_u8, writer)?;
+            Transaction::V2(tx) => {
+                BorshSerialize::serialize(&2_u8, writer)?;
                 tx.serialize(writer)?;
             }
         }
@@ -201,7 +201,7 @@ impl BorshDeserialize for Transaction {
             let block_hash = CryptoHash::deserialize_reader(reader)?;
             let actions = Vec::<Action>::deserialize_reader(reader)?;
             let priority_fee = u64::deserialize_reader(reader)?;
-            Ok(Transaction::V1(TransactionV1 {
+            Ok(Transaction::V2(TransactionV2 {
                 signer_id,
                 public_key,
                 nonce,
@@ -248,7 +248,7 @@ impl ValidatedTransaction {
         signed_tx: &SignedTransaction,
     ) -> Result<(), InvalidTxError> {
         // Don't allow V1 currently. This will be changed when the new protocol version is introduced.
-        if matches!(signed_tx.transaction, Transaction::V1(_)) {
+        if matches!(signed_tx.transaction, Transaction::V2(_)) {
             return Err(InvalidTxError::InvalidTransactionVersion);
         }
         let tx_size = signed_tx.get_size();
@@ -694,9 +694,9 @@ mod tests {
         }
     }
 
-    fn create_transaction_v1() -> TransactionV1 {
+    fn create_transaction_v2() -> TransactionV2 {
         let public_key: PublicKey = "22skMptHjFWNyuEWY22ftn2AbLPSYpmYwGJRGwpNHbTV".parse().unwrap();
-        TransactionV1 {
+        TransactionV2 {
             signer_id: "test.near".parse().unwrap(),
             public_key: public_key.clone(),
             nonce: 1,
@@ -758,10 +758,10 @@ mod tests {
         let deserialized_tx_v0 = Transaction::try_from_slice(&serialized_tx_v0).unwrap();
         assert_eq!(transaction_v0, deserialized_tx_v0);
 
-        let transaction_v1 = Transaction::V1(create_transaction_v1());
-        let serialized_tx_v1 = borsh::to_vec(&transaction_v1).unwrap();
-        let deserialized_tx_v1 = Transaction::try_from_slice(&serialized_tx_v1).unwrap();
-        assert_eq!(transaction_v1, deserialized_tx_v1);
+        let transaction_v2 = Transaction::V2(create_transaction_v2());
+        let serialized_tx_v2 = borsh::to_vec(&transaction_v2).unwrap();
+        let deserialized_tx_v2 = Transaction::try_from_slice(&serialized_tx_v2).unwrap();
+        assert_eq!(transaction_v2, deserialized_tx_v2);
     }
 
     #[test]
