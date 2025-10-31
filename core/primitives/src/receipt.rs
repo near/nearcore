@@ -67,7 +67,7 @@ pub struct ReceiptV0 {
 
 /// DO NOT USE
 ///
-/// `ReceiptV1` is not used, yet. It is only preparation for a possible future receipt priority.
+/// `ReceiptV2` is not used, yet. It is only preparation for a possible future receipt priority.
 /// Therefore, most if not all code should keep using ReceiptV0, without the priority field.
 #[derive(
     BorshSerialize,
@@ -81,7 +81,7 @@ pub struct ReceiptV0 {
     ProtocolSchema,
 )]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-pub struct ReceiptV1 {
+pub struct ReceiptV2 {
     /// An issuer account_id of a particular receipt.
     /// `predecessor_id` could be either `Transaction` `signer_id` or intermediate contract's `account_id`.
     pub predecessor_id: AccountId,
@@ -100,7 +100,7 @@ pub struct ReceiptV1 {
 #[serde(untagged)]
 pub enum Receipt {
     V0(ReceiptV0),
-    V1(ReceiptV1),
+    V2(ReceiptV2),
 }
 
 /// A receipt that is stored in the state with added metadata. A receipt may be
@@ -241,8 +241,8 @@ impl BorshSerialize for Receipt {
     fn serialize<W: io::Write>(&self, writer: &mut W) -> io::Result<()> {
         match self {
             Receipt::V0(receipt) => BorshSerialize::serialize(&receipt, writer),
-            Receipt::V1(receipt) => {
-                BorshSerialize::serialize(&1_u8, writer)?;
+            Receipt::V2(receipt) => {
+                BorshSerialize::serialize(&2_u8, writer)?;
                 BorshSerialize::serialize(&receipt, writer)
             }
         }
@@ -270,7 +270,7 @@ impl BorshDeserialize for Receipt {
         let receipt = if is_v0 {
             Receipt::V0(ReceiptV0::deserialize_reader(&mut reader)?)
         } else {
-            Receipt::V1(ReceiptV1::deserialize_reader(&mut reader)?)
+            Receipt::V2(ReceiptV2::deserialize_reader(&mut reader)?)
         };
         Ok(receipt)
     }
@@ -427,77 +427,77 @@ impl Receipt {
     pub fn receiver_id(&self) -> &AccountId {
         match self {
             Receipt::V0(receipt) => &receipt.receiver_id,
-            Receipt::V1(receipt) => &receipt.receiver_id,
+            Receipt::V2(receipt) => &receipt.receiver_id,
         }
     }
 
     pub fn set_receiver_id(&mut self, receiver_id: AccountId) {
         match self {
             Receipt::V0(receipt) => receipt.receiver_id = receiver_id,
-            Receipt::V1(receipt) => receipt.receiver_id = receiver_id,
+            Receipt::V2(receipt) => receipt.receiver_id = receiver_id,
         }
     }
 
     pub fn predecessor_id(&self) -> &AccountId {
         match self {
             Receipt::V0(receipt) => &receipt.predecessor_id,
-            Receipt::V1(receipt) => &receipt.predecessor_id,
+            Receipt::V2(receipt) => &receipt.predecessor_id,
         }
     }
 
     pub fn set_predecessor_id(&mut self, predecessor_id: AccountId) {
         match self {
             Receipt::V0(receipt) => receipt.predecessor_id = predecessor_id,
-            Receipt::V1(receipt) => receipt.predecessor_id = predecessor_id,
+            Receipt::V2(receipt) => receipt.predecessor_id = predecessor_id,
         }
     }
 
     pub fn receipt(&self) -> &ReceiptEnum {
         match self {
             Receipt::V0(receipt) => &receipt.receipt,
-            Receipt::V1(receipt) => &receipt.receipt,
+            Receipt::V2(receipt) => &receipt.receipt,
         }
     }
 
     pub fn versioned_receipt(&self) -> VersionedReceiptEnum {
         match self {
             Receipt::V0(receipt) => VersionedReceiptEnum::from(&receipt.receipt),
-            Receipt::V1(receipt) => VersionedReceiptEnum::from(&receipt.receipt),
+            Receipt::V2(receipt) => VersionedReceiptEnum::from(&receipt.receipt),
         }
     }
 
     pub fn receipt_mut(&mut self) -> &mut ReceiptEnum {
         match self {
             Receipt::V0(receipt) => &mut receipt.receipt,
-            Receipt::V1(receipt) => &mut receipt.receipt,
+            Receipt::V2(receipt) => &mut receipt.receipt,
         }
     }
 
     pub fn take_versioned_receipt<'a>(self) -> VersionedReceiptEnum<'a> {
         match self {
             Receipt::V0(receipt) => VersionedReceiptEnum::from(receipt.receipt),
-            Receipt::V1(receipt) => VersionedReceiptEnum::from(receipt.receipt),
+            Receipt::V2(receipt) => VersionedReceiptEnum::from(receipt.receipt),
         }
     }
 
     pub fn receipt_id(&self) -> &CryptoHash {
         match self {
             Receipt::V0(receipt) => &receipt.receipt_id,
-            Receipt::V1(receipt) => &receipt.receipt_id,
+            Receipt::V2(receipt) => &receipt.receipt_id,
         }
     }
 
     pub fn set_receipt_id(&mut self, receipt_id: CryptoHash) {
         match self {
             Receipt::V0(receipt) => receipt.receipt_id = receipt_id,
-            Receipt::V1(receipt) => receipt.receipt_id = receipt_id,
+            Receipt::V2(receipt) => receipt.receipt_id = receipt_id,
         }
     }
 
     pub fn priority(&self) -> ReceiptPriority {
         match self {
             Receipt::V0(_) => ReceiptPriority::NoPriority,
-            Receipt::V1(receipt) => ReceiptPriority::Priority(receipt.priority),
+            Receipt::V2(receipt) => ReceiptPriority::Priority(receipt.priority),
         }
     }
 
@@ -561,7 +561,7 @@ impl Receipt {
         priority: ReceiptPriority,
     ) -> Self {
         match priority {
-            ReceiptPriority::Priority(priority) => Receipt::V1(ReceiptV1 {
+            ReceiptPriority::Priority(priority) => Receipt::V2(ReceiptV2 {
                 predecessor_id: "system".parse().unwrap(),
                 receiver_id: receiver_id.clone(),
                 receipt_id: CryptoHash::default(),
@@ -607,7 +607,7 @@ impl Receipt {
         priority: ReceiptPriority,
     ) -> Self {
         match priority {
-            ReceiptPriority::Priority(priority) => Receipt::V1(ReceiptV1 {
+            ReceiptPriority::Priority(priority) => Receipt::V2(ReceiptV2 {
                 predecessor_id: "system".parse().unwrap(),
                 receiver_id: receiver_id.clone(),
                 receipt_id: CryptoHash::default(),
@@ -1158,8 +1158,8 @@ mod tests {
         receipt_v0
     }
 
-    fn get_receipt_v1() -> Receipt {
-        let receipt_v1 = Receipt::V1(ReceiptV1 {
+    fn get_receipt_v2() -> Receipt {
+        let receipt_v2 = Receipt::V2(ReceiptV2 {
             predecessor_id: "predecessor_id".parse().unwrap(),
             receiver_id: "receiver_id".parse().unwrap(),
             receipt_id: CryptoHash::default(),
@@ -1173,7 +1173,7 @@ mod tests {
             }),
             priority: 1,
         });
-        receipt_v1
+        receipt_v2
     }
 
     #[test]
@@ -1186,7 +1186,7 @@ mod tests {
 
     #[test]
     fn test_receipt_v1_serialization() {
-        let receipt_v1 = get_receipt_v1();
+        let receipt_v1 = get_receipt_v2();
         let serialized_receipt = borsh::to_vec(&receipt_v1).unwrap();
         let receipt2 = Receipt::try_from_slice(&serialized_receipt).unwrap();
         assert_eq!(receipt_v1, receipt2);
@@ -1211,7 +1211,7 @@ mod tests {
 
     #[test]
     fn test_state_stored_receipt_serialization_v1() {
-        let receipt = get_receipt_v1();
+        let receipt = get_receipt_v2();
         test_state_stored_receipt_serialization_impl(receipt);
     }
 
@@ -1233,7 +1233,7 @@ mod tests {
         // Case 2:
         // Receipt V1 can be deserialized as ReceiptOrStateStoredReceipt
         {
-            let receipt = get_receipt_v1();
+            let receipt = get_receipt_v2();
             let receipt = Cow::Owned(receipt);
 
             let serialized_receipt = borsh::to_vec(&receipt).unwrap();

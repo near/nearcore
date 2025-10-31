@@ -22,7 +22,7 @@ use near_primitives::block::Tip;
 use near_primitives::congestion_info::{BlockCongestionInfo, ExtendedCongestionInfo};
 use near_primitives::epoch_block_info::BlockInfo;
 use near_primitives::epoch_info::RngSeed;
-use near_primitives::receipt::{ActionReceipt, ReceiptV1};
+use near_primitives::receipt::{ActionReceipt, ReceiptV2};
 use near_primitives::state::PartialState;
 use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::test_utils::create_test_signer;
@@ -1769,7 +1769,7 @@ fn test_storage_proof_garbage() {
     let signer = create_test_signer("test1");
     let env = TestEnv::new(vec![vec![signer.validator_id().clone()]], 100, false);
     let garbage_size_mb = 50usize;
-    let receipt = Receipt::V1(ReceiptV1 {
+    let receipt = Receipt::V2(ReceiptV2 {
         predecessor_id: signer.validator_id().clone(),
         receiver_id: signer.validator_id().clone(),
         receipt_id: CryptoHash::hash_bytes(&[42]),

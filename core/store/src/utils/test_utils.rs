@@ -14,7 +14,7 @@ use near_primitives::account::id::AccountId;
 use near_primitives::bandwidth_scheduler::BandwidthRequests;
 use near_primitives::congestion_info::CongestionInfo;
 use near_primitives::hash::CryptoHash;
-use near_primitives::receipt::{DataReceipt, PromiseYieldTimeout, Receipt, ReceiptEnum, ReceiptV1};
+use near_primitives::receipt::{DataReceipt, PromiseYieldTimeout, Receipt, ReceiptEnum, ReceiptV2};
 use near_primitives::shard_layout::{ShardLayout, ShardUId, get_block_shard_uid};
 use near_primitives::state::FlatStateValue;
 use near_primitives::trie_key::TrieKey;
@@ -340,7 +340,7 @@ pub fn gen_receipts(rng: &mut impl Rng, max_size: usize) -> Vec<Receipt> {
     accounts
         .iter()
         .map(|account_id| {
-            Receipt::V1(ReceiptV1 {
+            Receipt::V2(ReceiptV2 {
                 predecessor_id: account_id.clone(),
                 receiver_id: account_id.clone(),
                 receipt_id: CryptoHash::default(),
