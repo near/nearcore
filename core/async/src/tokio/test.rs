@@ -47,7 +47,6 @@ async fn test_tokio_actor_futures_delayed_actions_and_lifetime() {
     struct MyActor {
         started: Arc<AtomicUsize>,
         stopped: Arc<AtomicUsize>,
-        wrapped: Arc<AtomicUsize>,
         delayed_action_executed: Arc<AtomicUsize>,
     }
 
@@ -61,19 +60,6 @@ async fn test_tokio_actor_futures_delayed_actions_and_lifetime() {
                 });
             });
         }
-
-        fn wrap_handler<M, R>(
-            &mut self,
-            msg: M,
-            ctx: &mut dyn DelayedActionRunner<Self>,
-            f: impl FnOnce(&mut Self, M, &mut dyn DelayedActionRunner<Self>) -> R,
-        ) -> R {
-            assert_eq!(self.started.load(Ordering::Relaxed), 1);
-            assert_eq!(self.stopped.load(Ordering::Relaxed), 0);
-            self.wrapped.fetch_add(1, Ordering::Relaxed);
-            f(self, msg, ctx)
-        }
-
         fn stop_actor(&mut self) {
             self.stopped.fetch_add(1, Ordering::Relaxed);
         }
@@ -90,14 +76,12 @@ async fn test_tokio_actor_futures_delayed_actions_and_lifetime() {
 
     let started = Arc::new(AtomicUsize::new(0));
     let stopped = Arc::new(AtomicUsize::new(0));
-    let wrapped = Arc::new(AtomicUsize::new(0));
     let delayed_action_executed = Arc::new(AtomicUsize::new(0));
     let future_executed = Arc::new(AtomicUsize::new(0));
     let actor_system = ActorSystem::new();
     let handle = actor_system.spawn_tokio_actor(MyActor {
         started: started.clone(),
         stopped: stopped.clone(),
-        wrapped: wrapped.clone(),
         delayed_action_executed: delayed_action_executed.clone(),
     });
     handle.send_async(MessageA("Hello".to_string())).await.unwrap();
@@ -116,7 +100,6 @@ async fn test_tokio_actor_futures_delayed_actions_and_lifetime() {
         });
     });
     assert_eq!(started.load(Ordering::Relaxed), 1);
-    assert_eq!(wrapped.load(Ordering::Relaxed), 2);
     assert_eq!(stopped.load(Ordering::Relaxed), 0);
     assert_eq!(delayed_action_executed.load(Ordering::Relaxed), 0);
     assert_eq!(future_executed.load(Ordering::Relaxed), 0);
