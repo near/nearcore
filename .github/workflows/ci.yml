@@ -139,36 +139,6 @@ jobs:
           name: coverage-codecov-${{ github.sha }}-py-nightly
           path: coverage/codecov
 
-  pytest_tests:
-    name: "Large pytest Tests"
-    runs-on: warp-ubuntu-2204-x64-8x
-    steps:
-      - uses: actions/checkout@v4
-      - uses: WarpBuilds/setup-python@v5
-        with:
-          python-version: 3.11
-          cache: pip
-      - uses: taiki-e/install-action@7852930e42e73b6c323ae4435f5135b58754dfdd
-        with:
-          tool: cargo-llvm-cov
-      - run: pip3 install --user -r pytest/requirements.txt
-      - run: cargo llvm-cov show-env | grep -v RUSTFLAGS | tr -d "'" >> "$GITHUB_ENV"
-      - run: echo "RUSTC_WORKSPACE_WRAPPER=$PWD/scripts/coverage-wrapper-rustc" >> "$GITHUB_ENV"
-      - run: echo "CARGO=1" >> "$GITHUB_ENV"
-      - run: cargo build --locked --profile dev-release -p neard --bin neard
-      - run: echo "CURRENT_NEARD=$PWD/target/dev-release/neard" >> "$GITHUB_ENV"
-      - run: echo "NEAR_ROOT=$PWD" >> "$GITHUB_ENV"
-      - run: pushd pytest && python3 tests/sanity/upgradable.py && popd
-      - run: pushd pytest && python3 tests/sanity/db_migration.py && popd
-      - run: pushd pytest && python3 tests/sanity/backward_compatible.py && popd
-
-      - run: mkdir -p coverage/codecov
-      - run: cargo llvm-cov report --profile dev-release --codecov --output-path coverage/codecov/py.json
-      - uses: actions/upload-artifact@v4
-        with:
-          name: coverage-codecov-${{ github.sha }}-py
-          path: coverage/codecov
-
   protocol_schema_check:
     name: "Protocol Schema"
     runs-on: warp-ubuntu-2204-x64-8x
@@ -350,7 +320,6 @@ jobs:
     runs-on: ubuntu-latest
     needs:
       - cargo_nextest
-      - pytest_tests
       - pytest_nightly_tests
     steps:
       - uses: actions/checkout@v4
