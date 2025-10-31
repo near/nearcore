@@ -593,9 +593,7 @@ impl PeerActor {
                 }
             }
             ConnectingStatus::Inbound { .. } => {
-                if MIN_SUPPORTED_PROTOCOL_VERSION > handshake.protocol_version
-                    || handshake.protocol_version > PROTOCOL_VERSION
-                {
+                if MIN_SUPPORTED_PROTOCOL_VERSION > handshake.protocol_version {
                     tracing::debug!(
                         target: "network",
                         version = handshake.protocol_version,
@@ -779,6 +777,7 @@ impl PeerActor {
                                 act.send_handshake(HandshakeSpec{
                                     peer_id: handshake.sender_peer_id.clone(),
                                     tier,
+                                    // TODO(2.12.0): If this code is in mainnet, remove this and add node version instead of mirroring the peer version
                                     protocol_version: handshake.protocol_version,
                                     partial_edge_info,
                                 });
