@@ -14,7 +14,7 @@ use crate::stateless_validation::chunk_endorsements_bitmap::ChunkEndorsementsBit
 use crate::transaction::{
     Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, DeleteKeyAction,
     DeployContractAction, FunctionCallAction, SignedTransaction, StakeAction, Transaction,
-    TransactionV0, TransactionV2, TransferAction,
+    TransactionKey, TransactionV0, TransactionV2, TransferAction,
 };
 use crate::types::validator_stake::ValidatorStake;
 use crate::types::{AccountId, Balance, EpochId, EpochInfoProvider, Gas, Nonce};
@@ -64,9 +64,10 @@ impl Transaction {
         block_hash: CryptoHash,
         priority_fee: u64,
     ) -> Self {
+        let key = TransactionKey::AccessKey { key: public_key.clone() };
         Transaction::V2(TransactionV2 {
             signer_id,
-            public_key,
+            key,
             nonce,
             receiver_id,
             block_hash,
@@ -78,6 +79,7 @@ impl Transaction {
     pub fn actions_mut(&mut self) -> &mut Vec<Action> {
         match self {
             Transaction::V0(tx) => &mut tx.actions,
+            Transaction::V1(tx) => &mut tx.actions,
             Transaction::V2(tx) => &mut tx.actions,
         }
     }
@@ -85,6 +87,7 @@ impl Transaction {
     pub fn nonce_mut(&mut self) -> &mut Nonce {
         match self {
             Transaction::V0(tx) => &mut tx.nonce,
+            Transaction::V1(tx) => &mut tx.nonce,
             Transaction::V2(tx) => &mut tx.nonce,
         }
     }
@@ -179,10 +182,11 @@ impl SignedTransaction {
         block_hash: CryptoHash,
         priority_fee: u64,
     ) -> Self {
+        let key = TransactionKey::AccessKey { key: signer.public_key() };
         Transaction::V2(TransactionV2 {
-            nonce,
             signer_id,
-            public_key: signer.public_key(),
+            key,
+            nonce,
             receiver_id,
             block_hash,
             actions,

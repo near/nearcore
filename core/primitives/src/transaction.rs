@@ -12,7 +12,7 @@ use near_crypto::{PublicKey, Signature};
 use near_fmt::{AbbrBytes, Slice};
 use near_parameters::RuntimeConfig;
 use near_primitives_core::serialize::{from_base64, to_base64};
-use near_primitives_core::types::Compute;
+use near_primitives_core::types::{Compute, NonceIndex};
 use near_schema_checker_lib::ProtocolSchema;
 #[cfg(feature = "schemars")]
 use schemars::json_schema;
@@ -45,13 +45,39 @@ pub struct TransactionV0 {
     pub actions: Vec<Action>,
 }
 
+#[derive(
+    BorshSerialize, BorshDeserialize, serde::Serialize, PartialEq, Eq, Debug, Clone, ProtocolSchema,
+)]
+pub enum TransactionKey {
+    AccessKey { key: PublicKey },
+    GasKey { key: PublicKey, nonce_index: NonceIndex },
+}
+
+#[derive(
+    BorshSerialize, BorshDeserialize, serde::Serialize, PartialEq, Eq, Debug, Clone, ProtocolSchema,
+)]
+pub struct TransactionV1 {
+    /// An account on which behalf transaction is signed
+    pub signer_id: AccountId,
+    /// Key and nonce used to sign the transaction
+    pub key: TransactionKey,
+    /// Nonce is used to determine order of transaction in the pool.
+    /// It increments for a combination of `signer_id` and `public_key`
+    pub nonce: Nonce,
+    /// Receiver account for this transaction
+    pub receiver_id: AccountId,
+    /// The hash of the block in the blockchain on top of which the given transaction is valid
+    pub block_hash: CryptoHash,
+    /// A list of actions to be applied
+    pub actions: Vec<Action>,
+}
+
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Debug, Clone, ProtocolSchema)]
 pub struct TransactionV2 {
     /// An account on which behalf transaction is signed
     pub signer_id: AccountId,
-    /// A public key of the access key which was used to sign an account.
-    /// Access key holds permissions for calling certain kinds of actions.
-    pub public_key: PublicKey,
+    /// AccessKey or GasKey and NonceIndex used to sign the transaction
+    pub key: TransactionKey,
     /// Nonce is used to determine order of transaction in the pool.
     /// It increments for a combination of `signer_id` and `public_key`
     pub nonce: Nonce,
@@ -76,6 +102,7 @@ impl Transaction {
 #[derive(Eq, PartialEq, Debug, Clone)]
 pub enum Transaction {
     V0(TransactionV0),
+    V1(TransactionV1),
     V2(TransactionV2),
 }
 
@@ -83,6 +110,7 @@ impl Transaction {
     pub fn signer_id(&self) -> &AccountId {
         match self {
             Transaction::V0(tx) => &tx.signer_id,
+            Transaction::V1(tx) => &tx.signer_id,
             Transaction::V2(tx) => &tx.signer_id,
         }
     }
@@ -90,6 +118,7 @@ impl Transaction {
     pub fn receiver_id(&self) -> &AccountId {
         match self {
             Transaction::V0(tx) => &tx.receiver_id,
+            Transaction::V1(tx) => &tx.receiver_id,
             Transaction::V2(tx) => &tx.receiver_id,
         }
     }
@@ -97,13 +126,15 @@ impl Transaction {
     pub fn public_key(&self) -> &PublicKey {
         match self {
             Transaction::V0(tx) => &tx.public_key,
-            Transaction::V2(tx) => &tx.public_key,
+            Transaction::V1(_tx) => todo!("wip"),
+            Transaction::V2(_tx) => todo!("wip"),
         }
     }
 
     pub fn nonce(&self) -> Nonce {
         match self {
             Transaction::V0(tx) => tx.nonce,
+            Transaction::V1(tx) => tx.nonce,
             Transaction::V2(tx) => tx.nonce,
         }
     }
@@ -111,6 +142,7 @@ impl Transaction {
     pub fn actions(&self) -> &[Action] {
         match self {
             Transaction::V0(tx) => &tx.actions,
+            Transaction::V1(tx) => &tx.actions,
             Transaction::V2(tx) => &tx.actions,
         }
     }
@@ -118,6 +150,7 @@ impl Transaction {
     pub fn take_actions(self) -> Vec<Action> {
         match self {
             Transaction::V0(tx) => tx.actions,
+            Transaction::V1(tx) => tx.actions,
             Transaction::V2(tx) => tx.actions,
         }
     }
@@ -125,6 +158,7 @@ impl Transaction {
     pub fn block_hash(&self) -> &CryptoHash {
         match self {
             Transaction::V0(tx) => &tx.block_hash,
+            Transaction::V1(tx) => &tx.block_hash,
             Transaction::V2(tx) => &tx.block_hash,
         }
     }
@@ -132,6 +166,7 @@ impl Transaction {
     pub fn priority_fee(&self) -> Option<u64> {
         match self {
             Transaction::V0(_) => None,
+            Transaction::V1(_) => None,
             Transaction::V2(tx) => Some(tx.priority_fee),
         }
     }
@@ -141,6 +176,10 @@ impl BorshSerialize for Transaction {
     fn serialize<W: Write>(&self, writer: &mut W) -> Result<(), Error> {
         match self {
             Transaction::V0(tx) => tx.serialize(writer)?,
+            Transaction::V1(tx) => {
+                BorshSerialize::serialize(&1_u8, writer)?;
+                tx.serialize(writer)?;
+            }
             Transaction::V2(tx) => {
                 BorshSerialize::serialize(&2_u8, writer)?;
                 tx.serialize(writer)?;
@@ -192,10 +231,26 @@ impl BorshDeserialize for Transaction {
                 block_hash,
                 actions,
             }))
+        } else if u1 == 1 {
+            let u5 = u8::deserialize_reader(reader)?;
+            let signer_id = read_signer_id([u2, u3, u4, u5], reader)?;
+            let key = TransactionKey::deserialize_reader(reader)?;
+            let nonce = Nonce::deserialize_reader(reader)?;
+            let receiver_id = AccountId::deserialize_reader(reader)?;
+            let block_hash = CryptoHash::deserialize_reader(reader)?;
+            let actions = Vec::<Action>::deserialize_reader(reader)?;
+            Ok(Transaction::V1(TransactionV1 {
+                signer_id,
+                key,
+                nonce,
+                receiver_id,
+                block_hash,
+                actions,
+            }))
         } else {
             let u5 = u8::deserialize_reader(reader)?;
             let signer_id = read_signer_id([u2, u3, u4, u5], reader)?;
-            let public_key = PublicKey::deserialize_reader(reader)?;
+            let key = TransactionKey::deserialize_reader(reader)?;
             let nonce = Nonce::deserialize_reader(reader)?;
             let receiver_id = AccountId::deserialize_reader(reader)?;
             let block_hash = CryptoHash::deserialize_reader(reader)?;
@@ -203,7 +258,7 @@ impl BorshDeserialize for Transaction {
             let priority_fee = u64::deserialize_reader(reader)?;
             Ok(Transaction::V2(TransactionV2 {
                 signer_id,
-                public_key,
+                key,
                 nonce,
                 receiver_id,
                 block_hash,
@@ -698,7 +753,7 @@ mod tests {
         let public_key: PublicKey = "22skMptHjFWNyuEWY22ftn2AbLPSYpmYwGJRGwpNHbTV".parse().unwrap();
         TransactionV2 {
             signer_id: "test.near".parse().unwrap(),
-            public_key: public_key.clone(),
+            key: TransactionKey::AccessKey { key: public_key.clone() },
             nonce: 1,
             receiver_id: "123".parse().unwrap(),
             block_hash: Default::default(),
