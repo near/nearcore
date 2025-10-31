@@ -1802,6 +1802,7 @@ mod tests {
             &limit_config,
             &Receipt::new_balance_refund(
                 &alice_account(),
+                None,
                 Balance::from_yoctonear(10),
                 ReceiptPriority::NoPriority,
             ),

@@ -969,6 +969,7 @@ impl Runtime {
         if deposit_refund > Balance::ZERO {
             result.new_receipts.push(Receipt::new_balance_refund(
                 receipt.balance_refund_receiver(),
+                receipt.predecessor_gas_key().clone(),
                 deposit_refund,
                 receipt.priority(),
             ));
@@ -1839,7 +1840,8 @@ impl Runtime {
                     receipt_id,
                     signer_id.clone(),
                     tx.transaction.receiver_id().clone(),
-                    tx_key.public_key().clone(), // XXX : wrong
+                    tx_key.public_key().clone(),
+                    matches!(tx_key, TransactionKeyRef::GasKey { .. }),
                     verification_result.receipt_gas_price,
                     tx.transaction.actions().to_vec(),
                 );

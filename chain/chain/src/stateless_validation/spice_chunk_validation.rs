@@ -765,11 +765,13 @@ mod tests {
         vec![
             Receipt::new_balance_refund(
                 &AccountId::from_str(TEST_VALIDATORS[0]).unwrap(),
+                None,
                 Balance::from_yoctonear(100),
                 ReceiptPriority::NoPriority,
             ),
             Receipt::new_balance_refund(
                 &AccountId::from_str(TEST_VALIDATORS[1]).unwrap(),
+                None,
                 Balance::from_yoctonear(100),
                 ReceiptPriority::NoPriority,
             ),

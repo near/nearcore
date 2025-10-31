@@ -1,4 +1,4 @@
-use crate::action::GlobalContractIdentifier;
+use crate::action::{GlobalContractIdentifier, TransferToGasKeyAction};
 use crate::errors::EpochError;
 use crate::hash::CryptoHash;
 use crate::shard_layout::ShardLayout;
@@ -444,11 +444,17 @@ impl Receipt {
         tx_signer_id: AccountId,
         tx_receiver_id: AccountId,
         signer_public_key: PublicKey,
+        is_signer_gas_key: bool,
         gas_price: Balance,
         actions: Vec<Action>,
     ) -> Self {
-        Receipt::V0(ReceiptV0 {
+        Receipt::V1(ReceiptV1 {
             predecessor_id: tx_signer_id.clone(),
+            predecessor_gas_key: if is_signer_gas_key {
+                Some(signer_public_key.clone())
+            } else {
+                None
+            },
             receiver_id: tx_receiver_id,
             receipt_id,
             receipt: ReceiptEnum::Action(ActionReceipt {
@@ -614,9 +620,17 @@ impl Receipt {
     /// It doesn't refund the allowance of the access key. For gas refunds use `new_gas_refund`.
     pub fn new_balance_refund(
         receiver_id: &AccountId,
+        receiver_gas_key: Option<PublicKey>,
         refund: Balance,
         priority: ReceiptPriority,
     ) -> Self {
+        let action = match receiver_gas_key {
+            Some(public_key) => Action::TransferToGasKey(Box::new(TransferToGasKeyAction {
+                deposit: refund,
+                public_key,
+            })),
+            None => Action::Transfer(TransferAction { deposit: refund }),
+        };
         match priority {
             ReceiptPriority::Priority(priority) => Receipt::V2(ReceiptV2 {
                 predecessor_id: "system".parse().unwrap(),
@@ -630,7 +644,7 @@ impl Receipt {
                     gas_price: Balance::ZERO,
                     output_data_receivers: vec![],
                     input_data_ids: vec![],
-                    actions: vec![Action::Transfer(TransferAction { deposit: refund })],
+                    actions: vec![action],
                 }),
                 priority,
             }),
@@ -645,7 +659,7 @@ impl Receipt {
                     gas_price: Balance::ZERO,
                     output_data_receivers: vec![],
                     input_data_ids: vec![],
-                    actions: vec![Action::Transfer(TransferAction { deposit: refund })],
+                    actions: vec![action],
                 }),
             }),
         }
