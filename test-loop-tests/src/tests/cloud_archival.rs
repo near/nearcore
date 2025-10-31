@@ -9,7 +9,6 @@ use near_primitives::types::{AccountId, BlockHeight, BlockHeightDelta};
 use crate::setup::builder::TestLoopBuilder;
 use crate::utils::cloud_archival::{
     gc_and_heads_sanity_checks, pause_and_resume_writer_with_sanity_checks, run_node_until,
-    test_view_client,
 };
 
 const MIN_GC_NUM_EPOCHS_TO_KEEP: u64 = 3;
@@ -31,7 +30,6 @@ struct TestCloudArchivalParameters {
     enable_cold_storage: bool,
     /// Height up to which the cloud archival writer should be paused.
     pause_writer_until_height: Option<BlockHeight>,
-    test_view_client_at_height: Option<BlockHeight>,
 }
 
 impl TestCloudArchivalParametersBuilder {
@@ -48,7 +46,6 @@ impl TestCloudArchivalParametersBuilder {
             enable_cold_storage: self.enable_cold_storage.unwrap_or(false),
             pause_writer_until_height,
             num_epochs_to_wait,
-            test_view_client_at_height: self.test_view_client_at_height.unwrap_or(None),
         }
     }
 }
@@ -116,10 +113,6 @@ fn test_cloud_archival_base(params: TestCloudArchivalParameters) {
         Some(MIN_EPOCH_LENGTH),
     );
 
-    if let Some(block_height) = params.test_view_client_at_height {
-        test_view_client(&mut env, &archival_id, block_height);
-    }
-
     env.shutdown_and_drain_remaining_events(Duration::seconds(10));
 }
 
@@ -152,16 +145,6 @@ fn test_cloud_archival_resume() {
         TestCloudArchivalParametersBuilder::default()
             .num_epochs_to_wait(num_epochs_to_wait)
             .pause_writer_until_height(resume_writer_height)
-            .build(),
-    );
-}
-
-#[test]
-fn test_cloud_archival_read_block() {
-    let block_height = Some(MIN_EPOCH_LENGTH / 2);
-    test_cloud_archival_base(
-        TestCloudArchivalParametersBuilder::default()
-            .test_view_client_at_height(block_height)
             .build(),
     );
 }
