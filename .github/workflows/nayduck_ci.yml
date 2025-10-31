@@ -10,6 +10,9 @@ on:
         type: string
         required: true
 
+env:
+  CI_HACKS: 1
+
 jobs:
   nayduck_tests:
     name: "Run Nayduck CI tests"
