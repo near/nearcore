@@ -2204,6 +2204,8 @@ pub struct ValidatorStakeViewV1 {
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct ReceiptView {
     pub predecessor_id: AccountId,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub predecessor_gas_key: Option<PublicKey>,
     pub receiver_id: AccountId,
     pub receipt_id: CryptoHash,
 
@@ -2290,6 +2292,7 @@ impl From<Receipt> for ReceiptView {
 
         ReceiptView {
             predecessor_id: receipt.predecessor_id().clone(),
+            predecessor_gas_key: receipt.predecessor_gas_key().clone(),
             receiver_id: receipt.receiver_id().clone(),
             receipt_id: *receipt.receipt_id(),
             receipt: match receipt.take_versioned_receipt() {
@@ -2357,6 +2360,8 @@ impl TryFrom<ReceiptView> for Receipt {
     fn try_from(receipt_view: ReceiptView) -> Result<Self, Self::Error> {
         Ok(Receipt::V2(ReceiptV2 {
             predecessor_id: receipt_view.predecessor_id,
+
+            predecessor_gas_key: None,
             receiver_id: receipt_view.receiver_id,
             receipt_id: receipt_view.receipt_id,
             receipt: match receipt_view.receipt {

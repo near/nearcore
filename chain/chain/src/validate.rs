@@ -303,6 +303,7 @@ mod tests {
         };
         let receipt = Receipt::V2(ReceiptV2 {
             predecessor_id: signer.get_account_id(),
+            predecessor_gas_key: None,
             receiver_id: receiver,
             receipt_id: CryptoHash::default(),
             receipt: ReceiptEnum::Action(ar),
