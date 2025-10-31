@@ -15,5 +15,5 @@ pub(super) mod file_id;
 /// Handles operations related to cloud storage used for archival data.
 pub struct CloudStorage {
     external: ExternalConnection,
-    pub(crate) prefetch_db: Option<Arc<dyn Database>>,
+    pub prefetch_db: Option<Arc<dyn Database>>,
 }

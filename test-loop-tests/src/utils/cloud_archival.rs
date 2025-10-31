@@ -1,11 +1,16 @@
+use std::sync::Arc;
+
+use futures::FutureExt;
+use near_async::futures::FutureSpawner;
 use near_async::messaging::Handler;
 use near_chain::types::Tip;
-use near_client::GetBlock;
 use near_client::archive::cloud_archival_writer::CloudArchivalWriterHandle;
+use near_client::{GetBlock, ViewClientActorInner};
 use near_primitives::types::{AccountId, BlockHeight, BlockHeightDelta, BlockId, BlockReference};
 use near_store::adapter::StoreAdapter;
+use near_store::archive::cloud_storage::CloudStorage;
 use near_store::db::CLOUD_HEAD_KEY;
-use near_store::{COLD_HEAD_KEY, DBCol};
+use near_store::{COLD_HEAD_KEY, DBCol, Store};
 
 use crate::setup::env::TestLoopEnv;
 use crate::utils::node::TestLoopNode;
@@ -101,8 +106,27 @@ fn get_cloud_head(env: &TestLoopEnv, writer_id: &AccountId) -> BlockHeight {
 
 pub fn test_view_client(env: &mut TestLoopEnv, archival_id: &AccountId, height: BlockHeight) {
     let archival_node = TestLoopNode::for_account(&env.node_datas, archival_id);
+    let cloud_storage = env.get_cloud_storage(archival_node.data()).unwrap();
+    env.test_loop
+        .future_spawner(archival_id.as_str())
+        .spawn_boxed("prefetch_block_data", prefetch_block_data(cloud_storage, height).boxed());
+    // Return to event loop so that prefetching block data will execute.
+    archival_node.run_for_number_of_blocks(&mut env.test_loop, 0);
+
     let view_client_handle = archival_node.data().view_client_sender.actor_handle();
     let view_client = env.test_loop.data.get_mut(&view_client_handle);
+    test_view_client_impl(view_client, height);
+}
+
+async fn prefetch_block_data(cloud_storage: Arc<CloudStorage>, height: BlockHeight) {
+    let block = cloud_storage.get_block(height).await.unwrap();
+    let prefetch_db = cloud_storage.prefetch_db.as_ref().unwrap().clone();
+    let mut store_update = Store::new(prefetch_db.clone()).store_update();
+    store_update.insert_ser(DBCol::Block, block.hash().as_ref(), &block).unwrap();
+    store_update.commit().unwrap();
+}
+
+fn test_view_client_impl(view_client: &mut ViewClientActorInner, height: BlockHeight) {
     let block_reference = BlockReference::BlockId(BlockId::Height(height));
     let _block = view_client.handle(GetBlock(block_reference)).unwrap();
 }

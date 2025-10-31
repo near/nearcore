@@ -8060,6 +8060,7 @@ dependencies = [
  "borsh",
  "bytesize 1.1.0",
  "derive_builder",
+ "futures",
  "itertools 0.14.0",
  "near-async",
  "near-chain",
