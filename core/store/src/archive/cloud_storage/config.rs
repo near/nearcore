@@ -24,6 +24,7 @@ pub struct CloudStorageConfig {
 pub struct CloudArchivalConfig {
     /// Configures the external storage used by the archival node.
     pub cloud_storage: CloudStorageConfig,
+    /// If provided, used by SplitStore as a local store with data prefetched from the cloud.
     pub prefetch_db: Option<StoreConfig>,
 }
 

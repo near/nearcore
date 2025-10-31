@@ -13,7 +13,9 @@ use crate::{Mode, Temperature};
 
 /// Opener for the external archival storage, which results in an `CloudStorage` instance.
 pub struct CloudStorageOpener {
+    /// Home directory of the node, used as a base for local paths.
     home_dir: PathBuf,
+    /// Configuration for the cloud archival storage.
     config: CloudArchivalConfig,
 }
 

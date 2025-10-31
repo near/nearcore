@@ -14,7 +14,7 @@ use crate::db::{DBIterator, DBIteratorItem, DBSlice, DBTransaction, Database, St
 /// columns it reads from hot first and if the value is present it returns it.
 /// If the value is not present it reads from the cold database, then cloud database.
 ///
-/// The iter* methods return a merge iterator of hot and cold iterators.
+/// The iter* methods return a merge iterator of hot, cold, and cloud iterators.
 ///
 /// This database should be treated as read-only but it is not enforced because
 /// even the view client writes to the database in order to update caches.
@@ -75,6 +75,7 @@ impl SplitDB {
         Box::new(iter)
     }
 
+    /// Returns a merged iterator over cold and cloud databases using the given iterator function.
     fn get_archive_iter<'a, F>(&'a self, iter: F) -> DBIterator<'a>
     where
         F: Fn(&'a Arc<dyn Database>) -> DBIterator<'a>,
@@ -142,7 +143,7 @@ impl Database for SplitDB {
     /// by the key.
     ///
     /// The returned iterator will iterate through items in both the hot store,
-    /// cold store and the cloud store. The items will be deduplicated and sorted.
+    /// cold store and the cloud store. The items will be unique and sorted.
     fn iter<'a>(&'a self, col: DBCol) -> DBIterator<'a> {
         if !col.is_cold() {
             return self.hot.iter(col);
@@ -154,8 +155,8 @@ impl Database for SplitDB {
     /// Iterate over items in given column, whose keys start with given prefix,
     /// in lexicographical order sorted by the key.
     ///
-    /// The returned iterator will iterate through items in both the cold store
-    /// and the hot store. The items will be unique and sorted.
+    /// The returned iterator will iterate through items in both the hot store,
+    /// cold store and the cloud store. The items will be unique and sorted.
     fn iter_prefix<'a>(&'a self, col: DBCol, key_prefix: &'a [u8]) -> DBIterator<'a> {
         if !col.is_cold() {
             return self.hot.iter_prefix(col, key_prefix);
@@ -170,8 +171,8 @@ impl Database for SplitDB {
     /// If lower_bound is None - the iterator starts from the first key.
     /// If upper_bound is None - iterator continues to the last key.
     ///
-    /// The returned iterator will iterate through items in both the cold store
-    /// and the hot store. The items will be unique and sorted.
+    /// The returned iterator will iterate through items in both the hot store,
+    /// cold store and the cloud store. The items will be unique and sorted.
     fn iter_range<'a>(
         &'a self,
         col: DBCol,
@@ -188,8 +189,8 @@ impl Database for SplitDB {
     /// Iterate over items in given column bypassing reference count decoding if
     /// any.
     ///
-    /// The returned iterator will iterate through items in both the cold store
-    /// and the hot store. The items will be unique and sorted.
+    /// The returned iterator will iterate through items in both the hot store,
+    /// cold store and the cloud store. The items will be unique and sorted.
     fn iter_raw_bytes<'a>(&'a self, col: DBCol) -> DBIterator<'a> {
         if !col.is_cold() {
             return self.hot.iter_raw_bytes(col);
