@@ -298,12 +298,15 @@ impl BorshDeserialize for Receipt {
         let u1 = u8::deserialize_reader(reader)?;
         let u2 = u8::deserialize_reader(reader)?;
         let is_v0 = u2 == 0;
+        let is_v1 = u1 == 1;
 
         let prefix = if is_v0 { vec![u1, u2] } else { vec![u2] };
         let mut reader = prefix.chain(reader);
 
         let receipt = if is_v0 {
             Receipt::V0(ReceiptV0::deserialize_reader(&mut reader)?)
+        } else if is_v1 {
+            Receipt::V1(ReceiptV1::deserialize_reader(&mut reader)?)
         } else {
             Receipt::V2(ReceiptV2::deserialize_reader(&mut reader)?)
         };
