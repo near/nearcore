@@ -15,6 +15,7 @@ use near_primitives::receipt::{
     BufferedReceiptIndices, DelayedReceiptIndices, PromiseYieldIndices, PromiseYieldTimeout,
     Receipt, ReceivedData, VersionedReceiptEnum,
 };
+use near_primitives::transaction::TransactionKeyRef;
 use near_primitives::trie_key::{TrieKey, trie_key_parsers};
 use near_primitives::types::{AccountId, BlockHeight, Nonce, NonceIndex, StateRoot};
 use std::io;
@@ -266,6 +267,22 @@ pub fn set_gas_key_nonce(
     set(state_update, TrieKey::GasKey { account_id, public_key, index: Some(index) }, &nonce);
 }
 
+pub fn set_access_key_or_gas_key_nonce(
+    state_update: &mut TrieUpdate,
+    account_id: AccountId,
+    key: TransactionKeyRef,
+    access_key: &AccessKey,
+) {
+    match key {
+        TransactionKeyRef::AccessKey { key } => {
+            set_access_key(state_update, account_id, key.clone(), access_key)
+        }
+        TransactionKeyRef::GasKey { key, nonce_index } => {
+            set_gas_key_nonce(state_update, account_id, key.clone(), nonce_index, access_key.nonce)
+        }
+    }
+}
+
 pub fn remove_access_key(
     state_update: &mut TrieUpdate,
     account_id: AccountId,
@@ -327,6 +344,44 @@ pub fn get_gas_key_nonce(
             index: Some(index),
         },
     )
+}
+
+pub fn get_acccess_key_by_tx_key(
+    trie: &dyn TrieAccess,
+    account_id: &AccountId,
+    key: TransactionKeyRef,
+) -> Result<Option<AccessKey>, StorageError> {
+    match key {
+        TransactionKeyRef::AccessKey { key } => get_access_key(trie, account_id, key),
+        TransactionKeyRef::GasKey { key, nonce_index } => {
+            let gas_key: Option<GasKey> = get(
+                trie,
+                &TrieKey::GasKey {
+                    account_id: account_id.clone(),
+                    public_key: key.clone(),
+                    index: None,
+                },
+            )?;
+            let Some(gas_key) = gas_key else {
+                return Ok(None);
+            };
+            if gas_key.num_nonces <= nonce_index {
+                return Ok(None);
+            }
+            let nonce: Option<Nonce> = get(
+                trie,
+                &TrieKey::GasKey {
+                    account_id: account_id.clone(),
+                    public_key: key.clone(),
+                    index: Some(nonce_index),
+                },
+            )?;
+            let Some(nonce) = nonce else {
+                return Ok(None);
+            };
+            Ok(Some(AccessKey { nonce, permission: gas_key.permission }))
+        }
+    }
 }
 
 pub fn get_access_key_raw(

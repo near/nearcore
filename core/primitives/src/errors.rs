@@ -2,13 +2,14 @@ use crate::action::GlobalContractIdentifier;
 use crate::hash::CryptoHash;
 use crate::shard_layout::ShardLayoutError;
 use crate::sharding::ChunkHash;
+use crate::transaction::TransactionKeyRef;
 use crate::types::{AccountId, Balance, EpochId, Nonce, SpiceChunkId};
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::PublicKey;
 use near_primitives_core::account::AccessKeyPermission;
 pub use near_primitives_core::errors::IntegerOverflowError;
-use near_primitives_core::types::Gas;
 use near_primitives_core::types::{BlockHeight, ProtocolVersion, ShardId};
+use near_primitives_core::types::{Gas, NonceIndex};
 use near_schema_checker_lib::ProtocolSchema;
 use std::fmt::{Debug, Display};
 use std::io;
@@ -272,6 +273,11 @@ pub enum InvalidTxError {
         /// The number of blocks since the last included chunk of the shard.
         missed_chunks: u64,
     } = 17,
+    /// The gas key doesn't exist for the account
+    GasKeyDoesNotExist {
+        signer_id: AccountId,
+        public_key: PublicKey,
+    } = 18,
 }
 
 impl From<StorageError> for InvalidTxError {
@@ -314,6 +320,58 @@ pub enum InvalidAccessKeyError {
     } = 4,
     /// Having a deposit with a function call action is not allowed with a function call access key.
     DepositWithFunctionCall = 5,
+    GasKeyNotFound { account_id: AccountId, public_key: Box<PublicKey>, nonce_index: NonceIndex } =
+        6,
+    NotEnougAllowanceGasKey {
+        account_id: AccountId,
+        public_key: Box<PublicKey>,
+        nonce_index: NonceIndex,
+        allowance: Balance,
+        cost: Balance,
+    } = 7,
+}
+
+impl InvalidAccessKeyError {
+    pub fn not_found(account_id: AccountId, key: TransactionKeyRef) -> Self {
+        match key {
+            TransactionKeyRef::AccessKey { key } => InvalidAccessKeyError::AccessKeyNotFound {
+                account_id,
+                public_key: Box::new(key.clone()),
+            },
+            TransactionKeyRef::GasKey { key, nonce_index } => {
+                InvalidAccessKeyError::GasKeyNotFound {
+                    account_id,
+                    public_key: Box::new(key.clone()),
+                    nonce_index,
+                }
+            }
+        }
+    }
+
+    pub fn not_enough_allowance(
+        account_id: AccountId,
+        key: TransactionKeyRef,
+        allowance: Balance,
+        cost: Balance,
+    ) -> Self {
+        match key {
+            TransactionKeyRef::AccessKey { key } => InvalidAccessKeyError::NotEnoughAllowance {
+                account_id,
+                public_key: Box::new(key.clone()),
+                allowance,
+                cost,
+            },
+            TransactionKeyRef::GasKey { key, nonce_index } => {
+                InvalidAccessKeyError::NotEnougAllowanceGasKey {
+                    account_id,
+                    public_key: Box::new(key.clone()),
+                    nonce_index,
+                    allowance,
+                    cost,
+                }
+            }
+        }
+    }
 }
 
 /// Describes the error for validating a list of actions.
@@ -839,6 +897,13 @@ impl Display for InvalidTxError {
                     "Shard {shard_id} missed {missed_chunks} chunks and rejects new transactions."
                 )
             }
+            InvalidTxError::GasKeyDoesNotExist { signer_id, public_key } => {
+                write!(
+                    f,
+                    "Signer {:?} doesn't have gas key with the given public_key {}",
+                    signer_id, public_key
+                )
+            }
         }
     }
 }
@@ -889,6 +954,24 @@ impl Display for InvalidAccessKeyError {
                     "Having a deposit with a function call action is not allowed with a function call access key."
                 )
             }
+            InvalidAccessKeyError::GasKeyNotFound { account_id, public_key, nonce_index } => {
+                write!(
+                    f,
+                    "Signer {:?} doesn't have gas key with the given public_key {} and nonce_index {}",
+                    account_id, public_key, nonce_index
+                )
+            }
+            InvalidAccessKeyError::NotEnougAllowanceGasKey {
+                account_id,
+                public_key,
+                nonce_index,
+                allowance,
+                cost,
+            } => write!(
+                f,
+                "Gas Key {:?}:{} with nonce_index {} does not have enough allowance {} for transaction costing {}",
+                account_id, public_key, nonce_index, allowance, cost
+            ),
         }
     }
 }

@@ -53,6 +53,39 @@ pub enum TransactionKey {
     GasKey { key: PublicKey, nonce_index: NonceIndex },
 }
 
+#[derive(BorshSerialize, PartialEq, Eq, Hash, Clone, Copy)]
+pub enum TransactionKeyRef<'a> {
+    AccessKey { key: &'a PublicKey },
+    GasKey { key: &'a PublicKey, nonce_index: NonceIndex },
+}
+
+impl<'a> From<&'a TransactionKey> for TransactionKeyRef<'a> {
+    fn from(value: &'a TransactionKey) -> Self {
+        match value {
+            TransactionKey::AccessKey { key } => TransactionKeyRef::AccessKey { key },
+            TransactionKey::GasKey { key, nonce_index } => {
+                TransactionKeyRef::GasKey { key, nonce_index: *nonce_index }
+            }
+        }
+    }
+}
+
+impl<'a> TransactionKeyRef<'a> {
+    pub fn public_key(&self) -> &PublicKey {
+        match self {
+            TransactionKeyRef::AccessKey { key } => key,
+            TransactionKeyRef::GasKey { key, .. } => key,
+        }
+    }
+
+    pub fn nonce_index(&self) -> Option<NonceIndex> {
+        match self {
+            TransactionKeyRef::AccessKey { .. } => None,
+            TransactionKeyRef::GasKey { nonce_index, .. } => Some(*nonce_index),
+        }
+    }
+}
+
 #[derive(
     BorshSerialize, BorshDeserialize, serde::Serialize, PartialEq, Eq, Debug, Clone, ProtocolSchema,
 )]
@@ -123,11 +156,11 @@ impl Transaction {
         }
     }
 
-    pub fn public_key(&self) -> &PublicKey {
+    pub fn key(&self) -> TransactionKeyRef<'_> {
         match self {
-            Transaction::V0(tx) => &tx.public_key,
-            Transaction::V1(_tx) => todo!("wip"),
-            Transaction::V2(_tx) => todo!("wip"),
+            Transaction::V0(tx) => TransactionKeyRef::AccessKey { key: &tx.public_key },
+            Transaction::V1(tx) => (&tx.key).into(),
+            Transaction::V2(tx) => (&tx.key).into(),
         }
     }
 
@@ -289,7 +322,7 @@ impl ValidatedTransaction {
 
         if !signed_tx
             .signature
-            .verify(signed_tx.get_hash().as_ref(), signed_tx.transaction.public_key())
+            .verify(signed_tx.get_hash().as_ref(), signed_tx.transaction.key().public_key())
         {
             return Err((InvalidTxError::InvalidSignature, signed_tx));
         }
@@ -303,6 +336,10 @@ impl ValidatedTransaction {
         signed_tx: &SignedTransaction,
     ) -> Result<(), InvalidTxError> {
         // Don't allow V1 currently. This will be changed when the new protocol version is introduced.
+        if matches!(signed_tx.transaction, Transaction::V1(_)) {
+            return Err(InvalidTxError::InvalidTransactionVersion);
+        }
+        // Don't allow V2 currently. This will be changed when the new protocol version is introduced.
         if matches!(signed_tx.transaction, Transaction::V2(_)) {
             return Err(InvalidTxError::InvalidTransactionVersion);
         }
@@ -357,8 +394,8 @@ impl ValidatedTransaction {
         self.to_tx().nonce()
     }
 
-    pub fn public_key(&self) -> &PublicKey {
-        self.to_tx().public_key()
+    pub fn key(&self) -> TransactionKeyRef<'_> {
+        self.to_tx().key()
     }
 
     pub fn actions(&self) -> &[Action] {

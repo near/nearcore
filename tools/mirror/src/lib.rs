@@ -895,7 +895,8 @@ impl<T: ChainAccess> TxMirror<T> {
                             tracing::debug!(
                                 target: "mirror",
                                 target_tx_signer_id = %tx.target_tx.transaction.signer_id(),
-                                target_tx_public_key = ?tx.target_tx.transaction.public_key(),
+                                // TODO(gas-keys): Possibly derive debug for key itself.
+                                target_tx_public_key = ?tx.target_tx.transaction.key().public_key(),
                                 tx_provenance = %tx.provenance,
                                 ?err,
                                 "tried to send an invalid tx",
@@ -920,7 +921,8 @@ impl<T: ChainAccess> TxMirror<T> {
                     tracing::debug!(
                         target: "mirror",
                         target_tx_signer_id = %tx.target_tx.signer_id(),
-                        target_tx_public_key = ?tx.target_tx.public_key(),
+                        // TODO(gas-keys): Possibly derive debug for key itself.
+                        target_tx_public_key = ?tx.target_tx.key().public_key(),
                         "skip sending tx because valid target chain nonce not known",
                     );
                 }
@@ -1515,7 +1517,8 @@ impl<T: ChainAccess> TxMirror<T> {
                     continue;
                 }
                 let target_private_key = crate::key_mapping::map_key(
-                    &source_tx.transaction.public_key(),
+                    // TODO(gas-keys): This does not seem correct
+                    &source_tx.transaction.key().public_key(),
                     self.secret.as_ref(),
                 );
 

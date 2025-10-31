@@ -1595,6 +1595,9 @@ pub struct SignedTransactionView {
     pub priority_fee: u64,
     pub signature: Signature,
     pub hash: CryptoHash,
+    /// None for AccessKey transactions, specifies the nonce index for GasKey transactions.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub nonce_index: Option<NonceIndex>,
 }
 
 impl From<SignedTransaction> for SignedTransactionView {
@@ -1604,7 +1607,8 @@ impl From<SignedTransaction> for SignedTransactionView {
         let priority_fee = transaction.priority_fee().unwrap_or_default();
         SignedTransactionView {
             signer_id: transaction.signer_id().clone(),
-            public_key: transaction.public_key().clone(),
+            public_key: transaction.key().public_key().clone(),
+            nonce_index: transaction.key().nonce_index(),
             nonce: transaction.nonce(),
             receiver_id: transaction.receiver_id().clone(),
             actions: transaction.take_actions().into_iter().map(|action| action.into()).collect(),

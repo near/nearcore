@@ -1,9 +1,8 @@
 use crate::types::{PoolKey, TransactionGroup, TransactionGroupIterator};
-use near_crypto::PublicKey;
 use near_o11y::metrics::prometheus::core::{AtomicI64, GenericGauge};
 use near_primitives::epoch_info::RngSeed;
 use near_primitives::hash::{CryptoHash, hash};
-use near_primitives::transaction::{SignedTransaction, ValidatedTransaction};
+use near_primitives::transaction::{SignedTransaction, TransactionKeyRef, ValidatedTransaction};
 use near_primitives::types::AccountId;
 use std::collections::btree_map::Entry;
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
@@ -69,8 +68,8 @@ impl TransactionPool {
         }
     }
 
-    fn key(&self, account_id: &AccountId, public_key: &PublicKey) -> PoolKey {
-        let mut v = borsh::to_vec(&public_key).unwrap();
+    fn key(&self, account_id: &AccountId, key: TransactionKeyRef) -> PoolKey {
+        let mut v = borsh::to_vec(&key).unwrap();
         v.extend_from_slice(&self.key_seed);
         v.extend_from_slice(account_id.as_bytes());
         hash(&v)
@@ -107,7 +106,7 @@ impl TransactionPool {
         assert_eq!(self.unique_transactions.insert(tx_hash), true);
         self.total_transaction_size = new_total_transaction_size;
         let signer_id = validated_tx.signer_id();
-        let signer_public_key = validated_tx.public_key();
+        let signer_public_key = validated_tx.key();
         self.transactions
             .entry(self.key(signer_id, signer_public_key))
             .or_insert_with(Vec::new)
@@ -138,7 +137,7 @@ impl TransactionPool {
             }
 
             let signer_id = signed_tx.transaction.signer_id();
-            let signer_public_key = signed_tx.transaction.public_key();
+            let signer_public_key = signed_tx.transaction.key();
             grouped_transactions
                 .entry(self.key(signer_id, signer_public_key))
                 .or_insert_with(HashSet::new)

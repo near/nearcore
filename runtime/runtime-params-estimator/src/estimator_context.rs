@@ -28,7 +28,7 @@ use near_vm_runner::FilesystemContractRuntimeCache;
 use near_vm_runner::logic::LimitConfig;
 use node_runtime::config::tx_cost;
 use node_runtime::{
-    ApplyState, Runtime, SignedValidPeriodTransactions, get_signer_and_access_key,
+    ApplyState, Runtime, SignedValidPeriodTransactions, get_payer_and_access_key,
     set_tx_state_changes, verify_and_charge_tx_ephemeral,
 };
 use std::collections::HashMap;
@@ -460,7 +460,7 @@ impl Testbed<'_> {
         )
         .expect("expected no validation error");
         let cost = tx_cost(&self.apply_state.config, &validated_tx.to_tx(), gas_price).unwrap();
-        let (mut signer, mut access_key) = get_signer_and_access_key(&state_update, &validated_tx)
+        let (mut signer, mut access_key) = get_payer_and_access_key(&state_update, &validated_tx)
             .expect("getting signer and access key should not fail in estimator");
 
         verify_and_charge_tx_ephemeral(

@@ -17,7 +17,7 @@ use crate::verifier::{
     StorageStakingError, check_storage_stake, validate_receipt, validate_transaction_well_formed,
 };
 pub use crate::verifier::{
-    ZERO_BALANCE_ACCOUNT_STORAGE_LIMIT, get_signer_and_access_key, set_tx_state_changes,
+    ZERO_BALANCE_ACCOUNT_STORAGE_LIMIT, get_payer_and_access_key, set_tx_state_changes,
     validate_transaction, verify_and_charge_tx_ephemeral,
 };
 use ahash::RandomState as AHashRandomState;
@@ -35,13 +35,13 @@ pub use near_crypto;
 use near_crypto::{PublicKey, Signature};
 use near_parameters::{ActionCosts, RuntimeConfig};
 pub use near_primitives;
-use near_primitives::account::Account;
+use near_primitives::account::{AccessKey, Account, AccountOrGasKey};
 use near_primitives::bandwidth_scheduler::{BandwidthRequests, BlockBandwidthRequests};
 use near_primitives::chunk_apply_stats::ChunkApplyStatsV0;
 use near_primitives::congestion_info::{BlockCongestionInfo, CongestionInfo};
 use near_primitives::errors::{
-    ActionError, ActionErrorKind, EpochError, IntegerOverflowError, InvalidAccessKeyError,
-    InvalidTxError, RuntimeError, TxExecutionError,
+    ActionError, ActionErrorKind, EpochError, IntegerOverflowError, InvalidTxError, RuntimeError,
+    TxExecutionError,
 };
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{
@@ -54,7 +54,7 @@ use near_primitives::state_record::StateRecord;
 use near_primitives::stateless_validation::contract_distribution::ContractUpdates;
 use near_primitives::transaction::{
     Action, ExecutionMetadata, ExecutionOutcome, ExecutionOutcomeWithId, ExecutionStatus, LogEntry,
-    SignedTransaction, TransferAction,
+    SignedTransaction, TransactionKeyRef, TransferAction,
 };
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{
@@ -72,10 +72,12 @@ use near_store::trie::AccessOptions;
 use near_store::trie::receipts_column_helper::DelayedReceiptQueue;
 use near_store::trie::update::TrieUpdateResult;
 use near_store::{
-    PartialStorage, StorageError, Trie, TrieAccess, TrieChanges, TrieUpdate, get, get_access_key,
-    get_account, get_postponed_receipt, get_promise_yield_receipt, get_pure, get_received_data,
-    has_received_data, remove_postponed_receipt, remove_promise_yield_receipt, set, set_access_key,
-    set_account, set_postponed_receipt, set_promise_yield_receipt, set_received_data,
+    PartialStorage, StorageError, Trie, TrieAccess, TrieChanges, TrieUpdate, get,
+    get_acccess_key_by_tx_key, get_account, get_gas_key, get_postponed_receipt,
+    get_promise_yield_receipt, get_pure, get_received_data, has_received_data,
+    remove_postponed_receipt, remove_promise_yield_receipt, set, set_access_key,
+    set_access_key_or_gas_key_nonce, set_account, set_gas_key, set_postponed_receipt,
+    set_promise_yield_receipt, set_received_data,
 };
 use near_vm_runner::ContractCode;
 use near_vm_runner::ContractRuntimeCache;
@@ -1554,7 +1556,7 @@ impl Runtime {
 
         let mut validations: Vec<Option<InvalidTxError>> = vec![None; num_transactions];
 
-        let ((), (accounts, access_keys)) = rayon::join(
+        let ((), (payers, access_keys)) = rayon::join(
             || {
                 let validation_chunks = validations.par_chunks_mut(chunk_size);
                 let (maybe_expired_txs, tx_expiration_flags) =
@@ -1636,14 +1638,23 @@ impl Runtime {
                     });
             },
             || {
+                type PayerV = Result<Option<AccountOrGasKey>, StorageError>;
+                type PayerK<'a> = (&'a AccountId, Option<&'a PublicKey>);
+                type AccessKeyV = Result<Option<AccessKey>, StorageError>;
+
                 // Use a faster hash builder and more shards to shorten time spent in
                 // these shared maps when many rayon workers prefetch signer data.
-                let accounts = dashmap::DashMap::with_capacity_and_hasher_and_shard_amount(
-                    num_transactions,
-                    AHashRandomState::new(),
-                    128,
-                );
-                let access_keys = dashmap::DashMap::with_capacity_and_hasher_and_shard_amount(
+                let payers =
+                    dashmap::DashMap::<PayerK, PayerV, AHashRandomState>::with_capacity_and_hasher_and_shard_amount(
+                        num_transactions,
+                        AHashRandomState::new(),
+                        128,
+                    );
+                let access_keys = dashmap::DashMap::<
+                    (&AccountId, TransactionKeyRef),
+                    AccessKeyV,
+                    AHashRandomState,
+                >::with_capacity_and_hasher_and_shard_amount(
                     num_transactions,
                     AHashRandomState::new(),
                     128,
@@ -1662,16 +1673,40 @@ impl Runtime {
                             }
 
                             let signer_id = tx.transaction.signer_id();
-                            let pubkey = tx.transaction.public_key();
-                            accounts.entry(signer_id).or_insert_with(|| {
-                                get_account(&processing_state.state_update, signer_id)
-                            });
-                            access_keys.entry((signer_id, pubkey)).or_insert_with(|| {
-                                get_access_key(&processing_state.state_update, signer_id, pubkey)
+                            let tx_key = tx.transaction.key();
+                            match tx_key {
+                                TransactionKeyRef::AccessKey { .. } => {
+                                    // Payer is Account
+                                    payers.entry((signer_id, None)).or_insert_with(|| {
+                                        get_account(&processing_state.state_update, signer_id).map(
+                                            |acc_opt| {
+                                                acc_opt.map(|acc| AccountOrGasKey::Account(acc))
+                                            },
+                                        )
+                                    });
+                                }
+                                TransactionKeyRef::GasKey { key, .. } => {
+                                    // Payer is GasKey
+                                    payers.entry((signer_id, Some(key))).or_insert_with(|| {
+                                        get_gas_key(&processing_state.state_update, signer_id, key)
+                                            .map(|gas_key_opt| {
+                                                gas_key_opt
+                                                    .map(|gas_key| AccountOrGasKey::GasKey(gas_key))
+                                            })
+                                    });
+                                }
+                            }
+
+                            access_keys.entry((signer_id, tx_key)).or_insert_with(|| {
+                                get_acccess_key_by_tx_key(
+                                    &processing_state.state_update,
+                                    signer_id,
+                                    tx_key,
+                                )
                             });
                         }
                     });
-                (accounts, access_keys)
+                (payers, access_keys)
             },
         );
 
@@ -1695,7 +1730,7 @@ impl Runtime {
 
             last_tx_hash = tx.hash();
             let signer_id = tx.transaction.signer_id();
-            let pubkey = tx.transaction.public_key();
+            let tx_key = tx.transaction.key();
             let gas_price = processing_state.apply_state.gas_price;
             let tx_hash = tx.hash();
             let block_height = processing_state.apply_state.block_height;
@@ -1721,8 +1756,12 @@ impl Runtime {
                 };
 
             let verification_result = {
-                let mut account = accounts.get_mut(signer_id);
-                let mut account = match account.as_deref_mut() {
+                let payer_key = match tx_key {
+                    TransactionKeyRef::AccessKey { .. } => (signer_id, None),
+                    TransactionKeyRef::GasKey { key, .. } => (signer_id, Some(key)),
+                };
+                let mut payer = payers.get_mut(&payer_key);
+                let mut payer = match payer.as_deref_mut() {
                     Some(Ok(Some(a))) => a,
                     Some(Ok(None)) => {
                         metrics::TRANSACTION_PROCESSED_FAILED_TOTAL.inc();
@@ -1741,7 +1780,7 @@ impl Runtime {
                     Some(Err(e)) => return Err(e.clone().into()),
                     None => unreachable!("accounts should've been prefetched"),
                 };
-                let mut access_key = access_keys.get_mut(&(signer_id, pubkey));
+                let mut access_key = access_keys.get_mut(&(signer_id, tx_key));
                 let mut access_key = match access_key.as_deref_mut() {
                     Some(Ok(Some(ak))) => ak,
                     Some(Ok(None)) => {
@@ -1750,10 +1789,10 @@ impl Runtime {
                         let outcome = ExecutionOutcomeWithId::failed(
                             tx,
                             InvalidTxError::InvalidAccessKeyError(
-                                InvalidAccessKeyError::AccessKeyNotFound {
-                                    account_id: signer_id.clone(),
-                                    public_key: Box::new(pubkey.clone()),
-                                },
+                                near_primitives::errors::InvalidAccessKeyError::not_found(
+                                    signer_id.clone(),
+                                    tx_key,
+                                ),
                             ),
                         );
 
@@ -1769,7 +1808,7 @@ impl Runtime {
                 };
                 match verify_and_charge_tx_ephemeral(
                     &processing_state.apply_state.config,
-                    &mut account,
+                    &mut payer,
                     &mut access_key,
                     &tx.transaction,
                     &cost,
@@ -1800,7 +1839,7 @@ impl Runtime {
                     receipt_id,
                     signer_id.clone(),
                     tx.transaction.receiver_id().clone(),
-                    pubkey.clone(),
+                    tx_key.public_key().clone(), // XXX : wrong
                     verification_result.receipt_gas_price,
                     tx.transaction.actions().to_vec(),
                 );
@@ -1871,14 +1910,32 @@ impl Runtime {
             .metrics
             .tx_processing_done(processing_state.total.gas, processing_state.total.compute);
 
-        for (id, account) in accounts {
-            if let Ok(Some(account)) = account {
-                set_account(&mut processing_state.state_update, id.clone(), &account);
+        for ((id, gas_key_id), payer) in payers {
+            let Ok(Some(payer)) = payer else {
+                continue;
+            };
+            match payer {
+                AccountOrGasKey::Account(account) => {
+                    set_account(&mut processing_state.state_update, id.clone(), &account);
+                }
+                AccountOrGasKey::GasKey(gas_key) => {
+                    set_gas_key(
+                        &mut processing_state.state_update,
+                        id.clone(),
+                        gas_key_id.unwrap().clone(),
+                        &gas_key,
+                    );
+                }
             }
         }
-        for ((id, pk), ak) in access_keys {
+        for ((id, key), ak) in access_keys {
             if let Ok(Some(ak)) = ak {
-                set_access_key(&mut processing_state.state_update, id.clone(), pk.clone(), &ak);
+                set_access_key_or_gas_key_nonce(
+                    &mut processing_state.state_update,
+                    id.clone(),
+                    key,
+                    &ak,
+                );
             }
         }
 
@@ -2441,8 +2498,9 @@ impl Runtime {
 fn get_batchable_signature_and_public_key(
     signed_tx: &SignedTransaction,
 ) -> Option<(&ed25519_dalek::Signature, ed25519_dalek::VerifyingKey)> {
+    let key = signed_tx.transaction.key();
     let (Signature::ED25519(sig), PublicKey::ED25519(key)) =
-        (&signed_tx.signature, signed_tx.transaction.public_key())
+        (&signed_tx.signature, key.public_key())
     else {
         return None;
     };

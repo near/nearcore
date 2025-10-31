@@ -3,7 +3,7 @@ use crate::config::{TransactionCost, total_prepaid_gas};
 use crate::near_primitives::account::Account;
 use near_crypto::key_conversion::is_valid_staking_key;
 use near_parameters::RuntimeConfig;
-use near_primitives::account::{AccessKey, AccessKeyPermission, GasKey};
+use near_primitives::account::{AccessKey, AccessKeyPermission, AccountOrGasKey, GasKey};
 use near_primitives::action::delegate::SignedDelegateAction;
 use near_primitives::action::{
     AddGasKeyAction, AddKeyAction, DeployGlobalContractAction, DeterministicStateInitAction,
@@ -16,6 +16,7 @@ use near_primitives::receipt::{
 };
 use near_primitives::transaction::{
     Action, DeployContractAction, FunctionCallAction, SignedTransaction, StakeAction, Transaction,
+    TransactionKeyRef,
 };
 use near_primitives::transaction::{DeleteAccountAction, ValidatedTransaction};
 use near_primitives::types::{AccountId, Balance, Gas};
@@ -24,7 +25,8 @@ use near_primitives::utils::derive_near_deterministic_account_id;
 use near_primitives::version::ProtocolFeature;
 use near_primitives::version::ProtocolVersion;
 use near_store::{
-    StorageError, TrieUpdate, get_access_key, get_account, set_access_key, set_account,
+    StorageError, TrieUpdate, get_acccess_key_by_tx_key, get_account, get_gas_key,
+    set_access_key_or_gas_key_nonce, set_account, set_gas_key,
 };
 use near_vm_runner::logic::LimitConfig;
 
@@ -141,40 +143,66 @@ pub(crate) fn validate_transaction_well_formed<'a>(
 pub fn set_tx_state_changes(
     state_update: &mut TrieUpdate,
     validated_tx: &ValidatedTransaction,
-    signer: &Account,
+    signer: &AccountOrGasKey,
     access_key: &AccessKey,
 ) {
     let tx = validated_tx.to_tx();
-    set_access_key(state_update, tx.signer_id().clone(), tx.public_key().clone(), &access_key);
-    set_account(state_update, tx.signer_id().clone(), &signer);
+    set_access_key_or_gas_key_nonce(state_update, tx.signer_id().clone(), tx.key(), access_key);
+    match (validated_tx.key(), signer) {
+        (TransactionKeyRef::AccessKey { .. }, AccountOrGasKey::Account(account)) => {
+            set_account(state_update, tx.signer_id().clone(), account)
+        }
+        (TransactionKeyRef::GasKey { key, .. }, AccountOrGasKey::GasKey(gas_key)) => {
+            set_gas_key(state_update, tx.signer_id().clone(), key.clone(), gas_key);
+        }
+        _ => {
+            panic!("Mismatched signer and transaction key types");
+        }
+    }
 }
 
-pub fn get_signer_and_access_key(
+pub fn get_payer_and_access_key(
     state_update: &dyn near_store::TrieAccess,
     validated_tx: &ValidatedTransaction,
-) -> Result<(Account, AccessKey), InvalidTxError> {
+) -> Result<(AccountOrGasKey, AccessKey), InvalidTxError> {
     let signer_id = validated_tx.signer_id();
-
-    let signer = match get_account(state_update, signer_id)? {
-        Some(signer) => signer,
-        None => {
-            return Err(InvalidTxError::SignerDoesNotExist { signer_id: signer_id.clone() });
+    let payer = match validated_tx.key() {
+        TransactionKeyRef::AccessKey { .. } => {
+            let signer = match get_account(state_update, signer_id)? {
+                Some(signer) => signer,
+                None => {
+                    return Err(InvalidTxError::SignerDoesNotExist {
+                        signer_id: signer_id.clone(),
+                    });
+                }
+            };
+            AccountOrGasKey::Account(signer)
+        }
+        TransactionKeyRef::GasKey { key, .. } => {
+            let gas_key = match get_gas_key(state_update, signer_id, key)? {
+                Some(gas_key) => gas_key,
+                None => {
+                    return Err(InvalidTxError::GasKeyDoesNotExist {
+                        signer_id: signer_id.clone(),
+                        public_key: key.clone(),
+                    });
+                }
+            };
+            AccountOrGasKey::GasKey(gas_key)
         }
     };
 
-    let access_key = match get_access_key(state_update, signer_id, validated_tx.public_key())? {
+    let access_key = match get_acccess_key_by_tx_key(state_update, signer_id, validated_tx.key())? {
         Some(access_key) => access_key,
         None => {
-            return Err(InvalidTxError::InvalidAccessKeyError(
-                InvalidAccessKeyError::AccessKeyNotFound {
-                    account_id: signer_id.clone(),
-                    public_key: validated_tx.public_key().clone().into(),
-                },
-            )
+            return Err(InvalidTxError::InvalidAccessKeyError(InvalidAccessKeyError::not_found(
+                signer_id.clone(),
+                validated_tx.key(),
+            ))
             .into());
         }
     };
-    Ok((signer, access_key))
+    Ok((payer, access_key))
 }
 
 /// Verify nonce, balance and access key for the transaction given the account state.
@@ -183,7 +211,7 @@ pub fn get_signer_and_access_key(
 /// `Ok`.
 pub fn verify_and_charge_tx_ephemeral(
     config: &RuntimeConfig,
-    signer: &mut Account,
+    payer: &mut AccountOrGasKey,
     access_key: &mut AccessKey,
     tx: &Transaction,
     transaction_cost: &TransactionCost,
@@ -204,7 +232,7 @@ pub fn verify_and_charge_tx_ephemeral(
         }
     }
 
-    let balance = signer.amount();
+    let balance = payer.amount();
     let Some(new_amount) = balance.checked_sub(total_cost) else {
         let signer_id = signer_id.clone();
         let err = InvalidTxError::NotEnoughBalance { signer_id, balance, cost: total_cost };
@@ -214,26 +242,30 @@ pub fn verify_and_charge_tx_ephemeral(
     if let AccessKeyPermission::FunctionCall(ref mut perms) = access_key.permission {
         if let Some(ref mut allowance) = perms.allowance {
             *allowance = allowance.checked_sub(total_cost).ok_or_else(|| {
-                InvalidTxError::InvalidAccessKeyError(InvalidAccessKeyError::NotEnoughAllowance {
-                    account_id: signer_id.clone(),
-                    public_key: tx.public_key().clone().into(),
-                    allowance: *allowance,
-                    cost: total_cost,
-                })
+                InvalidTxError::InvalidAccessKeyError(InvalidAccessKeyError::not_enough_allowance(
+                    signer_id.clone(),
+                    tx.key(),
+                    *allowance,
+                    total_cost,
+                ))
             })?;
         }
     }
 
-    match check_storage_stake(&signer, new_amount, config) {
-        Ok(()) => {}
-        Err(StorageStakingError::LackBalanceForStorageStaking(amount)) => {
-            let err = InvalidTxError::LackBalanceForState { signer_id: signer_id.clone(), amount };
-            return Err(err.into());
-        }
-        Err(StorageStakingError::StorageError(err)) => {
-            return Err(StorageError::StorageInconsistentState(err).into());
-        }
-    };
+    // XXX: Is this correct? Should we check storage staking for gas keys as well?
+    if let AccountOrGasKey::Account(account) = payer {
+        match check_storage_stake(&account, new_amount, config) {
+            Ok(()) => {}
+            Err(StorageStakingError::LackBalanceForStorageStaking(amount)) => {
+                let err =
+                    InvalidTxError::LackBalanceForState { signer_id: signer_id.clone(), amount };
+                return Err(err.into());
+            }
+            Err(StorageStakingError::StorageError(err)) => {
+                return Err(StorageError::StorageInconsistentState(err).into());
+            }
+        };
+    }
 
     if let AccessKeyPermission::FunctionCall(ref function_call_permission) = access_key.permission {
         if tx.actions().len() != 1 {
@@ -272,7 +304,7 @@ pub fn verify_and_charge_tx_ephemeral(
     };
 
     access_key.nonce = tx.nonce();
-    signer.set_amount(new_amount);
+    payer.set_amount(new_amount);
     Ok(VerificationResult { gas_burnt, gas_remaining, receipt_gas_price, burnt_amount })
 }
 
@@ -734,7 +766,7 @@ mod tests {
     use near_primitives::types::{AccountId, Balance, MerkleHash, StateChangeCause};
     use near_primitives::version::PROTOCOL_VERSION;
     use near_store::test_utils::TestTriesBuilder;
-    use near_store::{set, set_access_key, set_account};
+    use near_store::{get_access_key, set, set_access_key, set_account};
     use near_vm_runner::ContractCode;
     use std::collections::BTreeMap;
     use std::sync::Arc;
@@ -872,7 +904,7 @@ mod tests {
         };
 
         let (mut signer, mut access_key) =
-            match get_signer_and_access_key(state_update, &validated_tx) {
+            match get_payer_and_access_key(state_update, &validated_tx) {
                 Ok((signer, access_key)) => (signer, access_key),
                 Err(err) => {
                     assert_eq!(err, expected_err);
@@ -905,7 +937,7 @@ mod tests {
             Ok(validated_tx) => validated_tx,
             Err((err, _tx)) => return Err(err),
         };
-        let (mut signer, mut access_key) = get_signer_and_access_key(state_update, &validated_tx)?;
+        let (mut signer, mut access_key) = get_payer_and_access_key(state_update, &validated_tx)?;
 
         let transaction_cost = tx_cost(config, &validated_tx.to_tx(), gas_price)?;
         let vr = verify_and_charge_tx_ephemeral(
