@@ -2,26 +2,30 @@ use crate::accounts_data::{AccountDataCache, AccountDataError};
 use crate::announce_accounts::AnnounceAccountCache;
 use crate::client::{
     BlockApproval, ChunkEndorsementMessage, ClientSenderForNetwork, ProcessTxRequest,
-    TxStatusRequest, TxStatusResponse,
+    SpiceChunkEndorsementMessage, StateResponse, StateResponseReceived, TxStatusRequest,
+    TxStatusResponse,
 };
 use crate::concurrency::demux;
-use crate::concurrency::runtime::Runtime;
 use crate::config;
 use crate::network_protocol::{
     Edge, EdgeState, PartialEdgeInfo, PeerIdOrHash, PeerInfo, PeerMessage, RawRoutedMessage,
-    RoutedMessageBody, RoutedMessageV2, SignedAccountData, SnapshotHostInfo,
+    RoutedMessage, SignedAccountData, SnapshotHostInfo, T1MessageBody, T2MessageBody,
+    TieredMessageBody,
 };
 use crate::peer::peer_actor::ClosingReason;
 use crate::peer::peer_actor::PeerActor;
 use crate::peer_manager::connection;
 use crate::peer_manager::connection_store;
 use crate::peer_manager::peer_store;
-use crate::private_actix::RegisterPeerError;
+use crate::private_messages::RegisterPeerError;
 #[cfg(feature = "distance_vector_routing")]
 use crate::routing::NetworkTopologyChange;
 use crate::routing::route_back_cache::RouteBackCache;
 use crate::shards_manager::ShardsManagerRequestFromNetwork;
 use crate::snapshot_hosts::{SnapshotHostInfoError, SnapshotHostsCache};
+use crate::spice_data_distribution::{
+    SpiceDataDistributorSenderForNetwork, SpiceIncomingPartialData,
+};
 use crate::state_witness::{
     ChunkContractAccessesMessage, ChunkStateWitnessAckMessage, ContractCodeRequestMessage,
     ContractCodeResponseMessage, PartialEncodedContractDeploysMessage,
@@ -32,13 +36,15 @@ use crate::stats::metrics;
 use crate::store;
 use crate::tcp;
 use crate::types::{
-    ChainInfo, PeerManagerSenderForNetwork, PeerType, ReasonForBan, StatePartRequestBody,
-    Tier3Request, Tier3RequestBody,
+    ChainInfo, PeerManagerSenderForNetwork, PeerType, ReasonForBan, StateHeaderRequestBody,
+    StatePartRequestBody, StateRequestSenderForNetwork, Tier3Request, Tier3RequestBody,
 };
 use anyhow::Context;
 use arc_swap::ArcSwap;
-use near_async::messaging::{CanSend, SendAsync, Sender};
-use near_async::time;
+use near_async::futures::{FutureSpawner, FutureSpawnerExt};
+use near_async::messaging::{CanSend, CanSendAsync, Sender};
+use near_async::{ActorSystem, new_owned_future_spawner, time};
+use near_o11y::span_wrapped_msg::SpanWrappedMessageExt;
 use near_primitives::genesis::GenesisId;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
@@ -48,7 +54,6 @@ use std::net::SocketAddr;
 use std::num::NonZeroUsize;
 use std::sync::Arc;
 use std::sync::atomic::AtomicUsize;
-use tracing::Instrument as _;
 
 mod routing;
 mod tier1;
@@ -92,15 +97,8 @@ pub(crate) struct WhitelistNode {
 }
 
 pub(crate) struct NetworkState {
-    /// Dedicated runtime for `NetworkState` which runs in a separate thread.
-    /// Async methods of NetworkState are not cancellable,
-    /// so calling them from, for example, PeerActor is dangerous because
-    /// PeerActor can be stopped at any moment.
-    /// WARNING: DO NOT spawn infinite futures/background loops on this arbiter,
-    /// as it will be automatically closed only when the NetworkState is dropped.
-    /// WARNING: actix actors can be spawned only when actix::System::current() is set.
-    /// DO NOT spawn actors from a task on this runtime.
-    runtime: Runtime,
+    /// Single-threaded tokio runtime for NetworkState operations
+    ops_spawner: Box<dyn FutureSpawner>,
     /// PeerManager config.
     pub config: config::VerifiedConfig,
     /// When network state has been constructed.
@@ -108,9 +106,12 @@ pub(crate) struct NetworkState {
     /// GenesisId of the chain.
     pub genesis_id: GenesisId,
     pub client: ClientSenderForNetwork,
+    pub state_request_adapter: StateRequestSenderForNetwork,
     pub peer_manager_adapter: PeerManagerSenderForNetwork,
     pub shards_manager_adapter: Sender<ShardsManagerRequestFromNetwork>,
     pub partial_witness_adapter: PartialWitnessSenderForNetwork,
+    pub spice_data_distributor_adapter: SpiceDataDistributorSenderForNetwork,
+    pub spice_core_writer_adapter: Sender<SpiceChunkEndorsementMessage>,
 
     /// Network-related info about the chain.
     pub chain_info: ArcSwap<Option<ChainInfo>>,
@@ -178,30 +179,41 @@ pub(crate) struct NetworkState {
 impl NetworkState {
     pub fn new(
         clock: &time::Clock,
+        future_spawner: &dyn FutureSpawner,
         store: store::Store,
         peer_store: peer_store::PeerStore,
         config: config::VerifiedConfig,
         genesis_id: GenesisId,
         client: ClientSenderForNetwork,
+        state_request_adapter: StateRequestSenderForNetwork,
         peer_manager_adapter: PeerManagerSenderForNetwork,
         shards_manager_adapter: Sender<ShardsManagerRequestFromNetwork>,
         partial_witness_adapter: PartialWitnessSenderForNetwork,
         whitelist_nodes: Vec<WhitelistNode>,
+        spice_data_distributor_adapter: SpiceDataDistributorSenderForNetwork,
+        spice_core_writer_adapter: Sender<SpiceChunkEndorsementMessage>,
     ) -> Self {
         Self {
-            runtime: Runtime::new(),
-            graph: Arc::new(crate::routing::Graph::new(crate::routing::GraphConfig {
-                node_id: config.node_id(),
-                prune_unreachable_peers_after: PRUNE_UNREACHABLE_PEERS_AFTER,
-                prune_edges_after: Some(PRUNE_EDGES_AFTER),
-            })),
+            ops_spawner: new_owned_future_spawner("NetworkState ops"),
+            graph: crate::routing::Graph::new(
+                clock.clone(),
+                crate::routing::GraphConfig {
+                    node_id: config.node_id(),
+                    prune_unreachable_peers_after: PRUNE_UNREACHABLE_PEERS_AFTER,
+                    prune_edges_after: Some(PRUNE_EDGES_AFTER),
+                },
+            ),
             #[cfg(feature = "distance_vector_routing")]
-            graph_v2: Arc::new(crate::routing::GraphV2::new(crate::routing::GraphConfigV2 {
-                node_id: config.node_id(),
-                prune_edges_after: Some(PRUNE_EDGES_AFTER),
-            })),
+            graph_v2: crate::routing::GraphV2::new(
+                clock.clone(),
+                crate::routing::GraphConfigV2 {
+                    node_id: config.node_id(),
+                    prune_edges_after: Some(PRUNE_EDGES_AFTER),
+                },
+            ),
             genesis_id,
             client,
+            state_request_adapter,
             peer_manager_adapter,
             shards_manager_adapter,
             partial_witness_adapter,
@@ -224,13 +236,18 @@ impl NetworkState {
             )),
             txns_since_last_block: AtomicUsize::new(0),
             whitelist_nodes,
-            add_edges_demux: demux::Demux::new(config.routing_table_update_rate_limit),
+            add_edges_demux: demux::Demux::new(
+                config.routing_table_update_rate_limit,
+                future_spawner,
+            ),
             #[cfg(feature = "distance_vector_routing")]
             update_routes_demux: demux::Demux::new(config.routing_table_update_rate_limit),
             set_chain_info_mutex: Mutex::new(()),
             config,
             created_at: clock.now(),
             tier1_advertise_proxies_mutex: tokio::sync::Mutex::new(()),
+            spice_data_distributor_adapter,
+            spice_core_writer_adapter,
         }
     }
 
@@ -244,9 +261,15 @@ impl NetworkState {
     /// the noncancellable logic will be run in the background anyway.
     fn spawn<R: 'static + Send>(
         &self,
+        description: &'static str,
         fut: impl std::future::Future<Output = R> + 'static + Send,
-    ) -> tokio::task::JoinHandle<R> {
-        self.runtime.handle.spawn(fut.in_current_span())
+    ) -> tokio::sync::oneshot::Receiver<R> {
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        self.ops_spawner.spawn(description, async move {
+            let res = fut.await;
+            let _ = tx.send(res);
+        });
+        rx
     }
 
     /// Stops peer instance if it is still connected,
@@ -309,7 +332,7 @@ impl NetworkState {
     ) -> Result<(), RegisterPeerError> {
         let this = self.clone();
         let clock = clock.clone();
-        self.spawn(async move {
+        self.spawn("register_connection", async move {
             let peer_info = &conn.peer_info;
             // Check if this is a blacklisted peer.
             if peer_info.addr.as_ref().map_or(true, |addr| this.peer_store.is_blacklisted(addr)) {
@@ -325,7 +348,7 @@ impl NetworkState {
             match conn.tier {
                 tcp::Tier::T1 => {
                     if conn.peer_type == PeerType::Inbound {
-                        if !this.config.tier1.as_ref().is_some_and(|c| c.enable_inbound) {
+                        if !this.config.tier1.enable_inbound {
                             return Err(RegisterPeerError::Tier1InboundDisabled);
                         }
                         // Allow for inbound TIER1 connections only directly from a TIER1 peers.
@@ -362,7 +385,7 @@ impl NetworkState {
                     this.tier2.insert_ready(conn.clone()).map_err(RegisterPeerError::PoolError)?;
                     // Update the V2 routing table
                     #[cfg(feature = "distance_vector_routing")]
-                    this.update_routes(&clock, NetworkTopologyChange::PeerConnected(peer_info.id.clone(), edge.clone()))
+                    this.update_routes(NetworkTopologyChange::PeerConnected(peer_info.id.clone(), edge.clone()))
                         .await.map_err(|_: ReasonForBan| RegisterPeerError::InvalidEdge)?;
                     // Write to the peer store
                     this.peer_store.peer_connected(&clock, peer_info);
@@ -398,7 +421,7 @@ impl NetworkState {
         let this = self.clone();
         let clock = clock.clone();
         let conn = conn.clone();
-        self.spawn(async move {
+        self.spawn("unregister_connection", async move {
             match conn.tier {
                 tcp::Tier::T1 => this.tier1.remove(&conn),
                 tcp::Tier::T2 => this.tier2.remove(&conn),
@@ -425,7 +448,7 @@ impl NetworkState {
 
             // Update the V2 routing table
             #[cfg(feature = "distance_vector_routing")]
-            this.update_routes(&clock, NetworkTopologyChange::PeerDisconnected(peer_id.clone()))
+            this.update_routes(NetworkTopologyChange::PeerDisconnected(peer_id.clone()))
                 .await
                 .unwrap();
 
@@ -462,6 +485,7 @@ impl NetworkState {
     pub async fn reconnect(
         self: &Arc<Self>,
         clock: time::Clock,
+        actor_system: ActorSystem,
         peer_info: PeerInfo,
         max_attempts: usize,
     ) {
@@ -474,9 +498,14 @@ impl NetworkState {
                     tcp::Stream::connect(&peer_info, tcp::Tier::T2, &self.config.socket_options)
                         .await
                         .context("tcp::Stream::connect()")?;
-                PeerActor::spawn_and_handshake(clock.clone(), stream, self.clone())
-                    .await
-                    .context("PeerActor::spawn()")?;
+                PeerActor::spawn_and_handshake(
+                    clock.clone(),
+                    actor_system.clone(),
+                    stream,
+                    self.clone(),
+                )
+                .await
+                .context("PeerActor::spawn()")?;
                 anyhow::Ok(())
             }
             .await;
@@ -508,24 +537,26 @@ impl NetworkState {
 
     #[cfg(test)]
     pub fn send_ping(&self, clock: &time::Clock, tier: tcp::Tier, nonce: u64, target: PeerId) {
-        let body = RoutedMessageBody::Ping(crate::network_protocol::Ping {
+        let body = T2MessageBody::Ping(crate::network_protocol::Ping {
             nonce,
             source: self.config.node_id(),
-        });
+        })
+        .into();
         let msg = RawRoutedMessage { target: PeerIdOrHash::PeerId(target), body };
         self.send_message_to_peer(clock, tier, self.sign_message(clock, msg));
     }
 
     pub fn send_pong(&self, clock: &time::Clock, tier: tcp::Tier, nonce: u64, target: CryptoHash) {
-        let body = RoutedMessageBody::Pong(crate::network_protocol::Pong {
+        let body = T2MessageBody::Pong(crate::network_protocol::Pong {
             nonce,
             source: self.config.node_id(),
-        });
+        })
+        .into();
         let msg = RawRoutedMessage { target: PeerIdOrHash::Hash(target), body };
         self.send_message_to_peer(clock, tier, self.sign_message(clock, msg));
     }
 
-    pub fn sign_message(&self, clock: &time::Clock, msg: RawRoutedMessage) -> Box<RoutedMessageV2> {
+    pub fn sign_message(&self, clock: &time::Clock, msg: RawRoutedMessage) -> Box<RoutedMessage> {
         Box::new(msg.sign(
             &self.config.node_key,
             self.config.routed_message_ttl,
@@ -539,12 +570,12 @@ impl NetworkState {
         &self,
         clock: &time::Clock,
         tier: tcp::Tier,
-        msg: Box<RoutedMessageV2>,
+        msg: Box<RoutedMessage>,
     ) -> bool {
         let my_peer_id = self.config.node_id();
 
         // Check if the message is for myself and don't try to send it in that case.
-        if let PeerIdOrHash::PeerId(target) = &msg.target {
+        if let PeerIdOrHash::PeerId(target) = msg.target() {
             if target == &my_peer_id {
                 tracing::debug!(target: "network", account_id = ?self.config.validator.account_id(), ?my_peer_id, ?msg, "Drop signed message to myself");
                 metrics::CONNECTED_TO_MYSELF.inc();
@@ -553,11 +584,11 @@ impl NetworkState {
         }
         match tier {
             tcp::Tier::T1 => {
-                let peer_id = match &msg.target {
+                let peer_id = match msg.target() {
                     // If a message is a response, we try to load the target from the route back
                     // cache.
                     PeerIdOrHash::Hash(hash) => {
-                        match self.tier1_route_back.lock().remove(clock, hash) {
+                        match self.tier1_route_back.lock().remove(clock, &hash) {
                             Some(peer_id) => peer_id,
                             None => return false,
                         }
@@ -567,10 +598,10 @@ impl NetworkState {
                 return self.tier1.send_message(peer_id, Arc::new(PeerMessage::Routed(msg)));
             }
             tcp::Tier::T2 => {
-                match self.tier2_find_route(&clock, &msg.target) {
+                match self.tier2_find_route(&clock, msg.target()) {
                     Ok(peer_id) => {
                         // Remember if we expect a response for this message.
-                        if msg.author == my_peer_id && msg.expect_response() {
+                        if *msg.author() == my_peer_id && msg.expect_response() {
                             tracing::trace!(target: "network", ?msg, "initiate route back");
                             self.tier2_route_back.lock().insert(clock, msg.hash(), my_peer_id);
                         }
@@ -580,14 +611,14 @@ impl NetworkState {
                     }
                     Err(find_route_error) => {
                         // TODO(MarX, #1369): Message is dropped here. Define policy for this case.
-                        metrics::MessageDropped::NoRouteFound.inc(&msg.body);
+                        metrics::MessageDropped::NoRouteFound.inc(msg.body());
 
                         tracing::debug!(target: "network",
                               account_id = ?self.config.validator.account_id(),
-                              to = ?msg.target,
+                              to = ?msg.target(),
                               reason = ?find_route_error,
                               known_peers = ?self.graph.routing_table.reachable_peers(),
-                              msg = ?msg.body,
+                              msg = ?msg.body(),
                             "Drop signed message"
                         );
                         return false;
@@ -595,7 +626,7 @@ impl NetworkState {
                 }
             }
             tcp::Tier::T3 => {
-                let peer_id = match &msg.target {
+                let peer_id = match msg.target() {
                     PeerIdOrHash::Hash(_) => {
                         // There is no route back cache for TIER3 as all connections are direct
                         debug_assert!(false);
@@ -615,7 +646,7 @@ impl NetworkState {
         self: &Arc<Self>,
         clock: &time::Clock,
         account_id: &AccountId,
-        msg: RoutedMessageBody,
+        msg: TieredMessageBody,
     ) -> bool {
         // If the message is allowed to be sent to self, we handle it directly.
         if self.config.validator.account_id().is_some_and(|id| &id == account_id) {
@@ -628,14 +659,14 @@ impl NetworkState {
                 &clock,
                 RawRoutedMessage { target: PeerIdOrHash::PeerId(my_peer_id.clone()), body: msg },
             );
-            actix::spawn(async move {
+            self.spawn("send_message_to_account", async move {
                 let hash = msg.hash();
                 this.receive_routed_message(
                     &clock,
-                    msg.msg.author.clone(),
+                    msg.author().clone(),
                     my_peer_id,
                     hash,
-                    msg.msg.body,
+                    msg.body_owned(),
                 )
                 .await;
             });
@@ -672,8 +703,7 @@ impl NetworkState {
             .get(account_id)
             .iter()
             .flat_map(|keys| keys.iter())
-            .flat_map(|key| accounts_data.data.get(key))
-            .next()
+            .find_map(|key| accounts_data.data.get(key))
             .map(|data| data.peer_id.clone());
         // Find the target peer_id:
         // - first look it up in self.accounts_data
@@ -700,7 +730,7 @@ impl NetworkState {
         let mut success = false;
         let msg = RawRoutedMessage { target: PeerIdOrHash::PeerId(target), body: msg };
         let msg = self.sign_message(clock, msg);
-        for _ in 0..msg.body.message_resend_count() {
+        for _ in 0..msg.body().message_resend_count() {
             success |= self.send_message_to_peer(clock, tcp::Tier::T2, msg.clone());
         }
         success
@@ -712,115 +742,166 @@ impl NetworkState {
         msg_author: PeerId,
         prev_hop: PeerId,
         msg_hash: CryptoHash,
-        body: RoutedMessageBody,
-    ) -> Option<RoutedMessageBody> {
+        body: TieredMessageBody,
+    ) -> Option<TieredMessageBody> {
         match body {
-            RoutedMessageBody::TxStatusRequest(account_id, tx_hash) => self
-                .client
-                .send_async(TxStatusRequest { tx_hash, signer_account_id: account_id })
-                .await
-                .ok()
-                .flatten()
-                .map(|response| RoutedMessageBody::TxStatusResponse(*response)),
-            RoutedMessageBody::TxStatusResponse(tx_result) => {
-                self.client.send_async(TxStatusResponse(tx_result.into())).await.ok();
-                None
-            }
-            RoutedMessageBody::BlockApproval(approval) => {
-                self.client.send_async(BlockApproval(approval, prev_hop)).await.ok();
-                None
-            }
-            RoutedMessageBody::ForwardTx(transaction) => {
-                self.client
-                    .send_async(ProcessTxRequest {
-                        transaction,
-                        is_forwarded: true,
-                        check_only: false,
-                    })
+            TieredMessageBody::T1(body) => match *body {
+                T1MessageBody::BlockApproval(approval) => {
+                    self.client
+                        .send_async(BlockApproval(approval, prev_hop).span_wrap())
+                        .await
+                        .ok();
+                    None
+                }
+                T1MessageBody::VersionedPartialEncodedChunk(chunk) => {
+                    self.shards_manager_adapter
+                        .send(ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunk(*chunk));
+                    None
+                }
+                T1MessageBody::PartialEncodedChunkForward(msg) => {
+                    self.shards_manager_adapter.send(
+                        ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunkForward(msg),
+                    );
+                    None
+                }
+                T1MessageBody::PartialEncodedStateWitness(witness) => {
+                    self.partial_witness_adapter.send(PartialEncodedStateWitnessMessage(witness));
+                    None
+                }
+                T1MessageBody::PartialEncodedStateWitnessForward(witness) => {
+                    self.partial_witness_adapter
+                        .send(PartialEncodedStateWitnessForwardMessage(witness));
+                    None
+                }
+                T1MessageBody::VersionedChunkEndorsement(endorsement) => {
+                    self.client.send_async(ChunkEndorsementMessage(endorsement)).await.ok();
+                    None
+                }
+                T1MessageBody::ChunkContractAccesses(accesses) => {
+                    self.partial_witness_adapter.send(ChunkContractAccessesMessage(accesses));
+                    None
+                }
+                T1MessageBody::ContractCodeRequest(request) => {
+                    self.partial_witness_adapter.send(ContractCodeRequestMessage(request));
+                    None
+                }
+                T1MessageBody::ContractCodeResponse(response) => {
+                    self.partial_witness_adapter.send(ContractCodeResponseMessage(response));
+                    None
+                }
+                T1MessageBody::SpicePartialData(spice_partial_data) => {
+                    self.spice_data_distributor_adapter
+                        .send(SpiceIncomingPartialData { data: spice_partial_data });
+                    None
+                }
+                T1MessageBody::SpiceChunkEndorsement(endorsement) => {
+                    self.spice_core_writer_adapter.send(SpiceChunkEndorsementMessage(endorsement));
+                    None
+                }
+                T1MessageBody::SpicePartialDataRequest(request) => {
+                    self.spice_data_distributor_adapter.send(request);
+                    None
+                }
+            },
+            TieredMessageBody::T2(body) => match *body {
+                T2MessageBody::TxStatusRequest(account_id, tx_hash) => self
+                    .client
+                    .send_async(TxStatusRequest { tx_hash, signer_account_id: account_id })
                     .await
-                    .ok();
-                None
-            }
-            RoutedMessageBody::PartialEncodedChunkRequest(request) => {
-                self.shards_manager_adapter.send(
-                    ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunkRequest {
-                        partial_encoded_chunk_request: request,
-                        route_back: msg_hash,
-                    },
-                );
-                None
-            }
-            RoutedMessageBody::PartialEncodedChunkResponse(response) => {
-                self.shards_manager_adapter.send(
-                    ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunkResponse {
-                        partial_encoded_chunk_response: response,
-                        received_time: clock.now().into(),
-                    },
-                );
-                None
-            }
-            RoutedMessageBody::VersionedPartialEncodedChunk(chunk) => {
-                self.shards_manager_adapter
-                    .send(ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunk(chunk));
-                None
-            }
-            RoutedMessageBody::PartialEncodedChunkForward(msg) => {
-                self.shards_manager_adapter
-                    .send(ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunkForward(msg));
-                None
-            }
-            RoutedMessageBody::ChunkStateWitnessAck(ack) => {
-                self.partial_witness_adapter.send(ChunkStateWitnessAckMessage(ack));
-                None
-            }
-            RoutedMessageBody::PartialEncodedStateWitness(witness) => {
-                self.partial_witness_adapter.send(PartialEncodedStateWitnessMessage(witness));
-                None
-            }
-            RoutedMessageBody::PartialEncodedStateWitnessForward(witness) => {
-                self.partial_witness_adapter
-                    .send(PartialEncodedStateWitnessForwardMessage(witness));
-                None
-            }
-            RoutedMessageBody::VersionedChunkEndorsement(endorsement) => {
-                self.client.send_async(ChunkEndorsementMessage(endorsement)).await.ok();
-                None
-            }
-            RoutedMessageBody::StatePartRequest(request) => {
-                self.peer_manager_adapter.send(Tier3Request {
-                    peer_info: PeerInfo {
-                        id: msg_author,
-                        addr: Some(request.addr),
-                        account_id: None,
-                    },
-                    body: Tier3RequestBody::StatePart(StatePartRequestBody {
-                        shard_id: request.shard_id,
-                        sync_hash: request.sync_hash,
-                        part_id: request.part_id,
+                    .ok()
+                    .flatten()
+                    .map(|response| {
+                        TieredMessageBody::T2(Box::new(T2MessageBody::TxStatusResponse(response)))
                     }),
-                });
-                None
-            }
-            RoutedMessageBody::ChunkContractAccesses(accesses) => {
-                self.partial_witness_adapter.send(ChunkContractAccessesMessage(accesses));
-                None
-            }
-            RoutedMessageBody::ContractCodeRequest(request) => {
-                self.partial_witness_adapter.send(ContractCodeRequestMessage(request));
-                None
-            }
-            RoutedMessageBody::ContractCodeResponse(response) => {
-                self.partial_witness_adapter.send(ContractCodeResponseMessage(response));
-                None
-            }
-            RoutedMessageBody::PartialEncodedContractDeploys(deploys) => {
-                self.partial_witness_adapter.send(PartialEncodedContractDeploysMessage(deploys));
-                None
-            }
-            body => {
-                tracing::error!(target: "network", "Peer received unexpected message type: {:?}", body);
-                None
-            }
+                T2MessageBody::TxStatusResponse(tx_result) => {
+                    self.client.send_async(TxStatusResponse(tx_result.into())).await.ok();
+                    None
+                }
+                T2MessageBody::ForwardTx(transaction) => {
+                    self.client
+                        .send_async(ProcessTxRequest {
+                            transaction,
+                            is_forwarded: true,
+                            check_only: false,
+                        })
+                        .await
+                        .ok();
+                    None
+                }
+                T2MessageBody::PartialEncodedChunkRequest(request) => {
+                    self.shards_manager_adapter.send(
+                        ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunkRequest {
+                            partial_encoded_chunk_request: request,
+                            route_back: msg_hash,
+                        },
+                    );
+                    None
+                }
+                T2MessageBody::PartialEncodedChunkResponse(response) => {
+                    self.shards_manager_adapter.send(
+                        ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunkResponse {
+                            partial_encoded_chunk_response: response,
+                            received_time: clock.now().into(),
+                        },
+                    );
+                    None
+                }
+                T2MessageBody::ChunkStateWitnessAck(ack) => {
+                    self.partial_witness_adapter.send(ChunkStateWitnessAckMessage(ack));
+                    None
+                }
+                T2MessageBody::StateHeaderRequest(request) => {
+                    self.peer_manager_adapter.send(Tier3Request {
+                        peer_info: PeerInfo {
+                            id: msg_author,
+                            addr: Some(request.addr),
+                            account_id: None,
+                        },
+                        body: Tier3RequestBody::StateHeader(StateHeaderRequestBody {
+                            shard_id: request.shard_id,
+                            sync_hash: request.sync_hash,
+                        }),
+                    });
+                    None
+                }
+                T2MessageBody::StatePartRequest(request) => {
+                    self.peer_manager_adapter.send(Tier3Request {
+                        peer_info: PeerInfo {
+                            id: msg_author,
+                            addr: Some(request.addr),
+                            account_id: None,
+                        },
+                        body: Tier3RequestBody::StatePart(StatePartRequestBody {
+                            shard_id: request.shard_id,
+                            sync_hash: request.sync_hash,
+                            part_id: request.part_id,
+                        }),
+                    });
+                    None
+                }
+                T2MessageBody::PartialEncodedContractDeploys(deploys) => {
+                    self.partial_witness_adapter
+                        .send(PartialEncodedContractDeploysMessage(deploys));
+                    None
+                }
+                T2MessageBody::StateRequestAck(ack) => {
+                    self.client
+                        .send_async(
+                            StateResponseReceived {
+                                peer_id: msg_author,
+                                state_response: StateResponse::Ack(ack),
+                            }
+                            .span_wrap(),
+                        )
+                        .await
+                        .ok();
+                    None
+                }
+                body => {
+                    tracing::error!(target: "network", "Peer received unexpected message type: {:?}", body);
+                    None
+                }
+            },
         }
     }
 
@@ -831,7 +912,7 @@ impl NetworkState {
     ) -> Option<AccountDataError> {
         let this = self.clone();
         let clock = clock.clone();
-        self.spawn(async move {
+        self.spawn("add_accounts_data", async move {
             // Verify and add the new data to the internal state.
             let (new_data, err) = this.accounts_data.clone().insert(&clock, accounts_data).await;
             // Broadcast any new data we have found, even in presence of an error.
@@ -842,7 +923,9 @@ impl NetworkState {
                 let tasks: Vec<_> = tier2
                     .ready
                     .values()
-                    .map(|p| this.spawn(p.send_accounts_data(new_data.clone())))
+                    .map(|p| {
+                        this.spawn("send_accounts_data", p.send_accounts_data(new_data.clone()))
+                    })
                     .collect();
                 for t in tasks {
                     t.await.unwrap();
@@ -859,7 +942,7 @@ impl NetworkState {
         hosts: Vec<Arc<SnapshotHostInfo>>,
     ) -> Option<SnapshotHostInfoError> {
         let this = self.clone();
-        self.spawn(async move {
+        self.spawn("add_snapshot_hosts", async move {
             // Verify and add the new data to the internal state.
             let (new_data, err) = this.snapshot_hosts.clone().insert(hosts).await;
             // Broadcast any valid new data, even if an err was returned.
@@ -869,7 +952,9 @@ impl NetworkState {
                 let tasks: Vec<_> = tier2
                     .ready
                     .values()
-                    .map(|p| this.spawn(p.send_snapshot_hosts(new_data.clone())))
+                    .map(|p| {
+                        this.spawn("send_snapshot_hosts", p.send_snapshot_hosts(new_data.clone()))
+                    })
                     .collect();
                 for t in tasks {
                     t.await.unwrap();
@@ -888,7 +973,7 @@ impl NetworkState {
     pub async fn fix_local_edges(self: &Arc<Self>, clock: &time::Clock, timeout: time::Duration) {
         let this = self.clone();
         let clock = clock.clone();
-        self.spawn(async move {
+        self.spawn("fix_local_edges", async move {
             let graph = this.graph.load();
             let tier2 = this.tier2.load();
             let mut tasks = vec![];
@@ -898,33 +983,38 @@ impl NetworkState {
                 let other_peer = edge.other(&node_id).unwrap();
                 match (tier2.ready.get(other_peer), edge.edge_type()) {
                     // This is an active connection, while the edge indicates it shouldn't.
-                    (Some(conn), EdgeState::Removed) => tasks.push(this.spawn({
-                        let this = this.clone();
-                        let conn = conn.clone();
-                        let clock = clock.clone();
-                        async move {
-                            conn.send_message(Arc::new(PeerMessage::RequestUpdateNonce(
-                                PartialEdgeInfo::new(
-                                    &node_id,
-                                    &conn.peer_info.id,
-                                    std::cmp::max(Edge::create_fresh_nonce(&clock), edge.next()),
-                                    &this.config.node_key,
-                                ),
-                            )));
-                            // TODO(gprusak): here we should synchronically wait for the RequestUpdateNonce
-                            // response (with timeout). Until network round trips are implemented, we just
-                            // blindly wait for a while, then check again.
-                            clock.sleep(timeout).await;
-                            match this.graph.load().local_edges.get(&conn.peer_info.id) {
-                                Some(edge) if edge.edge_type() == EdgeState::Active => return,
-                                _ => conn.stop(None),
+                    (Some(conn), EdgeState::Removed) => {
+                        tasks.push(this.spawn("fix_local_edges", {
+                            let this = this.clone();
+                            let conn = conn.clone();
+                            let clock = clock.clone();
+                            async move {
+                                conn.send_message(Arc::new(PeerMessage::RequestUpdateNonce(
+                                    PartialEdgeInfo::new(
+                                        &node_id,
+                                        &conn.peer_info.id,
+                                        std::cmp::max(
+                                            Edge::create_fresh_nonce(&clock),
+                                            edge.next(),
+                                        ),
+                                        &this.config.node_key,
+                                    ),
+                                )));
+                                // TODO(gprusak): here we should synchronically wait for the RequestUpdateNonce
+                                // response (with timeout). Until network round trips are implemented, we just
+                                // blindly wait for a while, then check again.
+                                clock.sleep(timeout).await;
+                                match this.graph.load().local_edges.get(&conn.peer_info.id) {
+                                    Some(edge) if edge.edge_type() == EdgeState::Active => return,
+                                    _ => conn.stop(None),
+                                }
                             }
-                        }
-                    })),
+                        }))
+                    }
                     // We are not connected to this peer, but routing table contains
                     // information that we do. We should wait and remove that peer
                     // from routing table
-                    (None, EdgeState::Active) => tasks.push(this.spawn({
+                    (None, EdgeState::Active) => tasks.push(this.spawn("fix_local_edges", {
                         let this = this.clone();
                         let clock = clock.clone();
                         let other_peer = other_peer.clone();
@@ -960,11 +1050,9 @@ impl NetworkState {
                     let other_peer = edge.other(&node_id).unwrap();
                     tasks.push(match edge.edge_type() {
                         EdgeState::Active => this.update_routes(
-                            &clock,
                             NetworkTopologyChange::PeerConnected(other_peer.clone(), edge.clone()),
                         ),
                         EdgeState::Removed => this.update_routes(
-                            &clock,
                             NetworkTopologyChange::PeerDisconnected(other_peer.clone()),
                         ),
                     });
@@ -1001,20 +1089,13 @@ impl NetworkState {
         let _mutex = self.set_chain_info_mutex.lock();
 
         // We set state.chain_info and call accounts_data.set_keys
-        // synchronously, therefore, assuming actix in-order delivery,
-        // there will be no race condition between subsequent SetChainInfo
-        // calls.
+        // synchronously, therefore, assuming actors deliver messages in order, there
+        // will be no race condition between subsequent SetChainInfo calls.
         self.chain_info.store(Arc::new(Some(info.clone())));
 
-        // If tier1 is not enabled, we skip set_keys() call.
-        // This way self.state.accounts_data is always empty, hence no data
-        // will be collected or broadcasted.
-        if self.config.tier1.is_none() {
-            return false;
-        }
+        // The set of TIER1 accounts has changed, so we might be missing some
+        // accounts_data that our peers know about.
         let has_changed = self.accounts_data.set_keys(info.tier1_accounts);
-        // The set of TIER1 accounts has changed, so we might be missing some accounts_data
-        // that our peers know about.
         if has_changed {
             self.tier1_request_full_sync();
         }

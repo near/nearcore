@@ -2,7 +2,7 @@ use super::arena::single_thread::STArena;
 use super::memtries::MemTries;
 use super::node::MemTrieNodeId;
 use crate::adapter::StoreAdapter;
-use crate::flat::FlatStorageStatus;
+use crate::flat::{FlatStorageReshardingStatus, FlatStorageStatus};
 use crate::trie::AccessOptions;
 use crate::trie::mem::arena::Arena;
 use crate::trie::mem::construction::TrieConstructor;
@@ -17,7 +17,7 @@ use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{BlockHeight, StateRoot};
 use std::collections::BTreeSet;
 use std::time::Instant;
-use tracing::{debug, info};
+use tracing::{debug, info, warn};
 
 /// Loads a trie from the FlatState column. The returned `MemTries` contains
 /// exactly one trie root.
@@ -125,6 +125,10 @@ pub fn load_trie_from_flat_state_and_delta(
     let flat_store = store.flat_store();
     let flat_head = match flat_store.get_flat_storage_status(shard_uid)? {
         FlatStorageStatus::Ready(status) => status.flat_head,
+        FlatStorageStatus::Resharding(FlatStorageReshardingStatus::SplittingParent(status)) => {
+            warn!("Loading memtrie from parent flat storage which is marked as pending resharding");
+            status.flat_head
+        }
         other => {
             return Err(StorageError::MemTrieLoadingError(format!(
                 "Cannot load memtries when flat storage is not ready for shard {}, actual status: {:?}",
@@ -151,7 +155,7 @@ pub fn load_trie_from_flat_state_and_delta(
     }
 
     debug!(target: "memtrie", %shard_uid, "{} deltas to apply", sorted_deltas.len());
-    for (height, hash, prev_hash) in sorted_deltas.into_iter() {
+    for (height, hash, prev_hash) in sorted_deltas {
         let delta = flat_store.get_delta(shard_uid, hash).unwrap();
         if let Some(changes) = delta {
             let old_state_root = get_state_root(store, prev_hash, shard_uid)?;
@@ -200,9 +204,10 @@ mod tests {
     use near_primitives::shard_layout::{ShardUId, get_block_shard_uid};
     use near_primitives::state::FlatStateValue;
     use near_primitives::trie_key::TrieKey;
+    use near_primitives::types::Balance;
+    use near_primitives::types::Gas;
     use near_primitives::types::chunk_extra::ChunkExtra;
     use near_primitives::types::{StateChangeCause, StateRoot};
-    use near_primitives::version::PROTOCOL_VERSION;
     use rand::rngs::StdRng;
     use rand::{Rng, SeedableRng};
 
@@ -281,10 +286,13 @@ mod tests {
             );
 
             // Check that the accessed nodes are consistent with those from disk.
-            for (node_hash, serialized_node) in nodes_accessed {
+            for node_view in nodes_accessed {
+                let node_hash = node_view.node_hash();
+                let serialized_node =
+                    borsh::to_vec(&node_view.to_raw_trie_node_with_size()).unwrap();
                 let expected_serialized_node =
                     trie.internal_retrieve_trie_node(&node_hash, false, opts).unwrap();
-                assert_eq!(expected_serialized_node, serialized_node);
+                assert_eq!(&*expected_serialized_node, &serialized_node);
             }
         }
     }
@@ -533,15 +541,14 @@ mod tests {
         state_root: StateRoot,
     ) {
         let chunk_extra = ChunkExtra::new(
-            PROTOCOL_VERSION,
             &state_root,
             CryptoHash::default(),
             Vec::new(),
-            0,
-            0,
-            0,
+            Gas::ZERO,
+            Gas::ZERO,
+            Balance::ZERO,
             Some(CongestionInfo::default()),
-            BandwidthRequests::default_for_protocol_version(PROTOCOL_VERSION),
+            BandwidthRequests::empty(),
         );
         let mut store_update = store.store_update();
         store_update

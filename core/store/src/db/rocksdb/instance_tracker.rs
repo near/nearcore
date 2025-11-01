@@ -1,4 +1,4 @@
-use std::sync::{Condvar, Mutex};
+use parking_lot::{Condvar, Mutex};
 use tracing::info;
 
 /// Describes number of RocksDB instances and sum of their max_open_files.
@@ -52,7 +52,7 @@ impl State {
     /// max_open_files open file descriptors for the new database instance.
     fn try_new_instance(&self, max_open_files: u32) -> Result<(), String> {
         let num_instances = {
-            let mut inner = self.inner.lock().unwrap();
+            let mut inner = self.inner.lock();
             let max_open_files = inner.max_open_files + u64::from(max_open_files);
             ensure_max_open_files_limit(RealNoFile, max_open_files)?;
             inner.max_open_files = max_open_files;
@@ -65,7 +65,7 @@ impl State {
 
     fn close_instance(&self, max_open_files: u32) {
         let num_instances = {
-            let mut inner = self.inner.lock().unwrap();
+            let mut inner = self.inner.lock();
             inner.max_open_files = inner.max_open_files.saturating_sub(max_open_files.into());
             inner.count = inner.count.saturating_sub(1);
             if inner.count == 0 {
@@ -78,11 +78,11 @@ impl State {
 
     /// Blocks until all RocksDB instances (usually 0 or 1) shut down.
     fn block_until_all_instances_are_closed(&self) {
-        let mut inner = self.inner.lock().unwrap();
+        let mut inner = self.inner.lock();
         while inner.count != 0 {
             info!(target: "db", num_instances=inner.count,
                   "Waiting for remaining RocksDB instances to close");
-            inner = self.zero_cvar.wait(inner).unwrap();
+            self.zero_cvar.wait(&mut inner);
         }
         info!(target: "db", "All RocksDB instances closed.");
     }

@@ -1,6 +1,6 @@
 use near_crypto::PublicKey;
 use near_mirror::key_mapping::map_account;
-use near_primitives::account::{AccessKey, Account};
+use near_primitives::account::{AccessKey, Account, GasKey};
 use near_primitives::bandwidth_scheduler::{
     BandwidthSchedulerState, BandwidthSchedulerStateV1, LinkAllowance,
 };
@@ -10,7 +10,8 @@ use near_primitives::receipt::Receipt;
 use near_primitives::shard_layout::{ShardLayout, ShardUId};
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{
-    AccountId, BlockHeight, ShardIndex, StateChangeCause, StateRoot, StoreKey, StoreValue,
+    AccountId, BlockHeight, Nonce, NonceIndex, ShardIndex, StateChangeCause, StateRoot, StoreKey,
+    StoreValue,
 };
 use near_store::adapter::StoreUpdateAdapter;
 use near_store::adapter::flat_store::FlatStoreAdapter;
@@ -20,8 +21,9 @@ use near_store::trie::update::TrieUpdateResult;
 use near_store::{DBCol, ShardTries};
 
 use anyhow::Context;
+use parking_lot::Mutex;
 use std::collections::{HashMap, HashSet};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 /// Stores the state root and next height we want to pass to apply_memtrie_changes() and delete_until_height()
 /// When multiple StorageMutators in different threads want to commit changes to the same shard, they'll first
@@ -92,7 +94,7 @@ impl ShardUpdateState {
         assert_eq!(&source_shards, &state_roots.iter().map(|(k, _v)| *k).collect::<HashSet<_>>());
         let target_shards = target_shard_layout.shard_uids().collect::<HashSet<_>>();
         let mut update_state = vec![None; target_shards.len()];
-        for (shard_uid, state_root) in state_roots.iter() {
+        for (shard_uid, state_root) in state_roots {
             if !target_shards.contains(shard_uid) {
                 continue;
             }
@@ -118,7 +120,7 @@ impl ShardUpdateState {
     }
 
     pub(crate) fn state_root(&self) -> CryptoHash {
-        self.root.lock().unwrap().as_ref().map_or_else(CryptoHash::default, |s| s.state_root)
+        self.root.lock().as_ref().map_or_else(CryptoHash::default, |s| s.state_root)
     }
 }
 
@@ -254,6 +256,64 @@ impl StorageMutator {
         )
     }
 
+    pub(crate) fn remove_gas_key(
+        &mut self,
+        source_shard_uid: ShardUId,
+        account_id: AccountId,
+        public_key: PublicKey,
+    ) -> anyhow::Result<()> {
+        if self.target_shards.contains(&source_shard_uid) {
+            let shard_idx =
+                self.target_shard_layout.get_shard_index(source_shard_uid.shard_id()).unwrap();
+            self.remove(shard_idx, TrieKey::GasKey { account_id, public_key, index: None })?;
+        }
+        Ok(())
+    }
+
+    pub(crate) fn set_gas_key(
+        &mut self,
+        shard_idx: ShardIndex,
+        account_id: AccountId,
+        public_key: PublicKey,
+        gas_key: GasKey,
+    ) -> anyhow::Result<()> {
+        self.set(
+            shard_idx,
+            TrieKey::GasKey { account_id, public_key, index: None },
+            borsh::to_vec(&gas_key)?,
+        )
+    }
+
+    pub(crate) fn remove_gas_key_nonce(
+        &mut self,
+        source_shard_uid: ShardUId,
+        account_id: AccountId,
+        public_key: PublicKey,
+        index: NonceIndex,
+    ) -> anyhow::Result<()> {
+        if self.target_shards.contains(&source_shard_uid) {
+            let shard_idx =
+                self.target_shard_layout.get_shard_index(source_shard_uid.shard_id()).unwrap();
+            self.remove(shard_idx, TrieKey::GasKey { account_id, public_key, index: Some(index) })?;
+        }
+        Ok(())
+    }
+
+    pub(crate) fn set_gas_key_nonce(
+        &mut self,
+        shard_idx: ShardIndex,
+        account_id: AccountId,
+        public_key: PublicKey,
+        index: NonceIndex,
+        nonce: Nonce,
+    ) -> anyhow::Result<()> {
+        self.set(
+            shard_idx,
+            TrieKey::GasKey { account_id, public_key, index: Some(index) },
+            borsh::to_vec(&nonce)?,
+        )
+    }
+
     pub(crate) fn map_data(
         &mut self,
         source_shard_uid: ShardUId,
@@ -362,8 +422,10 @@ impl StorageMutator {
         self.set(shard_idx, TrieKey::BandwidthSchedulerState, borsh::to_vec(&state)?)
     }
 
+    /// Check if the total number of updates is greater than or equal to the batch size
     pub(crate) fn should_commit(&self, batch_size: u64) -> bool {
-        self.updates.len() >= batch_size as usize
+        let total_updates = self.updates.iter().map(|shard| shard.updates.len()).sum::<usize>();
+        total_updates >= batch_size as usize
     }
 
     /// Commits any pending trie changes for all shards
@@ -372,8 +434,7 @@ impl StorageMutator {
         let mut state_roots = Vec::new();
 
         for (shard_index, update) in updates.into_iter().enumerate() {
-            let shard_id = target_shard_layout.get_shard_id(shard_index).unwrap();
-            let shard_uid = ShardUId::from_shard_id_and_layout(shard_id, &target_shard_layout);
+            let shard_uid = target_shard_layout.get_shard_uid(shard_index).unwrap();
             let new_state_root =
                 commit_shard(shard_uid, &shard_tries, &update.update_state, update.updates)?;
             state_roots.push(new_state_root);
@@ -410,7 +471,7 @@ fn commit_to_existing_state(
     shard_tries.apply_memtrie_changes(&trie_changes, shard_uid, root.update_height);
     // We may not have loaded memtries (some commands don't need to), so check.
     if let Some(memtries) = shard_tries.get_memtries(shard_uid) {
-        memtries.write().unwrap().delete_until_height(root.update_height);
+        memtries.write().delete_until_height(root.update_height);
     }
     root.update_height += 1;
     root.state_root = state_root;
@@ -465,7 +526,7 @@ pub(crate) fn commit_shard(
     update_state: &ShardUpdateState,
     updates: Vec<(TrieKey, Option<Vec<u8>>)>,
 ) -> anyhow::Result<StateRoot> {
-    let mut root = update_state.root.lock().unwrap();
+    let mut root = update_state.root.lock();
 
     let new_root = match root.as_mut() {
         Some(root) => {
@@ -481,6 +542,43 @@ pub(crate) fn commit_shard(
     };
 
     Ok(new_root)
+}
+
+/// Removes all state data associated with the specified shards.
+/// Used when shards become obsolete and their state can be discarded.
+/// WARNING: This function modifies DBCol::State directly - use with caution.
+/// For more information about the deletion process, refer to StoreUpdate::delete_range documentation.
+pub(crate) fn remove_shards(
+    shard_tries: &ShardTries,
+    shard_uids: &Vec<&ShardUId>,
+) -> anyhow::Result<()> {
+    for shard_uid in shard_uids {
+        let mut trie_update = shard_tries.store_update();
+        let store_update = trie_update.store_update();
+        // Remove flat storage status
+        store_update.delete(DBCol::FlatStorageStatus, &shard_uid.to_bytes());
+        // Remove fork state root
+        store_update.delete(DBCol::Misc, &crate::cli::make_state_roots_key(**shard_uid));
+
+        // Remove all state for this shard
+        store_update.delete_range(
+            DBCol::State,
+            &shard_uid.to_bytes(),
+            &ShardUId::get_upper_bound_db_key(&shard_uid.to_bytes()),
+        );
+        store_update.delete_range(
+            DBCol::FlatState,
+            &shard_uid.to_bytes(),
+            &ShardUId::get_upper_bound_db_key(&shard_uid.to_bytes()),
+        );
+
+        trie_update
+            .commit()
+            .with_context(|| format!("failed removing state for shard {}", shard_uid))?;
+
+        tracing::info!(?shard_uid, "removed state for obsolete shard");
+    }
+    Ok(())
 }
 
 pub(crate) fn write_bandwidth_scheduler_state(
@@ -529,7 +627,7 @@ pub(crate) fn write_bandwidth_scheduler_state(
 }
 
 // After we rewrite everything in the trie to the target shards, write flat storage statuses for new shards
-// TODO: remove all state that belongs to source shards not in the target shard layout
+// and remove state for obsolete shards
 pub(crate) fn finalize_state(
     shard_tries: &ShardTries,
     source_shard_layout: &ShardLayout,
@@ -537,6 +635,10 @@ pub(crate) fn finalize_state(
     flat_head: BlockInfo,
 ) -> anyhow::Result<()> {
     let source_shards = source_shard_layout.shard_uids().collect::<HashSet<_>>();
+    let target_shards = target_shard_layout.shard_uids().collect::<HashSet<_>>();
+
+    let shards_to_remove = source_shards.difference(&target_shards).collect::<Vec<_>>();
+    remove_shards(shard_tries, &shards_to_remove)?;
 
     for shard_uid in target_shard_layout.shard_uids() {
         if source_shards.contains(&shard_uid) {

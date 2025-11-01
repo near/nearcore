@@ -1,14 +1,13 @@
 pub(super) mod opener;
 
+use crate::archive::cloud_storage::CloudStorage;
+use crate::archive::cloud_storage::config::CloudStorageConfig;
+use crate::db::{Database, SplitDB, metadata};
+use crate::{Store, StoreConfig};
+use opener::StoreOpener;
 use std::io;
 use std::str::FromStr;
 use std::sync::{Arc, LazyLock};
-
-use opener::StoreOpener;
-
-use crate::config::ArchivalConfig;
-use crate::db::{Database, SplitDB, metadata};
-use crate::{Store, StoreConfig};
 
 /// Specifies temperature of a storage.
 ///
@@ -42,6 +41,7 @@ impl FromStr for Temperature {
 pub struct NodeStorage {
     hot_storage: Arc<dyn Database>,
     cold_storage: Option<Arc<crate::db::ColdDB>>,
+    cloud_storage: Option<Arc<CloudStorage>>,
 }
 
 impl NodeStorage {
@@ -50,9 +50,25 @@ impl NodeStorage {
     pub fn opener<'a>(
         home_dir: &std::path::Path,
         store_config: &'a StoreConfig,
-        archival_config: Option<ArchivalConfig<'a>>,
+        cold_store_config: Option<&'a StoreConfig>,
+        cloud_storage_config: Option<&'a CloudStorageConfig>,
     ) -> StoreOpener<'a> {
-        StoreOpener::new(home_dir, store_config, archival_config)
+        StoreOpener::new(home_dir, store_config, cold_store_config, cloud_storage_config)
+    }
+
+    /// Initializes an opener for a new temporary test store.
+    ///
+    /// As per the name, this is meant for tests only.  The created store will
+    /// use test configuration (which may differ slightly from default config).
+    /// The function **panics** if a temporary directory cannot be created.
+    ///
+    /// Note that the caller must hold the temporary directory returned as first
+    /// element of the tuple while the store is open.
+    pub fn test_opener() -> (tempfile::TempDir, StoreOpener<'static>) {
+        static CONFIG: LazyLock<StoreConfig> = LazyLock::new(StoreConfig::test_config);
+        let dir = tempfile::tempdir().unwrap();
+        let opener = NodeStorage::opener(dir.path(), &CONFIG, None, None);
+        (dir, opener)
     }
 
     /// Constructs new object backed by given database.
@@ -69,22 +85,7 @@ impl NodeStorage {
             None
         };
 
-        Self { hot_storage, cold_storage: cold_db }
-    }
-
-    /// Initializes an opener for a new temporary test store.
-    ///
-    /// As per the name, this is meant for tests only.  The created store will
-    /// use test configuration (which may differ slightly from default config).
-    /// The function **panics** if a temporary directory cannot be created.
-    ///
-    /// Note that the caller must hold the temporary directory returned as first
-    /// element of the tuple while the store is open.
-    pub fn test_opener() -> (tempfile::TempDir, StoreOpener<'static>) {
-        static CONFIG: LazyLock<StoreConfig> = LazyLock::new(StoreConfig::test_config);
-        let dir = tempfile::tempdir().unwrap();
-        let opener = NodeStorage::opener(dir.path(), &CONFIG, None);
-        (dir, opener)
+        Self { hot_storage, cold_storage: cold_db, cloud_storage: None }
     }
 
     /// Constructs new object backed by given database.
@@ -97,7 +98,7 @@ impl NodeStorage {
     /// possibly [`crate::test_utils::create_test_store`] (depending whether you
     /// need [`NodeStorage`] or [`Store`] object.
     pub fn new(storage: Arc<dyn Database>) -> Self {
-        Self { hot_storage: storage, cold_storage: None }
+        Self { hot_storage: storage, cold_storage: None, cloud_storage: None }
     }
 }
 
@@ -116,7 +117,7 @@ impl NodeStorage {
     /// store, the view client should use the split store and the cold store
     /// loop should use cold store.
     pub fn get_hot_store(&self) -> Store {
-        Store { storage: self.hot_storage.clone() }
+        Store::new(self.hot_storage.clone())
     }
 
     /// Returns the cold store. The cold store is only available in archival
@@ -128,9 +129,13 @@ impl NodeStorage {
     /// loop should use cold store.
     pub fn get_cold_store(&self) -> Option<Store> {
         match &self.cold_storage {
-            Some(cold_storage) => Some(Store { storage: cold_storage.clone() }),
+            Some(cold_storage) => Some(Store::new(cold_storage.clone())),
             None => None,
         }
+    }
+
+    pub fn get_cloud_storage(&self) -> Option<&Arc<CloudStorage>> {
+        self.cloud_storage.as_ref()
     }
 
     /// Returns an instance of recovery store. The recovery store is only available in archival
@@ -140,7 +145,7 @@ impl NodeStorage {
     pub fn get_recovery_store(&self) -> Option<Store> {
         match &self.cold_storage {
             Some(cold_storage) => {
-                Some(Store { storage: Arc::new(crate::db::RecoveryDB::new(cold_storage.clone())) })
+                Some(Store::new(Arc::new(crate::db::RecoveryDB::new(cold_storage.clone()))))
             }
             None => None,
         }
@@ -154,7 +159,7 @@ impl NodeStorage {
     /// store, the view client should use the split store and the cold store
     /// loop should use cold store.
     pub fn get_split_store(&self) -> Option<Store> {
-        self.get_split_db().map(|split_db| Store { storage: split_db })
+        self.get_split_db().map(|split_db| Store::new(split_db))
     }
 
     pub fn get_split_db(&self) -> Option<Arc<SplitDB>> {
@@ -193,8 +198,8 @@ impl NodeStorage {
         self.cold_storage.is_some()
     }
 
-    /// Reads database metadata and returns whether the storage is archival.
-    pub fn is_archive(&self) -> io::Result<bool> {
+    /// Reads database metadata and returns `true` if it is split storage or legacy archival node.
+    pub fn is_local_archive(&self) -> io::Result<bool> {
         if self.cold_storage.is_some() {
             return Ok(true);
         }
@@ -205,8 +210,18 @@ impl NodeStorage {
         })
     }
 
-    pub fn new_with_cold(hot: Arc<dyn Database>, cold: Arc<dyn Database>) -> Self {
-        Self { hot_storage: hot, cold_storage: Some(Arc::new(crate::db::ColdDB::new(cold))) }
+    pub fn is_cloud_archive(&self) -> bool {
+        self.cloud_storage.is_some()
+    }
+
+    pub fn new_archive(
+        hot: Arc<dyn Database>,
+        cold: Option<Arc<dyn Database>>,
+        cloud: Option<Arc<CloudStorage>>,
+    ) -> Self {
+        assert!(cold.is_some() || cloud.is_some());
+        let cold_storage = cold.map(|cold| Arc::new(crate::db::ColdDB::new(cold)));
+        Self { hot_storage: hot, cold_storage, cloud_storage: cloud }
     }
 
     pub fn cold_db(&self) -> Option<&Arc<crate::db::ColdDB>> {

@@ -20,7 +20,7 @@ The topic is split into several sections.
 2. [Gas Price](#gas-price):
     - [Block-Level Gas Price](#block-level-gas-price): How the block-level gas price is determined.
     - [Pessimistic Gas Price](#pessimistic-gas-price): How worst-case gas pricing is estimated.
-    - [Effective Gas Purchase Cost](#effective-gas-purchase-cost): The cost paid for a receipt.
+    - [Gas Refund Fee](#gas-refund-fee): The cost paid for a gas refund receipt.
 3. [Tracking Gas](#tracking-gas-in-receipts): How the system keeps track of purchased gas during the transaction execution.
 
 ## Gas Flow
@@ -33,8 +33,14 @@ in more details.
 
 A signer pays all the gas required for a transaction upfront. However, there is
 no explicit act of buying gas. Instead, the fee is subtracted directly in NEAR
-tokens from the balance of the signer's account. If we ignore all the details
-explained further down, the fee is calculated as `gas amount` * `gas price`.
+tokens from the balance of the signer's account. The fee is calculated as `gas
+amount` * `gas price`. The gas amount for actions included in a `SignedTransaction`
+are all fixed, except for function calls where the user needs to specify the attached
+gas amount for the dynamic execution part.
+(See [here](https://docs.near.org/protocol/gas#cost-for-common-actions) for more details.)
+
+If the account has insufficient balance to pay for this, it will fail with a
+`NotEnoughBalance` error, with the required balance included in the error message.
 
 The `gas amount` is not a field of `SignedTransaction`, nor is it something the
 signer can choose. It is only a virtual field that is computed on-chain following
@@ -46,33 +52,40 @@ charged a different gas price for different receipts.
 
 Already we can see a fundamental problem: Gas is bought once at the beginning
 but the gas price may change during execution. To solve this incompatibility,
-the protocol calculates a pessimistic gas price for the initial purchase. Later
-on, the delta between real and pessimistic gas prices is refunded at the end of
-every receipt execution.
+the protocol used to calculate a pessimistic gas price for the initial purchase.
+Later on, the delta between real and pessimistic gas prices would be refunded at
+the end of every receipt execution.
 
-An alternative implementation would instead charge the gas at every receipt,
-instead of once at the start. However, remember that the execution may happen on
-a different shard than the signer account. Therefore we cannot access the
-signer's balance while executing.
+Generating a refund receipts for every executed function call has become a
+non-trivial overhead, limiting total throughput. Therefore, with the adoption of
+[NEP-536](https://github.com/near/NEPs/pull/536) the model was changed.
+
+With version 78 and onward, the protocol simply ignores gas price changes
+between time of purchase and time of use. A transaction buys gas at one price
+and burns it at the same price. While this avoids the need for refunds due to
+price changes, it also means that transactions with deep receipt calls can end
+up with a cheaper gas price competing for the same chunk space. The community
+took note of this trade-off and agreed to take it.
 
 ### Burning Gas
 
 Buying gas immediately removes a part of the signer's tokens from the total
 supply. However, the equivalent value in gas still exists in the form of the
-receipt and the unused gas will be converted back to tokens as a refund.
+receipt and the unused gas will be converted back to tokens as a refund after
+subtracting a small gas refund fee. (More on the fee further down.)
 
 The gas spent on execution on the other hand is burnt and removed from total
 supply forever. Unlike gas in other chains, none of it goes to validators. This
 is roughly equivalent to the base fee burning mechanism which Ethereum added in
 [EIP-1559](https://eips.ethereum.org/EIPS/eip-1559). But in Near Protocol, the
-entire fee is burnt because there is no [priority
-fee](https://ethereum.org/en/developers/docs/gas/#priority-fee) that Ethereum
-pays out to validators.
+entire fee is burnt, whereas in Ethereum the [priority
+fee](https://ethereum.org/en/developers/docs/gas/#priority-fee) goes to
+validators.
 
 The following diagram shows how gas flows through the execution of a
 transaction. The transaction consists of a function call performing a cross
 contract call, hence two function calls in sequence. (Note: This diagram is
-heavily simplified, more accurate diagrams are further down.)
+slightly simplified, more accurate diagrams are further down.)
 
 ![Very Simplified Gas Flow Diagram](https://github.com/near/nearcore/assets/6342444/f52c6e4b-6fca-4f61-8e6e-ac786076aa65)
 <!-- Editable source: https://github.com/near/nearcore/issues/7821#issuecomment-1705672850 -->
@@ -157,7 +170,7 @@ How much contracts receive from execution depends on two things.
 During receipt execution, nearcore code tracks the `gas_burnt_for_function_call`
 separately from other gas burning to enable this contract reward calculations.
 
-In the (still simplified) flow diagram, the contract reward looks like this.
+In the (still slightly simplified) flow diagram, the contract reward looks like this.
 For brevity, `gas_burnt_for_function_call` in the diagram is denoted as `wasm fee`.
 
 ![Slightly Simplified Gas Flow Diagram](https://github.com/near/nearcore/assets/6342444/32600ef0-1475-43af-b196-576317787578)
@@ -172,9 +185,7 @@ understand the internals, this is not enough.
 ### Block-Level Gas Price
 
 `gas_price` is a field in the block header. It determines how much it costs to
-burn gas at the given block height. Confusingly, this is not the same price at
-which gas is purchased.
-(See [Effective Gas Purchase Price](#effective-gas-price).)
+buy gas at the given block height.
 
 The price is measured in NEAR tokens per unit of gas. It dynamically changes in
 the range between 0.1 NEAR per Pgas and 2 NEAR per Pgas, based on demand. (1
@@ -202,69 +213,41 @@ incorrect block header validation.
 
 ### Pessimistic Gas Price
 
-The pessimistic gas price calculation uses the fact that any transaction can
-only have a limited depth in the generated receipt DAG. For most actions, the
-depth is a constant 1 or 2. For function call actions, it is limited to a
-hand-wavy `attached_gas` / `min gas per function call`. (Note: `attached_gas` is
-a property of a single action and is only a part of the total gas costs of a
-receipt.)
+The pessimistic gas price features was removed with protocol version 78 and
+[NEP-536](https://github.com/near/NEPs/pull/536).
 
-Once the maximum depth is known, the protocol assumes that the gas price will
-not change more than 3% per receipt. This is not a guarantee since receipts can
-be delayed for virtually unlimited blocks.
+### Gas Refund Fee
 
-The final formula for the pessimistic gas price is the following.
+After executing the transaction, there might be unspent gas left. For function
+calls, this is the normal case, since attaching exactly the right amount of gas
+is tricky. Additionally, in case of receipt failure, some actions that did not
+start execution will have the execution gas unspent. This gas is converted back
+to NEAR tokens and sent as a refund transfer to the original signer.
 
-```txt
-pessimistic(current_gas_price, max_depth) = current_gas_price × 1.03^max_depth
-```
+Before protocol version 78, the full gas amount would be refunded and the refund
+transfer action was executed for free. With [NEP-536](https://github.com/near/NEPs/pull/536)
+which was implemented in version 78, the plan was to have the network charge a
+fee of 5% of unspent gas or a minimum of 1 Tgas. This often removes the need to
+send a refund, which avoids additional load on the network, and it compensates
+for the load of the refund receipt when it needs to be issued. This is intended
+to discourage users from attaching more gas than needed to their transactions.
+In the nearcore code, you will find this fee under the name `gas_refund_penalty`.
 
-This still is not the price at which gas is purchased. But we are very close.
+However, due to existing projects that need to attach more gas than they
+actually use, the introduction of the new fee has been postponed. The code is
+still in place but the parameters were set to 0 in PR
+[#13579](https://github.com/near/nearcore/pull/13579). Among other problems, in
+the reference FT implementation, `ft_transfer_call` requires at least 30 TGas
+even if most of the time only a fraction of that is burnt. Once all known
+problems are resolved, the plan is to try and introduce the 5% / 1 Tgas parameters.
 
-### Effective Gas Purchase Cost
+Technically, even when the parameters are increased again, the refund transfer
+is still executed for free, since the gas price is set to 0. This keeps it in
+line with balance refunds. However, when the gas refund is produced, at least 1
+Tgas has been burnt on receipt execution, which more than covers for a transfer.
 
-When a transaction is converted to its root action receipt, the gas costs are
-calculated in two parts.
-
-Part one contains all the gas which is burnt immediately. Namely, the `send`
-costs for a receipt and all the actions it includes. This is charged at the
-current block-level gas price.
-
-Part two is everything else, from execution costs of actions that are statically
-known such as `CreateAccount` all the way to `attached_gas` for function calls.
-All of this is purchased at the same pessimistic gas price, even if some actions
-inside might have a lower maximum call depth than others.
-
-The deducted tokens are the sum of these two parts. If the account has
-insufficient balance to pay for this pessimistic pricing, it will fail with a
-`NotEnoughBalance` error, with the required balance included in the error
-message.
-
-Inserting the pessimistic gas pricing into the flow diagram, we finally have a
-complete picture. Note how an additional refund receipt is required. Also, check
-out the updated formula for the effective purchase price at the top left and the
-resulting higher number.
+Finally, we can have a complete diagram, including the gas refund penalty.
 
 ![Complete Gas Flow
-Diagram](https://github.com/near/nearcore/assets/6342444/8341fb45-9beb-4808-8a89-8144fa075930)
-<!-- Editable source: https://github.com/near/nearcore/issues/7821#issuecomment-1705673807 -->
-
-## Tracking Gas in Receipts
-
-The previous section explained how gas is bought and what determines its price.
-This section details the tracking that enables correct refunds.
-
-First, when a `SignedTransaction` is converted to a receipt, the pessimistic gas
-price is written to the receipt's `gas_price` field.
-
-Later on, when the receipt has been executed, a gas refund is created at the
-value of `receipt.gas_burnt` * (`block_header.gas_price` - `receipt.gas_price`).
-
-Some gas goes attaches to outgoing receipts. We commonly refer to this as used
-gas that was not burnt, yet. The refund excludes this gas. But it includes the
-receipt send cost.
-
-Finally, unspent gas is refunded at the full `receipt.gas_price`. This refund is
-merged with the refund for burnt gas of the same receipt outcome to reduce the
-number of spawned system receipts. But it makes it a bit harder to interpret
-refunds when backtracking for how much gas a specific refund receipt covers.
+Diagram](https://github.com/user-attachments/assets/28aea744-979d-4e1b-88b5-541b38ce58ca)
+<!-- Editable source: https://github.com/near/nearcore/issues/7821#issuecomment-2867060321 -->

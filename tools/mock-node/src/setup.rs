@@ -90,7 +90,8 @@ pub fn setup_mock_node(
     let store = near_store::NodeStorage::opener(
         home_dir,
         &near_config.config.store,
-        near_config.config.archival_config(),
+        near_config.config.cold_store.as_ref(),
+        near_config.config.cloud_storage_config(),
     )
     .open()
     .context("failed opening storage")?
@@ -100,6 +101,7 @@ pub fn setup_mock_node(
     let shard_tracker = ShardTracker::new(
         near_config.client_config.tracked_shards_config.clone(),
         epoch_manager.clone(),
+        near_config.validator_signer.clone(),
     );
     let runtime =
         NightshadeRuntime::from_config(home_dir, store, &near_config, epoch_manager.clone())
@@ -114,6 +116,7 @@ pub fn setup_mock_node(
         &chain_genesis,
         DoomslugThresholdMode::NoApprovals,
         near_config.client_config.save_trie_changes,
+        near_config.validator_signer.clone(),
     )
     .context("failed creating Chain")?;
 

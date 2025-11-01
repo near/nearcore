@@ -1,15 +1,16 @@
-use std::fs::File;
-use std::path::Path;
-use std::sync::Arc;
-use std::{fmt, io};
-
-use borsh::{BorshDeserialize, BorshSerialize};
-use near_fmt::{AbbrBytes, StorageKey};
-
 use crate::DBCol;
 use crate::adapter::{StoreAdapter, StoreUpdateAdapter};
 use crate::db::metadata::{DbKind, DbMetadata, DbVersion, KIND_KEY, VERSION_KEY};
 use crate::db::{DBIterator, DBOp, DBSlice, DBTransaction, Database, StoreStatistics, refcount};
+use crate::deserialized_column;
+use borsh::{BorshDeserialize, BorshSerialize};
+use enum_map::EnumMap;
+use near_fmt::{AbbrBytes, StorageKey};
+use std::fs::File;
+use std::path::Path;
+use std::sync::Arc;
+use std::{fmt, io};
+use strum::IntoEnumIterator;
 
 const STATE_COLUMNS: [DBCol; 2] = [DBCol::State, DBCol::FlatState];
 const STATE_FILE_END_MARK: u8 = 255;
@@ -22,7 +23,8 @@ const STATE_FILE_END_MARK: u8 = 255;
 /// - The split database - access to both hot and cold databases
 #[derive(Clone)]
 pub struct Store {
-    pub(crate) storage: Arc<dyn Database>,
+    storage: Arc<dyn Database>,
+    cache: Arc<deserialized_column::Cache>,
 }
 
 impl StoreAdapter for Store {
@@ -33,7 +35,12 @@ impl StoreAdapter for Store {
 
 impl Store {
     pub fn new(storage: Arc<dyn Database>) -> Self {
-        Self { storage }
+        let cache = storage.deserialized_column_cache();
+        Self { storage, cache }
+    }
+
+    pub fn database(&self) -> &dyn Database {
+        &*self.storage
     }
 
     /// Fetches value from given column.
@@ -60,6 +67,57 @@ impl Store {
 
     pub fn get_ser<T: BorshDeserialize>(&self, column: DBCol, key: &[u8]) -> io::Result<Option<T>> {
         self.get(column, key)?.as_deref().map(T::try_from_slice).transpose()
+    }
+
+    pub fn caching_get_ser<T: BorshDeserialize + Send + Sync + 'static>(
+        &self,
+        column: DBCol,
+        key: &[u8],
+    ) -> io::Result<Option<Arc<T>>> {
+        let Some(cache) = self.cache.work_with(column) else {
+            return self.get_ser::<T>(column, key).map(|v| v.map(Into::into));
+        };
+
+        {
+            let mut lock = cache.lock();
+            if let Some(value) = lock.values.get(key) {
+                if let Some(value) = value {
+                    // If the value is already cached, try to downcast it to the requested type.
+                    // If it fails, we log a debug message and continue to fetch from the database.
+                    match Arc::downcast::<T>(Arc::clone(value)) {
+                        Ok(result) => return Ok(Some(result)),
+                        Err(_) => {
+                            tracing::debug!(
+                                target: "store",
+                                requested = std::any::type_name::<T>(),
+                                "could not downcast an available cached deserialized value"
+                            );
+                        }
+                    }
+                } else {
+                    // Value is cached as `None`, which means it was previously fetched
+                    // but was not found in the database.
+                    return Ok(None);
+                }
+            }
+        }
+
+        let value = match self.get_ser::<T>(column, key) {
+            Ok(Some(value)) => Some(Arc::from(value)),
+            Ok(None) => None,
+            Err(e) => return Err(e),
+        };
+
+        let mut lock = cache.lock();
+        if lock.active_flushes == 0 {
+            if let Some(v) = value.as_ref() {
+                lock.values.put(key.into(), Some(Arc::clone(v) as _));
+            } else if lock.store_none_values() {
+                // If the cache is configured to store `None` values, we store it.
+                lock.values.put(key.into(), None);
+            }
+        }
+        Ok(value)
     }
 
     pub fn exists(&self, column: DBCol, key: &[u8]) -> io::Result<bool> {
@@ -165,7 +223,45 @@ impl Store {
             let (key, value) = BorshDeserialize::deserialize_reader(&mut file)?;
             transaction.set(STATE_COLUMNS[usize::from(column)], key, value);
         }
-        self.storage.write(transaction)
+        self.write(transaction)
+    }
+
+    pub fn write(&self, transaction: DBTransaction) -> io::Result<()> {
+        let mut keys_flushed = EnumMap::<DBCol, u64>::from_fn(|_| 0);
+
+        for op in &transaction.ops {
+            match op {
+                DBOp::Set { col, key, .. }
+                | DBOp::Insert { col, key, .. }
+                | DBOp::UpdateRefcount { col, key, .. }
+                | DBOp::Delete { col, key } => {
+                    // FIXME(nagisa): investigate if collecting all the keys to discard into a
+                    // vector and then flushing everything in a single lock would be more
+                    // performant.
+                    let Some(cache) = self.cache.work_with(*col) else { continue };
+                    let mut lock = cache.lock();
+                    lock.active_flushes += 1;
+                    keys_flushed[*col] += 1;
+                    lock.values.pop(key);
+                }
+                DBOp::DeleteAll { col } | DBOp::DeleteRange { col, .. } => {
+                    let Some(cache) = self.cache.work_with(*col) else { continue };
+                    let mut lock = cache.lock();
+                    lock.active_flushes += 1;
+                    keys_flushed[*col] += 1;
+                    lock.values.clear();
+                }
+            }
+        }
+        let result = self.storage.write(transaction);
+        for col in DBCol::iter() {
+            let flushed = keys_flushed[col];
+            if flushed != 0 {
+                let Some(cache) = self.cache.work_with(col) else { continue };
+                cache.lock().active_flushes -= flushed;
+            }
+        }
+        result
     }
 
     /// If the storage is backed by disk, flushes any in-memory data to disk.
@@ -488,14 +584,14 @@ impl StoreUpdate {
                 }
             }
         }
-        self.store.storage.write(self.transaction)
+        self.store.write(self.transaction)
     }
 }
 
 impl fmt::Debug for StoreUpdate {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         writeln!(f, "Store Update {{")?;
-        for op in self.transaction.ops.iter() {
+        for op in &self.transaction.ops {
             match op {
                 DBOp::Insert { col, key, .. } => writeln!(f, "  + {col} {}", StorageKey(key))?,
                 DBOp::Set { col, key, .. } => writeln!(f, "  = {col} {}", StorageKey(key))?,

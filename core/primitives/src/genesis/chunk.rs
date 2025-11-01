@@ -1,15 +1,16 @@
 use near_primitives_core::hash::CryptoHash;
-use near_primitives_core::types::{BlockHeight, Gas, ProtocolVersion, ShardId};
+use near_primitives_core::types::{Balance, BlockHeight, Gas, ProtocolVersion, ShardId};
 use near_primitives_core::version::PROD_GENESIS_PROTOCOL_VERSION;
 
 use crate::bandwidth_scheduler::BandwidthRequests;
 use crate::congestion_info::CongestionInfo;
 use crate::reed_solomon::reed_solomon_encode;
 use crate::sharding::{
-    EncodedShardChunk, EncodedShardChunkBody, ShardChunk, ShardChunkHeaderV1, ShardChunkV1,
+    EncodedShardChunkBody, ShardChunk, ShardChunkHeaderV1, ShardChunkV1, ShardChunkWithEncoding,
     TransactionReceipt,
 };
 use crate::types::StateRoot;
+use crate::types::chunk_extra::ChunkExtra;
 use crate::validator_signer::EmptyValidatorSigner;
 
 type ShardChunkReedSolomon = reed_solomon_erasure::galois_8::ReedSolomon;
@@ -41,16 +42,14 @@ pub fn genesis_chunks(
         let state_root = state_roots[shard_index];
         let congestion_info = congestion_infos[shard_index];
 
-        let encoded_chunk = genesis_chunk(
+        let mut chunk = genesis_chunk(
             &rs,
-            genesis_protocol_version,
             genesis_height,
             initial_gas_limit,
             shard_id,
             state_root,
             congestion_info,
         );
-        let mut chunk = encoded_chunk.decode_chunk().expect("Failed to decode genesis chunk");
         chunk.set_height_included(genesis_height);
         chunks.push(chunk);
     }
@@ -62,34 +61,47 @@ pub fn genesis_chunks(
 // fields set to defaults. The remaining fields are set to the provided values.
 fn genesis_chunk(
     rs: &ShardChunkReedSolomon,
-    genesis_protocol_version: u32,
     genesis_height: u64,
-    initial_gas_limit: u64,
+    initial_gas_limit: Gas,
     shard_id: ShardId,
     state_root: CryptoHash,
     congestion_info: CongestionInfo,
-) -> EncodedShardChunk {
-    let (encoded_chunk, _, _) = EncodedShardChunk::new(
+) -> ShardChunk {
+    let (chunk, _) = ShardChunkWithEncoding::new(
         CryptoHash::default(),
         state_root,
         CryptoHash::default(),
         genesis_height,
         shard_id,
-        rs,
-        0,
+        Gas::ZERO,
         initial_gas_limit,
-        0,
+        Balance::ZERO,
+        vec![],
+        vec![],
+        vec![],
         CryptoHash::default(),
-        vec![],
-        vec![],
-        vec![],
         CryptoHash::default(),
         congestion_info,
-        BandwidthRequests::default_for_protocol_version(genesis_protocol_version),
+        BandwidthRequests::empty(),
         &EmptyValidatorSigner::default().into(),
-        genesis_protocol_version,
+        rs,
     );
-    encoded_chunk
+    let encoded_chunk = chunk.into_parts().1;
+    let chunk = encoded_chunk.decode_chunk().expect("Failed to decode genesis chunk");
+    if cfg!(feature = "protocol_feature_spice") {
+        chunk.into_spice_chunk_with_execution(&ChunkExtra::new(
+            &state_root,
+            CryptoHash::default(),
+            vec![],
+            Gas::ZERO,
+            initial_gas_limit,
+            Balance::ZERO,
+            Some(congestion_info),
+            BandwidthRequests::empty(),
+        ))
+    } else {
+        chunk
+    }
 }
 
 pub fn prod_genesis_chunks(
@@ -115,9 +127,9 @@ pub fn prod_genesis_chunks(
         encoded_length as u64,
         genesis_height,
         shard_ids[0],
-        0,
+        Gas::ZERO,
         initial_gas_limit,
-        0,
+        Balance::ZERO,
         CryptoHash::default(),
         CryptoHash::default(),
         vec![],
@@ -125,7 +137,7 @@ pub fn prod_genesis_chunks(
     );
 
     let mut chunk = ShardChunk::V1(ShardChunkV1 {
-        chunk_hash: header.chunk_hash(),
+        chunk_hash: header.chunk_hash().clone(),
         header,
         transactions: vec![],
         prev_outgoing_receipts: vec![],

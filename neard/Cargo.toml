@@ -16,15 +16,11 @@ path = "src/main.rs"
 name = "neard"
 
 [dependencies]
-actix.workspace = true
 anyhow.workspace = true
 clap.workspace = true
-futures.workspace = true
 openssl-probe.workspace = true
-opentelemetry.workspace = true
 rayon.workspace = true
 rlimit.workspace = true
-serde.workspace = true
 serde_json.workspace = true
 strum.workspace = true
 thiserror.workspace = true
@@ -35,11 +31,11 @@ yansi.workspace = true
 
 nearcore.workspace = true
 near-amend-genesis.workspace = true
+near-async.workspace = true
 near-chain-configs.workspace = true
 near-client.workspace = true
 near-cold-store-tool.workspace = true
 near-config-utils.workspace = true
-near-crypto.workspace = true
 near-database-tool.workspace = true
 near-dyn-configs.workspace = true
 near-flat-storage.workspace = true
@@ -64,7 +60,14 @@ anyhow.workspace = true
 rustc_version = "0.4"
 
 [features]
+tx_generator = ["nearcore/tx_generator"]
 default = ["json_rpc", "rosetta_rpc"]
+protocol_feature_spice = [
+  "near-client/protocol_feature_spice",
+  "near-primitives/protocol_feature_spice",
+  "near-store/protocol_feature_spice",
+  "nearcore/protocol_feature_spice"
+]
 
 performance_stats = ["nearcore/performance_stats"]
 c_memory_stats = ["nearcore/c_memory_stats"]
@@ -72,7 +75,6 @@ test_features = [
   "nearcore/test_features",
   "near-dump-test-contract/test_features",
 ]
-expensive_tests = ["nearcore/expensive_tests"]
 rosetta_rpc = ["nearcore/rosetta_rpc"]
 json_rpc = ["nearcore/json_rpc"]
 
@@ -101,6 +103,8 @@ shadow_chunk_validation = [
 calimero_zero_storage = [
   "near-primitives/calimero_zero_storage",
 ]
+
+actor_instrumentation_testing = ["nearcore/actor_instrumentation_testing"]
 
 # Compile with option to emit a detailed trace of IO operations and their
 # results that can be replayed on the estimator. To produce the output, compile

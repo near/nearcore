@@ -1,7 +1,6 @@
 use crate::{EpochInfo, EpochManagerAdapter, RngSeed};
-use itertools::Itertools;
 use near_primitives::errors::EpochError;
-use near_primitives::shard_layout::{ShardInfo, ShardLayout};
+use near_primitives::shard_layout::ShardInfo;
 use near_primitives::types::{
     AccountId, Balance, EpochId, NumShards, ShardId, ShardIndex, validator_stake::ValidatorStake,
 };
@@ -92,7 +91,7 @@ fn assign_to_satisfy_shards_inner<T: HasStake + Eq, I: Iterator<Item = (usize, T
                     // shard still needs more producers.  Assign `cp` to it and
                     // move to next one.
                     top.validators += 1;
-                    top.stake += cp.get_stake();
+                    top.stake = top.stake.checked_add(cp.get_stake()).unwrap();
                     result[top.shard_index].push(cp);
                     break;
                 }
@@ -126,7 +125,7 @@ fn assign_to_satisfy_shards<T: HasStake + Eq + Clone>(
         .map(|shard_index| shard_index as usize)
         .map(|shard_index| ValidatorsFirstShardAssignmentItem {
             validators: 0,
-            stake: 0,
+            stake: Balance::ZERO,
             shard_index,
         })
         .collect();
@@ -156,14 +155,21 @@ fn get_initial_chunk_producer_assignment(
         return vec![vec![]; num_shards as usize];
     }
 
+    let mut assignment = vec![vec![]; num_shards as usize];
+
     let chunk_producer_indices = chunk_producers
         .iter()
         .enumerate()
         .map(|(i, vs)| (vs.account_id().clone(), i))
         .collect::<HashMap<_, _>>();
 
-    let mut assignment = vec![];
-    for validator_stakes in prev_assignment {
+    // Copy over assignments from previous epoch, but only up to the minimum of
+    // current and previous shard counts to handle shard count changes
+    let max_shards_to_copy = prev_assignment.len().min(num_shards as usize);
+
+    for (shard_index, validator_stakes) in
+        prev_assignment.iter().take(max_shards_to_copy).enumerate()
+    {
         let mut chunk_producers = vec![];
         for validator_stake in validator_stakes {
             let chunk_producer_index = chunk_producer_indices.get(validator_stake.account_id());
@@ -171,7 +177,7 @@ fn get_initial_chunk_producer_assignment(
                 chunk_producers.push(index);
             }
         }
-        assignment.push(chunk_producers);
+        assignment[shard_index] = chunk_producers;
     }
     assignment
 }
@@ -201,7 +207,6 @@ fn assign_to_balance_shards(
     rng_seed: RngSeed,
     prev_chunk_producers_assignment: Vec<Vec<ValidatorStake>>,
     use_stable_shard_assignment: bool,
-    assignment_restrictions: Option<AssignmentRestrictions>,
 ) -> Vec<Vec<ValidatorStake>> {
     let num_chunk_producers = chunk_producers.len();
     let mut chunk_producer_assignment = get_initial_chunk_producer_assignment(
@@ -223,20 +228,7 @@ fn assign_to_balance_shards(
         .collect();
     let mut new_assignments = new_validators.len();
     for validator_index in new_validators {
-        let account_id = chunk_producers[validator_index].account_id();
-        // Try to fulfil the assignment restriction.
-        // If there is no such shard, we will take the shard with the least number of chunk producers.
-        let shard_item = (*shard_set
-            .iter()
-            .find_or_first(|item| {
-                assignment_restrictions.as_ref().map_or(true, |restrictions| {
-                    restrictions.can_assign_to_shard_by_index(account_id, item.shard_index)
-                })
-            })
-            .unwrap())
-        .clone();
-        shard_set.take(&shard_item);
-        let shard_index = shard_item.shard_index;
+        let ShardSetItem { shard_index, .. } = shard_set.pop_first().unwrap();
         chunk_producer_assignment[shard_index].push(validator_index);
         shard_set.insert(ShardSetItem {
             shard_chunk_producer_num: chunk_producer_assignment[shard_index].len(),
@@ -305,99 +297,6 @@ fn assign_to_balance_shards(
         .collect()
 }
 
-pub struct ValidatorRestrictionsBuilder<'a> {
-    prev_epoch_info: &'a EpochInfo,
-    prev_shard_layout: &'a ShardLayout,
-
-    /// A mapping from shard id to the list of validator account ids that cannot be assigned to it.
-    validator_restrictions: HashMap<ShardId, HashSet<AccountId>>,
-}
-
-impl<'a> ValidatorRestrictionsBuilder<'a> {
-    pub fn new(prev_epoch_info: &'a EpochInfo, prev_shard_layout: &'a ShardLayout) -> Self {
-        Self { prev_epoch_info, prev_shard_layout, validator_restrictions: HashMap::new() }
-    }
-
-    /// Prevent all validators assigned to `prev_shard_id` from being assigned to `new_shard_id`.
-    pub fn restrict_shard_id_transition(
-        mut self,
-        prev_shard_id: ShardId,
-        new_shard_id: ShardId,
-    ) -> Self {
-        let prev_shard_index = match self.prev_shard_layout.get_shard_index(prev_shard_id) {
-            Ok(index) => index,
-            Err(_) => {
-                tracing::debug!(target: "epoch-manager", ?prev_shard_id, "Shard id not found in the previous shard layout. Skipping restriction.");
-                return self;
-            }
-        };
-
-        if prev_shard_index >= self.prev_epoch_info.chunk_producers_settlement().len() {
-            tracing::debug!(target: "epoch-manager", ?prev_shard_id, "Shard index not found in the previous epoch info. Skipping restriction.");
-            return self;
-        }
-
-        for account_id in self.prev_epoch_info.chunk_producers_settlement()[prev_shard_index]
-            .iter()
-            .map(|validator_id| self.prev_epoch_info.get_validator(*validator_id).take_account_id())
-        {
-            self.validator_restrictions
-                .entry(new_shard_id)
-                .or_insert_with(HashSet::new)
-                .insert(account_id);
-        }
-        self
-    }
-
-    pub fn build(self, new_shard_layout: ShardLayout) -> AssignmentRestrictions {
-        AssignmentRestrictions::new(new_shard_layout, self.validator_restrictions)
-    }
-}
-
-/// Builds the assignment restrictions for the transition from protocol version v77 to v78.
-/// The reason for this restriction is that shard s5.v3 and s0.v3 are very large.
-/// Loading both into memory at the same time will cause the node to get close to 64GB of memory usage.
-pub fn build_assignment_restrictions_v77_to_v78(
-    prev_epoch_info: &EpochInfo,
-    prev_shard_layout: &ShardLayout,
-    new_shard_layout: ShardLayout,
-) -> AssignmentRestrictions {
-    ValidatorRestrictionsBuilder::new(prev_epoch_info, prev_shard_layout)
-        .restrict_shard_id_transition(ShardId::new(5), ShardId::new(10))
-        .restrict_shard_id_transition(ShardId::new(5), ShardId::new(11))
-        .restrict_shard_id_transition(ShardId::new(0), ShardId::new(5))
-        .build(new_shard_layout)
-}
-
-/// A struct that contains the restrictions on the assignment of validators to shards.
-pub struct AssignmentRestrictions {
-    new_shard_layout: ShardLayout,
-    /// A mapping from shard id to the list of validator account ids that cannot be assigned to it.
-    validator_restrictions: HashMap<ShardId, HashSet<AccountId>>,
-}
-
-impl AssignmentRestrictions {
-    pub fn new(
-        new_shard_layout: ShardLayout,
-        validator_restrictions: HashMap<ShardId, HashSet<AccountId>>,
-    ) -> Self {
-        Self { new_shard_layout, validator_restrictions }
-    }
-
-    /// Returns true if the validator can be assigned to the shard.
-    pub fn can_assign_to_shard_by_index(
-        &self,
-        account_id: &AccountId,
-        new_shard_index: ShardIndex,
-    ) -> bool {
-        self.new_shard_layout.get_shard_id(new_shard_index).map_or(true, |new_shard_id| {
-            self.validator_restrictions
-                .get(&new_shard_id)
-                .map_or(true, |restrictions| !restrictions.contains(account_id))
-        })
-    }
-}
-
 /// Assign chunk producers to shards. The i-th element of the output is the
 /// list of chunk producers assigned to the i-th shard, sorted by stake.
 ///
@@ -423,7 +322,6 @@ pub(crate) fn assign_chunk_producers_to_shards(
     rng_seed: RngSeed,
     prev_chunk_producers_assignment: Vec<Vec<ValidatorStake>>,
     use_stable_shard_assignment: bool,
-    assignment_restrictions: Option<AssignmentRestrictions>,
 ) -> Result<Vec<Vec<ValidatorStake>>, NotEnoughValidators> {
     // If there's not enough chunk producers to fill up a single shard there’s
     // nothing we can do. Return with an error.
@@ -448,7 +346,6 @@ pub(crate) fn assign_chunk_producers_to_shards(
             rng_seed,
             prev_chunk_producers_assignment,
             use_stable_shard_assignment,
-            assignment_restrictions,
         )
     };
     Ok(result)
@@ -500,10 +397,9 @@ pub fn shard_id_to_index(
 #[cfg(test)]
 mod tests {
     use crate::RngSeed;
-    use crate::shard_assignment::{AssignmentRestrictions, assign_chunk_producers_to_shards};
-    use near_primitives::shard_layout::ShardLayout;
+    use crate::shard_assignment::assign_chunk_producers_to_shards;
     use near_primitives::types::validator_stake::ValidatorStake;
-    use near_primitives::types::{AccountId, Balance, ShardId, ShardIndex};
+    use near_primitives::types::{AccountId, Balance, ShardIndex};
     use std::collections::{HashMap, HashSet};
 
     fn validator_stake_for_test(n: usize) -> ValidatorStake {
@@ -532,7 +428,6 @@ mod tests {
             RngSeed::default(),
             vec![],
             false,
-            None,
         )
         .unwrap();
 
@@ -556,7 +451,6 @@ mod tests {
             RngSeed::default(),
             prev_assignment,
             true,
-            None,
         )
         .unwrap();
 
@@ -579,7 +473,6 @@ mod tests {
             RngSeed::default(),
             prev_assignment,
             true,
-            None,
         )
         .unwrap();
 
@@ -605,7 +498,6 @@ mod tests {
             RngSeed::default(),
             prev_assignment,
             true,
-            None,
         )
         .unwrap();
 
@@ -628,7 +520,6 @@ mod tests {
             RngSeed::default(),
             prev_assignment.clone(),
             true,
-            None,
         )
         .unwrap();
 
@@ -651,7 +542,6 @@ mod tests {
             RngSeed::default(),
             prev_assignment,
             true,
-            None,
         )
         .unwrap();
 
@@ -675,7 +565,6 @@ mod tests {
             RngSeed::default(),
             vec![],
             false,
-            None,
         )
         .unwrap();
 
@@ -698,107 +587,10 @@ mod tests {
             RngSeed::default(),
             prev_assignment,
             true,
-            None,
         )
         .unwrap();
 
         assert_eq!(assignment, target_assignment);
-    }
-
-    #[test]
-    fn test_shard_assignment_with_restrictions() {
-        let num_chunk_producers = 7;
-        let chunk_producers =
-            (0..num_chunk_producers).into_iter().map(validator_stake_for_test).collect::<Vec<_>>();
-        let shard_layout = ShardLayout::multi_shard(3, 3);
-        let prev_assignment = assignment_for_test(vec![vec![0, 1, 2, 3, 4], vec![5], vec![6]]);
-
-        // It will naturally assign vec![vec![0, 3, 6], vec![1, 4], vec![2, 5]]
-        // Let's add some restrictions
-        let mut validator_restrictions: HashMap<ShardId, HashSet<AccountId>> = HashMap::new();
-        // test01 cannot be assigned to shard idx 1
-        validator_restrictions
-            .entry(shard_layout.get_shard_id(1).unwrap())
-            .or_insert_with(HashSet::new)
-            .insert(chunk_producers[1].account_id().clone());
-
-        // test04 cannot be assigned to shard idx 1 or 2
-        validator_restrictions
-            .entry(shard_layout.get_shard_id(1).unwrap())
-            .or_insert_with(HashSet::new)
-            .insert(chunk_producers[4].account_id().clone());
-        validator_restrictions
-            .entry(shard_layout.get_shard_id(2).unwrap())
-            .or_insert_with(HashSet::new)
-            .insert(chunk_producers[4].account_id().clone());
-
-        // Now we have restrictions on
-        // shard idx 1: test01 and test04
-        // shard idx 2: test04
-        let restrictions1 =
-            AssignmentRestrictions::new(shard_layout.clone(), validator_restrictions.clone());
-
-        // test05 cannot be assigned to shard idx 1
-        validator_restrictions
-            .entry(shard_layout.get_shard_id(1).unwrap())
-            .or_insert_with(HashSet::new)
-            .insert(chunk_producers[5].account_id().clone());
-
-        // Now we have restrictions on
-        // shard idx 1: test01, test04, test05
-        // shard idx 2: test04
-        let restrictions2 =
-            AssignmentRestrictions::new(shard_layout.clone(), validator_restrictions.clone());
-
-        // test05 cannot be assigned to shard idx 2
-        validator_restrictions
-            .entry(shard_layout.get_shard_id(2).unwrap())
-            .or_insert_with(HashSet::new)
-            .insert(chunk_producers[5].account_id().clone());
-
-        // Now we have restrictions on
-        // shard idx 1: test01, test04, test05
-        // shard idx 2: test04, test05
-        let restrictions3 = AssignmentRestrictions::new(shard_layout, validator_restrictions);
-
-        for (name, restrictions, target_assignment) in [
-            (
-                "no restrictions",
-                None,
-                assignment_for_test(vec![vec![0, 3, 6], vec![1, 4], vec![2, 5]]),
-            ),
-            (
-                "restrictions1",
-                Some(restrictions1),
-                assignment_for_test(vec![vec![0, 3, 4], vec![2, 5], vec![1, 6]]),
-            ),
-            (
-                "restrictions2",
-                Some(restrictions2),
-                assignment_for_test(vec![vec![0, 3, 4], vec![2, 6], vec![1, 5]]),
-            ),
-            // This is an extreme case where 5 will be assigned to shard idx 0,
-            // but balancer will not move one validator from shard idx 0 to shard idx 2
-            // because there were too many changes.
-            (
-                "restrictions3",
-                Some(restrictions3),
-                assignment_for_test(vec![vec![0, 3, 4, 5], vec![2, 6], vec![1]]),
-            ),
-        ] {
-            let assignment = assign_chunk_producers_to_shards(
-                chunk_producers.clone(),
-                3,
-                1,
-                5,
-                RngSeed::default(),
-                prev_assignment.clone(),
-                false,
-                restrictions,
-            )
-            .unwrap();
-            assert_eq!(assignment, target_assignment, "{}", name);
-        }
     }
 
     fn validator_to_shard(assignment: &[Vec<ValidatorStake>]) -> HashMap<AccountId, ShardIndex> {
@@ -835,7 +627,6 @@ mod tests {
                 RngSeed::default(),
                 assignment.clone(),
                 true,
-                None,
             )
             .unwrap();
 
@@ -871,6 +662,52 @@ mod tests {
             .flat_map(|shard| shard.into_iter().map(|cp| cp.account_id().clone()))
             .collect::<HashSet<_>>();
         assert_eq!(original_chunk_producer_ids, chunk_producer_ids);
+    }
+
+    #[test]
+    /// Tests that shard assignment handles changing number of shards correctly.
+    fn test_shard_assignment_with_changing_shard_count() {
+        let num_chunk_producers = 4;
+        let min_validators_per_shards = 1;
+
+        // Previous epoch had 2 shards
+        let prev_assignment = assignment_for_test(vec![vec![0, 1], vec![2, 3]]);
+
+        // Current epoch has 3 shards
+        let num_shards = 3;
+
+        let assignment = assign_chunk_producers_to_shards(
+            (0..num_chunk_producers).into_iter().map(validator_stake_for_test).collect(),
+            num_shards,
+            min_validators_per_shards,
+            10,
+            RngSeed::default(),
+            prev_assignment,
+            true,
+        )
+        .unwrap();
+
+        // Assignments should have 3 shards
+        assert_eq!(assignment.len(), 3);
+
+        // All chunk producers should be assigned to a shard
+        let assigned_producers: HashSet<_> = assignment
+            .iter()
+            .flat_map(|shard| shard.iter().map(|cp| cp.account_id().clone()))
+            .collect();
+        let expected_producers: HashSet<_> = (0..num_chunk_producers)
+            .map(|i| validator_stake_for_test(i).account_id().clone())
+            .collect();
+        assert_eq!(assigned_producers, expected_producers);
+
+        // Each shard should have at least the minimum required validators
+        for shard_assignment in &assignment {
+            assert!(
+                !shard_assignment.is_empty(),
+                "Each shard should have at least {} validator",
+                min_validators_per_shards
+            );
+        }
     }
 
     impl super::HasStake for (usize, Balance) {

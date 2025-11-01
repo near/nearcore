@@ -5,21 +5,15 @@ Scans all Rust source files looking for expensive tests and than makes sure that
 they are all referenced in NayDuck test list files (the nightly/*.txt files).
 Returns with success if that's the case; with failure otherwise.
 
-An expensive test is one which is marked with expensive_tests feature as
-follows:
+An expensive test is one which beings with the `ultra_slow_test_` prefix:
 
     #[test]
-    #[cfg_attr(not(feature = "expensive_tests"), ignore)]
-    fn test_gc_random_large() {
+    fn ultra_slow_test_gc_random_large() {
         test_gc_random_common(25);
     }
 
-The `test` and `cfg_attr` annotations can be specified in whatever order but
-note that the script isn’t too smart about parsing Rust files and using
-something more complicated in the `cfg_attr` will confuse it.
-
 Expensive tests are not executed when running `cargo test` nor are they run in
-CI and it’s the purpose of this script to make sure that they are listed for
+CI and it's the purpose of this script to make sure that they are listed for
 NayDuck to run.
 """
 
@@ -33,47 +27,34 @@ import nayduck
 
 IGNORED_SUBDIRS = ("target", "target_expensive", "sandbox")
 
-EXPENSIVE_DIRECTIVE = "ultra_slow_test_"
-TEST_DIRECTIVE = "#[test]"
+EXPENSIVE_DIRECTIVES = ["fn ultra_slow_test_", "async fn ultra_slow_test_"]
+TEST_DIRECTIVES = ["#[test]", "#[tokio::test]"]
 
 
 def expensive_tests_in_file(path: pathlib.Path) -> typing.Iterable[str]:
     """Yields names of expensive tests found in given Rust file.
-
-    An expensive test is a function annotated with `test` and a conditional
-    `ignore` attributes, specifically:
-
-        #[test]
-        #[cfg_attr(not(feature = "expensive_tests"), ignore)]
-        fn test_slow() {
-            // ...
-        }
-
-    Note that anything more complex in the `cfg_attr` will cause the function
-    not to recognize the test.
-
     Args:
         path: Path to the Rust source file.
     Yields:
-        Names of functions defining expensive tests (e.g. `test_slow` in example
-        above).
+        Names of functions defining expensive tests (e.g. `ultra_slow_test_gc_random_large`
+        in example above).
     """
     with open(path) as rd:
-        is_expensive = False
         is_test = False
         for line in rd:
             line = line.strip()
             if not line:
                 pass
             elif line.startswith("#"):
-                is_test = is_test or line == TEST_DIRECTIVE
-            elif line.startswith("fn ultra_slow_test_"):
+                is_test = is_test or line in TEST_DIRECTIVES
+            elif any(
+                    line.startswith(directive)
+                    for directive in EXPENSIVE_DIRECTIVES):
                 if is_test:
                     match = re.search(r"\bfn\s+([A-Za-z_][A-Za-z_0-9]*)\b",
                                       line)
                     if match:
                         yield match.group(1)
-                is_expensive = False
                 is_test = False
 
 
@@ -93,7 +74,8 @@ def nightly_tests(repo_dir: pathlib.Path) -> typing.Iterable[str]:
 
 def main() -> typing.Optional[str]:
     repo_dir = pathlib.Path(__file__).parent.parent
-    nightly_txt_tests = set(nightly_tests(repo_dir))
+    # Once we see the tests in the repo, we mark the test as found.
+    nightly_txt_tests = {i: False for i in nightly_tests(repo_dir)}
     for root, dirs, files in os.walk(repo_dir):
         dirs[:] = [
             dirname for dirname in dirs if dirname not in IGNORED_SUBDIRS
@@ -107,6 +89,12 @@ def main() -> typing.Optional[str]:
                     print(f"  expensive test {test}")
                     if test not in nightly_txt_tests:
                         return f"error: file {filepath} test {test} not in nightly.txt"
+                    # Marking nightly test as found.
+                    nightly_txt_tests[test] = True
+    for test, found in nightly_txt_tests.items():
+        # Not sure why are we yielding `nightly`
+        if not found and test != "nightly":
+            return f"error: test {test} not found in repo"
     print("all tests in nightly")
     return None
 

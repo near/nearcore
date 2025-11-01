@@ -1,19 +1,19 @@
 use crate::Error;
 use crate::types::{
     ApplyChunkBlockContext, ApplyChunkResult, ApplyChunkShardContext,
-    PrepareTransactionsBlockContext, PrepareTransactionsChunkContext, PrepareTransactionsLimit,
-    PreparedTransactions, RuntimeAdapter, RuntimeStorageConfig, StorageDataSource, Tip,
+    PrepareTransactionsBlockContext, PrepareTransactionsLimit, PreparedTransactions,
+    RuntimeAdapter, RuntimeStorageConfig, SkippedTransactions, StorageDataSource, Tip,
 };
-use borsh::BorshDeserialize;
 use errors::FromStateViewerErrors;
 use near_async::time::{Duration, Instant};
 use near_chain_configs::{GenesisConfig, MIN_GC_NUM_EPOCHS_TO_KEEP, ProtocolConfig};
 use near_crypto::PublicKey;
 use near_epoch_manager::shard_assignment::account_id_to_shard_id;
-use near_epoch_manager::{EpochManagerAdapter, EpochManagerHandle};
+use near_epoch_manager::{EpochManager, EpochManagerAdapter, EpochManagerHandle};
 use near_parameters::{RuntimeConfig, RuntimeConfigStore};
 use near_pool::types::TransactionGroupIterator;
 use near_primitives::account::{AccessKey, Account};
+use near_primitives::action::GlobalContractIdentifier;
 use near_primitives::apply::ApplyChunkReason;
 use near_primitives::congestion_info::{
     CongestionControl, ExtendedCongestionInfo, RejectTransactionReason, ShardAcceptsTransactions,
@@ -23,11 +23,11 @@ use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::receipt::Receipt;
 use near_primitives::sandbox::state_patch::SandboxStatePatch;
 use near_primitives::shard_layout::{ShardLayout, ShardUId};
-use near_primitives::state_part::PartId;
+use near_primitives::state_part::{PartId, StatePart};
 use near_primitives::transaction::{SignedTransaction, ValidatedTransaction};
 use near_primitives::types::{
     AccountId, Balance, BlockHeight, EpochHeight, EpochId, EpochInfoProvider, Gas, MerkleHash,
-    ShardId, StateChangeCause, StateRoot, StateRootNode,
+    ShardId, StateRoot, StateRootNode,
 };
 use near_primitives::version::ProtocolVersion;
 use near_primitives::views::{
@@ -35,11 +35,13 @@ use near_primitives::views::{
     QueryResponseKind, ViewStateResult,
 };
 use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
+use near_store::db::CLOUD_HEAD_KEY;
 use near_store::db::metadata::DbKind;
 use near_store::flat::FlatStorageManager;
+use near_store::trie::{FindSplitError, find_trie_split, total_mem_usage};
 use near_store::{
     ApplyStatePartResult, COLD_HEAD_KEY, DBCol, ShardTries, StateSnapshotConfig, Store, Trie,
-    TrieConfig, TrieUpdate, WrappedTrieChanges,
+    TrieConfig, TrieUpdate, WrappedTrieChanges, get_access_key, get_account, set_account,
 };
 use near_vm_runner::ContractCode;
 use near_vm_runner::{ContractRuntimeCache, precompile_contract};
@@ -48,20 +50,21 @@ use node_runtime::config::tx_cost;
 use node_runtime::state_viewer::{TrieViewer, ViewApplyState};
 use node_runtime::{
     ApplyState, Runtime, SignedValidPeriodTransactions, ValidatorAccountsUpdate,
-    get_signer_and_access_key, set_tx_state_changes, validate_transaction,
-    verify_and_charge_tx_ephemeral,
+    get_signer_and_access_key, validate_transaction, verify_and_charge_tx_ephemeral,
 };
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 use tracing::{debug, error, info, instrument};
+use trie_update_wrapper::TrieUpdateWitnessSizeWrapper;
 
 pub mod errors;
 mod metrics;
 pub mod test_utils;
 #[cfg(test)]
 mod tests;
+mod trie_update_wrapper;
 
 /// Defines Nightshade state transition and validator rotation.
 /// TODO: this possibly should be merged with the runtime cargo or at least reconciled on the interfaces.
@@ -75,6 +78,9 @@ pub struct NightshadeRuntime {
     pub runtime: Runtime,
     epoch_manager: Arc<EpochManagerHandle>,
     gc_num_epochs_to_keep: u64,
+    state_parts_compression_lvl: i32,
+    is_cloud_archival_writer: bool,
+    dynamic_resharding_dry_run: bool,
 }
 
 impl NightshadeRuntime {
@@ -89,6 +95,9 @@ impl NightshadeRuntime {
         gc_num_epochs_to_keep: u64,
         trie_config: TrieConfig,
         state_snapshot_config: StateSnapshotConfig,
+        state_parts_compression_lvl: i32,
+        is_cloud_archival_writer: bool,
+        dynamic_resharding_dry_run: bool,
     ) -> Arc<Self> {
         let runtime_config_store = match runtime_config_store {
             Some(store) => store,
@@ -126,6 +135,9 @@ impl NightshadeRuntime {
             trie_viewer,
             epoch_manager,
             gc_num_epochs_to_keep: gc_num_epochs_to_keep.max(MIN_GC_NUM_EPOCHS_TO_KEEP),
+            state_parts_compression_lvl,
+            is_cloud_archival_writer,
+            dynamic_resharding_dry_run,
         })
     }
 
@@ -162,8 +174,8 @@ impl NightshadeRuntime {
         state_patch: SandboxStatePatch,
     ) -> Result<ApplyChunkResult, Error> {
         let ApplyChunkBlockContext {
+            block_type: _,
             height: block_height,
-            block_hash,
             ref prev_block_hash,
             block_timestamp,
             gas_price,
@@ -171,8 +183,13 @@ impl NightshadeRuntime {
             congestion_info,
             bandwidth_requests,
         } = block;
-        let ApplyChunkShardContext { shard_id, last_validator_proposals, gas_limit, is_new_chunk } =
-            chunk;
+        let ApplyChunkShardContext {
+            shard_id,
+            last_validator_proposals,
+            gas_limit,
+            is_new_chunk,
+            on_post_state_ready,
+        } = chunk;
         let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(prev_block_hash)?;
         let validator_accounts_update = {
             let epoch_manager = self.epoch_manager.read();
@@ -238,7 +255,6 @@ impl NightshadeRuntime {
             apply_reason,
             block_height,
             prev_block_hash: *prev_block_hash,
-            block_hash,
             shard_id,
             epoch_id,
             epoch_height,
@@ -253,6 +269,7 @@ impl NightshadeRuntime {
             congestion_info,
             bandwidth_requests,
             trie_access_tracker_state: Default::default(),
+            on_post_state_ready,
         };
 
         let instant = Instant::now();
@@ -283,8 +300,10 @@ impl NightshadeRuntime {
             })?;
         let elapsed = instant.elapsed();
 
-        let total_gas_burnt =
-            apply_result.outcomes.iter().map(|tx_result| tx_result.outcome.gas_burnt).sum();
+        let total_gas_burnt = apply_result
+            .outcomes
+            .iter()
+            .fold(Gas::ZERO, |a, tx_result| a.checked_add(tx_result.outcome.gas_burnt).unwrap());
         metrics::APPLY_CHUNK_DELAY
             .with_label_values(&[&format_total_gas_burnt(total_gas_burnt)])
             .observe(elapsed.as_secs_f64());
@@ -351,30 +370,46 @@ impl NightshadeRuntime {
             epoch_start_height = epoch_first_block_info.height();
             last_block_in_prev_epoch = *epoch_first_block_info.prev_hash();
         }
+        let mut gc_stop_height = epoch_start_height;
 
         // An archival node with split storage should perform garbage collection
         // on the hot storage but not beyond the COLD_HEAD. In order to determine
         // if split storage is enabled *and* that the migration to split storage
         // is finished we can check the store kind. It's only set to hot after the
-        // migration is finished.
+        // migration is finished. If the migration has not finished yet, we expect
+        // the GC not to run regardless of what we return here.
         let kind = self.store.get_db_kind()?;
-        let cold_head = self.store.get_ser::<Tip>(DBCol::BlockMisc, COLD_HEAD_KEY)?;
-
         if let Some(DbKind::Hot) = kind {
-            if let Some(cold_head) = cold_head {
-                let cold_head_hash = cold_head.last_block_hash;
-                let cold_epoch_first_block =
-                    *epoch_manager.get_block_info(&cold_head_hash)?.epoch_first_block();
-                let cold_epoch_first_block_info =
-                    epoch_manager.get_block_info(&cold_epoch_first_block)?;
-                return Ok(std::cmp::min(epoch_start_height, cold_epoch_first_block_info.height()));
-            } else {
+            let Some(cold_head_epoch_start_height) = get_epoch_start_height_from_archival_head(
+                &self.store,
+                &epoch_manager,
+                COLD_HEAD_KEY,
+            )?
+            else {
                 // If kind is DbKind::Hot but cold_head is not set, it means the initial cold storage
                 // migration has not finished yet, in which case we should not garbage collect anything.
                 return Ok(self.genesis_config.genesis_height);
-            }
+            };
+            gc_stop_height = gc_stop_height.min(cold_head_epoch_start_height);
         }
-        Ok(epoch_start_height)
+
+        // Analogous to split storage cold DB: if the cloud archival writer is enabled, we check the cloud
+        // archival head and update `gc_stop_height` to the minimum.
+        if self.is_cloud_archival_writer {
+            let Some(cloud_head_epoch_start_height) = get_epoch_start_height_from_archival_head(
+                &self.store,
+                &epoch_manager,
+                CLOUD_HEAD_KEY,
+            )?
+            else {
+                return Err(Error::DBNotFoundErr(
+                    "Cloud archival writer is configured, but CLOUD_HEAD is missing".into(),
+                ));
+            };
+            gc_stop_height = gc_stop_height.min(cloud_head_epoch_start_height);
+        }
+
+        Ok(gc_stop_height)
     }
 
     fn obtain_state_part_impl(
@@ -383,59 +418,141 @@ impl NightshadeRuntime {
         prev_hash: &CryptoHash,
         state_root: &StateRoot,
         part_id: PartId,
-    ) -> Result<Vec<u8>, Error> {
+    ) -> Result<StatePart, Error> {
         let _span = tracing::debug_span!(
             target: "runtime",
             "obtain_state_part",
             part_id = part_id.idx,
-            ?shard_id,
+            %shard_id,
             %prev_hash,
             num_parts = part_id.total)
         .entered();
-        tracing::debug!(target: "state-parts", ?shard_id, ?prev_hash, ?state_root, ?part_id, "obtain_state_part");
+        tracing::debug!(target: "state-parts", %shard_id, ?prev_hash, ?state_root, ?part_id, "obtain_state_part");
 
         let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(prev_hash)?;
         let shard_uid = self.get_shard_uid_from_epoch_id(shard_id, &epoch_id)?;
 
         let trie_with_state =
             self.tries.get_trie_with_block_hash_for_shard(shard_uid, *state_root, &prev_hash, true);
-        let (path_boundary_nodes, nibbles_begin, nibbles_end) = match trie_with_state
-            .get_state_part_boundaries(part_id)
-        {
-            Ok(res) => res,
-            Err(err) => {
-                error!(target: "runtime", ?err, part_id.idx, part_id.total, %prev_hash, %state_root, %shard_id, "Can't get trie nodes for state part boundaries");
-                return Err(err.into());
-            }
-        };
 
         let trie_nodes = self.tries.get_trie_nodes_for_part_from_snapshot(
             shard_uid,
             state_root,
             &prev_hash,
             part_id,
-            path_boundary_nodes,
-            nibbles_begin,
-            nibbles_end,
             trie_with_state,
         );
-        let state_part = borsh::to_vec(&match trie_nodes {
+        let partial_state = match trie_nodes {
             Ok(partial_state) => partial_state,
             Err(err) => {
                 error!(target: "runtime", ?err, part_id.idx, part_id.total, %prev_hash, %state_root, %shard_id, "Can't get trie nodes for state part");
                 return Err(err.into());
             }
-        })
-            .expect("serializer should not fail");
-
+        };
+        let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
+        let state_part = StatePart::from_partial_state(
+            partial_state,
+            protocol_version,
+            self.state_parts_compression_lvl,
+        );
         Ok(state_part)
     }
+
+    fn validate_state_part_impl(
+        &self,
+        state_root: &StateRoot,
+        part_id: PartId,
+        part: &StatePart,
+    ) -> bool {
+        let partial_state = part.to_partial_state();
+        let Ok(partial_state) = part.to_partial_state() else {
+            // Deserialization error means we've got the data from malicious peer
+            tracing::error!(target: "state-parts", ?partial_state, "State part deserialization error");
+            return false;
+        };
+        match Trie::validate_state_part(state_root, part_id, partial_state) {
+            Ok(_) => true,
+            // Storage error should not happen
+            Err(err) => {
+                tracing::error!(target: "state-parts", ?err, "State part storage error");
+                false
+            }
+        }
+    }
+
+    fn query_view_global_contract_code(
+        &self,
+        identifier: GlobalContractIdentifier,
+        shard_uid: ShardUId,
+        state_root: &StateRoot,
+        block_height: BlockHeight,
+        block_hash: &CryptoHash,
+    ) -> Result<QueryResponse, crate::near_chain_primitives::error::QueryError> {
+        let contract_code =
+            self.view_global_contract_code(&shard_uid, *state_root, identifier).map_err(|err| {
+                crate::near_chain_primitives::error::QueryError::from_view_contract_code_error(
+                    err,
+                    block_height,
+                    *block_hash,
+                )
+            })?;
+        let hash = *contract_code.hash();
+        let contract_code_view = ContractCodeView { hash, code: contract_code.into_code() };
+        Ok(QueryResponse {
+            kind: QueryResponseKind::ViewCode(contract_code_view),
+            block_height,
+            block_hash: *block_hash,
+        })
+    }
+
+    fn check_dynamic_resharding_impl(
+        &self,
+        shard_trie: &Trie,
+        shard_id: ShardId,
+    ) -> Result<(), FindSplitError> {
+        let start = Instant::now();
+        let mem_usage = total_mem_usage(shard_trie)?;
+        // TODO(dynamic_resharding): For the actual resharding trigger, this will be a proper threshold instead of 0
+        if mem_usage > 0 {
+            let trie_split = find_trie_split(shard_trie)?;
+            let elapsed = start.elapsed();
+            info!(target: "runtime", ?shard_id, ?mem_usage, ?trie_split, ?elapsed, "dynamic resharding dry run");
+        }
+        Ok(())
+    }
+
+    /// Check if dynamic resharding should be scheduled for the given shard.
+    /// This is only a dry-run and will **not** actually trigger resharding.
+    fn check_dynamic_resharding(&self, shard_trie: &Trie, shard_id: ShardId) -> Result<(), Error> {
+        match self.check_dynamic_resharding_impl(shard_trie, shard_id) {
+            Err(FindSplitError::Storage(err)) => Err(err)?,
+            Err(err) => {
+                error!(target: "runtime", ?shard_id, ?err, "dynamic resharding check failed")
+            }
+            Ok(()) => {}
+        }
+        Ok(())
+    }
+}
+
+fn get_epoch_start_height_from_archival_head(
+    store: &Store,
+    epoch_manager: &EpochManager,
+    archival_head_key: &[u8],
+) -> Result<Option<BlockHeight>, Error> {
+    let archival_head = store.get_ser::<Tip>(DBCol::BlockMisc, archival_head_key)?;
+    let Some(archival_head) = archival_head else {
+        return Ok(None);
+    };
+    let archival_head_hash = archival_head.last_block_hash;
+    let epoch_start_height = epoch_manager.get_epoch_start_height(&archival_head_hash)?;
+    Ok(Some(epoch_start_height))
 }
 
 fn format_total_gas_burnt(gas: Gas) -> String {
     // Rounds up the amount of teragas to hundreds of Tgas.
     // For example 123 Tgas gets rounded up to "200".
-    format!("{:.0}", ((gas as f64) / 1e14).ceil() * 100.0)
+    format!("{:.0}", ((gas.as_gas() as f64) / 1e14).ceil() * 100.0)
 }
 
 impl RuntimeAdapter for NightshadeRuntime {
@@ -530,17 +647,16 @@ impl RuntimeAdapter for NightshadeRuntime {
     ) -> Result<(), InvalidTxError> {
         let runtime_config = self.runtime_config_store.get_config(current_protocol_version);
 
-        let cost =
-            tx_cost(runtime_config, &validated_tx.to_tx(), gas_price, current_protocol_version)?;
+        let cost = tx_cost(runtime_config, &validated_tx.to_tx(), gas_price)?;
         let shard_uid = shard_layout
             .account_id_to_shard_uid(validated_tx.to_signed_tx().transaction.signer_id());
-        let state_update = self.tries.new_trie_update(shard_uid, state_root);
-        let (mut signer, mut access_key) = get_signer_and_access_key(&state_update, &validated_tx)?;
+        let trie = self.tries.get_trie_for_shard(shard_uid, state_root);
+        let (mut signer, mut access_key) = get_signer_and_access_key(&trie, &validated_tx)?;
         verify_and_charge_tx_ephemeral(
             runtime_config,
             &mut signer,
             &mut access_key,
-            validated_tx,
+            validated_tx.to_tx(),
             &cost,
             // here we do not know which block the transaction will be included
             // and therefore skip the check on the nonce upper bound.
@@ -549,27 +665,27 @@ impl RuntimeAdapter for NightshadeRuntime {
         .map(|_vr| ())
     }
 
+    #[instrument(
+        target = "runtime",
+        level = "debug",
+        "runtime_prepare_transactions",
+        skip_all,
+        fields(
+            height = prev_block.height + 1,
+            shard_id = %shard_id,
+            tag_block_production = true
+        )
+    )]
     fn prepare_transactions(
         &self,
         storage_config: RuntimeStorageConfig,
-        chunk: PrepareTransactionsChunkContext,
+        shard_id: ShardId,
         prev_block: PrepareTransactionsBlockContext,
         transaction_groups: &mut dyn TransactionGroupIterator,
         chain_validate: &dyn Fn(&SignedTransaction) -> bool,
         time_limit: Option<Duration>,
     ) -> Result<PreparedTransactions, Error> {
-        let start_time = std::time::Instant::now();
-        let PrepareTransactionsChunkContext { shard_id, .. } = chunk;
-
-        let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(&prev_block.block_hash)?;
-        let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
-        let runtime_config = self.runtime_config_store.get_config(protocol_version);
-
-        let shard_uid = self.get_shard_uid_from_epoch_id(shard_id, &epoch_id)?;
-        // While the height of the next block that includes the chunk might not be prev_height + 1,
-        // using it will result in a more conservative check and will not accidentally allow
-        // invalid transactions to be included.
-        let next_block_height = prev_block.height + 1;
+        let shard_uid = self.get_shard_uid_from_epoch_id(shard_id, &prev_block.next_epoch_id)?;
 
         let mut trie = match storage_config.source {
             StorageDataSource::Db => {
@@ -589,22 +705,68 @@ impl RuntimeAdapter for NightshadeRuntime {
                 storage_config.use_flat_storage,
             ),
         };
-        // StateWitnessSizeLimit: We need to start recording reads if the stateless validation is
-        // enabled in the next epoch. We need to save the state transition data in the current epoch
-        // to be able to produce the state witness in the next epoch.
-        let proof_size_limit =
-            runtime_config.witness_config.new_transactions_validation_state_size_soft_limit;
-        trie = trie.recording_reads_with_proof_size_limit(proof_size_limit);
 
-        let mut state_update = TrieUpdate::new(trie);
+        // Start recording trie reads to enforce storage proof size limits and potentially provide a
+        // proof that the prepared transactions are valid.
+        trie = trie.recording_reads_new_recorder();
+        let state_update = TrieUpdate::new(trie);
+
+        self.prepare_transactions_extra(
+            state_update,
+            shard_id,
+            prev_block,
+            transaction_groups,
+            chain_validate,
+            HashSet::new(),
+            time_limit,
+            None,
+        ) // skip_tx_hashes is empty, so there will be no skipped transactions
+        .map(|(prepared, _skipped)| prepared)
+    }
+
+    #[instrument(
+        target = "runtime",
+        level = "debug",
+        "runtime_prepare_transactions_extra",
+        skip_all,
+        fields(
+            height = prev_block.height + 1,
+            shard_id = %shard_id,
+            tag_block_production = true
+        )
+    )]
+    fn prepare_transactions_extra(
+        &self,
+        storage: TrieUpdate,
+        shard_id: ShardId,
+        prev_block: PrepareTransactionsBlockContext,
+        transaction_groups: &mut dyn TransactionGroupIterator,
+        chain_validate: &dyn Fn(&SignedTransaction) -> bool,
+        skip_tx_hashes: HashSet<CryptoHash>,
+        time_limit: Option<Duration>,
+        cancel: Option<Arc<AtomicBool>>,
+    ) -> Result<(PreparedTransactions, SkippedTransactions), Error> {
+        let start_time = std::time::Instant::now();
+
+        let epoch_id = prev_block.next_epoch_id;
+        let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
+        let runtime_config = self.runtime_config_store.get_config(protocol_version);
+
+        // While the height of the next block that includes the chunk might not be prev_height + 1,
+        // using it will result in a more conservative check and will not accidentally allow
+        // invalid transactions to be included.
+        let next_block_height = prev_block.height + 1;
+
+        let mut state_update = TrieUpdateWitnessSizeWrapper::new(storage);
 
         // Total amount of gas burnt for converting transactions towards receipts.
-        let mut total_gas_burnt = 0;
+        let mut total_gas_burnt = Gas::ZERO;
         let mut total_size = 0u64;
 
         let transactions_gas_limit = chunk_tx_gas_limit(runtime_config, &prev_block, shard_id);
 
         let mut result = PreparedTransactions { transactions: Vec::new(), limited_by: None };
+        let mut skipped_transactions = Vec::new();
         let mut num_checked_transactions = 0;
 
         let size_limit = runtime_config.witness_config.combined_transactions_size_limit as u64;
@@ -631,12 +793,21 @@ impl RuntimeAdapter for NightshadeRuntime {
                 }
             }
 
-            if state_update.trie.recorded_storage_size()
+            if state_update.recorded_storage_size() as u64
                 > runtime_config.witness_config.new_transactions_validation_state_size_soft_limit
             {
                 result.limited_by = Some(PrepareTransactionsLimit::StorageProofSize);
                 break;
             }
+
+            if let Some(cancel) = &cancel {
+                if cancel.load(Ordering::Relaxed) {
+                    result.limited_by = Some(PrepareTransactionsLimit::Cancelled);
+                    break;
+                }
+            }
+
+            let mut signer_access_key = None;
 
             // Take a single transaction from this transaction group
             while let Some(tx_peek) = transaction_group_iter.peek_next() {
@@ -654,6 +825,11 @@ impl RuntimeAdapter for NightshadeRuntime {
                     .next()
                     .expect("peek_next() returned Some, so next() should return Some as well");
                 num_checked_transactions += 1;
+
+                if skip_tx_hashes.contains(&validated_tx.get_hash()) {
+                    skipped_transactions.push(validated_tx);
+                    continue;
+                }
 
                 if !congestion_control_accepts_transaction(
                     self.epoch_manager.as_ref(),
@@ -674,36 +850,42 @@ impl RuntimeAdapter for NightshadeRuntime {
                     continue;
                 }
 
-                let (mut signer, mut access_key) =
-                    get_signer_and_access_key(&state_update, &validated_tx)
-                        .map_err(|_| Error::InvalidTransactions)?;
-                let verify_result = tx_cost(
-                    runtime_config,
-                    &validated_tx.to_tx(),
-                    prev_block.next_gas_price,
-                    protocol_version,
-                )
-                .map_err(InvalidTxError::from)
-                .and_then(|cost| {
-                    verify_and_charge_tx_ephemeral(
-                        runtime_config,
-                        &mut signer,
-                        &mut access_key,
-                        &validated_tx,
-                        &cost,
-                        Some(next_block_height),
-                    )
-                })
-                .and_then(|verification_res| {
-                    set_tx_state_changes(&mut state_update, &validated_tx, &signer, &access_key);
-                    Ok(verification_res)
-                });
+                let signer_id = validated_tx.signer_id();
+                let (signer, access_key) = if let Some((id, signer, key)) = &mut signer_access_key {
+                    debug_assert_eq!(signer_id, id);
+                    (signer, key)
+                } else {
+                    let signer = get_account(&state_update, signer_id);
+                    let signer = signer.transpose().and_then(|v| v.ok());
+                    let access_key =
+                        get_access_key(&state_update, signer_id, validated_tx.public_key());
+                    let access_key = access_key.transpose().and_then(|v| v.ok());
+                    let inserted = signer_access_key.insert((
+                        signer_id.clone(),
+                        signer.ok_or(Error::InvalidTransactions)?,
+                        access_key.ok_or(Error::InvalidTransactions)?,
+                    ));
+                    (&mut inserted.1, &mut inserted.2)
+                };
+
+                let verify_result =
+                    tx_cost(runtime_config, &validated_tx.to_tx(), prev_block.next_gas_price)
+                        .map_err(InvalidTxError::from)
+                        .and_then(|cost| {
+                            verify_and_charge_tx_ephemeral(
+                                runtime_config,
+                                signer,
+                                access_key,
+                                validated_tx.to_tx(),
+                                &cost,
+                                Some(next_block_height),
+                            )
+                        });
 
                 match verify_result {
                     Ok(cost) => {
                         tracing::trace!(target: "runtime", tx=?validated_tx.get_hash(), "including transaction that passed validation and verification");
-                        state_update.commit(StateChangeCause::NotWritableToDisk);
-                        total_gas_burnt += cost.gas_burnt;
+                        total_gas_burnt = total_gas_burnt.checked_add(cost.gas_burnt).unwrap();
                         total_size += validated_tx.get_size();
                         result.transactions.push(validated_tx);
                         // Take one transaction from this group, no more.
@@ -712,11 +894,20 @@ impl RuntimeAdapter for NightshadeRuntime {
                     Err(err) => {
                         tracing::trace!(target: "runtime", tx=?validated_tx.get_hash(), ?err, "discarding transaction that failed verification or verification");
                         rejected_invalid_tx += 1;
-                        state_update.rollback();
                     }
                 }
             }
+
+            if let Some((signer_id, account, _)) = signer_access_key {
+                // NOTE: we don't need to remember the intermediate state of the access key between
+                // groups, but only because pool guarantees that iteration is grouped by account_id
+                // and its public keys. It does however also mean that we must remember the account
+                // state as this code might operate over multiple access keys for the account.
+                set_account(&mut state_update.trie_update, signer_id, &account);
+            }
         }
+        // NOTE: this state update must not be committed or finalized!
+        drop(state_update);
         debug!(target: "runtime", limited_by=?result.limited_by, "Transaction filtering results {} valid out of {} pulled from the pool", result.transactions.len(), num_checked_transactions);
         let shard_label = shard_id.to_string();
         metrics::PREPARE_TX_SIZE.with_label_values(&[&shard_label]).observe(total_size as f64);
@@ -729,11 +920,13 @@ impl RuntimeAdapter for NightshadeRuntime {
         metrics::PREPARE_TX_REJECTED
             .with_label_values(&[&shard_label, "invalid_block_hash"])
             .observe(rejected_invalid_for_chain as f64);
-        metrics::PREPARE_TX_GAS.with_label_values(&[&shard_label]).observe(total_gas_burnt as f64);
+        metrics::PREPARE_TX_GAS
+            .with_label_values(&[&shard_label])
+            .observe(total_gas_burnt.as_gas() as f64);
         metrics::CONGESTION_PREPARE_TX_GAS_LIMIT
             .with_label_values(&[&shard_label])
-            .set(i64::try_from(transactions_gas_limit).unwrap_or(i64::MAX));
-        Ok(result)
+            .set(i64::try_from(transactions_gas_limit.as_gas()).unwrap_or(i64::MAX));
+        Ok((result, SkippedTransactions(skipped_transactions)))
     }
 
     fn get_gc_stop_height(&self, block_hash: &CryptoHash) -> BlockHeight {
@@ -759,7 +952,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         }
     }
 
-    #[instrument(target = "runtime", level = "info", skip_all, fields(shard_id = ?chunk.shard_id))]
+    #[instrument(target = "runtime", level = "info", skip_all, fields(height = block.height, shard_id = %chunk.shard_id))]
     fn apply_chunk(
         &self,
         storage_config: RuntimeStorageConfig,
@@ -807,6 +1000,14 @@ impl RuntimeAdapter for NightshadeRuntime {
         let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(&block.prev_block_hash)?;
         let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
         let config = self.runtime_config_store.get_config(protocol_version);
+
+        // TODO(dynamic_resharding): Use recording for this when actual resharding (not dry run) is triggered
+        if self.dynamic_resharding_dry_run
+            && self.epoch_manager.is_next_block_epoch_start(&block.prev_block_hash)?
+        {
+            self.check_dynamic_resharding(&trie, shard_id)?;
+        }
+
         let proof_limit = config.witness_config.main_storage_proof_size_soft_limit;
         trie = trie.recording_reads_with_proof_size_limit(proof_limit);
 
@@ -891,7 +1092,6 @@ impl RuntimeAdapter for NightshadeRuntime {
                         block_height,
                         block_timestamp,
                         prev_block_hash,
-                        block_hash,
                         epoch_height,
                         epoch_id,
                         account_id,
@@ -978,6 +1178,22 @@ impl RuntimeAdapter for NightshadeRuntime {
                     block_hash: *block_hash,
                 })
             }
+            QueryRequest::ViewGlobalContractCode { code_hash } => self
+                .query_view_global_contract_code(
+                    GlobalContractIdentifier::CodeHash(*code_hash),
+                    shard_uid,
+                    state_root,
+                    block_height,
+                    block_hash,
+                ),
+            QueryRequest::ViewGlobalContractCodeByAccountId { account_id } => self
+                .query_view_global_contract_code(
+                    GlobalContractIdentifier::AccountId(account_id.clone()),
+                    shard_uid,
+                    state_root,
+                    block_height,
+                    block_hash,
+                ),
         }
     }
 
@@ -988,12 +1204,12 @@ impl RuntimeAdapter for NightshadeRuntime {
         prev_hash: &CryptoHash,
         state_root: &StateRoot,
         part_id: PartId,
-    ) -> Result<Vec<u8>, Error> {
+    ) -> Result<StatePart, Error> {
         let _span = tracing::debug_span!(
             target: "runtime",
             "obtain_state_part",
             part_id = part_id.idx,
-            ?shard_id,
+            %shard_id,
             %prev_hash,
             ?state_root,
             num_parts = part_id.total)
@@ -1008,24 +1224,21 @@ impl RuntimeAdapter for NightshadeRuntime {
         res
     }
 
-    fn validate_state_part(&self, state_root: &StateRoot, part_id: PartId, data: &[u8]) -> bool {
-        match BorshDeserialize::try_from_slice(data) {
-            Ok(trie_nodes) => {
-                match Trie::validate_state_part(state_root, part_id, trie_nodes) {
-                    Ok(_) => true,
-                    // Storage error should not happen
-                    Err(err) => {
-                        tracing::error!(target: "state-parts", ?err, "State part storage error");
-                        false
-                    }
-                }
-            }
-            // Deserialization error means we've got the data from malicious peer
-            Err(err) => {
-                tracing::error!(target: "state-parts", ?err, "State part deserialization error");
-                false
-            }
-        }
+    fn validate_state_part(
+        &self,
+        shard_id: ShardId,
+        state_root: &StateRoot,
+        part_id: PartId,
+        part: &StatePart,
+    ) -> bool {
+        let instant = Instant::now();
+        let res = self.validate_state_part_impl(state_root, part_id, part);
+        let elapsed = instant.elapsed();
+        let is_ok = if res { "ok" } else { "error" };
+        metrics::STATE_SYNC_VALIDATE_PART_DELAY
+            .with_label_values(&[&shard_id.to_string(), is_ok])
+            .observe(elapsed.as_secs_f64());
+        res
     }
 
     fn apply_state_part(
@@ -1033,14 +1246,15 @@ impl RuntimeAdapter for NightshadeRuntime {
         shard_id: ShardId,
         state_root: &StateRoot,
         part_id: PartId,
-        data: &[u8],
+        part: &StatePart,
         epoch_id: &EpochId,
     ) -> Result<(), Error> {
         let _timer = metrics::STATE_SYNC_APPLY_PART_DELAY
             .with_label_values(&[&shard_id.to_string()])
             .start_timer();
 
-        let part = BorshDeserialize::try_from_slice(data)
+        let part = part
+            .to_partial_state()
             .expect("Part was already validated earlier, so could never fail here");
         let ApplyStatePartResult { trie_changes, flat_state_delta, contract_codes } =
             Trie::apply_state_part(state_root, part_id, part);
@@ -1125,6 +1339,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         genesis_config.minimum_stake_ratio = epoch_config.minimum_stake_ratio;
         genesis_config.shuffle_shard_assignment_for_chunk_producers =
             epoch_config.shuffle_shard_assignment_for_chunk_producers;
+        genesis_config.max_inflation_rate = epoch_config.max_inflation_rate;
 
         let runtime_config =
             self.runtime_config_store.get_config(protocol_version).as_ref().clone();
@@ -1189,7 +1404,7 @@ fn chunk_tx_gas_limit(
     runtime_config: &RuntimeConfig,
     prev_block: &PrepareTransactionsBlockContext,
     shard_id: ShardId,
-) -> u64 {
+) -> Gas {
     // The own congestion may be None when a new shard is created, or when the
     // feature is just being enabled. Using the default (no congestion) is a
     // reasonable choice in this case.
@@ -1248,7 +1463,7 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
         account_id: &AccountId,
     ) -> Result<ContractCode, node_runtime::state_viewer::errors::ViewContractCodeError> {
         let state_update = self.tries.new_trie_update_view(*shard_uid, state_root);
-        self.trie_viewer.view_contract_code(&state_update, account_id)
+        self.trie_viewer.view_account_contract_code(&state_update, account_id)
     }
 
     fn call_function(
@@ -1258,7 +1473,6 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
         height: BlockHeight,
         block_timestamp: u64,
         prev_block_hash: &CryptoHash,
-        block_hash: &CryptoHash,
         epoch_height: EpochHeight,
         epoch_id: &EpochId,
         contract_id: &AccountId,
@@ -1273,7 +1487,6 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
             shard_id: shard_uid.shard_id(),
             block_height: height,
             prev_block_hash: *prev_block_hash,
-            block_hash: *block_hash,
             epoch_id: *epoch_id,
             epoch_height,
             block_timestamp,
@@ -1323,5 +1536,15 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
     ) -> Result<ViewStateResult, node_runtime::state_viewer::errors::ViewStateError> {
         let state_update = self.tries.new_trie_update_view(*shard_uid, state_root);
         self.trie_viewer.view_state(&state_update, account_id, prefix, include_proof)
+    }
+
+    fn view_global_contract_code(
+        &self,
+        shard_uid: &ShardUId,
+        state_root: MerkleHash,
+        identifier: GlobalContractIdentifier,
+    ) -> Result<ContractCode, node_runtime::state_viewer::errors::ViewContractCodeError> {
+        let state_update = self.tries.new_trie_update_view(*shard_uid, state_root);
+        self.trie_viewer.view_global_contract_code(&state_update, identifier)
     }
 }

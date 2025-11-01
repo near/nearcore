@@ -3,6 +3,7 @@ use near_store::trie::AccessOptions;
 use rand::Rng;
 use std::sync::Arc;
 
+use crate::ChainStoreAccess;
 use crate::chain::Chain;
 use crate::garbage_collection::GCMode;
 use crate::test_utils::{
@@ -10,28 +11,27 @@ use crate::test_utils::{
     get_chain_with_num_shards,
 };
 use crate::types::Tip;
-use crate::{ChainStoreAccess, StoreValidator};
 
-use near_chain_configs::{DEFAULT_GC_NUM_EPOCHS_TO_KEEP, GCConfig, GenesisConfig};
+use near_chain_configs::{DEFAULT_GC_NUM_EPOCHS_TO_KEEP, GCConfig};
 use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::block::Block;
 use near_primitives::epoch_block_info::BlockInfo;
 use near_primitives::merkle::PartialMerkleTree;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::test_utils::{TestBlockBuilder, create_test_signer};
-use near_primitives::types::{BlockHeight, NumBlocks, StateRoot};
+use near_primitives::types::{BlockHeight, StateRoot};
 use near_primitives::validator_signer::ValidatorSigner;
 use near_store::test_utils::gen_changes;
-use near_store::{DBCol, ShardTries, Trie, WrappedTrieChanges};
+use near_store::{ShardTries, Trie, WrappedTrieChanges};
 
 // Build a chain of num_blocks on top of prev_block
 fn do_fork(
-    mut prev_block: Block,
+    mut prev_block: Arc<Block>,
     mut prev_state_roots: Vec<StateRoot>,
     tries: ShardTries,
     chain: &mut Chain,
     num_blocks: u64,
-    states: &mut Vec<(Block, Vec<StateRoot>, Vec<Vec<(Vec<u8>, Option<Vec<u8>>)>>)>,
+    states: &mut Vec<(Arc<Block>, Vec<StateRoot>, Vec<Vec<(Vec<u8>, Option<Vec<u8>>)>>)>,
     max_changes: usize,
     verbose: bool,
     final_block_height: Option<u64>,
@@ -168,7 +168,7 @@ fn gc_fork_common(simple_chains: Vec<SimpleChain>, max_changes: usize) {
     ));
 
     let mut final_height = None;
-    for simple_chain in simple_chains.iter() {
+    for simple_chain in &simple_chains {
         let (source_block1, state_root1, _) = states1[simple_chain.from as usize].clone();
         do_fork(
             source_block1.clone(),
@@ -187,7 +187,7 @@ fn gc_fork_common(simple_chains: Vec<SimpleChain>, max_changes: usize) {
     }
 
     // GC execution
-    chain1.clear_data(&GCConfig { gc_blocks_limit: 1000, ..GCConfig::default() }, None).unwrap();
+    chain1.clear_data(&GCConfig { gc_blocks_limit: 1000, ..GCConfig::default() }).unwrap();
 
     let tries2 = get_chain_with_num_shards(Clock::real(), num_shards).runtime_adapter.get_tries();
 
@@ -206,7 +206,7 @@ fn gc_fork_common(simple_chains: Vec<SimpleChain>, max_changes: usize) {
     let mut state_roots2 = vec![];
     state_roots2.push(Trie::EMPTY_ROOT);
 
-    for simple_chain in simple_chains.iter() {
+    for simple_chain in &simple_chains {
         if simple_chain.is_removed {
             for _ in 0..simple_chain.length {
                 // This chain is deleted in Chain1
@@ -248,7 +248,7 @@ fn gc_fork_common(simple_chains: Vec<SimpleChain>, max_changes: usize) {
     }
 
     let mut start_index = 1; // zero is for genesis
-    for simple_chain in simple_chains.iter() {
+    for simple_chain in &simple_chains {
         if simple_chain.is_removed {
             for i in start_index..start_index + simple_chain.length {
                 let (block1, _, _) = states1[i as usize].clone();
@@ -622,14 +622,11 @@ fn test_fork_far_away_from_epoch_end() {
 
     // GC execution
     chain
-        .clear_data(
-            &GCConfig {
-                gc_blocks_limit: 100,
-                gc_fork_clean_step: fork_clean_step,
-                ..GCConfig::default()
-            },
-            None,
-        )
+        .clear_data(&GCConfig {
+            gc_blocks_limit: 100,
+            gc_fork_clean_step: fork_clean_step,
+            ..GCConfig::default()
+        })
         .expect("Clear data failed");
 
     // The run above would clear just the first 5 blocks from the beginning, but shouldn't clear any forks
@@ -671,7 +668,7 @@ fn test_fork_far_away_from_epoch_end() {
         );
     }
     chain
-        .clear_data(&GCConfig { gc_blocks_limit: 100, ..GCConfig::default() }, None)
+        .clear_data(&GCConfig { gc_blocks_limit: 100, ..GCConfig::default() })
         .expect("Clear data failed");
     // And now all these blocks should be safely removed.
     for i in 6..50 {
@@ -708,7 +705,7 @@ fn test_clear_old_data() {
         );
     }
 
-    chain.clear_data(&GCConfig { gc_blocks_limit: 100, ..GCConfig::default() }, None).unwrap();
+    chain.clear_data(&GCConfig { gc_blocks_limit: 100, ..GCConfig::default() }).unwrap();
 
     for i in 0..=max_height {
         println!("height = {} hash = {}", i, blocks[i].hash());
@@ -725,8 +722,8 @@ fn test_clear_old_data() {
 fn add_block(
     chain: &mut Chain,
     epoch_manager: &dyn EpochManagerAdapter,
-    prev_block: &mut Block,
-    blocks: &mut Vec<Block>,
+    prev_block: &mut Arc<Block>,
+    blocks: &mut Vec<Arc<Block>>,
     signer: Arc<ValidatorSigner>,
     height: u64,
 ) {
@@ -825,108 +822,6 @@ fn test_clear_old_data_fixed_height() {
     assert!(chain.mut_chain_store().get_next_block_hash(blocks[4].hash()).is_err());
     assert!(chain.mut_chain_store().get_next_block_hash(blocks[5].hash()).is_ok());
     assert!(chain.mut_chain_store().get_next_block_hash(blocks[6].hash()).is_ok());
-}
-
-/// Test that `gc_blocks_limit` works properly
-#[test]
-#[allow(unreachable_code)]
-fn ultra_slow_test_clear_old_data_too_many_heights() {
-    // TODO(#10634): panics on `clear_data` -> `clear_resharding_data` ->
-    // `MockEpochManager::is_next_block_epoch_start` apparently because
-    // epoch manager is not updated at all. Should we fix it together with
-    // removing `MockEpochManager`?
-    return;
-
-    for i in 1..5 {
-        println!("gc_blocks_limit == {:?}", i);
-        test_clear_old_data_too_many_heights_common(i);
-    }
-    test_clear_old_data_too_many_heights_common(25);
-    test_clear_old_data_too_many_heights_common(50);
-    test_clear_old_data_too_many_heights_common(87);
-}
-
-fn test_clear_old_data_too_many_heights_common(gc_blocks_limit: NumBlocks) {
-    let mut chain = get_chain_with_epoch_length(Clock::real(), 1);
-    let genesis = chain.get_block_by_height(0).unwrap();
-    let signer = Arc::new(create_test_signer("test1"));
-    let mut prev_block = genesis;
-    let mut blocks = vec![prev_block.clone()];
-    {
-        let mut store_update = chain.chain_store().store().store_update();
-        let block_info = BlockInfo::default();
-        store_update.insert_ser(DBCol::BlockInfo, prev_block.hash().as_ref(), &block_info).unwrap();
-        store_update.commit().unwrap();
-    }
-    for i in 1..1000 {
-        let block =
-            TestBlockBuilder::new(Clock::real(), &prev_block, signer.clone()).height(i).build();
-        blocks.push(block.clone());
-
-        let mut store_update = chain.mut_chain_store().store_update();
-        store_update.save_block(block.clone());
-        store_update.inc_block_refcount(block.header().prev_hash()).unwrap();
-        store_update.save_block_header(block.header().clone()).unwrap();
-        store_update.save_head(&Tip::from_header(&block.header())).unwrap();
-        {
-            let mut store_update = store_update.store().store_update();
-            let block_info = BlockInfo::default();
-            store_update.insert_ser(DBCol::BlockInfo, block.hash().as_ref(), &block_info).unwrap();
-            store_update.commit().unwrap();
-        }
-        store_update
-            .chain_store_cache_update
-            .height_to_hashes
-            .insert(i, Some(*block.header().hash()));
-        store_update.save_next_block_hash(&prev_block.hash(), *block.hash());
-        store_update.commit().unwrap();
-
-        prev_block = block.clone();
-    }
-
-    for iter in 0..10 {
-        println!("ITERATION #{:?}", iter);
-        assert!(
-            chain.clear_data(&GCConfig { gc_blocks_limit, ..GCConfig::default() }, None).is_ok()
-        );
-
-        // epoch didn't change so no data is garbage collected.
-        for i in 0..1000 {
-            if i < (iter + 1) * gc_blocks_limit as usize {
-                assert!(chain.get_block(&blocks[i].hash()).is_err());
-                assert!(
-                    chain
-                        .mut_chain_store()
-                        .get_all_block_hashes_by_height(i as BlockHeight)
-                        .unwrap()
-                        .is_empty()
-                );
-            } else {
-                assert!(chain.get_block(&blocks[i].hash()).is_ok());
-                assert!(
-                    !chain
-                        .mut_chain_store()
-                        .get_all_block_hashes_by_height(i as BlockHeight)
-                        .unwrap()
-                        .is_empty()
-                );
-            }
-        }
-        let mut genesis = GenesisConfig::default();
-        genesis.genesis_height = 0;
-        let mut store_validator = StoreValidator::new(
-            None,
-            genesis.clone(),
-            chain.epoch_manager.clone(),
-            chain.shard_tracker.clone(),
-            chain.runtime_adapter.clone(),
-            chain.chain_store().store().clone(),
-            false,
-        );
-        store_validator.validate();
-        println!("errors = {:?}", store_validator.errors);
-        assert!(!store_validator.is_failed());
-    }
 }
 
 #[test]

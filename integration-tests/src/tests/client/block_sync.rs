@@ -23,7 +23,7 @@ use crate::env::test_env::TestEnv;
 fn collect_hashes_from_network_adapter(
     network_adapter: &MockPeerManagerAdapter,
 ) -> HashSet<CryptoHash> {
-    let mut network_request = network_adapter.requests.write().unwrap();
+    let mut network_request = network_adapter.requests.write();
     network_request
         .drain(..)
         .map(|request| match request {
@@ -88,7 +88,7 @@ fn test_block_sync() {
         blocks.push(block.clone());
         env.process_block(0, block, Provenance::PRODUCED);
     }
-    let block_headers = blocks.iter().map(|b| b.header().clone()).collect::<Vec<_>>();
+    let block_headers = blocks.iter().map(|b| b.header().clone().into()).collect::<Vec<_>>();
     let peer_infos = create_highest_height_peer_infos(2);
     env.clients[1].chain.sync_block_headers(block_headers).unwrap();
 
@@ -167,7 +167,7 @@ fn test_block_sync_archival() {
         blocks.push(block.clone());
         env.process_block(0, block, Provenance::PRODUCED);
     }
-    let block_headers = blocks.iter().map(|b| b.header().clone()).collect::<Vec<_>>();
+    let block_headers = blocks.iter().map(|b| b.header().clone().into()).collect::<Vec<_>>();
     let peer_infos = create_highest_height_peer_infos(2);
     env.clients[1].chain.sync_block_headers(block_headers).unwrap();
 
@@ -177,7 +177,7 @@ fn test_block_sync_archival() {
     assert_eq!(requested_block_hashes, HashSet::new());
 
     let mut peer_infos = create_highest_height_peer_infos(2);
-    for peer in peer_infos.iter_mut() {
+    for peer in &mut peer_infos {
         peer.archival = true;
     }
 

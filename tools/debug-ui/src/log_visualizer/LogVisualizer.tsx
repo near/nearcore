@@ -157,7 +157,7 @@ export const LogVisualizer = () => {
                                             className={
                                                 'attached-event' +
                                                 (event.id == selectedEventId ||
-                                                    parent.id == selectedEventId
+                                                parent.id == selectedEventId
                                                     ? ' selected'
                                                     : '')
                                             }
@@ -182,7 +182,11 @@ export const LogVisualizer = () => {
 
                 {/* Render all the events (other than attachments). */}
                 {events.getAllNonAttachedItems().map((event) => {
-                    const className = event.ignored ? 'event ignored' : event.id == selectedEventId ? 'event selected' : 'event';
+                    const className = event.ignored
+                        ? 'event ignored'
+                        : event.id == selectedEventId
+                        ? 'event selected'
+                        : 'event';
                     return (
                         <div
                             key={`event ${event.id}`}

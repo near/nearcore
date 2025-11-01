@@ -1,6 +1,5 @@
 use near_async::messaging::{IntoMultiSender, noop};
 use near_async::time::Clock;
-use near_chain::rayon_spawner::RayonAsyncComputationSpawner;
 use near_chain::types::ChainConfig;
 use near_chain::{Chain, ChainGenesis, DoomslugThresholdMode};
 use near_chain_configs::{Genesis, MutableConfigValue};
@@ -38,16 +37,18 @@ fn genesis_header(genesis: &Genesis) -> BlockHeader {
         DoomslugThresholdMode::TwoThirds,
         ChainConfig::test(),
         None,
-        Arc::new(RayonAsyncComputationSpawner),
+        Default::default(),
+        Default::default(),
         MutableConfigValue::new(None, "validator_signer"),
         noop().into_multi_sender(),
+        None,
     )
     .unwrap();
     chain.genesis().clone()
 }
 
 /// Utility to generate genesis header from config for testing purposes.
-pub fn genesis_block(genesis: &Genesis) -> Block {
+pub fn genesis_block(genesis: &Genesis) -> Arc<Block> {
     let dir = tempdir().unwrap();
     let store = create_test_store();
     initialize_genesis_state(store.clone(), genesis, None);
@@ -65,9 +66,11 @@ pub fn genesis_block(genesis: &Genesis) -> Block {
         DoomslugThresholdMode::TwoThirds,
         ChainConfig::test(),
         None,
-        Arc::new(RayonAsyncComputationSpawner),
+        Default::default(),
+        Default::default(),
         MutableConfigValue::new(None, "validator_signer"),
         noop().into_multi_sender(),
+        None,
     )
     .unwrap();
     chain.get_block(&chain.genesis().hash().clone()).unwrap()

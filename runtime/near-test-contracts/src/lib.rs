@@ -49,12 +49,24 @@ pub fn rs_contract() -> &'static [u8] {
     include_bytes!(env!("CONTRACT_test_contract_rs"))
 }
 
-/// Standard test contract which is compatible any protocol version, including
-/// the oldest one.
+/// Standard test contract which is compatible with the earliest
+/// protocol version still supported by current implementation of neard.
+///
+/// Note, that neard typically supports two or three protocol versions
+/// at any given time.
 ///
 /// This is useful for tests that use a specific protocol version rather then
 /// just the latest one. In particular, protocol upgrade tests should use this
 /// function rather than [`rs_contract`].
+pub fn backwards_compatible_rs_contract() -> &'static [u8] {
+    include_bytes!(env!("CONTRACT_backwards_compatible_rs_contract"))
+}
+
+/// Standard test contract which is compatible any protocol version, including
+/// the oldest one.
+/// [`backwards_compatible_rs_contract`] should be preferred since it is more
+/// up to date and also we no longer have to maintain compatibility with the
+/// old protocol versions.
 ///
 /// Note: Unlike other contracts, this is not automatically build from source
 /// but instead a WASM in checked into source control. To serve the oldest
@@ -64,8 +76,8 @@ pub fn rs_contract() -> &'static [u8] {
 /// enabled. So we have to build it with Rustc <= 1.69. If we need to update the
 /// contracts content, we can build it manually with an older compiler and check
 /// in the new WASM.
-pub fn backwards_compatible_rs_contract() -> &'static [u8] {
-    include_bytes!(env!("CONTRACT_backwards_compatible_rs_contract"))
+pub fn legacy_backwards_compatible_rs_contract() -> &'static [u8] {
+    include_bytes!(env!("CONTRACT_legacy_backwards_compatible_rs_contract"))
 }
 
 /// Standard test contract which additionally includes all host functions from
@@ -129,6 +141,10 @@ pub fn congestion_control_test_contract() -> &'static [u8] {
     include_bytes!(env!("CONTRACT_congestion_control_test_contract"))
 }
 
+pub fn sharded_contract_test_contract() -> &'static [u8] {
+    include_bytes!(env!("CONTRACT_sharded_contract"))
+}
+
 #[test]
 fn smoke_test() {
     assert!(!rs_contract().is_empty());
@@ -139,6 +155,7 @@ fn smoke_test() {
     assert!(!backwards_compatible_rs_contract().is_empty());
     assert!(!ft_contract().is_empty());
     assert!(!congestion_control_test_contract().is_empty());
+    assert!(!sharded_contract_test_contract().is_empty());
 }
 
 pub struct LargeContract {
@@ -253,7 +270,7 @@ fn normalize_config(mut config: wasm_smith::Config) -> wasm_smith::Config {
     config.multi_value_enabled = false;
     config.reference_types_enabled = false;
     config.relaxed_simd_enabled = false;
-    config.saturating_float_to_int_enabled = false;
+    config.saturating_float_to_int_enabled = true;
     config.sign_extension_ops_enabled = false;
     config.simd_enabled = false;
     config.tail_call_enabled = false;
@@ -288,6 +305,6 @@ pub fn arbitrary_contract(seed: u64) -> Vec<u8> {
     let mut arbitrary = arbitrary::Unstructured::new(&buffer);
     let mut config =
         normalize_config(wasm_smith::Config::arbitrary(&mut arbitrary).expect("make config"));
-    config.available_imports = Some(backwards_compatible_rs_contract().into());
+    config.available_imports = Some(legacy_backwards_compatible_rs_contract().into());
     ArbitraryModule::new(config, &mut arbitrary).0.to_bytes()
 }

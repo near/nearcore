@@ -1,12 +1,17 @@
 #![cfg_attr(enable_const_type_id, feature(const_type_id))]
 
 pub use block_processing_utils::BlockProcessingArtifact;
-pub use chain::{Chain, check_known, collect_receipts};
+pub use chain::{ApplyChunksIterationMode, Chain, collect_receipts};
 pub use chain_update::ChainUpdate;
-pub use doomslug::{Doomslug, DoomslugBlockProductionReadiness, DoomslugThresholdMode};
+pub use doomslug::{
+    ChunksReadiness, Doomslug, DoomslugBlockProductionReadiness, DoomslugThresholdMode,
+};
 pub use lightclient::{create_light_client_block_view, get_epoch_block_producers_view};
 pub use near_chain_primitives::{self, Error};
 pub use near_primitives::receipt::ReceiptResult;
+pub use soft_realtime_thread_pool::{
+    ApplyChunksSpawner, PartialWitnessValidationThreadPool, WitnessCreationThreadPool,
+};
 pub use store::utils::{
     check_transaction_validity_period, get_chunk_clone_from_header,
     get_incoming_receipts_for_shard, retrieve_headers,
@@ -26,20 +31,24 @@ mod chain_update;
 pub mod crypto_hash_timer;
 mod doomslug;
 pub mod flat_storage_init;
-pub mod flat_storage_resharder;
 mod garbage_collection;
 pub mod genesis;
 mod lightclient;
 pub mod metrics;
 pub mod missing_chunks;
 pub mod orphan;
+pub mod pending;
 pub mod rayon_spawner;
 pub mod resharding;
 pub mod runtime;
 pub mod sharding;
 pub mod signature_verification;
+mod soft_realtime_thread_pool;
+pub mod spice_chunk_application;
+pub mod spice_core;
+pub mod spice_core_writer_actor;
 pub mod state_snapshot_actor;
-mod state_sync;
+pub mod state_sync;
 pub mod stateless_validation;
 mod store;
 pub mod store_validator;

@@ -28,7 +28,7 @@ def test_max_gas_burnt_view():
         config=None,
         genesis_config_changes=[],
         client_config_changes={1: {
-            'max_gas_burnt_view': 130 * GGAS,
+            'max_gas_burnt_view': 200 * GGAS,
         }})
 
     contract_key = nodes[0].signer_key

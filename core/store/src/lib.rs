@@ -1,7 +1,5 @@
 #![cfg_attr(enable_const_type_id, feature(const_type_id))]
 
-extern crate core;
-
 pub use crate::columns::DBCol;
 pub use crate::config::{Mode, StoreConfig};
 pub use crate::db::{
@@ -25,7 +23,7 @@ pub use crate::trie::{
     estimator,
 };
 pub use crate::utils::*;
-pub use near_primitives::errors::{MissingTrieValueContext, StorageError};
+pub use near_primitives::errors::{MissingTrieValue, MissingTrieValueContext, StorageError};
 pub use near_primitives::shard_layout::ShardUId;
 
 pub mod adapter;
@@ -34,6 +32,7 @@ mod columns;
 pub mod config;
 pub mod contract;
 pub mod db;
+mod deserialized_column;
 pub mod flat;
 pub mod genesis;
 pub mod metrics;
@@ -105,7 +104,7 @@ mod tests {
         let mut rng: rand::rngs::StdRng = rand::SeedableRng::seed_from_u64(0x3243f6a8885a308d);
         let mut update = store.store_update();
         let mut buf = [0u8; 20];
-        for prefix in PREFIXES.iter() {
+        for prefix in &PREFIXES {
             buf[..prefix.len()].clone_from_slice(prefix);
             for _ in 0..COUNT {
                 rng.fill(&mut buf[prefix.len()..]);
@@ -124,7 +123,7 @@ mod tests {
         assert_sorted(PREFIXES.len() * COUNT, collect(store.iter_prefix(COLUMN, b"")));
 
         // Check that prefix scan produces keys in proper order.
-        for prefix in PREFIXES.iter() {
+        for prefix in &PREFIXES {
             let keys = collect(store.iter_prefix(COLUMN, prefix));
             for (pos, key) in keys.iter().enumerate() {
                 assert_eq!(

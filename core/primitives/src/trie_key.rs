@@ -1,15 +1,15 @@
 use crate::types::AccountId;
 use crate::{action::GlobalContractIdentifier, hash::CryptoHash};
-use borsh::{BorshDeserialize, BorshSerialize, to_vec};
+use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::PublicKey;
-use near_primitives_core::types::ShardId;
+use near_primitives_core::types::{NonceIndex, ShardId};
 use near_schema_checker_lib::ProtocolSchema;
 use std::mem::size_of;
 
-pub(crate) const ACCOUNT_DATA_SEPARATOR: u8 = b',';
+pub const ACCOUNT_DATA_SEPARATOR: u8 = b',';
 // The use of `ACCESS_KEY` as a separator is a historical artefact.
 // Changing it would require a very long DB migration for basically no benefits.
-pub(crate) const ACCESS_KEY_SEPARATOR: u8 = col::ACCESS_KEY;
+pub const ACCESS_KEY_SEPARATOR: u8 = col::ACCESS_KEY;
 
 /// Type identifiers used for DB key generation to store values in the key-value storage.
 pub mod col {
@@ -65,10 +65,13 @@ pub mod col {
     /// Global contract code instance. Values are contract blobs,
     /// the same as for `CONTRACT_CODE`.
     pub const GLOBAL_CONTRACT_CODE: u8 = 18;
+    /// Gas key is used to store the gas key or a single nonce ID for the gas key.
+    /// If index is None, the value is of type `GasKey`; otherwise it is of type u64.
+    pub const GAS_KEY: u8 = 19;
 
     /// All columns except those used for the delayed receipts queue, the yielded promises
     /// queue, and the outgoing receipts buffer, which are global state for the shard.
-    pub const COLUMNS_WITH_ACCOUNT_ID_IN_KEY: [(u8, &str); 9] = [
+    pub const COLUMNS_WITH_ACCOUNT_ID_IN_KEY: [(u8, &str); 10] = [
         (ACCOUNT, "Account"),
         (CONTRACT_CODE, "ContractCode"),
         (ACCESS_KEY, "AccessKey"),
@@ -78,9 +81,10 @@ pub mod col {
         (POSTPONED_RECEIPT, "PostponedReceipt"),
         (CONTRACT_DATA, "ContractData"),
         (PROMISE_YIELD_RECEIPT, "PromiseYieldReceipt"),
+        (GAS_KEY, "GasKey"),
     ];
 
-    pub const ALL_COLUMNS_WITH_NAMES: [(u8, &'static str); 18] = [
+    pub const ALL_COLUMNS_WITH_NAMES: [(u8, &'static str); 19] = [
         (ACCOUNT, "Account"),
         (CONTRACT_CODE, "ContractCode"),
         (ACCESS_KEY, "AccessKey"),
@@ -99,13 +103,16 @@ pub mod col {
         (BUFFERED_RECEIPT_GROUPS_QUEUE_DATA, "BufferedReceiptGroupsQueueData"),
         (BUFFERED_RECEIPT_GROUPS_QUEUE_ITEM, "BufferedReceiptGroupsQueueItem"),
         (GLOBAL_CONTRACT_CODE, "GlobalContractCode"),
+        (GAS_KEY, "GasKey"),
     ];
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, BorshDeserialize, BorshSerialize, ProtocolSchema)]
+#[borsh(use_discriminant = true)]
+#[repr(u8)]
 pub enum GlobalContractCodeIdentifier {
-    CodeHash(CryptoHash),
-    AccountId(AccountId),
+    CodeHash(CryptoHash) = 0,
+    AccountId(AccountId) = 1,
 }
 
 impl GlobalContractCodeIdentifier {
@@ -119,8 +126,8 @@ impl GlobalContractCodeIdentifier {
         }
     }
 
-    pub fn append_into(&self, buf: &mut Vec<u8>) {
-        buf.extend(to_vec(self).unwrap());
+    pub fn append_into(&self, buf: &mut impl trie_key_buffer::TrieKeyBuffer) {
+        borsh::to_writer(buf.borsh_writer(), self).unwrap()
     }
 }
 
@@ -139,21 +146,23 @@ impl From<GlobalContractIdentifier> for GlobalContractCodeIdentifier {
 
 /// Describes the key of a specific key-value record in a state trie.
 #[derive(Debug, Clone, PartialEq, Eq, BorshDeserialize, BorshSerialize, ProtocolSchema)]
+#[borsh(use_discriminant = true)]
+#[repr(u8)]
 pub enum TrieKey {
     /// Used to store `primitives::account::Account` struct for a given `AccountId`.
     Account {
         account_id: AccountId,
-    },
+    } = col::ACCOUNT,
     /// Used to store `Vec<u8>` contract code for a given `AccountId`.
     ContractCode {
         account_id: AccountId,
-    },
+    } = col::CONTRACT_CODE,
     /// Used to store `primitives::account::AccessKey` struct for a given `AccountId` and
     /// a given `public_key` of the `AccessKey`.
     AccessKey {
         account_id: AccountId,
         public_key: PublicKey,
-    },
+    } = col::ACCESS_KEY,
     /// Used to store `primitives::receipt::ReceivedData` struct for a given receiver's `AccountId`
     /// of `DataReceipt` and a given `data_id` (the unique identifier for the data).
     /// NOTE: This is one of the input data for some action receipt.
@@ -161,7 +170,7 @@ pub enum TrieKey {
     ReceivedData {
         receiver_id: AccountId,
         data_id: CryptoHash,
-    },
+    } = col::RECEIVED_DATA,
     /// Used to store receipt ID `primitives::hash::CryptoHash` for a given receiver's `AccountId`
     /// of the receipt and a given `data_id` (the unique identifier for the required input data).
     /// NOTE: This receipt ID indicates the postponed receipt. We store `receipt_id` for performance
@@ -169,50 +178,50 @@ pub enum TrieKey {
     PostponedReceiptId {
         receiver_id: AccountId,
         data_id: CryptoHash,
-    },
+    } = col::POSTPONED_RECEIPT_ID,
     /// Used to store the number of still missing input data `u32` for a given receiver's
     /// `AccountId` and a given `receipt_id` of the receipt.
     PendingDataCount {
         receiver_id: AccountId,
         receipt_id: CryptoHash,
-    },
+    } = col::PENDING_DATA_COUNT,
     /// Used to store the postponed receipt `primitives::receipt::Receipt` for a given receiver's
     /// `AccountId` and a given `receipt_id` of the receipt.
     PostponedReceipt {
         receiver_id: AccountId,
         receipt_id: CryptoHash,
-    },
+    } = col::POSTPONED_RECEIPT,
     /// Used to store indices of the delayed receipts queue (`node-runtime::DelayedReceiptIndices`).
     /// NOTE: It is a singleton per shard.
-    DelayedReceiptIndices,
+    DelayedReceiptIndices = col::DELAYED_RECEIPT_OR_INDICES,
     /// Used to store a delayed receipt `primitives::receipt::Receipt` for a given index `u64`
     /// in a delayed receipt queue. The queue is unique per shard.
     DelayedReceipt {
         index: u64,
-    },
+    } = 8,
     /// Used to store a key-value record `Vec<u8>` within a contract deployed on a given `AccountId`
     /// and a given key.
     ContractData {
         account_id: AccountId,
         key: Vec<u8>,
-    },
+    } = col::CONTRACT_DATA,
     /// Used to store head and tail indices of the PromiseYield timeout queue.
     /// NOTE: It is a singleton per shard.
-    PromiseYieldIndices,
+    PromiseYieldIndices = col::PROMISE_YIELD_INDICES,
     /// Used to store the element at given index `u64` in the PromiseYield timeout queue.
     /// The queue is unique per shard.
     PromiseYieldTimeout {
         index: u64,
-    },
+    } = col::PROMISE_YIELD_TIMEOUT,
     /// Used to store the postponed promise yield receipt `primitives::receipt::Receipt`
     /// for a given receiver's `AccountId` and a given `data_id`.
     PromiseYieldReceipt {
         receiver_id: AccountId,
         data_id: CryptoHash,
-    },
+    } = col::PROMISE_YIELD_RECEIPT,
     /// Used to store indices of the buffered receipts queues per shard.
     /// NOTE: It is a singleton per shard, holding indices for all outgoing shards.
-    BufferedReceiptIndices,
+    BufferedReceiptIndices = col::BUFFERED_RECEIPT_INDICES,
     /// Used to store a buffered receipt `primitives::receipt::Receipt` for a
     /// given index `u64` and receiving shard. There is one unique queue
     /// per ordered shard pair. The trie for shard X stores all queues for pairs
@@ -220,21 +229,28 @@ pub enum TrieKey {
     BufferedReceipt {
         receiving_shard: ShardId,
         index: u64,
-    },
-    BandwidthSchedulerState,
+    } = col::BUFFERED_RECEIPT,
+    BandwidthSchedulerState = col::BANDWIDTH_SCHEDULER_STATE,
     /// Stores `ReceiptGroupsQueueData` for the receipt groups queue
     /// which corresponds to the buffered receipts to `receiver_shard`.
     BufferedReceiptGroupsQueueData {
         receiving_shard: ShardId,
-    },
+    } = col::BUFFERED_RECEIPT_GROUPS_QUEUE_DATA,
     /// A single item of `ReceiptGroupsQueue`. Values are of type `ReceiptGroup`.
     BufferedReceiptGroupsQueueItem {
         receiving_shard: ShardId,
         index: u64,
-    },
+    } = col::BUFFERED_RECEIPT_GROUPS_QUEUE_ITEM,
     GlobalContractCode {
         identifier: GlobalContractCodeIdentifier,
-    },
+    } = col::GLOBAL_CONTRACT_CODE,
+    /// Represents a gas key or a single nonce ID for the gas key.
+    /// If index is None, the value is of type `GasKey`; otherwise it is of type u64.
+    GasKey {
+        account_id: AccountId,
+        public_key: PublicKey,
+        index: Option<NonceIndex>,
+    } = col::GAS_KEY,
 }
 
 /// Provides `len` function.
@@ -251,6 +267,9 @@ impl Byte for u8 {
         1
     }
 }
+
+/// Convenience common alias for storage of encoded `TrieKey`s in `SmallVec`s.
+pub type SmallKeyVec = smallvec::SmallVec<[u8; 64]>;
 
 impl TrieKey {
     pub fn len(&self) -> usize {
@@ -322,10 +341,17 @@ impl TrieKey {
             TrieKey::GlobalContractCode { identifier } => {
                 col::GLOBAL_CONTRACT_CODE.len() + identifier.len()
             }
+            TrieKey::GasKey { account_id, public_key, index } => {
+                col::GAS_KEY.len()
+                    + account_id.len()
+                    + ACCOUNT_DATA_SEPARATOR.len()
+                    + public_key.len()
+                    + borsh::object_length(index).unwrap()
+            }
         }
     }
 
-    pub fn append_into(&self, buf: &mut Vec<u8>) {
+    pub fn append_into(&self, buf: &mut impl trie_key_buffer::TrieKeyBuffer) {
         let expected_len = self.len();
         let start_len = buf.len();
         buf.reserve(self.len());
@@ -342,7 +368,7 @@ impl TrieKey {
                 buf.push(col::ACCESS_KEY);
                 buf.extend(account_id.as_bytes());
                 buf.push(ACCESS_KEY_SEPARATOR);
-                buf.extend(borsh::to_vec(&public_key).unwrap());
+                borsh::to_writer(buf.borsh_writer(), &public_key).unwrap();
             }
             TrieKey::ReceivedData { receiver_id, data_id } => {
                 buf.push(col::RECEIVED_DATA);
@@ -419,6 +445,13 @@ impl TrieKey {
                 buf.push(col::GLOBAL_CONTRACT_CODE);
                 identifier.append_into(buf);
             }
+            TrieKey::GasKey { account_id, public_key, index } => {
+                buf.push(col::GAS_KEY);
+                buf.extend(account_id.as_bytes());
+                buf.push(ACCOUNT_DATA_SEPARATOR);
+                borsh::to_writer(buf.borsh_writer(), &public_key).unwrap();
+                borsh::to_writer(buf.borsh_writer(), &index).unwrap();
+            }
         };
         debug_assert_eq!(expected_len, buf.len() - start_len);
     }
@@ -453,6 +486,63 @@ impl TrieKey {
             // Even though global contract code might be deployed under account id, it doesn't
             // correspond to the data stored for that account id, so always returning None here.
             TrieKey::GlobalContractCode { .. } => None,
+            TrieKey::GasKey { account_id, .. } => Some(account_id.clone()),
+        }
+    }
+}
+
+mod trie_key_buffer {
+    /// Buffers into which [`TrieKey`s](super::TrieKey) can be encoded.
+    pub trait TrieKeyBuffer {
+        fn len(&self) -> usize;
+        fn reserve(&mut self, additional: usize);
+        fn push(&mut self, byte: u8);
+        fn extend(&mut self, bytes: &[u8]);
+
+        type BorshWriter<'a>: borsh::io::Write
+        where
+            Self: 'a;
+        fn borsh_writer(&mut self) -> Self::BorshWriter<'_>;
+    }
+
+    impl TrieKeyBuffer for Vec<u8> {
+        fn len(&self) -> usize {
+            Self::len(self)
+        }
+        fn reserve(&mut self, additional: usize) {
+            Self::reserve(self, additional)
+        }
+        fn push(&mut self, byte: u8) {
+            Self::push(self, byte)
+        }
+        fn extend(&mut self, bytes: &[u8]) {
+            Self::extend_from_slice(self, bytes)
+        }
+        type BorshWriter<'a> = &'a mut Self;
+        fn borsh_writer(&mut self) -> Self::BorshWriter<'_> {
+            self
+        }
+    }
+
+    impl<A: smallvec::Array<Item = u8>> TrieKeyBuffer for smallvec::SmallVec<A> {
+        fn len(&self) -> usize {
+            Self::len(self)
+        }
+        fn reserve(&mut self, additional: usize) {
+            Self::reserve(self, additional)
+        }
+        fn push(&mut self, byte: u8) {
+            Self::push(self, byte)
+        }
+        fn extend(&mut self, bytes: &[u8]) {
+            Self::extend_from_slice(self, bytes)
+        }
+        type BorshWriter<'a>
+            = &'a mut Self
+        where
+            A: 'a;
+        fn borsh_writer(&mut self) -> Self::BorshWriter<'_> {
+            self
         }
     }
 }
@@ -473,6 +563,37 @@ pub mod trie_key_parsers {
             ));
         }
         PublicKey::try_from_slice(&raw_key[prefix_len..])
+    }
+
+    pub fn parse_public_key_from_gas_key_key(
+        raw_key: &[u8],
+        account_id: &AccountId,
+    ) -> Result<PublicKey, std::io::Error> {
+        let prefix_len = col::GAS_KEY.len() + account_id.len() + ACCOUNT_DATA_SEPARATOR.len();
+        if raw_key.len() < prefix_len {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "raw key is too short for TrieKey::GasKey",
+            ));
+        }
+        let mut buffer = &raw_key[prefix_len..];
+        PublicKey::deserialize(&mut buffer)
+    }
+
+    pub fn parse_nonce_index_from_gas_key_key(
+        raw_key: &[u8],
+        account_id: &AccountId,
+        public_key: &PublicKey,
+    ) -> Result<Option<u32>, std::io::Error> {
+        let prefix_len =
+            col::GAS_KEY.len() + account_id.len() + ACCOUNT_DATA_SEPARATOR.len() + public_key.len();
+        if raw_key.len() < prefix_len {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "raw key is too short for TrieKey::GasKey",
+            ));
+        }
+        Option::<u32>::try_from_slice(&raw_key[prefix_len..])
     }
 
     pub fn parse_data_key_from_contract_data_key<'a>(
@@ -569,6 +690,18 @@ pub mod trie_key_parsers {
         }
     }
 
+    pub fn parse_account_id_from_gas_key_key(raw_key: &[u8]) -> Result<AccountId, std::io::Error> {
+        let account_id_prefix = parse_account_id_prefix(col::GAS_KEY, raw_key)?;
+        if let Some(account_id) = next_token(account_id_prefix, ACCOUNT_DATA_SEPARATOR) {
+            parse_account_id_from_slice(account_id, "GasKey")
+        } else {
+            Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "raw key does not have public key to be TrieKey::GasKey",
+            ))
+        }
+    }
+
     pub fn parse_index_from_delayed_receipt_key(raw_key: &[u8]) -> Result<u64, std::io::Error> {
         // The length of TrieKey::DelayedReceipt { .. } should be 9 since it's a single byte for the
         // column and then 8 bytes for a u64 index.
@@ -595,6 +728,13 @@ pub mod trie_key_parsers {
         let account_id = parse_account_id_from_access_key_key(raw_key)?;
         let public_key = parse_public_key_from_access_key_key(raw_key, &account_id)?;
         Ok(TrieKey::AccessKey { account_id, public_key })
+    }
+
+    pub fn parse_trie_key_gas_key_from_raw_key(raw_key: &[u8]) -> Result<TrieKey, std::io::Error> {
+        let account_id = parse_account_id_from_gas_key_key(raw_key)?;
+        let public_key = parse_public_key_from_gas_key_key(raw_key, &account_id)?;
+        let index = parse_nonce_index_from_gas_key_key(raw_key, &account_id, &public_key)?;
+        Ok(TrieKey::GasKey { account_id, public_key, index })
     }
 
     pub fn parse_account_id_from_raw_key(
@@ -661,6 +801,27 @@ pub mod trie_key_parsers {
         res.push(col::ACCESS_KEY);
         res.extend(account_id.as_bytes());
         res.push(col::ACCESS_KEY);
+        res
+    }
+
+    pub fn get_raw_prefix_for_gas_key(account_id: &AccountId, public_key: &PublicKey) -> Vec<u8> {
+        let mut res = Vec::with_capacity(
+            col::GAS_KEY.len() + account_id.len() + ACCOUNT_DATA_SEPARATOR.len() + public_key.len(),
+        );
+        res.push(col::GAS_KEY);
+        res.extend(account_id.as_bytes());
+        res.push(ACCOUNT_DATA_SEPARATOR);
+        borsh::to_writer(&mut res, public_key).unwrap();
+        res
+    }
+
+    pub fn get_raw_prefix_for_gas_keys(account_id: &AccountId) -> Vec<u8> {
+        let mut res = Vec::with_capacity(
+            col::GAS_KEY.len() + account_id.len() + ACCOUNT_DATA_SEPARATOR.len(),
+        );
+        res.push(col::GAS_KEY);
+        res.extend(account_id.as_bytes());
+        res.push(ACCOUNT_DATA_SEPARATOR);
         res
     }
 

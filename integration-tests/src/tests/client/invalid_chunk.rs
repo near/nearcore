@@ -23,7 +23,7 @@ fn test_invalid_chunk_state() {
         let mut store_update = store.store_update();
         assert_ne!(chunk_extra.state_root(), &Trie::EMPTY_ROOT);
         *chunk_extra.state_root_mut() = Trie::EMPTY_ROOT;
-        store_update.save_chunk_extra(&block_hash, &ShardUId::single_shard(), chunk_extra);
+        store_update.save_chunk_extra(&block_hash, &ShardUId::single_shard(), chunk_extra.into());
         store_update.commit().unwrap();
     }
 

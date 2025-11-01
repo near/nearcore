@@ -1,0 +1,9 @@
+saturating_float_to_int: { old: false, new: true }
+
+# [NEP-536](https://github.com/near/NEPs/pull/536)
+pessimistic_gas_price_inflation:
+  {
+    old: { numerator: 103, denominator: 100 },
+    new: { numerator: 1, denominator: 1 },
+  }
+global_contract_host_fns: { old: false, new: true }

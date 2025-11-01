@@ -1,13 +1,15 @@
 use super::StateSyncDownloadSource;
 use super::task_tracker::TaskHandle;
 use super::util::{get_state_header_if_exists_in_storage, query_epoch_id_and_height_for_block};
-use crate::sync::external::{ExternalConnection, StateFileType, external_storage_location};
+use crate::sync::external::{StateFileType, StateSyncConnection, external_storage_location};
 use crate::sync::state::util::increment_download_count;
 use borsh::BorshDeserialize;
 use futures::FutureExt;
 use futures::future::BoxFuture;
 use near_async::time::{Clock, Duration};
+use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::hash::CryptoHash;
+use near_primitives::state_part::StatePart;
 use near_primitives::state_sync::ShardStateSyncResponseHeader;
 use near_primitives::types::ShardId;
 use near_store::Store;
@@ -19,19 +21,18 @@ use tracing::Instrument;
 pub(super) struct StateSyncDownloadSourceExternal {
     pub clock: Clock,
     pub store: Store,
+    pub epoch_manager: Arc<dyn EpochManagerAdapter>,
     pub chain_id: String,
-    pub conn: ExternalConnection,
+    pub conn: StateSyncConnection,
     pub timeout: Duration,
-    pub backoff: Duration,
 }
 
 impl StateSyncDownloadSourceExternal {
     async fn get_file_with_timeout(
         clock: Clock,
         timeout: Duration,
-        backoff: Duration,
         cancellation: CancellationToken,
-        conn: ExternalConnection,
+        conn: StateSyncConnection,
         shard_id: ShardId,
         location: String,
         file_type: StateFileType,
@@ -42,9 +43,11 @@ impl StateSyncDownloadSourceExternal {
             StateFileType::StateHeader => "header",
             StateFileType::StatePart { .. } => "part",
         };
+        tracing::debug!(target: "sync", ?shard_id, ?file_type, ?location, "external download starting");
         tokio::select! {
             _ = clock.sleep_until(deadline) => {
                 increment_download_count(shard_id, typ, "external", "timeout");
+                tracing::debug!(target: "sync", ?shard_id, ?file_type, ?location, "external download timed out");
                 Err(near_chain::Error::Other("Timeout".to_owned()))
             }
             _ = cancellation.cancelled() => {
@@ -54,15 +57,8 @@ impl StateSyncDownloadSourceExternal {
             result = fut => {
                 match result {
                     Err(err) => {
-                        // A download error typically indicates that the file is not available yet. At the
-                        // start of the epoch it takes a while for dumpers to populate the external storage
-                        // with state files. This backoff period prevents spamming requests during that time.
-                        let deadline = clock.now() + backoff;
-                        tokio::select! {
-                            _ = clock.sleep_until(deadline) => {}
-                            _ = cancellation.cancelled() => {}
-                        }
                         increment_download_count(shard_id, typ, "external", "download_error");
+                        tracing::debug!(target: "sync", ?shard_id, ?file_type, ?location, %err, "external download error");
                         Err(near_chain::Error::Other(format!("Failed to download: {}", err)))
                     }
                     Ok(res) => Ok(res)
@@ -82,7 +78,6 @@ impl StateSyncDownloadSource for StateSyncDownloadSourceExternal {
     ) -> BoxFuture<Result<ShardStateSyncResponseHeader, near_chain::Error>> {
         let clock = self.clock.clone();
         let timeout = self.timeout;
-        let backoff = self.backoff;
         let chain_id = self.chain_id.clone();
         let conn = self.conn.clone();
         let store = self.store.clone();
@@ -100,7 +95,6 @@ impl StateSyncDownloadSource for StateSyncDownloadSourceExternal {
             let data = Self::get_file_with_timeout(
                 clock,
                 timeout,
-                backoff,
                 cancel,
                 conn,
                 shard_id,
@@ -127,10 +121,9 @@ impl StateSyncDownloadSource for StateSyncDownloadSourceExternal {
         part_id: u64,
         handle: Arc<TaskHandle>,
         cancel: CancellationToken,
-    ) -> BoxFuture<Result<Vec<u8>, near_chain::Error>> {
+    ) -> BoxFuture<Result<StatePart, near_chain::Error>> {
         let clock = self.clock.clone();
         let timeout = self.timeout;
-        let backoff = self.backoff;
         let chain_id = self.chain_id.clone();
         let conn = self.conn.clone();
         let store = self.store.clone();
@@ -153,7 +146,6 @@ impl StateSyncDownloadSource for StateSyncDownloadSourceExternal {
             let data = Self::get_file_with_timeout(
                 clock,
                 timeout,
-                backoff,
                 cancel,
                 conn,
                 shard_id,
@@ -162,7 +154,9 @@ impl StateSyncDownloadSource for StateSyncDownloadSourceExternal {
             )
             .await?;
             increment_download_count(shard_id, "part", "external", "success");
-            Ok(data)
+            let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
+            let state_part = StatePart::from_bytes(data, protocol_version)?;
+            Ok(state_part)
         }
         .instrument(tracing::debug_span!("StateSyncDownloadSourceExternal::download_shard_part"))
         .boxed()

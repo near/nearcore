@@ -1,8 +1,7 @@
 use crate::adapter::trie_store::TrieStoreAdapter;
-use crate::trie::POISONED_LOCK_ERR;
 use crate::trie::config::TrieConfig;
 use crate::trie::prefetching_trie_storage::PrefetcherResult;
-use crate::{MissingTrieValueContext, PrefetchApi, StorageError, metrics};
+use crate::{MissingTrieValue, MissingTrieValueContext, PrefetchApi, StorageError, metrics};
 use lru::LruCache;
 use near_o11y::log_assert;
 use near_o11y::metrics::prometheus;
@@ -11,9 +10,10 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::state::PartialState;
 use near_primitives::types::ShardId;
-use std::collections::{HashMap, HashSet, VecDeque};
+use parking_lot::{Mutex, MutexGuard};
+use std::collections::{HashMap, VecDeque};
 use std::num::NonZeroUsize;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 pub(crate) struct BoundedQueue<T> {
     queue: VecDeque<T>,
@@ -284,12 +284,12 @@ impl TrieCache {
         }
     }
 
-    pub(crate) fn lock(&self) -> std::sync::MutexGuard<TrieCacheInner> {
-        self.0.lock().expect(POISONED_LOCK_ERR)
+    pub(crate) fn lock(&self) -> MutexGuard<TrieCacheInner> {
+        self.0.lock()
     }
 }
 
-pub trait TrieStorage: Send + Sync {
+pub trait TrieStorage: Send + Sync + std::any::Any {
     /// Get bytes of a serialized `TrieNode`.
     ///
     /// # Errors
@@ -303,54 +303,59 @@ pub trait TrieStorage: Send + Sync {
     fn as_caching_storage(&self) -> Option<&TrieCachingStorage> {
         None
     }
-
-    fn as_partial_storage(&self) -> Option<&TrieMemoryPartialStorage> {
-        None
-    }
 }
 
 /// Storage for validating recorded partial storage.
 /// visited_nodes are to validate that partial storage doesn't contain unnecessary nodes.
 #[derive(Default)]
-pub struct TrieMemoryPartialStorage {
+pub struct TrieMemoryPartialStorage<const TRACK_VISITED_NODES: bool> {
     pub(crate) recorded_storage: HashMap<CryptoHash, Arc<[u8]>>,
-    pub(crate) visited_nodes: std::sync::RwLock<HashSet<CryptoHash>>,
+    // FIXME(perf, nagisa): consider replacing this whole map business for tracking visited nodes
+    // with a simple bitset of a pre-allocated size (of `recorded_storage.len()` bits) when the
+    // `recorded_storage` field becomes a proper vector of some sort. This will allow an entirely
+    // lock-free implementation for tracking accesses: bit position would correspond to the index
+    // in the vector, and `fetch_or(compute_bit())` is a really cheap way to set values in such a
+    // type.
+    pub(crate) visited_nodes: dashmap::DashSet<CryptoHash>,
 }
 
-impl TrieStorage for TrieMemoryPartialStorage {
+impl<const TRACK_VISITED_NODES: bool> TrieStorage
+    for TrieMemoryPartialStorage<TRACK_VISITED_NODES>
+{
     fn retrieve_raw_bytes(&self, hash: &CryptoHash) -> Result<Arc<[u8]>, StorageError> {
         if let Some(value) = self.recorded_storage.get(hash).cloned() {
-            self.visited_nodes.write().expect("write visited_nodes").insert(*hash);
+            if TRACK_VISITED_NODES {
+                self.visited_nodes.insert(*hash);
+            }
             Ok(value)
         } else {
             metrics::TRIE_MEMORY_PARTIAL_STORAGE_MISSING_VALUES_COUNT.inc();
-            Err(StorageError::MissingTrieValue(
-                MissingTrieValueContext::TrieMemoryPartialStorage,
-                *hash,
-            ))
+            Err(StorageError::MissingTrieValue(MissingTrieValue {
+                context: MissingTrieValueContext::TrieMemoryPartialStorage,
+                hash: *hash,
+            }))
         }
-    }
-
-    fn as_partial_storage(&self) -> Option<&TrieMemoryPartialStorage> {
-        Some(self)
     }
 }
 
-impl TrieMemoryPartialStorage {
+impl<const TRACK_VISITED_NODES: bool> TrieMemoryPartialStorage<TRACK_VISITED_NODES> {
     pub fn new(recorded_storage: HashMap<CryptoHash, Arc<[u8]>>) -> Self {
-        Self { recorded_storage, visited_nodes: Default::default() }
+        let visited_nodes = if TRACK_VISITED_NODES {
+            dashmap::DashSet::with_capacity(recorded_storage.len())
+        } else {
+            dashmap::DashSet::new()
+        };
+        Self { visited_nodes, recorded_storage }
     }
+}
 
-    pub fn partial_state(&self) -> PartialState {
-        let touched_nodes = self.visited_nodes.read().expect("read visited_nodes");
-        let mut nodes: Vec<_> =
-            self.recorded_storage
-                .iter()
-                .filter_map(|(node_hash, value)| {
-                    if touched_nodes.contains(node_hash) { Some(value.clone()) } else { None }
-                })
-                .collect();
-
+impl TrieMemoryPartialStorage<true> {
+    pub fn partial_state(self) -> PartialState {
+        let Self { recorded_storage, visited_nodes } = self;
+        let mut nodes: Vec<_> = recorded_storage
+            .into_iter()
+            .filter_map(|(node_hash, value)| visited_nodes.contains(&node_hash).then_some(value))
+            .collect();
         nodes.sort();
         PartialState::TrieValues(nodes)
     }
@@ -438,7 +443,7 @@ impl TrieCachingStorage {
     /// It is responsibility of caller to release the prefetch slot later.
     fn read_for_shard_cache_miss(
         &self,
-        guard: std::sync::MutexGuard<TrieCacheInner>,
+        guard: MutexGuard<TrieCacheInner>,
         hash: &CryptoHash,
     ) -> Result<Arc<[u8]>, StorageError> {
         let Some(prefetcher) = &self.prefetch_api else {

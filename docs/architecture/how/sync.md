@@ -41,7 +41,7 @@ As headers are quite small, we try to request multiple of them in a single call
 
 ![image](https://user-images.githubusercontent.com/1711539/195892312-2fbd8241-87ce-4241-a44d-ff3056b12bab.png)
 
-### Step 1a: Epoch Sync [normal node*] // not implemented yet
+### Step 1a: Epoch Sync [normal node*]
 
 While currently normal nodes are using Header sync, we could actually allow them
 to do something faster - “light client sync” a.k.a “epoch sync”.
@@ -52,7 +52,7 @@ epoch - that has to contain additional information about validators.
 This way it would drastically reduce both the time needed for the sync and the
 db resources.
 
-Implementation target date is TBD.
+Implementation is complete with [2.4 release](https://github.com/near/nearcore/releases/tag/2.4.0).
 
 ![image](https://user-images.githubusercontent.com/1711539/195892336-cc117c08-d3ad-43f7-9304-3233b25e8bb1.png)
 
@@ -227,7 +227,7 @@ is caught up and if we need to download states. The logic works as follows:
 
 The catchup process is implemented through the function `Client::run_catchup`.
 `ClientActor` schedules a call to `run_catchup` every 100ms. However, the call
-can be delayed if ClientActor has a lot of messages in its actix queue.
+can be delayed if ClientActor has a lot of messages in its actor queue.
 
 Every time `run_catchup` is called, it checks `DBCol::StateDlInfos` to see
 if there are any shard states that should be downloaded. If so, it
@@ -257,7 +257,7 @@ block of an epoch, even when there are no new states to be downloaded for the
 new epoch. This is unnecessary.
 
 Second, even though `run_catchup` is scheduled to run every 100ms, the call can
-be delayed if ClientActor has messages in its actix queue. A better way to do
+be delayed if ClientActor has messages in its actor queue. A better way to do
 this is to move the scheduling of `run_catchup` to `check_triggers`.
 
 Third, because of how `run_catchup` interacts with `SyncJobsActor`, `run_catchup`

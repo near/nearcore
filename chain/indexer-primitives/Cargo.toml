@@ -13,7 +13,6 @@ workspace = true
 
 [dependencies]
 serde.workspace = true
-serde_json.workspace = true
 
 near-primitives.workspace = true
 

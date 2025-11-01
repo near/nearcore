@@ -80,7 +80,12 @@ impl HighLoadStatsCommand {
         let near_config = nearcore::config::Config::from_file_skip_validation(
             &home.join(nearcore::config::CONFIG_FILENAME),
         )?;
-        let opener = NodeStorage::opener(home, &near_config.store, near_config.archival_config());
+        let opener = NodeStorage::opener(
+            home,
+            &near_config.store,
+            near_config.cold_store.as_ref(),
+            near_config.cloud_storage_config(),
+        );
         let storage = opener.open()?;
         let store = std::sync::Arc::new(
             storage.get_split_store().unwrap_or_else(|| storage.get_hot_store()),
@@ -128,7 +133,7 @@ impl HighLoadStatsCommand {
         stats.sort_by(|a, b| a.height.cmp(&b.height));
 
         BlockStats::print_header();
-        for stat in stats.into_iter() {
+        for stat in stats {
             stat.print();
         }
 
@@ -151,12 +156,12 @@ impl HighLoadStatsCommand {
             anyhow::anyhow!("Block header not found for {height} with {block_hash_vec:?}")
         })?;
 
-        let mut gas_used = vec![0; 4];
-        let mut gas_used_by_account = vec![0; 4];
+        let mut gas_used = vec![Gas::ZERO; 4];
+        let mut gas_used_by_account = vec![Gas::ZERO; 4];
         let mut tx_by_account = vec![0; 4];
         let mut receipts_by_account = vec![0; 4];
 
-        for (shard_index, chunk_header) in block.chunks().iter_deprecated().enumerate() {
+        for (shard_index, chunk_header) in block.chunks().iter().enumerate() {
             // Note that this doesn't work if there are missing chunks and resharding.
             let shard_id = chunk_header.shard_id();
             // let mut gas_usage_in_shard = GasUsageInShard::new();
@@ -183,9 +188,10 @@ impl HighLoadStatsCommand {
                     .outcome;
 
                 let (account_id, gas_used_by_tx) = (outcome.executor_id, outcome.gas_burnt);
-                gas_used[shard_index] += gas_used_by_tx;
+                gas_used[shard_index] = gas_used[shard_index].checked_add(gas_used_by_tx).unwrap();
                 if account_id == target_account_id {
-                    gas_used_by_account[shard_index] += gas_used_by_tx;
+                    gas_used_by_account[shard_index] =
+                        gas_used_by_account[shard_index].checked_add(gas_used_by_tx).unwrap();
                     tx_by_account[shard_index] += 1;
                     receipts_by_account[shard_index] += outcome.receipt_ids.len();
                 }

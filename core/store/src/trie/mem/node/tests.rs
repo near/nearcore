@@ -1,7 +1,7 @@
-use crate::trie::Children;
 use crate::trie::mem::arena::Arena;
 use crate::trie::mem::arena::single_thread::STArena;
 use crate::trie::mem::node::{InputMemTrieNode, MemTrieNodeId, MemTrieNodeView};
+use crate::trie::{Children, NUM_CHILDREN};
 use crate::{RawTrieNode, RawTrieNodeWithSize};
 use near_primitives::hash::hash;
 use near_primitives::state::{FlatStateValue, ValueRef};
@@ -136,8 +136,8 @@ fn test_basic_extension_node() {
     }
 }
 
-fn branch_array(children: Vec<(usize, MemTrieNodeId)>) -> [Option<MemTrieNodeId>; 16] {
-    let mut result = [None; 16];
+fn branch_array(children: Vec<(usize, MemTrieNodeId)>) -> [Option<MemTrieNodeId>; NUM_CHILDREN] {
+    let mut result = [None; NUM_CHILDREN];
     for (idx, child) in children {
         result[idx] = Some(child);
     }

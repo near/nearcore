@@ -2,8 +2,9 @@ use near_epoch_manager::EpochManagerAdapter;
 use near_network::types::NetworkRequests;
 use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::types::{AccountId, BlockHeight};
+use parking_lot::Mutex;
 use std::collections::HashSet;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use crate::setup::drop_condition::TestLoopChunksStorage;
 
@@ -29,7 +30,7 @@ pub fn chunk_endorsement_dropper_by_hash(
         };
 
         let chunk = {
-            let chunks_storage = chunks_storage.lock().unwrap();
+            let chunks_storage = chunks_storage.lock();
             let chunk = chunks_storage.get(&chunk_hash).unwrap().clone();
             let can_drop_chunk = chunks_storage.can_drop_chunk(&chunk);
 

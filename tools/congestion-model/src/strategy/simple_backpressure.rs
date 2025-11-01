@@ -81,7 +81,7 @@ impl SimpleBackpressure {
         ctx.incoming_receipts().len() + ctx.queue(self.delayed_outgoing_receipts.unwrap()).len()
     }
 
-    fn congested(&mut self, ctx: &mut ChunkExecutionContext) -> bool {
+    fn congested(&self, ctx: &mut ChunkExecutionContext) -> bool {
         let congested = self.total_queued_receipts(ctx) > self.max_receipts;
         congested
     }

@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { Fragment, ReactElement, useCallback, useMemo, useState } from 'react';
+import { Dispatch, Fragment, ReactElement, SetStateAction, useCallback, useMemo, useState } from 'react';
 import Xarrow, { Xwrapper, useXarrow } from 'react-xarrows';
 import { DebugBlockStatus, MissedHeightInfo, fetchBlockStatus, fetchFullStatus } from './api';
 import './LatestBlocksView.scss';
@@ -42,7 +42,7 @@ type BlockTableRowBlock = {
     parentIndex: number | null; // the index of the parent block, or null if parent not included in the data
     graphColumn: number | null; // the column to display the graph node in
     blockDelay: number | null; // number of seconds since parent's block timestamp, or null if parent not included in the data
-    chunkSkipped: boolean[]; // for each chunk, whether the chunk is the same as that chunk of parent block
+    chunkSkipped: Record<number, boolean>; // for each shard ID, whether the chunk is the same as that chunk of parent block
     isHead: boolean;
     isHeaderHead: boolean;
 };
@@ -62,7 +62,7 @@ function sortBlocksAndDetermineBlockGraphLayout(
             parentIndex: null,
             graphColumn: -1,
             blockDelay: null,
-            chunkSkipped: block.chunks.map(() => false),
+            chunkSkipped: block.chunks.reduce((acc, chunk) => ({ ...acc, [chunk.shard_id]: false }), {} as Record<number, boolean>),
             isHead: head === block.block_hash,
             isHeaderHead: headerHead === block.block_hash,
         });
@@ -102,9 +102,9 @@ function sortBlocksAndDetermineBlockGraphLayout(
             row.parentIndex = rowIndexByHash.get(block.prev_block_hash)!;
             const parentBlock = (rows[row.parentIndex] as BlockTableRowBlock).block;
             row.blockDelay = (block.block_timestamp - parentBlock.block_timestamp) / 1e9;
-            for (let j = 0; j < Math.min(block.chunks.length, parentBlock.chunks.length); j++) {
-                row.chunkSkipped[j] =
-                    block.chunks[j].chunk_hash === parentBlock.chunks[j].chunk_hash;
+            for (const chunk of block.chunks) {
+                const parentChunk = parentBlock.chunks.find(c => c.shard_id === chunk.shard_id);
+                row.chunkSkipped[chunk.shard_id] = !!(parentChunk && chunk.chunk_hash === parentChunk.chunk_hash);
             }
         }
         // We'll use a two-column layout for the block graph. We traverse from bottom
@@ -129,6 +129,24 @@ function sortBlocksAndDetermineBlockGraphLayout(
     return rows;
 }
 
+type ToggleButtonProps = {
+    name: string;
+    enabled: boolean;
+    setEnabled: Dispatch<SetStateAction<boolean>>;
+};
+
+const ToggleButton = ({ name, enabled, setEnabled }: ToggleButtonProps) => {
+    return (
+        <button
+            className={enabled ? "toggle-button-enabled" : undefined}
+            onClick={() => setEnabled((value) => !value)}
+        >
+            {name}
+        </button>
+    );
+};
+
+
 type BlocksTableProps = {
     rows: BlockTableRow[];
     knownProducers: Set<string>;
@@ -136,31 +154,146 @@ type BlocksTableProps = {
     hideMissingHeights: boolean;
 };
 
+function endorsementRatioBackgroundColor(ratio: number | undefined): string {
+    if (!ratio) {
+        return "transparent";
+    }
+    const endorsementThreshold = 2 / 3;
+    const redRatio = 1.0 - Math.max(ratio - endorsementThreshold, 0) / (1.0 - endorsementThreshold);
+    const red = Math.round(255 * redRatio);
+    return `rgba(${red}, 255, 0, 0.2)`;
+}
+
+function toTGas(gas: number): number {
+    return gas / (1024 * 1024 * 1024 * 1024);
+}
+
+function gasUsedBackgroundColor(gas: number): string {
+    const limitTGas = 300;
+    const usedTGas = toTGas(gas);
+    return `rgba(255, 255, 0, ${(0.5 * Math.min(usedTGas / limitTGas, 1.0)).toFixed(3)})`;
+}
+
 const BlocksTable = ({ rows, knownProducers, expandAll, hideMissingHeights }: BlocksTableProps) => {
+    const PROCESSING_TIME_LABEL = "Processing Time (ms)";
+    const BLOCK_DELAY_LABEL = "Block Delay (s)";
+    const GAS_PRICE_RATIO_LABEL = "Gas Price Ratio";
+    const GAS_USED_LABEL = "Gas Used (Tgas)"
+    const ENDORSEMENT_RATIO_LABEL = "Endorsement Ratio"
+
+    const [displayBlockDelay, setDisplayBlockDelay] = useState(true);
+    const [displayBlockProcessingTime, setDisplayBlockProcessingTime] = useState(false);
+    const [displayGasPriceRatio, setDisplayGasPriceRatio] = useState(false);
+    const blockFields = (
+        <div className="toggle-fields">
+            <span className="toggle-fields-label">Block fields:</span>
+            <ToggleButton
+                enabled={displayBlockDelay}
+                setEnabled={setDisplayBlockDelay}
+                name={BLOCK_DELAY_LABEL}
+            />
+            <ToggleButton
+                enabled={displayBlockProcessingTime}
+                setEnabled={setDisplayBlockProcessingTime}
+                name={PROCESSING_TIME_LABEL}
+            />
+            <ToggleButton
+                enabled={displayGasPriceRatio}
+                setEnabled={setDisplayGasPriceRatio}
+                name={GAS_PRICE_RATIO_LABEL}
+            />
+        </div>
+    );
+
+    const [displayGasUsed, setDisplayGasUsed] = useState(true);
+    const [displayChunkProcessingTime, setDisplayChunkProcessingTime] = useState(false);
+    const [displayChunkEndorsementRatio, setDisplayChunkEndorsementRatio] = useState(false);
+    const chunkFields = (
+        <div className="toggle-fields">
+            <span className="toggle-fields-label">Chunk fields:</span>
+            <ToggleButton
+                enabled={displayGasUsed}
+                setEnabled={setDisplayGasUsed}
+                name={GAS_USED_LABEL}
+            />
+            <ToggleButton
+                enabled={displayChunkProcessingTime}
+                setEnabled={setDisplayChunkProcessingTime}
+                name={PROCESSING_TIME_LABEL}
+            />
+            <ToggleButton
+                enabled={displayChunkEndorsementRatio}
+                setEnabled={setDisplayChunkEndorsementRatio}
+                name={ENDORSEMENT_RATIO_LABEL}
+            />
+        </div>
+    )
+
     let numGraphColumns = 1; // either 1 or 2; determines the width of leftmost td
-    let numShards = 0;
-    for (const row of rows) {
+    const shardIdsSet = new Set<number>();
+    for (const row of rows.slice()) {
         if ('block' in row) {
             numGraphColumns = Math.max(numGraphColumns, (row.graphColumn || 0) + 1);
             for (const chunk of row.block.chunks) {
-                numShards = Math.max(numShards, chunk.shard_id + 1);
+                shardIdsSet.add(chunk.shard_id);
             }
         }
     }
+
+    // Set the shard ids and precompute the mapping from the ShardId to the
+    // ShardUIIndex. Please keep in mind that the ShardUIIndex is different than
+    // the ShardIndex. That is because during resharding we need to display
+    // chunks from multiple shard layouts on a single page.
+    const numShards = shardIdsSet.size;
+    const shardIds = [...shardIdsSet].sort((a, b) => a - b);
+
+    const shardIdToUIIndex = new Map<number, number>();
+    shardIds.forEach((shardId, index) => {
+        shardIdToUIIndex.set(shardId, index);
+    });
+
+    const chunkColSpan = 1
+        + (displayGasUsed ? 1 : 0)
+        + (displayChunkProcessingTime ? 1 : 0)
+        + (displayChunkEndorsementRatio ? 1 : 0);
     const header = (
-        <tr>
-            <th>Chain</th>
-            <th>Height</th>
-            <th>{'Hash & creator'}</th>
-            <th>Processing Time (ms)</th>
-            <th>Block Delay (s)</th>
-            <th>Gas price ratio</th>
-            {[...Array(numShards).keys()].map((i) => (
-                <th key={i} colSpan={3}>
-                    Shard {i} (hash/gas(Tgas)/time(ms))
-                </th>
-            ))}
-        </tr>
+        <Fragment>
+            <tr>
+                <th rowSpan={2}>Chain</th>
+                <th rowSpan={2}>Height</th>
+                <th rowSpan={2}>{'Hash & Creator'}</th>
+                {displayBlockDelay &&
+                    <th rowSpan={2}>{BLOCK_DELAY_LABEL}</th>
+                }
+                {displayBlockProcessingTime &&
+                    <th rowSpan={2}><span title={PROCESSING_TIME_LABEL}>Proc. Time (ms)</span></th>
+                }
+                {displayGasPriceRatio &&
+                    <th rowSpan={2}>{GAS_PRICE_RATIO_LABEL}</th>
+                }
+                {[...shardIds].map((shard_id) => (
+                    <th key={shard_id} colSpan={chunkColSpan}>
+                        Shard {shard_id}
+                    </th>
+                ))}
+            </tr>
+            <tr>
+                {[...shardIds].map((shard_id) => (
+                    <Fragment key={shard_id}>
+                        <th>Hash & Creator</th>
+                        {displayGasUsed &&
+                            <th><span title={GAS_USED_LABEL}>Gas</span></th>
+                        }
+                        {displayChunkProcessingTime &&
+                            <th><span title={PROCESSING_TIME_LABEL}>Time</span></th>
+                        }
+                        {displayChunkEndorsementRatio &&
+                            <th><span title={ENDORSEMENT_RATIO_LABEL}>E-nt</span></th>
+                        }
+                    </Fragment>
+                ))}
+            </tr>
+        </Fragment>
     );
 
     // One xarrow element per arrow (from block to block).
@@ -168,6 +301,10 @@ const BlocksTable = ({ rows, knownProducers, expandAll, hideMissingHeights }: Bl
 
     // One 'tr' element per row.
     const tableRows = [] as ReactElement[];
+    const blockColSpan = 1
+        + (displayBlockDelay ? 1 : 0)
+        + (displayBlockProcessingTime ? 1 : 0)
+        + (displayGasPriceRatio ? 1 : 0);
     for (let i = 0; i < rows.length; i++) {
         const row = rows[i];
         if ('missedHeight' in row) {
@@ -176,7 +313,7 @@ const BlocksTable = ({ rows, knownProducers, expandAll, hideMissingHeights }: Bl
                     <tr key={row.missedHeight.block_height} className="missed-height">
                         <td className="graph-node-cell" />
                         <td>{row.missedHeight.block_height}</td>
-                        <td colSpan={4 + numShards * 3}>
+                        <td colSpan={blockColSpan + numShards * chunkColSpan}>
                             {row.missedHeight.block_producer} missed block
                         </td>
                     </tr>
@@ -184,25 +321,53 @@ const BlocksTable = ({ rows, knownProducers, expandAll, hideMissingHeights }: Bl
             }
             continue;
         }
-        const block = row.block;
 
-        const chunkCells = [] as ReactElement[];
-        block.chunks.forEach((chunk, shardId) => {
-            chunkCells.push(
+        // The default empty cell for chunks for shards that are not present in
+        // this block. This is only useful during resharding, otherwise all
+        // blocks have the same shard layout and shard ids.
+        // TODO add some style
+        const empty = (
+            <Fragment>
+                <td colSpan={chunkColSpan}></td>
+            </Fragment>
+        );
+
+        const block = row.block;
+        const chunkCells = Array(numShards).fill(empty) as ReactElement[];
+        for (const chunk of block.chunks) {
+            const shardId = chunk.shard_id;
+            const shardUIIndex = shardIdToUIIndex.get(shardId);
+
+            const chunk_info = (
+                <HashElement
+                    hashValue={chunk.chunk_hash}
+                    creator={chunk.chunk_producer || ''}
+                    expandAll={expandAll}
+                    knownProducers={knownProducers}
+                />
+            );
+            const fragment = (
                 <Fragment key={shardId}>
                     <td className={row.chunkSkipped[shardId] ? 'skipped-chunk' : ''}>
-                        <HashElement
-                            hashValue={chunk.chunk_hash}
-                            creator={chunk.chunk_producer || ''}
-                            expandAll={expandAll}
-                            knownProducers={knownProducers}
-                        />
+                        {chunk_info}
                     </td>
-                    <td>{(chunk.gas_used / (1024 * 1024 * 1024 * 1024)).toFixed(1)}</td>
-                    <td>{chunk.processing_time_ms}</td>
+                    {displayGasUsed &&
+                        <td style={{ backgroundColor: gasUsedBackgroundColor(chunk.gas_used) }} >
+                            {toTGas(chunk.gas_used).toFixed(1)}
+                        </td>
+                    }
+                    {displayChunkProcessingTime &&
+                        <td>{chunk.processing_time_ms}</td>
+                    }
+                    {displayChunkEndorsementRatio &&
+                        <td style={{ backgroundColor: endorsementRatioBackgroundColor(chunk.endorsement_ratio)}}>
+                            {chunk.endorsement_ratio?.toFixed(2)}
+                        </td>
+                    }
                 </Fragment>
             );
-        });
+            chunkCells[shardUIIndex!] = fragment;
+        }
 
         tableRows.push(
             <tr
@@ -228,10 +393,16 @@ const BlocksTable = ({ rows, knownProducers, expandAll, hideMissingHeights }: Bl
                         knownProducers={knownProducers}
                     />
                 </td>
-                <td>{block.processing_time_ms}</td>
-                <td>{row.blockDelay ?? ''}</td>
-                <td>{block.gas_price_ratio}</td>
-                {block.full_block_missing && <td colSpan={numShards * 3}>header only</td>}
+                {displayBlockDelay &&
+                    <td>{row.blockDelay?.toFixed(3) ?? ''}</td>
+                }
+                {displayBlockProcessingTime &&
+                    <td>{block.processing_time_ms}</td>
+                }
+                {displayGasPriceRatio &&
+                    <td>{block.gas_price_ratio}</td>
+                }
+                {block.full_block_missing && <td colSpan={numShards * chunkColSpan}>header only</td>}
                 {chunkCells}
             </tr>
         );
@@ -251,13 +422,17 @@ const BlocksTable = ({ rows, knownProducers, expandAll, hideMissingHeights }: Bl
     }
     return (
         <div>
-            {graphArrows}
-            <table>
-                <tbody>
-                    {header}
-                    {tableRows}
-                </tbody>
-            </table>
+            {blockFields}
+            {chunkFields}
+            <div>
+                {graphArrows}
+                <table>
+                    <tbody>
+                        {header}
+                        {tableRows}
+                    </tbody>
+                </table>
+            </div>
         </div>
     );
 };
@@ -269,13 +444,12 @@ type LatestBlockViewProps = {
 const calculateAvgBlockTime = (blocks: BlockTableRowBlock[]): number => {
     let totalTime = 0;
     let count = 0;
-    
     for (let i = 1; i < blocks.length; i++) {
-        const timeDiff = (blocks[i-1].block.block_timestamp - blocks[i].block.block_timestamp) / 1e9;
+        const timeDiff =
+            (blocks[i - 1].block.block_timestamp - blocks[i].block.block_timestamp) / 1e9;
         totalTime += timeDiff;
         count++;
     }
-    
     return count > 0 ? totalTime / count : 0;
 };
 
@@ -327,7 +501,7 @@ export const LatestBlocksView = ({ addr }: LatestBlockViewProps) => {
         let firstCanonicalHeight = 0;
         let lastCanonicalHeight = 0;
         let numCanonicalBlocks = 0;
-        const numChunksSkipped = [];
+        const numChunksSkipped: Record<number, number> = {};
         for (const row of rows) {
             if (!('block' in row)) {
                 continue;
@@ -341,12 +515,13 @@ export const LatestBlocksView = ({ addr }: LatestBlockViewProps) => {
             }
             lastCanonicalHeight = block.block_height;
             numCanonicalBlocks++;
-            for (let i = 0; i < row.chunkSkipped.length; i++) {
-                while (numChunksSkipped.length < i + 1) {
-                    numChunksSkipped.push(0);
+            for (const [shardId, isSkipped] of Object.entries(row.chunkSkipped)) {
+                const shardIdNum = parseInt(shardId);
+                if (!(shardIdNum in numChunksSkipped)) {
+                    numChunksSkipped[shardIdNum] = 0;
                 }
-                if (row.chunkSkipped[i]) {
-                    numChunksSkipped[i]++;
+                if (isSkipped) {
+                    numChunksSkipped[shardIdNum]++;
                 }
             }
         }
@@ -383,10 +558,11 @@ export const LatestBlocksView = ({ addr }: LatestBlockViewProps) => {
                 <div className="height-controller">
                     <span className="prompt">
                         {(() => {
-                            let blocksText = `${numBlocks == null ? '' : numBlocks} blocks`;
-                            let promptText = height == null ? 
-                                `Displaying most recent ${blocksText}` : 
-                                `Displaying ${blocksText} from height ${height}`;
+                            const blocksText = `${numBlocks == null ? '' : numBlocks} blocks`;
+                            let promptText =
+                                height == null
+                                    ? `Displaying most recent ${blocksText}`
+                                    : `Displaying ${blocksText} from height ${height}`;
                             if (mode != null && mode != 'all') {
                                 promptText += ` in mode ${mode}`;
                             }
@@ -405,10 +581,7 @@ export const LatestBlocksView = ({ addr }: LatestBlockViewProps) => {
                         value={numBlocksInInput}
                         onChange={(e) => setNumBlocksInInput(e.target.value)}
                     />
-                    <select
-                        value={modeInInput}
-                        onChange={(e) => setModeInInput(e.target.value)}
-                    >
+                    <select value={modeInInput} onChange={(e) => setModeInInput(e.target.value)}>
                         <option value="all">All</option>
                         <option value="first_block_miss">Jump To Block Miss</option>
                         <option value="first_chunk_miss">Jump To Chunk Miss</option>
@@ -436,7 +609,8 @@ export const LatestBlocksView = ({ addr }: LatestBlockViewProps) => {
                     Average Block Time:{' '}
                     {calculateAvgBlockTime(
                         rows.filter((row): row is BlockTableRowBlock => 'block' in row)
-                    ).toFixed(2)}s
+                    ).toFixed(2)}
+                    s
                 </div>
                 <button
                     onClick={() => {
@@ -463,7 +637,7 @@ export const LatestBlocksView = ({ addr }: LatestBlockViewProps) => {
                 </button>
                 {showMissingChunksStats && (
                     <div className="missed-chunks">
-                        {numChunksSkipped.map((numSkipped, shardId) => (
+                        {Object.entries(numChunksSkipped).map(([shardId, numSkipped]) => (
                             <div key={shardId}>
                                 Shard {shardId}: Missing chunks: {numSkipped} {}
                                 Produced: {numCanonicalBlocks - numSkipped} {}

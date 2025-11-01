@@ -22,11 +22,13 @@ test-ci *FLAGS: check-cargo-fmt \
                 python-style-checks \
                 check-cargo-deny \
                 check-themis \
+                check-cargo-machete \
                 check-cargo-clippy \
                 check-non-default \
                 check-cargo-udeps \
                 (nextest "stable" FLAGS) \
                 (nextest "nightly" FLAGS) \
+                nextest-spice \
                 doctests
 # order them with the fastest / most likely to fail checks first
 # when changing this, remember to adjust the CI workflow in parallel, as CI runs each of these in a separate job
@@ -51,6 +53,10 @@ nextest TYPE *FLAGS:
 
 nextest-slow TYPE *FLAGS: (nextest TYPE "--ignore-default-filter -E 'default() + test(/^(.*::slow_test|slow_test)/)'" FLAGS)
 nextest-all TYPE *FLAGS: (nextest TYPE "--ignore-default-filter -E 'all()'" FLAGS)
+
+# TODO(#13341): Remove once spice tests can run as part of nightly or stable tests.
+spice_test_filter := "-E 'all() & test(spice)'"
+nextest-spice *FLAGS: (nextest "stable" "--features protocol_feature_spice,test_features" "--ignore-default-filter" spice_test_filter FLAGS)
 
 doctests:
     cargo test --doc
@@ -91,7 +97,9 @@ codecov RULE:
     export RUSTC_WORKSPACE_WRAPPER="{{ absolute_path("scripts/coverage-wrapper-rustc") }}"
     {{ just_executable() }} {{ RULE }}
     mkdir -p coverage/codecov
-    cargo llvm-cov report --profile dev-release --codecov --output-path coverage/codecov/new.json
+    # If coverage profiling produced corrupted/empty .profraw (e.g. due to a segfault),
+    # `cargo llvm-cov report` can fail. Fall back to an empty JSON so CI proceeds.
+    cargo llvm-cov report --profile dev-release --codecov --output-path coverage/codecov/new.json || echo '{}' > coverage/codecov/new.json
 
 # generate a codecov report for RULE, CI version
 codecov-ci RULE:
@@ -99,7 +107,9 @@ codecov-ci RULE:
     set -euxo pipefail
     {{ just_executable() }} codecov "{{ RULE }}"
     pushd target
-    tar -c --zstd -f ../coverage/profraw/new.tar.zst *.profraw
+    # Create a tarball with any produced *.profraw files. If the first tar command exits non-zero
+    # create an empty tarball so next steps don't fail.
+    tar -c --zstd -f ../coverage/profraw/new.tar.zst *.profraw 2>/dev/null || tar -c --zstd -f ../coverage/profraw/new.tar.zst --files-from /dev/null
     popd
     rm -rf target/*.profraw
 
@@ -125,6 +135,9 @@ install-rustc-nightly:
 # verify there is no unused dependency specified in a Cargo.toml
 check-cargo-udeps: install-rustc-nightly
     env CARGO_TARGET_DIR={{justfile_directory()}}/target/udeps RUSTFLAGS='--cfg=udeps --cap-lints=allow' cargo +nightly udeps
+
+check-cargo-machete:
+    cargo machete
 
 # lychee-based url validity checks
 check-lychee:
@@ -176,3 +189,18 @@ check-publishable-separately *OPTIONS:
     done
     echo -e $REPORT
     exit $FINAL_RESULT
+
+openapi-spec:
+    #!/usr/bin/env bash
+    cargo run -p near-jsonrpc-openapi-spec > chain/jsonrpc/openapi/openapi.json
+    git diff --exit-code
+    res=$?
+    if [ $res -ne 0 ]; then
+        echo "OpenAPI spec has changed, please ensure the code doesn't break Near JSON RPC clients and run 'cargo run -p near-jsonrpc-openapi-spec > chain/jsonrpc/openapi/openapi.json' to update it. Also update spec version accordingly in chain/jsonrpc/openapi/src/main.rs."
+        exit 1
+    fi
+
+check-cspell:
+    # You will need the cspell npm package.
+    # For nixpkgs users that's `nodePackages.cspell`
+    git ls-files | cspell --no-progress --file-list stdin

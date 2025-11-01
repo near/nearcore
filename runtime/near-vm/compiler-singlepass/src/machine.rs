@@ -512,7 +512,7 @@ impl Machine {
         }
     }
 
-    pub(crate) fn finalize_locals<E: Emitter>(&mut self, a: &mut E) {
+    pub(crate) fn finalize_locals<E: Emitter>(&self, a: &mut E) {
         // Unwind stack to the "save area".
         a.emit_lea(
             Size::S64,
@@ -522,7 +522,7 @@ impl Machine {
     }
 
     pub(crate) fn restore_registers<E: Emitter>(
-        &mut self,
+        &self,
         a: &mut E,
         calling_convention: CallingConvention,
         local_count: u32,

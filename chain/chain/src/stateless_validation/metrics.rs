@@ -42,6 +42,43 @@ pub static SAVED_LATEST_WITNESSES_SIZE: LazyLock<IntGauge> = LazyLock::new(|| {
     .unwrap()
 });
 
+pub static SAVE_INVALID_WITNESS_GENERATE_UPDATE_TIME: LazyLock<HistogramVec> =
+    LazyLock::new(|| {
+        try_create_histogram_vec(
+            "near_save_invalid_witness_generate_update_time",
+            "Time taken to generate an update of invalid witnesses",
+            &["shard_id"],
+            Some(exponential_buckets(0.001, 1.6, 20).unwrap()),
+        )
+        .unwrap()
+    });
+
+pub static SAVE_INVALID_WITNESS_COMMIT_UPDATE_TIME: LazyLock<HistogramVec> = LazyLock::new(|| {
+    try_create_histogram_vec(
+        "near_save_invalid_witness_commit_update_time",
+        "Time taken to commit the update of invalid witnesses",
+        &["shard_id"],
+        Some(exponential_buckets(0.001, 1.6, 20).unwrap()),
+    )
+    .unwrap()
+});
+
+pub static SAVED_INVALID_WITNESSES_COUNT: LazyLock<IntGauge> = LazyLock::new(|| {
+    try_create_int_gauge(
+        "near_saved_invalid_witnesses_count",
+        "Total number of saved invalid witnesses",
+    )
+    .unwrap()
+});
+
+pub static SAVED_INVALID_WITNESSES_SIZE: LazyLock<IntGauge> = LazyLock::new(|| {
+    try_create_int_gauge(
+        "near_saved_invalid_witnesses_size",
+        "Total size of saved invalid witnesses (in bytes)",
+    )
+    .unwrap()
+});
+
 pub static CHUNK_STATE_WITNESS_ENCODE_TIME: LazyLock<HistogramVec> = LazyLock::new(|| {
     try_create_histogram_vec(
         "near_chunk_state_witness_encode_time",
@@ -120,6 +157,24 @@ pub static CHUNK_STATE_WITNESS_DECODE_TIME: LazyLock<HistogramVec> = LazyLock::n
     .unwrap()
 });
 
+pub static VALIDATE_CHUNK_WITH_ENCODED_MERKLE_ROOT_TIME: LazyLock<HistogramVec> =
+    LazyLock::new(|| {
+        try_create_histogram_vec(
+            "near_validate_chunk_with_encoded_merkle_root_time",
+            "Time taken to validate a chunk with encoded merkle root",
+            &["shard_id"],
+            Some(
+                // Buckets from 1ms to 500ms
+                // 5ms = expected
+                // 20ms = concerning but OK
+                // 50ms = bad
+                // >=100ms = very bad
+                vec![0.001, 0.005, 0.01, 0.02, 0.05, 0.1, 0.5], // seconds
+            ),
+        )
+        .unwrap()
+    });
+
 pub(crate) static CHUNK_STATE_WITNESS_MAIN_STATE_TRANSITION_SIZE: LazyLock<HistogramVec> =
     LazyLock::new(|| {
         try_create_histogram_vec(
@@ -157,7 +212,7 @@ fn record_witness_size_metrics_fallible(
     encoded_size: usize,
     witness: &ChunkStateWitness,
 ) -> Result<(), std::io::Error> {
-    let shard_id = witness.chunk_header.shard_id().to_string();
+    let shard_id = witness.chunk_header().shard_id().to_string();
     CHUNK_STATE_WITNESS_RAW_SIZE
         .with_label_values(&[shard_id.as_str()])
         .observe(decoded_size as f64);
@@ -166,10 +221,10 @@ fn record_witness_size_metrics_fallible(
         .observe(encoded_size as f64);
     CHUNK_STATE_WITNESS_MAIN_STATE_TRANSITION_SIZE
         .with_label_values(&[shard_id.as_str()])
-        .observe(borsh::to_vec(&witness.main_state_transition)?.len() as f64);
+        .observe(borsh::object_length(&witness.main_state_transition())? as f64);
     CHUNK_STATE_WITNESS_SOURCE_RECEIPT_PROOFS_SIZE
         .with_label_values(&[&shard_id.as_str()])
-        .observe(borsh::to_vec(&witness.source_receipt_proofs)?.len() as f64);
+        .observe(borsh::object_length(&witness.source_receipt_proofs())? as f64);
     Ok(())
 }
 

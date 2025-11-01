@@ -137,7 +137,7 @@ impl BalancedProducer {
     }
 
     fn add_receipt(
-        &mut self,
+        &self,
         receiver: ShardId,
         tx: &mut TransactionBuilder,
         prev: ReceiptId,

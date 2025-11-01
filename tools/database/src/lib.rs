@@ -7,7 +7,6 @@ mod analyze_high_load;
 mod block_iterators;
 pub mod commands;
 mod compact;
-mod corrupt;
 mod drop_column;
 mod make_snapshot;
 mod memtrie;

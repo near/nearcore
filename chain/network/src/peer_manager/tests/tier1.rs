@@ -1,9 +1,8 @@
 use crate::config;
 use crate::network_protocol::testonly as data;
-use crate::network_protocol::{PeerAddr, PeerMessage, RoutedMessageBody};
+use crate::network_protocol::{PeerAddr, PeerMessage, T1MessageBody, TieredMessageBody};
 use crate::peer_manager;
-use crate::peer_manager::peer_manager_actor::Event as PME;
-use crate::peer_manager::testonly::Event;
+use crate::peer_manager::peer_manager_actor::Event;
 use crate::peer_manager::testonly::start as start_pm;
 use crate::stun;
 use crate::tcp;
@@ -54,11 +53,12 @@ async fn send_tier1_message(
     clock: &time::Clock,
     from: &peer_manager::testonly::ActorHandler,
     to: &peer_manager::testonly::ActorHandler,
-) -> Option<RoutedMessageBody> {
+) -> Option<TieredMessageBody> {
     let from_signer = from.cfg.validator.signer.get().unwrap();
     let to_signer = to.cfg.validator.signer.get().unwrap();
     let target = to_signer.validator_id().clone();
-    let want = RoutedMessageBody::BlockApproval(make_block_approval(rng, from_signer.as_ref()));
+    let want: TieredMessageBody =
+        T1MessageBody::BlockApproval(make_block_approval(rng, from_signer.as_ref())).into();
     let clock = clock.clone();
     from.with_state(move |s| async move {
         if s.send_message_to_account(&clock, &target, want.clone()) { Some(want) } else { None }
@@ -79,16 +79,14 @@ async fn send_and_recv_tier1_message(
     let want = send_tier1_message(rng, clock, from, to).await.expect("routing info not available");
     let got = events
         .recv_until(|ev| match ev {
-            Event::PeerManager(PME::MessageProcessed(tier, PeerMessage::Routed(got)))
-                if tier == recv_tier =>
-            {
+            Event::MessageProcessed(tier, PeerMessage::Routed(got)) if tier == recv_tier => {
                 Some(got)
             }
             _ => None,
         })
         .await;
-    assert_eq!(from.cfg.node_id(), got.author);
-    assert_eq!(want, got.body);
+    assert_eq!(from.cfg.node_id(), got.author().clone());
+    assert_eq!(want, got.body_owned());
 }
 
 /// Send a message over each connection.

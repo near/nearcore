@@ -89,7 +89,7 @@ fn test_evict_longest_disconnected() {
     conn_infos.remove(rand::thread_rng().gen_range(0..OUTBOUND_CONNECTIONS_CACHE_SIZE));
     clock.advance(time::Duration::hours(1));
     let now_utc = clock.now_utc();
-    for c in conn_infos.iter_mut() {
+    for c in &mut conn_infos {
         c.time_connected_until = now_utc;
     }
     connection_store.insert_outbound_connections(conn_infos.clone());

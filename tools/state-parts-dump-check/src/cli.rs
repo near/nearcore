@@ -1,10 +1,13 @@
-use actix_web::{App, HttpServer, web};
 use anyhow::anyhow;
+use axum::Router;
+use axum::routing::get;
 use borsh::BorshDeserialize;
+use near_chain_configs::ExternalStorageLocation;
 use near_client::sync::external::{
-    ExternalConnection, StateFileType, create_bucket_readonly, external_storage_location,
+    StateFileType, StateSyncConnection, external_storage_location,
     external_storage_location_directory, get_num_parts_from_filename,
 };
+use near_external_storage::S3AccessConfig;
 use near_jsonrpc::client::{JsonRpcClient, new_client};
 use near_jsonrpc::primitives::errors::RpcErrorKind;
 use near_jsonrpc::primitives::types::config::RpcProtocolConfigRequest;
@@ -20,7 +23,6 @@ use near_store::Trie;
 use nearcore::state_sync::extract_part_id_from_part_file_name;
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
-use std::sync::Arc;
 use std::thread::sleep;
 use std::time::{Duration, Instant};
 use tokio::time::timeout;
@@ -123,8 +125,11 @@ impl SingleCheckCommand {
         s3_region: Option<String>,
         gcs_bucket: Option<String>,
     ) -> anyhow::Result<()> {
-        let sys = actix::System::new();
-        sys.block_on(async move {
+        let tokio_runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("Failed to create Tokio runtime");
+        tokio_runtime.block_on(async move {
             let _check_result = run_single_check_with_3_retries(
                 None,
                 chain_id,
@@ -216,34 +221,25 @@ struct DumpCheckIterInfo {
     state_roots: HashMap<ShardId, CryptoHash>,
 }
 
-fn create_external_connection(
+fn create_state_sync_connection(
     root_dir: Option<PathBuf>,
     bucket: Option<String>,
     region: Option<String>,
     gcs_bucket: Option<String>,
-) -> ExternalConnection {
-    if let Some(root_dir) = root_dir {
-        ExternalConnection::Filesystem { root_dir }
+) -> StateSyncConnection {
+    let location = if let Some(root_dir) = root_dir {
+        ExternalStorageLocation::Filesystem { root_dir }
     } else if let (Some(bucket), Some(region)) = (bucket, region) {
-        let bucket = create_bucket_readonly(&bucket, &region, Duration::from_secs(5))
-            .expect("Failed to create an S3 bucket");
-        ExternalConnection::S3 { bucket: Arc::new(bucket) }
+        ExternalStorageLocation::S3 { bucket, region }
     } else if let Some(bucket) = gcs_bucket {
-        ExternalConnection::GCS {
-            gcs_client: Arc::new(
-                object_store::gcp::GoogleCloudStorageBuilder::new()
-                    .with_bucket_name(&bucket)
-                    .build()
-                    .unwrap(),
-            ),
-            reqwest_client: Arc::new(reqwest::Client::default()),
-            bucket,
-        }
+        ExternalStorageLocation::GCS { bucket }
     } else {
         panic!(
             "Please provide --root-dir, or both of --s3-bucket and --s3-region, or --gcs-bucket"
         );
-    }
+    };
+    let s3_access_config = S3AccessConfig { timeout: Duration::from_secs(5), is_readonly: true };
+    StateSyncConnection::new(&location, None, s3_access_config)
 }
 
 fn validate_state_part(state_root: &StateRoot, part_id: PartId, part: &[u8]) -> bool {
@@ -296,11 +292,14 @@ fn run_loop_all_shards(
 
     let mut is_prometheus_server_up: bool = false;
 
-    let sys = actix::System::new();
+    let tokio_runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("Failed to create Tokio runtime");
     loop {
         tracing::info!("running the loop inside run_loop_all_shards");
-        let dump_check_iter_info_res =
-            sys.block_on(async move { get_processing_epoch_information(&rpc_client).await });
+        let dump_check_iter_info_res = tokio_runtime
+            .block_on(async move { get_processing_epoch_information(&rpc_client).await });
         if let Err(err) = dump_check_iter_info_res {
             tracing::info!(
                 "get_processing_epoch_information errs out with {}. sleeping for {loop_interval}s.",
@@ -316,7 +315,7 @@ fn run_loop_all_shards(
         };
         for shard_info in dump_check_iter_info.shard_layout.shard_infos() {
             let shard_id = shard_info.shard_id();
-            tracing::info!(?shard_id, "started check");
+            tracing::info!(%shard_id, "started check");
             let dump_check_iter_info = dump_check_iter_info.clone();
             let status = last_check_status.get(&shard_id).unwrap_or(&Ok(
                 StatePartsDumpCheckStatus::Waiting {
@@ -389,20 +388,14 @@ fn run_loop_all_shards(
             let s3_region = s3_region.clone();
             let gcs_bucket = gcs_bucket.clone();
             let old_status = status.as_ref().ok().cloned();
-            let new_status = sys.block_on(async move {
+            let new_status = tokio_runtime.block_on(async move {
                 if !is_prometheus_server_up {
-                    let server = HttpServer::new(move || {
-                        App::new().service(
-                            web::resource("/metrics")
-                                .route(web::get().to(near_jsonrpc::prometheus_handler)),
-                        )
-                    })
-                    .bind(prometheus_addr)?
-                    .workers(1)
-                    .shutdown_timeout(3)
-                    .disable_signals()
-                    .run();
-                    tokio::spawn(server);
+                    let app =
+                        Router::new().route("/metrics", get(near_jsonrpc::prometheus_handler));
+                    let listener = tokio::net::TcpListener::bind(prometheus_addr).await?;
+                    tokio::spawn(async move {
+                        axum::serve(listener, app).await.unwrap();
+                    });
                 }
 
                 run_single_check_with_3_retries(
@@ -426,7 +419,7 @@ fn run_loop_all_shards(
 }
 
 fn reset_num_parts_metrics(chain_id: &str, shard_id: ShardId) -> () {
-    tracing::info!(?shard_id, "Resetting num of parts metrics to 0.");
+    tracing::info!(%shard_id, "Resetting num of parts metrics to 0.");
     crate::metrics::STATE_SYNC_DUMP_CHECK_NUM_PARTS_VALID
         .with_label_values(&[&shard_id.to_string(), chain_id])
         .set(0);
@@ -476,17 +469,17 @@ async fn run_single_check_with_3_retries(
         .await;
         match res {
             Ok(_) => {
-                tracing::info!(?shard_id, epoch_height, "run_single_check returned OK.",);
+                tracing::info!(%shard_id, epoch_height, "run_single_check returned OK.",);
                 break;
             }
             Err(_) if retries < MAX_RETRIES => {
-                tracing::info!(?shard_id, epoch_height, "run_single_check failure. Will retry.",);
+                tracing::info!(%shard_id, epoch_height, "run_single_check failure. Will retry.",);
                 retries += 1;
                 tokio::time::sleep(Duration::from_secs(60)).await;
             }
             Err(_) => {
                 tracing::info!(
-                    ?shard_id,
+                    %shard_id,
                     epoch_height,
                     "run_single_check failure. No more retries."
                 );
@@ -504,7 +497,7 @@ async fn check_parts(
     epoch_height: u64,
     shard_id: ShardId,
     state_root: StateRoot,
-    external: &ExternalConnection,
+    external: &StateSyncConnection,
 ) -> anyhow::Result<bool> {
     let directory_path = external_storage_location_directory(
         &chain_id,
@@ -546,7 +539,7 @@ async fn check_parts(
     if num_parts < total_required_parts {
         tracing::info!(
             epoch_height,
-            ?shard_id,
+            %shard_id,
             total_required_parts,
             num_parts,
             "Waiting for all parts to be dumped."
@@ -555,7 +548,7 @@ async fn check_parts(
     } else if num_parts > total_required_parts {
         tracing::info!(
             epoch_height,
-            ?shard_id,
+            %shard_id,
             total_required_parts,
             num_parts,
             "There are more dumped parts than total required, something is seriously wrong."
@@ -564,7 +557,7 @@ async fn check_parts(
     }
 
     tracing::info!(
-        ?shard_id,
+        %shard_id,
         epoch_height,
         num_parts,
         "Spawning threads to download and validate state parts."
@@ -607,7 +600,7 @@ async fn check_headers(
     epoch_id: &EpochId,
     epoch_height: u64,
     shard_id: ShardId,
-    external: &ExternalConnection,
+    external: &StateSyncConnection,
 ) -> anyhow::Result<bool> {
     let directory_path = external_storage_location_directory(
         &chain_id,
@@ -621,7 +614,7 @@ async fn check_headers(
         .is_state_sync_header_stored_for_epoch(shard_id, chain_id, epoch_id, epoch_height)
         .await?
     {
-        tracing::info!(epoch_height, ?shard_id, "Waiting for header to be dumped.");
+        tracing::info!(epoch_height, %shard_id, "Waiting for header to be dumped.");
         return Ok(false);
     }
 
@@ -629,7 +622,7 @@ async fn check_headers(
         .with_label_values(&[&shard_id.to_string(), &chain_id.to_string()])
         .set(1 as i64);
 
-    tracing::info!(?shard_id, epoch_height, "Download and validate state header.");
+    tracing::info!(%shard_id, epoch_height, "Download and validate state header.");
 
     let start = Instant::now();
     let chain_id = chain_id.clone();
@@ -667,7 +660,7 @@ async fn run_single_check(
         .with_label_values(&[&shard_id.to_string(), &chain_id.to_string()])
         .set(1);
 
-    let external = create_external_connection(
+    let external = create_state_sync_connection(
         root_dir.clone(),
         s3_bucket.clone(),
         s3_region.clone(),
@@ -715,7 +708,7 @@ async fn process_part_with_3_retries(
     shard_id: ShardId,
     state_root: StateRoot,
     num_parts: u64,
-    external: ExternalConnection,
+    external: StateSyncConnection,
 ) -> anyhow::Result<()> {
     let mut retries = 0;
     let mut res;
@@ -743,12 +736,12 @@ async fn process_part_with_3_retries(
         .await;
         match res {
             Ok(Ok(_)) => {
-                tracing::info!(?shard_id, epoch_height, part_id, "process_part success.",);
+                tracing::info!(%shard_id, epoch_height, part_id, "process_part success.",);
                 break;
             }
             _ if retries < MAX_RETRIES => {
                 tracing::info!(
-                    ?shard_id,
+                    %shard_id,
                     epoch_height,
                     part_id,
                     "process_part failed. Will retry.",
@@ -758,7 +751,7 @@ async fn process_part_with_3_retries(
             }
             _ => {
                 tracing::info!(
-                    ?shard_id,
+                    %shard_id,
                     epoch_height,
                     part_id,
                     "process_part failed. No more retries.",
@@ -775,7 +768,7 @@ async fn process_header_with_3_retries(
     epoch_id: EpochId,
     epoch_height: u64,
     shard_id: ShardId,
-    external: ExternalConnection,
+    external: StateSyncConnection,
 ) -> anyhow::Result<()> {
     let mut retries = 0;
     let mut res: Result<Result<(), anyhow::Error>, tokio::time::error::Elapsed>;
@@ -790,17 +783,17 @@ async fn process_header_with_3_retries(
         .await;
         match res {
             Ok(Ok(_)) => {
-                tracing::info!(?shard_id, epoch_height, "process_header success.",);
+                tracing::info!(%shard_id, epoch_height, "process_header success.",);
                 break;
             }
             _ if retries < MAX_RETRIES => {
-                tracing::info!(?shard_id, epoch_height, ?res, "process_header failed. Will retry.",);
+                tracing::info!(%shard_id, epoch_height, ?res, "process_header failed. Will retry.",);
                 retries += 1;
                 tokio::time::sleep(Duration::from_secs(5)).await;
             }
             _ => {
                 tracing::info!(
-                    ?shard_id,
+                    %shard_id,
                     epoch_height,
                     ?res,
                     "process_header failed. No more retries.",
@@ -820,7 +813,7 @@ async fn process_part(
     shard_id: ShardId,
     state_root: StateRoot,
     num_parts: u64,
-    external: ExternalConnection,
+    external: StateSyncConnection,
 ) -> anyhow::Result<()> {
     tracing::info!(part_id, "process_part started.");
     let file_type = StateFileType::StatePart { part_id, num_parts };
@@ -847,7 +840,7 @@ async fn process_header(
     epoch_id: EpochId,
     epoch_height: u64,
     shard_id: ShardId,
-    external: ExternalConnection,
+    external: StateSyncConnection,
 ) -> anyhow::Result<()> {
     tracing::info!("process_header started.");
     let file_type = StateFileType::StateHeader;
@@ -892,7 +885,7 @@ async fn get_current_epoch_state_roots(
         // Since head_height was gotten with Finality::Final, we know any of these are on the canonical chain
         match rpc_client.block_by_id(BlockId::Height(height)).await {
             Ok(block) => {
-                for chunk in block.chunks.iter() {
+                for chunk in &block.chunks {
                     if chunk.height_included == height {
                         let Some(n) = num_new_chunks.get_mut(&chunk.shard_id) else {
                             anyhow::bail!(

@@ -1,27 +1,27 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 
+use crate::setup::builder::TestLoopBuilder;
+use crate::setup::env::TestLoopEnv;
+use crate::utils::rotating_validators_runner::RotatingValidatorsRunner;
 use near_async::messaging::CanSend as _;
 use near_async::test_loop::sender::TestLoopSender;
 use near_async::time::Duration;
 use near_chain::Block;
 use near_chain_configs::test_genesis::TestEpochConfigBuilder;
 use near_client::client_actor::ClientActorInner;
-use near_client::{BlockApproval, BlockResponse};
 use near_epoch_manager::EpochManagerAdapter;
+use near_network::client::{BlockApproval, BlockResponse};
 use near_network::types::NetworkRequests;
+use near_o11y::span_wrapped_msg::SpanWrappedMessageExt;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::block::{Approval, ApprovalInner};
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::test_utils::create_user_test_signer;
-use near_primitives::types::{AccountId, BlockHeight, EpochId, NumSeats};
+use near_primitives::types::{AccountId, Balance, BlockHeight, EpochId, NumSeats};
+use parking_lot::RwLock;
 use rand::{Rng as _, thread_rng};
-
-use crate::setup::builder::TestLoopBuilder;
-use crate::setup::env::TestLoopEnv;
-use crate::utils::ONE_NEAR;
-use crate::utils::rotating_validators_runner::RotatingValidatorsRunner;
 
 /// Rotates three independent sets of block producers producing blocks with a very short epoch length.
 /// Occasionally when an endorsement comes, make all the endorsers send a skip message far-ish into
@@ -47,7 +47,7 @@ fn ultra_slow_test_consensus_with_epoch_switches() {
     .collect();
     let seats: NumSeats = validators[0].len().try_into().unwrap();
 
-    let stake = ONE_NEAR;
+    let stake = Balance::from_near(1);
     let mut runner = RotatingValidatorsRunner::new(stake, validators.clone());
     // With skips epochs may be longer and rotation validators may be unstable.
     runner.skip_assert_validators_rotation();
@@ -86,8 +86,8 @@ fn ultra_slow_test_consensus_with_epoch_switches() {
         let peer_actor_handle = node_datas.peer_manager_sender.actor_handle();
         let peer_actor = env.test_loop.data.get_mut(&peer_actor_handle);
         peer_actor.register_override_handler(Box::new(move |request| -> Option<NetworkRequests> {
-            let mut handler = handler.write().unwrap();
-            let mut rng = rng.write().unwrap();
+            let mut handler = handler.write();
+            let mut rng = rng.write();
 
             match request {
                 NetworkRequests::Block { ref block } => {
@@ -117,7 +117,7 @@ fn ultra_slow_test_consensus_with_epoch_switches() {
                             {
                                 if let Some(prev_height) = handler.block_to_height.get(prev_hash) {
                                     let cur_height = block.header().height();
-                                    for f in handler.final_block_heights.iter() {
+                                    for f in &handler.final_block_heights {
                                         if f < &cur_height && f > prev_height {
                                             assert!(
                                                 false,
@@ -143,17 +143,20 @@ fn ultra_slow_test_consensus_with_epoch_switches() {
                         std::cmp::max(block.header().height(), handler.largest_block_height);
 
                     let mut new_delayed_blocks = vec![];
-                    for delayed_block in handler.delayed_blocks.iter() {
+                    for delayed_block in &handler.delayed_blocks {
                         if delayed_block.hash() == block.hash() {
                             return Some(request);
                         }
                         if delayed_block.header().height() <= block.header().height() + 2 {
-                            for (_, sender) in handler.client_senders.iter() {
-                                sender.send(BlockResponse {
-                                    block: delayed_block.clone(),
-                                    peer_id: peer_id.clone(),
-                                    was_requested: true,
-                                });
+                            for (_, sender) in &handler.client_senders {
+                                sender.send(
+                                    BlockResponse {
+                                        block: delayed_block.clone().into(),
+                                        peer_id: peer_id.clone(),
+                                        was_requested: true,
+                                    }
+                                    .span_wrap(),
+                                );
                             }
                         } else {
                             new_delayed_blocks.push(delayed_block.clone())
@@ -258,7 +261,7 @@ fn ultra_slow_test_consensus_with_epoch_switches() {
                             .get_block_producer(&handler.current_epoch, target_height)
                             .unwrap();
                         let sender = handler.client_senders.get(&recipient).unwrap();
-                        sender.send(BlockApproval(approval, peer_id.clone()));
+                        sender.send(BlockApproval(approval, peer_id.clone()).span_wrap());
 
                         // Do not send the endorsement for couple block producers in each epoch
                         // This is needed because otherwise the block with enough endorsements
@@ -285,7 +288,7 @@ fn ultra_slow_test_consensus_with_epoch_switches() {
     runner.run_until(
         &mut env,
         |test_loop_data| {
-            let mut handler = handler.write().unwrap();
+            let mut handler = handler.write();
 
             let client = &test_loop_data.get(client_actor_handle).client;
             let head = client.chain.head().unwrap();
@@ -296,7 +299,7 @@ fn ultra_slow_test_consensus_with_epoch_switches() {
         Duration::seconds(2 * (HEIGHT_GOAL as i64)),
     );
 
-    let delayed_blocks_count = handler.read().unwrap().delayed_blocks_count;
+    let delayed_blocks_count = handler.read().delayed_blocks_count;
     assert!(delayed_blocks_count > 0, "no blocks were delayed");
     println!("Delayed {} blocks", delayed_blocks_count);
 
@@ -307,13 +310,13 @@ struct NetworkHandlingData {
     block_to_prev_block: HashMap<CryptoHash, CryptoHash>,
     block_to_height: HashMap<CryptoHash, u64>,
 
-    all_blocks: BTreeMap<BlockHeight, Block>,
+    all_blocks: BTreeMap<BlockHeight, Arc<Block>>,
     final_block_heights: HashSet<BlockHeight>,
 
     largest_target_height: HashMap<AccountId, BlockHeight>,
     skips_per_height: Vec<u64>,
     largest_block_height: BlockHeight,
-    delayed_blocks: Vec<Block>,
+    delayed_blocks: Vec<Arc<Block>>,
     delayed_blocks_count: u64,
 
     current_epoch: EpochId,

@@ -1,4 +1,5 @@
 use super::{StoreAdapter, StoreUpdateAdapter, StoreUpdateHolder};
+use crate::db::{GC_STOP_HEIGHT_KEY, SPICE_FINAL_EXECUTION_HEAD_KEY};
 use crate::{
     CHUNK_TAIL_KEY, DBCol, FINAL_HEAD_KEY, FORK_TAIL_KEY, HEAD_KEY, HEADER_HEAD_KEY,
     LARGEST_TARGET_HEIGHT_KEY, Store, StoreUpdate, TAIL_KEY, get_genesis_height,
@@ -55,8 +56,8 @@ impl ChainStoreAdapter {
     }
 
     /// The chain head.
-    pub fn head(&self) -> Result<Tip, Error> {
-        option_to_not_found(self.store.get_ser(DBCol::BlockMisc, HEAD_KEY), "HEAD")
+    pub fn head(&self) -> Result<Arc<Tip>, Error> {
+        option_to_not_found(self.store.caching_get_ser(DBCol::BlockMisc, HEAD_KEY), "HEAD")
     }
 
     /// The chain Blocks Tail height.
@@ -84,22 +85,35 @@ impl ChainStoreAdapter {
     }
 
     /// Head of the header chain (not the same thing as head_header).
-    pub fn header_head(&self) -> Result<Tip, Error> {
-        option_to_not_found(self.store.get_ser(DBCol::BlockMisc, HEADER_HEAD_KEY), "HEADER_HEAD")
+    pub fn header_head(&self) -> Result<Arc<Tip>, Error> {
+        option_to_not_found(
+            self.store.caching_get_ser(DBCol::BlockMisc, HEADER_HEAD_KEY),
+            "HEADER_HEAD",
+        )
     }
 
     /// Header of the block at the head of the block chain (not the same thing as header_head).
-    pub fn head_header(&self) -> Result<BlockHeader, Error> {
+    pub fn head_header(&self) -> Result<Arc<BlockHeader>, Error> {
         let last_block_hash = self.head()?.last_block_hash;
         option_to_not_found(
-            self.store.get_ser(DBCol::BlockHeader, last_block_hash.as_ref()),
+            self.store.caching_get_ser(DBCol::BlockHeader, last_block_hash.as_ref()),
             format_args!("BLOCK HEADER: {}", last_block_hash),
         )
     }
 
     /// The chain final head. It is guaranteed to be monotonically increasing.
-    pub fn final_head(&self) -> Result<Tip, Error> {
-        option_to_not_found(self.store.get_ser(DBCol::BlockMisc, FINAL_HEAD_KEY), "FINAL HEAD")
+    pub fn final_head(&self) -> Result<Arc<Tip>, Error> {
+        option_to_not_found(
+            self.store.caching_get_ser(DBCol::BlockMisc, FINAL_HEAD_KEY),
+            "FINAL HEAD",
+        )
+    }
+
+    pub fn spice_final_execution_head(&self) -> Result<Arc<Tip>, Error> {
+        option_to_not_found(
+            self.store.caching_get_ser(DBCol::BlockMisc, SPICE_FINAL_EXECUTION_HEAD_KEY),
+            "SPICE FINAL EXECUTION HEAD",
+        )
     }
 
     /// Largest approval target height sent by us
@@ -111,10 +125,18 @@ impl ChainStoreAdapter {
         }
     }
 
+    pub fn gc_stop_height(&self) -> Result<BlockHeight, Error> {
+        match self.store.get_ser(DBCol::BlockMisc, GC_STOP_HEIGHT_KEY) {
+            Ok(Some(height)) => Ok(height),
+            Ok(None) => Ok(self.genesis_height),
+            Err(e) => Err(e.into()),
+        }
+    }
+
     /// Get full block.
-    pub fn get_block(&self, block_hash: &CryptoHash) -> Result<Block, Error> {
+    pub fn get_block(&self, block_hash: &CryptoHash) -> Result<Arc<Block>, Error> {
         option_to_not_found(
-            self.store.get_ser(DBCol::Block, block_hash.as_ref()),
+            self.store.caching_get_ser(DBCol::Block, block_hash.as_ref()),
             format_args!("BLOCK: {}", block_hash),
         )
     }
@@ -133,9 +155,9 @@ impl ChainStoreAdapter {
     }
 
     /// Get block header.
-    pub fn get_block_header(&self, h: &CryptoHash) -> Result<BlockHeader, Error> {
+    pub fn get_block_header(&self, h: &CryptoHash) -> Result<Arc<BlockHeader>, Error> {
         option_to_not_found(
-            self.store.get_ser(DBCol::BlockHeader, h.as_ref()),
+            self.store.caching_get_ser(DBCol::BlockHeader, h.as_ref()),
             format_args!("BLOCK HEADER: {}", h),
         )
     }
@@ -150,16 +172,17 @@ impl ChainStoreAdapter {
     }
 
     /// Get previous header.
-    pub fn get_previous_header(&self, header: &BlockHeader) -> Result<BlockHeader, Error> {
+    pub fn get_previous_header(&self, header: &BlockHeader) -> Result<Arc<BlockHeader>, Error> {
         self.get_block_header(header.prev_hash())
     }
 
     /// Returns hash of the block on the main chain for given height.
     pub fn get_block_hash_by_height(&self, height: BlockHeight) -> Result<CryptoHash, Error> {
         option_to_not_found(
-            self.store.get_ser(DBCol::BlockHeight, &index_to_bytes(height)),
+            self.store.caching_get_ser(DBCol::BlockHeight, &index_to_bytes(height)),
             format_args!("BLOCK HEIGHT: {}", height),
         )
+        .map(|v| *v)
     }
 
     /// Returns a hashmap of epoch id -> set of all blocks got for current (height, epoch_id)
@@ -193,7 +216,10 @@ impl ChainStoreAdapter {
     }
 
     /// Returns block header from the current chain for given height if present.
-    pub fn get_block_header_by_height(&self, height: BlockHeight) -> Result<BlockHeader, Error> {
+    pub fn get_block_header_by_height(
+        &self,
+        height: BlockHeight,
+    ) -> Result<Arc<BlockHeader>, Error> {
         let hash = self.get_block_hash_by_height(height)?;
         self.get_block_header(&hash)
     }
@@ -206,7 +232,7 @@ impl ChainStoreAdapter {
     }
 
     /// Get full chunk.
-    pub fn get_chunk(&self, chunk_hash: &ChunkHash) -> Result<Arc<ShardChunk>, Error> {
+    pub fn get_chunk(&self, chunk_hash: &ChunkHash) -> Result<ShardChunk, Error> {
         match self.store.get_ser(DBCol::Chunks, chunk_hash.as_ref()) {
             Ok(Some(shard_chunk)) => Ok(shard_chunk),
             _ => Err(Error::ChunkMissing(chunk_hash.clone())),
@@ -218,7 +244,7 @@ impl ChainStoreAdapter {
         &self,
         chunk_hash: &ChunkHash,
     ) -> Result<Arc<PartialEncodedChunk>, Error> {
-        match self.store.get_ser(DBCol::PartialChunks, chunk_hash.as_ref()) {
+        match self.store.caching_get_ser(DBCol::PartialChunks, chunk_hash.as_ref()) {
             Ok(Some(shard_chunk)) => Ok(shard_chunk),
             _ => Err(Error::ChunkMissing(chunk_hash.clone())),
         }
@@ -227,6 +253,11 @@ impl ChainStoreAdapter {
     /// Does this chunk exist?
     pub fn chunk_exists(&self, h: &ChunkHash) -> Result<bool, Error> {
         self.store.exists(DBCol::Chunks, h.as_ref()).map_err(|e| e.into())
+    }
+
+    /// Does this partial chunk exist?
+    pub fn partial_chunk_exists(&self, h: &ChunkHash) -> Result<bool, Error> {
+        self.store.exists(DBCol::PartialChunks, h.as_ref()).map_err(|e| e.into())
     }
 
     /// Returns encoded chunk if it's invalid otherwise None.
@@ -244,7 +275,8 @@ impl ChainStoreAdapter {
         shard_uid: &ShardUId,
     ) -> Result<Arc<ChunkExtra>, Error> {
         option_to_not_found(
-            self.store.get_ser(DBCol::ChunkExtra, &get_block_shard_uid(block_hash, shard_uid)),
+            self.store
+                .caching_get_ser(DBCol::ChunkExtra, &get_block_shard_uid(block_hash, shard_uid)),
             format_args!("CHUNK EXTRA: {}:{:?}", block_hash, shard_uid),
         )
     }
@@ -367,6 +399,17 @@ impl ChainStoreAdapter {
         Ok(self
             .store
             .get_ser(DBCol::OutcomeIds, &get_block_shard_id(block_hash, shard_id))?
+            .unwrap_or_default())
+    }
+
+    /// Returns a vector of all known processed next block hashes.
+    pub fn get_all_next_block_hashes(
+        &self,
+        block_hash: &CryptoHash,
+    ) -> Result<Vec<CryptoHash>, Error> {
+        Ok(self
+            .store
+            .get_ser(DBCol::all_next_block_hashes(), block_hash.as_ref())?
             .unwrap_or_default())
     }
 

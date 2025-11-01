@@ -1,30 +1,14 @@
-use actix::System;
-use futures::{FutureExt, future};
-
-use near_actix_test_utils::run_actix;
 use near_jsonrpc::client::new_http_client;
-use near_o11y::testonly::init_test_logger;
-use near_time::Clock;
+use near_jsonrpc_tests::{NodeType, create_test_setup_with_node_type};
 
-use near_jsonrpc_tests as test_utils;
+#[tokio::test]
+async fn test_status() {
+    let setup = create_test_setup_with_node_type(NodeType::Validator);
 
-/// Retrieve client status via HTTP GET.
-#[test]
-fn test_status() {
-    init_test_logger();
+    // Use the unified JSON-RPC client that works with both HTTP and TestServer
+    let client = new_http_client(&setup.server_addr);
+    let status_response = client.status().await.expect("Failed to get status");
 
-    run_actix(async {
-        let (_view_client_addr, addr, _runtime_temp_dir) =
-            test_utils::start_all(Clock::real(), test_utils::NodeType::NonValidator);
-
-        let client = new_http_client(&format!("http://{}", addr));
-        actix::spawn(client.status().then(|res| {
-            let res = res.unwrap();
-            assert_eq!(res.chain_id, "unittest");
-            assert_eq!(res.sync_info.latest_block_height, 0);
-            assert_eq!(res.sync_info.syncing, false);
-            System::current().stop();
-            future::ready(())
-        }));
-    });
+    assert_eq!(status_response.chain_id, "unittest");
+    assert_eq!(status_response.sync_info.syncing, false);
 }

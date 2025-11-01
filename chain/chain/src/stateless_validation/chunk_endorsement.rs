@@ -46,9 +46,7 @@ pub fn validate_chunk_endorsements_in_block(
 
     let epoch_id = epoch_manager.get_epoch_id_from_prev_block(block.header().prev_hash())?;
     let shard_layout = epoch_manager.get_shard_layout(&epoch_id)?;
-    for (chunk_header, signatures) in
-        block.chunks().iter_deprecated().zip(block.chunk_endorsements())
-    {
+    for (chunk_header, signatures) in block.chunks().iter().zip(block.chunk_endorsements()) {
         // For old chunks, we optimize the block by not including the chunk endorsements.
         if chunk_header.height_included() != block.header().height() {
             if !signatures.is_empty() {
@@ -94,7 +92,7 @@ pub fn validate_chunk_endorsements_in_block(
 
             // Block should not be produced with an invalid signature.
             if !ChunkEndorsement::validate_signature(
-                chunk_header.chunk_hash(),
+                chunk_header.chunk_hash().clone(),
                 signature,
                 validator.public_key(),
             ) {
@@ -156,7 +154,6 @@ pub fn validate_chunk_endorsements_in_block(
 }
 
 /// Validates the [`ChunkEndorsementBitmap`] in the [`BlockHeader`] if it is present, otherwise returns an error.
-/// This function must be called only if ChunkEndorsementInBlockHeader feature is enabled.
 pub fn validate_chunk_endorsements_in_header(
     epoch_manager: &dyn EpochManagerAdapter,
     header: &BlockHeader,
@@ -178,7 +175,7 @@ pub fn validate_chunk_endorsements_in_header(
         )));
     }
     let chunk_mask = header.chunk_mask();
-    for shard_id in shard_ids.into_iter() {
+    for shard_id in shard_ids {
         let shard_index = shard_layout.get_shard_index(shard_id)?;
         // For old chunks, we optimize the block and its header by not including the chunk endorsements and
         // corresponding bitmaps. Thus, we expect that the bitmap is empty for shard with no new chunk.

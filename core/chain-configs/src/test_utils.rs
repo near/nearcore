@@ -1,36 +1,51 @@
+use std::cmp::min;
+
 use chrono::{DateTime, Utc};
 use near_crypto::{InMemorySigner, PublicKey};
 use near_primitives::account::{AccessKey, Account, AccountContract};
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::state_record::StateRecord;
-use near_primitives::types::{AccountId, AccountInfo, Balance, NumSeats, NumShards};
+use near_primitives::types::{AccountId, AccountInfo, Balance, Gas, NumSeats, NumShards};
 use near_primitives::utils::{from_timestamp, generate_random_string};
 use near_primitives::version::PROTOCOL_VERSION;
-use near_time::Clock;
-use num_rational::Ratio;
+use near_time::{Clock, Duration};
+use num_rational::{Ratio, Rational32};
 
 use crate::{
-    FAST_EPOCH_LENGTH, GAS_PRICE_ADJUSTMENT_RATE, Genesis, GenesisConfig, INITIAL_GAS_LIMIT,
-    MAX_INFLATION_RATE, MIN_GAS_PRICE, NEAR_BASE, NUM_BLOCKS_PER_YEAR, PROTOCOL_REWARD_RATE,
-    PROTOCOL_TREASURY_ACCOUNT, TRANSACTION_VALIDITY_PERIOD,
+    ClientConfig, EpochSyncConfig, FAST_EPOCH_LENGTH, GAS_PRICE_ADJUSTMENT_RATE, GCConfig, Genesis,
+    GenesisConfig, INITIAL_GAS_LIMIT, LogSummaryStyle, MAX_INFLATION_RATE, MIN_GAS_PRICE,
+    MutableConfigValue, NUM_BLOCKS_PER_YEAR, PROTOCOL_REWARD_RATE, PROTOCOL_TREASURY_ACCOUNT,
+    ReshardingConfig, StateSyncConfig, TRANSACTION_VALIDITY_PERIOD, TrackedShardsConfig,
+    default_enable_early_prepare_transactions, default_orphan_state_witness_max_size,
+    default_orphan_state_witness_pool_size, default_produce_chunk_add_transactions_time_limit,
 };
 
+/// Returns the default value for the thread count associated with rpc-handler actor (currently
+/// handling incoming transactions and chunk endorsement validations).
+/// In the benchmarks no performance gains were observed when increasing the number of threads
+/// above half of available cores.
+pub fn default_rpc_handler_thread_count() -> usize {
+    std::thread::available_parallelism().map(|v| v.get()).unwrap_or(16) / 2
+}
+
 /// Initial balance used in tests.
-pub const TESTING_INIT_BALANCE: Balance = 1_000_000_000 * NEAR_BASE;
+pub const TESTING_INIT_BALANCE: Balance = Balance::from_near(1_000_000_000);
 
 /// Validator's stake used in tests.
-pub const TESTING_INIT_STAKE: Balance = 50_000_000 * NEAR_BASE;
+pub const TESTING_INIT_STAKE: Balance = Balance::from_near(50_000_000);
+
+pub const TEST_STATE_SYNC_TIMEOUT: i64 = 5;
 
 impl GenesisConfig {
     pub fn test(clock: Clock) -> Self {
         GenesisConfig {
             genesis_time: from_timestamp(clock.now_utc().unix_timestamp_nanos() as u64),
             genesis_height: 0,
-            gas_limit: 10u64.pow(15),
-            min_gas_price: 0,
-            max_gas_price: 1_000_000_000,
-            total_supply: 1_000_000_000,
+            gas_limit: Gas::from_teragas(1000),
+            min_gas_price: Balance::ZERO,
+            max_gas_price: Balance::from_yoctonear(1_000_000_000),
+            total_supply: Balance::from_yoctonear(1_000_000_000),
             gas_price_adjustment_rate: Ratio::from_integer(0),
             transaction_validity_period: 100,
             epoch_length: 5,
@@ -55,7 +70,11 @@ impl Genesis {
             account_infos.push(AccountInfo {
                 account_id: account.clone(),
                 public_key: signer.public_key(),
-                amount: if i < num_validator_seats as usize { TESTING_INIT_STAKE } else { 0 },
+                amount: if i < num_validator_seats as usize {
+                    TESTING_INIT_STAKE
+                } else {
+                    Balance::ZERO
+                },
             });
         }
         let genesis_time = from_timestamp(clock.now_utc().unix_timestamp_nanos() as u64);
@@ -80,7 +99,7 @@ impl Genesis {
                 &mut records,
                 account_info.account_id,
                 &account_info.public_key,
-                TESTING_INIT_BALANCE - account_info.amount,
+                TESTING_INIT_BALANCE.checked_sub(account_info.amount).unwrap(),
                 account_info.amount,
                 CryptoHash::default(),
             );
@@ -181,7 +200,7 @@ pub fn add_protocol_account(records: &mut Vec<StateRecord>) {
         PROTOCOL_TREASURY_ACCOUNT.parse().unwrap(),
         &signer.public_key(),
         TESTING_INIT_BALANCE,
-        0,
+        Balance::ZERO,
         CryptoHash::default(),
     );
 }
@@ -190,8 +209,8 @@ pub fn add_account_with_key(
     records: &mut Vec<StateRecord>,
     account_id: AccountId,
     public_key: &PublicKey,
-    amount: u128,
-    staked: u128,
+    amount: Balance,
+    staked: Balance,
     code_hash: CryptoHash,
 ) {
     records.push(StateRecord::Account {
@@ -210,11 +229,118 @@ pub fn random_chain_id() -> String {
 }
 
 pub fn get_initial_supply(records: &[StateRecord]) -> Balance {
-    let mut total_supply = 0;
+    let mut total_supply = Balance::ZERO;
     for record in records {
         if let StateRecord::Account { account, .. } = record {
-            total_supply += account.amount() + account.locked();
+            total_supply = total_supply
+                .checked_add(account.amount().checked_add(account.locked()).unwrap())
+                .unwrap();
         }
     }
     total_supply
+}
+
+/// Common parameters used to set up test client.
+pub struct TestClientConfigParams {
+    pub skip_sync_wait: bool,
+    pub min_block_prod_time: u64,
+    pub max_block_prod_time: u64,
+    pub num_block_producer_seats: NumSeats,
+    pub archive: bool,
+    pub state_sync_enabled: bool,
+}
+
+impl ClientConfig {
+    pub fn test(params: TestClientConfigParams) -> ClientConfig {
+        let TestClientConfigParams {
+            skip_sync_wait,
+            min_block_prod_time,
+            max_block_prod_time,
+            num_block_producer_seats,
+            archive,
+            state_sync_enabled,
+        } = params;
+
+        ClientConfig {
+            version: Default::default(),
+            chain_id: "unittest".to_string(),
+            rpc_addr: Some("0.0.0.0:3030".to_string()),
+            expected_shutdown: MutableConfigValue::new(None, "expected_shutdown"),
+            block_production_tracking_delay: Duration::milliseconds(std::cmp::max(
+                10,
+                min_block_prod_time / 5,
+            ) as i64),
+            min_block_production_delay: Duration::milliseconds(min_block_prod_time as i64),
+            max_block_production_delay: Duration::milliseconds(max_block_prod_time as i64),
+            max_block_wait_delay: Duration::milliseconds(3 * min_block_prod_time as i64),
+            chunk_wait_mult: Rational32::new(1, 6),
+            skip_sync_wait,
+            sync_check_period: Duration::milliseconds(100),
+            sync_step_period: Duration::milliseconds(10),
+            sync_height_threshold: 1,
+            sync_max_block_requests: 10,
+            header_sync_initial_timeout: Duration::seconds(10),
+            header_sync_progress_timeout: Duration::seconds(2),
+            header_sync_stall_ban_timeout: Duration::seconds(30),
+            state_sync_external_timeout: Duration::seconds(TEST_STATE_SYNC_TIMEOUT),
+            state_sync_p2p_timeout: Duration::seconds(TEST_STATE_SYNC_TIMEOUT),
+            state_sync_retry_backoff: Duration::seconds(TEST_STATE_SYNC_TIMEOUT),
+            state_sync_external_backoff: Duration::seconds(TEST_STATE_SYNC_TIMEOUT),
+            header_sync_expected_height_per_second: 1,
+            min_num_peers: 1,
+            log_summary_period: Duration::seconds(10),
+            produce_empty_blocks: true,
+            epoch_length: 10,
+            num_block_producer_seats,
+            ttl_account_id_router: Duration::seconds(60 * 60),
+            block_fetch_horizon: 50,
+            catchup_step_period: Duration::milliseconds(100),
+            chunk_request_retry_period: min(
+                Duration::milliseconds(100),
+                Duration::milliseconds(min_block_prod_time as i64 / 5),
+            ),
+            doomslug_step_period: Duration::milliseconds(100),
+            block_header_fetch_horizon: 50,
+            gc: GCConfig { gc_blocks_limit: 100, ..GCConfig::default() },
+            tracked_shards_config: TrackedShardsConfig::NoShards,
+            archive,
+            cloud_archival_writer: None,
+            save_trie_changes: true,
+            save_untracked_partial_chunks_parts: true,
+            save_tx_outcomes: true,
+            log_summary_style: LogSummaryStyle::Colored,
+            view_client_threads: 1,
+            chunk_validation_threads: 1,
+            state_request_throttle_period: Duration::seconds(1),
+            state_requests_per_throttle_period: 30,
+            state_request_server_threads: 1,
+            trie_viewer_state_size_limit: None,
+            max_gas_burnt_view: None,
+            enable_statistics_export: true,
+            client_background_migration_threads: 1,
+            state_sync_enabled,
+            state_sync: StateSyncConfig::default(),
+            epoch_sync: EpochSyncConfig::default(),
+            transaction_pool_size_limit: None,
+            enable_multiline_logging: false,
+            resharding_config: MutableConfigValue::new(
+                ReshardingConfig::default(),
+                "resharding_config",
+            ),
+            tx_routing_height_horizon: 4,
+            produce_chunk_add_transactions_time_limit: MutableConfigValue::new(
+                default_produce_chunk_add_transactions_time_limit(),
+                "produce_chunk_add_transactions_time_limit",
+            ),
+            chunk_distribution_network: None,
+            orphan_state_witness_pool_size: default_orphan_state_witness_pool_size(),
+            orphan_state_witness_max_size: default_orphan_state_witness_max_size(),
+            save_latest_witnesses: false,
+            save_invalid_witnesses: false,
+            transaction_request_handler_threads: default_rpc_handler_thread_count(),
+            protocol_version_check: Default::default(),
+            enable_early_prepare_transactions: default_enable_early_prepare_transactions(),
+            dynamic_resharding_dry_run: false,
+        }
+    }
 }

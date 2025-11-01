@@ -88,7 +88,7 @@ impl<'a, M: ArenaMemory> RawDecoder<'a, M> {
 
     /// Decodes a fixed-sized field at the current position, but does not
     /// advance the position.
-    pub fn peek<T: BorshDeserialize + BorshFixedSize>(&mut self) -> T {
+    pub fn peek<T: BorshDeserialize + BorshFixedSize>(&self) -> T {
         let slice = self.data.slice(self.pos, T::SERIALIZED_SIZE);
         T::try_from_slice(slice.raw_slice()).unwrap()
     }

@@ -1,7 +1,8 @@
 use near_o11y::metrics::{
-    Counter, CounterVec, Gauge, Histogram, HistogramVec, IntCounter, IntCounterVec, IntGauge,
-    IntGaugeVec, exponential_buckets, linear_buckets, try_create_counter, try_create_counter_vec,
-    try_create_gauge, try_create_histogram, try_create_histogram_vec, try_create_int_counter,
+    Counter, CounterVec, Gauge, GaugeVec, Histogram, HistogramVec, IntCounter, IntCounterVec,
+    IntGauge, IntGaugeVec, exponential_buckets, fine_grained_time_buckets, linear_buckets,
+    try_create_counter, try_create_counter_vec, try_create_gauge, try_create_gauge_vec,
+    try_create_histogram, try_create_histogram_vec, try_create_int_counter,
     try_create_int_counter_vec, try_create_int_gauge, try_create_int_gauge_vec,
 };
 use near_store::db::metadata::DB_VERSION;
@@ -27,6 +28,45 @@ pub(crate) static CHUNK_PRODUCED_TOTAL: LazyLock<IntCounter> = LazyLock::new(|| 
     try_create_int_counter(
         "near_chunk_produced_total",
         "Total number of chunks produced since starting this node",
+    )
+    .unwrap()
+});
+
+pub static PREPARE_TRANSACTIONS_JOB_STARTED_TOTAL: LazyLock<IntCounterVec> = LazyLock::new(|| {
+    try_create_int_counter_vec(
+        "near_prepare_transactions_job_started_total",
+        "Total number of times prepare transactions job was started since starting this node",
+        &["shard_id"],
+    )
+    .unwrap()
+});
+
+pub static PREPARE_TRANSACTIONS_JOB_RESULT_USED_TOTAL: LazyLock<IntCounterVec> = LazyLock::new(
+    || {
+        try_create_int_counter_vec(
+            "near_prepare_transactions_job_result_used_total",
+            "Total number of times prepare transactions job result was used since starting this node",
+            &["shard_id"],
+        )
+        .unwrap()
+    },
+);
+
+pub static PREPARE_TRANSACTIONS_JOB_RESULT_NOT_FOUND_TOTAL: LazyLock<IntCounterVec> =
+    LazyLock::new(|| {
+        try_create_int_counter_vec(
+            "near_prepare_transactions_job_result_not_found_total",
+            "Total number of times prepare transactions job was not found since starting this node",
+            &["shard_id"],
+        )
+        .unwrap()
+    });
+
+pub static PREPARE_TRANSACTIONS_JOB_ERROR_TOTAL: LazyLock<IntCounterVec> = LazyLock::new(|| {
+    try_create_int_counter_vec(
+        "near_prepare_transactions_job_error_total",
+        "Total number of times prepare transactions job errored since starting this node",
+        &["shard_id"],
     )
     .unwrap()
 });
@@ -430,6 +470,16 @@ pub(crate) static VIEW_CLIENT_MESSAGE_TIME: LazyLock<HistogramVec> = LazyLock::n
     .unwrap()
 });
 
+pub(crate) static STATE_SYNC_REQUEST_TIME: LazyLock<HistogramVec> = LazyLock::new(|| {
+    try_create_histogram_vec(
+        "near_state_sync_request_time",
+        "Time taken to process state sync requests",
+        &["type"],
+        Some(exponential_buckets(0.001, 2.0, 16).unwrap()),
+    )
+    .unwrap()
+});
+
 pub(crate) static STATE_SYNC_REQUESTS_THROTTLED_TOTAL: LazyLock<IntCounter> = LazyLock::new(|| {
     try_create_int_counter(
         "near_state_sync_requests_throttled_total",
@@ -455,7 +505,7 @@ pub(crate) static PRODUCE_AND_DISTRIBUTE_CHUNK_TIME: LazyLock<HistogramVec> = La
 pub(crate) fn export_version(chain_id: &str, neard_version: &near_primitives::version::Version) {
     NODE_PROTOCOL_VERSION.set(near_primitives::version::PROTOCOL_VERSION.into());
     let schedule = near_primitives::version::get_protocol_upgrade_schedule(chain_id);
-    for (datetime, protocol_version) in schedule.schedule().iter() {
+    for (datetime, protocol_version) in schedule.schedule() {
         NODE_PROTOCOL_UPGRADE_VOTING_START
             .with_label_values(&[&protocol_version.to_string()])
             .set(datetime.timestamp());
@@ -495,6 +545,16 @@ pub(crate) static STATE_SYNC_DOWNLOAD_RESULT: LazyLock<IntCounterVec> = LazyLock
         "Count of number of state sync downloads by type (header, part),
                source (network, external), and result (timeout, error, success)",
         &["shard_id", "type", "source", "result"],
+    )
+    .unwrap()
+});
+
+pub(crate) static STATE_SYNC_PEER_MSGS: LazyLock<IntCounterVec> = LazyLock::new(|| {
+    try_create_int_counter_vec(
+        "near_state_sync_peer_msgs",
+        "Count of number of state sync peer messages by state type (header, part),
+               and message content (will_respond, busy, error, state)",
+        &["shard_id", "type", "content"],
     )
     .unwrap()
 });
@@ -595,7 +655,7 @@ pub(crate) static CHUNK_STATE_WITNESS_NETWORK_ROUNDTRIP_TIME: LazyLock<Histogram
             "near_chunk_state_witness_network_roundtrip_time",
             "Time in seconds between sending state witness through the network to chunk producer and receiving the corresponding ack message",
             &["witness_size_bucket"],
-            Some(exponential_buckets(0.001, 2.0, 20).unwrap()),
+            Some(fine_grained_time_buckets()),
         )
         .unwrap()
     });
@@ -671,7 +731,7 @@ pub(crate) static PARTIAL_WITNESS_TIME_TO_LAST_PART: LazyLock<HistogramVec> = La
         "near_partial_witness_time_to_last_part",
         "Time taken from receiving first partial witness part to receiving enough parts to decode the state witness",
         &["shard_id"],
-        Some(exponential_buckets(0.001, 2.0, 13).unwrap()),
+        Some(fine_grained_time_buckets()),
     )
     .unwrap()
 });
@@ -682,15 +742,16 @@ pub(crate) static PARTIAL_CONTRACT_DEPLOYS_TIME_TO_LAST_PART: LazyLock<Histogram
         "near_partial_contract_deploys_time_to_last_part",
         "Time taken from receiving first partial contract deploys to receiving enough parts to decode",
         &["shard_id"],
-        Some(exponential_buckets(0.05, 2.0, 10).unwrap()),
+        Some(fine_grained_time_buckets()),
     )
     .unwrap()
     });
 
-pub(crate) static PARTIAL_WITNESS_CACHE_SIZE: LazyLock<Gauge> = LazyLock::new(|| {
-    try_create_gauge(
+pub(crate) static PARTIAL_WITNESS_CACHE_SIZE: LazyLock<GaugeVec> = LazyLock::new(|| {
+    try_create_gauge_vec(
         "near_partial_witness_cache_size",
-        "Total size in bytes of all currently cached witness parts",
+        "Total size in bytes of all currently cached witness parts for a given shard",
+        &["shard_id"],
     )
     .unwrap()
 });
@@ -726,3 +787,30 @@ pub(crate) static DECODE_PARTIAL_WITNESS_ACCESSED_CONTRACTS_STATE_COUNT: LazyLoc
         )
         .unwrap()
     });
+
+pub(crate) static CHUNK_ENDORSEMENTS_ACCEPTED: LazyLock<IntCounterVec> = LazyLock::new(|| {
+    try_create_int_counter_vec(
+        "near_chunk_endorsements_accepted",
+        "Number of chunk endorsements which passed all validation checks and were included",
+        &["shard_id"],
+    )
+    .unwrap()
+});
+
+pub(crate) static CHUNK_ENDORSEMENTS_REJECTED: LazyLock<IntCounterVec> = LazyLock::new(|| {
+    try_create_int_counter_vec(
+        "near_chunk_endorsements_rejected",
+        "Number of chunk endorsements which failed some validation check and were rejected",
+        &["shard_id", "reason"],
+    )
+    .unwrap()
+});
+
+pub(crate) static COLD_STORE_COPY_RESULT: LazyLock<IntCounterVec> = LazyLock::new(|| {
+    try_create_int_counter_vec(
+        "near_cold_store_copy_result",
+        "The result of a cold store copy iteration in the cold store loop.",
+        &["result"],
+    )
+    .unwrap()
+});

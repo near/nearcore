@@ -1,13 +1,15 @@
 //! Iterator implementation that is shared between DiskTrieIterator and MemTrieIterator.
+use std::ops::Bound;
 use std::sync::Arc;
 
+use itertools::Itertools;
 use near_primitives::errors::StorageError;
 use near_primitives::hash::CryptoHash;
 
 use crate::NibbleSlice;
-use crate::trie::ValueHandle;
 use crate::trie::iterator::DiskTrieIteratorInner;
 use crate::trie::trie_storage_update::TrieStorageNodePtr;
+use crate::trie::{AccessOptions, ValueHandle};
 
 use super::interface::{GenericTrieInternalStorage, GenericTrieNode};
 
@@ -49,6 +51,14 @@ impl<N, V> Crumb<N, V> {
             _ => CrumbStatus::Exiting,
         }
     }
+
+    fn is_entering_value_node(&self) -> bool {
+        match (self.status, &self.node) {
+            (CrumbStatus::Entering, GenericTrieNode::Branch { value: Some(_), .. }) => true,
+            (CrumbStatus::Entering, GenericTrieNode::Leaf { .. }) => true,
+            _ => false,
+        }
+    }
 }
 
 /// Trie iteration is done using a stack based approach.
@@ -70,6 +80,10 @@ where
 {
     trail: Vec<Crumb<TrieNodePtr, ValueHandle>>,
     key_nibbles: Vec<u8>,
+
+    /// If false, the iterator will descend into the root node and start iterating
+    /// when `next()` is called.
+    initialized: bool,
 
     /// We use this trie_interface as a distinction point between disk and memory trie.
     /// It provides the necessary methods to fetch nodes and values.
@@ -95,24 +109,67 @@ where
     I: GenericTrieInternalStorage<N, V>,
 {
     /// Create a new iterator.
+    /// If `start` is specified, the iterator will be positioned on the first element
+    /// with key >= `start`, without recording nodes accessed during the seek.
     pub fn new(
         trie_interface: I,
         prune_condition: Option<Box<dyn Fn(&Vec<u8>) -> bool>>,
     ) -> Result<Self, StorageError> {
-        let root = trie_interface.get_root();
-        let mut iter = Self {
+        let iter = Self {
             trail: Vec::with_capacity(8),
             key_nibbles: Vec::with_capacity(64),
+            initialized: false,
             trie_interface,
             prune_condition,
         };
-        iter.descend_into_node(root)?;
         Ok(iter)
     }
 
     /// Position the iterator on the first element with key >= `key`.
     pub fn seek_prefix<K: AsRef<[u8]>>(&mut self, key: K) -> Result<(), StorageError> {
-        self.seek_nibble_slice(NibbleSlice::new(key.as_ref()), true)?;
+        self.seek_nibble_slice(NibbleSlice::new(key.as_ref()), true, AccessOptions::DEFAULT)?;
+        Ok(())
+    }
+
+    /// Position the iterator on the first element with key >= `key`, or the
+    /// first element with key > `key` if `key` is Excluded. Does not record
+    /// nodes accessed during the seek.
+    pub fn seek<K: AsRef<[u8]>>(&mut self, key: Bound<K>) -> Result<(), StorageError> {
+        let (key, exclusive) = match key {
+            Bound::Included(key) => (key, false),
+            Bound::Excluded(key) => (key, true),
+            Bound::Unbounded => return Ok(()),
+        };
+
+        self.seek_nibble_slice(
+            NibbleSlice::new(key.as_ref()),
+            false,
+            AccessOptions::NO_SIDE_EFFECTS,
+        )?;
+
+        // By this point, we are already positioned the iterator such that
+        // next() will return the first element with key >= `key`. If `key` is
+        // Excluded, we need to check if the next element is actually key ==
+        // `key` and skip it.
+        if exclusive {
+            let last =
+                self.trail.last().expect("Trail should not be empty after seek_nibble_slice");
+            let mut compare_with = self.key_nibbles.clone();
+
+            // If the iterator is positioned on a leaf, we need to consider
+            // the extension of the leaf as part of the key to compare.
+            if let GenericTrieNode::Leaf { extension, .. } = &last.node {
+                let existing_key = NibbleSlice::from_encoded(&extension).0;
+                compare_with.extend(existing_key.iter());
+            }
+
+            if last.is_entering_value_node()
+                && key.as_ref() == NibbleSlice::nibbles_to_bytes(&compare_with)
+            {
+                let result = self.iter_step();
+                assert!(matches!(result, Some(IterStep::Value(_))));
+            }
+        }
         Ok(())
     }
 
@@ -121,9 +178,11 @@ where
         &mut self,
         mut key: NibbleSlice<'_>,
         is_prefix_seek: bool,
+        opts: AccessOptions,
     ) -> Result<Option<N>, StorageError> {
         self.trail.clear();
         self.key_nibbles.clear();
+        self.initialized = true;
 
         // Checks if a key in an extension or leaf matches our search query.
         //
@@ -139,7 +198,7 @@ where
         let mut prev_prefix_boundary = &mut false;
         loop {
             *prev_prefix_boundary = is_prefix_seek;
-            self.descend_into_node(ptr)?;
+            self.descend_into_node(ptr, opts)?;
             let Crumb { status, node, prefix_boundary } = self.trail.last_mut().unwrap();
             prev_prefix_boundary = prefix_boundary;
             match &node {
@@ -190,9 +249,13 @@ where
     /// Fetches node by its ptr and adds it to the trail.
     ///
     /// The node is stored as the last [`Crumb`] in the trail.
-    fn descend_into_node(&mut self, ptr: Option<N>) -> Result<(), StorageError> {
+    fn descend_into_node(
+        &mut self,
+        ptr: Option<N>,
+        opts: AccessOptions,
+    ) -> Result<(), StorageError> {
         let node = match ptr {
-            Some(ptr) => self.trie_interface.get_and_record_node(ptr)?,
+            Some(ptr) => self.trie_interface.get_node(ptr, opts)?,
             None => GenericTrieNode::Empty,
         };
         self.trail.push(Crumb { status: CrumbStatus::Entering, node, prefix_boundary: false });
@@ -280,6 +343,15 @@ where
     type Item = Result<TrieItem, StorageError>;
 
     fn next(&mut self) -> Option<Self::Item> {
+        if !self.initialized {
+            let root = self.trie_interface.get_root();
+            match self.descend_into_node(root, AccessOptions::DEFAULT) {
+                Ok(_) => {}
+                Err(e) => return Some(Err(e)),
+            }
+            self.initialized = true;
+        }
+
         loop {
             let iter_step = self.iter_step()?;
 
@@ -295,12 +367,14 @@ where
                 }
                 // Skip processing node if it should be pruned.
                 (_, true) => {}
-                (IterStep::Descend(ptr), false) => match self.descend_into_node(Some(ptr)) {
-                    Ok(_) => {}
-                    Err(e) => return Some(Err(e)),
-                },
+                (IterStep::Descend(ptr), false) => {
+                    match self.descend_into_node(Some(ptr), AccessOptions::DEFAULT) {
+                        Ok(_) => {}
+                        Err(e) => return Some(Err(e)),
+                    }
+                }
                 (IterStep::Value(value_ref), false) => {
-                    let value = self.trie_interface.get_and_record_value(value_ref);
+                    let value = self.trie_interface.get_value(value_ref, AccessOptions::DEFAULT);
                     return Some(value.map(|value| (self.key(), value)));
                 }
             }
@@ -323,6 +397,10 @@ pub struct TrieTraversalItem {
     pub key: Option<Vec<u8>>,
 }
 
+// Trie key in nibbles corresponding to the right boundary for the last state part.
+// Guaranteed to be bigger than any existing trie key.
+const LAST_STATE_PART_BOUNDARY_NIBBLES: &[u8; 1] = &[16];
+
 // Extension for State Parts processing
 impl<I> TrieIteratorImpl<CryptoHash, ValueHandle, I>
 where
@@ -333,25 +411,26 @@ where
     /// Used to generate and apply state parts for state sync.
     pub fn visit_nodes_interval(
         &mut self,
-        path_begin: &[u8],
-        path_end: &[u8],
+        path_begin: Option<&[u8]>,
+        path_end: Option<&[u8]>,
     ) -> Result<Vec<TrieTraversalItem>, StorageError> {
-        let _span = tracing::debug_span!(
-            target: "runtime",
-            "visit_nodes_interval")
-        .entered();
-        let path_begin_encoded = NibbleSlice::encode_nibbles(path_begin, true);
-        let last_hash = self
-            .seek_nibble_slice(NibbleSlice::from_encoded(&path_begin_encoded).0, false)?
-            .unwrap_or_default();
-        let mut prefix = Self::common_prefix(path_end, &self.key_nibbles);
+        let _span = tracing::debug_span!(target: "runtime", "visit_nodes_interval").entered();
+        let path_begin = NibbleSlice::new(path_begin.unwrap_or(LAST_STATE_PART_BOUNDARY_NIBBLES));
+        let path_end = match path_end {
+            Some(p) => NibbleSlice::new(p).iter().collect_vec(),
+            None => LAST_STATE_PART_BOUNDARY_NIBBLES.to_vec(),
+        };
+        let last_hash =
+            self.seek_nibble_slice(path_begin, false, AccessOptions::DEFAULT)?.unwrap_or_default();
+        let mut prefix = Self::common_prefix(&path_end, &self.key_nibbles);
         if self.key_nibbles[prefix..] >= path_end[prefix..] {
             return Ok(vec![]);
         }
         let mut nodes_list = Vec::new();
 
         // Actually (self.key_nibbles[..] == path_begin) always because path_begin always ends in a node
-        if &self.key_nibbles[..] >= path_begin {
+        let path_begin = path_begin.iter().collect_vec();
+        if self.key_nibbles.as_slice() >= path_begin.as_slice() {
             nodes_list.push(TrieTraversalItem {
                 hash: last_hash,
                 key: self.has_value().then(|| self.key()),
@@ -373,7 +452,7 @@ where
                     if self.key_nibbles[prefix..] >= path_end[prefix..] {
                         break;
                     }
-                    self.descend_into_node(Some(hash))?;
+                    self.descend_into_node(Some(hash), AccessOptions::DEFAULT)?;
                     nodes_list.push(TrieTraversalItem { hash, key: None });
                 }
                 IterStep::Continue => {}
@@ -381,7 +460,7 @@ where
                     if self.key_nibbles[prefix..] >= path_end[prefix..] {
                         break;
                     }
-                    self.trie_interface.get_and_record_value(value)?;
+                    self.trie_interface.get_value(value, AccessOptions::DEFAULT)?;
                     let hash = match value {
                         ValueHandle::HashAndSize(hash) => hash.hash,
                         ValueHandle::InMemory(_) => panic!("Unexpected in-memory value"),

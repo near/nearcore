@@ -1,12 +1,13 @@
 use crate::config::SocketOptions;
 use crate::network_protocol::testonly as data;
 use crate::network_protocol::{Handshake, PartialEdgeInfo, PeerMessage};
-use crate::peer_manager::testonly::{ActorHandler, Event};
-use crate::peer_manager::{self, peer_manager_actor};
+use crate::peer_manager;
+use crate::peer_manager::peer_manager_actor::Event;
+use crate::peer_manager::testonly::ActorHandler;
 use crate::tcp;
 use crate::testonly::make_rng;
 use crate::testonly::stream;
-use crate::types::Edge;
+use crate::types::{Disconnect, Edge};
 use near_async::time;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::network::PeerId;
@@ -62,7 +63,7 @@ async fn test_nonces() {
         let peer_id = PeerId::new(peer_key.public_key());
         let handshake = PeerMessage::Tier2Handshake(Handshake {
             protocol_version: version::PROTOCOL_VERSION,
-            oldest_supported_version: version::PEER_MIN_ALLOWED_PROTOCOL_VERSION,
+            oldest_supported_version: version::MIN_SUPPORTED_PROTOCOL_VERSION,
             sender_peer_id: peer_id.clone(),
             target_peer_id: pm.cfg.node_id(),
             // we have to set this even if we have no intention of listening since otherwise
@@ -80,8 +81,10 @@ async fn test_nonces() {
             }
         } else {
             match stream.read().await {
-                Err(err) if err.kind() == std::io::ErrorKind::UnexpectedEof => {}
-                got => panic!("got = {got:?}, want UnexpectedEof"),
+                Ok(PeerMessage::Disconnect(Disconnect { remove_from_connection_store })) => {
+                    assert!(!remove_from_connection_store);
+                }
+                got => panic!("got = {got:?}, want Disconnect"),
             }
         }
     }
@@ -91,7 +94,7 @@ async fn wait_for_edge(actor_handler: &mut ActorHandler) -> Edge {
     actor_handler
         .events
         .recv_until(|ev| match ev {
-            Event::PeerManager(peer_manager_actor::Event::EdgesAdded(ev)) => Some(ev[0].clone()),
+            Event::EdgesAdded(ev) => Some(ev[0].clone()),
             _ => None,
         })
         .await

@@ -4,7 +4,7 @@ use anyhow::Context;
 use chrono::{DateTime, Utc};
 use near_chain::types::{RuntimeAdapter, Tip};
 use near_chain::{Chain, ChainGenesis, ChainStore, ChainStoreAccess};
-use near_chain_configs::{Genesis, GenesisConfig, GenesisValidationMode, NEAR_BASE};
+use near_chain_configs::{Genesis, GenesisConfig, GenesisValidationMode};
 use near_crypto::{InMemorySigner, PublicKey, SecretKey};
 use near_epoch_manager::{EpochManager, EpochManagerAdapter};
 use near_mirror::key_mapping::{map_account, map_key};
@@ -16,7 +16,6 @@ use near_primitives::account::{AccessKey, AccessKeyPermission, Account, AccountC
 use near_primitives::borsh;
 use near_primitives::epoch_manager::{EpochConfig, EpochConfigStore};
 use near_primitives::hash::CryptoHash;
-use near_primitives::serialize::dec_format;
 use near_primitives::shard_layout::{ShardLayout, ShardUId};
 use near_primitives::state::FlatStateValue;
 use near_primitives::state_record::StateRecord;
@@ -86,8 +85,18 @@ enum SubCommand {
 #[derive(clap::Parser)]
 struct InitCmd {
     /// If given, the shard layout in this file will be used to generate the forked genesis state
-    #[arg(long)]
+    #[arg(short = 'f', long, conflicts_with = "shard_layout_protocol_version")]
     pub shard_layout_file: Option<PathBuf>,
+    /// Shard layout protocol version. If given, the shard layout from the given protocol version will be used to generate the forked genesis state
+    #[arg(short = 'p', long)]
+    pub shard_layout_protocol_version: Option<ProtocolVersion>,
+}
+
+#[derive(Clone, Debug)]
+enum ShardLayoutOverride {
+    NoOverride,
+    UseShardLayoutFromFile(PathBuf),
+    UseShardLayoutFromProtocolVersion(ProtocolVersion),
 }
 
 #[derive(clap::Parser)]
@@ -177,7 +186,8 @@ pub(crate) fn make_state_roots_key(shard_uid: ShardUId) -> Vec<u8> {
 }
 
 /// The minimum set of columns that will be needed to start a node after the `finalize` command runs
-const COLUMNS_TO_KEEP: &[DBCol] = &[DBCol::DbVersion, DBCol::Misc, DBCol::State, DBCol::FlatState];
+const COLUMNS_TO_KEEP: &[DBCol] =
+    &[DBCol::DbVersion, DBCol::Misc, DBCol::State, DBCol::FlatState, DBCol::StateShardUIdMapping];
 
 /// Extra columns needed in the setup before the `finalize` command
 const SETUP_COLUMNS_TO_KEEP: &[DBCol] =
@@ -190,7 +200,6 @@ struct ResetCmd;
 struct Validator {
     account_id: AccountId,
     public_key: PublicKey,
-    #[serde(with = "dec_format")]
     amount: Option<Balance>,
 }
 
@@ -209,12 +218,14 @@ impl ForkNetworkCommand {
         let mut near_config = load_config(home_dir, genesis_validation)
             .unwrap_or_else(|e| panic!("Error loading config: {e:#}"));
 
-        let sys = actix::System::new();
-        sys.block_on(async move {
+        let tokio_runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("Failed to create Tokio runtime");
+        tokio_runtime.block_on(async move {
             self.run_impl(&mut near_config, verbose_target, o11y_opts, home_dir).await.unwrap();
-            actix::System::current().stop();
+            near_async::shutdown_all_actors();
         });
-        sys.run().unwrap();
         tracing::info!("Waiting for RocksDB to gracefully shutdown");
         RocksDB::block_until_all_instances_are_dropped();
         tracing::info!("exit");
@@ -243,8 +254,17 @@ impl ForkNetworkCommand {
         near_config.config.store.disable_state_snapshot();
 
         match &self.command {
-            SubCommand::Init(InitCmd { shard_layout_file }) => {
-                self.init(near_config, home_dir, shard_layout_file.as_deref())?;
+            SubCommand::Init(InitCmd { shard_layout_file, shard_layout_protocol_version }) => {
+                let shard_layout_override = {
+                    if let Some(file) = shard_layout_file {
+                        ShardLayoutOverride::UseShardLayoutFromFile(file.clone())
+                    } else if let Some(protocol_version) = shard_layout_protocol_version {
+                        ShardLayoutOverride::UseShardLayoutFromProtocolVersion(*protocol_version)
+                    } else {
+                        ShardLayoutOverride::NoOverride
+                    }
+                };
+                self.init(near_config, home_dir, &shard_layout_override)?;
             }
             SubCommand::AmendAccessKeys(AmendAccessKeysCmd { batch_size }) => {
                 self.amend_access_keys(*batch_size, near_config, home_dir)?;
@@ -310,9 +330,9 @@ impl ForkNetworkCommand {
     // After this completes, almost every DB column can be removed, however this command doesn't delete anything itself.
     fn write_fork_info(
         &self,
-        near_config: &mut NearConfig,
+        near_config: &NearConfig,
         home_dir: &Path,
-        shard_layout_file: Option<&Path>,
+        shard_layout_override: &ShardLayoutOverride,
     ) -> anyhow::Result<()> {
         // Open storage with migration
         let storage = open_storage(&home_dir, near_config).unwrap();
@@ -327,17 +347,20 @@ impl ForkNetworkCommand {
         let head = store.get_ser::<Tip>(DBCol::BlockMisc, FINAL_HEAD_KEY)?.unwrap();
         let shard_layout = epoch_manager.get_shard_layout(&head.epoch_id)?;
         let all_shard_uids: Vec<_> = shard_layout.shard_uids().collect();
-
-        let target_shard_layout = match shard_layout_file {
-            Some(shard_layout_file) => {
-                let layout = std::fs::read_to_string(shard_layout_file).with_context(|| {
+        // get_epoch_config_from_protocol_version
+        let target_shard_layout = match shard_layout_override {
+            ShardLayoutOverride::UseShardLayoutFromProtocolVersion(protocol_version) => {
+                epoch_manager.get_epoch_config_from_protocol_version(*protocol_version).shard_layout
+            }
+            ShardLayoutOverride::UseShardLayoutFromFile(shard_layout_file) => {
+                let layout = std::fs::read_to_string(&shard_layout_file).with_context(|| {
                     format!("failed reading shard layout file at {}", shard_layout_file.display())
                 })?;
                 serde_json::from_str(&layout).with_context(|| {
                     format!("failed parsing shard layout file at {}", shard_layout_file.display())
                 })?
             }
-            None => shard_layout,
+            ShardLayoutOverride::NoOverride => shard_layout,
         };
 
         // Flat state can be at different heights for different shards.
@@ -387,7 +410,7 @@ impl ForkNetworkCommand {
         store_update.set_ser(DBCol::Misc, EPOCH_ID_KEY, epoch_id)?;
         store_update.set_ser(DBCol::Misc, FLAT_HEAD_KEY, &desired_flat_head)?;
         store_update.set_ser(DBCol::Misc, SHARD_LAYOUT_KEY, &target_shard_layout)?;
-        for (shard_uid, state_root) in state_roots.iter() {
+        for (shard_uid, state_root) in &state_roots {
             store_update.set_ser(DBCol::Misc, &make_state_roots_key(*shard_uid), state_root)?;
         }
         store_update.commit()?;
@@ -396,11 +419,11 @@ impl ForkNetworkCommand {
 
     fn init(
         &self,
-        near_config: &mut NearConfig,
+        near_config: &NearConfig,
         home_dir: &Path,
-        shard_layout_file: Option<&Path>,
+        shard_layout_override: &ShardLayoutOverride,
     ) -> anyhow::Result<()> {
-        self.write_fork_info(near_config, home_dir, shard_layout_file)?;
+        self.write_fork_info(near_config, home_dir, shard_layout_override)?;
         let mut unwanted_cols = Vec::new();
         for col in DBCol::iter() {
             if !COLUMNS_TO_KEEP.contains(&col) && !SETUP_COLUMNS_TO_KEEP.contains(&col) {
@@ -410,7 +433,7 @@ impl ForkNetworkCommand {
         near_store::clear_columns(
             home_dir,
             &near_config.config.store,
-            near_config.config.archival_config(),
+            near_config.config.cold_store.as_ref(),
             &unwanted_cols,
             true,
         )
@@ -530,7 +553,7 @@ impl ForkNetworkCommand {
         epoch_length: u64,
         num_seats: &Option<NumSeats>,
         chain_id: &String,
-        near_config: &mut NearConfig,
+        near_config: &NearConfig,
         home_dir: &Path,
     ) -> anyhow::Result<()> {
         // 1. Open the state storage (maybe with DB migrations)
@@ -750,7 +773,7 @@ impl ForkNetworkCommand {
     }
 
     /// Deletes DB columns that are not needed in the new chain.
-    fn finalize(&self, near_config: &mut NearConfig, home_dir: &Path) -> anyhow::Result<()> {
+    fn finalize(&self, near_config: &NearConfig, home_dir: &Path) -> anyhow::Result<()> {
         tracing::info!("Delete unneeded columns in the original DB");
         let mut unwanted_cols = Vec::new();
         for col in DBCol::iter() {
@@ -761,7 +784,7 @@ impl ForkNetworkCommand {
         near_store::clear_columns(
             home_dir,
             &near_config.config.store,
-            near_config.config.archival_config(),
+            near_config.config.cold_store.as_ref(),
             &unwanted_cols,
             true,
         )
@@ -969,6 +992,50 @@ impl ForkNetworkCommand {
                             new_account_id,
                             replacement.public_key(),
                             access_key.clone(),
+                        )?;
+                    }
+                    StateRecord::GasKey { account_id, public_key, gas_key } => {
+                        // TODO(eth-implicit) Change back to is_implicit() when ETH-implicit accounts are supported.
+                        if account_id.get_account_type() != AccountType::NearImplicitAccount
+                            && gas_key.permission == AccessKeyPermission::FullAccess
+                        {
+                            has_full_key.insert(account_id.clone());
+                        }
+                        let new_account_id = map_account(&account_id, None);
+                        let replacement = map_key(&public_key, None);
+                        let new_shard_id =
+                            target_shard_layout.account_id_to_shard_id(&new_account_id);
+                        let new_shard_idx =
+                            target_shard_layout.get_shard_index(new_shard_id).unwrap();
+
+                        storage_mutator.remove_gas_key(shard_uid, account_id, public_key)?;
+                        storage_mutator.set_gas_key(
+                            new_shard_idx,
+                            new_account_id,
+                            replacement.public_key(),
+                            gas_key,
+                        )?;
+                    }
+                    StateRecord::GasKeyNonce { account_id, public_key, index, nonce } => {
+                        // TODO(eth-implicit) Change back to is_implicit() when ETH-implicit accounts are supported.
+                        if account_id.get_account_type() != AccountType::NearImplicitAccount {
+                            has_full_key.insert(account_id.clone());
+                        }
+                        let new_account_id = map_account(&account_id, None);
+                        let replacement = map_key(&public_key, None);
+                        let new_shard_id =
+                            target_shard_layout.account_id_to_shard_id(&new_account_id);
+                        let new_shard_idx =
+                            target_shard_layout.get_shard_index(new_shard_id).unwrap();
+
+                        storage_mutator
+                            .remove_gas_key_nonce(shard_uid, account_id, public_key, index)?;
+                        storage_mutator.set_gas_key_nonce(
+                            new_shard_idx,
+                            new_account_id,
+                            replacement.public_key(),
+                            index,
+                            nonce,
                         )?;
                     }
                     StateRecord::Account { account_id, account } => {
@@ -1214,7 +1281,7 @@ impl ForkNetworkCommand {
             .map(|v| AccountInfo {
                 account_id: v.account_id,
                 public_key: v.public_key,
-                amount: v.amount.unwrap_or(50_000 * NEAR_BASE),
+                amount: v.amount.unwrap_or(Balance::from_near(50_000)),
             })
             .collect();
         Ok(account_infos)
@@ -1232,10 +1299,10 @@ impl ForkNetworkCommand {
     ) -> anyhow::Result<Vec<AccountInfo>> {
         let mut new_validator_accounts = vec![];
 
-        let liquid_balance = 100_000_000 * NEAR_BASE;
+        let liquid_balance = Balance::from_near(100_000_000);
         let storage_bytes = runtime_config.fees.storage_usage_config.num_bytes_account;
         let new_validators = Self::read_validators(validators, home_dir)?;
-        for validator_account in new_validators.into_iter() {
+        for validator_account in new_validators {
             let shard_id = shard_layout.account_id_to_shard_id(&validator_account.account_id);
             let shard_idx = shard_layout.get_shard_index(shard_id).unwrap();
             new_validator_accounts.push(validator_account.clone());
@@ -1287,7 +1354,7 @@ impl ForkNetworkCommand {
         let _ = std::fs::remove_dir_all(&accounts_path);
         std::fs::create_dir_all(&accounts_path)?;
 
-        let liquid_balance = 100_000_000 * NEAR_BASE;
+        let liquid_balance = Balance::from_near(100_000_000);
         let storage_bytes = runtime_config.fees.storage_usage_config.num_bytes_account;
         let boundary_account_ids = shard_layout.boundary_accounts().clone();
         let first_boundary_account_id = boundary_account_ids[0].clone();
@@ -1339,7 +1406,12 @@ impl ForkNetworkCommand {
                 storage_mutator.set_account(
                     shard_idx,
                     account_id.clone(),
-                    Account::new(liquid_balance, 0, AccountContract::None, storage_bytes),
+                    Account::new(
+                        liquid_balance,
+                        Balance::ZERO,
+                        AccountContract::None,
+                        storage_bytes,
+                    ),
                 )?;
                 storage_mutator.set_access_key(
                     shard_idx,

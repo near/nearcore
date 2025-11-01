@@ -1,261 +1,315 @@
 #!/usr/bin/env python3
 """Test if the node is backwards compatible with the latest release."""
-
-import base58
 import json
 import os
-import pathlib
+import random
 import re
 import subprocess
 import sys
-import time
-import typing
 import pathlib
+import threading
+import time
 
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
 import branches
 import cluster
 from configured_logger import logger
-from transaction import sign_deploy_contract_tx, sign_function_call_tx, sign_payment_tx
+from transaction import sign_function_call_tx, sign_payment_tx, sign_deploy_contract_to_new_account_tx
 import utils
 
-_EXECUTABLES = None
+ONE_NEAR = 1000000000000000000000000
+NUM_VALIDATORS = 4
+EPOCH_LENGTH = 60
+NODE_PREFIX = "test"
 
 
-def get_executables() -> branches.ABExecutables:
-    global _EXECUTABLES
-    if _EXECUTABLES is None:
-        _EXECUTABLES = branches.prepare_ab_test()
-        logger.info(f"Latest mainnet release is {_EXECUTABLES.release}")
-    return _EXECUTABLES
+def get_proto_version(exe: pathlib.Path) -> int:
+    line = subprocess.check_output((exe, '--version'), text=True)
+    m = re.search(r'.* \(protocol ([0-9]+)\)', line)
+    assert m, (f'Unable to extract protocol version number from {exe};\n'
+               f'Got {line.rstrip()} on standard output')
+    logger.info(f'Protocol version {m.group(1)} found in {exe}')
+    return int(m.group(1))
 
 
-def test_protocol_versions() -> None:
-    """Verify that mainnet, testnet and current protocol versions differ by ≤ 1.
+class TrafficGenerator(threading.Thread):
+    """ A thread which keeps sending transactions to random addresses until stopped. """
 
-    Checks whether the protocol versions used by the latest mainnet, the latest
-    testnet and current binary do not differed by more than one.  Some protocol
-    features implementations rely on the fact that no protocol version is
-    skipped.  See <https://github.com/near/nearcore/issues/4956>.
+    def __init__(self, rpc_node: cluster.LocalNode, **kwargs) -> None:
+        super().__init__(**kwargs)
+        random.seed(2025)
+        self._rpc_node = rpc_node
+        self._stopped = False
+        self._failed = False
+        self._acc1 = f"000000.{self._rpc_node.signer_key.account_id}"
+        self._acc2 = f"zzzzzz.{self._rpc_node.signer_key.account_id}"
+        self._nonce = 1_000_000
 
-    This test downloads the latest official mainnet and testnet binaries.  If
-    that fails for whatever reason, builds each of those executables.
-    """
-    executables = get_executables()
-    testnet = branches.get_executables_for('testnet')
+    def run(self) -> None:
+        logger.info("Starting traffic generator")
+        while not self._stopped:
+            self._with_retry(self.send_transfer)
+            self._with_retry(self.call_test_contracts)
+        logger.info("Traffic generator stopped")
 
-    def get_proto_version(exe: pathlib.Path) -> int:
-        line = subprocess.check_output((exe, '--version'), text=True)
-        m = re.search(r'\(release (.*?)\) .* \(protocol ([0-9]+)\)', line)
-        assert m, (f'Unable to extract protocol version number from {exe};\n'
-                   f'Got {line.rstrip()} on standard output')
-        return m.group(1), int(m.group(2))
+    def join(self, timeout):
+        assert not self._failed
+        return super().join(timeout=timeout)
 
-    main_release, main_proto = get_proto_version(executables.stable.neard)
-    test_release, test_proto = get_proto_version(testnet.neard)
-    _, head_proto = get_proto_version(executables.current.neard)
+    def _with_retry(self, fn):
+        for i in range(5):
+            try:
+                return fn()
+            except Exception as e:
+                logger.error(f"Failed txn try {i}", exc_info=True)
+        self._failed = True
 
-    logger.info(f'Got protocol {main_proto} in mainnet release {main_release}.')
-    logger.info(f'Got protocol {test_proto} in testnet release {test_release}.')
-    logger.info(f'Got protocol {head_proto} on master branch.')
+    def stop(self) -> None:
+        logger.info("Stopping traffic generator")
+        self._stopped = True
 
-    if head_proto == 69:
-        # In the congestion control and stateless validation release allow
-        # increasing the protocol version by 2.
-        ok = (head_proto in (test_proto, test_proto + 1, test_proto + 2) and
-              test_proto in (main_proto, main_proto + 1, main_proto + 2))
-    elif head_proto == 70:
-        # Before stateless validation launch (protocol version 69) on mainnet,
-        # we have protocol version 70 stabilized in master, while mainnet
-        # protocol version is still 67.
-        allowed_head_proto = (
-            test_proto,
-            test_proto + 1,
-            test_proto + 2,
-            test_proto + 3,
+    def get_latest_block_hash(self) -> bytes:
+        return self._rpc_node.get_latest_block().hash_bytes
+
+    def get_next_nonce(self) -> int:
+        self._nonce += 1
+        return self._nonce
+
+    def send_tx(self, tx: bytes) -> None:
+        res = self._rpc_node.send_tx_and_wait(tx, timeout=10)
+        assert 'error' not in res, res
+        assert 'Failure' not in res['result']['status'], res
+
+    def deploy_test_contracts(self, config: cluster.Config) -> None:
+        for acc in (self._acc1, self._acc2):
+            tx = sign_deploy_contract_to_new_account_tx(
+                self._rpc_node.signer_key,
+                acc,
+                utils.load_test_contract(config=config),
+                100000 * ONE_NEAR,
+                self.get_next_nonce(),
+                self.get_latest_block_hash(),
+            )
+            self._rpc_node.send_tx(tx)
+
+    def call_test_contracts(self) -> None:
+        # Make the contract deployed at `acc1` call the contract deployed on `acc2`
+        # and then make another call to itself. This should generate a postponed receipt,
+        # which allows detecting some potential implicit protocol changes.
+        logger.info(f"Calling test contracts")
+        data = json.dumps([{
+            "create": {
+                "account_id": self._acc2,
+                "method_name": "call_promise",
+                "arguments": [],
+                "amount": "0",
+                "gas": 10**14
+            },
+            "id": 0
+        }, {
+            "then": {
+                "promise_index": 0,
+                "account_id": self._acc1,
+                "method_name": "write_random_value",
+                "arguments": [],
+                "amount": "0",
+                "gas": 10**14,
+            },
+            "id": 1
+        }])
+        tx = sign_function_call_tx(
+            signer_key=self._rpc_node.signer_key,
+            contract_id=self._acc1,
+            methodName='call_promise',
+            args=bytes(data, 'utf-8'),
+            gas=3 * (10**14),
+            deposit=0,
+            nonce=self.get_next_nonce(),
+            blockHash=self.get_latest_block_hash(),
         )
-        allowed_main_proto = (
-            main_proto,
-            main_proto + 1,
-            main_proto + 2,
-            main_proto + 3,
+        self.send_tx(tx)
+
+    def send_transfer(self) -> None:
+        account_id = random.randbytes(32).hex()
+        logger.info(f"Sending transfer to {account_id}")
+        amount = 10**25
+        tx = sign_payment_tx(
+            key=self._rpc_node.signer_key,
+            to=account_id,
+            amount=amount,
+            nonce=self.get_next_nonce(),
+            blockHash=self.get_latest_block_hash(),
         )
-        ok = (head_proto in allowed_head_proto and
-              test_proto in allowed_main_proto)
-    elif head_proto == 76 or head_proto == 77:
-        allowed_head_proto = (
-            test_proto,
-            test_proto + 1,
-            test_proto + 2,
-            test_proto + 3,
+        self.send_tx(tx)
+
+        hex_account_balance = int(
+            self._rpc_node.get_account(account_id)['result']['amount'])
+        assert hex_account_balance == amount
+
+
+class Protocols:
+
+    def __init__(self, executables: branches.ABExecutables):
+        self.stable = get_proto_version(executables.stable.neard)
+        self.current = get_proto_version(executables.current.neard)
+        assert self.current >= self.stable, "cannot downgrade protocol version"
+
+
+class TestUpgrade:
+
+    def __init__(self) -> None:
+        self._executables = branches.prepare_ab_test()
+        self._protocols = Protocols(self._executables)
+        node_dirs = self.configure_nodes()
+        nodes = self.start_nodes(node_dirs)
+        time.sleep(5)  # Give some time for nodes to start
+
+        self._stable_nodes = nodes[:NUM_VALIDATORS]
+        self._rpc_node = nodes[-1]
+
+    def run(self) -> None:
+        """Test that upgrade from `stable` to `current` binary is possible.
+
+        1. Start a network with 3 `stable` nodes and 1 `new` node.
+        2. Start switching `stable` nodes one by one with `new` nodes.
+        3. Run for three epochs and observe that the current protocol version of the
+           network matches `new` nodes.
+        """
+        traffic_generator = TrafficGenerator(self._rpc_node)
+        traffic_generator.deploy_test_contracts(
+            self._executables.current.node_config())
+        traffic_generator.start()
+
+        try:
+            self.wait_epoch()
+            self.upgrade_nodes()
+
+            start_pv = self._protocols.stable + 1
+            end_pv = self._protocols.current
+            for pv in range(start_pv, end_pv + 1):
+                self.wait_till_protocol_version(pv)
+                self.check_validator_stats()
+
+            # Run one more epoch with the latest protocol version
+            self.wait_epoch()
+            self.check_validator_stats()
+
+        finally:
+            traffic_generator.stop()
+            traffic_generator.join(timeout=30)
+
+    def configure_nodes(self) -> list[str]:
+        node_root = utils.get_near_tempdir('upgradable', clean=True)
+        cmd = (
+            str(self._executables.stable.neard),
+            f'--home={node_root}',
+            'localnet',
+            f'--validators={NUM_VALIDATORS}',
+            '--non-validators-rpc=1',
+            f'--prefix={NODE_PREFIX}',
         )
-        allowed_main_proto = (
-            main_proto,
-            main_proto + 1,
-            main_proto + 2,
-            main_proto + 3,
+        logger.info(f"Configuring nodes with command: {cmd}")
+        subprocess.check_call(cmd)
+
+        genesis_config_changes = [("epoch_length", EPOCH_LENGTH)]
+        node_dirs = [
+            os.path.join(node_root, f'{NODE_PREFIX}{i}')
+            for i in range(NUM_VALIDATORS + 1)
+        ]
+        for node_dir in node_dirs:
+            cluster.apply_genesis_changes(node_dir, genesis_config_changes)
+            # Dump epoch configs to use mainnet shard layout
+            self.dump_epoch_configs(node_dir, self._protocols.current)
+
+        for node_dir in node_dirs[:NUM_VALIDATORS]:
+            # Validators should track only assigned shards
+            cluster.apply_config_changes(node_dir,
+                                         {'tracked_shards_config': 'NoShards'})
+
+        return node_dirs
+
+    def dump_epoch_configs(self, node_dir: str, last_protocol_version: int):
+        cmd = (
+            str(self._executables.current.neard),
+            f'--home={node_dir}',
+            'dump-epoch-configs',
+            f'--chain-id=mainnet',
+            f'--last-version={last_protocol_version}',
         )
-        ok = (head_proto in allowed_head_proto and
-              test_proto in allowed_main_proto)
-    else:
-        # Otherwise only allow increasing the protocol version by 1.
-        ok = (head_proto in (test_proto, test_proto + 1) and
-              test_proto in (main_proto, main_proto + 1))
-    assert ok, ('If changed, protocol version of a new release can increase by '
-                'at most one.')
+        logger.info(f"Dumping epoch configs with command: {cmd}")
+        subprocess.check_call(cmd)
 
+    def start_nodes(self, node_dirs: list[str]) -> list[cluster.LocalNode]:
+        nodes = []
+        for i in range(len(node_dirs)):
+            executable = (self._executables.stable if i < NUM_VALIDATORS -
+                          1 else self._executables.current)
+            node = cluster.spin_up_node(
+                config=executable.node_config(),
+                near_root=executable.root,
+                node_dir=node_dirs[i],
+                ordinal=i,
+                boot_node=nodes[0] if i > 0 else None,
+                sleep_after_start=0,
+            )
+            nodes.append(node)
+        return nodes
 
-def test_upgrade() -> None:
-    """Test that upgrade from ‘stable’ to ‘current’ binary is possible.
+    def upgrade_nodes(self) -> None:
+        # Restart stable nodes into the new version.
+        logger.info(f"Restarting nodes with new binary")
+        for node in self._stable_nodes:
+            node.kill()
+            node.near_root = self._executables.current.root
+            node.binary_name = self._executables.current.neard
+            node.start(
+                boot_node=self._stable_nodes[0],
+                extra_env={
+                    "NEAR_TESTS_PROTOCOL_UPGRADE_OVERRIDE": "sequential"
+                },
+            )
 
-    1. Start a network with 3 `stable` nodes and 1 `new` node.
-    2. Start switching `stable` nodes one by one with `new` nodes.
-    3. Run for three epochs and observe that current protocol version of the
-       network matches `new` nodes.
-    """
-    executables = get_executables()
-    node_root = utils.get_near_tempdir('upgradable', clean=True)
+    def wait_epoch(self) -> None:
+        """Wait until the next epoch starts."""
+        start_epoch = self._rpc_node.get_epoch_id()
+        logger.info(f"Current epoch is {start_epoch}. Waiting for next epoch")
+        condition = lambda h: self._rpc_node.get_epoch_id(block_height=h
+                                                         ) != start_epoch
+        self._poll_block_till_condition(condition)
 
-    # Setup local network.
-    cmd = (executables.stable.neard, f'--home={node_root}', 'localnet', '-v',
-           '4', '--prefix', 'test')
-    logger.info(' '.join(str(arg) for arg in cmd))
-    subprocess.check_call(cmd)
-    genesis_config_changes = [("epoch_length", 20),
-                              ("num_block_producer_seats", 10),
-                              ("num_block_producer_seats_per_shard", [10]),
-                              ("block_producer_kickout_threshold", 80),
-                              ("chunk_producer_kickout_threshold", 80)]
-    node_dirs = [os.path.join(node_root, 'test%d' % i) for i in range(4)]
-    for i, node_dir in enumerate(node_dirs):
-        cluster.apply_genesis_changes(node_dir, genesis_config_changes)
-        cluster.apply_config_changes(node_dir, {'tracked_shards': [0]})
+    def wait_till_protocol_version(self, version: int):
+        """Wait until the protocol version of the node matches the given version."""
+        logger.info(f"Waiting for protocol version {version}")
+        condition = lambda _: self._rpc_node.get_status()["protocol_version"
+                                                         ] == version
+        self._poll_block_till_condition(condition)
 
-        # Adjust changes required since #7486.  This is needed because current
-        # stable release populates the deprecated migration configuration options.
-        # TODO(mina86): Remove this once we get stable release which doesn’t
-        # populate those fields by default.
-        config_path = pathlib.Path(node_dir) / 'config.json'
-        data = json.loads(config_path.read_text(encoding='utf-8'))
-        data.pop('db_migration_snapshot_path', None)
-        data.pop('use_db_migration_snapshot', None)
-        config_path.write_text(json.dumps(data), encoding='utf-8')
+    def _poll_block_till_condition(self, condition):
+        """Wait until the condition is met."""
+        for height, _ in utils.poll_blocks(self._rpc_node):
+            if condition(height):
+                break
 
-    # Start 3 stable nodes and one current node.
-    config = executables.stable.node_config()
-    nodes = [
-        cluster.spin_up_node(config, executables.stable.root, node_dirs[0], 0)
-    ]
-    for i in range(1, 3):
-        nodes.append(
-            cluster.spin_up_node(config,
-                                 executables.stable.root,
-                                 node_dirs[i],
-                                 i,
-                                 boot_node=nodes[0]))
-    config = executables.current.node_config()
-    nodes.append(
-        cluster.spin_up_node(config,
-                             executables.current.root,
-                             node_dirs[3],
-                             3,
-                             boot_node=nodes[0]))
-
-    time.sleep(2)
-
-    # deploy a contract
-    hash = nodes[0].get_latest_block().hash_bytes
-    test_contract = utils.load_test_contract(config=config)
-    tx = sign_deploy_contract_tx(nodes[0].signer_key, test_contract, 1, hash)
-    res = nodes[0].send_tx_and_wait(tx, timeout=20)
-    assert 'error' not in res, res
-
-    # write some random value
-    tx = sign_function_call_tx(nodes[0].signer_key,
-                               nodes[0].signer_key.account_id,
-                               'write_random_value', [], 10**13, 0, 2, hash)
-    res = nodes[0].send_tx_and_wait(tx, timeout=20)
-    assert 'error' not in res, res
-    assert 'Failure' not in res['result']['status'], res
-
-    metrics_tracker = utils.MetricsTracker(nodes[3])
-
-    count = 0
-    for height, _ in utils.poll_blocks(nodes[0]):
-        votes = metrics_tracker.get_metric_all_values(
-            "near_protocol_version_votes")
-        next = metrics_tracker.get_int_metric_value(
-            "near_protocol_version_next")
-
-        print(f"#{height}: {votes} -> {next}")
-
-        count += 1
-        if count > 20:
-            break
-
-    # Restart stable nodes into new version.
-    for i in range(3):
-        nodes[i].kill()
-        nodes[i].near_root = executables.current.root
-        nodes[i].binary_name = executables.current.neard
-        nodes[i].start(
-            boot_node=nodes[0],
-            extra_env={"NEAR_TESTS_PROTOCOL_UPGRADE_OVERRIDE": "now"},
-        )
-
-    count = 0
-    for height, _ in utils.poll_blocks(nodes[3]):
-        votes = metrics_tracker.get_metric_all_values(
-            "near_protocol_version_votes")
-        next = metrics_tracker.get_int_metric_value(
-            "near_protocol_version_next")
-
-        print(f"#{height}: {votes} -> {next}")
-
-        count += 1
-        if count > 60:
-            break
-
-    status0 = nodes[0].get_status()
-    status3 = nodes[3].get_status()
-    protocol_version = status0['protocol_version']
-    latest_protocol_version = status3["latest_protocol_version"]
-    assert protocol_version == latest_protocol_version, \
-        "Latest protocol version %d should match active protocol version %d" % (
-        latest_protocol_version, protocol_version)
-
-    hash = base58.b58decode(
-        status0['sync_info']['latest_block_hash'].encode('ascii'))
-
-    # write some random value again
-    tx = sign_function_call_tx(nodes[0].signer_key,
-                               nodes[0].signer_key.account_id,
-                               'write_random_value', [], 10**13, 0, 4, hash)
-    res = nodes[0].send_tx_and_wait(tx, timeout=20)
-    assert 'error' not in res, res
-    assert 'Failure' not in res['result']['status'], res
-
-    # hex_account_id = (b"I'm hex!" * 4).hex()
-    hex_account_id = '49276d206865782149276d206865782149276d206865782149276d2068657821'
-    tx = sign_payment_tx(key=nodes[0].signer_key,
-                         to=hex_account_id,
-                         amount=10**25,
-                         nonce=5,
-                         blockHash=hash)
-    res = nodes[0].send_tx_and_wait(tx, timeout=20)
-    # Successfully created a new account on transfer to hex
-    assert 'error' not in res, res
-    assert 'Failure' not in res['result']['status'], res
-
-    hex_account_balance = int(
-        nodes[0].get_account(hex_account_id)['result']['amount'])
-    assert hex_account_balance == 10**25
+    def check_validator_stats(self):
+        """Check that all validators are producing blocks"""
+        epoch_id = self._rpc_node.get_epoch_id()
+        logger.info(f"Checking validators for epoch {epoch_id}")
+        validators = self._rpc_node.get_validators(
+            epoch_id)["result"]["current_validators"]
+        if len(validators) != NUM_VALIDATORS:
+            prev_epoch_id = self._rpc_node.get_prev_epoch_id()
+            prev_validators = self._rpc_node.get_validators(
+                prev_epoch_id)["result"]
+            logger.error(
+                f"Expected {NUM_VALIDATORS}, got {len(validators)} validators")
+            logger.error(f"{epoch_id} validators: {validators}")
+            logger.error(f"{prev_epoch_id} validators: {prev_validators}")
+            assert False
 
 
 def main():
-    test_protocol_versions()
-    test_upgrade()
+    TestUpgrade().run()
 
 
 if __name__ == "__main__":

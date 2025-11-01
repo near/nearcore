@@ -1,8 +1,8 @@
 use lru::LruCache;
+use parking_lot::{Mutex, MutexGuard};
 use std::convert::Infallible;
 use std::hash::Hash;
 use std::num::NonZeroUsize;
-use std::sync::Mutex;
 
 /// A wrapper around `LruCache`. This struct is thread safe, doesn't return any references to any
 /// elements inside.
@@ -22,24 +22,24 @@ where
 
     /// Returns the number of key-value pairs that are currently in the cache.
     pub fn len(&self) -> usize {
-        self.inner.lock().unwrap().len()
+        self.inner.lock().len()
     }
 
     /// Returns true if the cache is empty and false otherwise.
     pub fn is_empty(&self) -> bool {
-        self.inner.lock().unwrap().is_empty()
+        self.inner.lock().is_empty()
     }
 
     /// Returns true if the cache contains the key and false otherwise.
     pub fn contains(&self, key: &K) -> bool {
-        self.inner.lock().unwrap().contains(key)
+        self.inner.lock().contains(key)
     }
 
     /// Pushes a key-value pair into the cache. If an entry with key `k` already exists in
     /// the cache or another cache entry is removed (due to the lru's capacity),
     /// then it returns the old entry's key-value pair. Otherwise, returns `None`.
     pub fn push(&self, key: K, value: V) -> Option<(K, V)> {
-        self.inner.lock().unwrap().push(key, value)
+        self.inner.lock().push(key, value)
     }
 
     /// Return the value of they key in the cache otherwise computes the value and inserts it into
@@ -71,25 +71,25 @@ where
         }
         let val = f(&key)?;
         let val_clone = val.clone();
-        self.inner.lock().unwrap().put(key, val_clone);
+        self.inner.lock().put(key, val_clone);
         Ok(val)
     }
 
     /// Puts a key-value pair into cache. If the key already exists in the cache,
     /// then it updates the key's value.
     pub fn put(&self, key: K, value: V) {
-        self.inner.lock().unwrap().put(key, value);
+        self.inner.lock().put(key, value);
     }
 
     /// Returns the value of the key in the cache or None if it is not present in the cache.
     /// Moves the key to the head of the LRU list if it exists.
     pub fn get(&self, key: &K) -> Option<V> {
-        self.inner.lock().unwrap().get(key).cloned()
+        self.inner.lock().get(key).cloned()
     }
 
     /// Returns the lock over underlying LRU cache.
-    pub fn lock(&self) -> std::sync::MutexGuard<LruCache<K, V>> {
-        self.inner.lock().unwrap()
+    pub fn lock(&self) -> MutexGuard<LruCache<K, V>> {
+        self.inner.lock()
     }
 }
 

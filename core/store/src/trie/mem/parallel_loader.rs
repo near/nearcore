@@ -6,7 +6,7 @@ use super::node::{InputMemTrieNode, MemTrieNodeId};
 use crate::adapter::StoreAdapter;
 use crate::adapter::trie_store::TrieStoreAdapter;
 use crate::flat::FlatStorageError;
-use crate::trie::Children;
+use crate::trie::{Children, NUM_CHILDREN};
 use crate::{DBCol, NibbleSlice, RawTrieNode, RawTrieNodeWithSize};
 use borsh::BorshDeserialize;
 use near_primitives::errors::StorageError;
@@ -14,9 +14,9 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::state::FlatStateValue;
 use near_primitives::types::StateRoot;
+use parking_lot::Mutex;
 use rayon::iter::{IndexedParallelIterator, IntoParallelIterator, ParallelIterator};
 use std::fmt::Debug;
-use std::sync::Mutex;
 
 /// Top-level entry function to load a memtrie in parallel.
 pub fn load_memtrie_in_parallel(
@@ -72,10 +72,7 @@ impl ParallelMemTrieLoader {
             &subtrees_to_load,
             None,
         )?;
-        Ok(PartialTrieLoadingPlan {
-            root,
-            subtrees_to_load: subtrees_to_load.into_inner().unwrap(),
-        })
+        Ok(PartialTrieLoadingPlan { root, subtrees_to_load: subtrees_to_load.into_inner() })
     }
 
     /// Helper function to implement stage 1, visiting a single node identified by this hash,
@@ -98,7 +95,7 @@ impl ParallelMemTrieLoader {
 
         // If subtree is small enough, add it to the list of subtrees to load, and we're done.
         if node.memory_usage <= max_subtree_size {
-            let mut lock = subtrees_to_load.lock().unwrap();
+            let mut lock = subtrees_to_load.lock();
             let subtree_id = lock.len();
             lock.push(prefix);
             return Ok(TrieLoadingPlanNode::Load { subtree_id });
@@ -266,7 +263,7 @@ impl TrieLoadingPlanNode {
     fn to_node(self, arena: &mut impl ArenaMut, subtree_roots: &[MemTrieNodeId]) -> MemTrieNodeId {
         match self {
             TrieLoadingPlanNode::Branch { children, value } => {
-                let mut res_children = [None; 16];
+                let mut res_children = [None; NUM_CHILDREN];
                 for (nibble, child) in children {
                     res_children[nibble as usize] = Some(child.to_node(arena, subtree_roots));
                 }
@@ -336,7 +333,7 @@ impl NibblePrefix {
     }
 
     pub fn push(&mut self, nibble: u8) {
-        debug_assert!(nibble < 16, "nibble must be less than 16");
+        debug_assert!((nibble as usize) < NUM_CHILDREN, "nibble must be less than 16");
         if self.odd {
             *self.prefix.last_mut().unwrap() |= nibble;
         } else {

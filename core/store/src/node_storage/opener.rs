@@ -1,8 +1,12 @@
-use crate::config::ArchivalConfig;
+use crate::archive::cloud_storage::config::CloudStorageConfig;
+use crate::archive::cloud_storage::opener::CloudStorageOpener;
+use crate::config::StateSnapshotType;
 use crate::db::rocksdb::RocksDB;
 use crate::db::rocksdb::snapshot::{Snapshot, SnapshotError, SnapshotRemoveError};
 use crate::metadata::{DB_VERSION, DbKind, DbMetadata, DbVersion};
-use crate::{DBCol, DBTransaction, Mode, NodeStorage, Store, StoreConfig, Temperature};
+use crate::{
+    DBCol, DBTransaction, Mode, NodeStorage, StateSnapshotConfig, Store, StoreConfig, Temperature,
+};
 use std::sync::Arc;
 
 #[derive(Debug, thiserror::Error)]
@@ -175,8 +179,8 @@ pub struct StoreOpener<'a> {
     /// version.
     migrator: Option<&'a dyn StoreMigrator>,
 
-    /// Archival config. This is set to a valid config for archival nodes.
-    archival_config: Option<ArchivalConfig<'a>>,
+    /// Opener for an instance of cloud storage if one was configured.
+    cloud: Option<CloudStorageOpener>,
 }
 
 /// Opener for a single RocksDB instance.
@@ -203,26 +207,19 @@ impl<'a> StoreOpener<'a> {
     pub(crate) fn new(
         home_dir: &std::path::Path,
         store_config: &'a StoreConfig,
-        archival_config: Option<ArchivalConfig<'a>>,
+        cold_store_config: Option<&'a StoreConfig>,
+        cloud_storage_config: Option<&'a CloudStorageConfig>,
     ) -> Self {
-        Self {
-            hot: DBOpener::new(home_dir, store_config, Temperature::Hot),
-            cold: archival_config
-                .as_ref()
-                .map(|config| {
-                    config
-                        .cold_store_config
-                        .map(|config| DBOpener::new(home_dir, config, Temperature::Cold))
-                })
-                .flatten(),
-            archival_config,
-            migrator: None,
-        }
+        let hot = DBOpener::new(home_dir, store_config, Temperature::Hot);
+        let cold =
+            cold_store_config.map(|config| DBOpener::new(home_dir, config, Temperature::Cold));
+        let cloud = cloud_storage_config.map(|config| CloudStorageOpener::new(config.clone()));
+        Self { hot, cold, migrator: None, cloud }
     }
 
-    /// Returns true is this opener is for an archival node.
+    /// Returns true if this opener is for an archival node.
     fn is_archive(&self) -> bool {
-        self.archival_config.is_some()
+        self.cold.is_some() || self.cloud.is_some()
     }
 
     /// Configures the opener with specified [`StoreMigrator`].
@@ -258,8 +255,67 @@ impl<'a> StoreOpener<'a> {
         let mode = Mode::ReadWrite;
         let hot_db = self.hot.open_unsafe(mode)?;
         let cold_db = self.cold.as_ref().map(|cold| cold.open_unsafe(mode)).transpose()?;
-        let storage = NodeStorage::from_rocksdb(hot_db, cold_db);
+        let mut storage = NodeStorage::from_rocksdb(hot_db, cold_db);
+        let cloud_storage = self.cloud.as_ref().map(|cloud| cloud.open());
+        storage.cloud_storage = cloud_storage;
         Ok(storage)
+    }
+
+    /// Migrate state snapshots.
+    ///
+    /// This function iterates over all state snapshots in the state snapshots directory
+    /// and runs the migration on each of them.
+    ///
+    /// Migrations is not performed in the following cases:
+    /// - If snapshots are disabled
+    /// - If the migrator is not found
+    /// - If the state snapshots directory does not exist
+    /// - If the state snapshot is already migrated
+    fn migrate_state_snapshots(&self) -> Result<(), StoreOpenerError> {
+        if self.migrator.is_none() {
+            tracing::debug!(target: "db_opener", "No migrator found, skipping state snapshots migration");
+            return Ok(());
+        }
+
+        let state_snapshots_dir = match self.hot.config.state_snapshot_config.state_snapshot_type {
+            StateSnapshotType::Enabled => {
+                // At this point, the self.hot.path was built from home_dir and store_config.path.
+                let config = StateSnapshotConfig::enabled(&self.hot.path);
+                config.state_snapshots_dir().unwrap().to_path_buf()
+            }
+            StateSnapshotType::Disabled => {
+                tracing::debug!(target: "db_opener", "State snapshots are disabled, skipping state snapshots migration");
+                return Ok(());
+            }
+        };
+
+        if !state_snapshots_dir.exists() {
+            tracing::debug!(
+                target: "db_opener",
+                ?state_snapshots_dir,
+                "State snapshots directory does not exist, skipping state snapshots migration"
+            );
+            return Ok(());
+        }
+
+        let config = StoreConfig::state_snapshot_store_config();
+        for entry in std::fs::read_dir(state_snapshots_dir)? {
+            let entry = entry?;
+            let snapshot_path = entry.path();
+            if !entry.file_type()?.is_dir() {
+                tracing::trace!(
+                    target: "db_opener",
+                    ?snapshot_path,
+                    "This entry is not a directory, skipping"
+                );
+                continue;
+            }
+
+            let opener = NodeStorage::opener(&snapshot_path, &config, None, None)
+                .with_migrator(self.migrator.unwrap());
+            let _ = opener.open_in_mode(Mode::ReadWrite)?;
+        }
+        Ok(())
     }
 
     fn open_dbs(
@@ -289,6 +345,11 @@ impl<'a> StoreOpener<'a> {
             Snapshot::none()
         };
 
+        if let Err(error) = self.migrate_state_snapshots() {
+            // If migration fails the node may not be able to share state parts.
+            tracing::error!(target: "db_opener", ?error, "Error migrating state snapshots");
+        }
+
         let (hot_db, _) = self.hot.open(mode, DB_VERSION)?;
         let cold_db = self
             .cold
@@ -299,16 +360,18 @@ impl<'a> StoreOpener<'a> {
         Ok((hot_db, hot_snapshot, cold_db, cold_snapshot))
     }
 
-    /// Opens the RocksDB database(s) for hot and cold (if configured) storages.
+    /// Opens the RocksDB database(s) for hot, cold (if configured), and cloud (if
+    /// configured) storages.
     ///
-    /// When opening in read-only mode, verifies that the database version is
-    /// what the node expects and fails if it isn’t.  If database doesn’t exist,
-    /// creates a new one unless mode is [`Mode::ReadWriteExisting`].  On the
-    /// other hand, if mode is [`Mode::Create`], fails if the database already
-    /// exists.
+    /// When opening in read-only mode, verifies that the database version is what the
+    /// node expects and fails if it isn’t.  If database doesn’t exist, creates a new one
+    /// unless mode is [`Mode::ReadWriteExisting`].  On the other hand, if mode is
+    /// [`Mode::Create`], fails if the database already exists.
     pub fn open_in_mode(&self, mode: Mode) -> Result<crate::NodeStorage, StoreOpenerError> {
         let (hot_db, hot_snapshot, cold_db, cold_snapshot) = self.open_dbs(mode)?;
-        let storage = NodeStorage::from_rocksdb(hot_db, cold_db);
+        let mut storage: NodeStorage = NodeStorage::from_rocksdb(hot_db, cold_db);
+        let cloud_storage = self.cloud.as_ref().map(|cloud| cloud.open());
+        storage.cloud_storage = cloud_storage;
 
         hot_snapshot.remove()?;
         cold_snapshot.remove()?;
@@ -360,7 +423,7 @@ impl<'a> StoreOpener<'a> {
                 tracing::info!(target: "db_opener", path=%opener.path.display(), "The database doesn't exist, creating it.");
 
                 let db = opener.create()?;
-                let store = Store { storage: Arc::new(db) };
+                let store = Store::new(Arc::new(db));
                 store.set_db_version(DB_VERSION)?;
                 return Ok(());
             }
@@ -488,13 +551,13 @@ impl<'a> StoreOpener<'a> {
         version: DbVersion,
     ) -> Result<Store, StoreOpenerError> {
         let (db, _) = opener.open(mode, version)?;
-        let store = Store { storage: Arc::new(db) };
+        let store = Store::new(Arc::new(db));
         Ok(store)
     }
 
     fn open_store_unsafe(mode: Mode, opener: &DBOpener) -> Result<Store, StoreOpenerError> {
         let db = opener.open_unsafe(mode)?;
-        let store = Store { storage: Arc::new(db) };
+        let store = Store::new(Arc::new(db));
         Ok(store)
     }
 }
@@ -611,21 +674,21 @@ pub fn checkpoint_hot_storage_and_cleanup_columns(
     let _span =
         tracing::info_span!(target: "state_snapshot", "checkpoint_hot_storage_and_cleanup_columns")
             .entered();
-    if let Some(storage) = hot_store.storage.copy_if_test(columns_to_keep) {
+    if let Some(storage) = hot_store.database().copy_if_test(columns_to_keep) {
         return Ok(NodeStorage::new(storage));
     }
     let checkpoint_path = checkpoint_base_path.join("data");
     std::fs::create_dir_all(&checkpoint_base_path)?;
 
     hot_store
-        .storage
+        .database()
         .create_checkpoint(&checkpoint_path, columns_to_keep)
         .map_err(StoreOpenerError::CheckpointError)?;
 
     // As only path from config is used in StoreOpener, default config with custom path will do.
-    let mut config = StoreConfig::default();
-    config.path = Some(checkpoint_path);
-    let opener = NodeStorage::opener(checkpoint_base_path, &config, None);
+    let config =
+        StoreConfig { path: Some(checkpoint_path), ..StoreConfig::state_snapshot_store_config() };
+    let opener = NodeStorage::opener(checkpoint_base_path, &config, None, None);
     // This will create all the column families that were dropped by create_checkpoint(),
     // but all the data and associated files that were in them previously should be gone.
     let node_storage = opener.open_in_mode(Mode::ReadWriteExisting)?;
@@ -655,14 +718,14 @@ pub fn checkpoint_hot_storage_and_cleanup_columns(
 /// with the fork-network tool, we only need the state and
 /// flat state, and a few other small columns. So getting rid of
 /// everything else saves quite a bit on the disk space needed for each node.
-pub fn clear_columns<'a>(
+pub fn clear_columns(
     home_dir: &std::path::Path,
     config: &StoreConfig,
-    archival_config: Option<ArchivalConfig<'a>>,
+    cold_store_config: Option<&StoreConfig>,
     cols: &[DBCol],
     recreate_dropped_columns: bool,
 ) -> anyhow::Result<()> {
-    let opener = StoreOpener::new(home_dir, config, archival_config);
+    let opener = StoreOpener::new(home_dir, config, cold_store_config, None);
     let (mut hot_db, _hot_snapshot, cold_db, _cold_snapshot) =
         opener.open_dbs(Mode::ReadWriteExisting)?;
     hot_db.clear_cols(cols)?;
@@ -692,7 +755,7 @@ mod tests {
     fn slow_test_checkpoint_hot_storage_and_cleanup_columns() {
         let (home_dir, opener) = NodeStorage::test_opener();
         let node_storage = opener.open().unwrap();
-        let hot_store = Store { storage: node_storage.hot_storage.clone() };
+        let hot_store = Store::new(node_storage.hot_storage.clone());
         assert_eq!(hot_store.get_db_kind().unwrap(), Some(DbKind::RPC));
 
         let keys = vec![vec![0], vec![1], vec![2], vec![3]];

@@ -12,16 +12,12 @@ publish = true
 workspace = true
 
 [dependencies]
-actix.workspace = true
-bitflags.workspace = true
-bytes.workspace = true
 bytesize = { workspace = true, optional = true }
-futures.workspace = true
+futures = { workspace = true, optional = true }
 libc.workspace = true
-tokio.workspace = true
-tokio-util.workspace = true
+parking_lot = { workspace = true, optional = true }
 tracing.workspace = true
 
 [features]
 c_memory_stats = []
-performance_stats = ["bytesize"]
+performance_stats = ["bytesize", "futures", "parking_lot"]

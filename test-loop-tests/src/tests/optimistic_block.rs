@@ -11,14 +11,13 @@ use near_o11y::testonly::init_test_logger;
 use near_primitives::optimistic_block::{OptimisticBlock, OptimisticBlockAdvType};
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::validator_stake::ValidatorStake;
-use near_primitives::types::{AccountId, BlockHeight};
+use near_primitives::types::{AccountId, Balance, BlockHeight};
 #[cfg(feature = "test_features")]
 use near_primitives::validator_signer::ValidatorSigner;
 
 use crate::setup::builder::TestLoopBuilder;
 use crate::setup::drop_condition::DropCondition;
 use crate::setup::env::TestLoopEnv;
-use crate::utils::ONE_NEAR;
 
 fn get_builder(num_shards: usize) -> TestLoopBuilder {
     init_test_logger();
@@ -39,7 +38,7 @@ fn get_builder(num_shards: usize) -> TestLoopBuilder {
         .epoch_length(epoch_length)
         .shard_layout(shard_layout)
         .validators_spec(validators_spec)
-        .add_user_accounts_simple(&accounts, 1_000_000 * ONE_NEAR)
+        .add_user_accounts_simple(&accounts, Balance::from_near(1_000_000))
         .build();
     let epoch_config_store = TestEpochConfigBuilder::build_store_from_genesis(&genesis);
     builder.genesis(genesis).epoch_config_store(epoch_config_store).clients(clients)
@@ -98,7 +97,7 @@ fn make_invalid_ob(env: &TestLoopEnv, adv_type: OptimisticBlockAdvType) -> Optim
         &prev_header,
         height,
         &*validator_signer,
-        client.clock.clone(),
+        client.clock.now_utc().unix_timestamp_nanos() as u64,
         None,
         adv_type,
     )
@@ -253,7 +252,9 @@ fn alter_optimistic_block_at_height(
         peer_actor.register_override_handler(Box::new({
             let validator_signer = signer.clone();
             move |request: NetworkRequests| {
-                if let NetworkRequests::OptimisticBlock { optimistic_block } = &request {
+                if let NetworkRequests::OptimisticBlock { chunk_producers, optimistic_block } =
+                    &request
+                {
                     if optimistic_block.height() == height {
                         let altered_ob = optimistic_block::OptimisticBlock::alter(
                             optimistic_block,
@@ -263,6 +264,7 @@ fn alter_optimistic_block_at_height(
                             ),
                         );
                         return Some(NetworkRequests::OptimisticBlock {
+                            chunk_producers: chunk_producers.clone(),
                             optimistic_block: altered_ob,
                         });
                     }

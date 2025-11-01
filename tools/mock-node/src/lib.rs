@@ -114,7 +114,7 @@ fn retrieve_starting_chunk_hash(
         match chain
             .get_block_hash_by_height(height)
             .and_then(|hash| chain.get_block(&hash))
-            .map(|block| block.chunks().iter_deprecated().next().unwrap().chunk_hash())
+            .map(|block| block.chunks()[0].chunk_hash().clone())
         {
             Ok(hash) => return Ok(hash),
             Err(e) => {
@@ -134,7 +134,10 @@ fn retrieve_starting_chunk_hash(
 // we make sure we start at a height that actually exists, because we want self.produce_block()
 // to give the first block immediately. Otherwise the node won't even try asking us for block headers
 // until we give it a block.
-fn get_head_block(chain: &ChainStoreAdapter, max_height: BlockHeight) -> anyhow::Result<Block> {
+fn get_head_block(
+    chain: &ChainStoreAdapter,
+    max_height: BlockHeight,
+) -> anyhow::Result<Arc<Block>> {
     let tail = chain.tail().context("failed fetching chain tail")?;
     for height in (tail + 1..=max_height).rev() {
         let hash = match chain.get_block_hash_by_height(height) {
@@ -154,7 +157,7 @@ impl IncomingRequests {
     fn new(
         config: &Option<MockIncomingRequestsConfig>,
         chain: &ChainStoreAdapter,
-        max_height_block: Block,
+        max_height_block: Arc<Block>,
     ) -> Self {
         let max_height = max_height_block.header().height();
         let now = std::time::Instant::now();
@@ -295,7 +298,7 @@ impl MockPeer {
         epoch_manager: Arc<dyn EpochManagerAdapter>,
         network_config: MockNetworkConfig,
         block_production_delay: Duration,
-        head_block: Block,
+        head_block: Arc<Block>,
     ) -> Self {
         let current_height = head_block.header().height();
         let incoming_requests =
@@ -333,15 +336,13 @@ impl MockPeer {
             Message::Direct(msg) => {
                 match msg {
                     DirectMessage::BlockHeadersRequest(hashes) => {
-                        let headers = retrieve_headers(
-                            &self.chain,
-                            hashes,
-                            MAX_BLOCK_HEADERS,
-                            Some(self.current_height),
-                        )
-                        .with_context(|| {
-                            format!("failed retrieving block headers up to {}", self.current_height)
-                        })?;
+                        let headers = retrieve_headers(&self.chain, hashes, MAX_BLOCK_HEADERS)
+                            .with_context(|| {
+                                format!(
+                                    "failed retrieving block headers up to {}",
+                                    self.current_height
+                                )
+                            })?;
                         outbound
                             .queue_message(Message::Direct(DirectMessage::BlockHeaders(headers)));
                     }
@@ -384,7 +385,7 @@ impl MockPeer {
 
     // simulate the normal block production of the network by sending out a
     // "new" block at an interval set by the config's block_production_delay field
-    fn produce_block(&mut self) -> anyhow::Result<Option<Block>> {
+    fn produce_block(&mut self) -> anyhow::Result<Option<Arc<Block>>> {
         let height = self.current_height;
         self.current_height += 1;
         let hash = match self.chain.get_block_hash_by_height(height) {

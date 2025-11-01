@@ -4,7 +4,6 @@ use near_epoch_manager::shard_assignment::shard_id_to_uid;
 use near_primitives::block::Tip;
 use near_store::flat::{FlatStorageManager, FlatStorageStatus};
 
-use crate::flat_storage_resharder::FlatStorageResharder;
 use crate::{Chain, ChainStoreAccess};
 
 impl Chain {
@@ -15,7 +14,6 @@ impl Chain {
             &chain_head,
             self.epoch_manager.as_ref(),
             &flat_storage_manager,
-            &self.resharding_manager.flat_storage_resharder,
         )?;
 
         // Create flat storage for the shards in the next epoch. This only
@@ -38,7 +36,6 @@ fn init_flat_storage_for_current_epoch(
     chain_head: &Tip,
     epoch_manager: &dyn EpochManagerAdapter,
     flat_storage_manager: &FlatStorageManager,
-    flat_storage_resharder: &FlatStorageResharder,
 ) -> Result<(), Error> {
     let epoch_id = &chain_head.epoch_id;
     tracing::debug!(target: "chain", ?epoch_id, "init flat storage for the current epoch");
@@ -55,8 +52,8 @@ fn init_flat_storage_for_current_epoch(
                 panic!("Flat storage creation is no longer supported");
             }
             FlatStorageStatus::Empty | FlatStorageStatus::Disabled => {}
-            FlatStorageStatus::Resharding(status) => {
-                flat_storage_resharder.resume(shard_uid, &status)?;
+            FlatStorageStatus::Resharding(_status) => {
+                panic!("Call flat storage resume resharding operation first!!");
             }
         }
     }

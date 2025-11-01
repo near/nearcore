@@ -49,7 +49,6 @@ impl TestEnvNightshadeSetupExt for TestEnvBuilder {
                                           runtime_config: RuntimeConfigStore,
                                           _| {
             // TODO: It's not ideal to initialize genesis state with the nightshade runtime here for tests
-            // Tests that don't use nightshade runtime have genesis initialized in kv_runtime.
             // We should instead try to do this while configuring store.
             let home_dir = home_dir.as_path();
             initialize_genesis_state(store.clone(), genesis, Some(home_dir));
@@ -83,7 +82,6 @@ impl TestEnvNightshadeSetupExt for TestEnvBuilder {
              runtime_config_store: RuntimeConfigStore,
              trie_config: TrieConfig| {
                 // TODO: It's not ideal to initialize genesis state with the nightshade runtime here for tests
-                // Tests that don't use nightshade runtime have genesis initialized in kv_runtime.
                 // We should instead try to do this while configuring store.
                 let home_dir = home_dir.as_path();
                 initialize_genesis_state(store.clone(), genesis, Some(home_dir));
@@ -96,6 +94,7 @@ impl TestEnvNightshadeSetupExt for TestEnvBuilder {
                     Some(runtime_config_store),
                     trie_config,
                     DEFAULT_GC_NUM_EPOCHS_TO_KEEP,
+                    false,
                 )
             };
         let dummy_runtime_configs =

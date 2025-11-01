@@ -8,7 +8,7 @@ use near_primitives::epoch_manager::EpochConfigStore;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::{AccountId, ShardId};
 use near_primitives::utils::{get_block_shard_id, get_block_shard_id_rev};
-use near_primitives::version::ProtocolFeature;
+use near_primitives::version::PROTOCOL_VERSION;
 use near_store::DBCol;
 use near_store::adapter::StoreAdapter as _;
 use near_store::adapter::chain_store::ChainStoreAdapter;
@@ -69,7 +69,7 @@ fn test_state_transition_data_gc_when_resharding() {
     let chunk_producer = "cp0";
     let validators_spec = ValidatorsSpec::desired_roles(&[chunk_producer], &[]);
     let genesis = TestLoopBuilder::new_genesis_builder()
-        .protocol_version(ProtocolFeature::SimpleNightshadeV4.protocol_version())
+        .protocol_version(PROTOCOL_VERSION - 1)
         .validators_spec(validators_spec)
         .shard_layout(base_shard_layout.clone())
         .epoch_length(epoch_length)

@@ -16,19 +16,18 @@ near-crypto.workspace = true
 near-fmt = { workspace = true, optional = true }
 near-primitives-core.workspace = true
 
-actix.workspace = true
 base64.workspace = true
 clap.workspace = true
 opentelemetry.workspace = true
 opentelemetry_sdk.workspace = true
 opentelemetry-otlp.workspace = true
 opentelemetry-semantic-conventions.workspace = true
+parking_lot.workspace = true
 prometheus.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 strum = { workspace = true, optional = true }
 thiserror.workspace = true
-tokio.workspace = true
 tracing.workspace = true
 tracing-appender.workspace = true
 tracing-opentelemetry.workspace = true
@@ -41,11 +40,16 @@ smartstring.workspace = true
 
 [features]
 nightly = [
-  "near-fmt/nightly",
-  "near-primitives-core/nightly",
+    "near-fmt/nightly",
+    "near-primitives-core/nightly",
 ]
-io_trace = [ "near-fmt", "strum" ]
+io_trace = ["near-fmt", "strum"]
 sandbox = []
+# You can use these features when building the workspace to disable instrumentation at relevant
+# levels workspace-wide.
+max_level_info = ["tracing/max_level_info", "tracing/release_max_level_info"]
+max_level_debug = ["tracing/max_level_debug", "tracing/release_max_level_debug"]
+max_level_trace = ["tracing/max_level_trace", "tracing/release_max_level_trace"]
 
 [[bench]]
 name = "metrics"

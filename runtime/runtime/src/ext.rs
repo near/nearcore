@@ -12,14 +12,17 @@ use near_store::contract::ContractStorage;
 use near_store::trie::{AccessOptions, AccessTracker};
 use near_store::{KeyLookupMode, TrieUpdate, TrieUpdateValuePtr, has_promise_yield_receipt};
 use near_vm_runner::logic::errors::{AnyError, InconsistentStateError, VMLogicError};
-use near_vm_runner::logic::types::ReceiptIndex;
+use near_vm_runner::logic::types::{
+    ActionIndex, GlobalContractDeployMode, GlobalContractIdentifier, ReceiptIndex,
+};
 use near_vm_runner::logic::{External, StorageAccessTracker, ValuePtr};
 use near_vm_runner::{Contract, ContractCode};
 use near_wallet_contract::wallet_contract;
+use parking_lot::Mutex;
 use std::collections::BTreeMap;
 use std::fmt::Debug;
+use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Mutex};
 
 pub struct RuntimeExt<'a> {
     pub(crate) trie_update: &'a mut TrieUpdate,
@@ -29,7 +32,6 @@ pub struct RuntimeExt<'a> {
     action_hash: CryptoHash,
     data_count: u64,
     epoch_id: EpochId,
-    last_block_hash: CryptoHash,
     block_height: BlockHeight,
     epoch_info_provider: &'a dyn EpochInfoProvider,
     current_protocol_version: ProtocolVersion,
@@ -85,7 +87,6 @@ impl<'a> RuntimeExt<'a> {
         account: Account,
         action_hash: CryptoHash,
         epoch_id: EpochId,
-        last_block_hash: CryptoHash,
         block_height: BlockHeight,
         epoch_info_provider: &'a dyn EpochInfoProvider,
         current_protocol_version: ProtocolVersion,
@@ -100,15 +101,11 @@ impl<'a> RuntimeExt<'a> {
             action_hash,
             data_count: 0,
             epoch_id,
-            last_block_hash,
             block_height,
             epoch_info_provider,
             current_protocol_version,
             storage_access_mode,
-            trie_access_tracker: AccountingAccessTracker {
-                allow_insert: true,
-                state: trie_access_tracker_state,
-            },
+            trie_access_tracker: AccountingAccessTracker { state: trie_access_tracker_state },
         }
     }
 
@@ -301,9 +298,7 @@ impl<'a> External for RuntimeExt<'a> {
 
     fn generate_data_id(&mut self) -> CryptoHash {
         let data_id = create_receipt_id_from_action_hash(
-            self.current_protocol_version,
             &self.action_hash,
-            &self.last_block_hash,
             self.block_height,
             self.data_count,
         );
@@ -384,6 +379,32 @@ impl<'a> External for RuntimeExt<'a> {
         code: Vec<u8>,
     ) -> Result<(), VMLogicError> {
         self.receipt_manager.append_action_deploy_contract(receipt_index, code)
+    }
+
+    fn append_action_deploy_global_contract(
+        &mut self,
+        receipt_index: ReceiptIndex,
+        code: Vec<u8>,
+        mode: GlobalContractDeployMode,
+    ) -> Result<(), VMLogicError> {
+        self.receipt_manager.append_action_deploy_global_contract(receipt_index, code, mode)
+    }
+
+    fn append_action_use_global_contract(
+        &mut self,
+        receipt_index: ReceiptIndex,
+        contract_id: GlobalContractIdentifier,
+    ) -> Result<(), VMLogicError> {
+        self.receipt_manager.append_use_deploy_global_contract(receipt_index, contract_id)
+    }
+
+    fn append_action_deterministic_state_init(
+        &mut self,
+        receipt_index: ReceiptIndex,
+        contract_id: GlobalContractIdentifier,
+        amount: Balance,
+    ) -> Result<u64, VMLogicError> {
+        self.receipt_manager.append_deterministic_state_init(receipt_index, contract_id, amount)
     }
 
     fn append_action_function_call_weight(
@@ -473,6 +494,25 @@ impl<'a> External for RuntimeExt<'a> {
     fn get_receipt_receiver(&self, receipt_index: ReceiptIndex) -> &AccountId {
         self.receipt_manager.get_receipt_receiver(receipt_index)
     }
+
+    fn set_refund_to(&mut self, receipt_index: ReceiptIndex, refund_to: AccountId) {
+        self.receipt_manager.set_refund_to(receipt_index, refund_to);
+    }
+
+    fn set_deterministic_state_init_data_entry(
+        &mut self,
+        receipt_index: ReceiptIndex,
+        action_index: ActionIndex,
+        key: Vec<u8>,
+        value: Vec<u8>,
+    ) -> Result<(), VMLogicError> {
+        self.receipt_manager.set_deterministic_state_init_data_entry(
+            receipt_index,
+            action_index,
+            key,
+            value,
+        )
+    }
 }
 
 pub(crate) struct RuntimeContractExt<'a> {
@@ -546,7 +586,6 @@ impl<'a> Contract for RuntimeContractExt<'a> {
 /// for value dereferences that ultimately go out to trie anyway.
 // FIXME(nagisa): equalize fees for different types of accesses and eventually remove this code.
 struct AccountingAccessTracker {
-    allow_insert: bool,
     state: Arc<AccountingState>,
 }
 
@@ -597,26 +636,23 @@ pub struct TrieNodesCount {
 impl Debug for AccountingAccessTracker {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("AccountingAccessTracker")
-            .field("allow_insert", &self.allow_insert)
             .field("db_reads", &self.state.db_reads)
             .field("mem_reads", &self.state.mem_reads)
-            .field("cache.len", &self.state.cache.lock().unwrap().len())
+            .field("cache.len", &self.state.cache.lock().len())
             .finish()
     }
 }
 
 impl AccessTracker for AccountingAccessTracker {
     fn track_mem_lookup(&self, key: &CryptoHash) -> Option<Arc<[u8]>> {
-        let value = Arc::clone(self.state.cache.lock().unwrap().get(key)?);
+        let value = Arc::clone(self.state.cache.lock().get(key)?);
         self.state.mem_reads.fetch_add(1, Ordering::Relaxed);
         Some(value)
     }
 
     fn track_disk_lookup(&self, key: CryptoHash, value: Arc<[u8]>) {
         self.state.db_reads.fetch_add(1, Ordering::Relaxed);
-        if self.allow_insert {
-            self.state.cache.lock().unwrap().insert(key, value);
-        }
+        self.state.cache.lock().insert(key, value);
     }
 }
 
@@ -624,4 +660,28 @@ impl AccessTracker for AccountingAccessTracker {
 fn base64(s: &[u8]) -> String {
     use base64::Engine;
     base64::engine::general_purpose::STANDARD.encode(s)
+}
+
+#[cfg(test)]
+mod tests {
+    use near_parameters::{ExtCosts, RuntimeConfig};
+
+    // This test ensures that the gas and compute costs for touching and reading
+    // a trie node remain equal. Please do not remove this check as the code
+    // may rely on this behavior after the version upgrade. For example, the
+    // code may no longer differentiate between touching a trie node for the
+    // first time and reading it again.
+    #[test]
+    fn test_equalize_trie_node_touch_and_read_cost() {
+        let config = RuntimeConfig::test();
+        assert_eq!(
+            config.wasm_config.ext_costs.gas_cost(ExtCosts::touching_trie_node),
+            config.wasm_config.ext_costs.gas_cost(ExtCosts::read_cached_trie_node)
+        );
+
+        assert_eq!(
+            config.wasm_config.ext_costs.compute_cost(ExtCosts::touching_trie_node),
+            config.wasm_config.ext_costs.compute_cost(ExtCosts::read_cached_trie_node)
+        );
+    }
 }

@@ -1,22 +1,22 @@
 use crate::blacklist;
 use crate::broadcast;
 use crate::config::{NetworkConfig, SocketOptions};
+use crate::network_protocol::T2MessageBody;
 use crate::network_protocol::testonly as data;
-use crate::network_protocol::{Ping, Pong, RoutedMessageBody, RoutingTableUpdate};
+use crate::network_protocol::{Ping, Pong, RoutingTableUpdate};
 use crate::peer;
 use crate::peer::peer_actor::{
     ClosingReason, ConnectionClosedEvent, DROP_DUPLICATED_MESSAGES_PERIOD,
 };
 use crate::peer_manager;
-use crate::peer_manager::peer_manager_actor::Event as PME;
-use crate::peer_manager::testonly::Event;
+use crate::peer_manager::peer_manager_actor::Event;
 use crate::peer_manager::testonly::start as start_pm;
-use crate::private_actix::RegisterPeerError;
+use crate::private_messages::RegisterPeerError;
 use crate::tcp;
 use crate::testonly::{Rng, abort_on_panic, make_rng};
 use crate::types::{Edge, PeerMessage};
 use crate::types::{PeerInfo, ReasonForBan};
-use near_async::time;
+use near_async::{ActorSystem, time};
 use near_primitives::network::PeerId;
 use near_store::db::TestDB;
 use pretty_assertions::assert_eq;
@@ -285,7 +285,7 @@ async fn simple_remove() {
 pub async fn wait_for_ping(events: &mut broadcast::Receiver<Event>, want_ping: Ping) {
     events
         .recv_until(|ev| match ev {
-            Event::PeerManager(PME::Ping(ping)) => {
+            Event::Ping(ping) => {
                 if ping == want_ping {
                     Some(())
                 } else {
@@ -301,7 +301,7 @@ pub async fn wait_for_ping(events: &mut broadcast::Receiver<Event>, want_ping: P
 pub async fn wait_for_pong(events: &mut broadcast::Receiver<Event>, want_pong: Pong) {
     events
         .recv_until(|ev| match ev {
-            Event::PeerManager(PME::Pong(pong)) => {
+            Event::Pong(pong) => {
                 if pong == want_pong {
                     Some(())
                 } else {
@@ -317,7 +317,7 @@ pub async fn wait_for_pong(events: &mut broadcast::Receiver<Event>, want_pong: P
 pub async fn wait_for_message_dropped(events: &mut broadcast::Receiver<Event>) {
     events
         .recv_until(|ev| match ev {
-            Event::PeerManager(PME::RoutedMessageDropped) => Some(()),
+            Event::RoutedMessageDropped => Some(()),
             _ => None,
         })
         .await;
@@ -613,15 +613,8 @@ pub(crate) async fn wait_for_connection_closed(
 ) {
     events
         .recv_until(|ev| match ev {
-            Event::PeerManager(PME::ConnectionClosed(ConnectionClosedEvent {
-                stream_id: _,
-                reason,
-            })) => {
-                if reason == want_reason {
-                    Some(())
-                } else {
-                    None
-                }
+            Event::ConnectionClosed(ConnectionClosedEvent { stream_id: _, reason }) => {
+                if reason == want_reason { Some(()) } else { None }
             }
             _ => None,
         })
@@ -646,7 +639,7 @@ fn make_configs(
             account_id: None,
         })
         .collect();
-    for config in configs.iter_mut() {
+    for config in &mut configs {
         config.outbound_disabled = !enable_outbound;
         config.peer_store.boot_nodes.clone_from(&boot_nodes);
     }
@@ -791,7 +784,7 @@ async fn max_num_peers_limit() {
 
     tracing::info!(target:"test", "start three nodes with max_num_peers=2");
     let mut configs = make_configs(&chain, rng, 4, 4, false);
-    for config in configs.iter_mut() {
+    for config in &mut configs {
         config.max_num_peers = 2;
         config.ideal_connections_lo = 2;
         config.ideal_connections_hi = 2;
@@ -902,19 +895,20 @@ async fn ttl_and_num_hops() {
     let stream = tcp::Stream::connect(&pm.peer_info(), tcp::Tier::T2, &SocketOptions::default())
         .await
         .unwrap();
-    let mut peer = peer::testonly::PeerHandle::start_endpoint(clock.clock(), cfg, stream).await;
+    let mut peer =
+        peer::testonly::PeerHandle::start_endpoint(clock.clock(), ActorSystem::new(), cfg, stream);
     peer.complete_handshake().await;
     pm.wait_for_routing_table(&[(peer.cfg.id(), vec![peer.cfg.id()])]).await;
 
     for ttl in 0..5 {
-        let msg = RoutedMessageBody::Ping(Ping { nonce: rng.r#gen(), source: peer.cfg.id() });
+        let msg = T2MessageBody::Ping(Ping { nonce: rng.r#gen(), source: peer.cfg.id() }).into();
         let msg = Box::new(peer.routed_message(msg, peer.cfg.id(), ttl, Some(clock.now_utc())));
         peer.send(PeerMessage::Routed(msg.clone())).await;
         // If TTL is <2, then the message will be dropped (at least 2 hops are required).
         if ttl < 2 {
             pm.events
                 .recv_until(|ev| match ev {
-                    Event::PeerManager(PME::RoutedMessageDropped) => Some(()),
+                    Event::RoutedMessageDropped => Some(()),
                     _ => None,
                 })
                 .await;
@@ -922,16 +916,13 @@ async fn ttl_and_num_hops() {
             let got = peer
                 .events
                 .recv_until(|ev| match ev {
-                    peer::testonly::Event::Network(PME::MessageProcessed(
-                        tcp::Tier::T2,
-                        PeerMessage::Routed(msg),
-                    )) => Some(msg),
+                    Event::MessageProcessed(tcp::Tier::T2, PeerMessage::Routed(msg)) => Some(msg),
                     _ => None,
                 })
                 .await;
-            assert_eq!(msg.body, got.body);
-            assert_eq!(msg.ttl - 1, got.ttl);
-            assert_eq!(msg.num_hops + 1, got.num_hops);
+            assert_eq!(msg.ttl() - 1, got.ttl());
+            assert_eq!(msg.num_hops() + 1, got.num_hops());
+            assert_eq!(msg.body_owned(), got.body_owned());
         }
     }
 }
@@ -956,7 +947,8 @@ async fn repeated_data_in_sync_routing_table() {
     let stream = tcp::Stream::connect(&pm.peer_info(), tcp::Tier::T2, &SocketOptions::default())
         .await
         .unwrap();
-    let mut peer = peer::testonly::PeerHandle::start_endpoint(clock.clock(), cfg, stream).await;
+    let mut peer =
+        peer::testonly::PeerHandle::start_endpoint(clock.clock(), ActorSystem::new(), cfg, stream);
     peer.complete_handshake().await;
 
     let mut edges_got = HashSet::new();
@@ -975,10 +967,7 @@ async fn repeated_data_in_sync_routing_table() {
         // SyncRoutingTable.
         while edges_got != edges_want || accounts_got != accounts_want {
             match peer.events.recv().await {
-                peer::testonly::Event::Network(PME::MessageProcessed(
-                    tcp::Tier::T2,
-                    PeerMessage::SyncRoutingTable(got),
-                )) => {
+                Event::MessageProcessed(tcp::Tier::T2, PeerMessage::SyncRoutingTable(got)) => {
                     for a in got.accounts {
                         assert!(!accounts_got.contains(&a), "repeated broadcast: {a:?}");
                         assert!(accounts_want.contains(&a), "unexpected broadcast: {a:?}");
@@ -1106,7 +1095,7 @@ async fn fix_local_edges() {
     conn.send(msg.clone()).await;
     events
         .recv_until(|ev| match ev {
-            Event::PeerManager(PME::MessageProcessed(tcp::Tier::T2, got)) if got == msg => Some(()),
+            Event::MessageProcessed(tcp::Tier::T2, got) if got == msg => Some(()),
             _ => None,
         })
         .await;
@@ -1118,7 +1107,7 @@ async fn fix_local_edges() {
     // that we don't have to wait for it explicitly here.
     events
         .recv_until(|ev| match ev {
-            Event::PeerManager(PME::ConnectionClosed { .. }) => Some(()),
+            Event::ConnectionClosed { .. } => Some(()),
             _ => None,
         })
         .await;
@@ -1175,7 +1164,7 @@ async fn archival_node() {
     let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
 
     let mut configs = make_configs(&chain, rng, 5, 5, false);
-    for config in configs.iter_mut() {
+    for config in &mut configs {
         config.max_num_peers = 3;
         config.ideal_connections_lo = 2;
         config.ideal_connections_hi = 2;
@@ -1250,9 +1239,7 @@ async fn wait_for_stream_closed(
 ) -> ClosingReason {
     events
         .recv_until(|ev| match ev {
-            Event::PeerManager(PME::ConnectionClosed(ev)) if ev.stream_id == stream_id => {
-                Some(ev.reason)
-            }
+            Event::ConnectionClosed(ev) if ev.stream_id == stream_id => Some(ev.reason),
             _ => None,
         })
         .await
@@ -1309,7 +1296,7 @@ async fn connect_to_unbanned_peer() {
 async fn wait_for_distance_vector(events: &mut broadcast::Receiver<Event>, peer_id: PeerId) {
     events
         .recv_until(|ev| match ev {
-            Event::PeerManager(PME::MessageProcessed(_, msg)) => match msg {
+            Event::MessageProcessed(_, msg) => match msg {
                 PeerMessage::DistanceVector(dv) if dv.root == peer_id => Some(()),
                 _ => None,
             },

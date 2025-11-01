@@ -1,4 +1,4 @@
-mod arena;
+pub(crate) mod arena;
 mod construction;
 pub(crate) mod flexible_data;
 mod freelist;
@@ -12,6 +12,8 @@ pub mod metrics;
 pub(crate) mod nibbles_utils;
 pub mod node;
 mod parallel_loader;
+
+pub(crate) use arena::ArenaMemory;
 
 /// Check this, because in the code we conveniently assume usize is 8 bytes.
 /// In-memory trie can't possibly work under 32-bit anyway.

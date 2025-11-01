@@ -3,6 +3,7 @@
 export DOCKER_BUILDKIT = 1
 export CARGO_BUILD_RUSTFLAGS = -D warnings
 export NEAR_RELEASE_BUILD = no
+export OPENSSL_STATIC = 1
 export CARGO_TARGET_DIR = target
 
 

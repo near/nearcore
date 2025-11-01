@@ -5,8 +5,8 @@
 //! long as we need them to.
 
 use crate::vmcontext::VMCallerCheckedAnyfunc;
+use parking_lot::Mutex;
 use std::collections::HashMap;
-use std::sync::Mutex;
 
 /// The registry that holds the values that `VMFuncRef`s point to.
 #[derive(Debug)]
@@ -100,7 +100,7 @@ impl FuncDataRegistry {
 
     /// Register a signature and return its unique index.
     pub fn register(&self, anyfunc: VMCallerCheckedAnyfunc) -> VMFuncRef {
-        let mut inner = self.inner.lock().unwrap();
+        let mut inner = self.inner.lock();
         let data = if let Some(&idx) = inner.anyfunc_to_index.get(&anyfunc) {
             &inner.func_data[idx]
         } else {

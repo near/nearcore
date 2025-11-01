@@ -12,7 +12,7 @@ use near_primitives::block::Tip;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::test_utils::create_user_test_signer;
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::EpochId;
+use near_primitives::types::{Balance, EpochId};
 use near_primitives_core::types::AccountId;
 use near_store::test_utils::create_test_store;
 use near_store::{ShardUId, TrieConfig};
@@ -23,19 +23,19 @@ use std::collections::{HashMap, HashSet};
 use crate::env::nightshade_setup::TestEnvNightshadeSetupExt;
 use crate::env::test_env::TestEnv;
 
-const ONE_NEAR: u128 = 1_000_000_000_000_000_000_000_000;
-
 #[test]
 fn slow_test_in_memory_trie_node_consistency() {
     // Recommended to run with RUST_LOG=memtrie=debug,chunks=error,info
     init_test_logger();
-    let initial_balance = 1000000 * ONE_NEAR;
+    let initial_balance = Balance::from_near(1000000);
     let accounts =
         (0..100).map(|i| format!("account{}", i).parse().unwrap()).collect::<Vec<AccountId>>();
     let mut clock = FakeClock::new(Utc::UNIX_EPOCH);
 
     let epoch_length = 9000;
-    let shard_layout = ShardLayout::simple_v1(&["account3", "account5", "account7"]);
+    let boundary_accounts =
+        ["account3", "account5", "account7"].iter().map(|a| a.parse().unwrap()).collect();
+    let shard_layout = ShardLayout::multi_shard_custom(boundary_accounts, 1);
     let validators_spec = ValidatorsSpec::desired_roles(&["account0", "account1"], &[]);
 
     let genesis = TestGenesisBuilder::new()
@@ -89,7 +89,7 @@ fn slow_test_in_memory_trie_node_consistency() {
     let mut balances = accounts
         .iter()
         .map(|account| (account.clone(), initial_balance))
-        .collect::<HashMap<AccountId, u128>>();
+        .collect::<HashMap<AccountId, Balance>>();
 
     run_chain_for_some_blocks_while_sending_money_around(
         &mut clock,
@@ -203,13 +203,11 @@ fn get_block_producer(env: &TestEnv, head: &Tip, height_offset: u64) -> AccountI
 }
 
 fn check_block_does_not_have_missing_chunks(block: &Block) {
-    for chunk in block.chunks().iter_deprecated() {
-        if !chunk.is_new_chunk(block.header().height()) {
-            panic!(
-                "Block at height {} is produced without all chunks; the test setup is faulty",
-                block.header().height()
-            );
-        }
+    if block.chunks().iter_old().count() > 0 {
+        panic!(
+            "Block at height {} is produced without all chunks; the test setup is faulty",
+            block.header().height()
+        );
     }
 }
 
@@ -221,10 +219,10 @@ fn check_block_does_not_have_missing_chunks(block: &Block) {
 /// root mismatch issue, the two nodes would not be able to apply each others'
 /// blocks because the block hashes would be different.
 fn run_chain_for_some_blocks_while_sending_money_around(
-    clock: &mut FakeClock,
+    clock: &FakeClock,
     env: &mut TestEnv,
     nonces: &mut HashMap<AccountId, u64>,
-    balances: &mut HashMap<AccountId, u128>,
+    balances: &mut HashMap<AccountId, Balance>,
     num_rounds: usize,
     track_all_shards: bool,
 ) {
@@ -254,7 +252,7 @@ fn run_chain_for_some_blocks_while_sending_money_around(
                     sender.clone(),
                     receiver.clone(),
                     &create_user_test_signer(&sender).into(),
-                    ONE_NEAR,
+                    Balance::from_near(1),
                     tip.last_block_hash,
                 );
                 // Process the txn in all shards, because they may not always
@@ -266,8 +264,13 @@ fn run_chain_for_some_blocks_while_sending_money_around(
                         _ => {}
                     }
                 }
-                *balances.get_mut(&sender).unwrap() -= ONE_NEAR;
-                *balances.get_mut(&receiver).unwrap() += ONE_NEAR;
+                *balances.get_mut(&sender).unwrap() =
+                    balances.get_mut(&sender).unwrap().checked_sub(Balance::from_near(1)).unwrap();
+                *balances.get_mut(&receiver).unwrap() = balances
+                    .get_mut(&receiver)
+                    .unwrap()
+                    .checked_add(Balance::from_near(1))
+                    .unwrap();
             }
         }
 
@@ -332,7 +335,7 @@ fn run_chain_for_some_blocks_while_sending_money_around(
             }
         }
 
-        for chunk in block_processed.chunks().iter_deprecated() {
+        for chunk in block_processed.chunks().iter() {
             let mut chunks_found = 0;
             for i in 0..env.clients.len() {
                 let client = &env.clients[i];
@@ -387,15 +390,7 @@ fn run_chain_for_some_blocks_while_sending_money_around(
 /// Returns the number of memtrie roots for the given client and shard, or
 /// None if that shard does not load memtries.
 fn num_memtrie_roots(env: &TestEnv, client_id: usize, shard: ShardUId) -> Option<usize> {
-    Some(
-        env.clients[client_id]
-            .runtime_adapter
-            .get_tries()
-            .get_memtries(shard)?
-            .read()
-            .unwrap()
-            .num_roots(),
-    )
+    Some(env.clients[client_id].runtime_adapter.get_tries().get_memtries(shard)?.read().num_roots())
 }
 
 /// Base case for testing in-memory tries consistency with state sync.
@@ -405,7 +400,7 @@ fn num_memtrie_roots(env: &TestEnv, client_id: usize, shard: ShardUId) -> Option
 fn test_in_memory_trie_consistency_with_state_sync_base_case(track_all_shards: bool) {
     // Recommended to run with RUST_LOG=memtrie=debug,chunks=error,info
     init_test_logger();
-    let initial_balance = 1000000 * ONE_NEAR;
+    let initial_balance = Balance::from_near(1000000);
     let accounts =
         (0..100).map(|i| format!("account{}", i).parse().unwrap()).collect::<Vec<AccountId>>();
     // We'll test with 4 shards. This can be any number, but we want to test
@@ -416,7 +411,9 @@ fn test_in_memory_trie_consistency_with_state_sync_base_case(track_all_shards: b
 
     let mut clock = FakeClock::new(Utc::UNIX_EPOCH);
 
-    let shard_layout = ShardLayout::simple_v1(&["account3", "account5", "account7"]);
+    let boundary_accounts =
+        ["account3", "account5", "account7"].iter().map(|a| a.parse().unwrap()).collect();
+    let shard_layout = ShardLayout::multi_shard_custom(boundary_accounts, 1);
     let validators_spec = ValidatorsSpec::desired_roles(
         &accounts[0..NUM_VALIDATORS].iter().map(|a| a.as_str()).collect::<Vec<_>>(),
         &[],
@@ -465,7 +462,7 @@ fn test_in_memory_trie_consistency_with_state_sync_base_case(track_all_shards: b
     let mut balances = accounts
         .iter()
         .map(|account| (account.clone(), initial_balance))
-        .collect::<HashMap<AccountId, u128>>();
+        .collect::<HashMap<AccountId, Balance>>();
 
     run_chain_for_some_blocks_while_sending_money_around(
         &mut clock,

@@ -1,4 +1,5 @@
-# TODO: add remaining tests.
+# List of tests to be executed both as part of PR CI and nightly runs
+
 ./pytest.txt
 ./sandbox.txt
 ./expensive.txt

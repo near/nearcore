@@ -6,8 +6,7 @@ use bitvec::slice::BitSlice;
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_parameters::RuntimeConfig;
 use near_primitives_core::hash::CryptoHash;
-use near_primitives_core::types::{ProtocolVersion, ShardId};
-use near_primitives_core::version::ProtocolFeature;
+use near_primitives_core::types::ShardId;
 use near_schema_checker_lib::ProtocolSchema;
 
 /// Represents size of receipts, in the context of cross-shard bandwidth, in bytes.
@@ -27,26 +26,20 @@ pub type Bandwidth = u64;
     Eq,
     ProtocolSchema,
 )]
+#[borsh(use_discriminant = true)]
+#[repr(u8)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub enum BandwidthRequests {
-    V1(BandwidthRequestsV1),
+    V1(BandwidthRequestsV1) = 0,
 }
 
 impl BandwidthRequests {
     pub fn empty() -> BandwidthRequests {
         BandwidthRequests::V1(BandwidthRequestsV1 { requests: Vec::new() })
     }
-
-    pub fn default_for_protocol_version(
-        protocol_version: ProtocolVersion,
-    ) -> Option<BandwidthRequests> {
-        if ProtocolFeature::BandwidthScheduler.enabled(protocol_version) {
-            Some(BandwidthRequests::empty())
-        } else {
-            None
-        }
-    }
 }
 
+/// Version 1 of [`BandwidthRequest`].
 #[derive(
     BorshSerialize,
     BorshDeserialize,
@@ -59,6 +52,7 @@ impl BandwidthRequests {
     Eq,
     ProtocolSchema,
 )]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct BandwidthRequestsV1 {
     pub requests: Vec<BandwidthRequest>,
 }
@@ -77,6 +71,7 @@ pub struct BandwidthRequestsV1 {
     Eq,
     ProtocolSchema,
 )]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct BandwidthRequest {
     /// Requesting bandwidth to this shard.
     pub to_shard: u16,
@@ -185,6 +180,7 @@ impl BandwidthRequestValues {
     Eq,
     ProtocolSchema,
 )]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct BandwidthRequestBitmap {
     pub data: [u8; BANDWIDTH_REQUEST_BITMAP_SIZE],
 }
@@ -257,8 +253,10 @@ impl BlockBandwidthRequests {
 /// and apply the same bandwidth scheduler algorithm at the same heights, so the resulting
 /// scheduler state stays the same.
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq, ProtocolSchema)]
+#[borsh(use_discriminant = true)]
+#[repr(u8)]
 pub enum BandwidthSchedulerState {
-    V1(BandwidthSchedulerStateV1),
+    V1(BandwidthSchedulerStateV1) = 0,
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq, ProtocolSchema)]

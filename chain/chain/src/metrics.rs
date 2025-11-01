@@ -35,6 +35,13 @@ pub static BLOCK_PROCESSING_TIME: LazyLock<Histogram> = LazyLock::new(|| {
         exponential_buckets(0.001, 1.6, 20).unwrap()
     ).unwrap()
 });
+pub static OPTIMISTIC_BLOCK_PROCESSING_TIME: LazyLock<Histogram> = LazyLock::new(|| {
+    try_create_histogram_with_buckets(
+        "near_optimistic_block_processing_time",
+        "Time taken to process optimistic blocks successfully, from when a block is ready to be processed till when the processing is finished. Measures only the time taken by the successful attempts of block processing",
+        exponential_buckets(0.001, 1.6, 20).unwrap()
+    ).unwrap()
+});
 pub static BLOCK_PREPROCESSING_TIME: LazyLock<Histogram> = LazyLock::new(|| {
     try_create_histogram("near_block_preprocessing_time", "Time taken to preprocess blocks, only include the time when the preprocessing is successful")
         .unwrap()
@@ -51,6 +58,13 @@ pub static BLOCK_ORDINAL_HEAD: LazyLock<IntGauge> = LazyLock::new(|| {
     try_create_int_gauge("near_block_ordinal_head", "Ordinal of the current head of the blockchain")
         .unwrap()
 });
+pub static BLOCK_HEIGHT_SPICE_EXECUTION_HEAD: LazyLock<IntGauge> = LazyLock::new(|| {
+    try_create_int_gauge(
+        "near_block_height_spice_execution_head",
+        "Height of the latest executed block of the blockchain",
+    )
+    .unwrap()
+});
 pub static VALIDATOR_AMOUNT_STAKED: LazyLock<IntGauge> = LazyLock::new(|| {
     try_create_int_gauge(
         "near_validators_stake_total",
@@ -61,7 +75,28 @@ pub static VALIDATOR_AMOUNT_STAKED: LazyLock<IntGauge> = LazyLock::new(|| {
 pub static VALIDATOR_ACTIVE_TOTAL: LazyLock<IntGauge> = LazyLock::new(|| {
     try_create_int_gauge(
         "near_validator_active_total",
-        "The total number of validators active after last block",
+        "The total number of chunk producers active after last block (DEPRECATED: use near_validator_chunk_producers_total instead)",
+    )
+    .unwrap()
+});
+pub static VALIDATOR_CHUNK_PRODUCERS_TOTAL: LazyLock<IntGauge> = LazyLock::new(|| {
+    try_create_int_gauge(
+        "near_validator_chunk_producers_total",
+        "The total number of chunk producers active after last block",
+    )
+    .unwrap()
+});
+pub static VALIDATOR_BLOCK_PRODUCERS_TOTAL: LazyLock<IntGauge> = LazyLock::new(|| {
+    try_create_int_gauge(
+        "near_validator_block_producers_total",
+        "The total number of block producers active after last block",
+    )
+    .unwrap()
+});
+pub static VALIDATOR_CHUNK_VALIDATORS_TOTAL: LazyLock<IntGauge> = LazyLock::new(|| {
+    try_create_int_gauge(
+        "near_validator_chunk_validators_total",
+        "The total number of chunk validators active after last block",
     )
     .unwrap()
 });
@@ -70,6 +105,21 @@ pub static NUM_ORPHANS: LazyLock<IntGauge> =
 pub static NUM_OPTIMISTIC_ORPHANS: LazyLock<IntGauge> = LazyLock::new(|| {
     try_create_int_gauge("near_num_optimistic_orphans", "Number of optimistic orphan blocks.")
         .unwrap()
+});
+pub static NUM_PENDING_BLOCKS: LazyLock<IntGauge> = LazyLock::new(|| {
+    try_create_int_gauge(
+        "near_num_pending_blocks",
+        "Number of blocks pending execution due to optimistic blocks in processing.",
+    )
+    .unwrap()
+});
+pub static BLOCK_PENDING_EXECUTION_DELAY: LazyLock<Histogram> = LazyLock::new(|| {
+    try_create_histogram_with_buckets(
+        "near_block_pending_execution_delay",
+        "Time taken for a block to wait in pending execution pool",
+        exponential_buckets(0.001, 1.6, 20).unwrap(),
+    )
+    .unwrap()
 });
 pub static HEADER_HEAD_HEIGHT: LazyLock<IntGauge> = LazyLock::new(|| {
     try_create_int_gauge("near_header_head_height", "Height of the header head").unwrap()
@@ -120,9 +170,18 @@ pub static OPTIMISTIC_BLOCK_PROCESSED_GAP: LazyLock<Histogram> = LazyLock::new(|
     .unwrap()
 });
 pub static BLOCK_MISSING_CHUNKS_DELAY: LazyLock<Histogram> = LazyLock::new(|| {
-    try_create_histogram(
+    try_create_histogram_with_buckets(
         "near_block_missing_chunks_delay",
         "How long blocks stay in the missing chunks pool",
+        exponential_buckets(0.001, 1.6, 20).unwrap(),
+    )
+    .unwrap()
+});
+pub static BLOCK_APPROVAL_DELAY: LazyLock<Histogram> = LazyLock::new(|| {
+    try_create_histogram_with_buckets(
+        "near_block_approval_delay",
+        "How long block with chunks is waiting for approval",
+        exponential_buckets(0.001, 1.6, 20).unwrap(),
     )
     .unwrap()
 });
@@ -283,6 +342,33 @@ pub(crate) static STATE_TRANSITION_DATA_GC_TIME: LazyLock<Histogram> = LazyLock:
         // Generally since gc runs each second we want state transition data gc to take less than
         // that.
         vec![0.100, 0.5, 1.0, 5.0],
+    )
+    .unwrap()
+});
+
+pub(crate) static CHAIN_VALIDITY_PERIOD_CHECK_DELAY: LazyLock<Histogram> = LazyLock::new(|| {
+    try_create_histogram_with_buckets(
+        "near_chain_validity_period_check_delay",
+        "how far back in the past is the validity period we're checking (not 100% precise!)",
+        vec![5.0, 10.0, 20.0, 40.0, 60.0, 120.0, 180.0],
+    )
+    .unwrap()
+});
+
+pub(crate) static THREAD_POOL_NUM_THREADS: LazyLock<IntGaugeVec> = LazyLock::new(|| {
+    try_create_int_gauge_vec(
+        "near_thread_pool_num_threads",
+        "current number of threads in apply chunks thread pool",
+        &["pool_name"],
+    )
+    .unwrap()
+});
+
+pub(crate) static THREAD_POOL_MAX_NUM_THREADS: LazyLock<IntGaugeVec> = LazyLock::new(|| {
+    try_create_int_gauge_vec(
+        "near_thread_pool_max_num_threads",
+        "maximum observed number of threads in apply chunks thread pool",
+        &["pool_name"],
     )
     .unwrap()
 });

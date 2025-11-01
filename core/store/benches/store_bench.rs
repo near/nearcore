@@ -1,7 +1,4 @@
-#[macro_use]
-extern crate bencher;
-
-use bencher::{Bencher, black_box};
+use bencher::{Bencher, benchmark_group, benchmark_main, black_box};
 use near_primitives::errors::StorageError;
 use near_store::{DBCol, NodeStorage, Store};
 use std::time::{Duration, Instant};
@@ -19,7 +16,7 @@ fn benchmark_write_then_read_successful(
     let tmp_dir = tempfile::tempdir().unwrap();
     // Use default StoreConfig rather than NodeStorage::test_opener so we’re using the
     // same configuration as in production.
-    let store = NodeStorage::opener(tmp_dir.path(), &Default::default(), None)
+    let store = NodeStorage::opener(tmp_dir.path(), &Default::default(), None, None)
         .open()
         .unwrap()
         .get_hot_store();
@@ -75,7 +72,7 @@ fn read_from_db(store: &Store, keys: &[Vec<u8>], col: DBCol) -> usize {
 /// Works only for column configured without reference counting, that is `.is_rc() == false`.
 fn write_to_db(store: &Store, keys: &[Vec<u8>], max_value_size: usize, col: DBCol) {
     let mut store_update = store.store_update();
-    for key in keys.iter() {
+    for key in keys {
         let x: usize = rand::random::<usize>() % max_value_size;
         let val: Vec<u8> = (0..x).map(|_| rand::random::<u8>()).collect();
         // NOTE:  this

@@ -3,6 +3,7 @@ use near_primitives_core::chains::{MAINNET, TESTNET};
 
 /// Data structure for semver version and github tag or commit.
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug, Default)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct Version {
     pub version: String,
     pub build: String,
@@ -16,16 +17,15 @@ use crate::upgrade_schedule::ProtocolUpgradeVotingSchedule;
 /// near_primitives_core re-exports
 pub use near_primitives_core::types::ProtocolVersion;
 pub use near_primitives_core::version::MIN_SUPPORTED_PROTOCOL_VERSION;
-pub use near_primitives_core::version::PEER_MIN_ALLOWED_PROTOCOL_VERSION;
 pub use near_primitives_core::version::PROD_GENESIS_PROTOCOL_VERSION;
 pub use near_primitives_core::version::PROTOCOL_VERSION;
 pub use near_primitives_core::version::ProtocolFeature;
 
 /// Minimum gas price proposed in NEP 92 and the associated protocol version
-pub const MIN_GAS_PRICE_NEP_92: Balance = 1_000_000_000;
+pub const MIN_GAS_PRICE_NEP_92: Balance = Balance::from_yoctonear(1_000_000_000);
 
 /// Minimum gas price proposed in NEP 92 (fixed) and the associated protocol version
-pub const MIN_GAS_PRICE_NEP_92_FIX: Balance = 100_000_000;
+pub const MIN_GAS_PRICE_NEP_92_FIX: Balance = Balance::from_yoctonear(100_000_000);
 
 /// The protocol version for the block header v3. This is also when we started using
 /// versioned block producer hash format.

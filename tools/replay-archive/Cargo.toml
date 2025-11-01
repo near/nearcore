@@ -13,13 +13,12 @@ workspace = true
 
 [dependencies]
 anyhow.workspace = true
-borsh.workspace = true
 clap.workspace = true
 itertools.workspace = true
-indicatif.workspace = true
+parking_lot.workspace = true
 
 near-chain.workspace = true
-near-chain-primitives.workspace = true
+node-runtime.workspace = true
 near-chunks.workspace = true
 near-primitives.workspace = true
 near-primitives-core.workspace = true
@@ -33,9 +32,12 @@ tracing.workspace = true
 
 [features]
 nightly = [
-  "near-o11y/nightly",
-  "near-primitives-core/nightly",
-  "near-primitives/nightly",
-  "near-store/nightly",
-  "nearcore/nightly",
+    "near-o11y/nightly",
+    "near-primitives-core/nightly",
+    "near-primitives/nightly",
+    "near-store/nightly",
+    "nearcore/nightly",
 ]
+
+[package.metadata.cargo-machete]
+ignored = ["near-o11y", "near-primitives-core"]

@@ -1,11 +1,12 @@
 use super::ValidatedOperation;
+use near_primitives::types::Balance;
 
 pub(crate) struct FunctionCallOperation {
     pub(crate) account: crate::models::AccountIdentifier,
     pub(crate) method_name: String,
     pub(crate) args: Vec<u8>,
     pub(crate) attached_gas: near_primitives::types::Gas,
-    pub(crate) attached_amount: near_primitives::types::Balance,
+    pub(crate) attached_amount: Balance,
 }
 
 impl ValidatedOperation for FunctionCallOperation {
@@ -19,15 +20,15 @@ impl ValidatedOperation for FunctionCallOperation {
             operation_identifier,
 
             account: self.account,
-            amount: if self.attached_amount > 0 {
-                Some(crate::models::Amount::from_yoctonear(self.attached_amount))
+            amount: if self.attached_amount > Balance::ZERO {
+                Some(crate::models::Amount::from_balance(self.attached_amount))
             } else {
                 None
             },
             metadata: Some(crate::models::OperationMetadata {
                 method_name: Some(self.method_name),
                 args: Some(self.args.into()),
-                attached_gas: Some(self.attached_gas.into()),
+                attached_gas: Some(self.attached_gas.as_gas().into()),
                 ..Default::default()
             }),
 
@@ -54,7 +55,7 @@ impl TryFrom<crate::models::Operation> for FunctionCallOperation {
         let args = metadata.args.ok_or_else(required_fields_error)?.into_inner();
         let attached_gas = metadata.attached_gas.ok_or_else(required_fields_error)?;
         let attached_gas = if attached_gas.is_positive() {
-            attached_gas.absolute_difference()
+            near_primitives::types::Gas::from_gas(attached_gas.absolute_difference())
         } else {
             return Err(crate::errors::ErrorKind::InvalidInput(
                 "FUNCTION_CALL operation requires `attached_gas` to be positive".into(),
@@ -66,9 +67,14 @@ impl TryFrom<crate::models::Operation> for FunctionCallOperation {
                     "FUNCTION_CALL operations must have non-negative `amount`".to_string(),
                 ));
             }
-            attached_amount.value.absolute_difference()
+            if !attached_amount.currency.is_near() {
+                return Err(crate::errors::ErrorKind::InvalidInput(
+                    "FUNCTION_CALL operations must have NEAR currency".to_string(),
+                ));
+            }
+            Balance::from_yoctonear(attached_amount.value.absolute_difference())
         } else {
-            0
+            Balance::ZERO
         };
 
         Ok(Self { account: operation.account, method_name, args, attached_gas, attached_amount })

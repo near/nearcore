@@ -6,17 +6,17 @@ use crate::trie::AccessOptions;
 use crate::{DBCol, GENESIS_STATE_ROOTS_KEY, Store, StoreUpdate, TrieAccess, TrieUpdate};
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::PublicKey;
-use near_primitives::account::{AccessKey, Account};
+use near_primitives::account::{AccessKey, Account, GasKey};
 use near_primitives::bandwidth_scheduler::BandwidthSchedulerState;
 use near_primitives::congestion_info::CongestionInfo;
 use near_primitives::errors::StorageError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{
     BufferedReceiptIndices, DelayedReceiptIndices, PromiseYieldIndices, PromiseYieldTimeout,
-    Receipt, ReceiptEnum, ReceivedData,
+    Receipt, ReceivedData, VersionedReceiptEnum,
 };
 use near_primitives::trie_key::{TrieKey, trie_key_parsers};
-use near_primitives::types::{AccountId, BlockHeight, StateRoot};
+use near_primitives::types::{AccountId, BlockHeight, Nonce, NonceIndex, StateRoot};
 use std::io;
 
 /// Reads an object from Trie.
@@ -99,7 +99,7 @@ pub fn has_received_data(
 }
 
 pub fn set_postponed_receipt(state_update: &mut TrieUpdate, receipt: &Receipt) {
-    assert!(matches!(receipt.receipt(), ReceiptEnum::Action(_)));
+    assert!(matches!(receipt.versioned_receipt(), VersionedReceiptEnum::Action(_)));
     let key = TrieKey::PostponedReceipt {
         receiver_id: receipt.receiver_id().clone(),
         receipt_id: *receipt.receipt_id(),
@@ -179,12 +179,12 @@ pub fn enqueue_promise_yield_timeout(
 }
 
 pub fn set_promise_yield_receipt(state_update: &mut TrieUpdate, receipt: &Receipt) {
-    match receipt.receipt() {
-        ReceiptEnum::PromiseYield(action_receipt) => {
-            assert!(action_receipt.input_data_ids.len() == 1);
+    match receipt.versioned_receipt() {
+        VersionedReceiptEnum::PromiseYield(action_receipt) => {
+            assert!(action_receipt.input_data_ids().len() == 1);
             let key = TrieKey::PromiseYieldReceipt {
                 receiver_id: receipt.receiver_id().clone(),
-                data_id: action_receipt.input_data_ids[0],
+                data_id: action_receipt.input_data_ids()[0],
             };
             set(state_update, key, receipt);
         }
@@ -245,6 +245,25 @@ pub fn set_access_key(
     access_key: &AccessKey,
 ) {
     set(state_update, TrieKey::AccessKey { account_id, public_key }, access_key);
+}
+
+pub fn set_gas_key(
+    state_update: &mut TrieUpdate,
+    account_id: AccountId,
+    public_key: PublicKey,
+    gas_key: &GasKey,
+) {
+    set(state_update, TrieKey::GasKey { account_id, public_key, index: None }, gas_key);
+}
+
+pub fn set_gas_key_nonce(
+    state_update: &mut TrieUpdate,
+    account_id: AccountId,
+    public_key: PublicKey,
+    index: NonceIndex,
+    nonce: Nonce,
+) {
+    set(state_update, TrieKey::GasKey { account_id, public_key, index: Some(index) }, &nonce);
 }
 
 pub fn remove_access_key(

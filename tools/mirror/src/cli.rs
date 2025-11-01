@@ -1,5 +1,4 @@
 use anyhow::Context;
-use std::cell::Cell;
 use std::path::PathBuf;
 
 use near_primitives::types::BlockHeight;
@@ -231,7 +230,7 @@ impl ShowKeysCmd {
                 vec![crate::key_util::default_extra_key(secret.as_ref())]
             }
         };
-        for key in keys.iter() {
+        for key in &keys {
             if let Some(k) = &key.original_key {
                 println!("original pub key: {}", k);
             }
@@ -258,32 +257,16 @@ impl ShowKeysCmd {
     }
 }
 
-// copied from neard/src/cli.rs
-fn new_actix_system(runtime: tokio::runtime::Runtime) -> actix::SystemRunner {
-    // `with_tokio_rt()` accepts an `Fn()->Runtime`, however we know that this function is called exactly once.
-    // This makes it safe to move out of the captured variable `runtime`, which is done by a trick
-    // using a `swap` of `Cell<Option<Runtime>>`s.
-    let runtime_cell = Cell::new(Some(runtime));
-    actix::System::with_tokio_rt(|| {
-        let r = Cell::new(None);
-        runtime_cell.swap(&r);
-        r.into_inner().unwrap()
-    })
-}
-
 fn run_async<F: std::future::Future + 'static>(f: F) -> F::Output {
     let runtime = tokio::runtime::Runtime::new().unwrap();
-    let system = new_actix_system(runtime);
-    system
-        .block_on(async move {
-            let _subscriber_guard = near_o11y::default_subscriber(
-                near_o11y::EnvFilterBuilder::from_env().finish().unwrap(),
-                &near_o11y::Options::default(),
-            )
-            .global();
-            actix::spawn(f).await
-        })
-        .unwrap()
+    runtime.block_on(async move {
+        let _subscriber_guard = near_o11y::default_subscriber(
+            near_o11y::EnvFilterBuilder::from_env().finish().unwrap(),
+            &near_o11y::Options::default(),
+        )
+        .global();
+        f.await
+    })
 }
 
 impl MirrorCommand {

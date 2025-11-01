@@ -1,6 +1,5 @@
 use crate::hash::CryptoHash;
-use crate::serialize::dec_format;
-use crate::types::{Balance, Nonce, StorageUsage};
+use crate::types::{Balance, Nonce, NonceIndex, StorageUsage};
 use borsh::{BorshDeserialize, BorshSerialize};
 pub use near_account_id as id;
 use near_account_id::AccountId;
@@ -22,6 +21,7 @@ use std::io;
     serde::Deserialize,
     ProtocolSchema,
 )]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub enum AccountVersion {
     #[default]
     V1,
@@ -157,7 +157,7 @@ impl Account {
     /// HACK: Using u128::MAX as a sentinel value, there are not enough tokens
     /// in total supply which makes it an invalid value. We use it to
     /// differentiate AccountVersion V1 from newer versions.
-    const SERIALIZATION_SENTINEL: u128 = u128::MAX;
+    const SERIALIZATION_SENTINEL: Balance = Balance::MAX;
 
     pub fn new(
         amount: Balance,
@@ -196,7 +196,7 @@ impl Account {
     }
 
     #[inline]
-    pub fn contract(&self) -> Cow<AccountContract> {
+    pub fn contract(&self) -> Cow<'_, AccountContract> {
         match self {
             Self::V1(account) => {
                 Cow::Owned(AccountContract::from_local_code_hash(account.code_hash))
@@ -299,10 +299,9 @@ impl Account {
 /// Account representation for serde ser/deser that maintains both backward
 /// and forward compatibility.
 #[derive(serde::Serialize, serde::Deserialize, PartialEq, Eq, Debug, Clone, ProtocolSchema)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 struct SerdeAccount {
-    #[serde(with = "dec_format")]
     amount: Balance,
-    #[serde(with = "dec_format")]
     locked: Balance,
     code_hash: CryptoHash,
     storage_usage: StorageUsage,
@@ -385,17 +384,30 @@ impl serde::Serialize for Account {
     }
 }
 
+#[cfg(feature = "schemars")]
+impl schemars::JsonSchema for Account {
+    fn schema_name() -> std::borrow::Cow<'static, str> {
+        "Account".to_string().into()
+    }
+
+    fn json_schema(generator: &mut schemars::SchemaGenerator) -> schemars::Schema {
+        SerdeAccount::json_schema(generator)
+    }
+}
+
 #[derive(BorshSerialize, BorshDeserialize)]
+#[borsh(use_discriminant = true)]
+#[repr(u8)]
 enum BorshVersionedAccount {
     // V1 is not included since it is serialized directly without being wrapped in enum
-    V2(AccountV2),
+    V2(AccountV2) = 0,
 }
 
 impl BorshDeserialize for Account {
     fn deserialize_reader<R: io::Read>(rd: &mut R) -> io::Result<Self> {
         // The first value of all Account serialization formats is a u128,
         // either a sentinel or a balance.
-        let sentinel_or_amount = u128::deserialize_reader(rd)?;
+        let sentinel_or_amount = Balance::deserialize_reader(rd)?;
         if sentinel_or_amount == Account::SERIALIZATION_SENTINEL {
             let versioned_account = BorshVersionedAccount::deserialize_reader(rd)?;
             let account = match versioned_account {
@@ -404,7 +416,7 @@ impl BorshDeserialize for Account {
             Ok(account)
         } else {
             // Legacy unversioned representation of Account
-            let locked = u128::deserialize_reader(rd)?;
+            let locked = Balance::deserialize_reader(rd)?;
             let code_hash = CryptoHash::deserialize_reader(rd)?;
             let storage_usage = StorageUsage::deserialize_reader(rd)?;
 
@@ -447,6 +459,7 @@ impl BorshSerialize for Account {
     serde::Deserialize,
     ProtocolSchema,
 )]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct AccessKey {
     /// Nonce for this access key, used for tx nonce generation. When access key is created, nonce
     /// is set to `(block_height - 1) * 1e6` to avoid tx hash collision on access key re-creation.
@@ -465,6 +478,31 @@ impl AccessKey {
     }
 }
 
+/// Gas key is like an access key, except it stores a balance separately, and transactions signed
+/// with it deduct their cost from the gas key balance instead of the account balance.
+#[derive(
+    BorshSerialize,
+    BorshDeserialize,
+    PartialEq,
+    Eq,
+    Hash,
+    Clone,
+    Debug,
+    serde::Serialize,
+    serde::Deserialize,
+    ProtocolSchema,
+)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+pub struct GasKey {
+    /// The number of nonces this gas key has.
+    pub num_nonces: NonceIndex,
+    /// The balance of the gas key.
+    pub balance: Balance,
+    /// Defines the permissions for this gas key.
+    /// If this is a `FunctionCallPermission`, the allowance must be None (unlimited).
+    pub permission: AccessKeyPermission,
+}
+
 /// Defines permissions for AccessKey
 #[derive(
     BorshSerialize,
@@ -478,6 +516,7 @@ impl AccessKey {
     serde::Deserialize,
     ProtocolSchema,
 )]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub enum AccessKeyPermission {
     FunctionCall(FunctionCallPermission),
 
@@ -502,6 +541,7 @@ pub enum AccessKeyPermission {
     Debug,
     ProtocolSchema,
 )]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct FunctionCallPermission {
     /// Allowance is a balance limit to use by this access key to pay for function call gas and
     /// transaction fees. When this access key is used, both account balance and the allowance is
@@ -509,7 +549,6 @@ pub struct FunctionCallPermission {
     /// `None` means unlimited allowance.
     /// NOTE: To change or increase the allowance, the old access key needs to be deleted and a new
     /// access key should be created.
-    #[serde(with = "dec_format")]
     pub allowance: Option<Balance>,
 
     // This isn't an AccountId because already existing records in testnet genesis have invalid
@@ -534,8 +573,8 @@ mod tests {
         global_contract_account_id: Option<AccountId>,
     ) -> SerdeAccount {
         SerdeAccount {
-            amount: 10_000_000,
-            locked: 100_000,
+            amount: Balance::from_yoctonear(10_000_000),
+            locked: Balance::from_yoctonear(100_000),
             code_hash,
             storage_usage: 1000,
             version: AccountVersion::V2,
@@ -547,8 +586,8 @@ mod tests {
     #[test]
     fn test_v1_account_serde_serialization() {
         let old_account = AccountV1 {
-            amount: 1_000_000,
-            locked: 1_000_000,
+            amount: Balance::from_yoctonear(1_000_000),
+            locked: Balance::from_yoctonear(1_000_000),
             code_hash: CryptoHash::hash_bytes(&[42]),
             storage_usage: 100,
         };
@@ -577,8 +616,8 @@ mod tests {
     #[test]
     fn test_v1_account_borsh_serialization() {
         let old_account = AccountV1 {
-            amount: 100,
-            locked: 200,
+            amount: Balance::from_yoctonear(100),
+            locked: Balance::from_yoctonear(200),
             code_hash: CryptoHash::hash_bytes(&[42]),
             storage_usage: 300,
         };
@@ -596,8 +635,8 @@ mod tests {
     #[test]
     fn test_account_v2_serde_serialization() {
         let account_v2 = AccountV2 {
-            amount: 10_000_000,
-            locked: 100_000,
+            amount: Balance::from_yoctonear(10_000_000),
+            locked: Balance::from_yoctonear(100_000),
             storage_usage: 1000,
             contract: AccountContract::Local(CryptoHash::hash_bytes(&[42])),
         };
@@ -623,8 +662,8 @@ mod tests {
     #[test]
     fn test_account_v2_borsh_serialization() {
         let account_v2 = AccountV2 {
-            amount: 10_000_000,
-            locked: 100_000,
+            amount: Balance::from_yoctonear(10_000_000),
+            locked: Balance::from_yoctonear(100_000),
             storage_usage: 1000,
             contract: AccountContract::Global(CryptoHash::hash_bytes(&[42])),
         };
@@ -675,8 +714,8 @@ mod tests {
     #[test]
     fn test_account_version_upgrade_behaviour() {
         let account_v1 = AccountV1 {
-            amount: 100,
-            locked: 200,
+            amount: Balance::from_yoctonear(100),
+            locked: Balance::from_yoctonear(200),
             code_hash: CryptoHash::hash_bytes(&[42]),
             storage_usage: 300,
         };

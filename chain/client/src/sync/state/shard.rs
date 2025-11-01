@@ -3,25 +3,29 @@ use super::task_tracker::TaskTracker;
 use crate::metrics;
 use crate::sync::state::chain_requests::ChainFinalizationRequest;
 use futures::{StreamExt, TryStreamExt};
+use itertools::any;
 use near_async::futures::{FutureSpawner, respawn_for_parallelism};
 use near_async::messaging::AsyncSender;
+use near_async::time::Duration;
 use near_chain::BlockHeader;
 use near_chain::types::RuntimeAdapter;
 use near_client_primitives::types::ShardSyncStatus;
 use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_assignment::shard_id_to_uid;
+use near_o11y::span_wrapped_msg::{SpanWrapped, SpanWrappedMessageExt};
 use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::ShardChunk;
-use near_primitives::state_part::PartId;
+use near_primitives::state_part::{PartId, StatePart};
 use near_primitives::state_sync::StatePartKey;
 use near_primitives::types::{EpochId, ShardId};
-use near_primitives::version::PROTOCOL_VERSION;
+use near_primitives::version::{PROTOCOL_VERSION, ProtocolVersion};
 use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
 use near_store::flat::{FlatStorageReadyStatus, FlatStorageStatus};
 use near_store::{DBCol, ShardUId, Store};
+use parking_lot::Mutex;
 use rand::prelude::SliceRandom;
 use rand::thread_rng;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use tokio::sync::oneshot;
 use tokio_util::sync::CancellationToken;
 
@@ -33,7 +37,7 @@ pub(super) struct StateSyncShardHandle {
 
 impl StateSyncShardHandle {
     pub fn status(&self) -> ShardSyncStatus {
-        *self.status.lock().unwrap()
+        *self.status.lock()
     }
 }
 
@@ -42,11 +46,6 @@ impl Drop for StateSyncShardHandle {
         self.cancel.cancel();
     }
 }
-
-/// The maximum parallelism to use per shard. This is mostly for fairness, because
-/// the actual rate limiting is done by the TaskTrackers, but this is useful for
-/// balancing the shards a little.
-const MAX_PARALLELISM_PER_SHARD_FOR_FAIRNESS: usize = 6;
 
 macro_rules! return_if_cancelled {
     ($cancel:expr) => {
@@ -65,12 +64,17 @@ pub(super) async fn run_state_sync_for_shard(
     epoch_manager: Arc<dyn EpochManagerAdapter>,
     computation_task_tracker: TaskTracker,
     status: Arc<Mutex<ShardSyncStatus>>,
-    chain_finalization_sender: AsyncSender<ChainFinalizationRequest, Result<(), near_chain::Error>>,
+    chain_finalization_sender: AsyncSender<
+        SpanWrapped<ChainFinalizationRequest>,
+        Result<(), near_chain::Error>,
+    >,
     cancel: CancellationToken,
     future_spawner: Arc<dyn FutureSpawner>,
+    concurrency_limit: u8,
+    min_delay_before_reattempt: Duration,
 ) -> Result<(), near_chain::Error> {
     tracing::info!("Running state sync for shard {}", shard_id);
-    *status.lock().unwrap() = ShardSyncStatus::StateDownloadHeader;
+    *status.lock() = ShardSyncStatus::StateDownloadHeader;
     let header = downloader.ensure_shard_header(shard_id, sync_hash, cancel.clone()).await?;
     let state_root = header.chunk_prev_state_root();
     let num_parts = header.num_state_parts();
@@ -79,13 +83,14 @@ pub(super) async fn run_state_sync_for_shard(
             || near_chain::Error::DBNotFoundErr(format!("No block header {}", sync_hash)),
         )?;
     let epoch_id = *block_header.epoch_id();
+    let protocol_version = epoch_manager.get_epoch_protocol_version(&epoch_id)?;
     let shard_uid = shard_id_to_uid(epoch_manager.as_ref(), shard_id, &epoch_id)?;
     metrics::STATE_SYNC_PARTS_TOTAL
         .with_label_values(&[&shard_id.to_string()])
         .set(num_parts as i64);
 
     return_if_cancelled!(cancel);
-    *status.lock().unwrap() = ShardSyncStatus::StateDownloadParts;
+    *status.lock() = ShardSyncStatus::StateDownloadParts;
     let mut parts_to_download: Vec<u64> = (0..num_parts).collect();
     {
         // Peer selection is designed such that different nodes downloading the same part will tend
@@ -110,10 +115,11 @@ pub(super) async fn run_state_sync_for_shard(
                     part_id,
                     attempt_count,
                     cancel.clone(),
+                    protocol_version,
                 );
                 respawn_for_parallelism(&*future_spawner, "state sync download part", future)
             })
-            .buffered(MAX_PARALLELISM_PER_SHARD_FOR_FAIRNESS)
+            .buffered(concurrency_limit.into())
             .collect::<Vec<_>>()
             .await;
         attempt_count += 1;
@@ -125,19 +131,40 @@ pub(super) async fn run_state_sync_for_shard(
                 res.as_ref().err().map(|_| parts_to_download[task_index])
             })
             .collect();
+        // Wait before retrying the failed parts
+        if !parts_to_download.is_empty() {
+            let deadline = downloader.clock.now() + min_delay_before_reattempt;
+            tokio::select! {
+                _ = downloader.clock.sleep_until(deadline) => {}
+                _ = cancel.cancelled() => {}
+            }
+        }
     }
 
     return_if_cancelled!(cancel);
-    *status.lock().unwrap() = ShardSyncStatus::StateApplyInProgress;
+    *status.lock() = ShardSyncStatus::StateApplyInProgress;
     runtime.get_tries().unload_memtrie(&shard_uid);
-    let mut store_update = store.store_update();
-    runtime
-        .get_flat_storage_manager()
-        .remove_flat_storage_for_shard(shard_uid, &mut store_update.flat_store_update())?;
-    store_update.commit()?;
+
+    // Clear flat storage, but only if we haven't started applying parts yet.
+    // (Otherwise we will delete the parts we already applied)
+    let apply_parts_started = any(0..num_parts, |part_id| {
+        let key = StatePartKey(sync_hash, shard_id, part_id);
+        let key_bytes = borsh::to_vec(&key).unwrap();
+        store.exists(DBCol::StatePartsApplied, &key_bytes).unwrap_or(false)
+    });
+    if apply_parts_started {
+        tracing::debug!(target: "sync", ?shard_id, ?sync_hash, "Not clearing flat storage before applying state parts because some parts were already applied");
+    } else {
+        tracing::debug!(target: "sync", ?shard_id, ?sync_hash, "Clearing flat storage before applying state parts");
+        let mut store_update = store.store_update();
+        runtime
+            .get_flat_storage_manager()
+            .remove_flat_storage_for_shard(shard_uid, &mut store_update.flat_store_update())?;
+        store_update.commit()?;
+    }
 
     return_if_cancelled!(cancel);
-    tokio_stream::iter(0..num_parts)
+    let _results = tokio_stream::iter(0..num_parts)
         .map(|part_id| {
             let store = store.clone();
             let runtime = runtime.clone();
@@ -154,16 +181,19 @@ pub(super) async fn run_state_sync_for_shard(
                 num_parts,
                 state_root,
                 epoch_id,
+                protocol_version,
             );
             respawn_for_parallelism(&*future_spawner, "state sync apply part", future)
         })
-        .buffer_unordered(MAX_PARALLELISM_PER_SHARD_FOR_FAIRNESS)
+        .buffer_unordered(concurrency_limit.into())
         .try_collect::<Vec<_>>()
         .await?;
 
     return_if_cancelled!(cancel);
-    // Create flat storage.
-    {
+    // Create flat storage, but only if we haven't done it already.
+    // (Otherwise we will try to create flat storage second time and fail)
+    let flat_storage_manager = runtime.get_flat_storage_manager();
+    if flat_storage_manager.get_flat_storage_for_shard(shard_uid).is_none() {
         let chunk = header.cloned_chunk();
         let block_hash = chunk.prev_block();
 
@@ -194,15 +224,15 @@ pub(super) async fn run_state_sync_for_shard(
     return_if_cancelled!(cancel);
 
     // Finalize; this needs to be done by the Chain.
-    *status.lock().unwrap() = ShardSyncStatus::StateApplyFinalizing;
+    *status.lock() = ShardSyncStatus::StateApplyFinalizing;
     chain_finalization_sender
-        .send_async(ChainFinalizationRequest { shard_id, sync_hash })
+        .send_async(ChainFinalizationRequest { shard_id, sync_hash }.span_wrap())
         .await
         .map_err(|_| {
-        near_chain::Error::Other("Chain finalization request could not be handled".to_owned())
-    })??;
+            near_chain::Error::Other("Chain finalization request could not be handled".to_owned())
+        })??;
 
-    *status.lock().unwrap() = ShardSyncStatus::StateSyncDone;
+    *status.lock() = ShardSyncStatus::StateSyncDone;
 
     Ok(())
 }
@@ -243,6 +273,12 @@ fn create_flat_storage_for_shard(
     Ok(())
 }
 
+#[derive(Debug, PartialEq, Eq)]
+pub enum StatePartApplyResult {
+    Applied,
+    AlreadyApplied,
+}
+
 async fn apply_state_part(
     store: Store,
     runtime: Arc<dyn RuntimeAdapter>,
@@ -254,17 +290,22 @@ async fn apply_state_part(
     num_parts: u64,
     state_root: CryptoHash,
     epoch_id: EpochId,
-) -> anyhow::Result<(), near_chain::Error> {
+    protocol_version: ProtocolVersion,
+) -> Result<StatePartApplyResult, near_chain::Error> {
+    let key = StatePartKey(sync_hash, shard_id, part_id);
+    let key_bytes = borsh::to_vec(&key).unwrap();
+    let already_applied = store.exists(DBCol::StatePartsApplied, &key_bytes)?;
+    if already_applied {
+        tracing::debug!(target: "sync", ?key, "State part already applied, skipping");
+        return Ok(StatePartApplyResult::AlreadyApplied);
+    }
     return_if_cancelled!(cancel);
     let handle =
         computation_task_tracker.get_handle(&format!("shard {} part {}", shard_id, part_id)).await;
     return_if_cancelled!(cancel);
     handle.set_status("Loading part data from store");
-    let data = store
-        .get(
-            DBCol::StateParts,
-            &borsh::to_vec(&StatePartKey(sync_hash, shard_id, part_id)).unwrap(),
-        )?
+    let bytes = store
+        .get(DBCol::StateParts, &key_bytes)?
         .ok_or_else(|| {
             near_chain::Error::DBNotFoundErr(format!(
                 "No state part {} for shard {}",
@@ -272,13 +313,129 @@ async fn apply_state_part(
             ))
         })?
         .to_vec();
+    let state_part = StatePart::from_bytes(bytes, protocol_version)?;
     handle.set_status("Applying part data to runtime");
     runtime.apply_state_part(
         shard_id,
         &state_root,
         PartId { idx: part_id, total: num_parts },
-        &data,
+        &state_part,
         &epoch_id,
     )?;
-    Ok(())
+    tracing::debug!(target: "sync", ?key, "Applied state part");
+
+    // Mark part as applied.
+    let mut store_update = store.store_update();
+    store_update.set_ser(DBCol::StatePartsApplied, &key_bytes, &true)?;
+    store_update.commit()?;
+
+    Ok(StatePartApplyResult::Applied)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use near_chain_configs::Genesis;
+    use near_epoch_manager::EpochManager;
+    use near_primitives::shard_layout::ShardLayout;
+    use near_primitives::state::PartialState;
+    use near_primitives::state_sync::StatePartKey;
+    use near_primitives::types::EpochId;
+    use near_store::genesis::initialize_genesis_state;
+    use near_store::test_utils::create_test_store;
+    use std::sync::Arc;
+    use tempfile::TempDir;
+    use tokio_util::sync::CancellationToken;
+
+    fn create_dummy_state_part() -> StatePart {
+        let dummy_trie_values =
+            vec![Arc::from("test_value_1".as_bytes()), Arc::from("test_value_2".as_bytes())];
+        let partial_state = PartialState::TrieValues(dummy_trie_values);
+        StatePart::from_partial_state(partial_state, PROTOCOL_VERSION, 1)
+    }
+
+    fn create_test_runtime_and_store() -> (Arc<dyn RuntimeAdapter>, Store, TempDir) {
+        let tmp_dir = tempfile::TempDir::new().unwrap();
+        let store = create_test_store();
+        let genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
+
+        initialize_genesis_state(store.clone(), &genesis, Some(tmp_dir.path()));
+        let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config, None);
+        let runtime = near_chain::runtime::NightshadeRuntime::test(
+            tmp_dir.path(),
+            store.clone(),
+            &genesis.config,
+            epoch_manager,
+        );
+
+        (runtime, store, tmp_dir)
+    }
+
+    #[tokio::test]
+    async fn test_apply_state() {
+        let (runtime, store, _tmp_dir) = create_test_runtime_and_store();
+        let task_tracker = TaskTracker::new(10);
+        let cancel = CancellationToken::new();
+
+        // Some arbitrary values for use in the test
+        let sync_hash = CryptoHash::default();
+        let shard_id = ShardLayout::single_shard().get_shard_id(0).unwrap();
+        let part_id = 0;
+        let num_parts = 1;
+        let state_root = CryptoHash::default();
+        let epoch_id = EpochId::default();
+
+        // Create and store a state part
+        let state_part = create_dummy_state_part();
+        let key = StatePartKey(sync_hash, shard_id, part_id);
+        let key_bytes = borsh::to_vec(&key).unwrap();
+        let part_bytes = state_part.to_bytes(PROTOCOL_VERSION);
+
+        let mut store_update = store.store_update();
+        store_update.set(DBCol::StateParts, &key_bytes, &part_bytes);
+        store_update.commit().unwrap();
+
+        // Apply the state part for the first time
+        let result = apply_state_part(
+            store.clone(),
+            runtime.clone(),
+            task_tracker.clone(),
+            cancel.clone(),
+            sync_hash,
+            shard_id,
+            part_id,
+            num_parts,
+            state_root,
+            epoch_id,
+            PROTOCOL_VERSION,
+        )
+        .await
+        .unwrap();
+
+        // Should be applied
+        assert_eq!(result, StatePartApplyResult::Applied);
+
+        // Part should be marked as applied in store
+        assert!(store.exists(DBCol::StatePartsApplied, &key_bytes).unwrap());
+
+        // Try to apply the state part again
+        let result = apply_state_part(
+            store.clone(),
+            runtime.clone(),
+            task_tracker.clone(),
+            cancel.clone(),
+            sync_hash,
+            shard_id,
+            part_id,
+            num_parts,
+            state_root,
+            epoch_id,
+            PROTOCOL_VERSION,
+        )
+        .await
+        .unwrap();
+
+        // Should be skipped
+        assert_eq!(result, StatePartApplyResult::AlreadyApplied);
+    }
 }

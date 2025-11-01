@@ -4,7 +4,7 @@ use super::interface::{
 };
 use super::squash::GenericTrieUpdateSquash;
 use crate::NibbleSlice;
-use crate::trie::AccessOptions;
+use crate::trie::{AccessOptions, NUM_CHILDREN};
 use near_primitives::errors::StorageError;
 
 pub(crate) trait GenericTrieUpdateInsertDelete<'a, N, V>:
@@ -123,7 +123,7 @@ where
                     } else if common_prefix == 0 {
                         // Convert the leaf to an equivalent branch. We are not adding
                         // the new branch yet; that will be done in the next iteration.
-                        let mut children = Box::<[_; 16]>::default();
+                        let mut children = Box::<[_; NUM_CHILDREN]>::default();
                         let children_memory_usage;
                         let branch_node = if existing_key.is_empty() {
                             // Existing key being empty means the old value now lives at the branch.
@@ -216,7 +216,7 @@ where
                             GenericNodeOrIndex::Updated(self.place_node(inner_child))
                         };
 
-                        let mut children = Box::<[_; 16]>::default();
+                        let mut children = Box::<[_; NUM_CHILDREN]>::default();
                         children[idx as usize] = Some(child);
                         let branch_node = GenericUpdatedTrieNode::Branch { children, value: None };
                         let branch_memory_usage =

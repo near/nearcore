@@ -9,7 +9,7 @@ use near_epoch_manager::{
 };
 use near_primitives::{
     errors::EpochError,
-    types::{BlockHeight, Gas, ProtocolVersion, ShardId, StateRoot, chunk_extra::ChunkExtra},
+    types::{BlockHeight, Gas, ShardId, StateRoot, chunk_extra::ChunkExtra},
 };
 use near_store::{ShardUId, Store};
 use nearcore::{NearConfig, NightshadeRuntime, NightshadeRuntimeExt};
@@ -62,7 +62,7 @@ pub fn load_trie_stop_at_height(
     };
     let shard_layout = epoch_manager.get_shard_layout(&block.header().epoch_id()).unwrap();
     let mut state_roots = vec![];
-    for chunk in block.chunks().iter_deprecated() {
+    for chunk in block.chunks().iter() {
         let shard_uid = ShardUId::from_shard_id_and_layout(chunk.shard_id(), &shard_layout);
         let chunk_extra = chain_store.get_chunk_extra(&head.last_block_hash, &shard_uid).unwrap();
         let state_root = *chunk_extra.state_root();
@@ -73,7 +73,7 @@ pub fn load_trie_stop_at_height(
 }
 
 /// find the first final block whose height is at least `height`.
-fn get_last_final_from_height(height: u64, head: &Tip, chain_store: &ChainStore) -> Block {
+fn get_last_final_from_height(height: u64, head: &Tip, chain_store: &ChainStore) -> Arc<Block> {
     let mut cur_height = height + 1;
     loop {
         if cur_height >= head.height {
@@ -141,14 +141,9 @@ fn chunk_extras_equal(l: &ChunkExtra, r: &ChunkExtra) -> bool {
     l.validator_proposals().collect::<Vec<_>>() == r.validator_proposals().collect::<Vec<_>>()
 }
 
-pub fn resulting_chunk_extra(
-    result: &ApplyChunkResult,
-    gas_limit: Gas,
-    protocol_version: ProtocolVersion,
-) -> ChunkExtra {
+pub fn resulting_chunk_extra(result: &ApplyChunkResult, gas_limit: Gas) -> ChunkExtra {
     let (outcome_root, _) = ApplyChunkResult::compute_outcomes_proof(&result.outcomes);
     ChunkExtra::new(
-        protocol_version,
         &result.new_root,
         outcome_root,
         result.validator_proposals.clone(),
@@ -169,15 +164,11 @@ pub fn check_apply_block_result(
 ) -> anyhow::Result<()> {
     let height = block.header().height();
     let block_hash = block.header().hash();
-    let protocol_version = block.header().latest_protocol_version();
     let epoch_id = block.header().epoch_id();
     let shard_layout = epoch_manager.get_shard_layout(epoch_id).unwrap();
     let shard_index = shard_layout.get_shard_index(shard_id).map_err(Into::<EpochError>::into)?;
-    let new_chunk_extra = resulting_chunk_extra(
-        apply_result,
-        block.chunks()[shard_index].gas_limit(),
-        protocol_version,
-    );
+    let new_chunk_extra =
+        resulting_chunk_extra(apply_result, block.chunks()[shard_index].gas_limit());
     println!(
         "apply chunk for shard {} at height {}, resulting chunk extra {:?}",
         shard_id, height, &new_chunk_extra,

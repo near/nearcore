@@ -18,13 +18,13 @@ bitvec.workspace = true
 borsh.workspace = true
 bytesize.workspace = true
 bytes.workspace = true
-cfg-if.workspace = true
 chrono.workspace = true
 derive_more = { workspace = true, features = [
-  "as_ref",
-  "from",
-  "into",
-  "deref",
+    "as_ref",
+    "from",
+    "into",
+    "deref",
+    "display",
 ] }
 easy-ext.workspace = true
 hex.workspace = true
@@ -38,7 +38,9 @@ reed-solomon-erasure = { workspace = true, optional = true }
 serde.workspace = true
 serde_json.workspace = true
 serde_with.workspace = true
+schemars = { workspace = true, optional = true }
 sha3.workspace = true
+smallvec = { workspace = true, features = ["write"] }
 smart-default.workspace = true
 stdx.workspace = true
 strum.workspace = true
@@ -61,13 +63,23 @@ test_utils = []
 solomon = ["reed-solomon-erasure"]
 rand = ["dep:rand", "rand_chacha", "near-crypto/rand"]
 clock = ["near-time/clock", "near-time/serde"]
+schemars = [
+    "dep:schemars",
+    "near-primitives/schemars",
+    "near-primitives-core/schemars",
+    "near-parameters/schemars",
+    "near-time/schemars",
+    "near-crypto/schemars",
+]
 
 nightly = [
-  "near-fmt/nightly",
-  "near-parameters/nightly",
-  "near-primitives-core/nightly",
-  "near-primitives/nightly",
+    "near-fmt/nightly",
+    "near-parameters/nightly",
+    "near-primitives-core/nightly",
+    "near-primitives/nightly",
 ]
+
+protocol_feature_spice = []
 
 calimero_zero_storage = []
 
@@ -76,10 +88,10 @@ protocol_schema = ["near-schema-checker-lib/protocol_schema"]
 [dev-dependencies]
 chrono = { workspace = true, features = ["clock"] }
 near-primitives = { path = ".", features = [
-  "clock",
-  "solomon",
-  "rand",
-  "test_utils",
+    "clock",
+    "solomon",
+    "rand",
+    "test_utils",
 ] }
 assert_matches.workspace = true
 bencher.workspace = true
@@ -88,7 +100,4 @@ insta.workspace = true
 expect-test.workspace = true
 regex.workspace = true
 tempfile.workspace = true
-
-[[bench]]
-name = "serialization"
-harness = false
+criterion.workspace = true

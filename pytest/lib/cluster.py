@@ -4,6 +4,8 @@ import copy
 import json
 import os
 import pathlib
+from typing import Optional
+
 import rc
 from geventhttpclient import Session, useragent
 import shutil
@@ -16,9 +18,14 @@ import traceback
 import typing
 import uuid
 from rc import gcloud
+from rc.machine import Machine
 from retrying import retry
 
 import base58
+
+# Google Cloud Compute API imports
+from google.cloud import compute_v1
+from google.cloud.compute_v1.types import AggregatedListInstancesRequest, Instance
 
 import network
 from configured_logger import logger
@@ -271,6 +278,13 @@ class BaseNode(object):
                              [base64.b64encode(signed_tx).decode('utf8')],
                              timeout=timeout)
 
+    def send_tx_and_wait_until(self, signed_tx, wait_until, timeout):
+        params = {
+            'signed_tx_base64': base64.b64encode(signed_tx).decode('utf8'),
+            "wait_until": wait_until
+        }
+        return self.json_rpc('send_tx', params, timeout=timeout)
+
     def get_status(self,
                    check_storage: bool = True,
                    timeout: float = 4,
@@ -295,6 +309,10 @@ class BaseNode(object):
         return r.content
 
     def get_latest_block(self, **kw) -> BlockId:
+        """
+        Get the hash and height of the latest block.
+        If you need the whole block info, use `.get_block_by_finality('optimistic')`
+        """
         sync_info = self.get_status(**kw)['sync_info']
         return BlockId(height=sync_info['latest_block_height'],
                        hash=sync_info['latest_block_hash'])
@@ -382,6 +400,15 @@ class BaseNode(object):
                 "finality": finality
             })
 
+    def get_access_key(self, account_id, public_key, finality='optimistic'):
+        return self.json_rpc(
+            'query', {
+                "request_type": "view_access_key",
+                "account_id": account_id,
+                "public_key": public_key,
+                "finality": finality
+            })
+
     def wait_at_least_one_block(self):
         start_height = self.get_latest_block().height
         timeout_sec = 5
@@ -406,10 +433,40 @@ class BaseNode(object):
         return self.json_rpc('block', {'block_id': block_height}, **kwargs)
 
     def get_final_block(self, **kwargs):
-        return self.json_rpc('block', {'finality': 'final'}, **kwargs)
+        return self.get_block_by_finality('final')
+
+    def get_block_by_finality(self, finality, **kwargs):
+        assert finality in ('final', 'optimistic'), \
+            f"invalid finality value: {finality}"
+        return self.json_rpc('block', {'finality': finality}, **kwargs)
 
     def get_chunk(self, chunk_id):
         return self.json_rpc('chunk', [chunk_id])
+
+    def get_prev_epoch_id(self) -> str:
+        """ Get ID of the previous epoch. """
+        latest_block = self.get_block_by_finality('optimistic')['result']
+        next_epoch_id = latest_block['header']['next_epoch_id']
+        # Next epoch ID is a hash of some block from the previous epoch
+        return self.get_epoch_id(block_hash=next_epoch_id)
+
+    def get_epoch_id(
+        self,
+        block_height: Optional[int] = None,
+        block_hash: Optional[str] = None,
+    ) -> str:
+        """
+        Get epoch ID for a given block (either by block height or hash).
+        If neither height nor hash is given, return the current epoch ID.
+        """
+        assert block_height is None or block_hash is None, "use either height or has, not both"
+        if block_height is not None:
+            block = self.get_block_by_height(block_height)['result']
+        elif block_hash is not None:
+            block = self.get_block(block_hash)['result']
+        else:
+            block = self.get_block_by_finality('optimistic')['result']
+        return block['header']['epoch_id']
 
     # Get the transaction status.
     #
@@ -425,11 +482,19 @@ class BaseNode(object):
             max_retries=0,
         )
 
+    def get_block_effects(self, changes_in_block_request):
+        return self.json_rpc('block_effects', changes_in_block_request)
+
+    # `EXPERIMENTAL_changes_in_block` is deprecated as of 2.8, use `get_block_effects` instead
     def get_changes_in_block(self, changes_in_block_request):
         return self.json_rpc('EXPERIMENTAL_changes_in_block',
                              changes_in_block_request)
 
     def get_changes(self, changes_request):
+        return self.json_rpc('changes', changes_request)
+
+    # `EXPERIMENTAL_changes` is deprecated as of 2.7, use `get_changes` test instead
+    def get_experimental_changes(self, changes_request):
         return self.json_rpc('EXPERIMENTAL_changes', changes_request)
 
     def validators(self):
@@ -504,7 +569,7 @@ class LocalNode(BaseNode):
         self.change_config({
             'network': {
                 'addr': f'0.0.0.0:{port}',
-                'blacklist': blacklist
+                'blacklist': list(blacklist)
             },
             'rpc': {
                 'addr': f'0.0.0.0:{rpc_port}',
@@ -576,7 +641,7 @@ class LocalNode(BaseNode):
 
         env = os.environ.copy()
         env["RUST_BACKTRACE"] = "1"
-        env["RUST_LOG"] = "actix_web=warn,mio=warn,tokio_util=warn,actix_server=warn,actix_http=warn," + env.get(
+        env["RUST_LOG"] = "mio=warn,tokio_util=warn," + env.get(
             "RUST_LOG", "debug")
         env.update(extra_env)
         node_dir = pathlib.Path(self.node_dir)
@@ -663,24 +728,82 @@ class LocalNode(BaseNode):
 
 class GCloudNode(BaseNode):
 
+    @staticmethod
+    @retry(wait_fixed=500, stop_max_attempt_number=6)
+    def get_nodes_by_mocknet_id(mocknet_id,
+                                project,
+                                username,
+                                ssh_key_path=None):
+        """
+        Get all instances with the specified mocknet_id label.
+
+        Args:
+            mocknet_id: The mocknet_id label value to filter by
+            project: Google Cloud project ID
+            username: SSH username for the instances
+            ssh_key_path: Path to SSH key file
+
+        Returns:
+            List of GCloudNode instances
+        """
+        if ssh_key_path is None:
+            ssh_key_path = gcloud.SSH_KEY_PATH
+
+        # Initialize the Compute Engine client
+        client = compute_v1.InstancesClient()
+
+        # Use aggregated list to search across all zones efficiently
+        request = compute_v1.AggregatedListInstancesRequest(
+            project=project, filter=f'labels.mocknet_id={mocknet_id}')
+
+        instances = []
+
+        logger.info(
+            f"Searching for instances with mocknet_id={mocknet_id} in project={project} (all zones)"
+        )
+
+        # Use the aggregated list iterator to handle pagination automatically
+        for zone_name, zone_data in client.aggregated_list(request=request):
+            # aggregated_list returns (zone_name, zone_data) tuples
+            if hasattr(zone_data, 'instances') and zone_data.instances:
+                for instance in zone_data.instances:
+                    machine = Machine(
+                        name=instance.name,
+                        provider=gcloud.gcloud_provider,
+                        ip=instance.network_interfaces[0].access_configs[0].
+                        nat_i_p if instance.network_interfaces else None,
+                        username=username,
+                        project=project,
+                        ssh_key_path=ssh_key_path)
+                    instances.append(
+                        GCloudNode(machine).with_instance_info(instance))
+
+        logger.info(
+            f"Found {len(instances)} instances with mocknet_id={mocknet_id}")
+        return instances
+
     def __init__(self, *args, username=None, project=None, ssh_key_path=None):
+        self.port = 24567
+        self.rpc_port = 3030
+        # Everything you need to know about the GCloud instance
+        self.gcloud_instance = None
         if len(args) == 1:
-            name = args[0]
             # Get existing instance assume it's ready to run.
-            self.instance_name = name
-            self.port = 24567
-            self.rpc_port = 3030
-            self.machine = gcloud.get(name,
-                                      username=username,
-                                      project=project,
-                                      ssh_key_path=ssh_key_path)
+            if isinstance(args[0], Machine):
+                self.machine = args[0]
+            elif isinstance(args[0], str):
+                name = args[0]
+                self.machine = gcloud.get(name,
+                                          username=username,
+                                          project=project,
+                                          ssh_key_path=ssh_key_path)
+            self.instance_name = self.machine.name
             self.ip = self.machine.ip
         elif len(args) == 4:
             # Create new instance from scratch
             instance_name, zone, node_dir, binary = args
             self.instance_name = instance_name
-            self.port = 24567
-            self.rpc_port = 3030
+
             self.node_dir = node_dir
             self.machine = gcloud.create(
                 name=instance_name,
@@ -714,6 +837,31 @@ class GCloudNode(BaseNode):
             os.path.join(node_dir, "node_key.json"))
         self.signer_key = Key.from_json_file(
             os.path.join(node_dir, "validator_key.json"))
+
+    def with_instance_info(self, instance: Instance):
+        self.gcloud_instance = instance
+        return self
+
+    def get_label(self, label_name: str) -> str:
+        """
+        Get a specific label value.
+        This is the cached information from the GCloud instance.
+
+        Args:
+            label_name: The name of the label to retrieve
+
+        Returns:
+            The label value as a string, or None if the label doesn't exist
+        """
+        try:
+            if self.gcloud_instance and hasattr(self.gcloud_instance, 'labels'):
+                # labels is MutableMapping[str, str] - access like a dictionary
+                return self.gcloud_instance.labels.get(label_name)
+            return None
+        except Exception as e:
+            logger.error(
+                f"Failed to get label '{label_name}' from instance: {e}")
+            return None
 
     @retry(wait_fixed=1000, stop_max_attempt_number=3)
     def _download_binary(self, binary):
@@ -796,16 +944,19 @@ chmod +x neard
                             f'/home/{self.machine.username}/.near/')
 
 
-def spin_up_node(config,
-                 near_root,
-                 node_dir,
-                 ordinal,
-                 *,
-                 boot_node: BootNode = None,
-                 blacklist=[],
-                 proxy=None,
-                 skip_starting_proxy=False,
-                 single_node=False) -> BaseNode:
+def spin_up_node(
+    config,
+    near_root,
+    node_dir,
+    ordinal,
+    *,
+    boot_node: BootNode = None,
+    blacklist=(),
+    proxy=None,
+    skip_starting_proxy=False,
+    single_node=False,
+    sleep_after_start=3,
+) -> BaseNode:
     is_local = config['local']
 
     args = make_boot_nodes_arg(boot_node)
@@ -845,7 +996,7 @@ def spin_up_node(config,
         proxy.proxify_node(node)
 
     node.start(boot_node=boot_node, skip_starting_proxy=skip_starting_proxy)
-    time.sleep(3)
+    time.sleep(sleep_after_start)
     logger.info(f"node {ordinal} started")
     return node
 
@@ -933,7 +1084,8 @@ def init_cluster(
     # apply config changes
     for i, node_dir in enumerate(node_dirs):
         apply_genesis_changes(node_dir, genesis_config_changes)
-        overrides = client_config_changes.get(i)
+        overrides = client_config_changes.get(i,
+                                              DEFAULT_CLIENT_CONFIG_OVERRIDES)
         if overrides:
             apply_config_changes(node_dir, overrides)
 
@@ -1029,6 +1181,7 @@ def apply_config_changes(node_dir: str,
         'max_gas_burnt_view',
         'rosetta_rpc',
         'save_trie_changes',
+        'save_tx_outcomes',
         'split_storage',
         'state_sync',
         'state_sync_enabled',
@@ -1043,7 +1196,8 @@ def apply_config_changes(node_dir: str,
     for k, v in client_config_change.items():
         if not (k in allowed_missing_configs or k in config_json):
             raise ValueError(f'Unknown configuration option: {k}')
-        if k in config_json and isinstance(v, dict):
+        if k in config_json and isinstance(config_json[k], dict) and isinstance(
+                v, dict):
             config_json[k].update(v)
         else:
             # Support keys in the form of "a.b.c".
@@ -1159,6 +1313,10 @@ DEFAULT_CONFIG: Config = {
     'release': False,
 }
 CONFIG_ENV_VAR = 'NEAR_PYTEST_CONFIG'
+DEFAULT_CLIENT_CONFIG_OVERRIDES = {
+    'save_tx_outcomes':
+        True,  # Allow querying transaction outcomes in tests by default.
+}
 
 
 def load_config() -> Config:

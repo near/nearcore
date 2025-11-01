@@ -1,4 +1,4 @@
-pub(crate) use adapter::ChainStateSyncAdapter;
+pub use adapter::ChainStateSyncAdapter;
 pub(crate) use utils::update_sync_hashes;
 
 mod adapter;

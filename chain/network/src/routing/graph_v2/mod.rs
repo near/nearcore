@@ -1,22 +1,20 @@
-use crate::concurrency::runtime::Runtime;
 use crate::network_protocol;
 use crate::network_protocol::{AdvertisedPeerDistance, Edge, EdgeState};
 use crate::routing::edge_cache::EdgeCache;
 use crate::routing::routing_table_view::RoutingTableView;
 use crate::stats::metrics;
 use arc_swap::ArcSwap;
-use near_async::time;
+use near_async::time::{self, Clock};
 use near_primitives::network::PeerId;
 use near_primitives::views::{EdgeView, NetworkRoutesView, PeerDistancesView};
 use parking_lot::Mutex;
 use std::collections::VecDeque;
 use std::collections::{HashMap, HashSet};
-use std::sync::Arc;
+use std::sync::{Arc, Weak};
 
-#[cfg(not(test))]
-use crate::concurrency;
-#[cfg(not(test))]
-use rayon::iter::ParallelBridge;
+use near_async::messaging::{Actor, CanSendAsync, Handler, Message};
+use near_async::multithread::MultithreadRuntimeHandle;
+use near_async::new_owned_multithread_actor;
 
 #[cfg(test)]
 mod testonly;
@@ -99,16 +97,19 @@ impl Inner {
             }
         }
 
-        // Verify the new edges in parallel on rayon.
         // Stop at first invalid edge.
-        let (verified_edges, ok) = concurrency::rayon::run_blocking(move || {
-            concurrency::rayon::try_map(unverified_edges.into_iter().par_bridge(), |e| {
-                if e.verify() { Some(e) } else { None }
-            })
-        });
+        let mut valid_edges = Vec::<Edge>::new();
+        let mut ok = true;
+        for edge in &edges {
+            if !edge.verify() {
+                ok = false;
+                break;
+            }
+            valid_edges.push(edge.clone());
+        }
 
         // Store the verified nonces in the cache
-        verified_edges.iter().for_each(|e| self.edge_cache.write_verified_nonce(e));
+        valid_edges.iter().for_each(|e| self.edge_cache.write_verified_nonce(e));
 
         ok
     }
@@ -632,12 +633,11 @@ pub(crate) struct GraphV2 {
     inner: Arc<Mutex<Inner>>,
     unreliable_peers: ArcSwap<HashSet<PeerId>>,
     pub routing_table: RoutingTableView,
-
-    runtime: Runtime,
+    updater: MultithreadRuntimeHandle<GraphV2Actor>,
 }
 
 impl GraphV2 {
-    pub fn new(config: GraphConfigV2) -> Self {
+    pub fn new(clock: Clock, config: GraphConfigV2) -> Arc<Self> {
         let local_node = config.node_id.clone();
         let edge_cache = EdgeCache::new(local_node.clone());
 
@@ -650,34 +650,32 @@ impl GraphV2 {
             edges: vec![],
         };
 
-        Self {
+        let inner = Arc::new(Mutex::new(Inner {
+            config,
+            edge_cache,
+            local_edges: HashMap::new(),
+            peer_distances: HashMap::new(),
+            my_distances: HashMap::from([(local_node, 0)]),
+            my_distance_vector,
+        }));
+
+        Arc::new_cyclic(|weak| Self {
+            inner: inner.clone(),
             routing_table: RoutingTableView::new(),
-            inner: Arc::new(Mutex::new(Inner {
-                config,
-                edge_cache,
-                local_edges: HashMap::new(),
-                peer_distances: HashMap::new(),
-                my_distances: HashMap::from([(local_node, 0)]),
-                my_distance_vector,
-            })),
             unreliable_peers: ArcSwap::default(),
-            runtime: Runtime::new(),
-        }
+            updater: new_owned_multithread_actor(1, {
+                let weak = weak.clone();
+                move || GraphV2Actor {
+                    graph: weak.clone(),
+                    clock: clock.clone(),
+                    inner: inner.clone(),
+                }
+            }),
+        })
     }
 
     pub fn set_unreliable_peers(&self, unreliable_peers: HashSet<PeerId>) {
         self.unreliable_peers.store(Arc::new(unreliable_peers));
-    }
-
-    /// Logs the given batch of updates and the results from processing them.
-    fn write_event_logs(updates: &Vec<NetworkTopologyChange>, oks: &Vec<bool>) {
-        for (update, &ok) in updates.iter().zip(oks) {
-            if ok {
-                tracing::debug!(target: "routing", "Processed event {:?}", update);
-            } else {
-                tracing::debug!(target: "routing", "Rejected invalid distance vector {:?}", update);
-            }
-        }
     }
 
     /// Accepts and processes a batch of NetworkTopologyChanges.
@@ -691,42 +689,10 @@ impl GraphV2 {
     /// * distance_vector is an Option<DistanceVector> to be broadcasted
     /// * oks.len() == distance_vectors.len() and oks[i] is true iff distance_vectors[i] was valid
     pub async fn batch_process_network_changes(
-        self: &Arc<Self>,
-        clock: &time::Clock,
+        &self,
         updates: Vec<NetworkTopologyChange>,
     ) -> (Option<network_protocol::DistanceVector>, Vec<bool>) {
-        tracing::debug!(
-            target: "routing",
-            length = updates.len(),
-            "Processing a batch of network topology changes",
-        );
-
-        // TODO(saketh): Consider whether we can move this to rayon.
-        let this = self.clone();
-        let clock = clock.clone();
-        self.runtime
-            .handle
-            .spawn_blocking(move || {
-                let mut inner = this.inner.lock();
-
-                let oks: Vec<bool> = updates
-                    .iter()
-                    .map(|update| inner.handle_network_change(&clock, update))
-                    .collect();
-
-                Self::write_event_logs(&updates, &oks);
-
-                let (next_hops, to_broadcast) =
-                    inner.compute_routes(&clock, &this.unreliable_peers.load());
-
-                this.routing_table.update(next_hops.into(), Arc::new(inner.my_distances.clone()));
-
-                inner.log_state();
-
-                (to_broadcast, oks)
-            })
-            .await
-            .unwrap()
+        self.updater.send_async(NetworkChanges(updates)).await.unwrap()
     }
 
     pub(crate) fn get_debug_view(&self) -> NetworkRoutesView {
@@ -756,5 +722,59 @@ impl GraphV2 {
                 .collect(),
             my_distances: inner.my_distances.clone(),
         }
+    }
+}
+
+struct GraphV2Actor {
+    clock: Clock,
+    graph: Weak<GraphV2>,
+    inner: Arc<Mutex<Inner>>,
+}
+
+impl Actor for GraphV2Actor {}
+
+#[derive(Debug)]
+struct NetworkChanges(Vec<NetworkTopologyChange>);
+
+impl Message for NetworkChanges {}
+
+impl Handler<NetworkChanges, (Option<network_protocol::DistanceVector>, Vec<bool>)>
+    for GraphV2Actor
+{
+    fn handle(
+        &mut self,
+        msg: NetworkChanges,
+    ) -> (Option<network_protocol::DistanceVector>, Vec<bool>) {
+        tracing::debug!(
+            target: "routing",
+            length = msg.0.len(),
+            "Processing a batch of network topology changes",
+        );
+
+        let mut inner = self.inner.lock();
+        let oks: Vec<bool> =
+            msg.0.iter().map(|update| inner.handle_network_change(&self.clock, update)).collect();
+
+        // Logs the given batch of updates and the results from processing them.
+        for (update, ok) in msg.0.iter().zip(&oks) {
+            if *ok {
+                tracing::debug!(target: "routing", "Processed event {:?}", update);
+            } else {
+                tracing::debug!(target: "routing", "Rejected invalid distance vector {:?}", update);
+            }
+        }
+
+        let to_broadcast = if let Some(graph) = self.graph.upgrade() {
+            let (next_hops, to_broadcast) =
+                inner.compute_routes(&self.clock, &graph.unreliable_peers.load());
+
+            graph.routing_table.update(next_hops.into(), Arc::new(inner.my_distances.clone()));
+            to_broadcast
+        } else {
+            None
+        };
+        inner.log_state();
+
+        (to_broadcast, oks)
     }
 }

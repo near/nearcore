@@ -1,154 +1,226 @@
 use std::sync::Arc;
 
-use actix::Addr;
-use futures::{FutureExt, TryFutureExt, future, future::LocalBoxFuture};
-use integration_tests::env::setup::setup_no_network_with_validity_period;
-use near_async::{
-    actix::AddrWithAutoSpanContextExt,
-    messaging::{IntoMultiSender, noop},
-};
-use near_chain_configs::GenesisConfig;
-use near_client::ViewClientActor;
-use near_jsonrpc::{RpcConfig, start_http};
-use near_jsonrpc_primitives::{
-    message::{Message, from_slice},
-    types::entity_debug::DummyEntityDebugHandler,
-};
+use axum::Router;
+use axum_test::TestServer;
+use near_async::ActorSystem;
+use near_async::messaging::{IntoMultiSender, IntoSender, noop};
+use near_chain::ChainGenesis;
+use near_chain_configs::test_utils::TestClientConfigParams;
+use near_chain_configs::{ClientConfig, Genesis, MutableConfigValue, TrackedShardsConfig};
+use near_client::adversarial::Controls;
+use near_client::client_actor::SpiceClientConfig;
+use near_client::{RpcHandlerConfig, ViewClientActorInner, spawn_rpc_handler_actor, start_client};
+use near_crypto::{KeyType, PublicKey};
+use near_epoch_manager::{EpochManager, shard_tracker::ShardTracker};
+use near_jsonrpc::{RpcConfig, create_jsonrpc_app};
+use near_jsonrpc_primitives::types::entity_debug::DummyEntityDebugHandler;
 use near_network::tcp;
-use near_primitives::types::NumBlocks;
+use near_primitives::epoch_info::RngSeed;
+use near_primitives::network::PeerId;
+use near_primitives::test_utils::create_test_signer;
+use near_primitives::types::{AccountId, NumSeats};
+use near_store::genesis::initialize_genesis_state;
+use near_store::test_utils::create_test_store;
 use near_time::Clock;
-use serde_json::json;
+use nearcore::NightshadeRuntime;
 
-pub static TEST_GENESIS_CONFIG: std::sync::LazyLock<GenesisConfig> =
-    std::sync::LazyLock::new(|| {
-        GenesisConfig::from_json(include_str!("../res/genesis_config.json"))
-    });
+pub const TEST_SEED: RngSeed = [3; 32];
 
 pub enum NodeType {
     Validator,
     NonValidator,
 }
 
-pub fn start_all(
-    clock: Clock,
-    node_type: NodeType,
-) -> (Addr<ViewClientActor>, tcp::ListenerAddr, Arc<tempfile::TempDir>) {
-    start_all_with_validity_period(clock, node_type, 100, false)
+/// Simplified test setup struct that only exposes what tests need
+pub struct TestSetup {
+    pub app: Router,
+    pub server_addr: String,
+    pub tempdir: Arc<tempfile::TempDir>,
+    pub actor_system: Option<ActorSystem>,
+    _test_server: TestServer, // Keep server alive but don't expose it
 }
 
-pub fn start_all_with_validity_period(
-    clock: Clock,
-    node_type: NodeType,
-    transaction_validity_period: NumBlocks,
-    enable_doomslug: bool,
-) -> (Addr<ViewClientActor>, tcp::ListenerAddr, Arc<tempfile::TempDir>) {
-    let actor_handles = setup_no_network_with_validity_period(
-        clock,
-        vec!["test1".parse().unwrap()],
-        if let NodeType::Validator = node_type {
-            "test1".parse().unwrap()
-        } else {
-            "other".parse().unwrap()
-        },
-        true,
-        transaction_validity_period,
-        enable_doomslug,
+impl Drop for TestSetup {
+    fn drop(&mut self) {
+        self.actor_system.take().unwrap().stop();
+    }
+}
+
+/// Create a minimal test setup with real Near actors but simplified infrastructure
+///
+/// This function creates:
+/// - Real ClientActor, ViewClientActor, and RpcHandlerActor (no mocking)
+/// - Axum Router for testing (no TCP binding)
+/// - TestServer for in-memory HTTP testing
+/// - Minimal dependencies (no complex network mocking)
+///
+/// # Parameters
+/// * `node_type` - Whether to create a validator or non-validator node
+pub fn create_test_setup_with_node_type(node_type: NodeType) -> TestSetup {
+    let validator_account: AccountId = "test1".parse().unwrap();
+    let current_account = match node_type {
+        NodeType::Validator => validator_account.clone(),
+        NodeType::NonValidator => "other".parse().unwrap(),
+    };
+    let all_accounts =
+        ["test1", "test", "test2"].iter().map(|s| s.parse().unwrap()).collect::<Vec<AccountId>>();
+    create_test_setup_with_accounts_and_validity(
+        all_accounts,
+        validator_account,
+        current_account,
+        100,
+    )
+}
+
+/// Create test setup with multiple accounts and custom transaction validity period
+pub fn create_test_setup_with_accounts_and_validity(
+    all_accounts: Vec<AccountId>,
+    validator_account: AccountId,
+    current_account: AccountId,
+    transaction_validity_period: u64,
+) -> TestSetup {
+    // 1. Create foundation components
+    let store = create_test_store();
+    let validators = [validator_account];
+    let num_validator_seats = validators.len() as NumSeats;
+
+    // Create genesis with all specified accounts
+    let mut genesis = Genesis::test(all_accounts, num_validator_seats);
+    genesis.config.epoch_length = 10; // Short epochs for faster tests
+
+    initialize_genesis_state(store.clone(), &genesis, None);
+
+    let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config, None);
+
+    // 2. Create runtime
+    let tempdir = tempfile::TempDir::new().expect("Failed to create temp directory");
+    let runtime =
+        NightshadeRuntime::test(tempdir.path(), store, &genesis.config, epoch_manager.clone());
+
+    // 3. Create chain genesis with custom transaction validity period
+    let chain_genesis = ChainGenesis::new(&genesis.config);
+
+    // 4. Create actor system and signer
+    let actor_system = ActorSystem::new();
+    let signer = MutableConfigValue::new(
+        Some(Arc::new(create_test_signer(current_account.as_str()))),
+        "validator_signer",
     );
 
-    let addr = tcp::ListenerAddr::reserve_for_test();
-    start_http(
-        RpcConfig::new(addr),
-        TEST_GENESIS_CONFIG.clone(),
-        actor_handles.client_actor.clone().with_auto_span_context().into_multi_sender(),
-        actor_handles.view_client_actor.clone().with_auto_span_context().into_multi_sender(),
-        actor_handles.rpc_handler_actor.clone().with_auto_span_context().into_multi_sender(),
+    let shard_tracker =
+        ShardTracker::new(TrackedShardsConfig::AllShards, epoch_manager.clone(), signer.clone());
+
+    // 5. Create shared client config
+    let client_config = ClientConfig::test(TestClientConfigParams {
+        skip_sync_wait: true,
+        min_block_prod_time: 100,
+        max_block_prod_time: 200,
+        num_block_producer_seats: num_validator_seats,
+        archive: false,
+        state_sync_enabled: true,
+    });
+
+    // 6. Create ViewClientActor
+    let adv = Controls::default();
+    let view_client_actor = ViewClientActorInner::spawn_multithread_actor(
+        Clock::real(),
+        actor_system.clone(),
+        chain_genesis.clone(),
+        epoch_manager.clone(),
+        shard_tracker.clone(),
+        runtime.clone(),
+        noop().into_multi_sender(),
+        client_config.clone(),
+        adv.clone(),
+        signer.clone(),
+    );
+
+    // 7. Create ClientActor
+    let client_result = start_client(
+        Clock::real(),
+        actor_system.clone(),
+        client_config.clone(),
+        chain_genesis,
+        epoch_manager.clone(),
+        shard_tracker.clone(),
+        runtime.clone(),
+        PeerId::new(PublicKey::empty(KeyType::ED25519)),
+        actor_system.new_future_spawner("state sync").into(),
+        noop().into_multi_sender(),
+        noop().into_sender(),
+        signer.clone(),
+        noop().into_sender(),
+        None,
+        None,
+        adv,
+        None,
+        noop().into_multi_sender(),
+        true,
+        Some(TEST_SEED),
+        noop().into_multi_sender(),
+        SpiceClientConfig {
+            chunk_executor_sender: noop().into_sender(),
+            spice_chunk_validator_sender: noop().into_sender(),
+            spice_data_distributor_sender: noop().into_sender(),
+            spice_core_writer_sender: noop().into_sender(),
+        },
+    );
+
+    // 8. Create RpcHandlerActor
+    let rpc_handler_config = RpcHandlerConfig {
+        handler_threads: client_config.transaction_request_handler_threads,
+        tx_routing_height_horizon: client_config.tx_routing_height_horizon,
+        epoch_length: client_config.epoch_length,
+        transaction_validity_period,
+    };
+
+    let rpc_handler_actor = spawn_rpc_handler_actor(
+        actor_system.clone(),
+        rpc_handler_config,
+        client_result.tx_pool,
+        client_result.chunk_endorsement_tracker,
+        epoch_manager,
+        shard_tracker,
+        signer,
+        runtime,
+        noop().into_multi_sender(),
+    );
+
+    // 9. Create Axum Router
+    let rpc_config = RpcConfig {
+        addr: tcp::ListenerAddr::reserve_for_test(), // Reserve a test address (won't be used)
+        prometheus_addr: None,                       // No prometheus needed for testing
+        cors_allowed_origins: vec!["*".to_string()],
+        polling_config: Default::default(),
+        limits_config: Default::default(),
+        enable_debug_rpc: false,
+        experimental_debug_pages_src_path: None,
+    };
+
+    let app = create_jsonrpc_app(
+        rpc_config,
+        genesis.config,
+        client_result.client_actor.into_multi_sender(),
+        view_client_actor.into_multi_sender(),
+        rpc_handler_actor.into_multi_sender(),
         noop().into_multi_sender(),
         #[cfg(feature = "test_features")]
         noop().into_multi_sender(),
         Arc::new(DummyEntityDebugHandler {}),
     );
-    // setup_no_network_with_validity_period should use runtime_tempdir together with real runtime.
-    (actor_handles.view_client_actor, addr, actor_handles.runtime_tempdir.unwrap())
-}
 
-#[macro_export]
-macro_rules! test_with_client {
-    ($node_type:expr, $client:ident, $block:expr) => {
-        init_test_logger();
+    // 10. Create TestServer with real HTTP transport to get an address
+    let test_server = TestServer::builder()
+        .http_transport()
+        .build(app.clone())
+        .expect("Failed to create TestServer");
+    let server_addr = test_server.server_address().unwrap().to_string();
 
-        near_actix_test_utils::run_actix(async {
-            let (_view_client_addr, addr, _runtime_tempdir) =
-                test_utils::start_all(near_time::Clock::real(), $node_type);
-
-            let $client = new_client(&format!("http://{}", addr));
-
-            actix::spawn(async move {
-                // If runtime tempdir is dropped some parts of the runtime would stop working.
-                let _runtime_tempdir = _runtime_tempdir;
-                $block.await;
-                System::current().stop();
-            });
-        });
-    };
-}
-
-type RpcRequest<T> = LocalBoxFuture<'static, Result<T, near_jsonrpc_primitives::errors::RpcError>>;
-
-/// Prepare a `RPCRequest` with a given client, server address, method and parameters.
-pub fn call_method<R>(
-    client: &awc::Client,
-    server_addr: &str,
-    method: &str,
-    params: serde_json::Value,
-) -> RpcRequest<R>
-where
-    R: serde::de::DeserializeOwned + 'static,
-{
-    let request = json!({
-        "jsonrpc": "2.0",
-        "method": method,
-        "id": "dontcare",
-        "params": params,
-    });
-    // TODO: simplify this.
-    client
-        .post(server_addr)
-        .insert_header(("Content-Type", "application/json"))
-        .send_json(&request)
-        .map_err(|err| {
-            near_jsonrpc_primitives::errors::RpcError::new_internal_error(
-                None,
-                format!("{:?}", err),
-            )
-        })
-        .and_then(|mut response| {
-            response.body().map(|body| match body {
-                Ok(bytes) => from_slice(&bytes).map_err(|err| {
-                    near_jsonrpc_primitives::errors::RpcError::parse_error(format!(
-                        "Error {:?} in {:?}",
-                        err, bytes
-                    ))
-                }),
-                Err(err) => Err(near_jsonrpc_primitives::errors::RpcError::parse_error(format!(
-                    "Failed to retrieve payload: {:?}",
-                    err
-                ))),
-            })
-        })
-        .and_then(|message| {
-            future::ready(match message {
-                Message::Response(resp) => resp.result.and_then(|x| {
-                    serde_json::from_value(x).map_err(|err| {
-                        near_jsonrpc_primitives::errors::RpcError::parse_error(format!(
-                            "Failed to parse: {:?}",
-                            err
-                        ))
-                    })
-                }),
-                _ => Err(near_jsonrpc_primitives::errors::RpcError::parse_error(
-                    "Failed to parse JSON RPC response".to_string(),
-                )),
-            })
-        })
-        .boxed_local()
+    TestSetup {
+        app,
+        server_addr,
+        tempdir: Arc::new(tempdir),
+        actor_system: Some(actor_system),
+        _test_server: test_server,
+    }
 }

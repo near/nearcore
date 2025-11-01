@@ -1,3 +1,4 @@
+use crate::adapter::StoreUpdateAdapter;
 use crate::adapter::trie_store::get_shard_uid_mapping;
 use crate::columns::DBKeyType;
 use crate::db::{COLD_HEAD_KEY, ColdDB, HEAD_KEY};
@@ -6,11 +7,11 @@ use crate::{DBCol, DBTransaction, Database, Store, TrieChanges, metrics};
 use borsh::BorshDeserialize;
 use near_primitives::block::{Block, BlockHeader, Tip};
 use near_primitives::hash::CryptoHash;
-use near_primitives::shard_layout::ShardLayout;
+use near_primitives::shard_layout::{ShardLayout, ShardUId};
 use near_primitives::sharding::ShardChunk;
-use near_primitives::types::BlockHeight;
+use near_primitives::types::{BlockHeight, ShardId};
 use rayon::prelude::{IntoParallelIterator, ParallelIterator};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::io;
 use std::sync::Arc;
 use strum::IntoEnumIterator;
@@ -79,8 +80,9 @@ pub fn update_cold_db(
     cold_db: &ColdDB,
     hot_store: &Store,
     shard_layout: &ShardLayout,
+    tracked_shards: &Vec<ShardUId>,
     height: &BlockHeight,
-    is_last_block_in_epoch: bool,
+    is_resharding_boundary: bool,
     num_threads: usize,
 ) -> io::Result<()> {
     let _span = tracing::debug_span!(target: "cold_store", "update cold db", height = height);
@@ -91,16 +93,11 @@ pub fn update_cold_db(
     let block_hash_key = block_hash_vec.as_slice();
 
     let key_type_to_keys =
-        get_keys_from_store(&hot_store, shard_layout, &height_key, block_hash_key)?;
+        get_keys_from_store(&hot_store, shard_layout, tracked_shards, &height_key, block_hash_key)?;
     let columns_to_update = DBCol::iter()
         .filter(|col| {
-            if !col.is_cold() {
-                return false;
-            }
-            if col == &DBCol::StateShardUIdMapping && !is_last_block_in_epoch {
-                return false;
-            }
-            true
+            // DBCol::StateShardUIdMapping is handled separately
+            col.is_cold() && col != &DBCol::StateShardUIdMapping
         })
         .collect::<Vec<DBCol>>();
 
@@ -115,7 +112,16 @@ pub fn update_cold_db(
                 // Copy column to cold db.
                 .map(|col: DBCol| -> io::Result<()> {
                     if col == DBCol::State {
-                        copy_state_from_store(shard_layout, block_hash_key, cold_db, &hot_store)
+                        if is_resharding_boundary {
+                            update_state_shard_uid_mapping(cold_db, shard_layout)?;
+                        }
+                        copy_state_from_store(
+                            shard_layout,
+                            &tracked_shards,
+                            block_hash_key,
+                            cold_db,
+                            &hot_store,
+                        )
                     } else {
                         let keys = combine_keys(&key_type_to_keys, &col.key_type());
                         copy_from_store(cold_db, &hot_store, col, keys)
@@ -140,7 +146,7 @@ pub fn update_cold_db(
 // Correctly set the key and value on DBTransaction, taking reference counting
 // into account. For non-rc columns it just sets the value. For rc columns it
 // appends rc = 1 to the value and sets it.
-fn rc_aware_set(
+pub fn rc_aware_set(
     transaction: &mut DBTransaction,
     col: DBCol,
     key: Vec<u8>,
@@ -162,15 +168,42 @@ fn rc_aware_set(
     };
 }
 
+/// Updates the shard_uid mapping for all children of split shards to point to
+/// the same shard_uid as their parent. If a parent was already mapped, the
+/// children will point to the grandparent.
+/// This should be called once while processing the block at the resharding
+/// boundary and before calling `copy_state_from_store`.
+fn update_state_shard_uid_mapping(cold_db: &ColdDB, shard_layout: &ShardLayout) -> io::Result<()> {
+    let _span = tracing::debug_span!(target: "cold_store", "update_state_shard_uid_mapping");
+    let cold_store = cold_db.as_store();
+    let mut update = cold_store.store_update();
+    let split_parents = shard_layout.get_split_parent_shard_uids();
+    for parent_shard_uid in split_parents {
+        // Need to check if the parent itself was previously mapped.
+        let mapped_shard_uid = get_shard_uid_mapping(&cold_store, parent_shard_uid);
+        let children = shard_layout
+            .get_children_shards_uids(parent_shard_uid.shard_id())
+            .expect("get_children_shards_uids should not fail for split parents");
+        for child_shard_uid in children {
+            update.trie_store_update().set_shard_uid_mapping(child_shard_uid, mapped_shard_uid);
+        }
+    }
+    update.commit()
+}
+
 // A specialized version of copy_from_store for the State column. Finds all the
-// State nodes that were inserted at given height by reading from the
-// TrieChanges and inserts them into the cold store.
+// State nodes that were inserted at given height by reading TrieChanges from
+// all shards and inserts them into the cold store. While `tracked_shards`
+// determine what data must be present, we iterate over all shards as a
+// precaution to avoid missing data due to unexpected issues, making the process
+// more robust and future-proof.
 //
 // The generic implementation is not efficient for State because it would
 // attempt to read every node from every shard. Here we know exactly what shard
 // the node belongs to.
 fn copy_state_from_store(
     shard_layout: &ShardLayout,
+    tracked_shards: &Vec<ShardUId>,
     block_hash_key: &[u8],
     cold_db: &ColdDB,
     hot_store: &Store,
@@ -178,10 +211,12 @@ fn copy_state_from_store(
     let col = DBCol::State;
     let _span = tracing::debug_span!(target: "cold_store", "copy_state_from_store", %col);
     let instant = std::time::Instant::now();
+    let cold_store = cold_db.as_store();
 
     let mut total_keys = 0;
     let mut total_size = 0;
     let mut transaction = DBTransaction::new();
+    let mut copied_shards = HashSet::<ShardUId>::new();
     for shard_uid in shard_layout.shard_uids() {
         debug_assert_eq!(
             DBCol::TrieChanges.key_type(),
@@ -194,8 +229,9 @@ fn copy_state_from_store(
             hot_store.get_ser::<TrieChanges>(DBCol::TrieChanges, &key)?;
 
         let Some(trie_changes) = trie_changes else { continue };
+        copied_shards.insert(shard_uid);
         total_keys += trie_changes.insertions().len();
-        let mapped_shard_uid_key = get_shard_uid_mapping(hot_store, shard_uid).to_bytes();
+        let mapped_shard_uid_key = get_shard_uid_mapping(&cold_store, shard_uid).to_bytes();
         for op in trie_changes.insertions() {
             // TODO(resharding) Test it properly. Currently this path is not triggered in testloop.
             let key = join_two_keys(&mapped_shard_uid_key, op.hash().as_bytes());
@@ -205,6 +241,17 @@ fn copy_state_from_store(
             tracing::trace!(target: "cold_store", pretty_key=?near_fmt::StorageKey(&key), "copying state node to colddb");
             rc_aware_set(&mut transaction, DBCol::State, key, value);
         }
+    }
+    for tracked_shard in tracked_shards {
+        if !copied_shards.contains(tracked_shard) {
+            let error_message = format!("TrieChanges for {tracked_shard} not present in hot store");
+            return Err(io::Error::new(io::ErrorKind::NotFound, error_message));
+        }
+    }
+    // We know that `copied_shards` includes all `tracked_shards`.
+    // Emit a warning if `copied_shards` contains any unexpected extra shards.
+    if copied_shards.len() > tracked_shards.len() {
+        tracing::warn!(target: "cold_store", "Copied state for shards {:?} while tracking {:?}", copied_shards, tracked_shards);
     }
 
     let read_duration = instant.elapsed();
@@ -240,14 +287,14 @@ fn copy_from_store(
     let mut total_size = 0;
     let total_keys = keys.len();
     for key in keys {
-        // TODO: Look into using RocksDB’s multi_key function.  It
+        // TODO: Look into using RocksDB's multi_key function.  It
         // might speed things up.  Currently our Database abstraction
-        // doesn’t offer interface for it so that would need to be
+        // doesn't offer interface for it so that would need to be
         // added.
         let data = hot_store.get_for_cold(col, &key)?;
         if let Some(value) = data {
             // TODO: As an optimization, we might consider breaking the
-            // abstraction layer.  Since we’re always writing to cold database,
+            // abstraction layer.  Since we're always writing to cold database,
             // rather than using `cold_db: &dyn Database` argument we could have
             // `cold_db: &ColdDB` and then some custom function which lets us
             // write raw bytes. This would also allow us to bypass stripping and
@@ -278,7 +325,6 @@ fn copy_from_store(
 /// This method relies on the fact that BlockHeight and BlockHeader are not garbage collectable.
 /// (to construct the Tip we query hot_store for block hash and block header)
 /// If this is to change, caller should be careful about `height` not being garbage collected in hot storage yet.
-// TODO: Remove this and use `ArchivalStore::update_head` instead, once the archival storage logic is updated to use `ArchivalStore`.
 pub fn update_cold_head(
     cold_db: &ColdDB,
     hot_store: &Store,
@@ -311,7 +357,7 @@ pub fn update_cold_head(
     {
         let mut transaction = DBTransaction::new();
         transaction.set(DBCol::BlockMisc, COLD_HEAD_KEY.to_vec(), borsh::to_vec(&tip)?);
-        hot_store.storage.write(transaction)?;
+        hot_store.database().write(transaction)?;
 
         crate::metrics::COLD_HEAD_HEIGHT.set(*height as i64);
     }
@@ -399,23 +445,49 @@ pub fn test_get_store_initial_writes(column: DBCol) -> u64 {
 /// So, for every KeyType we need to capture all the keys that are related to that block.
 /// For BlockHash it is just one key -- block hash of that height.
 /// But for TransactionHash, for example, it is all of the tx hashes in that block.
+///
+/// Although `tracked_shards` should be sufficient to determine which shards matter,
+/// we process all shards as a precaution to ensure robustness and avoid
+/// missing data in case `tracked_shards` are incomplete due to bugs or future
+/// changes. This redundancy is acceptable because only the State column is
+/// performance- and size-sensitive, and it is handled separately in `copy_state_from_store`.
 fn get_keys_from_store(
     store: &Store,
     shard_layout: &ShardLayout,
+    tracked_shards: &Vec<ShardUId>,
     height_key: &[u8],
     block_hash_key: &[u8],
 ) -> io::Result<HashMap<DBKeyType, Vec<StoreKey>>> {
     let mut key_type_to_keys = HashMap::new();
+    let tracked_shards: HashSet<ShardId> =
+        tracked_shards.iter().map(|shard_uid| shard_uid.shard_id()).collect();
 
     let block: Block = store.get_ser_or_err_for_cold(DBCol::Block, &block_hash_key)?;
-    let chunks = block
-        .chunks()
-        .iter_deprecated()
-        .map(|chunk_header| {
-            store.get_ser_or_err_for_cold(DBCol::Chunks, chunk_header.chunk_hash().as_bytes())
-        })
-        .collect::<io::Result<Vec<ShardChunk>>>()?;
-
+    let mut chunk_hashes = vec![];
+    let mut chunks = vec![];
+    // TODO(cloud_archival): Maybe iterate over only new chunks?
+    for chunk_header in block.chunks().iter() {
+        let chunk_hash = chunk_header.chunk_hash();
+        chunk_hashes.push(chunk_hash.clone());
+        let chunk: Option<ShardChunk> =
+            store.get_ser_for_cold(DBCol::Chunks, chunk_hash.as_bytes())?;
+        let shard_id = chunk_header.shard_id();
+        let Some(chunk) = chunk else {
+            // TODO(cloud_archival): Uncomment the check below and cover it with test
+            // if chunk_header.height_included() == block.header().height()
+            //     && tracked_shards.contains(&shard_id)
+            // {
+            //     let error_message =
+            //         format!("Chunk missing for shard {shard_id}, hash {chunk_hash:?}");
+            //     return Err(io::Error::new(io::ErrorKind::NotFound, error_message));
+            // }
+            continue;
+        };
+        if !tracked_shards.contains(&shard_id) {
+            tracing::warn!(target: "cold_store", "Copied chunk for shard {} which is not tracked at height {}", shard_id, block.header().height());
+        }
+        chunks.push(chunk);
+    }
     for key_type in DBKeyType::iter() {
         if key_type == DBKeyType::TrieNodeOrValueHash {
             // The TrieNodeOrValueHash is only used in the State column, which is handled separately.
@@ -468,7 +540,7 @@ fn get_keys_from_store(
                     })
                     .collect(),
                 DBKeyType::ChunkHash => {
-                    chunks.iter().map(|c| c.chunk_hash().as_bytes().to_vec()).collect()
+                    chunk_hashes.iter().map(|chunk_hash| chunk_hash.as_bytes().to_vec()).collect()
                 }
                 DBKeyType::OutcomeId => {
                     debug_assert_eq!(

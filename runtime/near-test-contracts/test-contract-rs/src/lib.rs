@@ -69,11 +69,21 @@ extern "C" {
     fn promise_and(promise_idx_ptr: u64, promise_idx_count: u64) -> u64;
     fn promise_batch_create(account_id_len: u64, account_id_ptr: u64) -> u64;
     fn promise_batch_then(promise_index: u64, account_id_len: u64, account_id_ptr: u64) -> u64;
+    #[cfg(feature = "nightly")]
+    fn promise_set_refund_to(promise_index: u64, account_id_len: u64, account_id_ptr: u64);
     // #######################
     // # Promise API actions #
     // #######################
     fn promise_batch_action_create_account(promise_index: u64);
     fn promise_batch_action_deploy_contract(promise_index: u64, code_len: u64, code_ptr: u64);
+    #[cfg(feature = "latest_protocol")]
+    fn promise_batch_action_deploy_global_contract(promise_index: u64, code_len: u64, code_ptr: u64);
+    #[cfg(feature = "latest_protocol")]
+    fn promise_batch_action_deploy_global_contract_by_account_id(promise_index: u64, code_len: u64, code_ptr: u64);
+    #[cfg(feature = "latest_protocol")]
+    fn promise_batch_action_use_global_contract(promise_index: u64, code_hash_len: u64, code_hash_ptr: u64);
+    #[cfg(feature = "latest_protocol")]
+    fn promise_batch_action_use_global_contract_by_account_id(promise_index: u64, account_id_len: u64, account_id_ptr: u64);
     fn promise_batch_action_function_call(
         promise_index: u64,
         method_name_len: u64,
@@ -83,7 +93,6 @@ extern "C" {
         amount_ptr: u64,
         gas: u64,
     );
-    #[cfg(feature = "latest_protocol")]
     fn promise_batch_action_function_call_weight(
         promise_index: u64,
         method_name_len: u64,
@@ -903,6 +912,15 @@ fn call_promise() {
                     beneficiary_id.as_ptr() as u64,
                 );
                 promise_index
+            } else if let Some(action) = arg.get("set_refund_to") {
+                let promise_index = action["promise_index"].as_i64().unwrap() as u64;
+                let beneficiary_id = action["beneficiary_id"].as_str().unwrap().as_bytes();
+                promise_set_refund_to(
+                    promise_index,
+                    beneficiary_id.len() as u64,
+                    beneficiary_id.as_ptr() as u64,
+                );
+                promise_index
             } else {
                 unimplemented!()
             };
@@ -1149,7 +1167,6 @@ pub unsafe fn call_yield_create_and_resume() {
     promise_return(promise_index);
 }
 
-#[cfg(feature = "latest_protocol")]
 #[unsafe(no_mangle)]
 fn attach_unspent_gas_but_burn_all_gas() {
     unsafe {
@@ -1178,7 +1195,6 @@ fn attach_unspent_gas_but_burn_all_gas() {
     }
 }
 
-#[cfg(feature = "latest_protocol")]
 #[unsafe(no_mangle)]
 fn attach_unspent_gas_but_use_all_gas() {
     unsafe {
@@ -1393,6 +1409,18 @@ pub unsafe fn sanity_check() {
         contract_code.len() as u64,
         contract_code.as_ptr() as u64,
     );
+    #[cfg(feature = "latest_protocol")]
+    promise_batch_action_deploy_global_contract(
+        batch_promise_idx,
+        contract_code.len() as u64,
+        contract_code.as_ptr() as u64,
+    );
+    #[cfg(feature = "latest_protocol")]
+    promise_batch_action_deploy_global_contract_by_account_id(
+        batch_promise_idx,
+        contract_code.len() as u64,
+        contract_code.as_ptr() as u64,
+    );
     promise_batch_action_function_call(
         batch_promise_idx,
         method_deployed_contract.len() as u64,
@@ -1402,7 +1430,6 @@ pub unsafe fn sanity_check() {
         &amount_zero as *const u128 as *const u64 as u64,
         gas_per_promise,
     );
-    #[cfg(feature = "latest_protocol")]
     promise_batch_action_function_call_weight(
         batch_promise_idx,
         method_deployed_contract.len() as u64,
@@ -1891,3 +1918,7 @@ pub unsafe fn resume_with_large_payload() {
     );
     assert_eq!(success, 1);
 }
+
+/// local NO-OP placeholder function, to be removed on stabilization of DeterministicAccountIds
+#[cfg(not(feature = "nightly"))]
+fn promise_set_refund_to(_promise_index: u64, _account_id_len: u64, _account_id_ptr: u64) {}

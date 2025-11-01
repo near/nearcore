@@ -12,30 +12,32 @@ publish = false
 workspace = true
 
 [dependencies]
-actix-web.workspace = true
-actix.workspace = true
 anyhow.workspace = true
-object_store.workspace = true
+axum.workspace = true
 borsh.workspace = true
 clap.workspace = true
 near-primitives.workspace = true
 nearcore.workspace = true
 near-store.workspace = true
+near-chain-configs.workspace = true
 near-client.workspace = true
+near-external-storage.workspace = true
 near-jsonrpc.workspace = true
 near-primitives-core.workspace = true
 near-o11y.workspace = true
-reqwest.workspace = true
 serde_json.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 [features]
 nightly = [
-  "near-client/nightly",
-  "near-jsonrpc/nightly",
-  "near-o11y/nightly",
-  "near-primitives-core/nightly",
-  "near-primitives/nightly",
-  "near-store/nightly",
-  "nearcore/nightly",
+    "near-client/nightly",
+    "near-jsonrpc/nightly",
+    "near-o11y/nightly",
+    "near-primitives-core/nightly",
+    "near-primitives/nightly",
+    "near-store/nightly",
+    "nearcore/nightly",
 ]
+
+[package.metadata.cargo-machete]
+ignored = ["near-primitives-core"]

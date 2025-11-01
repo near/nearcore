@@ -1,30 +1,26 @@
 use near_chain::ChainStoreAccess;
-use near_chain::{
-    BlockHeader, Chain, ChainStore, types::EpochManagerAdapter, validate::validate_chunk_proofs,
-};
+use near_chain::{BlockHeader, Chain, ChainStore, types::EpochManagerAdapter};
 use near_chunks_primitives::Error;
 use near_epoch_manager::shard_tracker::ShardTracker;
-use near_primitives::{
-    errors::EpochError,
-    hash::CryptoHash,
-    merkle::{MerklePath, merklize},
-    receipt::Receipt,
-    sharding::{
-        EncodedShardChunk, PartialEncodedChunk, PartialEncodedChunkPart, PartialEncodedChunkV1,
-        PartialEncodedChunkV2, ReceiptProof, ShardChunk, ShardChunkHeader, ShardProof,
-    },
-    types::{AccountId, ShardId},
+use near_primitives::errors::EpochError;
+use near_primitives::hash::CryptoHash;
+use near_primitives::merkle::MerklePath;
+use near_primitives::receipt::Receipt;
+use near_primitives::sharding::ShardChunkWithEncoding;
+use near_primitives::sharding::{
+    PartialEncodedChunk, PartialEncodedChunkPart, PartialEncodedChunkV1, PartialEncodedChunkV2,
+    ReceiptProof, ShardChunk, ShardChunkHeader,
 };
+use near_primitives::types::{AccountId, ShardId};
 use std::sync::Arc;
-use tracing::{debug_span, error};
+use tracing::instrument;
 
 pub fn need_receipt(
     prev_block_hash: &CryptoHash,
     shard_id: ShardId,
-    me: Option<&AccountId>,
     shard_tracker: &ShardTracker,
 ) -> bool {
-    shard_tracker.cares_about_shard_this_or_next_epoch(me, prev_block_hash, shard_id, true)
+    shard_tracker.cares_about_shard_this_or_next_epoch(prev_block_hash, shard_id)
 }
 
 /// Returns true if we need this part to sign the block.
@@ -39,8 +35,6 @@ pub fn need_part(
 }
 
 pub fn get_shards_cares_about_this_or_next_epoch(
-    account_id: Option<&AccountId>,
-    is_me: bool,
     block_header: &BlockHeader,
     shard_tracker: &ShardTracker,
     epoch_manager: &dyn EpochManagerAdapter,
@@ -50,12 +44,7 @@ pub fn get_shards_cares_about_this_or_next_epoch(
         .unwrap()
         .into_iter()
         .filter(|&shard_id| {
-            shard_tracker.cares_about_shard_this_or_next_epoch(
-                account_id,
-                block_header.prev_hash(),
-                shard_id,
-                is_me,
-            )
+            shard_tracker.cares_about_shard_this_or_next_epoch(block_header.prev_hash(), shard_id)
         })
         .collect()
 }
@@ -92,21 +81,13 @@ pub fn make_outgoing_receipts_proofs(
     let shard_id = chunk_header.shard_id();
     let shard_layout =
         epoch_manager.get_shard_layout_from_prev_block(chunk_header.prev_block_hash())?;
-
-    let hashes = Chain::build_receipts_hashes(&outgoing_receipts, &shard_layout)?;
-    let (root, proofs) = merklize(&hashes);
-    assert_eq!(chunk_header.prev_outgoing_receipts_root(), root);
-
-    let mut receipts_by_shard = Chain::group_receipts_by_shard(outgoing_receipts, &shard_layout)?;
-    let mut result = vec![];
-    for (proof_shard_index, proof) in proofs.into_iter().enumerate() {
-        let proof_shard_id = shard_layout.get_shard_id(proof_shard_index)?;
-        let receipts = receipts_by_shard.remove(&proof_shard_id).unwrap_or_else(Vec::new);
-        let shard_proof =
-            ShardProof { from_shard_id: shard_id, to_shard_id: proof_shard_id, proof };
-        result.push(ReceiptProof(receipts, shard_proof));
-    }
-    Ok(result)
+    let (root, receipt_proofs) = Chain::create_receipts_proofs_from_outgoing_receipts(
+        &shard_layout,
+        shard_id,
+        outgoing_receipts,
+    )?;
+    assert_eq!(chunk_header.prev_outgoing_receipts_root(), &root);
+    Ok(receipt_proofs)
 }
 
 pub fn make_partial_encoded_chunk_from_owned_parts_and_needed_receipts(
@@ -118,12 +99,8 @@ pub fn make_partial_encoded_chunk_from_owned_parts_and_needed_receipts(
     shard_tracker: &ShardTracker,
 ) -> PartialEncodedChunk {
     let prev_block_hash = header.prev_block_hash();
-    let cares_about_shard = shard_tracker.cares_about_shard_this_or_next_epoch(
-        me,
-        prev_block_hash,
-        header.shard_id(),
-        true,
-    );
+    let cares_about_shard =
+        shard_tracker.cares_about_shard_this_or_next_epoch(prev_block_hash, header.shard_id());
     let parts = parts
         .filter(|entry| {
             cares_about_shard
@@ -132,8 +109,7 @@ pub fn make_partial_encoded_chunk_from_owned_parts_and_needed_receipts(
         .collect();
     let mut prev_outgoing_receipts = receipts
         .filter(|receipt| {
-            cares_about_shard
-                || need_receipt(prev_block_hash, receipt.1.to_shard_id, me, shard_tracker)
+            cares_about_shard || need_receipt(prev_block_hash, receipt.1.to_shard_id, shard_tracker)
         })
         .collect::<Vec<_>>();
     // Make sure the receipts are in a deterministic order.
@@ -148,59 +124,34 @@ pub fn make_partial_encoded_chunk_from_owned_parts_and_needed_receipts(
     }
 }
 
-pub fn decode_encoded_chunk(
-    encoded_chunk: &EncodedShardChunk,
+#[instrument(target = "chunks", level = "debug", "create_partial_chunk", skip_all, fields(
+    height = chunk.to_shard_chunk().height_created(),
+    shard_id = %chunk.to_shard_chunk().shard_id(),
+    chunk_hash = ?chunk.to_shard_chunk().chunk_hash(),
+    encoded_length = tracing::field::Empty,
+    num_tx = tracing::field::Empty,
+    me = me.map(tracing::field::debug),
+    tag_chunk_distribution = true,
+))]
+pub fn create_partial_chunk(
+    chunk: &ShardChunkWithEncoding,
     merkle_paths: Vec<MerklePath>,
     me: Option<&AccountId>,
     epoch_manager: &dyn EpochManagerAdapter,
     shard_tracker: &ShardTracker,
-) -> Result<(ShardChunk, PartialEncodedChunk), Error> {
-    let chunk_hash = encoded_chunk.chunk_hash();
-    let span = debug_span!(
-        target: "chunks",
-        "decode_encoded_chunk",
-        height_included = encoded_chunk.cloned_header().height_included(),
-        shard_id = ?encoded_chunk.cloned_header().shard_id(),
-        encoded_length = tracing::field::Empty,
-        num_tx = tracing::field::Empty,
-        me = me.map(tracing::field::debug),
-        ?chunk_hash)
-    .entered();
+) -> Result<PartialEncodedChunk, Error> {
+    let span = tracing::Span::current();
+    let encoded_chunk = chunk.to_encoded_shard_chunk();
+    let header = encoded_chunk.cloned_header();
 
-    let shard_chunk = encoded_chunk.decode_chunk().map_err(|err| {
-        error!(target: "chunks", ?chunk_hash, ?me, "reconstructed, but failed to decode chunk");
-        err
-    })?;
-    if !validate_chunk_proofs(&shard_chunk, epoch_manager)? {
-        return Err(Error::InvalidChunk);
-    }
+    let shard_chunk = chunk.to_shard_chunk();
+    let outgoing_receipts = shard_chunk.prev_outgoing_receipts().to_vec();
+    let prev_outgoing_receipts =
+        make_outgoing_receipts_proofs(&header, outgoing_receipts, epoch_manager)?;
 
     span.record("encoded_length", encoded_chunk.encoded_length());
     span.record("num_tx", shard_chunk.to_transactions().len());
 
-    let partial_chunk = create_partial_chunk(
-        encoded_chunk,
-        merkle_paths,
-        shard_chunk.prev_outgoing_receipts().to_vec(),
-        me,
-        epoch_manager,
-        shard_tracker,
-    )?;
-
-    Ok((shard_chunk, partial_chunk))
-}
-
-fn create_partial_chunk(
-    encoded_chunk: &EncodedShardChunk,
-    merkle_paths: Vec<MerklePath>,
-    outgoing_receipts: Vec<Receipt>,
-    me: Option<&AccountId>,
-    epoch_manager: &dyn EpochManagerAdapter,
-    shard_tracker: &ShardTracker,
-) -> Result<PartialEncodedChunk, EpochError> {
-    let header = encoded_chunk.cloned_header();
-    let prev_outgoing_receipts =
-        make_outgoing_receipts_proofs(&header, outgoing_receipts, epoch_manager)?;
     let partial_chunk = PartialEncodedChunkV2 {
         header,
         parts: encoded_chunk
@@ -229,17 +180,23 @@ fn create_partial_chunk(
     ))
 }
 
+#[instrument(target = "client", level = "debug", "persist_chunk", skip_all, fields(
+    height = partial_chunk.height_created(),
+    shard_id = %partial_chunk.shard_id(),
+    chunk_hash = ?partial_chunk.chunk_hash(),
+    tag_chunk_distribution = true,
+))]
 pub fn persist_chunk(
     partial_chunk: Arc<PartialEncodedChunk>,
     shard_chunk: Option<ShardChunk>,
     store: &mut ChainStore,
 ) -> Result<(), Error> {
     let mut update = store.store_update();
-    if update.get_partial_chunk(&partial_chunk.chunk_hash()).is_err() {
+    if !update.partial_chunk_exists(&partial_chunk.chunk_hash())? {
         update.save_partial_chunk(partial_chunk);
     }
     if let Some(shard_chunk) = shard_chunk {
-        if update.get_chunk(&shard_chunk.chunk_hash()).is_err() {
+        if !update.chunk_exists(&shard_chunk.chunk_hash())? {
             update.save_chunk(shard_chunk);
         }
     }

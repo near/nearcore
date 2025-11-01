@@ -1,7 +1,5 @@
+use parking_lot::{Condvar, Mutex, MutexGuard};
 use std::ops::{Deref, DerefMut};
-use std::sync::{Condvar, Mutex, MutexGuard};
-
-const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
 
 /// A convenience wrapper around a Mutex and a Condvar.
 ///
@@ -28,17 +26,18 @@ impl<T> Monitor<T> {
     }
 
     pub fn lock(&self) -> MonitorReadGuard<'_, T> {
-        let guard = self.mutex.lock().expect(POISONED_LOCK_ERR);
+        let guard = self.mutex.lock();
         MonitorReadGuard { guard }
     }
 
     pub fn lock_mut(&self) -> MonitorWriteGuard<'_, T> {
-        let guard = self.mutex.lock().expect(POISONED_LOCK_ERR);
+        let guard = self.mutex.lock();
         MonitorWriteGuard { guard, cvar: &self.cvar }
     }
 
     pub fn wait<'a>(&'a self, guard: MonitorReadGuard<'a, T>) -> MonitorReadGuard<'a, T> {
-        let guard = self.cvar.wait(guard.guard).expect(POISONED_LOCK_ERR);
+        let mut guard = guard.guard;
+        self.cvar.wait(&mut guard);
         MonitorReadGuard { guard }
     }
 }
@@ -47,7 +46,7 @@ impl<T> Deref for MonitorReadGuard<'_, T> {
     type Target = T;
 
     fn deref(&self) -> &Self::Target {
-        self.guard.deref()
+        &*self.guard
     }
 }
 
@@ -55,13 +54,13 @@ impl<T> Deref for MonitorWriteGuard<'_, T> {
     type Target = T;
 
     fn deref(&self) -> &Self::Target {
-        self.guard.deref()
+        &*self.guard
     }
 }
 
 impl<T> DerefMut for MonitorWriteGuard<'_, T> {
     fn deref_mut(&mut self) -> &mut Self::Target {
-        self.guard.deref_mut()
+        &mut *self.guard
     }
 }
 

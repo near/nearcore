@@ -7,7 +7,7 @@ use near_primitives::{
     hash::{CryptoHash, hash as sha256},
     serialize::to_base64,
     trie_key::trie_key_parsers,
-    types::{AccountId, StateRoot},
+    types::{AccountId, Balance, StateRoot},
     views::StateItem,
 };
 use near_primitives::{
@@ -109,7 +109,6 @@ fn test_view_call() {
     let view_state = ViewApplyState {
         block_height: 1,
         prev_block_hash: CryptoHash::default(),
-        block_hash: CryptoHash::default(),
         shard_id: ShardUId::single_shard().shard_id(),
         epoch_id: EpochId::default(),
         epoch_height: 0,
@@ -138,7 +137,6 @@ fn test_view_call_try_changing_storage() {
     let view_state = ViewApplyState {
         block_height: 1,
         prev_block_hash: CryptoHash::default(),
-        block_hash: CryptoHash::default(),
         shard_id: ShardUId::single_shard().shard_id(),
         epoch_id: EpochId::default(),
         epoch_height: 0,
@@ -171,7 +169,6 @@ fn test_view_call_with_args() {
     let view_state = ViewApplyState {
         block_height: 1,
         prev_block_hash: CryptoHash::default(),
-        block_hash: CryptoHash::default(),
         shard_id: ShardUId::single_shard().shard_id(),
         epoch_id: EpochId::default(),
         epoch_height: 0,
@@ -370,7 +367,7 @@ fn test_view_state_too_large() {
     set_account(
         &mut state_update,
         alice_account(),
-        &Account::new(0, 0, AccountContract::None, 50_001),
+        &Account::new(Balance::ZERO, Balance::ZERO, AccountContract::None, 50_001),
     );
     let trie_viewer = TrieViewer::new(Some(50_000), None);
     let result = trie_viewer.view_state(&state_update, &alice_account(), b"", false);
@@ -385,7 +382,12 @@ fn test_view_state_with_large_contract() {
     set_account(
         &mut state_update,
         alice_account(),
-        &Account::new(0, 0, AccountContract::from_local_code_hash(sha256(&contract_code)), 50_001),
+        &Account::new(
+            Balance::ZERO,
+            Balance::ZERO,
+            AccountContract::from_local_code_hash(sha256(&contract_code)),
+            50_001,
+        ),
     );
     state_update.set(TrieKey::ContractCode { account_id: alice_account() }, contract_code);
     let trie_viewer = TrieViewer::new(Some(50_000), None);
@@ -399,7 +401,6 @@ fn test_log_when_panic() {
     let view_state = ViewApplyState {
         block_height: 1,
         prev_block_hash: CryptoHash::default(),
-        block_hash: CryptoHash::default(),
         shard_id: ShardUId::single_shard().shard_id(),
         epoch_id: EpochId::default(),
         epoch_height: 0,

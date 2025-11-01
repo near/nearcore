@@ -1,11 +1,14 @@
 use std::collections::{HashMap, HashSet};
+use std::time::Instant;
 
+use crate::metrics;
 use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::{
     ChunkHash, PartialEncodedChunkPart, ReceiptProof, ShardChunkHeader,
 };
 use near_primitives::types::{BlockHeight, BlockHeightDelta, ShardId};
 use std::collections::hash_map::Entry::Occupied;
+use time::ext::InstantExt;
 use tracing::warn;
 
 // This file implements EncodedChunksCache, which provides three main functionalities:
@@ -25,7 +28,7 @@ use tracing::warn;
 //    Users of the data structure are responsible for adding chunk to this map at the right time.
 
 /// A chunk is out of rear horizon if its height + HEIGHT_HORIZON < largest_seen_height
-const HEIGHT_HORIZON: BlockHeightDelta = 1024;
+const HEIGHT_HORIZON: BlockHeightDelta = 128;
 /// A chunk is out of front horizon if its height > largest_seen_height + MAX_HEIGHTS_AHEAD
 const MAX_HEIGHTS_AHEAD: BlockHeightDelta = 5;
 
@@ -46,6 +49,15 @@ pub struct EncodedChunksCacheEntry {
     /// validated again to make sure they are fully validated.
     /// See comments in `validate_chunk_header` for more context on partial vs full validation
     pub header_fully_validated: bool,
+
+    /// Timestamp of when this entry was created used for metrics below
+    pub created_at: Instant,
+    /// Used to check whether a metric was recorded for the time taken to receive the needed parts for this chunk
+    pub received_all_parts: bool,
+    /// Used to check whether a metric was recorded for the time taken to receive the needed receipts for this chunk
+    pub received_all_receipts: bool,
+    /// Used to check whether a metric was recorded for the time taken to make a chunk able to be reconstructed
+    pub could_reconstruct: bool,
 }
 
 pub struct EncodedChunksCache {
@@ -76,6 +88,10 @@ impl EncodedChunksCacheEntry {
             complete: false,
             ready_for_inclusion: false,
             header_fully_validated: false,
+            created_at: Instant::now(),
+            received_all_parts: false,
+            received_all_receipts: false,
+            could_reconstruct: false,
         }
     }
 
@@ -129,6 +145,48 @@ impl EncodedChunksCache {
         }
     }
 
+    pub fn mark_received_all_receipts(&mut self, chunk_hash: &ChunkHash) {
+        let Some(entry) = self.encoded_chunks.get_mut(chunk_hash) else {
+            return;
+        };
+        if entry.received_all_receipts {
+            return;
+        }
+        let time_to_last_receipt = Instant::now().signed_duration_since(entry.created_at);
+        metrics::PARTIAL_CHUNK_TIME_TO_LAST_RECEIPT_PART_SECONDS
+            .with_label_values(&[entry.header.shard_id().to_string().as_str()])
+            .observe(time_to_last_receipt.as_seconds_f64());
+        entry.received_all_receipts = true;
+    }
+
+    pub fn mark_received_all_parts(&mut self, chunk_hash: &ChunkHash) {
+        let Some(entry) = self.encoded_chunks.get_mut(chunk_hash) else {
+            return;
+        };
+        if entry.received_all_parts {
+            return;
+        }
+        let time_to_last_part = Instant::now().signed_duration_since(entry.created_at);
+        metrics::PARTIAL_CHUNK_TIME_TO_LAST_CHUNK_PART_SECONDS
+            .with_label_values(&[entry.header.shard_id().to_string().as_str()])
+            .observe(time_to_last_part.as_seconds_f64());
+        entry.received_all_parts = true;
+    }
+
+    pub fn mark_can_reconstruct(&mut self, chunk_hash: &ChunkHash) {
+        let Some(entry) = self.encoded_chunks.get_mut(chunk_hash) else {
+            return;
+        };
+        if entry.could_reconstruct {
+            return;
+        }
+        let time_to_reconstruct = Instant::now().signed_duration_since(entry.created_at);
+        metrics::PARTIAL_CHUNK_TIME_TO_RECONSTRUCT_SECONDS
+            .with_label_values(&[entry.header.shard_id().to_string().as_str()])
+            .observe(time_to_reconstruct.as_seconds_f64());
+        entry.could_reconstruct = true;
+    }
+
     pub fn mark_entry_validated(&mut self, chunk_hash: &ChunkHash) {
         if let Some(entry) = self.encoded_chunks.get_mut(chunk_hash) {
             entry.header_fully_validated = true;
@@ -176,7 +234,7 @@ impl EncodedChunksCache {
         chunk_header: &ShardChunkHeader,
     ) -> &mut EncodedChunksCacheEntry {
         let chunk_hash = chunk_header.chunk_hash();
-        self.encoded_chunks.entry(chunk_hash).or_insert_with_key(|chunk_hash| {
+        self.encoded_chunks.entry(chunk_hash.clone()).or_insert_with_key(|chunk_hash| {
             self.height_map
                 .entry(chunk_header.height_created())
                 .or_default()
@@ -277,7 +335,8 @@ mod tests {
     use near_crypto::KeyType;
     use near_primitives::hash::CryptoHash;
     use near_primitives::sharding::{ShardChunkHeader, ShardChunkHeaderV2};
-    use near_primitives::types::ShardId;
+    use near_primitives::types::Balance;
+    use near_primitives::types::{Gas, ShardId};
     use near_primitives::validator_signer::InMemoryValidatorSigner;
 
     use crate::chunk_cache::EncodedChunksCache;
@@ -294,9 +353,9 @@ mod tests {
             1,
             height,
             shard_id,
-            0,
-            0,
-            0,
+            Gas::ZERO,
+            Gas::ZERO,
+            Balance::ZERO,
             CryptoHash::default(),
             CryptoHash::default(),
             vec![],
@@ -317,12 +376,12 @@ mod tests {
         );
         assert_eq!(
             cache.get_incomplete_chunks(&CryptoHash::default()).unwrap(),
-            &HashSet::from([header0.chunk_hash(), header1.chunk_hash()])
+            &HashSet::from([header0.chunk_hash().clone(), header1.chunk_hash().clone()])
         );
         cache.mark_entry_complete(&header0.chunk_hash());
         assert_eq!(
             cache.get_incomplete_chunks(&CryptoHash::default()).unwrap(),
-            &[header1.chunk_hash()].into_iter().collect::<HashSet<_>>()
+            &[header1.chunk_hash().clone()].into_iter().collect::<HashSet<_>>()
         );
         cache.mark_entry_complete(&header1.chunk_hash());
         assert_eq!(cache.get_incomplete_chunks(&CryptoHash::default()), None);

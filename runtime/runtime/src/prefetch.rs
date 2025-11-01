@@ -44,7 +44,7 @@
 use borsh::BorshSerialize as _;
 use near_o11y::metrics::prometheus;
 use near_o11y::metrics::prometheus::core::GenericCounter;
-use near_primitives::receipt::{Receipt, ReceiptEnum};
+use near_primitives::receipt::{Receipt, VersionedActionReceipt, VersionedReceiptEnum};
 use near_primitives::transaction::Action;
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::AccountId;
@@ -87,19 +87,15 @@ impl TriePrefetcher {
     /// Returns an error if prefetching for any receipt fails.
     /// The function is not idempotent; in case of failure, prefetching
     /// for some receipts may have been initiated.
-    pub(crate) fn prefetch_receipts_data(
-        &mut self,
-        receipts: &[Receipt],
-    ) -> Result<(), PrefetchError> {
-        for receipt in receipts.iter() {
+    pub(crate) fn prefetch_receipts_data(&self, receipts: &[Receipt]) -> Result<(), PrefetchError> {
+        for receipt in receipts {
             let is_refund = receipt.predecessor_id().is_system();
-            let action_receipt = match receipt.receipt() {
-                ReceiptEnum::Action(action_receipt) | ReceiptEnum::PromiseYield(action_receipt) => {
-                    action_receipt
-                }
-                ReceiptEnum::GlobalContractDistribution(_)
-                | ReceiptEnum::Data(_)
-                | ReceiptEnum::PromiseResume(_) => {
+            let action_receipt: VersionedActionReceipt = match receipt.versioned_receipt() {
+                VersionedReceiptEnum::Action(action_receipt)
+                | VersionedReceiptEnum::PromiseYield(action_receipt) => action_receipt,
+                VersionedReceiptEnum::GlobalContractDistribution(_)
+                | VersionedReceiptEnum::Data(_)
+                | VersionedReceiptEnum::PromiseResume(_) => {
                     continue;
                 }
             };
@@ -112,11 +108,11 @@ impl TriePrefetcher {
                 if is_refund {
                     let trie_key = TrieKey::AccessKey {
                         account_id: account_id.clone(),
-                        public_key: action_receipt.signer_public_key.clone(),
+                        public_key: action_receipt.signer_public_key().clone(),
                     };
                     self.prefetch_trie_key(trie_key)?;
                 }
-                for action in &action_receipt.actions {
+                for action in action_receipt.actions() {
                     match action {
                         Action::Delegate(delegate_action) => {
                             let trie_key = TrieKey::AccessKey {
@@ -145,7 +141,7 @@ impl TriePrefetcher {
             }
 
             let mut code_prefetch_requested = false;
-            for action in &action_receipt.actions {
+            for action in action_receipt.actions() {
                 let Action::FunctionCall(fn_call) = action else {
                     continue;
                 };
@@ -196,7 +192,7 @@ impl TriePrefetcher {
     /// The function is not idempotent; in case of failure, prefetching
     /// for some transactions may have been initiated.
     pub(crate) fn prefetch_transactions_data(
-        &mut self,
+        &self,
         signed_txs: &SignedValidPeriodTransactions,
     ) -> Result<(), PrefetchError> {
         if self.prefetch_api.enable_receipt_prefetching {
@@ -271,7 +267,7 @@ impl TriePrefetcher {
             return Ok(());
         };
 
-        for tuple in list.iter() {
+        for tuple in list {
             let Some(tuple) = tuple.as_array() else {
                 continue;
             };
@@ -308,7 +304,7 @@ impl TriePrefetcher {
         let Some(list) = list.as_array() else {
             return Ok(());
         };
-        for tuple in list.iter() {
+        for tuple in list {
             let Some(tuple) = tuple.as_array() else { continue };
             let Some(user_account) = tuple.first().and_then(|a| a.as_str()) else { continue };
             let mut account_data_key = Vec::with_capacity(4 + 8 + user_account.len());
@@ -346,7 +342,7 @@ impl TriePrefetcher {
             return Ok(());
         };
 
-        for tuple in list.iter() {
+        for tuple in list {
             let Some(tuple) = tuple.as_array() else {
                 continue;
             };

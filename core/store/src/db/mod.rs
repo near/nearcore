@@ -1,4 +1,4 @@
-use crate::DBCol;
+use crate::{DBCol, deserialized_column};
 use near_fmt::{AbbrBytes, StorageKey};
 use std::collections::HashSet;
 use std::io;
@@ -10,7 +10,7 @@ pub mod metadata;
 mod mixeddb;
 mod recoverydb;
 pub mod refcount;
-pub(crate) mod rocksdb;
+pub mod rocksdb;
 mod slice;
 mod splitdb;
 mod testdb;
@@ -30,6 +30,7 @@ pub const CHUNK_TAIL_KEY: &[u8; 10] = b"CHUNK_TAIL";
 pub const FORK_TAIL_KEY: &[u8; 9] = b"FORK_TAIL";
 pub const HEADER_HEAD_KEY: &[u8; 11] = b"HEADER_HEAD";
 pub const FINAL_HEAD_KEY: &[u8; 10] = b"FINAL_HEAD";
+pub const SPICE_FINAL_EXECUTION_HEAD_KEY: &[u8; 30] = b"SPICE_FINAL_EXECUTION_HEAD_KEY";
 pub const LATEST_KNOWN_KEY: &[u8; 12] = b"LATEST_KNOWN";
 pub const LARGEST_TARGET_HEIGHT_KEY: &[u8; 21] = b"LARGEST_TARGET_HEIGHT";
 pub const GENESIS_HEIGHT_KEY: &[u8; 18] = b"GENESIS_HEIGHT_KEY";
@@ -38,11 +39,13 @@ pub const GENESIS_CONGESTION_INFO_KEY: &[u8] = b"GENESIS_CONGESTION_INFO_KEY";
 pub const COLD_HEAD_KEY: &[u8; 9] = b"COLD_HEAD";
 pub const STATE_SYNC_DUMP_KEY: &[u8; 15] = b"STATE_SYNC_DUMP";
 pub const STATE_SNAPSHOT_KEY: &[u8; 18] = b"STATE_SNAPSHOT_KEY";
+pub const GC_STOP_HEIGHT_KEY: &[u8; 14] = b"GC_STOP_HEIGHT";
+pub const CLOUD_HEAD_KEY: &[u8] = b"CLOUD_HEAD";
 
 // `DBCol::Misc` keys
-pub const FLAT_STATE_VALUES_INLINING_MIGRATION_STATUS_KEY: &[u8] =
-    b"FLAT_STATE_VALUES_INLINING_MIGRATION_STATUS";
+pub const TRIE_STATE_RESHARDING_STATUS_KEY: &[u8] = b"TRIE_STATE_RESHARDING_STATUS";
 pub const LATEST_WITNESSES_INFO: &[u8] = b"LATEST_WITNESSES_INFO";
+pub const INVALID_WITNESSES_INFO: &[u8] = b"INVALID_WITNESSES_INFO";
 
 #[derive(Default, Debug)]
 pub struct DBTransaction {
@@ -260,6 +263,10 @@ pub trait Database: Sync + Send {
     /// Otherwise return None.
     fn copy_if_test(&self, _columns_to_keep: Option<&[DBCol]>) -> Option<Arc<dyn Database>> {
         None
+    }
+
+    fn deserialized_column_cache(&self) -> Arc<deserialized_column::Cache> {
+        deserialized_column::Cache::disabled()
     }
 }
 

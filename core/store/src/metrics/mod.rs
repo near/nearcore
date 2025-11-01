@@ -1,7 +1,8 @@
 mod rocksdb_metrics;
 
 use crate::{NodeStorage, Store, Temperature};
-use actix_rt::ArbiterHandle;
+use near_async::ActorSystem;
+use near_async::futures::FutureSpawnerExt;
 use near_o11y::metrics::{
     Histogram, HistogramVec, IntCounter, IntCounterVec, IntGauge, IntGaugeVec, exponential_buckets,
     try_create_histogram, try_create_histogram_vec, try_create_histogram_with_buckets,
@@ -490,12 +491,13 @@ pub mod flat_state_metrics {
             .unwrap()
         });
     }
+}
 
-    pub mod resharding {
-        use near_o11y::metrics::{
-            IntGauge, IntGaugeVec, try_create_int_gauge, try_create_int_gauge_vec,
-        };
-        use std::sync::LazyLock;
+pub mod resharding {
+    use super::*;
+
+    pub mod flat_state_metrics {
+        use super::*;
 
         pub static STATUS: LazyLock<IntGaugeVec> = LazyLock::new(|| {
             try_create_int_gauge_vec(
@@ -528,6 +530,19 @@ pub mod flat_state_metrics {
             )
             .unwrap()
         });
+    }
+    pub mod trie_state_metrics {
+        use super::*;
+
+        pub static STATE_COL_RESHARDING_PROCESSED_BATCHES: LazyLock<IntGaugeVec> =
+            LazyLock::new(|| {
+                try_create_int_gauge_vec(
+                    "near_state_col_resharding_processed_batches",
+                    "Number of processed batches inside the state column resharding task",
+                    &["shard_uid"],
+                )
+                .unwrap()
+            });
     }
 }
 
@@ -569,6 +584,20 @@ pub static STORAGE_MISSING_CONTRACTS_COUNT: LazyLock<IntCounterVec> = LazyLock::
     .unwrap()
 });
 
+pub static ROCKS_ITERATOR_TIME_HISTOGRAM: LazyLock<Histogram> = LazyLock::new(|| {
+    try_create_histogram_with_buckets(
+        "near_rocksdb_iterator_seconds",
+        "histogram of rocksdb iterator lifetimes",
+        vec![0.00001, 0.1, 30.0],
+    )
+    .unwrap()
+});
+
+pub static ROCKS_CURRENT_ITERATORS: LazyLock<IntGauge> = LazyLock::new(|| {
+    try_create_int_gauge("near_rocksdb_iterators", "Number of rocksdb iterators currently live")
+        .unwrap()
+});
+
 fn export_store_stats(store: &Store, temperature: Temperature) {
     if let Some(stats) = store.get_store_statistics() {
         tracing::debug!(target:"metrics", "Exporting the db metrics for {temperature:?} store.");
@@ -580,22 +609,18 @@ fn export_store_stats(store: &Store, temperature: Temperature) {
     }
 }
 
-pub fn spawn_db_metrics_loop(
-    storage: &NodeStorage,
-    period: Duration,
-) -> anyhow::Result<ArbiterHandle> {
+pub fn spawn_db_metrics_loop(actor_system: ActorSystem, storage: &NodeStorage, period: Duration) {
     tracing::debug!(target:"metrics", "Spawning the db metrics loop.");
-    let db_metrics_arbiter = actix_rt::Arbiter::new();
-
-    let start = tokio::time::Instant::now();
-    let mut interval = actix_rt::time::interval_at(start, period.unsigned_abs());
-    interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
     let hot_store = storage.get_hot_store();
     let cold_store = storage.get_cold_store();
 
-    db_metrics_arbiter.spawn(async move {
+    actor_system.new_future_spawner("db metrics loop").spawn("db metrics loop", async move {
         tracing::debug!(target:"metrics", "Starting the db metrics loop.");
+        let start = tokio::time::Instant::now();
+        let mut interval = tokio::time::interval_at(start, period.unsigned_abs());
+        interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+
         loop {
             interval.tick().await;
 
@@ -605,8 +630,6 @@ pub fn spawn_db_metrics_loop(
             }
         }
     });
-
-    Ok(db_metrics_arbiter.handle())
 }
 
 #[cfg(test)]
@@ -615,11 +638,11 @@ mod test {
     use crate::metadata::{DB_VERSION, DbKind};
     use crate::metrics::rocksdb_metrics;
     use crate::test_utils::create_test_node_storage_with_cold;
-    use actix;
     use near_o11y::testonly::init_test_logger;
     use near_time::Duration;
 
     use super::spawn_db_metrics_loop;
+    use near_async::ActorSystem;
 
     fn stat(name: &str, count: i64) -> (String, Vec<StatsValue>) {
         (name.into(), vec![StatsValue::Count(count)])
@@ -629,7 +652,8 @@ mod test {
         let (storage, hot, cold) = create_test_node_storage_with_cold(DB_VERSION, DbKind::Cold);
         let period = Duration::milliseconds(100);
 
-        let handle = spawn_db_metrics_loop(&storage, period)?;
+        let actor_system = ActorSystem::new();
+        spawn_db_metrics_loop(actor_system.clone(), &storage, period);
 
         let hot_column_name = "hot.column".to_string();
         let cold_column_name = "cold.column".to_string();
@@ -643,7 +667,7 @@ mod test {
         hot.set_store_statistics(hot_stats);
         cold.set_store_statistics(cold_stats);
 
-        actix::clock::sleep(period.unsigned_abs()).await;
+        tokio::time::sleep(period.unsigned_abs()).await;
         for _ in 0..10 {
             let int_gauges = rocksdb_metrics::get_int_gauges();
 
@@ -652,7 +676,7 @@ mod test {
             if has_hot_gauge && has_cold_gauge {
                 break;
             }
-            actix::clock::sleep(period.unsigned_abs() / 10).await;
+            tokio::time::sleep(period.unsigned_abs() / 10).await;
         }
 
         let int_gauges = rocksdb_metrics::get_int_gauges();
@@ -667,19 +691,17 @@ mod test {
         assert_eq!(hot_gauge.get(), 42);
         assert_eq!(cold_gauge.get(), 52);
 
-        handle.stop();
+        actor_system.stop();
 
         Ok(())
     }
 
-    #[test]
-    fn test_db_metrics_loop() {
+    #[tokio::test]
+    async fn test_db_metrics_loop() {
         init_test_logger();
 
-        let sys = actix::System::new();
-        sys.block_on(test_db_metrics_loop_impl()).expect("test impl failed");
+        test_db_metrics_loop_impl().await.expect("test impl failed");
 
-        actix::System::current().stop();
-        sys.run().unwrap();
+        near_async::shutdown_all_actors();
     }
 }

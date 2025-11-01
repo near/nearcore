@@ -115,7 +115,8 @@ impl ColdStoreCommand {
         let opener = NodeStorage::opener(
             home_dir,
             &near_config.config.store,
-            near_config.config.archival_config(),
+            near_config.config.cold_store.as_ref(),
+            near_config.config.cloud_storage_config(),
         );
 
         match self.subcmd {
@@ -137,7 +138,8 @@ impl ColdStoreCommand {
         NodeStorage::opener(
             home_dir,
             &near_config.config.store,
-            near_config.config.archival_config(),
+            near_config.config.cold_store.as_ref(),
+            near_config.config.cloud_storage_config(),
         )
     }
 }
@@ -166,6 +168,7 @@ fn check_open(store: &NodeStorage) -> anyhow::Result<()> {
 fn print_heads(store: &NodeStorage) -> anyhow::Result<()> {
     let hot_store = store.get_hot_store();
     let cold_store = store.get_cold_store();
+    // TODO(cloud_archival) Handle cloud head
 
     // hot store
     {
@@ -227,14 +230,17 @@ fn copy_next_block(store: &NodeStorage, config: &NearConfig, epoch_manager: &Epo
     // For that we might use the hash of the block.
     let epoch_id = &epoch_manager.get_epoch_id(&next_height_block_hash).unwrap();
     let shard_layout = &epoch_manager.get_shard_layout(epoch_id).unwrap();
-    let is_last_block_in_epoch =
-        epoch_manager.is_next_block_epoch_start(&next_height_block_hash).unwrap();
+    let shard_uids = shard_layout.shard_uids().collect();
+    let block_info = epoch_manager.get_block_info(&next_height_block_hash).unwrap();
+    let is_resharding_boundary =
+        epoch_manager.is_resharding_boundary(block_info.prev_hash()).unwrap();
     update_cold_db(
         &*store.cold_db().unwrap(),
         &store.get_hot_store(),
-        shard_layout,
+        &shard_layout,
+        &shard_uids,
         &next_height,
-        is_last_block_in_epoch,
+        is_resharding_boundary,
         1,
     )
     .unwrap_or_else(|_| panic!("Failed to copy block at height {} to cold db", next_height));
@@ -349,7 +355,7 @@ impl PrepareHotCmd {
         // Open the rpc_storage using the near_config with the path swapped.
         let mut rpc_store_config = near_config.config.store.clone();
         rpc_store_config.path = Some(path.to_path_buf());
-        let rpc_opener = NodeStorage::opener(home_dir, &rpc_store_config, None);
+        let rpc_opener = NodeStorage::opener(home_dir, &rpc_store_config, None, None);
         let rpc_storage = rpc_opener.open()?;
         let rpc_store = rpc_storage.get_hot_store();
 
@@ -497,7 +503,7 @@ impl StateRootSelector {
                     .get_ser::<near_primitives::block::Block>(DBCol::Block, &hash_key)?
                     .ok_or_else(|| anyhow::anyhow!("Failed to find Block: {:?}", hash_key))?;
                 let mut hashes = vec![];
-                for chunk in block.chunks().iter_deprecated() {
+                for chunk in block.chunks().iter() {
                     hashes.push(
                         cold_store
                             .get_ser::<near_primitives::sharding::ShardChunk>(
@@ -591,7 +597,7 @@ impl CheckStateRootCmd {
             .ok_or_else(|| anyhow::anyhow!("Cold storage is not configured"))?;
 
         let hashes = self.state_root_selector.get_hashes(storage, &cold_store)?;
-        for hash in hashes.iter() {
+        for hash in &hashes {
             Self::check_trie(
                 &cold_store,
                 &hash,

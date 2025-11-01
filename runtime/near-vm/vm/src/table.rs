@@ -10,12 +10,12 @@ use crate::func_data_registry::VMFuncRef;
 use crate::trap::{Trap, TrapCode};
 use crate::vmcontext::VMTableDefinition;
 use near_vm_types::{ExternRef, TableType, Type as ValType};
+use parking_lot::Mutex;
 use std::borrow::BorrowMut;
 use std::cell::UnsafeCell;
 use std::convert::TryFrom;
 use std::fmt;
 use std::ptr::NonNull;
-use std::sync::Mutex;
 
 /// Implementation styles for WebAssembly tables.
 #[derive(Debug, Clone, Hash, PartialEq, Eq, rkyv::Serialize, rkyv::Deserialize, rkyv::Archive)]
@@ -294,7 +294,7 @@ impl Table for LinearTable {
     /// Returns `None` if table can't be grown by the specified amount
     /// of elements, otherwise returns the previous size of the table.
     fn grow(&self, delta: u32, init_value: TableElement) -> Option<u32> {
-        let mut vec_guard = self.vec.lock().unwrap();
+        let mut vec_guard = self.vec.lock();
         let vec = vec_guard.borrow_mut();
         let size = self.size();
         let new_len = size.checked_add(delta)?;
@@ -336,7 +336,7 @@ impl Table for LinearTable {
     ///
     /// Returns `None` if the index is out of bounds.
     fn get(&self, index: u32) -> Option<TableElement> {
-        let vec_guard = self.vec.lock().unwrap();
+        let vec_guard = self.vec.lock();
         let raw_data = vec_guard.get(index as usize).cloned()?;
         Some(match self.table.ty {
             ValType::ExternRef => {
@@ -353,7 +353,7 @@ impl Table for LinearTable {
     ///
     /// Returns an error if the index is out of bounds.
     fn set(&self, index: u32, reference: TableElement) -> Result<(), Trap> {
-        let mut vec_guard = self.vec.lock().unwrap();
+        let mut vec_guard = self.vec.lock();
         let vec = vec_guard.borrow_mut();
         match vec.get_mut(index as usize) {
             Some(slot) => {
@@ -385,7 +385,7 @@ impl Table for LinearTable {
 
     /// Return a `VMTableDefinition` for exposing the table to compiled wasm code.
     fn vmtable(&self) -> NonNull<VMTableDefinition> {
-        let _vec_guard = self.vec.lock().unwrap();
+        let _vec_guard = self.vec.lock();
         unsafe { self.get_vm_table_definition() }
     }
 }

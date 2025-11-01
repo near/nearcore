@@ -12,16 +12,17 @@ publish = false
 workspace = true
 
 [dev-dependencies]
-actix.workspace = true
 assert_matches.workspace = true
 borsh.workspace = true
 bytesize.workspace = true
 derive_builder.workspace = true
 itertools.workspace = true
+parking_lot.workspace = true
 rand.workspace = true
 rand_chacha.workspace = true
 serde_json.workspace = true
 tempfile.workspace = true
+tokio.workspace = true
 tracing.workspace = true
 
 near-async.workspace = true
@@ -31,6 +32,8 @@ near-chunks.workspace = true
 near-client.workspace = true
 near-crypto.workspace = true
 near-epoch-manager.workspace = true
+near-external-storage.workspace = true
+near-indexer.workspace = true
 near-jsonrpc.workspace = true
 near-network.workspace = true
 near-o11y.workspace = true
@@ -44,27 +47,33 @@ nearcore.workspace = true
 testlib.workspace = true
 
 [features]
+protocol_feature_spice = [
+    "near-chain/protocol_feature_spice",
+    "near-client/protocol_feature_spice",
+    "near-epoch-manager/protocol_feature_spice",
+    "nearcore/protocol_feature_spice",
+    "near-store/protocol_feature_spice",
+]
 test_features = [
-  "nearcore/test_features",
-  "near-store/test_features",
-  "near-vm-runner/test_features",
-  "near-test-contracts/test_features",
+    "nearcore/test_features",
+    "near-store/test_features",
+    "near-vm-runner/test_features",
+    "near-test-contracts/test_features",
 ]
 nightly = [
-  "near-async/nightly",
-  "near-chain-configs/nightly",
-  "near-chain/nightly",
-  "near-chunks/nightly",
-  "near-client/nightly",
-  "near-epoch-manager/nightly",
-  "near-jsonrpc/nightly",
-  "near-network/nightly",
-  "near-o11y/nightly",
-  "near-parameters/nightly",
-  "near-primitives-core/nightly",
-  "near-primitives/nightly",
-  "near-store/nightly",
-  "near-vm-runner/nightly",
-  "nearcore/nightly",
-  "testlib/nightly",
+    "near-chain-configs/nightly",
+    "near-chain/nightly",
+    "near-chunks/nightly",
+    "near-client/nightly",
+    "near-epoch-manager/nightly",
+    "near-jsonrpc/nightly",
+    "near-network/nightly",
+    "near-o11y/nightly",
+    "near-parameters/nightly",
+    "near-primitives-core/nightly",
+    "near-primitives/nightly",
+    "near-store/nightly",
+    "near-vm-runner/nightly",
+    "nearcore/nightly",
+    "testlib/nightly",
 ]

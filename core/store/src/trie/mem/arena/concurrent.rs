@@ -55,7 +55,7 @@ impl ConcurrentArena {
         let mut active_allocs_count = 0;
         for thread in threads {
             let memory = thread.memory;
-            for (pos, chunk) in memory.chunks.into_iter() {
+            for (pos, chunk) in memory.chunks {
                 assert!(
                     chunks[pos].is_empty(),
                     "Arena threads from the same ConcurrentArena passed in"

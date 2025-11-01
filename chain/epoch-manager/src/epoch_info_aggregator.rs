@@ -8,7 +8,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{
-    AccountId, BlockHeight, ChunkStats, EpochId, ShardId, ValidatorId, ValidatorStats,
+    AccountId, Balance, BlockHeight, ChunkStats, EpochId, ShardId, ValidatorId, ValidatorStats,
 };
 use near_primitives::version::ProtocolVersion;
 use near_schema_checker_lib::ProtocolSchema;
@@ -115,7 +115,7 @@ impl EpochInfoAggregator {
                         tracing::debug!(
                             target: "epoch_tracker",
                             chunk_validator = ?epoch_info.validator_account_id(chunk_producer_id),
-                            ?shard_id,
+                            %shard_id,
                             block_height = prev_block_height + 1,
                             "Missed chunk");
                     }
@@ -123,9 +123,13 @@ impl EpochInfoAggregator {
                 })
                 .or_insert_with(|| ChunkStats::new_with_production(u64::from(*mask), 1));
 
+            if cfg!(feature = "protocol_feature_spice") {
+                continue;
+            }
+
             let chunk_validators = chunk_validator_assignment
                 .get(shard_index)
-                .map_or::<&[(u64, u128)], _>(&[], Vec::as_slice)
+                .map_or::<&[(u64, Balance)], _>(&[], Vec::as_slice)
                 .iter()
                 .map(|(id, _)| *id)
                 .collect_vec();
@@ -248,13 +252,13 @@ impl EpochInfoAggregator {
         // merge version tracker
         self.version_tracker.reserve(other.version_tracker.len());
         // TODO(mina86): Use try_insert once map_try_insert is stabilized.
-        for (k, v) in other.version_tracker.iter() {
+        for (k, v) in &other.version_tracker {
             self.version_tracker.entry(*k).or_insert_with(|| *v);
         }
 
         // merge proposals
         // TODO(mina86): Use try_insert once map_try_insert is stabilized.
-        for (k, v) in other.all_proposals.iter() {
+        for (k, v) in &other.all_proposals {
             self.all_proposals.entry(k.clone()).or_insert_with(|| v.clone());
         }
     }
@@ -267,7 +271,7 @@ impl EpochInfoAggregator {
         assert_eq!(self.epoch_id, other.epoch_id);
 
         // merge block tracker
-        for (block_producer_id, stats) in other.block_tracker.iter() {
+        for (block_producer_id, stats) in &other.block_tracker {
             self.block_tracker
                 .entry(*block_producer_id)
                 .and_modify(|e| {
@@ -277,11 +281,11 @@ impl EpochInfoAggregator {
                 .or_insert_with(|| stats.clone());
         }
         // merge shard tracker
-        for (shard_id, stats) in other.shard_tracker.iter() {
+        for (shard_id, stats) in &other.shard_tracker {
             self.shard_tracker
                 .entry(*shard_id)
                 .and_modify(|e| {
-                    for (chunk_producer_id, stat) in stats.iter() {
+                    for (chunk_producer_id, stat) in stats {
                         e.entry(*chunk_producer_id)
                             .and_modify(|entry| {
                                 *entry.expected_mut() += stat.expected();

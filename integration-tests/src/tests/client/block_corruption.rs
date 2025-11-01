@@ -1,3 +1,5 @@
+use crate::env::nightshade_setup::TestEnvNightshadeSetupExt;
+use crate::env::test_env::TestEnv;
 use anyhow::Context;
 use borsh::BorshDeserialize;
 use near_chain::{Block, Error, Provenance};
@@ -7,12 +9,11 @@ use near_crypto::{InMemorySigner, KeyType};
 use near_o11y::testonly::init_test_logger;
 use near_primitives::sharding::{ShardChunkHeader, ShardChunkHeaderInner};
 use near_primitives::transaction::SignedTransaction;
+use near_primitives::types::Balance;
 use near_primitives::types::ShardId;
 use near_primitives::validator_signer::InMemoryValidatorSigner;
 use near_primitives_core::types::BlockHeight;
-
-use crate::env::nightshade_setup::TestEnvNightshadeSetupExt;
-use crate::env::test_env::TestEnv;
+use std::sync::Arc;
 
 const NOT_BREAKING_CHANGE_MSG: &str = "Not a breaking change";
 const BLOCK_NOT_PARSED_MSG: &str = "Corrupt block didn't parse";
@@ -24,7 +25,7 @@ fn create_tx_load(height: BlockHeight, last_block: &Block) -> Vec<SignedTransact
         "test0".parse().unwrap(),
         "test1".parse().unwrap(),
         &signer,
-        10,
+        Balance::from_yoctonear(10),
         *last_block.hash(),
     );
     vec![tx]
@@ -65,7 +66,7 @@ fn change_shard_id_to_invalid() {
     // 1. Corrupt chunks
     let bad_shard_id = ShardId::new(100);
     let mut new_chunks = vec![];
-    for chunk in block.chunks().iter_deprecated() {
+    for chunk in block.chunks().iter_raw() {
         let mut new_chunk = chunk.clone();
         match &mut new_chunk {
             ShardChunkHeader::V1(new_chunk) => new_chunk.inner.shard_id = bad_shard_id,
@@ -75,16 +76,18 @@ fn change_shard_id_to_invalid() {
                 ShardChunkHeaderInner::V2(inner) => inner.shard_id = bad_shard_id,
                 ShardChunkHeaderInner::V3(inner) => inner.shard_id = bad_shard_id,
                 ShardChunkHeaderInner::V4(inner) => inner.shard_id = bad_shard_id,
+                ShardChunkHeaderInner::V5(inner) => inner.shard_id = bad_shard_id,
             },
         };
         new_chunks.push(new_chunk);
     }
-    block.set_chunks(new_chunks);
+    let mut_block = Arc::make_mut(&mut block);
+    mut_block.set_chunks(new_chunks);
 
     // 2. Rehash and resign
-    let body_hash = block.compute_block_body_hash().unwrap();
-    block.mut_header().set_block_body_hash(body_hash);
-    block.mut_header().resign(&InMemoryValidatorSigner::from_seed(
+    let body_hash = mut_block.compute_block_body_hash().unwrap();
+    mut_block.mut_header().set_block_body_hash(body_hash);
+    mut_block.mut_header().resign(&InMemoryValidatorSigner::from_seed(
         "test0".parse().unwrap(),
         KeyType::ED25519,
         "test0",
@@ -124,7 +127,7 @@ fn is_breaking_block_change(original: &Block, corrupt: &Block) -> bool {
 fn check_corrupt_block(
     env: &mut TestEnv,
     corrupt_block_vec: Vec<u8>,
-    correct_block: Block,
+    correct_block: Arc<Block>,
     corrupted_bit_idx: usize,
 ) -> Result<anyhow::Error, anyhow::Error> {
     macro_rules! process_correct_block {
@@ -149,7 +152,7 @@ fn check_corrupt_block(
             return Ok(anyhow::anyhow!(NOT_BREAKING_CHANGE_MSG));
         }
 
-        match env.clients[0].process_block_test(corrupt_block.into(), Provenance::NONE) {
+        match env.clients[0].process_block_test(Arc::new(corrupt_block).into(), Provenance::NONE) {
             Ok(_) => Err(anyhow::anyhow!(
                 "Was able to process default block with {} bit switched.",
                 corrupted_bit_idx
@@ -245,7 +248,7 @@ fn check_process_flipped_block_fails_on_bit(
 /// This vector should include various validation errors that correspond to data changed with a bit flip.
 #[test]
 fn ultra_slow_test_check_process_flipped_block_fails() {
-    init_test_logger();
+    // Note: intentionally not initializing logging because otherwise this test logs too much and is too slow.
     let mut corrupted_bit_idx = 0;
     // List of reasons `check_process_flipped_block_fails_on_bit` returned `Err`.
     // Should be empty.
@@ -269,6 +272,9 @@ fn ultra_slow_test_check_process_flipped_block_fails() {
             env = create_env();
         }
 
+        if corrupted_bit_idx % 100 == 0 {
+            eprintln!("Progress: {} bits", corrupted_bit_idx);
+        }
         let res = check_process_flipped_block_fails_on_bit(&mut env, corrupted_bit_idx);
         if let Ok(res) = &res {
             if res.to_string() == "End" {

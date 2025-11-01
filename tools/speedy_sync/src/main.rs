@@ -1,6 +1,5 @@
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_async::messaging::{IntoMultiSender, noop};
-use near_chain::rayon_spawner::RayonAsyncComputationSpawner;
 use near_chain::types::{ChainConfig, Tip};
 use near_chain::{Chain, ChainGenesis, DoomslugThresholdMode};
 use near_chain_configs::{GenesisValidationMode, MutableConfigValue, ReshardingConfig};
@@ -22,7 +21,6 @@ use near_time::Clock;
 use nearcore::{NightshadeRuntime, NightshadeRuntimeExt};
 use std::fs;
 use std::path::Path;
-use std::sync::Arc;
 
 #[derive(serde::Serialize, BorshSerialize, BorshDeserialize)]
 pub struct BlockCheckpoint {
@@ -129,7 +127,7 @@ fn write_epoch_checkpoint(store_update: &mut StoreUpdate, epoch_checkpoint: &Epo
 
 fn create_snapshot(create_cmd: CreateCmd) {
     let path = Path::new(&create_cmd.home);
-    let store = NodeStorage::opener(path, &Default::default(), None)
+    let store = NodeStorage::opener(path, &Default::default(), None, None)
         .open_in_mode(Mode::ReadOnly)
         .unwrap()
         .get_hot_store();
@@ -227,17 +225,22 @@ fn load_snapshot(load_cmd: LoadCmd) {
 
     let near_config = nearcore::config::load_config(&home_dir, GenesisValidationMode::UnsafeFast)
         .unwrap_or_else(|e| panic!("Error loading config: {:#}", e));
-    let store =
-        NodeStorage::opener(home_dir, &Default::default(), near_config.config.archival_config())
-            .open()
-            .unwrap()
-            .get_hot_store();
+    let store = NodeStorage::opener(
+        home_dir,
+        &Default::default(),
+        near_config.config.cold_store.as_ref(),
+        near_config.config.cloud_storage_config(),
+    )
+    .open()
+    .unwrap()
+    .get_hot_store();
     let chain_genesis = ChainGenesis::new(&near_config.genesis.config);
     let epoch_manager =
         EpochManager::new_arc_handle(store.clone(), &near_config.genesis.config, Some(home_dir));
     let shard_tracker = ShardTracker::new(
         near_config.client_config.tracked_shards_config.clone(),
         epoch_manager.clone(),
+        near_config.validator_signer.clone(),
     );
     let runtime = NightshadeRuntime::from_config(
         home_dir,
@@ -256,16 +259,20 @@ fn load_snapshot(load_cmd: LoadCmd) {
         DoomslugThresholdMode::TwoThirds,
         ChainConfig {
             save_trie_changes: near_config.client_config.save_trie_changes,
+            save_tx_outcomes: near_config.client_config.save_tx_outcomes,
             background_migration_threads: 1,
             resharding_config: MutableConfigValue::new(
                 ReshardingConfig::default(),
                 "resharding_config",
             ),
+            protocol_version_check: Default::default(),
         },
         None,
-        Arc::new(RayonAsyncComputationSpawner),
+        Default::default(),
+        Default::default(),
         MutableConfigValue::new(None, "validator_signer"),
         noop().into_multi_sender(),
+        None,
     )
     .unwrap();
 

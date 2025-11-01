@@ -2,17 +2,15 @@ use anyhow::{Context, anyhow};
 use borsh::BorshDeserialize;
 use near_chain::chain::collect_receipts_from_response;
 use near_chain::types::{
-    ApplyChunkBlockContext, ApplyChunkResult, ApplyChunkShardContext, RuntimeAdapter,
+    ApplyChunkBlockContext, ApplyChunkResult, ApplyChunkShardContext, BlockType, RuntimeAdapter,
 };
 use near_chain::{ChainStore, ChainStoreAccess, ReceiptFilter, get_incoming_receipts_for_shard};
 use near_epoch_manager::shard_assignment::shard_id_to_uid;
 use near_epoch_manager::{EpochManagerAdapter, EpochManagerHandle};
 use near_primitives::apply::ApplyChunkReason;
 use near_primitives::bandwidth_scheduler::BlockBandwidthRequests;
-use near_primitives::block::MaybeNew;
 use near_primitives::congestion_info::BlockCongestionInfo;
 use near_primitives::hash::CryptoHash;
-use near_primitives::merkle::combine_hash;
 use near_primitives::receipt::Receipt;
 use near_primitives::sharding::{ChunkHash, ReceiptProof};
 use near_primitives::state_sync::ReceiptProofResponse;
@@ -33,7 +31,7 @@ use crate::util::{check_apply_block_result, resulting_chunk_extra};
 // `get_incoming_receipts_for_shard` implementation for the case when we don't
 // know of a block containing the target chunk
 fn get_incoming_receipts(
-    chain_store: &mut ChainStore,
+    chain_store: &ChainStore,
     epoch_manager: &EpochManagerHandle,
     chunk_hash: &ChunkHash,
     shard_id: ShardId,
@@ -58,7 +56,7 @@ fn get_incoming_receipts(
 
     for chunk in chunks {
         if let Ok(partial_encoded_chunk) = chain_store.get_partial_chunk(&chunk.chunk_hash()) {
-            for receipt in partial_encoded_chunk.prev_outgoing_receipts().iter() {
+            for receipt in partial_encoded_chunk.prev_outgoing_receipts() {
                 let ReceiptProof(_, shard_proof) = receipt;
                 if shard_proof.to_shard_id == shard_id {
                     receipt_proofs.push(receipt.clone());
@@ -92,12 +90,12 @@ pub fn apply_chunk(
     epoch_manager: &EpochManagerHandle,
     runtime: &dyn RuntimeAdapter,
     chain_store: &mut ChainStore,
-    chunk_hash: ChunkHash,
+    chunk_hash: &ChunkHash,
     target_height: Option<u64>,
     rng: Option<StdRng>,
     storage: StorageSource,
 ) -> anyhow::Result<(ApplyChunkResult, Gas)> {
-    let chunk = chain_store.get_chunk(&chunk_hash)?;
+    let chunk = chain_store.get_chunk(chunk_hash)?;
     let chunk_header = chunk.cloned_header();
 
     // This doesn't work at resharding epoch boundary if there are missing chunks.
@@ -127,10 +125,7 @@ pub fn apply_chunk(
     let mut shards_bandwidth_requests = BTreeMap::new();
     let mut shards_congestion_info = BTreeMap::new();
     for prev_chunk in prev_block.chunks().iter() {
-        let shard_id = match prev_chunk {
-            MaybeNew::New(new_chunk) => new_chunk.shard_id(),
-            MaybeNew::Old(missing_chunk) => missing_chunk.shard_id(),
-        };
+        let shard_id = prev_chunk.shard_id();
         let shard_uid =
             shard_id_to_uid(epoch_manager, shard_id, prev_block.header().epoch_id()).unwrap();
         let Ok(chunk_extra) = chain_store.get_chunk_extra(&prev_block_hash, &shard_uid) else {
@@ -155,7 +150,7 @@ pub fn apply_chunk(
     let receipts = get_incoming_receipts(
         chain_store,
         epoch_manager,
-        &chunk_hash,
+        chunk_hash,
         shard_id,
         target_height,
         prev_block_hash,
@@ -181,15 +176,13 @@ pub fn apply_chunk(
                 last_validator_proposals: chunk_header.prev_validator_proposals(),
                 gas_limit: chunk_header.gas_limit(),
                 is_new_chunk: true,
+                on_post_state_ready: None,
             },
             ApplyChunkBlockContext {
+                block_type: BlockType::Normal,
                 height: target_height,
                 block_timestamp: prev_timestamp + 1_000_000_000,
                 prev_block_hash: *prev_block_hash,
-                block_hash: combine_hash(
-                    prev_block_hash,
-                    &hash("nonsense block hash for testing purposes".as_ref()),
-                ),
                 gas_price,
                 random_seed: hash("random seed".as_ref()),
                 congestion_info: block_congestion_info,
@@ -214,12 +207,13 @@ fn find_tx_or_receipt(
     chain_store: &ChainStore,
 ) -> anyhow::Result<Option<(HashType, ShardId)>> {
     let block = chain_store.get_block(block_hash)?;
-    let chunk_hashes = block.chunks().iter_deprecated().map(|c| c.chunk_hash()).collect::<Vec<_>>();
+    let chunks = block.chunks();
 
     let epoch_id = block.header().epoch_id();
     let shard_layout = epoch_manager.get_shard_layout(epoch_id)?;
 
-    for (shard_index, chunk_hash) in chunk_hashes.iter().enumerate() {
+    let chunk_hashes = chunks.iter_raw().map(|c| c.chunk_hash());
+    for (shard_index, chunk_hash) in chunk_hashes.enumerate() {
         let shard_id = shard_layout.get_shard_id(shard_index).unwrap();
         let chunk =
             chain_store.get_chunk(chunk_hash).context("Failed looking up candidate chunk")?;
@@ -243,7 +237,7 @@ fn find_tx_or_receipt(
 fn apply_tx_in_block(
     epoch_manager: &EpochManagerHandle,
     runtime: &dyn RuntimeAdapter,
-    chain_store: &mut ChainStore,
+    chain_store: &ChainStore,
     tx_hash: &CryptoHash,
     block_hash: CryptoHash,
     storage: StorageSource,
@@ -306,7 +300,6 @@ fn apply_tx_in_chunk(
     );
 
     let head = chain_store.head()?.height;
-    let protocol_version = chain_store.head_header()?.latest_protocol_version();
     let mut chunk_hashes = vec![];
 
     for item in store.iter(DBCol::ChunkHashesByHeight) {
@@ -346,11 +339,8 @@ fn apply_tx_in_chunk(
             &chunk_hash.0, &chunk_hash.0
         );
         let (apply_result, gas_limit) =
-            apply_chunk(epoch_manager, runtime, chain_store, chunk_hash, None, None, storage)?;
-        println!(
-            "resulting chunk extra:\n{:?}",
-            resulting_chunk_extra(&apply_result, gas_limit, protocol_version)
-        );
+            apply_chunk(epoch_manager, runtime, chain_store, &chunk_hash, None, None, storage)?;
+        println!("resulting chunk extra:\n{:?}", resulting_chunk_extra(&apply_result, gas_limit));
         results.push(apply_result);
     }
     Ok(results)
@@ -385,7 +375,7 @@ pub fn apply_tx(
 fn apply_receipt_in_block(
     epoch_manager: &EpochManagerHandle,
     runtime: &dyn RuntimeAdapter,
-    chain_store: &mut ChainStore,
+    chain_store: &ChainStore,
     id: &CryptoHash,
     block_hash: CryptoHash,
     storage: StorageSource,
@@ -445,7 +435,6 @@ fn apply_receipt_in_chunk(
     println!("Receipt is not indexed; searching in chunks that haven't been applied...");
 
     let head = chain_store.head()?.height;
-    let protocol_version = chain_store.head_header()?.latest_protocol_version();
     let mut to_apply = HashSet::new();
     let mut non_applied_chunks = HashMap::new();
 
@@ -464,7 +453,7 @@ fn apply_receipt_in_chunk(
                 };
                 non_applied_chunks.insert((height, chunk.shard_id()), chunk_hash.clone());
 
-                for receipt in chunk.prev_outgoing_receipts().iter() {
+                for receipt in chunk.prev_outgoing_receipts() {
                     if receipt.get_hash() == *id {
                         let shard_layout =
                             epoch_manager.get_shard_layout_from_prev_block(chunk.prev_block())?;
@@ -504,16 +493,9 @@ fn apply_receipt_in_chunk(
             "Applying chunk at height {} in shard {}. Equivalent command (which will run faster than apply_receipt):\nview_state apply_chunk --chunk_hash {}\n",
             height, shard_id, chunk_hash.0
         );
-        let (apply_result, gas_limit) = apply_chunk(
-            epoch_manager,
-            runtime,
-            chain_store,
-            chunk_hash.clone(),
-            None,
-            None,
-            storage,
-        )?;
-        let chunk_extra = resulting_chunk_extra(&apply_result, gas_limit, protocol_version);
+        let (apply_result, gas_limit) =
+            apply_chunk(epoch_manager, runtime, chain_store, chunk_hash, None, None, storage)?;
+        let chunk_extra = resulting_chunk_extra(&apply_result, gas_limit);
         println!("resulting chunk extra:\n{:?}", chunk_extra);
         results.push(apply_result);
     }

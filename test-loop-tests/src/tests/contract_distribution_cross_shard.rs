@@ -3,7 +3,7 @@ use near_async::time::Duration;
 use near_chain_configs::test_genesis::{TestEpochConfigBuilder, ValidatorsSpec};
 use near_o11y::testonly::init_test_logger;
 use near_primitives::shard_layout::ShardLayout;
-use near_primitives::types::AccountId;
+use near_primitives::types::{AccountId, Balance};
 use near_vm_runner::ContractCode;
 
 use crate::setup::builder::TestLoopBuilder;
@@ -12,8 +12,8 @@ use crate::utils::contract_distribution::{
     assert_all_chunk_endorsements_received, clear_compiled_contract_caches,
     run_until_caches_contain_contract,
 };
+use crate::utils::get_node_head_height;
 use crate::utils::transactions::{call_contract, check_txs, deploy_contract, make_accounts};
-use crate::utils::{ONE_NEAR, get_node_head_height};
 
 const EPOCH_LENGTH: u64 = 10;
 const GENESIS_HEIGHT: u64 = 1000;
@@ -53,7 +53,7 @@ fn test_contract_distribution_cross_shard() {
     // Next, clear the compiled contract cache and repeat the same contract calls.
     let contracts = deploy_contracts(&mut env, &rpc_id, &contract_ids, &mut nonce);
 
-    for contract in contracts.into_iter() {
+    for contract in contracts {
         run_until_caches_contain_contract(&mut env, contract.hash());
     }
 
@@ -83,7 +83,8 @@ fn setup(accounts: &Vec<AccountId>) -> (TestLoopEnv, AccountId) {
     let clients = accounts.iter().take(NUM_VALIDATORS + NUM_RPC).cloned().collect_vec();
     let rpc_id = accounts[NUM_VALIDATORS].clone();
 
-    let shard_layout = ShardLayout::simple_v1(&["account4"]);
+    let boundary_accounts = ["account4"].iter().map(|a| a.parse().unwrap()).collect();
+    let shard_layout = ShardLayout::multi_shard_custom(boundary_accounts, 1);
     let validators_spec =
         ValidatorsSpec::desired_roles(&block_and_chunk_producers, &chunk_validators_only);
 
@@ -91,7 +92,7 @@ fn setup(accounts: &Vec<AccountId>) -> (TestLoopEnv, AccountId) {
         .epoch_length(EPOCH_LENGTH)
         .shard_layout(shard_layout)
         .validators_spec(validators_spec)
-        .add_user_accounts_simple(&accounts, 1_000_000 * ONE_NEAR)
+        .add_user_accounts_simple(&accounts, Balance::from_near(1_000_000))
         .genesis_height(GENESIS_HEIGHT)
         .transaction_validity_period(1000)
         .build();
@@ -151,8 +152,8 @@ fn call_contracts(
 ) {
     let method_name = "main".to_owned();
     let mut txs = vec![];
-    for sender_id in sender_ids.into_iter() {
-        for contract_id in contract_ids.into_iter() {
+    for sender_id in sender_ids {
+        for contract_id in contract_ids {
             tracing::info!(target: "test", ?rpc_id, ?sender_id, ?contract_id, "Calling contract.");
             let tx = call_contract(
                 &mut env.test_loop,
@@ -168,6 +169,6 @@ fn call_contracts(
             *nonce += 1;
         }
     }
-    env.test_loop.run_for(Duration::seconds(2));
+    env.test_loop.run_for(Duration::seconds(3));
     check_txs(&env.test_loop.data, &env.node_datas, &rpc_id, &txs);
 }

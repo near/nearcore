@@ -38,11 +38,11 @@ enum NearVmCompiler {
 //  major version << 6
 //  minor version
 const VM_CONFIG: NearVmConfig = NearVmConfig {
-    seed: (2 << 29) | (2 << 6) | 5,
+    seed: (2 << 29) | (2 << 6) | 6,
     engine: NearVmEngine::Universal,
     compiler: NearVmCompiler::Singlepass,
 };
 
-pub(crate) fn near_vm_vm_hash() -> u64 {
+fn near_vm_vm_hash() -> u64 {
     VM_CONFIG.config_hash()
 }

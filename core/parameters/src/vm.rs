@@ -25,6 +25,7 @@ use std::hash::{Hash, Hasher};
     serde::Deserialize,
     ProtocolSchema,
 )]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "clap", derive(clap::ValueEnum))]
 pub enum VMKind {
     /// Wasmer 0.17.x VM. Gone now.
@@ -45,6 +46,7 @@ impl VMKind {
 
 /// This enum represents if a storage_get call will be performed through flat storage or trie
 #[derive(PartialEq, Eq, Hash, Debug, Clone, Copy, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub enum StorageGetMode {
     FlatStorage,
     Trie,
@@ -53,6 +55,7 @@ pub enum StorageGetMode {
 /// Describes limits for VM and Runtime.
 /// TODO #4139: consider switching to strongly-typed wrappers instead of raw quantities
 #[derive(Debug, serde::Serialize, serde::Deserialize, Clone, Hash, PartialEq, Eq)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct LimitConfig {
     /// Max amount of gas that can be used, excluding gas attached to promises.
     pub max_gas_burnt: Gas,
@@ -84,10 +87,8 @@ pub struct LimitConfig {
     pub max_number_logs: u64,
     /// Maximum total length in bytes of all log messages.
     pub max_total_log_length: u64,
-
     /// Max total prepaid gas for all function call actions per receipt.
     pub max_total_prepaid_gas: Gas,
-
     /// Max number of actions per receipt.
     pub max_actions_per_receipt: u64,
     /// Max total length of all method names (including terminating character) for a function call
@@ -119,6 +120,12 @@ pub struct LimitConfig {
     /// If present, stores max number of locals declared globally in one contract
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_locals_per_contract: Option<u64>,
+    /// If present, stores max number of tables declared globally in one contract
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_tables_per_contract: Option<u32>,
+    /// If present, stores max number of elements in a single contract's table
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_elements_per_contract_table: Option<usize>,
     /// Whether to enforce account_id well-formed-ness where it wasn't enforced
     /// historically.
     #[serde(default = "AccountIdValidityRulesVersion::v0")]
@@ -149,6 +156,12 @@ pub struct Config {
     /// Gas cost of a regular operation.
     pub regular_op_cost: u32,
 
+    /// Base gas cost of a bulk memory/table operation.
+    pub linear_op_base_cost: u64,
+
+    /// Gas cost per unit of a bulk memory/table operation.
+    pub linear_op_unit_cost: u64,
+
     /// The kind of the VM implementation to use
     pub vm_kind: VMKind,
 
@@ -168,6 +181,18 @@ pub struct Config {
     /// Whether to discard custom sections.
     pub discard_custom_sections: bool,
 
+    /// Whether to enable saturating float-to-integer wasm operators.
+    pub saturating_float_to_int: bool,
+
+    /// Whether to enable global contract related host functions.
+    pub global_contract_host_fns: bool,
+
+    /// Whether to enable saturating reference types and bulk memory wasm extensions.
+    pub reftypes_bulk_memory: bool,
+
+    /// Whether to host functions introduced with deterministic account ids.
+    pub deterministic_account_ids: bool,
+
     /// Describes limits for VM and Runtime.
     pub limit_config: LimitConfig,
 }
@@ -184,16 +209,19 @@ impl Config {
     pub fn make_free(&mut self) {
         self.ext_costs = ExtCostsConfig {
             costs: near_primitives_core::enum_map::enum_map! {
-                _ => ParameterCost { gas: 0, compute: 0 }
+                _ => ParameterCost { gas: Gas::ZERO, compute: 0 }
             },
         };
         self.grow_mem_cost = 0;
         self.regular_op_cost = 0;
-        self.limit_config.max_gas_burnt = u64::MAX;
+        self.linear_op_base_cost = 0;
+        self.linear_op_unit_cost = 0;
+        self.limit_config.max_gas_burnt = Gas::MAX;
     }
 
     pub fn enable_all_features(&mut self) {
         self.eth_implicit_accounts = true;
+        self.global_contract_host_fns = true;
         self.implicit_account_creation = true;
     }
 }

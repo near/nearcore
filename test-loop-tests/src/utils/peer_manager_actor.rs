@@ -1,23 +1,24 @@
 use std::collections::{HashMap, HashSet, hash_map};
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::sync::Arc;
 
 use itertools::Itertools;
-use near_async::actix::ActixResult;
 use near_async::futures::{DelayedActionRunnerExt as _, FutureSpawner, FutureSpawnerExt};
 use near_async::messaging::{
-    Actor, AsyncSender, CanSend, Handler, IntoMultiSender as _, IntoSender as _, SendAsync, Sender,
+    Actor, AsyncSender, CanSend, CanSendAsync, Handler, IntoMultiSender, IntoSender, Sender,
 };
 use near_async::test_loop::sender::TestLoopSender;
 use near_async::time::{Clock, Duration};
 use near_async::{MultiSend, MultiSenderFrom};
-use near_chain::BlockHeader;
+use near_chain::{Block, BlockHeader};
+use near_client::spice_data_distributor_actor::SpiceDistributorOutgoingReceipts;
 use near_client::{BlockApproval, BlockResponse, SetNetworkInfo};
 use near_network::client::{
     BlockHeadersRequest, BlockHeadersResponse, BlockRequest, ChunkEndorsementMessage,
     EpochSyncRequestMessage, EpochSyncResponseMessage, OptimisticBlockMessage, ProcessTxRequest,
-    ProcessTxResponse,
+    ProcessTxResponse, SpiceChunkEndorsementMessage,
 };
 use near_network::shards_manager::ShardsManagerRequestFromNetwork;
+use near_network::spice_data_distribution::{SpiceIncomingPartialData, SpicePartialDataRequest};
 use near_network::state_witness::{
     ChunkContractAccessesMessage, ChunkStateWitnessAckMessage, ContractCodeRequestMessage,
     ContractCodeResponseMessage, PartialEncodedContractDeploysMessage,
@@ -26,25 +27,27 @@ use near_network::state_witness::{
 };
 use near_network::types::{
     HighestHeightPeerInfo, NetworkInfo, NetworkRequests, NetworkResponses, PeerInfo,
-    PeerManagerMessageRequest, PeerManagerMessageResponse, SetChainInfo, StateSyncEvent,
-    Tier3Request,
+    PeerManagerMessageRequest, PeerManagerMessageResponse, ReasonForBan, SetChainInfo,
+    StateSyncEvent, Tier3Request,
 };
+use near_o11y::span_wrapped_msg::{SpanWrapped, SpanWrappedMessageExt};
 use near_primitives::genesis::GenesisId;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
 use near_primitives::types::AccountId;
+use parking_lot::{Mutex, MutexGuard};
 
 /// Subset of ClientSenderForNetwork required for the TestLoop network.
 /// We skip over the message handlers from view client.
 #[derive(Clone, MultiSend, MultiSenderFrom)]
 pub struct ClientSenderForTestLoopNetwork {
-    pub block: AsyncSender<BlockResponse, ()>,
-    pub block_headers: AsyncSender<BlockHeadersResponse, ActixResult<BlockHeadersResponse>>,
-    pub block_approval: AsyncSender<BlockApproval, ()>,
+    pub block: AsyncSender<SpanWrapped<BlockResponse>, ()>,
+    pub block_headers: AsyncSender<SpanWrapped<BlockHeadersResponse>, Result<(), ReasonForBan>>,
+    pub block_approval: AsyncSender<SpanWrapped<BlockApproval>, ()>,
     pub epoch_sync_request: Sender<EpochSyncRequestMessage>,
     pub epoch_sync_response: Sender<EpochSyncResponseMessage>,
-    pub optimistic_block_receiver: Sender<OptimisticBlockMessage>,
-    pub network_info: AsyncSender<SetNetworkInfo, ()>,
+    pub optimistic_block_receiver: Sender<SpanWrapped<OptimisticBlockMessage>>,
+    pub network_info: AsyncSender<SpanWrapped<SetNetworkInfo>, ()>,
 }
 
 #[derive(Clone, MultiSend, MultiSenderFrom)]
@@ -55,14 +58,20 @@ pub struct TxRequestHandleSenderForTestLoopNetwork {
 
 #[derive(Clone, MultiSend, MultiSenderFrom)]
 pub struct ViewClientSenderForTestLoopNetwork {
-    pub block_headers_request: AsyncSender<BlockHeadersRequest, ActixResult<BlockHeadersRequest>>,
-    pub block_request: AsyncSender<BlockRequest, ActixResult<BlockRequest>>,
+    pub block_headers_request: AsyncSender<BlockHeadersRequest, Option<Vec<Arc<BlockHeader>>>>,
+    pub block_request: AsyncSender<BlockRequest, Option<Arc<Block>>>,
+}
+
+#[derive(Clone, MultiSend, MultiSenderFrom)]
+pub struct SpiceDataDistributorSenderForTestLoopNetwork {
+    pub receipts: Sender<SpiceDistributorOutgoingReceipts>,
+    pub incoming_data: Sender<SpiceIncomingPartialData>,
+    pub data_requests: Sender<SpicePartialDataRequest>,
 }
 
 /// This message is used to allow TestLoopPeerManagerActor to construct NetworkInfo for each
 /// client.
-#[derive(actix::Message, Debug, Clone, PartialEq, Eq)]
-#[rtype(result = "()")]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TestLoopNetworkBlockInfo {
     pub peer: PeerInfo,
     pub block_header: BlockHeader,
@@ -146,6 +155,7 @@ impl TestLoopPeerManagerActor {
             network_message_to_partial_witness_handler(&account_id, shared_state.clone()),
             network_message_to_shards_manager_handler(clock, &account_id, shared_state.clone()),
             network_message_to_state_snapshot_handler(),
+            network_message_to_spice_data_distributor_handler(&account_id, shared_state.clone()),
         ];
         Self { handlers, client_sender, genesis_id, last_block_headers: HashMap::new() }
     }
@@ -164,21 +174,24 @@ impl TestLoopPeerManagerActor {
     ) {
         // Some tests (especially the ones having to do with sync) need NetworkInfo to be up to
         // date to work properly. That's why we're sending it periodically here.
-        let future = self.client_sender.send_async(SetNetworkInfo(NetworkInfo {
-            highest_height_peers: self
-                .last_block_headers
-                .iter()
-                .map(|(peer_info, header)| HighestHeightPeerInfo {
-                    archival: false,
-                    genesis_id: self.genesis_id.clone(),
-                    highest_block_hash: *header.hash(),
-                    highest_block_height: header.height(),
-                    tracked_shards: vec![],
-                    peer_info: peer_info.clone(),
-                })
-                .collect(),
-            ..NetworkInfo::default()
-        }));
+        let future = self.client_sender.send_async(
+            SetNetworkInfo(NetworkInfo {
+                highest_height_peers: self
+                    .last_block_headers
+                    .iter()
+                    .map(|(peer_info, header)| HighestHeightPeerInfo {
+                        archival: false,
+                        genesis_id: self.genesis_id.clone(),
+                        highest_block_hash: *header.hash(),
+                        highest_block_height: header.height(),
+                        tracked_shards: vec![],
+                        peer_info: peer_info.clone(),
+                    })
+                    .collect(),
+                ..NetworkInfo::default()
+            })
+            .span_wrap(),
+        );
         drop(future);
 
         ctx.run_later("TestLoopPeerManagerActor::push_network_info", interval, move |act, ctx| {
@@ -210,6 +223,8 @@ struct OneClientSenders {
     partial_witness_sender: PartialWitnessSenderForNetwork,
     shards_manager_sender: Sender<ShardsManagerRequestFromNetwork>,
     peer_manager_sender: Sender<TestLoopNetworkBlockInfo>,
+    spice_data_distributor_actor: SpiceDataDistributorSenderForTestLoopNetwork,
+    spice_core_writer_sender: Sender<SpiceChunkEndorsementMessage>,
 }
 
 /// This actor can be used in situations when we don't expect any events to reach it.
@@ -217,11 +232,12 @@ struct OneClientSenders {
 /// between.
 pub struct UnreachableActor {}
 
-impl<M: actix::Message> Handler<M> for UnreachableActor
+impl<M, R> Handler<M, R> for UnreachableActor
 where
-    M::Result: std::marker::Send,
+    M: Send + 'static,
+    R: Send,
 {
-    fn handle(&mut self, _msg: M) -> M::Result {
+    fn handle(&mut self, _msg: M) -> R {
         unreachable!("All events for this actor shouldn't be processed");
     }
 }
@@ -235,7 +251,9 @@ fn to_drop_events_senders(s: TestLoopSender<UnreachableActor>) -> Arc<OneClientS
         rpc_handler_sender: s.clone().into_multi_sender(),
         partial_witness_sender: s.clone().into_multi_sender(),
         shards_manager_sender: s.clone().into_sender(),
-        peer_manager_sender: s.into_sender(),
+        peer_manager_sender: s.clone().into_sender(),
+        spice_data_distributor_actor: s.clone().into_multi_sender(),
+        spice_core_writer_sender: s.into_sender(),
     })
 }
 
@@ -261,11 +279,13 @@ impl TestLoopNetworkSharedState {
         PartialWitnessSenderForNetwork: From<&'a D>,
         Sender<ShardsManagerRequestFromNetwork>: From<&'a D>,
         Sender<TestLoopNetworkBlockInfo>: From<&'a D>,
+        SpiceDataDistributorSenderForTestLoopNetwork: From<&'a D>,
+        Sender<SpiceChunkEndorsementMessage>: From<&'a D>,
     {
         let account_id = AccountId::from(data);
         let peer_id = PeerId::from(data);
 
-        let mut guard = self.0.lock().unwrap();
+        let mut guard = self.0.lock();
         guard.account_to_peer_id.insert(account_id, peer_id.clone());
         guard.senders.insert(
             peer_id,
@@ -276,24 +296,28 @@ impl TestLoopNetworkSharedState {
                 partial_witness_sender: PartialWitnessSenderForNetwork::from(data),
                 shards_manager_sender: Sender::<ShardsManagerRequestFromNetwork>::from(data),
                 peer_manager_sender: Sender::<TestLoopNetworkBlockInfo>::from(data),
+                spice_data_distributor_actor: SpiceDataDistributorSenderForTestLoopNetwork::from(
+                    data,
+                ),
+                spice_core_writer_sender: Sender::<SpiceChunkEndorsementMessage>::from(data),
             }),
         );
     }
 
     /// Stops processing of requests from `from` peer to `to` peer.
     pub fn disallow_requests(&self, from: PeerId, to: PeerId) {
-        let mut guard = self.0.lock().unwrap();
+        let mut guard = self.0.lock();
         guard.disallowed_peer_links.entry(from).or_default().insert(to);
     }
 
     /// Allows processing of requests between all peers.
     pub fn allow_all_requests(&self) {
-        let mut guard = self.0.lock().unwrap();
+        let mut guard = self.0.lock();
         guard.disallowed_peer_links = HashMap::new();
     }
 
     fn account_to_peer_id(&self, account_id: &AccountId) -> PeerId {
-        let guard = self.0.lock().unwrap();
+        let guard = self.0.lock();
         guard.account_to_peer_id.get(account_id).unwrap().clone()
     }
 
@@ -309,7 +333,7 @@ impl TestLoopNetworkSharedState {
         origin: &AccountId,
         account_id: &AccountId,
     ) -> Arc<OneClientSenders> {
-        let guard = self.0.lock().unwrap();
+        let guard = self.0.lock();
         let origin_peer_id = &guard.account_to_peer_id[origin];
         let peer_id = &guard.account_to_peer_id[account_id];
         if Self::is_peer_link_disallowed(&guard, origin_peer_id, peer_id) {
@@ -319,7 +343,7 @@ impl TestLoopNetworkSharedState {
     }
 
     fn senders_for_peer(&self, origin: &PeerId, peer_id: &PeerId) -> Arc<OneClientSenders> {
-        let guard = self.0.lock().unwrap();
+        let guard = self.0.lock();
         if Self::is_peer_link_disallowed(&guard, origin, peer_id) {
             return guard.drop_events_senders.clone();
         }
@@ -327,7 +351,7 @@ impl TestLoopNetworkSharedState {
     }
 
     fn generate_route_back(&self, peer_id: &PeerId) -> CryptoHash {
-        let mut guard = self.0.lock().unwrap();
+        let mut guard = self.0.lock();
         let route_id = CryptoHash::hash_borsh(guard.route_back.len());
         guard.route_back.insert(route_id, peer_id.clone());
         route_id
@@ -338,7 +362,7 @@ impl TestLoopNetworkSharedState {
         origin: &AccountId,
         route_back: &CryptoHash,
     ) -> Arc<OneClientSenders> {
-        let guard = self.0.lock().unwrap();
+        let guard = self.0.lock();
         let origin_peer_id = &guard.account_to_peer_id[origin];
         let peer_id = guard.route_back.get(route_back).unwrap();
         if Self::is_peer_link_disallowed(&guard, origin_peer_id, peer_id) {
@@ -348,7 +372,7 @@ impl TestLoopNetworkSharedState {
     }
 
     fn accounts(&self) -> Vec<AccountId> {
-        let guard = self.0.lock().unwrap();
+        let guard = self.0.lock();
         let account_ids = guard.account_to_peer_id.keys().cloned().collect_vec();
         account_ids
     }
@@ -367,6 +391,12 @@ impl Handler<Tier3Request> for TestLoopPeerManagerActor {
 }
 
 impl Handler<PeerManagerMessageRequest> for TestLoopPeerManagerActor {
+    fn handle(&mut self, msg: PeerManagerMessageRequest) {
+        Handler::<PeerManagerMessageRequest, PeerManagerMessageResponse>::handle(self, msg);
+    }
+}
+
+impl Handler<PeerManagerMessageRequest, PeerManagerMessageResponse> for TestLoopPeerManagerActor {
     fn handle(&mut self, msg: PeerManagerMessageRequest) -> PeerManagerMessageResponse {
         let PeerManagerMessageRequest::NetworkRequests(request) = msg else {
             panic!("Unexpected message: {:?}", msg);
@@ -402,11 +432,14 @@ fn network_message_to_client_handler(
 
                 let senders = shared_state.senders_for_account(&my_account_id, &account_id);
 
-                let future = senders.client_sender.send_async(BlockResponse {
-                    block: block.clone(),
-                    peer_id: my_peer_id.clone(),
-                    was_requested: false,
-                });
+                let future = senders.client_sender.send_async(
+                    BlockResponse {
+                        block: block.clone(),
+                        peer_id: my_peer_id.clone(),
+                        was_requested: false,
+                    }
+                    .span_wrap(),
+                );
                 drop(future);
 
                 senders.peer_manager_sender.send(TestLoopNetworkBlockInfo {
@@ -420,18 +453,21 @@ fn network_message_to_client_handler(
             }
             None
         }
-        NetworkRequests::OptimisticBlock { optimistic_block } => {
+        NetworkRequests::OptimisticBlock { chunk_producers, optimistic_block } => {
             let my_peer_id = shared_state.account_to_peer_id(&my_account_id);
             for account_id in shared_state.accounts() {
-                if account_id != my_account_id {
-                    let _ = shared_state
-                        .senders_for_account(&my_account_id, &account_id)
-                        .client_sender
-                        .send(OptimisticBlockMessage {
-                            optimistic_block: optimistic_block.clone(),
-                            from_peer: my_peer_id.clone(),
-                        });
+                if !chunk_producers.contains(&account_id) {
+                    continue;
                 }
+                let msg = OptimisticBlockMessage {
+                    optimistic_block: optimistic_block.clone(),
+                    from_peer: my_peer_id.clone(),
+                }
+                .span_wrap();
+                let _ = shared_state
+                    .senders_for_account(&my_account_id, &account_id)
+                    .client_sender
+                    .send(msg);
             }
             None
         }
@@ -443,7 +479,7 @@ fn network_message_to_client_handler(
             let future = shared_state
                 .senders_for_account(&my_account_id, &approval_message.target)
                 .client_sender
-                .send_async(BlockApproval(approval_message.approval, PeerId::random()));
+                .send_async(BlockApproval(approval_message.approval, PeerId::random()).span_wrap());
             drop(future);
             None
         }
@@ -466,6 +502,13 @@ fn network_message_to_client_handler(
                 .rpc_handler_sender
                 .send_async(ChunkEndorsementMessage(endorsement));
             drop(future);
+            None
+        }
+        NetworkRequests::SpiceChunkEndorsement(target, endorsement) => {
+            shared_state
+                .senders_for_account(&my_account_id, &target)
+                .spice_core_writer_sender
+                .send(SpiceChunkEndorsementMessage(endorsement));
             None
         }
         NetworkRequests::EpochSyncRequest { peer_id } => {
@@ -506,7 +549,8 @@ fn network_message_to_view_client_handler(
                 .send_async(BlockHeadersRequest(hashes));
             future_spawner.spawn("wait for ViewClient to handle BlockHeadersRequest", async move {
                 let response = future.await.unwrap().unwrap();
-                let future = responder.send_async(BlockHeadersResponse(response, peer_id));
+                let future =
+                    responder.send_async(BlockHeadersResponse(response, peer_id).span_wrap());
                 drop(future);
             });
             None
@@ -520,14 +564,12 @@ fn network_message_to_view_client_handler(
                 .view_client_sender
                 .send_async(BlockRequest(hash));
             future_spawner.spawn("wait for ViewClient to handle BlockRequest", async move {
-                let response = *future.await.unwrap().unwrap_or_else(|| {
+                let response = future.await.unwrap().unwrap_or_else(|| {
                     panic!("Expect block with {hash} to be available on {peer_id}")
                 });
-                let future = responder.send_async(BlockResponse {
-                    block: response,
-                    peer_id,
-                    was_requested: true,
-                });
+                let future = responder.send_async(
+                    BlockResponse { block: response, peer_id, was_requested: true }.span_wrap(),
+                );
                 drop(future);
             });
             None
@@ -552,7 +594,7 @@ fn network_message_to_partial_witness_handler(
         }
 
         NetworkRequests::PartialEncodedStateWitness(validator_witness_tuple) => {
-            for (target, partial_witness) in validator_witness_tuple.into_iter() {
+            for (target, partial_witness) in validator_witness_tuple {
                 shared_state
                     .senders_for_account(&my_account_id, &target)
                     .partial_witness_sender
@@ -659,6 +701,34 @@ fn network_message_to_shards_manager_handler(
                 .senders_for_account(&my_account_id, &account_id)
                 .shards_manager_sender
                 .send(ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunkForward(forward));
+            None
+        }
+        _ => Some(request),
+    })
+}
+
+fn network_message_to_spice_data_distributor_handler(
+    my_account_id: &AccountId,
+    shared_state: TestLoopNetworkSharedState,
+) -> NetworkRequestHandler {
+    let my_account_id = my_account_id.clone();
+    Box::new(move |request| match request {
+        NetworkRequests::SpicePartialData { partial_data, recipients } => {
+            for account_id in recipients {
+                assert!(account_id != my_account_id, "Sending message to self not supported.");
+                shared_state
+                    .senders_for_account(&my_account_id, &account_id)
+                    .spice_data_distributor_actor
+                    .send(SpiceIncomingPartialData { data: partial_data.clone() });
+            }
+            None
+        }
+        NetworkRequests::SpicePartialDataRequest { producer, request } => {
+            assert!(producer != my_account_id, "Sending message to self not supported.");
+            shared_state
+                .senders_for_account(&my_account_id, &producer)
+                .spice_data_distributor_actor
+                .send(request);
             None
         }
         _ => Some(request),

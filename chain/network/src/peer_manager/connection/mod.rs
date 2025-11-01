@@ -2,19 +2,21 @@ use crate::concurrency::arc_mutex::ArcMutex;
 use crate::concurrency::atomic_cell::AtomicCell;
 use crate::concurrency::demux;
 use crate::network_protocol::{
-    PeerInfo, PeerMessage, RoutedMessageBody, SignedAccountData, SignedOwnedAccount,
-    SnapshotHostInfo, SyncAccountsData, SyncSnapshotHosts,
+    PeerInfo, PeerMessage, SignedAccountData, SignedOwnedAccount, SnapshotHostInfo,
+    SyncAccountsData, SyncSnapshotHosts, TieredMessageBody,
 };
 use crate::peer::peer_actor;
 use crate::peer::peer_actor::PeerActor;
-use crate::private_actix::SendMessage;
+use crate::private_messages::SendMessage;
 use crate::stats::metrics;
 use crate::tcp;
 use crate::types::{BlockInfo, FullPeerInfo, PeerChainInfo, PeerType, ReasonForBan};
 use arc_swap::ArcSwap;
+use near_async::messaging::CanSend;
 use near_async::time;
+use near_async::tokio::TokioRuntimeHandle;
 use near_crypto::PublicKey;
-use near_o11y::WithSpanContextExt;
+use near_o11y::span_wrapped_msg::SpanWrappedMessageExt;
 use near_primitives::genesis::GenesisId;
 use near_primitives::network::PeerId;
 use near_primitives::types::ShardId;
@@ -43,7 +45,7 @@ impl tcp::Tier {
                 self == tcp::Tier::T2 || self == tcp::Tier::T3
             }
             PeerMessage::OptimisticBlock(..) => true,
-            PeerMessage::Routed(msg) => self.is_allowed_routed(&msg.body),
+            PeerMessage::Routed(msg) => self.is_allowed_routed(msg.body()),
             PeerMessage::SyncRoutingTable(..)
             | PeerMessage::DistanceVector(..)
             | PeerMessage::RequestUpdateNonce(..)
@@ -65,43 +67,10 @@ impl tcp::Tier {
         }
     }
 
-    pub(crate) fn is_allowed_routed(self, body: &RoutedMessageBody) -> bool {
+    pub(crate) fn is_allowed_routed(self, body: &TieredMessageBody) -> bool {
         match body {
-            // T1
-            RoutedMessageBody::BlockApproval(..)
-            | RoutedMessageBody::VersionedChunkEndorsement(..)
-            | RoutedMessageBody::PartialEncodedStateWitness(..)
-            | RoutedMessageBody::PartialEncodedStateWitnessForward(..)
-            | RoutedMessageBody::VersionedPartialEncodedChunk(..)
-            | RoutedMessageBody::ChunkContractAccesses(_)
-            | RoutedMessageBody::ContractCodeRequest(_)
-            | RoutedMessageBody::ContractCodeResponse(_) => true,
-            // Rest
-            RoutedMessageBody::ForwardTx(..)
-            | RoutedMessageBody::TxStatusRequest(..)
-            | RoutedMessageBody::TxStatusResponse(..)
-            | RoutedMessageBody::PartialEncodedChunkRequest(..)
-            | RoutedMessageBody::PartialEncodedChunkResponse(..)
-            | RoutedMessageBody::Ping(..)
-            | RoutedMessageBody::Pong(..)
-            | RoutedMessageBody::PartialEncodedChunkForward(..)
-            | RoutedMessageBody::ChunkStateWitnessAck(..)
-            | RoutedMessageBody::StatePartRequest(..)
-            | RoutedMessageBody::PartialEncodedContractDeploys(..) => self == tcp::Tier::T2,
-            // Deprecated
-            RoutedMessageBody::_UnusedQueryRequest
-            | RoutedMessageBody::_UnusedQueryResponse
-            | RoutedMessageBody::_UnusedReceiptOutcomeRequest(..)
-            | RoutedMessageBody::_UnusedReceiptOutcomeResponse
-            | RoutedMessageBody::_UnusedStateRequestHeader
-            | RoutedMessageBody::_UnusedStateRequestPart
-            | RoutedMessageBody::_UnusedStateResponse
-            | RoutedMessageBody::_UnusedPartialEncodedChunk
-            | RoutedMessageBody::_UnusedVersionedStateResponse
-            | RoutedMessageBody::_UnusedChunkStateWitness
-            | RoutedMessageBody::_UnusedChunkEndorsement
-            | RoutedMessageBody::_UnusedEpochSyncRequest
-            | RoutedMessageBody::_UnusedEpochSyncResponse(..) => unreachable!(),
+            TieredMessageBody::T1(_) => true,
+            TieredMessageBody::T2(_) => self == tcp::Tier::T2,
         }
     }
 }
@@ -127,9 +96,7 @@ pub(crate) struct Stats {
 pub(crate) struct Connection {
     // TODO(gprusak): add rate limiting on TIER1 connections for defense in-depth.
     pub tier: tcp::Tier,
-    // TODO(gprusak): addr should be internal, so that Connection will become an API of the
-    // PeerActor.
-    pub addr: actix::Addr<PeerActor>,
+    pub handle: TokioRuntimeHandle<PeerActor>,
 
     pub peer_info: PeerInfo,
     /// AccountKey ownership proof.
@@ -184,15 +151,15 @@ impl Connection {
     }
 
     pub fn stop(&self, ban_reason: Option<ReasonForBan>) {
-        self.addr.do_send(peer_actor::Stop { ban_reason }.with_span_context());
+        self.handle.send(peer_actor::Stop { ban_reason }.span_wrap());
     }
 
     // TODO(gprusak): embed Stream directly in Connection,
-    // so that we can skip actix queue when sending messages.
+    // so that we can skip the actor queue when sending messages.
     pub fn send_message(&self, msg: Arc<PeerMessage>) {
         let msg_kind = msg.msg_variant().to_string();
         tracing::trace!(target: "network", ?msg_kind, "Send message");
-        self.addr.do_send(SendMessage { message: msg }.with_span_context());
+        self.handle.send(SendMessage { message: msg }.span_wrap());
     }
 
     pub fn send_accounts_data(

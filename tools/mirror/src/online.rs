@@ -1,14 +1,15 @@
 use crate::{ChainError, SourceBlock, SourceChunk};
-use actix::Addr;
 use anyhow::Context;
 use async_trait::async_trait;
+use near_async::ActorSystem;
+use near_async::messaging::CanSendAsync;
+use near_async::multithread::MultithreadRuntimeHandle;
 use near_chain_configs::GenesisValidationMode;
-use near_client::ViewClientActor;
+use near_client::ViewClientActorInner;
 use near_client_primitives::types::{
     GetBlock, GetBlockError, GetChunkError, GetExecutionOutcome, GetReceipt, GetShardChunk, Query,
 };
 use near_crypto::PublicKey;
-use near_o11y::WithSpanContextExt;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::Receipt;
 use near_primitives::sharding::ChunkHash;
@@ -23,16 +24,17 @@ use std::sync::Arc;
 use std::time::Duration;
 
 pub(crate) struct ChainAccess {
-    view_client: Addr<ViewClientActor>,
+    view_client: MultithreadRuntimeHandle<ViewClientActorInner>,
 }
 
 impl ChainAccess {
-    pub(crate) fn new<P: AsRef<Path>>(home: P) -> anyhow::Result<Self> {
+    pub(crate) async fn new<P: AsRef<Path>>(home: P) -> anyhow::Result<Self> {
         let config =
             nearcore::config::load_config(home.as_ref(), GenesisValidationMode::UnsafeFast)
                 .with_context(|| format!("Error loading config from {:?}", home.as_ref()))?;
 
-        let node = nearcore::start_with_config(home.as_ref(), config)
+        let node = nearcore::start_with_config(home.as_ref(), config, ActorSystem::new())
+            .await
             .context("failed to start NEAR node")?;
         Ok(Self { view_client: node.view_client })
     }
@@ -95,7 +97,7 @@ impl crate::ChainAccess for ChainAccess {
     async fn block_height_to_hash(&self, height: BlockHeight) -> Result<CryptoHash, ChainError> {
         Ok(self
             .view_client
-            .send(GetBlock(BlockReference::BlockId(BlockId::Height(height))).with_span_context())
+            .send_async(GetBlock(BlockReference::BlockId(BlockId::Height(height))))
             .await
             .unwrap()?
             .header
@@ -105,7 +107,7 @@ impl crate::ChainAccess for ChainAccess {
     async fn head_height(&self) -> Result<BlockHeight, ChainError> {
         Ok(self
             .view_client
-            .send(GetBlock(BlockReference::Finality(Finality::Final)).with_span_context())
+            .send_async(GetBlock(BlockReference::Finality(Finality::Final)))
             .await
             .unwrap()?
             .header
@@ -115,14 +117,14 @@ impl crate::ChainAccess for ChainAccess {
     async fn get_txs(&self, height: BlockHeight) -> Result<SourceBlock, ChainError> {
         let block = self
             .view_client
-            .send(GetBlock(BlockReference::BlockId(BlockId::Height(height))).with_span_context())
+            .send_async(GetBlock(BlockReference::BlockId(BlockId::Height(height))))
             .await
             .unwrap()?;
         let mut chunks = Vec::new();
         for c in block.chunks {
             let chunk = match self
                 .view_client
-                .send(GetShardChunk::ChunkHash(ChunkHash(c.chunk_hash)).with_span_context())
+                .send_async(GetShardChunk::ChunkHash(ChunkHash(c.chunk_hash)))
                 .await
                 .unwrap()
             {
@@ -171,10 +173,7 @@ impl crate::ChainAccess for ChainAccess {
                 }
                 match self
                     .view_client
-                    .send(
-                        GetBlock(BlockReference::BlockId(BlockId::Height(height)))
-                            .with_span_context(),
-                    )
+                    .send_async(GetBlock(BlockReference::BlockId(BlockId::Height(height))))
                     .await
                     .unwrap()
                 {
@@ -190,17 +189,12 @@ impl crate::ChainAccess for ChainAccess {
         &self,
         id: TransactionOrReceiptId,
     ) -> Result<ExecutionOutcomeWithIdView, ChainError> {
-        Ok(self
-            .view_client
-            .send(GetExecutionOutcome { id }.with_span_context())
-            .await
-            .unwrap()?
-            .outcome_proof)
+        Ok(self.view_client.send_async(GetExecutionOutcome { id }).await.unwrap()?.outcome_proof)
     }
 
     async fn get_receipt(&self, id: &CryptoHash) -> Result<Arc<Receipt>, ChainError> {
         self.view_client
-            .send(GetReceipt { receipt_id: *id }.with_span_context())
+            .send_async(GetReceipt { receipt_id: *id })
             .await
             .unwrap()?
             .map(|r| Arc::new(r.try_into().unwrap()))
@@ -215,13 +209,10 @@ impl crate::ChainAccess for ChainAccess {
         let mut ret = Vec::new();
         match self
             .view_client
-            .send(
-                Query {
-                    block_reference: BlockReference::BlockId(BlockId::Hash(*block_hash)),
-                    request: QueryRequest::ViewAccessKeyList { account_id: account_id.clone() },
-                }
-                .with_span_context(),
-            )
+            .send_async(Query {
+                block_reference: BlockReference::BlockId(BlockId::Hash(*block_hash)),
+                request: QueryRequest::ViewAccessKeyList { account_id: account_id.clone() },
+            })
             .await
             .unwrap()?
             .kind

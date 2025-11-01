@@ -88,7 +88,8 @@ pub enum ProtocolFeature {
     /// version -- we can safely do that in a separate step.
     #[deprecated]
     _DeprecatedWasmer2,
-    SimpleNightshade,
+    #[deprecated]
+    _DeprecatedSimpleNightshade,
     #[deprecated]
     _DeprecatedLowerDataReceiptAndEcrecoverBaseCost,
     /// Lowers the cost of wasm instruction due to switch to wasmer2.
@@ -186,9 +187,11 @@ pub enum ProtocolFeature {
     _DeprecatedBlockHeaderV4,
     /// Resharding V2. A new implementation for resharding and a new shard
     /// layout for the production networks.
-    SimpleNightshadeV2,
+    #[deprecated]
+    _DeprecatedSimpleNightshadeV2,
     /// Built on top of Resharding V2. Changes shard layout to V3 to split shard 2 into two parts.
-    SimpleNightshadeV3,
+    #[deprecated]
+    _DeprecatedSimpleNightshadeV3,
     /// In case not all validator seats are occupied our algorithm provide incorrect minimal seat
     /// price - it reports as alpha * sum_stake instead of alpha * sum_stake / (1 - alpha), where
     /// alpha is min stake ratio
@@ -255,16 +258,20 @@ pub enum ProtocolFeature {
     #[deprecated]
     _DeprecatedStateStoredReceipt,
     /// Resharding V3 - Adding "game.hot.tg-0" boundary.
-    SimpleNightshadeV4,
+    #[deprecated]
+    _DeprecatedSimpleNightshadeV4,
     /// Resharding V3 - Adding "earn.kaiching" boundary.
-    SimpleNightshadeV5,
-    /// Resharding V3 - Adding "750" boundary.
-    SimpleNightshadeV6,
+    #[deprecated]
+    _DeprecatedSimpleNightshadeV5,
+    /// Resharding V3 - Adding "650" boundary.
+    #[deprecated]
+    _DeprecatedSimpleNightshadeV6,
     /// Exclude contract code from the chunk state witness and distribute it to chunk validators separately.
     #[deprecated]
     _DeprecatedExcludeContractCodeFromStateWitness,
     /// A scheduler which limits bandwidth for sending receipts between shards.
-    BandwidthScheduler,
+    #[deprecated]
+    _DeprecatedBandwidthScheduler,
     /// Indicates that the "sync_hash" used to identify the point in the chain to sync state to
     /// should no longer be the first block of the epoch, but a couple blocks after that in order
     /// to sync the current epoch's state. This is not strictly a protocol feature, but is included
@@ -292,17 +299,41 @@ pub enum ProtocolFeature {
     /// Instead of sending code in the witness, the code checks the code-size using the internal trie nodes.
     ExcludeExistingCodeFromWitnessForCodeLen,
     /// Use the block height instead of the block hash to calculate the receipt ID.
-    BlockHeightForReceiptId,
+    #[deprecated]
+    _DeprecatedBlockHeightForReceiptId,
     /// Enable optimistic block production.
-    ProduceOptimisticBlock,
-    GlobalContracts,
+    #[deprecated]
+    _DeprecatedProduceOptimisticBlock,
+    #[deprecated]
+    _DeprecatedGlobalContracts,
     /// NEP: https://github.com/near/NEPs/pull/536
     ///
     /// Reduce the number of gas refund receipts by charging the current gas
     /// price rather than a pessimistic gas price. Also, introduce a new fee of
     /// 5% for gas refunds and charge the signer this fee for gas refund
     /// receipts.
-    ReducedGasRefunds,
+    #[deprecated]
+    _DeprecatedReducedGasRefunds,
+    /// Move from ChunkStateWitness being a single struct to a versioned enum.
+    #[deprecated]
+    _DeprecatedVersionedStateWitness,
+    /// Increase max_congestion_missed_chunks from 5 to 125.
+    /// At 125 missing chunks shard will be fully congested.
+    /// At 100 missing chunks shard will be 80% congested, and transactions
+    /// targeting it will be rejected as per reject_tx_congestion_threshold
+    /// config.
+    ///
+    /// It improves UX during long ranges of missing chunks, as transactions
+    /// are much less likely to get rejected with ShardStuck error.
+    IncreaseMaxCongestionMissedChunks,
+
+    Wasmtime,
+    SaturatingFloatToInt,
+    ChunkPartChecks,
+    StatePartsCompression,
+    /// NEP: https://github.com/near/NEPs/pull/616
+    DeterministicAccountIds,
+    InvalidTxGenerateOutcomes,
 }
 
 impl ProtocolFeature {
@@ -339,7 +370,7 @@ impl ProtocolFeature {
             ProtocolFeature::_DeprecatedWasmer2
             | ProtocolFeature::_DeprecatedLowerDataReceiptAndEcrecoverBaseCost
             | ProtocolFeature::_DeprecatedLowerRegularOpCost
-            | ProtocolFeature::SimpleNightshade => 48,
+            | ProtocolFeature::_DeprecatedSimpleNightshade => 48,
             ProtocolFeature::_DeprecatedLowerRegularOpCost2
             | ProtocolFeature::_DeprecatedLimitContractFunctionsNumber
             | ProtocolFeature::_DeprecatedBlockHeaderV3
@@ -366,8 +397,8 @@ impl ProtocolFeature {
             ProtocolFeature::_DeprecatedBlockHeaderV4 => 63,
             ProtocolFeature::_DeprecatedRestrictTla
             | ProtocolFeature::_DeprecatedTestnetFewerBlockProducers
-            | ProtocolFeature::SimpleNightshadeV2 => 64,
-            ProtocolFeature::SimpleNightshadeV3 => 65,
+            | ProtocolFeature::_DeprecatedSimpleNightshadeV2 => 64,
+            ProtocolFeature::_DeprecatedSimpleNightshadeV3 => 65,
             ProtocolFeature::_DeprecatedDecreaseFunctionCallBaseCost
             | ProtocolFeature::_DeprecatedFixedMinimumNewReceiptGas => 66,
             ProtocolFeature::_DeprecatedYieldExecution => 67,
@@ -387,14 +418,21 @@ impl ProtocolFeature {
             | ProtocolFeature::_DeprecatedFixChunkProducerStakingThreshold
             | ProtocolFeature::_DeprecatedRelaxedChunkValidation
             | ProtocolFeature::_DeprecatedRemoveCheckBalance
-            | ProtocolFeature::BandwidthScheduler
+            | ProtocolFeature::_DeprecatedBandwidthScheduler
             | ProtocolFeature::_DeprecatedCurrentEpochStateSync => 74,
-            ProtocolFeature::SimpleNightshadeV4 => 75,
-            ProtocolFeature::SimpleNightshadeV5 => 76,
-            ProtocolFeature::GlobalContracts
-            | ProtocolFeature::BlockHeightForReceiptId
-            | ProtocolFeature::ProduceOptimisticBlock => 77,
-            ProtocolFeature::SimpleNightshadeV6 => 78,
+            ProtocolFeature::_DeprecatedSimpleNightshadeV4 => 75,
+            ProtocolFeature::_DeprecatedSimpleNightshadeV5 => 76,
+            ProtocolFeature::_DeprecatedGlobalContracts
+            | ProtocolFeature::_DeprecatedBlockHeightForReceiptId
+            | ProtocolFeature::_DeprecatedProduceOptimisticBlock => 77,
+            ProtocolFeature::_DeprecatedSimpleNightshadeV6
+            | ProtocolFeature::_DeprecatedVersionedStateWitness
+            | ProtocolFeature::ChunkPartChecks
+            | ProtocolFeature::SaturatingFloatToInt
+            | ProtocolFeature::_DeprecatedReducedGasRefunds => 78,
+            ProtocolFeature::IncreaseMaxCongestionMissedChunks => 79,
+            ProtocolFeature::StatePartsCompression | ProtocolFeature::DeterministicAccountIds => 82,
+            ProtocolFeature::Wasmtime => 83,
 
             // Nightly features:
             ProtocolFeature::FixContractLoadingCost => 129,
@@ -402,7 +440,7 @@ impl ProtocolFeature {
             // that always enables this for mocknet (see config_mocknet function).
             ProtocolFeature::ShuffleShardAssignments => 143,
             ProtocolFeature::ExcludeExistingCodeFromWitnessForCodeLen => 148,
-            ProtocolFeature::ReducedGasRefunds => 149,
+            ProtocolFeature::InvalidTxGenerateOutcomes => 151,
             // Place features that are not yet in Nightly below this line.
         }
     }
@@ -416,19 +454,14 @@ impl ProtocolFeature {
 pub const PROD_GENESIS_PROTOCOL_VERSION: ProtocolVersion = 29;
 
 /// Minimum supported protocol version for the current binary
-pub const MIN_SUPPORTED_PROTOCOL_VERSION: ProtocolVersion = 75;
+pub const MIN_SUPPORTED_PROTOCOL_VERSION: ProtocolVersion = 80;
 
 /// Current protocol version used on the mainnet with all stable features.
-const STABLE_PROTOCOL_VERSION: ProtocolVersion = 78;
+const STABLE_PROTOCOL_VERSION: ProtocolVersion = 83;
 
 // On nightly, pick big enough version to support all features.
-const NIGHTLY_PROTOCOL_VERSION: ProtocolVersion = 149;
+const NIGHTLY_PROTOCOL_VERSION: ProtocolVersion = 151;
 
 /// Largest protocol version supported by the current binary.
 pub const PROTOCOL_VERSION: ProtocolVersion =
     if cfg!(feature = "nightly") { NIGHTLY_PROTOCOL_VERSION } else { STABLE_PROTOCOL_VERSION };
-
-/// Both, outgoing and incoming tcp connections to peers, will be rejected if `peer's`
-/// protocol version is lower than this.
-/// TODO(pugachag): revert back to `- 3` after mainnet is upgraded
-pub const PEER_MIN_ALLOWED_PROTOCOL_VERSION: ProtocolVersion = STABLE_PROTOCOL_VERSION - 4;

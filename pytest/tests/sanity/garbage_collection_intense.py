@@ -48,7 +48,8 @@ client_config = {
                 "nanos": 0
             }
         }
-    }
+    },
+    "save_tx_outcomes": True,
 }
 
 nodes = start_cluster(

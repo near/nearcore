@@ -1,55 +1,46 @@
 use super::event_type::{ReshardingEventType, ReshardingSplitShardParams};
-use super::types::ReshardingSender;
+use super::types::{ReshardingSender, ScheduleResharding};
 use crate::ChainStoreUpdate;
-use crate::flat_storage_resharder::{FlatStorageResharder, FlatStorageResharderController};
-use crate::types::RuntimeAdapter;
 use itertools::Itertools;
-use near_chain_configs::{MutableConfigValue, ReshardingConfig, ReshardingHandle};
+use near_async::messaging::CanSend;
 use near_chain_primitives::Error;
 use near_epoch_manager::EpochManagerAdapter;
+use near_epoch_manager::shard_tracker::ShardTracker;
 use near_primitives::block::Block;
 use near_primitives::congestion_info::CongestionInfo;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_store::adapter::StoreAdapter;
-use near_store::adapter::trie_store::{TrieStoreUpdateAdapter, get_shard_uid_mapping};
+use near_store::adapter::trie_store::get_shard_uid_mapping;
 use near_store::flat::BlockInfo;
 use near_store::trie::ops::resharding::RetainMode;
 use near_store::trie::outgoing_metadata::ReceiptGroupsQueue;
-use near_store::{ShardTries, ShardUId, Store, TrieAccess};
+use near_store::{ShardTries, ShardUId, Store, TrieAccess, TrieChanges};
+use std::collections::BTreeMap;
 use std::io;
-use std::num::NonZero;
 use std::sync::Arc;
+
+#[derive(Default)]
+pub struct SplitShardTrieChanges {
+    pub trie_changes: BTreeMap<ShardUId, TrieChanges>,
+}
 
 pub struct ReshardingManager {
     store: Store,
     epoch_manager: Arc<dyn EpochManagerAdapter>,
-    /// Configuration for resharding.
-    pub resharding_config: MutableConfigValue<ReshardingConfig>,
-    /// A handle that allows the main process to interrupt resharding if needed.
-    /// This typically happens when the main process is interrupted.
-    pub resharding_handle: ReshardingHandle,
-    /// Takes care of performing resharding on the flat storage.
-    pub flat_storage_resharder: FlatStorageResharder,
+    shard_tracker: ShardTracker,
+    resharding_sender: ReshardingSender,
 }
 
 impl ReshardingManager {
     pub fn new(
         store: Store,
         epoch_manager: Arc<dyn EpochManagerAdapter>,
-        runtime_adapter: Arc<dyn RuntimeAdapter>,
-        resharding_config: MutableConfigValue<ReshardingConfig>,
+        shard_tracker: ShardTracker,
         resharding_sender: ReshardingSender,
     ) -> Self {
-        let resharding_handle = ReshardingHandle::new();
-        let flat_storage_resharder = FlatStorageResharder::new(
-            runtime_adapter,
-            resharding_sender,
-            FlatStorageResharderController::from_resharding_handle(resharding_handle.clone()),
-            resharding_config.clone(),
-        );
-        Self { store, epoch_manager, resharding_config, flat_storage_resharder, resharding_handle }
+        Self { store, epoch_manager, shard_tracker, resharding_sender }
     }
 
     /// Trigger resharding if shard layout changes after the given block.
@@ -103,7 +94,7 @@ impl ReshardingManager {
                     shard_uid,
                     tries,
                     split_shard_event,
-                    next_shard_layout,
+                    false,
                 )?;
             }
             None => {
@@ -113,83 +104,84 @@ impl ReshardingManager {
         Ok(())
     }
 
-    fn split_shard(
-        &mut self,
+    pub fn split_shard(
+        &self,
         chain_store_update: ChainStoreUpdate,
         block: &Block,
         shard_uid: ShardUId,
         tries: ShardTries,
         split_shard_event: ReshardingSplitShardParams,
-        next_shard_layout: ShardLayout,
-    ) -> Result<(), Error> {
+        allow_resharding_without_memtries: bool,
+    ) -> Result<SplitShardTrieChanges, Error> {
         if split_shard_event.parent_shard != shard_uid {
             let parent_shard = split_shard_event.parent_shard;
             tracing::debug!(target: "resharding", ?parent_shard, "ShardUId does not match event parent shard, skipping");
-            return Ok(());
+            return Ok(Default::default());
+        }
+
+        let tracked_children_shards = split_shard_event
+            .children_shards()
+            .iter()
+            .filter(|child_shard_uid| {
+                self.shard_tracker.cares_about_shard_this_or_next_epoch(
+                    &split_shard_event.resharding_block.hash,
+                    child_shard_uid.shard_id(),
+                )
+            })
+            .copied()
+            .collect_vec();
+
+        if tracked_children_shards.is_empty() {
+            tracing::debug!(target: "resharding", "Not tracking any child shards, skipping");
+            return Ok(Default::default());
         }
 
         // Reshard the State column by setting ShardUId mapping from children to ancestor.
-        self.set_state_shard_uid_mapping(&split_shard_event)?;
+        self.set_state_shard_uid_mapping(&split_shard_event, &tracked_children_shards)?;
 
         // Create temporary children memtries by freezing parent memtrie and referencing it.
-        self.process_memtrie_resharding_storage_update(
+        let trie_changes = self.process_memtrie_resharding_storage_update(
             chain_store_update,
             block,
             tries,
             &split_shard_event,
+            allow_resharding_without_memtries,
         )?;
 
-        // Trigger resharding of flat storage.
-        self.flat_storage_resharder.start_resharding(
-            ReshardingEventType::SplitShard(split_shard_event),
-            &next_shard_layout,
-        )?;
+        // Trigger resharding by sending the event to the resharding actor.
+        // This would subsequently trigger the resharding after resharding block is finalized.
+        self.resharding_sender.send(ScheduleResharding { split_shard_event });
 
-        Ok(())
+        Ok(trie_changes)
     }
 
     /// Store in the database the mapping of ShardUId from children to the parent shard,
     /// so that subsequent accesses to the State will use the ancestor's ShardUId prefix
     /// as a prefix for the database key.
     fn set_state_shard_uid_mapping(
-        &mut self,
+        &self,
         split_shard_event: &ReshardingSplitShardParams,
+        tracked_children: &[ShardUId],
     ) -> io::Result<()> {
         let mut store_update = self.store.trie_store().store_update();
         let parent_shard_uid = split_shard_event.parent_shard;
         let parent_shard_uid_prefix = get_shard_uid_mapping(&self.store, parent_shard_uid);
-        for child_shard_uid in split_shard_event.children_shards() {
+        for &child_shard_uid in tracked_children {
             store_update.set_shard_uid_mapping(child_shard_uid, parent_shard_uid_prefix);
         }
         store_update.commit()
     }
 
-    /// TODO(resharding): Remove once proper solution for negative refcounts is implemented.
-    fn duplicate_nodes_at_split_boundary<'a>(
-        trie_store_update: &mut TrieStoreUpdateAdapter,
-        trie_nodes: impl Iterator<Item = (&'a CryptoHash, &'a Arc<[u8]>)>,
-        shard_uid_prefix: ShardUId,
-    ) {
-        let refcount_increment = NonZero::new(1).unwrap();
-        for (node_hash, node_value) in trie_nodes {
-            trie_store_update.increment_refcount_by(
-                shard_uid_prefix,
-                &node_hash,
-                &node_value,
-                refcount_increment,
-            );
-        }
-    }
-
     /// Creates temporary memtries for new shards to be able to process them in the next epoch.
     /// Note this doesn't complete memtries resharding, proper memtries are to be created later.
     fn process_memtrie_resharding_storage_update(
-        &mut self,
+        &self,
         mut chain_store_update: ChainStoreUpdate,
         block: &Block,
         tries: ShardTries,
         split_shard_event: &ReshardingSplitShardParams,
-    ) -> Result<(), Error> {
+        allow_resharding_without_memtries: bool,
+    ) -> Result<SplitShardTrieChanges, Error> {
         let block_hash = block.hash();
         let block_height = block.header().height();
         let ReshardingSplitShardParams {
@@ -208,7 +200,8 @@ impl ReshardingManager {
             self.store.chain_store().get_chunk_extra(block_hash, parent_shard_uid)?;
         let mut store_update = self.store.trie_store().store_update();
 
-        // TODO(resharding): leave only tracked shards.
+        let mut split_shard_trie_changes = SplitShardTrieChanges::default();
+
         for (new_shard_uid, retain_mode) in
             [(left_child_shard, RetainMode::Left), (right_child_shard, RetainMode::Right)]
         {
@@ -216,7 +209,7 @@ impl ReshardingManager {
                 .get_trie_for_shard(*parent_shard_uid, *parent_chunk_extra.state_root())
                 .recording_reads_new_recorder();
 
-            if !parent_trie.has_memtries() {
+            if !allow_resharding_without_memtries && !parent_trie.has_memtries() {
                 tracing::error!(
                     "Memtrie not loaded. Cannot process memtrie resharding storage
                      update for block {:?}, shard {:?}",
@@ -248,49 +241,53 @@ impl ReshardingManager {
                 retain_mode,
             )?;
 
-            // Split the parent trie and create a new child trie.
+            // Split the parent trie and create a new child trie. Save the trie nodes in store and memtrie.
+            // Note that we only apply the insertions from the trie changes as we don't want to delete
+            // nodes associated with retain_split_shard operation for the child.
             let trie_changes = parent_trie.retain_split_shard(boundary_account, retain_mode)?;
-            let new_root = tries.apply_all(&trie_changes, *parent_shard_uid, &mut store_update);
+            tries.apply_insertions(&trie_changes, *parent_shard_uid, &mut store_update);
             tries.apply_memtrie_changes(&trie_changes, *parent_shard_uid, block_height);
-
-            // TODO(resharding): remove duplicate_nodes_at_split_boundary method after proper fix for refcount issue
-            let trie_recorder = parent_trie.take_recorder().unwrap();
-            let mut trie_recorder = trie_recorder.write().expect("no poison");
-            Self::duplicate_nodes_at_split_boundary(
-                &mut store_update,
-                trie_recorder.recorded_iter(),
-                *parent_shard_uid,
-            );
 
             // TODO(resharding): set all fields of `ChunkExtra`. Consider stronger
             // typing. Clarify where it should happen when `State` and
             // `FlatState` update is implemented.
             let mut child_chunk_extra = ChunkExtra::clone(&parent_chunk_extra);
-            *child_chunk_extra.state_root_mut() = new_root;
+            *child_chunk_extra.state_root_mut() = trie_changes.new_root;
             *child_chunk_extra.congestion_info_mut() = child_congestion_info;
 
-            chain_store_update.save_chunk_extra(block_hash, &new_shard_uid, child_chunk_extra);
+            chain_store_update.save_chunk_extra(
+                block_hash,
+                &new_shard_uid,
+                child_chunk_extra.into(),
+            );
             chain_store_update.save_state_transition_data(
                 *block_hash,
                 new_shard_uid.shard_id(),
-                Some(trie_recorder.recorded_storage()),
+                parent_trie.recorded_storage(),
                 CryptoHash::default(),
                 // No contract code is accessed or deployed during resharding.
                 // TODO(#11099): Confirm if sending no contracts is ok here.
                 Default::default(),
             );
 
-            tracing::info!(target: "resharding", ?new_shard_uid, ?new_root, "Child trie created");
+            tracing::info!(target: "resharding", ?new_shard_uid, ?trie_changes.new_root, "Child trie created");
+
+            split_shard_trie_changes.trie_changes.insert(*new_shard_uid, trie_changes);
         }
 
-        // After committing the split changes, the parent trie has the state root of both the children.
-        // Now we can freeze the parent memtrie and copy it to the children.
-        tries.freeze_parent_memtrie(*parent_shard_uid, split_shard_event.children_shards())?;
+        // After committing the split changes, the parent trie has the state
+        // root of both the children. Now we can freeze the parent memtrie and
+        // copy it to the children.
+        let parent_trie =
+            tries.get_trie_for_shard(*parent_shard_uid, *parent_chunk_extra.state_root());
+        if parent_trie.has_memtries() {
+            tries.freeze_parent_memtrie(*parent_shard_uid, split_shard_event.children_shards())?;
+        }
 
         chain_store_update.merge(store_update.into());
         chain_store_update.commit()?;
 
-        Ok(())
+        Ok(split_shard_trie_changes)
     }
 
     pub fn get_child_congestion_info(

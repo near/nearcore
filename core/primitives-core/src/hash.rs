@@ -6,6 +6,7 @@ use std::fmt;
 use std::hash::{Hash, Hasher};
 use std::io::Write;
 
+/// A 256-bit hash used in NEAR Protocol.
 #[derive(
     Copy,
     Clone,
@@ -102,6 +103,17 @@ impl CryptoHash {
             Ok(_) | Err(bs58::decode::Error::BufferTooSmall) => Decode58Result::BadLength,
             Err(err) => Decode58Result::Err(err),
         }
+    }
+}
+
+#[cfg(feature = "schemars")]
+impl schemars::JsonSchema for CryptoHash {
+    fn schema_name() -> std::borrow::Cow<'static, str> {
+        "CryptoHash".to_string().into()
+    }
+
+    fn json_schema(generator: &mut schemars::SchemaGenerator) -> schemars::Schema {
+        String::json_schema(generator)
     }
 }
 

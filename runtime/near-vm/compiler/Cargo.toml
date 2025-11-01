@@ -21,7 +21,6 @@ near-vm-types.workspace = true
 wasmparser = { version = "0.99.0", default-features = false }
 target-lexicon.workspace = true
 enumset.workspace = true
-hashbrown = { workspace = true, optional = true }
 thiserror.workspace = true
 rkyv.workspace = true
 tracing.workspace = true

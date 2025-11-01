@@ -50,6 +50,9 @@ pub struct PingCommand {
     /// Listen address for prometheus metrics.
     #[clap(long, default_value = "0.0.0.0:9000")]
     prometheus_addr: String,
+    /// Just establish a handshake connection and exit without sending pings.
+    #[clap(long)]
+    just_handshake: bool,
 }
 
 fn display_stats(stats: &mut [(crate::PeerIdentifier, crate::PingStats)], peer_id: &PeerId) {
@@ -148,7 +151,7 @@ impl PingCommand {
         tracing::warn!(target: "ping", "the ping command is not stable, and may be removed or changed arbitrarily at any time");
 
         let mut chain_info = None;
-        for info in CHAIN_INFO.iter() {
+        for info in CHAIN_INFO {
             if &info.chain_id == &self.chain_id {
                 chain_info = Some(info);
                 break;
@@ -209,9 +212,12 @@ impl PingCommand {
                 csv,
                 &mut stats,
                 &self.prometheus_addr,
+                self.just_handshake,
             )
             .await?;
-            display_stats(&mut stats, &peer.id);
+            if !self.just_handshake {
+                display_stats(&mut stats, &peer.id);
+            }
             Ok(())
         })
     }

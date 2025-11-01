@@ -1,5 +1,4 @@
 use near_async::test_loop::data::TestLoopData;
-use near_async::time::Duration;
 use near_client::Client;
 use near_client::client_actor::ClientActorInner;
 use near_primitives::types::{AccountId, BlockHeight};
@@ -7,10 +6,13 @@ use near_primitives::types::{AccountId, BlockHeight};
 use crate::setup::env::TestLoopEnv;
 use crate::setup::state::NodeExecutionData;
 
+pub(crate) mod account;
 pub(crate) mod client_queries;
+pub(crate) mod cloud_archival;
 pub(crate) mod contract_distribution;
 pub(crate) mod loop_action;
 pub(crate) mod network;
+pub(crate) mod node;
 pub(crate) mod peer_manager_actor;
 pub(crate) mod receipts;
 pub(crate) mod resharding;
@@ -20,9 +22,6 @@ pub(crate) mod sharding;
 pub(crate) mod transactions;
 pub(crate) mod trie_sanity;
 pub(crate) mod validators;
-
-pub(crate) const ONE_NEAR: u128 = 1_000_000_000_000_000_000_000_000;
-pub(crate) const TGAS: u64 = 1_000_000_000_000;
 
 pub(crate) fn get_node_client<'a>(
     env: &'a TestLoopEnv,
@@ -40,20 +39,22 @@ pub(crate) fn get_node_head_height(
     get_node_client(env, client_account_id).chain.head().unwrap().height
 }
 
-#[allow(dead_code)]
-pub(crate) fn run_until_node_head_height(
+pub(crate) fn run_for_number_of_blocks(
     env: &mut TestLoopEnv,
     client_account_id: &AccountId,
-    height: BlockHeight,
-    maximum_duration: Duration,
+    num_blocks: usize,
 ) {
+    let max_block_production_delay =
+        get_node_client(env, client_account_id).config.max_block_production_delay;
+    let initial_head_height = get_node_head_height(env, client_account_id);
     env.test_loop.run_until(
         |test_loop_data| {
             let client_actor =
                 retrieve_client_actor(&env.node_datas, test_loop_data, client_account_id);
-            client_actor.client.chain.head().unwrap().height >= height
+            let current_height = client_actor.client.chain.head().unwrap().height;
+            current_height >= initial_head_height + num_blocks as u64
         },
-        maximum_duration,
+        max_block_production_delay * (num_blocks as u32 + 1),
     );
 }
 

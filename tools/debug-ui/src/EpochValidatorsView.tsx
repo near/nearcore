@@ -2,8 +2,9 @@ import { partition } from 'lodash';
 import { useQuery } from '@tanstack/react-query';
 import { useId, useState } from 'react';
 import { Tooltip } from 'react-tooltip';
-import { EpochInfoView, ValidatorKickoutReason, fetchEpochInfo } from './api';
+import { EpochInfoView, ValidatorKickoutReason, fetchEpochInfo, fetchEntity, ApiEntityDataEntry, ApiEntityData } from './api';
 import './EpochValidatorsView.scss';
+import { EntityQuery, EntityQueryWithParams } from './entity_debug/types';
 
 interface ProducedAndExpected {
     produced: number;
@@ -219,34 +220,76 @@ export const EpochValidatorsView = ({ addr }: EpochValidatorViewProps) => {
     const [enteredEpochId, setEnteredEpochId] = useState<string>('');
     const [currentEpochId, setCurrentEpochId] = useState<string | null>(null);
     const [validators, setValidators] = useState<Validators | null>(null);
+    const [validatorProtocolVersion, setValidatorProtocolVersion] = useState<Map<string, string> | null>(null);
     const [maxStake, setMaxStake] = useState<number>(0);
     const [totalStake, setTotalStake] = useState<number>(0);
+    const [totalVotingStake, setTotalVotingStake] = useState<number>(0);
     const [maxExpectedBlocks, setMaxExpectedBlocks] = useState<number>(0);
     const [maxExpectedChunks, setMaxExpectedChunks] = useState<number>(0);
     const [maxExpectedEndorsements, setMaxExpectedEndorsements] = useState<number>(0);
+    const [votingTrackerData, setVotingTrackerData] = useState<Map<string, number> | null>(null);
 
-    const { data: epochData, error: epochError, isLoading: epochIsLoading, isFetching } = useQuery(
-        ['epochInfo', addr, currentEpochId],
-        () => fetchEpochInfo(addr, currentEpochId),
-        {
-            onSuccess: (data) => {
-                const { 
-                    validators, maxStake, totalStake, 
-                    maxExpectedBlocks, maxExpectedChunks, maxExpectedEndorsements 
-                } = processEpochData(data);
-                setValidators(validators);
-                setMaxStake(maxStake);
-                setTotalStake(totalStake);
-                setMaxExpectedBlocks(maxExpectedBlocks);
-                setMaxExpectedChunks(maxExpectedChunks);
-                setMaxExpectedEndorsements(maxExpectedEndorsements);
-            },
-            keepPreviousData: true
-        }
-    );
+    const {
+        data: epochData,
+        error: epochError,
+        isLoading: epochIsLoading,
+        isFetching,
+    } = useQuery(['epochInfo', addr, currentEpochId], () => fetchEpochInfo(addr, currentEpochId), {
+        onSuccess: (data) => {
+            const {
+                validators,
+                maxStake,
+                totalStake,
+                maxExpectedBlocks,
+                maxExpectedChunks,
+                maxExpectedEndorsements,
+            } = processEpochData(data);
+            setValidators(validators);
+            setMaxStake(maxStake);
+            setTotalStake(totalStake);
+            setMaxExpectedBlocks(maxExpectedBlocks);
+            setMaxExpectedChunks(maxExpectedChunks);
+            setMaxExpectedEndorsements(maxExpectedEndorsements);
+        },
+        keepPreviousData: true,
+    });
 
-    if (epochIsLoading) {	
-        return <div>Loading...</div>;	
+    const {
+        data: versionTrackerData,
+        error: versionTrackerError,
+        isLoading: versionTrackerLoading,
+    } = useQuery(['versionTracker', addr,validators !== null ], () =>  {
+            const query: EntityQuery = {
+                EpochInfoAggregator: null,
+            };
+            const queryWithParams: EntityQueryWithParams = { ...query };
+            return fetchEntity(addr, queryWithParams);
+        }, {
+        onSuccess: (data) => {
+            const validatorProtocolVersion = new Map<string, string>();
+            const entries = data as ApiEntityData;
+            const versionTracker = entries.entries.find((entry: ApiEntityDataEntry) => entry.name === 'version_tracker');
+            const sorted_validators = validators?.sorted();
+            let versions = new Map<string, number>();
+            let total_voting_stake = 0;
+            (versionTracker?.value as ApiEntityData).entries.forEach((entry: ApiEntityDataEntry) => {
+                const validator_idx = parseInt(entry.name, 10);
+                const version = entry.value as string;
+                const current_stake = versions.get(version) ?? 0;
+                const _stake = sorted_validators?.[validator_idx]?.current?.stake ?? 0;
+                validatorProtocolVersion.set(sorted_validators?.[validator_idx]?.accountId ?? '', version);
+                total_voting_stake += _stake;
+                versions.set(version, current_stake + _stake);
+            });
+            setVotingTrackerData(versions);
+            setTotalVotingStake(total_voting_stake);
+            setValidatorProtocolVersion(validatorProtocolVersion);
+        },
+        keepPreviousData: true,
+    });
+
+    if (epochIsLoading) {
+        return <div>Loading...</div>;
     }
     if (epochError) {
         return <div className="error">{(epochError as Error).stack}</div>;
@@ -254,11 +297,11 @@ export const EpochValidatorsView = ({ addr }: EpochValidatorViewProps) => {
 
     const handleNavigateEpoch = async (direction: 'left' | 'right') => {
         if (!epochData?.status_response.EpochInfo) return;
-        
+
         const epochs = epochData.status_response.EpochInfo;
         const currentIndex = 1;
         const targetIndex = direction === 'left' ? currentIndex - 1 : currentIndex + 1;
-        
+
         if (targetIndex < 0 || targetIndex >= epochs.length) {
             alert('No more epochs available in that direction');
             return;
@@ -282,17 +325,56 @@ export const EpochValidatorsView = ({ addr }: EpochValidatorViewProps) => {
         setEnteredEpochId(event.target.value);
     };
 
+    function renderVotingTracker(
+        votingTrackerData: Map<string, number> | null,
+        totalVotingStake: number
+    ): JSX.Element {
+        if (votingTrackerData === null || votingTrackerData.size <= 1) {
+            return <></>;
+        }
+        const sorted_voting_tracker = Array.from(votingTrackerData.entries()).sort((a, b) => b[1] - a[1]);
+        return (
+            <table className="voting-tracker-table">
+                <caption>Voting Tracker</caption>
+                <thead>
+                    <tr>
+                        <th>Protocol Version</th>
+                        <th>Stake</th>
+                        <th>Percentage</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {sorted_voting_tracker.map(([version, stake]) => (
+                        <tr key={version}>
+                            <td className={(stake / totalVotingStake )> .8 ? 'majority-version' : 'version-value'}>{version}</td>
+                            <td>{(stake / 1e24).toLocaleString('en-US')}</td>
+                            <td>{(stake / totalVotingStake * 100).toFixed(2)}%</td>
+                        </tr>
+                    ))}
+                </tbody>
+            </table>
+        );
+    }
+
     function renderTableHeaders(epochData: any): JSX.Element {
         return (
             <thead>
                 <tr>
                     <th></th>
-                    <th colSpan={3}>Next Epoch {epochData?.status_response.EpochInfo[0].epoch_height}</th>
-                    <th colSpan={5}>Current Epoch {epochData?.status_response.EpochInfo[1].epoch_height}</th>
-                    <th colSpan={1 + (epochData?.status_response.EpochInfo.length || 0) - 2}>Past Epochs</th>
+                    <th/>
+                    <th colSpan={3}>
+                        Next Epoch {epochData?.status_response.EpochInfo[0].epoch_height}
+                    </th>
+                    <th colSpan={5}>
+                        Current Epoch {epochData?.status_response.EpochInfo[1].epoch_height}
+                    </th>
+                    <th colSpan={1 + (epochData?.status_response.EpochInfo.length || 0) - 2}>
+                        Past Epochs
+                    </th>
                 </tr>
                 <tr>
                     <th>Validator</th>
+                    <th>PV</th>
                     <th className="small-text">Roles (shards)</th>
                     <th>Stake</th>
                     <th>Proposal</th>
@@ -313,11 +395,12 @@ export const EpochValidatorsView = ({ addr }: EpochValidatorViewProps) => {
 
     function renderTableBody(
         validators: Validators | null,
+        validatorProtocolVersion: Map<string, string> | null,
         maxStake: number,
         totalStake: number,
         maxExpectedBlocks: number,
         maxExpectedChunks: number,
-        maxExpectedEndorsements: number,
+        maxExpectedEndorsements: number
     ): JSX.Element {
         return (
             <tbody>
@@ -325,40 +408,60 @@ export const EpochValidatorsView = ({ addr }: EpochValidatorViewProps) => {
                     return (
                         <tr key={validator.accountId}>
                             <td>{validator.accountId}</td>
-                            <td>{renderRoles(validator.roles[0], validator.roles[1], validator.kickoutReason, true)}</td>
+                            <td>{validatorProtocolVersion?.get(validator.accountId) ?? ''}</td>
                             <td>
-                            {drawStakeBar(validator.next?.stake ?? null, maxStake, totalStake)}
-                        </td>
-                        <td>{drawStakeBar(validator.proposalStake, maxStake, totalStake)}</td>
-                        <td>{renderRoles(validator.roles[1], validator.roles[2] ?? validator.roles[1], validator.kickoutReason)}</td>
-                        <td>
-                            {drawStakeBar(
-                                validator.current?.stake ?? null,
-                                maxStake,
-                                totalStake
-                            )}
-                        </td>
-                        <td>
-                            {drawProducedAndExpectedBar(
-                                validator.current?.blocks ?? null,
-                                maxExpectedBlocks
-                            )}
-                        </td>
-                        <td>
-                            {drawProducedAndExpectedBar(
-                                validator.current?.chunks ?? null,
-                                maxExpectedChunks
-                            )}
-                        </td>
-                        <td>
-                            {drawProducedAndExpectedBar(
-                                validator.current?.endorsements ?? null,
-                                maxExpectedEndorsements
-                            )}
-                        </td>
-                        {validator.roles.slice(2).map((roles: ValidatorRole[], i: number) => (
-                            <td key={i}>{renderRoles(roles, validator.roles[3 + i] ?? roles, validator.kickoutReason)}</td>
-                        ))}
+                                {renderRoles(
+                                    validator.roles[0],
+                                    validator.roles[1],
+                                    validator.kickoutReason,
+                                    true
+                                )}
+                            </td>
+                            <td>
+                                {drawStakeBar(validator.next?.stake ?? null, maxStake, totalStake)}
+                            </td>
+                            <td>{drawStakeBar(validator.proposalStake, maxStake, totalStake)}</td>
+                            <td>
+                                {renderRoles(
+                                    validator.roles[1],
+                                    validator.roles[2] ?? validator.roles[1],
+                                    validator.kickoutReason
+                                )}
+                            </td>
+                            <td>
+                                {drawStakeBar(
+                                    validator.current?.stake ?? null,
+                                    maxStake,
+                                    totalStake
+                                )}
+                            </td>
+                            <td>
+                                {drawProducedAndExpectedBar(
+                                    validator.current?.blocks ?? null,
+                                    maxExpectedBlocks
+                                )}
+                            </td>
+                            <td>
+                                {drawProducedAndExpectedBar(
+                                    validator.current?.chunks ?? null,
+                                    maxExpectedChunks
+                                )}
+                            </td>
+                            <td>
+                                {drawProducedAndExpectedBar(
+                                    validator.current?.endorsements ?? null,
+                                    maxExpectedEndorsements
+                                )}
+                            </td>
+                            {validator.roles.slice(2).map((roles: ValidatorRole[], i: number) => (
+                                <td key={i}>
+                                    {renderRoles(
+                                        roles,
+                                        validator.roles[3 + i] ?? roles,
+                                        validator.kickoutReason
+                                    )}
+                                </td>
+                            ))}
                         </tr>
                     );
                 })}
@@ -373,13 +476,14 @@ export const EpochValidatorsView = ({ addr }: EpochValidatorViewProps) => {
         totalStake: number,
         maxExpectedBlocks: number,
         maxExpectedChunks: number,
-        maxExpectedEndorsements: number,
+        maxExpectedEndorsements: number
     ): JSX.Element {
         return (
             <table className="epoch-validators-table">
                 {renderTableHeaders(epochData)}
                 {renderTableBody(
                     validators,
+                    validatorProtocolVersion,
                     maxStake,
                     totalStake,
                     maxExpectedBlocks,
@@ -393,50 +497,52 @@ export const EpochValidatorsView = ({ addr }: EpochValidatorViewProps) => {
     return (
         <div className={isFetching ? 'loading-overlay' : ''}>
             <div className="kickout-disclaimer">
-                Note: Validator kickouts are determined at the end of the <b>second previous epoch</b>
+                Note: Validator kickouts are determined at the end of the{' '}
+                <b>second previous epoch</b>
             </div>
 
             <div className="epoch-navigation">
-                <button 
+                <button
                     onClick={() => handleNavigateEpoch('left')}
                     disabled={!epochData}
-                    className="arrow-button"
-                >
+                    className="arrow-button">
                     ←
                 </button>
-                
+
                 <div className="epoch-info">
                     {epochData && (
                         <>
                             <div className="epoch-height">
                                 Epoch {epochData.status_response.EpochInfo[1].epoch_height}
                                 <span className="epoch-start-height">
-                                    (starts at {epochData.status_response.EpochInfo[1].height || 'N/A'})
+                                    (starts at{' '}
+                                    {epochData.status_response.EpochInfo[1].height || 'N/A'})
                                 </span>
                             </div>
                             <details>
                                 <summary>Recent Epochs</summary>
                                 <div className="epoch-debug">
-                                    {epochData.status_response.EpochInfo.map((epoch: EpochInfoView, index: number) => (
-                                        <div key={epoch.epoch_id}>
-                                            Epoch {epoch.epoch_height}: {epoch.epoch_id}
-                                        </div>
-                                    ))}
+                                    {epochData.status_response.EpochInfo.map(
+                                        (epoch: EpochInfoView) => (
+                                            <div key={epoch.epoch_id}>
+                                                Epoch {epoch.epoch_height}: {epoch.epoch_id}
+                                            </div>
+                                        )
+                                    )}
                                 </div>
                             </details>
                         </>
                     )}
                 </div>
 
-                <button 
+                <button
                     onClick={() => handleNavigateEpoch('right')}
                     disabled={!epochData}
-                    className="arrow-button"
-                >
+                    className="arrow-button">
                     →
                 </button>
             </div>
-
+            {renderVotingTracker(votingTrackerData, totalVotingStake)}
             <input
                 type="text"
                 placeholder="Enter Epoch ID"
@@ -482,6 +588,8 @@ function drawProducedAndExpectedBar(
             producedWidth = expectedWidth - missedWidth;
         }
     }
+
+    const producedPercentage = ((100 * produced) / expected).toFixed(2) + '%';
     return (
         <div className="produced-and-expected-bar">
             <div className="produced-count">{produced}</div>
@@ -492,6 +600,7 @@ function drawProducedAndExpectedBar(
                     <div className="missed-count">{expected - produced}</div>
                 </>
             )}
+            <div className="produced-rate">({producedPercentage})</div>
         </div>
     );
 }
@@ -513,9 +622,18 @@ function drawStakeBar(stake: number | null, maxStake: number, totalStake: number
     );
 }
 
-function renderRoles(roles: ValidatorRole[], prev_roles: ValidatorRole[], kickoutReason: ValidatorKickoutReason | null = null, isNextEpoch: boolean = false): JSX.Element {
+function renderRoles(
+    roles: ValidatorRole[],
+    prev_roles: ValidatorRole[],
+    kickoutReason: ValidatorKickoutReason | null = null,
+    isNextEpoch = false
+): JSX.Element {
     if (isNextEpoch && kickoutReason) {
-        return <span className="kickout">✖ <KickoutReason reason={kickoutReason} /></span>;
+        return (
+            <span className="kickout">
+                ✖ <KickoutReason reason={kickoutReason} />
+            </span>
+        );
     }
 
     const renderedItems = [];
@@ -524,30 +642,41 @@ function renderRoles(roles: ValidatorRole[], prev_roles: ValidatorRole[], kickou
             case 'BlockProducer':
                 renderedItems.push(<span className="block-producer">BP</span>);
                 break;
-            case 'ChunkProducer':
-                const [old_shards, new_shards] =
-                    partition(role.shards, (shard) => prev_roles?.some(prev_role => prev_role.kind === 'ChunkProducer' && prev_role.shards.includes(shard)));
+            case 'ChunkProducer': {
+                const [old_shards, new_shards] = partition(role.shards, (shard) =>
+                    prev_roles?.some(
+                        (prev_role) =>
+                            prev_role.kind === 'ChunkProducer' && prev_role.shards.includes(shard)
+                    )
+                );
                 // Create a list of shard elements with commas between them
                 const shardElements = [
-                    ...old_shards.map(shard => <text className="old-chunk-producer">{shard}</text>),
-                    ...new_shards.map(shard => <text className="new-chunk-producer">{shard}</text>)
+                    ...old_shards.map((shard) => (
+                        <text key={'old_' + shard} className="old-chunk-producer">
+                            {shard}
+                        </text>
+                    )),
+                    ...new_shards.map((shard) => (
+                        <text key={'new_' + shard} className="new-chunk-producer">
+                            {shard}
+                        </text>
+                    )),
                 ].reduce((acc, element, index) => {
                     if (index === 0) {
                         return [element];
                     }
                     return [...acc, <>,</>, element];
                 }, [] as JSX.Element[]);
-                
-                renderedItems.push(
-                    <span className="chunk-producer">CP({shardElements})</span>
-                );
+
+                renderedItems.push(<span className="chunk-producer">CP({shardElements})</span>);
                 break;
+            }
             case 'ChunkValidator':
                 renderedItems.push(<span className="chunk-validator">CV</span>);
                 break;
         }
     }
-    
+
     return <>{renderedItems}</>;
 }
 
@@ -574,7 +703,9 @@ const KickoutReason = ({ reason }: { reason: ValidatorKickoutReason | null }) =>
         kickoutSummary = '#Chunks';
         kickoutReason = `Validator did not produce enough chunks: expected ${reason.NotEnoughChunks.expected}, actually produced ${reason.NotEnoughChunks.produced}`;
     } else if ('NotEnoughChunkEndorsements' in reason) {
-        {/* cspell: words Endors */}
+        {
+            /* cspell: words Endors */
+        }
         kickoutSummary = '#Endors';
         kickoutReason = `Validator did not produce enough chunk endorsements: expected ${reason.NotEnoughChunkEndorsements.expected}, actually produced ${reason.NotEnoughChunkEndorsements.produced}`;
     } else if ('NotEnoughStake' in reason) {

@@ -10,6 +10,7 @@ mod delegate_action;
 mod fix_contract_loading_cost;
 mod in_memory_tries;
 mod orphan_chunk_state_witness;
+mod reduced_gas_refunds;
 mod restrict_tla;
 mod stateless_validation;
 mod storage_proof_size_limit;

@@ -14,6 +14,8 @@ use near_parameters::RuntimeConfig;
 use near_primitives_core::serialize::{from_base64, to_base64};
 use near_primitives_core::types::Compute;
 use near_schema_checker_lib::ProtocolSchema;
+#[cfg(feature = "schemars")]
+use schemars::json_schema;
 use serde::de::Error as DecodeError;
 use serde::ser::Error as EncodeError;
 use std::borrow::Borrow;
@@ -225,53 +227,45 @@ impl ValidatedTransaction {
         config: &RuntimeConfig,
         signed_tx: SignedTransaction,
     ) -> Result<Self, (InvalidTxError, SignedTransaction)> {
+        match Self::check_valid_for_config(config, &signed_tx) {
+            Ok(()) => {}
+            Err(err) => return Err((err, signed_tx)),
+        }
+
+        if !signed_tx
+            .signature
+            .verify(signed_tx.get_hash().as_ref(), signed_tx.transaction.public_key())
+        {
+            return Err((InvalidTxError::InvalidSignature, signed_tx));
+        }
+        Ok(Self(signed_tx))
+    }
+
+    /// Performs validity checks that depend on the runtime config, but does not
+    /// check the signature.
+    pub fn check_valid_for_config(
+        config: &RuntimeConfig,
+        signed_tx: &SignedTransaction,
+    ) -> Result<(), InvalidTxError> {
         // Don't allow V1 currently. This will be changed when the new protocol version is introduced.
         if matches!(signed_tx.transaction, Transaction::V1(_)) {
-            return Err((InvalidTxError::InvalidTransactionVersion, signed_tx));
+            return Err(InvalidTxError::InvalidTransactionVersion);
         }
         let tx_size = signed_tx.get_size();
         let max_tx_size = config.wasm_config.limit_config.max_transaction_size;
         if tx_size > max_tx_size {
-            return Err((
-                InvalidTxError::TransactionSizeExceeded { size: tx_size, limit: max_tx_size },
-                signed_tx,
-            ));
+            return Err(InvalidTxError::TransactionSizeExceeded {
+                size: tx_size,
+                limit: max_tx_size,
+            });
         }
 
-        if signed_tx
-            .signature
-            .verify(signed_tx.get_hash().as_ref(), signed_tx.transaction.public_key())
-        {
-            Ok(Self(signed_tx))
-        } else {
-            Err((InvalidTxError::InvalidSignature, signed_tx))
-        }
+        Ok(())
     }
 
-    /// This method should only be used for test purposes.  This is because
-    /// kv_runtime is not designed to do proper signature verification.
+    /// This method should only be used for test purposes.
     pub fn new_for_test(signed_tx: SignedTransaction) -> Self {
         Self(signed_tx)
-    }
-
-    /// Builds a list of ValidatedTransactions from an iterator of
-    /// SignedTransactions.
-    ///
-    /// Note that the if a subset of SignedTransactions pass validation and then
-    /// one fails, then this function will drop the validated txs.  Currently,
-    /// this is not problematic for any of the callers of this function. It is
-    /// possible to improve this function to never drop any txs if callers
-    /// require such functionality in the future.
-    #[allow(clippy::result_large_err)]
-    pub fn new_list(
-        config: &RuntimeConfig,
-        signed_txs: impl IntoIterator<Item = SignedTransaction>,
-    ) -> Result<Vec<ValidatedTransaction>, (InvalidTxError, SignedTransaction)> {
-        let mut validated_txs = vec![];
-        for signed_tx in signed_txs {
-            validated_txs.push(ValidatedTransaction::new(&config, signed_tx)?);
-        }
-        Ok(validated_txs)
     }
 
     pub fn to_signed_tx(&self) -> &SignedTransaction {
@@ -290,11 +284,6 @@ impl ValidatedTransaction {
     /// below as that offers stronger type safety.
     pub fn get_hash(&self) -> CryptoHash {
         self.0.get_hash()
-    }
-
-    /// See additional documentation around `ValidatedTransactionHash`.
-    pub fn to_hash(&self) -> ValidatedTransactionHash {
-        ValidatedTransactionHash(self.get_hash())
     }
 
     pub fn get_size(&self) -> u64 {
@@ -319,17 +308,6 @@ impl ValidatedTransaction {
 
     pub fn actions(&self) -> &[Action] {
         self.to_tx().actions()
-    }
-}
-
-/// Using the new type pattern, wraps a `CryptoHash` to indicate that it could
-/// have only come from a `ValidatedTransaction`.  The only way to construct
-/// this type should be by calling `ValidatedTransaction::to_transaction_hash()`.
-pub struct ValidatedTransactionHash(CryptoHash);
-
-impl ValidatedTransactionHash {
-    pub fn get_hash(&self) -> CryptoHash {
-        self.0
     }
 }
 
@@ -360,6 +338,10 @@ impl SignedTransaction {
 
     pub fn get_hash(&self) -> CryptoHash {
         self.hash
+    }
+
+    pub fn hash(&self) -> &CryptoHash {
+        &self.hash
     }
 
     pub fn get_size(&self) -> u64 {
@@ -413,19 +395,35 @@ impl<'de> serde::Deserialize<'de> for SignedTransaction {
     }
 }
 
+#[cfg(feature = "schemars")]
+impl schemars::JsonSchema for SignedTransaction {
+    fn schema_name() -> std::borrow::Cow<'static, str> {
+        "SignedTransaction".to_string().into()
+    }
+
+    fn json_schema(_generator: &mut schemars::SchemaGenerator) -> schemars::Schema {
+        json_schema!({
+            "type": "string",
+            "format": "byte"
+        })
+    }
+}
+
 /// The status of execution for a transaction or a receipt.
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Default, ProtocolSchema)]
+#[borsh(use_discriminant = true)]
+#[repr(u8)]
 pub enum ExecutionStatus {
     /// The execution is pending or unknown.
     #[default]
-    Unknown,
+    Unknown = 0,
     /// The execution has failed with the given execution error.
-    Failure(TxExecutionError),
+    Failure(TxExecutionError) = 1,
     /// The final action succeeded and returned some value or an empty vec.
-    SuccessValue(Vec<u8>),
+    SuccessValue(Vec<u8>) = 2,
     /// The final action of the receipt returned a promise or the signed transaction was converted
     /// to a receipt. Contains the receipt_id of the generated receipt.
-    SuccessReceiptId(CryptoHash),
+    SuccessReceiptId(CryptoHash) = 3,
 }
 
 impl fmt::Debug for ExecutionStatus {
@@ -467,11 +465,13 @@ impl From<&ExecutionOutcome> for PartialExecutionOutcome {
 
 /// ExecutionStatus for proof. Excludes failure debug info.
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Clone)]
+#[borsh(use_discriminant = true)]
+#[repr(u8)]
 pub enum PartialExecutionStatus {
-    Unknown,
-    Failure,
-    SuccessValue(Vec<u8>),
-    SuccessReceiptId(CryptoHash),
+    Unknown = 0,
+    Failure = 1,
+    SuccessValue(Vec<u8>) = 2,
+    SuccessReceiptId(CryptoHash) = 3,
 }
 
 impl From<ExecutionStatus> for PartialExecutionStatus {
@@ -528,14 +528,16 @@ pub struct ExecutionOutcome {
 #[derive(
     BorshSerialize, BorshDeserialize, PartialEq, Clone, Eq, Debug, Default, ProtocolSchema,
 )]
+#[borsh(use_discriminant = true)]
+#[repr(u8)]
 pub enum ExecutionMetadata {
     /// V1: Empty Metadata
     #[default]
-    V1,
+    V1 = 0,
     /// V2: With ProfileData by legacy `Cost` enum
-    V2(crate::profile_data_v2::ProfileDataV2),
+    V2(crate::profile_data_v2::ProfileDataV2) = 1,
     /// V3: With ProfileData by gas parameters
-    V3(Box<ProfileDataV3>),
+    V3(Box<ProfileDataV3>) = 2,
 }
 
 impl fmt::Debug for ExecutionOutcome {
@@ -566,6 +568,17 @@ pub struct ExecutionOutcomeWithId {
 }
 
 impl ExecutionOutcomeWithId {
+    pub fn failed(transaction: &SignedTransaction, error: InvalidTxError) -> Self {
+        Self {
+            id: transaction.get_hash(),
+            outcome: ExecutionOutcome {
+                executor_id: transaction.transaction.signer_id().clone(),
+                status: ExecutionStatus::Failure(TxExecutionError::InvalidTxError(error)),
+                ..Default::default()
+            },
+        }
+    }
+
     pub fn to_hashes(&self) -> Vec<CryptoHash> {
         let mut result = Vec::with_capacity(2 + self.outcome.logs.len());
         result.push(self.id);
@@ -613,6 +626,7 @@ mod tests {
     use crate::account::{AccessKey, AccessKeyPermission, FunctionCallPermission};
     use borsh::BorshDeserialize;
     use near_crypto::{InMemorySigner, KeyType, Signature, Signer};
+    use near_primitives::types::Gas;
 
     #[test]
     fn test_verify_transaction() {
@@ -653,13 +667,13 @@ mod tests {
                 Action::FunctionCall(Box::new(FunctionCallAction {
                     method_name: "qqq".to_string(),
                     args: vec![1, 2, 3],
-                    gas: 1_000,
-                    deposit: 1_000_000,
+                    gas: Gas::from_gas(1_000),
+                    deposit: Balance::from_yoctonear(1_000_000),
                 })),
-                Action::Transfer(TransferAction { deposit: 123 }),
+                Action::Transfer(TransferAction { deposit: Balance::from_yoctonear(123) }),
                 Action::Stake(Box::new(StakeAction {
                     public_key: public_key.clone(),
-                    stake: 1_000_000,
+                    stake: Balance::from_yoctonear(1_000_000),
                 })),
                 Action::AddKey(Box::new(AddKeyAction {
                     public_key: public_key.clone(),
@@ -694,13 +708,13 @@ mod tests {
                 Action::FunctionCall(Box::new(FunctionCallAction {
                     method_name: "qqq".to_string(),
                     args: vec![1, 2, 3],
-                    gas: 1_000,
-                    deposit: 1_000_000,
+                    gas: Gas::from_gas(1_000),
+                    deposit: Balance::from_yoctonear(1_000_000),
                 })),
-                Action::Transfer(TransferAction { deposit: 123 }),
+                Action::Transfer(TransferAction { deposit: Balance::from_yoctonear(123) }),
                 Action::Stake(Box::new(StakeAction {
                     public_key: public_key.clone(),
-                    stake: 1_000_000,
+                    stake: Balance::from_yoctonear(1_000_000),
                 })),
                 Action::AddKey(Box::new(AddKeyAction {
                     public_key: public_key.clone(),
@@ -756,9 +770,9 @@ mod tests {
             status: ExecutionStatus::SuccessValue(vec![123]),
             logs: vec!["123".to_string(), "321".to_string()],
             receipt_ids: vec![],
-            gas_burnt: 123,
+            gas_burnt: Gas::from_gas(123),
             compute_usage: Some(456),
-            tokens_burnt: 1234000,
+            tokens_burnt: Balance::from_yoctonear(1234000),
             executor_id: "alice".parse().unwrap(),
             metadata: ExecutionMetadata::V1,
         };

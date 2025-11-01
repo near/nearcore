@@ -18,6 +18,8 @@ pub enum ViewContractCodeError {
     NoContractCode { contract_account_id: near_primitives::types::AccountId },
     #[error("Internal error: #{error_message}")]
     InternalError { error_message: String },
+    #[error("Contract code for global contract ID {identifier:?} does not exist")]
+    NoGlobalContractCode { identifier: near_primitives::action::GlobalContractIdentifier },
 }
 
 #[derive(thiserror::Error, Debug)]

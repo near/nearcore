@@ -21,8 +21,10 @@ use crate::{utils::compression::CompressedData, validator_signer::ValidatorSigne
 /// This is used by the chunk producer to let the chunk validators know about which contracts
 /// are needed for validating a witness, so that the chunk validators can request missing code.
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
+#[borsh(use_discriminant = true)]
+#[repr(u8)]
 pub enum ChunkContractAccesses {
-    V1(ChunkContractAccessesV1),
+    V1(ChunkContractAccessesV1) = 0,
 }
 
 /// Contains information necessary to identify StateTransitionData in the storage.
@@ -125,8 +127,10 @@ impl ChunkContractAccessesInner {
 /// Message to request missing code for a set of contracts.
 /// The contracts are identified by the hash of their code.
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
+#[borsh(use_discriminant = true)]
+#[repr(u8)]
 pub enum ContractCodeRequest {
-    V1(ContractCodeRequestV1),
+    V1(ContractCodeRequestV1) = 0,
 }
 
 impl ContractCodeRequest {
@@ -235,8 +239,10 @@ impl ContractCodeRequestInner {
 // Data structures for chunk producers to send contract code to chunk validators as response to ContractCodeRequest.
 
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
+#[borsh(use_discriminant = true)]
+#[repr(u8)]
 pub enum ContractCodeResponse {
-    V1(ContractCodeResponseV1),
+    V1(ContractCodeResponseV1) = 0,
 }
 
 impl ContractCodeResponse {
@@ -409,8 +415,10 @@ impl ReedSolomonEncoderSerialize for ChunkContractDeploys {}
 impl ReedSolomonEncoderDeserialize for ChunkContractDeploys {}
 
 #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
+#[borsh(use_discriminant = true)]
+#[repr(u8)]
 pub enum PartialEncodedContractDeploys {
-    V1(PartialEncodedContractDeploysV1),
+    V1(PartialEncodedContractDeploysV1) = 0,
 }
 
 impl PartialEncodedContractDeploys {

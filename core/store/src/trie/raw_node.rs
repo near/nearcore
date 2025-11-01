@@ -1,5 +1,6 @@
 use borsh::{BorshDeserialize, BorshSerialize};
 
+use crate::trie::{ChildrenMask, NUM_CHILDREN};
 use near_primitives::hash::CryptoHash;
 use near_primitives::state::ValueRef;
 use near_schema_checker_lib::ProtocolSchema;
@@ -22,15 +23,17 @@ impl RawTrieNodeWithSize {
 /// Trie node.
 #[derive(BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq, ProtocolSchema)]
 #[allow(clippy::large_enum_variant)]
+#[borsh(use_discriminant = true)]
+#[repr(u8)]
 pub enum RawTrieNode {
     /// Leaf(key, value_length, value_hash)
-    Leaf(Vec<u8>, ValueRef),
+    Leaf(Vec<u8>, ValueRef) = 0,
     /// Branch(children)
-    BranchNoValue(Children),
+    BranchNoValue(Children) = 1,
     /// Branch(children, value)
-    BranchWithValue(ValueRef, Children),
+    BranchWithValue(ValueRef, Children) = 2,
     /// Extension(key, child)
-    Extension(Vec<u8>, CryptoHash),
+    Extension(Vec<u8>, CryptoHash) = 3,
 }
 
 impl RawTrieNode {
@@ -45,13 +48,13 @@ impl RawTrieNode {
 
 /// Children of a branch node.
 #[derive(Clone, PartialEq, Eq, Hash)]
-pub struct Children<T = CryptoHash>(pub [Option<T>; 16]);
+pub struct Children<T = CryptoHash>(pub [Option<T>; NUM_CHILDREN]);
 
 impl<T> Children<T> {
     /// Iterates over existing children; `None` entries are omitted.
     #[inline]
     pub fn iter<'a>(&'a self) -> impl Iterator<Item = (u8, &'a T)> {
-        self.0.iter().enumerate().flat_map(|(i, el)| Some(i as u8).zip(el.as_ref()))
+        self.0.iter().enumerate().filter_map(|(i, el)| Some(i as u8).zip(el.as_ref()))
     }
 }
 
@@ -76,22 +79,22 @@ impl<T> std::ops::IndexMut<u8> for Children<T> {
 
 impl<T: BorshSerialize> BorshSerialize for Children<T> {
     fn serialize<W: std::io::Write>(&self, wr: &mut W) -> std::io::Result<()> {
-        let mut bitmap: u16 = 0;
-        let mut pos: u16 = 1;
-        for child in self.0.iter() {
+        let mut bitmap: ChildrenMask = 0;
+        let mut pos: ChildrenMask = 1;
+        for child in &self.0 {
             if child.is_some() {
                 bitmap |= pos
             }
             pos <<= 1;
         }
         bitmap.serialize(wr)?;
-        self.0.iter().flat_map(Option::as_ref).map(|child| child.serialize(wr)).collect()
+        self.0.iter().filter_map(Option::as_ref).map(|child| child.serialize(wr)).collect()
     }
 }
 
 impl<T: BorshDeserialize> BorshDeserialize for Children<T> {
     fn deserialize_reader<R: std::io::Read>(rd: &mut R) -> std::io::Result<Self> {
-        let mut bitmap = u16::deserialize_reader(rd)?;
+        let mut bitmap = ChildrenMask::deserialize_reader(rd)?;
         let mut children = Self::default();
         while bitmap != 0 {
             let idx = bitmap.trailing_zeros() as u8;

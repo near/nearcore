@@ -30,7 +30,8 @@ fn main() {
     let store = near_store::NodeStorage::opener(
         home_dir,
         &near_config.config.store,
-        near_config.config.archival_config(),
+        near_config.config.cold_store.as_ref(),
+        near_config.config.cloud_storage_config(),
     )
     .open()
     .unwrap()
@@ -40,6 +41,7 @@ fn main() {
     let shard_tracker = ShardTracker::new(
         near_config.client_config.tracked_shards_config.clone(),
         epoch_manager.clone(),
+        near_config.validator_signer.clone(),
     );
     let runtime = nearcore::NightshadeRuntime::from_config(
         home_dir,
@@ -49,7 +51,6 @@ fn main() {
     )
     .expect("could not create transaction runtime");
     let mut store_validator = StoreValidator::new(
-        near_config.validator_signer.get().map(|x| x.validator_id().clone()),
         near_config.genesis.config,
         epoch_manager,
         shard_tracker,
@@ -68,7 +69,7 @@ fn main() {
         White.style().bold().paint("Conditions validated:"),
         Green.style().bold().paint(store_validator.tests_done().to_string())
     );
-    for error in store_validator.errors.iter() {
+    for error in &store_validator.errors {
         println!(
             "{}  {}  {}",
             Red.style().bold().paint(&error.col),

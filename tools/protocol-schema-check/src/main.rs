@@ -45,7 +45,8 @@ fn compute_hash(
         ProtocolSchemaInfo::Enum { name, type_id: _, variants } => {
             "enum".hash(&mut hasher);
             name.hash(&mut hasher);
-            for (variant_name, variant_fields) in *variants {
+            for (discriminant, variant_name, variant_fields) in *variants {
+                discriminant.hash(&mut hasher);
                 variant_name.hash(&mut hasher);
                 if let Some(fields) = variant_fields {
                     compute_fields_hash(fields, structs, types_in_compute, &mut hasher);
@@ -68,7 +69,7 @@ fn compute_fields_hash(
     for (field_name, (type_name, generic_params)) in fields {
         field_name.hash(hasher);
         type_name.hash(hasher);
-        for &param_type_id in generic_params.iter() {
+        for &param_type_id in *generic_params {
             compute_type_hash(param_type_id, structs, types_in_compute, hasher);
         }
     }

@@ -1,4 +1,5 @@
 use std::cell::RefCell;
+use std::ops::Bound;
 use std::sync::Arc;
 
 use near_primitives::errors::StorageError;
@@ -7,7 +8,7 @@ use near_primitives::hash::CryptoHash;
 use super::mem::iter::STMemTrieIterator;
 use super::ops::interface::GenericTrieInternalStorage;
 use super::ops::iter::{TrieItem, TrieIteratorImpl};
-use super::trie_storage_update::{TrieStorageNode, TrieStorageNodePtr};
+use super::trie_storage_update::{TrieStorageNodePtr, TrieStorageNodeWithSize};
 use super::{AccessOptions, Trie, ValueHandle};
 
 pub struct DiskTrieIteratorInner<'a> {
@@ -40,26 +41,29 @@ impl<'a> GenericTrieInternalStorage<TrieStorageNodePtr, ValueHandle> for DiskTri
         Some(self.trie.root)
     }
 
-    fn get_and_record_node(
+    fn get_node_with_size(
         &self,
         ptr: TrieStorageNodePtr,
-    ) -> Result<TrieStorageNode, StorageError> {
-        let node = self.trie.retrieve_raw_node(&ptr, true, AccessOptions::DEFAULT)?.map(
-            |(bytes, node)| {
-                if let Some(ref visited_nodes) = self.visited_nodes {
-                    visited_nodes.borrow_mut().push(bytes);
-                }
-                TrieStorageNode::from_raw_trie_node(node.node)
-            },
-        );
-        Ok(node.unwrap_or_default())
+        opts: AccessOptions,
+    ) -> Result<TrieStorageNodeWithSize, StorageError> {
+        let Some((bytes, node)) = self.trie.retrieve_raw_node(&ptr, true, opts)? else {
+            return Ok(Default::default());
+        };
+        if opts.enable_state_witness_recording {
+            if let Some(ref visited_nodes) = self.visited_nodes {
+                visited_nodes.borrow_mut().push(bytes);
+            }
+        }
+        Ok(TrieStorageNodeWithSize::from_raw_trie_node_with_size(node))
     }
 
-    fn get_and_record_value(&self, value_ref: ValueHandle) -> Result<Vec<u8>, StorageError> {
+    fn get_value(
+        &self,
+        value_ref: ValueHandle,
+        opts: AccessOptions,
+    ) -> Result<Vec<u8>, StorageError> {
         match value_ref {
-            ValueHandle::HashAndSize(value) => {
-                self.trie.retrieve_value(&value.hash, AccessOptions::DEFAULT)
-            }
+            ValueHandle::HashAndSize(value) => self.trie.retrieve_value(&value.hash, opts),
             ValueHandle::InMemory(value) => panic!("Unexpected in-memory value: {:?}", value),
         }
     }
@@ -91,6 +95,16 @@ impl<'a> TrieIterator<'a> {
             TrieIterator::Memtrie(iter) => iter.seek_prefix(key),
         }
     }
+
+    /// Position the iterator on the first element with key >= `key`, or the
+    /// first element with key > `key` if `key` is Excluded. Does not record
+    /// nodes accessed during the seek.
+    pub fn seek<K: AsRef<[u8]>>(&mut self, key: Bound<K>) -> Result<(), StorageError> {
+        match self {
+            TrieIterator::Disk(iter) => iter.seek(key),
+            TrieIterator::Memtrie(iter) => iter.seek(key),
+        }
+    }
 }
 
 #[cfg(test)]
@@ -104,6 +118,7 @@ mod tests {
     use rand::Rng;
     use rand::seq::SliceRandom;
     use std::collections::BTreeMap;
+    use std::ops::Bound;
 
     fn value() -> Option<Vec<u8>> {
         Some(vec![0])
@@ -118,12 +133,20 @@ mod tests {
         let state_root =
             test_populate_trie(&tries, &Trie::EMPTY_ROOT, ShardUId::single_shard(), trie_changes);
         let trie = tries.get_trie_for_shard(ShardUId::single_shard(), state_root);
-        let path_begin: Vec<_> = NibbleSlice::new(b"aa").iter().collect();
-        let path_end: Vec<_> = NibbleSlice::new(b"abb").iter().collect();
+        let path_begin = Some(b"aa".as_slice());
+        let path_end = Some(b"abb".as_slice());
         let mut trie_iter = trie.disk_iter().unwrap();
-        let items = trie_iter.visit_nodes_interval(&path_begin, &path_end).unwrap();
+        let items = trie_iter.visit_nodes_interval(path_begin, path_end).unwrap();
         let trie_items: Vec<_> = items.into_iter().map(|item| item.key).flatten().collect();
         assert_eq!(trie_items, vec![b"aa"]);
+    }
+
+    fn assert_iter_type(iter: &TrieIterator, memtrie: bool) {
+        if memtrie {
+            assert!(matches!(iter, TrieIterator::Memtrie(_)));
+        } else {
+            assert!(matches!(iter, TrieIterator::Disk(_)));
+        }
     }
 
     fn test_iterator(use_memtries: bool) {
@@ -134,26 +157,42 @@ mod tests {
             {
                 let lock = trie.lock_for_iter();
                 let iter = lock.iter().unwrap();
-                if use_memtries {
-                    assert!(matches!(iter, TrieIterator::Memtrie(_)));
-                } else {
-                    assert!(matches!(iter, TrieIterator::Disk(_)));
-                }
+                assert_iter_type(&iter, use_memtries);
                 let result1: Vec<_> = iter.map(Result::unwrap).collect();
                 let result2: Vec<_> = map.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
                 assert_eq!(result1, result2);
             }
             test_seek_prefix(&trie, &map, &[], use_memtries);
 
-            for (seek_key, _) in trie_changes.iter() {
+            let pick_non_existing_key = |rng: &mut rand::rngs::ThreadRng| {
+                loop {
+                    let alphabet = &b"abcdefgh"[0..rng.gen_range(2..8)];
+                    let key_length = rng.gen_range(1..8);
+                    let key = (0..key_length)
+                        .map(|_| *alphabet.choose(rng).unwrap())
+                        .collect::<Vec<u8>>();
+                    if !map.contains_key(&key) {
+                        return key;
+                    }
+                }
+            };
+
+            for (seek_key, _) in &trie_changes {
                 test_seek_prefix(&trie, &map, seek_key, use_memtries);
             }
             for _ in 0..20 {
-                let alphabet = &b"abcdefgh"[0..rng.gen_range(2..8)];
-                let key_length = rng.gen_range(1..8);
-                let seek_key: Vec<u8> =
-                    (0..key_length).map(|_| *alphabet.choose(&mut rng).unwrap()).collect();
+                let seek_key = pick_non_existing_key(&mut rng);
                 test_seek_prefix(&trie, &map, &seek_key, use_memtries);
+            }
+
+            for include_start in [true, false] {
+                for (seek_key, _) in &trie_changes {
+                    test_seek(&trie, &map, seek_key, include_start, use_memtries);
+                }
+                for _ in 0..20 {
+                    let seek_key = pick_non_existing_key(&mut rng);
+                    test_seek(&trie, &map, &seek_key, include_start, use_memtries);
+                }
             }
         }
     }
@@ -200,7 +239,7 @@ mod tests {
         }
     }
 
-    // Check that pruning a node doesn't descend into it's subtree.
+    // Check that pruning a node doesn't descend into its subtree.
     // A buggy pruning implementation could still iterate over all the
     // nodes but simply not return them. This test makes sure this is
     // not the case.
@@ -302,11 +341,11 @@ mod tests {
             .with_flat_storage(use_memtries)
             .with_in_memory_tries(use_memtries)
             .build();
-        let trie_changes = gen_changes(rng, 10);
+        let trie_changes = gen_changes(rng, 100);
         let trie_changes = simplify_changes(&trie_changes);
 
         let mut map = BTreeMap::new();
-        for (key, value) in trie_changes.iter() {
+        for (key, value) in &trie_changes {
             if let Some(value) = value {
                 map.insert(key.clone(), value.clone());
             }
@@ -325,25 +364,78 @@ mod tests {
     ) {
         let lock = trie.lock_for_iter();
         let mut iterator = lock.iter().unwrap();
-        if is_memtrie {
-            assert!(matches!(iterator, TrieIterator::Memtrie(_)));
-        } else {
-            assert!(matches!(iterator, TrieIterator::Disk(_)));
-        }
+        assert_iter_type(&iterator, is_memtrie);
         iterator.seek_prefix(&seek_key).unwrap();
-        let mut got = Vec::with_capacity(5);
-        for item in iterator {
-            let (key, value) = item.unwrap();
-            assert!(key.starts_with(seek_key), "‘{key:x?}’ does not start with ‘{seek_key:x?}’");
-            if got.len() < 5 {
-                got.push((key, value));
-            }
-        }
+        let got = iterator
+            .map(|item| {
+                let (key, value) = item.unwrap();
+                assert!(
+                    key.starts_with(seek_key),
+                    "‘{key:x?}’ does not start with ‘{seek_key:x?}’"
+                );
+                (key, value)
+            })
+            .collect::<Vec<_>>();
+
         let want: Vec<_> = map
             .range(seek_key.to_vec()..)
             .map(|(k, v)| (k.clone(), v.clone()))
-            .take(5)
             .filter(|(x, _)| x.starts_with(seek_key))
+            .collect();
+        assert_eq!(got, want);
+    }
+
+    fn test_seek(
+        trie: &Trie,
+        map: &BTreeMap<Vec<u8>, Vec<u8>>,
+        seek_key: &[u8],
+        include_start: bool,
+        is_memtrie: bool,
+    ) {
+        let trie_with_recorder = trie.recording_reads_new_recorder();
+        let got = {
+            let lock = trie_with_recorder.lock_for_iter();
+            let mut iterator = lock.iter().unwrap();
+            assert_iter_type(&iterator, is_memtrie);
+
+            let seek_bound =
+                if include_start { Bound::Included(seek_key) } else { Bound::Excluded(seek_key) };
+            iterator.seek(seek_bound).unwrap();
+
+            // Calling seek should not record any nodes.
+            assert_eq!(0, trie_with_recorder.recorded_storage_size());
+            assert_eq!(0, trie_with_recorder.recorded_storage_size_upper_bound());
+
+            iterator
+                .map(|item| {
+                    let (key, value) = item.unwrap();
+                    if include_start == false {
+                        assert!(
+                            key.as_slice() > seek_key,
+                            "‘{key:x?}’ is not greater than ‘{seek_key:x?}’"
+                        );
+                    } else {
+                        assert!(
+                            key.as_slice() >= seek_key,
+                            "‘{key:x?}’ is not greater than or equal to ‘{seek_key:x?}’"
+                        );
+                    }
+                    (key, value)
+                })
+                .collect::<Vec<_>>()
+        };
+
+        // Iteration should have recorded some nodes.
+        if !got.is_empty() {
+            let recorded_storage =
+                trie_with_recorder.recorded_storage().expect("missing recorded storage");
+            assert!(recorded_storage.nodes.len() > 0, "no nodes recorded");
+        }
+
+        let want: Vec<_> = map
+            .range(seek_key.to_vec()..)
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .filter(|(x, _)| x.as_slice() > seek_key || include_start && x.as_slice() == seek_key)
             .collect();
         assert_eq!(got, want);
     }

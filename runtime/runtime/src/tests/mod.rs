@@ -15,12 +15,8 @@ use crate::ApplyState;
 
 mod apply;
 
-const GAS_PRICE: Balance = 5000;
-const MAX_ATTACHED_GAS: Gas = 300 * 10u64.pow(12);
-
-fn to_yocto(near: Balance) -> Balance {
-    near * 10u128.pow(24)
-}
+const GAS_PRICE: Balance = Balance::from_yoctonear(5000);
+const MAX_ATTACHED_GAS: Gas = Gas::from_teragas(300);
 
 fn create_receipt_with_actions(
     account_id: AccountId,
@@ -86,7 +82,7 @@ fn set_sha256_cost(
 ) -> ParameterCost {
     let mut free_config = RuntimeConfig::free();
     let sha256_cost =
-        ParameterCost { gas: Gas::from(gas_cost), compute: Compute::from(compute_cost) };
+        ParameterCost { gas: Gas::from_gas(gas_cost), compute: Compute::from(compute_cost) };
     let wasm_config = Arc::make_mut(&mut free_config.wasm_config);
     wasm_config.ext_costs.costs[ExtCosts::sha256_base] = sha256_cost.clone();
     apply_state.config = Arc::new(free_config);
@@ -97,7 +93,7 @@ fn set_sha256_cost(
 fn test_get_and_set_accounts() {
     let tries = TestTriesBuilder::new().build();
     let mut state_update = tries.new_trie_update(ShardUId::single_shard(), MerkleHash::default());
-    let test_account = account_new(to_yocto(10), hash(&[]));
+    let test_account = account_new(Balance::from_near(10), hash(&[]));
     let account_id = bob_account();
     set_account(&mut state_update, account_id.clone(), &test_account);
     let get_res = get_account(&state_update, &account_id).unwrap().unwrap();
@@ -109,7 +105,7 @@ fn test_get_account_from_trie() {
     let tries = TestTriesBuilder::new().build();
     let root = MerkleHash::default();
     let mut state_update = tries.new_trie_update(ShardUId::single_shard(), root);
-    let test_account = account_new(to_yocto(10), hash(&[]));
+    let test_account = account_new(Balance::from_near(10), hash(&[]));
     let account_id = bob_account();
     set_account(&mut state_update, account_id.clone(), &test_account);
     state_update.commit(StateChangeCause::InitialState);
@@ -120,4 +116,22 @@ fn test_get_account_from_trie() {
     let new_state_update = tries.new_trie_update(ShardUId::single_shard(), new_root);
     let get_res = get_account(&new_state_update, &account_id).unwrap().unwrap();
     assert_eq!(test_account, get_res);
+}
+
+/// This test checks that `len` fn implementation of `near_vm_runner::logic::types::GlobalContractIdentifier`
+/// matches the `near_primitives::action::GlobalContractIdentifier` to ensure the same costs
+/// are charged when using `promise_batch_action_use_global_contract` host functions and converting
+/// transactions to receipts.
+#[test]
+fn test_vm_types_global_contract_identifier_len() {
+    let code_hash = CryptoHash::hash_bytes(b"arbitrary");
+    assert_eq!(
+        near_vm_runner::logic::types::GlobalContractIdentifier::CodeHash(code_hash).len(),
+        near_primitives::action::GlobalContractIdentifier::CodeHash(code_hash).len()
+    );
+    let account_id: AccountId = "alice.near".parse().unwrap();
+    assert_eq!(
+        near_vm_runner::logic::types::GlobalContractIdentifier::AccountId(account_id.clone()).len(),
+        near_primitives::action::GlobalContractIdentifier::AccountId(account_id).len()
+    );
 }

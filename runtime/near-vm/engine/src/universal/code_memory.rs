@@ -96,7 +96,7 @@ impl<'a> CodeMemoryWriter<'a> {
 pub struct CodeMemory {
     /// Where to return this memory to when dropped.
     #[cfg(not(windows))]
-    source_pool: Option<Arc<std::sync::Mutex<Vec<Self>>>>,
+    source_pool: Option<Arc<parking_lot::Mutex<Vec<Self>>>>,
 
     /// The mapping
     map: *mut u8,
@@ -223,7 +223,7 @@ impl Drop for CodeMemory {
                     );
                 }
             }
-            let mut guard = source_pool.lock().expect("unreachable due to panic=abort");
+            let mut guard = source_pool.lock();
             guard.push(Self {
                 source_pool: None,
                 map: self.map,
@@ -252,7 +252,7 @@ unsafe impl Send for CodeMemory {}
 #[derive(Clone)]
 pub struct MemoryPool {
     #[cfg(not(windows))]
-    pool: Arc<std::sync::Mutex<Vec<CodeMemory>>>,
+    pool: Arc<parking_lot::Mutex<Vec<CodeMemory>>>,
 }
 
 #[cfg(not(windows))]
@@ -263,13 +263,13 @@ impl MemoryPool {
         for _ in 0..preallocate_count {
             pool.push(CodeMemory::create(initial_map_size)?);
         }
-        let pool = Arc::new(std::sync::Mutex::new(pool));
+        let pool = Arc::new(parking_lot::Mutex::new(pool));
         Ok(Self { pool })
     }
 
     /// Get a memory mapping, at least `size` bytes large.
     pub fn get(&self, size: usize) -> rustix::io::Result<CodeMemory> {
-        let mut guard = self.pool.lock().expect("unreachable due to panic=abort");
+        let mut guard = self.pool.lock();
         let mut memory = match guard.pop() {
             Some(m) => m,
             // This memory will later return to this pool via the drop of `CodeMemory`.

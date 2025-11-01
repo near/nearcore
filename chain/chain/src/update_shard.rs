@@ -9,15 +9,15 @@ use near_primitives::apply::ApplyChunkReason;
 use near_primitives::receipt::Receipt;
 use near_primitives::sandbox::state_patch::SandboxStatePatch;
 use near_primitives::shard_layout::ShardUId;
-use near_primitives::sharding::ShardChunkHeader;
-use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::Gas;
+use near_primitives::sharding::ChunkHash;
 use near_primitives::types::chunk_extra::ChunkExtra;
-use node_runtime::SignedValidPeriodTransactions;
+use near_primitives::types::validator_stake::{ValidatorStake, ValidatorStakeIter};
+use near_primitives::types::{Gas, StateRoot};
+use node_runtime::{PostStateReadyCallback, SignedValidPeriodTransactions};
 
 /// Result of updating a shard for some block when it has a new chunk for this
 /// shard.
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct NewChunkResult {
     pub shard_uid: ShardUId,
     pub gas_limit: Gas,
@@ -26,7 +26,7 @@ pub struct NewChunkResult {
 
 /// Result of updating a shard for some block when it doesn't have a new chunk
 /// for this shard, so previous chunk header is copied.
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct OldChunkResult {
     pub shard_uid: ShardUId,
     /// Note that despite the naming, no transactions are applied in this case.
@@ -35,16 +35,20 @@ pub struct OldChunkResult {
 }
 
 /// Result for a shard update for a single block.
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub enum ShardUpdateResult {
     NewChunk(NewChunkResult),
     OldChunk(OldChunkResult),
 }
 
 pub struct NewChunkData {
-    pub chunk_header: ShardChunkHeader,
-    pub transactions: Vec<SignedTransaction>,
-    pub transaction_validity_check_results: Vec<bool>,
+    pub gas_limit: Gas,
+    pub prev_state_root: StateRoot,
+    pub prev_validator_proposals: Vec<ValidatorStake>,
+    /// chunk_hash is used only for debugging and may be none when running with spice which treats
+    /// missing chunks as empty chunks.
+    pub chunk_hash: Option<ChunkHash>,
+    pub transactions: SignedValidPeriodTransactions,
     pub receipts: Vec<Receipt>,
     pub block: ApplyChunkBlockContext,
     pub storage_context: StorageContext,
@@ -69,6 +73,7 @@ pub enum ShardUpdateReason {
 }
 
 /// Information about shard to update.
+#[derive(Debug, Clone)]
 pub struct ShardContext {
     pub shard_uid: ShardUId,
     /// Whether transactions should be applied.
@@ -89,6 +94,7 @@ pub fn process_shard_update(
     runtime: &dyn RuntimeAdapter,
     shard_update_reason: ShardUpdateReason,
     shard_context: ShardContext,
+    on_post_state_ready: Option<PostStateReadyCallback>,
 ) -> Result<ShardUpdateResult, Error> {
     Ok(match shard_update_reason {
         ShardUpdateReason::NewChunk(data) => ShardUpdateResult::NewChunk(apply_new_chunk(
@@ -97,6 +103,7 @@ pub fn process_shard_update(
             data,
             shard_context,
             runtime,
+            on_post_state_ready,
         )?),
         ShardUpdateReason::OldChunk(data) => ShardUpdateResult::OldChunk(apply_old_chunk(
             ApplyChunkReason::UpdateTrackedShard,
@@ -116,11 +123,14 @@ pub fn apply_new_chunk(
     data: NewChunkData,
     shard_context: ShardContext,
     runtime: &dyn RuntimeAdapter,
+    on_post_state_ready: Option<PostStateReadyCallback>,
 ) -> Result<NewChunkResult, Error> {
     let NewChunkData {
-        chunk_header,
+        gas_limit,
+        prev_state_root,
+        prev_validator_proposals,
+        chunk_hash,
         transactions,
-        transaction_validity_check_results,
         block,
         receipts,
         storage_context,
@@ -130,14 +140,19 @@ pub fn apply_new_chunk(
         target: "chain",
         parent: parent_span,
         "apply_new_chunk",
-        ?shard_id,
-        ?apply_reason)
+        height = block.height,
+        %shard_id,
+        ?chunk_hash,
+        block_type = ?block.block_type,
+        ?apply_reason,
+        transactions_num = transactions.len(),
+        incoming_receipts_num = receipts.len(),
+        tag_block_production = true)
     .entered();
-    let gas_limit = chunk_header.gas_limit();
 
-    let _timer = CryptoHashTimer::new(Clock::real(), chunk_header.chunk_hash().0);
+    let _timer = chunk_hash.map(|chunk_hash| CryptoHashTimer::new(Clock::real(), chunk_hash.0));
     let storage_config = RuntimeStorageConfig {
-        state_root: chunk_header.prev_state_root(),
+        state_root: prev_state_root,
         use_flat_storage: true,
         source: storage_context.storage_data_source,
         state_patch: storage_context.state_patch,
@@ -147,13 +162,14 @@ pub fn apply_new_chunk(
         apply_reason,
         ApplyChunkShardContext {
             shard_id,
-            last_validator_proposals: chunk_header.prev_validator_proposals(),
+            last_validator_proposals: ValidatorStakeIter::new(&prev_validator_proposals),
             gas_limit,
             is_new_chunk: true,
+            on_post_state_ready,
         },
         block,
         &receipts,
-        SignedValidPeriodTransactions::new(transactions, transaction_validity_check_results),
+        transactions,
     ) {
         Ok(apply_result) => {
             Ok(NewChunkResult { gas_limit, shard_uid: shard_context.shard_uid, apply_result })
@@ -178,8 +194,11 @@ pub fn apply_old_chunk(
         target: "chain",
         parent: parent_span,
         "apply_old_chunk",
-        ?shard_id,
-        ?apply_reason)
+        height = block.height,
+        %shard_id,
+        block_type = ?block.block_type,
+        ?apply_reason,
+        tag_block_production = true)
     .entered();
 
     let storage_config = RuntimeStorageConfig {
@@ -196,6 +215,7 @@ pub fn apply_old_chunk(
             last_validator_proposals: prev_chunk_extra.validator_proposals(),
             gas_limit: prev_chunk_extra.gas_limit(),
             is_new_chunk: false,
+            on_post_state_ready: None,
         },
         block,
         &[],

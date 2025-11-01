@@ -171,7 +171,7 @@ impl BlockProductionTracker {
     }
 }
 
-impl Handler<DebugStatus> for ClientActorInner {
+impl Handler<DebugStatus, Result<DebugStatusResponse, StatusError>> for ClientActorInner {
     #[perf]
     fn handle(&mut self, msg: DebugStatus) -> Result<DebugStatusResponse, StatusError> {
         match msg {
@@ -335,7 +335,7 @@ impl ClientActorInner {
 
     /// Gets the information about the epoch that contains a given block.
     fn get_epoch_info_view(
-        &mut self,
+        &self,
         epoch_identifier: &ValidatorInfoIdentifier,
     ) -> Result<EpochInfoView, Error> {
         let epoch_start_height =
@@ -355,38 +355,36 @@ impl ClientActorInner {
             None => epoch_start_block_header.hash(),
         };
 
-        let shards_size_and_parts: Vec<(u64, u64)> = if let Ok(block) =
-            self.client.chain.get_block(hash_to_compute_shard_sizes)
-        {
-            block
-                .chunks()
-                .iter_raw()
-                .enumerate()
-                .map(|(shard_index, chunk)| {
-                    let shard_id = shard_layout.get_shard_id(shard_index);
-                    let Ok(shard_id) = shard_id else {
-                        tracing::error!("Failed to get shard id for shard index {}", shard_index);
-                        return (0, 0);
-                    };
-
-                    let state_root_node = self.client.runtime_adapter.get_state_root_node(
-                        shard_id,
-                        epoch_start_block_header.hash(),
-                        &chunk.prev_state_root(),
-                    );
-                    if let Ok(state_root_node) = state_root_node {
-                        (
-                            state_root_node.memory_usage,
-                            get_num_state_parts(state_root_node.memory_usage),
-                        )
-                    } else {
-                        (0, 0)
-                    }
-                })
-                .collect()
-        } else {
-            epoch_start_block_header.chunk_mask().iter().map(|_| (0, 0)).collect()
-        };
+        let shards_size_and_parts: Vec<(u64, u64)> =
+            if let Ok(block) = self.client.chain.get_block(hash_to_compute_shard_sizes) {
+                block
+                    .chunks()
+                    .iter()
+                    .enumerate()
+                    .map(|(shard_index, chunk)| {
+                        // TODO(spice): chunks in spice no longer contain prev state root.
+                        if cfg!(feature = "protocol_feature_spice") {
+                            return (0, 0);
+                        }
+                        let shard_id = shard_layout.get_shard_id(shard_index).unwrap();
+                        let state_root_node = self.client.runtime_adapter.get_state_root_node(
+                            shard_id,
+                            epoch_start_block_header.hash(),
+                            &chunk.prev_state_root(),
+                        );
+                        if let Ok(state_root_node) = state_root_node {
+                            (
+                                state_root_node.memory_usage,
+                                get_num_state_parts(state_root_node.memory_usage),
+                            )
+                        } else {
+                            (0, 0)
+                        }
+                    })
+                    .collect()
+            } else {
+                epoch_start_block_header.chunk_mask().iter().map(|_| (0, 0)).collect()
+            };
 
         let state_header_exists: Vec<bool> = shard_layout
             .shard_ids()
@@ -479,35 +477,20 @@ impl ClientActorInner {
     fn get_tracked_shards_view(&self) -> Result<TrackedShardsView, near_chain_primitives::Error> {
         let epoch_id = self.client.chain.header_head()?.epoch_id;
         let fetch_hash = self.client.chain.header_head()?.last_block_hash;
-        let me = self.client.validator_signer.get().map(|x| x.validator_id().clone());
         let shard_ids = self.client.epoch_manager.shard_ids(&epoch_id).unwrap();
         let shards_tracked_this_epoch = shard_ids
             .iter()
-            .map(|&shard_id| {
-                self.client.shard_tracker.cares_about_shard(
-                    me.as_ref(),
-                    &fetch_hash,
-                    shard_id,
-                    true,
-                )
-            })
+            .map(|&shard_id| self.client.shard_tracker.cares_about_shard(&fetch_hash, shard_id))
             .collect();
         let shards_tracked_next_epoch = shard_ids
             .into_iter()
-            .map(|shard_id| {
-                self.client.shard_tracker.will_care_about_shard(
-                    me.as_ref(),
-                    &fetch_hash,
-                    shard_id,
-                    true,
-                )
-            })
+            .map(|shard_id| self.client.shard_tracker.will_care_about_shard(&fetch_hash, shard_id))
             .collect();
         Ok(TrackedShardsView { shards_tracked_this_epoch, shards_tracked_next_epoch })
     }
 
     fn get_recent_epoch_info(
-        &mut self,
+        &self,
         epoch_id: Option<EpochId>,
     ) -> Result<Vec<EpochInfoView>, near_chain_primitives::Error> {
         let mut epochs_info: Vec<EpochInfoView> = Vec::new();
@@ -547,7 +530,7 @@ impl ClientActorInner {
     }
 
     fn get_last_blocks_info(
-        &mut self,
+        &self,
         query: DebugBlockStatusQuery,
     ) -> Result<DebugBlockStatusData, near_chain_primitives::Error> {
         let DebugBlockStatusQuery { starting_height, mode, mut num_blocks } = query;
@@ -597,7 +580,7 @@ impl ClientActorInner {
                     continue;
                 }
                 let block_header = if block_hash == CryptoHash::default() {
-                    self.client.chain.genesis().clone()
+                    self.client.chain.genesis().clone().into()
                 } else {
                     self.client.chain.get_block_header(&block_hash)?
                 };
@@ -618,7 +601,7 @@ impl ClientActorInner {
                     .get_block_producer(block_header.epoch_id(), block_header.height())
                     .ok();
 
-                let chunk_endorsements = self.compute_chunk_endorsements_ratio(&block);
+                let chunk_endorsements = self.compute_chunk_endorsements_ratio(block.as_deref());
                 let congestion_control_config = self
                     .client
                     .runtime_adapter
@@ -631,7 +614,7 @@ impl ClientActorInner {
                 let chunks = match &block {
                     Some(block) => block
                         .chunks()
-                        .iter_deprecated()
+                        .iter()
                         .map(|chunk| {
                             let endorsement_ratio = chunk_endorsements
                                 .as_ref()
@@ -653,7 +636,7 @@ impl ClientActorInner {
 
                             DebugChunkStatus {
                                 shard_id: chunk.shard_id().into(),
-                                chunk_hash: chunk.chunk_hash(),
+                                chunk_hash: chunk.chunk_hash().clone(),
                                 chunk_producer: self
                                     .client
                                     .epoch_manager
@@ -664,7 +647,7 @@ impl ClientActorInner {
                                     })
                                     .map(|info| info.take_account_id())
                                     .ok(),
-                                gas_used: chunk.prev_gas_used(),
+                                gas_used: chunk.prev_gas_used().as_gas(),
                                 processing_time_ms: CryptoHashTimer::get_timer_value(
                                     chunk.chunk_hash().0,
                                 )
@@ -691,8 +674,8 @@ impl ClientActorInner {
                         processing_time_ms: CryptoHashTimer::get_timer_value(block_hash)
                             .map(|s| s.whole_milliseconds() as u64),
                         block_timestamp: block_header.raw_timestamp(),
-                        gas_price_ratio: block_header.next_gas_price() as f64
-                            / initial_gas_price as f64,
+                        gas_price_ratio: block_header.next_gas_price().as_yoctonear() as f64
+                            / initial_gas_price.as_yoctonear() as f64,
                     },
                 );
                 // TODO(robin): using last epoch id when iterating in reverse height direction is
@@ -827,7 +810,7 @@ impl ClientActorInner {
                         .map(|validator| {
                             (
                                 validator.account_id.clone(),
-                                (validator.stake_this_epoch / 10u128.pow(24)) as u64,
+                                (validator.stake_this_epoch.as_near()) as u64,
                             )
                         })
                         .collect::<Vec<(AccountId, u64)>>()
@@ -849,7 +832,7 @@ impl ClientActorInner {
     /// The logic is based on `validate_chunk_endorsements_in_block`.
     fn compute_chunk_endorsements_ratio(
         &self,
-        block: &Option<Block>,
+        block: Option<&Block>,
     ) -> Option<HashMap<ChunkHash, f64>> {
         let Some(block) = block else {
             return None;
@@ -865,12 +848,10 @@ impl ClientActorInner {
             return None;
         };
         // Iterate all shards and compute the endorsed stake from the endorsement signatures.
-        for (chunk_header, signatures) in
-            block.chunks().iter_deprecated().zip(block.chunk_endorsements())
-        {
+        for (chunk_header, signatures) in block.chunks().iter().zip(block.chunk_endorsements()) {
             // Validation checks.
-            if chunk_header.height_included() != block.header().height() {
-                chunk_endorsements.insert(chunk_header.chunk_hash(), 0.0);
+            if !chunk_header.is_new_chunk() {
+                chunk_endorsements.insert(chunk_header.chunk_hash().clone(), 0.0);
                 continue;
             }
             let Ok(chunk_validator_assignments) =
@@ -880,12 +861,12 @@ impl ClientActorInner {
                     chunk_header.height_created(),
                 )
             else {
-                chunk_endorsements.insert(chunk_header.chunk_hash(), f64::NAN);
+                chunk_endorsements.insert(chunk_header.chunk_hash().clone(), f64::NAN);
                 continue;
             };
             let ordered_chunk_validators = chunk_validator_assignments.ordered_chunk_validators();
             if ordered_chunk_validators.len() != signatures.len() {
-                chunk_endorsements.insert(chunk_header.chunk_hash(), f64::NAN);
+                chunk_endorsements.insert(chunk_header.chunk_hash().clone(), f64::NAN);
                 continue;
             }
             // Compute total stake and endorsed stake.
@@ -898,7 +879,7 @@ impl ClientActorInner {
                     continue;
                 };
                 if !ChunkEndorsement::validate_signature(
-                    chunk_header.chunk_hash(),
+                    chunk_header.chunk_hash().clone(),
                     signature,
                     validator.public_key(),
                 ) {
@@ -909,8 +890,9 @@ impl ClientActorInner {
             let endorsement_state =
                 chunk_validator_assignments.compute_endorsement_state(endorsed_chunk_validators);
             chunk_endorsements.insert(
-                chunk_header.chunk_hash(),
-                endorsement_state.endorsed_stake as f64 / endorsement_state.total_stake as f64,
+                chunk_header.chunk_hash().clone(),
+                endorsement_state.endorsed_stake.as_yoctonear() as f64
+                    / endorsement_state.total_stake.as_yoctonear() as f64,
             );
         }
         Some(chunk_endorsements)
@@ -931,8 +913,7 @@ fn new_peer_info_view(chain: &Chain, connected_peer_info: &ConnectedPeerInfo) ->
         is_highest_block_invalid: full_peer_info
             .chain_info
             .last_block
-            .map(|x| chain.is_block_invalid(&x.hash))
-            .unwrap_or_default(),
+            .is_some_and(|x| chain.is_block_invalid(&x.hash)),
         tracked_shards: full_peer_info.chain_info.tracked_shards.clone(),
         archival: full_peer_info.chain_info.archival,
         peer_id: full_peer_info.peer_info.id.public_key().clone(),

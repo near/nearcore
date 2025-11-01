@@ -1,15 +1,17 @@
 use crate::epoch_info::iterate_and_filter;
-use borsh::{BorshDeserialize, BorshSerialize};
+use borsh::BorshSerialize;
 use near_chain::{Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode};
+use near_chain_configs::ExternalStorageLocation;
 use near_client::sync::external::{
-    ExternalConnection, StateFileType, create_bucket_read_write, create_bucket_readonly,
-    external_storage_location, external_storage_location_directory, get_num_parts_from_filename,
+    StateFileType, StateSyncConnection, external_storage_location,
+    external_storage_location_directory, get_num_parts_from_filename,
 };
 use near_epoch_manager::EpochManager;
 use near_epoch_manager::shard_tracker::ShardTracker;
+use near_external_storage::S3AccessConfig;
 use near_primitives::epoch_info::EpochInfo;
 use near_primitives::state::PartialState;
-use near_primitives::state_part::PartId;
+use near_primitives::state_part::{PartId, StatePart};
 use near_primitives::state_record::StateRecord;
 use near_primitives::types::{EpochId, StateRoot};
 use near_primitives_core::hash::CryptoHash;
@@ -20,7 +22,6 @@ use nearcore::{NearConfig, NightshadeRuntime, NightshadeRuntimeExt};
 use std::ops::Range;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
-use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 #[derive(clap::ValueEnum, Clone, Debug, Default)]
@@ -107,6 +108,7 @@ impl StatePartsSubCommand {
         let shard_tracker = ShardTracker::new(
             near_config.client_config.tracked_shards_config.clone(),
             epoch_manager.clone(),
+            near_config.validator_signer.clone(),
         );
         let runtime = NightshadeRuntime::from_config(
             home_dir,
@@ -124,11 +126,15 @@ impl StatePartsSubCommand {
             &chain_genesis,
             DoomslugThresholdMode::TwoThirds,
             false,
+            near_config.validator_signer.clone(),
         )
         .unwrap();
         let chain_id = &near_config.genesis.config.chain_id;
-        let sys = actix::System::new();
-        sys.block_on(async move {
+        let tokio_runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("Failed to create Tokio runtime");
+        tokio_runtime.block_on(async move {
             match self {
                 StatePartsSubCommand::Load {
                     action,
@@ -137,7 +143,7 @@ impl StatePartsSubCommand {
                     part_id,
                     epoch_selection,
                 } => {
-                    let external = create_external_connection(
+                    let external = create_state_sync_connection(
                         root_dir,
                         s3_bucket,
                         s3_region,
@@ -166,7 +172,7 @@ impl StatePartsSubCommand {
                     epoch_selection,
                     credentials_file,
                 } => {
-                    let external = create_external_connection(
+                    let external = create_state_sync_connection(
                         root_dir,
                         s3_bucket,
                         s3_region,
@@ -194,9 +200,8 @@ impl StatePartsSubCommand {
                     finalize_state_sync(sync_hash, shard_id, &mut chain)
                 }
             }
-            actix::System::current().stop();
+            near_async::shutdown_all_actors();
         });
-        sys.run().unwrap();
     }
 }
 
@@ -205,44 +210,30 @@ enum Mode {
     ReadWrite,
 }
 
-fn create_external_connection(
+fn create_state_sync_connection(
     root_dir: Option<PathBuf>,
     bucket: Option<String>,
     region: Option<String>,
     gcs_bucket: Option<String>,
     credentials_file: Option<PathBuf>,
-    mode: Mode,
-) -> ExternalConnection {
-    if let Some(root_dir) = root_dir {
-        ExternalConnection::Filesystem { root_dir }
+    s3_mode: Mode,
+) -> StateSyncConnection {
+    let location = if let Some(root_dir) = root_dir {
+        ExternalStorageLocation::Filesystem { root_dir }
     } else if let (Some(bucket), Some(region)) = (bucket, region) {
-        let bucket = match mode {
-            Mode::ReadOnly => create_bucket_readonly(&bucket, &region, Duration::from_secs(5)),
-            Mode::ReadWrite => {
-                create_bucket_read_write(&bucket, &region, Duration::from_secs(5), credentials_file)
-            }
-        }
-        .expect("Failed to create an S3 bucket");
-        ExternalConnection::S3 { bucket: Arc::new(bucket) }
+        ExternalStorageLocation::S3 { bucket, region }
     } else if let Some(bucket) = gcs_bucket {
-        if let Some(credentials_file) = credentials_file {
-            unsafe { std::env::set_var("SERVICE_ACCOUNT", &credentials_file) };
-        }
-        ExternalConnection::GCS {
-            gcs_client: Arc::new(
-                object_store::gcp::GoogleCloudStorageBuilder::new()
-                    .with_bucket_name(&bucket)
-                    .build()
-                    .unwrap(),
-            ),
-            reqwest_client: Arc::new(reqwest::Client::default()),
-            bucket,
-        }
+        ExternalStorageLocation::GCS { bucket }
     } else {
         panic!(
             "Please provide --root-dir, or both of --s3-bucket and --s3-region, or --gcs-bucket"
         );
-    }
+    };
+    let s3_access_config = S3AccessConfig {
+        timeout: Duration::from_secs(5),
+        is_readonly: matches!(s3_mode, Mode::ReadOnly),
+    };
+    StateSyncConnection::new(&location, credentials_file, s3_access_config)
 }
 
 #[derive(clap::Subcommand, Debug, Clone)]
@@ -330,10 +321,10 @@ async fn load_state_parts(
     part_id: Option<u64>,
     maybe_state_root: Option<StateRoot>,
     maybe_sync_hash: Option<CryptoHash>,
-    chain: &mut Chain,
+    chain: &Chain,
     chain_id: &str,
     store: Store,
-    external: &ExternalConnection,
+    external: &StateSyncConnection,
 ) {
     let epoch_id = epoch_selection.to_epoch_id(store, chain);
     let (state_root, epoch_height, epoch_id, sync_hash) =
@@ -359,6 +350,7 @@ async fn load_state_parts(
 
             (state_root, epoch.epoch_height(), epoch_id, sync_hash)
         };
+    let protocol_version = chain.epoch_manager.get_epoch_protocol_version(&epoch_id).unwrap();
 
     let directory_path = external_storage_location_directory(
         chain_id,
@@ -375,7 +367,7 @@ async fn load_state_parts(
     tracing::info!(
         target: "state-parts",
         epoch_height,
-        ?shard_id,
+        %shard_id,
         num_parts,
         ?sync_hash,
         ?part_ids,
@@ -389,7 +381,9 @@ async fn load_state_parts(
         let file_type = StateFileType::StatePart { part_id, num_parts };
         let location =
             external_storage_location(chain_id, &epoch_id, epoch_height, shard_id, &file_type);
-        let part = external.get_file(shard_id, &location, &file_type).await.unwrap();
+        let bytes = external.get_file(shard_id, &location, &file_type).await.unwrap();
+        let part_length = bytes.len();
+        let part = StatePart::from_bytes(bytes, protocol_version).unwrap();
 
         match action {
             LoadAction::Apply => {
@@ -407,26 +401,27 @@ async fn load_state_parts(
                         &epoch_id,
                     )
                     .unwrap();
-                tracing::info!(target: "state-parts", part_id, part_length = part.len(), elapsed_sec = timer.elapsed().as_secs_f64(), "Loaded a state part");
+                tracing::info!(target: "state-parts", part_id, part_length, elapsed_sec = timer.elapsed().as_secs_f64(), "Loaded a state part");
             }
             LoadAction::Validate => {
                 assert!(chain.runtime_adapter.validate_state_part(
+                    shard_id,
                     &state_root,
                     PartId::new(part_id, num_parts),
                     &part
                 ));
-                tracing::info!(target: "state-parts", part_id, part_length = part.len(), elapsed_sec = timer.elapsed().as_secs_f64(), "Validated a state part");
+                tracing::info!(target: "state-parts", part_id, part_length, elapsed_sec = timer.elapsed().as_secs_f64(), "Validated a state part");
             }
             LoadAction::Print => {
-                print_state_part(&state_root, PartId::new(part_id, num_parts), &part)
+                let trie_nodes = part.to_partial_state().unwrap();
+                print_state_part(&state_root, PartId::new(part_id, num_parts), trie_nodes)
             }
         }
     }
     tracing::info!(target: "state-parts", total_elapsed_sec = timer.elapsed().as_secs_f64(), "Loaded all requested state parts");
 }
 
-fn print_state_part(state_root: &StateRoot, _part_id: PartId, data: &[u8]) {
-    let trie_nodes: PartialState = BorshDeserialize::try_from_slice(data).unwrap();
+fn print_state_part(state_root: &StateRoot, _part_id: PartId, trie_nodes: PartialState) {
     let trie =
         Trie::from_recorded_storage(PartialStorage { nodes: trie_nodes }, *state_root, false);
     trie.print_recursive(
@@ -449,10 +444,11 @@ async fn dump_state_parts(
     chain: &Chain,
     chain_id: &str,
     store: Store,
-    external: &ExternalConnection,
+    external: &StateSyncConnection,
 ) {
     let epoch_id = epoch_selection.to_epoch_id(store, chain);
     let epoch = chain.epoch_manager.get_epoch_info(&epoch_id).unwrap();
+    let protocol_version = chain.epoch_manager.get_epoch_protocol_version(&epoch_id).unwrap();
     let sync_hash = get_any_block_hash_of_epoch(&epoch, chain);
     let sync_hash = match chain.get_sync_hash(&sync_hash).unwrap() {
         Some(h) => h,
@@ -476,7 +472,7 @@ async fn dump_state_parts(
         target: "state-parts",
         epoch_height,
         epoch_id = ?epoch_id.0,
-        ?shard_id,
+        %shard_id,
         num_parts,
         ?sync_hash,
         ?part_ids,
@@ -523,14 +519,16 @@ async fn dump_state_parts(
             shard_id,
             &file_type,
         );
-        external.put_file(file_type, &state_part, shard_id, &location).await.unwrap();
+        let bytes = state_part.to_bytes(protocol_version);
+        external.put_file(file_type, &bytes, shard_id, &location).await.unwrap();
         // part_storage.write(&state_part, part_id, num_parts);
         let elapsed_sec = timer.elapsed().as_secs_f64();
-        let first_state_record = get_first_state_record(&state_root, &state_part);
+        let trie_nodes = state_part.to_partial_state().unwrap();
+        let first_state_record = get_first_state_record(&state_root, trie_nodes);
         tracing::info!(
             target: "state-parts",
             part_id,
-            part_length = state_part.len(),
+            part_length = bytes.len(),
             elapsed_sec,
             first_state_record = ?first_state_record.map(|sr| format!("{}", sr)),
             "Wrote a state part");
@@ -539,8 +537,7 @@ async fn dump_state_parts(
 }
 
 /// Returns the first `StateRecord` encountered while iterating over a sub-trie in the state part.
-fn get_first_state_record(state_root: &StateRoot, data: &[u8]) -> Option<StateRecord> {
-    let trie_nodes = BorshDeserialize::try_from_slice(data).unwrap();
+fn get_first_state_record(state_root: &StateRoot, trie_nodes: PartialState) -> Option<StateRecord> {
     let trie =
         Trie::from_recorded_storage(PartialStorage { nodes: trie_nodes }, *state_root, false);
 

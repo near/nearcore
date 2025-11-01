@@ -10,13 +10,12 @@ use near_client::sync::epoch::EpochSync;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::epoch_sync::EpochSyncProof;
 use near_primitives::shard_layout::ShardLayout;
-use near_primitives::types::{AccountId, BlockHeightDelta};
+use near_primitives::types::{AccountId, Balance, BlockHeightDelta};
 use near_primitives::utils::compression::CompressedData;
 use near_store::adapter::StoreAdapter;
 
 use crate::setup::builder::{NodeStateBuilder, TestLoopBuilder};
 use crate::setup::env::TestLoopEnv;
-use crate::utils::ONE_NEAR;
 use crate::utils::client_queries::ClientQueries;
 use crate::utils::transactions::{BalanceMismatchError, execute_money_transfers};
 
@@ -28,7 +27,9 @@ fn setup_initial_blockchain(transaction_validity_period: BlockHeightDelta) -> Te
     let clients = accounts.iter().take(NUM_CLIENTS).cloned().collect_vec();
 
     let epoch_length = 10;
-    let shard_layout = ShardLayout::simple_v1(&["account3", "account5", "account7"]);
+    let boundary_accounts =
+        ["account3", "account5", "account7"].iter().map(|&a| a.parse().unwrap()).collect();
+    let shard_layout = ShardLayout::multi_shard_custom(boundary_accounts, 1);
     let validators_spec =
         ValidatorsSpec::desired_roles(&clients.iter().map(|t| t.as_str()).collect_vec(), &[]);
 
@@ -36,7 +37,7 @@ fn setup_initial_blockchain(transaction_validity_period: BlockHeightDelta) -> Te
         .epoch_length(epoch_length)
         .shard_layout(shard_layout)
         .validators_spec(validators_spec)
-        .add_user_accounts_simple(&accounts, 1_000_000 * ONE_NEAR)
+        .add_user_accounts_simple(&accounts, Balance::from_near(1_000_000))
         .genesis_height(10000)
         .transaction_validity_period(transaction_validity_period)
         .build();

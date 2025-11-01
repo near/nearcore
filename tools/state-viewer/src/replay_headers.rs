@@ -181,9 +181,9 @@ fn get_validator_summary(
     validator_info: &EpochValidatorInfo,
 ) -> HashMap<AccountId, ValidatorSummary> {
     let mut validator_to_summary = HashMap::new();
-    for validator in validator_info.current_validators.iter() {
+    for validator in &validator_info.current_validators {
         let summary = ValidatorSummary {
-            stake: validator.stake.try_into().unwrap(),
+            stake: validator.stake.as_yoctonear().try_into().unwrap(),
             block_production_percent: (100.0 * (validator.num_produced_blocks as f64)
                 / (validator.num_expected_blocks as f64))
                 .floor() as i64,
@@ -204,7 +204,7 @@ fn get_validator_kickouts(
     validator_info: &EpochValidatorInfo,
 ) -> HashMap<AccountId, ValidatorKickoutReason> {
     let mut kickouts = HashMap::new();
-    for kickout in validator_info.prev_epoch_kickout.iter() {
+    for kickout in &validator_info.prev_epoch_kickout {
         kickouts.insert(kickout.account_id.clone(), kickout.reason.clone());
     }
     kickouts
@@ -232,13 +232,12 @@ fn get_block_info(
 
             let mut bitmap = ChunkEndorsementsBitmap::new(chunks.len());
 
-            let height = header.height();
             let prev_block_epoch_id =
                 epoch_manager.get_epoch_id_from_prev_block(header.prev_hash())?;
-            for (shard_index, chunk_header) in chunks.iter_deprecated().enumerate() {
+            for (shard_index, chunk_header) in chunks.iter().enumerate() {
                 let shard_id = shard_layout.get_shard_id(shard_index).unwrap();
                 let endorsements = &endorsement_signatures[shard_index];
-                if !chunk_header.is_new_chunk(height) {
+                if !chunk_header.is_new_chunk() {
                     assert_eq!(endorsements.len(), 0);
                     bitmap.add_endorsements(shard_index, vec![]);
                 } else {
@@ -274,7 +273,8 @@ fn create_replay_store(home_dir: &Path, near_config: &NearConfig) -> Store {
     let store_opener = NodeStorage::opener(
         home_dir,
         &near_config.config.store,
-        near_config.config.archival_config(),
+        near_config.config.cold_store.as_ref(),
+        near_config.config.cloud_storage_config(),
     );
     let storage = store_opener.open_in_mode(Mode::ReadOnly).unwrap();
 

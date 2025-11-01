@@ -5,10 +5,9 @@ use near_chain::near_chain_primitives::error::QueryError;
 use near_chain::stateless_validation::processing_tracker::{
     ProcessingDoneTracker, ProcessingDoneWaiter,
 };
-use near_chain::test_utils::ValidatorSchedule;
 use near_chain::types::Tip;
 use near_chain::{ChainGenesis, ChainStoreAccess, Provenance};
-use near_chain_configs::{Genesis, GenesisConfig};
+use near_chain_configs::{Genesis, GenesisConfig, ProtocolVersionCheckConfig};
 use near_chunks::client::ShardsManagerResponse;
 use near_chunks::test_utils::{MockClientAdapterForShardsManager, SynchronousShardsManagerAdapter};
 use near_client::{Client, DistributeStateWitnessRequest, RpcHandler};
@@ -32,7 +31,7 @@ use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::stateless_validation::state_witness::ChunkStateWitness;
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::transaction::{Action, FunctionCallAction, SignedTransaction};
-use near_primitives::types::{AccountId, Balance, BlockHeight, EpochId, NumSeats, ShardId};
+use near_primitives::types::{AccountId, Balance, BlockHeight, EpochId, Gas, NumSeats, ShardId};
 use near_primitives::utils::MaybeValidated;
 use near_primitives::views::{
     AccountView, FinalExecutionOutcomeView, QueryRequest, QueryResponse, QueryResponseKind,
@@ -41,14 +40,19 @@ use near_primitives::views::{
 use near_store::ShardUId;
 use near_store::db::metadata::DbKind;
 use near_vm_runner::logic::ProtocolVersion;
+use parking_lot::Mutex;
 use std::collections::{HashMap, HashSet};
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, OnceLock};
 use time::ext::InstantExt as _;
 
 use crate::utils::mock_partial_witness_adapter::MockPartialWitnessAdapter;
 
+use near_chain::chain::ChunkStateWitnessMessage;
+use near_client::ChunkValidationActorInner;
+
 use super::setup::{TEST_SEED, setup_client_with_runtime};
 use super::test_env_builder::TestEnvBuilder;
+use near_async::ActorSystem;
 
 /// Timeout used in tests that wait for a specific chunk endorsement to appear
 const CHUNK_ENDORSEMENTS_TIMEOUT: Duration = Duration::seconds(10);
@@ -57,6 +61,7 @@ const CHUNK_ENDORSEMENTS_TIMEOUT: Duration = Duration::seconds(10);
 /// This environment can simulate near nodes without network and it can be configured to use different runtimes.
 pub struct TestEnv {
     pub clock: Clock,
+    pub actor_system: ActorSystem,
     pub chain_genesis: ChainGenesis,
     pub validators: Vec<AccountId>,
     pub network_adapters: Vec<Arc<MockPeerManagerAdapter>>,
@@ -64,14 +69,16 @@ pub struct TestEnv {
     pub partial_witness_adapters: Vec<MockPartialWitnessAdapter>,
     pub shards_manager_adapters: Vec<SynchronousShardsManagerAdapter>,
     pub clients: Vec<Client>,
+    pub chunk_validation_actors: Vec<ChunkValidationActorInner>,
     pub rpc_handlers: Vec<RpcHandler>,
     pub(crate) account_indices: AccountIndices,
     pub(crate) paused_blocks: Arc<Mutex<HashMap<CryptoHash, Arc<OnceLock<()>>>>>,
     // random seed to be inject in each client according to AccountId
     // if not set, a default constant TEST_SEED will be injected
     pub(crate) seeds: HashMap<AccountId, RngSeed>,
-    pub(crate) archive: bool,
-    pub(crate) save_trie_changes: bool,
+    pub(crate) enable_split_store: bool,
+    pub(crate) save_tx_outcomes: bool,
+    pub(crate) protocol_version_check: ProtocolVersionCheckConfig,
 }
 
 pub struct StateWitnessPropagationOutput {
@@ -97,24 +104,23 @@ impl TestEnv {
     /// Process a given block in the client with index `id`.
     /// Simulate the block processing logic in `Client`, i.e, it would run catchup and then process accepted blocks and possibly produce chunks.
     /// Runs garbage collection manually
-    pub fn process_block(&mut self, id: usize, block: Block, provenance: Provenance) {
+    pub fn process_block(&mut self, id: usize, block: Arc<Block>, provenance: Provenance) {
         self.clients[id].process_block_test(MaybeValidated::from(block), provenance).unwrap();
         // runs gc
         let runtime_adapter = self.clients[id].chain.runtime_adapter.clone();
         let epoch_manager = self.clients[id].chain.epoch_manager.clone();
         let shard_tracker = self.clients[id].chain.shard_tracker.clone();
         let gc_config = self.clients[id].config.gc.clone();
-        let signer = self.clients[id].validator_signer.get();
-        let me = signer.as_ref().map(|signer| signer.validator_id());
 
         // A RPC node should do regular garbage collection.
         if !self.clients[id].config.archive {
             self.clients[id]
                 .chain
                 .mut_chain_store()
-                .clear_data(&gc_config, runtime_adapter, epoch_manager, &shard_tracker, me)
+                .clear_data(&gc_config, runtime_adapter, epoch_manager, &shard_tracker)
                 .unwrap();
         } else {
+            // TODO(cloud_archival) Handle the cloud archival case
             // An archival node with split storage should perform garbage collection
             // on the hot storage. In order to determine if split storage is enabled
             // *and* that the migration to split storage is finished we can check
@@ -125,7 +131,7 @@ impl TestEnv {
                 self.clients[id]
                     .chain
                     .mut_chain_store()
-                    .clear_data(&gc_config, runtime_adapter, epoch_manager, &shard_tracker, me)
+                    .clear_data(&gc_config, runtime_adapter, epoch_manager, &shard_tracker)
                     .unwrap();
             } else {
                 // An archival node with legacy storage or in the midst of migration to split
@@ -145,7 +151,7 @@ impl TestEnv {
     /// This means that transactions added before this call will be included in the next block produced by this validator.
     pub fn produce_block(&mut self, id: usize, height: BlockHeight) {
         let block = self.clients[id].produce_block(height).unwrap();
-        self.process_block(id, block.unwrap(), Provenance::PRODUCED);
+        self.process_block(id, block.unwrap().into(), Provenance::PRODUCED);
     }
 
     // Produces block by the client that is the block producer for the given height.
@@ -164,7 +170,7 @@ impl TestEnv {
                 continue;
             }
             let block = self.clients[id].produce_block(height).unwrap().unwrap();
-            self.process_block(id, block, Provenance::PRODUCED);
+            self.process_block(id, block.into(), Provenance::PRODUCED);
             return;
         }
         panic!("No client found for block producer {}", block_producer);
@@ -182,10 +188,10 @@ impl TestEnv {
     /// add something more robust.
     pub fn pause_block_processing(&mut self, capture: &mut TracingCapture, block: &CryptoHash) {
         let paused_blocks = Arc::clone(&self.paused_blocks);
-        paused_blocks.lock().unwrap().insert(*block, Arc::new(OnceLock::new()));
+        paused_blocks.lock().insert(*block, Arc::new(OnceLock::new()));
         capture.set_callback(move |msg| {
             if msg.starts_with("do_apply_chunks") {
-                let cell = paused_blocks.lock().unwrap().iter().find_map(|(block_hash, cell)| {
+                let cell = paused_blocks.lock().iter().find_map(|(block_hash, cell)| {
                     if msg.contains(&format!("block=Normal({block_hash})")) {
                         Some(Arc::clone(cell))
                     } else {
@@ -201,7 +207,7 @@ impl TestEnv {
 
     /// See `pause_block_processing`.
     pub fn resume_block_processing(&mut self, block: &CryptoHash) {
-        let mut paused_blocks = self.paused_blocks.lock().unwrap();
+        let mut paused_blocks = self.paused_blocks.lock();
         let cell = paused_blocks.remove(block).unwrap();
         let _ = cell.set(());
     }
@@ -336,10 +342,9 @@ impl TestEnv {
     pub fn process_shards_manager_responses(&mut self, id: usize) -> bool {
         let mut any_processed = false;
         while let Some(msg) = self.client_adapters[id].pop() {
-            match msg {
+            match msg.span_unwrap() {
                 ShardsManagerResponse::ChunkCompleted { partial_chunk, shard_chunk } => {
-                    let signer = self.clients[id].validator_signer.get();
-                    self.clients[id].on_chunk_completed(partial_chunk, shard_chunk, None, &signer);
+                    self.clients[id].on_chunk_completed(partial_chunk, shard_chunk, None);
                 }
                 ShardsManagerResponse::InvalidChunk(encoded_chunk) => {
                     self.clients[id].on_invalid_chunk(encoded_chunk);
@@ -373,8 +378,8 @@ impl TestEnv {
     fn found_differing_post_state_root_due_to_state_transitions(
         witness: &ChunkStateWitness,
     ) -> bool {
-        let mut post_state_roots = HashSet::from([witness.main_state_transition.post_state_root]);
-        post_state_roots.extend(witness.implicit_transitions.iter().map(|t| t.post_state_root));
+        let mut post_state_roots = HashSet::from([witness.main_state_transition().post_state_root]);
+        post_state_roots.extend(witness.implicit_transitions().iter().map(|t| t.post_state_root));
         post_state_roots.len() >= 2
     }
 
@@ -400,7 +405,7 @@ impl TestEnv {
         for (client_idx, partial_witness_adapter) in partial_witness_adapters.iter().enumerate() {
             while let Some(request) = partial_witness_adapter.pop_distribution_request() {
                 let DistributeStateWitnessRequest { state_witness, .. } = request;
-                let raw_witness_size = borsh::to_vec(&state_witness).unwrap().len();
+                let raw_witness_size = borsh::object_length(&state_witness).unwrap();
                 let key = state_witness.chunk_production_key();
                 let chunk_validators = self.clients[client_idx]
                     .epoch_manager
@@ -420,15 +425,20 @@ impl TestEnv {
                         tracing::warn!(target: "test", "Client not found for account_id {}", account_id);
                         continue;
                     }
-                    let client = self.client(&account_id);
-                    let processing_result = client.process_chunk_state_witness(
-                        state_witness.clone(),
+                    let account_index = self.get_client_index(&account_id);
+                    let witness_message = ChunkStateWitnessMessage {
+                        witness: state_witness.clone(),
                         raw_witness_size,
-                        Some(processing_done_tracker),
-                        client.validator_signer.get(),
-                    );
+                        processing_done_tracker: Some(processing_done_tracker),
+                    };
+
+                    // Call the chunk validation actor's processing method directly to get the actual result
+                    let processing_result = self.chunk_validation_actors[account_index]
+                        .process_chunk_state_witness_message(witness_message);
                     if !allow_errors {
-                        processing_result.unwrap();
+                        if let Err(err) = processing_result {
+                            panic!("Chunk state witness processing failed: {}", err);
+                        }
                     }
                 }
 
@@ -459,8 +469,7 @@ impl TestEnv {
                         tracing::warn!(target: "test", "Client not found for account_id {}", account_id);
                         return None;
                     }
-                    let mut tracker = self.client(&account_id).chunk_endorsement_tracker.lock().unwrap();
-                    let processing_result = tracker.process_chunk_endorsement(endorsement);
+                    let processing_result = self.client(&account_id).chunk_endorsement_tracker.process_chunk_endorsement(endorsement);
                     if !allow_errors {
                         processing_result.unwrap();
                     }
@@ -522,7 +531,7 @@ impl TestEnv {
             account_id.clone(),
             account_id,
             &signer,
-            100,
+            Balance::from_yoctonear(100),
             self.clients[id].chain.head().unwrap().last_block_hash,
         );
         self.rpc_handlers[id].process_tx(tx, false, false)
@@ -544,7 +553,7 @@ impl TestEnv {
             self.clients[0].epoch_manager.get_block_producer(&epoch_id, tip.height).unwrap();
 
         let mut block = self.clients[0].produce_block(tip.height + 1).unwrap().unwrap();
-        block.mut_header().resign(&create_test_signer(block_producer.as_str()));
+        Arc::make_mut(&mut block).mut_header().resign(&create_test_signer(block_producer.as_str()));
 
         let _ = self.clients[0]
             .process_block_test_no_produce_chunk(block.into(), Provenance::NONE)
@@ -662,20 +671,16 @@ impl TestEnv {
 
     /// Restarts client at given index. Note that the new client reuses runtime
     /// adapter of old client.
-    /// TODO (#8269): create new `KeyValueRuntime` for new client. Currently it
-    /// doesn't work because `KeyValueRuntime` misses info about new epochs in
-    /// memory caches.
-    /// Though, it seems that it is not necessary for current use cases.
     pub fn restart(&mut self, idx: usize) {
         let account_id = self.get_client_id(idx);
         let rng_seed = match self.seeds.get(&account_id) {
             Some(seed) => *seed,
             None => TEST_SEED,
         };
-        let vs = ValidatorSchedule::new().block_producers_per_epoch(vec![self.validators.clone()]);
-        let num_validator_seats = vs.all_block_producers().count() as NumSeats;
-        self.clients[idx] = setup_client_with_runtime(
+        let num_validator_seats = self.validators.len() as NumSeats;
+        let (client, chunk_validation_inner) = setup_client_with_runtime(
             self.clock.clone(),
+            self.actor_system.clone(),
             num_validator_seats,
             false,
             self.network_adapters[idx].clone().as_multi_sender(),
@@ -685,13 +690,16 @@ impl TestEnv {
             self.clients[idx].shard_tracker.clone(),
             self.clients[idx].runtime_adapter.clone(),
             rng_seed,
-            self.archive,
-            self.save_trie_changes,
+            self.enable_split_store,
+            self.save_tx_outcomes,
+            self.protocol_version_check,
             None,
             self.clients[idx].partial_witness_adapter.clone(),
-            self.clients[idx].validator_signer.get().unwrap(),
+            self.clients[idx].validator_signer.clone(),
             self.clients[idx].resharding_sender.clone(),
-        )
+        );
+        self.clients[idx] = client;
+        self.chunk_validation_actors[idx] = chunk_validation_inner;
     }
 
     /// Returns an [`AccountId`] used by a client at given index.  More
@@ -840,8 +848,8 @@ impl TestEnv {
         let actions = vec![Action::FunctionCall(Box::new(FunctionCallAction {
             method_name: "main".to_string(),
             args: vec![],
-            gas: 3 * 10u64.pow(14),
-            deposit: 0,
+            gas: Gas::from_teragas(300),
+            deposit: Balance::ZERO,
         }))];
         let tx = self.tx_from_actions(actions, &signer, signer.get_account_id());
         self.execute_tx(tx).unwrap()
@@ -884,7 +892,7 @@ impl TestEnv {
 
 impl Drop for TestEnv {
     fn drop(&mut self) {
-        let paused_blocks = self.paused_blocks.lock().unwrap();
+        let paused_blocks = self.paused_blocks.lock();
         for cell in paused_blocks.values() {
             let _ = cell.set(());
         }

@@ -92,7 +92,10 @@ def docker_run(shell_cmd: typing.Optional[str] = None,
     Returns:
         Command's stripped standard output if `detach` is true, None otherwise.
     """
-    cmd = ['docker', 'run', '--read-only', f'-v{volume[0]}:{volume[1]}']
+    cmd = [
+        'docker', 'run', '--read-only', '--tmpfs', '/tmp',
+        f'-v{volume[0]}:{volume[1]}'
+    ]
 
     # Either run detached or attach standard output and standard error so they
     # are visible.
@@ -115,8 +118,7 @@ def docker_run(shell_cmd: typing.Optional[str] = None,
     cmd.extend(('-u', f'{os.getuid()}:{os.getgid()}', '--userns=host'))
 
     # Set environment variables.
-    rust_log = ('actix_web=warn,mio=warn,tokio_util=warn,'
-                'actix_server=warn,actix_http=warn,' +
+    rust_log = ('mio=warn,tokio_util=warn,' +
                 os.environ.get('RUST_LOG', 'debug'))
     cmd.extend(('-eRUST_BACKTRACE=1', f'-eRUST_LOG={rust_log}'))
     for key, value in env.items():

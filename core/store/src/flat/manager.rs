@@ -1,14 +1,14 @@
 use crate::adapter::flat_store::{FlatStoreAdapter, FlatStoreUpdateAdapter};
 use crate::flat::{
     BlockInfo, FlatStorageReadyStatus, FlatStorageReshardingStatus, FlatStorageStatus,
-    POISONED_LOCK_ERR,
 };
 use near_primitives::errors::StorageError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::types::{BlockHeight, RawStateChangesWithTrieKey};
+use parking_lot::Mutex;
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use tracing::debug;
 
 use super::chunk_view::FlatStorageChunkView;
@@ -65,7 +65,7 @@ impl FlatStorageManager {
         genesis_block: &CryptoHash,
         genesis_height: BlockHeight,
     ) {
-        let flat_storages = self.0.flat_storages.lock().expect(POISONED_LOCK_ERR);
+        let flat_storages = self.0.flat_storages.lock();
         assert!(!flat_storages.contains_key(&shard_uid));
         store_update.set_flat_storage_status(
             shard_uid,
@@ -82,10 +82,10 @@ impl FlatStorageManager {
     /// and resharding.
     pub fn create_flat_storage_for_shard(&self, shard_uid: ShardUId) -> Result<(), StorageError> {
         tracing::debug!(target: "store", ?shard_uid, "Creating flat storage for shard");
-        let want_snapshot = self.0.want_snapshot.lock().expect(POISONED_LOCK_ERR);
+        let want_snapshot = self.0.want_snapshot.lock();
         let disable_updates = want_snapshot.is_some();
 
-        let mut flat_storages = self.0.flat_storages.lock().expect(POISONED_LOCK_ERR);
+        let mut flat_storages = self.0.flat_storages.lock();
         let flat_storage = FlatStorage::new(self.0.store.clone(), shard_uid)?;
         if disable_updates {
             flat_storage.set_flat_head_update_mode(false);
@@ -238,7 +238,7 @@ impl FlatStorageManager {
         block_hash: CryptoHash,
     ) -> Option<FlatStorageChunkView> {
         let flat_storage = {
-            let flat_storages = self.0.flat_storages.lock().expect(POISONED_LOCK_ERR);
+            let flat_storages = self.0.flat_storages.lock();
             // It is possible that flat storage state does not exist yet because it is being created in
             // background.
             match flat_storages.get(&shard_uid) {
@@ -254,7 +254,7 @@ impl FlatStorageManager {
 
     // TODO (#7327): consider returning Result<FlatStorage, Error> when we expect flat storage to exist
     pub fn get_flat_storage_for_shard(&self, shard_uid: ShardUId) -> Option<FlatStorage> {
-        let flat_storages = self.0.flat_storages.lock().expect(POISONED_LOCK_ERR);
+        let flat_storages = self.0.flat_storages.lock();
         flat_storages.get(&shard_uid).cloned()
     }
 
@@ -266,7 +266,7 @@ impl FlatStorageManager {
         shard_uid: ShardUId,
         store_update: &mut FlatStoreUpdateAdapter,
     ) -> Result<bool, StorageError> {
-        let mut flat_storages = self.0.flat_storages.lock().expect(POISONED_LOCK_ERR);
+        let mut flat_storages = self.0.flat_storages.lock();
         if let Some(flat_store) = flat_storages.remove(&shard_uid) {
             flat_store.clear_state(store_update)?;
             tracing::info!(target: "store", ?shard_uid, "remove_flat_storage_for_shard successful");
@@ -310,10 +310,10 @@ impl FlatStorageManager {
     // we rely on the canonical one being requested after any other forks, which may not be the case.
     pub fn want_snapshot(&self, block_hash: CryptoHash, min_chunk_prev_height: BlockHeight) {
         {
-            let mut want_snapshot = self.0.want_snapshot.lock().expect(POISONED_LOCK_ERR);
+            let mut want_snapshot = self.0.want_snapshot.lock();
             *want_snapshot = Some(SnapshotBlock { block_hash, min_chunk_prev_height });
         }
-        let flat_storages = self.0.flat_storages.lock().expect(POISONED_LOCK_ERR);
+        let flat_storages = self.0.flat_storages.lock();
         for flat_storage in flat_storages.values() {
             flat_storage.set_flat_head_update_mode(false);
         }
@@ -324,7 +324,7 @@ impl FlatStorageManager {
     /// allows flat head updates, and signals to any resharding flat storage code that it can advance now.
     pub fn snapshot_taken(&self, block_hash: &CryptoHash) {
         {
-            let mut want_snapshot = self.0.want_snapshot.lock().expect(POISONED_LOCK_ERR);
+            let mut want_snapshot = self.0.want_snapshot.lock();
             if let Some(want) = &*want_snapshot {
                 if &want.block_hash != block_hash {
                     return;
@@ -334,7 +334,7 @@ impl FlatStorageManager {
             }
             *want_snapshot = None;
         }
-        let flat_storages = self.0.flat_storages.lock().expect(POISONED_LOCK_ERR);
+        let flat_storages = self.0.flat_storages.lock();
         for flat_storage in flat_storages.values() {
             flat_storage.set_flat_head_update_mode(true);
         }
@@ -344,13 +344,13 @@ impl FlatStorageManager {
     // Returns Some() if a state snapshot should be taken, and therefore any resharding flat storage code should not advance
     // past the given hash
     pub fn snapshot_height_wanted(&self) -> Option<BlockHeight> {
-        let want_snapshot = self.0.want_snapshot.lock().expect(POISONED_LOCK_ERR);
+        let want_snapshot = self.0.want_snapshot.lock();
         want_snapshot.as_ref().map(|s| s.min_chunk_prev_height)
     }
 
     // Returns Some() with the corresponding block hash if a state snapshot has been requested
     pub fn snapshot_hash_wanted(&self) -> Option<CryptoHash> {
-        let want_snapshot = self.0.want_snapshot.lock().expect(POISONED_LOCK_ERR);
+        let want_snapshot = self.0.want_snapshot.lock();
         want_snapshot.as_ref().map(|s| s.block_hash)
     }
 }

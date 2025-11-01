@@ -1,6 +1,6 @@
-use actix_web::cookie::time::ext::InstantExt as _;
-use actix_web::{App, HttpServer, web};
 use anyhow::Context;
+use axum::Router;
+use axum::routing::get;
 pub use cli::PingCommand;
 use near_network::raw::{ConnectError, Connection, DirectMessage, Message, RoutedMessage};
 use near_network::types::HandshakeFailureReason;
@@ -13,6 +13,7 @@ use std::collections::hash_map::Entry;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::net::SocketAddr;
 use std::pin::Pin;
+use time::ext::InstantExt as _;
 
 pub mod cli;
 mod csv;
@@ -138,7 +139,7 @@ impl AppInfo {
     }
 
     fn pick_next_target(&self) -> Option<PeerId> {
-        for (target, pending_pings) in self.requests.iter() {
+        for (target, pending_pings) in &self.requests {
             if pending_pings.len() < MAX_PINGS_IN_FLIGHT {
                 return Some(target.peer_id.clone());
             }
@@ -385,6 +386,7 @@ async fn ping_via_node(
     mut latencies_csv: Option<crate::csv::LatenciesCsv>,
     ping_stats: &mut Vec<(PeerIdentifier, PingStats)>,
     prometheus_addr: &str,
+    just_handshake: bool,
 ) -> anyhow::Result<()> {
     let mut app_info = AppInfo::new(account_filter, chain_id);
 
@@ -430,6 +432,12 @@ async fn ping_via_node(
         }
     };
 
+    // If just_handshake is true, exit after successful connection
+    if just_handshake {
+        println!("Handshake completed successfully. Exiting as requested.");
+        return Ok(());
+    }
+
     let mut result = Ok(());
     let mut nonce = 1;
     let next_ping = tokio::time::sleep(std::time::Duration::ZERO);
@@ -437,18 +445,11 @@ async fn ping_via_node(
     let next_timeout = tokio::time::sleep(std::time::Duration::ZERO);
     tokio::pin!(next_timeout);
 
-    let server = HttpServer::new(move || {
-        App::new().service(
-            web::resource("/metrics").route(web::get().to(near_jsonrpc::prometheus_handler)),
-        )
-    })
-    .bind(prometheus_addr)
-    .unwrap()
-    .workers(1)
-    .shutdown_timeout(3)
-    .disable_signals()
-    .run();
-    tokio::spawn(server);
+    let app = Router::new().route("/metrics", get(near_jsonrpc::prometheus_handler));
+    let listener = tokio::net::TcpListener::bind(prometheus_addr).await.unwrap();
+    tokio::spawn(async move {
+        axum::serve(listener, app).await.unwrap();
+    });
 
     loop {
         let target = app_info.pick_next_target();

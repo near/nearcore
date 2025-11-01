@@ -3,11 +3,11 @@ use crate::vmcontext::VMMemoryDefinition;
 use crate::{MemoryError, MemoryStyle};
 use more_asserts::assert_ge;
 use near_vm_types::{Bytes, MemoryType, Pages};
+use parking_lot::Mutex;
 use std::borrow::BorrowMut;
 use std::cell::UnsafeCell;
 use std::convert::TryInto;
 use std::ptr::NonNull;
-use std::sync::Mutex;
 
 #[derive(Debug)]
 struct WasmMmap {
@@ -208,7 +208,7 @@ impl LinearMemory {
     /// Returns `None` if memory can't be grown by the specified amount
     /// of wasm pages.
     pub fn grow(&self, delta: Pages) -> Result<Pages, MemoryError> {
-        let mut mmap_guard = self.mmap.lock().unwrap();
+        let mut mmap_guard = self.mmap.lock();
         let mmap = mmap_guard.borrow_mut();
         // Optimization of memory.grow 0 calls.
         if delta.0 == 0 {
@@ -279,7 +279,7 @@ impl LinearMemory {
 
     /// Return a `VMMemoryDefinition` for exposing the memory to compiled wasm code.
     pub fn vmmemory(&self) -> NonNull<VMMemoryDefinition> {
-        let _mmap_guard = self.mmap.lock().unwrap();
+        let _mmap_guard = self.mmap.lock();
         unsafe { self.get_vm_memory_definition() }
     }
 }

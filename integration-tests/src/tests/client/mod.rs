@@ -1,11 +1,8 @@
 mod benchmarks;
 mod block_corruption;
 mod block_sync;
-mod bug_repro;
-mod catching_up;
 mod chunks_management;
 mod cold_storage;
-mod cross_shard_tx;
 mod doomslug;
 mod flat_storage;
 mod invalid_chunk;

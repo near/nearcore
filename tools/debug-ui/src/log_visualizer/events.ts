@@ -35,7 +35,14 @@ export class EventItem {
     // The log lines emitted by the Rust program while handling this event.
     public readonly logRows: string[] = [];
 
-    constructor(id: number, identifier: string, parentId: number | null, time: number, eventDump: string, eventIgnored: boolean) {
+    constructor(
+        id: number,
+        identifier: string,
+        parentId: number | null,
+        time: number,
+        eventDump: string,
+        eventIgnored: boolean
+    ) {
         this.id = id;
         this.time = time;
         this.parentId = parentId;

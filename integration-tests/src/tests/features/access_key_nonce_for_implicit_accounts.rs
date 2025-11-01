@@ -4,8 +4,8 @@ use crate::utils::process_blocks::produce_blocks_from_height;
 use assert_matches::assert_matches;
 use near_async::messaging::CanSend;
 use near_chain::orphan::NUM_ORPHAN_ANCESTORS_CHECK;
-use near_chain::{ChainStoreAccess as _, Error, Provenance};
-use near_chain_configs::{Genesis, NEAR_BASE};
+use near_chain::{Error, Provenance};
+use near_chain_configs::Genesis;
 use near_chunks::metrics::PARTIAL_ENCODED_CHUNK_FORWARD_CACHED_WITHOUT_HEADER;
 use near_client::test_utils::create_chunk;
 use near_client::{ProcessTxResponse, ProduceChunkResult};
@@ -19,7 +19,7 @@ use near_primitives::errors::InvalidTxError;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::sharding::ChunkHash;
 use near_primitives::transaction::{SignedTransaction, ValidatedTransaction};
-use near_primitives::types::{AccountId, BlockHeight};
+use near_primitives::types::{AccountId, Balance, BlockHeight};
 use near_primitives::utils::derive_near_implicit_account_id;
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolVersion};
 use near_primitives::views::FinalExecutionStatus;
@@ -60,7 +60,7 @@ fn test_transaction_hash_collision() {
         "test1".parse().unwrap(),
         "test0".parse().unwrap(),
         &signer1,
-        100,
+        Balance::from_yoctonear(100),
         *genesis_block.hash(),
     );
     let delete_account_tx = SignedTransaction::delete_account(
@@ -89,7 +89,7 @@ fn test_transaction_hash_collision() {
         1,
         "test0".parse().unwrap(),
         "test1".parse().unwrap(),
-        NEAR_BASE,
+        Balance::from_near(1),
         signer1.public_key(),
         &signer0,
         *genesis_block.hash(),
@@ -122,7 +122,7 @@ fn get_status_of_tx_hash_collision_for_near_implicit_account(
     genesis.config.protocol_version = protocol_version;
     let mut env = TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build();
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
-    let deposit_for_account_creation = 10u128.pow(23);
+    let deposit_for_account_creation = Balance::from_millinear(100);
     let mut height = 1;
     let blocks_number = 5;
     let signer1 = InMemorySigner::test_signer(&"test1".parse().unwrap());
@@ -171,7 +171,7 @@ fn get_status_of_tx_hash_collision_for_near_implicit_account(
         near_implicit_account_id.clone(),
         "test0".parse().unwrap(),
         &near_implicit_account_signer,
-        100,
+        Balance::from_yoctonear(100),
         *block.hash(),
     );
     let response =
@@ -183,7 +183,7 @@ fn get_status_of_tx_hash_collision_for_near_implicit_account(
         near_implicit_account_id,
         "test0".parse().unwrap(),
         &near_implicit_account_signer,
-        100,
+        Balance::from_yoctonear(100),
         *block.hash(),
     );
     check_tx_processing(&mut env, send_money_from_near_implicit_account_tx, height, blocks_number);
@@ -214,7 +214,7 @@ fn test_chunk_transaction_validity() {
     let epoch_length = 5;
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     genesis.config.epoch_length = epoch_length;
-    genesis.config.min_gas_price = 0;
+    genesis.config.min_gas_price = Balance::ZERO;
     let mut env = TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build();
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
     let signer = InMemorySigner::test_signer(&"test0".parse().unwrap());
@@ -223,21 +223,17 @@ fn test_chunk_transaction_validity() {
         "test1".parse().unwrap(),
         "test0".parse().unwrap(),
         &signer,
-        100,
+        Balance::from_yoctonear(100),
         *genesis_block.hash(),
     ));
     for i in 1..200 {
         env.produce_block(0, i);
     }
-    let (
-        ProduceChunkResult {
-            encoded_chunk, encoded_chunk_parts_paths: merkle_paths, receipts, ..
-        },
-        block,
-    ) = create_chunk(&mut env.clients[0], vec![validated_tx]);
+    let (ProduceChunkResult { chunk, encoded_chunk_parts_paths: merkle_paths, receipts }, block) =
+        create_chunk(&mut env.clients[0], vec![validated_tx]);
     let validator_id = env.clients[0].validator_signer.get().unwrap().validator_id().clone();
     env.clients[0]
-        .persist_and_distribute_encoded_chunk(encoded_chunk, merkle_paths, receipts, validator_id)
+        .distribute_and_persist_encoded_chunk(chunk, merkle_paths, receipts, validator_id)
         .unwrap();
     let res = env.clients[0].process_block_test(block.into(), Provenance::NONE);
     match res.as_deref() {
@@ -272,7 +268,7 @@ fn test_transaction_nonce_too_large() {
         "test1".parse().unwrap(),
         "test0".parse().unwrap(),
         &signer,
-        100,
+        Balance::from_yoctonear(100),
         *genesis_block.hash(),
     );
     assert_matches!(
@@ -477,7 +473,7 @@ fn test_processing_chunks_sanity() {
         let block = env.clients[0].produce_block(i).unwrap().unwrap();
         let chunks = block
             .chunks()
-            .iter_deprecated()
+            .iter()
             .map(|chunk| format!("{:?}", chunk.chunk_hash()))
             .collect::<Vec<_>>();
         debug!(target: "chunks", "Block #{} has chunks {:?}", i, chunks.join(", "));
@@ -495,12 +491,10 @@ fn test_processing_chunks_sanity() {
         let mut next_blocks: Vec<_> = (3 * i..3 * i + 3).collect();
         next_blocks.shuffle(&mut rng);
         for ind in next_blocks {
-            let signer = env.clients[1].validator_signer.get();
             let _ = env.clients[1].start_process_block(
                 blocks[ind].clone().into(),
                 Provenance::NONE,
                 None,
-                &signer,
             );
             if rng.gen_bool(0.5) {
                 env.process_shards_manager_responses_and_finish_processing_blocks(1);
@@ -630,7 +624,7 @@ impl ChunkForwardingOptimizationTestData {
                 );
                 for part in &partial_encoded_chunk.parts {
                     self.chunk_parts_that_must_be_known.insert((
-                        partial_encoded_chunk.header.chunk_hash(),
+                        partial_encoded_chunk.header.chunk_hash().clone(),
                         part.part_ord,
                         client_id,
                     ));
@@ -721,12 +715,10 @@ fn test_chunk_forwarding_optimization() {
         // The block producer of course has the complete block so we can process that.
         for i in 0..test.num_validators {
             debug!(target: "test", "Processing block {} as validator #{}", block.header().height(), i);
-            let signer = test.env.clients[i].validator_signer.get();
             let _ = test.env.clients[i].start_process_block(
                 block.clone().into(),
                 if i == 0 { Provenance::PRODUCED } else { Provenance::NONE },
                 None,
-                &signer,
             );
             let mut accepted_blocks =
                 test.env.clients[i].finish_block_in_processing(block.header().hash());
@@ -803,13 +795,8 @@ fn test_processing_blocks_async() {
     let mut rng = thread_rng();
     blocks.shuffle(&mut rng);
     for ind in 0..blocks.len() {
-        let signer = env.clients[1].validator_signer.get();
-        let _ = env.clients[1].start_process_block(
-            blocks[ind].clone().into(),
-            Provenance::NONE,
-            None,
-            &signer,
-        );
+        let _ =
+            env.clients[1].start_process_block(blocks[ind].clone().into(), Provenance::NONE, None);
     }
 
     env.process_shards_manager_responses_and_finish_processing_blocks(1);

@@ -1,19 +1,24 @@
 use crate::account::{AccessKey, Account};
 use crate::errors::EpochError;
 use crate::hash::CryptoHash;
-use crate::serialize::dec_format;
 use crate::shard_layout::ShardLayout;
+use crate::stateless_validation::spice_chunk_endorsement::SpiceStoredVerifiedEndorsement;
 use crate::trie_key::TrieKey;
 use borsh::{BorshDeserialize, BorshSerialize};
 pub use chunk_validator_stats::ChunkStats;
 use near_crypto::PublicKey;
+use near_primitives_core::account::GasKey;
+use near_primitives_core::hash::hash;
 /// Reexport primitive types
 pub use near_primitives_core::types::*;
 use near_schema_checker_lib::ProtocolSchema;
 use serde_with::base64::Base64;
 use serde_with::serde_as;
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::LazyLock;
+
+use self::chunk_extra::ChunkExtra;
 
 mod chunk_validator_stats;
 
@@ -27,11 +32,13 @@ pub type StateRoot = CryptoHash;
 ///
 /// This is a messy workaround until we know what to do with NEP 483.
 pub(crate) type SignatureDifferentiator = String;
+pub(crate) type StaticSignatureDifferentiator = &'static str;
 
 /// Different types of finality.
 #[derive(
     serde::Serialize, serde::Deserialize, Default, Clone, Debug, PartialEq, Eq, arbitrary::Arbitrary,
 )]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub enum Finality {
     #[serde(rename = "optimistic")]
     None,
@@ -42,7 +49,9 @@ pub enum Finality {
     Final,
 }
 
+/// Account ID with its public key.
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct AccountWithPublicKey {
     pub account_id: AccountId,
     pub public_key: PublicKey,
@@ -50,10 +59,10 @@ pub struct AccountWithPublicKey {
 
 /// Account info for validators
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug, Eq, PartialEq)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct AccountInfo {
     pub account_id: AccountId,
     pub public_key: PublicKey,
-    #[serde(with = "dec_format")]
     pub amount: Balance,
 }
 
@@ -75,8 +84,13 @@ pub struct AccountInfo {
     BorshSerialize,
     BorshDeserialize,
 )]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[serde(transparent)]
-pub struct StoreKey(#[serde_as(as = "Base64")] Vec<u8>);
+pub struct StoreKey(
+    #[serde_as(as = "Base64")]
+    #[cfg_attr(feature = "schemars", schemars(schema_with = "crate::serialize::base64_schema"))]
+    Vec<u8>,
+);
 
 /// This type is used to mark values returned from store (arrays of bytes).
 ///
@@ -96,8 +110,13 @@ pub struct StoreKey(#[serde_as(as = "Base64")] Vec<u8>);
     BorshSerialize,
     BorshDeserialize,
 )]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[serde(transparent)]
-pub struct StoreValue(#[serde_as(as = "Base64")] Vec<u8>);
+pub struct StoreValue(
+    #[serde_as(as = "Base64")]
+    #[cfg_attr(feature = "schemars", schemars(schema_with = "crate::serialize::base64_schema"))]
+    Vec<u8>,
+);
 
 /// This type is used to mark function arguments.
 ///
@@ -118,8 +137,13 @@ pub struct StoreValue(#[serde_as(as = "Base64")] Vec<u8>);
     BorshSerialize,
     BorshDeserialize,
 )]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[serde(transparent)]
-pub struct FunctionArgs(#[serde_as(as = "Base64")] Vec<u8>);
+pub struct FunctionArgs(
+    #[serde_as(as = "Base64")]
+    #[cfg_attr(feature = "schemars", schemars(schema_with = "crate::serialize::base64_schema"))]
+    Vec<u8>,
+);
 
 /// A structure used to indicate the kind of state changes due to transaction/receipt processing, etc.
 #[derive(Debug, Clone)]
@@ -165,39 +189,43 @@ impl StateChangesKinds {
 
 /// A structure used to index state changes due to transaction/receipt processing and other things.
 #[derive(Debug, Clone, BorshSerialize, BorshDeserialize, PartialEq, ProtocolSchema)]
+#[borsh(use_discriminant = true)]
+#[repr(u8)]
 pub enum StateChangeCause {
     /// A type of update that does not get finalized. Used for verification and execution of
     /// immutable smart contract methods. Attempt fo finalize a `TrieUpdate` containing such
     /// change will lead to panic.
-    NotWritableToDisk,
+    NotWritableToDisk = 0,
     /// A type of update that is used to mark the initial storage update, e.g. during genesis
     /// or in tests setup.
-    InitialState,
+    InitialState = 1,
     /// Processing of a transaction.
-    TransactionProcessing { tx_hash: CryptoHash },
+    TransactionProcessing { tx_hash: CryptoHash } = 2,
     /// Before the receipt is going to be processed, inputs get drained from the state, which
     /// causes state modification.
-    ActionReceiptProcessingStarted { receipt_hash: CryptoHash },
+    ActionReceiptProcessingStarted { receipt_hash: CryptoHash } = 3,
     /// Computation of gas reward.
-    ActionReceiptGasReward { receipt_hash: CryptoHash },
+    ActionReceiptGasReward { receipt_hash: CryptoHash } = 4,
     /// Processing of a receipt.
-    ReceiptProcessing { receipt_hash: CryptoHash },
+    ReceiptProcessing { receipt_hash: CryptoHash } = 5,
     /// The given receipt was postponed. This is either a data receipt or an action receipt.
     /// A `DataReceipt` can be postponed if the corresponding `ActionReceipt` is not received yet,
     /// or other data dependencies are not satisfied.
     /// An `ActionReceipt` can be postponed if not all data dependencies are received.
-    PostponedReceipt { receipt_hash: CryptoHash },
+    PostponedReceipt { receipt_hash: CryptoHash } = 6,
     /// Updated delayed receipts queue in the state.
     /// We either processed previously delayed receipts or added more receipts to the delayed queue.
-    UpdatedDelayedReceipts,
+    UpdatedDelayedReceipts = 7,
     /// State change that happens when we update validator accounts. Not associated with any
     /// specific transaction or receipt.
-    ValidatorAccountsUpdate,
+    ValidatorAccountsUpdate = 8,
     /// State change that is happens due to migration that happens in first block of an epoch
     /// after protocol upgrade
-    Migration,
+    Migration = 9,
+    /// Deprecated in #13155, we need to keep it to preserve enum variant tags for borsh serialization.
+    _UnusedReshardingV2 = 10,
     /// Update persistent state kept by Bandwidth Scheduler after running the scheduling algorithm.
-    BandwidthSchedulerStateUpdate,
+    BandwidthSchedulerStateUpdate = 11,
 }
 
 /// This represents the committed changes in the Trie with a change cause.
@@ -228,7 +256,9 @@ pub type RawStateChanges = std::collections::BTreeMap<Vec<u8>, RawStateChangesWi
 pub enum StateChangesRequest {
     AccountChanges { account_ids: Vec<AccountId> },
     SingleAccessKeyChanges { keys: Vec<AccountWithPublicKey> },
+    SingleGasKeyChanges { keys: Vec<AccountWithPublicKey> },
     AllAccessKeyChanges { account_ids: Vec<AccountId> },
+    AllGasKeyChanges { account_ids: Vec<AccountId> },
     ContractCodeChanges { account_ids: Vec<AccountId> },
     DataChanges { account_ids: Vec<AccountId>, key_prefix: StoreKey },
 }
@@ -239,6 +269,9 @@ pub enum StateChangeValue {
     AccountDeletion { account_id: AccountId },
     AccessKeyUpdate { account_id: AccountId, public_key: PublicKey, access_key: AccessKey },
     AccessKeyDeletion { account_id: AccountId, public_key: PublicKey },
+    GasKeyUpdate { account_id: AccountId, public_key: PublicKey, gas_key: GasKey },
+    GasKeyNonceUpdate { account_id: AccountId, public_key: PublicKey, index: u32, nonce: u64 },
+    GasKeyDeletion { account_id: AccountId, public_key: PublicKey },
     DataUpdate { account_id: AccountId, key: StoreKey, value: StoreValue },
     DataDeletion { account_id: AccountId, key: StoreKey },
     ContractCodeUpdate { account_id: AccountId, code: Vec<u8> },
@@ -252,6 +285,9 @@ impl StateChangeValue {
             | StateChangeValue::AccountDeletion { account_id }
             | StateChangeValue::AccessKeyUpdate { account_id, .. }
             | StateChangeValue::AccessKeyDeletion { account_id, .. }
+            | StateChangeValue::GasKeyUpdate { account_id, .. }
+            | StateChangeValue::GasKeyNonceUpdate { account_id, .. }
+            | StateChangeValue::GasKeyDeletion { account_id, .. }
             | StateChangeValue::DataUpdate { account_id, .. }
             | StateChangeValue::DataDeletion { account_id, .. }
             | StateChangeValue::ContractCodeUpdate { account_id, .. }
@@ -313,6 +349,50 @@ impl StateChanges {
                             },
                         },
                     ))
+                }
+                TrieKey::GasKey { account_id, public_key, index } => {
+                    if let Some(index) = index {
+                        state_changes.extend(changes.into_iter().filter_map(
+                            |RawStateChange { cause, data }| {
+                                if let Some(change_data) = data {
+                                    Some(StateChangeWithCause {
+                                        cause,
+                                        value: StateChangeValue::GasKeyNonceUpdate {
+                                            account_id: account_id.clone(),
+                                            public_key: public_key.clone(),
+                                            index,
+                                            nonce: <_>::try_from_slice(&change_data).expect(
+                                                "Failed to parse internally stored gas key nonce",
+                                            ),
+                                        },
+                                    })
+                                } else {
+                                    // Deletion of a nonce can only be done with a corresponding
+                                    // deletion of the gas key, so we don't need to report these.
+                                    None
+                                }
+                            },
+                        ));
+                    } else {
+                        state_changes.extend(changes.into_iter().map(
+                            |RawStateChange { cause, data }| StateChangeWithCause {
+                                cause,
+                                value: if let Some(change_data) = data {
+                                    StateChangeValue::GasKeyUpdate {
+                                        account_id: account_id.clone(),
+                                        public_key: public_key.clone(),
+                                        gas_key: <_>::try_from_slice(&change_data)
+                                            .expect("Failed to parse internally stored gas key"),
+                                    }
+                                } else {
+                                    StateChangeValue::GasKeyDeletion {
+                                        account_id: account_id.clone(),
+                                        public_key: public_key.clone(),
+                                    }
+                                },
+                            },
+                        ));
+                    }
                 }
                 TrieKey::ContractCode { account_id } => {
                     state_changes.extend(changes.into_iter().map(
@@ -405,6 +485,24 @@ impl StateChanges {
             .collect())
     }
 
+    pub fn from_gas_key_changes(
+        raw_changes: impl Iterator<Item = Result<RawStateChangesWithTrieKey, std::io::Error>>,
+    ) -> Result<StateChanges, std::io::Error> {
+        let state_changes = Self::from_changes(raw_changes)?;
+
+        Ok(state_changes
+            .into_iter()
+            .filter(|state_change| {
+                matches!(
+                    state_change.value,
+                    StateChangeValue::GasKeyUpdate { .. }
+                        | StateChangeValue::GasKeyNonceUpdate { .. }
+                        | StateChangeValue::GasKeyDeletion { .. }
+                )
+            })
+            .collect())
+    }
+
     pub fn from_contract_code_changes(
         raw_changes: impl Iterator<Item = Result<RawStateChangesWithTrieKey, std::io::Error>>,
     ) -> Result<StateChanges, std::io::Error> {
@@ -482,6 +580,7 @@ impl StateRootNode {
     arbitrary::Arbitrary,
     ProtocolSchema,
 )]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[as_ref(forward)]
 pub struct EpochId(pub CryptoHash);
 
@@ -520,8 +619,10 @@ pub mod validator_stake {
     /// Stores validator and its stake.
     #[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, PartialEq, Eq)]
     #[serde(tag = "validator_stake_struct_version")]
+    #[borsh(use_discriminant = true)]
+    #[repr(u8)]
     pub enum ValidatorStake {
-        V1(ValidatorStakeV1),
+        V1(ValidatorStakeV1) = 0,
         // Warning: if you're adding a new version, make sure that the borsh encoding of
         // any `ValidatorStake` cannot be equal to the borsh encoding of any `ValidatorStakeV1`.
         // See `EpochSyncProofEpochData::use_versioned_bp_hash_format` for an explanation.
@@ -595,7 +696,7 @@ pub mod validator_stake {
         }
 
         pub fn test(account_id: AccountId) -> Self {
-            Self::new_v1(account_id, PublicKey::empty(KeyType::ED25519), 0)
+            Self::new_v1(account_id, PublicKey::empty(KeyType::ED25519), Balance::ZERO)
         }
 
         pub fn into_v1(self) -> ValidatorStakeV1 {
@@ -664,8 +765,8 @@ pub mod validator_stake {
             ApprovalStake {
                 account_id: self.account_id().clone(),
                 public_key: self.public_key().clone(),
-                stake_this_epoch: if is_next_epoch { 0 } else { self.stake() },
-                stake_next_epoch: if is_next_epoch { self.stake() } else { 0 },
+                stake_this_epoch: if is_next_epoch { Balance::ZERO } else { self.stake() },
+                stake_next_epoch: if is_next_epoch { self.stake() } else { Balance::ZERO },
             }
         }
 
@@ -690,9 +791,7 @@ pub mod validator_stake {
         ///
         /// Panics if the number of mandates overflows `u16`.
         pub fn num_mandates(&self, stake_per_mandate: Balance) -> u16 {
-            // Integer division in Rust returns the floor as described here
-            // https://doc.rust-lang.org/std/primitive.u64.html#method.div_euclid
-            u16::try_from(self.stake() / stake_per_mandate)
+            u16::try_from(self.stake().as_yoctonear() / stake_per_mandate.as_yoctonear())
                 .expect("number of mandates should fit u16")
         }
 
@@ -710,7 +809,7 @@ pub mod validator_stake {
         /// Let `V` be a validator with stake of 12. If `stake_per_mandate` equals 5 then the weight
         /// of `V`'s partial mandate is `12 % 5 = 2`.
         pub fn partial_mandate_weight(&self, stake_per_mandate: Balance) -> Balance {
-            self.stake() % stake_per_mandate
+            Balance::from_yoctonear(self.stake().as_yoctonear() % stake_per_mandate.as_yoctonear())
         }
     }
 }
@@ -735,18 +834,19 @@ pub mod chunk_extra {
     use crate::types::validator_stake::{ValidatorStake, ValidatorStakeIter};
     use borsh::{BorshDeserialize, BorshSerialize};
     use near_primitives_core::hash::CryptoHash;
-    use near_primitives_core::types::{Balance, Gas, ProtocolVersion};
-    use near_primitives_core::version::{PROTOCOL_VERSION, ProtocolFeature};
+    use near_primitives_core::types::{Balance, Gas};
 
     pub use super::ChunkExtraV1;
 
     /// Information after chunk was processed, used to produce or check next chunk.
     #[derive(Debug, PartialEq, BorshSerialize, BorshDeserialize, Clone, Eq, serde::Serialize)]
+    #[borsh(use_discriminant = true)]
+    #[repr(u8)]
     pub enum ChunkExtra {
-        V1(ChunkExtraV1),
-        V2(ChunkExtraV2),
-        V3(ChunkExtraV3),
-        V4(ChunkExtraV4),
+        V1(ChunkExtraV1) = 0,
+        V2(ChunkExtraV2) = 1,
+        V3(ChunkExtraV3) = 2,
+        V4(ChunkExtraV4) = 3,
     }
 
     #[derive(Debug, PartialEq, BorshSerialize, BorshDeserialize, Clone, Eq, serde::Serialize)]
@@ -813,20 +913,18 @@ pub mod chunk_extra {
             // TODO(congestion_control) - integration with resharding
             let congestion_control = Some(CongestionInfo::default());
             Self::new(
-                PROTOCOL_VERSION,
                 state_root,
                 CryptoHash::default(),
                 vec![],
-                0,
-                0,
-                0,
+                Gas::ZERO,
+                Gas::ZERO,
+                Balance::ZERO,
                 congestion_control,
-                BandwidthRequests::default_for_protocol_version(PROTOCOL_VERSION),
+                BandwidthRequests::empty(),
             )
         }
 
         pub fn new(
-            protocol_version: ProtocolVersion,
             state_root: &StateRoot,
             outcome_root: CryptoHash,
             validator_proposals: Vec<ValidatorStake>,
@@ -834,40 +932,18 @@ pub mod chunk_extra {
             gas_limit: Gas,
             balance_burnt: Balance,
             congestion_info: Option<CongestionInfo>,
-            bandwidth_requests: Option<BandwidthRequests>,
+            bandwidth_requests: BandwidthRequests,
         ) -> Self {
-            if ProtocolFeature::BandwidthScheduler.enabled(protocol_version) {
-                assert!(bandwidth_requests.is_some());
-                Self::V4(ChunkExtraV4 {
-                    state_root: *state_root,
-                    outcome_root,
-                    validator_proposals,
-                    gas_used,
-                    gas_limit,
-                    balance_burnt,
-                    congestion_info: congestion_info.unwrap(),
-                    bandwidth_requests: bandwidth_requests.unwrap(),
-                })
-            } else if congestion_info.is_some() {
-                Self::V3(ChunkExtraV3 {
-                    state_root: *state_root,
-                    outcome_root,
-                    validator_proposals,
-                    gas_used,
-                    gas_limit,
-                    balance_burnt,
-                    congestion_info: congestion_info.unwrap(),
-                })
-            } else {
-                Self::V2(ChunkExtraV2 {
-                    state_root: *state_root,
-                    outcome_root,
-                    validator_proposals,
-                    gas_used,
-                    gas_limit,
-                    balance_burnt,
-                })
-            }
+            Self::V4(ChunkExtraV4 {
+                state_root: *state_root,
+                outcome_root,
+                validator_proposals,
+                gas_used,
+                gas_limit,
+                balance_burnt,
+                congestion_info: congestion_info.unwrap(),
+                bandwidth_requests,
+            })
         }
 
         #[inline]
@@ -993,8 +1069,10 @@ pub struct ChunkExtraV1 {
 #[derive(
     Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize, arbitrary::Arbitrary,
 )]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[serde(untagged)]
 pub enum BlockId {
+    #[cfg_attr(feature = "schemars", schemars(title = "block_height"))]
     Height(BlockHeight),
     Hash(CryptoHash),
 }
@@ -1004,6 +1082,7 @@ pub type MaybeBlockId = Option<BlockId>;
 #[derive(
     Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize, arbitrary::Arbitrary,
 )]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum SyncCheckpoint {
     Genesis,
@@ -1013,6 +1092,7 @@ pub enum SyncCheckpoint {
 #[derive(
     Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize, arbitrary::Arbitrary,
 )]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum BlockReference {
     BlockId(BlockId),
@@ -1069,6 +1149,7 @@ pub struct BlockChunkValidatorStats {
 }
 
 #[derive(serde::Deserialize, Debug, arbitrary::Arbitrary, PartialEq, Eq)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum EpochReference {
     EpochId(EpochId),
@@ -1119,29 +1200,36 @@ pub enum ValidatorInfoIdentifier {
     Eq,
     ProtocolSchema,
 )]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[borsh(use_discriminant = true)]
+#[repr(u8)]
 pub enum ValidatorKickoutReason {
     /// Deprecated
-    _UnusedSlashed,
+    _UnusedSlashed = 0,
     /// Validator didn't produce enough blocks.
-    NotEnoughBlocks { produced: NumBlocks, expected: NumBlocks },
+    NotEnoughBlocks { produced: NumBlocks, expected: NumBlocks } = 1,
     /// Validator didn't produce enough chunks.
-    NotEnoughChunks { produced: NumBlocks, expected: NumBlocks },
+    NotEnoughChunks { produced: NumBlocks, expected: NumBlocks } = 2,
     /// Validator unstaked themselves.
-    Unstaked,
+    Unstaked = 3,
     /// Validator stake is now below threshold
     NotEnoughStake {
-        #[serde(with = "dec_format", rename = "stake_u128")]
+        #[serde(rename = "stake_u128")]
         stake: Balance,
-        #[serde(with = "dec_format", rename = "threshold_u128")]
+        #[serde(rename = "threshold_u128")]
         threshold: Balance,
-    },
+    } = 4,
     /// Enough stake but is not chosen because of seat limits.
-    DidNotGetASeat,
+    DidNotGetASeat = 5,
     /// Validator didn't produce enough chunk endorsements.
-    NotEnoughChunkEndorsements { produced: NumBlocks, expected: NumBlocks },
+    NotEnoughChunkEndorsements { produced: NumBlocks, expected: NumBlocks } = 6,
+    /// Validator's last block proposal was for a protocol version older than
+    /// the network's voted protocol version.
+    ProtocolVersionTooOld { version: ProtocolVersion, network_version: ProtocolVersion } = 7,
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum TransactionOrReceiptId {
     Transaction { transaction_hash: CryptoHash, sender_id: AccountId },
@@ -1192,6 +1280,41 @@ pub struct StateChangesForShard {
     pub state_changes: Vec<RawStateChangesWithTrieKey>,
 }
 
+/// In spice missing chunks and equivalent to empty chunks so block hash and shard id always
+/// uniquely identifies chunks.
+#[derive(Debug, Clone, Hash, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
+pub struct SpiceChunkId {
+    pub block_hash: CryptoHash,
+    pub shard_id: ShardId,
+}
+
+/// Chunk application result.
+#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
+pub struct ChunkExecutionResult {
+    pub chunk_extra: ChunkExtra,
+    pub outgoing_receipts_root: CryptoHash,
+}
+
+/// Execution results for all shards in the block.
+pub struct BlockExecutionResults(pub HashMap<ShardId, Arc<ChunkExecutionResult>>);
+
+#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq, Hash)]
+pub struct ChunkExecutionResultHash(pub CryptoHash);
+
+impl ChunkExecutionResult {
+    pub fn compute_hash(&self) -> ChunkExecutionResultHash {
+        let bytes = borsh::to_vec(self).expect("Failed to serialize");
+        ChunkExecutionResultHash(hash(&bytes))
+    }
+}
+
+#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq)]
+pub struct SpiceUncertifiedChunkInfo {
+    pub chunk_id: SpiceChunkId,
+    pub missing_endorsements: Vec<AccountId>,
+    pub present_endorsements: Vec<(AccountId, SpiceStoredVerifiedEndorsement)>,
+}
+
 #[cfg(test)]
 mod tests {
     use near_crypto::{KeyType, PublicKey};
@@ -1209,15 +1332,34 @@ mod tests {
 
     #[test]
     fn test_validator_stake_num_mandates() {
-        assert_eq!(new_validator_stake(0).num_mandates(5), 0);
-        assert_eq!(new_validator_stake(10).num_mandates(5), 2);
-        assert_eq!(new_validator_stake(12).num_mandates(5), 2);
+        assert_eq!(new_validator_stake(Balance::ZERO).num_mandates(Balance::from_yoctonear(5)), 0);
+        assert_eq!(
+            new_validator_stake(Balance::from_yoctonear(10))
+                .num_mandates(Balance::from_yoctonear(5)),
+            2
+        );
+        assert_eq!(
+            new_validator_stake(Balance::from_yoctonear(12))
+                .num_mandates(Balance::from_yoctonear(5)),
+            2
+        );
     }
 
     #[test]
     fn test_validator_partial_mandate_weight() {
-        assert_eq!(new_validator_stake(0).partial_mandate_weight(5), 0);
-        assert_eq!(new_validator_stake(10).partial_mandate_weight(5), 0);
-        assert_eq!(new_validator_stake(12).partial_mandate_weight(5), 2);
+        assert_eq!(
+            new_validator_stake(Balance::ZERO).partial_mandate_weight(Balance::from_yoctonear(5)),
+            Balance::ZERO
+        );
+        assert_eq!(
+            new_validator_stake(Balance::from_yoctonear(10))
+                .partial_mandate_weight(Balance::from_yoctonear(5)),
+            Balance::ZERO
+        );
+        assert_eq!(
+            new_validator_stake(Balance::from_yoctonear(12))
+                .partial_mandate_weight(Balance::from_yoctonear(5)),
+            Balance::from_yoctonear(2)
+        );
     }
 }

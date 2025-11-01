@@ -1,13 +1,17 @@
 use borsh::{BorshDeserialize, BorshSerialize};
 use itertools::Itertools;
+use reed_solomon_erasure::Field;
 use reed_solomon_erasure::galois_8::ReedSolomon;
 use std::collections::HashMap;
 use std::io::Error;
 use std::sync::Arc;
+use tracing::span::EnteredSpan;
 
 /// Type alias around what ReedSolomon represents data part as.
 /// This should help with making the code a bit more understandable.
 pub type ReedSolomonPart = Option<Box<[u8]>>;
+
+pub const REED_SOLOMON_MAX_PARTS: usize = reed_solomon_erasure::galois_8::Field::ORDER;
 
 // Encode function takes a serializable object and returns a tuple of parts and length of encoded data
 pub fn reed_solomon_encode<T: BorshSerialize>(
@@ -50,14 +54,17 @@ pub fn reed_solomon_decode<T: BorshDeserialize>(
         return Err(Error::other(err));
     }
 
-    let encoded_data = parts
-        .iter()
-        .flat_map(|option| option.as_ref().expect("Missing shard").iter())
-        .cloned()
-        .take(encoded_length)
-        .collect_vec();
-
-    T::try_from_slice(&encoded_data)
+    // Copy filled parts in chunks into a preallocated buffer.
+    let mut buf = Vec::with_capacity(encoded_length);
+    for part_opt in parts.iter() {
+        let part = part_opt.as_ref().expect("Missing shard");
+        let remaining = encoded_length - buf.len();
+        let take_len = remaining.min(part.len());
+        buf.extend_from_slice(&part[..take_len]);
+    }
+    // Decode exactly up to encoded_length bytes, using min() to avoid panic.
+    let end = encoded_length.min(buf.len());
+    T::try_from_slice(&buf[..end])
 }
 
 pub fn reed_solomon_part_length(encoded_length: usize, data_parts: usize) -> usize {
@@ -227,7 +234,12 @@ impl<T: ReedSolomonEncoderDeserialize> ReedSolomonPartsTracker<T> {
         self.parts.get(part_ord).is_some_and(|part| part.is_some())
     }
 
-    pub fn insert_part(&mut self, part_ord: usize, part: Box<[u8]>) -> InsertPartResult<T> {
+    pub fn insert_part(
+        &mut self,
+        part_ord: usize,
+        part: Box<[u8]>,
+        create_decode_span: Option<Box<dyn Fn() -> EnteredSpan>>,
+    ) -> InsertPartResult<T> {
         if part_ord >= self.parts.len() {
             return InsertPartResult::InvalidPartOrd;
         }
@@ -240,6 +252,7 @@ impl<T: ReedSolomonEncoderDeserialize> ReedSolomonPartsTracker<T> {
         self.parts[part_ord] = Some(part);
 
         if self.has_enough_parts() {
+            let _decode_span = create_decode_span.map(|f| f());
             InsertPartResult::Decoded(self.encoder.decode(&mut self.parts, self.encoded_length))
         } else {
             InsertPartResult::Accepted

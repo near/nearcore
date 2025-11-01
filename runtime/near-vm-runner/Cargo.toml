@@ -20,16 +20,17 @@ borsh.workspace = true
 ed25519-dalek.workspace = true
 enum-map.workspace = true
 finite-wasm = { workspace = true, features = ["instrument"], optional = true }
+finite-wasm-6 = { workspace = true, optional = true }
 lru.workspace = true
 memoffset = { workspace = true, optional = true }
 num-rational.workspace = true
+parking_lot.workspace = true
 prefix-sum-vec = { workspace = true, optional = true }
 prometheus = { workspace = true, optional = true }
 rand.workspace = true
 rayon.workspace = true
 ripemd.workspace = true
 rustix = { workspace = true, features = ["fs"] }
-serde_repr.workspace = true
 serde.workspace = true
 sha2.workspace = true
 sha3.workspace = true
@@ -38,9 +39,15 @@ strum.workspace = true
 tempfile.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
-wasm-encoder = { workspace = true, optional = true }
+wasm-encoder = { workspace = true, features = ["wasmparser"], optional = true }
 wasmparser = { workspace = true, optional = true }
-wasmtime = { workspace = true, features = ["runtime"], optional = true }
+wasmparser-236 = { workspace = true, optional = true }
+wasmtime = { workspace = true, features = [
+    "call-hook",
+    "parallel-compilation",
+    "pooling-allocator",
+    "runtime",
+], optional = true }
 
 near-crypto.workspace = true
 near-o11y = { workspace = true, optional = true }
@@ -79,20 +86,22 @@ wat.workspace = true
 [features]
 wasmtime_vm = ["wasmtime", "anyhow", "prepare"]
 near_vm = [
-  "near-vm-compiler",
-  "near-vm-compiler-singlepass",
-  "near-vm-engine",
-  "near-vm-types",
-  "near-vm-vm",
-  "memoffset",
-  "prepare",
+    "near-vm-compiler",
+    "near-vm-compiler-singlepass",
+    "near-vm-engine",
+    "near-vm-types",
+    "near-vm-vm",
+    "memoffset",
+    "prepare",
 ]
 prepare = [
-  "finite-wasm",
-  "wasm-encoder",
-  "wasmparser",
-  "prefix-sum-vec",
-  "metrics",
+    "finite-wasm",
+    "finite-wasm-6",
+    "wasm-encoder",
+    "wasmparser",
+    "wasmparser-236",
+    "prefix-sum-vec",
+    "metrics",
 ]
 
 no_cpu_compatibility_checks = []
@@ -100,18 +109,21 @@ no_cpu_compatibility_checks = []
 metrics = ["prometheus", "near-o11y"]
 
 nightly = [
-  "near-o11y/nightly",
-  "near-parameters/nightly",
-  "near-primitives-core/nightly",
+    "near-o11y/nightly",
+    "near-parameters/nightly",
+    "near-primitives-core/nightly",
 ]
 sandbox = ["near-o11y/sandbox"]
 test_features = []
 protocol_schema = [
-  "near-crypto/protocol_schema",
-  "near-parameters/protocol_schema",
-  "near-primitives-core/protocol_schema",
-  "near-schema-checker-lib/protocol_schema",
+    "near-crypto/protocol_schema",
+    "near-parameters/protocol_schema",
+    "near-primitives-core/protocol_schema",
+    "near-schema-checker-lib/protocol_schema",
 ]
 
 # Use this feature to enable counting of fees and costs applied.
 costs_counting = []
+
+[package.metadata.cargo-machete]
+ignored = ["prometheus"]

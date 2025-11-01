@@ -1,13 +1,17 @@
+use super::drop_condition::DropCondition;
+use super::setup::setup_client;
+use super::state::{NodeExecutionData, NodeSetupState, SharedState};
 use near_async::test_loop::TestLoopV2;
 use near_async::test_loop::data::TestLoopData;
 use near_async::time::Duration;
 use near_primitives::types::AccountId;
+use near_store::Store;
 use near_store::adapter::StoreAdapter;
+use near_store::archive::cloud_storage::CloudStorage;
+use near_store::db::ColdDB;
+use near_store::test_utils::TestNodeStorage;
+use std::sync::Arc;
 use std::sync::atomic::Ordering;
-
-use super::drop_condition::DropCondition;
-use super::setup::setup_client;
-use super::state::{NodeExecutionData, NodeSetupState, SharedState};
 
 pub struct TestLoopEnv {
     pub test_loop: TestLoopV2,
@@ -24,7 +28,7 @@ impl TestLoopEnv {
     /// While adding a new node to the environment, we can iterate through all the drop_conditions
     /// and register them with the new node's peer_manager_actor.
     pub fn drop(mut self, drop_condition: DropCondition) -> Self {
-        for data in self.node_datas.iter() {
+        for data in &self.node_datas {
             data.register_drop_condition(
                 &mut self.test_loop.data,
                 self.shared_state.chunks_storage.clone(),
@@ -93,16 +97,36 @@ impl TestLoopEnv {
         let account_id = node_data.account_id.clone();
         let client_actor = self.test_loop.data.get(&node_data.client_sender.actor_handle());
         let client_config = client_actor.client.config.clone();
-        let store = client_actor.client.chain.chain_store.store();
-        let split_store = if client_config.archive {
-            let view_client_actor =
-                self.test_loop.data.get(&node_data.view_client_sender.actor_handle());
-            Some(view_client_actor.chain.chain_store.store())
-        } else {
-            None
-        };
+        let hot_store = client_actor.client.chain.chain_store.store();
 
-        NodeSetupState { account_id, client_config, store, split_store }
+        let (split_store, cold_db) = match self.get_split_store_and_cold_db(node_data) {
+            Some((split_store, cold_db)) => (Some(split_store), Some(cold_db)),
+            None => (None, None),
+        };
+        let cloud_storage = self.get_cloud_storage(node_data);
+        let storage = TestNodeStorage { hot_store, split_store, cold_db, cloud_storage };
+
+        NodeSetupState { account_id, client_config, storage }
+    }
+
+    fn get_split_store_and_cold_db(
+        &self,
+        node_data: &NodeExecutionData,
+    ) -> Option<(Store, Arc<ColdDB>)> {
+        let Some(cold_store_sender) = &node_data.cold_store_sender else {
+            return None;
+        };
+        let cold_store_actor = self.test_loop.data.get(&cold_store_sender.actor_handle());
+        let cold_db = cold_store_actor.get_cold_db();
+        let view_client_actor =
+            self.test_loop.data.get(&node_data.view_client_sender.actor_handle());
+        let split_store = view_client_actor.chain.chain_store.store();
+        Some((split_store, cold_db))
+    }
+
+    fn get_cloud_storage(&self, node_data: &NodeExecutionData) -> Option<Arc<CloudStorage>> {
+        let cloud_storage = self.test_loop.data.get(&node_data.cloud_storage_sender);
+        cloud_storage.clone()
     }
 
     /// Function to restart a node in test loop environment. This function takes in the new_identifier
@@ -146,5 +170,9 @@ impl TestLoopEnv {
         account_id: &AccountId,
     ) -> Option<&NodeExecutionData> {
         self.node_datas.iter().find(|data| &data.account_id == account_id)
+    }
+
+    pub fn test_loop_data(&self) -> &TestLoopData {
+        &self.test_loop.data
     }
 }

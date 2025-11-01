@@ -3,10 +3,10 @@
 mod height_range;
 mod last_blocks;
 
-use std::rc::Rc;
-
 use near_chain::{Block, ChainStore};
 use near_primitives::types::BlockHeight;
+use std::rc::Rc;
+use std::sync::Arc;
 
 /// Iterate over blocks between two block heights.
 /// `from_height` and `to_height` are inclusive
@@ -31,7 +31,7 @@ pub struct CommandArgs {
 pub fn make_block_iterator_from_command_args(
     command_args: CommandArgs,
     chain_store: Rc<ChainStore>,
-) -> Option<Box<dyn Iterator<Item = Block>>> {
+) -> Option<Box<dyn Iterator<Item = Arc<Block>>>> {
     // Make sure that only one type of argument is used (there is no mixing of last_blocks and from_block_height)
     let mut arg_types_used: u64 = 0;
     if command_args.last_blocks.is_some() {

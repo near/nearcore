@@ -1,11 +1,13 @@
-use actix::Addr;
 use near_parameters::RuntimeConfigView;
 use near_primitives::hash::CryptoHash;
+use near_primitives::types::Balance;
 
 use crate::adapters::transactions::{ExecutionToReceipts, convert_block_changes_to_transactions};
+use near_async::multithread::MultithreadRuntimeHandle;
+use near_client::ViewClientActorInner;
 
 pub async fn test_convert_block_changes_to_transactions(
-    view_client_addr: &Addr<near_client::ViewClientActor>,
+    view_client_addr: &MultithreadRuntimeHandle<ViewClientActorInner>,
     runtime_config: &RuntimeConfigView,
 ) {
     // cspell:ignore nfvalidator
@@ -18,9 +20,9 @@ pub async fn test_convert_block_changes_to_transactions(
             value: near_primitives::views::StateChangeValueView::AccountUpdate {
                 account_id: "nfvalidator1.near".parse().unwrap(),
                 account: near_primitives::views::AccountView {
-                    amount: 5000000000000000000,
+                    amount: Balance::from_yoctonear(5000000000000000000),
                     code_hash: CryptoHash::default(),
-                    locked: 400000000000000000000000000000,
+                    locked: Balance::from_near(400_000),
                     storage_paid_at: 0,
                     storage_usage: 200000,
                     global_contract_hash: None,
@@ -35,9 +37,9 @@ pub async fn test_convert_block_changes_to_transactions(
             value: near_primitives::views::StateChangeValueView::AccountUpdate {
                 account_id: "nfvalidator1.near".parse().unwrap(),
                 account: near_primitives::views::AccountView {
-                    amount: 4000000000000000000,
+                    amount: Balance::from_yoctonear(4000000000000000000),
                     code_hash: CryptoHash::default(),
-                    locked: 400000000000000000000000000000,
+                    locked: Balance::from_near(400_000),
                     storage_paid_at: 0,
                     storage_usage: 200000,
                     global_contract_hash: None,
@@ -50,9 +52,9 @@ pub async fn test_convert_block_changes_to_transactions(
             value: near_primitives::views::StateChangeValueView::AccountUpdate {
                 account_id: "nfvalidator2.near".parse().unwrap(),
                 account: near_primitives::views::AccountView {
-                    amount: 7000000000000000000,
+                    amount: Balance::from_yoctonear(7000000000000000000),
                     code_hash: CryptoHash::default(),
-                    locked: 400000000000000000000000000000,
+                    locked: Balance::from_near(400_000),
                     storage_paid_at: 0,
                     storage_usage: 200000,
                     global_contract_hash: None,
@@ -67,9 +69,9 @@ pub async fn test_convert_block_changes_to_transactions(
             value: near_primitives::views::StateChangeValueView::AccountUpdate {
                 account_id: "nfvalidator2.near".parse().unwrap(),
                 account: near_primitives::views::AccountView {
-                    amount: 8000000000000000000,
+                    amount: Balance::from_yoctonear(8000000000000000000),
                     code_hash: CryptoHash::default(),
-                    locked: 400000000000000000000000000000,
+                    locked: Balance::from_near(400_000),
                     storage_paid_at: 0,
                     storage_usage: 200000,
                     global_contract_hash: None,
@@ -82,9 +84,9 @@ pub async fn test_convert_block_changes_to_transactions(
     accounts_previous_state.insert(
         "nfvalidator1.near".parse().unwrap(),
         near_primitives::views::AccountView {
-            amount: 4000000000000000000,
+            amount: Balance::from_yoctonear(4000000000000000000),
             code_hash: CryptoHash::default(),
-            locked: 400000000000000000000000000000,
+            locked: Balance::from_near(400_000),
             storage_paid_at: 0,
             storage_usage: 200000,
             global_contract_hash: None,
@@ -94,9 +96,9 @@ pub async fn test_convert_block_changes_to_transactions(
     accounts_previous_state.insert(
         "nfvalidator2.near".parse().unwrap(),
         near_primitives::views::AccountView {
-            amount: 6000000000000000000,
+            amount: Balance::from_yoctonear(6000000000000000000),
             code_hash: CryptoHash::default(),
-            locked: 400000000000000000000000000000,
+            locked: Balance::from_near(400_000),
             storage_paid_at: 0,
             storage_usage: 200000,
             global_contract_hash: None,

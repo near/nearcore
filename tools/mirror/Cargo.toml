@@ -12,17 +12,15 @@ publish = false
 workspace = true
 
 [dependencies]
-actix.workspace = true
-actix-rt.workspace = true
 anyhow.workspace = true
 async-trait.workspace = true
 borsh.workspace = true
 bs58.workspace = true
 clap.workspace = true
 ed25519-dalek.workspace = true
-hex.workspace = true
 hkdf.workspace = true
 openssl-probe.workspace = true
+parking_lot.workspace = true
 rand_core = { workspace = true, features = ["getrandom"] }
 rocksdb.workspace = true
 secp256k1.workspace = true
@@ -55,20 +53,22 @@ near-crypto.workspace = true
 
 [features]
 nightly = [
-  "near-async/nightly",
-  "near-chain-configs/nightly",
-  "near-chain/nightly",
-  "near-client-primitives/nightly",
-  "near-client/nightly",
-  "near-epoch-manager/nightly",
-  "near-indexer-primitives/nightly",
-  "near-indexer/nightly",
-  "near-jsonrpc-client-internal/nightly",
-  "near-jsonrpc-primitives/nightly",
-  "near-network/nightly",
-  "near-o11y/nightly",
-  "near-primitives-core/nightly",
-  "near-primitives/nightly",
-  "near-store/nightly",
-  "nearcore/nightly",
+    "near-chain-configs/nightly",
+    "near-chain/nightly",
+    "near-client-primitives/nightly",
+    "near-client/nightly",
+    "near-epoch-manager/nightly",
+    "near-indexer-primitives/nightly",
+    "near-indexer/nightly",
+    "near-jsonrpc-client-internal/nightly",
+    "near-jsonrpc-primitives/nightly",
+    "near-network/nightly",
+    "near-o11y/nightly",
+    "near-primitives-core/nightly",
+    "near-primitives/nightly",
+    "near-store/nightly",
+    "nearcore/nightly",
 ]
+
+[package.metadata.cargo-machete]
+ignored = ["near-async", "near-network"]

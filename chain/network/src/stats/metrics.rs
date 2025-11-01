@@ -1,4 +1,5 @@
-use crate::network_protocol::{RoutedMessageBody, RoutedMessageV2};
+use crate::network_protocol::RoutedMessage;
+use crate::network_protocol::TieredMessageBody;
 use crate::tcp;
 use crate::types::PeerType;
 use near_async::time;
@@ -407,7 +408,7 @@ pub(crate) static NETWORK_ROUTED_MSG_DISTANCES: LazyLock<IntCounterVec> = LazyLo
 /// simultaneously to improve the chance that the message will be delivered on time.
 pub(crate) fn record_routed_msg_metrics(
     clock: &time::Clock,
-    msg: &RoutedMessageV2,
+    msg: &RoutedMessage,
     tier: tcp::Tier,
     fastest: bool,
 ) {
@@ -426,26 +427,26 @@ pub(crate) fn bool_to_str(b: bool) -> &'static str {
 // known, then update the corresponding latency metric histogram.
 fn record_routed_msg_latency(
     clock: &time::Clock,
-    msg: &RoutedMessageV2,
+    msg: &RoutedMessage,
     tier: tcp::Tier,
     fastest: bool,
 ) {
-    if let Some(created_at) = msg.created_at {
-        let now = clock.now_utc();
+    if let Some(created_at) = msg.created_at() {
+        let now = clock.now_utc().unix_timestamp();
         let duration = now - created_at;
         NETWORK_ROUTED_MSG_LATENCY
             .with_label_values(&[msg.body_variant(), tier.as_ref(), bool_to_str(fastest)])
-            .observe(duration.as_seconds_f64());
+            .observe(duration as f64);
     }
 }
 
 // The routed message reached its destination. If the number of hops is known, then update the
 // corresponding metric.
-fn record_routed_msg_hops(msg: &RoutedMessageV2) {
+fn record_routed_msg_hops(msg: &RoutedMessage) {
     const MAX_NUM_HOPS: u32 = 20;
     // We assume that the number of hops is small.
     // As long as the number of hops is below 10, this metric will not consume too much memory.
-    let num_hops = std::cmp::min(MAX_NUM_HOPS, msg.num_hops);
+    let num_hops = std::cmp::min(MAX_NUM_HOPS, msg.num_hops());
     NETWORK_ROUTED_MSG_NUM_HOPS
         .with_label_values(&[msg.body_variant(), &num_hops.to_string()])
         .inc();
@@ -462,8 +463,8 @@ pub(crate) enum MessageDropped {
 }
 
 impl MessageDropped {
-    pub fn inc(self, msg: &RoutedMessageBody) {
-        self.inc_msg_type(msg.into())
+    pub fn inc(self, msg: &TieredMessageBody) {
+        self.inc_msg_type(msg.variant())
     }
 
     pub fn inc_unknown_msg(self) {

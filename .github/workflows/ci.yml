@@ -28,39 +28,66 @@ jobs:
             os: warp-ubuntu-2204-x64-16x
             type: stable
             upload_profraws: true
+            run_on_pr: true
+          # TODO(#13341): Remove separate spice test checks once spice tests can run as part of nightly or stable tests.
+          - name: Linux Spice
+            id: linux-spice
+            os: warp-ubuntu-2204-x64-16x
+            type: spice
+            upload_profraws: true
+            run_on_pr: true
           - name: Linux Nightly
             id: linux-nightly
             os: warp-ubuntu-2204-x64-16x
             type: nightly
             upload_profraws: true
+            run_on_pr: true
+          - name: MacOS
+            id: macos
+            os: warp-macos-latest-arm64-6x
+            type: stable
+            upload_profraws: false
+            run_on_pr: false
     timeout-minutes: 90
     steps:
-      - uses: actions/checkout@v4
+      - if: github.event_name != 'pull_request' || matrix.run_on_pr
+        uses: actions/checkout@v4
 
       # Install all the required tools
-      - uses: taiki-e/install-action@7852930e42e73b6c323ae4435f5135b58754dfdd
+      - if: github.event_name != 'pull_request' || matrix.run_on_pr
+        uses: taiki-e/install-action@7852930e42e73b6c323ae4435f5135b58754dfdd
         with:
           tool: just,cargo-nextest,cargo-llvm-cov
 
-      # Run the tests:
-      - run: mkdir -p coverage/profraw/{unit,binaries}
-      # - Run the unit tests, retrieving the coverage information
-      - run: just codecov-ci "nextest-slow ${{ matrix.type }}"
-      - run: mv coverage/codecov/{new,unit-${{matrix.id}}}.json
-      - run: mv coverage/profraw/{new,unit/${{matrix.id}}}.tar.zst
+      # Run the tests
+      - name: just nextest-slow ${{ matrix.type }} (with coverage)
+        if: (github.event_name != 'pull_request' || matrix.run_on_pr) && matrix.type != 'spice'
+        run: |
+          mkdir -p coverage/profraw/{unit,binaries}
+          just codecov-ci "nextest-slow ${{ matrix.type }}"
 
-      # Cleanup the target directory, leaving only stuff interesting to llvm-cov, and tarball it
-      - run: just tar-bins-for-coverage-ci
-      - run: mv coverage/profraw/binaries/{new,${{matrix.id}}}.tar.zst
+      # Run spice tests.
+      - name: just nextest-spice (with coverage)
+        if: matrix.type == 'spice'
+        run: |
+          mkdir -p coverage/profraw/{unit,binaries}
+          just codecov-ci "nextest-spice"
 
-      # Upload the coverage
-      - uses: actions/upload-artifact@v4
-        if: matrix.upload_profraws
+      # Upload the coverage files
+      - if: github.event_name != 'pull_request' || matrix.run_on_pr
+        run: |
+          mv coverage/codecov/{new,unit-${{matrix.id}}}.json
+          mv coverage/profraw/{new,unit/${{matrix.id}}}.tar.zst
+          just tar-bins-for-coverage-ci
+          mv coverage/profraw/binaries/{new,${{matrix.id}}}.tar.zst
+      - if: matrix.upload_profraws && (github.event_name != 'pull_request' || matrix.run_on_pr)
+        uses: actions/upload-artifact@v4
         with:
           name: coverage-profraw-${{ github.sha }}-${{ matrix.name }}
           path: coverage/profraw
           retention-days: 2
-      - uses: actions/upload-artifact@v4
+      - if: github.event_name != 'pull_request' || matrix.run_on_pr
+        uses: actions/upload-artifact@v4
         with:
           name: coverage-codecov-${{ github.sha }}-cargo_nextest-${{ matrix.name }}
           path: coverage/codecov
@@ -110,37 +137,6 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: coverage-codecov-${{ github.sha }}-py-nightly
-          path: coverage/codecov
-
-  pytest_tests:
-    name: "Large pytest Tests"
-    runs-on: warp-ubuntu-2204-x64-8x
-    steps:
-      - uses: actions/checkout@v4
-      - uses: WarpBuilds/setup-python@v5
-        with:
-          python-version: 3.11
-          cache: pip
-      - uses: taiki-e/install-action@7852930e42e73b6c323ae4435f5135b58754dfdd
-        with:
-          tool: cargo-llvm-cov
-      - run: pip3 install --user -r pytest/requirements.txt
-      - run: cargo llvm-cov show-env | grep -v RUSTFLAGS | tr -d "'" >> "$GITHUB_ENV"
-      - run: echo "RUSTC_WORKSPACE_WRAPPER=$PWD/scripts/coverage-wrapper-rustc" >> "$GITHUB_ENV"
-      - run: echo "CARGO=1" >> "$GITHUB_ENV"
-      - run: cargo build --locked --profile dev-release -p neard --bin neard
-      - run: echo "CURRENT_NEARD=$PWD/target/dev-release/neard" >> "$GITHUB_ENV"
-      - run: echo "NEAR_ROOT=$PWD" >> "$GITHUB_ENV"
-      - run: python3 scripts/state/update_res.py check
-      - run: pushd pytest && python3 tests/sanity/upgradable.py && popd
-      - run: pushd pytest && python3 tests/sanity/db_migration.py && popd
-      - run: pushd pytest && python3 tests/sanity/backward_compatible.py && popd
-
-      - run: mkdir -p coverage/codecov
-      - run: cargo llvm-cov report --profile dev-release --codecov --output-path coverage/codecov/py.json
-      - uses: actions/upload-artifact@v4
-        with:
-          name: coverage-codecov-${{ github.sha }}-py
           path: coverage/codecov
 
   protocol_schema_check:
@@ -202,7 +198,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: streetsidesoftware/cspell-action@v6
+      - uses: taiki-e/install-action@7852930e42e73b6c323ae4435f5135b58754dfdd
+        with:
+          tool: just
+      - run: npm install -g cspell
+      - run: just check-cspell
 
   check_cargo_deny:
     name: "Cargo Deny"
@@ -223,6 +223,16 @@ jobs:
         with:
           tool: just
       - run: just check-themis
+
+  check_machete:
+    name: "Cargo machete (unused dependencies)"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: taiki-e/install-action@7852930e42e73b6c323ae4435f5135b58754dfdd
+        with:
+          tool: just,cargo-machete
+      - run: just check-cargo-machete
 
   check_non_default:
     name: "Non-default Configuration Builds"
@@ -310,7 +320,6 @@ jobs:
     runs-on: ubuntu-latest
     needs:
       - cargo_nextest
-      - pytest_tests
       - pytest_nightly_tests
     steps:
       - uses: actions/checkout@v4
@@ -320,30 +329,37 @@ jobs:
           merge-multiple: true
       # Keep the number of uploads here in sync with codecov.yml’s after_n_build value
       # codecov will send a comment only after having received this number of uploads.
-      - uses: codecov/codecov-action@eaaf4bedf32dbdc6b720b63067d99c4d77d6047d
+      - uses: codecov/codecov-action@5a1091511ad55cbe89839c7260b706298ca349f7
         with:
           files: unit-linux.json
-          fail_ci_if_error: true
-          flags: unittests,linux
-      - uses: codecov/codecov-action@eaaf4bedf32dbdc6b720b63067d99c4d77d6047d
+          fail_ci_if_error: false
+          flags: unittests
+      - uses: codecov/codecov-action@5a1091511ad55cbe89839c7260b706298ca349f7
         with:
           files: unit-linux-nightly.json
-          fail_ci_if_error: true
-          flags: unittests,linux-nightly
-      - uses: codecov/codecov-action@eaaf4bedf32dbdc6b720b63067d99c4d77d6047d
+          fail_ci_if_error: false
+          flags: unittests-nightly
+      # TODO(#13341): Remove separate spice test checks once spice tests can run as part of nightly or stable tests.
+      - uses: codecov/codecov-action@5a1091511ad55cbe89839c7260b706298ca349f7
+        with:
+          files: unit-linux-spice.json
+          fail_ci_if_error: false
+          flags: unittests-spice
+      - uses: codecov/codecov-action@5a1091511ad55cbe89839c7260b706298ca349f7
         with:
           files: py.json
-          fail_ci_if_error: true
-          flags: pytests,backward-compatibility,linux
-      - uses: codecov/codecov-action@eaaf4bedf32dbdc6b720b63067d99c4d77d6047d
+          fail_ci_if_error: false
+          flags: pytests
+      - uses: codecov/codecov-action@5a1091511ad55cbe89839c7260b706298ca349f7
         with:
           files: py-nightly.json
-          fail_ci_if_error: true
-          flags: pytests,db-migration,linux
+          fail_ci_if_error: false
+          flags: pytests-nightly
 
   publishable_packages_check:
     name: "Cargo check publishable packages separately"
     runs-on: ${{ matrix.os }}
+    if: github.event_name == 'merge_group' || github.event_name == 'workflow_dispatch'
     strategy:
       fail-fast: false
       matrix:
@@ -363,3 +379,12 @@ jobs:
       - run: just check-publishable-separately
       - run: just check-publishable-separately --no-default-features
       - run: just check-publishable-separately --all-features
+  openapi_spec:
+    name: "OpenAPI Spec"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: taiki-e/install-action@7852930e42e73b6c323ae4435f5135b58754dfdd
+        with:
+          tool: just
+      - run: just openapi-spec

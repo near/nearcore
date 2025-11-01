@@ -9,8 +9,6 @@ edition = "2021"
 crate-type = ["cdylib"]
 
 [dependencies]
-base64 = "0.21"
-serde_json = "1"
 
 [profile.release]
 codegen-units = 1

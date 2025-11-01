@@ -15,7 +15,7 @@ use near_primitives::receipt::Receipt;
 use near_primitives::state::FlatStateValue;
 use near_primitives::test_utils::MockEpochInfoProvider;
 use near_primitives::transaction::{ExecutionStatus, SignedTransaction};
-use near_primitives::types::{Gas, MerkleHash};
+use near_primitives::types::{Balance, Gas, MerkleHash};
 use near_primitives::version::PROTOCOL_VERSION;
 use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
 use near_store::flat::{
@@ -59,6 +59,8 @@ pub(crate) struct CachedCosts {
     pub(crate) function_call_base: Option<GasCost>,
     #[cfg(feature = "nightly")]
     pub(crate) yield_create_base: Option<GasCost>,
+    pub(crate) action_deterministic_state_init_base_per_entry_per_byte:
+        Option<(GasCost, GasCost, GasCost)>,
 }
 
 impl<'c> EstimatorContext<'c> {
@@ -67,7 +69,7 @@ impl<'c> EstimatorContext<'c> {
         Self { cached, config }
     }
 
-    pub(crate) fn testbed(&mut self) -> Testbed<'_> {
+    pub(crate) fn testbed(&self) -> Testbed<'_> {
         // Copies dump from another directory and loads the state from it.
         let workdir = tempfile::Builder::new().prefix("runtime_testbed").tempdir().unwrap();
         let StateDump { store, roots } = StateDump::from_dir(
@@ -119,8 +121,9 @@ impl<'c> EstimatorContext<'c> {
                 .context("Failed load memtries for single shard")
                 .unwrap();
         }
-        let cache = FilesystemContractRuntimeCache::new(workdir.path(), None::<&str>)
-            .expect("create contract cache");
+        let cache =
+            FilesystemContractRuntimeCache::new(workdir.path(), None::<&str>, "contract.cache")
+                .expect("create contract cache");
 
         Testbed {
             config: self.config,
@@ -149,7 +152,7 @@ impl<'c> EstimatorContext<'c> {
         wasm_config.limit_config = LimitConfig {
             max_total_log_length: u64::MAX,
             max_number_registers: u64::MAX,
-            max_gas_burnt: u64::MAX,
+            max_gas_burnt: Gas::MAX,
             max_register_size: u64::MAX,
             max_number_logs: u64::MAX,
 
@@ -158,7 +161,7 @@ impl<'c> EstimatorContext<'c> {
             max_number_input_data_dependencies: u64::MAX,
             max_length_storage_key: u64::MAX,
 
-            max_total_prepaid_gas: u64::MAX,
+            max_total_prepaid_gas: Gas::MAX,
 
             ..wasm_config.limit_config
         };
@@ -176,11 +179,10 @@ impl<'c> EstimatorContext<'c> {
             block_height: 1,
             // Epoch length is long enough to avoid corner cases.
             prev_block_hash: Default::default(),
-            block_hash: Default::default(),
             shard_id,
             epoch_id: Default::default(),
             epoch_height: 0,
-            gas_price: 0,
+            gas_price: Balance::ZERO,
             block_timestamp: 0,
             gas_limit: None,
             random_seed: Default::default(),
@@ -191,6 +193,7 @@ impl<'c> EstimatorContext<'c> {
             congestion_info,
             bandwidth_requests: BlockBandwidthRequests::empty(),
             trie_access_tracker_state: Default::default(),
+            on_post_state_ready: None,
         }
     }
 
@@ -310,7 +313,7 @@ impl Testbed<'_> {
         assert_eq!(block_latency, extra_blocks);
     }
 
-    pub(crate) fn trie_caching_storage(&mut self) -> TrieCachingStorage {
+    pub(crate) fn trie_caching_storage(&self) -> TrieCachingStorage {
         let store = self.tries.store();
         let is_view = false;
         let prefetcher = None;
@@ -325,6 +328,8 @@ impl Testbed<'_> {
     }
 
     pub(crate) fn clear_caches(&mut self) {
+        // Clear trie access tracker state
+        self.apply_state.trie_access_tracker_state = Default::default();
         // Flush out writes hanging in memtable
         self.tries.store().store().flush().unwrap();
 
@@ -387,18 +392,16 @@ impl Testbed<'_> {
                 .congestion_info
                 .insert(shard_uid.shard_id(), ExtendedCongestionInfo::new(congestion_info, 0));
         }
-        if let Some(bandwidth_requests) = apply_result.bandwidth_requests {
-            self.apply_state.bandwidth_requests = BlockBandwidthRequests {
-                shards_bandwidth_requests: [(shard_uid.shard_id(), bandwidth_requests)]
-                    .into_iter()
-                    .collect(),
-            };
-        }
+        self.apply_state.bandwidth_requests = BlockBandwidthRequests {
+            shards_bandwidth_requests: [(shard_uid.shard_id(), apply_result.bandwidth_requests)]
+                .into_iter()
+                .collect(),
+        };
 
-        let mut total_burnt_gas = 0;
+        let mut total_burnt_gas = Gas::ZERO;
         if !allow_failures {
             for outcome in &apply_result.outcomes {
-                total_burnt_gas += outcome.outcome.gas_burnt;
+                total_burnt_gas = total_burnt_gas.checked_add(outcome.outcome.gas_burnt).unwrap();
                 match &outcome.outcome.status {
                     ExecutionStatus::Failure(e) => panic!("Execution failed {:#?}", e),
                     _ => (),
@@ -440,14 +443,14 @@ impl Testbed<'_> {
     /// workload done on the sender's shard before an action receipt is created.
     /// Network costs for sending are not included.
     pub(crate) fn verify_transaction(
-        &mut self,
+        &self,
         signed_tx: SignedTransaction,
         metric: GasMetric,
     ) -> GasCost {
         let mut state_update = TrieUpdate::new(self.trie());
         // gas price and block height can be anything, it doesn't affect performance
         // but making it too small affects max_depth and thus pessimistic inflation
-        let gas_price = 100_000_000;
+        let gas_price = Balance::from_yoctonear(100_000_000);
         let block_height = None;
 
         let clock = GasCost::measure(metric);
@@ -457,9 +460,7 @@ impl Testbed<'_> {
             PROTOCOL_VERSION,
         )
         .expect("expected no validation error");
-        let cost =
-            tx_cost(&self.apply_state.config, &validated_tx.to_tx(), gas_price, PROTOCOL_VERSION)
-                .unwrap();
+        let cost = tx_cost(&self.apply_state.config, &validated_tx.to_tx(), gas_price).unwrap();
         let (mut signer, mut access_key) = get_signer_and_access_key(&state_update, &validated_tx)
             .expect("getting signer and access key should not fail in estimator");
 
@@ -467,7 +468,7 @@ impl Testbed<'_> {
             &self.apply_state.config,
             &mut signer,
             &mut access_key,
-            &validated_tx,
+            validated_tx.to_tx(),
             &cost,
             block_height,
         )
@@ -479,7 +480,7 @@ impl Testbed<'_> {
     /// Process only the execution step of an action receipt.
     ///
     /// Use this method to estimate action exec costs.
-    pub(crate) fn apply_action_receipt(&mut self, receipt: &Receipt, metric: GasMetric) -> GasCost {
+    pub(crate) fn apply_action_receipt(&self, receipt: &Receipt, metric: GasMetric) -> GasCost {
         let mut state_update = TrieUpdate::new(self.trie());
         let mut outgoing_receipts = vec![];
         let mut validator_proposals = vec![];
@@ -508,7 +509,7 @@ impl Testbed<'_> {
     }
 
     /// Instantiate a new trie for the estimator.
-    fn trie(&mut self) -> near_store::Trie {
+    pub(crate) fn trie(&self) -> near_store::Trie {
         // We generated `finality_lag` fake blocks earlier, so the fake height
         // will be at the same number.
         let tip_height = self.config.finality_lag;

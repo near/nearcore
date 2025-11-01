@@ -57,7 +57,7 @@ impl ContractSizeStats {
         println!("");
         println!("Analyzed {} accounts", self.total_accounts);
         println!("Accounts per shard:");
-        for (shard_uid, count) in self.shard_accounts.iter() {
+        for (shard_uid, count) in &self.shard_accounts {
             println!("{}: {}", shard_uid, count);
         }
         println!("");
@@ -78,8 +78,8 @@ impl AnalyzeContractSizesCommand {
         home: &PathBuf,
         genesis_validation: GenesisValidationMode,
     ) -> anyhow::Result<()> {
-        let mut near_config = load_config(home, genesis_validation).unwrap();
-        let node_storage = open_storage(&home, &mut near_config).unwrap();
+        let near_config = load_config(home, genesis_validation).unwrap();
+        let node_storage = open_storage(&home, &near_config).unwrap();
         let store = node_storage.get_split_store().unwrap_or_else(|| node_storage.get_hot_store());
         let chain_store = Rc::new(ChainStore::new(
             store.clone(),

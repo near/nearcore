@@ -1,0 +1,167 @@
+use crate::node::{Node, RuntimeNode};
+use near_chain_configs::Genesis;
+use near_o11y::testonly::init_test_logger;
+use near_parameters::{ExtCosts, ParameterCost, RuntimeConfig, RuntimeConfigStore};
+use near_primitives::errors::{self, ActionErrorKind};
+use near_primitives::types::{Balance, Gas};
+use near_primitives::version::PROTOCOL_VERSION;
+use near_primitives::views::{ExecutionOutcomeWithIdView, FinalExecutionStatus};
+use std::sync::Arc;
+use testlib::fees_utils::FeeHelper;
+use testlib::runtime_utils::{add_test_contract, alice_account, bob_account};
+
+const DEFAULT_MINIMAL_GAS_ATTACHMENT: Gas = Gas::from_gas(1);
+
+#[test]
+fn test_burn_all_gas() {
+    let attached_gas = Gas::from_teragas(100);
+    let burn_gas = attached_gas.checked_add(DEFAULT_MINIMAL_GAS_ATTACHMENT).unwrap();
+    let deposit = Balance::ZERO;
+
+    let refunds = generated_refunds_after_fn_call(attached_gas, burn_gas, deposit);
+
+    assert_eq!(refunds, vec![], "no refunds");
+}
+
+#[test]
+fn test_deposit_refund() {
+    let attached_gas = Gas::from_teragas(100);
+    let burn_gas = attached_gas.checked_add(DEFAULT_MINIMAL_GAS_ATTACHMENT).unwrap();
+    let deposit = Balance::from_yoctonear(10);
+
+    let refunds = generated_refunds_after_fn_call(attached_gas, burn_gas, deposit);
+
+    assert_eq!(refunds.len(), 1, "only refund deposit");
+}
+
+#[test]
+fn test_big_gas_refund() {
+    let attached_gas = Gas::from_teragas(100);
+    let burn_gas = Gas::from_teragas(10);
+    let deposit = Balance::ZERO;
+
+    let refunds = generated_refunds_after_fn_call(attached_gas, burn_gas, deposit);
+
+    assert_eq!(refunds.len(), 1, "big gas refunds should happen on both versions");
+}
+
+#[test]
+fn test_small_gas_refund() {
+    let attached_gas = Gas::from_teragas(10);
+    let burn_gas = attached_gas.checked_sub(Gas::from_teragas(1).checked_div(2).unwrap()).unwrap();
+    let deposit = Balance::ZERO;
+
+    let refunds = generated_refunds_after_fn_call(attached_gas, burn_gas, deposit);
+
+    // Note: If we had a gas refund penalty, this refund should not exist.
+    // But for now, the penalty is 0, hence we still see the refund.
+    assert_eq!(refunds.len(), 1, "should still refund small amounts");
+}
+
+/// Run a simple NOOP contract function call and return the refund outcomes to
+/// check if the match the expected output.
+///
+/// This method also checks if the difference between gas costs and balance
+/// changes corresponds to the expected gas penalty.
+fn generated_refunds_after_fn_call(
+    attached_gas: Gas,
+    burn_gas: Gas,
+    deposit: Balance,
+) -> Vec<ExecutionOutcomeWithIdView> {
+    let (node, fee_helper) = setup_env(burn_gas);
+    let node_user = node.user();
+    let balance_before = node_user.view_balance(&alice_account()).unwrap();
+
+    // Make a call to the noop method in the test contract. This executes
+    // nothing but still charges the contract loading cost, which in this setup has
+    // a cost matching the gas we want to burn.
+    let method_name = "noop";
+    let args = vec![];
+    let bytes = method_name.as_bytes().len() as u64;
+
+    let outcome = node_user
+        .function_call(alice_account(), bob_account(), method_name, args, attached_gas, deposit)
+        .expect("function call TX should succeed");
+
+    // should either succeed or fail due to running out of gas
+    match &outcome.status {
+        FinalExecutionStatus::SuccessValue(_) => (),
+        FinalExecutionStatus::Failure(errors::TxExecutionError::ActionError(action_error)) => {
+            assert_eq!(
+                action_error.kind,
+                ActionErrorKind::FunctionCallError(errors::FunctionCallError::ExecutionError(
+                    "Exceeded the prepaid gas.".to_owned()
+                ))
+            );
+        }
+        other => panic!("unexpected outcome: {other:?}"),
+    }
+
+    let balance_after = node_user.view_balance(&alice_account()).unwrap();
+    let total_cost = balance_before.checked_sub(balance_after).unwrap();
+
+    // Make sure the total balances check out
+    assert_eq!(outcome.tokens_burnt(), total_cost);
+
+    // First outcome is the fn call,
+    // everything after should be refunds
+    let refunds = outcome.receipts_outcome[1..].to_vec();
+
+    let actual_fn_call_gas_burnt: Gas = outcome.receipts_outcome[0]
+        .outcome
+        .metadata
+        .gas_profile
+        .as_deref()
+        .unwrap()
+        .iter()
+        .map(|cost_entry| cost_entry.gas_used)
+        .fold(Gas::ZERO, |acc, gas| acc.checked_add(gas).unwrap());
+
+    let expected_cost = fee_helper.function_call_cost(bytes, actual_fn_call_gas_burnt.as_gas());
+
+    // Do a general check on the gas penalty.
+    // Since gas price didn't change, the only difference must be the gas refund penalty.
+    let penalty = total_cost.checked_sub(expected_cost).unwrap();
+    let unspent_gas = attached_gas.checked_sub(actual_fn_call_gas_burnt).unwrap();
+    let max_gas_penalty = unspent_gas.max(
+        unspent_gas
+            .checked_mul(*fee_helper.cfg().gas_refund_penalty.numer() as u64)
+            .unwrap()
+            .checked_div(*fee_helper.cfg().gas_refund_penalty.denom() as u64)
+            .unwrap(),
+    );
+    let min_gas_penalty = unspent_gas.min(fee_helper.cfg().min_gas_refund_penalty);
+
+    assert!(penalty >= fee_helper.gas_to_balance(min_gas_penalty));
+    assert!(penalty <= fee_helper.gas_to_balance(max_gas_penalty));
+
+    // Let each test check refund receipts separately.
+    refunds
+}
+
+/// Set up a test environment with a customized contract_loading_base cost.
+fn setup_env(contract_load_gas: Gas) -> (RuntimeNode, FeeHelper) {
+    init_test_logger();
+
+    let mut genesis = Genesis::test(vec![alice_account(), bob_account()], 2);
+    add_test_contract(&mut genesis, &alice_account());
+    add_test_contract(&mut genesis, &bob_account());
+    let runtime_config = runtime_config_with_contract_load_cost(contract_load_gas);
+
+    let node =
+        RuntimeNode::new_from_genesis_and_config(&alice_account(), genesis, runtime_config.clone());
+    let fee_helper = FeeHelper::new(runtime_config, node.genesis().config.min_gas_price);
+    (node, fee_helper)
+}
+
+fn runtime_config_with_contract_load_cost(contract_load_gas: Gas) -> RuntimeConfig {
+    let runtime_config_store = RuntimeConfigStore::new(None);
+    let mut runtime_config =
+        RuntimeConfig::clone(runtime_config_store.get_config(PROTOCOL_VERSION));
+
+    let mut wasm_config = near_parameters::vm::Config::clone(&runtime_config.wasm_config);
+    wasm_config.ext_costs.costs[ExtCosts::contract_loading_base] =
+        ParameterCost { gas: contract_load_gas, compute: contract_load_gas.as_gas() };
+    runtime_config.wasm_config = Arc::new(wasm_config);
+    runtime_config
+}

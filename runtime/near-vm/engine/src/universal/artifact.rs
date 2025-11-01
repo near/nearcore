@@ -123,7 +123,7 @@ impl Instantiatable for UniversalArtifact {
         // Globals
         let mut globals =
             PrimaryMap::<LocalGlobalIndex, _>::with_capacity(self.local_globals.len());
-        for (ty, _) in self.local_globals.iter() {
+        for (ty, _) in &self.local_globals {
             globals.push(Arc::new(near_vm_vm::Global::new(*ty)));
         }
 

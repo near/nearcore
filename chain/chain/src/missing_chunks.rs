@@ -275,7 +275,7 @@ impl OptimisticBlockChunksPool {
 
         let shard_index = shard_layout.get_shard_index(chunk_header.shard_id()).unwrap();
         let chunk_entry = entry.chunks.get_mut(shard_index).unwrap();
-        let chunk_hash = chunk_header.chunk_hash();
+        let chunk_hash = chunk_header.chunk_hash().clone();
         if let Some(chunk) = &chunk_entry {
             let existing_chunk_hash = chunk.chunk_hash();
             tracing::info!(target: "chunks", ?prev_block_hash, ?chunk_hash, ?existing_chunk_hash, "Chunk already found for OptimisticBlock");

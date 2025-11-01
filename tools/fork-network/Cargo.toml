@@ -12,17 +12,19 @@ publish = false
 workspace = true
 
 [dependencies]
-actix.workspace = true
 anyhow.workspace = true
 chrono.workspace = true
 clap.workspace = true
 hex.workspace = true
+parking_lot.workspace = true
 rayon.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 strum.workspace = true
+tokio.workspace = true
 tracing.workspace = true
 
+near-async.workspace = true
 near-chain-configs.workspace = true
 near-chain.workspace = true
 near-crypto.workspace = true
@@ -36,13 +38,13 @@ nearcore.workspace = true
 
 [features]
 nightly = [
-  "near-chain-configs/nightly",
-  "near-chain/nightly",
-  "near-epoch-manager/nightly",
-  "near-mirror/nightly",
-  "near-o11y/nightly",
-  "near-parameters/nightly",
-  "near-primitives/nightly",
-  "near-store/nightly",
-  "nearcore/nightly",
+    "near-chain-configs/nightly",
+    "near-chain/nightly",
+    "near-epoch-manager/nightly",
+    "near-mirror/nightly",
+    "near-o11y/nightly",
+    "near-parameters/nightly",
+    "near-primitives/nightly",
+    "near-store/nightly",
+    "nearcore/nightly",
 ]

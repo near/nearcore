@@ -18,8 +18,9 @@ use near_store::trie::AccessOptions;
 use near_store::{KeyLookupMode, TrieUpdate, get_pure};
 use near_vm_runner::logic::GasCounter;
 use near_vm_runner::{ContractRuntimeCache, PreparedContract};
+use parking_lot::{Condvar, Mutex};
 use std::collections::{BTreeMap, BTreeSet, HashSet};
-use std::sync::{Arc, Condvar, Mutex};
+use std::sync::Arc;
 use std::time::Instant;
 
 pub(crate) struct ReceiptPreparationPipeline {
@@ -123,6 +124,7 @@ impl ReceiptPreparationPipeline {
         }
         let actions = match receipt.receipt() {
             ReceiptEnum::Action(a) | ReceiptEnum::PromiseYield(a) => &a.actions,
+            ReceiptEnum::ActionV2(a) | ReceiptEnum::PromiseYieldV2(a) => &a.actions,
             ReceiptEnum::GlobalContractDistribution(global_contract_data) => {
                 self.block_global_contracts.insert(global_contract_data.id().clone());
                 return false;
@@ -134,7 +136,9 @@ impl ReceiptPreparationPipeline {
         for (action_index, action) in actions.iter().enumerate() {
             let account_id = account_id.clone();
             match action {
-                Action::DeployContract(_) | Action::UseGlobalContract(_) => {
+                Action::DeployContract(_)
+                | Action::UseGlobalContract(_)
+                | Action::DeterministicStateInit(_) => {
                     // FIXME: instead of blocking these accounts, move the handling of
                     // deploy action into here, so that the necessary data dependencies can be
                     // established.
@@ -208,7 +212,7 @@ impl ReceiptPreparationPipeline {
                     PIPELINING_ACTIONS_SUBMITTED.inc_by(1);
                     rayon::spawn_fifo(move || {
                         let task_status = {
-                            let mut status = task.status.lock().expect("mutex lock");
+                            let mut status = task.status.lock();
                             std::mem::replace(&mut *status, PrepareTaskStatus::Working)
                         };
                         let PrepareTaskStatus::Pending = task_status else {
@@ -226,7 +230,7 @@ impl ReceiptPreparationPipeline {
                             &method_name,
                         );
 
-                        let mut status = task.status.lock().expect("mutex lock");
+                        let mut status = task.status.lock();
                         *status = PrepareTaskStatus::Prepared(contract);
                         PIPELINING_ACTIONS_TASK_WORKING_TIME.inc_by(start.elapsed().as_secs_f64());
                         task.condvar.notify_all();
@@ -269,6 +273,10 @@ impl ReceiptPreparationPipeline {
                 .actions
                 .get(action_index)
                 .expect("indexing receipt actions by an action_index failed!"),
+            ReceiptEnum::ActionV2(r) | ReceiptEnum::PromiseYieldV2(r) => r
+                .actions
+                .get(action_index)
+                .expect("indexing receipt actions by an action_index failed!"),
             ReceiptEnum::GlobalContractDistribution(_)
             | ReceiptEnum::Data(_)
             | ReceiptEnum::PromiseResume(_) => {
@@ -303,7 +311,7 @@ impl ReceiptPreparationPipeline {
             PIPELINING_ACTIONS_MAIN_THREAD_WORKING_TIME.inc_by(start.elapsed().as_secs_f64());
             return result;
         };
-        let mut status_guard = task.status.lock().unwrap();
+        let mut status_guard = task.status.lock();
         loop {
             let current = std::mem::replace(&mut *status_guard, PrepareTaskStatus::Working);
             match current {
@@ -336,7 +344,7 @@ impl ReceiptPreparationPipeline {
                 }
                 PrepareTaskStatus::Working => {
                     let start = Instant::now();
-                    status_guard = task.condvar.wait(status_guard).unwrap();
+                    task.condvar.wait(&mut status_guard);
                     PIPELINING_ACTIONS_WAITING_TIME.inc_by(start.elapsed().as_secs_f64());
                     continue;
                 }
@@ -347,8 +355,6 @@ impl ReceiptPreparationPipeline {
                 }
                 PrepareTaskStatus::Finished => {
                     *status_guard = PrepareTaskStatus::Finished;
-                    // Don't poison the lock.
-                    drop(status_guard);
                     panic!("attempting to get_contract that has already been taken");
                 }
             }

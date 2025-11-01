@@ -140,7 +140,7 @@
                         row.append($('<td>').append(convertTime(Date.now() - Date.parse(epoch.first_block[1])) + " ago"));
                     }
                     row.append($('<td>').append(epoch.block_producers.length));
-                    row.append($('<td>').append(epoch.chunk_only_producers.length));
+                    row.append($('<td>').append(epoch.chunk_producers.length));
                     $('.js-tbody-epochs').append(row);
                     if (index == 1) {
                         $('.js-thead-curepoch').append("Current Epoch " + epoch.epoch_id);
@@ -152,7 +152,7 @@
                 // Use 2 bits to encode the validator's role in a given epoch.
                 // 00 -- not participated
                 // 01 -- block producer
-                // 10 -- chunk only producer
+                // 10 -- chunk producer
                 epoch.block_producers.forEach(validator => {
                     let account_id = validator.account_id;
                     let value = 2 ** (index * 2);
@@ -162,7 +162,7 @@
                         validatorMap.set(account_id, value);
                     }
                 });
-                epoch.chunk_only_producers.forEach(account_id => {
+                epoch.chunk_producers.forEach(account_id => {
                     let value = 2 ** (index * 2 + 1);
                     if (validatorMap.has(account_id)) {
                         validatorMap.set(account_id, validatorMap.get(account_id) + value);
@@ -260,7 +260,7 @@
                 <th>First block</th>
                 <th>Epoch start</th>
                 <th>Block producers</th>
-                <th>Chunk only producers</th>
+                <th>Chunk producers</th>
             </tr>
         </thead>
         <tbody class="js-tbody-epochs">

@@ -1,8 +1,9 @@
 use near_crypto::PublicKey;
 use near_primitives::action::delegate::{DelegateAction, SignedDelegateAction};
-use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum};
+use near_primitives::receipt::{DataReceiver, Receipt, ReceiptEnum};
 use near_primitives::state_record::StateRecord;
 use near_primitives::transaction::{Action, AddKeyAction, DeleteAccountAction, DeleteKeyAction};
+use near_primitives::types::AccountId;
 use near_primitives_core::account::id::AccountType;
 use near_primitives_core::account::{AccessKey, AccessKeyPermission};
 use serde::ser::{SerializeSeq, Serializer};
@@ -62,7 +63,7 @@ fn map_delegate_action(
 
     let mut account_created = false;
     let mut full_key_added = false;
-    for action in source_actions.iter() {
+    for action in &source_actions {
         if let Some(a) = map_action(action, secret, default_key, false) {
             match &a {
                 Action::AddKey(add_key) => {
@@ -110,21 +111,23 @@ fn map_delegate_action(
 
 // map all the account IDs and keys in this receipt and its actions, and skip any stake actions
 fn map_action_receipt(
-    receipt: &mut ActionReceipt,
+    signer_id: &mut AccountId,
+    signer_public_key: &mut PublicKey,
+    output_data_receivers: &mut [DataReceiver],
+    actions: &mut Vec<Action>,
     secret: Option<&[u8; crate::secret::SECRET_LEN]>,
     default_key: &PublicKey,
 ) {
-    receipt.signer_id = crate::key_mapping::map_account(&receipt.signer_id, secret);
-    receipt.signer_public_key =
-        crate::key_mapping::map_key(&receipt.signer_public_key, secret).public_key();
-    for receiver in receipt.output_data_receivers.iter_mut() {
+    *signer_id = crate::key_mapping::map_account(signer_id, secret);
+    *signer_public_key = crate::key_mapping::map_key(signer_public_key, secret).public_key();
+    for receiver in output_data_receivers {
         receiver.receiver_id = crate::key_mapping::map_account(&receiver.receiver_id, secret);
     }
 
-    let mut actions = Vec::with_capacity(receipt.actions.len());
+    let mut new_actions = Vec::with_capacity(actions.len());
     let mut account_created = false;
     let mut full_key_added = false;
-    for action in receipt.actions.iter() {
+    for action in actions.iter() {
         if let Some(a) = map_action(action, secret, default_key, true) {
             match &a {
                 Action::AddKey(add_key) => {
@@ -137,16 +140,16 @@ fn map_action_receipt(
                 }
                 _ => {}
             };
-            actions.push(a);
+            new_actions.push(a);
         }
     }
     if account_created && !full_key_added {
-        actions.push(Action::AddKey(Box::new(AddKeyAction {
+        new_actions.push(Action::AddKey(Box::new(AddKeyAction {
             public_key: default_key.clone(),
             access_key: AccessKey::full_access(),
         })));
     }
-    receipt.actions = actions;
+    *actions = new_actions;
 }
 
 // map any account IDs or keys referenced in the receipt
@@ -159,7 +162,24 @@ pub fn map_receipt(
     receipt.set_receiver_id(crate::key_mapping::map_account(receipt.receiver_id(), secret));
     match receipt.receipt_mut() {
         ReceiptEnum::Action(r) | ReceiptEnum::PromiseYield(r) => {
-            map_action_receipt(r, secret, default_key);
+            map_action_receipt(
+                &mut r.signer_id,
+                &mut r.signer_public_key,
+                &mut r.output_data_receivers,
+                &mut r.actions,
+                secret,
+                default_key,
+            );
+        }
+        ReceiptEnum::ActionV2(r) | ReceiptEnum::PromiseYieldV2(r) => {
+            map_action_receipt(
+                &mut r.signer_id,
+                &mut r.signer_public_key,
+                &mut r.output_data_receivers,
+                &mut r.actions,
+                secret,
+                default_key,
+            );
         }
         _ => {}
     }
@@ -206,6 +226,35 @@ pub(crate) fn map_records<P: AsRef<Path>>(
                 }
                 // TODO: would be nice for stream_records_from_file() to let you return early on error so
                 // we dont have to unwrap here
+                records_seq.serialize_element(&new_record).unwrap();
+            }
+            StateRecord::GasKey { account_id, public_key, gas_key } => {
+                let replacement = crate::key_mapping::map_key(&public_key, secret.as_ref());
+                let new_record = StateRecord::GasKey {
+                    account_id: crate::key_mapping::map_account(&account_id, secret.as_ref()),
+                    public_key: replacement.public_key(),
+                    gas_key: gas_key.clone(),
+                };
+                // TODO(eth-implicit) Change back to is_implicit() when ETH-implicit accounts are supported.
+                if account_id.get_account_type() != AccountType::NearImplicitAccount
+                    && gas_key.permission == AccessKeyPermission::FullAccess
+                {
+                    has_full_key.insert(account_id.clone());
+                }
+                records_seq.serialize_element(&new_record).unwrap();
+            }
+            StateRecord::GasKeyNonce { account_id, public_key, index, nonce } => {
+                let replacement = crate::key_mapping::map_key(&public_key, secret.as_ref());
+                let new_record = StateRecord::GasKeyNonce {
+                    account_id: crate::key_mapping::map_account(&account_id, secret.as_ref()),
+                    public_key: replacement.public_key(),
+                    index: *index,
+                    nonce: *nonce,
+                };
+                // TODO(eth-implicit) Change back to is_implicit() when ETH-implicit accounts are supported.
+                if account_id.get_account_type() != AccountType::NearImplicitAccount {
+                    has_full_key.insert(account_id.clone());
+                }
                 records_seq.serialize_element(&new_record).unwrap();
             }
             StateRecord::Account { account_id, .. } => {
@@ -270,6 +319,7 @@ mod test {
     use near_primitives::hash::CryptoHash;
     use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum, ReceiptV0};
     use near_primitives::transaction::{Action, AddKeyAction, CreateAccountAction};
+    use near_primitives::types::Balance;
     use near_primitives_core::account::AccessKey;
 
     #[test]
@@ -285,7 +335,7 @@ mod test {
                 signer_public_key: "ed25519:He7QeRuwizNEhBioYG3u4DZ8jWXyETiyNzFD3MkTjDMf"
                     .parse()
                     .unwrap(),
-                gas_price: 100,
+                gas_price: Balance::from_yoctonear(100),
                 output_data_receivers: vec![],
                 input_data_ids: vec![],
                 actions: vec![
@@ -315,7 +365,7 @@ mod test {
                 signer_public_key: "ed25519:6rL9HcTfinxxcVURLeQ3Y3nkietL4LQ3WxhPn51bCo4V"
                     .parse()
                     .unwrap(),
-                gas_price: 100,
+                gas_price: Balance::from_yoctonear(100),
                 output_data_receivers: vec![],
                 input_data_ids: vec![],
                 actions: vec![
@@ -379,7 +429,7 @@ mod test {
                 signer_public_key: "ed25519:He7QeRuwizNEhBioYG3u4DZ8jWXyETiyNzFD3MkTjDMf"
                     .parse()
                     .unwrap(),
-                gas_price: 100,
+                gas_price: Balance::from_yoctonear(100),
                 output_data_receivers: vec![],
                 input_data_ids: vec![],
                 actions: vec![Action::Delegate(Box::new(SignedDelegateAction {
@@ -426,7 +476,7 @@ mod test {
                 signer_public_key: "ed25519:6rL9HcTfinxxcVURLeQ3Y3nkietL4LQ3WxhPn51bCo4V"
                     .parse()
                     .unwrap(),
-                gas_price: 100,
+                gas_price: Balance::from_yoctonear(100),
                 output_data_receivers: vec![],
                 input_data_ids: vec![],
                 actions: vec![Action::Delegate(Box::new(SignedDelegateAction {

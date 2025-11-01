@@ -1,17 +1,48 @@
 use crate::test_utils::{TestTriesBuilder, gen_changes, simplify_changes, test_populate_trie};
-use crate::trie::AccessOptions;
-use crate::trie::trie_storage::{TrieMemoryPartialStorage, TrieStorage};
+use crate::trie::trie_storage::TrieStorage;
+use crate::trie::{AccessOptions, TrieRefcountAddition, TrieRefcountSubtraction};
 use crate::{PartialStorage, Trie, TrieUpdate};
 use assert_matches::assert_matches;
-use near_primitives::errors::{MissingTrieValueContext, StorageError};
+use near_primitives::errors::{MissingTrieValue, MissingTrieValueContext, StorageError};
 use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::shard_layout::{ShardLayout, ShardUId};
 use near_primitives::state::PartialState;
+use parking_lot::RwLock;
 use rand::Rng;
 use rand::seq::SliceRandom;
 use std::collections::{HashMap, HashSet};
 use std::fmt::Debug;
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
+
+use super::{TrieChanges, TrieRefcountDeltaMap};
+
+pub(crate) fn merge_trie_changes(changes: Vec<TrieChanges>) -> TrieChanges {
+    if changes.is_empty() {
+        return TrieChanges::empty(Trie::EMPTY_ROOT);
+    }
+    let new_root = changes[0].new_root;
+    let mut map = TrieRefcountDeltaMap::new();
+    for changes_set in changes {
+        assert!(changes_set.deletions.is_empty(), "state parts only have insertions");
+        for TrieRefcountAddition { trie_node_or_value_hash, trie_node_or_value, rc } in
+            changes_set.insertions
+        {
+            map.add(trie_node_or_value_hash, trie_node_or_value, rc.get());
+        }
+        for TrieRefcountSubtraction { trie_node_or_value_hash, rc, .. } in changes_set.deletions {
+            map.subtract(trie_node_or_value_hash, rc.get());
+        }
+    }
+    let (insertions, deletions) = map.into_changes();
+    TrieChanges {
+        old_root: Default::default(),
+        new_root,
+        insertions,
+        deletions,
+        memtrie_changes: None,
+        children_memtrie_changes: Default::default(),
+    }
+}
 
 /// TrieMemoryPartialStorage, but contains only the first n requested nodes.
 pub struct IncompletePartialStorage {
@@ -40,22 +71,17 @@ impl TrieStorage for IncompletePartialStorage {
             .cloned()
             .expect("Recorded storage is missing the given hash");
 
-        let mut lock = self.visited_nodes.write().unwrap();
+        let mut lock = self.visited_nodes.write();
         lock.insert(*hash);
 
         if lock.len() > self.node_count_to_fail_after {
-            Err(StorageError::MissingTrieValue(
-                MissingTrieValueContext::TrieMemoryPartialStorage,
-                *hash,
-            ))
+            Err(StorageError::MissingTrieValue(MissingTrieValue {
+                context: MissingTrieValueContext::TrieMemoryPartialStorage,
+                hash: *hash,
+            }))
         } else {
             Ok(result)
         }
-    }
-
-    fn as_partial_storage(&self) -> Option<&TrieMemoryPartialStorage> {
-        // Make sure it's not called - it pretends to be PartialStorage but is not
-        unimplemented!()
     }
 }
 
@@ -66,7 +92,7 @@ where
 {
     let recording_trie = trie.recording_reads_new_recorder();
     let (recording_trie, output) = test(recording_trie).expect("should not fail");
-    (recording_trie.recorded_storage().unwrap(), recording_trie, output)
+    (recording_trie.recorded_storage().unwrap(), trie, output)
 }
 
 fn test_incomplete_storage<F, Out>(trie: Trie, mut test: F)
@@ -84,10 +110,10 @@ where
         if i < size {
             assert_matches!(
                 result,
-                Err(StorageError::MissingTrieValue(
-                    MissingTrieValueContext::TrieMemoryPartialStorage,
-                    _
-                ))
+                Err(StorageError::MissingTrieValue(MissingTrieValue {
+                    context: MissingTrieValueContext::TrieMemoryPartialStorage,
+                    hash: _
+                }))
             );
         } else {
             assert_eq!(result.as_ref(), Ok(&expected));
@@ -224,7 +250,7 @@ mod trie_storage_tests {
         let key = hash(&value);
 
         let result = trie_caching_storage.retrieve_raw_bytes(&key);
-        assert_matches!(result, Err(StorageError::MissingTrieValue(_, _)));
+        assert_matches!(result, Err(StorageError::MissingTrieValue(_)));
     }
 
     fn test_memtrie_and_disk_updates_consistency(updates: Vec<(Vec<u8>, Option<Vec<u8>>)>) {
@@ -320,17 +346,19 @@ mod trie_storage_tests {
         let memtrie_iter_recorded = {
             let trie =
                 tries.get_trie_for_shard(shard_uid, state_root).recording_reads_new_recorder();
-            let lock = trie.lock_for_iter();
-            let mut memtrie_iter = lock.iter().unwrap();
-            match memtrie_iter {
-                TrieIterator::Disk(_) => {
-                    panic!("Expected Memtrie iterator, got Disk iterator");
+            {
+                let lock = trie.lock_for_iter();
+                let mut memtrie_iter = lock.iter().unwrap();
+                match memtrie_iter {
+                    TrieIterator::Disk(_) => {
+                        panic!("Expected Memtrie iterator, got Disk iterator");
+                    }
+                    TrieIterator::Memtrie(_) => {}
                 }
-                TrieIterator::Memtrie(_) => {}
+                memtrie_iter.seek_prefix(&iter_prefix).unwrap();
+                let memtrie_iter_results = memtrie_iter.collect::<Result<Vec<_>, _>>().unwrap();
+                assert_eq!(memtrie_iter_results, expected_iter_results);
             }
-            memtrie_iter.seek_prefix(&iter_prefix).unwrap();
-            let memtrie_iter_results = memtrie_iter.collect::<Result<Vec<_>, _>>().unwrap();
-            assert_eq!(memtrie_iter_results, expected_iter_results);
             trie.recorded_storage().unwrap()
         };
 

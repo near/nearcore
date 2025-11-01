@@ -58,10 +58,9 @@ available to test them.
 
 ## Client
 
-The Client is separated from the runtime via a `RuntimeAdapter` trait.
+The Client is separated from the runtime via a `RuntimeAdapter` trait for historical reasons.
 In production, it uses `NightshadeRuntime` which uses real runtime and epoch managers.
-To test the client without instantiating runtime and epoch manager, we have a mock runtime
-`KeyValueRuntime`.
+The same should be used in tests.
 
 Most of the tests in the client work by setting up either a single node (via
 `setup_mock()`) or multiple nodes (via `setup_mock_all_validators()`) and then
@@ -70,20 +69,20 @@ predefined timeout.
 
 For the most basic example of using this infrastructure see `produce_two_blocks`
 in
-[`tests/process_blocks.rs`](https://github.com/near/nearcore/blob/master/chain/client/src/tests/process_blocks.rs).
+[`tests/process_blocks.rs`](https://github.com/near/nearcore/blob/master/integration-tests/src/tests/client/process_blocks.rs).
 
 1. The callback (`Box::new(move |msg, _ctx, _| { ...`) is what is executed
    whenever the client sends a message. The return value of the callback is sent
    back to the client, which allows for testing relatively complex scenarios. The
    tests generally expect a particular message to occur, in this case, the tests
-   expect two blocks to be produced. `System::current().stop();` is the way to
+   expect two blocks to be produced. `near_async::shutdown_all_actors();` is the way to
    stop the test and mark it as passed.
-2. `near_network::test_utils::wait_or_panic(5000);` is how the timeout for the
-   test is set (in milliseconds).
+2. See `near_network::test_utils::wait_or_timeout` for how to wait for some condition
+   to be true or panic if it doesn't within a certain time.
 
 For an example of a test that launches multiple nodes, see
 `chunks_produced_and_distributed_common` in
-[tests/chunks_management.rs](https://github.com/near/nearcore/blob/master/chain/client/src/tests/chunks_management.rs).
+[integration-tests/src/tests/client/chunks_management.rs | Network chunk management test](https://github.com/near/nearcore/blob/master/integration-tests/src/tests/client/chunks_management.rs).
 The `setup_mock_all_validators` function is the key piece of infrastructure here.
 
 ## Runtime

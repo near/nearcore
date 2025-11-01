@@ -1,5 +1,6 @@
 use crate::NearConfig;
-use actix_rt::ArbiterHandle;
+use near_async::ActorSystem;
+use near_async::futures::FutureSpawnerExt;
 use near_async::time::Duration;
 use near_chain::{Block, ChainStore, ChainStoreAccess};
 use near_epoch_manager::EpochManagerAdapter;
@@ -28,15 +29,6 @@ pub(crate) static CONFIG_CORRECT: LazyLock<IntGauge> = LazyLock::new(|| {
     try_create_int_gauge(
         "near_config_correct",
         "Are the current dynamically loadable configs correct",
-    )
-    .unwrap()
-});
-
-pub(crate) static COLD_STORE_COPY_RESULT: LazyLock<IntCounterVec> = LazyLock::new(|| {
-    try_create_int_counter_vec(
-        "near_cold_store_copy_result",
-        "The result of a cold store copy iteration in the cold store loop.",
-        &["copy_result"],
     )
     .unwrap()
 });
@@ -122,7 +114,7 @@ fn export_postponed_receipt_count(
     let block = chain_store.get_block(&head.last_block_hash)?;
     let shard_layout = epoch_manager.get_shard_layout(block.header().epoch_id())?;
 
-    for chunk_header in block.chunks().iter_deprecated() {
+    for chunk_header in block.chunks().iter() {
         let shard_id = chunk_header.shard_id();
         if chunk_header.height_included() != block.header().height() {
             tracing::trace!(target: "metrics", "trie-stats - chunk for shard {shard_id} is missing, skipping it.");
@@ -192,20 +184,20 @@ fn get_postponed_receipt_count_for_trie(trie: Trie) -> Result<i64, anyhow::Error
 
 /// Spawns a background loop that will periodically log trie related metrics.
 pub fn spawn_trie_metrics_loop(
+    actor_system: ActorSystem,
     near_config: NearConfig,
     store: Store,
     period: Duration,
     epoch_manager: Arc<dyn EpochManagerAdapter>,
-) -> anyhow::Result<ArbiterHandle> {
+) {
     tracing::debug!(target:"metrics", "Spawning the trie metrics loop.");
-    let arbiter = actix_rt::Arbiter::new();
 
-    let start = tokio::time::Instant::now();
-    let mut interval = actix_rt::time::interval_at(start, period.unsigned_abs());
-    interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-
-    arbiter.spawn(async move {
+    actor_system.new_future_spawner("trie metrics loop").spawn("trie metrics loop", async move {
         tracing::debug!(target:"metrics", "Starting the spawn metrics loop.");
+
+        let start = tokio::time::Instant::now();
+        let mut interval = tokio::time::interval_at(start, period.unsigned_abs());
+        interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
         loop {
             interval.tick().await;
 
@@ -218,8 +210,6 @@ pub fn spawn_trie_metrics_loop(
             tracing::trace!(target: "metrics", "exporting postponed receipt count took {:?}.", start_time.elapsed());
         }
     });
-
-    Ok(arbiter.handle())
 }
 
 #[cfg(test)]

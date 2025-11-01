@@ -54,7 +54,7 @@ impl Wast {
 
     /// A list of instantiation failures to allow.
     pub fn allow_instantiation_failures(&mut self, failures: &[&str]) {
-        for &failure_str in failures.iter() {
+        for &failure_str in failures {
             self.allowed_instantiation_failures.insert(failure_str.to_string());
         }
     }
@@ -312,7 +312,7 @@ impl Wast {
                 self.current = None;
                 let error_message = format!("{}", e);
                 self.current_is_allowed_failure = false;
-                for allowed_failure in self.allowed_instantiation_failures.iter() {
+                for allowed_failure in &self.allowed_instantiation_failures {
                     if error_message.contains(allowed_failure) {
                         self.current_is_allowed_failure = true;
                         break;
@@ -344,12 +344,7 @@ impl Wast {
     }
 
     /// Invoke an exported function from an instance.
-    fn invoke(
-        &mut self,
-        instance_name: Option<&str>,
-        field: &str,
-        args: &[Val],
-    ) -> Result<Vec<Val>> {
+    fn invoke(&self, instance_name: Option<&str>, field: &str, args: &[Val]) -> Result<Vec<Val>> {
         let instance = self.get_instance(instance_name.as_deref())?;
         instance.handle().instance().as_ref().reset_stack_meter();
         let func: Function = instance.lookup_function(field).expect("should find the function");

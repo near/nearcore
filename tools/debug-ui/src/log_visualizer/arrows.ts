@@ -90,7 +90,7 @@ export type ArrowRowPosition = 'above' | 'inbound' | 'outbound';
 export const ARROW_ROW_POSITIONS: ArrowRowPosition[] = ['above', 'inbound', 'outbound'];
 
 export class ArrowRow {
-    constructor(public readonly gridRow: number, public readonly positioning: ArrowRowPosition) { }
+    constructor(public readonly gridRow: number, public readonly positioning: ArrowRowPosition) {}
 
     // Gets a unique key for this ArrowRow that is larger if it's more
     // vertically down.
@@ -120,7 +120,7 @@ export class ArrowColumn {
     constructor(
         public readonly gridColumn: number,
         public readonly positioning: ArrowColumnPosition
-    ) { }
+    ) {}
 
     get key(): number {
         return this.gridColumn * 2 + (this.positioning == 'left' ? 0 : 1);

@@ -3,7 +3,7 @@ use crate::config::{
 };
 use crate::parameter_table::{ParameterTable, ParameterTableDiff};
 use crate::vm;
-use near_primitives_core::types::ProtocolVersion;
+use near_primitives_core::types::{Balance, ProtocolVersion};
 use near_primitives_core::version::{PROTOCOL_VERSION, ProtocolFeature};
 use std::collections::BTreeMap;
 use std::ops::Bound;
@@ -55,8 +55,11 @@ static CONFIG_DIFFS: &[(ProtocolVersion, &str)] = &[
     (73, include_config!("73.yaml")),
     (74, include_config!("74.yaml")),
     (77, include_config!("77.yaml")),
+    (78, include_config!("78.yaml")),
+    (79, include_config!("79.yaml")),
+    (82, include_config!("82.yaml")),
+    (83, include_config!("83.yaml")),
     (129, include_config!("129.yaml")),
-    (149, include_config!("149.yaml")),
 ];
 
 /// Testnet parameters for versions <= 29, which (incorrectly) differed from mainnet parameters
@@ -104,7 +107,7 @@ impl RuntimeConfigStore {
                 )
             });
             let fees = Arc::make_mut(&mut initial_config.fees);
-            fees.storage_usage_config.storage_amount_per_byte = 0;
+            fees.storage_usage_config.storage_amount_per_byte = Balance::ZERO;
             store.insert(0, Arc::new(initial_config));
         }
 
@@ -140,14 +143,15 @@ impl RuntimeConfigStore {
                     )
                 });
                 let fees = Arc::make_mut(&mut runtime_config.fees);
-                fees.storage_usage_config.storage_amount_per_byte = 0;
+                fees.storage_usage_config.storage_amount_per_byte = Balance::ZERO;
                 store.insert(*protocol_version, Arc::new(runtime_config));
             }
         }
 
         if let Some(runtime_config) = genesis_runtime_config {
             let mut fees = crate::RuntimeFeesConfig::clone(&runtime_config.fees);
-            fees.storage_usage_config.storage_amount_per_byte = 10u128.pow(19);
+            fees.storage_usage_config.storage_amount_per_byte =
+                Balance::from_yoctonear(10u128.pow(19));
             store.insert(
                 42,
                 Arc::new(RuntimeConfig {
@@ -250,12 +254,24 @@ impl RuntimeConfigStore {
             })
             .1
     }
+
+    /// Returns a mutable borrow of `RuntimeConfig` for the corresponding protocol version.
+    pub fn get_config_mut(&mut self, protocol_version: ProtocolVersion) -> &mut Arc<RuntimeConfig> {
+        self.store
+            .range_mut((Bound::Unbounded, Bound::Included(protocol_version)))
+            .next_back()
+            .unwrap_or_else(|| {
+                panic!("Not found RuntimeConfig for protocol version {}", protocol_version)
+            })
+            .1
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::cost::ActionCosts;
+    use near_primitives_core::types::Gas;
     use std::collections::HashSet;
 
     const GENESIS_PROTOCOL_VERSION: ProtocolVersion = 29;
@@ -331,7 +347,10 @@ mod tests {
         let modified_config = RuntimeConfig::new(&base_params).unwrap();
 
         assert_eq!(modified_config.wasm_config.limit_config.max_length_storage_key, 42);
-        assert_eq!(modified_config.fees.fee(ActionCosts::new_action_receipt).send_sir, 100000000);
+        assert_eq!(
+            modified_config.fees.fee(ActionCosts::new_action_receipt).send_sir,
+            Gas::from_gas(100000000)
+        );
 
         assert_eq!(
             base_config.storage_amount_per_byte(),
@@ -408,8 +427,8 @@ mod tests {
     #[cfg(feature = "calimero_zero_storage")]
     fn test_calimero_storage_costs_zero() {
         let store = RuntimeConfigStore::new(None);
-        for (_, config) in store.store.iter() {
-            assert_eq!(config.storage_amount_per_byte(), 0u128);
+        for (_, config) in &store.store {
+            assert!(config.storage_amount_per_byte().is_zero());
         }
     }
 
@@ -417,6 +436,6 @@ mod tests {
     fn test_benchmarknet_config() {
         let store = RuntimeConfigStore::for_chain_id(near_primitives_core::chains::BENCHMARKNET);
         let config = store.get_config(PROTOCOL_VERSION);
-        assert_eq!(config.witness_config.main_storage_proof_size_soft_limit, usize::MAX);
+        assert_eq!(config.witness_config.main_storage_proof_size_soft_limit, u64::MAX);
     }
 }

@@ -225,6 +225,20 @@ pub enum Cost {
     ActionUseGlobalContractPerIdentifierByteSendNotSir,
     ActionUseGlobalContractPerIdentifierByteSendSir,
     ActionUseGlobalContractPerIdentifierByteExec,
+    // Deterministic account state init
+    ActionDeterministicStateInitBase,
+    ActionDeterministicStateInitBaseSendNotSir,
+    ActionDeterministicStateInitBaseSendSir,
+    ActionDeterministicStateInitBaseExec,
+    ActionDeterministicStateInitPerByte,
+    ActionDeterministicStateInitPerByteSendNotSir,
+    ActionDeterministicStateInitPerByteSendSir,
+    ActionDeterministicStateInitPerByteExec,
+    ActionDeterministicStateInitPerEntry,
+    ActionDeterministicStateInitPerEntrySendNotSir,
+    ActionDeterministicStateInitPerEntrySendSir,
+    ActionDeterministicStateInitPerEntryExec,
+
     /// Estimates `wasm_config.ext_costs.base` which is intended to be charged
     /// once on every host function call. However, this is currently
     /// inconsistent. First, we do not charge on Math API methods (`sha256`,
@@ -584,6 +598,13 @@ pub enum Cost {
     /// for this are a bit involved but roughly speaking, it just forces values
     /// out of CPU caches so that they are always read from memory.
     ReadCachedTrieNode,
+    /// Estimates the cost of accessing a trie node by iterating the trie and
+    /// dividing the total cost by the number of nodes accessed.
+    ///
+    /// Used to estimate the unified cost of `touching_trie_node` and
+    /// `read_cached_trie_node`, as original cost estimations did not use
+    /// memtries.
+    ReadTrieNodeEstimateByIteration,
     /// Estimates `promise_and_base` which is charged for every call to
     /// `promise_and`. This should cover the base cost for creating receipt
     /// dependencies.

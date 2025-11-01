@@ -118,7 +118,7 @@ impl ChunkStateWitnessTracker {
         &mut self,
         witness: &near_primitives::stateless_validation::state_witness::ChunkStateWitness,
     ) -> Option<&ChunkStateWitnessRecord> {
-        let key = ChunkStateWitnessKey::new(witness.chunk_header.chunk_hash());
+        let key = ChunkStateWitnessKey::new(witness.chunk_header().chunk_hash().clone());
         self.witnesses.get(&key)
     }
 }
@@ -139,7 +139,7 @@ static SIZE_IN_BYTES_TO_BUCKET: &'static [(ByteSize, &str)] = &[
 
 /// Returns the string representation of the size buckets for a given witness size in bytes.
 fn witness_size_bucket(size_in_bytes: usize) -> &'static str {
-    for (upper_size, label) in SIZE_IN_BYTES_TO_BUCKET.iter() {
+    for (upper_size, label) in SIZE_IN_BYTES_TO_BUCKET {
         if size_in_bytes < upper_size.as_u64() as usize {
             return *label;
         }
@@ -163,7 +163,7 @@ mod state_witness_tracker_tests {
         let clock = dummy_clock();
         let mut tracker = ChunkStateWitnessTracker::new(clock.clock());
 
-        tracker.record_witness_sent(witness.chunk_header.compute_hash(), 4321, NUM_VALIDATORS);
+        tracker.record_witness_sent(witness.chunk_header().compute_hash(), 4321, NUM_VALIDATORS);
         clock.advance(Duration::milliseconds(3444));
 
         // Ack received from all "except for one".
@@ -182,7 +182,7 @@ mod state_witness_tracker_tests {
         let clock = dummy_clock();
         let mut tracker = ChunkStateWitnessTracker::new(clock.clock());
 
-        tracker.record_witness_sent(witness.chunk_header.compute_hash(), 4321, NUM_VALIDATORS);
+        tracker.record_witness_sent(witness.chunk_header().compute_hash(), 4321, NUM_VALIDATORS);
         clock.advance(Duration::milliseconds(3444));
 
         // Ack received from all.

@@ -1,6 +1,7 @@
+use parking_lot::Mutex;
 use std::fmt::Write;
 use std::mem;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 /// Intercepts `tracing` logs.
 ///
@@ -35,7 +36,7 @@ impl TracingCapture {
     ///
     /// Useful to verify that some particular code-path was hit by a test.
     pub fn drain(&mut self) -> Vec<String> {
-        let mut guard = self.captured.lock().unwrap();
+        let mut guard = self.captured.lock();
         mem::take(&mut guard.logs)
     }
     /// Sets the callback to execute on every log line emitted.
@@ -44,7 +45,7 @@ impl TracingCapture {
     /// in the `on_log` for specific log-lines, the test can maneuver the
     /// threads into particularly interesting interleaving.
     pub fn set_callback(&mut self, on_log: impl Fn(&str) + Send + Sync + 'static) {
-        self.captured.lock().unwrap().on_log = Arc::new(on_log)
+        self.captured.lock().on_log = Arc::new(on_log)
     }
 }
 
@@ -64,10 +65,10 @@ impl tracing::Subscriber for Subscriber {
 
         // Tricky: as `on_log` is expected to block, we take care to call it
         // *without* holding any mutexes.
-        let on_log = Arc::clone(&self.0.lock().unwrap().on_log);
+        let on_log = Arc::clone(&self.0.lock().on_log);
         on_log(&buf);
 
-        let mut guard = self.0.lock().unwrap();
+        let mut guard = self.0.lock();
         guard.logs.push(buf);
 
         tracing::span::Id::from_u64(guard.logs.len() as u64)

@@ -4,6 +4,9 @@ pub use near_primitives_core::account;
 pub use near_primitives_core::apply;
 pub use near_primitives_core::borsh;
 pub use near_primitives_core::config;
+pub use near_primitives_core::deterministic_account_id;
+pub use near_primitives_core::gas;
+pub use near_primitives_core::global_contract;
 pub use near_primitives_core::hash;
 pub use near_primitives_core::num_rational;
 pub use near_primitives_core::serialize;
@@ -35,6 +38,7 @@ pub mod sandbox;
 pub mod shard_layout;
 pub mod sharding;
 pub mod signable_message;
+pub mod spice_partial_data;
 pub mod state;
 pub mod state_part;
 pub mod state_record;
@@ -55,10 +59,20 @@ pub mod views;
 
 pub use near_primitives_core::chains;
 
-#[cfg(fuzz)]
 #[test]
-fn failing_fuzzer() {
-    // This fuzzer always fails. It is used as a sanity-check that our clusterfuzz instance
-    // is working properly, as it has silently stopped working quite a few times already.
-    bolero::check!().for_each(|_| -> () { panic!("The expected-to-fail fuzzer actually failed") })
+#[should_panic = "attempt to add with overflow"]
+fn test_overflow() {
+    let a = u64::MAX;
+    let b = 5u64;
+    let c = u128::from(a + b);
+    println!("{} + {} = {}", a, b, c);
+}
+
+#[test]
+#[should_panic = "attempt to subtract with overflow"]
+fn test_underflow() {
+    let a = 10u64;
+    let b = 5u64;
+    let c = u128::from(b - a);
+    println!("{} - {} = {}", b, a, c);
 }

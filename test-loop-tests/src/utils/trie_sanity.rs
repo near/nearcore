@@ -1,7 +1,6 @@
 use super::sharding::shard_was_split;
 use crate::utils::sharding::{
-    client_tracking_shard, get_memtrie_for_shard, get_tracked_shards,
-    get_tracked_shards_from_prev_block,
+    get_memtrie_for_shard, get_tracked_shards, get_tracked_shards_from_prev_block,
 };
 use borsh::BorshDeserialize;
 use itertools::Itertools;
@@ -70,7 +69,7 @@ impl TrieSanityCheck {
         }
 
         let mut check = HashMap::new();
-        for account_id in self.accounts.iter() {
+        for account_id in &self.accounts {
             let check_shard_uids = self.get_epoch_check_for_account(
                 client,
                 tip,
@@ -108,12 +107,14 @@ impl TrieSanityCheck {
                 continue;
             }
 
-            let cares = client.shard_tracker.cares_about_shard(
-                Some(account_id),
-                &tip.prev_block_hash,
-                shard_uid.shard_id(),
-                false,
-            );
+            let cares = client
+                .epoch_manager
+                .cares_about_shard_from_prev_block(
+                    &tip.prev_block_hash,
+                    account_id,
+                    shard_uid.shard_id(),
+                )
+                .unwrap();
             if !cares {
                 continue;
             }
@@ -174,8 +175,8 @@ impl TrieSanityCheck {
             let check = self.checks.get(&epoch_id).unwrap_or_else(|| {
                 panic!("No trie comparison checks made for epoch {}", &epoch_id.0)
             });
-            for (account_id, checked_shards) in check.iter() {
-                for (shard_uid, checked) in checked_shards.iter() {
+            for (account_id, checked_shards) in check {
+                for (shard_uid, checked) in checked_shards {
                     assert!(
                         checked,
                         "No trie comparison checks made for account {} epoch {} shard {}",
@@ -229,7 +230,10 @@ fn assert_state_sanity(
             continue;
         }
 
-        if !client_tracking_shard(client, shard_uid.shard_id(), &final_head.prev_block_hash) {
+        if !client
+            .shard_tracker
+            .cares_about_shard(&final_head.prev_block_hash, shard_uid.shard_id())
+        {
             continue;
         }
 
@@ -346,7 +350,7 @@ pub fn check_state_shard_uid_mapping_after_resharding(
     client: &Client,
     resharding_block_hash: &CryptoHash,
     parent_shard_uid: ShardUId,
-) {
+) -> usize {
     let tip = client.chain.head().unwrap();
     let epoch_id = tip.epoch_id;
     let shard_layout = client.epoch_manager.get_shard_layout(&epoch_id).unwrap();
@@ -371,8 +375,11 @@ pub fn check_state_shard_uid_mapping_after_resharding(
             tracked_mapped_children.push(*child_shard_uid);
         }
     }
-    // Currently we set the mapping for both children, or the mapping has been deleted.
-    assert!(shard_uid_mapping.is_empty() || shard_uid_mapping.len() == 2);
+
+    let num_mapped_children = tracked_mapped_children.len();
+    if num_mapped_children == 0 {
+        return 0;
+    }
 
     // Whether we found any value in DB for which we could test the mapping.
     let mut has_any_parent_shard_uid_prefix = false;
@@ -380,8 +387,6 @@ pub fn check_state_shard_uid_mapping_after_resharding(
     for kv in store.iter_raw_bytes(DBCol::State) {
         let (key, value) = kv.unwrap();
         let shard_uid = ShardUId::try_from_slice(&key[0..8]).unwrap();
-        // Just after resharding, no State data must be keyed using children ShardUIds.
-        assert!(!shard_uid_mapping.contains_key(&shard_uid));
         if shard_uid != parent_shard_uid {
             continue;
         }
@@ -428,4 +433,6 @@ pub fn check_state_shard_uid_mapping_after_resharding(
             assert!(shard_uid_mapping.is_empty());
         }
     }
+
+    num_mapped_children
 }

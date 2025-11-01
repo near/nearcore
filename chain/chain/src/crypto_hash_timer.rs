@@ -1,8 +1,8 @@
 use lru::LruCache;
 use near_async::time::{Clock, Duration, Instant};
 use near_primitives::hash::CryptoHash;
+use parking_lot::Mutex;
 use std::num::NonZeroUsize;
-use std::sync::Mutex;
 
 // Cache with the mapping from CryptoHash (blocks, chunks) to the number milliseconds that it took to process them.
 // Used only for debugging purposes.
@@ -35,14 +35,14 @@ impl CryptoHashTimer {
         CryptoHashTimer { clock, key, start }
     }
     pub fn get_timer_value(key: CryptoHash) -> Option<Duration> {
-        CRYPTO_HASH_TIMER_RESULTS.lock().unwrap().get(&key).cloned()
+        CRYPTO_HASH_TIMER_RESULTS.lock().get(&key).cloned()
     }
 }
 
 impl Drop for CryptoHashTimer {
     fn drop(&mut self) {
         let time_passed = self.clock.now() - self.start;
-        let mut guard_ = CRYPTO_HASH_TIMER_RESULTS.lock().unwrap();
+        let mut guard_ = CRYPTO_HASH_TIMER_RESULTS.lock();
         let previous = guard_.get(&self.key).copied().unwrap_or_default();
         guard_.put(self.key, time_passed + previous);
     }

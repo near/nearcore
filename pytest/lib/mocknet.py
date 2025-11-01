@@ -102,22 +102,12 @@ def get_node(hostname, project=PROJECT):
 
 
 def get_nodes(pattern=None, project=PROJECT):
-    machines = gcloud.list(
-        pattern=pattern,
+    return GCloudNode.get_nodes_by_mocknet_id(
+        mocknet_id=pattern,
         project=project,
         username=NODE_USERNAME,
         ssh_key_path=NODE_SSH_KEY_PATH,
     )
-    nodes = pmap(
-        lambda machine: GCloudNode(
-            machine.name,
-            username=NODE_USERNAME,
-            project=project,
-            ssh_key_path=NODE_SSH_KEY_PATH,
-        ),
-        machines,
-    )
-    return nodes
 
 
 # Needs to be in-sync with init.sh.tmpl in terraform.
@@ -1105,7 +1095,7 @@ def neard_start_script(node, upgrade_schedule=None, epoch_height=None):
         sudo mv /home/ubuntu/near.upgrade.log /home/ubuntu/near.upgrade.log.1 2>/dev/null
         tmux new -s near -d bash
         sudo rm -rf /home/ubuntu/neard.log
-        tmux send-keys -t near 'RUST_BACKTRACE=full RUST_LOG=debug,actix_web=info {neard_binary} run 2>&1 | tee -a {neard_binary}.log' C-m
+        tmux send-keys -t near 'RUST_BACKTRACE=full RUST_LOG=debug {neard_binary} run 2>&1 | tee -a {neard_binary}.log' C-m
     '''.format(neard_binary=shlex.quote(neard_binary))
 
 
@@ -1433,7 +1423,7 @@ def neard_restart_script(node):
         tmux send-keys -t near C-c
         sudo mv /home/ubuntu/near.log /home/ubuntu/near.log.1 2>/dev/null
         sudo mv /home/ubuntu/near.upgrade.log /home/ubuntu/near.upgrade.log.1 2>/dev/null
-        tmux send-keys -t near 'RUST_BACKTRACE=full RUST_LOG=debug,actix_web=info {neard_binary} run 2>&1 | tee -a {neard_binary}.log' C-m
+        tmux send-keys -t near 'RUST_BACKTRACE=full RUST_LOG=debug {neard_binary} run 2>&1 | tee -a {neard_binary}.log' C-m
     '''.format(neard_binary=shlex.quote(neard_binary))
 
 

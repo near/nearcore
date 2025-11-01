@@ -29,6 +29,7 @@ use near_vm_vm::{
 use near_vm_vm::{
     FunctionBodyPtr, SectionBodyPtr, VMImportType, VMLocalFunction, VMOffsets, VMTrampoline,
 };
+use parking_lot::{Mutex, MutexGuard};
 #[cfg(not(windows))]
 use rkyv::Archived;
 #[cfg(not(windows))]
@@ -37,7 +38,7 @@ use rkyv::tuple::ArchivedTuple3;
 use std::collections::BTreeMap;
 #[cfg(not(windows))]
 use std::convert::TryFrom;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 /// A WebAssembly `Universal` Engine.
 #[derive(Clone)]
@@ -96,12 +97,12 @@ impl UniversalEngine {
         }
     }
 
-    pub(crate) fn inner(&self) -> std::sync::MutexGuard<'_, UniversalEngineInner> {
-        self.inner.lock().unwrap()
+    pub(crate) fn inner(&self) -> MutexGuard<'_, UniversalEngineInner> {
+        self.inner.lock()
     }
 
-    pub(crate) fn inner_mut(&self) -> std::sync::MutexGuard<'_, UniversalEngineInner> {
-        self.inner.lock().unwrap()
+    pub(crate) fn inner_mut(&self) -> MutexGuard<'_, UniversalEngineInner> {
+        self.inner.lock()
     }
 
     /// Compile a WebAssembly binary
@@ -167,7 +168,7 @@ impl UniversalEngine {
         let mut function_bodies = PrimaryMap::with_capacity(functions.len());
         let mut function_relocations = PrimaryMap::with_capacity(functions.len());
         let mut function_jt_offsets = PrimaryMap::with_capacity(functions.len());
-        for (_, func) in functions.into_iter() {
+        for (_, func) in functions {
             function_bodies.push(func.body);
             function_relocations.push(func.relocations);
             function_jt_offsets.push(func.jt_offsets);

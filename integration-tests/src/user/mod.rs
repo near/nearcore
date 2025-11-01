@@ -1,7 +1,5 @@
 use std::sync::Arc;
 
-use futures::{FutureExt, future::LocalBoxFuture};
-
 use near_crypto::{PublicKey, Signer};
 use near_jsonrpc_primitives::errors::ServerError;
 use near_primitives::account::AccessKey;
@@ -11,10 +9,9 @@ use near_primitives::receipt::Receipt;
 use near_primitives::test_utils::create_user_test_signer;
 use near_primitives::transaction::{
     Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, DeleteKeyAction,
-    DeployContractAction, ExecutionOutcome, FunctionCallAction, SignedTransaction, StakeAction,
-    TransferAction,
+    DeployContractAction, FunctionCallAction, SignedTransaction, StakeAction, TransferAction,
 };
-use near_primitives::types::{AccountId, Balance, BlockHeight, Gas, MerkleHash, ShardId};
+use near_primitives::types::{AccountId, Balance, BlockHeight, Gas, ShardId};
 use near_primitives::views::{
     AccessKeyView, AccountView, BlockView, CallResult, ChunkView, ContractCodeView,
     ExecutionOutcomeView, FinalExecutionOutcomeView, ViewStateResult,
@@ -24,8 +21,6 @@ pub use crate::user::runtime_user::RuntimeUser;
 
 pub mod rpc_user;
 pub mod runtime_user;
-
-const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum CommitError {
@@ -76,6 +71,11 @@ pub trait User {
         signed_transaction: SignedTransaction,
     ) -> Result<FinalExecutionOutcomeView, CommitError>;
 
+    fn commit_all_transactions(
+        &self,
+        signed_transaction: Vec<SignedTransaction>,
+    ) -> Result<Vec<Result<FinalExecutionOutcomeView, CommitError>>, ServerError>;
+
     fn add_receipts(
         &self,
         receipts: Vec<Receipt>,
@@ -113,14 +113,14 @@ pub trait User {
 
     fn set_signer(&mut self, signer: Arc<Signer>);
 
-    fn sign_and_commit_actions(
+    fn make_signed_transaction(
         &self,
         signer_id: AccountId,
         receiver_id: AccountId,
         actions: Vec<Action>,
-    ) -> Result<FinalExecutionOutcomeView, CommitError> {
+    ) -> SignedTransaction {
         let block_hash = self.get_best_block_hash().unwrap_or_default();
-        let signed_transaction = SignedTransaction::from_actions(
+        SignedTransaction::from_actions(
             self.get_access_key_nonce_for_signer(&signer_id).unwrap_or_default() + 1,
             signer_id,
             receiver_id,
@@ -128,8 +128,16 @@ pub trait User {
             actions,
             block_hash,
             0,
-        );
-        self.commit_transaction(signed_transaction)
+        )
+    }
+
+    fn sign_and_commit_actions(
+        &self,
+        signer_id: AccountId,
+        receiver_id: AccountId,
+        actions: Vec<Action>,
+    ) -> Result<FinalExecutionOutcomeView, CommitError> {
+        self.commit_transaction(self.make_signed_transaction(signer_id, receiver_id, actions))
     }
 
     fn send_money(
@@ -311,59 +319,4 @@ pub trait User {
             vec![Action::Delegate(Box::new(signed_delegate_action))],
         )
     }
-}
-
-/// Same as `User` by provides async API that can be used inside tokio.
-pub trait AsyncUser: Send + Sync {
-    fn view_account(
-        &self,
-        account_id: &AccountId,
-    ) -> LocalBoxFuture<'static, Result<AccountView, ServerError>>;
-
-    fn view_balance(
-        &self,
-        account_id: &AccountId,
-    ) -> LocalBoxFuture<'static, Result<Balance, ServerError>> {
-        self.view_account(account_id).map(|res| res.map(|acc| acc.amount)).boxed_local()
-    }
-
-    fn view_state(
-        &self,
-        account_id: &AccountId,
-    ) -> LocalBoxFuture<'static, Result<ViewStateResult, ServerError>>;
-
-    fn add_transaction(
-        &self,
-        transaction: SignedTransaction,
-    ) -> LocalBoxFuture<'static, Result<(), ServerError>>;
-
-    fn add_receipts(
-        &self,
-        receipts: &[Receipt],
-    ) -> LocalBoxFuture<'static, Result<(), ServerError>>;
-
-    fn get_account_nonce(
-        &self,
-        account_id: &AccountId,
-    ) -> LocalBoxFuture<'static, Result<u64, ServerError>>;
-
-    fn get_best_height(&self) -> LocalBoxFuture<'static, Result<BlockHeight, ServerError>>;
-
-    fn get_transaction_result(
-        &self,
-        hash: &CryptoHash,
-    ) -> LocalBoxFuture<'static, Result<ExecutionOutcome, ServerError>>;
-
-    fn get_transaction_final_result(
-        &self,
-        hash: &CryptoHash,
-    ) -> LocalBoxFuture<'static, Result<FinalExecutionOutcomeView, ServerError>>;
-
-    fn get_state_root(&self) -> LocalBoxFuture<'static, Result<MerkleHash, ServerError>>;
-
-    fn get_access_key(
-        &self,
-        account_id: &AccountId,
-        public_key: &PublicKey,
-    ) -> LocalBoxFuture<'static, Result<Option<AccessKey>, ServerError>>;
 }

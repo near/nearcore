@@ -3,20 +3,30 @@ use std::sync::Arc;
 use near_async::messaging::{IntoMultiSender, IntoSender, LateBoundSender, noop};
 use near_async::test_loop::TestLoopV2;
 use near_async::time::Duration;
-use near_chain::ChainGenesis;
 use near_chain::resharding::resharding_actor::ReshardingActor;
 use near_chain::runtime::NightshadeRuntime;
+use near_chain::spice_core_writer_actor::SpiceCoreWriterActor;
 use near_chain::state_snapshot_actor::{
     SnapshotCallbacks, StateSnapshotActor, get_delete_snapshot_callback, get_make_snapshot_callback,
 };
 use near_chain::types::RuntimeAdapter;
-use near_chain_configs::MutableConfigValue;
+use near_chain::{ApplyChunksIterationMode, ApplyChunksSpawner, ChainGenesis};
+use near_chain_configs::{MutableConfigValue, ReshardingHandle};
 use near_chunks::shards_manager_actor::ShardsManagerActor;
+use near_client::archive::cloud_archival_writer::create_cloud_archival_writer;
+use near_client::archive::cold_store_actor::create_cold_store_actor;
+use near_client::chunk_executor_actor::ChunkExecutorActor;
 use near_client::client_actor::ClientActorInner;
 use near_client::gc_actor::GCActor;
+use near_client::spice_chunk_validator_actor::SpiceChunkValidatorActor;
+use near_client::spice_data_distributor_actor::SpiceDataDistributorActor;
 use near_client::sync_jobs_actor::SyncJobsActor;
 use near_client::{
-    Client, PartialWitnessActor, RpcHandler, RpcHandlerConfig, ViewClientActorInner,
+    AsyncComputationMultiSpawner, Client, PartialWitnessActor, RpcHandler, RpcHandlerConfig,
+    StateRequestActor, ViewClientActorInner,
+};
+use near_client::{
+    ChunkValidationActorInner, ChunkValidationSender, ChunkValidationSenderForPartialWitness,
 };
 use near_epoch_manager::EpochManager;
 use near_epoch_manager::shard_tracker::ShardTracker;
@@ -24,6 +34,7 @@ use near_primitives::genesis::GenesisId;
 use near_primitives::network::PeerId;
 use near_primitives::test_utils::create_test_signer;
 use near_store::adapter::StoreAdapter;
+use near_store::config::SplitStorageConfig;
 use near_store::{StoreConfig, TrieConfig};
 use near_vm_runner::{ContractRuntimeCache, FilesystemContractRuntimeCache};
 use nearcore::state_sync::StateSyncDumper;
@@ -33,13 +44,14 @@ use crate::utils::peer_manager_actor::TestLoopPeerManagerActor;
 use super::drop_condition::ClientToShardsManagerSender;
 use super::state::{NodeExecutionData, NodeSetupState, SharedState};
 
+#[allow(clippy::large_stack_frames)]
 pub fn setup_client(
     identifier: &str,
     test_loop: &mut TestLoopV2,
     node_state: NodeSetupState,
     shared_state: &SharedState,
 ) -> NodeExecutionData {
-    let NodeSetupState { account_id, client_config, store, split_store } = node_state;
+    let NodeSetupState { account_id, client_config, storage } = node_state;
     let SharedState {
         genesis,
         tempdir,
@@ -60,8 +72,12 @@ pub fn setup_client(
     let partial_witness_adapter = LateBoundSender::new();
     let sync_jobs_adapter = LateBoundSender::new();
     let resharding_sender = LateBoundSender::new();
+    let chunk_executor_adapter = LateBoundSender::new();
+    let spice_data_distributor_adapter = LateBoundSender::new();
+    let spice_core_writer_adapter = LateBoundSender::new();
+    let spice_chunk_validator_adapter = LateBoundSender::new();
 
-    let homedir = tempdir.path().join(format!("{}", identifier));
+    let homedir = NodeExecutionData::homedir(tempdir, identifier);
     std::fs::create_dir_all(&homedir).expect("Unable to create homedir");
 
     let store_config = StoreConfig {
@@ -70,26 +86,27 @@ pub fn setup_client(
         ..Default::default()
     };
 
-    let sync_jobs_actor = SyncJobsActor::new(client_adapter.as_multi_sender());
+    let apply_chunks_iteration_mode = ApplyChunksIterationMode::Sequential;
+    let sync_jobs_actor =
+        SyncJobsActor::new(client_adapter.as_multi_sender(), apply_chunks_iteration_mode);
     let chain_genesis = ChainGenesis::new(&genesis.config);
     let epoch_manager = EpochManager::new_arc_handle_from_epoch_config_store(
-        store.clone(),
+        storage.hot_store.clone(),
         &genesis.config,
         epoch_config_store.clone(),
     );
-    let shard_tracker =
-        ShardTracker::new(client_config.tracked_shards_config.clone(), epoch_manager.clone());
 
     let contract_cache = FilesystemContractRuntimeCache::test().expect("filesystem contract cache");
     let runtime_adapter = NightshadeRuntime::test_with_trie_config(
         &homedir,
-        store.clone(),
+        storage.hot_store.clone(),
         ContractRuntimeCache::handle(&contract_cache),
         &genesis.config,
         epoch_manager.clone(),
         runtime_config_store.clone(),
         TrieConfig::from_store_config(&store_config),
         client_config.gc.gc_num_epochs_to_keep,
+        client_config.cloud_archival_writer.is_some(),
     );
 
     let state_snapshot = StateSnapshotActor::new(
@@ -110,6 +127,11 @@ pub fn setup_client(
         Some(Arc::new(create_test_signer(account_id.as_str()))),
         "validator_signer",
     );
+    let shard_tracker = ShardTracker::new(
+        client_config.tracked_shards_config.clone(),
+        epoch_manager.clone(),
+        validator_signer.clone(),
+    );
 
     let shards_manager_adapter = LateBoundSender::new();
     let client_to_shards_manager_sender = Arc::new(ClientToShardsManagerSender {
@@ -120,6 +142,12 @@ pub fn setup_client(
     // Generate a PeerId. This is used to identify the client in the network.
     // Make sure this is the same as the account_id of the client to redirect the network messages properly.
     let peer_id = PeerId::new(create_test_signer(account_id.as_str()).public_key());
+
+    let multi_spawner = AsyncComputationMultiSpawner::all_custom(Arc::new(
+        test_loop.async_computation_spawner(identifier, |_| Duration::milliseconds(80)),
+    ));
+
+    let chunk_validation_client_sender = LateBoundSender::<ChunkValidationSender>::new();
 
     let client = Client::new(
         test_loop.clock(),
@@ -134,12 +162,14 @@ pub fn setup_client(
         true,
         [0; 32],
         Some(snapshot_callbacks),
-        Arc::new(test_loop.async_computation_spawner(identifier, |_| Duration::milliseconds(80))),
+        multi_spawner,
+        apply_chunks_iteration_mode,
         partial_witness_adapter.as_multi_sender(),
         resharding_sender.as_multi_sender(),
         Arc::new(test_loop.future_spawner(identifier)),
         client_adapter.as_multi_sender(),
         client_adapter.as_multi_sender(),
+        chunk_validation_client_sender.as_multi_sender(),
         upgrade_schedule.clone(),
     )
     .unwrap();
@@ -147,33 +177,35 @@ pub fn setup_client(
     // If this is an archival node and split storage is initialized, then create view-specific
     // versions of EpochManager, ShardTracker and RuntimeAdapter and use them to initialize the
     // ViewClientActorInner. Otherwise, we use the regular versions created above.
-    let (view_epoch_manager, view_shard_tracker, view_runtime_adapter) = if let Some(split_store) =
-        &split_store
-    {
-        let view_epoch_manager = EpochManager::new_arc_handle_from_epoch_config_store(
-            split_store.clone(),
-            &genesis.config,
-            epoch_config_store.clone(),
-        );
-        let view_shard_tracker =
-            ShardTracker::new(client_config.tracked_shards_config.clone(), epoch_manager.clone());
-        let view_runtime_adapter = NightshadeRuntime::test_with_trie_config(
-            &homedir,
-            split_store.clone(),
-            ContractRuntimeCache::handle(&contract_cache),
-            &genesis.config,
-            view_epoch_manager.clone(),
-            runtime_config_store.clone(),
-            TrieConfig::from_store_config(&store_config),
-            client_config.gc.gc_num_epochs_to_keep,
-        );
-        (view_epoch_manager, view_shard_tracker, view_runtime_adapter)
-    } else {
-        (epoch_manager.clone(), shard_tracker.clone(), runtime_adapter.clone())
-    };
+    let (view_epoch_manager, view_shard_tracker, view_runtime_adapter) =
+        if let Some(split_store) = &storage.split_store {
+            let view_epoch_manager = EpochManager::new_arc_handle_from_epoch_config_store(
+                split_store.clone(),
+                &genesis.config,
+                epoch_config_store.clone(),
+            );
+            let view_shard_tracker = ShardTracker::new(
+                client_config.tracked_shards_config.clone(),
+                view_epoch_manager.clone(),
+                validator_signer.clone(),
+            );
+            let view_runtime_adapter = NightshadeRuntime::test_with_trie_config(
+                &homedir,
+                split_store.clone(),
+                ContractRuntimeCache::handle(&contract_cache),
+                &genesis.config,
+                view_epoch_manager.clone(),
+                runtime_config_store.clone(),
+                TrieConfig::from_store_config(&store_config),
+                client_config.gc.gc_num_epochs_to_keep,
+                client_config.cloud_archival_writer.is_some(),
+            );
+            (view_epoch_manager, view_shard_tracker, view_runtime_adapter)
+        } else {
+            (epoch_manager.clone(), shard_tracker.clone(), runtime_adapter.clone())
+        };
     let view_client_actor = ViewClientActorInner::new(
         test_loop.clock(),
-        validator_signer.clone(),
         chain_genesis.clone(),
         view_epoch_manager.clone(),
         view_shard_tracker,
@@ -181,9 +213,20 @@ pub fn setup_client(
         network_adapter.as_multi_sender(),
         client_config.clone(),
         near_client::adversarial::Controls::default(),
+        validator_signer.clone(),
     )
     .unwrap();
+    let state_request_actor = StateRequestActor::new(
+        test_loop.clock(),
+        runtime_adapter.clone(),
+        epoch_manager.clone(),
+        *view_client_actor.chain.genesis().hash(),
+        client_config.state_request_throttle_period,
+        client_config.state_requests_per_throttle_period,
+    );
 
+    let head = client.chain.head().unwrap();
+    let header_head = client.chain.header_head().unwrap();
     let shards_manager = ShardsManagerActor::new(
         test_loop.clock(),
         validator_signer.clone(),
@@ -192,12 +235,46 @@ pub fn setup_client(
         shard_tracker.clone(),
         network_adapter.as_sender(),
         client_adapter.as_sender(),
-        store.chunk_store(),
-        client.chain.head().unwrap(),
-        client.chain.header_head().unwrap(),
+        storage.hot_store.chunk_store(),
+        <_>::clone(&head),
+        <_>::clone(&header_head),
         Duration::milliseconds(100),
     );
 
+    let genesis_block = client.chain.genesis_block();
+    let chunk_validation_actor = ChunkValidationActorInner::new(
+        client.chain.chain_store().clone(),
+        genesis_block,
+        epoch_manager.clone(),
+        runtime_adapter.clone(),
+        network_adapter.as_sender(),
+        validator_signer.clone(),
+        client_config.save_latest_witnesses,
+        client_config.save_invalid_witnesses,
+        Arc::new(test_loop.async_computation_spawner(identifier, |_| Duration::milliseconds(80))),
+        client_config.orphan_state_witness_pool_size,
+        client_config.orphan_state_witness_max_size.as_u64(),
+    );
+    let chunk_executor_sender = if cfg!(feature = "protocol_feature_spice") {
+        chunk_executor_adapter.as_sender()
+    } else {
+        noop().into_sender()
+    };
+    let spice_chunk_validator_sender = if cfg!(feature = "protocol_feature_spice") {
+        spice_chunk_validator_adapter.as_sender()
+    } else {
+        noop().into_sender()
+    };
+    let spice_data_distributor_sender = if cfg!(feature = "protocol_feature_spice") {
+        spice_data_distributor_adapter.as_sender()
+    } else {
+        noop().into_sender()
+    };
+    let spice_core_writer_sender = if cfg!(feature = "protocol_feature_spice") {
+        spice_core_writer_adapter.as_sender()
+    } else {
+        noop().into_sender()
+    };
     let client_actor = ClientActorInner::new(
         test_loop.clock(),
         client,
@@ -208,6 +285,10 @@ pub fn setup_client(
         Default::default(),
         None,
         sync_jobs_adapter.as_multi_sender(),
+        chunk_executor_sender,
+        spice_chunk_validator_sender,
+        spice_data_distributor_sender,
+        spice_core_writer_sender,
     )
     .unwrap();
 
@@ -228,15 +309,18 @@ pub fn setup_client(
         network_adapter.as_multi_sender(),
     );
 
+    let chunk_validation_adapter = LateBoundSender::<ChunkValidationSenderForPartialWitness>::new();
+
     let partial_witness_actor = PartialWitnessActor::new(
         test_loop.clock(),
         network_adapter.as_multi_sender(),
-        client_adapter.as_multi_sender(),
+        chunk_validation_adapter.as_multi_sender(),
         validator_signer.clone(),
         epoch_manager.clone(),
         runtime_adapter.clone(),
-        Arc::new(test_loop.async_computation_spawner(identifier, |_| Duration::milliseconds(80))),
-        Arc::new(test_loop.async_computation_spawner(identifier, |_| Duration::milliseconds(80))),
+        Arc::new(test_loop.async_computation_spawner(identifier, |_| Duration::milliseconds(80))), // Heavy contract compilation
+        Arc::new(test_loop.async_computation_spawner(identifier, |_| Duration::milliseconds(10))),
+        Arc::new(test_loop.async_computation_spawner(identifier, |_| Duration::milliseconds(10))),
     );
 
     let peer_manager_actor = TestLoopPeerManagerActor::new(
@@ -257,14 +341,118 @@ pub fn setup_client(
         runtime_adapter.clone(),
         epoch_manager.clone(),
         shard_tracker.clone(),
-        validator_signer.clone(),
         client_config.gc.clone(),
-        client_config.archive,
+        // In testloop, we do not use legacy archival node.
+        storage.cold_db.is_some(),
     );
     // We don't send messages to `GCActor` so adapter is not needed.
     test_loop.data.register_actor(identifier, gc_actor, None);
 
-    let resharding_actor = ReshardingActor::new(runtime_adapter.store().clone(), &chain_genesis);
+    let cold_store_sender = if storage.cold_db.is_some() {
+        let (cold_store_actor, _) = create_cold_store_actor(
+            Some(client_config.save_trie_changes),
+            &SplitStorageConfig::default(),
+            genesis.config.genesis_height,
+            storage.hot_store.clone(),
+            storage.cold_db.as_ref(),
+            epoch_manager.clone(),
+            shard_tracker.clone(),
+        )
+        .unwrap()
+        .unwrap();
+        let sender = LateBoundSender::new();
+        let sender = test_loop.data.register_actor(identifier, cold_store_actor, Some(sender));
+        Some(sender)
+    } else {
+        None
+    };
+
+    let cloud_storage_sender = test_loop.data.register_data(storage.cloud_storage.clone());
+
+    let cloud_archival_writer_handle = create_cloud_archival_writer(
+        test_loop.clock(),
+        Arc::new(test_loop.future_spawner(identifier)),
+        client_config.cloud_archival_writer.clone(),
+        genesis.config.genesis_height,
+        runtime_adapter.clone(),
+        storage.hot_store,
+        storage.cloud_storage.as_ref(),
+    )
+    .unwrap();
+    let cloud_archival_writer_handle = test_loop.data.register_data(cloud_archival_writer_handle);
+
+    let resharding_actor = ReshardingActor::new(
+        epoch_manager.clone(),
+        runtime_adapter.clone(),
+        ReshardingHandle::new(),
+        client_config.resharding_config.clone(),
+    );
+
+    let spice_core_writer_actor = SpiceCoreWriterActor::new(
+        runtime_adapter.store().chain_store(),
+        epoch_manager.clone(),
+        chunk_executor_adapter.as_sender(),
+        spice_chunk_validator_adapter.as_sender(),
+    );
+
+    let spice_data_distributor_actor = SpiceDataDistributorActor::new(
+        epoch_manager.clone(),
+        runtime_adapter.store().chain_store(),
+        validator_signer.clone(),
+        shard_tracker.clone(),
+        network_adapter.as_multi_sender(),
+        chunk_executor_adapter.as_sender(),
+        spice_chunk_validator_adapter.as_sender(),
+    );
+
+    let apply_chunks_iteration_mode = ApplyChunksIterationMode::Sequential;
+    let chunk_executor_actor = ChunkExecutorActor::new(
+        runtime_adapter.store().clone(),
+        &chain_genesis,
+        runtime_adapter.clone(),
+        epoch_manager.clone(),
+        shard_tracker.clone(),
+        network_adapter.as_multi_sender(),
+        validator_signer.clone(),
+        Arc::new(test_loop.async_computation_spawner(identifier, |_| Duration::milliseconds(80))),
+        apply_chunks_iteration_mode,
+        chunk_executor_adapter.as_sender(),
+        spice_core_writer_adapter.as_sender(),
+        spice_data_distributor_adapter.as_multi_sender(),
+    );
+
+    let spice_data_distributor_sender = test_loop.data.register_actor(
+        identifier,
+        spice_data_distributor_actor,
+        Some(spice_data_distributor_adapter),
+    );
+
+    test_loop.data.register_actor(identifier, chunk_executor_actor, Some(chunk_executor_adapter));
+
+    let spice_chunk_validator_actor = SpiceChunkValidatorActor::new(
+        runtime_adapter.store().clone(),
+        &chain_genesis,
+        runtime_adapter.clone(),
+        epoch_manager.clone(),
+        network_adapter.as_multi_sender(),
+        validator_signer.clone(),
+        spice_core_writer_adapter.as_sender(),
+        ApplyChunksSpawner::Custom(Arc::new(
+            test_loop.async_computation_spawner(identifier, |_| Duration::milliseconds(80)),
+        )),
+    );
+
+    test_loop.data.register_actor(
+        identifier,
+        spice_chunk_validator_actor,
+        Some(spice_chunk_validator_adapter),
+    );
+
+    let spice_core_writer_sender = test_loop.data.register_actor(
+        identifier,
+        spice_core_writer_actor,
+        Some(spice_core_writer_adapter),
+    );
 
     let state_sync_dumper = StateSyncDumper {
         clock: test_loop.clock(),
@@ -275,13 +463,14 @@ pub fn setup_client(
         runtime: runtime_adapter,
         validator: validator_signer,
         future_spawner: Arc::new(test_loop.future_spawner(identifier)),
-        handle: None,
     };
-    let state_sync_dumper_handle = test_loop.data.register_data(state_sync_dumper);
+    let state_sync_dumper_handle = state_sync_dumper.start().unwrap();
+    let state_sync_dumper_handle = test_loop.data.register_data(state_sync_dumper_handle);
 
     let client_sender =
         test_loop.data.register_actor(identifier, client_actor, Some(client_adapter));
     let view_client_sender = test_loop.data.register_actor(identifier, view_client_actor, None);
+    let state_request_sender = test_loop.data.register_actor(identifier, state_request_actor, None);
     let rpc_handler_sender =
         test_loop.data.register_actor(identifier, rpc_handler, Some(rpc_handler_adapter));
     let shards_manager_sender =
@@ -293,12 +482,24 @@ pub fn setup_client(
     );
     test_loop.data.register_actor(identifier, sync_jobs_actor, Some(sync_jobs_adapter));
     test_loop.data.register_actor(identifier, state_snapshot, Some(state_snapshot_adapter));
-    test_loop.data.register_actor(identifier, resharding_actor, Some(resharding_sender));
+    let resharding_sender =
+        test_loop.data.register_actor(identifier, resharding_actor, Some(resharding_sender));
 
-    // State sync dumper is not an Actor, handle starting separately.
-    let state_sync_dumper_handle_clone = state_sync_dumper_handle.clone();
-    test_loop.send_adhoc_event("start_state_sync_dumper".to_owned(), move |test_loop_data| {
-        test_loop_data.get_mut(&state_sync_dumper_handle_clone).start().unwrap();
+    let chunk_validation_sender = test_loop.data.register_actor(
+        identifier,
+        chunk_validation_actor,
+        None, // No adapter needed, we'll bind directly
+    );
+
+    let chunk_validation_multi_sender = ChunkValidationSender {
+        chunk_state_witness: chunk_validation_sender.clone().into_sender(),
+        block_notification: chunk_validation_sender.into_sender(),
+    };
+
+    chunk_validation_client_sender.bind(chunk_validation_multi_sender.clone());
+
+    chunk_validation_adapter.bind(ChunkValidationSenderForPartialWitness {
+        chunk_state_witness: chunk_validation_multi_sender.chunk_state_witness,
     });
 
     let peer_manager_sender =
@@ -310,11 +511,18 @@ pub fn setup_client(
         peer_id,
         client_sender,
         view_client_sender,
+        state_request_sender,
         rpc_handler_sender,
         shards_manager_sender,
         partial_witness_sender,
         peer_manager_sender,
+        resharding_sender,
         state_sync_dumper_handle,
+        spice_data_distributor_sender,
+        spice_core_writer_sender,
+        cold_store_sender,
+        cloud_storage_sender,
+        cloud_archival_writer_handle,
     };
 
     // Add the client to the network shared state before returning data

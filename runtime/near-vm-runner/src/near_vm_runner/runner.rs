@@ -1,7 +1,5 @@
-// cspell:ignore waitlist
-
-use super::{NearVmMemory, VM_CONFIG};
-use crate::cache::CompiledContractInfo;
+use super::{NearVmMemory, VM_CONFIG, near_vm_vm_hash};
+use crate::cache::{CompiledContractInfo, get_contract_cache_key};
 use crate::errors::ContractPrecompilatonResult;
 use crate::logic::errors::{
     CacheError, CompilationError, FunctionCallError, MethodResolveError, VMRunnerError, WasmTrap,
@@ -12,9 +10,7 @@ use crate::logic::{
 };
 use crate::near_vm_runner::{NearVmCompiler, NearVmEngine};
 use crate::runner::VMResult;
-use crate::{
-    CompiledContract, Contract, ContractCode, ContractRuntimeCache, get_contract_cache_key, imports,
-};
+use crate::{CompiledContract, Contract, ContractCode, ContractRuntimeCache, imports, lazy_drop};
 use crate::{NoContractRuntimeCache, prepare};
 use memoffset::offset_of;
 use near_parameters::RuntimeFeesConfig;
@@ -29,9 +25,8 @@ use near_vm_vm::{
     Artifact, ExportFunction, ExportFunctionMetadata, Instantiatable, LinearMemory, LinearTable,
     MemoryStyle, Resolver, TrapCode, VMFunction, VMFunctionKind, VMMemory,
 };
-use std::any::Any;
 use std::mem::size_of;
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, OnceLock};
 
 type VMArtifact = Arc<UniversalArtifact>;
 
@@ -128,11 +123,12 @@ impl NearVM {
             })
             .clone();
 
+        let features = crate::features::WasmFeatures::new(&config).into();
         Self {
             config,
             engine: Universal::new(compiler)
                 .target(target)
-                .features(crate::features::WasmFeatures::new().into())
+                .features(features)
                 .code_memory_pool(code_memory_pool)
                 .engine(),
         }
@@ -187,7 +183,7 @@ impl NearVM {
         cache: &dyn ContractRuntimeCache,
     ) -> Result<Result<UniversalExecutable, CompilationError>, CacheError> {
         let executable_or_error = self.compile_uncached(code);
-        let key = get_contract_cache_key(*code.hash(), &self.config);
+        let key = get_contract_cache_key(*code.hash(), &self.config, near_vm_vm_hash());
         let record = CompiledContractInfo {
             wasm_bytes: code.code().len() as u64,
             compiled: match &executable_or_error {
@@ -224,7 +220,7 @@ impl NearVM {
         // To identify a cache hit from either in-memory and on-disk cache correctly, we first assume that we have a cache hit here,
         // and then we set it to false when we fail to find any entry and decide to compile (by calling compile_and_cache below).
         let mut is_cache_hit = true;
-        let key = get_contract_cache_key(contract.hash(), &self.config);
+        let key = get_contract_cache_key(contract.hash(), &self.config, near_vm_vm_hash());
         let (wasm_bytes, artifact_result) = cache.memory_cache().try_lookup(
             key,
             || {
@@ -435,30 +431,6 @@ impl NearVM {
     }
 }
 
-/// Drop something somewhat lazily.
-///
-/// The memory destruction is sorta expensive process, but not expensive enough to offload it into
-/// a thread for individual instances.
-///
-/// Instead this method will gather up a number of things before initiating a release in a thread,
-/// thus working in batches of sorts and amortizing the thread overhead.
-fn lazy_drop(what: Box<dyn Any + Send>) {
-    // TODO: this would benefit from a lock-free array (should be straightforward enough to
-    // implement too...) But for the time being this mutex is not really contended much so…
-    // whatever.
-    const CHUNK_SIZE: usize = 8;
-    static WAITLIST: OnceLock<Mutex<Vec<Box<dyn Any + Send>>>> = OnceLock::new();
-    let waitlist = WAITLIST.get_or_init(|| Mutex::new(Vec::with_capacity(CHUNK_SIZE)));
-    let mut waitlist = waitlist.lock().unwrap_or_else(|e| e.into_inner());
-    if waitlist.capacity() > waitlist.len() {
-        waitlist.push(Box::new(what));
-    }
-    if waitlist.capacity() == waitlist.len() {
-        let chunk = std::mem::replace(&mut *waitlist, Vec::with_capacity(CHUNK_SIZE));
-        rayon::spawn(move || drop(chunk));
-    }
-}
-
 impl near_vm_vm::Tunables for &NearVM {
     fn memory_style(&self, memory: &MemoryType) -> MemoryStyle {
         MemoryStyle::Static {
@@ -596,6 +568,16 @@ impl<'a> finite_wasm::wasmparser::VisitOperator<'a> for GasCostCfg {
 }
 
 impl crate::runner::VM for NearVM {
+    fn contract_cached(
+        &self,
+        cache: &dyn ContractRuntimeCache,
+        hash: near_primitives_core::hash::CryptoHash,
+    ) -> Result<bool, crate::logic::errors::CacheError> {
+        let key = get_contract_cache_key(hash, &self.config, near_vm_vm_hash());
+        // Check if we already cached with such a key.
+        cache.has(&key).map_err(CacheError::ReadError)
+    }
+
     fn prepare(
         self: Box<Self>,
         contract: &dyn Contract,
@@ -643,6 +625,9 @@ impl crate::runner::VM for NearVM {
         Result<ContractPrecompilatonResult, CompilationError>,
         crate::logic::errors::CacheError,
     > {
+        if self.contract_cached(cache, *code.hash())? {
+            return Ok(Ok(ContractPrecompilatonResult::ContractAlreadyInCache));
+        }
         Ok(self
             .compile_and_cache(code, cache)?
             .map(|_| ContractPrecompilatonResult::ContractCompiled))

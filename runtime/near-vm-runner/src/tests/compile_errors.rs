@@ -285,7 +285,6 @@ pub fn test_stabilized_host_function() {
     (call $ripemd160 (i64.const 0) (i64.const 0) (i64.const 0)))
 )"#,
         )
-        .opaque_error()
         .expects(&[
             expect![[r#"
                 VMOutcome: balance 4 storage_usage 12 return data None burnt gas 7226376631 used gas 7226376631
@@ -316,30 +315,6 @@ fn test_sandbox_only_function() {
         VMOutcome: balance 4 storage_usage 12 return data None burnt gas 145464758 used gas 145464758
         Err: ...
     "#]]);
-}
-
-#[test]
-fn extension_saturating_float_to_int() {
-    #[allow(deprecated)]
-    test_builder()
-        .wat(
-            r#"
-            (module
-                (func $test_trunc (param $x f64) (result i32) (i32.trunc_sat_f64_s (local.get $x)))
-            )
-            "#,
-        )
-        .protocol_version(FIX_CONTRACT_LOADING_COST)
-        .expects(&[
-            expect![[r#"
-                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 0 used gas 0
-                Err: PrepareError: Error happened while deserializing the module.
-            "#]],
-            expect![[r#"
-                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 100803663 used gas 100803663
-                Err: PrepareError: Error happened while deserializing the module.
-            "#]],
-        ]);
 }
 
 #[test]

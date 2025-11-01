@@ -1,7 +1,7 @@
 use lru::LruCache;
 use near_async::time::{Clock, Instant, Utc};
 use near_epoch_manager::EpochManagerAdapter;
-use near_primitives::block::{Block, Tip};
+use near_primitives::block::{Block, ChunkType, Tip};
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::sharding::{ChunkHash, ShardChunkHeader};
@@ -48,17 +48,21 @@ pub struct BlocksDelayTracker {
 
 #[derive(Debug, Clone)]
 pub struct BlockTrackingStats {
-    /// Timestamp when block was received.
+    /// Timestamp when block was received or self-produced.
     pub received_timestamp: Instant,
     pub received_utc_timestamp: Utc,
     /// Timestamp when block was put to the orphan pool, if it ever was
     pub orphaned_timestamp: Option<Instant>,
     /// Timestamp when block was put to the missing chunks pool
     pub missing_chunks_timestamp: Option<Instant>,
+    /// Timestamp when block was put to the pending execution pool
+    pub pending_execution_timestamp: Option<Instant>,
     /// Timestamp when block was moved out of the orphan pool
     pub removed_from_orphan_timestamp: Option<Instant>,
     /// Timestamp when block was moved out of the missing chunks pool
     pub removed_from_missing_chunks_timestamp: Option<Instant>,
+    /// Timestamp when block was moved out of the pending execution pool
+    pub removed_from_pending_timestamp: Option<Instant>,
     /// Timestamp when block was done processing
     pub processed_timestamp: Option<Instant>,
     /// Whether the block is not processed because of different reasons
@@ -201,18 +205,17 @@ impl BlocksDelayTracker {
         let height = block.header().height();
         let chunks = block
             .chunks()
-            .iter_deprecated()
-            .map(|chunk| {
-                if chunk.height_included() == height {
+            .iter()
+            .map(|chunk| match chunk {
+                ChunkType::New(chunk) => {
                     let chunk_hash = chunk.chunk_hash();
                     self.chunks
                         .entry(chunk_hash.clone())
                         .or_insert_with(|| ChunkTrackingStats::new(chunk));
-                    self.floating_chunks.remove(&chunk_hash);
-                    Some(chunk_hash)
-                } else {
-                    None
+                    self.floating_chunks.remove(chunk_hash);
+                    Some(chunk_hash.clone())
                 }
+                ChunkType::Old(_) => None,
             })
             .collect();
         entry.insert(BlockTrackingStats {
@@ -220,8 +223,10 @@ impl BlocksDelayTracker {
             received_utc_timestamp: self.clock.now_utc(),
             orphaned_timestamp: None,
             missing_chunks_timestamp: None,
+            pending_execution_timestamp: None,
             removed_from_orphan_timestamp: None,
             removed_from_missing_chunks_timestamp: None,
+            removed_from_pending_timestamp: None,
             processed_timestamp: None,
             dropped: None,
             error: None,
@@ -276,6 +281,22 @@ impl BlocksDelayTracker {
         }
     }
 
+    pub fn mark_block_pending_execution(&mut self, block_hash: &CryptoHash) {
+        if let Some(block_entry) = self.blocks.get_mut(block_hash) {
+            block_entry.pending_execution_timestamp = Some(self.clock.now());
+        } else {
+            error!(target:"blocks_delay_tracker", "block {:?} was marked as pending execution but was not marked received", block_hash);
+        }
+    }
+
+    pub fn mark_block_completed_pending_execution(&mut self, block_hash: &CryptoHash) {
+        if let Some(block_entry) = self.blocks.get_mut(block_hash) {
+            block_entry.removed_from_pending_timestamp = Some(self.clock.now());
+        } else {
+            error!(target:"blocks_delay_tracker", "block {:?} was marked as completed pending execution but was not marked received", block_hash);
+        }
+    }
+
     pub fn mark_block_completed_missing_chunks(&mut self, block_hash: &CryptoHash) {
         if let Some(block_entry) = self.blocks.get_mut(block_hash) {
             block_entry.removed_from_missing_chunks_timestamp = Some(self.clock.now());
@@ -305,7 +326,7 @@ impl BlocksDelayTracker {
         self.chunks
             .entry(chunk_hash.clone())
             .or_insert_with(|| {
-                self.floating_chunks.insert(chunk_hash, chunk_header.height_created());
+                self.floating_chunks.insert(chunk_hash.clone(), chunk_header.height_created());
                 ChunkTrackingStats::new(chunk_header)
             })
             .completed_timestamp
@@ -317,7 +338,7 @@ impl BlocksDelayTracker {
         self.chunks
             .entry(chunk_hash.clone())
             .or_insert_with(|| {
-                self.floating_chunks.insert(chunk_hash, chunk_header.height_created());
+                self.floating_chunks.insert(chunk_hash.clone(), chunk_header.height_created());
                 ChunkTrackingStats::new(chunk_header)
             })
             .requested_timestamp
@@ -404,6 +425,14 @@ impl BlocksDelayTracker {
             }
         } else {
             metrics::BLOCK_MISSING_CHUNKS_DELAY.observe(0.);
+        }
+        if let Some(start) = block.pending_execution_timestamp {
+            if let Some(end) = block.removed_from_pending_timestamp.or(block.processed_timestamp) {
+                metrics::BLOCK_PENDING_EXECUTION_DELAY
+                    .observe((end.signed_duration_since(start)).as_seconds_f64().max(0.0));
+            }
+        } else {
+            metrics::BLOCK_PENDING_EXECUTION_DELAY.observe(0.);
         }
     }
 
@@ -523,7 +552,7 @@ impl Chain {
             .flat_map(|(height, hashes)| {
                 hashes
                     .iter()
-                    .flat_map(|hash| {
+                    .filter_map(|hash| {
                         self.blocks_delay_tracker.get_block_processing_info(
                             *height,
                             hash,
@@ -538,7 +567,7 @@ impl Chain {
             .blocks_delay_tracker
             .floating_chunks
             .iter()
-            .flat_map(|(chunk_hash, _)| {
+            .filter_map(|(chunk_hash, _)| {
                 self.blocks_delay_tracker.chunks.get(chunk_hash).map(|chunk_stats| {
                     chunk_stats
                         .to_chunk_processing_info(chunk_hash.clone(), self.epoch_manager.as_ref())

@@ -50,7 +50,7 @@ fn safe_produce_blocks(
     block_without_chunks: Option<BlockHeight>,
 ) {
     let mut h = initial_height;
-    let mut blocks = vec![];
+    let mut blocks: Vec<std::sync::Arc<_>> = vec![];
     for _ in 1..=num_blocks {
         let mut block = None;
         // `env.clients[0]` may not be the block producer at `h`,
@@ -63,7 +63,10 @@ fn safe_produce_blocks(
         if let Some(block_without_chunks) = block_without_chunks {
             if block_without_chunks == h {
                 assert!(!blocks.is_empty());
-                testlib::process_blocks::set_no_chunk_in_block(&mut block, blocks.last().unwrap())
+                testlib::process_blocks::set_no_chunk_in_block(
+                    std::sync::Arc::make_mut(&mut block),
+                    blocks.last().unwrap(),
+                )
             }
         }
         blocks.push(block.clone());

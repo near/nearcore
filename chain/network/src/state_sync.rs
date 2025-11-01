@@ -1,6 +1,5 @@
 /// State sync response from peers.
-#[derive(actix::Message, Debug)]
-#[rtype(result = "()")]
+#[derive(Debug)]
 pub enum StateSyncResponse {
     HeaderResponse,
     PartResponse,

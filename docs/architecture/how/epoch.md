@@ -47,7 +47,7 @@ in epoch lasting a little bit longer (if we cannot get enough signatures on the
 last blocks of the previous epoch).
 
 You can read specific details on our
-[nomicon page](https://nomicon.io/BlockchainLayer/EpochManager/Epoch).
+[nomicon page](https://nomicon.io/BlockchainLayer/EpochAndStaking/Epoch).
 
 ## How do we pick the next validators?
 

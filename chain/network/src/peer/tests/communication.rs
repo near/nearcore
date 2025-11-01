@@ -1,18 +1,18 @@
 use crate::network_protocol::testonly as data;
 use crate::network_protocol::{
-    Handshake, HandshakeFailureReason, PartialEdgeInfo, PeerMessage, PeersRequest, PeersResponse,
-    RoutedMessageBody,
+    Handshake, HandshakeFailureReason, PartialEdgeInfo, PeerMessage, PeersRequest,
+    PeersResponse, T2MessageBody,
 };
-use crate::peer::testonly::{Event, PeerConfig, PeerHandle};
-use crate::peer_manager::peer_manager_actor::Event as PME;
+use crate::peer::testonly::{PeerConfig, PeerHandle};
+use crate::peer_manager::peer_manager_actor::Event;
 use crate::tcp;
 use crate::testonly::make_rng;
 use crate::testonly::stream::Stream;
 use crate::types::{Edge, PartialEncodedChunkRequestMsg, PartialEncodedChunkResponseMsg};
 use assert_matches::assert_matches;
-use near_async::time;
+use near_async::{ActorSystem, time};
 use near_o11y::testonly::init_test_logger;
-use near_primitives::version::{PEER_MIN_ALLOWED_PROTOCOL_VERSION, PROTOCOL_VERSION};
+use near_primitives::version::{MIN_SUPPORTED_PROTOCOL_VERSION, PROTOCOL_VERSION};
 use std::sync::Arc;
 
 #[allow(clippy::large_stack_frames)]
@@ -27,16 +27,22 @@ async fn test_peer_communication() -> anyhow::Result<()> {
     let outbound_cfg = PeerConfig { chain: chain.clone(), network: chain.make_config(&mut rng) };
     let (outbound_stream, inbound_stream) =
         tcp::Stream::loopback(inbound_cfg.id(), tcp::Tier::T2).await;
-    let mut inbound = PeerHandle::start_endpoint(clock.clock(), inbound_cfg, inbound_stream).await;
+    let actor_system = ActorSystem::new();
+    let mut inbound = PeerHandle::start_endpoint(
+        clock.clock(),
+        actor_system.clone(),
+        inbound_cfg,
+        inbound_stream,
+    );
     let mut outbound =
-        PeerHandle::start_endpoint(clock.clock(), outbound_cfg, outbound_stream).await;
+        PeerHandle::start_endpoint(clock.clock(), actor_system, outbound_cfg, outbound_stream);
 
     outbound.complete_handshake().await;
     inbound.complete_handshake().await;
 
     let message_processed = |want| {
         move |ev| match ev {
-            Event::Network(PME::MessageProcessed(_, got)) if got == want => Some(()),
+            Event::MessageProcessed(_, got) if got == want => Some(()),
             _ => None,
         }
     };
@@ -87,7 +93,7 @@ async fn test_peer_communication() -> anyhow::Result<()> {
 
     tracing::info!(target:"test","BlockHeaders");
     let mut events = inbound.events.from_now();
-    let want = PeerMessage::BlockHeaders(chain.get_block_headers());
+    let want = PeerMessage::BlockHeaders(chain.get_block_headers().map(Into::into).collect());
     outbound.send(want.clone()).await;
     events.recv_until(message_processed(want)).await;
 
@@ -99,33 +105,39 @@ async fn test_peer_communication() -> anyhow::Result<()> {
 
     tracing::info!(target:"test","PartialEncodedChunkRequest");
     let mut events = inbound.events.from_now();
-    let want = PeerMessage::Routed(Box::new(outbound.routed_message(
-        RoutedMessageBody::PartialEncodedChunkRequest(PartialEncodedChunkRequestMsg {
-            chunk_hash: chain.blocks[5].chunks()[2].chunk_hash(),
-            part_ords: vec![],
-            tracking_shards: Default::default(),
-        }),
-        inbound.cfg.id(),
-        1, // ttl
-        Some(clock.now_utc()),
-    )));
+    let want = PeerMessage::Routed(Box::new(
+        outbound.routed_message(
+            T2MessageBody::PartialEncodedChunkRequest(PartialEncodedChunkRequestMsg {
+                chunk_hash: chain.blocks[5].chunks()[2].chunk_hash().clone(),
+                part_ords: vec![],
+                tracking_shards: Default::default(),
+            })
+            .into(),
+            inbound.cfg.id(),
+            1, // ttl
+            Some(clock.now_utc()),
+        ),
+    ));
     outbound.send(want.clone()).await;
     events.recv_until(message_processed(want)).await;
 
     tracing::info!(target:"test","PartialEncodedChunkResponse");
     let mut events = inbound.events.from_now();
-    let want_hash = chain.blocks[3].chunks()[0].chunk_hash();
+    let want_hash = chain.blocks[3].chunks()[0].chunk_hash().clone();
     let want_parts = data::make_chunk_parts(chain.chunks[&want_hash].clone());
-    let want = PeerMessage::Routed(Box::new(outbound.routed_message(
-        RoutedMessageBody::PartialEncodedChunkResponse(PartialEncodedChunkResponseMsg {
-            chunk_hash: want_hash,
-            parts: want_parts.clone(),
-            receipts: vec![],
-        }),
-        inbound.cfg.id(),
-        1, // ttl
-        Some(clock.now_utc()),
-    )));
+    let want = PeerMessage::Routed(Box::new(
+        outbound.routed_message(
+            T2MessageBody::PartialEncodedChunkResponse(PartialEncodedChunkResponseMsg {
+                chunk_hash: want_hash,
+                parts: want_parts.clone(),
+                receipts: vec![],
+            })
+            .into(),
+            inbound.cfg.id(),
+            1, // ttl
+            Some(clock.now_utc()),
+        ),
+    ));
     outbound.send(want.clone()).await;
     events.recv_until(message_processed(want)).await;
 
@@ -154,14 +166,15 @@ async fn test_handshake() {
     let outbound_cfg = PeerConfig { network: chain.make_config(&mut rng), chain: chain.clone() };
     let (outbound_stream, inbound_stream) =
         tcp::Stream::loopback(inbound_cfg.id(), tcp::Tier::T2).await;
-    let inbound = PeerHandle::start_endpoint(clock.clock(), inbound_cfg, inbound_stream).await;
+    let inbound =
+        PeerHandle::start_endpoint(clock.clock(), ActorSystem::new(), inbound_cfg, inbound_stream);
     let outbound_port = outbound_stream.local_addr.port();
     let mut outbound = Stream::new(outbound_stream);
 
     // Send too old PROTOCOL_VERSION, expect ProtocolVersionMismatch
     let mut handshake = Handshake {
-        protocol_version: PEER_MIN_ALLOWED_PROTOCOL_VERSION - 1,
-        oldest_supported_version: PEER_MIN_ALLOWED_PROTOCOL_VERSION - 1,
+        protocol_version: MIN_SUPPORTED_PROTOCOL_VERSION - 1,
+        oldest_supported_version: MIN_SUPPORTED_PROTOCOL_VERSION - 1,
         sender_peer_id: outbound_cfg.id(),
         target_peer_id: inbound.cfg.id(),
         sender_listen_port: Some(outbound_port),

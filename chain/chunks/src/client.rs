@@ -1,5 +1,5 @@
-use actix::Message;
 use itertools::Itertools;
+use near_o11y::span_wrapped_msg::SpanWrapped;
 use near_pool::types::TransactionGroupIterator;
 use near_pool::{InsertTransactionResult, PoolIteratorWrapper, TransactionPool};
 use near_primitives::shard_layout::{ShardLayout, ShardUId};
@@ -11,8 +11,7 @@ use near_primitives::{
 };
 use std::collections::HashMap;
 
-#[derive(Message, Debug)]
-#[rtype(result = "()")]
+#[derive(Debug)]
 #[allow(clippy::large_enum_variant)]
 pub enum ShardsManagerResponse {
     /// Notifies the client that the ShardsManager has collected a complete chunk.
@@ -31,6 +30,9 @@ pub enum ShardsManagerResponse {
     /// this chunk now. The producer of this chunk is also provided.
     ChunkHeaderReadyForInclusion { chunk_header: ShardChunkHeader, chunk_producer: AccountId },
 }
+
+pub(crate) type ShardsManagerResponseSender =
+    near_async::messaging::Sender<SpanWrapped<ShardsManagerResponse>>;
 
 pub struct ShardedTransactionPool {
     tx_pools: HashMap<ShardUId, TransactionPool>,
@@ -160,7 +162,7 @@ mod tests {
         hash::CryptoHash,
         shard_layout::ShardLayout,
         transaction::{SignedTransaction, ValidatedTransaction},
-        types::{AccountId, ShardId},
+        types::{AccountId, Balance, ShardId},
     };
     use near_store::ShardUId;
     use rand::{SeedableRng, rngs::StdRng, seq::SliceRandom};
@@ -190,8 +192,16 @@ mod tests {
     #[test]
     fn test_transaction_pool_resharding() {
         init_test_logger();
-        let old_shard_layout = ShardLayout::get_simple_nightshade_layout();
-        let new_shard_layout = ShardLayout::get_simple_nightshade_layout_v2();
+
+        let boundary_accounts = ["aurora", "aurora-0", "kkuuue2akv_1630967379.near"]
+            .iter()
+            .map(|a| a.parse().unwrap())
+            .collect();
+        let old_shard_layout = ShardLayout::multi_shard_custom(boundary_accounts, 3);
+        let new_shard_layout = ShardLayout::derive_shard_layout(
+            &old_shard_layout,
+            "tge-lockup.sweat".parse().unwrap(),
+        );
 
         let mut pool = ShardedTransactionPool::new(TEST_SEED, None);
 
@@ -203,7 +213,7 @@ mod tests {
         shard_id_to_accounts
             .insert(ShardId::new(3), vec!["mmm", "rrr", "sweat", "ttt", "www", "zzz"]);
 
-        let deposit = 222;
+        let deposit = Balance::from_yoctonear(222);
 
         let mut rng: StdRng = SeedableRng::seed_from_u64(42);
 
@@ -249,7 +259,7 @@ mod tests {
         tracing::info!("checking the pool after resharding");
         {
             let shard_ids: Vec<_> = new_shard_layout.shard_ids().collect();
-            for &shard_id in shard_ids.iter() {
+            for &shard_id in &shard_ids {
                 let shard_uid = ShardUId::new(new_shard_layout.version(), shard_id);
                 let pool = pool.pool_for_shard(shard_uid);
                 let pool_len = pool.len();

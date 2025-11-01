@@ -4,6 +4,7 @@ pub type RpcValidatorsOrderedResponse =
     Vec<near_primitives::views::validator_stake_view::ValidatorStakeView>;
 
 #[derive(thiserror::Error, Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[serde(tag = "name", content = "info", rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum RpcValidatorError {
     #[error("Epoch not found")]
@@ -15,17 +16,20 @@ pub enum RpcValidatorError {
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Debug, arbitrary::Arbitrary, PartialEq, Eq)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct RpcValidatorRequest {
     #[serde(flatten)]
     pub epoch_reference: near_primitives::types::EpochReference,
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Debug)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct RpcValidatorsOrderedRequest {
     pub block_id: near_primitives::types::MaybeBlockId,
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Debug)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct RpcValidatorResponse {
     #[serde(flatten)]
     pub validator_info: near_primitives::views::EpochValidatorInfo,

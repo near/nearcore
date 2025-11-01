@@ -36,11 +36,11 @@ pub(crate) struct ChainAccess {
 
 impl ChainAccess {
     pub(crate) fn new<P: AsRef<Path>>(home: P) -> anyhow::Result<Self> {
-        let mut config =
+        let config =
             nearcore::config::load_config(home.as_ref(), GenesisValidationMode::UnsafeFast)
                 .with_context(|| format!("Error loading config from {:?}", home.as_ref()))?;
         let node_storage =
-            nearcore::open_storage(home.as_ref(), &mut config).context("failed opening storage")?;
+            nearcore::open_storage(home.as_ref(), &config).context("failed opening storage")?;
         let store = node_storage.get_hot_store();
         initialize_genesis_state(store.clone(), &config.genesis, Some(home.as_ref()));
         let chain = ChainStore::new(
@@ -125,7 +125,7 @@ impl crate::ChainAccess for ChainAccess {
             .with_context(|| format!("Can't get block {} at height {}", &block_hash, height))?;
 
         let mut chunks = Vec::new();
-        for chunk in block.chunks().iter_deprecated() {
+        for chunk in block.chunks().iter() {
             let chunk = match self.chain.get_chunk(&chunk.chunk_hash()) {
                 Ok(c) => c,
                 Err(e) => {

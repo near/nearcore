@@ -84,7 +84,7 @@ fn get_heuristic_block_approvers_ordered(
 ) -> Result<Vec<ApprovalStake>, EpochError> {
     let mut result = vec![];
     let mut validators: HashSet<AccountId> = HashSet::new();
-    for validator_id in epoch_info.block_producers_settlement().into_iter() {
+    for validator_id in epoch_info.block_producers_settlement() {
         let validator_stake = epoch_info.get_validator(*validator_id);
         let account_id = validator_stake.account_id();
         if validators.insert(account_id.clone()) {

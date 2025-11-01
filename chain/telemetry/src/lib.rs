@@ -1,10 +1,14 @@
 mod metrics;
 
-use awc::{Client, Connector};
 use futures::FutureExt;
+use near_async::ActorSystem;
+use near_async::futures::FutureSpawnerExt;
 use near_async::messaging::{Actor, Handler};
 use near_async::time::{Duration, Instant};
+use near_async::tokio::TokioRuntimeHandle;
+use near_performance_metrics as _; // Suppress cargo machete
 use near_performance_metrics_macros::perf;
+use reqwest::Client;
 use std::ops::Sub;
 
 /// Timeout for establishing connection.
@@ -30,29 +34,23 @@ impl Default for TelemetryConfig {
 }
 
 /// Event to send over telemetry.
-#[derive(actix::Message, Debug)]
-#[rtype(result = "()")]
+#[derive(Debug)]
 pub struct TelemetryEvent {
     pub content: serde_json::Value,
 }
 
 pub struct TelemetryActor {
+    handle: TokioRuntimeHandle<TelemetryActor>,
     config: TelemetryConfig,
     client: Client,
     last_telemetry_update: Instant,
 }
 
-impl Default for TelemetryActor {
-    fn default() -> Self {
-        Self::new(TelemetryConfig::default())
-    }
-}
-
 impl Actor for TelemetryActor {}
 
 impl TelemetryActor {
-    pub fn new(config: TelemetryConfig) -> Self {
-        for endpoint in config.endpoints.iter() {
+    fn new(handle: TokioRuntimeHandle<TelemetryActor>, config: TelemetryConfig) -> Self {
+        for endpoint in &config.endpoints {
             if endpoint.is_empty() {
                 panic!(
                     "All telemetry endpoints must be valid URLs. Received: {:?}",
@@ -63,15 +61,28 @@ impl TelemetryActor {
 
         let client = Client::builder()
             .timeout(CONNECT_TIMEOUT)
-            .connector(Connector::new().max_http_version(awc::http::Version::HTTP_11))
-            .finish();
+            .build()
+            .expect("Failed to create HTTP client for telemetry");
+
         let reporting_interval = config.reporting_interval;
         Self {
+            handle,
             config,
             client,
             // Let the node report telemetry info at the startup.
             last_telemetry_update: Instant::now().sub(reporting_interval),
         }
+    }
+
+    pub fn spawn_tokio_actor(
+        actor_system: ActorSystem,
+        config: TelemetryConfig,
+    ) -> TokioRuntimeHandle<TelemetryActor> {
+        let builder = actor_system.new_tokio_builder();
+        let handle = builder.handle();
+        let actor = TelemetryActor::new(handle.clone(), config);
+        builder.spawn_tokio_actor(actor);
+        handle
     }
 }
 
@@ -85,15 +96,16 @@ impl Handler<TelemetryEvent> for TelemetryActor {
             // request per `self.config.reporting_interval`.
             return;
         }
-        for endpoint in self.config.endpoints.iter() {
+        for endpoint in &self.config.endpoints {
             let endpoint = endpoint.clone();
-            near_performance_metrics::actix::spawn(
-                "telemetry",
-                self.client
+            let client = self.client.clone();
+            self.handle.spawn(
+                "send telemetry",
+                client
                     .post(endpoint.clone())
-                    .insert_header(("Content-Type", "application/json"))
-                    .force_close() // See https://github.com/near/nearcore/pull/11914
-                    .send_json(&msg.content)
+                    .header("Content-Type", "application/json")
+                    .json(&msg.content)
+                    .send()
                     .map(move |response| {
                         let result = if let Err(error) = response {
                             tracing::warn!(

@@ -5,9 +5,9 @@ use crate::orphan::OrphanMissingChunks;
 use near_async::time::Instant;
 use near_primitives::block::Block;
 use near_primitives::hash::CryptoHash;
-use near_primitives::optimistic_block::{BlockToApply, OptimisticBlock};
+use near_primitives::optimistic_block::{BlockToApply, CachedShardUpdateKey, OptimisticBlock};
 use near_primitives::sharding::{ReceiptProof, ShardChunkHeader, StateSyncInfo};
-use near_primitives::types::ShardId;
+use near_primitives::types::{BlockHeight, ShardId};
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -34,24 +34,24 @@ pub(crate) struct BlockPreprocessInfo {
     pub(crate) provenance: Provenance,
     /// Used to get notified when the applying chunks of a block finishes.
     pub(crate) apply_chunks_done_waiter: ApplyChunksDoneWaiter,
-    /// This is used to calculate block processing time metric
+    /// Used to calculate block processing time metric.
     pub(crate) block_start_processing_time: Instant,
 }
 
 pub(crate) struct OptimisticBlockInfo {
     /// Used to get notified when the applying chunks of a block finishes.
-    #[allow(unused)]
     pub(crate) apply_chunks_done_waiter: ApplyChunksDoneWaiter,
-    /// This is used to calculate block processing time metric
-    #[allow(unused)]
+    /// Used to calculate processing time metric.
     pub(crate) block_start_processing_time: Instant,
+    /// Shard update keys for the processed chunks.
+    pub(crate) shard_update_keys: Vec<CachedShardUpdateKey>,
 }
 
 /// Blocks which finished pre-processing and are now being applied asynchronously
 pub(crate) struct BlocksInProcessing {
     // A map that stores all blocks in processing
-    preprocessed_blocks: HashMap<CryptoHash, (Block, BlockPreprocessInfo)>,
-    optimistic_blocks: HashMap<CryptoHash, (OptimisticBlock, OptimisticBlockInfo)>,
+    preprocessed_blocks: HashMap<CryptoHash, (Arc<Block>, BlockPreprocessInfo)>,
+    optimistic_blocks: HashMap<BlockHeight, (OptimisticBlock, OptimisticBlockInfo)>,
 }
 
 #[derive(Debug)]
@@ -102,7 +102,7 @@ impl BlocksInProcessing {
     /// reaches its max size.
     pub(crate) fn add(
         &mut self,
-        block: Block,
+        block: Arc<Block>,
         preprocess_info: BlockPreprocessInfo,
     ) -> Result<(), AddError> {
         self.add_dry_run(&BlockToApply::Normal(*block.hash()))?;
@@ -116,31 +116,33 @@ impl BlocksInProcessing {
         block: OptimisticBlock,
         preprocess_info: OptimisticBlockInfo,
     ) -> Result<(), AddError> {
-        self.add_dry_run(&BlockToApply::Optimistic(*block.hash()))?;
+        self.add_dry_run(&BlockToApply::Optimistic(block.height()))?;
 
-        self.optimistic_blocks.insert(*block.hash(), (block, preprocess_info));
+        self.optimistic_blocks.insert(block.height(), (block, preprocess_info));
         Ok(())
     }
 
     pub(crate) fn contains(&self, block_to_apply: &BlockToApply) -> bool {
         match block_to_apply {
             BlockToApply::Normal(block_hash) => self.preprocessed_blocks.contains_key(block_hash),
-            BlockToApply::Optimistic(block_hash) => self.optimistic_blocks.contains_key(block_hash),
+            BlockToApply::Optimistic(block_height) => {
+                self.optimistic_blocks.contains_key(block_height)
+            }
         }
     }
 
     pub(crate) fn remove(
         &mut self,
         block_hash: &CryptoHash,
-    ) -> Option<(Block, BlockPreprocessInfo)> {
+    ) -> Option<(Arc<Block>, BlockPreprocessInfo)> {
         self.preprocessed_blocks.remove(block_hash)
     }
 
     pub(crate) fn remove_optimistic(
         &mut self,
-        optimistic_block_hash: &CryptoHash,
+        block_height: &BlockHeight,
     ) -> Option<(OptimisticBlock, OptimisticBlockInfo)> {
-        self.optimistic_blocks.remove(optimistic_block_hash)
+        self.optimistic_blocks.remove(block_height)
     }
 
     /// This function does NOT add the block, it simply checks if the block can be added
@@ -158,6 +160,21 @@ impl BlocksInProcessing {
         }
     }
 
+    /// Check if there is an optimistic block in processing for the given
+    /// height and shard update keys.
+    pub fn has_optimistic_block_with(
+        &self,
+        block_height: BlockHeight,
+        shard_update_keys: &[&CachedShardUpdateKey],
+    ) -> bool {
+        let Some((_, optimistic_block_info)) = self.optimistic_blocks.get(&block_height) else {
+            return false;
+        };
+        let info_keys: Vec<&CachedShardUpdateKey> =
+            optimistic_block_info.shard_update_keys.iter().collect();
+        shard_update_keys == info_keys.as_slice()
+    }
+
     pub(crate) fn has_blocks_to_catch_up(&self, prev_hash: &CryptoHash) -> bool {
         self.preprocessed_blocks
             .iter()
@@ -167,10 +184,13 @@ impl BlocksInProcessing {
     /// This function waits until apply_chunks_done is marked as true for all blocks in the pool
     /// Returns true if new blocks are done applying chunks
     pub(crate) fn wait_for_all_blocks(&self) -> bool {
-        for (_, (_, block_preprocess_info)) in self.preprocessed_blocks.iter() {
+        for (_, (_, block_preprocess_info)) in &self.preprocessed_blocks {
             let _ = block_preprocess_info.apply_chunks_done_waiter.wait();
         }
-        !self.preprocessed_blocks.is_empty()
+        for (_, (_, optimistic_block_info)) in &self.optimistic_blocks {
+            let _ = optimistic_block_info.apply_chunks_done_waiter.wait();
+        }
+        !self.preprocessed_blocks.is_empty() || !self.optimistic_blocks.is_empty()
     }
 
     /// This function waits until apply_chunks_done is marked as true for block `block_hash`
@@ -207,8 +227,28 @@ impl ApplyChunksDoneWaiter {
     }
 
     pub fn wait(&self) {
-        // This would only go through if the guard has been dropped.
-        drop(self.0.blocking_lock());
+        // TODO(#14005): Unfortunately we cannot block here because we may be in a tokio runtime.
+        // We also cannot use futures::executor::block_on to cheat around this, because a locking
+        // operation may actually block forever in certain situations. So we use this not very
+        // great approach.
+        // This is fine though, because this is only used when shutting down the node, and in
+        // TestEnv-based integration tests.
+        let start = Instant::now();
+        for i in 1u64.. {
+            // This would only go through if the guard has been dropped.
+            if let Ok(_) = self.0.try_lock() {
+                return;
+            }
+            if i % 1000 == 0 {
+                // If a node or test is somehow deadlocked on this for some reason, log it to help debugging.
+                tracing::error!("Still waiting for chunks application to complete...");
+                debug_assert!(
+                    start.elapsed().as_secs() < 30,
+                    "Chunk application didn't complete in 30 seconds; is there a deadlock?"
+                );
+            }
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        }
     }
 }
 

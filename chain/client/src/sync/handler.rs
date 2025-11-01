@@ -4,7 +4,7 @@ use super::header::HeaderSync;
 use super::state::StateSync;
 use crate::sync::state::StateSyncResult;
 use near_async::time::{Clock, Utc};
-use near_chain::chain::ApplyChunksDoneMessage;
+use near_chain::chain::ApplyChunksDoneSender;
 use near_chain::types::Tip;
 use near_chain::{BlockHeader, BlockProcessingArtifact, Chain};
 use near_chain_configs::ClientConfig;
@@ -14,11 +14,9 @@ use near_epoch_manager::shard_tracker::ShardTracker;
 use near_network::types::HighestHeightPeerInfo;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
-use near_primitives::validator_signer::ValidatorSigner;
 use rand::seq::SliceRandom;
 use rand::thread_rng;
 use std::collections::HashMap;
-use std::sync::Arc;
 
 // A small helper macro to unwrap a result of some state sync operation. If the
 // result is an error this macro will log it and return from the function.
@@ -89,8 +87,7 @@ impl SyncHandler {
         shard_tracker: &ShardTracker,
         highest_height: u64,
         highest_height_peers: &[HighestHeightPeerInfo],
-        signer: &Option<Arc<ValidatorSigner>>,
-        apply_chunks_done_sender: Option<near_async::messaging::Sender<ApplyChunksDoneMessage>>,
+        apply_chunks_done_sender: Option<ApplyChunksDoneSender>,
     ) -> Option<SyncHandlerRequest> {
         // Run epoch sync first; if this is applicable then nothing else is.
         let epoch_sync_result = self.epoch_sync.run(
@@ -116,7 +113,7 @@ impl SyncHandler {
         // We should state sync if it's already started or if we have enough
         // headers and blocks. The should_state_sync method may run block sync.
         let should_state_sync =
-            self.should_state_sync(chain, header_head, highest_height, highest_height_peers);
+            self.should_state_sync(chain, &header_head, highest_height, highest_height_peers);
         let should_state_sync = unwrap_and_report_state_sync_result!(should_state_sync);
         if !should_state_sync {
             return None;
@@ -130,18 +127,16 @@ impl SyncHandler {
             _ => return None,
         };
 
-        let me = signer.as_ref().map(|x| x.validator_id().clone());
         let block_header = chain.get_block_header(&sync_hash);
         let block_header = unwrap_and_report_state_sync_result!(block_header);
         let shards_to_sync = get_shards_cares_about_this_or_next_epoch(
-            me.as_ref(),
-            true,
             &block_header,
             &shard_tracker,
             chain.epoch_manager.as_ref(),
         );
 
-        let blocks_to_request = self.request_sync_blocks(chain, block_header, highest_height_peers);
+        let blocks_to_request =
+            self.request_sync_blocks(chain, &block_header, highest_height_peers);
         let blocks_to_request = unwrap_and_report_state_sync_result!(blocks_to_request);
 
         let state_sync_status = match &mut self.sync_status {
@@ -156,12 +151,7 @@ impl SyncHandler {
             return Some(SyncHandlerRequest::NeedRequestBlocks(blocks_to_request));
         }
 
-        let state_sync_result = self.state_sync.run(
-            sync_hash,
-            state_sync_status,
-            &highest_height_peers,
-            &shards_to_sync,
-        );
+        let state_sync_result = self.state_sync.run(sync_hash, state_sync_status, &shards_to_sync);
         let state_sync_result = unwrap_and_report_state_sync_result!(state_sync_result);
         if matches!(state_sync_result, StateSyncResult::InProgress) {
             return None;
@@ -171,7 +161,6 @@ impl SyncHandler {
         let mut block_processing_artifacts = BlockProcessingArtifact::default();
 
         let reset_heads_result = chain.reset_heads_post_state_sync(
-            &me,
             sync_hash,
             &mut block_processing_artifacts,
             apply_chunks_done_sender,
@@ -214,7 +203,7 @@ impl SyncHandler {
     fn should_state_sync(
         &mut self,
         chain: &Chain,
-        header_head: Tip,
+        header_head: &Tip,
         highest_height: u64,
         highest_height_peers: &[HighestHeightPeerInfo],
     ) -> Result<bool, near_chain::Error> {
@@ -315,7 +304,7 @@ impl SyncHandler {
     fn request_sync_blocks(
         &mut self,
         chain: &Chain,
-        block_header: BlockHeader,
+        block_header: &BlockHeader,
         highest_height_peers: &[HighestHeightPeerInfo],
     ) -> Result<Vec<(CryptoHash, PeerId)>, near_chain::Error> {
         let now = self.clock.now_utc();
@@ -329,7 +318,7 @@ impl SyncHandler {
         needed_block_hashes.append(&mut extra_block_hashes);
         let mut blocks_to_request = vec![];
 
-        for hash in needed_block_hashes.clone().into_iter() {
+        for hash in needed_block_hashes.clone() {
             let (request_block, have_block) =
                 self.sync_block_status(chain, &sync_hash, &hash, now)?;
             tracing::trace!(target: "sync", ?hash, ?request_block, ?have_block, "request_sync_blocks");

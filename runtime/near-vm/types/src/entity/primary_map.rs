@@ -330,7 +330,7 @@ mod tests {
             i += 1;
         }
         i = 0;
-        for (key_mut, value_mut) in m.iter_mut() {
+        for (key_mut, value_mut) in &mut m {
             assert_eq!(key_mut.index(), i);
             match i {
                 0 => assert_eq!(*value_mut, 12),

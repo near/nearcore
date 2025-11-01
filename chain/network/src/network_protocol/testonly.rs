@@ -1,7 +1,7 @@
 use super::*;
 use crate::config;
 use crate::network_protocol::{
-    Edge, PartialEdgeInfo, PeerInfo, RawRoutedMessage, RoutedMessageBody,
+    Edge, PartialEdgeInfo, PeerInfo, RawRoutedMessage, TieredMessageBody,
 };
 use crate::tcp;
 use crate::types::{AccountKeys, ChainInfo, Handshake, RoutingTableUpdate};
@@ -17,7 +17,7 @@ use near_primitives::sharding::{
     ChunkHash, EncodedShardChunkBody, PartialEncodedChunkPart, ShardChunk,
 };
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{AccountId, BlockHeight, EpochId, StateRoot};
+use near_primitives::types::{AccountId, Balance, BlockHeight, EpochId, Gas, StateRoot};
 use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
 use near_primitives::version;
 use rand::Rng;
@@ -26,16 +26,16 @@ use std::collections::HashMap;
 use std::net;
 use std::sync::Arc;
 
-pub fn make_genesis_block(clock: &time::Clock, chunks: Vec<ShardChunk>) -> Block {
-    genesis_block(
+pub fn make_genesis_block(clock: &time::Clock, chunks: Vec<ShardChunk>) -> Arc<Block> {
+    Arc::new(genesis_block(
         version::PROTOCOL_VERSION,
         chunks.into_iter().map(|c| c.take_header()).collect(),
         clock.now_utc(),
         0,
-        1000,
-        1000,
+        Balance::from_yoctonear(1000),
+        Balance::from_yoctonear(1000),
         &vec![],
-    )
+    ))
 }
 
 pub fn make_block(
@@ -43,8 +43,8 @@ pub fn make_block(
     signer: &ValidatorSigner,
     prev: &Block,
     chunks: Vec<ShardChunk>,
-) -> Block {
-    Block::produce(
+) -> Arc<Block> {
+    Arc::new(Block::produce(
         version::PROTOCOL_VERSION,
         prev.header(),
         prev.header().height() + 5,
@@ -56,16 +56,17 @@ pub fn make_block(
         None,
         vec![],
         Ratio::from_integer(0),
-        0,
-        0,
-        Some(0),
+        Balance::ZERO,
+        Balance::ZERO,
+        Some(Balance::ZERO),
         signer,
         CryptoHash::default(),
         CryptoHash::default(),
         clock,
         None,
         None,
-    )
+        None,
+    ))
 }
 
 pub fn make_account_id<R: Rng>(rng: &mut R) -> AccountId {
@@ -151,7 +152,7 @@ pub fn make_signed_transaction<R: Rng>(rng: &mut R) -> SignedTransaction {
         sender.get_account_id(),
         receiver,
         &sender,
-        15,
+        Balance::from_yoctonear(15),
         CryptoHash::default(),
     )
 }
@@ -197,11 +198,11 @@ impl ChunkSet {
             vec![StateRoot::new()],
             vec![Default::default(); shard_ids.len()],
             &shard_ids,
-            1000,
+            Gas::from_gas(1000),
             0,
             version::PROTOCOL_VERSION,
         );
-        self.chunks.extend(chunks.iter().map(|c| (c.chunk_hash(), c.clone())));
+        self.chunks.extend(chunks.iter().map(|c| (c.chunk_hash().clone(), c.clone())));
         chunks
     }
 }
@@ -220,7 +221,7 @@ pub fn make_account_keys(signers: &[ValidatorSigner]) -> AccountKeys {
 
 pub struct Chain {
     pub genesis_id: GenesisId,
-    pub blocks: Vec<Block>,
+    pub blocks: Vec<Arc<Block>>,
     pub chunks: HashMap<ChunkHash, ShardChunk>,
     pub tier1_accounts: Vec<ValidatorSigner>,
 }
@@ -275,8 +276,8 @@ impl Chain {
         }
     }
 
-    pub fn get_block_headers(&self) -> Vec<BlockHeader> {
-        self.blocks.iter().map(|b| b.header().clone()).collect()
+    pub fn get_block_headers(&self) -> impl Iterator<Item = BlockHeader> {
+        self.blocks.iter().map(|b| b.header().clone())
     }
 
     pub fn make_config<R: Rng>(&self, rng: &mut R) -> config::NetworkConfig {
@@ -315,7 +316,7 @@ pub fn make_handshake<R: Rng>(rng: &mut R, chain: &Chain) -> Handshake {
     let b_id = PeerId::new(b.public_key());
     Handshake {
         protocol_version: version::PROTOCOL_VERSION,
-        oldest_supported_version: version::PEER_MIN_ALLOWED_PROTOCOL_VERSION,
+        oldest_supported_version: version::MIN_SUPPORTED_PROTOCOL_VERSION,
         sender_peer_id: a_id,
         target_peer_id: b_id,
         sender_listen_port: Some(rng.r#gen()),
@@ -325,7 +326,7 @@ pub fn make_handshake<R: Rng>(rng: &mut R, chain: &Chain) -> Handshake {
     }
 }
 
-pub fn make_routed_message<R: Rng>(rng: &mut R, body: RoutedMessageBody) -> RoutedMessageV2 {
+pub fn make_routed_message<R: Rng>(rng: &mut R, body: TieredMessageBody) -> RoutedMessage {
     let secret_key = make_secret_key(rng);
     let peer_id = PeerId::new(secret_key.public_key());
     RawRoutedMessage { target: PeerIdOrHash::PeerId(peer_id), body }.sign(

@@ -12,14 +12,11 @@ publish = false
 workspace = true
 
 [dependencies]
-actix.workspace = true
-awc.workspace = true
 futures.workspace = true
-openssl.workspace = true
+reqwest = { workspace = true, features = ["json"] }
 serde.workspace = true
 serde_json.workspace = true
 tracing.workspace = true
-near-time = {workspace = true, features = ["serde"]}
 
 near-async.workspace = true
 near-o11y.workspace = true
@@ -28,6 +25,5 @@ near-performance-metrics-macros.workspace = true
 
 [features]
 nightly = [
-  "near-async/nightly",
   "near-o11y/nightly",
 ]

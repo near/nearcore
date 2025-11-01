@@ -1,6 +1,8 @@
 use near_primitives::block::BlockValidityError;
 use near_primitives::challenge::{ChunkProofs, MaybeEncodedShardChunk};
-use near_primitives::errors::{ChunkAccessError, EpochError, StorageError};
+use near_primitives::errors::{
+    ChunkAccessError, EpochError, InvalidSpiceCoreStatementsError, StorageError,
+};
 use near_primitives::shard_layout::ShardLayoutError;
 use near_primitives::sharding::{BadHeaderForProtocolVersionError, ChunkHash, ShardChunkHeader};
 use near_primitives::types::{BlockHeight, EpochId, ShardId, ShardIndex};
@@ -53,6 +55,14 @@ pub enum QueryError {
         block_height: near_primitives::types::BlockHeight,
         block_hash: near_primitives::hash::CryptoHash,
     },
+    #[error(
+        "Global contract code with identifier {identifier:?} has never been observed on the node"
+    )]
+    NoGlobalContractCode {
+        identifier: near_primitives::action::GlobalContractIdentifier,
+        block_height: near_primitives::types::BlockHeight,
+        block_hash: near_primitives::hash::CryptoHash,
+    },
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -71,6 +81,9 @@ pub enum Error {
     /// Chunks missing with header info.
     #[error("Chunks Missing: {0:?}")]
     ChunksMissing(Vec<ShardChunkHeader>),
+    /// Block is pending optimistic block execution.
+    #[error("Block Pending Optimistic Execution")]
+    BlockPendingOptimisticExecution,
     /// Block time is before parent block time.
     #[error("Invalid Block Time: block time {1} before previous {0}")]
     InvalidBlockPastTime(Utc, Utc),
@@ -86,6 +99,12 @@ pub enum Error {
     /// Invalid state root hash.
     #[error("Invalid State Root Hash")]
     InvalidStateRoot,
+    /// Invalid merkle root hash.
+    #[error("Invalid Chunk Encoded Merkle Root Hash")]
+    InvalidChunkEncodedMerkleRoot,
+    /// Invalid merkle root hash.
+    #[error("Invalid Chunk Encoded Merkle Length")]
+    InvalidChunkEncodedLength,
     /// Invalid block tx root hash.
     #[error("Invalid Block Tx Root Hash")]
     InvalidTxRoot,
@@ -239,6 +258,9 @@ pub enum Error {
     /// Invalid chunk header version for protocol version
     #[error(transparent)]
     BadHeaderForProtocolVersion(#[from] BadHeaderForProtocolVersionError),
+    /// Invalid spice core statements in block.
+    #[error("Invalid spice core statements in block: {0}")]
+    InvalidSpiceCoreStatements(#[from] Box<InvalidSpiceCoreStatementsError>),
     /// Anything else
     #[error("Other Error: {0}")]
     Other(String),
@@ -267,6 +289,7 @@ impl Error {
             | Error::Orphan
             | Error::ChunkMissing(_)
             | Error::ChunksMissing(_)
+            | Error::BlockPendingOptimisticExecution
             | Error::InvalidChunkHeight
             | Error::IOErr(_)
             | Error::Other(_)
@@ -290,6 +313,8 @@ impl Error {
             | Error::InvalidChunkEndorsementBitmap(_)
             | Error::InvalidChunkMask
             | Error::InvalidStateRoot
+            | Error::InvalidChunkEncodedMerkleRoot
+            | Error::InvalidChunkEncodedLength
             | Error::InvalidTxRoot
             | Error::InvalidChunkReceiptsRoot
             | Error::InvalidOutcomesProof
@@ -324,7 +349,8 @@ impl Error {
             | Error::InvalidProtocolVersion
             | Error::NotAValidator(_)
             | Error::NotAChunkValidator
-            | Error::BadHeaderForProtocolVersion(_) => true,
+            | Error::BadHeaderForProtocolVersion(_)
+            | Error::InvalidSpiceCoreStatements(_) => true,
         }
     }
 
@@ -347,6 +373,7 @@ impl Error {
             Error::Orphan => "orphan",
             Error::ChunkMissing(_) => "chunk_missing",
             Error::ChunksMissing(_) => "chunks_missing",
+            Error::BlockPendingOptimisticExecution => "block_pending_optimistic_execution",
             Error::InvalidChunkHeight => "invalid_chunk_height",
             Error::IOErr(_) => "io_err",
             Error::Other(_) => "other",
@@ -369,6 +396,8 @@ impl Error {
             Error::InvalidChunkEndorsementBitmap(_) => "invalid_chunk_endorsement_bitmap",
             Error::InvalidChunkMask => "invalid_chunk_mask",
             Error::InvalidStateRoot => "invalid_state_root",
+            Error::InvalidChunkEncodedMerkleRoot => "invalid_chunk_encoded_merkle_root",
+            Error::InvalidChunkEncodedLength => "invalid_chunk_encoded_length",
             Error::InvalidTxRoot => "invalid_tx_root",
             Error::InvalidChunkReceiptsRoot => "invalid_chunk_receipts_root",
             Error::InvalidOutcomesProof => "invalid_outcomes_proof",
@@ -405,6 +434,7 @@ impl Error {
             Error::NotAChunkValidator => "not_a_chunk_validator",
             Error::ReshardingError(_) => "resharding_error",
             Error::BadHeaderForProtocolVersion(_) => "bad_header_for_protocol_version",
+            Error::InvalidSpiceCoreStatements(_) => "invalid_spice_core_statements",
         }
     }
 }

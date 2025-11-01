@@ -12,15 +12,18 @@ publish = false
 workspace = true
 
 [dependencies]
+borsh.workspace = true
+bytesize.workspace = true
 near-chain-configs.workspace = true
 near-chain.workspace = true
 near-crypto.workspace = true
 near-parameters.workspace = true
 near-primitives.workspace = true
+near-store.workspace = true
 near-test-contracts.workspace = true
+near-vm-runner.workspace = true
 node-runtime.workspace = true
 rand.workspace = true
-bytesize.workspace = true
 rand_chacha.workspace = true
 
 [features]

@@ -11,29 +11,27 @@ use near_primitives::shard_layout::ShardUId;
 use near_primitives::state_record::{StateRecord, state_record_to_account_id};
 use near_primitives::test_utils::MockEpochInfoProvider;
 use near_primitives::transaction::{ExecutionOutcomeWithId, SignedTransaction};
-use near_primitives::types::{AccountId, AccountInfo, Balance};
+use near_primitives::types::{AccountId, AccountInfo, Balance, Gas};
 use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives_core::account::id::AccountIdRef;
 use near_store::ShardTries;
 use near_store::genesis::GenesisStateApplier;
 use near_store::test_utils::TestTriesBuilder;
 use node_runtime::{ApplyState, Runtime, SignedValidPeriodTransactions};
+use parking_lot::{Condvar, Mutex};
 use random_config::random_config;
 use std::collections::{HashMap, HashSet};
-use std::sync::{Arc, Condvar, Mutex};
+use std::sync::Arc;
 use std::thread;
 use std::thread::JoinHandle;
 
 pub mod random_config;
 
 /// Initial balance used in tests.
-pub const TESTING_INIT_BALANCE: Balance = 1_000_000_000 * NEAR_BASE;
+pub const TESTING_INIT_BALANCE: Balance = Balance::from_near(1_000_000_000);
 
 /// Validator's stake used in tests.
-pub const TESTING_INIT_STAKE: Balance = 50_000_000 * NEAR_BASE;
-
-/// One NEAR, divisible by 10^24.
-pub const NEAR_BASE: Balance = 1_000_000_000_000_000_000_000_000;
+pub const TESTING_INIT_STAKE: Balance = Balance::from_near(50_000_000);
 
 pub struct StandaloneRuntime {
     pub apply_state: ApplyState,
@@ -58,12 +56,12 @@ impl StandaloneRuntime {
         let mut runtime_config = random_config();
         let wasm_config = Arc::make_mut(&mut runtime_config.wasm_config);
         // Bumping costs to avoid inflation overflows.
-        wasm_config.limit_config.max_total_prepaid_gas = 10u64.pow(15);
+        wasm_config.limit_config.max_total_prepaid_gas = Gas::from_teragas(1000);
         let fees = Arc::make_mut(&mut runtime_config.fees);
         fees.action_fees[ActionCosts::new_action_receipt].execution =
-            runtime_config.wasm_config.limit_config.max_total_prepaid_gas / 64;
+            runtime_config.wasm_config.limit_config.max_total_prepaid_gas.checked_div(64).unwrap();
         fees.action_fees[ActionCosts::new_data_receipt_base].execution =
-            runtime_config.wasm_config.limit_config.max_total_prepaid_gas / 64;
+            runtime_config.wasm_config.limit_config.max_total_prepaid_gas.checked_div(64).unwrap();
 
         let runtime = Runtime::new();
         let genesis = Genesis::new(
@@ -104,11 +102,10 @@ impl StandaloneRuntime {
             apply_reason: ApplyChunkReason::UpdateTrackedShard,
             block_height: 1,
             prev_block_hash: Default::default(),
-            block_hash: Default::default(),
             shard_id: shard_uid.shard_id(),
             epoch_id: Default::default(),
             epoch_height: 0,
-            gas_price: 100,
+            gas_price: Balance::from_yoctonear(100),
             block_timestamp: 0,
             gas_limit: None,
             random_seed: Default::default(),
@@ -119,6 +116,7 @@ impl StandaloneRuntime {
             congestion_info,
             bandwidth_requests: BlockBandwidthRequests::empty(),
             trie_access_tracker_state: Default::default(),
+            on_post_state_ready: None,
         };
 
         Self {
@@ -162,11 +160,11 @@ impl StandaloneRuntime {
         store_update.commit().unwrap();
         self.apply_state.block_height += 1;
 
-        if let Some(bandwidth_requests) = apply_result.bandwidth_requests {
-            self.apply_state.bandwidth_requests = BlockBandwidthRequests {
-                shards_bandwidth_requests: [(shard_id, bandwidth_requests)].into_iter().collect(),
-            }
-        }
+        self.apply_state.bandwidth_requests = BlockBandwidthRequests {
+            shards_bandwidth_requests: [(shard_id, apply_result.bandwidth_requests)]
+                .into_iter()
+                .collect(),
+        };
 
         let mut has_queued_receipts = false;
         if let Some(congestion_info) = apply_result.congestion_info {
@@ -233,7 +231,7 @@ impl RuntimeGroup {
 
         for signer in signers {
             res.signers.push(signer.clone());
-            res.mailboxes.0.lock().unwrap().insert(signer.get_account_id(), Default::default());
+            res.mailboxes.0.lock().insert(signer.get_account_id(), Default::default());
         }
         res.validators = validators;
         Arc::new(res)
@@ -295,7 +293,6 @@ impl RuntimeGroup {
                 .mailboxes
                 .0
                 .lock()
-                .unwrap()
                 .get_mut(transaction.transaction.signer_id())
                 .unwrap()
                 .incoming_transactions
@@ -329,7 +326,7 @@ impl RuntimeGroup {
             loop {
                 let account_id = runtime.account_id();
 
-                let mut mailboxes = group.mailboxes.0.lock().unwrap();
+                let mut mailboxes = group.mailboxes.0.lock();
                 loop {
                     if !mailboxes.get(&account_id).unwrap().is_empty() {
                         break;
@@ -337,21 +334,19 @@ impl RuntimeGroup {
                     if mailboxes.values().all(|m| m.is_empty()) {
                         return;
                     }
-                    mailboxes = group.mailboxes.1.wait(mailboxes).unwrap();
+                    group.mailboxes.1.wait(&mut mailboxes);
                 }
 
                 let mailbox = mailboxes.get_mut(&account_id).unwrap();
                 group
                     .executed_receipts
                     .lock()
-                    .unwrap()
                     .entry(account_id.clone())
                     .or_insert_with(Vec::new)
                     .extend(mailbox.incoming_receipts.clone());
                 group
                     .executed_transactions
                     .lock()
-                    .unwrap()
                     .entry(account_id.clone())
                     .or_insert_with(Vec::new)
                     .extend(mailbox.incoming_transactions.clone());
@@ -373,7 +368,7 @@ impl RuntimeGroup {
 
                 mailbox.incoming_receipts.clear();
                 mailbox.incoming_transactions.clear();
-                group.transaction_logs.lock().unwrap().extend(execution_outcomes);
+                group.transaction_logs.lock().extend(execution_outcomes);
                 for outgoing_receipts in outgoing_receipts {
                     let locked_other_mailbox =
                         mailboxes.get_mut(outgoing_receipts.receiver_id()).unwrap();
@@ -388,7 +383,6 @@ impl RuntimeGroup {
     pub fn get_receipt(&self, executing_runtime: &str, hash: &CryptoHash) -> Receipt {
         self.executed_receipts
             .lock()
-            .unwrap()
             .get(AccountIdRef::new_or_panic(executing_runtime))
             .expect("Runtime not found")
             .iter()
@@ -401,14 +395,13 @@ impl RuntimeGroup {
     pub fn get_transaction_log(&self, producer_hash: &CryptoHash) -> ExecutionOutcomeWithId {
         self.transaction_logs
             .lock()
-            .unwrap()
             .iter()
             .find_map(|tl| if &tl.id == producer_hash { Some(tl.clone()) } else { None })
             .expect("The execution log of the given receipt is missing")
     }
 
     pub fn get_receipt_debug(&self, hash: &CryptoHash) -> (AccountId, Receipt) {
-        for (executed_runtime, tls) in self.executed_receipts.lock().unwrap().iter() {
+        for (executed_runtime, tls) in self.executed_receipts.lock().iter() {
             if let Some(res) =
                 tls.iter().find_map(|r| if &r.get_hash() == hash { Some(r.clone()) } else { None })
             {
@@ -419,56 +412,24 @@ impl RuntimeGroup {
     }
 }
 
-/// Binds a tuple to a vector.
-/// # Examples:
-///
-/// ```
-/// let v = vec![1,2,3];
-/// tuplet!((a,b,c) = v);
-/// assert_eq!(a, &1);
-/// assert_eq!(b, &2);
-/// assert_eq!(c, &3);
-/// ```
-#[macro_export]
-macro_rules! tuplet {
-    {() = $v:expr, $message:expr } => {
-        assert!($v.is_empty(), "{}", $message);
-    };
-    {($y:ident) = $v:expr, $message:expr } => {
-        assert_eq!($v.len(), 1, "{}", $message);
-        let $y = &$v[0];
-    };
-    { ($y:ident $(, $x:ident)*) = $v:expr, $message:expr } => {
-        let ($y, $($x),*) = tuplet!($v ; 1 ; ($($x),*) ; (&$v[0]), $message );
-    };
-    { $v:expr ; $j:expr ; ($y:ident $(, $x:ident)*) ; ($($a:expr),*), $message:expr } => {
-        tuplet!( $v ; $j+1 ; ($($x),*) ; ($($a),*,&$v[$j]), $message )
-    };
-    { $v:expr ; $j:expr ; () ; $accu:expr, $message:expr } => { {
-            assert_eq!($v.len(), $j, "{}", $message);
-            $accu
-    } }
-}
-
 #[macro_export]
 macro_rules! assert_receipts {
-    ($group:ident, $transaction:ident => [ $($receipt:ident),* ] ) => {
+    ($group:ident, $transaction:ident ) => {{
         let transaction_log = $group.get_transaction_log(&$transaction.get_hash());
-        tuplet!(( $($receipt),* ) = transaction_log.outcome.receipt_ids, "Incorrect number of produced receipts for transaction");
-    };
+        transaction_log.outcome.receipt_ids
+    }};
     ($group:ident, $from:expr => $receipt:ident @ $to:expr,
     $receipt_pat:pat,
     $receipt_assert:block,
     $actions_name:ident,
-    $($action_name:ident, $action_pat:pat, $action_assert:block ),+
-     => [ $($produced_receipt:ident),*] ) => {
+    $($action_name:ident, $action_pat:pat, $action_assert:block ),+ ) => {{
         let r = $group.get_receipt($to, $receipt);
         assert_eq!(r.predecessor_id().clone(), $from);
         assert_eq!(r.receiver_id().clone(), $to);
         match r.receipt() {
             $receipt_pat => {
                 $receipt_assert
-                tuplet!(( $($action_name),* ) = $actions_name, "Incorrect number of actions");
+                let [$($action_name),* ] = &$actions_name[..] else { panic!("Incorrect number of actions") };
                 $(
                     match $action_name {
                         $action_pat => {
@@ -480,9 +441,9 @@ macro_rules! assert_receipts {
             }
             _ => panic!("Receipt {:#?} does not satisfy the pattern {}", r, stringify!($receipt_pat)),
         }
-       let receipt_log = $group.get_transaction_log(&r.get_hash());
-       tuplet!(( $($produced_receipt),* ) = receipt_log.outcome.receipt_ids, "Incorrect number of produced receipts for a receipt");
-    };
+        let receipt_log = $group.get_transaction_log(&r.get_hash());
+        receipt_log.outcome.receipt_ids
+    }};
 }
 
 /// A short form for refunds.
@@ -495,7 +456,7 @@ macro_rules! assert_receipts {
 ///                  ReceiptEnum::Action(ActionReceipt{actions, ..}), {},
 ///                  actions,
 ///                  a0, Action::Transfer(TransferAction{..}), {}
-///                  => []);
+///                  );
 /// ```
 #[macro_export]
 macro_rules! assert_refund {
@@ -504,6 +465,6 @@ macro_rules! assert_refund {
                          ReceiptEnum::Action(ActionReceipt{actions, ..}), {},
                          actions,
                          a0, Action::Transfer(TransferAction{..}), {}
-                         => []);
+                        );
  }
 }

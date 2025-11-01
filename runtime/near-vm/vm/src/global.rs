@@ -1,8 +1,8 @@
 use crate::vmcontext::VMGlobalDefinition;
 use near_vm_types::{GlobalType, Mutability, Type, Value, WasmValueType};
+use parking_lot::Mutex;
 use std::cell::UnsafeCell;
 use std::ptr::NonNull;
-use std::sync::Mutex;
 use thiserror::Error;
 
 #[derive(Debug)]
@@ -68,7 +68,7 @@ impl Global {
     // that `Store` is defined in `API` when we need it earlier. Ideally this should
     // be removed.
     pub fn get<T: WasmValueType>(&self, store: &dyn std::any::Any) -> Value<T> {
-        let _global_guard = self.lock.lock().unwrap();
+        let _global_guard = self.lock.lock();
         unsafe {
             let definition = &*self.vm_global_definition.get();
             match self.ty().ty {
@@ -96,7 +96,7 @@ impl Global {
     /// # Safety
     /// The caller should check that the `val` comes from the same store as this global.
     pub unsafe fn set<T: WasmValueType>(&self, val: Value<T>) -> Result<(), GlobalError> {
-        let _global_guard = self.lock.lock().unwrap();
+        let _global_guard = self.lock.lock();
         if self.ty().mutability != Mutability::Var {
             return Err(GlobalError::ImmutableGlobalCannotBeSet);
         }

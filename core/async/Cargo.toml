@@ -12,25 +12,29 @@ publish = true
 workspace = true
 
 [dependencies]
-actix.workspace = true
-derive_more.workspace = true
+crossbeam-channel.workspace = true
 futures.workspace = true
+parking_lot.workspace = true
+rand = { workspace = true, optional = true }
+rayon.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 time.workspace = true
-tokio = { workspace = true, features = ["rt", "macros"] }
+tokio = { workspace = true, features = ["rt", "rt-multi-thread", "macros"] }
+tokio-util.workspace = true
 tracing.workspace = true
 
-near-async-derive.workspace = true
-# TODO(#11652): we use it only for logging. i think, it's a bit too much...
 near-o11y.workspace = true
-near-performance-metrics.workspace = true
+near-async-derive.workspace = true
 near-time = { workspace = true, features = ["clock"] }
+
+[features]
+actor_instrumentation_testing = ["rand"]
 
 [dev-dependencies]
 tokio-util.workspace = true
+criterion.workspace = true
 
-[features]
-nightly = [
-  "near-o11y/nightly",
-]
+[[bench]]
+name = "instrumentation"
+harness = false

@@ -28,7 +28,7 @@ pub enum DBCol {
     /// - *Content type*: cell specific.
     BlockMisc,
     /// Column that stores Block content.
-    /// - *Rows*: block hash (CryptHash)
+    /// - *Rows*: block hash (CryptoHash)
     /// - *Content type*: [near_primitives::block::Block]
     Block,
     /// Column that stores Block headers.
@@ -105,11 +105,9 @@ pub enum DBCol {
     /// - *Rows*: ShardChunkHeader object
     /// - *Content type*: EncodedShardChunk
     InvalidChunks,
-    /// Contains 'BlockExtra' information that is computed after block was processed.
-    /// Currently it stores only challenges results.
-    /// - *Rows*: BlockHash (CryptoHash)
-    /// - *Content type*: BlockExtra
-    BlockExtra,
+    // Deprecated.
+    #[strum(serialize = "BlockExtra")]
+    _BlockExtra,
     /// Store hash of all block per each height, to detect double signs.
     /// In most cases, it is better to get the value from BlockHeight column instead (which
     /// keeps the hash of the block from canonical chain)
@@ -120,6 +118,10 @@ pub enum DBCol {
     /// - *Rows*: StatePartKey (BlockHash || ShardId || PartId (u64))
     /// - *Content type*: state part (bytes)
     StateParts,
+    /// Contains information about which state parts we've applied.
+    /// - *Rows*: StatePartKey (BlockHash || ShardId || PartId (u64))
+    /// - *Content type*: bool (just a marker that we've applied this part)
+    StatePartsApplied,
     /// Contains mapping from epoch_id to epoch start (first block height of the epoch)
     /// - *Rows*: EpochId (CryptoHash)  -- TODO: where does the epoch_id come from? it looks like blockHash..
     /// - *Content type*: BlockHeight (int)
@@ -275,7 +277,7 @@ pub enum DBCol {
     FlatStorageStatus,
     /// Column to persist pieces of miscellaneous small data. Should only be used to store
     /// constant or small (for example per-shard) amount of data.
-    /// - *Rows*: arbitrary string, see `crate::db::FLAT_STATE_VALUES_INLINING_MIGRATION_STATUS_KEY` for example
+    /// - *Rows*: arbitrary string, see `crate::db::LATEST_WITNESSES_INFO` for example
     /// - *Column type*: arbitrary bytes
     Misc,
     /// Column to store data necessary to generate part of state witness
@@ -293,6 +295,15 @@ pub enum DBCol {
     /// Witnesses with the lowest index are garbage collected first.
     /// u64 -> LatestWitnessesKey
     LatestWitnessesByIndex,
+    /// Column to store invalid ChunkStateWitnesses received from other nodes.
+    /// Not necessary for stateless validation, but useful for debugging.
+    /// - *Rows*: `InvalidWitnessesKey`
+    /// - *Column type*: `ChunkStateWitness`
+    InvalidChunkStateWitnesses,
+    /// Each observed InvalidChunkStateWitness gets an index, in increasing order.
+    /// Witnesses with the lowest index are garbage collected first.
+    /// u64 -> InvalidWitnessesKey
+    InvalidWitnessesByIndex,
     /// A valid epoch sync proof that proves the transition from the genesis to some epoch,
     /// beyond which we keep all headers in this node. Nodes bootstrapped via Epoch Sync will
     /// have this column, which allows it to compute a more recent EpochSyncProof using block
@@ -322,6 +333,35 @@ pub enum DBCol {
     /// - *Rows*: BlockShardId (BlockHash || ShardId) - 40 bytes
     /// - *Column type*: `ChunkApplyStats`
     ChunkApplyStats,
+    /// Mapping from Block Hash + Target Shard Id + Source Shard Id to Receipt Proof.
+    /// The receipts result from applying the chunk on the source shard of the corresponding block.
+    /// The key includes the target shard first to enable prefix queries for retrieving all incoming
+    /// receipts to the given shard.
+    /// - *Rows*: (BlockHash || ShardId || ShardId)
+    /// - *Content type*: `near_primitives::sharding::ReceiptProof`
+    #[cfg(feature = "protocol_feature_spice")]
+    ReceiptProofs,
+    /// All known processed next block hashes regardless of canonical chain.
+    /// - *Rows*: BlockHash (CryptoHash)
+    /// - *Content type*: next block: Vec<BlockHash (CryptoHash)>
+    #[cfg(feature = "protocol_feature_spice")]
+    AllNextBlockHashes,
+    /// For spice contains execution results endorsements.
+    /// - *Rows*: SpiceEndorsementKey (BlockHash || ShardId || AccountId)
+    /// - *Content type*: [near_primitives::stateless_validation::spice_chunk_endorsement::SpiceStoredVerifiedEndorsement]
+    #[cfg(feature = "protocol_feature_spice")]
+    Endorsements,
+    /// For spice contains execution results of applying the chunk.
+    /// Should only contain endorsed execution results.
+    /// - *Rows*: (BlockHash || ShardId)
+    /// - *Content type*: ([near_primitives::types::ChunkExecutionResult])
+    #[cfg(feature = "protocol_feature_spice")]
+    ExecutionResults,
+    /// For spice contains uncertified chunks for this block and all it's ancestry.
+    /// - *Rows*: BlockHash (CryptoHash)
+    /// - *Content type*: Vec<[near_primitives::types::SpiceUncertifiedChunkInfo]>
+    #[cfg(feature = "protocol_feature_spice")]
+    UncertifiedChunks,
 }
 
 /// Defines different logical parts of a db key.
@@ -336,7 +376,7 @@ pub enum DBKeyType {
     /// Set of predetermined strings. Used, for example, in DBCol::BlockMisc
     StringLiteral,
     BlockHash,
-    /// Hash of the previous block. Logically different from BlockHash. Used fro DBCol::NextBlockHashes.
+    /// Hash of the previous block. Logically different from BlockHash. Used for DBCol::NextBlockHashes.
     PreviousBlockHash,
     BlockHeight,
     BlockOrdinal,
@@ -357,6 +397,9 @@ pub enum DBKeyType {
     ColumnId,
     LatestWitnessesKey,
     LatestWitnessIndex,
+    InvalidWitnessesKey,
+    InvalidWitnessIndex,
+    SpiceEndorsementKey,
 }
 
 impl DBCol {
@@ -378,12 +421,13 @@ impl DBCol {
         match self {
             DBCol::Block
             | DBCol::BlockHeader
-            | DBCol::BlockExtra
             | DBCol::BlockInfo
             | DBCol::Chunks
             | DBCol::InvalidChunks
             | DBCol::PartialChunks
             | DBCol::TransactionResultForBlock => true,
+            #[cfg(feature = "protocol_feature_spice")]
+            DBCol::UncertifiedChunks | DBCol::ExecutionResults => true,
             _ => false,
         }
     }
@@ -447,7 +491,6 @@ impl DBCol {
             DBCol::DbVersion | DBCol::BlockMisc => false,
             // Most of the GC-ed columns should be copied to the cold storage.
             DBCol::Block
-            | DBCol::BlockExtra
             | DBCol::BlockInfo
             // TODO can be reconstruction from BlockHeight instead of saving to cold storage.
             | DBCol::BlockPerHeight
@@ -469,7 +512,16 @@ impl DBCol {
             | DBCol::Transactions
             | DBCol::StateShardUIdMapping
             | DBCol::ChunkApplyStats => true,
-
+            #[cfg(feature = "protocol_feature_spice")]
+            | DBCol::ReceiptProofs => true,
+            #[cfg(feature = "protocol_feature_spice")]
+            | DBCol::AllNextBlockHashes => false,
+            #[cfg(feature = "protocol_feature_spice")]
+            | DBCol::Endorsements => false,
+            #[cfg(feature = "protocol_feature_spice")]
+            | DBCol::ExecutionResults => false,
+            #[cfg(feature = "protocol_feature_spice")]
+            | DBCol::UncertifiedChunks => false,
             // TODO
             DBCol::ChallengedBlocks => false,
             DBCol::Misc => false,
@@ -479,8 +531,8 @@ impl DBCol {
             DBCol::BlockRefCount => false,
             // InvalidChunks is only needed at head when accepting new chunks.
             DBCol::InvalidChunks => false,
-            // StateParts is only needed while syncing.
-            DBCol::StateParts => false,
+            // StateParts, StatePartsApplied is only needed while syncing.
+            DBCol::StateParts | DBCol::StatePartsApplied => false,
             // TrieChanges is only needed for GC.
             DBCol::TrieChanges => false,
             // StateDlInfos is only needed when syncing and it is not immutable.
@@ -494,6 +546,9 @@ impl DBCol {
             // LatestChunkStateWitnesses stores the last N observed witnesses, used only for debugging.
             DBCol::LatestChunkStateWitnesses => false,
             DBCol::LatestWitnessesByIndex => false,
+            // InvalidChunkStateWitnesses stores the last N observed invalid witnesses, used only for debugging.
+            DBCol::InvalidChunkStateWitnesses => false,
+            DBCol::InvalidWitnessesByIndex => false,
             // Deprecated.
             DBCol::_ReceiptIdToShardId => false,
             // This can be re-constructed from the Chunks column, so no need to store in Cold DB.
@@ -501,6 +556,7 @@ impl DBCol {
 
             // Columns that are not GC-ed need not be copied to the cold storage.
             DBCol::BlockHeader
+            | DBCol::_BlockExtra
             | DBCol::_GCCount
             | DBCol::BlockHeight
             | DBCol::_Peers
@@ -520,7 +576,6 @@ impl DBCol {
             | DBCol::_LastBlockWithNewChunk
             | DBCol::_TransactionRefCount
             | DBCol::_TransactionResult
-            // | DBCol::StateChangesForSplitStates
             | DBCol::CachedContractCode
             | DBCol::FlatState
             | DBCol::FlatStateChanges
@@ -562,9 +617,11 @@ impl DBCol {
             DBCol::ChallengedBlocks => &[DBKeyType::BlockHash],
             DBCol::StateHeaders => &[DBKeyType::ShardId, DBKeyType::BlockHash],
             DBCol::InvalidChunks => &[DBKeyType::ChunkHash],
-            DBCol::BlockExtra => &[DBKeyType::BlockHash],
+            DBCol::_BlockExtra => &[DBKeyType::BlockHash],
             DBCol::BlockPerHeight => &[DBKeyType::BlockHeight],
-            DBCol::StateParts => &[DBKeyType::BlockHash, DBKeyType::ShardId, DBKeyType::PartId],
+            DBCol::StateParts | DBCol::StatePartsApplied => {
+                &[DBKeyType::BlockHash, DBKeyType::ShardId, DBKeyType::PartId]
+            }
             DBCol::EpochStart => &[DBKeyType::EpochId],
             DBCol::AccountAnnouncements => &[DBKeyType::AccountId],
             DBCol::NextBlockHashes => &[DBKeyType::PreviousBlockHash],
@@ -600,12 +657,59 @@ impl DBCol {
             DBCol::StateTransitionData => &[DBKeyType::BlockHash, DBKeyType::ShardId],
             DBCol::LatestChunkStateWitnesses => &[DBKeyType::LatestWitnessesKey],
             DBCol::LatestWitnessesByIndex => &[DBKeyType::LatestWitnessIndex],
+            DBCol::InvalidChunkStateWitnesses => &[DBKeyType::InvalidWitnessesKey],
+            DBCol::InvalidWitnessesByIndex => &[DBKeyType::InvalidWitnessIndex],
             DBCol::EpochSyncProof => &[DBKeyType::Empty],
             DBCol::StateShardUIdMapping => &[DBKeyType::ShardUId],
             DBCol::StateSyncHashes => &[DBKeyType::EpochId],
             DBCol::StateSyncNewChunks => &[DBKeyType::BlockHash],
             DBCol::ChunkApplyStats => &[DBKeyType::BlockHash, DBKeyType::ShardId],
+            #[cfg(feature = "protocol_feature_spice")]
+            DBCol::ReceiptProofs => &[DBKeyType::BlockHash, DBKeyType::ShardId, DBKeyType::ShardId],
+            #[cfg(feature = "protocol_feature_spice")]
+            DBCol::AllNextBlockHashes => &[DBKeyType::BlockHash],
+            #[cfg(feature = "protocol_feature_spice")]
+            DBCol::Endorsements => &[DBKeyType::SpiceEndorsementKey],
+            #[cfg(feature = "protocol_feature_spice")]
+            DBCol::ExecutionResults => &[DBKeyType::BlockHash, DBKeyType::ShardId],
+            #[cfg(feature = "protocol_feature_spice")]
+            DBCol::UncertifiedChunks => &[DBKeyType::BlockHash],
         }
+    }
+
+    pub fn receipt_proofs() -> DBCol {
+        #[cfg(feature = "protocol_feature_spice")]
+        return DBCol::ReceiptProofs;
+        #[cfg(not(feature = "protocol_feature_spice"))]
+        panic!("Expected protocol_feature_spice to be enabled")
+    }
+
+    pub fn all_next_block_hashes() -> DBCol {
+        #[cfg(feature = "protocol_feature_spice")]
+        return DBCol::AllNextBlockHashes;
+        #[cfg(not(feature = "protocol_feature_spice"))]
+        panic!("Expected protocol_feature_spice to be enabled")
+    }
+
+    pub fn endorsements() -> DBCol {
+        #[cfg(feature = "protocol_feature_spice")]
+        return DBCol::Endorsements;
+        #[cfg(not(feature = "protocol_feature_spice"))]
+        panic!("Expected protocol_feature_spice to be enabled")
+    }
+
+    pub fn execution_results() -> DBCol {
+        #[cfg(feature = "protocol_feature_spice")]
+        return DBCol::ExecutionResults;
+        #[cfg(not(feature = "protocol_feature_spice"))]
+        panic!("Expected protocol_feature_spice to be enabled")
+    }
+
+    pub fn uncertified_chunks() -> DBCol {
+        #[cfg(feature = "protocol_feature_spice")]
+        return DBCol::UncertifiedChunks;
+        #[cfg(not(feature = "protocol_feature_spice"))]
+        panic!("Expected protocol_feature_spice to be enabled")
     }
 }
 
