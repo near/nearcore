@@ -217,7 +217,9 @@ impl ViewClientActorInner {
         reference: &BlockReference,
     ) -> Result<Option<Arc<BlockHeader>>, near_chain::Error> {
         // TODO(spice): Implement support for getting different finalities from execution.
-        if cfg!(feature = "protocol_feature_spice") {
+        if cfg!(feature = "protocol_feature_spice")
+            && matches!(reference, BlockReference::Finality(_))
+        {
             return match self.chain.chain_store().spice_execution_head() {
                 Ok(tip) => self.chain.get_block_header(&tip.last_block_hash).map(Some),
                 Err(near_chain::Error::DBNotFoundErr(_)) => {
