@@ -593,10 +593,13 @@ impl PeerActor {
                 }
             }
             ConnectingStatus::Inbound { .. } => {
-                if MIN_SUPPORTED_PROTOCOL_VERSION > handshake.protocol_version {
+                if MIN_SUPPORTED_PROTOCOL_VERSION > handshake.protocol_version
+                    || handshake.oldest_supported_version > PROTOCOL_VERSION
+                {
                     tracing::debug!(
                         target: "network",
                         version = handshake.protocol_version,
+                        oldest_supported_version = handshake.oldest_supported_version,
                         "Received connection from node with unsupported PROTOCOL_VERSION.");
                     self.send_message(&PeerMessage::HandshakeFailure(
                         self.my_node_info.clone(),

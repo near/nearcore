@@ -229,7 +229,8 @@ async fn test_handshake(outbound_encoding: Option<Encoding>, inbound_encoding: O
         PeerMessage::HandshakeFailure(_, HandshakeFailureReason::ProtocolVersionMismatch { .. })
     );
 
-    // Send too new PROTOCOL_VERSION, expect ProtocolVersionMismatch
+    // Fix protocol_version.
+    // Break oldest_supported_version, expect ProtocolVersionMismatch.
     handshake.protocol_version = PROTOCOL_VERSION + 1;
     handshake.oldest_supported_version = PROTOCOL_VERSION + 1;
     outbound.write(&PeerMessage::Tier2Handshake(handshake.clone())).await;
