@@ -216,6 +216,16 @@ impl ViewClientActorInner {
         &self,
         reference: &BlockReference,
     ) -> Result<Option<Arc<BlockHeader>>, near_chain::Error> {
+        // TODO(spice): Implement support for getting different finalities from execution.
+        if cfg!(feature = "protocol_feature_spice") {
+            return match self.chain.chain_store().spice_execution_head() {
+                Ok(tip) => self.chain.get_block_header(&tip.last_block_hash).map(Some),
+                Err(near_chain::Error::DBNotFoundErr(_)) => {
+                    Ok(Some(self.chain.genesis().clone().into()))
+                }
+                Err(err) => Err(err),
+            };
+        }
         match reference {
             BlockReference::BlockId(BlockId::Height(block_height)) => {
                 self.chain.get_block_header_by_height(*block_height).map(Some)
