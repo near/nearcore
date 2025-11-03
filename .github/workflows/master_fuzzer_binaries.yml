@@ -56,6 +56,6 @@ jobs:
 
       - name: "Compile fuzzers and upload to GCS"
         run: |
-          NAME="nearcore-${{ github.ref_name }}-$(env TZ=Etc/UTC  date +"%Y%m%d%H%M%S")"
+          NAME="nearcore-${GITHUB_REF_NAME}-$(env TZ=Etc/UTC  date +"%Y%m%d%H%M%S")"
           RUSTFLAGS="--cfg fuzz" cargo +nightly bolero build-clusterfuzz --all-features --profile fuzz
-          gsutil cp -Z target/fuzz/clusterfuzz.tar "gs://nearone_fuzzer_targets/${{ github.ref_name }}/$NAME.tar.gz"
+          gsutil cp -Z target/fuzz/clusterfuzz.tar "gs://nearone_fuzzer_targets/${GITHUB_REF_NAME}/$NAME.tar.gz"

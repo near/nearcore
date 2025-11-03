@@ -69,7 +69,7 @@ jobs:
           BRANCH=$(git branch --show-current)
           # in case of Release triggered run, branch is empty
           if [ -z "$BRANCH" ]; then
-            BRANCH=$(git branch -r --contains=${{ github.ref_name }} | head -n1 | cut -c3- | cut -d / -f 2)
+            BRANCH=$(git branch -r --contains=${GITHUB_REF_NAME} | head -n1 | cut -c3- | cut -d / -f 2)
           fi
           aws s3 cp --acl public-read latest s3://build.nearprotocol.com/nearcore/$(uname)/${BRANCH}/latest
       
@@ -81,7 +81,7 @@ jobs:
           -H "Authorization: Bearer ${{ secrets.NEARONE_GITHUB_TOKEN }}" \
           -H "X-GitHub-Api-Version: 2022-11-28" \
           https://api.github.com/repos/Near-One/infra-ops/dispatches \
-          -d '{"event_type":"metadata-update","client_payload":{"release":"${{ github.ref_name }}"}}'
+          -d '{"event_type":"metadata-update","client_payload":{"release":"${GITHUB_REF_NAME}"}}'
 
   docker-release:
     name: "Build and publish nearcore Docker image"
@@ -119,7 +119,7 @@ jobs:
           BRANCH=$(git branch --show-current)
           # in case of Release triggered run, branch is empty
           if [ -z "$BRANCH" ]; then
-            BRANCH=$(git branch -r --contains=${{ github.ref_name }} | head -n1 | cut -c3- | cut -d / -f 2)
+            BRANCH=$(git branch -r --contains=${GITHUB_REF_NAME} | head -n1 | cut -c3- | cut -d / -f 2)
           fi
 
           DOCKER_TAGS="nearprotocol/nearcore:${BRANCH},nearprotocol/nearcore:${BRANCH}-${COMMIT}"
