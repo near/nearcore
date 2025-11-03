@@ -146,9 +146,9 @@ impl EpochConfig {
             chunk_producer_assignment_changes_limit: 5,
             shuffle_shard_assignment_for_chunk_producers: false,
             max_inflation_rate: Rational32::new(1, 40),
-            protocol_reward_rate: Rational32::new(1, 10),
-            protocol_treasury_account: "near".parse().unwrap(),
-            num_blocks_per_year: 60 * 60 * 24 * 365,
+            protocol_reward_rate: default_protocol_reward_rate(),
+            protocol_treasury_account: default_protocol_treasury_account(),
+            num_blocks_per_year: default_num_blocks_per_year(),
         }
     }
 
@@ -178,9 +178,9 @@ impl EpochConfig {
             chunk_producer_assignment_changes_limit: 5,
             shuffle_shard_assignment_for_chunk_producers: false,
             max_inflation_rate: Rational32::new(1, 40),
-            protocol_reward_rate: Rational32::new(1, 10),
-            protocol_treasury_account: "near".parse().unwrap(),
-            num_blocks_per_year: 60 * 60 * 24 * 365,
+            protocol_reward_rate: default_protocol_reward_rate(),
+            protocol_treasury_account: default_protocol_treasury_account(),
+            num_blocks_per_year: default_num_blocks_per_year(),
         }
     }
 
@@ -209,9 +209,9 @@ impl EpochConfig {
             chunk_producer_assignment_changes_limit: 5,
             shuffle_shard_assignment_for_chunk_producers: false,
             max_inflation_rate: Rational32::new(1, 40),
-            protocol_reward_rate: Rational32::new(1, 10),
-            protocol_treasury_account: "near".parse().unwrap(),
-            num_blocks_per_year: 60 * 60 * 24 * 365,
+            protocol_reward_rate: default_protocol_reward_rate(),
+            protocol_treasury_account: default_protocol_treasury_account(),
+            num_blocks_per_year: default_num_blocks_per_year(),
         }
     }
 }

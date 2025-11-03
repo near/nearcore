@@ -6,7 +6,7 @@ use primitive_types::{U256, U512};
 
 use near_chain_configs::GenesisConfig;
 use near_primitives::types::{AccountId, Balance, BlockChunkValidatorStats};
-use near_primitives::version::{PROD_GENESIS_PROTOCOL_VERSION, ProtocolVersion};
+use near_primitives::version::ProtocolVersion;
 
 use crate::validator_stats::get_validator_online_ratio;
 
@@ -74,12 +74,7 @@ impl RewardCalculator {
         let mut res = HashMap::new();
         let num_validators = validator_block_chunk_stats.len();
         let max_inflation_rate = self.max_inflation_rate;
-        let use_hardcoded_value = self.genesis_protocol_version == PROD_GENESIS_PROTOCOL_VERSION;
-        let protocol_reward_rate = if use_hardcoded_value {
-            Rational32::new_raw(1, 10)
-        } else {
-            self.protocol_reward_rate
-        };
+        let protocol_reward_rate = self.protocol_reward_rate;
         let epoch_total_reward = Balance::from_yoctonear(
             (U256::from(*max_inflation_rate.numer() as u64)
                 * U256::from(total_supply.as_yoctonear())
