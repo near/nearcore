@@ -188,7 +188,6 @@ pub fn default_reward_calculator() -> RewardCalculator {
         protocol_reward_rate: Ratio::from_integer(0),
         protocol_treasury_account: "near".parse().unwrap(),
         num_seconds_per_year: NUM_SECONDS_IN_A_YEAR,
-        genesis_protocol_version: PROTOCOL_VERSION,
         max_inflation_rate: Ratio::new(0, 1),
     }
 }

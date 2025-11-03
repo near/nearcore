@@ -491,7 +491,6 @@ fn test_validator_reward_one_validator() {
         protocol_reward_rate: Ratio::new(1, 10),
         protocol_treasury_account: "near".parse().unwrap(),
         num_seconds_per_year: 50,
-        genesis_protocol_version: PROTOCOL_VERSION,
         max_inflation_rate: Ratio::new(0, 1),
     };
     let mut epoch_manager = setup_epoch_manager(
@@ -594,7 +593,6 @@ fn test_validator_reward_weight_by_stake() {
         protocol_reward_rate: Ratio::new(1, 10),
         protocol_treasury_account: "near".parse().unwrap(),
         num_seconds_per_year: 50,
-        genesis_protocol_version: PROTOCOL_VERSION,
         max_inflation_rate: Ratio::new(0, 1),
     };
     let mut epoch_manager = setup_epoch_manager(
@@ -706,7 +704,6 @@ fn test_reward_multiple_shards() {
         protocol_reward_rate: Ratio::new(1, 10),
         protocol_treasury_account: "near".parse().unwrap(),
         num_seconds_per_year: 1_000_000,
-        genesis_protocol_version: PROTOCOL_VERSION,
         max_inflation_rate: Ratio::new(1, 40),
     };
     let num_shards = 2;
@@ -1052,7 +1049,6 @@ fn test_rewards_with_kickouts() {
         protocol_reward_rate: Ratio::new(1, 10),
         protocol_treasury_account: "near".parse().unwrap(),
         num_seconds_per_year: NUM_SECONDS_IN_A_YEAR,
-        genesis_protocol_version: PROTOCOL_VERSION,
         max_inflation_rate: Ratio::new(1, 40),
     };
     let em = setup_epoch_manager(
@@ -2136,8 +2132,7 @@ fn test_protocol_version_switch() {
         stake("test1".parse().unwrap(), amount_staked),
         stake("test2".parse().unwrap(), amount_staked),
     ];
-    let mut reward_calculator = default_reward_calculator();
-    reward_calculator.genesis_protocol_version = 0;
+    let reward_calculator = default_reward_calculator();
     let mut epoch_manager =
         EpochManager::new(store, config, reward_calculator, validators).unwrap();
     let h = hash_range(8);
@@ -2178,8 +2173,7 @@ fn test_protocol_version_switch_with_shard_layout_change() {
         stake("test1".parse().unwrap(), amount_staked),
         stake("test2".parse().unwrap(), amount_staked),
     ];
-    let mut reward_calculator = default_reward_calculator();
-    reward_calculator.genesis_protocol_version = PROTOCOL_VERSION - 1;
+    let reward_calculator = default_reward_calculator();
     let mut epoch_manager =
         EpochManager::new(store, config, reward_calculator, validators).unwrap();
     let h = hash_range(8);
@@ -2264,8 +2258,7 @@ fn test_version_switch_kickout_old_version() {
         stake("test1".parse().unwrap(), large_stake),
         stake("test2".parse().unwrap(), small_stake),
     ];
-    let mut reward_calculator = default_reward_calculator();
-    reward_calculator.genesis_protocol_version = version;
+    let reward_calculator = default_reward_calculator();
     let mut epoch_manager =
         EpochManager::new(store, config, reward_calculator, validators).unwrap();
 

@@ -34,7 +34,6 @@ pub struct RewardCalculator {
     pub protocol_reward_rate: Rational32,
     pub protocol_treasury_account: AccountId,
     pub num_seconds_per_year: u64,
-    pub genesis_protocol_version: ProtocolVersion,
     pub max_inflation_rate: Rational32,
 }
 
@@ -46,7 +45,6 @@ impl RewardCalculator {
             protocol_reward_rate: config.protocol_reward_rate,
             protocol_treasury_account: config.protocol_treasury_account.clone(),
             num_seconds_per_year: NUM_SECONDS_IN_A_YEAR,
-            genesis_protocol_version: config.protocol_version,
             max_inflation_rate: config.max_inflation_rate,
         }
     }
@@ -55,7 +53,6 @@ impl RewardCalculator {
         self.num_blocks_per_year = config.num_blocks_per_year;
         self.protocol_treasury_account = config.protocol_treasury_account.clone();
         self.protocol_reward_rate = config.protocol_reward_rate;
-        // self.genesis_protocol_version = config.protocol_version;
         self.max_inflation_rate = config.max_inflation_rate;
     }
 
@@ -160,7 +157,7 @@ mod tests {
     use super::*;
     use near_primitives::epoch_manager::EpochConfigStore;
     use near_primitives::types::{BlockChunkValidatorStats, ChunkStats, ValidatorStats};
-    use near_primitives::version::{PROD_GENESIS_PROTOCOL_VERSION, PROTOCOL_VERSION};
+    use near_primitives::version::PROTOCOL_VERSION;
     use num_rational::Ratio;
     use std::collections::HashMap;
 
@@ -173,7 +170,6 @@ mod tests {
             protocol_reward_rate: Ratio::new(0, 1),
             protocol_treasury_account: "near".parse().unwrap(),
             num_seconds_per_year: 1000000,
-            genesis_protocol_version: PROTOCOL_VERSION,
             max_inflation_rate: Ratio::new(0, 1),
         };
         let validator_block_chunk_stats = HashMap::from([
@@ -230,7 +226,6 @@ mod tests {
             protocol_reward_rate: Ratio::new(0, 10),
             protocol_treasury_account: "near".parse().unwrap(),
             num_seconds_per_year: 1000,
-            genesis_protocol_version: PROTOCOL_VERSION,
             max_inflation_rate,
         };
         let validator_block_chunk_stats = HashMap::from([
@@ -299,7 +294,6 @@ mod tests {
             protocol_reward_rate: Ratio::new(0, 10),
             protocol_treasury_account: "near".parse().unwrap(),
             num_seconds_per_year: 1000,
-            genesis_protocol_version: PROTOCOL_VERSION,
             max_inflation_rate,
         };
         let validator_block_chunk_stats = HashMap::from([
@@ -382,7 +376,6 @@ mod tests {
             protocol_reward_rate: Ratio::new(0, 10),
             protocol_treasury_account: "near".parse().unwrap(),
             num_seconds_per_year: 1000,
-            genesis_protocol_version: PROTOCOL_VERSION,
             max_inflation_rate,
         };
         let validator_block_chunk_stats = HashMap::from([
@@ -471,7 +464,6 @@ mod tests {
             protocol_reward_rate: Ratio::new(0, 10),
             protocol_treasury_account: "near".parse().unwrap(),
             num_seconds_per_year: 1000,
-            genesis_protocol_version: PROTOCOL_VERSION,
             max_inflation_rate,
         };
         let validator_block_chunk_stats = HashMap::from([
@@ -563,7 +555,6 @@ mod tests {
             protocol_reward_rate: Ratio::new(1, 10),
             protocol_treasury_account: "near".parse().unwrap(),
             num_seconds_per_year: 60 * 60 * 24 * 365,
-            genesis_protocol_version: PROTOCOL_VERSION,
             max_inflation_rate: Ratio::new(1, 40),
         };
         let validator_block_chunk_stats = HashMap::from([(
@@ -604,7 +595,6 @@ mod tests {
             protocol_reward_rate: Ratio::new(0, 1), // Unused, would only be used for genesis_protocol_version
             protocol_treasury_account: "near".parse().unwrap(),
             num_seconds_per_year: 1000000,
-            genesis_protocol_version: PROD_GENESIS_PROTOCOL_VERSION,
             max_inflation_rate: Ratio::new(1, 20),
         };
         let validator_stake = HashMap::from([(account_id.clone(), Balance::from_near(100))]);
