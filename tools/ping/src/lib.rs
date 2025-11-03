@@ -386,6 +386,7 @@ async fn ping_via_node(
     mut latencies_csv: Option<crate::csv::LatenciesCsv>,
     ping_stats: &mut Vec<(PeerIdentifier, PingStats)>,
     prometheus_addr: &str,
+    just_handshake: bool,
 ) -> anyhow::Result<()> {
     let mut app_info = AppInfo::new(account_filter, chain_id);
 
@@ -430,6 +431,12 @@ async fn ping_via_node(
             anyhow::bail!("Error connecting to {:?}: {}", peer_addr, e);
         }
     };
+
+    // If just_handshake is true, exit after successful connection
+    if just_handshake {
+        println!("Handshake completed successfully. Exiting as requested.");
+        return Ok(());
+    }
 
     let mut result = Ok(());
     let mut nonce = 1;
