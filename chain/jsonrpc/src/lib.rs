@@ -607,9 +607,10 @@ impl JsonRpcHandler {
         .map_err(|_| {
             metrics::RPC_TIMEOUT_TOTAL.inc();
             tracing::warn!(
-                target: "jsonrpc", "Timeout: tx_exists method. tx_hash {:?} signer_account_id {:?}",
-                tx_hash,
-                signer_account_id
+                target: "jsonrpc",
+                ?tx_hash,
+                ?signer_account_id,
+                "timeout in tx_exists method"
             );
             near_jsonrpc_primitives::types::transactions::RpcTransactionError::TimeoutError
         })?
@@ -672,11 +673,12 @@ impl JsonRpcHandler {
         .map_err(|_| {
             metrics::RPC_TIMEOUT_TOTAL.inc();
             tracing::warn!(
-                target: "jsonrpc", "Timeout: tx_status_fetch method. tx_info {:?} fetch_receipt {:?} result {:?} timeout {:?}",
-                tx_info,
-                fetch_receipt,
-                tx_status_result,
-                self.polling_config.polling_timeout,
+                target: "jsonrpc",
+                ?tx_info,
+                ?fetch_receipt,
+                result = ?tx_status_result,
+                timeout = ?self.polling_config.polling_timeout,
+                "timeout in tx_status_fetch method"
             );
             near_jsonrpc_primitives::types::transactions::RpcTransactionError::TimeoutError
         })?
@@ -1787,7 +1789,7 @@ pub async fn start_http(
     let addr = config.addr;
     let prometheus_addr = config.prometheus_addr.clone().filter(|it| it != &addr.to_string());
     let cors_allowed_origins = config.cors_allowed_origins.clone();
-    info!(target:"network", "Starting http server at {}", addr);
+    info!(target: "network", %addr, "starting http server");
 
     // Create the axum app using the extracted function
     let app = create_jsonrpc_app(
@@ -1810,12 +1812,12 @@ pub async fn start_http(
     // Start main server
     future_spawner.spawn("JSON RPC", async move {
         if let Err(e) = axum::serve(listener, app).await {
-            error!(target:"network", "HTTP server error: {:?}", e);
+            error!(target: "network", ?e, "http server error");
         }
     });
 
     if let Some(prometheus_addr) = prometheus_addr {
-        info!(target:"network", "Starting http monitoring server at {}", prometheus_addr);
+        info!(target: "network", %prometheus_addr, "starting http monitoring server");
         // Export only the /metrics service. It's a read-only service and can have very relaxed
         // access restrictions.
         let prometheus_app = Router::new()
@@ -1830,7 +1832,7 @@ pub async fn start_http(
         // Start Prometheus server
         future_spawner.spawn("Prometheus Metrics", async move {
             if let Err(e) = axum::serve(listener, prometheus_app).await {
-                error!(target:"network", "Prometheus server error: {:?}", e);
+                error!(target: "network", ?e, "prometheus server error");
             }
         });
     }
@@ -1841,9 +1843,10 @@ pub async fn start_http_for_readonly_debug_querying(
     addr: ListenerAddr,
     entity_debug_handler: Arc<dyn EntityDebugHandler>,
 ) -> Result<(), std::io::Error> {
-    info!("Starting readonly debug API server at {}", addr);
+    info!(%addr, "starting readonly debug API server");
     info!(
-        "Use tools/debug-ui, use localhost as the node, and go to the Entity Debug tab to start querying."
+        "use tools/debug-ui, use localhost as the node, and go to the entity debug tab to start \
+         querying"
     );
 
     let app = Router::new()

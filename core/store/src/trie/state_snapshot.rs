@@ -83,7 +83,7 @@ impl StateSnapshot {
         shard_indexes_and_uids: &[(ShardIndex, ShardUId)],
         block: Option<&Block>,
     ) -> Self {
-        tracing::debug!(target: "state_snapshot", ?shard_indexes_and_uids, ?prev_block_hash, "new StateSnapshot");
+        tracing::debug!(target: "state_snapshot", ?shard_indexes_and_uids, ?prev_block_hash, "new state snapshot");
         let mut included_shard_uids = vec![];
         for &(shard_index, shard_uid) in shard_indexes_and_uids {
             if let Err(err) = flat_storage_manager.mark_ready_and_create_flat_storage(shard_uid) {

@@ -141,7 +141,7 @@ impl EncodedChunksCache {
             let previous_block_hash = &entry.header.prev_block_hash().clone();
             self.remove_chunk_from_incomplete_chunks(previous_block_hash, chunk_hash);
         } else {
-            warn!(target:"chunks", "cannot mark non-existent entry as complete {:?}", chunk_hash);
+            warn!(target: "chunks", ?chunk_hash, "cannot mark non-existent entry as complete");
         }
     }
 
@@ -191,7 +191,7 @@ impl EncodedChunksCache {
         if let Some(entry) = self.encoded_chunks.get_mut(chunk_hash) {
             entry.header_fully_validated = true;
         } else {
-            warn!("no entry exist {:?}", chunk_hash);
+            warn!(target: "chunks", ?chunk_hash, "no entry exists");
         }
     }
 

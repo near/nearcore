@@ -65,7 +65,7 @@ impl RpcFrom<GetExecutionOutcomeError> for RpcLightClientProofError {
                 Self::InternalError { error_message }
             }
             GetExecutionOutcomeError::Unreachable { ref error_message } => {
-                tracing::warn!(target: "jsonrpc", "Unreachable error occurred: {}", error_message);
+                tracing::warn!(target: "jsonrpc", %error_message, "unreachable error occurred");
                 crate::metrics::RPC_UNREACHABLE_ERROR_COUNT
                     .with_label_values(&["RpcLightClientProofError"])
                     .inc();
@@ -91,7 +91,7 @@ impl RpcFrom<GetBlockProofError> for RpcLightClientProofError {
                 Self::InternalError { error_message }
             }
             GetBlockProofError::Unreachable { ref error_message } => {
-                tracing::warn!(target: "jsonrpc", "Unreachable error occurred: {}", error_message);
+                tracing::warn!(target: "jsonrpc", %error_message, "unreachable error occurred");
                 crate::metrics::RPC_UNREACHABLE_ERROR_COUNT
                     .with_label_values(&["RpcLightClientProofError"])
                     .inc();
@@ -120,7 +120,7 @@ impl RpcFrom<GetNextLightClientBlockError> for RpcLightClientNextBlockError {
                 Self::EpochOutOfBounds { epoch_id }
             }
             GetNextLightClientBlockError::Unreachable { ref error_message } => {
-                tracing::warn!(target: "jsonrpc", "Unreachable error occurred: {}", error_message);
+                tracing::warn!(target: "jsonrpc", %error_message, "unreachable error occurred");
                 crate::metrics::RPC_UNREACHABLE_ERROR_COUNT
                     .with_label_values(&["RpcLightClientNextBlockError"])
                     .inc();
