@@ -104,6 +104,8 @@ fn get_cloud_head(env: &TestLoopEnv, writer_id: &AccountId) -> BlockHeight {
     hot_store.get_ser::<Tip>(DBCol::BlockMisc, CLOUD_HEAD_KEY).unwrap().unwrap().height
 }
 
+/// Runs tests verifying view client behavior at the given block height.
+// TODO(cloud_archival) Test all view client methods
 pub fn test_view_client(env: &mut TestLoopEnv, archival_id: &AccountId, height: BlockHeight) {
     let archival_node = TestLoopNode::for_account(&env.node_datas, archival_id);
     let cloud_storage = env.get_cloud_storage(archival_node.data()).unwrap();
