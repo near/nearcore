@@ -43,6 +43,9 @@ pub struct TestEpochConfigBuilder {
     chunk_producer_assignment_changes_limit: NumSeats,
     shuffle_shard_assignment_for_chunk_producers: bool,
     max_inflation_rate: Rational32,
+    num_blocks_per_year: NumBlocks,
+    protocol_reward_rate: Rational32,
+    protocol_treasury_account: AccountId,
 
     // not used any more
     num_block_producer_seats_per_shard: Vec<NumSeats>,
@@ -139,6 +142,9 @@ impl Default for TestEpochConfigBuilder {
             chunk_producer_assignment_changes_limit: 5,
             shuffle_shard_assignment_for_chunk_producers: false,
             max_inflation_rate: Rational32::new(1, 40),
+            num_blocks_per_year: 365 * 24 * 60 * 60,
+            protocol_reward_rate: Rational32::new(1, 10),
+            protocol_treasury_account: "near".to_string().parse().unwrap(),
             // consider them ineffective
             num_block_producer_seats_per_shard: vec![1],
             genesis_protocol_version: None,
@@ -254,6 +260,9 @@ impl TestEpochConfigBuilder {
                 .shuffle_shard_assignment_for_chunk_producers,
             num_block_producer_seats_per_shard: self.num_block_producer_seats_per_shard,
             max_inflation_rate: self.max_inflation_rate,
+            num_blocks_per_year: self.num_blocks_per_year,
+            protocol_reward_rate: self.protocol_reward_rate,
+            protocol_treasury_account: self.protocol_treasury_account,
         };
         tracing::debug!("Epoch config: {:#?}", epoch_config);
         epoch_config

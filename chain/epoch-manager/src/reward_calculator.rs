@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 
+use near_primitives::epoch_manager::EpochConfig;
 use num_rational::Rational32;
 use primitive_types::{U256, U512};
 
@@ -34,6 +35,7 @@ pub struct RewardCalculator {
     pub protocol_treasury_account: AccountId,
     pub num_seconds_per_year: u64,
     pub genesis_protocol_version: ProtocolVersion,
+    pub max_inflation_rate: Rational32,
 }
 
 impl RewardCalculator {
@@ -45,7 +47,16 @@ impl RewardCalculator {
             protocol_treasury_account: config.protocol_treasury_account.clone(),
             num_seconds_per_year: NUM_SECONDS_IN_A_YEAR,
             genesis_protocol_version: config.protocol_version,
+            max_inflation_rate: config.max_inflation_rate,
         }
+    }
+
+    pub fn update_parameters(&mut self, config: &EpochConfig) {
+        self.num_blocks_per_year = config.num_blocks_per_year;
+        self.protocol_treasury_account = config.protocol_treasury_account.clone();
+        self.protocol_reward_rate = config.protocol_reward_rate;
+        // self.genesis_protocol_version = config.protocol_version;
+        self.max_inflation_rate = config.max_inflation_rate;
     }
 
     /// Calculate validator reward for an epoch based on their block and chunk production stats.
@@ -59,10 +70,10 @@ impl RewardCalculator {
         _protocol_version: ProtocolVersion,
         epoch_duration: u64,
         online_thresholds: ValidatorOnlineThresholds,
-        max_inflation_rate: Rational32,
     ) -> (HashMap<AccountId, Balance>, Balance) {
         let mut res = HashMap::new();
         let num_validators = validator_block_chunk_stats.len();
+        let max_inflation_rate = self.max_inflation_rate;
         let use_hardcoded_value = self.genesis_protocol_version == PROD_GENESIS_PROTOCOL_VERSION;
         let protocol_reward_rate = if use_hardcoded_value {
             Rational32::new_raw(1, 10)
@@ -161,7 +172,6 @@ mod tests {
     #[test]
     fn test_zero_produced_and_expected() {
         let epoch_length = 1;
-        let max_inflation_rate = Ratio::new(0, 1);
         let reward_calculator = RewardCalculator {
             num_blocks_per_year: 1000000,
             epoch_length,
@@ -169,6 +179,7 @@ mod tests {
             protocol_treasury_account: "near".parse().unwrap(),
             num_seconds_per_year: 1000000,
             genesis_protocol_version: PROTOCOL_VERSION,
+            max_inflation_rate: Ratio::new(0, 1),
         };
         let validator_block_chunk_stats = HashMap::from([
             (
@@ -202,7 +213,6 @@ mod tests {
                 online_max_threshold: Ratio::new(1, 1),
                 endorsement_cutoff_threshold: None,
             },
-            max_inflation_rate,
         );
         assert_eq!(
             result.0,
@@ -226,6 +236,7 @@ mod tests {
             protocol_treasury_account: "near".parse().unwrap(),
             num_seconds_per_year: 1000,
             genesis_protocol_version: PROTOCOL_VERSION,
+            max_inflation_rate,
         };
         let validator_block_chunk_stats = HashMap::from([
             (
@@ -267,7 +278,6 @@ mod tests {
                 online_max_threshold: Ratio::new(99, 100),
                 endorsement_cutoff_threshold: None,
             },
-            max_inflation_rate,
         );
         // Total reward is 10_000_000. Divided by 3 equal stake validators - each gets 3_333_333.
         // test1 with 94.5% online gets 50% because of linear between (0.99-0.9) online.
@@ -295,6 +305,7 @@ mod tests {
             protocol_treasury_account: "near".parse().unwrap(),
             num_seconds_per_year: 1000,
             genesis_protocol_version: PROTOCOL_VERSION,
+            max_inflation_rate,
         };
         let validator_block_chunk_stats = HashMap::from([
             (
@@ -348,7 +359,6 @@ mod tests {
                 online_max_threshold: Ratio::new(99, 100),
                 endorsement_cutoff_threshold: None,
             },
-            max_inflation_rate,
         );
         // Total reward is 10_000_000. Divided by 4 equal stake validators - each gets 2_500_000.
         // test1 with 94.5% online gets 50% because of linear between (0.99-0.9) online.
@@ -378,6 +388,7 @@ mod tests {
             protocol_treasury_account: "near".parse().unwrap(),
             num_seconds_per_year: 1000,
             genesis_protocol_version: PROTOCOL_VERSION,
+            max_inflation_rate,
         };
         let validator_block_chunk_stats = HashMap::from([
             // Blocks, chunks, endorsements
@@ -437,7 +448,6 @@ mod tests {
                 online_max_threshold: Ratio::new(99, 100),
                 endorsement_cutoff_threshold: None,
             },
-            max_inflation_rate,
         );
         // Total reward is 10_000_000. Divided by 4 equal stake validators - each gets 2_500_000.
         // test1 with 94.5% online gets 50% because of linear between (0.99-0.9) online.
@@ -467,6 +477,7 @@ mod tests {
             protocol_treasury_account: "near".parse().unwrap(),
             num_seconds_per_year: 1000,
             genesis_protocol_version: PROTOCOL_VERSION,
+            max_inflation_rate,
         };
         let validator_block_chunk_stats = HashMap::from([
             // Blocks, chunks, endorsements - endorsement ratio cutoff is exceeded
@@ -526,7 +537,6 @@ mod tests {
                 online_max_threshold: Ratio::new(99, 100),
                 endorsement_cutoff_threshold: Some(50),
             },
-            max_inflation_rate,
         );
         // "test2" does not get reward since its uptime ratio goes below online_min_threshold,
         // because its endorsement ratio is below the cutoff threshold.
@@ -551,7 +561,6 @@ mod tests {
     #[test]
     fn test_reward_no_overflow() {
         let epoch_length = 60 * 60 * 12;
-        let max_inflation_rate = Ratio::new(1, 40);
         let reward_calculator = RewardCalculator {
             num_blocks_per_year: 60 * 60 * 24 * 365,
             // half a day
@@ -560,6 +569,7 @@ mod tests {
             protocol_treasury_account: "near".parse().unwrap(),
             num_seconds_per_year: 60 * 60 * 24 * 365,
             genesis_protocol_version: PROTOCOL_VERSION,
+            max_inflation_rate: Ratio::new(1, 40),
         };
         let validator_block_chunk_stats = HashMap::from([(
             "test".parse().unwrap(),
@@ -586,7 +596,6 @@ mod tests {
                 online_max_threshold: Ratio::new(1, 1),
                 endorsement_cutoff_threshold: None,
             },
-            max_inflation_rate,
         );
     }
 
@@ -594,13 +603,14 @@ mod tests {
     fn test_adjust_max_inflation() {
         let epoch_length = 1;
         let account_id: AccountId = "test1".parse().unwrap();
-        let reward_calculator = RewardCalculator {
+        let mut reward_calculator = RewardCalculator {
             num_blocks_per_year: 1000000,
             epoch_length,
             protocol_reward_rate: Ratio::new(0, 1), // Unused, would only be used for genesis_protocol_version
             protocol_treasury_account: "near".parse().unwrap(),
             num_seconds_per_year: 1000000,
             genesis_protocol_version: PROD_GENESIS_PROTOCOL_VERSION,
+            max_inflation_rate: Ratio::new(1, 20),
         };
         let validator_stake = HashMap::from([(account_id.clone(), Balance::from_near(100))]);
         let total_supply = Balance::from_near(1_000_000_000);
@@ -612,9 +622,10 @@ mod tests {
                 // Prior to inflation reduction
                 (80, Balance::from_near(50)),
                 // After inflation reduction
-                (PROTOCOL_VERSION, Balance::from_near(25)),
+                (81, Balance::from_near(25)),
             ] {
                 let epoch_config = epoch_configs.get_config(protocol_version);
+                reward_calculator.update_parameters(epoch_config);
                 let validator_block_chunk_stats = HashMap::from([(
                     account_id.clone(),
                     BlockChunkValidatorStats {
@@ -633,7 +644,6 @@ mod tests {
                         online_max_threshold: Ratio::new(99, 100),
                         endorsement_cutoff_threshold: None,
                     },
-                    epoch_config.max_inflation_rate,
                 );
                 assert_eq!(expected_total, total);
                 let expected_protocol_reward = expected_total.checked_div(10).unwrap();

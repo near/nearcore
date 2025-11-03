@@ -162,6 +162,9 @@ pub fn epoch_config(
         shard_layout: ShardLayout::multi_shard(num_shards, 0),
         validator_max_kickout_stake_perc: 100,
         max_inflation_rate,
+        num_blocks_per_year: 1,
+        protocol_reward_rate: Ratio::new(1, 10),
+        protocol_treasury_account: "near".parse().unwrap(),
     };
     let config_store = EpochConfigStore::test_single_version(PROTOCOL_VERSION, epoch_config);
     AllEpochConfig::from_epoch_config_store(
@@ -186,6 +189,7 @@ pub fn default_reward_calculator() -> RewardCalculator {
         protocol_treasury_account: "near".parse().unwrap(),
         num_seconds_per_year: NUM_SECONDS_IN_A_YEAR,
         genesis_protocol_version: PROTOCOL_VERSION,
+        max_inflation_rate: Ratio::new(0, 1),
     }
 }
 

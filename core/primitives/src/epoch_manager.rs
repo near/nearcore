@@ -7,6 +7,7 @@ use crate::types::{
 };
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_primitives_core::hash::CryptoHash;
+use near_primitives_core::types::NumBlocks;
 use near_primitives_core::version::PROTOCOL_VERSION;
 use near_schema_checker_lib::ProtocolSchema;
 use std::collections::{BTreeMap, HashMap};
@@ -16,6 +17,18 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 pub const AGGREGATOR_KEY: &[u8] = b"AGGREGATOR";
+
+fn default_protocol_reward_rate() -> Rational32 {
+    Rational32::new(1, 10)
+}
+
+fn default_protocol_treasury_account() -> AccountId {
+    "near".parse().unwrap()
+}
+
+fn default_num_blocks_per_year() -> NumBlocks {
+    60 * 60 * 24 * 365
+}
 
 /// Epoch config, determines validator assignment for given epoch.
 /// Can change from epoch to epoch depending on the sharding and other parameters, etc.
@@ -73,6 +86,15 @@ pub struct EpochConfig {
     // #[default(false)]
     pub shuffle_shard_assignment_for_chunk_producers: bool,
     pub max_inflation_rate: Rational32,
+    // #[default(Rational32::new(1, 10))]
+    #[serde(default = "default_protocol_reward_rate")]
+    pub protocol_reward_rate: Rational32,
+    // #[default("near".parse().unwrap())]
+    #[serde(default = "default_protocol_treasury_account")]
+    pub protocol_treasury_account: AccountId,
+    // #[default(60 * 60 * 24 * 365)]
+    #[serde(default = "default_num_blocks_per_year")]
+    pub num_blocks_per_year: NumBlocks,
 }
 
 impl EpochConfig {
@@ -124,6 +146,9 @@ impl EpochConfig {
             chunk_producer_assignment_changes_limit: 5,
             shuffle_shard_assignment_for_chunk_producers: false,
             max_inflation_rate: Rational32::new(1, 40),
+            protocol_reward_rate: Rational32::new(1, 10),
+            protocol_treasury_account: "near".parse().unwrap(),
+            num_blocks_per_year: 60 * 60 * 24 * 365,
         }
     }
 
@@ -153,6 +178,9 @@ impl EpochConfig {
             chunk_producer_assignment_changes_limit: 5,
             shuffle_shard_assignment_for_chunk_producers: false,
             max_inflation_rate: Rational32::new(1, 40),
+            protocol_reward_rate: Rational32::new(1, 10),
+            protocol_treasury_account: "near".parse().unwrap(),
+            num_blocks_per_year: 60 * 60 * 24 * 365,
         }
     }
 
@@ -181,6 +209,9 @@ impl EpochConfig {
             chunk_producer_assignment_changes_limit: 5,
             shuffle_shard_assignment_for_chunk_producers: false,
             max_inflation_rate: Rational32::new(1, 40),
+            protocol_reward_rate: Rational32::new(1, 10),
+            protocol_treasury_account: "near".parse().unwrap(),
+            num_blocks_per_year: 60 * 60 * 24 * 365,
         }
     }
 }

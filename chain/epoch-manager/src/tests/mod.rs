@@ -492,6 +492,7 @@ fn test_validator_reward_one_validator() {
         protocol_treasury_account: "near".parse().unwrap(),
         num_seconds_per_year: 50,
         genesis_protocol_version: PROTOCOL_VERSION,
+        max_inflation_rate: Ratio::new(0, 1),
     };
     let mut epoch_manager = setup_epoch_manager(
         validators,
@@ -545,7 +546,6 @@ fn test_validator_reward_one_validator() {
     let mut validator_stakes = HashMap::new();
     validator_stakes.insert("test2".parse().unwrap(), stake_amount);
 
-    let max_inflation_rate = Ratio::new(1, 40);
     let (validator_reward, inflation) = reward_calculator.calculate_reward(
         validator_online_ratio,
         &validator_stakes,
@@ -557,7 +557,6 @@ fn test_validator_reward_one_validator() {
             online_max_threshold: Ratio::new(99, 100),
             endorsement_cutoff_threshold: None,
         },
-        max_inflation_rate,
     );
     let test2_reward = *validator_reward.get(AccountIdRef::new_or_panic("test2")).unwrap();
     let protocol_reward = *validator_reward.get(AccountIdRef::new_or_panic("near")).unwrap();
@@ -596,6 +595,7 @@ fn test_validator_reward_weight_by_stake() {
         protocol_treasury_account: "near".parse().unwrap(),
         num_seconds_per_year: 50,
         genesis_protocol_version: PROTOCOL_VERSION,
+        max_inflation_rate: Ratio::new(0, 1),
     };
     let mut epoch_manager = setup_epoch_manager(
         validators,
@@ -648,7 +648,6 @@ fn test_validator_reward_weight_by_stake() {
     let mut validators_stakes = HashMap::new();
     validators_stakes.insert("test1".parse().unwrap(), stake_amount1);
     validators_stakes.insert("test2".parse().unwrap(), stake_amount2);
-    let max_inflation_rate = Ratio::new(1, 40);
     let (validator_reward, inflation) = reward_calculator.calculate_reward(
         validator_online_ratio,
         &validators_stakes,
@@ -660,7 +659,6 @@ fn test_validator_reward_weight_by_stake() {
             online_max_threshold: Ratio::new(99, 100),
             endorsement_cutoff_threshold: None,
         },
-        max_inflation_rate,
     );
     let test1_reward = *validator_reward.get(AccountIdRef::new_or_panic("test1")).unwrap();
     let test2_reward = *validator_reward.get(AccountIdRef::new_or_panic("test2")).unwrap();
@@ -709,6 +707,7 @@ fn test_reward_multiple_shards() {
         protocol_treasury_account: "near".parse().unwrap(),
         num_seconds_per_year: 1_000_000,
         genesis_protocol_version: PROTOCOL_VERSION,
+        max_inflation_rate: Ratio::new(1, 40),
     };
     let num_shards = 2;
     let epoch_manager = setup_epoch_manager(
@@ -775,7 +774,6 @@ fn test_reward_multiple_shards() {
     let mut validators_stakes = HashMap::new();
     validators_stakes.insert("test1".parse().unwrap(), stake_amount);
     validators_stakes.insert("test2".parse().unwrap(), stake_amount);
-    let max_inflation_rate = Ratio::new(1, 40);
     let (validator_reward, inflation) = reward_calculator.calculate_reward(
         validator_online_ratio,
         &validators_stakes,
@@ -787,7 +785,6 @@ fn test_reward_multiple_shards() {
             online_max_threshold: Ratio::new(99, 100),
             endorsement_cutoff_threshold: None,
         },
-        max_inflation_rate,
     );
     let test2_reward = *validator_reward.get(AccountIdRef::new_or_panic("test2")).unwrap();
     let protocol_reward = *validator_reward.get(AccountIdRef::new_or_panic("near")).unwrap();
@@ -1056,6 +1053,7 @@ fn test_rewards_with_kickouts() {
         protocol_treasury_account: "near".parse().unwrap(),
         num_seconds_per_year: NUM_SECONDS_IN_A_YEAR,
         genesis_protocol_version: PROTOCOL_VERSION,
+        max_inflation_rate: Ratio::new(1, 40),
     };
     let em = setup_epoch_manager(
         validators,

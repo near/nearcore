@@ -672,7 +672,6 @@ impl EpochManager {
                 epoch_protocol_version,
                 epoch_duration,
                 online_thresholds,
-                epoch_config.max_inflation_rate,
             )
         };
         let next_next_epoch_config = self.config.for_protocol_version(next_next_epoch_version);
@@ -787,6 +786,13 @@ impl EpochManager {
                 // If this is the last block in the epoch, finalize this epoch.
                 if self.is_next_block_in_next_epoch(&block_info)? {
                     self.finalize_epoch(&mut store_update, &block_info, &current_hash, rng_seed)?;
+
+                    let next_epoch_id = self.get_next_epoch_id_from_info(&block_info)?;
+                    let next_epoch_info = self.get_epoch_info(&next_epoch_id)?;
+                    let next_epoch_config =
+                        self.config.for_protocol_version(next_epoch_info.protocol_version());
+
+                    self.reward_calculator.update_parameters(&next_epoch_config);
                 }
             }
         }
