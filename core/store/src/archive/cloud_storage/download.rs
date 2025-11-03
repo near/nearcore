@@ -1,8 +1,10 @@
+use near_primitives::block::Block;
 use near_primitives::types::BlockHeight;
 
 use borsh::BorshDeserialize;
 
 use crate::archive::cloud_storage::CloudStorage;
+use crate::archive::cloud_storage::block_data::BlockData;
 use crate::archive::cloud_storage::file_id::CloudStorageFileID;
 
 /// Errors surfaced while retrieving data from the cloud archive.
@@ -31,6 +33,13 @@ impl CloudStorage {
     /// Returns the cloud head from external storage.
     pub async fn get_cloud_head(&self) -> Result<BlockHeight, CloudRetrievalError> {
         self.get(&CloudStorageFileID::Head).await
+    }
+
+    pub async fn get_block(&self, block_height: BlockHeight) -> Result<Block, CloudRetrievalError> {
+        let file_id = CloudStorageFileID::Block(block_height);
+        let block_data: BlockData = self.get(&file_id).await?;
+        let block = block_data.get_block().clone();
+        Ok(block)
     }
 
     /// Retrieves and deserializes a file from the cloud archive.
