@@ -211,7 +211,7 @@ fn test_spice_chain_with_delayed_execution() {
     let query_response = view_client
         .handle(Query::new(
             BlockReference::Finality(near_primitives::types::Finality::None),
-            QueryRequest::ViewAccount { account_id: receiver.clone() },
+            QueryRequest::ViewAccount { account_id: receiver },
         ))
         .unwrap();
     let QueryResponseKind::ViewAccount(view_account_result) = query_response.kind else {
@@ -259,8 +259,8 @@ fn delay_endorsements_propagation(env: &mut TestLoopEnv, delay_height: u64) {
                 NetworkRequests::SpiceChunkEndorsement(target, endorsement) => {
                     delayed_endorsements.write().push_back((
                         *endorsement.block_hash(),
-                        target.clone(),
-                        endorsement.clone(),
+                        target,
+                        endorsement,
                     ));
                     None
                 }
