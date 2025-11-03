@@ -81,12 +81,13 @@ impl IndexerViewClientFetcher {
     pub(crate) async fn fetch_block_by_height(
         &self,
         height: u64,
-    ) -> Result<BlockView, FailedToFetchData> {
+    ) -> Result<Option<BlockView>, FailedToFetchData> {
         tracing::debug!(target: INDEXER, %height, "fetch block by height");
-        self.sender
-            .send_async(GetBlock(BlockId::Height(height).into()))
-            .await?
-            .map_err(|err| FailedToFetchData::String(err.to_string()))
+        match self.sender.send_async(GetBlock(BlockId::Height(height).into())).await? {
+            Ok(block) => Ok(Some(block)),
+            Err(GetBlockError::UnknownBlock { .. }) => Ok(None),
+            Err(err) => Err(FailedToFetchData::String(err.to_string())),
+        }
     }
 
     /// Fetches all chunks belonging to given block.

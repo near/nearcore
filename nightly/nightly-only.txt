@@ -1,0 +1,7 @@
+# List of tests to be executed only by the nightly runs, not as part of PR CI
+
+# Very expensive test: make sure Docker image can be build and run
+pytest --skip-build --timeout=30m sanity/docker.py
+
+# Estimator Warehouse
+expensive --timeout=30m estimator-warehouse estimator_warehouse tests::ultra_slow_test_full_estimator

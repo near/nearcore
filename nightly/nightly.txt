@@ -1,0 +1,2 @@
+./ci.txt
+./nightly-only.txt
