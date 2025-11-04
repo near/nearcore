@@ -37,7 +37,6 @@ tokio.workspace = true
 tokio-stream.workspace = true
 tokio-util.workspace = true
 tracing.workspace = true
-yansi.workspace = true
 
 near-async.workspace = true
 near-cache.workspace = true
