@@ -9,7 +9,7 @@ use near_crypto::PublicKey;
 use near_parameters::{AccountCreationConfig, ActionCosts, RuntimeConfig, RuntimeFeesConfig};
 use near_primitives::account::{AccessKey, AccessKeyPermission, Account, AccountContract, GasKey};
 use near_primitives::action::delegate::{DelegateAction, SignedDelegateAction};
-use near_primitives::action::{AddGasKeyAction, DeleteGasKeyAction};
+use near_primitives::action::{AddGasKeyAction, DeleteGasKeyAction, TransferToGasKeyAction};
 use near_primitives::config::ViewConfig;
 use near_primitives::errors::{ActionError, ActionErrorKind, InvalidAccessKeyError, RuntimeError};
 use near_primitives::hash::CryptoHash;
@@ -454,19 +454,18 @@ pub(crate) fn action_transfer(account: &mut Account, deposit: Balance) -> Result
 pub(crate) fn action_transfer_to_gas_key(
     state_update: &mut TrieUpdate,
     account_id: &AccountId,
-    gas_key_public_key: &PublicKey,
-    deposit: Balance,
+    action: &TransferToGasKeyAction,
     result: &mut ActionResult,
 ) -> Result<(), StorageError> {
-    if let Some(mut gas_key) = get_gas_key(state_update, account_id, gas_key_public_key)? {
-        gas_key.balance = gas_key.balance.checked_add(deposit).ok_or_else(|| {
+    if let Some(mut gas_key) = get_gas_key(state_update, account_id, &action.public_key)? {
+        gas_key.balance = gas_key.balance.checked_add(action.deposit).ok_or_else(|| {
             StorageError::StorageInconsistentState("Gas key balance integer overflow".to_string())
         })?;
-        set_gas_key(state_update, account_id.clone(), gas_key_public_key.clone(), &gas_key);
+        set_gas_key(state_update, account_id.clone(), action.public_key.clone(), &gas_key);
     } else {
         result.result = Err(ActionErrorKind::GasKeyDoesNotExist {
             account_id: account_id.clone(),
-            public_key: gas_key_public_key.clone().into(),
+            public_key: action.public_key.clone().into(),
         }
         .into());
     }
@@ -2353,23 +2352,19 @@ mod tests {
             permission: AccessKeyPermission::FullAccess,
         };
         set_gas_key(&mut state_update, account_id.clone(), public_key.clone(), &gas_key);
-
+        let action = TransferToGasKeyAction {
+            public_key: public_key.clone(),
+            deposit: Balance::from_near(1),
+        };
         let mut result = ActionResult::default();
-        let deposit = Balance::from_near(1);
-        action_transfer_to_gas_key(
-            &mut state_update,
-            &account_id,
-            &public_key,
-            deposit,
-            &mut result,
-        )
-        .expect("Expect ok");
+        action_transfer_to_gas_key(&mut state_update, &account_id, &action, &mut result)
+            .expect("Expect ok");
         assert!(result.result.is_ok(), "Result error: {:?}", result.result);
 
         let stored_gas_key = get_gas_key(&state_update, &account_id, &public_key)
             .expect("Failed to get gas key")
             .expect("Gas key not found");
-        assert_eq!(stored_gas_key.balance, gas_key.balance.checked_add(deposit).unwrap());
+        assert_eq!(stored_gas_key.balance, gas_key.balance.checked_add(action.deposit).unwrap());
     }
 
     #[test]
@@ -2379,14 +2374,9 @@ mod tests {
 
         let mut result = ActionResult::default();
         let deposit = Balance::from_near(1);
-        action_transfer_to_gas_key(
-            &mut state_update,
-            &account_id,
-            &public_key,
-            deposit,
-            &mut result,
-        )
-        .expect("Expect ok");
+        let action = TransferToGasKeyAction { public_key: public_key.clone(), deposit };
+        action_transfer_to_gas_key(&mut state_update, &account_id, &action, &mut result)
+            .expect("Expect ok");
         assert_eq!(
             result.result,
             Err(ActionErrorKind::GasKeyDoesNotExist {

@@ -489,13 +489,7 @@ impl Runtime {
             }
             Action::TransferToGasKey(transfer) => {
                 metrics::ACTION_CALLED_COUNT.transfer_to_gas_key.inc();
-                action_transfer_to_gas_key(
-                    state_update,
-                    account_id,
-                    &transfer.public_key,
-                    transfer.deposit,
-                    &mut result,
-                )?;
+                action_transfer_to_gas_key(state_update, account_id, transfer, &mut result)?;
             }
             Action::Stake(stake) => {
                 metrics::ACTION_CALLED_COUNT.stake.inc();
