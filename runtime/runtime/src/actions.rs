@@ -1306,7 +1306,7 @@ mod tests {
     use near_primitives::types::{EpochId, StateChangeCause};
     use near_primitives::version::PROTOCOL_VERSION;
     use near_store::test_utils::TestTriesBuilder;
-    use near_store::{ShardTries, get_account, get_gas_key_nonce, set_account};
+    use near_store::{get_account, get_gas_key_nonce, set_account};
     use std::sync::Arc;
 
     fn test_action_create_account(
@@ -1473,9 +1473,7 @@ mod tests {
             permission: AccessKeyPermission::FullAccess,
         };
         // Setup account with gas key
-        let tries = TestTriesBuilder::new().build();
-        let mut state_update = setup_account_with_tries(
-            &tries,
+        let mut state_update = setup_account(
             &account_id,
             &public_keys[0],
             &AccessKey { nonce: 0, permission: AccessKeyPermission::FullAccess },
@@ -1487,25 +1485,13 @@ mod tests {
             }
         }
         state_update.commit(StateChangeCause::InitialState);
-        let trie_changes = state_update.finalize().unwrap().trie_changes;
-        let mut store_update = tries.store_update();
-        let root = tries.apply_all(&trie_changes, ShardUId::single_shard(), &mut store_update);
-        store_update.commit().unwrap();
 
-        // Delete account
-        let mut state_update = tries.new_trie_update(ShardUId::single_shard(), root);
         let action_result =
             test_delete_large_account(&account_id, &CryptoHash::default(), 100, &mut state_update);
         assert!(action_result.result.is_ok());
+        state_update.commit(StateChangeCause::InitialState);
 
         // Verify gas key and nonces are removed
-        state_update.commit(StateChangeCause::InitialState);
-        let trie_changes = state_update.finalize().unwrap().trie_changes;
-        let mut store_update = tries.store_update();
-        let root = tries.apply_all(&trie_changes, ShardUId::single_shard(), &mut store_update);
-        store_update.commit().unwrap();
-
-        let state_update = tries.new_trie_update(ShardUId::single_shard(), root);
         let lock = state_update.trie().lock_for_iter();
         let gas_key_count = state_update
             .locked_iter(&trie_key_parsers::get_raw_prefix_for_gas_keys(&account_id), &lock)
@@ -1632,15 +1618,6 @@ mod tests {
         access_key: &AccessKey,
     ) -> TrieUpdate {
         let tries = TestTriesBuilder::new().build();
-        setup_account_with_tries(&tries, account_id, public_key, access_key)
-    }
-
-    fn setup_account_with_tries(
-        tries: &ShardTries,
-        account_id: &AccountId,
-        public_key: &PublicKey,
-        access_key: &AccessKey,
-    ) -> TrieUpdate {
         let mut state_update =
             tries.new_trie_update(ShardUId::single_shard(), CryptoHash::default());
         let account =

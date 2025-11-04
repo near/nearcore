@@ -387,7 +387,7 @@ pub fn remove_account(
     drop(lock);
 
     for public_key in gas_public_keys {
-        let gas_key = get_gas_key(state_update.trie(), account_id, &public_key)?;
+        let gas_key = get_gas_key(state_update, account_id, &public_key)?;
         let Some(gas_key) = gas_key else {
             tracing::warn!(
                 target: "store",
