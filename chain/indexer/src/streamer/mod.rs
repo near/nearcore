@@ -378,16 +378,18 @@ pub async fn start(
         for block_height in start_syncing_block_height..=latest_block_height {
             metrics::CURRENT_BLOCK_HEIGHT.set(block_height as i64);
 
-            // This error handling is sketchy. It conflates two cases:
-            // 1. The block is missing - totally fine and expected.
-            // 2. Real error occurred while fetching the block.
-            let block = view_client.fetch_block_by_height(block_height).await;
-            let Ok(block) = block else {
-                tracing::debug!(target: INDEXER, ?block_height, ?block, "Failed to fetch block. Skipping.");
-                continue;
+            let block = match view_client.fetch_block_by_height(block_height).await {
+                Ok(Some(block)) => block,
+                Ok(None) => {
+                    tracing::debug!(target: INDEXER, ?block_height, "skip height - missing block");
+                    continue;
+                }
+                Err(err) => {
+                    tracing::error!(target: INDEXER, ?block_height, ?err, "skip height - failed to fetch block");
+                    continue;
+                }
             };
 
-            // Build the StreamerMessage for the block
             let streamer_message =
                 Box::pin(build_streamer_message(&view_client, block, &shard_tracker)).await;
             let Ok(streamer_message) = streamer_message else {

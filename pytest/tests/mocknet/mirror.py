@@ -12,8 +12,7 @@ from rc import pmap
 import re
 import sys
 import time
-import numpy as np
-from typing import Optional
+from typing import Callable
 import os
 import tempfile
 
@@ -24,7 +23,7 @@ import local_test_node
 import node_config
 import remote_node
 from node_handle import NodeHandle
-from utils import ScheduleContext, ScheduleMode, build_stake_distribution
+from utils import ScheduleContext, ScheduleMode, build_stake_distribution, PartitionSelector
 
 
 def to_list(item):
@@ -194,17 +193,10 @@ class CommandContext:
             exit(1)
 
         if self.args.select_partition is not None:
-            i, n = self.args.select_partition
-
-            if len(self.nodes) < n and self.traffic_generator == None:
-                logger.error(
-                    f'Partitioning {len(self.nodes)} nodes in {n} groups will result in empty groups.'
-                )
-                exit(1)
             self.nodes.sort(key=lambda node: node.name())
-            self.nodes = np.array_split(self.nodes, n)[i - 1]
+            self.nodes = self.args.select_partition(self.nodes)
 
-    def _make_schedule_context(self) -> Optional[ScheduleContext]:
+    def _make_schedule_context(self) -> ScheduleContext | None:
         """
         Make a schedule context if the command is scheduled.
         """
@@ -458,23 +450,33 @@ Run `status` to check if the nodes are ready. After they're ready,
     _clear_state_parts_if_exists(location, nodes)
 
 
+def get_nodes_pending(condition: Callable[[NodeHandle], bool],
+                      nodes: list[NodeHandle]) -> list[NodeHandle]:
+    # Returns the nodes that do not pass the condition.
+    statuses = pmap(condition, nodes)
+    return [node for ready, node in zip(statuses, nodes) if not ready]
+
+
+def get_nodes_pending_new_test(nodes: list[NodeHandle]) -> list[NodeHandle]:
+    # The node is ready when new-test command is finished.
+    return get_nodes_pending(lambda node: node.neard_runner_ready(), nodes)
+
+
+# TODO: Deprecate this function and use get_nodes_pending_new_test instead
 def get_nodes_status(nodes: list[NodeHandle]) -> list[str]:
-    statuses = pmap(lambda node: node.neard_runner_ready(), nodes)
-    not_ready_nodes = []
-    for ready, node in zip(statuses, nodes):
-        if not ready:
-            not_ready_nodes.append(node.name())
-    return not_ready_nodes
+    not_ready_nodes = get_nodes_pending_new_test(nodes)
+    return [node.name() for node in not_ready_nodes]
 
 
 def status_cmd(ctx: CommandContext):
     nodes = ctx.get_targeted()
-    not_ready_nodes = get_nodes_status(nodes)
+    not_ready_nodes = get_nodes_pending_new_test(nodes)
     if len(not_ready_nodes) == 0:
         print(f'all {len(nodes)} nodes ready')
     else:
+        node_names = [node.name() for node in not_ready_nodes[:3]]
         print(
-            f'{len(nodes)-len(not_ready_nodes)}/{len(nodes)} ready. Nodes not ready: {not_ready_nodes[:3]}'
+            f'{len(nodes)-len(not_ready_nodes)}/{len(nodes)} ready. Nodes not ready: {node_names}'
         )
 
 
@@ -751,16 +753,34 @@ def snapshot_cmd(ctx: CommandContext):
             ctx.get_targeted_with_schedule_ctx())
 
 
-class ParseFraction(Action):
+class PartitionSelectorParser(Action):
 
     def __call__(self, parser, namespace, values, option_string=None):
-        pattern = r"(\d+)/(\d+)"
+        pattern = r"(\d+)(-(\d+))?/(\d+)"
         match = re.match(pattern, values)
         if not match:
-            parser.error(f"Invalid input '{values}'. Expected format 'i/n'.")
-        numerator = int(match.group(1))
-        denominator = int(match.group(2))
-        setattr(namespace, self.dest, (numerator, denominator))
+            parser.error(
+                f"Invalid input '{values}'. Expected format 'i/n' or 'i-j/n'.")
+        total_partitions = int(match.group(4))
+        if match.group(3) is None:
+            i = int(match.group(1))
+            if i <= 0 or i > total_partitions:
+                parser.error(
+                    f"Invalid input '{values}'. Expected format 'i/n' or 'i-j/n' where i is integer and 0 < i <= n."
+                )
+            partitions_range = (i, i)
+        else:
+            i, j = int(match.group(1)), int(match.group(3))
+            if i <= 0 or i > j or j > total_partitions:
+                parser.error(
+                    f"Invalid input '{values}'. Expected format 'i/n' or 'i-j/n' where i and j are integers and 0 < i <= j <= n."
+                )
+            partitions_range = (i, j)
+
+        setattr(
+            namespace, self.dest,
+            PartitionSelector(partitions_range=partitions_range,
+                              total_partitions=total_partitions))
 
 
 def build_parser():
@@ -784,12 +804,14 @@ def build_parser():
                         type=str,
                         help='Filter through the selected nodes using regex.')
     parser.add_argument('--select-partition',
-                        action=ParseFraction,
+                        action=PartitionSelectorParser,
                         type=str,
                         help='''
                         Input should be in the form of "i/n" where 0 < i <= n.
+                        Or "i-j/n" where 0 < i <= j <= n.
                         Select a group of hosts based on the division provided.
                         For i/n, it will split the selected hosts into n groups and select the i-th group.
+                        For i-j/n, it will split the selected hosts into n groups and select the group that contains the interval [i, j]. "1-4/4" will select the entire fleet.
                         Use this if you want to target just a partition of the hosts.'''
                        )
 

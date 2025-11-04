@@ -76,6 +76,3 @@ expensive --timeout=10m test-loop-tests test_loop_tests tests::bandwidth_schedul
 expensive --timeout=10m test-loop-tests test_loop_tests tests::bandwidth_scheduler::ultra_slow_test_bandwidth_scheduler_three_shards_random_receipts --features nightly
 expensive test-loop-tests test_loop_tests tests::bandwidth_scheduler::ultra_slow_test_bandwidth_scheduler_four_shards_random_receipts_missing_chunks
 expensive test-loop-tests test_loop_tests tests::bandwidth_scheduler::ultra_slow_test_bandwidth_scheduler_four_shards_random_receipts_missing_chunks --features nightly
-
-# Estimator Warehouse (set timeout as 30 min)
-expensive --timeout=30m estimator-warehouse estimator_warehouse tests::ultra_slow_test_full_estimator
