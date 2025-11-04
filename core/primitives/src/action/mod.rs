@@ -9,10 +9,8 @@ use crate::{
 };
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::PublicKey;
-use near_primitives_core::{
-    account::AccessKey,
-    types::{AccountId, Balance, Gas},
-};
+use near_primitives_core::account::{AccessKey, GasKey};
+use near_primitives_core::types::{AccountId, Balance, Gas};
 use near_schema_checker_lib::ProtocolSchema;
 use serde_with::base64::Base64;
 use serde_with::serde_as;
@@ -296,6 +294,56 @@ pub struct TransferAction {
     BorshDeserialize,
     PartialEq,
     Eq,
+    Clone,
+    Debug,
+    serde::Serialize,
+    serde::Deserialize,
+    ProtocolSchema,
+)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+pub struct AddGasKeyAction {
+    pub public_key: PublicKey,
+    pub gas_key: GasKey,
+}
+
+#[derive(
+    BorshSerialize,
+    BorshDeserialize,
+    PartialEq,
+    Eq,
+    Clone,
+    Debug,
+    serde::Serialize,
+    serde::Deserialize,
+    ProtocolSchema,
+)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+pub struct DeleteGasKeyAction {
+    pub public_key: PublicKey,
+}
+
+#[derive(
+    BorshSerialize,
+    BorshDeserialize,
+    PartialEq,
+    Eq,
+    Clone,
+    Debug,
+    serde::Serialize,
+    serde::Deserialize,
+    ProtocolSchema,
+)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+pub struct TransferToGasKeyAction {
+    pub public_key: PublicKey,
+    pub deposit: Balance,
+}
+
+#[derive(
+    BorshSerialize,
+    BorshDeserialize,
+    PartialEq,
+    Eq,
     Debug,
     Clone,
     serde::Serialize,
@@ -323,6 +371,9 @@ pub enum Action {
     DeployGlobalContract(DeployGlobalContractAction) = 9,
     UseGlobalContract(Box<UseGlobalContractAction>) = 10,
     DeterministicStateInit(Box<DeterministicStateInitAction>) = 11,
+    AddGasKey(Box<AddGasKeyAction>) = 12,
+    DeleteGasKey(Box<DeleteGasKeyAction>) = 13,
+    TransferToGasKey(Box<TransferToGasKeyAction>) = 14,
 }
 
 const _: () = assert!(

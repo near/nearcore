@@ -3,9 +3,11 @@ use crate::config::{TransactionCost, total_prepaid_gas};
 use crate::near_primitives::account::Account;
 use near_crypto::key_conversion::is_valid_staking_key;
 use near_parameters::RuntimeConfig;
-use near_primitives::account::{AccessKey, AccessKeyPermission};
+use near_primitives::account::{AccessKey, AccessKeyPermission, GasKey};
 use near_primitives::action::delegate::SignedDelegateAction;
-use near_primitives::action::{DeployGlobalContractAction, DeterministicStateInitAction};
+use near_primitives::action::{
+    AddGasKeyAction, AddKeyAction, DeployGlobalContractAction, DeterministicStateInitAction,
+};
 use near_primitives::errors::{
     ActionsValidationError, InvalidAccessKeyError, InvalidTxError, ReceiptValidationError,
 };
@@ -13,8 +15,7 @@ use near_primitives::receipt::{
     DataReceipt, Receipt, VersionedActionReceipt, VersionedReceiptEnum,
 };
 use near_primitives::transaction::{
-    Action, AddKeyAction, DeployContractAction, FunctionCallAction, SignedTransaction, StakeAction,
-    Transaction,
+    Action, DeployContractAction, FunctionCallAction, SignedTransaction, StakeAction, Transaction,
 };
 use near_primitives::transaction::{DeleteAccountAction, ValidatedTransaction};
 use near_primitives::types::{AccountId, Balance, Gas};
@@ -432,9 +433,12 @@ pub fn validate_action(
         Action::UseGlobalContract(_) => validate_use_global_contract_action(),
         Action::FunctionCall(a) => validate_function_call_action(limit_config, a),
         Action::Transfer(_) => Ok(()),
+        Action::TransferToGasKey(_) => Ok(()),
         Action::Stake(a) => validate_stake_action(a),
         Action::AddKey(a) => validate_add_key_action(limit_config, a),
+        Action::AddGasKey(a) => validate_add_gas_key_action(limit_config, a),
         Action::DeleteKey(_) => Ok(()),
+        Action::DeleteGasKey(_) => Ok(()),
         Action::DeleteAccount(a) => validate_delete_action(a),
         Action::Delegate(a) => {
             validate_delegate_action(limit_config, a, receiver, current_protocol_version)
@@ -529,14 +533,47 @@ fn validate_stake_action(action: &StakeAction) -> Result<(), ActionsValidationEr
     Ok(())
 }
 
-/// Validates `AddKeyAction`. If the access key permission is `FunctionCall`, checks that the
-/// total number of bytes of the method names doesn't exceed the limit and
-/// every method name length doesn't exceed the limit.
+/// Validates `AddKeyAction`. Checks validity of the access key permission.
 fn validate_add_key_action(
     limit_config: &LimitConfig,
     action: &AddKeyAction,
 ) -> Result<(), ActionsValidationError> {
-    if let AccessKeyPermission::FunctionCall(fc) = &action.access_key.permission {
+    validate_access_key_permission(limit_config, &action.access_key.permission)
+}
+
+/// Validates `AddGasKeyAction`. Checks validity of the access key permission. Additionally,
+/// - if the permission is a `FunctionCallPermission`, the allowance must be `None`.
+/// - verifies the number of nonces is within limits.
+fn validate_add_gas_key_action(
+    limit_config: &LimitConfig,
+    action: &AddGasKeyAction,
+) -> Result<(), ActionsValidationError> {
+    validate_access_key_permission(limit_config, &action.gas_key.permission)?;
+    if let AccessKeyPermission::FunctionCall(fc) = &action.gas_key.permission {
+        if fc.allowance.is_some() {
+            return Err(ActionsValidationError::GasKeyPermissionInvalid {
+                permission: action.gas_key.permission.clone(),
+            });
+        }
+    }
+    if action.gas_key.num_nonces > GasKey::MAX_NONCES {
+        return Err(ActionsValidationError::GasKeyTooManyNoncesRequested {
+            requested_nonces: action.gas_key.num_nonces,
+            limit: GasKey::MAX_NONCES,
+        });
+    }
+
+    Ok(())
+}
+
+/// Validates `AccessKeyPermission`. If the access key permission is `FunctionCall`, checks that the
+/// total number of bytes of the method names doesn't exceed the limit and
+/// every method name length doesn't exceed the limit.
+fn validate_access_key_permission(
+    limit_config: &LimitConfig,
+    permission: &AccessKeyPermission,
+) -> Result<(), ActionsValidationError> {
+    if let AccessKeyPermission::FunctionCall(fc) = permission {
         // Check whether `receiver_id` is a valid account_id. Historically, we
         // allowed arbitrary strings there!
         match limit_config.account_id_validity_rules_version {
@@ -2294,5 +2331,57 @@ mod tests {
         check("hello", 10, "hello");
         // cspell:ignore привет
         check("привет", 3, "п");
+    }
+
+    #[test]
+    fn test_validate_add_gas_key_too_many_nonces_requested() {
+        let limit_config = test_limit_config();
+        assert_eq!(
+            validate_action(
+                &limit_config,
+                &Action::AddGasKey(Box::new(AddGasKeyAction {
+                    public_key: PublicKey::empty(KeyType::ED25519),
+                    gas_key: GasKey {
+                        num_nonces: GasKey::MAX_NONCES + 1,
+                        balance: Balance::ZERO,
+                        permission: AccessKeyPermission::FullAccess
+                    },
+                })),
+                &"alice.near".parse().unwrap(),
+                PROTOCOL_VERSION,
+            )
+            .expect_err("expected an error"),
+            ActionsValidationError::GasKeyTooManyNoncesRequested {
+                requested_nonces: GasKey::MAX_NONCES + 1,
+                limit: GasKey::MAX_NONCES
+            },
+        );
+    }
+
+    #[test]
+    fn test_validate_add_gas_key_allowance_set() {
+        let limit_config = test_limit_config();
+        let permission = AccessKeyPermission::FunctionCall(FunctionCallPermission {
+            allowance: Some(Balance::from_yoctonear(1000)),
+            receiver_id: "bob.near".parse().unwrap(),
+            method_names: vec![],
+        });
+        assert_eq!(
+            validate_action(
+                &limit_config,
+                &Action::AddGasKey(Box::new(AddGasKeyAction {
+                    public_key: PublicKey::empty(KeyType::ED25519),
+                    gas_key: GasKey {
+                        num_nonces: 10,
+                        balance: Balance::ZERO,
+                        permission: permission.clone()
+                    },
+                })),
+                &"alice.near".parse().unwrap(),
+                PROTOCOL_VERSION,
+            )
+            .expect_err("expected an error"),
+            ActionsValidationError::GasKeyPermissionInvalid { permission }
+        );
     }
 }

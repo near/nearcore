@@ -17,6 +17,7 @@ use near_primitives::receipt::{
 };
 use near_primitives::trie_key::{TrieKey, trie_key_parsers};
 use near_primitives::types::{AccountId, BlockHeight, Nonce, NonceIndex, StateRoot};
+use std::collections::HashSet;
 use std::io;
 
 /// Reads an object from Trie.
@@ -274,6 +275,19 @@ pub fn remove_access_key(
     state_update.remove(TrieKey::AccessKey { account_id, public_key });
 }
 
+pub fn remove_gas_key(state_update: &mut TrieUpdate, account_id: AccountId, public_key: PublicKey) {
+    state_update.remove(TrieKey::GasKey { account_id, public_key, index: None });
+}
+
+pub fn remove_gas_key_nonce(
+    state_update: &mut TrieUpdate,
+    account_id: AccountId,
+    public_key: PublicKey,
+    index: NonceIndex,
+) {
+    state_update.remove(TrieKey::GasKey { account_id, public_key, index: Some(index) });
+}
+
 pub fn get_access_key(
     trie: &dyn TrieAccess,
     account_id: &AccountId,
@@ -282,6 +296,37 @@ pub fn get_access_key(
     get(
         trie,
         &TrieKey::AccessKey { account_id: account_id.clone(), public_key: public_key.clone() },
+    )
+}
+
+pub fn get_gas_key(
+    trie: &dyn TrieAccess,
+    account_id: &AccountId,
+    public_key: &PublicKey,
+) -> Result<Option<GasKey>, StorageError> {
+    get(
+        trie,
+        &TrieKey::GasKey {
+            account_id: account_id.clone(),
+            public_key: public_key.clone(),
+            index: None,
+        },
+    )
+}
+
+pub fn get_gas_key_nonce(
+    trie: &dyn TrieAccess,
+    account_id: &AccountId,
+    public_key: &PublicKey,
+    index: NonceIndex,
+) -> Result<Option<Nonce>, StorageError> {
+    get(
+        trie,
+        &TrieKey::GasKey {
+            account_id: account_id.clone(),
+            public_key: public_key.clone(),
+            index: Some(index),
+        },
     )
 }
 
@@ -296,7 +341,7 @@ pub fn get_access_key_raw(
     )
 }
 
-/// Removes account, code and all access keys associated to it.
+/// Removes account, code and all access keys and gas keys associated to it.
 pub fn remove_account(
     state_update: &mut TrieUpdate,
     account_id: &AccountId,
@@ -322,6 +367,40 @@ pub fn remove_account(
 
     for public_key in public_keys {
         state_update.remove(TrieKey::AccessKey { account_id: account_id.clone(), public_key });
+    }
+
+    // Removing gas keys
+    let lock = state_update.trie().lock_for_iter();
+    // Collect to hashset, as there can be multiple nonces per gas key.
+    let gas_public_keys = state_update
+        .locked_iter(&trie_key_parsers::get_raw_prefix_for_gas_keys(account_id), &lock)?
+        .map(|raw_key| {
+            trie_key_parsers::parse_public_key_from_gas_key_key(&raw_key?, account_id).map_err(
+                |_e| {
+                    StorageError::StorageInconsistentState(
+                        "Can't parse public key from raw key for GasKey".to_string(),
+                    )
+                },
+            )
+        })
+        .collect::<Result<HashSet<_>, _>>()?;
+    drop(lock);
+
+    for public_key in gas_public_keys {
+        let gas_key = get_gas_key(state_update.trie(), account_id, &public_key)?;
+        let Some(gas_key) = gas_key else {
+            tracing::warn!(
+                target: "store",
+                ?account_id,
+                ?public_key,
+                "gas key missing when removing account"
+            );
+            continue;
+        };
+        for index in 0..gas_key.num_nonces {
+            remove_gas_key_nonce(state_update, account_id.clone(), public_key.clone(), index);
+        }
+        remove_gas_key(state_update, account_id.clone(), public_key.clone());
     }
 
     // Removing contract data
