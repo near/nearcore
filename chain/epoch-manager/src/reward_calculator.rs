@@ -70,21 +70,19 @@ impl RewardCalculator {
     ) -> (HashMap<AccountId, Balance>, Balance) {
         let mut res = HashMap::new();
         let num_validators = validator_block_chunk_stats.len();
-        let max_inflation_rate = self.max_inflation_rate;
-        let protocol_reward_rate = self.protocol_reward_rate;
         let epoch_total_reward = Balance::from_yoctonear(
-            (U256::from(*max_inflation_rate.numer() as u64)
+            (U256::from(*self.max_inflation_rate.numer() as u64)
                 * U256::from(total_supply.as_yoctonear())
                 * U256::from(epoch_duration)
                 / (U256::from(self.num_seconds_per_year)
-                    * U256::from(*max_inflation_rate.denom() as u64)
+                    * U256::from(*self.max_inflation_rate.denom() as u64)
                     * U256::from(NUM_NS_IN_SECOND)))
             .as_u128(),
         );
         let epoch_protocol_treasury = Balance::from_yoctonear(
             (U256::from(epoch_total_reward.as_yoctonear())
-                * U256::from(*protocol_reward_rate.numer() as u64)
-                / U256::from(*protocol_reward_rate.denom() as u64))
+                * U256::from(*self.protocol_reward_rate.numer() as u64)
+                / U256::from(*self.protocol_reward_rate.denom() as u64))
             .as_u128(),
         );
         res.insert(self.protocol_treasury_account.clone(), epoch_protocol_treasury);
