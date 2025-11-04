@@ -552,7 +552,7 @@ fn validate_add_gas_key_action(
     if let AccessKeyPermission::FunctionCall(fc) = &action.gas_key.permission {
         if fc.allowance.is_some() {
             return Err(ActionsValidationError::GasKeyPermissionInvalid {
-                permission: action.gas_key.permission.clone(),
+                permission: action.gas_key.permission.clone().into(),
             });
         }
     }
@@ -2381,7 +2381,7 @@ mod tests {
                 PROTOCOL_VERSION,
             )
             .expect_err("expected an error"),
-            ActionsValidationError::GasKeyPermissionInvalid { permission }
+            ActionsValidationError::GasKeyPermissionInvalid { permission: permission.into() }
         );
     }
 }

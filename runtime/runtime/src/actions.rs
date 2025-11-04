@@ -2255,7 +2255,7 @@ mod tests {
             result.result,
             Err(ActionErrorKind::GasKeyAlreadyExists {
                 account_id: account_id.clone(),
-                public_key: public_key.clone().into(),
+                public_key: public_key.into(),
             }
             .into())
         );
@@ -2325,7 +2325,7 @@ mod tests {
             result.result,
             Err(ActionErrorKind::GasKeyDoesNotExist {
                 account_id: account_id.clone(),
-                public_key: public_key.clone().into(),
+                public_key: public_key.into(),
             }
             .into())
         );

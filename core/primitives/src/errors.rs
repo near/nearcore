@@ -406,7 +406,7 @@ pub enum ActionsValidationError {
         limit: u64,
     } = 16,
     GasKeyPermissionInvalid {
-        permission: AccessKeyPermission,
+        permission: Box<AccessKeyPermission>,
     } = 17,
     GasKeyTooManyNoncesRequested {
         requested_nonces: u32,
