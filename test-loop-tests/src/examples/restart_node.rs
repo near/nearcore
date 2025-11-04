@@ -1,5 +1,6 @@
 use near_async::time::Duration;
 use near_o11y::testonly::init_test_logger;
+use near_primitives::num_rational::Rational32;
 
 use crate::setup::builder::TestLoopBuilder;
 use crate::utils::account::{create_validators_spec, validators_spec_clients};
@@ -20,6 +21,8 @@ fn test_restart_node() {
     let genesis = TestLoopBuilder::new_genesis_builder()
         .epoch_length(epoch_length)
         .validators_spec(validators_spec)
+        .max_inflation_rate(Rational32::new(1, 40))
+        .protocol_reward_rate(Rational32::new(1, 10))
         .build();
     let mut env = TestLoopBuilder::new()
         .genesis(genesis)
