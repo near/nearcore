@@ -490,7 +490,11 @@ impl TxTracker {
             hash_map::Entry::Occupied(mut e) => {
                 let txs = e.get_mut();
                 if !txs.remove(&TxId { hash: tx.transaction.hash, nonce: tx.transaction.nonce }) {
-                    tracing::warn!(target: "mirror", "tried to remove nonexistent tx {} from txs_by_signer", tx.transaction.hash);
+                    tracing::warn!(
+                        target: "mirror",
+                        tx_hash = %tx.transaction.hash,
+                        "tried to remove nonexistent tx from txs_by_signer"
+                    );
                 }
                 // split off from hash: default() since that's the smallest hash, which will leave us with every tx with nonce
                 // greater than this one in txs_left.
@@ -499,15 +503,20 @@ impl TxTracker {
                     nonce: tx.transaction.nonce + 1,
                 });
                 if !txs.is_empty() {
-                    tracing::warn!(
-                        target: "mirror", "{} Transactions for {:?} skipped by inclusion of tx with nonce {}: {:?}. These will never make it on chain.",
-                        txs.len(), &k, tx.transaction.nonce, &txs
+                    tracing::debug!(
+                        target: "mirror",
+                        tx_signer_id = %tx.transaction.signer_id,
+                        tx_public_key = ?tx.transaction.public_key,
+                        tx_nonce = tx.transaction.nonce,
+                        skip_txs = ?txs,
+                        "skip txs by tx inclusion",
                     );
                     for t in txs.iter() {
                         if self.sent_txs.remove(&t.hash).is_none() {
                             tracing::warn!(
-                                target: "mirror", "tx with hash {} that we thought was skipped is not in the set of sent txs",
-                                &t.hash,
+                                target: "mirror",
+                                tx_hash = %t.hash,
+                                "tx with hash that we thought was skipped is not in the set of sent txs",
                             );
                         }
                     }
@@ -1161,8 +1170,11 @@ impl TxTracker {
             assert!(self.nonces.remove(&access_key).is_some());
         }
         tracing::info!(
-            target: "mirror", "Sent {} transactions from {} with target HEAD @ #{}",
-            total_sent, provenance, target_height
+            target: "mirror",
+            tx_count = total_sent,
+            %provenance,
+            ?target_height,
+            "sent txs",
         );
 
         let next_delay = self.tx_batch_interval.unwrap_or_else(|| {
