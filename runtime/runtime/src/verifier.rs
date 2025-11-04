@@ -548,17 +548,17 @@ fn validate_add_gas_key_action(
     limit_config: &LimitConfig,
     action: &AddGasKeyAction,
 ) -> Result<(), ActionsValidationError> {
-    validate_access_key_permission(limit_config, &action.gas_key.permission)?;
-    if let AccessKeyPermission::FunctionCall(fc) = &action.gas_key.permission {
+    validate_access_key_permission(limit_config, &action.permission)?;
+    if let AccessKeyPermission::FunctionCall(fc) = &action.permission {
         if fc.allowance.is_some() {
             return Err(ActionsValidationError::GasKeyPermissionInvalid {
-                permission: action.gas_key.permission.clone().into(),
+                permission: action.permission.clone().into(),
             });
         }
     }
-    if action.gas_key.num_nonces > GasKey::MAX_NONCES {
+    if action.num_nonces > GasKey::MAX_NONCES {
         return Err(ActionsValidationError::GasKeyTooManyNoncesRequested {
-            requested_nonces: action.gas_key.num_nonces,
+            requested_nonces: action.num_nonces,
             limit: GasKey::MAX_NONCES,
         });
     }
@@ -2341,11 +2341,8 @@ mod tests {
                 &limit_config,
                 &Action::AddGasKey(Box::new(AddGasKeyAction {
                     public_key: PublicKey::empty(KeyType::ED25519),
-                    gas_key: GasKey {
-                        num_nonces: GasKey::MAX_NONCES + 1,
-                        balance: Balance::ZERO,
-                        permission: AccessKeyPermission::FullAccess
-                    },
+                    num_nonces: GasKey::MAX_NONCES + 1,
+                    permission: AccessKeyPermission::FullAccess
                 })),
                 &"alice.near".parse().unwrap(),
                 PROTOCOL_VERSION,
@@ -2371,11 +2368,8 @@ mod tests {
                 &limit_config,
                 &Action::AddGasKey(Box::new(AddGasKeyAction {
                     public_key: PublicKey::empty(KeyType::ED25519),
-                    gas_key: GasKey {
-                        num_nonces: 10,
-                        balance: Balance::ZERO,
-                        permission: permission.clone()
-                    },
+                    num_nonces: 10,
+                    permission: permission.clone()
                 })),
                 &"alice.near".parse().unwrap(),
                 PROTOCOL_VERSION,

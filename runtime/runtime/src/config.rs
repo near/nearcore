@@ -95,11 +95,9 @@ pub fn total_send_fees(
                 fees,
                 sender_is_receiver,
             ),
-            AddGasKey(add_gas_key_action) => permission_send_fees(
-                &add_gas_key_action.gas_key.permission,
-                fees,
-                sender_is_receiver,
-            ),
+            AddGasKey(add_gas_key_action) => {
+                permission_send_fees(&add_gas_key_action.permission, fees, sender_is_receiver)
+            }
             DeleteKey(_) => fees.fee(ActionCosts::delete_key).send_fee(sender_is_receiver),
             DeleteGasKey(_) => fees.fee(ActionCosts::delete_key).send_fee(sender_is_receiver),
             DeleteAccount(_) => fees.fee(ActionCosts::delete_account).send_fee(sender_is_receiver),
@@ -255,9 +253,7 @@ pub fn exec_fee(config: &RuntimeConfig, action: &Action, receiver_id: &AccountId
         }
         Stake(_) => fees.fee(ActionCosts::stake).exec_fee(),
         AddKey(add_key_action) => permission_exec_fees(&add_key_action.access_key.permission, fees),
-        AddGasKey(add_gas_key_action) => {
-            permission_exec_fees(&add_gas_key_action.gas_key.permission, fees)
-        }
+        AddGasKey(add_gas_key_action) => permission_exec_fees(&add_gas_key_action.permission, fees),
         DeleteKey(_) => fees.fee(ActionCosts::delete_key).exec_fee(),
         DeleteGasKey(_) => fees.fee(ActionCosts::delete_key).exec_fee(),
         DeleteAccount(_) => fees.fee(ActionCosts::delete_account).exec_fee(),

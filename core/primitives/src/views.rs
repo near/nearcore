@@ -1403,7 +1403,8 @@ pub enum ActionView {
     } = 13,
     AddGasKey {
         public_key: PublicKey,
-        gas_key: GasKeyView,
+        num_nonces: NonceIndex,
+        permission: AccessKeyPermissionView,
     } = 14,
     DeleteGasKey {
         public_key: PublicKey,
@@ -1472,7 +1473,8 @@ impl From<Action> for ActionView {
             }
             Action::AddGasKey(action) => ActionView::AddGasKey {
                 public_key: action.public_key,
-                gas_key: action.gas_key.into(),
+                num_nonces: action.num_nonces,
+                permission: action.permission.into(),
             },
             Action::DeleteGasKey(action) => {
                 ActionView::DeleteGasKey { public_key: action.public_key }
@@ -1549,8 +1551,12 @@ impl TryFrom<ActionView> for Action {
                     deposit,
                 }))
             }
-            ActionView::AddGasKey { public_key, gas_key } => {
-                Action::AddGasKey(Box::new(AddGasKeyAction { public_key, gas_key: gas_key.into() }))
+            ActionView::AddGasKey { public_key, num_nonces, permission } => {
+                Action::AddGasKey(Box::new(AddGasKeyAction {
+                    public_key,
+                    num_nonces,
+                    permission: permission.into(),
+                }))
             }
             ActionView::TransferToGasKey { public_key, amount } => {
                 Action::TransferToGasKey(Box::new(TransferToGasKeyAction {

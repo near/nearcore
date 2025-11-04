@@ -864,11 +864,14 @@ pub(crate) fn action_add_gas_key(
         .into());
         return Ok(());
     }
-    let mut gas_key = add_gas_key.gas_key.clone();
-    gas_key.balance = Balance::ZERO;
+    let gas_key = GasKey {
+        num_nonces: add_gas_key.num_nonces,
+        permission: add_gas_key.permission.clone(),
+        balance: Balance::ZERO,
+    };
     set_gas_key(state_update, account_id.clone(), add_gas_key.public_key.clone(), &gas_key);
 
-    for i in 0..add_gas_key.gas_key.num_nonces {
+    for i in 0..gas_key.num_nonces {
         let nonce = (apply_state.block_height - 1)
             * near_primitives::account::AccessKey::ACCESS_KEY_NONCE_RANGE_MULTIPLIER;
         set_gas_key_nonce(
@@ -885,7 +888,7 @@ pub(crate) fn action_add_gas_key(
             .checked_add(gas_key_storage_cost(
                 &apply_state.config.fees,
                 &add_gas_key.public_key,
-                &add_gas_key.gas_key,
+                &gas_key,
             ))
             .ok_or_else(|| {
                 StorageError::StorageInconsistentState(format!(
@@ -2185,11 +2188,8 @@ mod tests {
         let apply_state = create_apply_state(10);
         let action = AddGasKeyAction {
             public_key: public_key.clone(),
-            gas_key: GasKey {
-                num_nonces: 2,
-                balance: Balance::from_near(1), // This balance will be ignored
-                permission: AccessKeyPermission::FullAccess,
-            },
+            num_nonces: 2,
+            permission: AccessKeyPermission::FullAccess,
         };
         action_add_gas_key(
             &apply_state,
@@ -2212,13 +2212,21 @@ mod tests {
         assert_eq!(
             account.storage_usage(),
             storage_before
-                + gas_key_storage_cost(&apply_state.config.fees, &public_key, &action.gas_key)
+                + gas_key_storage_cost(
+                    &apply_state.config.fees,
+                    &public_key,
+                    &GasKey {
+                        num_nonces: action.num_nonces,
+                        balance: Balance::ZERO,
+                        permission: AccessKeyPermission::FullAccess,
+                    }
+                )
         );
 
         // Check gas key nonces were initialized
         let expected_nonce = (apply_state.block_height - 1)
             * near_primitives::account::AccessKey::ACCESS_KEY_NONCE_RANGE_MULTIPLIER;
-        for i in 0..action.gas_key.num_nonces {
+        for i in 0..action.num_nonces {
             let gas_key_nonce = get_gas_key_nonce(&state_update, &account_id, &public_key, i)
                 .expect("Failed to get gas key nonce")
                 .expect("Gas key nonce not found");
@@ -2241,7 +2249,11 @@ mod tests {
 
         let mut result = ActionResult::default();
         let apply_state = create_apply_state(1);
-        let action = AddGasKeyAction { public_key: public_key.clone(), gas_key };
+        let action = AddGasKeyAction {
+            public_key: public_key.clone(),
+            num_nonces: 2,
+            permission: AccessKeyPermission::FullAccess,
+        };
         action_add_gas_key(
             &apply_state,
             &mut state_update,
