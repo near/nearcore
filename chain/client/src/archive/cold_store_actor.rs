@@ -308,8 +308,9 @@ impl ColdStoreActor {
     }
 
     /// Checks if cold store head is behind the final head and if so copies data
-    /// for the next available produced block after current cold store head.
-    /// Updates cold store head after.
+    /// for the next available produced blocks after current cold store head.
+    /// Processes multiple blocks in a batch for better performance.
+    /// Updates cold store head after the batch is complete.
     fn cold_store_copy(&self) -> anyhow::Result<ColdStoreCopyResult, ColdStoreError> {
         // If HEAD is not set for cold storage we default it to genesis_height.
         let cold_head = get_cold_head(&self.cold_db)?;
@@ -333,53 +334,124 @@ impl ColdStoreActor {
             return Ok(ColdStoreCopyResult::NoBlockCopied);
         }
 
-        let mut next_height = cold_head_height + 1;
-        let next_height_block_hash = loop {
-            if next_height > hot_final_head_height {
-                return Err(ColdStoreError::SkippedBlocksBetweenColdHeadAndNextHeightError {
-                    cold_head_height,
-                    next_height,
-                    hot_final_head_height,
-                });
-            }
-            // Here it should be sufficient to just read from hot storage.
-            // Because BlockHeight is never garbage collectable and is not even copied to cold.
-            if let Ok(next_height_block_hash) =
-                self.hot_store.chain_store().get_block_hash_by_height(next_height)
-            {
-                break next_height_block_hash;
-            }
-            next_height = next_height + 1;
-        };
+        // Process multiple blocks in a batch to reduce overhead from repeated HEAD updates
+        // and actor scheduling. Default batch size is 50 blocks.
+        const BATCH_SIZE: u64 = 50;
+        let batch_end_height = std::cmp::min(cold_head_height + BATCH_SIZE, hot_final_head_height);
 
-        // The next block hash exists in hot store so we can use it to get epoch id.
-        let epoch_id = self.epoch_manager.get_epoch_id(&next_height_block_hash)?;
-        let shard_layout = self.epoch_manager.get_shard_layout(&epoch_id)?;
-        let tracked_shards =
-            self.shard_tracker.get_tracked_shards_for_non_validator_in_epoch(&epoch_id)?;
-        let block_info = self.epoch_manager.get_block_info(&next_height_block_hash)?;
-        let is_resharding_boundary =
-            self.epoch_manager.is_resharding_boundary(block_info.prev_hash())?;
+        let mut last_copied_height = cold_head_height;
+        let mut blocks_copied = 0;
 
-        update_cold_db(
-            &self.cold_db,
-            &self.hot_store,
-            &shard_layout,
-            &tracked_shards,
-            &next_height,
-            is_resharding_boundary,
-            self.split_storage_config.num_cold_store_read_threads,
-        )?;
+        tracing::info!(
+            target: "cold_store",
+            cold_head_height,
+            batch_end_height,
+            hot_final_head_height,
+            "Starting batch copy"
+        );
 
-        update_cold_head(&self.cold_db, &self.hot_store, &next_height)?;
+        // Process all blocks in this batch
+        for height in (cold_head_height + 1)..=batch_end_height {
+            // Find the next valid block at or after this height (handling skipped blocks)
+            let mut candidate_height = height;
+            let next_block_info = loop {
+                if candidate_height > hot_final_head_height {
+                    // We've gone past the final head
+                    tracing::warn!(
+                        target: "cold_store",
+                        height,
+                        candidate_height,
+                        hot_final_head_height,
+                        "Reached skipped blocks beyond final head in batch"
+                    );
+                    break None;
+                }
 
-        let result = if next_height >= hot_final_head_height {
+                // Try to get block hash at this height
+                match self.hot_store.chain_store().get_block_hash_by_height(candidate_height) {
+                    Ok(block_hash) => break Some((candidate_height, block_hash)),
+                    Err(_) => {
+                        // Block skipped, try next height
+                        candidate_height += 1;
+                        if candidate_height > batch_end_height {
+                            // Skipped past our batch boundary, continue to next iteration
+                            break None;
+                        }
+                    }
+                }
+            };
+
+            // If we couldn't find a valid block in this range, skip to next iteration
+            let (actual_height, block_hash) = match next_block_info {
+                Some((h, hash)) => (h, hash),
+                None => continue,
+            };
+
+            // Get epoch information for this block
+            let epoch_id = self.epoch_manager.get_epoch_id(&block_hash)?;
+            let shard_layout = self.epoch_manager.get_shard_layout(&epoch_id)?;
+            let tracked_shards =
+                self.shard_tracker.get_tracked_shards_for_non_validator_in_epoch(&epoch_id)?;
+            let block_info = self.epoch_manager.get_block_info(&block_hash)?;
+            let is_resharding_boundary =
+                self.epoch_manager.is_resharding_boundary(block_info.prev_hash())?;
+
+            // Copy this block's data to cold storage
+            update_cold_db(
+                &self.cold_db,
+                &self.hot_store,
+                &shard_layout,
+                &tracked_shards,
+                &actual_height,
+                is_resharding_boundary,
+                self.split_storage_config.num_cold_store_read_threads,
+            )?;
+
+            last_copied_height = actual_height;
+            blocks_copied += 1;
+
+            tracing::trace!(
+                target: "cold_store",
+                actual_height,
+                blocks_copied,
+                "Copied block in batch"
+            );
+        }
+
+        // Update HEAD only once after the entire batch is processed
+        if blocks_copied > 0 {
+            update_cold_head(&self.cold_db, &self.hot_store, &last_copied_height)?;
+
+            tracing::info!(
+                target: "cold_store",
+                blocks_copied,
+                last_copied_height,
+                cold_head_height,
+                "Completed batch copy"
+            );
+        } else {
+            // No blocks were copied in this batch (all were skipped)
+            // This should be rare but could happen if there are many skipped blocks
+            tracing::warn!(
+                target: "cold_store",
+                cold_head_height,
+                batch_end_height,
+                "No blocks copied in batch - all blocks were skipped"
+            );
+            return Err(ColdStoreError::SkippedBlocksBetweenColdHeadAndNextHeightError {
+                cold_head_height,
+                next_height: batch_end_height + 1,
+                hot_final_head_height,
+            });
+        }
+
+        let result = if last_copied_height >= hot_final_head_height {
             Ok(ColdStoreCopyResult::LatestBlockCopied)
         } else {
             Ok(ColdStoreCopyResult::OtherBlockCopied)
         };
 
-        tracing::trace!(target: "cold_store", ?result, "ending");
+        tracing::trace!(target: "cold_store", ?result, "ending batch");
         result
     }
 
