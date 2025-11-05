@@ -301,6 +301,7 @@ pub struct Config {
     /// If `None`, defaults to true (persist).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub save_untracked_partial_chunks_parts: Option<bool>,
+    /// Deprecated: no longer supported.
     pub log_summary_style: LogSummaryStyle,
     #[serde(with = "near_async::time::serde_duration_as_std")]
     pub log_summary_period: Duration,
