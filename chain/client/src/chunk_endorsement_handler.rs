@@ -23,7 +23,7 @@ pub fn spawn_chunk_endorsement_handler_actor(
     actor_system: ActorSystem,
     chunk_endorsement_tracker: Arc<ChunkEndorsementTracker>,
 ) -> TokioRuntimeHandle<ChunkEndorsementHandler> {
-    actor_system.spawn_tokio_actor(ChunkEndorsementHandler::new(chunk_endorsement_tracker.clone()))
+    actor_system.spawn_tokio_actor(ChunkEndorsementHandler::new(chunk_endorsement_tracker))
 }
 
 #[derive(Clone)]

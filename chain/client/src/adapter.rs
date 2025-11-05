@@ -22,7 +22,7 @@ pub fn client_sender_for_network(
         state_response: client_addr.clone().into_async_sender(),
         tx_status_request: view_client_addr.clone().into_async_sender(),
         tx_status_response: view_client_addr.clone().into_async_sender(),
-        transaction: rpc_handler.clone().into_async_sender(),
+        transaction: rpc_handler.into_async_sender(),
         announce_account: view_client_addr.into_async_sender(),
         chunk_endorsement: chunk_endorsement_handler.into_async_sender(),
         epoch_sync_request: client_addr.clone().into_sender(),
