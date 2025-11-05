@@ -269,6 +269,7 @@ pub fn proposals_to_epoch_info(
         protocol_version,
         rng_seed,
         validator_mandates,
+        epoch_config.shard_layout.clone(),
     ))
 }
 
@@ -460,7 +461,6 @@ mod tests {
 
         // All proposals become block producers
         assert_eq!(epoch_info.block_producers_settlement(), &[0, 1, 2]);
-        assert_eq!(epoch_info.fishermen_iter().len(), 0);
 
         // Validators are split between shards to balance number of validators.
         // Stakes don't matter for chunk producers.
@@ -905,9 +905,6 @@ mod tests {
             false,
         )
         .unwrap();
-
-        let fishermen = epoch_info.fishermen_iter().map(|v| v.take_account_id());
-        assert_eq!(fishermen.count(), 0);
 
         // too low stakes are kicked out
         let kickout = epoch_info.validator_kickout();
