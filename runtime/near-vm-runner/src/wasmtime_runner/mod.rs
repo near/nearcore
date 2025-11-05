@@ -1,7 +1,7 @@
 use crate::cache::get_contract_cache_key;
 use crate::errors::ContractPrecompilatonResult;
 use crate::logic::errors::{
-    AnyError, CacheError, CompilationError, FunctionCallError, MethodResolveError, VMLogicError,
+    CacheError, CompilationError, FunctionCallError, MethodResolveError, VMLogicError,
     VMRunnerError, WasmTrap,
 };
 use crate::logic::logic::Promise;
@@ -333,20 +333,6 @@ impl IntoVMError for anyhow::Error {
                 }));
             };
             return Err(VMRunnerError::Nondeterministic(nondeterministic_message.into()));
-        }
-        if let Some(err) = cause.downcast_ref::<VMLogicError>() {
-            match err {
-                VMLogicError::HostError(err) => {
-                    return Ok(FunctionCallError::HostError(err.clone()));
-                }
-                VMLogicError::ExternalError(err) => {
-                    warn!("external error should have been containerized");
-                    return Err(VMRunnerError::ExternalError(AnyError::new(format!("{err:?}"))));
-                }
-                VMLogicError::InconsistentStateError(err) => {
-                    return Err(VMRunnerError::InconsistentStateError(err.clone()));
-                }
-            }
         }
         if cause.is::<ResourceTableError>() {
             return Ok(FunctionCallError::HostError(HostError::MemoryAccessViolation));

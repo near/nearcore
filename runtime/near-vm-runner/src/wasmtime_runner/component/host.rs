@@ -45,6 +45,17 @@ fn pay_per(gas_counter: &mut GasCounter, cost: ExtCosts, num: u64) -> wasmtime::
 }
 
 /// A helper function to pay base cost gas fee for batching an action.
+fn pay_action_accumulated(
+    gas_counter: &mut GasCounter,
+    burn_gas: Gas,
+    use_gas: Gas,
+    action: ActionCosts,
+) -> wasmtime::Result<()> {
+    gas_counter.pay_action_accumulated(burn_gas, use_gas, action).map_err(ErrorContainer::new)?;
+    Ok(())
+}
+
+/// A helper function to pay base cost gas fee for batching an action.
 fn pay_action_base(
     gas_counter: &mut GasCounter,
     fees_config: &RuntimeFeesConfig,
@@ -57,7 +68,7 @@ fn pay_action_base(
         .checked_add(base_fee.exec_fee())
         .ok_or(HostError::IntegerOverflow)
         .map_err(ErrorContainer::new)?;
-    gas_counter.pay_action_accumulated(burn_gas, use_gas, action).map_err(ErrorContainer::new)?;
+    pay_action_accumulated(gas_counter, burn_gas, use_gas, action)?;
     Ok(())
 }
 
@@ -85,7 +96,7 @@ fn pay_action_per_byte(
         .checked_add(charge)
         .ok_or(HostError::IntegerOverflow)
         .map_err(ErrorContainer::new)?;
-    gas_counter.pay_action_accumulated(burn_gas, use_gas, action).map_err(ErrorContainer::new)?;
+    pay_action_accumulated(gas_counter, burn_gas, use_gas, action)?;
     Ok(())
 }
 
@@ -147,9 +158,7 @@ fn pay_gas_for_new_receipt(
         .map_err(ErrorContainer::new)?;
     // This should go to `new_data_receipt_base` and `new_action_receipt` in parts.
     // But we have to keep charing these two together unless we make a protocol change.
-    gas_counter
-        .pay_action_accumulated(burn_gas, use_gas, ActionCosts::new_action_receipt)
-        .map_err(ErrorContainer::new)?;
+    pay_action_accumulated(gas_counter, burn_gas, use_gas, ActionCosts::new_action_receipt)?;
     Ok(())
 }
 
@@ -180,6 +189,11 @@ impl Ctx {
         self.pay_for_reading_bytes(n)?;
         self.pay_base(utf8_decoding_base)?;
         self.pay_per(utf8_decoding_byte, n as _)?;
+        Ok(())
+    }
+
+    fn deduct_balance(&mut self, amount: Balance) -> wasmtime::Result<()> {
+        self.result_state.deduct_balance(amount).map_err(ErrorContainer::new)?;
         Ok(())
     }
 
@@ -874,10 +888,12 @@ impl runtime::Host for Ctx {
                 .ok_or(HostError::IntegerOverflow)
                 .map_err(ErrorContainer::new)?;
         }
-        self.result_state
-            .gas_counter
-            .pay_action_accumulated(burn_gas, burn_gas, ActionCosts::new_data_receipt_byte)
-            .map_err(ErrorContainer::new)?;
+        pay_action_accumulated(
+            &mut self.result_state.gas_counter,
+            burn_gas,
+            burn_gas,
+            ActionCosts::new_data_receipt_byte,
+        )?;
         self.result_state.return_data = ReturnData::Value(value);
         Ok(())
     }
@@ -1070,7 +1086,7 @@ impl runtime::Host for Ctx {
                         read_len as u64,
                     )?;
                 }
-                Some(read.deref(&mut FreeGasCounter)?)
+                Some(read.deref(&mut FreeGasCounter).map_err(ErrorContainer::new)?)
             }
             None => None,
         };
@@ -1337,7 +1353,7 @@ impl runtime::HostPromise for Ctx {
             ActionCosts::deterministic_state_init_base,
             sir,
         )?;
-        self.result_state.deduct_balance(amount).map_err(ErrorContainer::new)?;
+        self.deduct_balance(amount)?;
         let action = self
             .ext
             .append_action_deterministic_state_init(
@@ -1375,7 +1391,7 @@ impl runtime::HostPromise for Ctx {
             ActionCosts::deterministic_state_init_base,
             sir,
         )?;
-        self.result_state.deduct_balance(amount).map_err(ErrorContainer::new)?;
+        self.deduct_balance(amount)?;
         let action = self
             .ext
             .append_action_deterministic_state_init(
@@ -1651,8 +1667,11 @@ impl runtime::HostPromise for Ctx {
             sir,
         )?;
         // Prepaid gas
-        self.result_state.gas_counter.prepay_gas(Gas::from_gas(gas))?;
-        self.result_state.deduct_balance(amount).map_err(ErrorContainer::new)?;
+        self.result_state
+            .gas_counter
+            .prepay_gas(Gas::from_gas(gas))
+            .map_err(ErrorContainer::new)?;
+        self.deduct_balance(amount)?;
         self.ext
             .append_action_function_call_weight(
                 receipt_idx,
@@ -1701,11 +1720,14 @@ impl runtime::HostPromise for Ctx {
             .checked_add(exec_fee)
             .ok_or(HostError::IntegerOverflow)
             .map_err(ErrorContainer::new)?;
-        self.result_state
-            .gas_counter
-            .pay_action_accumulated(burn_gas, use_gas, ActionCosts::transfer)
-            .map_err(ErrorContainer::new)?;
-        self.result_state.deduct_balance(amount).map_err(ErrorContainer::new)?;
+
+        pay_action_accumulated(
+            &mut self.result_state.gas_counter,
+            burn_gas,
+            use_gas,
+            ActionCosts::transfer,
+        )?;
+        self.deduct_balance(amount)?;
         self.ext.append_action_transfer(receipt_idx, amount).map_err(ErrorContainer::new)?;
         Ok(())
     }
@@ -1903,7 +1925,10 @@ impl runtime::HostPromise for Ctx {
         let num_bytes = method.len() as u64 + arguments.len() as u64;
         self.pay_per(yield_create_byte, num_bytes)?;
         // Prepay gas for the callback so that it cannot be used for this execution any longer.
-        self.result_state.gas_counter.prepay_gas(Gas::from_gas(gas))?;
+        self.result_state
+            .gas_counter
+            .prepay_gas(Gas::from_gas(gas))
+            .map_err(ErrorContainer::new)?;
 
         // Here we are creating a receipt with a single data dependency which will then be
         // resolved by the resume call.
