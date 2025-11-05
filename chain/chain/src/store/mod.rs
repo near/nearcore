@@ -70,180 +70,6 @@ pub enum ReceiptFilter {
     TargetShard,
 }
 
-/// Accesses the chain store. Used to create atomic editable views that can be reverted.
-pub trait ChainStoreAccess {
-    /// Returns underlying chain store
-    fn chain_store(&self) -> &ChainStore;
-    /// Returns underlying store.
-    fn store(&self) -> Store;
-    /// The chain head.
-    fn head(&self) -> Result<Arc<Tip>, Error>;
-    /// The chain Blocks Tail height.
-    fn tail(&self) -> Result<BlockHeight, Error>;
-    /// The chain Chunks Tail height.
-    fn chunk_tail(&self) -> Result<BlockHeight, Error>;
-    /// Tail height of the fork cleaning process.
-    fn fork_tail(&self) -> Result<BlockHeight, Error>;
-    /// Head of the header chain (not the same thing as head_header).
-    fn header_head(&self) -> Result<Arc<Tip>, Error>;
-    /// Header of the block at the head of the block chain (not the same thing as header_head).
-    fn head_header(&self) -> Result<Arc<BlockHeader>, Error>;
-    /// The chain final head. It is guaranteed to be monotonically increasing.
-    fn final_head(&self) -> Result<Arc<Tip>, Error>;
-    /// Last final block of the chain that we executed.
-    fn spice_final_execution_head(&self) -> Result<Arc<Tip>, Error>;
-    /// Last block of the chain that we executed.
-    fn spice_execution_head(&self) -> Result<Arc<Tip>, Error>;
-    /// Largest approval target height sent by us
-    fn largest_target_height(&self) -> Result<BlockHeight, Error>;
-    /// Stop height observed during the last garbage collection iteration.
-    fn gc_stop_height(&self) -> Result<BlockHeight, Error>;
-    /// Get full block.
-    fn get_block(&self, h: &CryptoHash) -> Result<Arc<Block>, Error>;
-    /// Get partial chunk.
-    fn get_partial_chunk(&self, chunk_hash: &ChunkHash) -> Result<Arc<PartialEncodedChunk>, Error>;
-    /// Does this full block exist?
-    fn block_exists(&self, h: &CryptoHash) -> Result<bool, Error>;
-    /// Does this chunk exist?
-    fn chunk_exists(&self, h: &ChunkHash) -> Result<bool, Error>;
-    /// Does this partial chunk exist?
-    fn partial_chunk_exists(&self, h: &ChunkHash) -> Result<bool, Error>;
-    /// Get previous header.
-    fn get_previous_header(&self, header: &BlockHeader) -> Result<Arc<BlockHeader>, Error>;
-    /// Get chunk extra info for given block hash + shard id.
-    fn get_chunk_extra(
-        &self,
-        block_hash: &CryptoHash,
-        shard_uid: &ShardUId,
-    ) -> Result<Arc<ChunkExtra>, Error>;
-    fn get_chunk_apply_stats(
-        &self,
-        block_hash: &CryptoHash,
-        shard_id: &ShardId,
-    ) -> Result<Option<ChunkApplyStats>, Error>;
-    /// Get block header.
-    fn get_block_header(&self, h: &CryptoHash) -> Result<Arc<BlockHeader>, Error>;
-    /// Returns hash of the block on the main chain for given height.
-    fn get_block_hash_by_height(&self, height: BlockHeight) -> Result<CryptoHash, Error>;
-    /// Returns hash of the first available block after genesis.
-    fn get_earliest_block_hash(&self) -> Result<Option<CryptoHash>, Error> {
-        // To find the earliest available block we use the `tail` marker primarily
-        // used by garbage collection system.
-        // NOTE: `tail` is the block height at which we can say that there is
-        // at most 1 block available in the range from the genesis height to
-        // the tail. Thus, the strategy is to find the first block AFTER the tail
-        // height, and use the `prev_hash` to get the reference to the earliest
-        // block.
-        // The earliest block can be the genesis block.
-        let head_header_height = self.head_header()?.height();
-        let tail = self.tail()?;
-
-        // There is a corner case when there are no blocks after the tail, and
-        // the tail is in fact the earliest block available on the chain.
-        if let Ok(block_hash) = self.get_block_hash_by_height(tail) {
-            return Ok(Some(block_hash));
-        }
-        for height in tail + 1..=head_header_height {
-            if let Ok(block_hash) = self.get_block_hash_by_height(height) {
-                let earliest_block_hash = *self.get_block_header(&block_hash)?.prev_hash();
-                debug_assert!(matches!(self.block_exists(&earliest_block_hash), Ok(true)));
-                return Ok(Some(earliest_block_hash));
-            }
-        }
-        Ok(None)
-    }
-    /// Returns block header from the current chain for given height if present.
-    fn get_block_header_by_height(&self, height: BlockHeight) -> Result<Arc<BlockHeader>, Error> {
-        let hash = self.get_block_hash_by_height(height)?;
-        self.get_block_header(&hash)
-    }
-    fn get_next_block_hash(&self, hash: &CryptoHash) -> Result<CryptoHash, Error>;
-    fn get_epoch_light_client_block(
-        &self,
-        hash: &CryptoHash,
-    ) -> Result<Arc<LightClientBlockView>, Error>;
-    /// Returns a number of references for Block with `block_hash`
-    fn get_block_refcount(&self, block_hash: &CryptoHash) -> Result<u64, Error>;
-    /// Returns resulting receipt for given block.
-    fn get_outgoing_receipts(
-        &self,
-        hash: &CryptoHash,
-        shard_id: ShardId,
-    ) -> Result<Arc<Vec<Receipt>>, Error>;
-
-    fn get_incoming_receipts(
-        &self,
-        hash: &CryptoHash,
-        shard_id: ShardId,
-    ) -> Result<Arc<Vec<ReceiptProof>>, Error>;
-
-    fn get_blocks_to_catchup(&self, prev_hash: &CryptoHash) -> Result<Vec<CryptoHash>, Error>;
-
-    /// Returns encoded chunk if it's invalid otherwise None.
-    fn is_invalid_chunk(
-        &self,
-        chunk_hash: &ChunkHash,
-    ) -> Result<Option<Arc<EncodedShardChunk>>, Error>;
-
-    fn get_transaction(
-        &self,
-        tx_hash: &CryptoHash,
-    ) -> Result<Option<Arc<SignedTransaction>>, Error>;
-
-    /// Fetch a receipt by id, if it is stored in the store.
-    ///
-    /// Note that not _all_ receipts are persisted. Some receipts are ephemeral,
-    /// get processed immediately after creation and don't even get to the
-    /// database.
-    fn get_receipt(&self, receipt_id: &CryptoHash) -> Result<Option<Arc<Receipt>>, Error>;
-
-    fn get_genesis_height(&self) -> BlockHeight;
-
-    fn get_block_merkle_tree(
-        &self,
-        block_hash: &CryptoHash,
-    ) -> Result<Arc<PartialMerkleTree>, Error>;
-
-    fn get_block_hash_from_ordinal(&self, block_ordinal: NumBlocks) -> Result<CryptoHash, Error>;
-
-    fn is_height_processed(&self, height: BlockHeight) -> Result<bool, Error>;
-
-    fn get_block_height(&self, hash: &CryptoHash) -> Result<BlockHeight, Error> {
-        if hash == &CryptoHash::default() {
-            Ok(self.get_genesis_height())
-        } else {
-            Ok(self.get_block_header(hash)?.height())
-        }
-    }
-
-    /// Get epoch id of the last block with existing chunk for the given shard id.
-    fn get_epoch_id_of_last_block_with_chunk(
-        &self,
-        epoch_manager: &dyn EpochManagerAdapter,
-        hash: &CryptoHash,
-        shard_id: ShardId,
-    ) -> Result<EpochId, Error> {
-        let mut candidate_hash = *hash;
-        let block_header = self.get_block_header(&candidate_hash)?;
-        let shard_layout = epoch_manager.get_shard_layout(block_header.epoch_id())?;
-        let mut shard_id = shard_id;
-        let mut shard_index = shard_layout.get_shard_index(shard_id)?;
-        loop {
-            let block_header = self.get_block_header(&candidate_hash)?;
-            if *block_header.chunk_mask().get(shard_index).ok_or(Error::InvalidShardId(shard_id))? {
-                break Ok(*block_header.epoch_id());
-            }
-            candidate_hash = *block_header.prev_hash();
-            let shard_info =
-                epoch_manager.get_prev_shard_infos(&candidate_hash, vec![shard_id])?[0];
-            shard_id = shard_info.shard_id();
-            shard_index = shard_info.shard_index();
-        }
-    }
-
-    fn get_current_epoch_sync_hash(&self, epoch_id: &EpochId) -> Result<Option<CryptoHash>, Error>;
-}
-
 /// Given a vector of receipts return only the receipts that should be assigned
 /// to the target shard id in the target shard layout. Used when collecting the
 /// incoming receipts and the shard layout changed.
@@ -843,200 +669,19 @@ impl ChainStore {
         // otherwise should be orphaned)
         Ok(!chain_store.get_blocks_to_catchup(prev_prev_hash)?.contains(prev_hash))
     }
-}
 
-impl ChainStoreAccess for ChainStore {
-    fn chain_store(&self) -> &ChainStore {
-        &self
-    }
-
-    fn store(&self) -> Store {
+    pub fn store(&self) -> Store {
         self.store.store()
     }
-    /// The chain head.
-    fn head(&self) -> Result<Arc<Tip>, Error> {
-        ChainStoreAdapter::head(self)
+}
+
+impl DefaultChainStoreReadImpl for ChainStore {
+    fn get_store(&self) -> &Store {
+        <ChainStoreAdapter as DefaultChainStoreReadImpl>::get_store(&self.store)
     }
 
-    /// The chain Blocks Tail height, used by GC.
-    fn tail(&self) -> Result<BlockHeight, Error> {
-        ChainStoreAdapter::tail(self)
-    }
-
-    /// The chain Chunks Tail height, used by GC.
-    fn chunk_tail(&self) -> Result<BlockHeight, Error> {
-        ChainStoreAdapter::chunk_tail(self)
-    }
-
-    fn fork_tail(&self) -> Result<BlockHeight, Error> {
-        ChainStoreAdapter::fork_tail(self)
-    }
-
-    /// Header of the block at the head of the block chain (not the same thing as header_head).
-    fn head_header(&self) -> Result<Arc<BlockHeader>, Error> {
-        ChainStoreAdapter::head_header(self)
-    }
-
-    /// Largest height for which we created a doomslug endorsement
-    fn largest_target_height(&self) -> Result<BlockHeight, Error> {
-        ChainStoreAdapter::largest_target_height(self)
-    }
-
-    fn gc_stop_height(&self) -> Result<BlockHeight, Error> {
-        ChainStoreAdapter::gc_stop_height(self)
-    }
-
-    /// Head of the header chain (not the same thing as head_header).
-    fn header_head(&self) -> Result<Arc<Tip>, Error> {
-        ChainStoreAdapter::header_head(self)
-    }
-
-    /// Final head of the chain.
-    fn final_head(&self) -> Result<Arc<Tip>, Error> {
-        ChainStoreAdapter::final_head(self)
-    }
-
-    /// Spice final head execution head.
-    fn spice_final_execution_head(&self) -> Result<Arc<Tip>, Error> {
-        ChainStoreAdapter::spice_final_execution_head(self)
-    }
-
-    /// Spice execution head.
-    fn spice_execution_head(&self) -> Result<Arc<Tip>, Error> {
-        ChainStoreAdapter::spice_execution_head(self)
-    }
-
-    /// Get full block.
-    fn get_block(&self, h: &CryptoHash) -> Result<Arc<Block>, Error> {
-        ChainStoreAdapter::get_block(self, h)
-    }
-
-    /// Get partial chunk.
-    fn get_partial_chunk(&self, chunk_hash: &ChunkHash) -> Result<Arc<PartialEncodedChunk>, Error> {
-        ChainStoreAdapter::get_partial_chunk(self, chunk_hash)
-    }
-
-    /// Does this full block exist?
-    fn block_exists(&self, h: &CryptoHash) -> Result<bool, Error> {
-        ChainStoreAdapter::block_exists(self, h)
-    }
-
-    fn chunk_exists(&self, h: &ChunkHash) -> Result<bool, Error> {
-        ChainStoreAdapter::chunk_exists(self, h)
-    }
-
-    fn partial_chunk_exists(&self, h: &ChunkHash) -> Result<bool, Error> {
-        ChainStoreAdapter::partial_chunk_exists(self, h)
-    }
-
-    /// Get previous header.
-    fn get_previous_header(&self, header: &BlockHeader) -> Result<Arc<BlockHeader>, Error> {
-        ChainStoreAdapter::get_previous_header(self, header)
-    }
-
-    /// Information from applying chunk.
-    fn get_chunk_extra(
-        &self,
-        block_hash: &CryptoHash,
-        shard_uid: &ShardUId,
-    ) -> Result<Arc<ChunkExtra>, Error> {
-        ChainStoreAdapter::get_chunk_extra(self, block_hash, shard_uid)
-    }
-
-    fn get_chunk_apply_stats(
-        &self,
-        block_hash: &CryptoHash,
-        shard_id: &ShardId,
-    ) -> Result<Option<ChunkApplyStats>, Error> {
-        ChainStoreAdapter::get_chunk_apply_stats(&self, block_hash, shard_id)
-    }
-
-    /// Get block header.
-    fn get_block_header(&self, h: &CryptoHash) -> Result<Arc<BlockHeader>, Error> {
-        ChainStoreAdapter::get_block_header(self, h)
-    }
-
-    /// Returns hash of the block on the main chain for given height.
-    fn get_block_hash_by_height(&self, height: BlockHeight) -> Result<CryptoHash, Error> {
-        ChainStoreAdapter::get_block_hash_by_height(self, height)
-    }
-
-    fn get_next_block_hash(&self, hash: &CryptoHash) -> Result<CryptoHash, Error> {
-        ChainStoreAdapter::get_next_block_hash(self, hash)
-    }
-
-    fn get_epoch_light_client_block(
-        &self,
-        hash: &CryptoHash,
-    ) -> Result<Arc<LightClientBlockView>, Error> {
-        ChainStoreAdapter::get_epoch_light_client_block(self, hash)
-    }
-
-    fn get_block_refcount(&self, block_hash: &CryptoHash) -> Result<u64, Error> {
-        ChainStoreAdapter::get_block_refcount(self, block_hash)
-    }
-
-    /// Get outgoing receipts *generated* from shard `shard_id` in block `prev_hash`
-    /// Note that this function is different from get_outgoing_receipts_for_shard, see comments there
-    fn get_outgoing_receipts(
-        &self,
-        prev_block_hash: &CryptoHash,
-        shard_id: ShardId,
-    ) -> Result<Arc<Vec<Receipt>>, Error> {
-        ChainStoreAdapter::get_outgoing_receipts(self, prev_block_hash, shard_id)
-    }
-
-    fn get_incoming_receipts(
-        &self,
-        block_hash: &CryptoHash,
-        shard_id: ShardId,
-    ) -> Result<Arc<Vec<ReceiptProof>>, Error> {
-        ChainStoreAdapter::get_incoming_receipts(self, block_hash, shard_id)
-    }
-
-    fn get_blocks_to_catchup(&self, hash: &CryptoHash) -> Result<Vec<CryptoHash>, Error> {
-        ChainStoreAdapter::get_blocks_to_catchup(self, hash)
-    }
-
-    fn is_invalid_chunk(
-        &self,
-        chunk_hash: &ChunkHash,
-    ) -> Result<Option<Arc<EncodedShardChunk>>, Error> {
-        ChainStoreAdapter::is_invalid_chunk(self, chunk_hash)
-    }
-
-    fn get_transaction(
-        &self,
-        tx_hash: &CryptoHash,
-    ) -> Result<Option<Arc<SignedTransaction>>, Error> {
-        ChainStoreAdapter::get_transaction(self, tx_hash)
-    }
-
-    fn get_receipt(&self, receipt_id: &CryptoHash) -> Result<Option<Arc<Receipt>>, Error> {
-        ChainStoreAdapter::get_receipt(self, receipt_id)
-    }
-
-    fn get_genesis_height(&self) -> BlockHeight {
-        ChainStoreAdapter::get_genesis_height(self)
-    }
-
-    fn get_block_merkle_tree(
-        &self,
-        block_hash: &CryptoHash,
-    ) -> Result<Arc<PartialMerkleTree>, Error> {
-        ChainStoreAdapter::get_block_merkle_tree(self, block_hash).map(Arc::new)
-    }
-
-    fn get_block_hash_from_ordinal(&self, block_ordinal: NumBlocks) -> Result<CryptoHash, Error> {
-        ChainStoreAdapter::get_block_hash_from_ordinal(self, block_ordinal)
-    }
-
-    fn is_height_processed(&self, height: BlockHeight) -> Result<bool, Error> {
-        ChainStoreAdapter::is_height_processed(self, height)
-    }
-
-    fn get_current_epoch_sync_hash(&self, epoch_id: &EpochId) -> Result<Option<CryptoHash>, Error> {
-        ChainStoreAdapter::get_current_epoch_sync_hash(self, epoch_id)
+    fn genesis_height(&self) -> BlockHeight {
+        <ChainStoreAdapter as DefaultChainStoreReadImpl>::genesis_height(&self)
     }
 }
 
@@ -1127,17 +772,17 @@ impl<'a> ChainStoreUpdate<'a> {
             self.chain_store.get_chunk(chunk_hash).map(ArcedShardChunk::from).map(Arc::new)
         }
     }
-}
 
-impl<'a> ChainStoreAccess for ChainStoreUpdate<'a> {
-    fn chain_store(&self) -> &ChainStore {
+    pub fn chain_store(&self) -> &ChainStore {
         &self.chain_store
     }
 
-    fn store(&self) -> Store {
+    pub fn store(&self) -> Store {
         self.chain_store.store.store()
     }
+}
 
+impl<'a> ChainStoreRead for ChainStoreUpdate<'a> {
     /// The chain head.
     fn head(&self) -> Result<Arc<Tip>, Error> {
         let Some(updated_head) = &self.head else {
@@ -1449,8 +1094,85 @@ impl<'a> ChainStoreAccess for ChainStoreUpdate<'a> {
         }
     }
 
+    // TODO - Are these correct?
     fn get_current_epoch_sync_hash(&self, epoch_id: &EpochId) -> Result<Option<CryptoHash>, Error> {
         self.chain_store.get_current_epoch_sync_hash(epoch_id)
+    }
+
+    fn genesis_height(&self) -> BlockHeight {
+        <ChainStore as ChainStoreRead>::genesis_height(&self.chain_store)
+    }
+
+    fn get_block_height(&self, hash: &CryptoHash) -> Result<BlockHeight, Error> {
+        self.chain_store.get_block_height(hash)
+    }
+
+    fn get_all_block_hashes_by_height(
+        &self,
+        height: BlockHeight,
+    ) -> Result<Arc<HashMap<EpochId, HashSet<CryptoHash>>>, Error> {
+        self.chain_store.get_all_block_hashes_by_height(height)
+    }
+
+    fn get_all_header_hashes_by_height(
+        &self,
+        height: BlockHeight,
+    ) -> Result<HashSet<CryptoHash>, Error> {
+        self.chain_store.get_all_header_hashes_by_height(height)
+    }
+
+    fn get_all_chunk_hashes_by_height(
+        &self,
+        height: BlockHeight,
+    ) -> Result<HashSet<ChunkHash>, Error> {
+        self.chain_store.get_all_chunk_hashes_by_height(height)
+    }
+
+    fn get_block_header_by_height(&self, height: BlockHeight) -> Result<Arc<BlockHeader>, Error> {
+        self.chain_store.get_block_header_by_height(height)
+    }
+
+    fn get_chunk(&self, chunk_hash: &ChunkHash) -> Result<ShardChunk, Error> {
+        self.chain_store.get_chunk(chunk_hash)
+    }
+
+    fn get_block_merkle_tree_from_ordinal(
+        &self,
+        block_ordinal: NumBlocks,
+    ) -> Result<Arc<PartialMerkleTree>, Error> {
+        self.chain_store.get_block_merkle_tree_from_ordinal(block_ordinal)
+    }
+
+    fn get_outcome_by_id_and_block_hash(
+        &self,
+        id: &CryptoHash,
+        block_hash: &CryptoHash,
+    ) -> Result<Option<ExecutionOutcomeWithProof>, Error> {
+        self.chain_store.get_outcome_by_id_and_block_hash(id, block_hash)
+    }
+
+    fn get_outcomes_by_block_hash_and_shard_id(
+        &self,
+        block_hash: &CryptoHash,
+        shard_id: ShardId,
+    ) -> Result<Vec<CryptoHash>, Error> {
+        self.chain_store.get_outcomes_by_block_hash_and_shard_id(block_hash, shard_id)
+    }
+
+    fn get_all_next_block_hashes(&self, block_hash: &CryptoHash) -> Result<Vec<CryptoHash>, Error> {
+        self.chain_store.get_all_next_block_hashes(block_hash)
+    }
+
+    fn get_state_header(
+        &self,
+        shard_id: ShardId,
+        block_hash: CryptoHash,
+    ) -> Result<near_primitives::state_sync::ShardStateSyncResponseHeader, Error> {
+        self.chain_store.get_state_header(shard_id, block_hash)
+    }
+
+    fn get_state_sync_new_chunks(&self, block_hash: &CryptoHash) -> Result<Option<Vec<u8>>, Error> {
+        self.chain_store.get_state_sync_new_chunks(block_hash)
     }
 }
 
