@@ -1302,8 +1302,8 @@ mod tests {
     use near_primitives::errors::InvalidAccessKeyError;
     use near_primitives::transaction::CreateAccountAction;
     use near_primitives::trie_key::trie_key_parsers;
-    use near_primitives::types::Gas;
     use near_primitives::types::{EpochId, StateChangeCause};
+    use near_primitives::types::{Gas, NonceIndex};
     use near_primitives::version::PROTOCOL_VERSION;
     use near_store::test_utils::TestTriesBuilder;
     use near_store::{get_account, get_gas_key_nonce, set_account};
@@ -2152,6 +2152,31 @@ mod tests {
         (account_id, public_key, access_key)
     }
 
+    const TEST_NUM_NONCES: NonceIndex = 2;
+    const TEST_GAS_KEY_BLOCK_HEIGHT: BlockHeight = 10;
+
+    fn add_gas_key_to_account(
+        state_update: &mut TrieUpdate,
+        account: &mut Account,
+        account_id: &AccountId,
+        public_key: &PublicKey,
+    ) -> GasKey {
+        let mut result = ActionResult::default();
+        let apply_state = create_apply_state(TEST_GAS_KEY_BLOCK_HEIGHT);
+        let action = AddGasKeyAction {
+            public_key: public_key.clone(),
+            num_nonces: TEST_NUM_NONCES,
+            permission: AccessKeyPermission::FullAccess,
+        };
+        action_add_gas_key(&apply_state, state_update, account, &mut result, &account_id, &action)
+            .expect("Expect ok");
+        assert!(result.result.is_ok(), "Result error: {:?}", result.result);
+
+        get_gas_key(state_update, &account_id, &public_key)
+            .expect("could not find gas key")
+            .unwrap()
+    }
+
     #[test]
     fn test_add_gas_key() {
         let (account_id, public_key, access_key) = test_account_keys();
@@ -2160,49 +2185,23 @@ mod tests {
             get_account(&state_update, &account_id).expect("Failed to get account").unwrap();
         let storage_before = account.storage_usage();
 
-        let mut result = ActionResult::default();
-        let apply_state = create_apply_state(10);
-        let action = AddGasKeyAction {
-            public_key: public_key.clone(),
-            num_nonces: 2,
-            permission: AccessKeyPermission::FullAccess,
-        };
-        action_add_gas_key(
-            &apply_state,
-            &mut state_update,
-            &mut account,
-            &mut result,
-            &account_id,
-            &action,
-        )
-        .expect("Expect ok");
-        assert!(result.result.is_ok(), "Result error: {:?}", result.result);
+        let gas_key =
+            add_gas_key_to_account(&mut state_update, &mut account, &account_id, &public_key);
 
-        let stored_gas_key = get_gas_key(&state_update, &account_id, &public_key)
-            .expect("Failed to get gas key")
-            .expect("Gas key not found");
-        assert_eq!(stored_gas_key.num_nonces, 2);
-        assert_eq!(stored_gas_key.balance, Balance::ZERO);
-        assert_eq!(stored_gas_key.permission, AccessKeyPermission::FullAccess);
+        assert_eq!(gas_key.num_nonces, TEST_NUM_NONCES);
+        assert_eq!(gas_key.balance, Balance::ZERO);
+        assert_eq!(gas_key.permission, AccessKeyPermission::FullAccess);
         assert!(account.storage_usage() > storage_before);
         assert_eq!(
             account.storage_usage(),
             storage_before
-                + gas_key_storage_cost(
-                    &apply_state.config.fees,
-                    &public_key,
-                    &GasKey {
-                        num_nonces: action.num_nonces,
-                        balance: Balance::ZERO,
-                        permission: AccessKeyPermission::FullAccess,
-                    }
-                )
+                + gas_key_storage_cost(&RuntimeFeesConfig::test(), &public_key, &gas_key)
         );
 
         // Check gas key nonces were initialized
-        let expected_nonce = (apply_state.block_height - 1)
+        let expected_nonce = (TEST_GAS_KEY_BLOCK_HEIGHT - 1)
             * near_primitives::account::AccessKey::ACCESS_KEY_NONCE_RANGE_MULTIPLIER;
-        for i in 0..action.num_nonces {
+        for i in 0..gas_key.num_nonces {
             let gas_key_nonce = get_gas_key_nonce(&state_update, &account_id, &public_key, i)
                 .expect("Failed to get gas key nonce")
                 .expect("Gas key nonce not found");
@@ -2214,24 +2213,18 @@ mod tests {
     fn test_add_duplicate_gas_key() {
         let (account_id, public_key, access_key) = test_account_keys();
         let mut state_update = setup_account(&account_id, &public_key, &access_key);
-        let gas_key = GasKey {
-            num_nonces: 2,
-            balance: Balance::from_near(1),
-            permission: AccessKeyPermission::FullAccess,
-        };
-        set_gas_key(&mut state_update, account_id.clone(), public_key.clone(), &gas_key);
         let mut account =
             get_account(&state_update, &account_id).expect("Failed to get account").unwrap();
+        add_gas_key_to_account(&mut state_update, &mut account, &account_id, &public_key);
 
         let mut result = ActionResult::default();
-        let apply_state = create_apply_state(1);
         let action = AddGasKeyAction {
             public_key: public_key.clone(),
-            num_nonces: 2,
+            num_nonces: TEST_NUM_NONCES,
             permission: AccessKeyPermission::FullAccess,
         };
         action_add_gas_key(
-            &apply_state,
+            &create_apply_state(TEST_GAS_KEY_BLOCK_HEIGHT),
             &mut state_update,
             &mut account,
             &mut result,
@@ -2253,17 +2246,11 @@ mod tests {
     fn test_delete_gas_key() {
         let (account_id, public_key, access_key) = test_account_keys();
         let mut state_update = setup_account(&account_id, &public_key, &access_key);
-        let gas_key = GasKey {
-            num_nonces: 2,
-            balance: Balance::from_near(1),
-            permission: AccessKeyPermission::FullAccess,
-        };
-        set_gas_key(&mut state_update, account_id.clone(), public_key.clone(), &gas_key);
         let mut account =
             get_account(&state_update, &account_id).expect("Failed to get account").unwrap();
         let storage_before = account.storage_usage();
-        let storage_cost = gas_key_storage_cost(&RuntimeFeesConfig::test(), &public_key, &gas_key);
-        account.set_storage_usage(storage_before + storage_cost);
+        let gas_key =
+            add_gas_key_to_account(&mut state_update, &mut account, &account_id, &public_key);
 
         let mut result = ActionResult::default();
         let action = DeleteGasKeyAction { public_key: public_key.clone() };
@@ -2323,12 +2310,10 @@ mod tests {
     fn test_transfer_to_gas_key() {
         let (account_id, public_key, access_key) = test_account_keys();
         let mut state_update = setup_account(&account_id, &public_key, &access_key);
-        let gas_key = GasKey {
-            num_nonces: 2,
-            balance: Balance::from_near(4),
-            permission: AccessKeyPermission::FullAccess,
-        };
-        set_gas_key(&mut state_update, account_id.clone(), public_key.clone(), &gas_key);
+        let mut account =
+            get_account(&state_update, &account_id).expect("Failed to get account").unwrap();
+        add_gas_key_to_account(&mut state_update, &mut account, &account_id, &public_key);
+
         let action = TransferToGasKeyAction {
             public_key: public_key.clone(),
             deposit: Balance::from_near(1),
@@ -2341,7 +2326,7 @@ mod tests {
         let stored_gas_key = get_gas_key(&state_update, &account_id, &public_key)
             .expect("Failed to get gas key")
             .expect("Gas key not found");
-        assert_eq!(stored_gas_key.balance, gas_key.balance.checked_add(action.deposit).unwrap());
+        assert_eq!(stored_gas_key.balance, action.deposit);
     }
 
     #[test]
@@ -2358,7 +2343,7 @@ mod tests {
             result.result,
             Err(ActionErrorKind::GasKeyDoesNotExist {
                 account_id: account_id.clone(),
-                public_key: public_key.clone().into(),
+                public_key: public_key.into(),
             }
             .into())
         );
