@@ -1,6 +1,6 @@
 use anyhow::Context;
 use near_epoch_manager::shard_assignment::{account_id_to_shard_id, shard_id_to_uid};
-use near_store::adapter::chain_store::ChainStoreRead;
+use near_store::adapter::chain_store::{ChainStoreRead, ChainStoreReadExt};
 use std::path::Path;
 
 use near_chain::ChainStore;

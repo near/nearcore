@@ -14,7 +14,7 @@ use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::stateless_validation::state_witness::ChunkStateWitness;
 use near_primitives::types::{BlockHeight, EpochId, ShardId};
 use near_store::Store;
-use near_store::adapter::chain_store::ChainStoreRead;
+use near_store::adapter::chain_store::{ChainStoreRead, ChainStoreReadExt};
 use near_time::Clock;
 use nearcore::NearConfig;
 use nearcore::NightshadeRuntimeExt;

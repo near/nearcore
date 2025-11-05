@@ -28,7 +28,7 @@ use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{BlockHeight, EpochId, ShardId};
 use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::LightClientBlockView;
-use near_store::adapter::chain_store::ChainStoreRead;
+use near_store::adapter::chain_store::{ChainStoreRead, ChainStoreReadExt};
 use node_runtime::SignedValidPeriodTransactions;
 use std::sync::Arc;
 use tracing::{debug, warn};

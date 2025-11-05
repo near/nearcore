@@ -15,7 +15,7 @@ use near_primitives::types::{AccountId, BlockHeight, TransactionOrReceiptId};
 use near_primitives::views::{
     AccessKeyPermissionView, ExecutionOutcomeWithIdView, QueryRequest, QueryResponseKind,
 };
-use near_store::adapter::chain_store::ChainStoreRead;
+use near_store::adapter::chain_store::{ChainStoreRead, ChainStoreReadExt};
 use near_store::genesis::initialize_genesis_state;
 use nearcore::{NightshadeRuntime, NightshadeRuntimeExt};
 use std::path::Path;

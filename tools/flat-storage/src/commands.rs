@@ -11,7 +11,7 @@ use near_primitives::errors::EpochError;
 use near_primitives::state::FlatStateValue;
 use near_primitives::types::{BlockHeight, ShardId};
 use near_store::adapter::StoreAdapter;
-use near_store::adapter::chain_store::{ChainStoreAdapter, ChainStoreRead};
+use near_store::adapter::chain_store::{ChainStoreAdapter, ChainStoreRead, ChainStoreReadExt};
 use near_store::adapter::flat_store::FlatStoreAdapter;
 use near_store::flat::{
     FlatStateChanges, FlatStateDelta, FlatStateDeltaMetadata, FlatStorageStatus,

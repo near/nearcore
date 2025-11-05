@@ -900,11 +900,6 @@ impl<'a> ChainStoreRead for ChainStoreUpdate<'a> {
             || self.chain_store.partial_chunk_exists(h)?)
     }
 
-    /// Get previous header.
-    fn get_previous_header(&self, header: &BlockHeader) -> Result<Arc<BlockHeader>, Error> {
-        self.get_block_header(header.prev_hash())
-    }
-
     /// Get state root hash after applying header with given hash.
     fn get_chunk_extra(
         &self,
@@ -1105,10 +1100,6 @@ impl<'a> ChainStoreRead for ChainStoreUpdate<'a> {
         <ChainStore as ChainStoreRead>::genesis_height(&self.chain_store)
     }
 
-    fn get_block_height(&self, hash: &CryptoHash) -> Result<BlockHeight, Error> {
-        self.chain_store.get_block_height(hash)
-    }
-
     fn get_all_block_hashes_by_height(
         &self,
         height: BlockHeight,
@@ -1130,19 +1121,8 @@ impl<'a> ChainStoreRead for ChainStoreUpdate<'a> {
         self.chain_store.get_all_chunk_hashes_by_height(height)
     }
 
-    fn get_block_header_by_height(&self, height: BlockHeight) -> Result<Arc<BlockHeader>, Error> {
-        self.chain_store.get_block_header_by_height(height)
-    }
-
     fn get_chunk(&self, chunk_hash: &ChunkHash) -> Result<ShardChunk, Error> {
         self.chain_store.get_chunk(chunk_hash)
-    }
-
-    fn get_block_merkle_tree_from_ordinal(
-        &self,
-        block_ordinal: NumBlocks,
-    ) -> Result<Arc<PartialMerkleTree>, Error> {
-        self.chain_store.get_block_merkle_tree_from_ordinal(block_ordinal)
     }
 
     fn get_outcome_by_id_and_block_hash(
@@ -1293,6 +1273,8 @@ impl<'a> ChainStoreUpdate<'a> {
 
     #[cfg(feature = "test_features")]
     pub fn adv_save_latest_known(&mut self, height: BlockHeight) -> Result<(), Error> {
+        use near_store::adapter::chain_store::ChainStoreReadExt;
+
         let header = self.get_block_header_by_height(height)?;
         let tip = Tip::from_header(&header);
         self.chain_store

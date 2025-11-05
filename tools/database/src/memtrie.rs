@@ -18,7 +18,7 @@ use near_primitives::epoch_manager::EpochConfigStore;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::{AccountId, ProtocolVersion, ShardId};
 use near_store::adapter::StoreAdapter;
-use near_store::adapter::chain_store::{ChainStoreAdapter, ChainStoreRead};
+use near_store::adapter::chain_store::{ChainStoreAdapter, ChainStoreRead, ChainStoreReadExt};
 use near_store::adapter::trie_store::get_shard_uid_mapping;
 use near_store::archive::cold_storage::{join_two_keys, rc_aware_set};
 use near_store::db::rocksdb::snapshot::Snapshot;

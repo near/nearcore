@@ -27,7 +27,7 @@ use near_primitives::sharding::{ReceiptProof, ShardChunk, ShardChunkHeader, Shar
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{BlockHeight, Gas, ShardId};
 use near_state_viewer::progress_reporter::ProgressReporter;
-use near_store::adapter::chain_store::ChainStoreRead;
+use near_store::adapter::chain_store::{ChainStoreRead, ChainStoreReadExt};
 use near_store::{ShardUId, Store, get_genesis_state_roots};
 use nearcore::{NearConfig, NightshadeRuntime, NightshadeRuntimeExt, load_config};
 use node_runtime::SignedValidPeriodTransactions;

@@ -10,7 +10,7 @@ use near_chain::types::{RuntimeAdapter, Tip};
 use near_chain_configs::{CloudArchivalWriterConfig, InterruptHandle};
 use near_primitives::types::BlockHeight;
 use near_store::adapter::StoreAdapter;
-use near_store::adapter::chain_store::ChainStoreRead;
+use near_store::adapter::chain_store::{ChainStoreRead, ChainStoreReadExt};
 use near_store::archive::cloud_storage::CloudStorage;
 use near_store::archive::cloud_storage::download::CloudRetrievalError;
 use near_store::archive::cloud_storage::upload::CloudArchivingError;

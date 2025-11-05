@@ -24,7 +24,9 @@ use std::collections::{HashMap, HashSet};
 use std::io;
 use std::sync::Arc;
 
-/// Used to read chain data from storage
+/// Used to read chain data from storage.
+/// Contains only simple functions that read straight from db.
+/// More complex functions are in `ChainStoreReadExt`.
 pub trait ChainStoreRead {
     fn genesis_height(&self) -> BlockHeight;
 
@@ -70,12 +72,6 @@ pub trait ChainStoreRead {
     /// Get block header.
     fn get_block_header(&self, h: &CryptoHash) -> Result<Arc<BlockHeader>, Error>;
 
-    /// Get block height.
-    fn get_block_height(&self, hash: &CryptoHash) -> Result<BlockHeight, Error>;
-
-    /// Get previous header.
-    fn get_previous_header(&self, header: &BlockHeader) -> Result<Arc<BlockHeader>, Error>;
-
     /// Returns hash of the block on the main chain for given height.
     fn get_block_hash_by_height(&self, height: BlockHeight) -> Result<CryptoHash, Error>;
 
@@ -96,9 +92,6 @@ pub trait ChainStoreRead {
         &self,
         height: BlockHeight,
     ) -> Result<HashSet<ChunkHash>, Error>;
-
-    /// Returns block header from the current chain for given height if present.
-    fn get_block_header_by_height(&self, height: BlockHeight) -> Result<Arc<BlockHeader>, Error>;
 
     fn get_next_block_hash(&self, hash: &CryptoHash) -> Result<CryptoHash, Error>;
 
@@ -166,11 +159,6 @@ pub trait ChainStoreRead {
 
     fn get_block_hash_from_ordinal(&self, block_ordinal: NumBlocks) -> Result<CryptoHash, Error>;
 
-    fn get_block_merkle_tree_from_ordinal(
-        &self,
-        block_ordinal: NumBlocks,
-    ) -> Result<Arc<PartialMerkleTree>, Error>;
-
     fn get_epoch_light_client_block(
         &self,
         hash: &CryptoHash,
@@ -206,6 +194,38 @@ pub trait ChainStoreRead {
     fn get_genesis_height(&self) -> BlockHeight;
 
     fn get_state_sync_new_chunks(&self, block_hash: &CryptoHash) -> Result<Option<Vec<u8>>, Error>;
+}
+
+/// More complex functions to read data from chain store.
+/// Use simple getters from the `ChainStoreRead` trait.
+pub trait ChainStoreReadExt: ChainStoreRead {
+    /// Returns block header from the current chain for given height if present.
+    fn get_block_header_by_height(&self, height: BlockHeight) -> Result<Arc<BlockHeader>, Error> {
+        let hash = self.get_block_hash_by_height(height)?;
+        self.get_block_header(&hash)
+    }
+
+    /// Get block height.
+    fn get_block_height(&self, hash: &CryptoHash) -> Result<BlockHeight, Error> {
+        if hash == &CryptoHash::default() {
+            Ok(self.genesis_height())
+        } else {
+            Ok(self.get_block_header(hash)?.height())
+        }
+    }
+
+    fn get_block_merkle_tree_from_ordinal(
+        &self,
+        block_ordinal: NumBlocks,
+    ) -> Result<Arc<PartialMerkleTree>, Error> {
+        let block_hash = self.get_block_hash_from_ordinal(block_ordinal)?;
+        self.get_block_merkle_tree(&block_hash)
+    }
+
+    /// Get previous header.
+    fn get_previous_header(&self, header: &BlockHeader) -> Result<Arc<BlockHeader>, Error> {
+        self.get_block_header(header.prev_hash())
+    }
 
     fn get_earliest_block_hash(&self) -> Result<Option<CryptoHash>, Error> {
         // To find the earliest available block we use the `tail` marker primarily
@@ -234,6 +254,8 @@ pub trait ChainStoreRead {
         Ok(None)
     }
 }
+
+impl<T: ChainStoreRead> ChainStoreReadExt for T {}
 
 #[derive(Clone)]
 pub struct ChainStoreAdapter {
@@ -399,20 +421,6 @@ impl<T: DefaultChainStoreReadImpl> ChainStoreRead for T {
         )
     }
 
-    /// Get block height.
-    fn get_block_height(&self, hash: &CryptoHash) -> Result<BlockHeight, Error> {
-        if hash == &CryptoHash::default() {
-            Ok(self.genesis_height())
-        } else {
-            Ok(self.get_block_header(hash)?.height())
-        }
-    }
-
-    /// Get previous header.
-    fn get_previous_header(&self, header: &BlockHeader) -> Result<Arc<BlockHeader>, Error> {
-        self.get_block_header(header.prev_hash())
-    }
-
     /// Returns hash of the block on the main chain for given height.
     fn get_block_hash_by_height(&self, height: BlockHeight) -> Result<CryptoHash, Error> {
         option_to_not_found(
@@ -453,12 +461,6 @@ impl<T: DefaultChainStoreReadImpl> ChainStoreRead for T {
             .get_store()
             .get_ser(DBCol::ChunkHashesByHeight, &index_to_bytes(height))?
             .unwrap_or_default())
-    }
-
-    /// Returns block header from the current chain for given height if present.
-    fn get_block_header_by_height(&self, height: BlockHeight) -> Result<Arc<BlockHeader>, Error> {
-        let hash = self.get_block_hash_by_height(height)?;
-        self.get_block_header(&hash)
     }
 
     fn get_next_block_hash(&self, hash: &CryptoHash) -> Result<CryptoHash, Error> {
@@ -590,14 +592,6 @@ impl<T: DefaultChainStoreReadImpl> ChainStoreRead for T {
             self.get_store().get_ser(DBCol::BlockOrdinal, &index_to_bytes(block_ordinal)),
             format_args!("BLOCK ORDINAL: {}", block_ordinal),
         )
-    }
-
-    fn get_block_merkle_tree_from_ordinal(
-        &self,
-        block_ordinal: NumBlocks,
-    ) -> Result<Arc<PartialMerkleTree>, Error> {
-        let block_hash = self.get_block_hash_from_ordinal(block_ordinal)?;
-        self.get_block_merkle_tree(&block_hash)
     }
 
     fn get_epoch_light_client_block(

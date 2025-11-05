@@ -12,7 +12,7 @@ use near_primitives::types::{
     StateRoot,
 };
 use near_primitives_core::types::BlockHeight;
-use near_store::adapter::chain_store::ChainStoreRead;
+use near_store::adapter::chain_store::{ChainStoreRead, ChainStoreReadExt};
 use near_store::trie::AccessOptions;
 use near_store::{KeyForStateChanges, Store, WrappedTrieChanges};
 use nearcore::{NearConfig, NightshadeRuntime, NightshadeRuntimeExt};

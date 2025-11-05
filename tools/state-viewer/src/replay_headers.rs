@@ -12,6 +12,7 @@ use near_primitives::types::ValidatorKickoutReason;
 use near_primitives::types::{BlockHeight, ValidatorInfoIdentifier};
 use near_primitives::views::EpochValidatorInfo;
 use near_store::adapter::chain_store::ChainStoreRead;
+use near_store::adapter::chain_store::ChainStoreReadExt;
 use near_store::db::{MixedDB, ReadOrder, TestDB};
 use near_store::{Mode, NodeStorage, Store, Temperature};
 use nearcore::NearConfig;

@@ -94,7 +94,7 @@ use near_primitives::views::{
     LightClientBlockView, SignedTransactionView,
 };
 use near_store::adapter::StoreAdapter;
-use near_store::adapter::chain_store::{ChainStoreAdapter, ChainStoreRead};
+use near_store::adapter::chain_store::{ChainStoreAdapter, ChainStoreRead, ChainStoreReadExt};
 use near_store::get_genesis_state_roots;
 use near_store::{DBCol, StateSnapshotConfig};
 use node_runtime::{PostState, PostStateReadyCallback, SignedValidPeriodTransactions};
@@ -627,7 +627,7 @@ impl Chain {
     pub fn create_light_client_block(
         header: &BlockHeader,
         epoch_manager: &dyn EpochManagerAdapter,
-        chain_store: &dyn ChainStoreRead,
+        chain_store: &dyn ChainStoreReadExt,
     ) -> Result<LightClientBlockView, Error> {
         let final_block_header = {
             let ret = chain_store.get_block_header(header.last_final_block())?;
