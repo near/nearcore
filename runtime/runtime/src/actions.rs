@@ -23,7 +23,7 @@ use near_primitives::transaction::{
 };
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{
-    AccountId, Balance, BlockHeight, EpochInfoProvider, Gas, StorageUsage,
+    AccountId, Balance, BlockHeight, EpochInfoProvider, Gas, NonceIndex, StorageUsage,
 };
 use near_primitives::utils::account_is_implicit;
 use near_primitives::version::ProtocolVersion;
@@ -906,7 +906,10 @@ fn gas_key_storage_cost(
 ) -> StorageUsage {
     let storage_config = &fee_config.storage_usage_config;
     let nonce_storage_usage = gas_key.num_nonces as u64
-        * (borsh::object_length(&0u64).unwrap() as u64 + storage_config.num_extra_bytes_record);
+        * (borsh::object_length(public_key).unwrap() as u64 + // PublicKey is repeated for each nonce in the key
+            borsh::object_length(&(0 as NonceIndex)).unwrap() as u64 + // NonceIndex is also part of the key
+            borsh::object_length(&0u64).unwrap() as u64 + // Value of nonce
+            storage_config.num_extra_bytes_record);
 
     borsh::object_length(public_key).unwrap() as u64
         + borsh::object_length(gas_key).unwrap() as u64
