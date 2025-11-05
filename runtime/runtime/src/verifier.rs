@@ -2334,6 +2334,22 @@ mod tests {
     }
 
     #[test]
+    fn test_validate_add_gas_key_valid() {
+        let limit_config = test_limit_config();
+        validate_action(
+            &limit_config,
+            &Action::AddGasKey(Box::new(AddGasKeyAction {
+                public_key: PublicKey::empty(KeyType::ED25519),
+                num_nonces: 10,
+                permission: AccessKeyPermission::FullAccess,
+            })),
+            &"alice.near".parse().unwrap(),
+            PROTOCOL_VERSION,
+        )
+        .expect("valid action");
+    }
+
+    #[test]
     fn test_validate_add_gas_key_too_many_nonces_requested() {
         let limit_config = test_limit_config();
         assert_eq!(
@@ -2376,6 +2392,34 @@ mod tests {
             )
             .expect_err("expected an error"),
             ActionsValidationError::GasKeyPermissionInvalid { permission: permission.into() }
+        );
+    }
+
+    #[test]
+    fn test_validate_add_gas_key_method_name_too_long() {
+        let limit_config = test_limit_config();
+        let limit_length = limit_config.max_length_method_name;
+        let permission = AccessKeyPermission::FunctionCall(FunctionCallPermission {
+            allowance: None,
+            receiver_id: "bob.near".parse().unwrap(),
+            method_names: vec!["A".repeat(limit_length as usize + 1)],
+        });
+        assert_eq!(
+            validate_action(
+                &limit_config,
+                &Action::AddGasKey(Box::new(AddGasKeyAction {
+                    public_key: PublicKey::empty(KeyType::ED25519),
+                    num_nonces: 10,
+                    permission: permission.clone()
+                })),
+                &"alice.near".parse().unwrap(),
+                PROTOCOL_VERSION,
+            )
+            .expect_err("expected an error"),
+            ActionsValidationError::AddKeyMethodNameLengthExceeded {
+                length: limit_length + 1,
+                limit: limit_length
+            }
         );
     }
 }
