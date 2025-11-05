@@ -83,7 +83,7 @@ pub fn update_cold_db(
     tracked_shards: &Vec<ShardUId>,
     height: &BlockHeight,
     is_resharding_boundary: bool,
-    num_threads: usize,
+    _num_threads: usize, // Kept for API compatibility but no longer used (uses global rayon pool)
 ) -> io::Result<()> {
     let _span = tracing::debug_span!(target: "cold_store", "update cold db", height = height);
     let _timer = metrics::COLD_COPY_DURATION.start_timer();
@@ -101,45 +101,42 @@ pub fn update_cold_db(
         })
         .collect::<Vec<DBCol>>();
 
-    // Create new thread pool with `num_threads`.
-    rayon::ThreadPoolBuilder::new()
-        .num_threads(num_threads)
-        .build()
-        .map_err(|_| io::Error::new(io::ErrorKind::Other, "Failed to create rayon pool"))?
-        .install(|| {
-            columns_to_update
-                .into_par_iter() // Process cold columns to update as a separate task in thread pool in parallel.
-                // Copy column to cold db.
-                .map(|col: DBCol| -> io::Result<()> {
-                    if col == DBCol::State {
-                        if is_resharding_boundary {
-                            update_state_shard_uid_mapping(cold_db, shard_layout)?;
-                        }
-                        copy_state_from_store(
-                            shard_layout,
-                            &tracked_shards,
-                            block_hash_key,
-                            cold_db,
-                            &hot_store,
-                        )
-                    } else {
-                        let keys = combine_keys(&key_type_to_keys, &col.key_type());
-                        copy_from_store(cold_db, &hot_store, col, keys)
-                    }
-                })
-                // Return first found error, or Ok(())
-                .reduce(
-                    || Ok(()), // Ok(()) by default
-                    // First found Err, or Ok(())g
-                    |left, right| -> io::Result<()> {
-                        vec![left, right]
-                            .into_iter()
-                            .filter(|res| res.is_err())
-                            .next()
-                            .unwrap_or(Ok(()))
-                    },
+    // Use the global rayon thread pool instead of creating a new one for each block.
+    // Creating a thread pool for every block is extremely expensive (10-50ms overhead).
+    // Note: num_threads parameter is ignored when using global pool, but can be configured
+    // via RAYON_NUM_THREADS environment variable if needed.
+    columns_to_update
+        .into_par_iter() // Process cold columns to update as a separate task in thread pool in parallel.
+        // Copy column to cold db.
+        .map(|col: DBCol| -> io::Result<()> {
+            if col == DBCol::State {
+                if is_resharding_boundary {
+                    update_state_shard_uid_mapping(cold_db, shard_layout)?;
+                }
+                copy_state_from_store(
+                    shard_layout,
+                    &tracked_shards,
+                    block_hash_key,
+                    cold_db,
+                    &hot_store,
                 )
-        })?;
+            } else {
+                let keys = combine_keys(&key_type_to_keys, &col.key_type());
+                copy_from_store(cold_db, &hot_store, col, keys)
+            }
+        })
+        // Return first found error, or Ok(())
+        .reduce(
+            || Ok(()), // Ok(()) by default
+            // First found Err, or Ok(())
+            |left, right| -> io::Result<()> {
+                vec![left, right]
+                    .into_iter()
+                    .filter(|res| res.is_err())
+                    .next()
+                    .unwrap_or(Ok(()))
+            },
+        )?;
     Ok(())
 }
 
