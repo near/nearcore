@@ -2410,7 +2410,7 @@ mod tests {
                 &Action::AddGasKey(Box::new(AddGasKeyAction {
                     public_key: PublicKey::empty(KeyType::ED25519),
                     num_nonces: 10,
-                    permission: permission.clone()
+                    permission,
                 })),
                 &"alice.near".parse().unwrap(),
                 PROTOCOL_VERSION,
