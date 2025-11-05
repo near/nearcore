@@ -1263,8 +1263,10 @@ impl<T: ChainAccess> TxMirror<T> {
                 Ok(r) => r,
                 Err(ChainError::Unknown) => {
                     tracing::warn!(
-                        target: "mirror", "receipt {} appears in the list output by receipt {}, but can't find it in the source chain",
-                        id, receipt_id,
+                        target: "mirror",
+                        receipt_id = %id,
+                        origin_receipt_id = %receipt_id,
+                        "receipt appears in the output list, but can't find it in the source chain",
                     );
                     continue;
                 }
@@ -1300,8 +1302,10 @@ impl<T: ChainAccess> TxMirror<T> {
                     }
                     if account_created {
                         tracing::warn!(
-                            target: "mirror", "for receipt {} predecessor and receiver are the same but there's a create account in the actions: {:?}",
-                            receipt.receipt_id(), &r.actions,
+                            target: "mirror",
+                            receipt_id = %receipt.receipt_id(),
+                            actions = ?r.actions,
+                            "predecessor and receiver are the same but there's a create account in the actions",
                         );
                     }
                 }
@@ -1313,7 +1317,11 @@ impl<T: ChainAccess> TxMirror<T> {
                     })
                     .await
                     .with_context(|| {
-                        format!("failed fetching outcome for receipt {}", receipt.receipt_id())
+                        format!(
+                            "failed fetching outcome for child receipt {} of the origin receipt {}",
+                            receipt.receipt_id(),
+                            receipt_id,
+                        )
                     })?;
                 if !execution_status_good(&outcome.outcome.status) {
                     continue;
@@ -1431,36 +1439,58 @@ impl<T: ChainAccess> TxMirror<T> {
             })?;
         for ch in source_block.chunks {
             for (idx, source_tx) in ch.transactions.into_iter().enumerate() {
-                self.add_tx_function_call_keys(
-                    &source_tx,
-                    MappedTxProvenance::TxCreateAccount(create_account_height, ch.shard_id, idx),
-                    create_account_height,
-                    &ref_hash,
-                    tracker,
-                    tx_block_queue,
-                    target_view_client,
-                    txs,
-                )
-                .await?;
+                if let Err(err) = self
+                    .add_tx_function_call_keys(
+                        &source_tx,
+                        MappedTxProvenance::TxCreateAccount(
+                            create_account_height,
+                            ch.shard_id,
+                            idx,
+                        ),
+                        create_account_height,
+                        &ref_hash,
+                        tracker,
+                        tx_block_queue,
+                        target_view_client,
+                        txs,
+                    )
+                    .await
+                {
+                    tracing::error!(
+                        target: "mirror",
+                        ?err,
+                        ?source_tx,
+                        "add_tx_function_call_keys failed as part of add_create_account_txs"
+                    )
+                }
             }
-            for (idx, r) in ch.receipts.iter().enumerate() {
+            for (idx, receipt) in ch.receipts.iter().enumerate() {
                 // TODO: we're scanning the list of receipts for each block twice. Once here and then again
                 // when we queue that height's txs. Prob not a big deal but could fix that.
-                self.add_receipt_function_call_keys(
-                    r,
-                    MappedTxProvenance::ReceiptCreateAccount(
+                if let Err(err) = self
+                    .add_receipt_function_call_keys(
+                        receipt,
+                        MappedTxProvenance::ReceiptCreateAccount(
+                            create_account_height,
+                            ch.shard_id,
+                            idx,
+                        ),
                         create_account_height,
-                        ch.shard_id,
-                        idx,
-                    ),
-                    create_account_height,
-                    &ref_hash,
-                    tracker,
-                    tx_block_queue,
-                    target_view_client,
-                    txs,
-                )
-                .await?;
+                        &ref_hash,
+                        tracker,
+                        tx_block_queue,
+                        target_view_client,
+                        txs,
+                    )
+                    .await
+                {
+                    tracing::error!(
+                        target: "mirror",
+                        ?err,
+                        ?receipt,
+                        "add_receipt_function_call_keys failed as part of add_create_account_txs"
+                    )
+                }
             }
         }
         Ok(())
@@ -1741,7 +1771,7 @@ impl<T: ChainAccess> TxMirror<T> {
             set_last_source_height(&db, tx_batch.source_height)?;
             sent_source_height = Some(tx_batch.source_height);
 
-            blocks_sent.send(tx_batch).await.unwrap();
+            blocks_sent.send(tx_batch).await.context("failed to send block")?;
 
             let send_delay = *send_delay.lock();
             tracing::debug!(target: "mirror", "Sleeping for {:?} until sending more transactions", &send_delay);
@@ -2104,7 +2134,9 @@ impl<T: ChainAccess> TxMirror<T> {
                 rpc_handler2,
             )
             .await;
-            send_txs_done_tx.send(res).unwrap();
+            if let Err(err) = send_txs_done_tx.send(res) {
+                tracing::error!(target: "mirror", ?err, "failed send txs loop res");
+            }
         });
         tokio::select! {
             res = self.queue_txs_loop(
@@ -2117,12 +2149,12 @@ impl<T: ChainAccess> TxMirror<T> {
             }
             res = target_indexer_done_rx => {
                 let res = res.unwrap();
-                tracing::error!("target indexer thread exited");
+                tracing::error!(target: "mirror", ?res, "target indexer thread exited");
                 res.context("target indexer thread failure")
             }
             res = send_txs_done_rx => {
                 let res = res.unwrap();
-                tracing::error!("transaction sending thread exited");
+                tracing::error!(target: "mirror", ?res, "transaction sending thread exited");
                 res.context("target indexer thread failure")
             }
         }
