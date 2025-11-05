@@ -7,13 +7,16 @@ use near_async::test_loop::data::TestLoopDataHandle;
 use near_async::test_loop::sender::TestLoopSender;
 use near_async::time::Duration;
 use near_chain::resharding::resharding_actor::ReshardingActor;
+use near_chain::spice_core_writer_actor::SpiceCoreWriterActor;
 use near_chain_configs::{ClientConfig, Genesis};
 use near_chunks::shards_manager_actor::ShardsManagerActor;
-use near_client::archive::cloud_archival_actor::CloudArchivalActor;
+use near_client::archive::cloud_archival_writer::CloudArchivalWriterHandle;
+use near_client::archive::cold_store_actor::ColdStoreActor;
 use near_client::client_actor::ClientActorInner;
 use near_client::spice_data_distributor_actor::SpiceDataDistributorActor;
 use near_client::{PartialWitnessActor, RpcHandler, StateRequestActor, ViewClientActorInner};
 use near_jsonrpc::ViewClientSenderForRpc;
+use near_network::client::SpiceChunkEndorsementMessage;
 use near_network::shards_manager::ShardsManagerRequestFromNetwork;
 use near_network::state_witness::PartialWitnessSenderForNetwork;
 use near_network::types::StateRequestSenderForNetwork;
@@ -22,8 +25,9 @@ use near_primitives::epoch_manager::EpochConfigStore;
 use near_primitives::network::PeerId;
 use near_primitives::types::AccountId;
 use near_primitives::upgrade_schedule::ProtocolUpgradeVotingSchedule;
-use near_store::Store;
-use nearcore::state_sync::StateSyncDumper;
+use near_store::archive::cloud_storage::CloudStorage;
+use near_store::test_utils::TestNodeStorage;
+use nearcore::state_sync::StateSyncDumpHandle;
 use parking_lot::Mutex;
 use tempfile::TempDir;
 
@@ -63,8 +67,7 @@ pub struct SharedState {
 pub struct NodeSetupState {
     pub account_id: AccountId,
     pub client_config: ClientConfig,
-    pub store: Store,
-    pub split_store: Option<Store>,
+    pub storage: TestNodeStorage,
 }
 
 /// This is the state associated with each node in the test loop environment after being built.
@@ -83,9 +86,12 @@ pub struct NodeExecutionData {
     pub partial_witness_sender: TestLoopSender<PartialWitnessActor>,
     pub peer_manager_sender: TestLoopSender<TestLoopPeerManagerActor>,
     pub resharding_sender: TestLoopSender<ReshardingActor>,
-    pub state_sync_dumper_handle: TestLoopDataHandle<StateSyncDumper>,
+    pub state_sync_dumper_handle: TestLoopDataHandle<Arc<StateSyncDumpHandle>>,
     pub spice_data_distributor_sender: TestLoopSender<SpiceDataDistributorActor>,
-    pub cloud_archival_sender: Option<TestLoopSender<CloudArchivalActor>>,
+    pub spice_core_writer_sender: TestLoopSender<SpiceCoreWriterActor>,
+    pub cold_store_sender: Option<TestLoopSender<ColdStoreActor>>,
+    pub cloud_storage_sender: TestLoopDataHandle<Option<Arc<CloudStorage>>>,
+    pub cloud_archival_writer_handle: TestLoopDataHandle<Option<CloudArchivalWriterHandle>>,
 }
 
 impl From<&NodeExecutionData> for AccountId {
@@ -151,6 +157,12 @@ impl From<&NodeExecutionData> for Sender<TestLoopNetworkBlockInfo> {
 impl From<&NodeExecutionData> for SpiceDataDistributorSenderForTestLoopNetwork {
     fn from(data: &NodeExecutionData) -> SpiceDataDistributorSenderForTestLoopNetwork {
         data.spice_data_distributor_sender.clone().with_delay(NETWORK_DELAY).into_multi_sender()
+    }
+}
+
+impl From<&NodeExecutionData> for Sender<SpiceChunkEndorsementMessage> {
+    fn from(data: &NodeExecutionData) -> Sender<SpiceChunkEndorsementMessage> {
+        data.spice_core_writer_sender.clone().with_delay(NETWORK_DELAY).into_sender()
     }
 }
 

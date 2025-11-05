@@ -3,7 +3,7 @@ use crate::gas_cost::{GasCost, LeastSquaresTolerance};
 use crate::{REAL_CONTRACTS_SAMPLE, utils::read_resource};
 use near_parameters::RuntimeConfigStore;
 use near_parameters::vm::VMKind;
-use near_primitives::types::Gas;
+use near_primitives::types::{Balance, Gas};
 use near_primitives::version::PROTOCOL_VERSION;
 use near_vm_runner::internal::VMKindExt;
 use near_vm_runner::logic::VMContext;
@@ -15,6 +15,7 @@ const CURRENT_ACCOUNT_ID: &str = "alice";
 const SIGNER_ACCOUNT_ID: &str = "bob";
 const SIGNER_ACCOUNT_PK: [u8; 3] = [0, 1, 2];
 const PREDECESSOR_ACCOUNT_ID: &str = "carol";
+const REFUND_TO_ACCOUNT_ID: &str = "carol";
 
 pub(crate) fn create_context(input: Vec<u8>) -> VMContext {
     VMContext {
@@ -22,15 +23,17 @@ pub(crate) fn create_context(input: Vec<u8>) -> VMContext {
         signer_account_id: SIGNER_ACCOUNT_ID.parse().unwrap(),
         signer_account_pk: Vec::from(&SIGNER_ACCOUNT_PK[..]),
         predecessor_account_id: PREDECESSOR_ACCOUNT_ID.parse().unwrap(),
-        input,
+        refund_to_account_id: REFUND_TO_ACCOUNT_ID.parse().unwrap(),
+        input: std::rc::Rc::from(input),
         promise_results: vec![].into(),
         block_height: 10,
         block_timestamp: 42,
         epoch_height: 0,
-        account_balance: 2u128,
-        account_locked_balance: 1u128,
+        account_balance: Balance::from_yoctonear(2),
+        account_locked_balance: Balance::from_yoctonear(1),
         storage_usage: 12,
-        attached_deposit: 2u128,
+        account_contract: near_primitives::account::AccountContract::None,
+        attached_deposit: Balance::from_yoctonear(2),
         prepaid_gas: Gas::from_teragas(1_000_000),
         random_seed: vec![0, 1, 2],
         view_config: None,

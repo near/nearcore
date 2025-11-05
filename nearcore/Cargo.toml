@@ -22,7 +22,6 @@ hex.workspace = true
 indicatif.workspace = true
 itertools.workspace = true
 num-rational.workspace = true
-object_store.workspace = true
 parking_lot.workspace = true
 rand.workspace = true
 reqwest.workspace = true
@@ -46,6 +45,7 @@ near-client-primitives.workspace = true
 near-crypto.workspace = true
 near-dyn-configs.workspace = true
 near-epoch-manager.workspace = true
+near-external-storage.workspace = true
 near-jsonrpc = { workspace = true, optional = true }
 near-jsonrpc-primitives = { workspace = true, optional = true }
 near-mainnet-res.workspace = true
@@ -64,15 +64,29 @@ node-runtime.workspace = true
 near-config-utils.workspace = true
 
 [dev-dependencies]
+near-time.workspace = true
+zstd.workspace = true
 bencher.workspace = true
 primitive-types.workspace = true
 wiremock.workspace = true
-
+criterion.workspace = true
 near-jsonrpc-primitives.workspace = true
 testlib.workspace = true
 
 [[bench]]
 name = "store"
+harness = false
+
+[[bench]]
+name = "serialization"
+harness = false
+
+[[bench]]
+name = "compression"
+harness = false
+
+[[bench]]
+name = "state_witness_borsh"
 harness = false
 
 [features]
@@ -100,7 +114,6 @@ protocol_feature_spice = [
 ]
 
 nightly = [
-    "near-async/nightly",
     "near-chain-configs/nightly",
     "near-chain/nightly",
     "near-chunks/nightly",
@@ -134,6 +147,7 @@ io_trace = ["node-runtime/io_trace"]
 
 calimero_zero_storage = ["near-primitives/calimero_zero_storage"]
 tx_generator = ["near-transactions-generator"]
+actor_instrumentation_testing = ["near-async/actor_instrumentation_testing"]
 
 [package.metadata.cargo-machete]
 ignored = [

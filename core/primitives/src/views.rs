@@ -6,8 +6,8 @@
 use crate::account::{AccessKey, AccessKeyPermission, Account, FunctionCallPermission};
 use crate::action::delegate::{DelegateAction, SignedDelegateAction};
 use crate::action::{
-    DeployGlobalContractAction, GlobalContractDeployMode, GlobalContractIdentifier,
-    UseGlobalContractAction,
+    DeployGlobalContractAction, DeterministicStateInitAction, GlobalContractDeployMode,
+    GlobalContractIdentifier, UseGlobalContractAction,
 };
 use crate::bandwidth_scheduler::BandwidthRequests;
 use crate::block::{Block, BlockHeader, Tip};
@@ -20,7 +20,7 @@ use crate::merkle::{MerklePath, combine_hash};
 use crate::network::PeerId;
 use crate::receipt::{
     ActionReceipt, DataReceipt, DataReceiver, GlobalContractDistributionReceipt, Receipt,
-    ReceiptEnum, ReceiptV1,
+    ReceiptEnum, ReceiptV1, VersionedActionReceipt, VersionedReceiptEnum,
 };
 use crate::serialize::dec_format;
 use crate::sharding::shard_chunk_header_inner::ShardChunkHeaderInnerV4;
@@ -49,12 +49,15 @@ use near_parameters::config::CongestionControlConfig;
 use near_parameters::view::CongestionControlConfigView;
 use near_parameters::{ActionCosts, ExtCosts};
 use near_primitives_core::account::{AccountContract, GasKey};
+use near_primitives_core::deterministic_account_id::{
+    DeterministicAccountStateInit, DeterministicAccountStateInitV1,
+};
 use near_primitives_core::types::NonceIndex;
 use near_schema_checker_lib::ProtocolSchema;
 use near_time::Utc;
 use serde_with::base64::Base64;
 use serde_with::serde_as;
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::fmt;
 use std::ops::Range;
 use std::sync::Arc;
@@ -65,11 +68,7 @@ use validator_stake_view::ValidatorStakeView;
 #[derive(serde::Serialize, serde::Deserialize, Debug, Eq, PartialEq, Clone)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct AccountView {
-    #[serde(with = "dec_format")]
-    #[cfg_attr(feature = "schemars", schemars(with = "String"))]
     pub amount: Balance,
-    #[serde(with = "dec_format")]
-    #[cfg_attr(feature = "schemars", schemars(with = "String"))]
     pub locked: Balance,
     pub code_hash: CryptoHash,
     pub storage_usage: StorageUsage,
@@ -154,13 +153,7 @@ impl From<AccountView> for Account {
 #[repr(u8)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub enum AccessKeyPermissionView {
-    FunctionCall {
-        #[serde(with = "dec_format")]
-        #[cfg_attr(feature = "schemars", schemars(with = "Option<String>"))]
-        allowance: Option<Balance>,
-        receiver_id: String,
-        method_names: Vec<String>,
-    } = 0,
+    FunctionCall { allowance: Option<Balance>, receiver_id: String, method_names: Vec<String> } = 0,
     FullAccess = 1,
 }
 
@@ -877,7 +870,7 @@ pub struct StatusResponse {
 }
 
 /// Contains main info about the block.
-#[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone, Default)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct BlockHeaderView {
     pub height: BlockHeight,
@@ -903,20 +896,14 @@ pub struct BlockHeaderView {
     pub random_value: CryptoHash,
     pub validator_proposals: Vec<ValidatorStakeView>,
     pub chunk_mask: Vec<bool>,
-    #[serde(with = "dec_format")]
-    #[cfg_attr(feature = "schemars", schemars(with = "String"))]
     pub gas_price: Balance,
     pub block_ordinal: Option<NumBlocks>,
     /// TODO(2271): deprecated.
-    #[serde(with = "dec_format")]
-    #[cfg_attr(feature = "schemars", schemars(with = "String"))]
+    #[serde(default)]
     pub rent_paid: Balance,
     /// TODO(2271): deprecated.
-    #[serde(with = "dec_format")]
-    #[cfg_attr(feature = "schemars", schemars(with = "String"))]
+    #[serde(default)]
     pub validator_reward: Balance,
-    #[serde(with = "dec_format")]
-    #[cfg_attr(feature = "schemars", schemars(with = "String"))]
     pub total_supply: Balance,
     // Deprecated
     pub challenges_result: Vec<SlashedValidator>,
@@ -960,8 +947,8 @@ impl From<&BlockHeader> for BlockHeaderView {
                 None
             },
             gas_price: header.next_gas_price(),
-            rent_paid: 0,
-            validator_reward: 0,
+            rent_paid: Balance::ZERO,
+            validator_reward: Balance::ZERO,
             total_supply: header.total_supply(),
             challenges_result: vec![],
             last_final_block: *header.last_final_block(),
@@ -1091,15 +1078,11 @@ pub struct ChunkHeaderView {
     pub gas_used: Gas,
     pub gas_limit: Gas,
     /// TODO(2271): deprecated.
-    #[serde(with = "dec_format")]
-    #[cfg_attr(feature = "schemars", schemars(with = "String"))]
+    #[serde(default)]
     pub rent_paid: Balance,
     /// TODO(2271): deprecated.
-    #[serde(with = "dec_format")]
-    #[cfg_attr(feature = "schemars", schemars(with = "String"))]
+    #[serde(default)]
     pub validator_reward: Balance,
-    #[serde(with = "dec_format")]
-    #[cfg_attr(feature = "schemars", schemars(with = "String"))]
     pub balance_burnt: Balance,
     pub outgoing_receipts_root: CryptoHash,
     pub tx_root: CryptoHash,
@@ -1125,7 +1108,11 @@ impl From<ShardChunkHeader> for ChunkHeaderView {
             chunk_hash: hash,
             prev_block_hash: *inner.prev_block_hash(),
             outcome_root: *inner.prev_outcome_root(),
-            prev_state_root: *inner.prev_state_root(),
+            prev_state_root: if cfg!(feature = "protocol_feature_spice") {
+                CryptoHash::default()
+            } else {
+                *inner.prev_state_root()
+            },
             encoded_merkle_root: *inner.encoded_merkle_root(),
             encoded_length: inner.encoded_length(),
             height_created: inner.height_created(),
@@ -1133,8 +1120,8 @@ impl From<ShardChunkHeader> for ChunkHeaderView {
             shard_id: inner.shard_id(),
             gas_used: inner.prev_gas_used(),
             gas_limit: inner.gas_limit(),
-            rent_paid: 0,
-            validator_reward: 0,
+            rent_paid: Balance::ZERO,
+            validator_reward: Balance::ZERO,
             balance_burnt: inner.prev_balance_burnt(),
             outgoing_receipts_root: *inner.prev_outgoing_receipts_root(),
             tx_root: *inner.tx_root(),
@@ -1287,6 +1274,52 @@ impl ChunkView {
     }
 }
 
+#[derive(
+    BorshSerialize,
+    BorshDeserialize,
+    Clone,
+    Debug,
+    PartialEq,
+    Eq,
+    serde::Serialize,
+    serde::Deserialize,
+)]
+#[serde(untagged, rename_all = "snake_case")]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[borsh(use_discriminant = true)]
+#[repr(u8)]
+pub enum GlobalContractIdentifierView {
+    #[serde(rename = "hash")]
+    CodeHash(CryptoHash) = 0,
+    AccountId(AccountId) = 1,
+}
+
+impl From<GlobalContractIdentifier> for GlobalContractIdentifierView {
+    fn from(code: GlobalContractIdentifier) -> Self {
+        match code {
+            GlobalContractIdentifier::CodeHash(code_hash) => {
+                GlobalContractIdentifierView::CodeHash(code_hash)
+            }
+            GlobalContractIdentifier::AccountId(account_id) => {
+                GlobalContractIdentifierView::AccountId(account_id)
+            }
+        }
+    }
+}
+
+impl From<GlobalContractIdentifierView> for GlobalContractIdentifier {
+    fn from(code: GlobalContractIdentifierView) -> Self {
+        match code {
+            GlobalContractIdentifierView::CodeHash(code_hash) => {
+                GlobalContractIdentifier::CodeHash(code_hash)
+            }
+            GlobalContractIdentifierView::AccountId(account_id) => {
+                GlobalContractIdentifier::AccountId(account_id)
+            }
+        }
+    }
+}
+
 #[serde_as]
 #[derive(
     BorshSerialize,
@@ -1315,18 +1348,12 @@ pub enum ActionView {
         method_name: String,
         args: FunctionArgs,
         gas: Gas,
-        #[serde(with = "dec_format")]
-        #[cfg_attr(feature = "schemars", schemars(with = "String"))]
         deposit: Balance,
     } = 2,
     Transfer {
-        #[serde(with = "dec_format")]
-        #[cfg_attr(feature = "schemars", schemars(with = "String"))]
         deposit: Balance,
     } = 3,
     Stake {
-        #[serde(with = "dec_format")]
-        #[cfg_attr(feature = "schemars", schemars(with = "String"))]
         stake: Balance,
         public_key: PublicKey,
     } = 4,
@@ -1366,6 +1393,13 @@ pub enum ActionView {
     UseGlobalContractByAccountId {
         account_id: AccountId,
     } = 12,
+    DeterministicStateInit {
+        code: GlobalContractIdentifierView,
+        #[serde_as(as = "BTreeMap<Base64, Base64>")]
+        #[cfg_attr(feature = "schemars", schemars(with = "BTreeMap<String, String>"))]
+        data: BTreeMap<Vec<u8>, Vec<u8>>,
+        deposit: Balance,
+    } = 13,
 }
 
 impl From<Action> for ActionView {
@@ -1415,6 +1449,15 @@ impl From<Action> for ActionView {
                     ActionView::UseGlobalContractByAccountId { account_id }
                 }
             },
+            Action::DeterministicStateInit(action) => {
+                let (code, data) = action.state_init.take();
+                let identifier = GlobalContractIdentifierView::from(code);
+                ActionView::DeterministicStateInit {
+                    code: identifier,
+                    data,
+                    deposit: action.deposit,
+                }
+            }
         }
     }
 }
@@ -1472,6 +1515,15 @@ impl TryFrom<ActionView> for Action {
             ActionView::UseGlobalContractByAccountId { account_id } => {
                 Action::UseGlobalContract(Box::new(UseGlobalContractAction {
                     contract_identifier: GlobalContractIdentifier::AccountId(account_id),
+                }))
+            }
+            ActionView::DeterministicStateInit { code, data, deposit } => {
+                let code = GlobalContractIdentifier::from(code);
+                Action::DeterministicStateInit(Box::new(DeterministicStateInitAction {
+                    state_init: DeterministicAccountStateInit::V1(
+                        DeterministicAccountStateInitV1 { code, data },
+                    ),
+                    deposit,
                 }))
             }
         })
@@ -1801,8 +1853,6 @@ pub struct ExecutionOutcomeView {
     /// the prepaid gas price might be lower than the actual gas price and it creates a deficit.
     /// `tokens_burnt` also contains the penalty subtracted from refunds, while
     /// `gas_burnt` only contains the gas that we actually burn for the execution.
-    #[serde(with = "dec_format")]
-    #[cfg_attr(feature = "schemars", schemars(with = "String"))]
     pub tokens_burnt: Balance,
     /// The id of the account on which the execution happens. For transaction this is signer_id,
     /// for receipt this is receiver_id.
@@ -2093,8 +2143,6 @@ pub mod validator_stake_view {
 pub struct ValidatorStakeViewV1 {
     pub account_id: AccountId,
     pub public_key: PublicKey,
-    #[serde(with = "dec_format")]
-    #[cfg_attr(feature = "schemars", schemars(with = "String"))]
     pub stake: Balance,
 }
 
@@ -2156,8 +2204,6 @@ pub enum ReceiptEnumView {
     Action {
         signer_id: AccountId,
         signer_public_key: PublicKey,
-        #[serde(with = "dec_format")]
-        #[cfg_attr(feature = "schemars", schemars(with = "String"))]
         gas_price: Balance,
         output_data_receivers: Vec<DataReceiverView>,
         input_data_ids: Vec<CryptoHash>,
@@ -2192,7 +2238,8 @@ fn default_is_promise() -> bool {
 
 impl From<Receipt> for ReceiptView {
     fn from(receipt: Receipt) -> Self {
-        let is_promise_yield = matches!(receipt.receipt(), ReceiptEnum::PromiseYield(_));
+        let is_promise_yield =
+            matches!(receipt.versioned_receipt(), VersionedReceiptEnum::PromiseYield(_));
         let is_promise_resume = matches!(receipt.receipt(), ReceiptEnum::PromiseResume(_));
         let priority = receipt.priority().value();
 
@@ -2200,37 +2247,22 @@ impl From<Receipt> for ReceiptView {
             predecessor_id: receipt.predecessor_id().clone(),
             receiver_id: receipt.receiver_id().clone(),
             receipt_id: *receipt.receipt_id(),
-            receipt: match receipt.take_receipt() {
-                ReceiptEnum::Action(action_receipt) | ReceiptEnum::PromiseYield(action_receipt) => {
-                    ReceiptEnumView::Action {
-                        signer_id: action_receipt.signer_id,
-                        signer_public_key: action_receipt.signer_public_key,
-                        gas_price: action_receipt.gas_price,
-                        output_data_receivers: action_receipt
-                            .output_data_receivers
-                            .into_iter()
-                            .map(|data_receiver| DataReceiverView {
-                                data_id: data_receiver.data_id,
-                                receiver_id: data_receiver.receiver_id,
-                            })
-                            .collect(),
-                        input_data_ids: action_receipt
-                            .input_data_ids
-                            .into_iter()
-                            .map(Into::into)
-                            .collect(),
-                        actions: action_receipt.actions.into_iter().map(Into::into).collect(),
-                        is_promise_yield,
-                    }
+            receipt: match receipt.take_versioned_receipt() {
+                VersionedReceiptEnum::Action(action_receipt)
+                | VersionedReceiptEnum::PromiseYield(action_receipt) => {
+                    ReceiptEnumView::from_action_receipt(action_receipt, is_promise_yield)
                 }
-                ReceiptEnum::Data(data_receipt) | ReceiptEnum::PromiseResume(data_receipt) => {
+                VersionedReceiptEnum::Data(data_receipt)
+                | VersionedReceiptEnum::PromiseResume(data_receipt) => {
+                    // already owned, not a clone
+                    let data_receipt = data_receipt.into_owned();
                     ReceiptEnumView::Data {
                         data_id: data_receipt.data_id,
                         data: data_receipt.data,
                         is_promise_resume,
                     }
                 }
-                ReceiptEnum::GlobalContractDistribution(receipt) => {
+                VersionedReceiptEnum::GlobalContractDistribution(receipt) => {
                     ReceiptEnumView::GlobalContractDistribution {
                         id: receipt.id().clone(),
                         target_shard: receipt.target_shard(),
@@ -2240,6 +2272,36 @@ impl From<Receipt> for ReceiptView {
                 }
             },
             priority,
+        }
+    }
+}
+
+impl ReceiptEnumView {
+    fn from_action_receipt(
+        action_receipt: VersionedActionReceipt,
+        is_promise_yield: bool,
+    ) -> ReceiptEnumView {
+        ReceiptEnumView::Action {
+            signer_id: action_receipt.signer_id().clone(),
+            signer_public_key: action_receipt.signer_public_key().clone(),
+            gas_price: action_receipt.gas_price(),
+            output_data_receivers: action_receipt
+                .output_data_receivers()
+                .iter()
+                .cloned()
+                .map(|data_receiver| DataReceiverView {
+                    data_id: data_receiver.data_id,
+                    receiver_id: data_receiver.receiver_id,
+                })
+                .collect(),
+            input_data_ids: action_receipt
+                .input_data_ids()
+                .iter()
+                .cloned()
+                .map(Into::into)
+                .collect(),
+            actions: action_receipt.actions().iter().cloned().map(Into::into).collect(),
+            is_promise_yield,
         }
     }
 }
@@ -2360,8 +2422,6 @@ pub struct CurrentEpochValidatorInfo {
     pub account_id: AccountId,
     pub public_key: PublicKey,
     pub is_slashed: bool,
-    #[serde(with = "dec_format")]
-    #[cfg_attr(feature = "schemars", schemars(with = "String"))]
     pub stake: Balance,
     /// Shards this validator is assigned to as chunk producer in the current epoch.
     #[serde(rename = "shards")]
@@ -2409,8 +2469,6 @@ pub struct CurrentEpochValidatorInfo {
 pub struct NextEpochValidatorInfo {
     pub account_id: AccountId,
     pub public_key: PublicKey,
-    #[serde(with = "dec_format")]
-    #[cfg_attr(feature = "schemars", schemars(with = "String"))]
     pub stake: Balance,
     pub shards: Vec<ShardId>,
 }
@@ -2471,8 +2529,6 @@ impl LightClientBlockLiteView {
 #[derive(serde::Serialize, serde::Deserialize, Debug)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct GasPriceView {
-    #[serde(with = "dec_format")]
-    #[cfg_attr(feature = "schemars", schemars(with = "String"))]
     pub gas_price: Balance,
 }
 

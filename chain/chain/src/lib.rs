@@ -1,7 +1,7 @@
 #![cfg_attr(enable_const_type_id, feature(const_type_id))]
 
 pub use block_processing_utils::BlockProcessingArtifact;
-pub use chain::{Chain, collect_receipts};
+pub use chain::{ApplyChunksIterationMode, Chain, collect_receipts};
 pub use chain_update::ChainUpdate;
 pub use doomslug::{
     ChunksReadiness, Doomslug, DoomslugBlockProductionReadiness, DoomslugThresholdMode,
@@ -44,7 +44,9 @@ pub mod runtime;
 pub mod sharding;
 pub mod signature_verification;
 mod soft_realtime_thread_pool;
+pub mod spice_chunk_application;
 pub mod spice_core;
+pub mod spice_core_writer_actor;
 pub mod state_snapshot_actor;
 pub mod state_sync;
 pub mod stateless_validation;

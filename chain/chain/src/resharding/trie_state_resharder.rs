@@ -449,7 +449,7 @@ impl TrieStateResharder {
         &self,
         status: &mut TrieStateReshardingStatus,
     ) -> Result<(), Error> {
-        while !status.done() && !self.handle.is_cancelled() {
+        while !status.done() && !self.handle.0.is_cancelled() {
             self.process_batch_and_update_status(status, true)?;
         }
 
@@ -518,7 +518,7 @@ mod tests {
     use near_epoch_manager::EpochManager;
     use near_primitives::shard_layout::{ShardLayout, get_block_shard_uid};
     use near_primitives::trie_key::TrieKey;
-    use near_primitives::types::Gas;
+    use near_primitives::types::{Balance, Gas};
     use near_store::Trie;
     use near_store::test_utils::{
         TestTriesBuilder, create_test_store, simplify_changes, test_populate_trie,
@@ -685,7 +685,7 @@ mod tests {
                 Vec::new(),
                 Gas::ZERO,
                 Gas::ZERO,
-                0,
+                Balance::ZERO,
                 Some(CongestionInfo::default()),
                 BandwidthRequests::empty(),
             );
@@ -786,7 +786,7 @@ mod tests {
         assert_eq!(2, test.runtime.store().iter(DBCol::StateShardUIdMapping).count());
 
         // Test cancelling the resharding operation.
-        resharder.handle.stop();
+        resharder.handle.0.stop();
         resharder.resharding_blocking_impl(&mut update_status).unwrap();
         // The resharding status should not have changed after cancellation.
         assert_eq!(got_status, update_status);

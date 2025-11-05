@@ -25,9 +25,7 @@ use near_chain::{
     get_incoming_receipts_for_shard,
 };
 use near_chain_configs::GenesisChangeConfig;
-use near_epoch_manager::shard_assignment::{
-    build_assignment_restrictions_v77_to_v78, shard_id_to_index, shard_id_to_uid,
-};
+use near_epoch_manager::shard_assignment::{shard_id_to_index, shard_id_to_uid};
 use near_epoch_manager::{EpochManager, EpochManagerAdapter, proposals_to_epoch_info};
 use near_primitives::account::id::AccountId;
 use near_primitives::apply::ApplyChunkReason;
@@ -45,7 +43,7 @@ use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::trie_key::TrieKey;
 use near_primitives::trie_key::col::COLUMNS_WITH_ACCOUNT_ID_IN_KEY;
 use near_primitives::types::{BlockHeight, EpochId, ShardId};
-use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
+use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives_core::types::{Balance, EpochHeight};
 use near_store::TrieStorage;
 use near_store::adapter::StoreAdapter;
@@ -113,6 +111,7 @@ pub(crate) fn apply_block(
                     last_validator_proposals: chunk_inner.prev_validator_proposals(),
                     gas_limit: chunk_inner.gas_limit(),
                     is_new_chunk: true,
+                    on_post_state_ready: None,
                 },
                 ApplyChunkBlockContext::from_header(
                     block.header(),
@@ -138,6 +137,7 @@ pub(crate) fn apply_block(
                     last_validator_proposals: chunk_extra.validator_proposals(),
                     gas_limit: chunk_extra.gas_limit(),
                     is_new_chunk: false,
+                    on_post_state_ready: None,
                 },
                 ApplyChunkBlockContext::from_header(
                     block.header(),
@@ -1098,19 +1098,6 @@ pub(crate) fn print_epoch_analysis(
             epoch_heights_to_infos.get(&next_next_epoch_height).unwrap();
         let rng_seed = stored_next_next_epoch_info.rng_seed();
 
-        let next_epoch_v6 =
-            ProtocolFeature::SimpleNightshadeV6.enabled(next_epoch_info.protocol_version());
-        let next_next_epoch_v6 =
-            ProtocolFeature::SimpleNightshadeV6.enabled(next_next_protocol_version);
-        let chunk_producer_assignment_restrictions =
-            (!next_epoch_v6 && next_next_epoch_v6).then(|| {
-                build_assignment_restrictions_v77_to_v78(
-                    &next_epoch_info,
-                    &next_epoch_config.shard_layout,
-                    next_next_epoch_config.shard_layout.clone(),
-                )
-            });
-
         let next_next_epoch_info = proposals_to_epoch_info(
             &next_next_epoch_config,
             rng_seed,
@@ -1121,7 +1108,6 @@ pub(crate) fn print_epoch_analysis(
             stored_next_next_epoch_info.minted_amount(),
             next_next_protocol_version,
             has_same_shard_layout,
-            chunk_producer_assignment_restrictions,
         )
         .unwrap();
 
@@ -1144,7 +1130,8 @@ pub(crate) fn print_epoch_analysis(
             for validator_id in validator_ids {
                 let validator = next_next_epoch_info.get_validator(*validator_id);
                 let account_id = validator.account_id().clone();
-                *stakes.entry(i).or_insert(0) += validator.stake();
+                let entry: &mut Balance = stakes.entry(i).or_insert(Balance::ZERO);
+                *entry = entry.checked_add(validator.stake()).unwrap();
                 *validator_num.entry(i).or_insert(0) += 1;
                 if !next_validator_to_shard
                     .get(&account_id)
@@ -1180,8 +1167,9 @@ pub(crate) fn print_epoch_analysis(
                     validator_num.values().min().unwrap(),
                     validator_num.values().max().unwrap() - validator_num.values().min().unwrap(),
                     min_stake,
-                    max_stake - min_stake,
-                    ((max_stake - min_stake) as f64) / (*max_stake as f64)
+                    max_stake.checked_sub(*min_stake).unwrap(),
+                    ((max_stake.checked_sub(*min_stake).unwrap()).as_yoctonear() as f64)
+                        / (max_stake.as_yoctonear() as f64)
                 );
                 // Use the generated epoch info for the next iteration.
                 next_epoch_info = next_next_epoch_info;

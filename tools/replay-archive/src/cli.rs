@@ -320,7 +320,10 @@ impl ReplayController {
                 vec![true; chunk.to_transactions().len()],
             );
             ShardUpdateReason::NewChunk(NewChunkData {
-                chunk_header: chunk_header.clone(),
+                gas_limit: chunk_header.gas_limit(),
+                prev_state_root: chunk_header.prev_state_root(),
+                prev_validator_proposals: chunk_header.prev_validator_proposals().collect(),
+                chunk_hash: Some(chunk_header.chunk_hash().clone()),
                 transactions,
                 receipts,
                 block: block_context,
@@ -335,7 +338,7 @@ impl ReplayController {
         };
 
         let shard_update_result =
-            process_shard_update(&span, self.runtime.as_ref(), update_reason, shard_context)?;
+            process_shard_update(&span, self.runtime.as_ref(), update_reason, shard_context, None)?;
 
         let output = match shard_update_result {
             ShardUpdateResult::NewChunk(NewChunkResult {
@@ -344,7 +347,8 @@ impl ReplayController {
                 apply_result,
             }) => {
                 let outgoing_receipts = apply_result.outgoing_receipts.clone();
-                let chunk_extra = apply_result_to_chunk_extra(apply_result, &chunk_header).into();
+                let chunk_extra =
+                    apply_result_to_chunk_extra(apply_result, chunk_header.gas_limit()).into();
                 ReplayChunkOutput { chunk_extra, outgoing_receipts }
             }
             ShardUpdateResult::OldChunk(OldChunkResult { shard_uid: _, apply_result }) => {
@@ -456,9 +460,8 @@ impl ReplayController {
         }
 
         let mut store_update = self.chain_store.store_update();
-        let receipts_shuffle_salt = get_receipts_shuffle_salt(self.epoch_manager.as_ref(), block)?;
         for (shard_id, mut receipts) in receipt_proofs_by_shard_id {
-            shuffle_receipt_proofs(&mut receipts, receipts_shuffle_salt);
+            shuffle_receipt_proofs(&mut receipts, get_receipts_shuffle_salt(block));
             store_update.save_incoming_receipt(&block_hash, shard_id, Arc::new(receipts));
         }
         store_update.commit().unwrap();

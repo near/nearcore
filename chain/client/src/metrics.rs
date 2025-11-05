@@ -32,6 +32,45 @@ pub(crate) static CHUNK_PRODUCED_TOTAL: LazyLock<IntCounter> = LazyLock::new(|| 
     .unwrap()
 });
 
+pub static PREPARE_TRANSACTIONS_JOB_STARTED_TOTAL: LazyLock<IntCounterVec> = LazyLock::new(|| {
+    try_create_int_counter_vec(
+        "near_prepare_transactions_job_started_total",
+        "Total number of times prepare transactions job was started since starting this node",
+        &["shard_id"],
+    )
+    .unwrap()
+});
+
+pub static PREPARE_TRANSACTIONS_JOB_RESULT_USED_TOTAL: LazyLock<IntCounterVec> = LazyLock::new(
+    || {
+        try_create_int_counter_vec(
+            "near_prepare_transactions_job_result_used_total",
+            "Total number of times prepare transactions job result was used since starting this node",
+            &["shard_id"],
+        )
+        .unwrap()
+    },
+);
+
+pub static PREPARE_TRANSACTIONS_JOB_RESULT_NOT_FOUND_TOTAL: LazyLock<IntCounterVec> =
+    LazyLock::new(|| {
+        try_create_int_counter_vec(
+            "near_prepare_transactions_job_result_not_found_total",
+            "Total number of times prepare transactions job was not found since starting this node",
+            &["shard_id"],
+        )
+        .unwrap()
+    });
+
+pub static PREPARE_TRANSACTIONS_JOB_ERROR_TOTAL: LazyLock<IntCounterVec> = LazyLock::new(|| {
+    try_create_int_counter_vec(
+        "near_prepare_transactions_job_error_total",
+        "Total number of times prepare transactions job errored since starting this node",
+        &["shard_id"],
+    )
+    .unwrap()
+});
+
 pub static CHUNK_TRANSACTIONS_TOTAL: LazyLock<IntCounterVec> = LazyLock::new(|| {
     try_create_int_counter_vec(
         "near_chunk_transactions_total",
@@ -506,6 +545,16 @@ pub(crate) static STATE_SYNC_DOWNLOAD_RESULT: LazyLock<IntCounterVec> = LazyLock
         "Count of number of state sync downloads by type (header, part),
                source (network, external), and result (timeout, error, success)",
         &["shard_id", "type", "source", "result"],
+    )
+    .unwrap()
+});
+
+pub(crate) static STATE_SYNC_PEER_MSGS: LazyLock<IntCounterVec> = LazyLock::new(|| {
+    try_create_int_counter_vec(
+        "near_state_sync_peer_msgs",
+        "Count of number of state sync peer messages by state type (header, part),
+               and message content (will_respond, busy, error, state)",
+        &["shard_id", "type", "content"],
     )
     .unwrap()
 });

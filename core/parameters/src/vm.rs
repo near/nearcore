@@ -36,8 +36,6 @@ pub enum VMKind {
     Wasmer2,
     /// NearVM.
     NearVm,
-    /// NearVM. Exists temporarily while bulk memory and reftypes are getting enabled.
-    NearVm2,
 }
 
 impl VMKind {
@@ -158,6 +156,12 @@ pub struct Config {
     /// Gas cost of a regular operation.
     pub regular_op_cost: u32,
 
+    /// Base gas cost of a bulk memory/table operation.
+    pub linear_op_base_cost: u64,
+
+    /// Gas cost per unit of a bulk memory/table operation.
+    pub linear_op_unit_cost: u64,
+
     /// The kind of the VM implementation to use
     pub vm_kind: VMKind,
 
@@ -210,6 +214,8 @@ impl Config {
         };
         self.grow_mem_cost = 0;
         self.regular_op_cost = 0;
+        self.linear_op_base_cost = 0;
+        self.linear_op_unit_cost = 0;
         self.limit_config.max_gas_burnt = Gas::MAX;
     }
 

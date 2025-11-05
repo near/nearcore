@@ -3,7 +3,6 @@ use itertools::Itertools;
 use near_async::{test_loop::data::TestLoopData, time::Duration};
 use near_chain::ChainStoreAccess;
 use near_primitives::{hash::CryptoHash, version::PROTOCOL_VERSION};
-use near_vm_runner::get_contract_cache_key;
 
 /// Runs the network until all the nodes contain the given code hash in their compiled-contracts cache.
 /// This is used, for example, to make sure that a deploy action took effect in the network and code was distributed to all nodes.
@@ -14,10 +13,13 @@ pub(crate) fn run_until_caches_contain_contract(env: &mut TestLoopEnv, code_hash
                 let client_handle = env.node_datas[i].client_sender.actor_handle();
                 let client = &test_loop_data.get(&client_handle).client;
                 let runtime_config = client.runtime_adapter.get_runtime_config(PROTOCOL_VERSION);
-                let cache_key = get_contract_cache_key(*code_hash, &runtime_config.wasm_config);
-
                 let contract_cache = client.runtime_adapter.compiled_contract_cache();
-                if !contract_cache.has(&cache_key).unwrap() {
+                let is_cached = near_vm_runner::contract_cached(
+                    runtime_config.wasm_config.clone(),
+                    contract_cache,
+                    *code_hash,
+                );
+                if !is_cached.unwrap() {
                     return false;
                 }
             }

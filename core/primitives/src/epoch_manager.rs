@@ -7,7 +7,6 @@ use crate::types::{
 };
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_primitives_core::hash::CryptoHash;
-use near_primitives_core::serialize::dec_format;
 use near_primitives_core::version::PROTOCOL_VERSION;
 use near_schema_checker_lib::ProtocolSchema;
 use std::collections::{BTreeMap, HashMap};
@@ -45,7 +44,6 @@ pub struct EpochConfig {
     /// Online maximum threshold above which validator gets full reward.
     pub online_max_threshold: Rational32,
     /// Stake threshold for becoming a fisherman.
-    #[serde(with = "dec_format")]
     pub fishermen_threshold: Balance,
     /// The minimum stake required for staking is last seat price divided by this number.
     pub minimum_stake_divisor: u64,
@@ -74,6 +72,7 @@ pub struct EpochConfig {
     pub chunk_producer_assignment_changes_limit: NumSeats,
     // #[default(false)]
     pub shuffle_shard_assignment_for_chunk_producers: bool,
+    pub max_inflation_rate: Rational32,
 }
 
 impl EpochConfig {
@@ -124,6 +123,7 @@ impl EpochConfig {
             minimum_stake_ratio: Rational32::new(160i32, 1_000_000i32),
             chunk_producer_assignment_changes_limit: 5,
             shuffle_shard_assignment_for_chunk_producers: false,
+            max_inflation_rate: Rational32::new(1, 40),
         }
     }
 
@@ -141,7 +141,7 @@ impl EpochConfig {
             validator_max_kickout_stake_perc: 0,
             online_min_threshold: 0.into(),
             online_max_threshold: 0.into(),
-            fishermen_threshold: 0,
+            fishermen_threshold: Balance::ZERO,
             minimum_stake_divisor: 0,
             protocol_upgrade_stake_threshold: 0.into(),
             shard_layout: ShardLayout::single_shard(),
@@ -152,6 +152,7 @@ impl EpochConfig {
             minimum_stake_ratio: Rational32::new(160i32, 1_000_000i32),
             chunk_producer_assignment_changes_limit: 5,
             shuffle_shard_assignment_for_chunk_producers: false,
+            max_inflation_rate: Rational32::new(1, 40),
         }
     }
 
@@ -168,7 +169,7 @@ impl EpochConfig {
             validator_max_kickout_stake_perc: 0,
             online_min_threshold: Rational32::new(1i32, 4i32),
             online_max_threshold: Rational32::new(3i32, 4i32),
-            fishermen_threshold: 1,
+            fishermen_threshold: Balance::from_yoctonear(1),
             minimum_stake_divisor: 1,
             protocol_upgrade_stake_threshold: Rational32::new(3i32, 4i32),
             shard_layout,
@@ -179,6 +180,7 @@ impl EpochConfig {
             minimum_stake_ratio: Rational32::new(160i32, 1_000_000i32),
             chunk_producer_assignment_changes_limit: 5,
             shuffle_shard_assignment_for_chunk_producers: false,
+            max_inflation_rate: Rational32::new(1, 40),
         }
     }
 }
@@ -305,6 +307,7 @@ static CONFIGS: &[(&str, ProtocolVersion, &str)] = &[
     include_config!("mainnet", 76, "76.json"),
     include_config!("mainnet", 78, "78.json"),
     include_config!("mainnet", 80, "80.json"),
+    include_config!("mainnet", 81, "81.json"),
     include_config!("mainnet", 143, "143.json"),
     // Epoch configs for testnet (genesis protocol version is 29).
     include_config!("testnet", 29, "29.json"),
@@ -320,6 +323,7 @@ static CONFIGS: &[(&str, ProtocolVersion, &str)] = &[
     include_config!("testnet", 76, "76.json"),
     include_config!("testnet", 78, "78.json"),
     include_config!("testnet", 80, "80.json"),
+    include_config!("testnet", 81, "81.json"),
     include_config!("testnet", 143, "143.json"),
 ];
 
@@ -458,6 +462,7 @@ mod tests {
     use crate::epoch_manager::EpochConfig;
     use near_primitives_core::types::ProtocolVersion;
     use near_primitives_core::version::PROTOCOL_VERSION;
+    use num_rational::Rational32;
     use std::fs;
     use std::path::Path;
 
@@ -531,6 +536,15 @@ mod tests {
             let epoch_configs = EpochConfigStore::for_chain_id(chain_id, None).unwrap();
             let epoch_config = epoch_configs.get_config(80);
             assert_eq!(epoch_config.num_chunk_validator_seats, 500);
+        }
+    }
+
+    #[test]
+    fn test_protocol_upgrade_81() {
+        for chain_id in ["mainnet", "testnet"] {
+            let epoch_configs = EpochConfigStore::for_chain_id(chain_id, None).unwrap();
+            let epoch_config = epoch_configs.get_config(81);
+            assert_eq!(epoch_config.max_inflation_rate, Rational32::new(1, 40));
         }
     }
 

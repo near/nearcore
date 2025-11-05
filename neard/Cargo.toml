@@ -16,7 +16,6 @@ path = "src/main.rs"
 name = "neard"
 
 [dependencies]
-actix.workspace = true
 anyhow.workspace = true
 clap.workspace = true
 openssl-probe.workspace = true
@@ -63,6 +62,12 @@ rustc_version = "0.4"
 [features]
 tx_generator = ["nearcore/tx_generator"]
 default = ["json_rpc", "rosetta_rpc"]
+protocol_feature_spice = [
+  "near-client/protocol_feature_spice",
+  "near-primitives/protocol_feature_spice",
+  "near-store/protocol_feature_spice",
+  "nearcore/protocol_feature_spice"
+]
 
 performance_stats = ["nearcore/performance_stats"]
 c_memory_stats = ["nearcore/c_memory_stats"]
@@ -98,6 +103,8 @@ shadow_chunk_validation = [
 calimero_zero_storage = [
   "near-primitives/calimero_zero_storage",
 ]
+
+actor_instrumentation_testing = ["nearcore/actor_instrumentation_testing"]
 
 # Compile with option to emit a detailed trace of IO operations and their
 # results that can be replayed on the estimator. To produce the output, compile

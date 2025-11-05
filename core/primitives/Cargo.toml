@@ -101,16 +101,3 @@ expect-test.workspace = true
 regex.workspace = true
 tempfile.workspace = true
 criterion.workspace = true
-testlib.workspace = true
-
-[[bench]]
-name = "serialization"
-harness = false
-
-[[bench]]
-name = "compression"
-harness = false
-
-[[bench]]
-name = "state_witness_borsh"
-harness = false

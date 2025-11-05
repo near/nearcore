@@ -5,8 +5,9 @@ use crate::contract::ContractStorage;
 use crate::trie::TrieAccess;
 use crate::trie::{KeyLookupMode, TrieChanges};
 use near_primitives::account::AccountContract;
-use near_primitives::action::{ContractIsLocalError, GlobalContractIdentifier};
+use near_primitives::action::GlobalContractIdentifier;
 use near_primitives::apply::ApplyChunkReason;
+use near_primitives::global_contract::ContractIsLocalError;
 use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::stateless_validation::contract_distribution::ContractUpdates;
 use near_primitives::trie_key::{SmallKeyVec, TrieKey};
@@ -20,6 +21,7 @@ use std::collections::BTreeMap;
 mod iterator;
 
 /// Key-value update. Contains a TrieKey and a value.
+#[derive(Clone)]
 pub struct TrieKeyValueUpdate {
     pub trie_key: TrieKey,
     pub value: Option<Vec<u8>>,
@@ -87,6 +89,26 @@ impl TrieUpdate {
             committed: Default::default(),
             prospective: Default::default(),
         }
+    }
+
+    /// Clones the `TrieUpdate` for transaction preparation.
+    /// The cloned `TrieUpdate` will have a new recorder for trie reads,
+    /// while sharing the same underlying committed and prospective changes.
+    pub fn clone_for_tx_preparation(&self) -> TrieUpdate {
+        Self {
+            trie: self.trie.recording_reads_new_recorder(),
+            contract_storage: ContractStorage::new(self.trie.storage.clone()),
+            committed: self.committed.clone(),
+            prospective: self.prospective.clone(),
+        }
+    }
+
+    pub fn committed_len(&self) -> usize {
+        self.committed.len()
+    }
+
+    pub fn prospective_len(&self) -> usize {
+        self.prospective.len()
     }
 
     pub fn trie(&self) -> &Trie {
@@ -260,7 +282,7 @@ impl TrieUpdate {
         self.trie.get_root()
     }
 
-    fn get_from_updates(
+    pub fn get_from_updates(
         &self,
         key: &TrieKey,
         fallback: impl FnOnce(&[u8]) -> Result<Option<Vec<u8>>, StorageError>,

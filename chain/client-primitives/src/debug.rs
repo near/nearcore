@@ -1,6 +1,5 @@
 //! Structs in this module are used for debug purposes, and might change at any time
 //! without backwards compatibility of JSON encoding.
-use crate::types::StatusError;
 use near_primitives::congestion_info::CongestionInfo;
 use near_primitives::types::{EpochId, ShardId};
 use near_primitives::views::{
@@ -267,10 +266,6 @@ pub enum DebugStatus {
     ChainProcessingStatus,
     // The state parts already requested.
     RequestedStateParts,
-}
-
-impl actix::Message for DebugStatus {
-    type Result = Result<DebugStatusResponse, StatusError>;
 }
 
 #[derive(serde::Serialize, Debug)]

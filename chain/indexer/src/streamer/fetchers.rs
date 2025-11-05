@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use futures::StreamExt;
-use near_async::messaging::{AsyncSender, IntoMultiSender, SendAsync};
+use near_async::messaging::{AsyncSender, CanSendAsync, IntoMultiSender};
 use near_chain_configs::ProtocolConfigView;
 use near_client::{
     GetBlock, GetChunk, GetExecutionOutcomesForBlock, GetProtocolConfig, GetReceipt,
@@ -81,12 +81,13 @@ impl IndexerViewClientFetcher {
     pub(crate) async fn fetch_block_by_height(
         &self,
         height: u64,
-    ) -> Result<BlockView, FailedToFetchData> {
+    ) -> Result<Option<BlockView>, FailedToFetchData> {
         tracing::debug!(target: INDEXER, %height, "fetch block by height");
-        self.sender
-            .send_async(GetBlock(BlockId::Height(height).into()))
-            .await?
-            .map_err(|err| FailedToFetchData::String(err.to_string()))
+        match self.sender.send_async(GetBlock(BlockId::Height(height).into())).await? {
+            Ok(block) => Ok(Some(block)),
+            Err(GetBlockError::UnknownBlock { .. }) => Ok(None),
+            Err(err) => Err(FailedToFetchData::String(err.to_string())),
+        }
     }
 
     /// Fetches all chunks belonging to given block.
@@ -125,26 +126,30 @@ impl IndexerViewClientFetcher {
             .map_err(|err| FailedToFetchData::String(err.to_string()))?)
     }
 
-    /// Fetch all ExecutionOutcomeWithId for current block
-    /// Returns a HashMap where the key is shard id IndexerExecutionOutcomeWithOptionalReceipt
     pub(crate) async fn fetch_outcomes(
+        &self,
+        block_hash: CryptoHash,
+    ) -> Result<HashMap<ShardId, Vec<ExecutionOutcomeWithIdView>>, FailedToFetchData> {
+        tracing::debug!(target: INDEXER, ?block_hash, "fetch outcomes for block");
+        self.sender
+            .send_async(GetExecutionOutcomesForBlock { block_hash })
+            .await?
+            .map_err(FailedToFetchData::String)
+    }
+
+    pub(crate) async fn fetch_outcomes_with_receipts(
         &self,
         block_hash: CryptoHash,
     ) -> Result<HashMap<ShardId, Vec<IndexerExecutionOutcomeWithOptionalReceipt>>, FailedToFetchData>
     {
-        tracing::debug!(target: INDEXER, ?block_hash, "fetching outcomes for block");
-        let outcomes = self
-            .sender
-            .send_async(GetExecutionOutcomesForBlock { block_hash })
-            .await?
-            .map_err(FailedToFetchData::String)?;
-
+        tracing::debug!(target: INDEXER, ?block_hash, "fetch outcomes with receipts for block");
+        let outcomes = self.fetch_outcomes(block_hash).await?;
         let mut shard_execution_outcomes_with_receipts: HashMap<
             ShardId,
             Vec<IndexerExecutionOutcomeWithOptionalReceipt>,
         > = HashMap::new();
         for (shard_id, shard_outcomes) in outcomes {
-            tracing::debug!(target: INDEXER, "Fetching outcomes with receipts for shard: {}", shard_id);
+            tracing::debug!(target: INDEXER, %shard_id, "fetch outcomes with receipts for shard");
             let mut outcomes_with_receipts: Vec<IndexerExecutionOutcomeWithOptionalReceipt> =
                 vec![];
             for outcome in shard_outcomes {

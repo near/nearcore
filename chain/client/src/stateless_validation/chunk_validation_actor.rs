@@ -65,8 +65,7 @@ pub struct ChunkValidationSender {
 
 /// Message to notify the chunk validation actor about new blocks
 /// so it can process orphan witnesses that were waiting for these blocks.
-#[derive(actix::Message, Debug)]
-#[rtype(result = "()")]
+#[derive(Debug)]
 pub struct BlockNotificationMessage {
     pub block: Arc<Block>,
 }

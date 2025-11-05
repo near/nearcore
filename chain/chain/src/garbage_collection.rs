@@ -10,13 +10,14 @@ use near_epoch_manager::shard_assignment::shard_id_to_uid;
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_primitives::block::Block;
 use near_primitives::hash::CryptoHash;
-use near_primitives::shard_layout::get_block_shard_uid;
+use near_primitives::shard_layout::{ShardLayout, get_block_shard_uid};
 use near_primitives::state_sync::{StateHeaderKey, StatePartKey};
-use near_primitives::stateless_validation::ChunkProductionKey;
+use near_primitives::stateless_validation::spice_chunk_endorsement::SpiceStoredVerifiedEndorsement;
 use near_primitives::types::{BlockHeight, BlockHeightDelta, EpochId, NumBlocks, ShardId};
 use near_primitives::utils::{
     get_block_shard_id, get_block_shard_id_rev, get_endorsements_key_prefix,
-    get_execution_results_key, get_outcome_id_block_hash, get_receipt_proof_key, index_to_bytes,
+    get_execution_results_key, get_outcome_id_block_hash, get_receipt_proof_key,
+    get_uncertified_execution_results_key, index_to_bytes,
 };
 use near_store::adapter::trie_store::get_shard_uid_mapping;
 use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
@@ -767,7 +768,7 @@ impl<'a> ChainStoreUpdate<'a> {
         }
         self.gc_col(DBCol::StateDlInfos, block_hash.as_bytes());
 
-        self.gc_spice_core_data(*epoch_id, &block)?;
+        self.gc_spice_core_data(&block_hash, &shard_layout)?;
 
         // 4. Update or delete block_hash_per_height
         self.gc_col_block_per_height(&block_hash, height, block.header().epoch_id())?;
@@ -797,34 +798,39 @@ impl<'a> ChainStoreUpdate<'a> {
         Ok(())
     }
 
-    fn gc_spice_core_data(&mut self, epoch_id: EpochId, block: &Block) -> Result<(), Error> {
+    fn gc_spice_core_data(
+        &mut self,
+        block_hash: &CryptoHash,
+        shard_layout: &ShardLayout,
+    ) -> Result<(), Error> {
         if !cfg!(feature = "protocol_feature_spice") {
             return Ok(());
         }
 
-        for chunk in block.chunks().iter_raw() {
-            let chunk_production_key = ChunkProductionKey {
-                shard_id: chunk.shard_id(),
-                epoch_id,
-                height_created: chunk.height_created(),
-            };
+        for shard_id in shard_layout.shard_ids() {
             let endorsement_keys: Vec<Box<[u8]>> = self
                 .store()
                 .iter_prefix(
                     DBCol::endorsements(),
-                    &get_endorsements_key_prefix(&chunk_production_key),
+                    &get_endorsements_key_prefix(block_hash, shard_id),
                 )
                 .map(|item| item.map(|(key, _)| key))
                 .collect::<io::Result<Vec<_>>>()?;
             for key in endorsement_keys {
+                let endorsement: SpiceStoredVerifiedEndorsement =
+                    self.store().get_ser(DBCol::endorsements(), &key)?.unwrap();
+                self.gc_col(
+                    DBCol::uncertified_execution_results(),
+                    &get_uncertified_execution_results_key(&endorsement.execution_result_hash),
+                );
                 self.gc_col(DBCol::endorsements(), &key);
             }
             self.gc_col(
                 DBCol::execution_results(),
-                &get_execution_results_key(&chunk_production_key),
+                &get_execution_results_key(block_hash, shard_id),
             );
         }
-        self.gc_col(DBCol::uncertified_chunks(), block.header().hash().as_ref());
+        self.gc_col(DBCol::uncertified_chunks(), block_hash.as_ref());
         Ok(())
     }
 
@@ -1174,6 +1180,10 @@ impl<'a> ChainStoreUpdate<'a> {
             }
             #[cfg(feature = "protocol_feature_spice")]
             DBCol::ExecutionResults => {
+                store_update.delete(col, key);
+            }
+            #[cfg(feature = "protocol_feature_spice")]
+            DBCol::UncertifiedExecutionResults => {
                 store_update.delete(col, key);
             }
             #[cfg(feature = "protocol_feature_spice")]

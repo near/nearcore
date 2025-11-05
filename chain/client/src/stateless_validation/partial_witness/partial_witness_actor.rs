@@ -1,7 +1,3 @@
-use std::collections::HashSet;
-use std::num::NonZeroUsize;
-use std::sync::Arc;
-
 use itertools::Itertools;
 use lru::LruCache;
 use near_async::futures::{AsyncComputationSpawner, AsyncComputationSpawnerExt};
@@ -40,12 +36,15 @@ use near_primitives::types::{AccountId, EpochId, ShardId};
 use near_primitives::validator_signer::ValidatorSigner;
 use near_store::adapter::trie_store::TrieStoreAdapter;
 use near_store::{DBCol, StorageError, TrieDBStorage, TrieStorage};
-use near_vm_runner::{ContractCode, ContractRuntimeCache, get_contract_cache_key};
+use near_vm_runner::{ContractCode, ContractRuntimeCache};
 use parking_lot::Mutex;
 use rand::Rng;
 use rayon::iter::{
     IndexedParallelIterator, IntoParallelIterator, IntoParallelRefIterator, ParallelIterator,
 };
+use std::collections::HashSet;
+use std::num::NonZeroUsize;
+use std::sync::Arc;
 
 use crate::metrics;
 use crate::stateless_validation::chunk_validation_actor::ChunkValidationSenderForPartialWitness;
@@ -92,8 +91,7 @@ pub struct PartialWitnessActor {
 
 impl Actor for PartialWitnessActor {}
 
-#[derive(actix::Message, Debug)]
-#[rtype(result = "()")]
+#[derive(Debug)]
 pub struct DistributeStateWitnessRequest {
     pub state_witness: ChunkStateWitness,
     pub contract_updates: ContractUpdates,
@@ -947,12 +945,7 @@ pub fn compress_witness(witness: &ChunkStateWitness) -> Result<EncodedChunkState
     let encode_timer = near_chain::stateless_validation::metrics::CHUNK_STATE_WITNESS_ENCODE_TIME
         .with_label_values(&[shard_id_label.as_str()])
         .start_timer();
-    let (witness_bytes, raw_witness_size) = if let ChunkStateWitness::V1(witness_v1) = witness {
-        // For V1 witness, we need to encode only the inner witness struct for backwards compatibility.
-        EncodedChunkStateWitness::encode(witness_v1)?
-    } else {
-        EncodedChunkStateWitness::encode(witness)?
-    };
+    let (witness_bytes, raw_witness_size) = EncodedChunkStateWitness::encode(witness)?;
     encode_timer.observe_duration();
 
     near_chain::stateless_validation::metrics::record_witness_size_metrics(
@@ -968,6 +961,6 @@ fn contracts_cache_contains_contract(
     contract_hash: &CodeHash,
     runtime_config: &RuntimeConfig,
 ) -> bool {
-    let cache_key = get_contract_cache_key(contract_hash.0, &runtime_config.wasm_config);
-    cache.memory_cache().contains(cache_key) || cache.has(&cache_key).is_ok_and(|has| has)
+    near_vm_runner::contract_cached(Arc::clone(&runtime_config.wasm_config), cache, contract_hash.0)
+        .is_ok_and(|b| b)
 }

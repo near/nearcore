@@ -12,7 +12,7 @@ use near_primitives::errors::InvalidTxError;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::test_utils::create_user_test_signer;
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{AccountId, BlockHeightDelta, ShardIndex};
+use near_primitives::types::{AccountId, Balance, BlockHeightDelta, ShardIndex};
 use near_primitives::upgrade_schedule::ProtocolUpgradeVotingSchedule;
 use near_primitives::version::ProtocolFeature;
 use std::cell::Cell;
@@ -23,7 +23,6 @@ use std::sync::Arc;
 use crate::setup::builder::TestLoopBuilder;
 use crate::setup::drop_condition::DropCondition;
 use crate::setup::env::TestLoopEnv;
-use crate::utils::ONE_NEAR;
 use crate::utils::transactions::{TransactionRunner, execute_tx, get_shared_block_hash};
 
 /// Check that when some shard misses 5 chunks in a row, we reject txs where
@@ -53,7 +52,7 @@ fn slow_test_tx_inclusion() {
     let num_rpc = 1;
     let accounts =
         (0..20).map(|i| format!("account{}", i).parse().unwrap()).collect::<Vec<AccountId>>();
-    let initial_balance = 10000 * ONE_NEAR;
+    let initial_balance = Balance::from_near(10000);
     let clients = accounts.iter().take(num_clients).cloned().collect_vec();
 
     let boundary_accounts = ["account3", "account5", "account7"];
@@ -178,7 +177,7 @@ fn slow_test_tx_inclusion() {
         account0.clone(),
         account4.clone(),
         &account0_signer,
-        1000 * ONE_NEAR,
+        Balance::from_near(1000),
         get_shared_block_hash(&node_datas, &test_loop.data),
     );
     let tx_exec_res = execute_tx(
@@ -224,7 +223,7 @@ fn slow_test_tx_inclusion() {
         account0,
         account4,
         &account0_signer,
-        1000 * ONE_NEAR,
+        Balance::from_near(1000),
         get_shared_block_hash(&node_datas, &test_loop.data),
     );
     let tx_exec_res = execute_tx(

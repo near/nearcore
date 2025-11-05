@@ -6,10 +6,10 @@ pub use crate::trie::config::TrieConfig;
 pub(crate) use crate::trie::config::{
     DEFAULT_SHARD_CACHE_DELETIONS_QUEUE_CAPACITY, DEFAULT_SHARD_CACHE_TOTAL_SIZE_LIMIT,
 };
-pub use crate::trie::mem::split::{TrieSplit, find_trie_split};
 pub use crate::trie::nibble_slice::NibbleSlice;
 pub use crate::trie::prefetching_trie_storage::{PrefetchApi, PrefetchError};
 pub use crate::trie::shard_tries::{KeyForStateChanges, ShardTries, WrappedTrieChanges};
+pub use crate::trie::split::{FindSplitError, TrieSplit, find_trie_split, total_mem_usage};
 pub use crate::trie::state_snapshot::{
     STATE_SNAPSHOT_COLUMNS, SnapshotError, StateSnapshot, StateSnapshotConfig,
 };
@@ -37,7 +37,7 @@ use ops::interface::{GenericTrieValue, UpdatedNodeId};
 use ops::resharding::{GenericTrieUpdateRetain, RetainMode};
 use parking_lot::{RwLock, RwLockReadGuard};
 pub use raw_node::{Children, RawTrieNode, RawTrieNodeWithSize};
-use std::collections::{BTreeMap, HashMap};
+use std::collections::HashMap;
 use std::fmt::Write;
 use std::hash::Hash;
 use std::str;
@@ -58,6 +58,7 @@ mod prefetching_trie_storage;
 mod raw_node;
 pub mod receipts_column_helper;
 mod shard_tries;
+pub(crate) mod split;
 mod state_parts;
 mod state_snapshot;
 mod trie_recording;
@@ -389,12 +390,16 @@ impl TrieRefcountSubtraction {
 /// Helps produce a list of additions and subtractions to the trie,
 /// especially in the case where deletions don't carry the full value.
 pub struct TrieRefcountDeltaMap {
-    map: BTreeMap<CryptoHash, (Option<Vec<u8>>, i32)>,
+    map: HashMap<CryptoHash, (Option<Vec<u8>>, i32)>,
 }
 
 impl TrieRefcountDeltaMap {
     pub fn new() -> Self {
-        Self { map: BTreeMap::new() }
+        Self { map: HashMap::new() }
+    }
+
+    pub fn with_capacity(capacity: usize) -> Self {
+        Self { map: HashMap::with_capacity(capacity) }
     }
 
     pub fn add(&mut self, hash: CryptoHash, data: Vec<u8>, refcount: u32) {
@@ -427,8 +432,10 @@ impl TrieRefcountDeltaMap {
             }
         }
         // Sort so that trie changes have unique representation.
-        insertions.sort();
-        deletions.sort();
+        // sort_unstable is fine here because we're sorting by simple values (hashes)
+        // and we only need consistent ordering, not stable ordering.
+        insertions.sort_unstable();
+        deletions.sort_unstable();
         (insertions, deletions)
     }
 }

@@ -1,7 +1,6 @@
-use crate::action::{GlobalContractIdentifier, base64};
+use crate::action::GlobalContractIdentifier;
 use crate::errors::EpochError;
 use crate::hash::CryptoHash;
-use crate::serialize::dec_format;
 use crate::shard_layout::ShardLayout;
 use crate::transaction::{Action, TransferAction};
 use crate::types::{AccountId, Balance, BlockHeight, ShardId};
@@ -66,6 +65,10 @@ pub struct ReceiptV0 {
     pub receipt: ReceiptEnum,
 }
 
+/// DO NOT USE
+///
+/// `ReceiptV1` is not used, yet. It is only preparation for a possible future receipt priority.
+/// Therefore, most if not all code should keep using ReceiptV0, without the priority field.
 #[derive(
     BorshSerialize,
     BorshDeserialize,
@@ -398,6 +401,29 @@ impl ReceiptPriority {
 }
 
 impl Receipt {
+    pub fn from_tx(
+        receipt_id: CryptoHash,
+        tx_signer_id: AccountId,
+        tx_receiver_id: AccountId,
+        signer_public_key: PublicKey,
+        gas_price: Balance,
+        actions: Vec<Action>,
+    ) -> Self {
+        Receipt::V0(ReceiptV0 {
+            predecessor_id: tx_signer_id.clone(),
+            receiver_id: tx_receiver_id,
+            receipt_id,
+            receipt: ReceiptEnum::Action(ActionReceipt {
+                signer_id: tx_signer_id,
+                signer_public_key,
+                gas_price,
+                output_data_receivers: vec![],
+                input_data_ids: vec![],
+                actions,
+            }),
+        })
+    }
+
     pub fn receiver_id(&self) -> &AccountId {
         match self {
             Receipt::V0(receipt) => &receipt.receiver_id,
@@ -433,6 +459,13 @@ impl Receipt {
         }
     }
 
+    pub fn versioned_receipt(&self) -> VersionedReceiptEnum {
+        match self {
+            Receipt::V0(receipt) => VersionedReceiptEnum::from(&receipt.receipt),
+            Receipt::V1(receipt) => VersionedReceiptEnum::from(&receipt.receipt),
+        }
+    }
+
     pub fn receipt_mut(&mut self) -> &mut ReceiptEnum {
         match self {
             Receipt::V0(receipt) => &mut receipt.receipt,
@@ -440,10 +473,10 @@ impl Receipt {
         }
     }
 
-    pub fn take_receipt(self) -> ReceiptEnum {
+    pub fn take_versioned_receipt<'a>(self) -> VersionedReceiptEnum<'a> {
         match self {
-            Receipt::V0(receipt) => receipt.receipt,
-            Receipt::V1(receipt) => receipt.receipt,
+            Receipt::V0(receipt) => VersionedReceiptEnum::from(receipt.receipt),
+            Receipt::V1(receipt) => VersionedReceiptEnum::from(receipt.receipt),
         }
     }
 
@@ -468,6 +501,22 @@ impl Receipt {
         }
     }
 
+    pub fn refund_to(&self) -> &Option<AccountId> {
+        match self.receipt() {
+            ReceiptEnum::Action(_)
+            | ReceiptEnum::Data(_)
+            | ReceiptEnum::PromiseYield(_)
+            | ReceiptEnum::PromiseResume(_)
+            | ReceiptEnum::GlobalContractDistribution(_) => &None,
+            ReceiptEnum::ActionV2(action_receipt_v2)
+            | ReceiptEnum::PromiseYieldV2(action_receipt_v2) => &action_receipt_v2.refund_to,
+        }
+    }
+
+    pub fn balance_refund_receiver(&self) -> &AccountId {
+        self.refund_to().as_ref().unwrap_or_else(|| self.predecessor_id())
+    }
+
     /// It's not a content hash, but receipt_id is unique.
     pub fn get_hash(&self) -> CryptoHash {
         *self.receipt_id()
@@ -476,8 +525,10 @@ impl Receipt {
     pub fn receiver_shard_id(&self, shard_layout: &ShardLayout) -> Result<ShardId, EpochError> {
         let shard_id = match self.receipt() {
             ReceiptEnum::Action(_)
+            | ReceiptEnum::ActionV2(_)
             | ReceiptEnum::Data(_)
             | ReceiptEnum::PromiseYield(_)
+            | ReceiptEnum::PromiseYieldV2(_)
             | ReceiptEnum::PromiseResume(_) => {
                 shard_layout.account_id_to_shard_id(self.receiver_id())
             }
@@ -518,7 +569,7 @@ impl Receipt {
                 receipt: ReceiptEnum::Action(ActionReceipt {
                     signer_id: "system".parse().unwrap(),
                     signer_public_key: PublicKey::empty(KeyType::ED25519),
-                    gas_price: 0,
+                    gas_price: Balance::ZERO,
                     output_data_receivers: vec![],
                     input_data_ids: vec![],
                     actions: vec![Action::Transfer(TransferAction { deposit: refund })],
@@ -533,7 +584,7 @@ impl Receipt {
                 receipt: ReceiptEnum::Action(ActionReceipt {
                     signer_id: "system".parse().unwrap(),
                     signer_public_key: PublicKey::empty(KeyType::ED25519),
-                    gas_price: 0,
+                    gas_price: Balance::ZERO,
                     output_data_receivers: vec![],
                     input_data_ids: vec![],
                     actions: vec![Action::Transfer(TransferAction { deposit: refund })],
@@ -564,7 +615,7 @@ impl Receipt {
                 receipt: ReceiptEnum::Action(ActionReceipt {
                     signer_id: receiver_id.clone(),
                     signer_public_key,
-                    gas_price: 0,
+                    gas_price: Balance::ZERO,
                     output_data_receivers: vec![],
                     input_data_ids: vec![],
                     actions: vec![Action::Transfer(TransferAction { deposit: refund })],
@@ -579,7 +630,7 @@ impl Receipt {
                 receipt: ReceiptEnum::Action(ActionReceipt {
                     signer_id: receiver_id.clone(),
                     signer_public_key,
-                    gas_price: 0,
+                    gas_price: Balance::ZERO,
                     output_data_receivers: vec![],
                     input_data_ids: vec![],
                     actions: vec![Action::Transfer(TransferAction { deposit: refund })],
@@ -622,6 +673,8 @@ pub enum ReceiptEnum {
     PromiseYield(ActionReceipt) = 2,
     PromiseResume(DataReceipt) = 3,
     GlobalContractDistribution(GlobalContractDistributionReceipt) = 4,
+    ActionV2(ActionReceiptV2) = 5,
+    PromiseYieldV2(ActionReceiptV2) = 6,
 }
 
 /// ActionReceipt is derived from an Action from `Transaction or from Receipt`
@@ -643,8 +696,6 @@ pub struct ActionReceipt {
     /// An access key which was used to sign the original transaction
     pub signer_public_key: PublicKey,
     /// A gas_price which has been used to buy gas in the original transaction
-    #[serde(with = "dec_format")]
-    #[cfg_attr(feature = "schemars", schemars(with = "String"))]
     pub gas_price: Balance,
     /// If present, where to route the output data
     pub output_data_receivers: Vec<DataReceiver>,
@@ -656,6 +707,209 @@ pub struct ActionReceipt {
     pub input_data_ids: Vec<CryptoHash>,
     /// A list of actions to process when all input_data_ids are filled
     pub actions: Vec<Action>,
+}
+
+/// ActionReceipt is derived from a set of Actions from `Transaction or from Receipt`
+#[derive(
+    BorshSerialize,
+    BorshDeserialize,
+    Debug,
+    PartialEq,
+    Eq,
+    Clone,
+    serde::Serialize,
+    serde::Deserialize,
+    ProtocolSchema,
+)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+pub struct ActionReceiptV2 {
+    /// A signer of the original transaction
+    pub signer_id: AccountId,
+    /// The receiver of any balance refunds form this receipt if it is different from receiver_id.
+    pub refund_to: Option<AccountId>,
+    /// An access key which was used to sign the original transaction
+    pub signer_public_key: PublicKey,
+    /// A gas_price which has been used to buy gas in the original transaction
+    pub gas_price: Balance,
+    /// If present, where to route the output data
+    pub output_data_receivers: Vec<DataReceiver>,
+    /// A list of the input data dependencies for this Receipt to process.
+    /// If all `input_data_ids` for this receipt are delivered to the account
+    /// that means we have all the `ReceivedData` input which will be than converted to a
+    /// `PromiseResult::Successful(value)` or `PromiseResult::Failed`
+    /// depending on `ReceivedData` is `Some(_)` or `None`
+    pub input_data_ids: Vec<CryptoHash>,
+    /// A list of actions to process when all input_data_ids are filled
+    pub actions: Vec<Action>,
+}
+
+/// Convenience wrapper for common logic accessing fields on action receipts of
+/// different versions.
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub enum VersionedActionReceipt<'a> {
+    V1(Cow<'a, ActionReceipt>),
+    V2(Cow<'a, ActionReceiptV2>),
+}
+
+impl VersionedActionReceipt<'_> {
+    /// A signer of the original transaction
+    pub fn signer_id(&self) -> &AccountId {
+        match self {
+            VersionedActionReceipt::V1(action_receipt) => &action_receipt.signer_id,
+            VersionedActionReceipt::V2(action_receipt) => &action_receipt.signer_id,
+        }
+    }
+
+    /// The receiver of any balance refunds form this receipt if it is different from receiver_id.
+    pub fn refund_to(&self) -> &Option<AccountId> {
+        match self {
+            VersionedActionReceipt::V1(_) => &None,
+            VersionedActionReceipt::V2(action_receipt) => &action_receipt.refund_to,
+        }
+    }
+
+    /// An access key which was used to sign the original transaction
+    pub fn signer_public_key(&self) -> &PublicKey {
+        match self {
+            VersionedActionReceipt::V1(action_receipt) => &action_receipt.signer_public_key,
+            VersionedActionReceipt::V2(action_receipt) => &action_receipt.signer_public_key,
+        }
+    }
+
+    /// A gas_price which has been used to buy gas in the original transaction
+    pub fn gas_price(&self) -> Balance {
+        match self {
+            VersionedActionReceipt::V1(action_receipt) => action_receipt.gas_price,
+            VersionedActionReceipt::V2(action_receipt) => action_receipt.gas_price,
+        }
+    }
+
+    /// If present, where to route the output data
+    pub fn output_data_receivers(&self) -> &[DataReceiver] {
+        match self {
+            VersionedActionReceipt::V1(action_receipt) => &action_receipt.output_data_receivers,
+            VersionedActionReceipt::V2(action_receipt) => &action_receipt.output_data_receivers,
+        }
+    }
+
+    /// A list of the input data dependencies for this Receipt to process.
+    /// If all `input_data_ids` for this receipt are delivered to the account
+    /// that means we have all the `ReceivedData` input which will be than converted to a
+    /// `PromiseResult::Successful(value)` or `PromiseResult::Failed`
+    /// depending on `ReceivedData` is `Some(_)` or `None`
+    pub fn input_data_ids(&self) -> &[CryptoHash] {
+        match self {
+            VersionedActionReceipt::V1(action_receipt) => &action_receipt.input_data_ids,
+            VersionedActionReceipt::V2(action_receipt) => &action_receipt.input_data_ids,
+        }
+    }
+
+    /// A list of actions to process when all input_data_ids are filled
+    pub fn actions(&self) -> &[Action] {
+        match self {
+            VersionedActionReceipt::V1(action_receipt) => &action_receipt.actions,
+            VersionedActionReceipt::V2(action_receipt) => &action_receipt.actions,
+        }
+    }
+}
+
+impl<'a> From<&'a ActionReceipt> for VersionedActionReceipt<'a> {
+    fn from(other: &'a ActionReceipt) -> Self {
+        VersionedActionReceipt::V1(Cow::Borrowed(other))
+    }
+}
+
+impl From<ActionReceipt> for VersionedActionReceipt<'_> {
+    fn from(other: ActionReceipt) -> Self {
+        VersionedActionReceipt::V1(Cow::Owned(other))
+    }
+}
+
+impl<'a> From<&'a ActionReceiptV2> for VersionedActionReceipt<'a> {
+    fn from(other: &'a ActionReceiptV2) -> Self {
+        VersionedActionReceipt::V2(Cow::Borrowed(other))
+    }
+}
+
+impl From<ActionReceiptV2> for VersionedActionReceipt<'_> {
+    fn from(other: ActionReceiptV2) -> Self {
+        VersionedActionReceipt::V2(Cow::Owned(other))
+    }
+}
+
+/// Convenience wrapper for common logic accessing fields on [`ReceiptEnum`] of
+/// different versions of its variants.
+///
+/// Note: So far, only action receipts are versioned. Other versioned variants
+/// can be added later if and when necessary. Then, the Cow pointer might be
+/// better pushed down, as done it [`VersionedActionReceipt`]. (Cow pointers are
+/// useful here to allow using the wrapper with owned and borrowed values
+/// without cloning.)
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub enum VersionedReceiptEnum<'a> {
+    Action(VersionedActionReceipt<'a>),
+    Data(Cow<'a, DataReceipt>),
+    PromiseYield(VersionedActionReceipt<'a>),
+    PromiseResume(Cow<'a, DataReceipt>),
+    GlobalContractDistribution(Cow<'a, GlobalContractDistributionReceipt>),
+}
+
+impl<'a> From<&'a ReceiptEnum> for VersionedReceiptEnum<'a> {
+    fn from(other: &'a ReceiptEnum) -> Self {
+        match other {
+            ReceiptEnum::Action(action_receipt) => {
+                VersionedReceiptEnum::Action(action_receipt.into())
+            }
+            ReceiptEnum::Data(data_receipt) => {
+                VersionedReceiptEnum::Data(Cow::Borrowed(data_receipt))
+            }
+            ReceiptEnum::PromiseYield(action_receipt) => {
+                VersionedReceiptEnum::PromiseYield(action_receipt.into())
+            }
+            ReceiptEnum::PromiseResume(data_receipt) => {
+                VersionedReceiptEnum::PromiseResume(Cow::Borrowed(data_receipt))
+            }
+            ReceiptEnum::GlobalContractDistribution(global_contract_distribution_receipt) => {
+                VersionedReceiptEnum::GlobalContractDistribution(Cow::Borrowed(
+                    global_contract_distribution_receipt,
+                ))
+            }
+            ReceiptEnum::ActionV2(action_receipt) => {
+                VersionedReceiptEnum::Action(action_receipt.into())
+            }
+            ReceiptEnum::PromiseYieldV2(action_receipt) => {
+                VersionedReceiptEnum::PromiseYield(action_receipt.into())
+            }
+        }
+    }
+}
+
+impl<'a> From<ReceiptEnum> for VersionedReceiptEnum<'a> {
+    fn from(other: ReceiptEnum) -> Self {
+        match other {
+            ReceiptEnum::Action(action_receipt) => {
+                VersionedReceiptEnum::Action(action_receipt.into())
+            }
+            ReceiptEnum::Data(data_receipt) => VersionedReceiptEnum::Data(Cow::Owned(data_receipt)),
+            ReceiptEnum::PromiseYield(action_receipt) => {
+                VersionedReceiptEnum::PromiseYield(action_receipt.into())
+            }
+            ReceiptEnum::PromiseResume(data_receipt) => {
+                VersionedReceiptEnum::PromiseResume(Cow::Owned(data_receipt))
+            }
+            ReceiptEnum::GlobalContractDistribution(global_contract_distribution_receipt) => {
+                VersionedReceiptEnum::GlobalContractDistribution(Cow::Owned(
+                    global_contract_distribution_receipt,
+                ))
+            }
+            ReceiptEnum::ActionV2(action_receipt) => {
+                VersionedReceiptEnum::Action(action_receipt.into())
+            }
+            ReceiptEnum::PromiseYieldV2(action_receipt) => {
+                VersionedReceiptEnum::PromiseYield(action_receipt.into())
+            }
+        }
+    }
 }
 
 /// An incoming (ingress) `DataReceipt` which is going to a Receipt's `receiver` input_data_ids
@@ -793,7 +1047,7 @@ impl fmt::Debug for GlobalContractDistributionReceiptV1 {
             .field("id", &self.id)
             .field("target_shard", &self.target_shard)
             .field("already_delivered_shards", &self.already_delivered_shards)
-            .field("code", &format_args!("{}", base64(&self.code)))
+            .field("code", &..)
             .finish()
     }
 }
@@ -895,10 +1149,10 @@ mod tests {
             receipt: ReceiptEnum::Action(ActionReceipt {
                 signer_id: "signer_id".parse().unwrap(),
                 signer_public_key: PublicKey::empty(KeyType::ED25519),
-                gas_price: 0,
+                gas_price: Balance::ZERO,
                 output_data_receivers: vec![],
                 input_data_ids: vec![],
-                actions: vec![Action::Transfer(TransferAction { deposit: 0 })],
+                actions: vec![Action::Transfer(TransferAction { deposit: Balance::ZERO })],
             }),
         });
         receipt_v0
@@ -912,10 +1166,10 @@ mod tests {
             receipt: ReceiptEnum::Action(ActionReceipt {
                 signer_id: "signer_id".parse().unwrap(),
                 signer_public_key: PublicKey::empty(KeyType::ED25519),
-                gas_price: 0,
+                gas_price: Balance::ZERO,
                 output_data_receivers: vec![],
                 input_data_ids: vec![],
-                actions: vec![Action::Transfer(TransferAction { deposit: 0 })],
+                actions: vec![Action::Transfer(TransferAction { deposit: Balance::ZERO })],
             }),
             priority: 1,
         });

@@ -26,18 +26,18 @@ use near_primitives::stateless_validation::partial_witness::PartialEncodedStateW
 use near_primitives::types::ValidatorKickoutReason::{
     NotEnoughBlocks, NotEnoughChunkEndorsements, NotEnoughChunks, ProtocolVersionTooOld,
 };
-use near_primitives::types::{AccountInfo, Gas};
+use near_primitives::types::{AccountInfo, Balance, Gas};
 use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_store::ShardUId;
 use near_store::test_utils::create_test_store;
-use num_rational::Ratio;
+use num_rational::{Ratio, Rational32};
 use std::cmp::Ordering;
 use std::vec;
 
 #[test]
 fn test_stake_validator() {
-    let amount_staked = 1_000_000;
+    let amount_staked = Balance::from_yoctonear(1_000_000);
     let validators = vec![("test1".parse().unwrap(), amount_staked)];
     let mut epoch_manager = setup_default_epoch_manager(validators.clone(), 1, 1, 2, 90, 60);
 
@@ -51,8 +51,8 @@ fn test_stake_validator() {
         vec![vec![0, 0]],
         change_stake(vec![("test1".parse().unwrap(), amount_staked)]),
         vec![],
-        reward(vec![("near".parse().unwrap(), 0)]),
-        0,
+        reward(vec![("near".parse().unwrap(), Balance::ZERO)]),
+        Balance::ZERO,
         4,
         PROTOCOL_VERSION,
     );
@@ -95,8 +95,11 @@ fn test_stake_validator() {
         ]),
         vec![],
         // only the validator who produced the block in this epoch gets the reward since epoch length is 1
-        reward(vec![("test1".parse().unwrap(), 0), ("near".parse().unwrap(), 0)]),
-        0,
+        reward(vec![
+            ("test1".parse().unwrap(), Balance::ZERO),
+            ("near".parse().unwrap(), Balance::ZERO),
+        ]),
+        Balance::ZERO,
         4,
         PROTOCOL_VERSION,
     );
@@ -120,15 +123,30 @@ fn test_stake_validator() {
 
 #[test]
 fn test_validator_change_of_stake() {
-    let amount_staked = 1_000_000;
+    let amount_staked = Balance::from_yoctonear(1_000_000);
     let validators =
         vec![("test1".parse().unwrap(), amount_staked), ("test2".parse().unwrap(), amount_staked)];
-    let mut epoch_manager =
-        setup_epoch_manager(validators, 2, 1, 2, 90, 60, 0, default_reward_calculator());
+    let mut epoch_manager = setup_epoch_manager(
+        validators,
+        2,
+        1,
+        2,
+        90,
+        60,
+        0,
+        default_reward_calculator(),
+        Rational32::new(0, 1),
+    );
 
     let h = hash_range(4);
     record_block(&mut epoch_manager, CryptoHash::default(), h[0], 0, vec![]);
-    record_block(&mut epoch_manager, h[0], h[1], 1, vec![stake("test1".parse().unwrap(), 10)]);
+    record_block(
+        &mut epoch_manager,
+        h[0],
+        h[1],
+        1,
+        vec![stake("test1".parse().unwrap(), Balance::from_yoctonear(10))],
+    );
     record_block(&mut epoch_manager, h[1], h[2], 2, vec![]);
     // New epoch starts here.
     record_block(&mut epoch_manager, h[2], h[3], 3, vec![]);
@@ -138,20 +156,23 @@ fn test_validator_change_of_stake() {
     check_fishermen(&epoch_info, &[]);
     check_stake_change(
         &epoch_info,
-        vec![("test1".parse().unwrap(), 0), ("test2".parse().unwrap(), amount_staked)],
+        vec![("test1".parse().unwrap(), Balance::ZERO), ("test2".parse().unwrap(), amount_staked)],
     );
     check_reward(
         &epoch_info,
         vec![
-            ("test1".parse().unwrap(), 0),
-            ("test2".parse().unwrap(), 0),
-            ("near".parse().unwrap(), 0),
+            ("test1".parse().unwrap(), Balance::ZERO),
+            ("test2".parse().unwrap(), Balance::ZERO),
+            ("near".parse().unwrap(), Balance::ZERO),
         ],
     );
-    matches!(
-        epoch_info.validator_kickout().get(AccountIdRef::new_or_panic("test1")),
-        Some(ValidatorKickoutReason::NotEnoughStake { stake: 10, .. })
-    );
+    if let Some(ValidatorKickoutReason::NotEnoughStake { stake, .. }) =
+        epoch_info.validator_kickout().get(AccountIdRef::new_or_panic("test1"))
+    {
+        assert_eq!(stake, &Balance::from_yoctonear(10));
+    } else {
+        panic!("Expected ValidatorKickoutReason::NotEnoughStake");
+    }
 }
 
 /// Test handling forks across the epoch finalization.
@@ -163,7 +184,7 @@ fn test_validator_change_of_stake() {
 /// In lower fork, test1 and test3 are left.
 #[test]
 fn test_fork_finalization() {
-    let amount_staked = 1_000_000;
+    let amount_staked = Balance::from_yoctonear(1_000_000);
     let validators = vec![
         ("test1".parse().unwrap(), amount_staked),
         ("test2".parse().unwrap(), amount_staked),
@@ -267,7 +288,7 @@ fn test_fork_finalization() {
 /// be kicked out
 #[test]
 fn test_one_validator_kickout() {
-    let amount_staked = 1_000;
+    let amount_staked = Balance::from_yoctonear(1_000);
     let mut epoch_manager = setup_default_epoch_manager(
         vec![("test1".parse().unwrap(), amount_staked)],
         2,
@@ -296,7 +317,7 @@ fn test_one_validator_kickout() {
 /// of kickout for this epoch and last epoch equals the entire validator set.
 #[test]
 fn test_validator_kickout() {
-    let amount_staked = 1_000_000;
+    let amount_staked = Balance::from_yoctonear(1_000_000);
     let validators =
         vec![("test1".parse().unwrap(), amount_staked), ("test2".parse().unwrap(), amount_staked)];
     let epoch_length = 10;
@@ -337,9 +358,9 @@ fn test_validator_kickout() {
     check_reward(
         epoch_info,
         vec![
-            ("test2".parse().unwrap(), 0),
-            ("near".parse().unwrap(), 0),
-            ("test1".parse().unwrap(), 0),
+            ("test2".parse().unwrap(), Balance::ZERO),
+            ("near".parse().unwrap(), Balance::ZERO),
+            ("test1".parse().unwrap(), Balance::ZERO),
         ],
     );
 }
@@ -347,8 +368,8 @@ fn test_validator_kickout() {
 #[test]
 fn test_validator_unstake() {
     let store = create_test_store();
-    let config = epoch_config(2, 1, 2, 100, 90, 60, 0);
-    let amount_staked = 1_000_000;
+    let config = epoch_config(2, 1, 2, 100, 90, 60, 0, Rational32::new(0, 1));
+    let amount_staked = Balance::from_yoctonear(1_000_000);
     let validators = vec![
         stake("test1".parse().unwrap(), amount_staked),
         stake("test2".parse().unwrap(), amount_staked),
@@ -358,7 +379,13 @@ fn test_validator_unstake() {
     let h = hash_range(8);
     record_block(&mut epoch_manager, CryptoHash::default(), h[0], 0, vec![]);
     // test1 unstakes in epoch 1, and should be kicked out in epoch 3 (validators stored at h2).
-    record_block(&mut epoch_manager, h[0], h[1], 1, vec![stake("test1".parse().unwrap(), 0)]);
+    record_block(
+        &mut epoch_manager,
+        h[0],
+        h[1],
+        1,
+        vec![stake("test1".parse().unwrap(), Balance::ZERO)],
+    );
     record_block(&mut epoch_manager, h[1], h[2], 2, vec![]);
     record_block(&mut epoch_manager, h[2], h[3], 3, vec![]);
 
@@ -368,15 +395,15 @@ fn test_validator_unstake() {
     check_fishermen(&epoch_info, &[]);
     check_stake_change(
         &epoch_info,
-        vec![("test1".parse().unwrap(), 0), ("test2".parse().unwrap(), amount_staked)],
+        vec![("test1".parse().unwrap(), Balance::ZERO), ("test2".parse().unwrap(), amount_staked)],
     );
     check_kickout(&epoch_info, &[("test1", ValidatorKickoutReason::Unstaked)]);
     check_reward(
         &epoch_info,
         vec![
-            ("test1".parse().unwrap(), 0),
-            ("test2".parse().unwrap(), 0),
-            ("near".parse().unwrap(), 0),
+            ("test1".parse().unwrap(), Balance::ZERO),
+            ("test2".parse().unwrap(), Balance::ZERO),
+            ("near".parse().unwrap(), Balance::ZERO),
         ],
     );
 
@@ -391,9 +418,9 @@ fn test_validator_unstake() {
     check_reward(
         &epoch_info,
         vec![
-            ("test1".parse().unwrap(), 0),
-            ("test2".parse().unwrap(), 0),
-            ("near".parse().unwrap(), 0),
+            ("test1".parse().unwrap(), Balance::ZERO),
+            ("test2".parse().unwrap(), Balance::ZERO),
+            ("near".parse().unwrap(), Balance::ZERO),
         ],
     );
 
@@ -405,13 +432,16 @@ fn test_validator_unstake() {
     check_fishermen(&epoch_info, &[]);
     check_stake_change(&epoch_info, vec![("test2".parse().unwrap(), amount_staked)]);
     check_kickout(&epoch_info, &[]);
-    check_reward(&epoch_info, vec![("test2".parse().unwrap(), 0), ("near".parse().unwrap(), 0)]);
+    check_reward(
+        &epoch_info,
+        vec![("test2".parse().unwrap(), Balance::ZERO), ("near".parse().unwrap(), Balance::ZERO)],
+    );
 }
 
 /// If all current validator try to unstake, we disallow that.
 #[test]
 fn test_all_validators_unstake() {
-    let stake_amount = 1_000;
+    let stake_amount = Balance::from_yoctonear(1_000);
     let validators = vec![
         ("test1".parse().unwrap(), stake_amount),
         ("test2".parse().unwrap(), stake_amount),
@@ -427,9 +457,9 @@ fn test_all_validators_unstake() {
         h[1],
         1,
         vec![
-            stake("test1".parse().unwrap(), 0),
-            stake("test2".parse().unwrap(), 0),
-            stake("test3".parse().unwrap(), 0),
+            stake("test1".parse().unwrap(), Balance::ZERO),
+            stake("test2".parse().unwrap(), Balance::ZERO),
+            stake("test3".parse().unwrap(), Balance::ZERO),
         ],
     );
     record_block(&mut epoch_manager, h[1], h[2], 2, vec![]);
@@ -446,16 +476,16 @@ fn test_all_validators_unstake() {
 
 #[test]
 fn test_validator_reward_one_validator() {
-    let stake_amount = 1_000_000;
-    let test1_stake_amount = 110;
+    let stake_amount = Balance::from_yoctonear(1_000_000);
+    let test1_stake_amount = Balance::from_yoctonear(110);
     let validators = vec![
         ("test1".parse().unwrap(), test1_stake_amount),
         ("test2".parse().unwrap(), stake_amount),
     ];
     let epoch_length = 2;
-    let total_supply = validators.iter().map(|(_, stake)| stake).sum();
+    let total_supply: Balance =
+        validators.iter().fold(Balance::ZERO, |sum, (_, stake)| sum.checked_add(*stake).unwrap());
     let reward_calculator = RewardCalculator {
-        max_inflation_rate: Ratio::new(5, 100),
         num_blocks_per_year: 50,
         epoch_length,
         protocol_reward_rate: Ratio::new(1, 10),
@@ -463,8 +493,17 @@ fn test_validator_reward_one_validator() {
         num_seconds_per_year: 50,
         genesis_protocol_version: PROTOCOL_VERSION,
     };
-    let mut epoch_manager =
-        setup_epoch_manager(validators, epoch_length, 1, 1, 90, 60, 0, reward_calculator.clone());
+    let mut epoch_manager = setup_epoch_manager(
+        validators,
+        epoch_length,
+        1,
+        1,
+        90,
+        60,
+        0,
+        reward_calculator.clone(),
+        Rational32::new(1, 40),
+    );
     let rng_seed = [0; 32];
     let h = hash_range(5);
 
@@ -505,6 +544,8 @@ fn test_validator_reward_one_validator() {
     );
     let mut validator_stakes = HashMap::new();
     validator_stakes.insert("test2".parse().unwrap(), stake_amount);
+
+    let max_inflation_rate = Ratio::new(1, 40);
     let (validator_reward, inflation) = reward_calculator.calculate_reward(
         validator_online_ratio,
         &validator_stakes,
@@ -516,14 +557,18 @@ fn test_validator_reward_one_validator() {
             online_max_threshold: Ratio::new(99, 100),
             endorsement_cutoff_threshold: None,
         },
+        max_inflation_rate,
     );
     let test2_reward = *validator_reward.get(AccountIdRef::new_or_panic("test2")).unwrap();
     let protocol_reward = *validator_reward.get(AccountIdRef::new_or_panic("near")).unwrap();
 
     let epoch_info = epoch_manager.get_epoch_info(&EpochId(h[2])).unwrap();
-    check_validators(&epoch_info, &[("test2", stake_amount + test2_reward)]);
+    check_validators(&epoch_info, &[("test2", stake_amount.checked_add(test2_reward).unwrap())]);
     check_fishermen(&epoch_info, &[]);
-    check_stake_change(&epoch_info, vec![("test2".parse().unwrap(), stake_amount + test2_reward)]);
+    check_stake_change(
+        &epoch_info,
+        vec![("test2".parse().unwrap(), stake_amount.checked_add(test2_reward).unwrap())],
+    );
     check_kickout(&epoch_info, &[]);
     check_reward(
         &epoch_info,
@@ -534,14 +579,17 @@ fn test_validator_reward_one_validator() {
 
 #[test]
 fn test_validator_reward_weight_by_stake() {
-    let stake_amount1 = 1_000_000;
-    let stake_amount2 = 500_000;
+    let stake_amount1 = Balance::from_yoctonear(1_000_000);
+    let stake_amount2 = Balance::from_yoctonear(500_000);
     let validators =
         vec![("test1".parse().unwrap(), stake_amount1), ("test2".parse().unwrap(), stake_amount2)];
     let epoch_length = 2;
-    let total_supply = (stake_amount1 + stake_amount2) * validators.len() as u128;
+    let total_supply = stake_amount1
+        .checked_add(stake_amount2)
+        .unwrap()
+        .checked_mul(validators.len().try_into().unwrap())
+        .unwrap();
     let reward_calculator = RewardCalculator {
-        max_inflation_rate: Ratio::new(5, 100),
         num_blocks_per_year: 50,
         epoch_length,
         protocol_reward_rate: Ratio::new(1, 10),
@@ -549,8 +597,17 @@ fn test_validator_reward_weight_by_stake() {
         num_seconds_per_year: 50,
         genesis_protocol_version: PROTOCOL_VERSION,
     };
-    let mut epoch_manager =
-        setup_epoch_manager(validators, epoch_length, 1, 2, 90, 60, 0, reward_calculator.clone());
+    let mut epoch_manager = setup_epoch_manager(
+        validators,
+        epoch_length,
+        1,
+        2,
+        90,
+        60,
+        0,
+        reward_calculator.clone(),
+        Rational32::new(1, 40),
+    );
     let h = hash_range(5);
     record_with_block_info(
         &mut epoch_manager,
@@ -591,6 +648,7 @@ fn test_validator_reward_weight_by_stake() {
     let mut validators_stakes = HashMap::new();
     validators_stakes.insert("test1".parse().unwrap(), stake_amount1);
     validators_stakes.insert("test2".parse().unwrap(), stake_amount2);
+    let max_inflation_rate = Ratio::new(1, 40);
     let (validator_reward, inflation) = reward_calculator.calculate_reward(
         validator_online_ratio,
         &validators_stakes,
@@ -602,23 +660,27 @@ fn test_validator_reward_weight_by_stake() {
             online_max_threshold: Ratio::new(99, 100),
             endorsement_cutoff_threshold: None,
         },
+        max_inflation_rate,
     );
     let test1_reward = *validator_reward.get(AccountIdRef::new_or_panic("test1")).unwrap();
     let test2_reward = *validator_reward.get(AccountIdRef::new_or_panic("test2")).unwrap();
-    assert_eq!(test1_reward, test2_reward * 2);
+    assert_eq!(test1_reward, test2_reward.checked_mul(2).unwrap());
     let protocol_reward = *validator_reward.get(AccountIdRef::new_or_panic("near")).unwrap();
 
     let epoch_info = epoch_manager.get_epoch_info(&EpochId(h[2])).unwrap();
     check_validators(
         &epoch_info,
-        &[("test1", stake_amount1 + test1_reward), ("test2", stake_amount2 + test2_reward)],
+        &[
+            ("test1", stake_amount1.checked_add(test1_reward).unwrap()),
+            ("test2", stake_amount2.checked_add(test2_reward).unwrap()),
+        ],
     );
     check_fishermen(&epoch_info, &[]);
     check_stake_change(
         &epoch_info,
         vec![
-            ("test1".parse().unwrap(), stake_amount1 + test1_reward),
-            ("test2".parse().unwrap(), stake_amount2 + test2_reward),
+            ("test1".parse().unwrap(), stake_amount1.checked_add(test1_reward).unwrap()),
+            ("test2".parse().unwrap(), stake_amount2.checked_add(test2_reward).unwrap()),
         ],
     );
     check_kickout(&epoch_info, &[]);
@@ -635,13 +697,12 @@ fn test_validator_reward_weight_by_stake() {
 
 #[test]
 fn test_reward_multiple_shards() {
-    let stake_amount = 1_000_000;
+    let stake_amount = Balance::from_yoctonear(1_000_000);
     let validators =
         vec![("test1".parse().unwrap(), stake_amount), ("test2".parse().unwrap(), stake_amount)];
     let epoch_length = 10;
-    let total_supply = stake_amount * validators.len() as u128;
+    let total_supply = stake_amount.checked_mul(validators.len().try_into().unwrap()).unwrap();
     let reward_calculator = RewardCalculator {
-        max_inflation_rate: Ratio::new(5, 100),
         num_blocks_per_year: 1_000_000,
         epoch_length,
         protocol_reward_rate: Ratio::new(1, 10),
@@ -659,6 +720,7 @@ fn test_reward_multiple_shards() {
         60,
         0,
         reward_calculator.clone(),
+        Rational32::new(0, 1),
     )
     .into_handle();
     let h = hash_range((2 * epoch_length + 1) as usize);
@@ -713,6 +775,7 @@ fn test_reward_multiple_shards() {
     let mut validators_stakes = HashMap::new();
     validators_stakes.insert("test1".parse().unwrap(), stake_amount);
     validators_stakes.insert("test2".parse().unwrap(), stake_amount);
+    let max_inflation_rate = Ratio::new(1, 40);
     let (validator_reward, inflation) = reward_calculator.calculate_reward(
         validator_online_ratio,
         &validators_stakes,
@@ -724,19 +787,20 @@ fn test_reward_multiple_shards() {
             online_max_threshold: Ratio::new(99, 100),
             endorsement_cutoff_threshold: None,
         },
+        max_inflation_rate,
     );
     let test2_reward = *validator_reward.get(AccountIdRef::new_or_panic("test2")).unwrap();
     let protocol_reward = *validator_reward.get(AccountIdRef::new_or_panic("near")).unwrap();
     let epoch_infos: Vec<_> =
         h.iter().filter_map(|x| epoch_manager.get_epoch_info(&EpochId(*x)).ok()).collect();
     let epoch_info = &epoch_infos[1];
-    check_validators(epoch_info, &[("test2", stake_amount + test2_reward)]);
+    check_validators(epoch_info, &[("test2", stake_amount.checked_add(test2_reward).unwrap())]);
     check_fishermen(epoch_info, &[]);
     check_stake_change(
         epoch_info,
         vec![
-            ("test1".parse().unwrap(), 0),
-            ("test2".parse().unwrap(), stake_amount + test2_reward),
+            ("test1".parse().unwrap(), Balance::ZERO),
+            ("test2".parse().unwrap(), stake_amount.checked_add(test2_reward).unwrap()),
         ],
     );
     check_kickout(
@@ -752,14 +816,20 @@ fn test_reward_multiple_shards() {
 
 #[test]
 fn test_unstake_and_then_change_stake() {
-    let amount_staked = 1_000_000;
+    let amount_staked = Balance::from_yoctonear(1_000_000);
     let validators =
         vec![("test1".parse().unwrap(), amount_staked), ("test2".parse().unwrap(), amount_staked)];
     let mut epoch_manager = setup_default_epoch_manager(validators, 2, 1, 2, 90, 60);
     let h = hash_range(8);
     record_block(&mut epoch_manager, CryptoHash::default(), h[0], 0, vec![]);
     // test1 unstakes in epoch 1, and should be kicked out in epoch 3 (validators stored at h2).
-    record_block(&mut epoch_manager, h[0], h[1], 1, vec![stake("test1".parse().unwrap(), 0)]);
+    record_block(
+        &mut epoch_manager,
+        h[0],
+        h[1],
+        1,
+        vec![stake("test1".parse().unwrap(), Balance::ZERO)],
+    );
     record_block(
         &mut epoch_manager,
         h[1],
@@ -781,9 +851,9 @@ fn test_unstake_and_then_change_stake() {
     check_reward(
         &epoch_info,
         vec![
-            ("test1".parse().unwrap(), 0),
-            ("test2".parse().unwrap(), 0),
-            ("near".parse().unwrap(), 0),
+            ("test1".parse().unwrap(), Balance::ZERO),
+            ("test2".parse().unwrap(), Balance::ZERO),
+            ("near".parse().unwrap(), Balance::ZERO),
         ],
     );
 }
@@ -793,8 +863,8 @@ fn test_unstake_and_then_change_stake() {
 /// out because of it.
 #[test]
 fn test_expected_chunks() {
-    let stake_amount = 1_000_000;
-    let validators: Vec<(AccountId, u128)> = vec![
+    let stake_amount = Balance::from_yoctonear(1_000_000);
+    let validators: Vec<(AccountId, Balance)> = vec![
         ("test1".parse().unwrap(), stake_amount),
         ("test2".parse().unwrap(), stake_amount),
         ("test3".parse().unwrap(), stake_amount),
@@ -802,9 +872,10 @@ fn test_expected_chunks() {
     ];
     let epoch_length = 20;
     let num_shards = 3;
-    let total_supply = stake_amount * validators.len() as u128;
+    let total_supply = stake_amount.checked_mul(validators.len().try_into().unwrap()).unwrap();
 
-    let epoch_config = epoch_config(epoch_length, num_shards, 3, 3, 90, 60, 60);
+    let epoch_config =
+        epoch_config(epoch_length, num_shards, 3, 3, 90, 60, 60, Rational32::new(1, 40));
     let epoch_manager = EpochManager::new(
         create_test_store(),
         epoch_config,
@@ -872,17 +943,26 @@ fn test_expected_chunks() {
 
 #[test]
 fn test_expected_chunks_prev_block_not_produced() {
-    let stake_amount = 1_000_000;
+    let stake_amount = Balance::from_yoctonear(1_000_000);
     let validators = vec![
         ("test1".parse().unwrap(), stake_amount),
         ("test2".parse().unwrap(), stake_amount),
         ("test3".parse().unwrap(), stake_amount),
     ];
     let epoch_length = 50;
-    let total_supply = stake_amount * validators.len() as u128;
-    let epoch_manager =
-        setup_epoch_manager(validators, epoch_length, 1, 3, 90, 90, 0, default_reward_calculator())
-            .into_handle();
+    let total_supply = stake_amount.checked_mul(validators.len().try_into().unwrap()).unwrap();
+    let epoch_manager = setup_epoch_manager(
+        validators,
+        epoch_length,
+        1,
+        3,
+        90,
+        90,
+        0,
+        default_reward_calculator(),
+        Rational32::new(0, 1),
+    )
+    .into_handle();
     let rng_seed = [0; 32];
     let hashes = hash_range((2 * epoch_length) as usize);
     record_block(&mut epoch_manager.write(), Default::default(), hashes[0], 0, vec![]);
@@ -962,7 +1042,7 @@ fn update_tracker(
 
 #[test]
 fn test_rewards_with_kickouts() {
-    let stake_amount = 1_000_000;
+    let stake_amount = Balance::from_yoctonear(1_000_000);
     let validators = vec![
         ("test1".parse().unwrap(), stake_amount),
         ("test2".parse().unwrap(), stake_amount),
@@ -970,7 +1050,6 @@ fn test_rewards_with_kickouts() {
     ];
     let epoch_length = 10;
     let reward_calculator = RewardCalculator {
-        max_inflation_rate: Ratio::new(5, 100),
         num_blocks_per_year: 1,
         epoch_length,
         protocol_reward_rate: Ratio::new(1, 10),
@@ -978,8 +1057,18 @@ fn test_rewards_with_kickouts() {
         num_seconds_per_year: NUM_SECONDS_IN_A_YEAR,
         genesis_protocol_version: PROTOCOL_VERSION,
     };
-    let em = setup_epoch_manager(validators, epoch_length, 1, 3, 10, 10, 0, reward_calculator)
-        .into_handle();
+    let em = setup_epoch_manager(
+        validators,
+        epoch_length,
+        1,
+        3,
+        10,
+        10,
+        0,
+        reward_calculator,
+        Rational32::new(1, 40),
+    )
+    .into_handle();
 
     let mut height: BlockHeight = 0;
     let genesis_hash = hash(height.to_le_bytes().as_ref());
@@ -994,7 +1083,7 @@ fn test_rewards_with_kickouts() {
         genesis_hash,
         first_hash,
         height,
-        vec![stake("test3".parse().unwrap(), 0)],
+        vec![stake("test3".parse().unwrap(), Balance::ZERO)],
     );
 
     let mut prev_hash = first_hash;
@@ -1034,20 +1123,26 @@ fn test_rewards_with_kickouts() {
             2,
             // test3 should still be rewarded even though it is in the kickouts for unstaking
             HashMap::from([
-                ("near".parse().unwrap(), 1585),
-                ("test1".parse().unwrap(), 4756),
-                ("test3".parse().unwrap(), 4756),
+                ("near".parse().unwrap(), Balance::from_yoctonear(792)),
+                ("test1".parse().unwrap(), Balance::from_yoctonear(2378)),
+                ("test3".parse().unwrap(), Balance::from_yoctonear(2378)),
             ]),
         ),
         (
             3,
             HashMap::from([
-                ("near".parse().unwrap(), 1585),
-                ("test1".parse().unwrap(), 4756),
-                ("test3".parse().unwrap(), 4756),
+                ("near".parse().unwrap(), Balance::from_yoctonear(792)),
+                ("test1".parse().unwrap(), Balance::from_yoctonear(2378)),
+                ("test3".parse().unwrap(), Balance::from_yoctonear(2378)),
             ]),
         ),
-        (4, HashMap::from([("near".parse().unwrap(), 1585), ("test1".parse().unwrap(), 14269)])),
+        (
+            4,
+            HashMap::from([
+                ("near".parse().unwrap(), Balance::from_yoctonear(792)),
+                ("test1".parse().unwrap(), Balance::from_yoctonear(7135)),
+            ]),
+        ),
     ]);
     let wanted_kickouts = HashMap::from([
         (
@@ -1081,12 +1176,21 @@ fn test_rewards_with_kickouts() {
 
 #[test]
 fn test_epoch_info_aggregator() {
-    let stake_amount = 1_000_000;
+    let stake_amount = Balance::from_yoctonear(1_000_000);
     let validators =
         vec![("test1".parse().unwrap(), stake_amount), ("test2".parse().unwrap(), stake_amount)];
     let epoch_length = 5;
-    let mut em =
-        setup_epoch_manager(validators, epoch_length, 1, 2, 10, 10, 0, default_reward_calculator());
+    let mut em = setup_epoch_manager(
+        validators,
+        epoch_length,
+        1,
+        2,
+        10,
+        10,
+        0,
+        default_reward_calculator(),
+        Rational32::new(0, 1),
+    );
     let h = hash_range(6);
     record_block(&mut em, Default::default(), h[0], 0, vec![]);
     record_block_with_final_block_hash(&mut em, h[0], h[1], h[0], 1, vec![]);
@@ -1117,19 +1221,55 @@ fn test_epoch_info_aggregator() {
 /// If the node stops and restarts, the aggregator should be able to recover
 #[test]
 fn test_epoch_info_aggregator_data_loss() {
-    let stake_amount = 1_000_000;
+    let stake_amount = Balance::from_yoctonear(1_000_000);
     let validators =
         vec![("test1".parse().unwrap(), stake_amount), ("test2".parse().unwrap(), stake_amount)];
     let epoch_length = 5;
-    let mut em =
-        setup_epoch_manager(validators, epoch_length, 1, 2, 10, 10, 0, default_reward_calculator());
+    let mut em = setup_epoch_manager(
+        validators,
+        epoch_length,
+        1,
+        2,
+        10,
+        10,
+        0,
+        default_reward_calculator(),
+        Rational32::new(0, 1),
+    );
     let h = hash_range(6);
     record_block(&mut em, Default::default(), h[0], 0, vec![]);
-    record_block(&mut em, h[0], h[1], 1, vec![stake("test1".parse().unwrap(), stake_amount - 10)]);
-    record_block(&mut em, h[1], h[3], 3, vec![stake("test2".parse().unwrap(), stake_amount + 10)]);
+    record_block(
+        &mut em,
+        h[0],
+        h[1],
+        1,
+        vec![stake(
+            "test1".parse().unwrap(),
+            stake_amount.checked_sub(Balance::from_yoctonear(10)).unwrap(),
+        )],
+    );
+    record_block(
+        &mut em,
+        h[1],
+        h[3],
+        3,
+        vec![stake(
+            "test2".parse().unwrap(),
+            stake_amount.checked_add(Balance::from_yoctonear(10)).unwrap(),
+        )],
+    );
     assert_eq!(h[1], em.epoch_info_aggregator.last_block_hash);
     em.epoch_info_aggregator = EpochInfoAggregator::default();
-    record_block(&mut em, h[3], h[5], 5, vec![stake("test1".parse().unwrap(), stake_amount - 1)]);
+    record_block(
+        &mut em,
+        h[3],
+        h[5],
+        5,
+        vec![stake(
+            "test1".parse().unwrap(),
+            stake_amount.checked_sub(Balance::from_yoctonear(1)).unwrap(),
+        )],
+    );
     assert_eq!(h[3], em.epoch_info_aggregator.last_block_hash);
     let epoch_id = em.get_epoch_id(&h[5]).unwrap();
     let epoch_info = em.get_epoch_info(&epoch_id).unwrap();
@@ -1140,8 +1280,14 @@ fn test_epoch_info_aggregator_data_loss() {
     assert_eq!(
         aggregator.all_proposals,
         vec![
-            stake("test1".parse().unwrap(), stake_amount - 1),
-            stake("test2".parse().unwrap(), stake_amount + 10)
+            stake(
+                "test1".parse().unwrap(),
+                stake_amount.checked_sub(Balance::from_yoctonear(1)).unwrap()
+            ),
+            stake(
+                "test2".parse().unwrap(),
+                stake_amount.checked_add(Balance::from_yoctonear(10)).unwrap()
+            )
         ]
         .into_iter()
         .map(|p| (p.account_id().clone(), p))
@@ -1152,12 +1298,21 @@ fn test_epoch_info_aggregator_data_loss() {
 /// Aggregator should still work even if there is a reorg past the last final block.
 #[test]
 fn test_epoch_info_aggregator_reorg_past_final_block() {
-    let stake_amount = 1_000_000;
+    let stake_amount = Balance::from_yoctonear(1_000_000);
     let validators =
         vec![("test1".parse().unwrap(), stake_amount), ("test2".parse().unwrap(), stake_amount)];
     let epoch_length = 6;
-    let mut em =
-        setup_epoch_manager(validators, epoch_length, 1, 2, 10, 10, 0, default_reward_calculator());
+    let mut em = setup_epoch_manager(
+        validators,
+        epoch_length,
+        1,
+        2,
+        10,
+        10,
+        0,
+        default_reward_calculator(),
+        Rational32::new(0, 1),
+    );
     let h = hash_range(6);
     record_block(&mut em, Default::default(), h[0], 0, vec![]);
     record_block_with_final_block_hash(&mut em, h[0], h[1], h[0], 1, vec![]);
@@ -1168,7 +1323,10 @@ fn test_epoch_info_aggregator_reorg_past_final_block() {
         h[3],
         h[1],
         3,
-        vec![stake("test1".parse().unwrap(), stake_amount - 1)],
+        vec![stake(
+            "test1".parse().unwrap(),
+            stake_amount.checked_sub(Balance::from_yoctonear(1)).unwrap(),
+        )],
     );
     record_block_with_final_block_hash(&mut em, h[3], h[4], h[3], 4, vec![]);
     record_block_with_final_block_hash(&mut em, h[2], h[5], h[1], 5, vec![]);
@@ -1183,25 +1341,46 @@ fn test_epoch_info_aggregator_reorg_past_final_block() {
 
 #[test]
 fn test_epoch_info_aggregator_reorg_beginning_of_epoch() {
-    let stake_amount = 1_000_000;
+    let stake_amount = Balance::from_yoctonear(1_000_000);
     let validators =
         vec![("test1".parse().unwrap(), stake_amount), ("test2".parse().unwrap(), stake_amount)];
     let epoch_length = 4;
-    let mut em =
-        setup_epoch_manager(validators, epoch_length, 1, 2, 10, 10, 0, default_reward_calculator());
+    let mut em = setup_epoch_manager(
+        validators,
+        epoch_length,
+        1,
+        2,
+        10,
+        10,
+        0,
+        default_reward_calculator(),
+        Rational32::new(0, 1),
+    );
     let h = hash_range(10);
     record_block(&mut em, Default::default(), h[0], 0, vec![]);
     for i in 1..5 {
         record_block(&mut em, h[i - 1], h[i], i as u64, vec![]);
     }
-    record_block(&mut em, h[4], h[5], 5, vec![stake("test1".parse().unwrap(), stake_amount - 1)]);
+    record_block(
+        &mut em,
+        h[4],
+        h[5],
+        5,
+        vec![stake(
+            "test1".parse().unwrap(),
+            stake_amount.checked_sub(Balance::from_yoctonear(1)).unwrap(),
+        )],
+    );
     record_block_with_final_block_hash(
         &mut em,
         h[5],
         h[6],
         h[4],
         6,
-        vec![stake("test2".parse().unwrap(), stake_amount - 100)],
+        vec![stake(
+            "test2".parse().unwrap(),
+            stake_amount.checked_sub(Balance::from_yoctonear(100)).unwrap(),
+        )],
     );
     // reorg
     record_block(&mut em, h[4], h[7], 7, vec![]);
@@ -1254,13 +1433,22 @@ fn get_num_validator_blocks(
 
 #[test]
 fn test_num_missing_blocks() {
-    let stake_amount = 1_000_000;
+    let stake_amount = Balance::from_yoctonear(1_000_000);
     let validators =
         vec![("test1".parse().unwrap(), stake_amount), ("test2".parse().unwrap(), stake_amount)];
     let epoch_length = 2;
-    let em =
-        setup_epoch_manager(validators, epoch_length, 1, 2, 10, 10, 0, default_reward_calculator())
-            .into_handle();
+    let em = setup_epoch_manager(
+        validators,
+        epoch_length,
+        1,
+        2,
+        10,
+        10,
+        0,
+        default_reward_calculator(),
+        Rational32::new(0, 1),
+    )
+    .into_handle();
     let h = hash_range(8);
     record_block(&mut em.write(), Default::default(), h[0], 0, vec![]);
     record_block(&mut em.write(), h[0], h[1], 1, vec![]);
@@ -1301,14 +1489,23 @@ fn test_num_missing_blocks() {
 /// producer kickout.
 #[test]
 fn test_chunk_producer_kickout() {
-    let stake_amount = 1_000_000;
+    let stake_amount = Balance::from_yoctonear(1_000_000);
     let validators =
         vec![("test1".parse().unwrap(), stake_amount), ("test2".parse().unwrap(), stake_amount)];
     let epoch_length = 10;
-    let total_supply = stake_amount * validators.len() as u128;
-    let em =
-        setup_epoch_manager(validators, epoch_length, 4, 2, 90, 70, 0, default_reward_calculator())
-            .into_handle();
+    let total_supply = stake_amount.checked_mul(validators.len().try_into().unwrap()).unwrap();
+    let em = setup_epoch_manager(
+        validators,
+        epoch_length,
+        4,
+        2,
+        90,
+        70,
+        0,
+        default_reward_calculator(),
+        Rational32::new(0, 1),
+    )
+    .into_handle();
     let rng_seed = [0; 32];
     let hashes = hash_range((epoch_length + 2) as usize);
     record_block(&mut em.write(), Default::default(), hashes[0], 0, vec![]);
@@ -1367,13 +1564,24 @@ fn test_chunk_producer_kickout() {
 /// validator is not kicked out.
 #[test]
 fn test_chunk_validator_kickout_using_production_stats() {
-    let stake_amount = 1_000_000;
-    let validators: Vec<(AccountId, Balance)> =
-        (0..3).map(|i| (format!("test{i}").parse().unwrap(), stake_amount + 100 - i)).collect();
+    let stake_amount = Balance::from_yoctonear(1_000_000);
+    let validators: Vec<(AccountId, Balance)> = (0..3)
+        .map(|i| {
+            (
+                format!("test{i}").parse().unwrap(),
+                stake_amount
+                    .checked_add(Balance::from_yoctonear(100))
+                    .unwrap()
+                    .checked_sub(Balance::from_yoctonear(i.try_into().unwrap()))
+                    .unwrap(),
+            )
+        })
+        .collect();
     let epoch_length = 10;
-    let total_supply = stake_amount * validators.len() as u128;
+    let total_supply = stake_amount.checked_mul(validators.len().try_into().unwrap()).unwrap();
     let num_shards = 2;
-    let epoch_config = epoch_config(epoch_length, num_shards, 2, 2, 90, 40, 75);
+    let epoch_config =
+        epoch_config(epoch_length, num_shards, 2, 2, 90, 40, 75, Rational32::new(1, 40));
     let em = EpochManager::new(
         create_test_store(),
         epoch_config,
@@ -1440,13 +1648,24 @@ fn test_chunk_validator_kickout_using_production_stats() {
 /// but some validators miss chunks and got kicked out.
 #[test]
 fn test_chunk_validator_kickout_using_endorsement_stats() {
-    let stake_amount = 1_000_000;
-    let validators: Vec<(AccountId, Balance)> =
-        (0..3).map(|i| (format!("test{i}").parse().unwrap(), stake_amount + 100 - i)).collect();
+    let stake_amount = Balance::from_yoctonear(1_000_000);
+    let validators: Vec<(AccountId, Balance)> = (0..3)
+        .map(|i| {
+            (
+                format!("test{i}").parse().unwrap(),
+                stake_amount
+                    .checked_add(Balance::from_yoctonear(100))
+                    .unwrap()
+                    .checked_sub(Balance::from_yoctonear(i.try_into().unwrap()))
+                    .unwrap(),
+            )
+        })
+        .collect();
     let epoch_length = 10;
-    let total_supply = stake_amount * validators.len() as u128;
+    let total_supply = stake_amount.checked_mul(validators.len().try_into().unwrap()).unwrap();
     let num_shards = 2;
-    let epoch_config = epoch_config(epoch_length, num_shards, 2, 2, 90, 40, 75);
+    let epoch_config =
+        epoch_config(epoch_length, num_shards, 2, 2, 90, 40, 75, Rational32::new(1, 40));
     let em = EpochManager::new(
         create_test_store(),
         epoch_config,
@@ -1536,7 +1755,7 @@ fn test_chunk_validator_kickout_using_endorsement_stats() {
 
 #[test]
 fn test_compare_epoch_id() {
-    let amount_staked = 1_000_000;
+    let amount_staked = Balance::from_yoctonear(1_000_000);
     let validators =
         vec![("test1".parse().unwrap(), amount_staked), ("test2".parse().unwrap(), amount_staked)];
     let epoch_manager = setup_default_epoch_manager(validators, 2, 1, 2, 90, 60).into_handle();
@@ -1548,7 +1767,7 @@ fn test_compare_epoch_id() {
         h[0],
         h[1],
         1,
-        vec![stake("test1".parse().unwrap(), 0)],
+        vec![stake("test1".parse().unwrap(), Balance::ZERO)],
     );
     record_block(
         &mut epoch_manager.write(),
@@ -1571,17 +1790,26 @@ fn test_compare_epoch_id() {
 
 #[test]
 fn test_fishermen() {
-    let stake_amount = 1_000_000;
-    let fishermen_threshold = 100;
+    let stake_amount = Balance::from_yoctonear(1_000_000);
+    let fishermen_threshold = Balance::from_yoctonear(100);
     let validators = vec![
         ("test1".parse().unwrap(), stake_amount),
         ("test2".parse().unwrap(), stake_amount),
         ("test3".parse().unwrap(), fishermen_threshold),
-        ("test4".parse().unwrap(), fishermen_threshold / 2),
+        ("test4".parse().unwrap(), fishermen_threshold.checked_div(2).unwrap()),
     ];
     let epoch_length = 4;
-    let em =
-        setup_epoch_manager(validators, epoch_length, 1, 4, 90, 70, 0, default_reward_calculator());
+    let em = setup_epoch_manager(
+        validators,
+        epoch_length,
+        1,
+        4,
+        90,
+        70,
+        0,
+        default_reward_calculator(),
+        Rational32::new(0, 1),
+    );
     let epoch_info = em.get_epoch_info(&EpochId::default()).unwrap();
     check_validators(&epoch_info, &[("test1", stake_amount), ("test2", stake_amount)]);
     check_fishermen(&epoch_info, &[]);
@@ -1590,8 +1818,8 @@ fn test_fishermen() {
         vec![
             ("test1".parse().unwrap(), stake_amount),
             ("test2".parse().unwrap(), stake_amount),
-            ("test3".parse().unwrap(), 0),
-            ("test4".parse().unwrap(), 0),
+            ("test3".parse().unwrap(), Balance::ZERO),
+            ("test4".parse().unwrap(), Balance::ZERO),
         ],
     );
     check_kickout(&epoch_info, &[]);
@@ -1599,19 +1827,35 @@ fn test_fishermen() {
 
 #[test]
 fn test_fishermen_unstake() {
-    let stake_amount = 1_000_000;
-    let fishermen_threshold = 100;
+    let stake_amount = Balance::from_yoctonear(1_000_000);
+    let fishermen_threshold = Balance::from_yoctonear(100);
     let validators = vec![
         ("test1".parse().unwrap(), stake_amount),
         ("test2".parse().unwrap(), fishermen_threshold),
         ("test3".parse().unwrap(), fishermen_threshold),
     ];
-    let mut em = setup_epoch_manager(validators, 2, 1, 1, 90, 70, 0, default_reward_calculator());
+    let mut em = setup_epoch_manager(
+        validators,
+        2,
+        1,
+        1,
+        90,
+        70,
+        0,
+        default_reward_calculator(),
+        Rational32::new(0, 1),
+    );
     let h = hash_range(5);
     record_block(&mut em, CryptoHash::default(), h[0], 0, vec![]);
     // fishermen unstake
-    record_block(&mut em, h[0], h[1], 1, vec![stake("test2".parse().unwrap(), 0)]);
-    record_block(&mut em, h[1], h[2], 2, vec![stake("test3".parse().unwrap(), 1)]);
+    record_block(&mut em, h[0], h[1], 1, vec![stake("test2".parse().unwrap(), Balance::ZERO)]);
+    record_block(
+        &mut em,
+        h[1],
+        h[2],
+        2,
+        vec![stake("test3".parse().unwrap(), Balance::from_yoctonear(1))],
+    );
 
     let epoch_info = em.get_epoch_info(&EpochId(h[2])).unwrap();
     check_validators(&epoch_info, &[("test1", stake_amount)]);
@@ -1620,8 +1864,8 @@ fn test_fishermen_unstake() {
         &epoch_info,
         vec![
             ("test1".parse().unwrap(), stake_amount),
-            ("test2".parse().unwrap(), 0),
-            ("test3".parse().unwrap(), 0),
+            ("test2".parse().unwrap(), Balance::ZERO),
+            ("test3".parse().unwrap(), Balance::ZERO),
         ],
     );
     let kickout = epoch_info.validator_kickout();
@@ -1634,7 +1878,7 @@ fn test_fishermen_unstake() {
 
 #[test]
 fn test_validator_consistency() {
-    let stake_amount = 1_000;
+    let stake_amount = Balance::from_yoctonear(1_000);
     let validators =
         vec![("test1".parse().unwrap(), stake_amount), ("test2".parse().unwrap(), stake_amount)];
     let mut epoch_manager = setup_default_epoch_manager(validators, 2, 1, 1, 90, 60);
@@ -1660,7 +1904,7 @@ fn test_validator_consistency() {
 /// no unexpected error.
 #[test]
 fn test_finalize_epoch_large_epoch_length() {
-    let stake_amount = 1_000;
+    let stake_amount = Balance::from_yoctonear(1_000);
     let validators =
         vec![("test1".parse().unwrap(), stake_amount), ("test2".parse().unwrap(), stake_amount)];
     let mut epoch_manager =
@@ -1691,11 +1935,11 @@ fn test_finalize_epoch_large_epoch_length() {
 
 #[test]
 fn test_kickout_set() {
-    let stake_amount = 1_000_000;
+    let stake_amount = Balance::from_yoctonear(1_000_000);
     let validators = vec![
         ("test1".parse().unwrap(), stake_amount),
-        ("test2".parse().unwrap(), 0),
-        ("test3".parse().unwrap(), 10),
+        ("test2".parse().unwrap(), Balance::ZERO),
+        ("test3".parse().unwrap(), Balance::from_yoctonear(10)),
     ];
     // have two seats to that 500 would be the threshold
     let mut epoch_manager = setup_default_epoch_manager(validators, 2, 1, 2, 90, 60);
@@ -1708,7 +1952,13 @@ fn test_kickout_set() {
         1,
         vec![stake("test2".parse().unwrap(), stake_amount)],
     );
-    record_block(&mut epoch_manager, h[1], h[2], 2, vec![stake("test2".parse().unwrap(), 0)]);
+    record_block(
+        &mut epoch_manager,
+        h[1],
+        h[2],
+        2,
+        vec![stake("test2".parse().unwrap(), Balance::ZERO)],
+    );
     let epoch_info1 = epoch_manager.get_epoch_info(&EpochId(h[2])).unwrap();
     assert_eq!(
         epoch_info1.validators_iter().map(|r| r.account_id().clone()).collect::<Vec<_>>(),
@@ -1716,7 +1966,10 @@ fn test_kickout_set() {
     );
     assert_eq!(
         epoch_info1.stake_change().clone(),
-        change_stake(vec![("test1".parse().unwrap(), stake_amount), ("test2".parse().unwrap(), 0)])
+        change_stake(vec![
+            ("test1".parse().unwrap(), stake_amount),
+            ("test2".parse().unwrap(), Balance::ZERO)
+        ])
     );
     assert!(epoch_info1.validator_kickout().is_empty());
     record_block(
@@ -1739,7 +1992,7 @@ fn test_kickout_set() {
 
 #[test]
 fn test_epoch_height_increase() {
-    let stake_amount = 1_000;
+    let stake_amount = Balance::from_yoctonear(1_000);
     let validators = vec![
         ("test1".parse().unwrap(), stake_amount),
         ("test2".parse().unwrap(), stake_amount),
@@ -1748,7 +2001,13 @@ fn test_epoch_height_increase() {
     let mut epoch_manager = setup_default_epoch_manager(validators, 1, 1, 3, 90, 60);
     let h = hash_range(5);
     record_block(&mut epoch_manager, CryptoHash::default(), h[0], 0, vec![]);
-    record_block(&mut epoch_manager, h[0], h[2], 2, vec![stake("test1".parse().unwrap(), 223)]);
+    record_block(
+        &mut epoch_manager,
+        h[0],
+        h[2],
+        2,
+        vec![stake("test1".parse().unwrap(), Balance::from_yoctonear(223))],
+    );
     record_block(&mut epoch_manager, h[2], h[4], 4, vec![]);
 
     let epoch_info2 = epoch_manager.get_epoch_info(&EpochId(h[2])).unwrap();
@@ -1758,7 +2017,7 @@ fn test_epoch_height_increase() {
 
 #[test]
 fn test_all_kickout_edge_case() {
-    let stake_amount = 1_000;
+    let stake_amount = Balance::from_yoctonear(1_000);
     let validators = vec![
         ("test1".parse().unwrap(), stake_amount),
         ("test2".parse().unwrap(), stake_amount),
@@ -1826,25 +2085,25 @@ fn test_all_kickout_edge_case() {
     assert_eq!(last_epoch_info.unwrap().validator_kickout(), &HashMap::default());
 }
 
-fn check_validators(epoch_info: &EpochInfo, expected_validators: &[(&str, u128)]) {
+fn check_validators(epoch_info: &EpochInfo, expected_validators: &[(&str, Balance)]) {
     for (v, (account_id, stake)) in epoch_info.validators_iter().zip_eq(expected_validators) {
         assert_eq!(v.account_id(), *account_id);
         assert_eq!(v.stake(), *stake);
     }
 }
 
-fn check_fishermen(epoch_info: &EpochInfo, expected_fishermen: &[(&str, u128)]) {
+fn check_fishermen(epoch_info: &EpochInfo, expected_fishermen: &[(&str, Balance)]) {
     for (v, (account_id, stake)) in epoch_info.fishermen_iter().zip_eq(expected_fishermen) {
         assert_eq!(v.account_id(), *account_id);
         assert_eq!(v.stake(), *stake);
     }
 }
 
-fn check_stake_change(epoch_info: &EpochInfo, changes: Vec<(AccountId, u128)>) {
+fn check_stake_change(epoch_info: &EpochInfo, changes: Vec<(AccountId, Balance)>) {
     assert_eq!(epoch_info.stake_change(), &change_stake(changes));
 }
 
-fn check_reward(epoch_info: &EpochInfo, changes: Vec<(AccountId, u128)>) {
+fn check_reward(epoch_info: &EpochInfo, changes: Vec<(AccountId, Balance)>) {
     assert_eq!(epoch_info.validator_reward(), &reward(changes));
 }
 
@@ -1860,7 +2119,8 @@ fn check_kickout(epoch_info: &EpochInfo, reasons: &[(&str, ValidatorKickoutReaso
 fn test_protocol_version_switch() {
     let store = create_test_store();
 
-    let epoch_config = epoch_config(2, 1, 2, 100, 90, 60, 0).for_protocol_version(PROTOCOL_VERSION);
+    let epoch_config = epoch_config(2, 1, 2, 100, 90, 60, 0, Rational32::new(1, 40))
+        .for_protocol_version(PROTOCOL_VERSION);
     let genesis_protocol_version = 0;
     let config_store = EpochConfigStore::test(BTreeMap::from_iter(vec![
         (genesis_protocol_version, Arc::new(epoch_config.clone())),
@@ -1873,7 +2133,7 @@ fn test_protocol_version_switch() {
         genesis_protocol_version,
     );
 
-    let amount_staked = 1_000_000;
+    let amount_staked = Balance::from_yoctonear(1_000_000);
     let validators = vec![
         stake("test1".parse().unwrap(), amount_staked),
         stake("test2".parse().unwrap(), amount_staked),
@@ -1899,10 +2159,10 @@ fn test_protocol_version_switch() {
 fn test_protocol_version_switch_with_shard_layout_change() {
     let store = create_test_store();
 
-    let old_epoch_config =
-        epoch_config(2, 1, 2, 100, 90, 60, 0).for_protocol_version(PROTOCOL_VERSION);
-    let new_epoch_config =
-        epoch_config(2, 4, 2, 100, 90, 60, 0).for_protocol_version(PROTOCOL_VERSION);
+    let old_epoch_config = epoch_config(2, 1, 2, 100, 90, 60, 0, Rational32::new(1, 40))
+        .for_protocol_version(PROTOCOL_VERSION);
+    let new_epoch_config = epoch_config(2, 4, 2, 100, 90, 60, 0, Rational32::new(1, 40))
+        .for_protocol_version(PROTOCOL_VERSION);
     let genesis_protocol_version = PROTOCOL_VERSION - 1;
     let config_store = EpochConfigStore::test(BTreeMap::from_iter(vec![
         (genesis_protocol_version, Arc::new(old_epoch_config)),
@@ -1915,7 +2175,7 @@ fn test_protocol_version_switch_with_shard_layout_change() {
         genesis_protocol_version,
     );
 
-    let amount_staked = 1_000_000;
+    let amount_staked = Balance::from_yoctonear(1_000_000);
     let validators = vec![
         stake("test1".parse().unwrap(), amount_staked),
         stake("test2".parse().unwrap(), amount_staked),
@@ -1955,10 +2215,10 @@ fn test_protocol_version_switch_with_shard_layout_change() {
 #[test]
 fn test_protocol_version_switch_with_many_seats() {
     let store = create_test_store();
-    let amount_staked = 1_000_000;
+    let amount_staked = Balance::from_yoctonear(1_000_000);
     let validators = vec![
         stake("test1".parse().unwrap(), amount_staked),
-        stake("test2".parse().unwrap(), amount_staked / 5),
+        stake("test2".parse().unwrap(), amount_staked.checked_div(5).unwrap()),
     ];
 
     let config_store = EpochConfigStore::test_single_version(
@@ -1992,8 +2252,8 @@ fn test_version_switch_kickout_old_version() {
     let (version, new_version) = (PROTOCOL_VERSION, PROTOCOL_VERSION + 1);
 
     let epoch_length = 2;
-    let epoch_config =
-        epoch_config(epoch_length, 1, 2, 100, 90, 60, 0).for_protocol_version(version);
+    let epoch_config = epoch_config(epoch_length, 1, 2, 100, 90, 60, 0, Rational32::new(0, 1))
+        .for_protocol_version(version);
     let config_store = EpochConfigStore::test(BTreeMap::from_iter(vec![
         (version, Arc::new(epoch_config.clone())),
         (new_version, Arc::new(epoch_config)),
@@ -2001,7 +2261,7 @@ fn test_version_switch_kickout_old_version() {
     let config =
         AllEpochConfig::from_epoch_config_store("test-chain", 2, config_store, PROTOCOL_VERSION);
 
-    let (large_stake, small_stake) = (1_000, 100);
+    let (large_stake, small_stake) = (Balance::from_yoctonear(1_000), Balance::from_yoctonear(100));
     let validators = vec![
         stake("test1".parse().unwrap(), large_stake),
         stake("test2".parse().unwrap(), small_stake),
@@ -2049,7 +2309,7 @@ fn test_version_switch_kickout_old_version() {
 /// even though from the perspective of h+2 the last final block is h-2.
 #[test]
 fn test_final_block_consistency() {
-    let amount_staked = 1_000_000;
+    let amount_staked = Balance::from_yoctonear(1_000_000);
     let validators =
         vec![("test1".parse().unwrap(), amount_staked), ("test2".parse().unwrap(), amount_staked)];
     let mut epoch_manager = setup_default_epoch_manager(validators, 10, 1, 3, 90, 60);
@@ -2083,7 +2343,7 @@ fn test_final_block_consistency() {
 
 #[test]
 fn test_epoch_validators_cache() {
-    let amount_staked = 1_000_000;
+    let amount_staked = Balance::from_yoctonear(1_000_000);
     let validators =
         vec![("test1".parse().unwrap(), amount_staked), ("test2".parse().unwrap(), amount_staked)];
     let mut epoch_manager = setup_default_epoch_manager(validators, 2, 1, 10, 90, 60);
@@ -2111,14 +2371,14 @@ fn test_epoch_validators_cache() {
 
 #[test]
 fn test_chunk_producers() {
-    let amount_staked = 1_000_000;
+    let amount_staked = Balance::from_yoctonear(1_000_000);
     // Make sure that last validator has at least 160/1'000'000 of stake.
     // We're running with 2 shards and test1 + test2 has 2'000'000 tokens - so chunk_only should have over 160.
     let validators = vec![
         ("test1".parse().unwrap(), amount_staked),
         ("test2".parse().unwrap(), amount_staked),
-        ("chunk_only".parse().unwrap(), 321),
-        ("not_enough_producer".parse().unwrap(), 320),
+        ("chunk_only".parse().unwrap(), Balance::from_yoctonear(321)),
+        ("not_enough_producer".parse().unwrap(), Balance::from_yoctonear(320)),
     ];
 
     // There are 2 shards, and 2 block producers seats.
@@ -2157,16 +2417,16 @@ fn test_chunk_producers() {
 
 #[test]
 fn test_validator_kickout_determinism() {
-    let mut epoch_config =
-        epoch_config(5, 2, 4, 4, 90, 80, 90).for_protocol_version(PROTOCOL_VERSION);
+    let mut epoch_config = epoch_config(5, 2, 4, 4, 90, 80, 90, Rational32::new(1, 40))
+        .for_protocol_version(PROTOCOL_VERSION);
     epoch_config.validator_max_kickout_stake_perc = 99;
     let accounts = vec![
-        ("test0".parse().unwrap(), 1000),
-        ("test1".parse().unwrap(), 1000),
-        ("test2".parse().unwrap(), 1000),
-        ("test3".parse().unwrap(), 1000),
-        ("test4".parse().unwrap(), 500),
-        ("test5".parse().unwrap(), 500),
+        ("test0".parse().unwrap(), Balance::from_yoctonear(1000)),
+        ("test1".parse().unwrap(), Balance::from_yoctonear(1000)),
+        ("test2".parse().unwrap(), Balance::from_yoctonear(1000)),
+        ("test3".parse().unwrap(), Balance::from_yoctonear(1000)),
+        ("test4".parse().unwrap(), Balance::from_yoctonear(500)),
+        ("test5".parse().unwrap(), Balance::from_yoctonear(500)),
     ];
     let epoch_info = epoch_info(
         0,
@@ -2239,18 +2499,18 @@ fn test_validator_kickout_determinism() {
 /// so the validator with the lower endorsement ratio is kicked out.
 #[test]
 fn test_chunk_validators_with_different_endorsement_ratio() {
-    let mut epoch_config =
-        epoch_config(5, 2, 2, 2, 90, 90, 70).for_protocol_version(PROTOCOL_VERSION);
+    let mut epoch_config = epoch_config(5, 2, 2, 2, 90, 90, 70, Rational32::new(1, 40))
+        .for_protocol_version(PROTOCOL_VERSION);
     // Set the max kickout stake percentage so that only one of the chunk validators
     // is kicked out, and the other chunk validator is exempted from kickout.
     // Both chunk validators have endorsement ratio lower than the kickout threshold.
     epoch_config.validator_max_kickout_stake_perc = 30;
     // Test 0-1 are block+chunk producers and 2-3 are chunk validators only.
     let accounts = vec![
-        ("test0".parse().unwrap(), 1000),
-        ("test1".parse().unwrap(), 1000),
-        ("test2".parse().unwrap(), 500),
-        ("test3".parse().unwrap(), 500),
+        ("test0".parse().unwrap(), Balance::from_yoctonear(1000)),
+        ("test1".parse().unwrap(), Balance::from_yoctonear(1000)),
+        ("test2".parse().unwrap(), Balance::from_yoctonear(500)),
+        ("test3".parse().unwrap(), Balance::from_yoctonear(500)),
     ];
     let epoch_info = epoch_info(
         0,
@@ -2297,18 +2557,18 @@ fn test_chunk_validators_with_different_endorsement_ratio() {
 /// so the validator with the lower stake is kicked out.
 #[test]
 fn test_chunk_validators_with_same_endorsement_ratio_and_different_stake() {
-    let mut epoch_config =
-        epoch_config(5, 2, 2, 2, 90, 90, 70).for_protocol_version(PROTOCOL_VERSION);
+    let mut epoch_config = epoch_config(5, 2, 2, 2, 90, 90, 70, Rational32::new(1, 40))
+        .for_protocol_version(PROTOCOL_VERSION);
     // Set the max kickout stake percentage so that only one of the chunk validators
     // is kicked out, and the other chunk validator is exempted from kickout.
     // Both chunk validators have endorsement ratio lower than the kickout threshold.
     epoch_config.validator_max_kickout_stake_perc = 30;
     // Test 0-1 are block+chunk producers and 2-3 are chunk validators only.
     let accounts = vec![
-        ("test0".parse().unwrap(), 1000),
-        ("test1".parse().unwrap(), 1000),
-        ("test2".parse().unwrap(), 500),
-        ("test3".parse().unwrap(), 499),
+        ("test0".parse().unwrap(), Balance::from_yoctonear(1000)),
+        ("test1".parse().unwrap(), Balance::from_yoctonear(1000)),
+        ("test2".parse().unwrap(), Balance::from_yoctonear(500)),
+        ("test3".parse().unwrap(), Balance::from_yoctonear(499)),
     ];
     let epoch_info = epoch_info(
         0,
@@ -2355,18 +2615,18 @@ fn test_chunk_validators_with_same_endorsement_ratio_and_different_stake() {
 /// so we select the exempted validator based on the ordering of the account id.
 #[test]
 fn test_chunk_validators_with_same_endorsement_ratio_and_stake() {
-    let mut epoch_config =
-        epoch_config(5, 2, 2, 2, 90, 90, 70).for_protocol_version(PROTOCOL_VERSION);
+    let mut epoch_config = epoch_config(5, 2, 2, 2, 90, 90, 70, Rational32::new(1, 40))
+        .for_protocol_version(PROTOCOL_VERSION);
     // Set the max kickout stake percentage so that only one of the chunk validators
     // is kicked out, and the other chunk validator is exempted from kickout.
     // Both chunk validators have endorsement ratio lower than the kickout threshold.
     epoch_config.validator_max_kickout_stake_perc = 30;
     // Test 0-1 are block+chunk producers and 2-3 are chunk validators only.
     let accounts = vec![
-        ("test0".parse().unwrap(), 1000),
-        ("test1".parse().unwrap(), 1000),
-        ("test2".parse().unwrap(), 500),
-        ("test3".parse().unwrap(), 500),
+        ("test0".parse().unwrap(), Balance::from_yoctonear(1000)),
+        ("test1".parse().unwrap(), Balance::from_yoctonear(1000)),
+        ("test2".parse().unwrap(), Balance::from_yoctonear(500)),
+        ("test3".parse().unwrap(), Balance::from_yoctonear(500)),
     ];
     let epoch_info = epoch_info(
         0,
@@ -2413,14 +2673,15 @@ fn test_chunk_validators_with_same_endorsement_ratio_and_stake() {
 /// checks that validators that don't meet their kickout thresholds are kicked out.
 #[test]
 fn test_validator_kickout_sanity() {
-    let epoch_config = epoch_config(5, 2, 4, 4, 90, 80, 90).for_protocol_version(PROTOCOL_VERSION);
+    let epoch_config = epoch_config(5, 2, 4, 4, 90, 80, 90, Rational32::new(1, 40))
+        .for_protocol_version(PROTOCOL_VERSION);
     let accounts = vec![
-        ("test0".parse().unwrap(), 1000),
-        ("test1".parse().unwrap(), 1000),
-        ("test2".parse().unwrap(), 1000),
-        ("test3".parse().unwrap(), 1000),
-        ("test4".parse().unwrap(), 500),
-        ("test5".parse().unwrap(), 500),
+        ("test0".parse().unwrap(), Balance::from_yoctonear(1000)),
+        ("test1".parse().unwrap(), Balance::from_yoctonear(1000)),
+        ("test2".parse().unwrap(), Balance::from_yoctonear(1000)),
+        ("test3".parse().unwrap(), Balance::from_yoctonear(1000)),
+        ("test4".parse().unwrap(), Balance::from_yoctonear(500)),
+        ("test5".parse().unwrap(), Balance::from_yoctonear(500)),
     ];
     let epoch_info = epoch_info(
         0,
@@ -2551,12 +2812,13 @@ fn test_validator_kickout_sanity() {
 /// This test does not test kickouts at all.
 #[test]
 fn test_chunk_endorsement_stats() {
-    let epoch_config = epoch_config(5, 2, 4, 100, 90, 80, 0).for_protocol_version(PROTOCOL_VERSION);
+    let epoch_config = epoch_config(5, 2, 4, 100, 90, 80, 0, Rational32::new(1, 40))
+        .for_protocol_version(PROTOCOL_VERSION);
     let accounts = vec![
-        ("test0".parse().unwrap(), 1000),
-        ("test1".parse().unwrap(), 1000),
-        ("test2".parse().unwrap(), 1000),
-        ("test3".parse().unwrap(), 1000),
+        ("test0".parse().unwrap(), Balance::from_yoctonear(1000)),
+        ("test1".parse().unwrap(), Balance::from_yoctonear(1000)),
+        ("test2".parse().unwrap(), Balance::from_yoctonear(1000)),
+        ("test3".parse().unwrap(), Balance::from_yoctonear(1000)),
     ];
     let epoch_info = epoch_info(
         0,
@@ -2633,14 +2895,14 @@ fn test_chunk_endorsement_stats() {
 #[test]
 /// Test that the stake of validators kicked out in an epoch doesn't exceed the max_kickout_stake_ratio
 fn test_max_kickout_stake_ratio() {
-    let mut epoch_config =
-        epoch_config(5, 2, 4, 100, 90, 80, 0).for_protocol_version(PROTOCOL_VERSION);
+    let mut epoch_config = epoch_config(5, 2, 4, 100, 90, 80, 0, Rational32::new(1, 40))
+        .for_protocol_version(PROTOCOL_VERSION);
     let accounts = vec![
-        ("test0".parse().unwrap(), 1000),
-        ("test1".parse().unwrap(), 1000),
-        ("test2".parse().unwrap(), 1000),
-        ("test3".parse().unwrap(), 1000),
-        ("test4".parse().unwrap(), 1000),
+        ("test0".parse().unwrap(), Balance::from_yoctonear(1000)),
+        ("test1".parse().unwrap(), Balance::from_yoctonear(1000)),
+        ("test2".parse().unwrap(), Balance::from_yoctonear(1000)),
+        ("test3".parse().unwrap(), Balance::from_yoctonear(1000)),
+        ("test4".parse().unwrap(), Balance::from_yoctonear(1000)),
     ];
     let epoch_info =
         epoch_info(0, accounts, vec![0, 1, 2, 3], vec![vec![0, 1], vec![2, 4]], PROTOCOL_VERSION);
@@ -2752,15 +3014,15 @@ fn test_max_kickout_stake_ratio() {
 
 /// Common test scenario for a couple of tests exercising chunk validator kickouts.
 fn test_chunk_validator_kickout(expected_kickouts: HashMap<AccountId, ValidatorKickoutReason>) {
-    let mut epoch_config =
-        epoch_config(5, 2, 4, 100, 80, 80, 80).for_protocol_version(PROTOCOL_VERSION);
+    let mut epoch_config = epoch_config(5, 2, 4, 100, 80, 80, 80, Rational32::new(1, 40))
+        .for_protocol_version(PROTOCOL_VERSION);
     let accounts = vec![
-        ("test0".parse().unwrap(), 1000),
-        ("test1".parse().unwrap(), 1000),
-        ("test2".parse().unwrap(), 1000),
-        ("test3".parse().unwrap(), 1000),
-        ("test4".parse().unwrap(), 1000),
-        ("test5".parse().unwrap(), 1000),
+        ("test0".parse().unwrap(), Balance::from_yoctonear(1000)),
+        ("test1".parse().unwrap(), Balance::from_yoctonear(1000)),
+        ("test2".parse().unwrap(), Balance::from_yoctonear(1000)),
+        ("test3".parse().unwrap(), Balance::from_yoctonear(1000)),
+        ("test4".parse().unwrap(), Balance::from_yoctonear(1000)),
+        ("test5".parse().unwrap(), Balance::from_yoctonear(1000)),
     ];
     let epoch_info =
         epoch_info(0, accounts, vec![0, 1, 2, 3], vec![vec![0, 1], vec![0, 2]], PROTOCOL_VERSION);
@@ -2820,12 +3082,12 @@ fn test_chunk_validator_kicked_out_for_low_endorsement() {
 #[test]
 /// Tests that a validator is not kicked out due to low endorsement only (as long as it produces most of its blocks and chunks).
 fn test_block_and_chunk_producer_not_kicked_out_for_low_endorsements() {
-    let mut epoch_config =
-        epoch_config(5, 2, 4, 100, 80, 80, 80).for_protocol_version(PROTOCOL_VERSION);
+    let mut epoch_config = epoch_config(5, 2, 4, 100, 80, 80, 80, Rational32::new(1, 40))
+        .for_protocol_version(PROTOCOL_VERSION);
     let accounts = vec![
-        ("test0".parse().unwrap(), 1000),
-        ("test1".parse().unwrap(), 1000),
-        ("test2".parse().unwrap(), 1000),
+        ("test0".parse().unwrap(), Balance::from_yoctonear(1000)),
+        ("test1".parse().unwrap(), Balance::from_yoctonear(1000)),
+        ("test2".parse().unwrap(), Balance::from_yoctonear(1000)),
     ];
     let epoch_info = epoch_info(
         0,
@@ -2881,7 +3143,7 @@ fn test_chunk_header(h: &[CryptoHash], signer: &ValidatorSigner) -> ShardChunkHe
         ShardId::new(0),
         Gas::ZERO,
         Gas::ZERO,
-        0,
+        Balance::ZERO,
         h[2],
         h[2],
         vec![],
@@ -2897,7 +3159,7 @@ fn test_verify_partial_witness_signature() {
     use near_primitives::test_utils::create_test_signer;
     use std::str::FromStr;
 
-    let amount_staked = 1_000_000;
+    let amount_staked = Balance::from_yoctonear(1_000_000);
     let account_id = AccountId::from_str("test1").unwrap();
     let validators = vec![(account_id.clone(), amount_staked)];
     let h = hash_range(6);
@@ -2961,7 +3223,7 @@ fn test_possible_epochs_of_height_around_tip() {
     use std::str::FromStr;
     init_test_logger();
 
-    let amount_staked = 1_000_000;
+    let amount_staked = Balance::from_yoctonear(1_000_000);
     let account_id = AccountId::from_str("test1").unwrap();
     let validators = vec![(account_id, amount_staked)];
     let h = hash_range(50);
@@ -3287,7 +3549,7 @@ fn test_get_shard_uids_pending_resharding_base(shard_layouts: &[ShardLayout]) ->
     genesis_config.validators = vec![AccountInfo {
         account_id: "test".parse().unwrap(),
         public_key: PublicKey::empty(KeyType::ED25519),
-        amount: 10,
+        amount: Balance::from_yoctonear(10),
     }];
     genesis_config.num_block_producer_seats = 1;
     genesis_config.num_chunk_producer_seats = 1;

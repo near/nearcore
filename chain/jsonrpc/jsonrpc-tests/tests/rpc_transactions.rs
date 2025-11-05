@@ -7,7 +7,7 @@ use near_network::test_utils::wait_or_timeout;
 use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::serialize::to_base64;
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::BlockReference;
+use near_primitives::types::{Balance, BlockReference};
 use near_primitives::views::{FinalExecutionStatus, TxExecutionStatus};
 
 use near_jsonrpc_tests::{
@@ -15,7 +15,7 @@ use near_jsonrpc_tests::{
 };
 
 /// Test sending transaction via json rpc without waiting.
-#[actix::test]
+#[tokio::test]
 async fn test_send_tx_async() {
     let setup = create_test_setup_with_node_type(NodeType::Validator);
     let client = new_client(&setup.server_addr);
@@ -28,7 +28,7 @@ async fn test_send_tx_async() {
         "test1".parse().unwrap(),
         "test2".parse().unwrap(),
         &signer,
-        100,
+        Balance::from_yoctonear(100),
         block_hash,
     );
     let bytes = borsh::to_vec(&tx).unwrap();
@@ -67,7 +67,7 @@ async fn test_send_tx_async() {
 }
 
 /// Test sending transaction and waiting for it to be committed to a block.
-#[actix::test]
+#[tokio::test]
 async fn test_send_tx_commit() {
     let setup = create_test_setup_with_node_type(NodeType::Validator);
     let client = new_client(&setup.server_addr);
@@ -79,7 +79,7 @@ async fn test_send_tx_commit() {
         "test1".parse().unwrap(),
         "test2".parse().unwrap(),
         &signer,
-        100,
+        Balance::from_yoctonear(100),
         block_hash,
     );
     let bytes = borsh::to_vec(&tx).unwrap();
@@ -96,7 +96,7 @@ async fn test_send_tx_commit() {
 }
 
 /// Test that expired transaction should be rejected
-#[actix::test]
+#[tokio::test]
 async fn test_expired_tx() {
     // Create setup with very short transaction validity period (1 block)
     let accounts = vec!["test1".parse().unwrap(), "test2".parse().unwrap()];
@@ -131,7 +131,7 @@ async fn test_expired_tx() {
         "test1".parse().unwrap(),
         "test2".parse().unwrap(),
         &signer,
-        100,
+        Balance::from_yoctonear(100),
         old_block_hash,
     );
     let bytes = borsh::to_vec(&tx).unwrap();
@@ -151,7 +151,7 @@ async fn test_expired_tx() {
 }
 
 /// Test sending transaction based on a different fork should be rejected
-#[actix::test]
+#[tokio::test]
 async fn test_replay_protection() {
     let setup = create_test_setup_with_node_type(NodeType::Validator);
     let client = new_client(&setup.server_addr);
@@ -162,7 +162,7 @@ async fn test_replay_protection() {
         "test1".parse().unwrap(),
         "test2".parse().unwrap(),
         &signer,
-        100,
+        Balance::from_yoctonear(100),
         hash(&[1]),
     );
     let bytes = borsh::to_vec(&tx).unwrap();
@@ -171,7 +171,7 @@ async fn test_replay_protection() {
     }
 }
 
-#[actix::test]
+#[tokio::test]
 async fn test_tx_status_missing_tx() {
     let setup = create_test_setup_with_node_type(NodeType::Validator);
     let client = new_client(&setup.server_addr);
@@ -192,7 +192,7 @@ async fn test_tx_status_missing_tx() {
     }
 }
 
-#[actix::test]
+#[tokio::test]
 async fn test_check_invalid_tx() {
     let setup = create_test_setup_with_node_type(NodeType::Validator);
     let client = new_client(&setup.server_addr);
@@ -205,7 +205,7 @@ async fn test_check_invalid_tx() {
             "test1".parse().unwrap(),
             "test2".parse().unwrap(),
             &signer,
-            100,
+            Balance::from_yoctonear(100),
             hash(&[1]),
         )),
         wait_until: TxExecutionStatus::None,

@@ -1,5 +1,3 @@
-use actix;
-
 use anyhow::Result;
 use clap::Parser;
 use tokio::sync::mpsc;
@@ -256,7 +254,8 @@ async fn listen_blocks(mut stream: mpsc::Receiver<near_indexer::StreamerMessage>
     }
 }
 
-fn main() -> Result<()> {
+#[tokio::main]
+async fn main() -> Result<()> {
     // We use it to automatically search the for root certificates to perform HTTPS calls
     // (sending telemetry and downloading genesis)
     openssl_probe::init_ssl_cert_env_vars();
@@ -278,13 +277,16 @@ fn main() -> Result<()> {
                 finality: near_primitives::types::Finality::Final,
                 validate_genesis: true,
             };
-            let system = actix::System::new();
-            system.block_on(async move {
-                let indexer = near_indexer::Indexer::new(indexer_config).expect("Indexer::new()");
+            let tokio_runtime = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .expect("Failed to create Tokio runtime");
+            tokio_runtime.block_on(async move {
+                let indexer =
+                    near_indexer::Indexer::new(indexer_config).await.expect("Indexer::new()");
                 let stream = indexer.streamer();
-                actix::spawn(listen_blocks(stream));
+                listen_blocks(stream).await;
             });
-            system.run()?;
         }
         SubCommand::Init(config) => near_indexer::indexer_init_configs(&home_dir, config.into())?,
     }

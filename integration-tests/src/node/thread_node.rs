@@ -1,7 +1,5 @@
-use std::path::PathBuf;
 use std::sync::Arc;
 
-use near_actix_test_utils::ShutdownableThread;
 use near_chain_configs::Genesis;
 use near_crypto::{InMemorySigner, Signer};
 use near_primitives::types::AccountId;
@@ -10,10 +8,11 @@ use nearcore::{NearConfig, start_with_config};
 use crate::node::Node;
 use crate::user::User;
 use crate::user::rpc_user::RpcUser;
+use near_async::ActorSystem;
 
 pub enum ThreadNodeState {
     Stopped,
-    Running(ShutdownableThread),
+    Running(ActorSystem),
 }
 
 pub struct ThreadNode {
@@ -24,10 +23,12 @@ pub struct ThreadNode {
     account_id: AccountId,
 }
 
-fn start_thread(config: NearConfig, path: PathBuf) -> ShutdownableThread {
-    ShutdownableThread::start("test", move |actor_system| {
-        start_with_config(&path, config, actor_system).expect("start_with_config");
-    })
+impl Drop for ThreadNode {
+    fn drop(&mut self) {
+        if let ThreadNodeState::Running(handle) = &self.state {
+            handle.stop();
+        }
+    }
 }
 
 impl Node for ThreadNode {
@@ -40,7 +41,10 @@ impl Node for ThreadNode {
     }
 
     fn start(&mut self) {
-        let handle = start_thread(self.config.clone(), self.dir.path().to_path_buf());
+        let handle = ActorSystem::new();
+        tokio::runtime::Handle::current()
+            .block_on(start_with_config(self.dir.path(), self.config.clone(), handle.clone()))
+            .expect("Failed to start ThreadNode");
         self.state = ThreadNodeState::Running(handle);
     }
 
@@ -49,7 +53,7 @@ impl Node for ThreadNode {
         match state {
             ThreadNodeState::Stopped => panic!("Node is not running"),
             ThreadNodeState::Running(handle) => {
-                handle.shutdown();
+                handle.stop();
                 self.state = ThreadNodeState::Stopped;
             }
         }

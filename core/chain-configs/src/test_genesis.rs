@@ -42,6 +42,7 @@ pub struct TestEpochConfigBuilder {
     minimum_stake_ratio: Rational32,
     chunk_producer_assignment_changes_limit: NumSeats,
     shuffle_shard_assignment_for_chunk_producers: bool,
+    max_inflation_rate: Rational32,
 
     // not used any more
     num_block_producer_seats_per_shard: Vec<NumSeats>,
@@ -137,6 +138,7 @@ impl Default for TestEpochConfigBuilder {
             minimum_stake_ratio: Rational32::new(16i32, 1_000_000i32),
             chunk_producer_assignment_changes_limit: 5,
             shuffle_shard_assignment_for_chunk_producers: false,
+            max_inflation_rate: Rational32::new(1, 40),
             // consider them ineffective
             num_block_producer_seats_per_shard: vec![1],
             genesis_protocol_version: None,
@@ -251,6 +253,7 @@ impl TestEpochConfigBuilder {
             shuffle_shard_assignment_for_chunk_producers: self
                 .shuffle_shard_assignment_for_chunk_producers,
             num_block_producer_seats_per_shard: self.num_block_producer_seats_per_shard,
+            max_inflation_rate: self.max_inflation_rate,
         };
         tracing::debug!("Epoch config: {:#?}", epoch_config);
         epoch_config
@@ -282,15 +285,15 @@ impl Default for TestGenesisBuilder {
             },
             genesis_time: chrono::Utc::now(),
             genesis_height: 1,
-            min_gas_price: 0,
-            max_gas_price: 0,
+            min_gas_price: Balance::ZERO,
+            max_gas_price: Balance::ZERO,
             gas_limit: Gas::from_teragas(1000),
             transaction_validity_period: 100,
             protocol_treasury_account: "near".to_string().parse().unwrap(),
             max_inflation_rate: Rational32::new(1, 1),
             user_accounts: vec![],
             dynamic_resharding: false,
-            fishermen_threshold: 0,
+            fishermen_threshold: Balance::ZERO,
             online_min_threshold: Rational32::new(90, 100),
             online_max_threshold: Rational32::new(99, 100),
             gas_price_adjustment_rate: Rational32::new(0, 1),
@@ -342,6 +345,10 @@ impl TestGenesisBuilder {
     pub fn shard_layout(mut self, shard_layout: ShardLayout) -> Self {
         self.shard_layout = shard_layout;
         self
+    }
+
+    pub fn shard_layout_single_shard(self) -> Self {
+        self.shard_layout(ShardLayout::single_shard())
     }
 
     pub fn gas_prices(mut self, min: Balance, max: Balance) -> Self {
@@ -444,7 +451,7 @@ impl TestGenesisBuilder {
             );
             user_accounts.push(UserAccount {
                 account_id: protocol_treasury_account.clone(),
-                balance: 0,
+                balance: Balance::ZERO,
                 access_keys: vec![],
             });
         }
@@ -456,20 +463,20 @@ impl TestGenesisBuilder {
             num_chunk_validator_seats,
         } = derive_validator_setup(self.validators_spec);
 
-        let mut total_supply = 0;
+        let mut total_supply = Balance::ZERO;
         let mut validator_stake: HashMap<AccountId, Balance> = HashMap::new();
         for validator in &validators {
-            total_supply += validator.amount;
+            total_supply = total_supply.checked_add(validator.amount).unwrap();
             validator_stake.insert(validator.account_id.clone(), validator.amount);
         }
         let mut records = Vec::new();
         for user_account in &user_accounts {
-            total_supply += user_account.balance;
+            total_supply = total_supply.checked_add(user_account.balance).unwrap();
             records.push(StateRecord::Account {
                 account_id: user_account.account_id.clone(),
                 account: Account::new(
                     user_account.balance,
-                    validator_stake.remove(&user_account.account_id).unwrap_or(0),
+                    validator_stake.remove(&user_account.account_id).unwrap_or(Balance::ZERO),
                     AccountContract::None,
                     0,
                 ),
@@ -488,7 +495,7 @@ impl TestGenesisBuilder {
         for (account_id, balance) in validator_stake {
             records.push(StateRecord::Account {
                 account_id,
-                account: Account::new(0, balance, AccountContract::None, 0),
+                account: Account::new(Balance::ZERO, balance, AccountContract::None, 0),
             });
         }
 
@@ -585,8 +592,6 @@ struct DerivedValidatorSetup {
     num_chunk_validator_seats: NumSeats,
 }
 
-pub const ONE_NEAR: Balance = 1_000_000_000_000_000_000_000_000;
-
 fn derive_validator_setup(specs: ValidatorsSpec) -> DerivedValidatorSetup {
     match specs {
         ValidatorsSpec::DesiredRoles { block_and_chunk_producers, chunk_validators_only } => {
@@ -597,7 +602,7 @@ fn derive_validator_setup(specs: ValidatorsSpec) -> DerivedValidatorSetup {
                 let account_info = AccountInfo {
                     public_key: create_test_signer(account_id.as_str()).public_key(),
                     account_id,
-                    amount: ONE_NEAR * (10000 - i as Balance),
+                    amount: Balance::from_near((10000 - i).try_into().unwrap()),
                 };
                 validators.push(account_info);
             }
@@ -605,8 +610,9 @@ fn derive_validator_setup(specs: ValidatorsSpec) -> DerivedValidatorSetup {
                 let account_info = AccountInfo {
                     public_key: create_test_signer(account_id.as_str()).public_key(),
                     account_id,
-                    amount: ONE_NEAR
-                        * (10000 - i as Balance - num_block_and_chunk_producer_seats as Balance),
+                    amount: Balance::from_near(
+                        10000 - i as u128 - num_block_and_chunk_producer_seats as u128,
+                    ),
                 };
                 validators.push(account_info);
             }

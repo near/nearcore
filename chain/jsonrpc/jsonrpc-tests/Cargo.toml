@@ -12,12 +12,12 @@ publish = false
 workspace = true
 
 [dependencies]
-actix.workspace = true
 axum.workspace = true
 axum-test.workspace = true
 borsh.workspace = true
 reqwest = { workspace = true, features = ["json"] }
 serde_json.workspace = true
+tokio.workspace = true
 
 near-time.workspace = true
 near-async.workspace = true
@@ -42,7 +42,6 @@ near-test-contracts.workspace = true
 [features]
 test_features = ["near-jsonrpc/test_features", "nearcore/test_features"]
 nightly = [
-    "near-async/nightly",
     "near-chain-configs/nightly",
     "near-client/nightly",
     "near-jsonrpc-primitives/nightly",

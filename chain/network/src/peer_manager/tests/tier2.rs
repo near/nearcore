@@ -2,10 +2,9 @@ use crate::broadcast;
 use crate::network_protocol::testonly as data;
 use crate::peer_manager::connection_store::STORED_CONNECTIONS_MIN_DURATION;
 use crate::peer_manager::network_state::RECONNECT_ATTEMPT_INTERVAL;
-use crate::peer_manager::peer_manager_actor::Event as PME;
+use crate::peer_manager::peer_manager_actor::Event;
 use crate::peer_manager::peer_manager_actor::POLL_CONNECTION_STORE_INTERVAL;
 use crate::peer_manager::testonly::ActorHandler;
-use crate::peer_manager::testonly::Event;
 use crate::peer_manager::testonly::start as start_pm;
 use crate::tcp;
 use crate::testonly::AsSet;
@@ -33,7 +32,7 @@ async fn check_recent_outbound_connections(pm: &ActorHandler, want: Vec<PeerId>)
 async fn wait_for_connection_closed(events: &mut broadcast::Receiver<Event>) {
     events
         .recv_until(|ev| match ev {
-            Event::PeerManager(PME::ConnectionClosed(_)) => Some(()),
+            Event::ConnectionClosed(_) => Some(()),
             _ => None,
         })
         .await
@@ -165,11 +164,11 @@ async fn test_skip_reconnect_after_restart_outbound_side() {
     tracing::info!(target:"test", "check that pm0 starts without attempting to reconnect to pm1");
     let mut pm0_ev = pm0.events.clone();
     pm0_ev
-        .recv_until(|ev| match &ev {
-            Event::PeerManager(PME::ReconnectLoopSpawned(_)) => {
+        .recv_until(|ev| match ev {
+            Event::ReconnectLoopSpawned(_) => {
                 panic!("PeerManager spawned a reconnect loop during startup");
             }
-            Event::PeerManager(PME::PeerManagerStarted) => Some(()),
+            Event::PeerManagerStarted => Some(()),
             _ => None,
         })
         .await;

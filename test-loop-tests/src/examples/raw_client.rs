@@ -2,8 +2,9 @@ use near_async::messaging::{IntoMultiSender, IntoSender, LateBoundSender, noop};
 use near_async::test_loop::TestLoopV2;
 use near_async::time::Duration;
 use near_chain::ChainGenesis;
-use near_chain::spice_core::CoreStatementsProcessor;
+use near_chain::chain::ApplyChunksIterationMode;
 use near_chain_configs::test_genesis::TestGenesisBuilder;
+use near_chain_configs::test_utils::TestClientConfigParams;
 use near_chain_configs::{ClientConfig, MutableConfigValue, TrackedShardsConfig};
 use near_chunks::shards_manager_actor::ShardsManagerActor;
 use near_client::client_actor::ClientActorInner;
@@ -37,15 +38,14 @@ fn test_raw_client_test_loop_setup() {
     init_test_logger();
     let mut test_loop = TestLoopV2::new();
 
-    let client_config = ClientConfig::test(
-        true,
-        MIN_BLOCK_PROD_TIME.whole_milliseconds() as u64,
-        MAX_BLOCK_PROD_TIME.whole_milliseconds() as u64,
-        4,
-        false,
-        true,
-        false,
-    );
+    let client_config = ClientConfig::test(TestClientConfigParams {
+        skip_sync_wait: true,
+        min_block_prod_time: MIN_BLOCK_PROD_TIME.whole_milliseconds() as u64,
+        max_block_prod_time: MAX_BLOCK_PROD_TIME.whole_milliseconds() as u64,
+        num_block_producer_seats: 4,
+        archive: false,
+        state_sync_enabled: false,
+    });
 
     let validators_spec = create_validators_spec(1, 0);
     let validator_id = validators_spec_clients(&validators_spec).remove(0);
@@ -80,7 +80,9 @@ fn test_raw_client_test_loop_setup() {
     let sync_jobs_adapter = LateBoundSender::new();
     let client_adapter = LateBoundSender::new();
 
-    let sync_jobs_actor = SyncJobsActor::new(client_adapter.as_multi_sender());
+    let apply_chunks_iteration_mode = ApplyChunksIterationMode::Sequential;
+    let sync_jobs_actor =
+        SyncJobsActor::new(client_adapter.as_multi_sender(), apply_chunks_iteration_mode);
 
     let protocol_upgrade_schedule = get_protocol_upgrade_schedule(&chain_genesis.chain_id);
     let multi_spawner = AsyncComputationMultiSpawner::all_custom(Arc::new(
@@ -100,6 +102,7 @@ fn test_raw_client_test_loop_setup() {
         [0; 32],
         None,
         multi_spawner,
+        apply_chunks_iteration_mode,
         noop().into_multi_sender(),
         noop().into_multi_sender(),
         Arc::new(test_loop.future_spawner("node0")),
@@ -107,7 +110,6 @@ fn test_raw_client_test_loop_setup() {
         client_adapter.as_multi_sender(),
         noop().into_multi_sender(),
         protocol_upgrade_schedule,
-        CoreStatementsProcessor::new_with_noop_senders(store.chain_store(), epoch_manager.clone()),
     )
     .unwrap();
 
@@ -137,6 +139,7 @@ fn test_raw_client_test_loop_setup() {
         Default::default(),
         None,
         sync_jobs_adapter.as_multi_sender(),
+        noop().into_sender(),
         noop().into_sender(),
         noop().into_sender(),
         noop().into_sender(),

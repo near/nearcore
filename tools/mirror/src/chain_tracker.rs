@@ -10,7 +10,7 @@ use near_indexer::StreamerMessage;
 use near_indexer_primitives::{IndexerExecutionOutcomeWithReceipt, IndexerTransactionWithOutcome};
 use near_primitives::hash::CryptoHash;
 use near_primitives::transaction::Transaction;
-use near_primitives::types::{AccountId, BlockHeight};
+use near_primitives::types::{AccountId, Balance, BlockHeight};
 use near_primitives::views::{ActionView, ExecutionStatusView, ReceiptEnumView};
 use near_primitives_core::types::Nonce;
 use parking_lot::Mutex;
@@ -800,7 +800,7 @@ impl TxTracker {
                 // so we want to reverse it.
                 for a in actions {
                     if let ActionView::Stake { public_key, stake } = a {
-                        if stake > 0 {
+                        if stake > Balance::ZERO {
                             staked_accounts.insert(
                                 (outcome.receipt.receiver_id.clone(), public_key),
                                 outcome.receipt.predecessor_id.clone(),

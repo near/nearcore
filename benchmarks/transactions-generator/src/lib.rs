@@ -7,8 +7,10 @@ use near_crypto::PublicKey;
 use near_network::client::{ProcessTxRequest, ProcessTxResponse};
 use near_primitives::hash::CryptoHash;
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{AccountId, BlockReference};
-use near_primitives::views::{BlockView, QueryRequest, QueryResponse, QueryResponseKind};
+use near_primitives::types::{AccountId, Balance, BlockReference};
+use near_primitives::views::{
+    BlockHeaderView, BlockView, QueryRequest, QueryResponse, QueryResponseKind,
+};
 use node_runtime::metrics::TRANSACTION_PROCESSED_FAILED_TOTAL;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
@@ -20,7 +22,7 @@ use std::time::Duration;
 use tokio::task::{self, JoinSet};
 
 pub mod account;
-pub mod actix_actor;
+pub mod actor;
 
 // Number of tasks to run producing and sending transactions
 // We need several tasks to not get blocked by the sending latency.
@@ -43,6 +45,7 @@ struct ControllerConfig {
     gain_proportional: f64,
     gain_integral: f64,
     gain_derivative: f64,
+    block_pause_threshold_ms: Option<u64>,
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
@@ -138,28 +141,34 @@ impl FilterRateExponentialSmoothing {
     }
 }
 
+struct ValueAtTime {
+    value: u64,
+    at_time_ns: u64,
+}
 struct FilterRateWindow {
-    data: std::collections::VecDeque<(u64, std::time::Instant)>,
+    data: std::collections::VecDeque<ValueAtTime>,
 }
 
+/// Sliding window filter accepting the cumulative values and returning the rate estimate.
+/// Returns None until the window is filled.
 impl FilterRateWindow {
     pub fn new(window_len: usize) -> Self {
-        Self {
-            data: std::collections::VecDeque::<(u64, std::time::Instant)>::with_capacity(
-                window_len,
-            ),
-        }
+        Self { data: std::collections::VecDeque::<_>::with_capacity(window_len) }
     }
 
-    pub fn register(&mut self, new_data: u64) -> Option<f64> {
-        let now = std::time::Instant::now();
-
+    pub fn register(&mut self, new_data: u64, timestamp_ns: u64) -> Option<f64> {
         if self.data.len() == self.data.capacity() {
-            let (old_value, at_time) = self.data.pop_front().unwrap();
-            self.data.push_back((new_data, now));
-            Some((new_data - old_value) as f64 / now.duration_since(at_time).as_secs_f64())
+            let ValueAtTime { value: old_value, at_time_ns: old_timestamp_ns } =
+                self.data.pop_front().unwrap();
+            self.data.push_back(ValueAtTime { value: new_data, at_time_ns: timestamp_ns });
+            let time_diff_ns = timestamp_ns.checked_sub(old_timestamp_ns).unwrap();
+            if time_diff_ns == 0 {
+                tracing::warn!(target: "transaction-generator", "zero time difference in rate measurement");
+                return None;
+            }
+            Some((new_data - old_value) as f64 * 1e9 / (time_diff_ns as f64))
         } else {
-            self.data.push_back((new_data, now));
+            self.data.push_back(ValueAtTime { value: new_data, at_time_ns: timestamp_ns });
             None
         }
     }
@@ -168,13 +177,18 @@ impl FilterRateWindow {
 struct FilteredRateController {
     controller: pid_lite::Controller,
     filter: FilterRateWindow,
+    block_pause_threshold_ms: Option<u64>,
 }
 
 impl FilteredRateController {
     /// given the latest cumulative measurement returns the suggested parameter correction.
-    pub fn register(&mut self, block_height_sampled: u64) -> f64 {
-        if let Some(bps) = self.filter.register(block_height_sampled) {
-            tracing::debug!(target: "transaction-generator", bps, "filtered measurement");
+    pub fn register(&mut self, block_height_sampled: u64, block_at_ns: u64) -> f64 {
+        if let Some(bps) = self.filter.register(block_height_sampled, block_at_ns) {
+            if bps < 0.1 {
+                tracing::warn!(target: "transaction-generator", bps, "filtered bps measurement is too low ");
+                // this will cause the controller to suggest a large decrease in tps
+                return self.controller.update(1000.0);
+            }
             return self.controller.update(1. / bps);
         }
 
@@ -249,7 +263,7 @@ impl TxGenerator {
         client_sender: &ClientSender,
     ) -> bool {
         // each transaction will transfer this amount
-        const AMOUNT: near_primitives::types::Balance = 1;
+        const AMOUNT: Balance = Balance::from_yoctonear(1);
 
         let idx = rand::seq::index::sample(rnd, accounts.len(), 2);
         let sender = &accounts[idx.index(0)];
@@ -290,7 +304,7 @@ impl TxGenerator {
 
     async fn get_latest_block(
         view_client_sender: &ViewClientSender,
-    ) -> anyhow::Result<(CryptoHash, u64)> {
+    ) -> anyhow::Result<BlockHeaderView> {
         match view_client_sender
             .block_request_sender
             .send_async(GetBlock(BlockReference::latest()))
@@ -298,7 +312,7 @@ impl TxGenerator {
         {
             Ok(rsp) => {
                 let rsp = rsp.context("get latest block")?;
-                Ok((rsp.header.hash, rsp.header.height))
+                Ok(rsp.header)
             }
             Err(err) => {
                 anyhow::bail!("async send error: {err}");
@@ -308,17 +322,17 @@ impl TxGenerator {
 
     fn start_block_updates(
         view_client_sender: ViewClientSender,
-    ) -> tokio::sync::watch::Receiver<(CryptoHash, u64)> {
+    ) -> tokio::sync::watch::Receiver<BlockHeaderView> {
         let (tx_latest_block, rx_latest_block) = tokio::sync::watch::channel(Default::default());
 
         tokio::spawn(async move {
             let view_client = &view_client_sender;
-            let mut block_update_interval = tokio::time::interval(Duration::from_millis(500));
+            let mut block_update_interval = tokio::time::interval(Duration::from_millis(100));
             loop {
                 match Self::get_latest_block(view_client).await {
-                    Ok((new_hash, new_height)) => {
-                        tracing::debug!(target: "transaction-generator", new_height, "block update received");
-                        let _ = tx_latest_block.send((new_hash, new_height));
+                    Ok(block_header_view) => {
+                        tracing::debug!(target: "transaction-generator", height=block_header_view.height, "block update received");
+                        let _ = tx_latest_block.send(block_header_view);
                     }
                     Err(err) => {
                         tracing::warn!(target: "transaction-generator", "block_hash update failed: {err}");
@@ -366,19 +380,22 @@ impl TxGenerator {
         accounts: Arc<Vec<Account>>,
         mut tx_interval: tokio::time::Interval,
         duration: tokio::time::Duration,
-        mut rx_block: tokio::sync::watch::Receiver<(CryptoHash, u64)>,
+        mut rx_block: tokio::sync::watch::Receiver<BlockHeaderView>,
         stats: Arc<Stats>,
     ) {
         let mut rnd: StdRng = SeedableRng::from_entropy();
 
-        let _ = rx_block.wait_for(|(hash, _)| *hash != CryptoHash::default()).await.is_ok();
-        let (mut latest_block_hash, _) = *rx_block.borrow();
+        let _ = rx_block
+            .wait_for(|BlockHeaderView { hash, .. }| *hash != CryptoHash::default())
+            .await
+            .is_ok();
+        let BlockHeaderView { hash: mut latest_block_hash, .. } = *rx_block.borrow();
 
         let ld = async {
             loop {
                 tokio::select! {
                     _ = rx_block.changed() => {
-                        (latest_block_hash, _) = *rx_block.borrow();
+                        BlockHeaderView{hash: latest_block_hash, .. } = *rx_block.borrow();
                     }
                     _ = tx_interval.tick() => {
                         let ok = Self::generate_send_transaction(
@@ -406,7 +423,7 @@ impl TxGenerator {
         client_sender: ClientSender,
         accounts: Arc<Vec<Account>>,
         load: Load,
-        rx_block: tokio::sync::watch::Receiver<(CryptoHash, u64)>,
+        rx_block: tokio::sync::watch::Receiver<BlockHeaderView>,
         stats: Arc<Stats>,
     ) {
         tracing::info!(target: "transaction-generator", ?load, "starting the load");
@@ -433,29 +450,61 @@ impl TxGenerator {
     async fn run_controller_loop(
         mut controller: FilteredRateController,
         initial_rate: u64,
-        mut rx_block: tokio::sync::watch::Receiver<(CryptoHash, u64)>,
+        mut rx_block: tokio::sync::watch::Receiver<BlockHeaderView>,
     ) -> tokio::sync::watch::Receiver<tokio::time::Duration> {
-        let initial_rate = std::cmp::max(initial_rate, 1);
-        let mut rate = initial_rate as f64;
+        let mut rate = std::cmp::max(initial_rate, 1) as f64;
         let (tx_tps_values, rx_tps_values) = tokio::sync::watch::channel(
-            tokio::time::Duration::from_micros(1_000_000 * TX_GENERATOR_TASK_COUNT / initial_rate),
+            tokio::time::Duration::from_micros(1_000_000 * TX_GENERATOR_TASK_COUNT / rate as u64),
         );
-        tracing::debug!(target: "transaction-generator", initial_rate, "starting controller");
+        tracing::debug!(target: "transaction-generator", rate, "starting controller");
 
-        let _ = rx_block.wait_for(|(hash, _)| *hash != CryptoHash::default()).await.is_ok();
-        let (_, height) = *rx_block.borrow();
-        controller.register(height);
+        let _ = rx_block
+            .wait_for(|BlockHeaderView { hash, .. }| *hash != CryptoHash::default())
+            .await
+            .is_ok();
+        let BlockHeaderView { height, timestamp_nanosec, .. } = *rx_block.borrow();
+
+        // initialize the controller with the current height
+        controller.register(height, timestamp_nanosec);
 
         tokio::spawn(async move {
+            let mut last_height_update: Option<(u64, tokio::time::Instant)> = None;
             loop {
                 tokio::select! {
                     _ = rx_block.changed() => {
-                        let (_, height) = *rx_block.borrow();
-                        rate += controller.register(height);
-                        tracing::debug!(target: "transaction-generator", rate, "tps updated");
-                        let effective_rate = if rate.is_finite() && rate >= 1.0 { rate } else { 1.0 };
-                        let micros = ((1_000_000.0 * TX_GENERATOR_TASK_COUNT as f64) / effective_rate)
-                            .max(1.0) as u64;
+                        let BlockHeaderView{height, timestamp_nanosec, ..} = *rx_block.borrow();
+                        let now = tokio::time::Instant::now();
+
+                        if let Some((last_height, last_update_time)) = last_height_update {
+                            if height == last_height {
+                                // if the time between blocks is too long, skip the controller update and
+                                // stop generating transactions for a while
+                                // the trigger value (3s) needs to be outside of the normal operation range to
+                                // avoid getting into a mode where we spit out the chunk of
+                                // transactions at a very high rate and then wait for chain to recover,
+                                // and then repeat the cycle.
+                                let dt = now.duration_since(last_update_time);
+                                if let Some(threshold_ms) = controller.block_pause_threshold_ms {
+                                    if Duration::from_millis(threshold_ms) < dt {
+                                        tx_tps_values
+                                            .send(tokio::time::Duration::from_secs(100))
+                                            .unwrap();
+                                        tracing::warn!(target: "transaction-generator", dt=?dt, "long delay between blocks, skipping controller update and pausing transaction generation");
+                                    }
+                                }
+
+                                // no change in height, ignore sample
+                                continue;
+                            }
+                        }
+                        last_height_update = Some((height, now));
+
+                        rate += controller.register(height, timestamp_nanosec);
+                        if rate < 1.0 || rate > 100000.0 {
+                            tracing::warn!(target: "transaction-generator", rate, "controller suggested tps is out of range, clamping");
+                            rate = rate.clamp(1.0, 100000.0);
+                        }
+                        let micros = ((1_000_000.0 * TX_GENERATOR_TASK_COUNT as f64) / rate) as u64;
                         tx_tps_values
                             .send(tokio::time::Duration::from_micros(micros))
                             .unwrap();
@@ -472,7 +521,7 @@ impl TxGenerator {
         initial_rate: u64,
         client_sender: ClientSender,
         accounts: Arc<Vec<Account>>,
-        rx_block: tokio::sync::watch::Receiver<(CryptoHash, u64)>,
+        rx_block: tokio::sync::watch::Receiver<BlockHeaderView>,
         stats: Arc<Stats>,
     ) {
         tracing::info!(target: "transaction-generator", "starting the controlled loop");
@@ -494,21 +543,24 @@ impl TxGenerator {
     async fn controlled_loop_task(
         client_sender: ClientSender,
         accounts: Arc<Vec<Account>>,
-        mut rx_block: tokio::sync::watch::Receiver<(CryptoHash, u64)>,
+        mut rx_block: tokio::sync::watch::Receiver<BlockHeaderView>,
         mut tx_rates: tokio::sync::watch::Receiver<tokio::time::Duration>,
         stats: Arc<Stats>,
     ) {
         let mut rnd: StdRng = SeedableRng::from_entropy();
 
-        let _ = rx_block.wait_for(|(hash, _)| *hash != CryptoHash::default()).await.is_ok();
-        let (mut latest_block_hash, _) = *rx_block.borrow();
+        let _ = rx_block
+            .wait_for(|BlockHeaderView { hash, .. }| *hash != CryptoHash::default())
+            .await
+            .is_ok();
+        let BlockHeaderView { hash: mut latest_block_hash, .. } = *rx_block.borrow();
         let mut tx_interval = tokio::time::interval(*tx_rates.borrow());
 
         async {
             loop {
                 tokio::select! {
                     _ = rx_block.changed() => {
-                        (latest_block_hash, _) = *rx_block.borrow();
+                        BlockHeaderView{hash: latest_block_hash, .. } = *rx_block.borrow();
                     }
                     _ = tx_rates.changed() => {
                             tx_interval = tokio::time::interval(*tx_rates.borrow());
@@ -539,7 +591,7 @@ impl TxGenerator {
         client_sender: ClientSender,
         view_client_sender: ViewClientSender,
         stats: Arc<Stats>,
-        rx_block: tokio::sync::watch::Receiver<(CryptoHash, u64)>,
+        rx_block: tokio::sync::watch::Receiver<BlockHeaderView>,
     ) -> anyhow::Result<()> {
         let rx_accounts = Self::prepare_accounts(&config.accounts_path, view_client_sender)
             .context("prepare accounts")?;
@@ -555,6 +607,7 @@ impl TxGenerator {
                     controller_config.gain_derivative,
                 ),
                 filter: FilterRateWindow::new(controller_config.bps_filter_window_length),
+                block_pause_threshold_ms: controller_config.block_pause_threshold_ms,
             })
         } else {
             None

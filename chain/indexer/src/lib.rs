@@ -125,7 +125,7 @@ pub struct Indexer {
 
 impl Indexer {
     /// Initialize Indexer by configuring `nearcore`
-    pub fn new(indexer_config: IndexerConfig) -> anyhow::Result<Self> {
+    pub async fn new(indexer_config: IndexerConfig) -> anyhow::Result<Self> {
         tracing::info!(
             target: INDEXER,
             home_dir = ?indexer_config.home_dir,
@@ -135,6 +135,7 @@ impl Indexer {
             indexer_config.load_near_config().context("failed to load near config")?;
         let nearcore::NearNode { client, view_client, shard_tracker, .. } =
             Self::start_near_node(&indexer_config, near_config.clone())
+                .await
                 .context("failed to start near node as part of indexer")?;
         Ok(Self {
             view_client: IndexerViewClientFetcher::from(view_client),
@@ -148,7 +149,7 @@ impl Indexer {
     pub fn start_near_node(
         indexer_config: &IndexerConfig,
         near_config: NearConfig,
-    ) -> anyhow::Result<NearNode> {
+    ) -> impl Future<Output = anyhow::Result<NearNode>> {
         nearcore::start_with_config(&indexer_config.home_dir, near_config, ActorSystem::new())
     }
 
@@ -203,5 +204,6 @@ pub fn indexer_init_configs(
         params.download_config_url.as_deref(),
         params.boot_nodes.as_deref(),
         params.max_gas_burnt_view,
+        None,
     )
 }

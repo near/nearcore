@@ -2,7 +2,6 @@ use crate::parameter::Parameter;
 use enum_map::{EnumMap, enum_map};
 use near_account_id::AccountType;
 use near_primitives_core::types::{Balance, Compute, Gas};
-use near_primitives_core::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_schema_checker_lib::ProtocolSchema;
 use num_rational::Rational32;
 
@@ -325,6 +324,9 @@ pub enum ActionCosts {
     deploy_global_contract_byte = 17,
     use_global_contract_base = 18,
     use_global_contract_byte = 19,
+    deterministic_state_init_base = 20,
+    deterministic_state_init_byte = 21,
+    deterministic_state_init_entry = 22,
 }
 
 impl ExtCosts {
@@ -445,11 +447,6 @@ pub struct RuntimeFeesConfig {
     /// Pessimistic gas price inflation ratio.
     pub pessimistic_gas_price_inflation_ratio: Rational32,
 
-    /// Whether we calculate in the gas price changes when refunding gas.
-    ///
-    /// Changed to false with [NEP-536](https://github.com/near/NEPs/pull/536)
-    pub refund_gas_price_changes: bool,
-
     /// Relative cost for gas refunds as a ratio of the refunded amount.
     ///
     /// The actual penalty is
@@ -470,7 +467,7 @@ pub struct RuntimeFeesConfig {
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub struct StorageUsageConfig {
     /// Amount of yN per byte required to have on the account. See
-    /// <https://nomicon.io/Economics/README.html#state-stake> for details.
+    /// <https://nomicon.io/Economics/Economic#state-stake> for details.
     pub storage_amount_per_byte: Balance,
     /// Number of bytes for an account record, including rounding up for account id.
     pub num_bytes_account: u64,
@@ -491,18 +488,8 @@ impl RuntimeFeesConfig {
             storage_usage_config: StorageUsageConfig::test(),
             burnt_gas_reward: Rational32::new(3, 10),
             pessimistic_gas_price_inflation_ratio: Rational32::new(103, 100),
-            refund_gas_price_changes: !ProtocolFeature::ReducedGasRefunds.enabled(PROTOCOL_VERSION),
-            gas_refund_penalty: if ProtocolFeature::ReducedGasRefunds.enabled(PROTOCOL_VERSION) {
-                Rational32::new(5, 100)
-            } else {
-                Rational32::new(0, 100)
-            },
-            min_gas_refund_penalty: if ProtocolFeature::ReducedGasRefunds.enabled(PROTOCOL_VERSION)
-            {
-                Gas::from_teragas(1)
-            } else {
-                Gas::ZERO
-            },
+            gas_refund_penalty: Rational32::new(5, 100),
+            min_gas_refund_penalty: Gas::from_teragas(1),
             action_fees: enum_map::enum_map! {
                 ActionCosts::create_account => Fee::test_value(3_850_000_000_000),
                 ActionCosts::delete_account => Fee::test_value(147489000000),
@@ -524,6 +511,9 @@ impl RuntimeFeesConfig {
                 ActionCosts::deploy_global_contract_byte => Fee::new(6_812_999, 6_812_999, 70_000_000),
                 ActionCosts::use_global_contract_base => Fee::test_value(184_765_750_000),
                 ActionCosts::use_global_contract_byte => Fee::new(6_812_999, 47_683_715, 64_572_944),
+                ActionCosts::deterministic_state_init_base => Fee::new(3_850_000_000_000, 3_850_000_000_000, 4_080_000_000_000),
+                ActionCosts::deterministic_state_init_byte => Fee::new(72_000_000, 72_000_000, 70_000_000),
+                ActionCosts::deterministic_state_init_entry => Fee::new(0, 0, 200_000_000_000),
             },
         }
     }
@@ -536,7 +526,6 @@ impl RuntimeFeesConfig {
             storage_usage_config: StorageUsageConfig::free(),
             burnt_gas_reward: Rational32::from_integer(0),
             pessimistic_gas_price_inflation_ratio: Rational32::from_integer(0),
-            refund_gas_price_changes: !ProtocolFeature::ReducedGasRefunds.enabled(PROTOCOL_VERSION),
             gas_refund_penalty: Rational32::from_integer(0),
             min_gas_refund_penalty: Gas::ZERO,
         }
@@ -575,8 +564,10 @@ impl StorageUsageConfig {
         Self {
             num_bytes_account: 100,
             num_extra_bytes_record: 40,
-            storage_amount_per_byte: 909 * 100_000_000_000_000_000,
-            global_contract_storage_amount_per_byte: 100_000_000_000_000_000_000,
+            storage_amount_per_byte: Balance::from_yoctonear(909 * 100_000_000_000_000_000),
+            global_contract_storage_amount_per_byte: Balance::from_yoctonear(
+                100_000_000_000_000_000_000,
+            ),
         }
     }
 
@@ -584,8 +575,8 @@ impl StorageUsageConfig {
         Self {
             num_bytes_account: 0,
             num_extra_bytes_record: 0,
-            storage_amount_per_byte: 0,
-            global_contract_storage_amount_per_byte: 0,
+            storage_amount_per_byte: Balance::ZERO,
+            global_contract_storage_amount_per_byte: Balance::ZERO,
         }
     }
 }
@@ -619,6 +610,10 @@ pub fn transfer_exec_fee(
             .unwrap()
             .checked_add(cfg.fee(ActionCosts::add_full_access_key).exec_fee())
             .unwrap(),
+        // Extra fees for the implied CreateAccount action.
+        (true, _, AccountType::NearDeterministicAccount) => {
+            transfer_fee.checked_add(cfg.fee(ActionCosts::create_account).exec_fee()).unwrap()
+        }
     }
 }
 
@@ -647,6 +642,10 @@ pub fn transfer_send_fee(
             .checked_add(cfg.fee(ActionCosts::create_account).send_fee(sender_is_receiver))
             .unwrap()
             .checked_add(cfg.fee(ActionCosts::add_full_access_key).send_fee(sender_is_receiver))
+            .unwrap(),
+        // Extra fees for the implied  CreateAccount action.
+        (true, _, AccountType::NearDeterministicAccount) => transfer_fee
+            .checked_add(cfg.fee(ActionCosts::create_account).send_fee(sender_is_receiver))
             .unwrap(),
     }
 }

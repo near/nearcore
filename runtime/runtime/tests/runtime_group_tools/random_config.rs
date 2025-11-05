@@ -1,7 +1,6 @@
 use near_parameters::{Fee, RuntimeConfig, RuntimeFeesConfig, StorageUsageConfig};
 use near_primitives::num_rational::Rational32;
-use near_primitives::types::Gas;
-use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
+use near_primitives::types::{Balance, Gas};
 use rand::{Rng, RngCore, thread_rng};
 
 pub fn random_config() -> RuntimeConfig {
@@ -16,15 +15,16 @@ pub fn random_config() -> RuntimeConfig {
             storage_usage_config: StorageUsageConfig {
                 num_bytes_account: rng.next_u64() % 10000,
                 num_extra_bytes_record: rng.next_u64() % 10000,
-                storage_amount_per_byte: rng.next_u64() as u128,
-                global_contract_storage_amount_per_byte: rng.next_u64() as u128,
+                storage_amount_per_byte: Balance::from_yoctonear(u128::from(rng.next_u64())),
+                global_contract_storage_amount_per_byte: Balance::from_yoctonear(u128::from(
+                    rng.next_u64(),
+                )),
             },
             burnt_gas_reward: Rational32::new((rng.next_u32() % 100).try_into().unwrap(), 100),
             pessimistic_gas_price_inflation_ratio: Rational32::new(
                 (101 + rng.next_u32() % 10).try_into().unwrap(),
                 100,
             ),
-            refund_gas_price_changes: !ProtocolFeature::ReducedGasRefunds.enabled(PROTOCOL_VERSION),
             gas_refund_penalty: Rational32::new(rng.gen_range(0..=i32::MAX), i32::MAX),
             min_gas_refund_penalty: Gas::from_gas(rng.next_u64()),
         }),

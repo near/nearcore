@@ -2,7 +2,7 @@
 //! easy-to-setup, and easy-to-debug.
 //!
 //! The primary concept here is an event loop that the test framework controls. The
-//! event loop acts as a central hub for all messages, including Actix messages,
+//! event loop acts as a central hub for all messages, including actor messages,
 //! network messages, timers, etc. Business logic is only executed as a response to
 //! such events.
 //!
@@ -15,7 +15,7 @@
 //!       of having to make a mock for the shards_manager adapter, we can simply register
 //!       the shards_manager actor with testloop and pass in its sender.
 //!     - Compared to writing synchronous tests, there is no need to manually deliver
-//!       network messages or handle actix messages at certain points of the test. Instead,
+//!       network messages or handle actor messages at certain points of the test. Instead,
 //!       the event loop will invoke the appropriate event handlers whenever there is any
 //!       event remaining in the event loop. This ensures that no messages are ever missed.
 //!     - Test setup code can be modular and reusable, because the test specification
@@ -53,7 +53,7 @@
 //!       such as distributing chunks to other nodes within X milliseconds provided that
 //!       network messages have a 10ms delay.
 //!     - The framework does not require major migrations to existing code, e.g. it is
-//!       compatible with the Actix framework and futures.
+//!       compatible with the actor framework and futures.
 //!
 //! A note on the order of execution of the events: all events that are due at the same
 //! timestamp are executed in FIFO order. For example, if the events are emitted in the
@@ -73,6 +73,7 @@ use serde::Serialize;
 use std::collections::{BinaryHeap, HashSet};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::thread::panicking;
 use time::ext::InstantExt;
 
 /// Main struct for the Test Loop framework.
@@ -444,11 +445,13 @@ impl Drop for TestLoopV2 {
             // Drop any references that may be held by the event callbacks. This can help
             // with destruction of the data.
             self.events.clear();
-            panic!(
-                "Event scheduled at {} is not handled at the end of the test: {}.
+            if !panicking() {
+                panic!(
+                    "Event scheduled at {} is not handled at the end of the test: {}.
                      Consider calling `test.shutdown_and_drain_remaining_events(...)`.",
-                event.due, event.event.description
-            );
+                    event.due, event.event.description
+                );
+            }
         }
         // Needed for the log visualizer to know when the test loop ends.
         tracing::info!(target: "test_loop", "TEST_LOOP_SHUTDOWN");

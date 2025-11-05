@@ -50,9 +50,9 @@ let mut env = TestLoopBuilder::new()
 executing transactions or waiting for blocks to be produced.
 
 ```rust
-let validator_node = TestLoopNode::for_account(&env.node_datas, &clients[0]);
-validator_node.run_tx(&mut env.test_loop, ..);
-validator_node.run_until_head_height(&mut env.test_loop, ..);
+let rpc_node = TestLoopNode::rpc(&env.node_datas);
+rpc_node.run_tx(&mut env.test_loop, ..);
+rpc_node.run_until_head_height(&mut env.test_loop, ..);
 ```
 
 Also `run_until` method can be used to progress the blockchain until a certain
@@ -61,7 +61,7 @@ condition is met:
 ```rust
 test_loop.run_until(
     |test_loop_data| {
-        validator_node.head(test_loop_data).epoch_id == expected_epoch_id
+        rpc_node.head(test_loop_data).epoch_id == expected_epoch_id
     },
     Duration::seconds(20),
 );
@@ -77,7 +77,7 @@ Verify that the test produced the expected results.
 
 ```rust
 let account = validator_node.query_account(env.test_loop_data(), ..);
-assert_eq!(account.balance, 42 * ONE_NEAR);
+assert_eq!(account.balance, Balance::from_near(42));
 ```
 
 After that, properly shut down the test environment:

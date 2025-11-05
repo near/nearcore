@@ -2,11 +2,12 @@ use crate::broadcast::Receiver;
 use crate::config::NetworkConfig;
 use crate::network_protocol::{Encoding, PeerMessage, T2MessageBody};
 use crate::network_protocol::{PartialEncodedChunkRequestMsg, testonly as data};
-use crate::peer::testonly::{Event, PeerConfig, PeerHandle};
-use crate::peer_manager::peer_manager_actor::Event as PME;
+use crate::peer::testonly::{PeerConfig, PeerHandle};
+use crate::peer_manager::peer_manager_actor::Event;
 use crate::rate_limits::messages_limits;
 use crate::tcp;
 use crate::testonly::{Rng, make_rng};
+use near_async::ActorSystem;
 use near_async::time::FakeClock;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::hash::CryptoHash;
@@ -99,7 +100,7 @@ async fn wait_for_similar_messages(
     sleep_until(Instant::now() + duration).await;
     while let Some(event) = events.try_recv() {
         match event {
-            Event::Network(PME::MessageProcessed(_, got)) => {
+            Event::MessageProcessed(_, got) => {
                 for (i, sample) in samples.iter().enumerate() {
                     if sample.msg_variant() == got.msg_variant() {
                         messages_received[i] += 1;
@@ -146,9 +147,15 @@ async fn setup_test_peers(clock: &FakeClock, mut rng: &mut Rng) -> (PeerHandle, 
     };
     let (outbound_stream, inbound_stream) =
         tcp::Stream::loopback(inbound_cfg.id(), tcp::Tier::T2).await;
-    let mut inbound = PeerHandle::start_endpoint(clock.clock(), inbound_cfg, inbound_stream).await;
+    let actor_system = ActorSystem::new();
+    let mut inbound = PeerHandle::start_endpoint(
+        clock.clock(),
+        actor_system.clone(),
+        inbound_cfg,
+        inbound_stream,
+    );
     let mut outbound =
-        PeerHandle::start_endpoint(clock.clock(), outbound_cfg, outbound_stream).await;
+        PeerHandle::start_endpoint(clock.clock(), actor_system, outbound_cfg, outbound_stream);
 
     outbound.complete_handshake().await;
     inbound.complete_handshake().await;

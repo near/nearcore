@@ -1,6 +1,7 @@
 use crate::config::{
     safe_add_compute, total_prepaid_exec_fees, total_prepaid_gas, total_prepaid_send_fees,
 };
+use crate::deterministic_account_id::create_deterministic_account;
 use crate::ext::{ExternalError, RuntimeExt};
 use crate::receipt_manager::ReceiptManager;
 use crate::{ActionResult, ApplyState, metrics};
@@ -12,7 +13,8 @@ use near_primitives::config::ViewConfig;
 use near_primitives::errors::{ActionError, ActionErrorKind, InvalidAccessKeyError, RuntimeError};
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{
-    ActionReceipt, DataReceipt, Receipt, ReceiptEnum, ReceiptPriority, ReceiptV0,
+    ActionReceipt, ActionReceiptV2, DataReceipt, Receipt, ReceiptEnum, ReceiptPriority, ReceiptV0,
+    VersionedActionReceipt, VersionedReceiptEnum,
 };
 use near_primitives::transaction::{
     Action, AddKeyAction, DeleteAccountAction, DeleteKeyAction, DeployContractAction,
@@ -39,6 +41,7 @@ use near_vm_runner::logic::{VMContext, VMOutcome};
 use near_vm_runner::{ContractCode, ContractRuntimeCache};
 use near_vm_runner::{PreparedContract, precompile_contract};
 use near_wallet_contract::{wallet_contract, wallet_contract_magic_bytes};
+use std::rc::Rc;
 use std::sync::Arc;
 
 /// Runs given function call with given context / apply state.
@@ -47,7 +50,7 @@ pub(crate) fn execute_function_call(
     apply_state: &ApplyState,
     runtime_ext: &mut RuntimeExt,
     predecessor_id: &AccountId,
-    action_receipt: &ActionReceipt,
+    action_receipt: &VersionedActionReceipt,
     promise_results: Arc<[near_vm_runner::logic::types::PromiseResult]>,
     function_call: &FunctionCallAction,
     action_hash: &CryptoHash,
@@ -59,7 +62,7 @@ pub(crate) fn execute_function_call(
     tracing::debug!(target: "runtime", %account_id, "Calling the contract");
     // Output data receipts are ignored if the function call is not the last action in the batch.
     let output_data_receivers: Vec<_> = if is_last_action {
-        action_receipt.output_data_receivers.iter().map(|r| r.receiver_id.clone()).collect()
+        action_receipt.output_data_receivers().iter().map(|r| r.receiver_id.clone()).collect()
     } else {
         vec![]
     };
@@ -67,11 +70,12 @@ pub(crate) fn execute_function_call(
         near_primitives::utils::create_random_seed(*action_hash, apply_state.random_seed);
     let context = VMContext {
         current_account_id: runtime_ext.account_id().clone(),
-        signer_account_id: action_receipt.signer_id.clone(),
-        signer_account_pk: borsh::to_vec(&action_receipt.signer_public_key)
+        signer_account_id: action_receipt.signer_id().clone(),
+        signer_account_pk: borsh::to_vec(&action_receipt.signer_public_key())
             .expect("Failed to serialize"),
         predecessor_account_id: predecessor_id.clone(),
-        input: function_call.args.clone(),
+        refund_to_account_id: action_receipt.refund_to().as_ref().unwrap_or(predecessor_id).clone(),
+        input: Rc::from(function_call.args.clone()),
         promise_results,
         block_height: apply_state.block_height,
         block_timestamp: apply_state.block_timestamp,
@@ -79,6 +83,7 @@ pub(crate) fn execute_function_call(
         account_balance: runtime_ext.account().amount(),
         account_locked_balance: runtime_ext.account().locked(),
         storage_usage: runtime_ext.account().storage_usage(),
+        account_contract: runtime_ext.account().contract().into_owned(),
         attached_deposit: function_call.deposit,
         prepaid_gas: function_call.gas,
         random_seed,
@@ -147,7 +152,7 @@ pub(crate) fn action_function_call(
     apply_state: &ApplyState,
     account: &mut Account,
     receipt: &Receipt,
-    action_receipt: &ActionReceipt,
+    action_receipt: &VersionedActionReceipt,
     promise_results: Arc<[near_vm_runner::logic::types::PromiseResult]>,
     result: &mut ActionResult,
     account_id: &AccountId,
@@ -281,13 +286,37 @@ pub(crate) fn action_function_call(
                     );
                 }
 
-                let new_action_receipt = ActionReceipt {
-                    signer_id: action_receipt.signer_id.clone(),
-                    signer_public_key: action_receipt.signer_public_key.clone(),
-                    gas_price: action_receipt.gas_price,
-                    output_data_receivers: receipt.output_data_receivers,
-                    input_data_ids: receipt.input_data_ids,
-                    actions: receipt.actions,
+                let new_receipt = if ProtocolFeature::DeterministicAccountIds
+                    .enabled(apply_state.current_protocol_version)
+                {
+                    let new_action_receipt = ActionReceiptV2 {
+                        signer_id: action_receipt.signer_id().clone(),
+                        signer_public_key: action_receipt.signer_public_key().clone(),
+                        refund_to: receipt.refund_to,
+                        gas_price: action_receipt.gas_price(),
+                        output_data_receivers: receipt.output_data_receivers,
+                        input_data_ids: receipt.input_data_ids,
+                        actions: receipt.actions,
+                    };
+                    if receipt.is_promise_yield {
+                        ReceiptEnum::PromiseYieldV2(new_action_receipt)
+                    } else {
+                        ReceiptEnum::ActionV2(new_action_receipt)
+                    }
+                } else {
+                    let new_action_receipt = ActionReceipt {
+                        signer_id: action_receipt.signer_id().clone(),
+                        signer_public_key: action_receipt.signer_public_key().clone(),
+                        gas_price: action_receipt.gas_price(),
+                        output_data_receivers: receipt.output_data_receivers,
+                        input_data_ids: receipt.input_data_ids,
+                        actions: receipt.actions,
+                    };
+                    if receipt.is_promise_yield {
+                        ReceiptEnum::PromiseYield(new_action_receipt)
+                    } else {
+                        ReceiptEnum::Action(new_action_receipt)
+                    }
                 };
 
                 Receipt::V0(ReceiptV0 {
@@ -296,11 +325,7 @@ pub(crate) fn action_function_call(
                     // Actual receipt ID is set in the Runtime.apply_action_receipt(...) in the
                     // "Generating receipt IDs" section
                     receipt_id: CryptoHash::default(),
-                    receipt: if receipt.is_promise_yield {
-                        ReceiptEnum::PromiseYield(new_action_receipt)
-                    } else {
-                        ReceiptEnum::Action(new_action_receipt)
-                    },
+                    receipt: new_receipt,
                 })
             })
             .collect();
@@ -347,15 +372,15 @@ pub(crate) fn action_stake(
 ) -> Result<(), RuntimeError> {
     let increment = stake.stake.saturating_sub(account.locked());
 
-    if account.amount() >= increment {
-        if account.locked() == 0 && stake.stake == 0 {
+    if let Some(new_balance) = account.amount().checked_sub(increment) {
+        if account.locked().is_zero() && stake.stake.is_zero() {
             // if the account hasn't staked, it cannot unstake
             result.result =
                 Err(ActionErrorKind::TriesToUnstake { account_id: account_id.clone() }.into());
             return Ok(());
         }
 
-        if stake.stake > 0 {
+        if stake.stake > Balance::ZERO {
             let minimum_stake = epoch_info_provider.minimum_stake(last_block_hash)?;
             if stake.stake < minimum_stake {
                 result.result = Err(ActionErrorKind::InsufficientStake {
@@ -375,7 +400,7 @@ pub(crate) fn action_stake(
         ));
         if stake.stake > account.locked() {
             // We've checked above `account.amount >= increment`
-            account.set_amount(account.amount() - increment);
+            account.set_amount(new_balance);
             account.set_locked(stake.stake);
         }
     } else {
@@ -462,8 +487,8 @@ pub(crate) fn action_create_account(
 
     *actor_id = account_id.clone();
     *account = Some(Account::new(
-        0,
-        0,
+        Balance::ZERO,
+        Balance::ZERO,
         AccountContract::None,
         fee_config.storage_usage_config.num_bytes_account,
     ));
@@ -495,7 +520,7 @@ pub(crate) fn action_implicit_account_creation_transfer(
 
             *account = Some(Account::new(
                 deposit,
-                0,
+                Balance::ZERO,
                 AccountContract::None,
                 fee_config.storage_usage_config.num_bytes_account
                     + public_key.len() as u64
@@ -522,7 +547,7 @@ pub(crate) fn action_implicit_account_creation_transfer(
             let contract_hash = *magic_bytes.hash();
             *account = Some(Account::new(
                 deposit,
-                0,
+                Balance::ZERO,
                 AccountContract::from_local_code_hash(contract_hash),
                 storage_usage,
             ));
@@ -537,6 +562,13 @@ pub(crate) fn action_implicit_account_creation_transfer(
                 apply_state.cache.as_deref(),
             )
             .ok();
+        }
+        AccountType::NearDeterministicAccount => {
+            create_deterministic_account(
+                account,
+                deposit,
+                &apply_state.config.fees.storage_usage_config,
+            );
         }
         // This panic is unreachable as this is an implicit account creation transfer.
         // `check_account_existence` would fail because `account_is_implicit` would return false for a Named account.
@@ -621,7 +653,7 @@ pub(crate) fn action_delete_account(
     }
     // We use current amount as a pay out to beneficiary.
     let account_balance = account_ref.amount();
-    if account_balance > 0 {
+    if account_balance > Balance::ZERO {
         result.new_receipts.push(Receipt::new_balance_refund(
             &delete_account.beneficiary_id,
             account_balance,
@@ -760,7 +792,7 @@ pub(crate) fn action_add_key(
 pub(crate) fn apply_delegate_action(
     state_update: &mut TrieUpdate,
     apply_state: &ApplyState,
-    action_receipt: &ActionReceipt,
+    action_receipt: &VersionedActionReceipt,
     sender_id: &AccountId,
     signed_delegate_action: &SignedDelegateAction,
     result: &mut ActionResult,
@@ -799,9 +831,9 @@ pub(crate) fn apply_delegate_action(
         receipt_id: CryptoHash::default(),
 
         receipt: ReceiptEnum::Action(ActionReceipt {
-            signer_id: action_receipt.signer_id.clone(),
-            signer_public_key: action_receipt.signer_public_key.clone(),
-            gas_price: action_receipt.gas_price,
+            signer_id: action_receipt.signer_id().clone(),
+            signer_public_key: action_receipt.signer_public_key().clone(),
+            gas_price: action_receipt.gas_price(),
             output_data_receivers: vec![],
             input_data_ids: vec![],
             actions: delegate_action.get_actions(),
@@ -814,7 +846,7 @@ pub(crate) fn apply_delegate_action(
     // Some contracts refund the deposit. Usually they refund the deposit to the predecessor and this is sender_id/Sender from DelegateAction.
     // Therefore Relayer should verify DelegateAction before submitting it because it spends the attached deposit.
 
-    let prepaid_send_fees = total_prepaid_send_fees(&apply_state.config, &action_receipt.actions)?;
+    let prepaid_send_fees = total_prepaid_send_fees(&apply_state.config, action_receipt.actions())?;
     let required_gas = receipt_required_gas(apply_state, &new_receipt)?;
     // This gas will be burnt by the receiver of the created receipt,
     result.gas_used = result.gas_used.checked_add_result(required_gas)?;
@@ -831,24 +863,32 @@ pub(crate) fn apply_delegate_action(
 
 /// Returns Gas amount is required to execute Receipt and all actions it contains
 fn receipt_required_gas(apply_state: &ApplyState, receipt: &Receipt) -> Result<Gas, RuntimeError> {
-    Ok(match receipt.receipt() {
-        ReceiptEnum::Action(action_receipt) | ReceiptEnum::PromiseYield(action_receipt) => {
-            let mut required_gas = total_prepaid_exec_fees(
-                &apply_state.config,
-                &action_receipt.actions,
-                receipt.receiver_id(),
-            )?
-            .checked_add_result(total_prepaid_gas(&action_receipt.actions)?)?;
-            required_gas = required_gas.checked_add_result(
-                apply_state.config.fees.fee(ActionCosts::new_action_receipt).exec_fee(),
-            )?;
-
-            required_gas
+    Ok(match receipt.versioned_receipt() {
+        VersionedReceiptEnum::Action(action_receipt)
+        | VersionedReceiptEnum::PromiseYield(action_receipt) => {
+            action_receipt_required_gas(apply_state, receipt, action_receipt.into())?
         }
-        ReceiptEnum::GlobalContractDistribution(_)
-        | ReceiptEnum::Data(_)
-        | ReceiptEnum::PromiseResume(_) => Gas::ZERO,
+        VersionedReceiptEnum::GlobalContractDistribution(_)
+        | VersionedReceiptEnum::Data(_)
+        | VersionedReceiptEnum::PromiseResume(_) => Gas::ZERO,
     })
+}
+
+fn action_receipt_required_gas(
+    apply_state: &ApplyState,
+    receipt: &Receipt,
+    action_receipt: VersionedActionReceipt,
+) -> Result<Gas, RuntimeError> {
+    let mut required_gas = total_prepaid_exec_fees(
+        &apply_state.config,
+        &action_receipt.actions(),
+        receipt.receiver_id(),
+    )?
+    .checked_add_result(total_prepaid_gas(&action_receipt.actions())?)?;
+    required_gas = required_gas.checked_add_result(
+        apply_state.config.fees.fee(ActionCosts::new_action_receipt).exec_fee(),
+    )?;
+    Ok(required_gas)
 }
 
 /// Validate access key which was used for signing DelegateAction:
@@ -916,7 +956,7 @@ fn validate_delegate_action_key(
             return Ok(());
         }
         if let Some(Action::FunctionCall(function_call)) = actions.get(0) {
-            if function_call.deposit > 0 {
+            if function_call.deposit > Balance::ZERO {
                 result.result = Err(ActionErrorKind::DelegateActionAccessKeyError(
                     InvalidAccessKeyError::DepositWithFunctionCall,
                 )
@@ -996,7 +1036,7 @@ pub(crate) fn check_actor_permissions(
                 .into());
             }
             let account = account.as_ref().unwrap();
-            if account.locked() != 0 {
+            if !account.locked().is_zero() {
                 return Err(ActionErrorKind::DeleteAccountStaking {
                     account_id: account_id.clone(),
                 }
@@ -1005,6 +1045,7 @@ pub(crate) fn check_actor_permissions(
         }
         Action::CreateAccount(_) | Action::FunctionCall(_) | Action::Transfer(_) => (),
         Action::Delegate(_) => (),
+        Action::DeterministicStateInit(_) => (),
     };
     Ok(())
 }
@@ -1052,6 +1093,12 @@ pub(crate) fn check_account_existence(
                     implicit_account_creation_eligible,
                 );
             }
+        }
+        Action::DeterministicStateInit(_) => {
+            // Existing and non existing is valid for DeterministicStateInit.
+            // Does not exist => The account will be created by the action.
+            // Does exist => Nothing happens but the receipt is not aborted to
+            // allow optional init before other actions.
         }
         Action::DeployContract(_)
         | Action::FunctionCall(_)
@@ -1234,8 +1281,8 @@ mod tests {
         state_update: &mut TrieUpdate,
     ) -> ActionResult {
         let mut account = Some(Account::new(
-            100,
-            0,
+            Balance::from_yoctonear(100),
+            Balance::ZERO,
             AccountContract::from_local_code_hash(*code_hash),
             storage_usage,
         ));
@@ -1243,7 +1290,7 @@ mod tests {
         let mut action_result = ActionResult::default();
         let receipt = Receipt::new_balance_refund(
             &"alice.near".parse().unwrap(),
-            0,
+            Balance::ZERO,
             ReceiptPriority::NoPriority,
         );
         let res = action_delete_account(
@@ -1288,7 +1335,12 @@ mod tests {
             tries.new_trie_update(ShardUId::single_shard(), CryptoHash::default());
         let account_id = "alice".parse::<AccountId>().unwrap();
         let deploy_action = DeployContractAction { code: [0; 10_000].to_vec() };
-        let mut account = Account::new(100, 0, AccountContract::None, storage_usage);
+        let mut account = Account::new(
+            Balance::from_yoctonear(100),
+            Balance::ZERO,
+            AccountContract::None,
+            storage_usage,
+        );
         let apply_state = create_apply_state(0);
         let res = action_deploy_contract(
             &mut state_update,
@@ -1342,7 +1394,7 @@ mod tests {
                                  method_name: "ft_transfer".parse().unwrap(),
                                  args: vec![123, 34, 114, 101, 99, 101, 105, 118, 101, 114, 95, 105, 100, 34, 58, 34, 106, 97, 110, 101, 46, 116, 101, 115, 116, 46, 110, 101, 97, 114, 34, 44, 34, 97, 109, 111, 117, 110, 116, 34, 58, 34, 52, 34, 125],
                                  gas: Gas::from_teragas(30),
-                                 deposit: 1,
+                                 deposit: Balance::from_yoctonear(1),
                             })
                         )
                     )
@@ -1357,7 +1409,7 @@ mod tests {
         let action_receipt = ActionReceipt {
             signer_id: "alice.test.near".parse().unwrap(),
             signer_public_key: PublicKey::empty(near_crypto::KeyType::ED25519),
-            gas_price: 1,
+            gas_price: Balance::from_yoctonear(1),
             output_data_receivers: Vec::new(),
             input_data_ids: Vec::new(),
             actions: vec![Action::Delegate(Box::new(signed_delegate_action.clone()))],
@@ -1374,7 +1426,7 @@ mod tests {
             shard_id: ShardUId::single_shard().shard_id(),
             epoch_id: EpochId::default(),
             epoch_height: 3,
-            gas_price: 2,
+            gas_price: Balance::from_yoctonear(2),
             block_timestamp: 1,
             gas_limit: None,
             random_seed: CryptoHash::default(),
@@ -1385,6 +1437,7 @@ mod tests {
             congestion_info: BlockCongestionInfo::default(),
             bandwidth_requests: BlockBandwidthRequests::empty(),
             trie_access_tracker_state: Default::default(),
+            on_post_state_ready: None,
         }
     }
 
@@ -1396,7 +1449,8 @@ mod tests {
         let tries = TestTriesBuilder::new().build();
         let mut state_update =
             tries.new_trie_update(ShardUId::single_shard(), CryptoHash::default());
-        let account = Account::new(100, 0, AccountContract::None, 100);
+        let account =
+            Account::new(Balance::from_yoctonear(100), Balance::ZERO, AccountContract::None, 100);
         set_account(&mut state_update, account_id.clone(), &account);
         set_access_key(&mut state_update, account_id.clone(), public_key.clone(), access_key);
 
@@ -1428,7 +1482,7 @@ mod tests {
         apply_delegate_action(
             &mut state_update,
             &apply_state,
-            &action_receipt,
+            &VersionedActionReceipt::from(&action_receipt),
             &sender_id,
             &signed_delegate_action,
             &mut result,
@@ -1473,7 +1527,7 @@ mod tests {
         apply_delegate_action(
             &mut state_update,
             &apply_state,
-            &action_receipt,
+            &VersionedActionReceipt::from(action_receipt),
             &sender_id,
             &signed_delegate_action,
             &mut result,
@@ -1500,7 +1554,7 @@ mod tests {
         apply_delegate_action(
             &mut state_update,
             &apply_state,
-            &action_receipt,
+            &VersionedActionReceipt::from(action_receipt),
             &sender_id,
             &signed_delegate_action,
             &mut result,
@@ -1527,7 +1581,7 @@ mod tests {
         apply_delegate_action(
             &mut state_update,
             &apply_state,
-            &action_receipt,
+            &VersionedActionReceipt::from(action_receipt),
             &"www.test.near".parse().unwrap(),
             &signed_delegate_action,
             &mut result,
@@ -1744,7 +1798,7 @@ mod tests {
         delegate_action.actions =
             vec![non_delegate_action(Action::FunctionCall(Box::new(FunctionCallAction {
                 args: Vec::new(),
-                deposit: 0,
+                deposit: Balance::ZERO,
                 gas: Gas::from_gas(300),
                 method_name: "test_method".parse().unwrap(),
             })))];
@@ -1795,13 +1849,13 @@ mod tests {
         delegate_action.actions = vec![
             non_delegate_action(Action::FunctionCall(Box::new(FunctionCallAction {
                 args: Vec::new(),
-                deposit: 0,
+                deposit: Balance::ZERO,
                 gas: Gas::from_gas(300),
                 method_name: "test_method".parse().unwrap(),
             }))),
             non_delegate_action(Action::FunctionCall(Box::new(FunctionCallAction {
                 args: Vec::new(),
-                deposit: 0,
+                deposit: Balance::ZERO,
                 method_name: "test_method".parse().unwrap(),
                 gas: Gas::from_gas(300),
             }))),
@@ -1834,7 +1888,7 @@ mod tests {
         delegate_action.actions =
             vec![non_delegate_action(Action::FunctionCall(Box::new(FunctionCallAction {
                 args: Vec::new(),
-                deposit: 1,
+                deposit: Balance::from_yoctonear(1),
                 gas: Gas::from_gas(300),
                 method_name: "test_method".parse().unwrap(),
             })))];
@@ -1866,7 +1920,7 @@ mod tests {
         delegate_action.actions =
             vec![non_delegate_action(Action::FunctionCall(Box::new(FunctionCallAction {
                 args: Vec::new(),
-                deposit: 0,
+                deposit: Balance::ZERO,
                 gas: Gas::from_gas(300),
                 method_name: "test_method".parse().unwrap(),
             })))];
@@ -1901,7 +1955,7 @@ mod tests {
         delegate_action.actions =
             vec![non_delegate_action(Action::FunctionCall(Box::new(FunctionCallAction {
                 args: Vec::new(),
-                deposit: 0,
+                deposit: Balance::ZERO,
                 gas: Gas::from_gas(300),
                 method_name: "test_method".parse().unwrap(),
             })))];

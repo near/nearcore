@@ -12,17 +12,14 @@ publish = false
 workspace = true
 
 [dependencies]
-actix.workspace = true
 anyhow.workspace = true
 borsh.workspace = true
 bytesize.workspace = true
-object_store.workspace = true
 futures.workspace = true
 itertools.workspace = true
 lru.workspace = true
 num-rational.workspace = true
 parking_lot.workspace = true
-percent-encoding.workspace = true
 rand.workspace = true
 rayon.workspace = true
 reed-solomon-erasure.workspace = true
@@ -52,6 +49,7 @@ near-client-primitives.workspace = true
 near-crypto.workspace = true
 near-dyn-configs.workspace = true
 near-epoch-manager.workspace = true
+near-external-storage.workspace = true
 near-network.workspace = true
 near-o11y.workspace = true
 near-parameters.workspace = true
@@ -91,7 +89,6 @@ test_features = [
     "near-vm-runner/test_features",
 ]
 nightly = [
-    "near-async/nightly",
     "near-chain-configs/nightly",
     "near-chain/nightly",
     "near-chunks/nightly",

@@ -1,5 +1,4 @@
-use crate::peer_manager::peer_manager_actor::Event as PME;
-use crate::peer_manager::testonly::Event;
+use crate::peer_manager::peer_manager_actor::Event;
 use crate::{network_protocol, peer_manager, testonly::make_rng};
 use near_async::time::Duration;
 use near_async::time::FakeClock;
@@ -31,17 +30,17 @@ async fn random_handshake_connect(input: &[u8]) {
     let _ = fuzzer_peer.stream.stream.write_all(input).await; // ignore failures, eg. connection closed
     pm.events
         .recv_until(|ev| match ev {
-            Event::PeerManager(PME::HandshakeCompleted(_)) => {
+            Event::HandshakeCompleted(_) => {
                 // TODO: should remove this panic, but for now let’s keep it until the fuzzer actually
                 // hits it: it will prove that the fuzzer is actually able to generate interesting inputs.
                 panic!("Fuzzer did find a valid handshake");
             }
-            Event::PeerManager(PME::ConnectionClosed(_)) => Some(()),
+            Event::ConnectionClosed(_) => Some(()),
             _ => None,
         })
         .await;
     pm.check_consistency().await;
-    crate::tcp::RESERVED_LISTENER_ADDRS.lock().clear();
+    crate::tcp::RESERVED_PORT_LOCKS.lock().clear();
 }
 
 #[test]

@@ -1,5 +1,6 @@
-use crate::MEMORY_EXPORT;
+use super::instrument_v3::InstrumentContext;
 use crate::logic::errors::PrepareError;
+use crate::{EXPORT_PREFIX, MEMORY_EXPORT};
 use finite_wasm_6::{Fee, wasmparser as wp};
 use near_parameters::vm::{Config, VMKind};
 use wasm_encoder::{Encode, Section, SectionId};
@@ -145,25 +146,39 @@ impl<'a> PrepareContext<'a> {
                     for res in reader {
                         let wp::Export { name, kind, index } =
                             res.map_err(|_| PrepareError::Deserialization)?;
+                        let prefix = (self.config.vm_kind == VMKind::Wasmtime)
+                            .then_some(EXPORT_PREFIX)
+                            .unwrap_or_default();
                         match kind {
                             wp::ExternalKind::Func => {
-                                new_section.export(name, wasm_encoder::ExportKind::Func, index);
+                                new_section.export(
+                                    &format!("{prefix}{name}"),
+                                    wasm_encoder::ExportKind::Func,
+                                    index,
+                                );
                             }
                             wp::ExternalKind::Table => {
-                                new_section.export(name, wasm_encoder::ExportKind::Table, index);
+                                new_section.export(
+                                    &format!("{prefix}{name}"),
+                                    wasm_encoder::ExportKind::Table,
+                                    index,
+                                );
                             }
                             wp::ExternalKind::Memory => continue,
                             wp::ExternalKind::Global => {
-                                new_section.export(name, wasm_encoder::ExportKind::Global, index);
+                                new_section.export(
+                                    &format!("{prefix}{name}"),
+                                    wasm_encoder::ExportKind::Global,
+                                    index,
+                                );
                             }
                             wp::ExternalKind::Tag => {
-                                new_section.export(name, wasm_encoder::ExportKind::Tag, index);
+                                new_section.export(
+                                    &format!("{prefix}{name}"),
+                                    wasm_encoder::ExportKind::Tag,
+                                    index,
+                                );
                             }
-                        }
-                        if name == MEMORY_EXPORT {
-                            // Something other than memory is exported under the name of
-                            // [MEMORY_EXPORT]
-                            return Err(PrepareError::Instantiate);
                         }
                     }
                     if self.config.vm_kind == VMKind::Wasmtime {
@@ -369,25 +384,36 @@ pub(crate) fn prepare_contract(
 ) -> Result<Vec<u8>, PrepareError> {
     let lightly_steamed = PrepareContext::new(original_code, features, config).run()?;
 
-    if kind == VMKind::NearVm {
-        // Built-in near-vm code instruments code for itself.
-        return Ok(lightly_steamed);
+    match kind {
+        VMKind::NearVm => return Ok(lightly_steamed),
+        VMKind::Wasmer0 | VMKind::Wasmtime | VMKind::Wasmer2 => {}
     }
 
-    let res = finite_wasm_6::Analysis::new()
+    let analysis = finite_wasm_6::Analysis::new()
         .with_stack(SimpleMaxStackCfg)
-        .with_gas(SimpleGasCostCfg(u64::from(config.regular_op_cost)))
+        .with_gas(SimpleGasCostCfg {
+            regular: u64::from(config.regular_op_cost),
+            linear_base: config.linear_op_base_cost,
+            linear_unit: config.linear_op_unit_cost,
+        })
         .analyze(&lightly_steamed)
         .map_err(|err| {
             tracing::error!(?err, ?kind, "Analysis failed");
             PrepareError::Deserialization
-        })?
-        // Make sure contracts can’t call the instrumentation functions via `env`.
-        .instrument("internal", &lightly_steamed)
-        .map_err(|err| {
-            tracing::error!(?err, ?kind, "Instrumentation failed");
-            PrepareError::Serialization
         })?;
+    // Make sure contracts can’t call the instrumentation functions via `env`.
+    let res = InstrumentContext::new(
+        &lightly_steamed,
+        "internal",
+        &analysis,
+        config.regular_op_cost,
+        config.limit_config.max_stack_height,
+    )
+    .run()
+    .map_err(|err| {
+        tracing::error!(?err, ?kind, "Instrumentation failed");
+        PrepareError::Serialization
+    })?;
     Ok(res)
 }
 
@@ -426,7 +452,11 @@ impl finite_wasm_6::max_stack::SizeConfig for SimpleMaxStackCfg {
     }
 }
 
-struct SimpleGasCostCfg(u64);
+struct SimpleGasCostCfg {
+    regular: u64,
+    linear_base: u64,
+    linear_unit: u64,
+}
 
 macro_rules! gas_cost {
     ($( @$proposal:ident $op:ident $({ $($arg:ident: $argty:ty),* })? => $visit:ident ($($ann:tt)*))*) => {
@@ -440,13 +470,13 @@ macro_rules! gas_cost {
     (@@$self:ident visit_block) => { Fee::ZERO };
     (@@$self:ident visit_end) => { Fee::ZERO };
     (@@$self:ident visit_else) => { Fee::ZERO };
-    (@@$self:ident visit_memory_init) => { Fee { linear: $self.0, constant: $self.0 } };
-    (@@$self:ident visit_memory_copy) => { Fee { linear: $self.0, constant: $self.0 } };
-    (@@$self:ident visit_memory_fill) => { Fee { linear: $self.0, constant: $self.0 } };
-    (@@$self:ident visit_table_init) => { Fee { linear: $self.0, constant: $self.0 } };
-    (@@$self:ident visit_table_copy) => { Fee { linear: $self.0, constant: $self.0 } };
-    (@@$self:ident visit_table_fill) => { Fee { linear: $self.0, constant: $self.0 } };
-    (@@$self:ident $visit:ident) => { Fee::constant($self.0) };
+    (@@$self:ident visit_memory_init) => { Fee { linear: $self.linear_unit, constant: $self.linear_base } };
+    (@@$self:ident visit_memory_copy) => { Fee { linear: $self.linear_unit, constant: $self.linear_base } };
+    (@@$self:ident visit_memory_fill) => { Fee { linear: $self.linear_unit, constant: $self.linear_base } };
+    (@@$self:ident visit_table_init) => { Fee { linear: $self.linear_unit, constant: $self.linear_base } };
+    (@@$self:ident visit_table_copy) => { Fee { linear: $self.linear_unit, constant: $self.linear_base } };
+    (@@$self:ident visit_table_fill) => { Fee { linear: $self.linear_unit, constant: $self.linear_base } };
+    (@@$self:ident $visit:ident) => { Fee::constant($self.regular) };
 }
 
 impl<'a> wp::VisitOperator<'a> for SimpleGasCostCfg {
@@ -567,31 +597,6 @@ mod test {
             // pass our validation step!
             if let Ok(_) = validate_contract(input, features, &config) {
                 match super::prepare_contract(input, features, &config, VMKind::Wasmtime) {
-                    Err(_e) => (), // TODO: this should be a panic, but for now it’d actually trigger
-                    Ok(code) => {
-                        let mut validator = wp::Validator::new_with_features(features.into());
-                        match validator.validate_all(&code) {
-                            Ok(_) => (),
-                            Err(e) => panic!(
-                                "prepared code failed validation: {e:?}\ncontract: {}",
-                                hex::encode(input),
-                            ),
-                        }
-                    }
-                }
-            }
-        });
-    }
-
-    #[test]
-    fn v3_preparation_near_vm_generates_valid_contract_fuzzer() {
-        let config = test_vm_config(Some(VMKind::NearVm2));
-        let features = crate::features::WasmFeatures::new(&config);
-        bolero::check!().for_each(|input: &[u8]| {
-            // DO NOT use ArbitraryModule. We do want modules that may be invalid here, if they
-            // pass our validation step!
-            if let Ok(_) = validate_contract(input, features, &config) {
-                match super::prepare_contract(input, features, &config, VMKind::NearVm2) {
                     Err(_e) => (), // TODO: this should be a panic, but for now it’d actually trigger
                     Ok(code) => {
                         let mut validator = wp::Validator::new_with_features(features.into());

@@ -4,6 +4,7 @@ use near_async::messaging::CanSendAsync;
 use near_async::multithread::MultithreadRuntimeHandle;
 use near_client::ViewClientActorInner;
 use near_primitives::hash::CryptoHash;
+use near_primitives::types::Balance;
 use near_primitives::views::{ExecutionOutcomeWithIdView, SignedTransactionView};
 use std::collections::HashMap;
 use std::str::FromStr;
@@ -298,17 +299,14 @@ pub(crate) async fn convert_block_changes_to_transactions(
                     near_primitives::views::StateChangeCauseView::TransactionProcessing {
                         tx_hash,
                     } => transactions_in_block.get(tx_hash).and_then(|t| {
-                        let total_sum = t
-                            .actions
-                            .iter()
-                            .map(|action| match action {
+                        let total_sum =
+                            t.actions.iter().fold(Balance::ZERO, |sum, action| match action {
                                 near_primitives::views::ActionView::Transfer { deposit } => {
-                                    *deposit
+                                    sum.checked_add(*deposit).unwrap()
                                 }
-                                _ => 0,
-                            })
-                            .sum::<u128>();
-                        if total_sum == 0 { None } else { Some(total_sum) }
+                                _ => sum,
+                            });
+                        if total_sum.is_zero() { None } else { Some(total_sum) }
                     }),
                     _ => None,
                 };
@@ -365,7 +363,7 @@ fn convert_account_update_to_operations(
     account_id: &near_primitives::types::AccountId,
     previous_account_state: Option<&near_primitives::views::AccountView>,
     account: &near_primitives::views::AccountView,
-    deposit: Option<near_primitives::types::Balance>,
+    deposit: Option<Balance>,
     predecessor_id: &Option<crate::models::AccountIdentifier>,
 ) {
     let previous_account_balances = previous_account_state
@@ -387,7 +385,7 @@ fn convert_account_update_to_operations(
                     sub_account: None,
                     metadata: None,
                 },
-                amount: Some(-crate::models::Amount::from_yoctonear(deposit)),
+                amount: Some(-crate::models::Amount::from_balance(deposit)),
                 type_: crate::models::OperationType::Transfer,
                 status: Some(crate::models::OperationStatusKind::Success),
                 metadata: crate::models::OperationMetadata::from_predecessor(
@@ -405,8 +403,12 @@ fn convert_account_update_to_operations(
                 amount: Some(crate::models::Amount::from_yoctonear_diff(
                     crate::utils::SignedDiff::cmp(
                         // this operation is guaranteed to not underflow. Otherwise the transaction is invalid
-                        previous_account_balances.liquid - deposit,
-                        new_account_balances.liquid,
+                        previous_account_balances
+                            .liquid
+                            .checked_sub(deposit)
+                            .unwrap()
+                            .as_yoctonear(),
+                        new_account_balances.liquid.as_yoctonear(),
                     ),
                 )),
                 type_: crate::models::OperationType::Transfer,
@@ -431,8 +433,8 @@ fn convert_account_update_to_operations(
                 },
                 amount: Some(crate::models::Amount::from_yoctonear_diff(
                     crate::utils::SignedDiff::cmp(
-                        previous_account_balances.liquid,
-                        new_account_balances.liquid,
+                        previous_account_balances.liquid.as_yoctonear(),
+                        new_account_balances.liquid.as_yoctonear(),
                     ),
                 )),
                 type_: crate::models::OperationType::Transfer,
@@ -467,8 +469,8 @@ fn convert_account_update_to_operations(
             },
             amount: Some(crate::models::Amount::from_yoctonear_diff(
                 crate::utils::SignedDiff::cmp(
-                    previous_account_balances.liquid_for_storage,
-                    new_account_balances.liquid_for_storage,
+                    previous_account_balances.liquid_for_storage.as_yoctonear(),
+                    new_account_balances.liquid_for_storage.as_yoctonear(),
                 ),
             )),
             type_: crate::models::OperationType::Transfer,
@@ -488,8 +490,8 @@ fn convert_account_update_to_operations(
             },
             amount: Some(crate::models::Amount::from_yoctonear_diff(
                 crate::utils::SignedDiff::cmp(
-                    previous_account_balances.locked,
-                    new_account_balances.locked,
+                    previous_account_balances.locked.as_yoctonear(),
+                    new_account_balances.locked.as_yoctonear(),
                 ),
             )),
             type_: crate::models::OperationType::Transfer,
@@ -523,8 +525,8 @@ fn convert_account_delete_to_operations(
             },
             amount: Some(crate::models::Amount::from_yoctonear_diff(
                 crate::utils::SignedDiff::cmp(
-                    previous_account_balances.liquid,
-                    new_account_balances.liquid,
+                    previous_account_balances.liquid.as_yoctonear(),
+                    new_account_balances.liquid.as_yoctonear(),
                 ),
             )),
             type_: crate::models::OperationType::Transfer,
@@ -544,8 +546,8 @@ fn convert_account_delete_to_operations(
             },
             amount: Some(crate::models::Amount::from_yoctonear_diff(
                 crate::utils::SignedDiff::cmp(
-                    previous_account_balances.liquid_for_storage,
-                    new_account_balances.liquid_for_storage,
+                    previous_account_balances.liquid_for_storage.as_yoctonear(),
+                    new_account_balances.liquid_for_storage.as_yoctonear(),
                 ),
             )),
             type_: crate::models::OperationType::Transfer,
@@ -565,8 +567,8 @@ fn convert_account_delete_to_operations(
             },
             amount: Some(crate::models::Amount::from_yoctonear_diff(
                 crate::utils::SignedDiff::cmp(
-                    previous_account_balances.locked,
-                    new_account_balances.locked,
+                    previous_account_balances.locked.as_yoctonear(),
+                    new_account_balances.locked.as_yoctonear(),
                 ),
             )),
             type_: crate::models::OperationType::Transfer,
@@ -588,7 +590,7 @@ fn convert_fungible_token_balance_change_to_operations(
         )
         .unwrap(),
         amount: Some(crate::models::Amount {
-            value: crate::utils::SignedDiff::from(fungible_token_event.delta_amount),
+            value: fungible_token_event.delta_amount,
             currency: Currency {
                 symbol: fungible_token_event.symbol.clone(),
                 decimals: fungible_token_event.decimals,

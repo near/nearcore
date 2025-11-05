@@ -6,7 +6,9 @@ use near_async::time::{Clock, Duration, FakeClock, Utc};
 use near_o11y::testonly::init_test_logger;
 #[cfg(feature = "test_features")]
 use near_primitives::optimistic_block::OptimisticBlock;
-use near_primitives::{hash::CryptoHash, test_utils::TestBlockBuilder, version::PROTOCOL_VERSION};
+use near_primitives::{
+    hash::CryptoHash, test_utils::TestBlockBuilder, types::Balance, version::PROTOCOL_VERSION,
+};
 use num_rational::Ratio;
 use std::sync::Arc;
 
@@ -34,10 +36,10 @@ fn build_chain() {
     let hash = chain.head().unwrap().last_block_hash;
     if cfg!(feature = "nightly") {
         // cspell:disable-next-line
-        insta::assert_snapshot!(hash, @"EAc2t48pf5BtysasG98CYcuMwovGVSqexpckKCvtDfco");
+        insta::assert_snapshot!(hash, @"92FxojHuVNjHq91GuwyCVZXCH4cxJKmmsrbpmUuJ9Yfh");
     } else {
         // cspell:disable-next-line
-        insta::assert_snapshot!(hash, @"29v1yk13bodFUYHAkTG8nRu2SvBScCEESreie3hEmc78");
+        insta::assert_snapshot!(hash, @"4DPNdH3WYvvM8mWy2LwfRnLd4beF6ekwDvVBb7WdKFvt");
     }
 
     for i in 1..5 {
@@ -54,10 +56,10 @@ fn build_chain() {
     let hash = chain.head().unwrap().last_block_hash;
     if cfg!(feature = "nightly") {
         // cspell:disable-next-line
-        insta::assert_snapshot!(hash, @"HgcqkqdeLB4PrY6212BtPYkkK7p7cCxnsYsFL62VAeLK");
+        insta::assert_snapshot!(hash, @"GT96L4juwtGQH2sfq6aARf5fjn6xL8oczfH8khcUZXqN");
     } else {
         // cspell:disable-next-line
-        insta::assert_snapshot!(hash, @"FwKRg6eY9dSgUWrN45ZxFTeJ8Eqgfwe6s3EboqD1PvhF");
+        insta::assert_snapshot!(hash, @"GwK1vvXBEERWhjKkiP29xE58iuGS9zyrdxoThMZ5BWFS");
     }
 }
 
@@ -84,9 +86,9 @@ fn build_chain_with_orphans() {
         None,
         vec![],
         Ratio::from_integer(0),
-        0,
-        100,
-        Some(0),
+        Balance::ZERO,
+        Balance::from_yoctonear(100),
+        Some(Balance::ZERO),
         &*signer,
         *last_block.header().next_bp_hash(),
         CryptoHash::default(),

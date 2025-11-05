@@ -362,6 +362,10 @@ impl ClientActorInner {
                     .iter()
                     .enumerate()
                     .map(|(shard_index, chunk)| {
+                        // TODO(spice): chunks in spice no longer contain prev state root.
+                        if cfg!(feature = "protocol_feature_spice") {
+                            return (0, 0);
+                        }
                         let shard_id = shard_layout.get_shard_id(shard_index).unwrap();
                         let state_root_node = self.client.runtime_adapter.get_state_root_node(
                             shard_id,
@@ -670,8 +674,8 @@ impl ClientActorInner {
                         processing_time_ms: CryptoHashTimer::get_timer_value(block_hash)
                             .map(|s| s.whole_milliseconds() as u64),
                         block_timestamp: block_header.raw_timestamp(),
-                        gas_price_ratio: block_header.next_gas_price() as f64
-                            / initial_gas_price as f64,
+                        gas_price_ratio: block_header.next_gas_price().as_yoctonear() as f64
+                            / initial_gas_price.as_yoctonear() as f64,
                     },
                 );
                 // TODO(robin): using last epoch id when iterating in reverse height direction is
@@ -806,7 +810,7 @@ impl ClientActorInner {
                         .map(|validator| {
                             (
                                 validator.account_id.clone(),
-                                (validator.stake_this_epoch / 10u128.pow(24)) as u64,
+                                (validator.stake_this_epoch.as_near()) as u64,
                             )
                         })
                         .collect::<Vec<(AccountId, u64)>>()
@@ -887,7 +891,8 @@ impl ClientActorInner {
                 chunk_validator_assignments.compute_endorsement_state(endorsed_chunk_validators);
             chunk_endorsements.insert(
                 chunk_header.chunk_hash().clone(),
-                endorsement_state.endorsed_stake as f64 / endorsement_state.total_stake as f64,
+                endorsement_state.endorsed_stake.as_yoctonear() as f64
+                    / endorsement_state.total_stake.as_yoctonear() as f64,
             );
         }
         Some(chunk_endorsements)

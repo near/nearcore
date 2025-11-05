@@ -2,10 +2,9 @@ use std::cmp::Ordering;
 use std::sync::Arc;
 
 use crate::block_processing_utils::BlockNotInPoolError;
-use crate::chain::Chain;
+use crate::chain::{ApplyChunksIterationMode, Chain};
 use crate::rayon_spawner::RayonAsyncComputationSpawner;
 use crate::runtime::NightshadeRuntime;
-use crate::spice_core::CoreStatementsProcessor;
 use crate::store::ChainStoreAccess;
 use crate::types::{AcceptedBlock, ChainConfig, ChainGenesis};
 use crate::{ApplyChunksSpawner, DoomslugThresholdMode};
@@ -23,12 +22,11 @@ use near_primitives::optimistic_block::BlockToApply;
 use near_primitives::sharding::{ShardChunkHeader, ShardChunkHeaderV3};
 use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::test_utils::create_test_signer;
-use near_primitives::types::{AccountId, BlockHeight, Gas, NumBlocks, NumShards, ShardId};
+use near_primitives::types::{AccountId, Balance, BlockHeight, Gas, NumBlocks, NumShards, ShardId};
 use near_primitives::utils::MaybeValidated;
 use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_store::DBCol;
-use near_store::adapter::StoreAdapter as _;
 use near_store::genesis::initialize_genesis_state;
 use near_store::test_utils::create_test_store;
 use num_rational::Ratio;
@@ -70,15 +68,11 @@ pub fn get_chain_with_genesis(clock: Clock, genesis: Genesis) -> Chain {
     let chain_genesis = ChainGenesis::new(&genesis.config);
     let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config, None);
     let shard_tracker = ShardTracker::new_empty(epoch_manager.clone());
-    let runtime = NightshadeRuntime::test(
-        tempdir.path(),
-        store.clone(),
-        &genesis.config,
-        epoch_manager.clone(),
-    );
+    let runtime =
+        NightshadeRuntime::test(tempdir.path(), store, &genesis.config, epoch_manager.clone());
     Chain::new(
         clock,
-        epoch_manager.clone(),
+        epoch_manager,
         shard_tracker,
         runtime,
         &chain_genesis,
@@ -86,9 +80,10 @@ pub fn get_chain_with_genesis(clock: Clock, genesis: Genesis) -> Chain {
         ChainConfig::test(),
         None,
         ApplyChunksSpawner::Custom(Arc::new(RayonAsyncComputationSpawner)),
+        ApplyChunksIterationMode::Sequential,
         MutableConfigValue::new(None, "validator_signer"),
         noop().into_multi_sender(),
-        CoreStatementsProcessor::new_with_noop_senders(store.chain_store(), epoch_manager),
+        None,
     )
     .unwrap()
 }
@@ -154,21 +149,17 @@ pub fn setup_with_tx_validity_period(
     genesis.config.epoch_length = epoch_length;
     genesis.config.transaction_validity_period = tx_validity_period;
     genesis.config.gas_limit = Gas::from_gas(1_000_000);
-    genesis.config.min_gas_price = 100;
-    genesis.config.max_gas_price = 1_000_000_000;
-    genesis.config.total_supply = 1_000_000_000;
+    genesis.config.min_gas_price = Balance::from_yoctonear(100);
+    genesis.config.max_gas_price = Balance::from_yoctonear(1_000_000_000);
+    genesis.config.total_supply = Balance::from_yoctonear(1_000_000_000);
     genesis.config.gas_price_adjustment_rate = Ratio::from_integer(0);
     genesis.config.protocol_version = PROTOCOL_VERSION;
     let tempdir = tempfile::tempdir().unwrap();
     initialize_genesis_state(store.clone(), &genesis, Some(tempdir.path()));
     let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config, None);
     let shard_tracker = ShardTracker::new_empty(epoch_manager.clone());
-    let runtime = NightshadeRuntime::test(
-        tempdir.path(),
-        store.clone(),
-        &genesis.config,
-        epoch_manager.clone(),
-    );
+    let runtime =
+        NightshadeRuntime::test(tempdir.path(), store, &genesis.config, epoch_manager.clone());
     let chain = Chain::new(
         clock,
         epoch_manager.clone(),
@@ -179,9 +170,10 @@ pub fn setup_with_tx_validity_period(
         ChainConfig::test(),
         None,
         ApplyChunksSpawner::Custom(Arc::new(RayonAsyncComputationSpawner)),
+        ApplyChunksIterationMode::Sequential,
         MutableConfigValue::new(None, "validator_signer"),
         noop().into_multi_sender(),
-        CoreStatementsProcessor::new_with_noop_senders(store.chain_store(), epoch_manager.clone()),
+        None,
     )
     .unwrap();
     chain.init_flat_storage().unwrap();
@@ -345,7 +337,7 @@ mod test {
     use near_primitives::hash::CryptoHash;
     use near_primitives::receipt::{Receipt, ReceiptPriority};
     use near_primitives::sharding::ReceiptList;
-    use near_primitives::types::{AccountId, NumShards};
+    use near_primitives::types::{AccountId, Balance, NumShards};
 
     use crate::Chain;
 
@@ -369,8 +361,9 @@ mod test {
 
     fn test_build_receipt_hashes_with_num_shard(num_shards: NumShards) {
         let shard_layout = ShardLayout::multi_shard(num_shards, 0);
-        let create_receipt_from_receiver_id =
-            |receiver_id| Receipt::new_balance_refund(&receiver_id, 0, ReceiptPriority::NoPriority);
+        let create_receipt_from_receiver_id = |receiver_id| {
+            Receipt::new_balance_refund(&receiver_id, Balance::ZERO, ReceiptPriority::NoPriority)
+        };
         let mut rng = rand::thread_rng();
         let receipts = (0..3000)
             .map(|_| {

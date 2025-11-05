@@ -3,7 +3,6 @@ use std::sync::Arc;
 
 use crate::setup::builder::TestLoopBuilder;
 use crate::setup::env::TestLoopEnv;
-use crate::utils::ONE_NEAR;
 use crate::utils::rotating_validators_runner::RotatingValidatorsRunner;
 use near_async::messaging::CanSend as _;
 use near_async::test_loop::sender::TestLoopSender;
@@ -20,7 +19,7 @@ use near_primitives::block::{Approval, ApprovalInner};
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::test_utils::create_user_test_signer;
-use near_primitives::types::{AccountId, BlockHeight, EpochId, NumSeats};
+use near_primitives::types::{AccountId, Balance, BlockHeight, EpochId, NumSeats};
 use parking_lot::RwLock;
 use rand::{Rng as _, thread_rng};
 
@@ -48,7 +47,7 @@ fn ultra_slow_test_consensus_with_epoch_switches() {
     .collect();
     let seats: NumSeats = validators[0].len().try_into().unwrap();
 
-    let stake = ONE_NEAR;
+    let stake = Balance::from_near(1);
     let mut runner = RotatingValidatorsRunner::new(stake, validators.clone());
     // With skips epochs may be longer and rotation validators may be unstable.
     runner.skip_assert_validators_rotation();

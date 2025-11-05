@@ -1,3 +1,7 @@
+use std::collections::HashSet;
+use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
+
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_async::time::{Duration, Utc};
 use near_chain_configs::GenesisConfig;
@@ -20,6 +24,7 @@ use near_primitives::congestion_info::ExtendedCongestionInfo;
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{MerklePath, merklize};
+use near_primitives::optimistic_block::OptimisticBlockKeySource;
 use near_primitives::receipt::{PromiseYieldTimeout, Receipt};
 use near_primitives::sandbox::state_patch::SandboxStatePatch;
 use near_primitives::shard_layout::ShardLayout;
@@ -38,10 +43,12 @@ use near_primitives::version::PROD_GENESIS_PROTOCOL_VERSION;
 use near_primitives::version::{MIN_GAS_PRICE_NEP_92_FIX, ProtocolVersion};
 use near_primitives::views::{QueryRequest, QueryResponse};
 use near_schema_checker_lib::ProtocolSchema;
+use near_store::TrieUpdate;
 use near_store::flat::FlatStorageManager;
 use near_store::{PartialStorage, ShardTries, Store, Trie, WrappedTrieChanges};
 use near_vm_runner::ContractCode;
 use near_vm_runner::ContractRuntimeCache;
+use node_runtime::PostStateReadyCallback;
 use node_runtime::SignedValidPeriodTransactions;
 use num_rational::Rational32;
 use tracing::instrument;
@@ -160,7 +167,10 @@ impl BlockEconomicsConfig {
     }
 
     pub fn max_gas_price(&self) -> Balance {
-        std::cmp::min(self.genesis_max_gas_price, Self::MAX_GAS_MULTIPLIER * self.min_gas_price())
+        std::cmp::min(
+            self.genesis_max_gas_price,
+            self.min_gas_price().checked_mul(Self::MAX_GAS_MULTIPLIER).unwrap(),
+        )
     }
 
     pub fn gas_price_adjustment_rate(&self) -> Rational32 {
@@ -326,6 +336,15 @@ impl ApplyChunkBlockContext {
             bandwidth_requests,
         }
     }
+
+    pub fn to_key_source(&self) -> OptimisticBlockKeySource {
+        OptimisticBlockKeySource {
+            height: self.height,
+            prev_block_hash: self.prev_block_hash,
+            block_timestamp: self.block_timestamp,
+            random_seed: self.random_seed,
+        }
+    }
 }
 
 pub struct ApplyChunkShardContext<'a> {
@@ -333,6 +352,7 @@ pub struct ApplyChunkShardContext<'a> {
     pub last_validator_proposals: ValidatorStakeIter<'a>,
     pub gas_limit: Gas,
     pub is_new_chunk: bool,
+    pub on_post_state_ready: Option<PostStateReadyCallback>,
 }
 
 /// Contains transactions that were fetched from the transaction pool
@@ -345,6 +365,11 @@ pub struct PreparedTransactions {
     pub limited_by: Option<PrepareTransactionsLimit>,
 }
 
+/// Transactions that were taken out of the pool in prepare_transactions,
+/// but should be skipped because they were in skip_tx_hashes.
+#[derive(Debug, Clone)]
+pub struct SkippedTransactions(pub Vec<ValidatedTransaction>);
+
 /// Chunk producer prepares transactions from the transaction pool
 /// until it hits some limit (too many transactions, too much gas used, etc).
 /// This enum describes which limit was hit when preparing transactions.
@@ -355,24 +380,32 @@ pub enum PrepareTransactionsLimit {
     Time,
     ReceiptCount,
     StorageProofSize,
+    Cancelled,
 }
 
+/// Information used to prepare transactions, based on the previous block.
+/// When preparing transactions for height H, H is the "current" block and H-1 is the "previous" block.
+#[derive(Clone, Eq, PartialEq, Debug)]
 pub struct PrepareTransactionsBlockContext {
+    /// Gas price in the current block
     pub next_gas_price: Balance,
+    /// Height of the previous block
     pub height: BlockHeight,
-    pub block_hash: CryptoHash,
+    /// Epoch id of the current block
+    pub next_epoch_id: EpochId,
+    /// Congestion info from the previous block
     pub congestion_info: BlockCongestionInfo,
 }
 
-impl From<&Block> for PrepareTransactionsBlockContext {
-    fn from(block: &Block) -> Self {
-        let header = block.header();
-        Self {
+impl PrepareTransactionsBlockContext {
+    pub fn new(prev_block: &Block, epoch_manager: &dyn EpochManagerAdapter) -> Result<Self, Error> {
+        let header = prev_block.header();
+        Ok(Self {
             next_gas_price: header.next_gas_price(),
             height: header.height(),
-            block_hash: *header.hash(),
-            congestion_info: block.block_congestion_info(),
-        }
+            next_epoch_id: epoch_manager.get_epoch_id_from_prev_block(&header.hash())?,
+            congestion_info: prev_block.block_congestion_info(),
+        })
     }
 }
 
@@ -443,6 +476,29 @@ pub trait RuntimeAdapter: Send + Sync {
         chain_validate: &dyn Fn(&SignedTransaction) -> bool,
         time_limit: Option<Duration>,
     ) -> Result<PreparedTransactions, Error>;
+
+    /// `prepare_transactions` with extra options, used in early transaction preparation.
+    /// * takes `TrieUpdate` instead of `RuntimeStorageConfig`. The Trie in `TrieUpdate` should have
+    ///   a fresh recorder with no recorded data to make the storage proof size limit work correctly.
+    /// * `skip_tx_hashes` - defines which transactions should be skipped. Used to skip transactions
+    ///   that were included in previous chunks but weren't removed from the pool yet. These
+    ///   transactions will still be taken out of the pool and should be reintroduced together with
+    ///   PreparedTransactions.
+    /// * `cancel` - can be used to cancel the preparation when it's running as an async task. When
+    ///   cancelled, the function will return `Ok` with `limited_by` set to
+    ///   `PrepareTransactionsLimit::Cancelled`. This allows to reintroduce the transactions that
+    ///   were removed from the pool.
+    fn prepare_transactions_extra(
+        &self,
+        storage: TrieUpdate,
+        shard_id: ShardId,
+        prev_block: PrepareTransactionsBlockContext,
+        transaction_groups: &mut dyn TransactionGroupIterator,
+        chain_validate: &dyn Fn(&SignedTransaction) -> bool,
+        skip_tx_hashes: HashSet<CryptoHash>,
+        time_limit: Option<Duration>,
+        cancel: Option<Arc<AtomicBool>>,
+    ) -> Result<(PreparedTransactions, SkippedTransactions), Error>;
 
     /// Returns true if the shard layout will change in the next epoch
     /// Current epoch is the epoch of the block after `parent_hash`
@@ -582,8 +638,8 @@ mod tests {
             genesis_chunks.into_iter().map(|chunk| chunk.take_header()).collect(),
             Utc::now_utc(),
             0,
-            100,
-            1_000_000_000,
+            Balance::from_yoctonear(100),
+            Balance::from_yoctonear(1_000_000_000),
             &genesis_bps,
         );
         let signer = Arc::new(create_test_signer("other"));
@@ -607,7 +663,7 @@ mod tests {
                 receipt_ids: vec![hash(&[1])],
                 gas_burnt: Gas::from_gas(100),
                 compute_usage: Some(200),
-                tokens_burnt: 10000,
+                tokens_burnt: Balance::from_yoctonear(10000),
                 executor_id: "alice".parse().unwrap(),
                 metadata: ExecutionMetadata::V1,
             },
@@ -620,7 +676,7 @@ mod tests {
                 receipt_ids: vec![],
                 gas_burnt: Gas::ZERO,
                 compute_usage: Some(0),
-                tokens_burnt: 0,
+                tokens_burnt: Balance::ZERO,
                 executor_id: "bob".parse().unwrap(),
                 metadata: ExecutionMetadata::V1,
             },

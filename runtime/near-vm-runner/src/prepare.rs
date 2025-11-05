@@ -4,6 +4,7 @@
 use crate::logic::errors::PrepareError;
 use near_parameters::vm::{Config, VMKind};
 
+mod instrument_v3;
 mod prepare_v2;
 mod prepare_v3;
 
@@ -24,7 +25,7 @@ pub fn prepare_contract(
     kind: VMKind,
 ) -> Result<Vec<u8>, PrepareError> {
     let features = crate::features::WasmFeatures::new(config);
-    if config.reftypes_bulk_memory {
+    if config.reftypes_bulk_memory || config.vm_kind == VMKind::Wasmtime {
         prepare_v3::prepare_contract(original_code, features, config, kind)
     } else {
         prepare_v2::prepare_contract(original_code, features, config, kind)

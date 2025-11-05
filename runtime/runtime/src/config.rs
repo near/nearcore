@@ -3,11 +3,6 @@
 use near_primitives::account::AccessKeyPermission;
 use near_primitives::action::DeployGlobalContractAction;
 use near_primitives::errors::IntegerOverflowError;
-use near_primitives::version::ProtocolFeature;
-use near_vm_runner::logic::ProtocolVersion;
-use num_bigint::BigUint;
-use num_traits::cast::ToPrimitive;
-use num_traits::pow::Pow;
 // Just re-exporting RuntimeConfig for backwards compatibility.
 use near_parameters::{ActionCosts, RuntimeConfig, transfer_exec_fee, transfer_send_fee};
 pub use near_primitives::num_rational::Rational32;
@@ -31,21 +26,8 @@ pub struct TransactionCost {
     pub burnt_amount: Balance,
 }
 
-/// Multiplies `gas_price` by the power of `inflation_base` with exponent `inflation_exponent`.
-pub fn safe_gas_price_inflated(
-    gas_price: Balance,
-    inflation_base: Rational32,
-    inflation_exponent: u8,
-) -> Result<Balance, IntegerOverflowError> {
-    let numer = BigUint::from(*inflation_base.numer() as usize).pow(inflation_exponent as u32);
-    let denom = BigUint::from(*inflation_base.denom() as usize).pow(inflation_exponent as u32);
-    // Rounding up
-    let inflated_gas_price: BigUint = (numer * gas_price + &denom - 1u8) / denom;
-    inflated_gas_price.to_u128().ok_or(IntegerOverflowError {})
-}
-
 pub fn safe_gas_to_balance(gas_price: Balance, gas: Gas) -> Result<Balance, IntegerOverflowError> {
-    gas_price.checked_mul(Balance::from(gas.as_gas())).ok_or(IntegerOverflowError {})
+    gas_price.checked_mul(u128::from(gas.as_gas())).ok_or(IntegerOverflowError {})
 }
 
 pub fn safe_add_balance(a: Balance, b: Balance) -> Result<Balance, IntegerOverflowError> {
@@ -160,6 +142,23 @@ pub fn total_send_fees(
 
                 base_fee.checked_add(all_bytes_fee).unwrap()
             }
+            DeterministicStateInit(action) => {
+                let num_entries = action.state_init.data().len() as u64;
+                let num_bytes = action.state_init.len_bytes();
+                let base_fee = fees
+                    .fee(ActionCosts::deterministic_state_init_base)
+                    .send_fee(sender_is_receiver);
+                let entry_fee = fees
+                    .fee(ActionCosts::deterministic_state_init_entry)
+                    .send_fee(sender_is_receiver);
+                let all_entries_fee = entry_fee.checked_mul(num_entries).unwrap();
+                let byte_fee = fees
+                    .fee(ActionCosts::deterministic_state_init_byte)
+                    .send_fee(sender_is_receiver);
+                let all_bytes_fee = byte_fee.checked_mul(num_bytes as u64).unwrap();
+
+                base_fee.checked_add(all_bytes_fee).unwrap().checked_add(all_entries_fee).unwrap()
+            }
         };
         result = result.checked_add_result(delta)?;
     }
@@ -267,6 +266,17 @@ pub fn exec_fee(config: &RuntimeConfig, action: &Action, receiver_id: &AccountId
 
             base_fee.checked_add(all_bytes_fee).unwrap()
         }
+        DeterministicStateInit(action) => {
+            let num_entries = action.state_init.data().len() as u64;
+            let num_bytes = action.state_init.len_bytes();
+            let base_fee = fees.fee(ActionCosts::deterministic_state_init_base).exec_fee();
+            let entry_fee = fees.fee(ActionCosts::deterministic_state_init_entry).exec_fee();
+            let all_entries_fee = entry_fee.checked_mul(num_entries).unwrap();
+            let byte_fee = fees.fee(ActionCosts::deterministic_state_init_byte).exec_fee();
+            let all_bytes_fee = byte_fee.checked_mul(num_bytes as u64).unwrap();
+
+            base_fee.checked_add(all_bytes_fee).unwrap().checked_add(all_entries_fee).unwrap()
+        }
     }
 }
 
@@ -274,37 +284,37 @@ pub fn exec_fee(config: &RuntimeConfig, action: &Action, receiver_id: &AccountId
 pub fn tx_cost(
     config: &RuntimeConfig,
     tx: &Transaction,
-    gas_price: Balance,
-    protocol_version: ProtocolVersion,
+    receipt_gas_price: Balance,
 ) -> Result<TransactionCost, IntegerOverflowError> {
-    let sender_is_receiver = tx.receiver_id() == tx.signer_id();
+    calculate_tx_cost(tx.receiver_id(), tx.signer_id(), tx.actions(), config, receipt_gas_price)
+}
+
+pub fn calculate_tx_cost(
+    receiver_id: &AccountId,
+    signer_id: &AccountId,
+    actions: &[Action],
+    config: &RuntimeConfig,
+    receipt_gas_price: Balance,
+) -> Result<TransactionCost, IntegerOverflowError> {
+    let sender_is_receiver = receiver_id == signer_id;
     let fees = &config.fees;
     let mut gas_burnt: Gas = fees.fee(ActionCosts::new_action_receipt).send_fee(sender_is_receiver);
     gas_burnt = gas_burnt.checked_add_result(total_send_fees(
         config,
         sender_is_receiver,
-        tx.actions(),
-        tx.receiver_id(),
+        actions,
+        receiver_id,
     )?)?;
-    let prepaid_gas = total_prepaid_gas(&tx.actions())?
-        .checked_add_result(total_prepaid_send_fees(config, &tx.actions())?)?;
-    let receipt_gas_price = if ProtocolFeature::ReducedGasRefunds.enabled(protocol_version) {
-        gas_price
-    } else {
-        pessimistic_gas_price(gas_price, sender_is_receiver, fees, prepaid_gas)?
-    };
-
+    let prepaid_gas = total_prepaid_gas(&actions)?
+        .checked_add_result(total_prepaid_send_fees(config, &actions)?)?;
     let mut gas_remaining =
         prepaid_gas.checked_add_result(fees.fee(ActionCosts::new_action_receipt).exec_fee())?;
-    gas_remaining = gas_remaining.checked_add_result(total_prepaid_exec_fees(
-        config,
-        tx.actions(),
-        tx.receiver_id(),
-    )?)?;
-    let burnt_amount = safe_gas_to_balance(gas_price, gas_burnt)?;
+    gas_remaining =
+        gas_remaining.checked_add_result(total_prepaid_exec_fees(config, actions, receiver_id)?)?;
+    let burnt_amount = safe_gas_to_balance(receipt_gas_price, gas_burnt)?;
     let remaining_gas_amount = safe_gas_to_balance(receipt_gas_price, gas_remaining)?;
     let mut total_cost = safe_add_balance(burnt_amount, remaining_gas_amount)?;
-    total_cost = safe_add_balance(total_cost, total_deposit(&tx.actions())?)?;
+    total_cost = safe_add_balance(total_cost, total_deposit(actions)?)?;
     Ok(TransactionCost { gas_burnt, gas_remaining, receipt_gas_price, total_cost, burnt_amount })
 }
 
@@ -343,7 +353,7 @@ pub fn total_prepaid_exec_fees(
 }
 /// Get the total sum of deposits for given actions.
 pub fn total_deposit(actions: &[Action]) -> Result<Balance, IntegerOverflowError> {
-    let mut total_balance: Balance = 0;
+    let mut total_balance = Balance::ZERO;
     for action in actions {
         let action_balance;
         if let Action::Delegate(signed_delegate_action) = action {
@@ -375,55 +385,4 @@ pub fn total_prepaid_gas(actions: &[Action]) -> Result<Gas, IntegerOverflowError
         total_gas = total_gas.checked_add_result(action_gas)?;
     }
     Ok(total_gas)
-}
-
-/// Calculates a maximum expected gas price increase during the execution of the transaction.
-///
-/// Note: this is no longer used with ProtocolFeature::ReducedGasRefunds
-fn pessimistic_gas_price(
-    gas_price: u128,
-    sender_is_receiver: bool,
-    fees: &std::sync::Arc<near_parameters::RuntimeFeesConfig>,
-    prepaid_gas: Gas,
-) -> Result<u128, IntegerOverflowError> {
-    // If signer is equals to receiver the receipt will be processed at the same block as this
-    // transaction. Otherwise it will processed in the next block and the gas might be inflated.
-    let initial_receipt_hop = if sender_is_receiver { 0 } else { 1 };
-    // The pessimistic gas pricing is a best-effort limit which can be breached in case of
-    // congestion when receipts are delayed before they execute. Hence there is not much
-    // value to tie this limit to the function call base cost. Making it constant limits
-    // overcharging to 6x, which was the value before the cost increase.
-    let minimum_new_receipt_gas = 4_855_842_000_000; // 4.855TGas.
-    // In case the config is free, we don't care about the maximum depth.
-    let receipt_gas_price = if gas_price == 0 {
-        0
-    } else {
-        let maximum_depth = if minimum_new_receipt_gas > 0 {
-            prepaid_gas.checked_div(minimum_new_receipt_gas).unwrap().as_gas()
-        } else {
-            0
-        };
-        let inflation_exponent = u8::try_from(initial_receipt_hop + maximum_depth)
-            .map_err(|_| IntegerOverflowError {})?;
-        safe_gas_price_inflated(
-            gas_price,
-            fees.pessimistic_gas_price_inflation_ratio,
-            inflation_exponent,
-        )?
-    };
-    Ok(receipt_gas_price)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_safe_gas_price_inflated() {
-        assert_eq!(safe_gas_price_inflated(10000, Rational32::new(101, 100), 1).unwrap(), 10100);
-        assert_eq!(safe_gas_price_inflated(10000, Rational32::new(101, 100), 2).unwrap(), 10201);
-        // Rounded up
-        assert_eq!(safe_gas_price_inflated(10000, Rational32::new(101, 100), 3).unwrap(), 10304);
-        assert_eq!(safe_gas_price_inflated(10000, Rational32::new(101, 100), 32).unwrap(), 13750);
-    }
 }

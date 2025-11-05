@@ -3,11 +3,12 @@ use std::sync::Arc;
 
 use near_primitives::account::{Account, AccountContract};
 use near_primitives::action::{
-    ContractIsLocalError, DeployGlobalContractAction, GlobalContractDeployMode,
-    GlobalContractIdentifier, UseGlobalContractAction,
+    DeployGlobalContractAction, GlobalContractDeployMode, GlobalContractIdentifier,
+    UseGlobalContractAction,
 };
 use near_primitives::chunk_apply_stats::ChunkApplyStatsV0;
 use near_primitives::errors::{ActionErrorKind, RuntimeError};
+use near_primitives::global_contract::ContractIsLocalError;
 use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::receipt::{GlobalContractDistributionReceipt, Receipt, ReceiptEnum};
 use near_primitives::trie_key::{GlobalContractCodeIdentifier, TrieKey};
@@ -68,10 +69,28 @@ pub(crate) fn action_use_global_contract(
     result: &mut ActionResult,
 ) -> Result<(), RuntimeError> {
     let _span = tracing::debug_span!(target: "runtime", "action_use_global_contract").entered();
-    let key = TrieKey::GlobalContractCode { identifier: action.contract_identifier.clone().into() };
+    use_global_contract(
+        state_update,
+        account_id,
+        account,
+        &action.contract_identifier,
+        current_protocol_version,
+        result,
+    )
+}
+
+pub(crate) fn use_global_contract(
+    state_update: &mut TrieUpdate,
+    account_id: &AccountId,
+    account: &mut Account,
+    contract_identifier: &GlobalContractIdentifier,
+    current_protocol_version: ProtocolVersion,
+    result: &mut ActionResult,
+) -> Result<(), RuntimeError> {
+    let key = TrieKey::GlobalContractCode { identifier: contract_identifier.clone().into() };
     if !state_update.contains_key(&key, AccessOptions::DEFAULT)? {
         result.result = Err(ActionErrorKind::GlobalContractDoesNotExist {
-            identifier: action.contract_identifier.clone(),
+            identifier: contract_identifier.clone(),
         }
         .into());
         return Ok(());
@@ -85,19 +104,17 @@ pub(crate) fn action_use_global_contract(
     if account.contract().is_local() {
         state_update.remove(TrieKey::ContractCode { account_id: account_id.clone() });
     }
-    let contract = match &action.contract_identifier {
+    let contract = match contract_identifier {
         GlobalContractIdentifier::CodeHash(code_hash) => AccountContract::Global(*code_hash),
         GlobalContractIdentifier::AccountId(id) => AccountContract::GlobalByAccount(id.clone()),
     };
     account.set_storage_usage(
-        account.storage_usage().checked_add(action.contract_identifier.len() as u64).ok_or_else(
-            || {
-                StorageError::StorageInconsistentState(format!(
-                    "Storage usage integer overflow for account {}",
-                    account_id
-                ))
-            },
-        )?,
+        account.storage_usage().checked_add(contract_identifier.len() as u64).ok_or_else(|| {
+            StorageError::StorageInconsistentState(format!(
+                "Storage usage integer overflow for account {}",
+                account_id
+            ))
+        })?,
     );
     account.set_contract(contract);
     Ok(())

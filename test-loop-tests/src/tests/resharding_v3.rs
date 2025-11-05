@@ -9,7 +9,7 @@ use near_primitives::action::{GlobalContractDeployMode, GlobalContractIdentifier
 use near_primitives::epoch_manager::EpochConfigStore;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::{ShardLayout, shard_uids_to_ids};
-use near_primitives::types::{AccountId, BlockHeightDelta, Gas, ShardId, ShardIndex};
+use near_primitives::types::{AccountId, Balance, BlockHeightDelta, Gas, ShardId, ShardIndex};
 use near_primitives::version::PROTOCOL_VERSION;
 use std::cell::Cell;
 use std::collections::{BTreeMap, HashMap};
@@ -18,7 +18,6 @@ use std::sync::Arc;
 use crate::setup::builder::TestLoopBuilder;
 use crate::setup::drop_condition::DropCondition;
 use crate::setup::env::TestLoopEnv;
-use crate::utils::ONE_NEAR;
 use crate::utils::loop_action::{LoopAction, LoopActionStatus};
 use crate::utils::receipts::{
     ReceiptKind, check_receipts_presence_after_resharding_block,
@@ -107,7 +106,7 @@ struct TestReshardingParameters {
     archivals: Vec<AccountId>,
     #[builder(setter(skip))]
     new_boundary_account: AccountId,
-    initial_balance: u128,
+    initial_balance: Balance,
     epoch_length: BlockHeightDelta,
     chunk_ranges_to_drop: HashMap<ShardIndex, std::ops::Range<i64>>,
     shuffle_shard_assignment_for_chunk_producers: bool,
@@ -267,7 +266,7 @@ impl TestReshardingParametersBuilder {
             client_index,
             archivals,
             new_boundary_account,
-            initial_balance: self.initial_balance.unwrap_or(1_000_000 * ONE_NEAR),
+            initial_balance: self.initial_balance.unwrap_or(Balance::from_near(1_000_000)),
             epoch_length,
             chunk_ranges_to_drop: self.chunk_ranges_to_drop.unwrap_or_default(),
             shuffle_shard_assignment_for_chunk_producers: self
@@ -493,7 +492,7 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
         .genesis(genesis)
         .epoch_config_store(epoch_config_store)
         .clients(params.clients)
-        .archival_clients(params.archivals.iter().cloned().collect())
+        .cold_storage_archival_clients(params.archivals.iter().cloned().collect())
         .load_memtries_for_tracked_shards(params.load_memtries_for_tracked_shards)
         .gc_num_epochs_to_keep(GC_NUM_EPOCHS_TO_KEEP)
         .build()
@@ -530,13 +529,13 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
             &client_account_id,
             &new_boundary_account,
             &params.temporary_account_id,
-            10 * ONE_NEAR,
+            Balance::from_near(10),
             2,
         );
         test_setup_transactions.push(create_account_tx);
     }
     // Wait for the test setup transactions to settle and ensure they all succeeded.
-    env.test_loop.run_for(Duration::seconds(2));
+    env.test_loop.run_for(Duration::milliseconds(2300));
     check_txs(&env.test_loop.data, &env.node_datas, &client_account_id, &test_setup_transactions);
 
     let client_handles =

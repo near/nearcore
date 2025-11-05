@@ -1,4 +1,3 @@
-use actix::Message;
 use itertools::Itertools;
 use near_o11y::span_wrapped_msg::SpanWrapped;
 use near_pool::types::TransactionGroupIterator;
@@ -12,8 +11,7 @@ use near_primitives::{
 };
 use std::collections::HashMap;
 
-#[derive(Message, Debug)]
-#[rtype(result = "()")]
+#[derive(Debug)]
 #[allow(clippy::large_enum_variant)]
 pub enum ShardsManagerResponse {
     /// Notifies the client that the ShardsManager has collected a complete chunk.
@@ -164,7 +162,7 @@ mod tests {
         hash::CryptoHash,
         shard_layout::ShardLayout,
         transaction::{SignedTransaction, ValidatedTransaction},
-        types::{AccountId, ShardId},
+        types::{AccountId, Balance, ShardId},
     };
     use near_store::ShardUId;
     use rand::{SeedableRng, rngs::StdRng, seq::SliceRandom};
@@ -215,7 +213,7 @@ mod tests {
         shard_id_to_accounts
             .insert(ShardId::new(3), vec!["mmm", "rrr", "sweat", "ttt", "www", "zzz"]);
 
-        let deposit = 222;
+        let deposit = Balance::from_yoctonear(222);
 
         let mut rng: StdRng = SeedableRng::seed_from_u64(42);
 
