@@ -1467,22 +1467,14 @@ mod tests {
         let account_id: AccountId = "alice".parse().unwrap();
         let public_keys: Vec<PublicKey> =
             (0..3).map(|_| SecretKey::from_random(KeyType::ED25519).public_key()).collect();
-        let gas_key = GasKey {
-            balance: Balance::from_yoctonear(10),
-            num_nonces: 2,
-            permission: AccessKeyPermission::FullAccess,
-        };
-        // Setup account with gas key
         let mut state_update = setup_account(
             &account_id,
             &public_keys[0],
             &AccessKey { nonce: 0, permission: AccessKeyPermission::FullAccess },
         );
+        let mut account = get_account(&state_update, &account_id).unwrap().unwrap();
         for public_key in &public_keys {
-            set_gas_key(&mut state_update, account_id.clone(), public_key.clone(), &gas_key);
-            for i in 0..gas_key.num_nonces {
-                set_gas_key_nonce(&mut state_update, account_id.clone(), public_key.clone(), i, 0);
-            }
+            add_gas_key_to_account(&mut state_update, &mut account, &account_id, public_key);
         }
         state_update.commit(StateChangeCause::InitialState);
 
@@ -1491,7 +1483,6 @@ mod tests {
         assert!(action_result.result.is_ok());
         state_update.commit(StateChangeCause::InitialState);
 
-        // Verify gas key and nonces are removed
         let lock = state_update.trie().lock_for_iter();
         let gas_key_count = state_update
             .locked_iter(&trie_key_parsers::get_raw_prefix_for_gas_keys(&account_id), &lock)
