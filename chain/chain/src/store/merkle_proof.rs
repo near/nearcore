@@ -125,7 +125,7 @@ impl MerkleProofAccess for Store {
         &self,
         block_hash: &CryptoHash,
     ) -> Result<Arc<PartialMerkleTree>, Error> {
-        self.chain_store().get_block_merkle_tree(block_hash).map(Arc::new)
+        self.chain_store().get_block_merkle_tree(block_hash)
     }
 
     fn get_block_hash_from_ordinal(&self, block_ordinal: NumBlocks) -> Result<CryptoHash, Error> {

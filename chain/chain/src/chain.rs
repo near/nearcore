@@ -627,7 +627,7 @@ impl Chain {
     pub fn create_light_client_block(
         header: &BlockHeader,
         epoch_manager: &dyn EpochManagerAdapter,
-        chain_store: &dyn ChainStoreAccess,
+        chain_store: &dyn ChainStoreRead,
     ) -> Result<LightClientBlockView, Error> {
         let final_block_header = {
             let ret = chain_store.get_block_header(header.last_final_block())?;
@@ -3544,11 +3544,11 @@ impl MerkleProofAccess for Chain {
         &self,
         block_hash: &CryptoHash,
     ) -> Result<Arc<PartialMerkleTree>, Error> {
-        ChainStoreAccess::get_block_merkle_tree(self.chain_store(), block_hash)
+        self.chain_store.get_block_merkle_tree(block_hash)
     }
 
     fn get_block_hash_from_ordinal(&self, block_ordinal: NumBlocks) -> Result<CryptoHash, Error> {
-        ChainStoreAccess::get_block_hash_from_ordinal(self.chain_store(), block_ordinal)
+        self.chain_store().get_block_hash_from_ordinal(block_ordinal)
     }
 }
 

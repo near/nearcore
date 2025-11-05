@@ -9,13 +9,6 @@ use near_store::adapter::chain_store::{ChainStoreAdapter, ChainStoreRead};
 use near_store::{DBCol, Store, StoreUpdate};
 use std::sync::Arc;
 
-fn get_state_sync_new_chunks(
-    store: &Store,
-    block_hash: &CryptoHash,
-) -> Result<Option<Vec<u8>>, Error> {
-    Ok(store.get_ser(DBCol::StateSyncNewChunks, block_hash.as_ref())?)
-}
-
 fn iter_state_sync_hashes_keys<'a>(
     store: &'a Store,
 ) -> impl Iterator<Item = Result<EpochId, std::io::Error>> + 'a {
@@ -25,13 +18,12 @@ fn iter_state_sync_hashes_keys<'a>(
 }
 
 /// Saves new chunk info and returns whether there are at least 2 chunks per shard in the epoch for header.prev_hash()
-fn save_epoch_new_chunks<T: ChainStoreAccess>(
+fn save_epoch_new_chunks<T: ChainStoreRead>(
     chain_store: &T,
     store_update: &mut StoreUpdate,
     header: &BlockHeader,
 ) -> Result<bool, Error> {
-    let Some(mut num_new_chunks) =
-        get_state_sync_new_chunks(&chain_store.store(), header.prev_hash())?
+    let Some(mut num_new_chunks) = chain_store.get_state_sync_new_chunks(header.prev_hash())?
     else {
         // This might happen in the case of epoch sync where we save individual headers without having all
         // headers that belong to the epoch.
@@ -86,7 +78,7 @@ fn remove_old_epochs(
 
 /// Helper to turn DBNotFoundErr() into None. We might get DBNotFoundErr() in the case of epoch sync
 /// where we save individual headers without having all headers that belong to the epoch.
-fn maybe_get_block_header<T: ChainStoreAccess>(
+fn maybe_get_block_header<T: ChainStoreRead>(
     chain_store: &T,
     block_hash: &CryptoHash,
 ) -> Result<Option<Arc<BlockHeader>>, Error> {
@@ -99,8 +91,11 @@ fn maybe_get_block_header<T: ChainStoreAccess>(
     }
 }
 
-fn has_enough_new_chunks(store: &Store, block_hash: &CryptoHash) -> Result<Option<bool>, Error> {
-    let Some(num_new_chunks) = get_state_sync_new_chunks(store, block_hash)? else {
+fn has_enough_new_chunks<T: ChainStoreRead>(
+    chain_store: &T,
+    block_hash: &CryptoHash,
+) -> Result<Option<bool>, Error> {
+    let Some(num_new_chunks) = chain_store.get_state_sync_new_chunks(block_hash)? else {
         // This might happen in the case of epoch sync where we save individual headers without having all
         // headers that belong to the epoch.
         return Ok(None);
@@ -113,7 +108,7 @@ fn has_enough_new_chunks(store: &Store, block_hash: &CryptoHash) -> Result<Optio
 /// This should only be called if DBCol::StateSyncHashes does not yet have an entry for header.epoch_id().
 /// The logic should still be correct if it is, but it's unnecessary and will waste a lot of time if called
 /// on a header far away from the epoch start.
-fn on_new_header<T: ChainStoreAccess>(
+fn on_new_header<T: ChainStoreRead>(
     chain_store: &T,
     store_update: &mut StoreUpdate,
     header: &BlockHeader,
@@ -144,7 +139,7 @@ fn on_new_header<T: ChainStoreAccess>(
         {
             return Ok(());
         }
-        if has_enough_new_chunks(&chain_store.store(), sync_prev.hash())? != Some(true) {
+        if has_enough_new_chunks(chain_store, sync_prev.hash())? != Some(true) {
             return Ok(());
         }
 
@@ -152,8 +147,7 @@ fn on_new_header<T: ChainStoreAccess>(
         else {
             return Ok(());
         };
-        let Some(prev_prev_done) =
-            has_enough_new_chunks(&chain_store.store(), sync_prev_prev.hash())?
+        let Some(prev_prev_done) = has_enough_new_chunks(chain_store, sync_prev_prev.hash())?
         else {
             return Ok(());
         };
@@ -171,8 +165,8 @@ fn on_new_header<T: ChainStoreAccess>(
 
 /// Updates information in the DB related to calculating the correct "sync_hash" for this header's epoch,
 /// if it hasn't already been found.
-pub(crate) fn update_sync_hashes<T: ChainStoreAccess>(
-    chain_store: &T,
+pub(crate) fn update_sync_hashes(
+    chain_store: &ChainStoreUpdate<'_>,
     store_update: &mut StoreUpdate,
     header: &BlockHeader,
 ) -> Result<(), Error> {
@@ -224,15 +218,14 @@ pub(crate) fn is_sync_prev_hash(chain_store: &ChainStoreAdapter, tip: &Tip) -> R
         let sync_header = chain_store.get_block_header(&sync_hash)?;
         return Ok(sync_header.prev_hash() == &tip.last_block_hash);
     }
-    let store = chain_store.store_ref();
-    let Some(new_chunks) = get_state_sync_new_chunks(store, &tip.last_block_hash)? else {
+    let Some(new_chunks) = chain_store.get_state_sync_new_chunks(&tip.last_block_hash)? else {
         return Ok(false);
     };
     let done = new_chunks.iter().all(|num_chunks| *num_chunks >= 2);
     if !done {
         return Ok(false);
     }
-    let Some(prev_new_chunks) = get_state_sync_new_chunks(store, &tip.prev_block_hash)? else {
+    let Some(prev_new_chunks) = chain_store.get_state_sync_new_chunks(&tip.prev_block_hash)? else {
         return Ok(false);
     };
     let prev_done = prev_new_chunks.iter().all(|num_chunks| *num_chunks >= 2);

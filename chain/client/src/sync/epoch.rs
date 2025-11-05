@@ -262,8 +262,9 @@ impl EpochSync {
                 first_block_of_current_epoch.hash(),
                 last_final_block_header_in_current_epoch.hash(),
             )?;
-        let partial_merkle_tree_for_first_block_of_current_epoch =
-            chain_store.get_block_merkle_tree(first_block_of_current_epoch.hash())?;
+        let partial_merkle_tree_for_first_block_of_current_epoch = chain_store
+            .get_block_merkle_tree(first_block_of_current_epoch.hash())
+            .map(|arced: Arc<PartialMerkleTree>| (*arced).clone() /* remove arc */)?;
 
         let all_epochs_including_old_proof = existing_epoch_sync_proof
             .map(|proof| proof.all_epochs)
