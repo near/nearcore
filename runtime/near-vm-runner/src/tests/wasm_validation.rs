@@ -190,6 +190,7 @@ fn extension_saturating_float_to_int() {
         ]);
 }
 
+#[cfg(feature = "prepare")]
 #[test]
 fn memory_export_method() {
     test_builder()
