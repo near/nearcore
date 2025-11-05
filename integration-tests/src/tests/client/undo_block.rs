@@ -1,8 +1,9 @@
-use near_chain::{ChainStore, ChainStoreAccess, Provenance};
+use near_chain::{ChainStore, Provenance};
 use near_chain_configs::Genesis;
 use near_epoch_manager::EpochManagerAdapter;
 use near_o11y::testonly::init_test_logger;
 use near_store::Store;
+use near_store::adapter::chain_store::ChainStoreRead;
 use near_store::test_utils::create_test_store;
 use near_undo_block::undo_block;
 use std::sync::Arc;

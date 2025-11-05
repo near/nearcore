@@ -1,5 +1,6 @@
 use clap::Parser;
 use near_store::adapter::StoreAdapter;
+use near_store::adapter::chain_store::ChainStoreRead;
 use near_store::flat::FlatStorageManager;
 use near_store::{ShardTries, StateSnapshotConfig, TrieConfig, get_delayed_receipt_indices};
 use std::collections::HashMap;
@@ -7,7 +8,6 @@ use std::path::PathBuf;
 use std::rc::Rc;
 
 use near_chain::ChainStore;
-use near_chain::ChainStoreAccess;
 use near_chain_configs::GenesisValidationMode;
 use near_epoch_manager::{EpochManager, EpochManagerAdapter};
 use nearcore::config::load_config;

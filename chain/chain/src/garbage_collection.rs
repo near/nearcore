@@ -19,12 +19,13 @@ use near_primitives::utils::{
     get_execution_results_key, get_outcome_id_block_hash, get_receipt_proof_key,
     get_uncertified_execution_results_key, index_to_bytes,
 };
+use near_store::adapter::chain_store::ChainStoreRead;
 use near_store::adapter::trie_store::get_shard_uid_mapping;
 use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
 use near_store::{DBCol, KeyForStateChanges, ShardTries, ShardUId};
 
 use crate::types::RuntimeAdapter;
-use crate::{Chain, ChainStore, ChainStoreAccess, ChainStoreUpdate, metrics};
+use crate::{Chain, ChainStore, ChainStoreUpdate, metrics};
 
 #[derive(Clone)]
 pub enum GCMode {

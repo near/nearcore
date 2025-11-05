@@ -13,8 +13,7 @@ use near_chain::types::StorageDataSource;
 use near_chain::update_shard::{ShardUpdateReason, ShardUpdateResult, process_shard_update};
 use near_chain::validate::{validate_chunk_proofs, validate_chunk_with_chunk_extra};
 use near_chain::{
-    Block, BlockHeader, Chain, ChainStore, ChainStoreAccess, ReceiptFilter,
-    get_incoming_receipts_for_shard,
+    Block, BlockHeader, Chain, ChainStore, ReceiptFilter, get_incoming_receipts_for_shard,
 };
 use near_chain_configs::GenesisValidationMode;
 use near_chunks::logic::make_outgoing_receipts_proofs;
@@ -28,6 +27,7 @@ use near_primitives::sharding::{ReceiptProof, ShardChunk, ShardChunkHeader, Shar
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{BlockHeight, Gas, ShardId};
 use near_state_viewer::progress_reporter::ProgressReporter;
+use near_store::adapter::chain_store::ChainStoreRead;
 use near_store::{ShardUId, Store, get_genesis_state_roots};
 use nearcore::{NearConfig, NightshadeRuntime, NightshadeRuntimeExt, load_config};
 use node_runtime::SignedValidPeriodTransactions;

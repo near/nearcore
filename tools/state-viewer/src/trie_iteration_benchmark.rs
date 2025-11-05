@@ -1,4 +1,4 @@
-use near_chain::{ChainStore, ChainStoreAccess};
+use near_chain::ChainStore;
 use near_epoch_manager::{EpochManager, EpochManagerAdapter};
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::sharding::ShardChunkHeader;
@@ -9,6 +9,7 @@ use near_primitives::trie_key::trie_key_parsers::{
 };
 use near_primitives_core::types::ShardId;
 use near_store::adapter::StoreAdapter;
+use near_store::adapter::chain_store::ChainStoreRead;
 use near_store::{ShardUId, Store, Trie, TrieDBStorage};
 use nearcore::NearConfig;
 use std::cell::RefCell;

@@ -6,7 +6,7 @@ use itertools::Itertools;
 use near_async::messaging::Handler;
 use near_async::time::{Clock, Instant};
 use near_chain::crypto_hash_timer::CryptoHashTimer;
-use near_chain::{Block, Chain, ChainStoreAccess, near_chain_primitives};
+use near_chain::{Block, Chain, near_chain_primitives};
 use near_client_primitives::debug::{
     ApprovalAtHeightStatus, BlockProduction, ChunkCollection, DebugBlockStatusData,
     DebugBlockStatusQuery, DebugBlocksStartingMode, DebugStatus, DebugStatusResponse,
@@ -35,7 +35,7 @@ use near_primitives::{
     views::ValidatorInfo,
 };
 use near_store::DBCol;
-use near_store::adapter::chain_store::ChainStoreAdapter;
+use near_store::adapter::chain_store::{ChainStoreAdapter, ChainStoreRead};
 use std::cmp::{max, min};
 use std::collections::{HashMap, HashSet};
 use std::num::NonZeroUsize;

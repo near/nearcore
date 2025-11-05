@@ -8,6 +8,7 @@ use near_primitives::merkle::{
 use near_primitives::types::NumBlocks;
 use near_store::Store;
 use near_store::adapter::StoreAdapter;
+use near_store::adapter::chain_store::ChainStoreRead;
 
 /// Implement block merkle proof retrieval.
 ///

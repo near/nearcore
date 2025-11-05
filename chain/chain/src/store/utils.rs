@@ -11,6 +11,7 @@ use near_primitives::sharding::{ShardChunk, ShardChunkHeader};
 use near_primitives::state_sync::ReceiptProofResponse;
 use near_primitives::types::{BlockHeight, BlockHeightDelta, ShardId};
 use near_store::adapter::chain_store::ChainStoreAdapter;
+use near_store::adapter::chain_store::ChainStoreRead;
 use std::sync::Arc;
 
 /// Get full chunk from header with `height_included` taken from `header`, with

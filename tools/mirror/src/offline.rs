@@ -1,8 +1,8 @@
 use crate::{ChainError, SourceBlock, SourceChunk};
 use anyhow::Context;
 use async_trait::async_trait;
+use near_chain::ChainStore;
 use near_chain::types::RuntimeAdapter;
-use near_chain::{ChainStore, ChainStoreAccess};
 use near_chain_configs::GenesisValidationMode;
 use near_chain_primitives::error::EpochErrorResultToChainError;
 use near_crypto::PublicKey;
@@ -15,6 +15,7 @@ use near_primitives::types::{AccountId, BlockHeight, TransactionOrReceiptId};
 use near_primitives::views::{
     AccessKeyPermissionView, ExecutionOutcomeWithIdView, QueryRequest, QueryResponseKind,
 };
+use near_store::adapter::chain_store::ChainStoreRead;
 use near_store::genesis::initialize_genesis_state;
 use nearcore::{NightshadeRuntime, NightshadeRuntimeExt};
 use std::path::Path;

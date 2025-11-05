@@ -8,6 +8,7 @@ use near_epoch_manager::{EpochManager, EpochManagerAdapter, EpochManagerHandle};
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::types::{AccountId, BlockHeight};
+use near_store::adapter::chain_store::ChainStoreRead;
 use nearcore::config::load_config;
 use nearcore::open_storage;
 use std::collections::{BTreeMap, BTreeSet};

@@ -1,7 +1,7 @@
 use crate::env::test_env::TestEnv;
 use itertools::Itertools;
 use near_async::time::Clock;
-use near_chain::{ChainStore, ChainStoreAccess, Provenance};
+use near_chain::{ChainStore, Provenance};
 use near_chain_configs::Genesis;
 use near_client::ProcessTxResponse;
 use near_crypto::{InMemorySigner, Signer};
@@ -13,6 +13,7 @@ use near_primitives::types::Balance;
 use near_primitives::utils::get_num_seats_per_shard;
 use near_state_viewer::cli::StorageSource;
 use near_state_viewer::{apply_chunk_fn, apply_receipt, apply_tx};
+use near_store::adapter::chain_store::ChainStoreRead;
 use near_store::genesis::initialize_genesis_state;
 use near_store::test_utils::create_test_store;
 use nearcore::NightshadeRuntime;

@@ -1,10 +1,11 @@
 use near_epoch_manager::shard_assignment::shard_id_to_uid;
+use near_store::adapter::chain_store::ChainStoreRead;
 use rand::Rng;
 use std::borrow::Cow;
 use std::path::Path;
 
+use near_chain::ChainStore;
 use near_chain::types::RuntimeAdapter;
-use near_chain::{ChainStore, ChainStoreAccess};
 use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{

@@ -19,7 +19,7 @@ use near_chain::stateless_validation::metrics::CHUNK_WITNESS_VALIDATION_FAILED_T
 use near_chain::stateless_validation::processing_tracker::ProcessingDoneTracker;
 use near_chain::types::RuntimeAdapter;
 use near_chain::validate::validate_chunk_with_chunk_extra_and_roots;
-use near_chain::{ChainStore, ChainStoreAccess, Error};
+use near_chain::{ChainStore, Error};
 use near_chain_configs::MutableValidatorSigner;
 use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_assignment::shard_id_to_uid;
@@ -32,6 +32,7 @@ use near_primitives::stateless_validation::state_witness::{
 };
 use near_primitives::types::BlockHeight;
 use near_primitives::validator_signer::ValidatorSigner;
+use near_store::adapter::chain_store::ChainStoreRead;
 use parking_lot::Mutex;
 use reed_solomon_erasure::galois_8::ReedSolomon;
 use std::ops::Range;

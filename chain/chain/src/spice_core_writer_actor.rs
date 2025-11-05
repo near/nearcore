@@ -20,7 +20,7 @@ use near_primitives::utils::{
     get_endorsements_key, get_execution_results_key, get_uncertified_execution_results_key,
 };
 use near_store::adapter::StoreAdapter as _;
-use near_store::adapter::chain_store::ChainStoreAdapter;
+use near_store::adapter::chain_store::{ChainStoreAdapter, ChainStoreRead};
 use near_store::{DBCol, StoreUpdate};
 use std::collections::{HashMap, HashSet};
 use std::num::NonZeroUsize;

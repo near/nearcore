@@ -1,5 +1,6 @@
-use near_chain::{Block, ChainStore, ChainStoreAccess, Error};
+use near_chain::{Block, ChainStore, Error};
 use near_primitives::{hash::CryptoHash, types::BlockHeight};
+use near_store::adapter::chain_store::ChainStoreRead;
 use std::rc::Rc;
 use std::sync::Arc;
 

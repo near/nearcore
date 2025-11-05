@@ -37,7 +37,7 @@ use near_primitives::types::{
 };
 use near_primitives::validator_signer::ValidatorSigner;
 use near_store::adapter::StoreAdapter as _;
-use near_store::adapter::chain_store::ChainStoreAdapter;
+use near_store::adapter::chain_store::{ChainStoreAdapter, ChainStoreRead};
 use near_store::get_genesis_state_roots;
 use node_runtime::SignedValidPeriodTransactions;
 use parking_lot::RwLock;

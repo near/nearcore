@@ -1,12 +1,11 @@
 use crate::types::BlockHeader;
-use crate::{Chain, ChainStoreAccess};
+use crate::{Chain, ChainStoreUpdate};
 use borsh::BorshDeserialize;
 use near_chain_primitives::error::Error;
 use near_primitives::block::Tip;
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::EpochId;
-use near_store::adapter::StoreAdapter;
-use near_store::adapter::chain_store::ChainStoreAdapter;
+use near_store::adapter::chain_store::{ChainStoreAdapter, ChainStoreRead};
 use near_store::{DBCol, Store, StoreUpdate};
 use std::sync::Arc;
 

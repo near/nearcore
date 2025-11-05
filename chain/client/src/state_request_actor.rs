@@ -17,7 +17,7 @@ use near_primitives::state_sync::{
 };
 use near_primitives::types::ShardId;
 use near_primitives::version::ProtocolVersion;
-use near_store::adapter::chain_store::ChainStoreAdapter;
+use near_store::adapter::chain_store::{ChainStoreAdapter, ChainStoreRead};
 use parking_lot::Mutex;
 
 use crate::metrics;

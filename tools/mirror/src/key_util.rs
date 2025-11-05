@@ -1,9 +1,10 @@
 use anyhow::Context;
 use near_epoch_manager::shard_assignment::{account_id_to_shard_id, shard_id_to_uid};
+use near_store::adapter::chain_store::ChainStoreRead;
 use std::path::Path;
 
+use near_chain::ChainStore;
 use near_chain::types::RuntimeAdapter;
-use near_chain::{ChainStore, ChainStoreAccess};
 use near_chain_configs::GenesisValidationMode;
 use near_crypto::{PublicKey, SecretKey};
 use near_epoch_manager::EpochManager;

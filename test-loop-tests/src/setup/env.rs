@@ -6,7 +6,6 @@ use near_async::test_loop::data::TestLoopData;
 use near_async::time::Duration;
 use near_primitives::types::AccountId;
 use near_store::Store;
-use near_store::adapter::StoreAdapter;
 use near_store::archive::cloud_storage::CloudStorage;
 use near_store::db::ColdDB;
 use near_store::test_utils::TestNodeStorage;

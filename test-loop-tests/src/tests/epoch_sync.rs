@@ -3,7 +3,6 @@ use std::rc::Rc;
 
 use itertools::Itertools;
 use near_async::time::Duration;
-use near_chain::ChainStoreAccess;
 use near_chain_configs::GenesisConfig;
 use near_chain_configs::test_genesis::{TestEpochConfigBuilder, ValidatorsSpec};
 use near_client::sync::epoch::EpochSync;
@@ -13,6 +12,7 @@ use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::{AccountId, Balance, BlockHeightDelta};
 use near_primitives::utils::compression::CompressedData;
 use near_store::adapter::StoreAdapter;
+use near_store::adapter::chain_store::ChainStoreRead;
 
 use crate::setup::builder::{NodeStateBuilder, TestLoopBuilder};
 use crate::setup::env::TestLoopEnv;

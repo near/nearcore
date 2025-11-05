@@ -2,7 +2,7 @@ use crate::NearConfig;
 use near_async::ActorSystem;
 use near_async::futures::FutureSpawnerExt;
 use near_async::time::Duration;
-use near_chain::{Block, ChainStore, ChainStoreAccess};
+use near_chain::{Block, ChainStore};
 use near_epoch_manager::EpochManagerAdapter;
 use near_o11y::metrics::{
     HistogramVec, IntCounterVec, IntGauge, IntGaugeVec, exponential_buckets,
@@ -12,6 +12,7 @@ use near_o11y::metrics::{
 use near_primitives::types::ShardId;
 use near_primitives::{shard_layout::ShardLayout, state_record::StateRecord, trie_key};
 use near_store::adapter::StoreAdapter;
+use near_store::adapter::chain_store::ChainStoreRead;
 use near_store::{ShardUId, Store, Trie, TrieDBStorage};
 use std::sync::Arc;
 use std::sync::LazyLock;

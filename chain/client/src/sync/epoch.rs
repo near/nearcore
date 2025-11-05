@@ -4,7 +4,7 @@ use near_async::futures::{AsyncComputationSpawner, AsyncComputationSpawnerExt};
 use near_async::messaging::{CanSend, Handler};
 use near_async::time::Clock;
 use near_chain::types::Tip;
-use near_chain::{BlockHeader, Chain, ChainStoreAccess, Error, MerkleProofAccess};
+use near_chain::{BlockHeader, Chain, Error, MerkleProofAccess};
 use near_chain_configs::EpochSyncConfig;
 use near_client_primitives::types::{EpochSyncStatus, SyncStatus};
 use near_crypto::Signature;
@@ -23,6 +23,7 @@ use near_primitives::epoch_sync::{
     should_use_versioned_bp_hash_format,
 };
 use near_primitives::hash::CryptoHash;
+use near_primitives::merkle::PartialMerkleTree;
 use near_primitives::network::PeerId;
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{
@@ -30,6 +31,7 @@ use near_primitives::types::{
 };
 use near_primitives::utils::compression::CompressedData;
 use near_store::Store;
+use near_store::adapter::chain_store::ChainStoreRead;
 use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
 use parking_lot::Mutex;
 use rand::seq::SliceRandom;

@@ -27,6 +27,7 @@ use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_store::Store;
 use near_store::adapter::StoreAdapter as _;
+use near_store::adapter::chain_store::ChainStoreRead;
 
 pub struct SpiceChunkValidatorActor {
     chain_store: ChainStore,

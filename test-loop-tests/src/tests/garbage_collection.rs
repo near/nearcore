@@ -11,7 +11,7 @@ use near_primitives::utils::{get_block_shard_id, get_block_shard_id_rev};
 use near_primitives::version::PROTOCOL_VERSION;
 use near_store::DBCol;
 use near_store::adapter::StoreAdapter as _;
-use near_store::adapter::chain_store::ChainStoreAdapter;
+use near_store::adapter::chain_store::{ChainStoreAdapter, ChainStoreRead};
 
 use crate::setup;
 use crate::setup::builder::TestLoopBuilder;

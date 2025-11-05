@@ -1,8 +1,9 @@
 use chrono::Utc;
 use near_chain::types::{EpochManagerAdapter, LatestKnown};
-use near_chain::{ChainStore, ChainStoreAccess, ChainStoreUpdate};
+use near_chain::{ChainStore, ChainStoreUpdate};
 use near_primitives::block::Tip;
 use near_primitives::utils::to_timestamp;
+use near_store::adapter::chain_store::ChainStoreRead;
 
 pub mod cli;
 

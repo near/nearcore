@@ -2,6 +2,7 @@ use near_chain::ChainStore;
 use near_primitives::account::id::AccountId;
 use near_primitives::block::Block;
 use near_primitives::transaction::SignedTransaction;
+use near_store::adapter::chain_store::ChainStoreRead;
 
 /// Returns a list of transactions found in the block.
 pub fn dump_tx_from_block(

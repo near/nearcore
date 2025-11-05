@@ -25,6 +25,7 @@ use near_primitives::types::ShardId;
 use near_primitives::unwrap_or_return;
 use near_store::adapter::StoreAdapter;
 use near_store::adapter::chain_store::ChainStoreAdapter;
+use near_store::adapter::chain_store::ChainStoreRead;
 use parking_lot::Mutex;
 use std::collections::HashSet;
 use std::sync::Arc;

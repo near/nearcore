@@ -4,7 +4,7 @@ use crate::chain::collect_receipts_from_response;
 use crate::metrics::{SHARD_LAYOUT_NUM_SHARDS, SHARD_LAYOUT_VERSION};
 use crate::spice_core::record_uncertified_chunks_for_block;
 use crate::store::utils::get_block_header_on_chain_by_height;
-use crate::store::{ChainStore, ChainStoreAccess, ChainStoreUpdate};
+use crate::store::{ChainStore, ChainStoreUpdate};
 use crate::types::{
     ApplyChunkBlockContext, ApplyChunkResult, ApplyChunkShardContext, BlockType, RuntimeAdapter,
     RuntimeStorageConfig,
@@ -28,6 +28,7 @@ use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{BlockHeight, EpochId, ShardId};
 use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::LightClientBlockView;
+use near_store::adapter::chain_store::ChainStoreRead;
 use node_runtime::SignedValidPeriodTransactions;
 use std::sync::Arc;
 use tracing::{debug, warn};

@@ -12,6 +12,7 @@ use near_primitives::receipt::ReceiptEnum;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::{AccountId, Balance, BlockHeight, BlockHeightDelta};
 use near_primitives::version::PROTOCOL_VERSION;
+use near_store::adapter::chain_store::ChainStoreRead;
 use near_vm_runner::ContractCode;
 
 use crate::setup::builder::TestLoopBuilder;

@@ -14,12 +14,12 @@ use near_primitives::types::{
 };
 use near_primitives::utils::{get_endorsements_key, get_execution_results_key};
 use near_store::adapter::StoreAdapter as _;
-use near_store::adapter::chain_store::ChainStoreAdapter;
+use near_store::adapter::chain_store::{ChainStoreAdapter, ChainStoreRead};
 use near_store::{DBCol, Store};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
-use crate::{Chain, ChainStoreAccess, ChainStoreUpdate};
+use crate::{Chain, ChainStoreUpdate};
 
 #[derive(Clone)]
 pub struct SpiceCoreReader {

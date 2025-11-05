@@ -1,12 +1,13 @@
 use near_async::messaging::CanSend;
 use near_async::time::{Clock, Duration, Utc};
-use near_chain::{Chain, ChainStoreAccess};
+use near_chain::Chain;
 use near_client_primitives::types::SyncStatus;
 use near_network::types::PeerManagerMessageRequest;
 use near_network::types::{HighestHeightPeerInfo, NetworkRequests, PeerManagerAdapter};
 use near_primitives::block::Tip;
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::BlockHeight;
+use near_store::adapter::chain_store::ChainStoreRead;
 use rand::seq::SliceRandom;
 use rand::thread_rng;
 use std::cmp::min;

@@ -1,9 +1,9 @@
 use near_async::time::Clock;
+use near_store::adapter::chain_store::ChainStoreRead;
 use near_store::trie::AccessOptions;
 use rand::Rng;
 use std::sync::Arc;
 
-use crate::ChainStoreAccess;
 use crate::chain::Chain;
 use crate::garbage_collection::GCMode;
 use crate::test_utils::{

@@ -13,7 +13,7 @@ use crate::types::{ApplyChunkBlockContext, ApplyChunkResult, RuntimeAdapter, Sto
 use crate::validate::{
     validate_chunk_with_chunk_extra_and_receipts_root, validate_chunk_with_encoded_merkle_root,
 };
-use crate::{Chain, ChainStore, ChainStoreAccess};
+use crate::{Chain, ChainStore};
 use itertools::Itertools;
 use lru::LruCache;
 use near_async::futures::AsyncComputationSpawnerExt;
@@ -36,6 +36,7 @@ use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{AccountId, ShardId, ShardIndex};
 use near_primitives::utils::compression::CompressedData;
 use near_primitives::version::ProtocolFeature;
+use near_store::adapter::chain_store::ChainStoreRead;
 use near_store::flat::BlockInfo;
 use near_store::trie::ops::resharding::RetainMode;
 use near_store::{PartialStorage, Store, Trie};

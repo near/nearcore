@@ -11,6 +11,7 @@ use near_schema_checker_lib::ProtocolSchema;
 
 use crate::Store;
 use crate::adapter::StoreAdapter;
+use crate::adapter::chain_store::ChainStoreRead;
 
 /// Versioned container for block-related data stored in the cloud archival.
 #[derive(Debug, Clone, BorshSerialize, BorshDeserialize, ProtocolSchema)]

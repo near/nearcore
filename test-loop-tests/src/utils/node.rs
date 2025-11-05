@@ -19,6 +19,7 @@ use near_primitives::views::{
     AccountView, FinalExecutionOutcomeView, FinalExecutionStatus, QueryRequest, QueryResponse,
     QueryResponseKind,
 };
+use near_store::adapter::chain_store::ChainStoreRead;
 
 use crate::setup::state::NodeExecutionData;
 use crate::utils::account::rpc_account_id;

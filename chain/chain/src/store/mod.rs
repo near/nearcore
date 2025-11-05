@@ -36,7 +36,9 @@ use near_primitives::utils::{
     to_timestamp,
 };
 use near_primitives::views::LightClientBlockView;
-use near_store::adapter::chain_store::ChainStoreAdapter;
+use near_store::adapter::chain_store::{
+    ChainStoreAdapter, ChainStoreRead, DefaultChainStoreReadImpl,
+};
 use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
 use near_store::db::{
     GC_STOP_HEIGHT_KEY, SPICE_EXECUTION_HEAD_KEY, SPICE_FINAL_EXECUTION_HEAD_KEY,

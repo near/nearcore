@@ -9,8 +9,8 @@ use near_async::messaging::{Actor, CanSend, Handler};
 use near_async::time::{Clock, Duration, Instant};
 use near_chain::types::{RuntimeAdapter, Tip};
 use near_chain::{
-    Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode, MerkleProofAccess,
-    get_epoch_block_producers_view, retrieve_headers,
+    Chain, ChainGenesis, DoomslugThresholdMode, MerkleProofAccess, get_epoch_block_producers_view,
+    retrieve_headers,
 };
 
 use near_chain_configs::{ClientConfig, MutableValidatorSigner, ProtocolConfigView};
@@ -56,6 +56,7 @@ use near_primitives::views::{
     SignedTransactionView, SplitStorageInfoView, StateChangesKindsView, StateChangesView,
     TxExecutionStatus, TxStatusView,
 };
+use near_store::adapter::chain_store::ChainStoreRead;
 use near_store::{COLD_HEAD_KEY, DBCol, FINAL_HEAD_KEY, HEAD_KEY};
 use parking_lot::RwLock;
 use std::cmp::Ordering;

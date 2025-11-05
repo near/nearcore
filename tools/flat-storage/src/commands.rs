@@ -2,8 +2,8 @@
 use crate::resume_resharding::resume_resharding;
 use borsh::BorshDeserialize;
 use clap::Parser;
+use near_chain::ChainStore;
 use near_chain::types::RuntimeAdapter;
-use near_chain::{ChainStore, ChainStoreAccess};
 use near_chain_configs::GenesisValidationMode;
 use near_epoch_manager::shard_assignment::shard_id_to_uid;
 use near_epoch_manager::{EpochManager, EpochManagerAdapter, EpochManagerHandle};
@@ -11,7 +11,7 @@ use near_primitives::errors::EpochError;
 use near_primitives::state::FlatStateValue;
 use near_primitives::types::{BlockHeight, ShardId};
 use near_store::adapter::StoreAdapter;
-use near_store::adapter::chain_store::ChainStoreAdapter;
+use near_store::adapter::chain_store::{ChainStoreAdapter, ChainStoreRead};
 use near_store::adapter::flat_store::FlatStoreAdapter;
 use near_store::flat::{
     FlatStateChanges, FlatStateDelta, FlatStateDeltaMetadata, FlatStorageStatus,

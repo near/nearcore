@@ -355,7 +355,6 @@ mod tests {
     use near_store::get_genesis_state_roots;
     use tracing::Span;
 
-    use crate::store::ChainStoreAccess;
     use crate::test_utils::{get_chain_with_genesis, process_block_sync};
     use crate::types::ApplyChunkResult;
     use crate::{BlockProcessingArtifact, Provenance};

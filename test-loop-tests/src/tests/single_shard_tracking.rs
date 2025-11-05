@@ -11,7 +11,7 @@ use near_primitives::shard_layout::{ShardLayout, get_block_shard_uid, get_block_
 use near_primitives::types::AccountId;
 use near_primitives::version::{PROD_GENESIS_PROTOCOL_VERSION, PROTOCOL_VERSION};
 use near_store::adapter::StoreAdapter as _;
-use near_store::adapter::chain_store::ChainStoreAdapter;
+use near_store::adapter::chain_store::{ChainStoreAdapter, ChainStoreRead};
 use near_store::{DBCol, ShardUId};
 
 use crate::setup;

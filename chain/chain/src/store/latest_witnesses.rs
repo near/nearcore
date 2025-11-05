@@ -14,7 +14,6 @@ use near_primitives::types::EpochId;
 use near_primitives::types::ShardId;
 use near_store::{DBCol, Store};
 
-use crate::ChainStoreAccess;
 use crate::stateless_validation;
 
 use super::ChainStore;

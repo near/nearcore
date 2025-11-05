@@ -408,7 +408,7 @@ mod tests {
 
     use crate::runtime::NightshadeRuntime;
     use crate::types::ChainConfig;
-    use crate::{Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode};
+    use crate::{Chain, ChainGenesis, DoomslugThresholdMode};
 
     use super::*;
     use near_async::messaging::{IntoMultiSender, noop};

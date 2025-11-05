@@ -1,6 +1,6 @@
 use borsh::BorshDeserialize;
+use near_chain::ChainStore;
 use near_chain::types::RuntimeAdapter;
-use near_chain::{ChainStore, ChainStoreAccess};
 use near_epoch_manager::shard_assignment::{
     account_id_to_shard_id, shard_id_to_index, shard_id_to_uid,
 };
@@ -12,6 +12,7 @@ use near_primitives::types::{
     StateRoot,
 };
 use near_primitives_core::types::BlockHeight;
+use near_store::adapter::chain_store::ChainStoreRead;
 use near_store::trie::AccessOptions;
 use near_store::{KeyForStateChanges, Store, WrappedTrieChanges};
 use nearcore::{NearConfig, NightshadeRuntime, NightshadeRuntimeExt};

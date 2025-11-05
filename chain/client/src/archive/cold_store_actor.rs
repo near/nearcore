@@ -9,6 +9,7 @@ use near_epoch_manager::{EpochManagerAdapter, EpochManagerHandle};
 use near_primitives::errors::EpochError;
 use near_primitives::types::BlockHeight;
 use near_store::adapter::StoreAdapter;
+use near_store::adapter::chain_store::ChainStoreRead;
 use near_store::archive::cold_storage::{
     CopyAllDataToColdStatus, copy_all_data_to_cold, get_cold_head, update_cold_db, update_cold_head,
 };

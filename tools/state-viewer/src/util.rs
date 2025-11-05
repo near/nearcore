@@ -1,7 +1,7 @@
 use std::{path::Path, sync::Arc};
 
 use near_chain::{
-    Block, BlockHeader, ChainStore, ChainStoreAccess,
+    Block, BlockHeader, ChainStore,
     types::{ApplyChunkResult, Tip},
 };
 use near_epoch_manager::{
@@ -11,7 +11,7 @@ use near_primitives::{
     errors::EpochError,
     types::{BlockHeight, Gas, ShardId, StateRoot, chunk_extra::ChunkExtra},
 };
-use near_store::{ShardUId, Store};
+use near_store::{ShardUId, Store, adapter::chain_store::ChainStoreRead};
 use nearcore::{NearConfig, NightshadeRuntime, NightshadeRuntimeExt};
 
 pub enum LoadTrieMode {
