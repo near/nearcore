@@ -60,10 +60,10 @@ impl StateSyncDumper {
             dump_config
         } else {
             // Dump is not configured, and therefore not enabled.
-            tracing::debug!(target: "state_sync_dump", "Not spawning the state sync dump loop");
+            tracing::debug!(target: "state_sync_dump", "not spawning the state sync dump loop");
             return Ok(Arc::new(StateSyncDumpHandle::new()));
         };
-        tracing::info!(target: "state_sync_dump", "Spawning the state sync dump loop");
+        tracing::info!(target: "state_sync_dump", "spawning the state sync dump loop");
         let s3_access_config =
             S3AccessConfig { timeout: std::time::Duration::from_secs(30), is_readonly: false };
         let external = StateSyncConnection::new(
@@ -88,7 +88,7 @@ impl StateSyncDumper {
         if let Some(shards) = dump_config.restart_dump_for_shards.as_ref() {
             for shard_id in shards {
                 chain.chain_store().set_state_sync_dump_progress(*shard_id, None).unwrap();
-                tracing::debug!(target: "state_sync_dump", %shard_id, "Dropped existing progress");
+                tracing::debug!(target: "state_sync_dump", %shard_id, "dropped existing progress");
             }
         }
         self.future_spawner.spawn_boxed(
@@ -125,7 +125,7 @@ impl StateSyncDumpHandle {
 
     // Tell the dumper to stop
     pub fn stop(&self) {
-        tracing::warn!(target: "state_sync_dump", "Stopping state dumper");
+        tracing::warn!(target: "state_sync_dump", "stopping state dumper");
         self.keep_running.store(false, Ordering::Relaxed);
     }
 }
@@ -162,10 +162,10 @@ async fn get_missing_part_ids_for_epoch(
         let missing_nums: HashSet<_> =
             (0..total_parts).filter(|i| !existing_nums.contains(i)).collect();
         let num_missing = missing_nums.len();
-        tracing::debug!(target: "state_sync_dump", ?num_missing, ?directory_path, "Some parts have already been dumped.");
+        tracing::debug!(target: "state_sync_dump", ?num_missing, ?directory_path, "some parts have already been dumped");
         Ok(missing_nums)
     } else {
-        tracing::debug!(target: "state_sync_dump", ?total_parts, ?directory_path, "No part has been dumped.");
+        tracing::debug!(target: "state_sync_dump", ?total_parts, ?directory_path, "no part has been dumped");
         let missing_nums = (0..total_parts).collect();
         Ok(missing_nums)
     }
@@ -219,7 +219,7 @@ impl DumpState {
                     *s.parts_missing.write() = missing;
                 }
                 Err(error) => {
-                    tracing::error!(target: "state_sync_dump", ?error, %shard_id, "Failed to list stored state parts.");
+                    tracing::error!(target: "state_sync_dump", ?error, %shard_id, "failed to list stored state parts");
                 }
             }
         }
@@ -253,7 +253,7 @@ impl DumpState {
         while !self.dump_state.is_empty() {
             let (shard_id, result) = self.await_parts_upload().await;
             if let Err(error) = result {
-                tracing::error!(target: "state_sync_dump", epoch_id = ?&self.epoch_id, %shard_id, ?error, "Shard dump failed after cancellation");
+                tracing::error!(target: "state_sync_dump", epoch_id = ?&self.epoch_id, %shard_id, ?error, "shard dump failed after cancellation");
             }
         }
     }
@@ -374,7 +374,7 @@ impl PartUploader {
                     tracing::warn!(
                         target: "state_sync_dump",
                         shard_id = %self.shard_id, epoch_height=%self.epoch_height, epoch_id=?&self.epoch_id, ?part_id, ?error,
-                        "Failed to obtain state part. Retrying in 200 millis."
+                        "failed to obtain state part. retrying in 200 millis"
                     );
                     self.clock.sleep(Duration::milliseconds(200)).await;
                     continue;
@@ -405,13 +405,13 @@ impl PartUploader {
                             &self.shard_id.to_string(),
                         ])
                         .inc_by(bytes.len() as u64);
-                    tracing::debug!(target: "state_sync_dump", shard_id = %self.shard_id, epoch_height=%self.epoch_height, epoch_id=?&self.epoch_id, ?part_id, "Uploaded state part.");
+                    tracing::debug!(target: "state_sync_dump", shard_id = %self.shard_id, epoch_height=%self.epoch_height, epoch_id=?&self.epoch_id, ?part_id, "uploaded state part");
                     return Ok(());
                 }
                 Err(error) => {
                     tracing::warn!(
                         target: "state_sync_dump", shard_id = %self.shard_id, epoch_height=%self.epoch_height, epoch_id=?&self.epoch_id, ?part_id, ?error,
-                        "Failed to upload state part. Retrying in 200 millis."
+                        "failed to upload state part. retrying in 200 millis"
                     );
                     self.clock.sleep(Duration::milliseconds(200)).await;
                     continue;
@@ -479,7 +479,7 @@ impl HeaderUploader {
             .for_each(|shard_id| {
                 tracing::info!(
                     target: "state_sync_dump", %shard_id, epoch_height = %dump.epoch_height,
-                    "Header already saved to external storage."
+                    "header already saved to external storage"
                 );
                 let s = dump.dump_state.get_mut(&shard_id).unwrap();
                 s.header_to_dump = None;
@@ -523,14 +523,14 @@ impl HeaderUploader {
                 Ok(_) => {
                     tracing::info!(
                         target: "state_sync_dump", %shard_id, epoch_height = %self.epoch_height,
-                        "Header saved to external storage."
+                        "header saved to external storage"
                     );
                     return;
                 }
                 Err(err) => {
                     tracing::warn!(
                         target: "state_sync_dump", %shard_id, epoch_height = %self.epoch_height, ?err,
-                        "Failed to put header into external storage. Will retry next iteration."
+                        "failed to put header into external storage. will retry next iteration"
                     );
                     self.clock.sleep(Duration::seconds(5)).await;
                     continue;
@@ -554,7 +554,7 @@ impl HeaderUploader {
         {
             Ok(stored) => stored,
             Err(err) => {
-                tracing::error!(target: "state_sync_dump", ?err, %shard_id, "Failed to determine header presence in external storage.");
+                tracing::error!(target: "state_sync_dump", ?err, %shard_id, "failed to determine header presence in external storage");
                 false
             }
         }
@@ -691,7 +691,7 @@ impl StateDumper {
             if !self.shard_tracker.cares_about_shard(sync_header.prev_hash(), shard_id) {
                 tracing::debug!(
                     target: "state_sync_dump", epoch_height = %epoch_info.epoch_height(), epoch_id = ?sync_header.epoch_id(), %shard_id,
-                    "Not dumping state for non-tracked shard."
+                    "not dumping state for non-tracked shard"
                 );
                 continue;
             }
@@ -710,7 +710,7 @@ impl StateDumper {
         if dump_state.is_empty() {
             tracing::warn!(
                 target: "state_sync_dump", epoch_height = %epoch_info.epoch_height(), epoch_id = ?sync_header.epoch_id(),
-                "Not doing anything for the current epoch. No shards tracked."
+                "not doing anything for the current epoch. no shards tracked"
             );
             return Ok(NewDump::NoTrackedShards);
         }
@@ -857,10 +857,10 @@ impl StateDumper {
 
         match result {
             Ok(()) => {
-                tracing::info!(target: "state_sync_dump", epoch_id = ?&dump.epoch_id, %shard_id, "Shard dump finished");
+                tracing::info!(target: "state_sync_dump", epoch_id = ?&dump.epoch_id, %shard_id, "shard dump finished");
             }
             Err(error) => {
-                tracing::error!(target: "state_sync_dump", epoch_id = ?&dump.epoch_id, %shard_id, ?error, "Shard dump failed");
+                tracing::error!(target: "state_sync_dump", epoch_id = ?&dump.epoch_id, %shard_id, ?error, "shard dump failed");
             }
         }
 
@@ -906,8 +906,10 @@ impl StateDumper {
                     return Ok(());
                 }
                 tracing::warn!(
-                    target: "state_sync_dump", "Canceling existing dump of state for epoch {} upon new epoch {}",
-                    &dump.epoch_id.0, &sync_header.epoch_id().0,
+                    target: "state_sync_dump",
+                    old_epoch = ?&dump.epoch_id.0,
+                    new_epoch = ?&sync_header.epoch_id().0,
+                    "canceling existing dump of state for epoch upon new epoch"
                 );
                 dump.cancel().await;
             }
@@ -948,7 +950,7 @@ async fn state_sync_dump(
     keep_running: &AtomicBool,
     future_spawner: Arc<dyn FutureSpawner>,
 ) -> anyhow::Result<()> {
-    tracing::info!(target: "state_sync_dump", "Running StateSyncDump loop");
+    tracing::info!(target: "state_sync_dump", "running StateSyncDump loop");
 
     let mut dumper = StateDumper::new(
         clock.clone(),
@@ -987,10 +989,10 @@ async fn state_sync_dump(
     }
 
     if let CurrentDump::InProgress(mut dump) = dumper.current_dump {
-        tracing::debug!(target: "state_sync_dump", "Awaiting upload task cancellation");
+        tracing::debug!(target: "state_sync_dump", "awaiting upload task cancellation");
         dump.cancel().await;
     }
-    tracing::debug!(target: "state_sync_dump", "Stopped state dump thread");
+    tracing::debug!(target: "state_sync_dump", "stopped state dump thread");
     Ok(())
 }
 
@@ -1025,6 +1027,6 @@ async fn do_state_sync_dump(
     )
     .await
     {
-        tracing::error!(target: "state_sync_dump", ?error, "State dumper failed");
+        tracing::error!(target: "state_sync_dump", ?error, "state dumper failed");
     }
 }

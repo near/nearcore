@@ -66,7 +66,6 @@ use std::io::{Read, Write};
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use tracing::{info, warn};
 
 /// Block production tracking delay.
 pub const BLOCK_PRODUCTION_TRACKING_DELAY: i64 = 10;
@@ -533,10 +532,12 @@ impl Config {
         if !unrecognized_fields.is_empty() {
             let s = if unrecognized_fields.len() > 1 { "s" } else { "" };
             let fields = unrecognized_fields.join(", ");
-            warn!(
+            tracing::warn!(
                 target: "neard",
-                "{}: encountered unrecognized field{s}: {fields}",
-                path.display(),
+                path = %path.display(),
+                %s,
+                %fields,
+                "encountered unrecognized field{s}: {fields}"
             );
         }
 
@@ -579,7 +580,7 @@ impl Config {
                 target: "neard",
                 deprecated_key = %deprecated_key,
                 new_key        = %new_key,
-                "Deprecated config key detected – please migrate",
+                "deprecated config key detected – please migrate",
             );
         }
     }
@@ -880,7 +881,7 @@ fn generate_or_load_key(
                 ));
             }
         }
-        info!(target: "near", "Reusing key {} for {}", signer.public_key(), signer.get_account_id());
+        tracing::info!(target: "near", public_key = %signer.public_key(), account_id = %signer.get_account_id(), "reusing key for account");
         Ok(Some(signer))
     } else if let Some(account_id) = account_id {
         let signer = if let Some(seed) = test_seed {
@@ -888,7 +889,7 @@ fn generate_or_load_key(
         } else {
             InMemorySigner::from_random(account_id, KeyType::ED25519).into()
         };
-        info!(target: "near", "Using key {} for {}", signer.public_key(), signer.get_account_id());
+        tracing::info!(target: "near", public_key = %signer.public_key(), account_id = %signer.get_account_id(), "using key for account");
         signer
             .write_to_file(&path)
             .with_context(|| anyhow!("Failed saving key to ‘{}’", path.display()))?;
@@ -1047,7 +1048,7 @@ pub fn init_configs(
         near_primitives::chains::MAINNET => {
             let genesis = near_mainnet_res::mainnet_genesis();
             genesis.to_file(dir.join(config.genesis_file));
-            info!(target: "near", "Generated mainnet genesis file in {}", dir.display());
+            tracing::info!(target: "near", dir = %dir.display(), "generated mainnet genesis file in directory");
         }
         near_primitives::chains::TESTNET => {
             if let Some(ref filename) = config.genesis_records_file {
@@ -1104,7 +1105,7 @@ pub fn init_configs(
             genesis.config.chain_id.clone_from(&chain_id);
 
             genesis.to_file(dir.join(config.genesis_file));
-            info!(target: "near", "Generated for {chain_id} network node key and genesis file in {}", dir.display());
+            tracing::info!(target: "near", %chain_id, dir = %dir.display(), "generated network node key and genesis file in directory");
         }
         _ => {
             let validator_file = dir.join(&config.validator_key_file);
@@ -1161,7 +1162,7 @@ pub fn init_configs(
             };
             let genesis = Genesis::new(genesis_config, records.into())?;
             genesis.to_file(dir.join(config.genesis_file));
-            info!(target: "near", "Generated node key, validator key, genesis file in {}", dir.display());
+            tracing::info!(target: "near", dir = %dir.display(), "generated node key, validator key, genesis file in directory");
         }
     }
 
@@ -1463,7 +1464,7 @@ pub fn init_localnet_configs(
         log_config
             .write_to_file(&node_dir.join(LOG_CONFIG_FILENAME))
             .expect("Error writing log config");
-        info!(target: "near", "Generated node key, validator key, genesis file in {}", node_dir.display());
+        tracing::info!(target: "near", node_dir = %node_dir.display(), "generated node key, validator key, genesis file in directory");
     }
 }
 
@@ -1490,28 +1491,28 @@ pub fn get_config_url(chain_id: &str, config_type: DownloadConfigType) -> String
 }
 
 pub fn download_genesis(url: &str, path: &Path) -> Result<(), FileDownloadError> {
-    info!(target: "near", "Downloading genesis file from: {} ...", url);
+    tracing::info!(target: "near", %url, "downloading genesis file from url");
     let result = run_download_file(url, path);
     if result.is_ok() {
-        info!(target: "near", "Saved the genesis file to: {} ...", path.display());
+        tracing::info!(target: "near", path = %path.display(), "saved the genesis file to path");
     }
     result
 }
 
 pub fn download_records(url: &str, path: &Path) -> Result<(), FileDownloadError> {
-    info!(target: "near", "Downloading records file from: {} ...", url);
+    tracing::info!(target: "near", %url, "downloading records file from url");
     let result = run_download_file(url, path);
     if result.is_ok() {
-        info!(target: "near", "Saved the records file to: {} ...", path.display());
+        tracing::info!(target: "near", path = %path.display(), "saved the records file to path");
     }
     result
 }
 
 pub fn download_config(url: &str, path: &Path) -> Result<(), FileDownloadError> {
-    info!(target: "near", "Downloading config file from: {} ...", url);
+    tracing::info!(target: "near", %url, "downloading config file from url");
     let result = run_download_file(url, path);
     if result.is_ok() {
-        info!(target: "near", "Saved the config file to: {} ...", path.display());
+        tracing::info!(target: "near", path = %path.display(), "saved the config file to path");
     }
     result
 }
