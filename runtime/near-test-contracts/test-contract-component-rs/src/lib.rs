@@ -35,6 +35,14 @@ world test {
     export run-test: func();
     export run-test-with-storage-change: func();
     export sum-with-input: func();
+    export benchmark-storage8b: func();
+    export benchmark-storage10kib: func();
+    export pass-through: func();
+    export sum-n: func();
+    export fibonacci: func();
+    export insert-strings: func();
+    export delete-strings: func();
+    export recurse: func();
     export out-of-memory: func();
     export attach-unspent-gas-but-use-all-gas: func();
     export do-ripemd: func();
@@ -70,6 +78,13 @@ impl From<U128> for u128 {
 pub fn from_base64(s: &str) -> Vec<u8> {
     let engine = &base64::engine::general_purpose::STANDARD;
     base64::Engine::decode(engine, s).unwrap()
+}
+
+#[inline]
+fn generate_data(data: &mut [u8]) {
+    for i in 0..data.len() {
+        data[i] = (i % u8::MAX as usize) as u8;
+    }
 }
 
 pub struct Component;
@@ -267,6 +282,176 @@ impl Guest for Component {
         value_return(&result.to_le_bytes());
     }
 
+    /// Writes and reads some data into/from storage. Uses 8-bit key/values.
+    fn benchmark_storage8b() {
+        let data = input();
+        let Ok(data) = data.try_into() else {
+            panic(None);
+            unreachable!()
+        };
+        let n: u64 = u64::from_le_bytes(data);
+
+        let mut sum = 0u64;
+        for i in 0..n {
+            let el = i.to_le_bytes();
+            storage_write(&el, &el, 0);
+
+            if let Some(value) = storage_read(&el) {
+                sum += u64::from_le_bytes(value.try_into().unwrap());
+            }
+        }
+
+        value_return(&sum.to_le_bytes());
+    }
+
+    /// Writes and reads some data into/from storage. Uses 10KiB key/values.
+    fn benchmark_storage10kib() {
+        let data = input();
+        let Ok(data) = data.try_into() else {
+            panic(None);
+            unreachable!()
+        };
+        let n: u64 = u64::from_le_bytes(data);
+
+        let mut el = [0u8; 10 << 10];
+        generate_data(&mut el);
+
+        let mut sum = 0u64;
+        for i in 0..n {
+            el[..size_of::<u64>()].copy_from_slice(&i.to_le_bytes());
+            storage_write(&el, &el, 0);
+
+            if let Some(value) = storage_read(&el) {
+                sum += u64::from_le_bytes(value[0..size_of::<u64>()].try_into().unwrap());
+            }
+        }
+
+        value_return(&sum.to_le_bytes());
+    }
+
+    fn pass_through() {
+        let data = input();
+        if data.len() != size_of::<u64>() {
+            panic(None);
+            unreachable!();
+        }
+        value_return(&data);
+    }
+
+    fn sum_n() {
+        let data = input();
+        let Ok(data) = data.try_into() else {
+            panic(None);
+            unreachable!()
+        };
+        let n = u64::from_le_bytes(data);
+
+        let mut sum = 0u64;
+        for i in 0..n {
+            // LLVM optimizes sum += i into O(1) computation, use volatile to thwart
+            // that.
+            let new_sum = unsafe { std::ptr::read_volatile(&sum) }.wrapping_add(i);
+            unsafe { std::ptr::write_volatile(&mut sum, new_sum) };
+        }
+
+        let data = sum.to_le_bytes();
+        value_return(&data);
+    }
+
+    /// Calculates Fibonacci numbers in inefficient way.  Used to burn gas for the
+    /// sanity/max_gas_burnt_view.py test.  The implementation has exponential
+    /// complexity (1.62^n to be exact) so even small increase in argument result in
+    /// large increase in gas use.
+    fn fibonacci() {
+        fn fib(n: u8) -> u64 {
+            if n < 2 {
+                n as u64
+            } else {
+                fib(n - 2) + fib(n - 1)
+            }
+        }
+
+        let data = input();
+        let Ok([n]): Result<[u8; 1], _> = data.try_into() else {
+            panic(None);
+            unreachable!()
+        };
+        let data = fib(n).to_le_bytes();
+        value_return(&data);
+    }
+
+    fn insert_strings() {
+        let data = input();
+        let Ok(data): Result<[u8; 2 * size_of::<u64>()], _> = data.try_into() else {
+            panic(None);
+            unreachable!()
+        };
+
+        let mut from = [0u8; size_of::<u64>()];
+        let mut to = [0u8; size_of::<u64>()];
+        from.copy_from_slice(&data[..size_of::<u64>()]);
+        to.copy_from_slice(&data[size_of::<u64>()..]);
+        let from = u64::from_le_bytes(from);
+        let to = u64::from_le_bytes(to);
+        let s = vec![b'a'; to as usize];
+        for i in from..to {
+            let mut key = s[(to - i) as usize..].to_vec();
+            key.push(b'b');
+            let value = b"x";
+            storage_write(&key, value, 0);
+        }
+    }
+
+    fn delete_strings() {
+        let data = input();
+        let Ok(data): Result<[u8; 2 * size_of::<u64>()], _> = data.try_into() else {
+            panic(None);
+            unreachable!()
+        };
+
+        let mut from = [0u8; size_of::<u64>()];
+        let mut to = [0u8; size_of::<u64>()];
+        from.copy_from_slice(&data[..size_of::<u64>()]);
+        to.copy_from_slice(&data[size_of::<u64>()..]);
+        let from = u64::from_le_bytes(from);
+        let to = u64::from_le_bytes(to);
+        let s = vec![b'a'; to as usize];
+        for i in from..to {
+            let mut key = s[(to - i) as usize..].to_vec();
+            key.push(b'b');
+            storage_remove(&key, 0);
+        }
+    }
+
+    fn recurse() {
+        /// Rust compiler is getting smarter and starts to optimize my deep recursion.
+        /// We're going to fight it with a more obscure implementations.
+        #[unsafe(no_mangle)]
+        #[inline(never)]
+        fn internal_recurse(n: u64) -> u64 {
+            if n <= 1 {
+                n
+            } else {
+                let a = internal_recurse(n - 1) + 1;
+                if a % 2 == 1 {
+                    (a + n) / 2
+                } else {
+                    a
+                }
+            }
+        }
+
+        let data = input();
+        let Ok(data) = data.try_into() else {
+            panic(None);
+            unreachable!()
+        };
+        let n = u64::from_le_bytes(data);
+        let res = internal_recurse(n);
+        let data = res.to_le_bytes();
+        value_return(&data);
+    }
+
     fn out_of_memory() {
         let mut vec = Vec::new();
         loop {
@@ -282,25 +467,13 @@ impl Guest for Component {
         let amount = 1u128;
         let gas_fixed = 0;
         let gas_weight = 1;
-        promise.function_call(
-            method_name.as_bytes(),
-            &[],
-            amount.into(),
-            gas_fixed,
-            gas_weight,
-        );
+        promise.function_call(method_name.as_bytes(), &[], amount.into(), gas_fixed, gas_weight);
 
         let promise = Promise::new(&account_id);
 
         let gas_fixed = 10u64.pow(14);
         let gas_weight = 0;
-        promise.function_call(
-            method_name.as_bytes(),
-            &[],
-            amount.into(),
-            gas_fixed,
-            gas_weight,
-        );
+        promise.function_call(method_name.as_bytes(), &[], amount.into(), gas_fixed, gas_weight);
     }
 
     fn do_ripemd() {
@@ -363,13 +536,7 @@ impl Guest for Component {
         let args_panic = b"";
         let gas_per_promise = available_gas / 50;
         let promise = Promise::new(&account_id);
-        promise.function_call(
-            method_name_panic,
-            args_panic,
-            0u128.into(),
-            gas_per_promise,
-            0,
-        );
+        promise.function_call(method_name_panic, args_panic, 0u128.into(), gas_per_promise, 0);
         let method_name_panic_string = b"sanity-check-panic-string";
         let args_panic_string = b"";
         let promise = Promise::new(&account_id);
@@ -389,22 +556,10 @@ impl Guest for Component {
         let method_name_noop = b"noop";
         let args_noop = b"";
         let promise = Promise::new(&account_id);
-        promise.function_call(
-            method_name_noop,
-            args_noop,
-            0u128.into(),
-            gas_per_promise,
-            0,
-        );
+        promise.function_call(method_name_noop, args_noop, 0u128.into(), gas_per_promise, 0);
         let promises_then: [_; 2] = array::from_fn(|_| {
             let promise = promise.then(&account_id);
-            promise.function_call(
-                method_name_noop,
-                args_noop,
-                0u128.into(),
-                gas_per_promise,
-                0,
-            );
+            promise.function_call(method_name_noop, args_noop, 0u128.into(), gas_per_promise, 0);
             promise
         });
         _ = Promise::and(&[&promises_then[0], &promises_then[1]]);
@@ -466,13 +621,7 @@ impl Guest for Component {
         // Invoking `promise_results_count` and `promise_result` via a callback to
         // ensure there is a promise whose result can be accessed.
         let promise = Promise::new(&account_id);
-        promise.function_call(
-            method_name_noop,
-            args_noop,
-            0u128.into(),
-            gas_per_promise,
-            0,
-        );
+        promise.function_call(method_name_noop, args_noop, 0u128.into(), gas_per_promise, 0);
         let method_name_promise_results = b"sanity-check-promise-results";
         let args_promise_results = b"";
         let then = promise.then(&account_id);
