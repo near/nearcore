@@ -5,6 +5,7 @@ use near_epoch_manager::EpochManager;
 use near_o11y::testonly::init_integration_logger;
 use near_primitives::types::{ShardId, ShardIndex, StateRoot};
 use near_store::Mode;
+use near_store::adapter::chain_store::ChainStoreRead;
 use nearcore::{NightshadeRuntime, NightshadeRuntimeExt, get_default_home, load_config};
 use std::time::{Duration, Instant};
 
