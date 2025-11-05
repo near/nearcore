@@ -133,16 +133,21 @@ impl StateRequestActor {
 
     /// Validates sync hash and returns appropriate action to take.
     fn validate_sync_hash(&self, sync_hash: &CryptoHash) -> SyncHashValidationResult {
+        if self.is_sync_hash_from_old_epoch(sync_hash).unwrap_or(false) {
+            tracing::info!(
+                target: "sync",
+                "sync_hash didn't pass validation; belongs to an old epoch"
+            );
+            return SyncHashValidationResult::BadRequest;
+        }
+
         match self.check_sync_hash_validity(sync_hash) {
             Ok(true) => SyncHashValidationResult::Valid,
             Ok(false) => {
-                let sync_hash_too_old =
-                    self.is_sync_hash_from_old_epoch(sync_hash).unwrap_or(false);
-                if sync_hash_too_old {
-                    tracing::info!(target: "sync", "sync_hash didn't pass validation; belongs to an old epoch");
-                } else {
-                    tracing::warn!(target: "sync", "sync_hash didn't pass validation; possible divergence in sync hash computation");
-                }
+                tracing::warn!(
+                    target: "sync",
+                    "sync_hash didn't pass validation; possible divergence in sync hash computation"
+                );
                 SyncHashValidationResult::BadRequest
             }
             Err(near_chain::Error::DBNotFoundErr(_)) => {
