@@ -32,6 +32,24 @@ pub(crate) static CHUNK_PRODUCED_TOTAL: LazyLock<IntCounter> = LazyLock::new(|| 
     .unwrap()
 });
 
+pub static EARLY_CHUNKS_PRODUCED_TOTAL: LazyLock<IntCounterVec> = LazyLock::new(|| {
+    try_create_int_counter_vec(
+        "near_early_chunks_produced_total",
+        "Number of chunks produced using early chunk preparation",
+        &["shard_id"],
+    )
+    .unwrap()
+});
+
+pub static LATE_CHUNKS_PRODUCED_TOTAL: LazyLock<IntCounterVec> = LazyLock::new(|| {
+    try_create_int_counter_vec(
+        "near_late_chunks_produced_total",
+        "Number of chunks produced using early chunk preparation",
+        &["shard_id"],
+    )
+    .unwrap()
+});
+
 pub static PREPARE_TRANSACTIONS_JOB_STARTED_TOTAL: LazyLock<IntCounterVec> = LazyLock::new(|| {
     try_create_int_counter_vec(
         "near_prepare_transactions_job_started_total",
@@ -721,7 +739,7 @@ pub(crate) static PARTIAL_WITNESS_ENCODE_TIME: LazyLock<HistogramVec> = LazyLock
         "near_partial_witness_encode_time",
         "Partial state witness generation from encoded state witness time in seconds",
         &["shard_id"],
-        Some(linear_buckets(0.0, 0.005, 20).unwrap()),
+        Some(exponential_buckets(0.001, 1.6, 20).unwrap()),
     )
     .unwrap()
 });

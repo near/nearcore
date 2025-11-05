@@ -165,9 +165,13 @@ impl GenerateWitnessesCmd {
             let CreateWitnessResult { state_witness, .. } = chain_store
                 .create_state_witness(
                     epoch_manager.as_ref(),
-                    prev_block.header(),
+                    &prev_block,
                     prev_chunk_header,
                     &chunk,
+                    false,
+                    |_, _| None,
+                    |_, _| None,
+                    |_, _| None,
                 )
                 .unwrap();
             let processing_done_tracker = ProcessingDoneTracker::new();
@@ -238,7 +242,7 @@ impl DumpWitnessesCmd {
 
         for (i, witness) in witnesses.iter().enumerate() {
             let ChunkProductionKey { shard_id, height_created, epoch_id } =
-                witness.chunk_production_key();
+                witness.production_key().chunk;
 
             println!(
                 "#{} (height: {}, shard_id: {}, epoch_id: {:?})",

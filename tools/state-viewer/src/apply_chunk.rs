@@ -1,14 +1,13 @@
 use anyhow::{Context, anyhow};
 use borsh::BorshDeserialize;
 use near_chain::chain::collect_receipts_from_response;
-use near_chain::types::{
-    ApplyChunkBlockContext, ApplyChunkResult, ApplyChunkShardContext, BlockType, RuntimeAdapter,
-};
+use near_chain::types::{ApplyChunkResult, ApplyChunkShardContext, RuntimeAdapter};
 use near_chain::{ChainStore, ChainStoreAccess, ReceiptFilter, get_incoming_receipts_for_shard};
 use near_epoch_manager::shard_assignment::shard_id_to_uid;
 use near_epoch_manager::{EpochManagerAdapter, EpochManagerHandle};
 use near_primitives::apply::ApplyChunkReason;
 use near_primitives::bandwidth_scheduler::BlockBandwidthRequests;
+use near_primitives::block::{ApplyChunkBlockContext, BlockType};
 use near_primitives::congestion_info::BlockCongestionInfo;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::Receipt;
@@ -78,9 +77,10 @@ fn get_incoming_receipts(
         epoch_manager,
         shard_id,
         &shard_layout,
-        *prev_hash,
+        &*chain_store.get_block_header(prev_hash)?,
         prev_height_included,
         ReceiptFilter::TargetShard,
+        |_, _| None,
     )?);
     Ok(collect_receipts_from_response(&responses))
 }

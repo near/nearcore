@@ -31,6 +31,9 @@ impl ChunkStateWitnessExt for ChunkStateWitness {
         match self {
             ChunkStateWitness::V1 => unreachable!("ChunkStateWitness V1 is deprecated"),
             ChunkStateWitness::V2(witness) => &mut witness.source_receipt_proofs,
+            ChunkStateWitness::V3(witness) => {
+                &mut witness.chunk_validate_witness.as_mut().unwrap().source_receipt_proofs
+            }
         }
     }
 
@@ -38,6 +41,9 @@ impl ChunkStateWitnessExt for ChunkStateWitness {
         match self {
             ChunkStateWitness::V1 => unreachable!("ChunkStateWitness V1 is deprecated"),
             ChunkStateWitness::V2(witness) => &mut witness.chunk_header,
+            ChunkStateWitness::V3(witness) => {
+                &mut witness.chunk_validate_witness.as_mut().unwrap().chunk_header
+            }
         }
     }
 }
@@ -175,16 +181,20 @@ fn setup_orphan_witness_test() -> OrphanWitnessTestEnv {
         .chain_store()
         .create_state_witness(
             chunk_producer_client.epoch_manager.as_ref(),
-            block1.header(),
+            &block1,
             &block1.chunks()[0],
             &chunk2,
+            false,
+            |_, _| None,
+            |_, _| None,
+            |_, _| None,
         )
         .unwrap()
         .state_witness;
 
     // Process the manually created witness on all validators except for `excluded_validator`
     let raw_witness_size = borsh::object_length(&witness).unwrap();
-    let key = witness.chunk_production_key();
+    let key = witness.production_key().chunk;
     let chunk_validators = env
         .client(&block2_chunk_producer)
         .epoch_manager
@@ -209,7 +219,7 @@ fn setup_orphan_witness_test() -> OrphanWitnessTestEnv {
     }
 
     env.propagate_chunk_state_witnesses_and_endorsements(false);
-    assert_eq!(witness.chunk_header().chunk_hash(), block2.chunks()[0].chunk_hash());
+    assert_eq!(witness.latest_chunk_header().chunk_hash(), block2.chunks()[0].chunk_hash());
 
     for client_idx in clients_without_excluded {
         let blocks_processed = env.clients[client_idx]

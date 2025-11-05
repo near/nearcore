@@ -1,7 +1,10 @@
+use crate::bandwidth_scheduler::BlockBandwidthRequests;
 use crate::challenge::SlashedValidator;
+use crate::congestion_info::BlockCongestionInfo;
 use crate::hash::{CryptoHash, hash};
 use crate::merkle::combine_hash;
 use crate::network::PeerId;
+use crate::optimistic_block::OptimisticBlockKeySource;
 use crate::stateless_validation::chunk_endorsements_bitmap::ChunkEndorsementsBitmap;
 use crate::types::validator_stake::{ValidatorStake, ValidatorStakeIter, ValidatorStakeV1};
 use crate::types::{AccountId, Balance, BlockHeight, EpochId, MerkleHash, NumBlocks};
@@ -1307,5 +1310,52 @@ pub fn compute_bp_hash_from_validator_stakes(
     } else {
         let stakes = validator_stakes.into_iter().map(|stake| stake.clone().into_v1());
         CryptoHash::hash_borsh_iter(stakes)
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
+pub enum BlockType {
+    Normal,
+    Optimistic,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
+pub struct ApplyChunkBlockContext {
+    pub block_type: BlockType,
+    pub height: BlockHeight,
+    pub prev_block_hash: CryptoHash,
+    pub block_timestamp: u64,
+    pub gas_price: Balance,
+    pub random_seed: CryptoHash,
+    pub congestion_info: BlockCongestionInfo,
+    pub bandwidth_requests: BlockBandwidthRequests,
+}
+
+impl ApplyChunkBlockContext {
+    pub fn from_header(
+        header: &BlockHeader,
+        gas_price: Balance,
+        congestion_info: BlockCongestionInfo,
+        bandwidth_requests: BlockBandwidthRequests,
+    ) -> Self {
+        Self {
+            block_type: BlockType::Normal,
+            height: header.height(),
+            prev_block_hash: *header.prev_hash(),
+            block_timestamp: header.raw_timestamp(),
+            gas_price,
+            random_seed: *header.random_value(),
+            congestion_info,
+            bandwidth_requests,
+        }
+    }
+
+    pub fn to_key_source(&self) -> OptimisticBlockKeySource {
+        OptimisticBlockKeySource {
+            height: self.height,
+            prev_block_hash: self.prev_block_hash,
+            block_timestamp: self.block_timestamp,
+            random_seed: self.random_seed,
+        }
     }
 }

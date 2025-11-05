@@ -1065,6 +1065,7 @@ mod tests {
             validator_signer,
             noop().into_multi_sender(),
             None,
+            noop().into_multi_sender(),
         )
         .unwrap();
         for shard_uid in shard_layout.shard_uids() {

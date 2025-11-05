@@ -42,6 +42,7 @@ fn genesis_header(genesis: &Genesis) -> BlockHeader {
         MutableConfigValue::new(None, "validator_signer"),
         noop().into_multi_sender(),
         None,
+        noop().into_multi_sender(),
     )
     .unwrap();
     chain.genesis().clone()
@@ -71,6 +72,7 @@ pub fn genesis_block(genesis: &Genesis) -> Arc<Block> {
         MutableConfigValue::new(None, "validator_signer"),
         noop().into_multi_sender(),
         None,
+        noop().into_multi_sender(),
     )
     .unwrap();
     chain.get_block(&chain.genesis().hash().clone()).unwrap()

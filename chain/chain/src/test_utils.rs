@@ -84,6 +84,7 @@ pub fn get_chain_with_genesis(clock: Clock, genesis: Genesis) -> Chain {
         MutableConfigValue::new(None, "validator_signer"),
         noop().into_multi_sender(),
         None,
+        noop().into_multi_sender(),
     )
     .unwrap()
 }
@@ -120,8 +121,9 @@ pub fn process_block_sync(
     let block_hash = *block.hash();
     chain.start_process_block_async(block, provenance, block_processing_artifacts, None)?;
     wait_for_block_in_processing(chain, &block_hash).unwrap();
+    let blocks_to_postprocess = chain.get_blocks_to_postprocess();
     let (accepted_blocks, errors) =
-        chain.postprocess_ready_blocks(block_processing_artifacts, None);
+        chain.postprocess_ready_blocks(blocks_to_postprocess, block_processing_artifacts, None);
     // This is in test, we should never get errors when postprocessing blocks
     debug_assert!(errors.is_empty());
     Ok(accepted_blocks)
@@ -174,6 +176,7 @@ pub fn setup_with_tx_validity_period(
         MutableConfigValue::new(None, "validator_signer"),
         noop().into_multi_sender(),
         None,
+        noop().into_multi_sender(),
     )
     .unwrap();
     chain.init_flat_storage().unwrap();
