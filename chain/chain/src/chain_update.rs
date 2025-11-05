@@ -30,7 +30,6 @@ use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::LightClientBlockView;
 use node_runtime::SignedValidPeriodTransactions;
 use std::sync::Arc;
-use tracing::{debug, warn};
 
 /// Chain update helper, contains information that is needed to process block
 /// and decide to accept it or reject it.
@@ -260,7 +259,7 @@ impl<'a> ChainUpdate<'a> {
         let prev_hash = block.header().prev_hash();
         let results = apply_chunks_results.into_iter().map(|(shard_id, x)| {
             if let Err(err) = &x {
-                warn!(target: "chain", %shard_id, hash = %block.hash(), %err, "Error in applying chunk for block");
+                tracing::warn!(target: "chain", %shard_id, hash = %block.hash(), %err, "error in applying chunk for block");
             }
             x
         }).collect::<Result<Vec<_>, Error>>()?;
@@ -270,7 +269,7 @@ impl<'a> ChainUpdate<'a> {
             block_preprocess_info;
 
         if !is_caught_up {
-            debug!(target: "chain", %prev_hash, hash = %*block.hash(), "Add block to catch up");
+            tracing::debug!(target: "chain", %prev_hash, hash = %*block.hash(), "add block to catch up");
             self.chain_store_update.add_block_to_catchup(*prev_hash, *block.hash());
         }
 
@@ -394,7 +393,7 @@ impl<'a> ChainUpdate<'a> {
         if header.height() > header_head.height {
             let tip = Tip::from_header(header);
             self.chain_store_update.save_header_head(&tip)?;
-            debug!(target: "chain", "Header head updated to {} at {}", tip.last_block_hash, tip.height);
+            tracing::debug!(target: "chain", ?tip.last_block_hash, %tip.height, "header head updated");
             metrics::HEADER_HEAD_HEIGHT.set(tip.height as i64);
 
             Ok(Some(tip))
@@ -433,7 +432,7 @@ impl<'a> ChainUpdate<'a> {
             self.chain_store_update.save_body_head(&tip)?;
             metrics::BLOCK_HEIGHT_HEAD.set(tip.height as i64);
             metrics::BLOCK_ORDINAL_HEAD.set(header.block_ordinal() as i64);
-            debug!(target: "chain", "Head updated to {} at {}", tip.last_block_hash, tip.height);
+            tracing::debug!(target: "chain", ?tip.last_block_hash, %tip.height, "head updated");
             Ok(Some(tip))
         } else {
             Ok(None)

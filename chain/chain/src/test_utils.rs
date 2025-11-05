@@ -30,7 +30,6 @@ use near_store::DBCol;
 use near_store::genesis::initialize_genesis_state;
 use near_store::test_utils::create_test_store;
 use num_rational::Ratio;
-use tracing::debug;
 
 use near_async::messaging::{IntoMultiSender, noop};
 
@@ -192,7 +191,7 @@ pub fn display_chain(me: &Option<AccountId>, chain: &mut Chain, tail: bool) {
     let epoch_manager = chain.epoch_manager.clone();
     let chain_store = chain.mut_chain_store();
     let head = chain_store.head().unwrap();
-    debug!(
+    tracing::debug!(
         "{:?} Chain head ({}): {} / {}",
         me,
         if tail { "tail" } else { "full" },
@@ -215,14 +214,14 @@ pub fn display_chain(me: &Option<AccountId>, chain: &mut Chain, tail: bool) {
     for header in headers {
         if header.is_genesis() {
             // Genesis block.
-            debug!("{: >3} {}", header.height(), format_hash(*header.hash()));
+            tracing::debug!(height = %header.height(), hash = %format_hash(*header.hash()), "");
         } else {
             let parent_header = chain_store.get_block_header(header.prev_hash()).unwrap().clone();
             let maybe_block = chain_store.get_block(header.hash()).ok();
             let epoch_id = epoch_manager.get_epoch_id_from_prev_block(header.prev_hash()).unwrap();
             let block_producer =
                 epoch_manager.get_block_producer(&epoch_id, header.height()).unwrap();
-            debug!(
+            tracing::debug!(
                 "{: >3} {} | {: >10} | parent: {: >3} {} | {}",
                 header.height(),
                 format_hash(*header.hash()),
@@ -246,30 +245,30 @@ pub fn display_chain(me: &Option<AccountId>, chain: &mut Chain, tail: bool) {
                         .unwrap()
                         .take_account_id();
                     if let Ok(chunk) = chain_store.get_chunk(&chunk_header.chunk_hash()) {
-                        debug!(
-                            "    {: >3} {} | {} | {: >10} | tx = {: >2}, receipts = {: >2}",
-                            chunk_header.height_created(),
-                            format_hash(chunk_header.chunk_hash().0),
-                            chunk_header.shard_id(),
-                            chunk_producer,
-                            chunk.to_transactions().len(),
-                            chunk.prev_outgoing_receipts().len()
+                        tracing::debug!(
+                            height = %chunk_header.height_created(),
+                            hash = %format_hash(chunk_header.chunk_hash().0),
+                            shard_id = %chunk_header.shard_id(),
+                            %chunk_producer,
+                            tx_count = %chunk.to_transactions().len(),
+                            receipts_count = %chunk.prev_outgoing_receipts().len(),
+                            ""
                         );
                     } else if let Ok(partial_chunk) =
                         chain_store.get_partial_chunk(&chunk_header.chunk_hash())
                     {
-                        debug!(
-                            "    {: >3} {} | {} | {: >10} | parts = {:?} receipts = {:?}",
-                            chunk_header.height_created(),
-                            format_hash(chunk_header.chunk_hash().0),
-                            chunk_header.shard_id(),
-                            chunk_producer,
-                            partial_chunk.parts().iter().map(|x| x.part_ord).collect::<Vec<_>>(),
-                            partial_chunk
+                        tracing::debug!(
+                            height = %chunk_header.height_created(),
+                            hash = %format_hash(chunk_header.chunk_hash().0),
+                            shard_id = %chunk_header.shard_id(),
+                            %chunk_producer,
+                            parts = ?partial_chunk.parts().iter().map(|x| x.part_ord).collect::<Vec<_>>(),
+                            receipts = ?partial_chunk
                                 .prev_outgoing_receipts()
                                 .iter()
                                 .map(|x| format!("{} => {}", x.0.len(), x.1.to_shard_id))
                                 .collect::<Vec<_>>(),
+                            ""
                         );
                     }
                 }

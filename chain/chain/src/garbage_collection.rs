@@ -196,7 +196,7 @@ impl ChainStore {
                 target: "garbage_collection",
                 gc_stop_height,
                 last_known_gc_heigh,
-                "Update last known gc_stop_height"
+                "update last known gc_stop_height"
             );
             let mut chain_store_update = self.store_update();
             chain_store_update.update_gc_stop_height(gc_stop_height);
@@ -205,7 +205,7 @@ impl ChainStore {
                     target: "garbage_collection",
                     fork_tail,
                     gc_stop_height,
-                    "Update fork_tail"
+                    "update fork_tail"
                 );
                 chain_store_update.update_fork_tail(gc_stop_height);
                 fork_tail = gc_stop_height;
@@ -230,7 +230,7 @@ impl ChainStore {
             target: "garbage_collection",
             stop_height,
             gc_fork_clean_step,
-            "Start Fork Cleaning"
+            "start fork cleaning"
         );
         for height in (stop_height..fork_tail).rev() {
             self.clear_forks_data(
@@ -250,7 +250,7 @@ impl ChainStore {
         tracing::debug!(
             target: "garbage_collection",
             gc_blocks_remaining,
-            "Start Canonical Chain Clearing"
+            "start canonical chain clearing"
         );
         for height in tail + 1..gc_stop_height {
             if gc_blocks_remaining == 0 {
@@ -274,7 +274,7 @@ impl ChainStore {
                         ?prev_hash,
                         height,
                         prev_block_refcount,
-                        "Block of prev_hash starts a Fork, stopping"
+                        "block of prev_hash starts a fork, stopping"
                     );
                     break;
                 }
@@ -327,7 +327,7 @@ impl ChainStore {
         }
         let Ok(final_block) = self.get_block(&final_block_hash) else {
             // This can happen if the node just did state sync.
-            tracing::debug!(target: "garbage_collection", ?final_block_hash, "Could not get final block");
+            tracing::debug!(target: "garbage_collection", ?final_block_hash, "could not get final block");
             return Ok(());
         };
         let final_block_chunk_created_heights: HashMap<_, _> = final_block
@@ -458,7 +458,7 @@ impl ChainStore {
                         ?current_hash,
                         height,
                         current_block_refcount,
-                        "Block is an ancestor for some other blocks, stopping"
+                        "block is an ancestor for some other blocks, stopping"
                     );
                     break;
                 }
@@ -1238,7 +1238,7 @@ fn gc_parent_shard_after_resharding(
         return Ok(());
     }
 
-    tracing::debug!(target: "garbage_collection", ?block_hash, "Resharding state cleanup");
+    tracing::debug!(target: "garbage_collection", ?block_hash, "resharding state cleanup");
     // Given block_hash is the resharding block, shard_layout is the shard layout of the next epoch
     // Important: We are not allowed to call `epoch_manager.get_shard_layout_from_prev_block()` as
     // the function relies on `self.get_block_info(block_info.epoch_first_block())` but epoch_first_block
@@ -1260,10 +1260,10 @@ fn gc_parent_shard_after_resharding(
         });
         if !has_active_mapping {
             // Delete the state of the parent shard
-            tracing::debug!(target: "garbage_collection", ?parent_shard_uid, "Resharding state cleanup for shard");
+            tracing::debug!(target: "garbage_collection", ?parent_shard_uid, "resharding state cleanup for shard");
             trie_store_update.delete_shard_uid_prefixed_state(parent_shard_uid);
         } else {
-            tracing::debug!(target: "garbage_collection", ?parent_shard_uid, "Skipping parent shard cleanup - active mappings exist");
+            tracing::debug!(target: "garbage_collection", ?parent_shard_uid, "skipping parent shard cleanup - active mappings exist");
         }
     }
 
@@ -1324,7 +1324,7 @@ fn gc_state(
     }
 
     // Delete State of `shards_to_cleanup` and associated ShardUId mapping.
-    tracing::debug!(target: "garbage_collection", ?shards_to_cleanup, "State shards cleanup");
+    tracing::debug!(target: "garbage_collection", ?shards_to_cleanup, "state shards cleanup");
     let mut trie_store_update = store.trie_store().store_update();
     for shard_uid_prefix in shards_to_cleanup {
         trie_store_update.delete_shard_uid_prefixed_state(shard_uid_prefix);

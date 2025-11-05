@@ -56,7 +56,7 @@ impl near_async::messaging::Actor for SpiceCoreWriterActor {}
 impl Handler<ProcessedBlock> for SpiceCoreWriterActor {
     fn handle(&mut self, ProcessedBlock { block_hash }: ProcessedBlock) {
         if let Err(err) = self.handle_processed_block(block_hash) {
-            tracing::error!(target: "spice_core_writer", ?err, "Error handling processed block");
+            tracing::error!(target: "spice_core_writer", ?err, "error handling processed block");
         }
     }
 }
@@ -64,7 +64,7 @@ impl Handler<ProcessedBlock> for SpiceCoreWriterActor {
 impl Handler<SpiceChunkEndorsementMessage> for SpiceCoreWriterActor {
     fn handle(&mut self, msg: SpiceChunkEndorsementMessage) {
         if let Err(err) = self.process_chunk_endorsement(msg.0) {
-            tracing::error!(target: "spice_core_writer", ?err, "Error processing spice chunk endorsement");
+            tracing::error!(target: "spice_core_writer", ?err, "error processing spice chunk endorsement");
         }
     }
 }

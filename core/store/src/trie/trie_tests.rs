@@ -267,7 +267,7 @@ mod trie_storage_tests {
             test_populate_trie(&tries, &Trie::EMPTY_ROOT, shard_uid, base_changes.clone());
         let trie = tries.get_trie_for_shard(shard_uid, state_root).recording_reads_new_recorder();
         let changes = trie.update(updates.clone(), AccessOptions::DEFAULT).unwrap();
-        tracing::info!("Changes: {:?}", changes);
+        tracing::info!(?changes, "changes");
 
         let recorded_normal = trie.recorded_storage();
 
@@ -279,7 +279,7 @@ mod trie_storage_tests {
         let trie = tries.get_trie_for_shard(shard_uid, state_root).recording_reads_new_recorder();
         let changes = trie.update(updates, AccessOptions::DEFAULT).unwrap();
 
-        tracing::info!("Changes: {:?}", changes);
+        tracing::info!(?changes, "changes");
 
         let recorded_memtrie = trie.recorded_storage();
 

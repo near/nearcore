@@ -14,7 +14,7 @@ use std::collections::{HashMap, HashSet};
 use std::fmt::{Debug, Formatter};
 use std::num::NonZeroUsize;
 use std::sync::Arc;
-use tracing::{debug, debug_span};
+use tracing::{debug_span};
 
 /// Maximum number of orphans chain can store.
 const MAX_ORPHAN_SIZE: usize = 1024;
@@ -291,16 +291,12 @@ impl Chain {
             );
         }
 
-        debug!(
+        tracing::debug!(
             target: "chain",
-            "Process block: orphan: {:?}, # orphans {}{}",
-            block_hash,
-            self.orphans.len(),
-            if self.orphans.len_evicted() > 0 {
-                format!(", # evicted {}", self.orphans.len_evicted())
-            } else {
-                String::new()
-            },
+            ?block_hash,
+            orphans_count = %self.orphans.len(),
+            evicted_count = %self.orphans.len_evicted(),
+            "process block: orphan"
         );
     }
 
@@ -350,7 +346,7 @@ impl Chain {
                         if let Err(e) = self.ping_missing_chunks(block_hash, orphan) {
                             return match e {
                                 Error::ChunksMissing(missing_chunks) => {
-                                    debug!(target:"chain", "Request missing chunks for orphan {:?} {:?}", orphan.hash(), missing_chunks.iter().map(|chunk|{(chunk.shard_id(), chunk.chunk_hash())}).collect::<Vec<_>>());
+                                    tracing::debug!(target: "chain", orphan_hash = ?orphan.hash(), missing_chunks = ?missing_chunks.iter().map(|chunk|{(chunk.shard_id(), chunk.chunk_hash())}).collect::<Vec<_>>(), "request missing chunks for orphan");
                                     Some(OrphanMissingChunks {
                                         missing_chunks,
                                         epoch_id,
@@ -407,7 +403,7 @@ impl Chain {
             }
         }
         if let Some(orphans) = self.orphans.remove_by_prev_hash(prev_hash) {
-            debug!(target: "chain", found_orphans = orphans.len(), "Check orphans");
+            tracing::debug!(target: "chain", found_orphans = orphans.len(), "check orphans");
             for orphan in orphans {
                 let block_hash = orphan.hash();
                 self.blocks_delay_tracker.mark_block_unorphaned(&block_hash);
@@ -418,17 +414,17 @@ impl Chain {
                     apply_chunks_done_sender.clone(),
                 );
                 if let Err(err) = res {
-                    debug!(target: "chain", "Orphan {:?} declined, error: {:?}", block_hash, err);
+                    tracing::debug!(target: "chain", ?block_hash, ?err, "orphan declined");
                 }
             }
-            debug!(
+            tracing::debug!(
                 target: "chain",
                 remaining_orphans=self.orphans.len(),
-                "Check orphans",
+                "check orphans",
             );
         }
         if let Some(optimistic_block) = self.orphans.remove_optimistic(&prev_hash) {
-            debug!(target: "chain", ?optimistic_block, "Check optimistic orphan");
+            tracing::debug!(target: "chain", ?optimistic_block, "check optimistic orphan");
             self.preprocess_optimistic_block(optimistic_block, apply_chunks_done_sender);
         }
     }

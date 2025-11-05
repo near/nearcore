@@ -92,7 +92,7 @@ impl Snapshot {
         };
 
         tracing::info!(target: "db", snapshot_path=%snapshot_path.display(),
-                       "Creating database snapshot");
+                       "creating database snapshot");
         if snapshot_path.exists() {
             return Err(SnapshotError::AlreadyExists(snapshot_path));
         }
@@ -110,7 +110,7 @@ impl Snapshot {
     pub fn remove(mut self) -> Result<(), SnapshotRemoveError> {
         if let Some(path) = self.0.take() {
             tracing::info!(target: "db", snapshot_path=%path.display(),
-                           "Deleting the database snapshot");
+                           "deleting the database snapshot");
             std::fs::remove_dir_all(&path).map_err(|error| SnapshotRemoveError { path, error })
         } else {
             Ok(())
@@ -127,12 +127,9 @@ impl std::ops::Drop for Snapshot {
     fn drop(&mut self) {
         if let Some(path) = &self.0 {
             tracing::info!(target: "db", snapshot_path=%path.display(),
-                           "In case of issues, the database can be recovered \
-                            from the database snapshot");
+                           "in case of issues, the database can be recovered from the database snapshot");
             tracing::info!(target: "db", snapshot_path=%path.display(),
-                           "To recover from the snapshot, delete files in the \
-                            database directory and replace them with contents \
-                            of the snapshot directory");
+                           "to recover from the snapshot, delete files in the database directory and replace them with contents of the snapshot directory");
         }
     }
 }

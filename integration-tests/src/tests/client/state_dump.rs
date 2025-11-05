@@ -102,7 +102,7 @@ fn slow_test_state_dump() {
                     &StateFileType::StatePart { part_id, num_parts },
                 ));
                 if std::fs::read(&path).is_err() {
-                    tracing::info!("Missing {:?}", path);
+                    tracing::info!(?path, "missing");
                     all_parts_present = false;
                 }
             }
@@ -133,11 +133,11 @@ fn run_state_sync_with_dumped_parts(
     init_test_logger();
     if is_final_block_in_new_epoch {
         tracing::info!(
-            "Testing for case when both head and final block of the dumping node are in new epoch..."
+            "testing for case when both head and final block of the dumping node are in new epoch"
         );
     } else {
         tracing::info!(
-            "Testing for case when head is in new epoch, but final block isn't for the dumping node..."
+            "testing for case when head is in new epoch, but final block isn't for the dumping node"
         );
     }
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap()], 1);
@@ -243,7 +243,7 @@ fn run_state_sync_with_dumped_parts(
     tracing::info!(
         dump_node_head_height,
         final_block_height = final_block_header.height(),
-        "Dumping node state"
+        "dumping node state"
     );
 
     // check if final block is in the same epoch as head for dumping node
@@ -283,10 +283,10 @@ fn run_state_sync_with_dumped_parts(
                     &StateFileType::StatePart { part_id, num_parts },
                 ));
                 if std::fs::read(&path).is_err() {
-                    tracing::info!("dumping node: Missing {:?}", path);
+                    tracing::info!(?path, "dumping node: missing");
                     all_parts_present = false;
                 } else {
-                    tracing::info!("dumping node: Populated {:?}", path);
+                    tracing::info!(?path, "dumping node: populated");
                 }
             }
         }
@@ -300,7 +300,7 @@ fn run_state_sync_with_dumped_parts(
     }
 
     // Simulate state sync by reading the dumped parts from the external storage and applying them to the other node
-    tracing::info!("syncing node: simulating state sync..");
+    tracing::info!("syncing node: simulating state sync.");
     env.clients[1]
         .chain
         .state_sync_adapter
@@ -336,7 +336,7 @@ fn run_state_sync_with_dumped_parts(
             .unwrap();
     }
     env.clients[1].chain.set_state_finalize(shard_id, sync_hash).unwrap();
-    tracing::info!("syncing node: state sync finished.");
+    tracing::info!("syncing node: state sync finished");
 
     let synced_block = env.clients[1].chain.get_block(&sync_hash).unwrap();
     let synced_block_header = env.clients[1].chain.get_block_header(&sync_hash).unwrap();
@@ -353,7 +353,7 @@ fn run_state_sync_with_dumped_parts(
     );
 
     if is_final_block_in_new_epoch {
-        tracing::info!(?response, "New Account should exist");
+        tracing::info!(?response, "new account should exist");
         assert_matches!(
             response.unwrap().kind,
             QueryResponseKind::ViewAccount(_),
@@ -371,7 +371,7 @@ fn run_state_sync_with_dumped_parts(
             assert_eq!(num_ref_before, num_ref_after);
         }
     } else {
-        tracing::info!(?response, "New Account shouldn't exist");
+        tracing::info!(?response, "new account shouldn't exist");
         assert!(response.is_err());
         assert_matches!(
             response.unwrap_err(),

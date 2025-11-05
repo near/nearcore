@@ -132,7 +132,7 @@ impl ReshardingManager {
             .collect_vec();
 
         if tracked_children_shards.is_empty() {
-            tracing::debug!(target: "resharding", "Not tracking any child shards, skipping");
+            tracing::debug!(target: "resharding", "not tracking any child shards, skipping");
             return Ok(Default::default());
         }
 
@@ -211,17 +211,16 @@ impl ReshardingManager {
 
             if !allow_resharding_without_memtries && !parent_trie.has_memtries() {
                 tracing::error!(
-                    "Memtrie not loaded. Cannot process memtrie resharding storage
-                     update for block {:?}, shard {:?}",
-                    block_hash,
-                    parent_shard_uid,
+                    ?block_hash,
+                    ?parent_shard_uid,
+                    "memtrie not loaded, cannot process memtrie resharding storage update"
                 );
                 return Err(Error::Other("Memtrie not loaded".to_string()));
             }
 
             tracing::info!(
                 target: "resharding", ?new_shard_uid, ?retain_mode,
-                "Creating child trie by retaining nodes in parent memtrie..."
+                "creating child trie by retaining nodes in parent memtrie"
             );
 
             // Get the congestion info for the child.
@@ -270,7 +269,7 @@ impl ReshardingManager {
                 Default::default(),
             );
 
-            tracing::info!(target: "resharding", ?new_shard_uid, ?trie_changes.new_root, "Child trie created");
+            tracing::info!(target: "resharding", ?new_shard_uid, ?trie_changes.new_root, "child trie created");
 
             split_shard_trie_changes.trie_changes.insert(*new_shard_uid, trie_changes);
         }

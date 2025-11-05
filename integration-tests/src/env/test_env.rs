@@ -297,7 +297,7 @@ impl TestEnv {
         {
             let target_id = self.account_indices.index(&target.account_id.unwrap());
             let response = self.get_partial_encoded_chunk_response(target_id, request);
-            tracing::info!("Got response for PartialEncodedChunkRequest: {:?}", response);
+            tracing::info!(?response, "got response for PartialEncodedChunkRequest");
             if let Some(response) = response {
                 self.shards_manager_adapters[id].send(
                     ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunkResponse {
@@ -422,7 +422,7 @@ impl TestEnv {
                     witness_processing_done_waiters.push(processing_done_tracker.make_waiter());
 
                     if !self.contains_client(&account_id) {
-                        tracing::warn!(target: "test", "Client not found for account_id {}", account_id);
+                        tracing::warn!(target: "test", %account_id, "client not found for account_id");
                         continue;
                     }
                     let account_index = self.get_client_index(&account_id);
@@ -466,7 +466,7 @@ impl TestEnv {
                     endorsement,
                 )) => {
                     if !self.contains_client(&account_id) {
-                        tracing::warn!(target: "test", "Client not found for account_id {}", account_id);
+                        tracing::warn!(target: "test", %account_id, "client not found for account_id");
                         return None;
                     }
                     let processing_result = self.client(&account_id).chunk_endorsement_tracker.process_chunk_endorsement(endorsement);
@@ -874,7 +874,7 @@ impl TestEnv {
         let block = match block {
             Ok(block) => block,
             Err(err) => {
-                tracing::info!(target: "test", ?err, "Block {}: missing", height);
+                tracing::info!(target: "test", ?err, %height, "block: missing");
                 return;
             }
         };

@@ -17,7 +17,6 @@ use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{BlockHeight, StateRoot};
 use std::collections::BTreeSet;
 use std::time::Instant;
-use tracing::{debug, info, warn};
 
 /// Loads a trie from the FlatState column. The returned `MemTries` contains
 /// exactly one trie root.
@@ -50,7 +49,7 @@ fn load_trie_from_flat_state(
         load_memtrie_single_thread(store, shard_uid)?
     };
 
-    info!(target: "memtrie", shard_uid=%shard_uid, "Done loading trie from flat state, took {:?}", load_start.elapsed());
+    tracing::info!(target: "memtrie", shard_uid=%shard_uid, duration = ?load_start.elapsed(), "done loading trie from flat state");
     let root = root_id.as_ptr(arena.memory());
     assert_eq!(
         root.view().node_hash(),
@@ -65,7 +64,7 @@ fn load_memtrie_single_thread(
     store: &Store,
     shard_uid: ShardUId,
 ) -> Result<(STArena, MemTrieNodeId), StorageError> {
-    info!(target: "memtrie", shard_uid=%shard_uid, "Loading trie from flat state...");
+    tracing::info!(target: "memtrie", shard_uid=%shard_uid, "loading trie from flat state");
     let mut arena = STArena::new(shard_uid.to_string());
     let mut recon = TrieConstructor::new(&mut arena);
     let mut num_keys_loaded = 0;
@@ -74,12 +73,12 @@ fn load_memtrie_single_thread(
         recon.add_leaf(NibbleSlice::new(&key), value);
         num_keys_loaded += 1;
         if num_keys_loaded % 1000000 == 0 {
-            debug!(
+            tracing::debug!(
                 target: "memtrie",
                 %shard_uid,
-                "Loaded {} keys, current key: {}",
-                num_keys_loaded,
-                hex::encode(&key)
+                %num_keys_loaded,
+                current_key = hex::encode(&key),
+                "loaded keys"
             );
         }
     }
@@ -121,12 +120,12 @@ pub fn load_trie_from_flat_state_and_delta(
     state_root: Option<StateRoot>,
     parallelize: bool,
 ) -> Result<MemTries, StorageError> {
-    debug!(target: "memtrie", %shard_uid, "Loading base trie from flat state...");
+    tracing::debug!(target: "memtrie", %shard_uid, "loading base trie from flat state");
     let flat_store = store.flat_store();
     let flat_head = match flat_store.get_flat_storage_status(shard_uid)? {
         FlatStorageStatus::Ready(status) => status.flat_head,
         FlatStorageStatus::Resharding(FlatStorageReshardingStatus::SplittingParent(status)) => {
-            warn!("Loading memtrie from parent flat storage which is marked as pending resharding");
+            tracing::warn!("loading memtrie from parent flat storage which is marked as pending resharding");
             status.flat_head
         }
         other => {
@@ -146,7 +145,7 @@ pub fn load_trie_from_flat_state_and_delta(
         load_trie_from_flat_state(&store, shard_uid, state_root, flat_head.height, parallelize)
             .unwrap();
 
-    debug!(target: "memtrie", %shard_uid, "Loading flat state deltas...");
+    tracing::debug!(target: "memtrie", %shard_uid, "loading flat state deltas");
     // We load the deltas in order of height, so that we always have the previous state root
     // already loaded.
     let mut sorted_deltas: BTreeSet<(BlockHeight, CryptoHash, CryptoHash)> = Default::default();
@@ -154,7 +153,7 @@ pub fn load_trie_from_flat_state_and_delta(
         sorted_deltas.insert((delta.block.height, delta.block.hash, delta.block.prev_hash));
     }
 
-    debug!(target: "memtrie", %shard_uid, "{} deltas to apply", sorted_deltas.len());
+    tracing::debug!(target: "memtrie", %shard_uid, num_deltas = sorted_deltas.len(), "deltas to apply");
     for (height, hash, prev_hash) in sorted_deltas {
         let delta = flat_store.get_delta(shard_uid, hash).unwrap();
         if let Some(changes) = delta {
@@ -175,10 +174,10 @@ pub fn load_trie_from_flat_state_and_delta(
             let new_root_after_apply = memtries.apply_memtrie_changes(height, &memtrie_changes);
             assert_eq!(new_root_after_apply, new_state_root);
         }
-        debug!(target: "memtrie", %shard_uid, "Applied memtrie changes for height {}", height);
+        tracing::debug!(target: "memtrie", %shard_uid, %height, "applied memtrie changes for height");
     }
 
-    debug!(target: "memtrie", %shard_uid, "Done loading memtries for shard");
+    tracing::debug!(target: "memtrie", %shard_uid, "done loading memtries for shard");
     Ok(memtries)
 }
 

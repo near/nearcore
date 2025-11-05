@@ -26,7 +26,6 @@ use near_primitives::views::FinalExecutionStatus;
 use rand::seq::SliceRandom;
 use rand::{Rng, thread_rng};
 use std::collections::HashSet;
-use tracing::debug;
 
 /// Try to process tx in the next blocks, check that tx and all generated receipts succeed.
 /// Return height of the next block.
@@ -476,7 +475,7 @@ fn test_processing_chunks_sanity() {
             .iter()
             .map(|chunk| format!("{:?}", chunk.chunk_hash()))
             .collect::<Vec<_>>();
-        debug!(target: "chunks", "Block #{} has chunks {:?}", i, chunks.join(", "));
+        tracing::debug!(target: "chunks", "Block #{} has chunks {:?}", i, chunks.join(", "));
         blocks.push(block.clone());
         env.process_block(0, block, Provenance::PRODUCED);
     }
@@ -596,13 +595,13 @@ impl ChunkForwardingOptimizationTestData {
                         part_ord,
                     );
                 }
-                debug!(
+                tracing::debug!(
                     target: "test",
-                    "chunk request from {} to {:?} for chunk {} with part_ords {:?}",
-                    client_id,
-                    target,
-                    hex::encode(&request.chunk_hash.as_bytes()[..4]),
-                    request.part_ords
+                    %client_id,
+                    ?target,
+                    chunk_hash_hex = %hex::encode(&request.chunk_hash.as_bytes()[..4]),
+                    ?request.part_ords,
+                    "chunk request from to for chunk with part_ords"
                 );
                 self.num_part_ords_requested += request.part_ords.len();
                 self.env.process_partial_encoded_chunk_request(
@@ -612,15 +611,15 @@ impl ChunkForwardingOptimizationTestData {
                 None
             }
             NetworkRequests::PartialEncodedChunkMessage { account_id, partial_encoded_chunk } => {
-                debug!(
+                tracing::debug!(
                     target: "test",
-                    "chunk msg from {} to {} height {} hash {} shard {} parts {:?}",
-                    client_id,
-                    account_id,
-                    partial_encoded_chunk.header.height_created(),
-                    hex::encode(&partial_encoded_chunk.header.chunk_hash().as_bytes()[..4]),
-                    partial_encoded_chunk.header.shard_id(),
-                    partial_encoded_chunk.parts.iter().map(|p| p.part_ord).collect::<Vec<_>>()
+                    %client_id,
+                    %account_id,
+                    height = %partial_encoded_chunk.header.height_created(),
+                    hash = %hex::encode(&partial_encoded_chunk.header.chunk_hash().as_bytes()[..4]),
+                    shard_id = %partial_encoded_chunk.header.shard_id(),
+                    parts = ?partial_encoded_chunk.parts.iter().map(|p| p.part_ord).collect::<Vec<_>>(),
+                    "chunk msg from to height hash shard parts"
                 );
                 for part in &partial_encoded_chunk.parts {
                     self.chunk_parts_that_must_be_known.insert((
@@ -639,13 +638,13 @@ impl ChunkForwardingOptimizationTestData {
                 None
             }
             NetworkRequests::PartialEncodedChunkForward { account_id, forward } => {
-                debug!(
+                tracing::debug!(
                     target: "test",
-                    "chunk forward from {} to {} hash {} parts {:?}",
-                    client_id,
-                    account_id,
-                    hex::encode(&forward.chunk_hash.as_bytes()[..4]),
-                    forward.parts.iter().map(|p| p.part_ord).collect::<Vec<_>>()
+                    %client_id,
+                    %account_id,
+                    hash = %hex::encode(&forward.chunk_hash.as_bytes()[..4]),
+                    parts = ?forward.parts.iter().map(|p| p.part_ord).collect::<Vec<_>>(),
+                    "chunk forward from to hash parts"
                 );
                 for part_ord in &forward.parts {
                     self.chunk_parts_that_must_be_known.insert((
@@ -700,7 +699,7 @@ fn test_chunk_forwarding_optimization() {
         if height >= 31 {
             break;
         }
-        debug!(target: "test", "======= Height {} ======", height + 1);
+        tracing::debug!(target: "test", height = %(height + 1), "======= height ======");
         let block = test.env.clients[0].produce_block(height + 1).unwrap().unwrap();
         if block.header().height() > 1 {
             // For any block except the first, the previous block's application at each
@@ -714,7 +713,7 @@ fn test_chunk_forwarding_optimization() {
         }
         // The block producer of course has the complete block so we can process that.
         for i in 0..test.num_validators {
-            debug!(target: "test", "Processing block {} as validator #{}", block.header().height(), i);
+            tracing::debug!(target: "test", height = %block.header().height(), %i, "processing block as validator");
             let _ = test.env.clients[i].start_process_block(
                 block.clone().into(),
                 if i == 0 { Provenance::PRODUCED } else { Provenance::NONE },
@@ -745,16 +744,12 @@ fn test_chunk_forwarding_optimization() {
         test.env.propagate_chunk_state_witnesses_and_endorsements(false);
     }
 
-    debug!(target: "test",
-        "Counters for debugging:
-                num_part_ords_requested: {}
-                num_part_ords_sent_as_partial_encoded_chunk: {}
-                num_part_ords_forwarded: {}
-                num_forwards_with_missing_chunk_header: {}",
-        test.num_part_ords_requested,
-        test.num_part_ords_sent_as_partial_encoded_chunk,
-        test.num_part_ords_forwarded,
-        PARTIAL_ENCODED_CHUNK_FORWARD_CACHED_WITHOUT_HEADER.get(),
+    tracing::debug!(target: "test",
+        num_part_ords_requested = %test.num_part_ords_requested,
+        num_part_ords_sent_as_partial_encoded_chunk = %test.num_part_ords_sent_as_partial_encoded_chunk,
+        num_part_ords_forwarded = %test.num_part_ords_forwarded,
+        num_forwards_with_missing_chunk_header = %PARTIAL_ENCODED_CHUNK_FORWARD_CACHED_WITHOUT_HEADER.get(),
+        "counters for debugging"
     );
 }
 

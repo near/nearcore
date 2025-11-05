@@ -21,7 +21,6 @@ use near_primitives::types::{BlockChunkValidatorStats, ChunkStats};
 use near_primitives::utils::{get_block_shard_id_rev, get_outcome_id_block_hash};
 use near_primitives::version::ProtocolVersion;
 use std::collections::{BTreeMap, HashMap};
-use tracing::info;
 
 pub struct BatchedStoreUpdate<'a> {
     batch_size_limit: usize,
@@ -76,10 +75,10 @@ impl<'a> BatchedStoreUpdate<'a> {
             self.commit()?;
         }
         if self.total_size_written - self.printed_total_size_written > PRINT_PROGRESS_EVERY_BYTES {
-            info!(
+            tracing::info!(
                 target: "migrations",
-                "Migrations: {} written",
-                bytesize::to_string(self.total_size_written, true)
+                size_written = bytesize::to_string(self.total_size_written, true),
+                "migrations written"
             );
             self.printed_total_size_written = self.total_size_written;
         }
@@ -163,12 +162,12 @@ pub fn migrate_33_to_34(store: &Store, mut is_node_archival: bool) -> anyhow::Re
 
     if is_store_archival != is_node_archival {
         if is_store_archival {
-            tracing::info!(target: "migrations", "Opening an archival database.");
-            tracing::warn!(target: "migrations", "Ignoring `archive` client configuration and setting database kind to Archive.");
+            tracing::info!(target: "migrations", "opening an archival database");
+            tracing::warn!(target: "migrations", "ignoring `archive` client configuration and setting database kind to archive");
         } else {
-            tracing::info!(target: "migrations", "Running node in archival mode (as per `archive` client configuration).");
-            tracing::info!(target: "migrations", "Setting database kind to Archive.");
-            tracing::warn!(target: "migrations", "Starting node in non-archival mode will no longer be possible with this database.");
+            tracing::info!(target: "migrations", "running node in archival mode (as per `archive` client configuration)");
+            tracing::info!(target: "migrations", "setting database kind to archive");
+            tracing::warn!(target: "migrations", "starting node in non-archival mode will no longer be possible with this database");
         }
         is_node_archival = true;
     }
@@ -418,7 +417,7 @@ pub fn migrate_41_to_42(store: &Store) -> anyhow::Result<()> {
             .context("failed deserializing CryptoHash key in StateDlInfos")?;
 
         if epoch_first_block != sync_hash {
-            tracing::warn!(key = %epoch_first_block, %sync_hash, "sync_hash field of legacy StateSyncInfo not equal to the key. Something is wrong with this node's catchup info");
+            tracing::warn!(key = %epoch_first_block, %sync_hash, "sync_hash field of legacy StateSyncInfo not equal to the key, something is wrong with this node's catchup info");
         }
         let shards =
             shards.into_iter().map(|LegacyShardInfo(shard_id, _chunk_hash)| shard_id).collect();
