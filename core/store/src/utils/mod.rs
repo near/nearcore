@@ -371,36 +371,20 @@ pub fn remove_account(
 
     // Removing gas keys
     let lock = state_update.trie().lock_for_iter();
-    // Collect to hashset, as there can be multiple nonces per gas key.
-    let gas_public_keys = state_update
+    let gas_trie_keys = state_update
         .locked_iter(&trie_key_parsers::get_raw_prefix_for_gas_keys(account_id), &lock)?
         .map(|raw_key| {
-            trie_key_parsers::parse_public_key_from_gas_key_key(&raw_key?, account_id).map_err(
-                |_e| {
-                    StorageError::StorageInconsistentState(
-                        "Can't parse public key from raw key for GasKey".to_string(),
-                    )
-                },
-            )
+            trie_key_parsers::parse_trie_key_gas_key_from_raw_key(&raw_key?).map_err(|_e| {
+                StorageError::StorageInconsistentState(
+                    "Can't parse trie key from raw key for GasKey".to_string(),
+                )
+            })
         })
-        .collect::<Result<HashSet<_>, _>>()?;
+        .collect::<Result<Vec<_>, _>>()?;
     drop(lock);
 
-    for public_key in gas_public_keys {
-        let gas_key = get_gas_key(state_update, account_id, &public_key)?;
-        let Some(gas_key) = gas_key else {
-            tracing::warn!(
-                target: "store",
-                ?account_id,
-                ?public_key,
-                "gas key missing when removing account"
-            );
-            continue;
-        };
-        for index in 0..gas_key.num_nonces {
-            remove_gas_key_nonce(state_update, account_id.clone(), public_key.clone(), index);
-        }
-        remove_gas_key(state_update, account_id.clone(), public_key.clone());
+    for gas_key in gas_trie_keys {
+        state_update.remove(gas_key);
     }
 
     // Removing contract data
