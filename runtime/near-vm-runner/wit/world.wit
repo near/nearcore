@@ -32,10 +32,9 @@ interface runtime {
       to-string: func() -> string;
    }
 
-   resource public-key {
-      from-string: static func(public-key: string) -> result<public-key>;
-      to-string: func() -> string;
-      to-bytes: func() -> list<u8>;
+   variant public-key {
+      ed25519(u256),
+      secp256k1(u512),
    }
 
    // Reads the entire content from the register `register-id`
@@ -116,7 +115,7 @@ interface runtime {
    keccak512: func(value: list<u8>) -> u512;
 
    // Verifies signature of message using provided ED25519 Public Key
-   ed25519-verify: func(signature: list<u8>, message: list<u8>, public-key: borrow<public-key>) -> bool;
+   ed25519-verify: func(signature: u512, message: list<u8>, public-key: u256) -> bool;
 
    // Hashes the bytes using the RIPEMD-160 hash function.
    ripemd160: func(value: list<u8>) -> u160;
@@ -128,7 +127,7 @@ interface runtime {
    // which is generally only ideal for transactions.
    //
    // Returns 64 bytes representing the public key if the recovery was successful.
-   ecrecover: func(hash: list<u8>, signature: list<u8>, v: u8, malleability-flag: bool) -> option<public-key>;
+   ecrecover: func(hash: u256, signature: u512, v: u8, malleability-flag: bool) -> option<u512>;
 
    // Sets the blob of data as the return value of the contract.
    value-return: func(value: list<u8>);
@@ -161,10 +160,10 @@ interface runtime {
       use-global-contract-by-account-id: func(account-id: borrow<account-id>);
       function-call: func(method: list<u8>, arguments: list<u8>, amount: u128, gas: u64, gas-weight: u64);
       transfer: func(amount: u128);
-      stake: func(amount: u128, public-key: borrow<public-key>);
-      add-key-with-full-access: func(public-key: borrow<public-key>, nonce: u64);
-      add-key-with-function-call: func(public-key: borrow<public-key>, nonce: u64, allowance: u128, receiver-id: borrow<account-id>, method-names: list<list<u8>>);
-      delete-key: func(public-key: borrow<public-key>);
+      stake: func(amount: u128, public-key: public-key);
+      add-key-with-full-access: func(public-key: public-key, nonce: u64);
+      add-key-with-function-call: func(public-key: public-key, nonce: u64, allowance: u128, receiver-id: borrow<account-id>, method-names: list<list<u8>>);
+      delete-key: func(public-key: public-key);
       delete-account: func(beneficiary-id: borrow<account-id>);
 
       yield-create: static func(method: list<u8>, arguments: list<u8>, gas: u64, gas-weight: u64, register-id: u64) -> promise;

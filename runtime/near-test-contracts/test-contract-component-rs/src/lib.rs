@@ -62,7 +62,6 @@ world test {
 use bindings::near::nearcore::runtime::*;
 use bindings::Guest;
 use core::array;
-use core::mem::transmute;
 
 impl From<u128> for U128 {
     fn from(value: u128) -> Self {
@@ -76,9 +75,27 @@ impl From<U128> for u128 {
     }
 }
 
+impl From<U128> for [u8; 16] {
+    fn from(U128 { lo, hi }: U128) -> Self {
+        let lo = lo.to_ne_bytes();
+        let hi = hi.to_ne_bytes();
+        array::from_fn(|i| if i < 8 { lo[i] } else { hi[i - 8] })
+    }
+}
+
 impl From<U256> for [u8; 32] {
     fn from(U256 { lo, hi }: U256) -> Self {
-        unsafe { transmute([u128::from(lo), u128::from(hi)]) }
+        let lo: [u8; 16] = lo.into();
+        let hi: [u8; 16] = hi.into();
+        array::from_fn(|i| if i < 16 { lo[i] } else { hi[i - 16] })
+    }
+}
+
+impl From<U512> for [u8; 64] {
+    fn from(U512 { lo, hi }: U512) -> Self {
+        let lo: [u8; 32] = lo.into();
+        let hi: [u8; 32] = hi.into();
+        array::from_fn(|i| if i < 32 { lo[i] } else { hi[i - 32] })
     }
 }
 
@@ -98,6 +115,12 @@ pub struct Component;
 
 impl U256 {
     fn into_bytes(self) -> [u8; 32] {
+        self.into()
+    }
+}
+
+impl U512 {
+    fn into_bytes(self) -> [u8; 64] {
         self.into()
     }
 }
@@ -134,8 +157,18 @@ impl Guest for Component {
     }
 
     fn ext_signer_pk() {
-        let data = signer_account_pk();
-        value_return(&data.to_bytes())
+        match signer_account_pk() {
+            PublicKey::Ed25519(key) => {
+                let data = key.into_bytes();
+                let data: [u8; 33] = array::from_fn(|i| if i == 0 { 0 } else { data[i - 1] });
+                value_return(&data);
+            }
+            PublicKey::Secp256k1(key) => {
+                let data = key.into_bytes();
+                let data: [u8; 65] = array::from_fn(|i| if i == 0 { 1 } else { data[i - 1] });
+                value_return(&data);
+            }
+        }
     }
 
     fn ext_signer_id() {
@@ -608,10 +641,10 @@ impl Guest for Component {
             0,
             1,
         );
-        promise.add_key_with_full_access(&account_public_key, 0);
-        promise.delete_key(&account_public_key);
+        promise.add_key_with_full_access(account_public_key, 0);
+        promise.delete_key(account_public_key);
         promise.add_key_with_function_call(
-            &account_public_key,
+            account_public_key,
             1,
             0u128.into(),
             &new_account_id,
@@ -626,7 +659,7 @@ impl Guest for Component {
         let promise = Promise::new(&new_account_id);
         promise.create_account();
         promise.transfer(amount_non_zero.into());
-        promise.stake(amount_stake.into(), &account_public_key);
+        promise.stake(amount_stake.into(), account_public_key);
 
         // #######################
         // # Promise API results #

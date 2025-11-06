@@ -122,7 +122,6 @@ impl runtime::U256 {
 }
 
 impl runtime::U512 {
-    #[expect(unused)]
     fn to_le_bytes(&self) -> [u8; 64] {
         let lo = self.lo.to_le_bytes();
         let hi = self.hi.to_le_bytes();
@@ -134,6 +133,24 @@ impl runtime::U512 {
             unreachable!();
         };
         Self { lo: runtime::U256::from_le_bytes(*lo), hi: runtime::U256::from_le_bytes(*hi) }
+    }
+}
+
+impl From<PublicKey> for runtime::PublicKey {
+    fn from(key: PublicKey) -> Self {
+        match key {
+            PublicKey::ED25519(key) => Self::Ed25519(runtime::U256::from_le_bytes(key.0)),
+            PublicKey::SECP256K1(key) => Self::Secp256k1(runtime::U512::from_le_bytes(key.0)),
+        }
+    }
+}
+
+impl From<runtime::PublicKey> for PublicKey {
+    fn from(key: runtime::PublicKey) -> Self {
+        match key {
+            runtime::PublicKey::Ed25519(key) => Self::ED25519(key.to_le_bytes().into()),
+            runtime::PublicKey::Secp256k1(key) => Self::SECP256K1(key.to_le_bytes().into()),
+        }
     }
 }
 
@@ -307,11 +324,17 @@ impl Ctx {
         Ok(account_id.clone())
     }
 
-    fn read_public_key(&mut self, public_key: &Resource<PublicKey>) -> wasmtime::Result<PublicKey> {
-        self.pay_base(read_register_base)?;
-        let public_key = self.table.get(public_key)?;
-        pay_per(&mut self.result_state.gas_counter, read_register_byte, public_key.len() as _)?;
-        Ok(public_key.clone())
+    fn read_public_key(&mut self, public_key: &runtime::PublicKey) -> wasmtime::Result<PublicKey> {
+        match public_key {
+            runtime::PublicKey::Ed25519(key) => {
+                self.pay_for_reading_bytes(32)?;
+                Ok(PublicKey::ED25519(key.to_le_bytes().into()))
+            }
+            runtime::PublicKey::Secp256k1(key) => {
+                self.pay_for_reading_bytes(64)?;
+                Ok(PublicKey::SECP256K1(key.to_le_bytes().into()))
+            }
+        }
     }
 
     /// Adds a given promise to the vector of promises and returns a new promise index.
@@ -510,7 +533,7 @@ impl runtime::Host for Ctx {
         Ok(account_id)
     }
 
-    fn signer_account_pk(&mut self) -> wasmtime::Result<Resource<PublicKey>> {
+    fn signer_account_pk(&mut self) -> wasmtime::Result<runtime::PublicKey> {
         self.pay_base(base)?;
 
         if self.context.is_view() {
@@ -524,8 +547,7 @@ impl runtime::Host for Ctx {
             .map_err(ErrorContainer::new)?;
         self.pay_base(write_register_base)?;
         self.pay_per(write_register_byte, public_key.len() as _)?;
-        let public_key = self.table.push(public_key)?;
-        Ok(public_key)
+        Ok(public_key.into())
     }
 
     fn predecessor_account_id(&mut self) -> wasmtime::Result<Resource<AccountId>> {
@@ -833,71 +855,35 @@ impl runtime::Host for Ctx {
 
     fn ecrecover(
         &mut self,
-        hash: Vec<u8>,
-        signature: Vec<u8>,
+        hash: runtime::U256,
+        signature: runtime::U512,
         v: u8,
         malleability: bool,
-    ) -> wasmtime::Result<Option<Resource<PublicKey>>> {
+    ) -> wasmtime::Result<Option<runtime::U512>> {
         self.pay_base(ecrecover_base)?;
-        self.pay_for_reading_bytes(signature.len())?;
+        self.pay_for_reading_bytes(64)?;
         let signature = {
-            if signature.len() != 64 {
-                return Err(ErrorContainer::new(HostError::ECRecoverError {
-                    msg: format!(
-                        "The length of the signature: {}, exceeds the limit of 64 bytes",
-                        signature.len()
-                    ),
-                })
-                .into());
-            }
-
-            let mut bytes = [0u8; 65];
-            bytes[0..64].copy_from_slice(&signature);
-
-            if v < 4 {
-                bytes[64] = v as u8;
-                Secp256K1Signature::from(bytes)
-            } else {
+            if v > 3 {
                 return Err(ErrorContainer::new(HostError::ECRecoverError {
                     msg: format!("V recovery byte 0 through 3 are valid but was provided {}", v),
                 })
                 .into());
             }
+            let signature = signature.to_le_bytes();
+            let bytes = array::from_fn(|i| if i == 64 { v } else { signature[i] });
+            Secp256K1Signature::from(bytes)
         };
 
-        self.pay_for_reading_bytes(hash.len())?;
-        let hash = {
-            if hash.len() != 32 {
-                return Err(ErrorContainer::new(HostError::ECRecoverError {
-                    msg: format!(
-                        "The length of the hash: {}, exceeds the limit of 32 bytes",
-                        hash.len()
-                    ),
-                })
-                .into());
-            }
-
-            let mut bytes = [0u8; 32];
-            bytes.copy_from_slice(&hash);
-            bytes
-        };
+        self.pay_for_reading_bytes(32)?;
+        let hash = hash.to_le_bytes();
 
         if !signature.check_signature_values(malleability) {
             return Ok(None);
         }
 
         if let Ok(pk) = signature.recover(hash) {
-            let pk = PublicKey::from(pk);
-            self.result_state
-                .gas_counter
-                .pay_base(write_register_base)
-                .map_err(ErrorContainer::new)?;
-            self.result_state
-                .gas_counter
-                .pay_per(write_register_byte, pk.len() as _)
-                .map_err(ErrorContainer::new)?;
-            let pk = self.table.push(pk)?;
-            return Ok(Some(pk));
+            self.pay_for_writing_bytes(64)?;
+            return Ok(Some(runtime::U512::from_le_bytes(pk.0)));
         };
 
         Ok(None)
@@ -905,46 +891,32 @@ impl runtime::Host for Ctx {
 
     fn ed25519_verify(
         &mut self,
-        signature: Vec<u8>,
+        signature: runtime::U512,
         message: Vec<u8>,
-        public_key: Resource<PublicKey>,
+        public_key: runtime::U256,
     ) -> wasmtime::Result<bool> {
         use ed25519_dalek::Verifier;
 
         self.pay_base(ed25519_verify_base)?;
-        self.pay_for_reading_bytes(signature.len())?;
+        self.pay_for_reading_bytes(ed25519_dalek::SIGNATURE_LENGTH)?;
         let signature: ed25519_dalek::Signature = {
-            let b = <&[u8; ed25519_dalek::SIGNATURE_LENGTH]>::try_from(&signature[..]).map_err(
-                |_| {
-                    ErrorContainer::new(HostError::Ed25519VerifyInvalidInput {
-                        msg: "invalid signature length".to_string(),
-                    })
-                },
-            )?;
+            let b = signature.to_le_bytes();
             // Sanity-check that was performed by ed25519-dalek in from_bytes before version 2,
             // but was removed with version 2. It is not actually any good a check, but we need
             // it to avoid costs changing.
             if b[ed25519_dalek::SIGNATURE_LENGTH - 1] & 0b1110_0000 != 0 {
                 return Ok(false);
             }
-            ed25519_dalek::Signature::from_bytes(b)
+            ed25519_dalek::Signature::from_bytes(&b)
         };
 
         self.pay_for_reading_bytes(message.len())?;
         self.pay_per(ed25519_verify_byte, message.len() as _)?;
 
-        let public_key: ed25519_dalek::VerifyingKey = {
-            let public_key = self.read_public_key(&public_key)?;
-            let PublicKey::ED25519(key) = public_key else {
-                return Err(ErrorContainer::new(HostError::Ed25519VerifyInvalidInput {
-                    msg: "invalid public key".to_string(),
-                })
-                .into());
-            };
-            match ed25519_dalek::VerifyingKey::from_bytes(&key.0) {
-                Ok(public_key) => public_key,
-                Err(_) => return Ok(false),
-            }
+        self.pay_for_reading_bytes(ed25519_dalek::PUBLIC_KEY_LENGTH)?;
+        let public_key = match ed25519_dalek::VerifyingKey::from_bytes(&public_key.to_le_bytes()) {
+            Ok(public_key) => public_key,
+            Err(_) => return Ok(false),
         };
 
         match public_key.verify(&message, &signature) {
@@ -1835,7 +1807,7 @@ impl runtime::HostPromise for Ctx {
         &mut self,
         promise: Resource<PromiseIndex>,
         amount: runtime::U128,
-        public_key: Resource<PublicKey>,
+        public_key: runtime::PublicKey,
     ) -> wasmtime::Result<()> {
         self.pay_base(base)?;
         if self.context.is_view() {
@@ -1862,7 +1834,7 @@ impl runtime::HostPromise for Ctx {
     fn add_key_with_full_access(
         &mut self,
         promise: Resource<PromiseIndex>,
-        public_key: Resource<PublicKey>,
+        public_key: runtime::PublicKey,
         nonce: u64,
     ) -> wasmtime::Result<()> {
         self.pay_base(base)?;
@@ -1888,7 +1860,7 @@ impl runtime::HostPromise for Ctx {
     fn add_key_with_function_call(
         &mut self,
         promise: Resource<PromiseIndex>,
-        public_key: Resource<PublicKey>,
+        public_key: runtime::PublicKey,
         nonce: u64,
         allowance: runtime::U128,
         receiver_id: Resource<AccountId>,
@@ -1945,7 +1917,7 @@ impl runtime::HostPromise for Ctx {
     fn delete_key(
         &mut self,
         promise: Resource<PromiseIndex>,
-        public_key: Resource<PublicKey>,
+        public_key: runtime::PublicKey,
     ) -> wasmtime::Result<()> {
         self.pay_base(base)?;
         if self.context.is_view() {
@@ -2213,56 +2185,6 @@ impl runtime::HostAccountId for Ctx {
 
     fn drop(&mut self, account_id: Resource<AccountId>) -> wasmtime::Result<()> {
         self.table.delete(account_id)?;
-        Ok(())
-    }
-}
-
-impl runtime::HostPublicKey for Ctx {
-    fn from_string(
-        &mut self,
-        public_key: String,
-    ) -> wasmtime::Result<Result<Resource<PublicKey>, ()>> {
-        self.pay_for_reading_string(public_key.len())?;
-        match public_key.parse() {
-            Ok(public_key) => {
-                let public_key = self.table.push(public_key)?;
-                Ok(Ok(public_key))
-            }
-            Err(_err) => Ok(Err(())),
-        }
-    }
-
-    fn to_string(&mut self, public_key: Resource<PublicKey>) -> wasmtime::Result<String> {
-        let public_key = self.table.get(&public_key)?;
-        pay_base(&mut self.result_state.gas_counter, write_memory_base)?;
-        pay_per(&mut self.result_state.gas_counter, write_memory_byte, public_key.len() as _)?;
-        Ok(public_key.to_string())
-    }
-
-    fn to_bytes(&mut self, public_key: Resource<PublicKey>) -> wasmtime::Result<Vec<u8>> {
-        let public_key = self.table.get(&public_key)?;
-        pay_base(&mut self.result_state.gas_counter, write_memory_base)?;
-        pay_per(&mut self.result_state.gas_counter, write_memory_byte, public_key.len() as _)?;
-        match public_key {
-            PublicKey::ED25519(public_key) => {
-                let public_key = public_key.as_ref();
-                let mut buf = Vec::with_capacity(1 + public_key.len());
-                buf.push(0);
-                buf.extend_from_slice(public_key);
-                Ok(buf)
-            }
-            PublicKey::SECP256K1(public_key) => {
-                let public_key = public_key.as_ref();
-                let mut buf = Vec::with_capacity(1 + public_key.len());
-                buf.push(1);
-                buf.extend_from_slice(public_key);
-                Ok(buf)
-            }
-        }
-    }
-
-    fn drop(&mut self, public_key: Resource<PublicKey>) -> wasmtime::Result<()> {
-        self.table.delete(public_key)?;
         Ok(())
     }
 }
