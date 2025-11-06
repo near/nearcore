@@ -90,8 +90,9 @@ macro_rules! bls12381_fn {
 
             let mut pk_aff = blst::$blst_p_affine::default();
             let error_code = unsafe { blst::$blst_p_deserialize(&mut pk_aff, point_data.as_ptr()) };
-            if error_code != blst::BLST_ERROR::BLST_SUCCESS &&
-               error_code != blst::BLST_ERROR::BLST_POINT_NOT_IN_GROUP {
+            if error_code != blst::BLST_ERROR::BLST_SUCCESS
+                && error_code != blst::BLST_ERROR::BLST_POINT_NOT_IN_GROUP
+            {
                 return None;
             }
 
@@ -193,8 +194,9 @@ macro_rules! bls12381_fn {
                 let pk_ser = if item_data[0] & 0x80 != 0 {
                     let mut pk = blst::$blst_p_affine::default();
                     let err = unsafe { blst::$blst_p_uncomp(&mut pk, item_data.as_ptr()) };
-                    if err != blst::BLST_ERROR::BLST_SUCCESS &&
-                       err != blst::BLST_ERROR::BLST_POINT_NOT_IN_GROUP {
+                    if err != blst::BLST_ERROR::BLST_SUCCESS
+                        && err != blst::BLST_ERROR::BLST_POINT_NOT_IN_GROUP
+                    {
                         return Ok(None);
                     }
 

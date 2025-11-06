@@ -1047,15 +1047,15 @@ mod tests {
         };
     }
 
-   #[test]
-   fn test_bls12381_decompress_x_0() {
-       let mut zero = vec![0u8; 48];
-       zero[0] = 0x80;
-       let res1 = run_bls12381_fn!(bls12381_p1_decompress, vec![zero]);
-       let mut zero_uncompress = vec![0u8; 2 * 48];
-       zero_uncompress[2 * 48 - 1] = 2;
-       assert_eq!(res1, zero_uncompress);
-   }
+    #[test]
+    fn test_bls12381_decompress_x_0() {
+        let mut zero = vec![0u8; 48];
+        zero[0] = 0x80;
+        let res1 = run_bls12381_fn!(bls12381_p1_decompress, vec![zero]);
+        let mut zero_uncompress = vec![0u8; 2 * 48];
+        zero_uncompress[2 * 48 - 1] = 2;
+        assert_eq!(res1, zero_uncompress);
+    }
 
     test_bls12381_decompress!(
         G1Operations,
