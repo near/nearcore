@@ -178,7 +178,6 @@ impl TestTriesBuilder {
                 load_memtries_for_tracked_shards: self.enable_in_memory_tries,
                 ..Default::default()
             },
-            &shard_uids,
             flat_storage_manager,
             StateSnapshotConfig::Disabled,
         );

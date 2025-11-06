@@ -109,7 +109,6 @@ impl<'c> EstimatorContext<'c> {
         let tries = ShardTries::new(
             store.trie_store(),
             trie_config,
-            &[shard_uid],
             flat_storage_manager,
             StateSnapshotConfig::Disabled,
         );

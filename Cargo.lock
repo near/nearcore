@@ -4224,7 +4224,6 @@ dependencies = [
  "tokio-stream",
  "tokio-util",
  "tracing",
- "yansi",
 ]
 
 [[package]]

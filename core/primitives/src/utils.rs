@@ -1,7 +1,7 @@
 #[cfg(feature = "clock")]
 use crate::block::BlockHeader;
 use crate::hash::{CryptoHash, hash};
-use crate::types::{NumSeats, NumShards, ShardId};
+use crate::types::{ChunkExecutionResultHash, NumSeats, NumShards, ShardId};
 use chrono;
 use chrono::DateTime;
 use near_crypto::{ED25519PublicKey, Secp256K1PublicKey};
@@ -227,6 +227,10 @@ pub fn get_endorsements_key(
 
 pub fn get_execution_results_key(block_hash: &CryptoHash, shard_id: ShardId) -> Vec<u8> {
     get_block_shard_id(block_hash, shard_id)
+}
+
+pub fn get_uncertified_execution_results_key(hash: &ChunkExecutionResultHash) -> Vec<u8> {
+    hash.0.as_ref().to_vec()
 }
 
 pub fn get_block_shard_id_rev(

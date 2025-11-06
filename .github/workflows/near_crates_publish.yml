@@ -28,12 +28,14 @@ jobs:
         with:
           fetch-depth: 0
           ref: ${{ github.event.inputs.branch }}
+          persist-credentials: false
 
       - name: Checkout nearcore repository
         if: ${{ github.event_name != 'workflow_dispatch'}}
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Set up git user
         uses: fregante/setup-git-user@v2
