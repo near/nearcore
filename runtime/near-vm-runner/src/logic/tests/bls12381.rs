@@ -864,11 +864,7 @@ mod tests {
         bolero::check!().with_type().for_each(|n: &Scalar| {
             let mut n_vec: [u8; 32] = [0u8; 32];
             n.p.serialize_with_flags(n_vec.as_mut_slice(), EmptyFlags).unwrap();
-            run_bls12381_fn!(
-                bls12381_g1_multiexp,
-                vec![zero_x_uncompress.clone(), n_vec.to_vec()],
-                1
-            );
+            run_bls12381_fn!(bls12381_g1_multiexp, [zero_x_uncompress.clone(), n_vec.to_vec()], 1);
         });
     }
 
@@ -1095,7 +1091,7 @@ mod tests {
     fn test_bls12381_decompress_x_0() {
         let mut zero_x = vec![0u8; 48];
         zero_x[0] = 0x80;
-        let res1 = run_bls12381_fn!(bls12381_p1_decompress, vec![zero_x]);
+        let res1 = run_bls12381_fn!(bls12381_p1_decompress, [zero_x]);
         let mut zero_x_uncompress = vec![0u8; 2 * 48];
         zero_x_uncompress[2 * 48 - 1] = 2;
         assert_eq!(res1, zero_x_uncompress);
