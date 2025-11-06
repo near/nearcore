@@ -648,8 +648,6 @@ mod tests {
 
     #[test]
     fn test_bls12381_sum_x0_fuzzer() {
-        let mut zero_x = vec![0u8; 48];
-        zero_x[0] = 0x80;
         let mut zero_x_uncompress = vec![0u8; 2 * 48];
         zero_x_uncompress[2 * 48 - 1] = 2;
 
@@ -859,6 +857,17 @@ mod tests {
         test_bls12381_error_g2_encoding
     );
 
+    #[test]
+    fn test_bls12381_mul_x0_fuzzer() {
+        let mut zero_x_uncompress = vec![0u8; 2 * 48];
+        zero_x_uncompress[2 * 48 - 1] = 2;
+        bolero::check!().with_type().for_each(|n: &Scalar| {
+            let mut n_vec: [u8; 32] = [0u8; 32];
+            n.p.serialize_with_flags(n_vec.as_mut_slice(), EmptyFlags).unwrap();
+            run_bls12381_fn!(bls12381_g1_multiexp, vec![zero_x_uncompress.clone(), n_vec.to_vec()], 1);
+        });
+    }
+
     fn add_p_y(point: &G1Affine) -> Vec<u8> {
         let mut ybig: Fq = *point.y().unwrap();
         ybig = ybig.add(&Fq::from_str(P).unwrap());
@@ -973,11 +982,13 @@ mod tests {
             $GOp:ident,
             $GPoint:ident,
             $EPoint:ident,
+            $EnotGPoint:ident,
             $GAffine:ident,
             $POINT_LEN:expr,
             $bls12381_decompress:ident,
             $add_p:ident,
             $test_bls12381_decompress:ident,
+            $test_bls12381_decompress_not_G:ident,
             $test_bls12381_decompress_many_points:ident,
             $test_bls12381_decompress_incorrect_input:ident
         ) => {
@@ -999,6 +1010,21 @@ mod tests {
                 let res1 = $GOp::decompress_p(vec![zero1.clone()]);
 
                 assert_eq!(res1, $GOp::serialize_uncompressed_g(&zero1));
+            }
+
+            #[test]
+            fn $test_bls12381_decompress_not_G() {
+                bolero::check!().with_type().for_each(|p1: &$EnotGPoint| {
+                    let res1 = $GOp::decompress_p(vec![p1.p.clone()]);
+                    assert_eq!(res1, $GOp::serialize_uncompressed_g(&p1.p));
+
+                    let p1_neg = p1.p.neg();
+                    let res1_neg = $GOp::decompress_p(vec![p1_neg.clone().into()]);
+
+                    assert_eq!(res1[0..$POINT_LEN], res1_neg[0..$POINT_LEN]);
+                    assert_ne!(res1[$POINT_LEN..], res1_neg[$POINT_LEN..]);
+                    assert_eq!(res1_neg, $GOp::serialize_uncompressed_g(&p1_neg.into()));
+                });
             }
 
             #[test]
@@ -1075,11 +1101,13 @@ mod tests {
         G1Operations,
         G1Point,
         E1Point,
+        EnotG1Point,
         G1Affine,
         48,
         bls12381_p1_decompress,
         add_p_x,
         slow_test_bls12381_p1_decompress_fuzzer,
+        slow_test_bls12381_p1_decompress_not_g1_fuzzer,
         slow_test_bls12381_p1_decompress_many_points_fuzzer,
         slow_test_bls12381_p1_decompress_incorrect_input_fuzzer
     );
@@ -1088,11 +1116,13 @@ mod tests {
         G2Operations,
         G2Point,
         E2Point,
+        EnotG2Point,
         G2Affine,
         96,
         bls12381_p2_decompress,
         add2_p_x,
         slow_test_bls12381_p2_decompress_fuzzer,
+        slow_test_bls12381_p2_decompress_not_g2_fuzzer,
         slow_test_bls12381_p2_decompress_many_points_fuzzer,
         slow_test_bls12381_p2_decompress_incorrect_input_fuzzer
     );
