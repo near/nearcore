@@ -928,27 +928,25 @@ mod test {
     //TODO(jbajic) Simplify logic for creating configuration
     #[test]
     fn test_insert_delete_trie_cache() {
-        let shard_uid = ShardUId::single_shard();
         let tries = create_trie();
         let trie_caches = &tries.0.caches;
-        // Assert only one cache for one shard exists
-        assert_eq!(trie_caches.lock().len(), 1);
-        // Assert the shard uid is correct
-        assert!(trie_caches.lock().get(&shard_uid).is_some());
+        assert_eq!(trie_caches.lock().len(), 0);
 
         // Read from cache
         let key = CryptoHash::hash_borsh("alice");
         let val: Vec<u8> = Vec::from([0, 1, 2, 3, 4]);
 
-        assert!(trie_caches.lock().get(&shard_uid).unwrap().get(&key).is_none());
+        let shard_uid = ShardUId::single_shard();
+        let cache = tries.get_trie_cache_for(shard_uid, false).unwrap();
+        assert!(cache.get(&key).is_none());
 
         let insert_ops = Vec::from([(&key, Some(val.as_slice()))]);
         tries.update_cache(insert_ops, shard_uid);
-        assert_eq!(trie_caches.lock().get(&shard_uid).unwrap().get(&key).unwrap().to_vec(), val);
+        assert_eq!(cache.get(&key).unwrap().to_vec(), val);
 
         let deletions_ops = Vec::from([(&key, None)]);
         tries.update_cache(deletions_ops, shard_uid);
-        assert!(trie_caches.lock().get(&shard_uid).unwrap().get(&key).is_none());
+        assert!(cache.get(&key).is_none());
     }
 
     #[test]
