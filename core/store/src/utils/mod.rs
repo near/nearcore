@@ -17,7 +17,6 @@ use near_primitives::receipt::{
 };
 use near_primitives::trie_key::{TrieKey, trie_key_parsers};
 use near_primitives::types::{AccountId, BlockHeight, Nonce, NonceIndex, StateRoot};
-use std::collections::HashSet;
 use std::io;
 
 /// Reads an object from Trie.
