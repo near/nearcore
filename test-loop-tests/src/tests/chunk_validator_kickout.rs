@@ -113,7 +113,8 @@ fn run_test_chunk_validator_kickout(accounts: Vec<AccountId>, test_case: TestCas
         match &test_case {
             TestCase::DropChunksValidatedBy(_) => assert!(
                 num_missed_chunks <= 1,
-                "At most one chunk must be missed when dropping chunks validated by the selected account"
+                "At most one chunk must be missed when dropping chunks validated by the selected account, missed {} chunks",
+                num_missed_chunks
             ),
             TestCase::DropEndorsementsFrom(_) => assert_eq!(
                 num_missed_chunks, 0,

@@ -20,9 +20,11 @@ use near_primitives::epoch_manager::EpochConfig;
 use near_primitives::hash::hash;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::sharding::{ShardChunkHeader, ShardChunkHeaderV3};
-use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::stateless_validation::chunk_endorsements_bitmap::ChunkEndorsementsBitmap;
 use near_primitives::stateless_validation::partial_witness::PartialEncodedStateWitness;
+use near_primitives::stateless_validation::{
+    ChunkProductionKey, WitnessProductionKey, WitnessType,
+};
 use near_primitives::types::ValidatorKickoutReason::{
     NotEnoughBlocks, NotEnoughChunkEndorsements, NotEnoughChunks, ProtocolVersionTooOld,
 };
@@ -3180,8 +3182,14 @@ fn test_verify_partial_witness_signature() {
     // Build a chunk state witness with arbitrary data.
     let chunk_header = test_chunk_header(&h, signer.as_ref());
     let mut partial_witness = PartialEncodedStateWitness::new(
-        epoch_id,
-        chunk_header.clone(),
+        WitnessProductionKey {
+            chunk: ChunkProductionKey {
+                epoch_id,
+                height_created: chunk_header.height_created(),
+                shard_id: chunk_header.shard_id(),
+            },
+            witness_type: WitnessType::Full,
+        },
         0,
         "witness".bytes().collect(),
         7,
@@ -3198,8 +3206,14 @@ fn test_verify_partial_witness_signature() {
     // Check chunk state witness invalidity when signer is not a chunk validator.
     let bad_signer = Arc::new(create_test_signer("test2"));
     let bad_partial_witness = PartialEncodedStateWitness::new(
-        epoch_id,
-        chunk_header,
+        WitnessProductionKey {
+            chunk: ChunkProductionKey {
+                epoch_id,
+                height_created: chunk_header.height_created(),
+                shard_id: chunk_header.shard_id(),
+            },
+            witness_type: WitnessType::Full,
+        },
         0,
         "witness".bytes().collect(),
         7,
