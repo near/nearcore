@@ -65,37 +65,22 @@ impl ShardTries {
     pub fn new(
         store: TrieStoreAdapter,
         trie_config: TrieConfig,
-        shard_uids: &[ShardUId],
         flat_storage_manager: FlatStorageManager,
         state_snapshot_config: StateSnapshotConfig,
     ) -> Self {
-        let caches = Self::create_initial_caches(&trie_config, &shard_uids, false);
-        let view_caches = Self::create_initial_caches(&trie_config, &shard_uids, true);
         metrics::HAS_STATE_SNAPSHOT.set(0);
         ShardTries(Arc::new(ShardTriesInner {
             store,
             trie_config,
             memtries: Default::default(),
-            caches: Mutex::new(caches),
-            view_caches: Mutex::new(view_caches),
+            caches: Default::default(),
+            view_caches: Default::default(),
             flat_storage_manager,
             prefetchers: Default::default(),
             state_snapshot: Default::default(),
             state_snapshot_config,
             temp_split_shard_map: Default::default(),
         }))
-    }
-
-    /// Create caches for all shards according to the trie config.
-    fn create_initial_caches(
-        config: &TrieConfig,
-        shard_uids: &[ShardUId],
-        is_view: bool,
-    ) -> HashMap<ShardUId, TrieCache> {
-        shard_uids
-            .iter()
-            .map(|&shard_uid| (shard_uid, TrieCache::new(config, shard_uid, is_view)))
-            .collect()
     }
 
     pub fn new_trie_update(&self, shard_uid: ShardUId, state_root: StateRoot) -> TrieUpdate {
@@ -864,11 +849,9 @@ mod test {
             view_shard_cache_config: trie_cache_config,
             ..TrieConfig::default()
         };
-        let shard_uids = Vec::from([ShardUId::single_shard()]);
         ShardTries::new(
             store.trie_store(),
             trie_config,
-            &shard_uids,
             FlatStorageManager::new(store.flat_store()),
             StateSnapshotConfig::Disabled,
         )
@@ -981,13 +964,11 @@ mod test {
             view_shard_cache_config: trie_cache_config,
             ..TrieConfig::default()
         };
-        let shard_uids = Vec::from([ShardUId { shard_id: 0, version: 0 }]);
-        let shard_uid = *shard_uids.first().unwrap();
+        let shard_uid = ShardUId { shard_id: 0, version: 0 };
 
         let trie = ShardTries::new(
             store.trie_store(),
             trie_config,
-            &shard_uids,
             FlatStorageManager::new(store.flat_store()),
             StateSnapshotConfig::Disabled,
         );
