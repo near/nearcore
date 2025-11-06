@@ -809,10 +809,7 @@ fn test_expected_chunks() {
     let epoch_manager = EpochManager::new(
         create_test_store(),
         epoch_config,
-        validators
-            .into_iter()
-            .map(|(account_id, balance)| stake(account_id.clone(), balance))
-            .collect(),
+        validators.into_iter().map(|(account_id, balance)| stake(account_id, balance)).collect(),
         "near".parse().unwrap(),
     )
     .unwrap()
@@ -1516,10 +1513,7 @@ fn test_chunk_validator_kickout_using_endorsement_stats() {
     let em = EpochManager::new(
         create_test_store(),
         epoch_config,
-        validators
-            .into_iter()
-            .map(|(account_id, balance)| stake(account_id.clone(), balance))
-            .collect(),
+        validators.into_iter().map(|(account_id, balance)| stake(account_id, balance)).collect(),
         "near".parse().unwrap(),
     )
     .unwrap()
