@@ -1251,6 +1251,11 @@ mod tests {
                 assert_eq!(pairing_check(vec![p1_not_from_g1.p], vec![p2.p]), 1);
                 assert_eq!(pairing_check(vec![p1.p], vec![p2_not_from_g2.p]), 1);
 
+                let mut zero_x_uncompress = vec![0u8; 2 * 48];
+                zero_x_uncompress[2 * 48 - 1] = 2;
+                let zero_x_point = G1Operations::deserialize_g(zero_x_uncompress);
+                assert_eq!(pairing_check(vec![zero_x_point], vec![p2.p]), 1);
+
                 let p1_ser = G1Operations::serialize_uncompressed_g(&p1.p).to_vec();
                 let p2_ser = G2Operations::serialize_uncompressed_g(&p2.p).to_vec();
                 let test_vecs: Vec<Vec<u8>> = G1Operations::get_incorrect_points(curve_p1);
