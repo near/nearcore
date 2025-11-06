@@ -1631,6 +1631,16 @@ pub async fn prometheus_handler() -> Response {
     }
 }
 
+pub async fn openapi_json_handler() -> impl IntoResponse {
+    let bytes = include_bytes!("../../../chain/jsonrpc/openapi/openapi.json");
+
+    Response::builder()
+        .status(StatusCode::OK)
+        .header("content-type", "text/plain; charset=utf-8")
+        .body(axum::body::Body::from(bytes.to_vec()))
+        .unwrap()
+}
+
 async fn client_config_handler(State(handler): State<Arc<JsonRpcHandler>>) -> Response {
     match handler.client_config().await {
         Ok(value) => (StatusCode::OK, Json(value)).into_response(),
@@ -1741,7 +1751,8 @@ pub fn create_jsonrpc_app(
         .route("/status", get(status_handler).head(status_handler))
         .route("/health", get(health_handler).head(health_handler))
         .route("/network_info", get(network_info_handler))
-        .route("/metrics", get(prometheus_handler));
+        .route("/metrics", get(prometheus_handler))
+        .route("/openapi.json", get(openapi_json_handler));
 
     if enable_debug_rpc {
         app = app
