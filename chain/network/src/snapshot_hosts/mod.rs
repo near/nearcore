@@ -7,9 +7,11 @@
 use crate::concurrency;
 use crate::network_protocol::SnapshotHostInfo;
 use crate::network_protocol::SnapshotHostInfoVerificationError;
+use itertools::Itertools;
 use lru::LruCache;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
+use near_primitives::types::EpochHeight;
 use near_primitives::types::ShardId;
 use parking_lot::Mutex;
 use rand::prelude::IteratorRandom;
@@ -22,6 +24,10 @@ use std::sync::Arc;
 
 #[cfg(test)]
 mod tests;
+
+/// The number of epochs for which we keep the historical host info.
+/// For now, we only keep the most recent epoch.
+const EPOCH_RETENTION_WINDOW: u64 = 1;
 
 #[derive(thiserror::Error, Debug, PartialEq, Eq, Clone)]
 pub(crate) enum SnapshotHostInfoError {
@@ -128,11 +134,19 @@ impl PartPeerSelector {
     }
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct Epoch {
+    /// The hash for the most recent active state sync
+    sync_hash: CryptoHash,
+    /// The current epoch height for which we discovered a new sync hash
+    epoch_height: EpochHeight,
+}
+
 struct Inner {
     /// The latest known SnapshotHostInfo for each node in the network
     hosts: LruCache<PeerId, Arc<SnapshotHostInfo>>,
-    /// The hash for the most recent active state sync, inferred from part requests
-    sync_hash: Option<CryptoHash>,
+    /// The current epoch for which the chain head passed the sync hash.
+    current_epoch: Option<Epoch>,
     /// Available hosts for the active state sync, by shard
     hosts_for_shard: HashMap<ShardId, HashSet<PeerId>>,
     /// Local data structures used to distribute state part requests among known hosts
@@ -143,6 +157,13 @@ struct Inner {
 
 impl Inner {
     fn is_new(&self, h: &SnapshotHostInfo) -> bool {
+        if self
+            .current_epoch
+            .as_ref()
+            .map_or(false, |current| current.epoch_height > h.epoch_height)
+        {
+            return false;
+        }
         match self.hosts.peek(&h.peer_id) {
             Some(old) if old.epoch_height >= h.epoch_height => false,
             _ => true,
@@ -156,8 +177,15 @@ impl Inner {
         if !self.is_new(&d) {
             return None;
         }
+        self.insert(&d);
+        Some(d)
+    }
 
-        if self.sync_hash == Some(d.sync_hash) {
+    /// Ingests a new SnapshotHostInfo into the cache
+    /// assumes that the SnapshotHostInfo is valid and new
+    fn insert(&mut self, d: &Arc<SnapshotHostInfo>) {
+        // If it does not know the current epoch, no need to update the cache, it will be rebuilt later when it knows the current epoch.
+        if self.current_epoch.as_ref().map_or(false, |epoch| epoch.epoch_height == d.epoch_height) {
             for shard_id in &d.shards {
                 self.hosts_for_shard
                     .entry(*shard_id)
@@ -166,38 +194,55 @@ impl Inner {
             }
         }
         self.hosts.push(d.peer_id.clone(), d.clone());
-
-        Some(d)
     }
 
-    /// Clears internal state if the sync hash has changed.
-    fn maybe_update_sync_hash(&mut self, sync_hash: &CryptoHash) {
-        if self.sync_hash != Some(*sync_hash) {
-            self.sync_hash = Some(*sync_hash);
-            self.hosts_for_shard.clear();
-            self.peer_selector.clear();
+    /// Updates the current epoch and clears the internal state if the sync hash has changed.
+    /// This function should be called based on the chain head height.
+    fn update_current_epoch(&mut self, epoch_height: &EpochHeight, sync_hash: &CryptoHash) {
+        let new_epoch = Epoch { sync_hash: *sync_hash, epoch_height: *epoch_height };
+        if self.current_epoch.as_ref() == Some(&new_epoch) {
+            return;
+        }
 
-            for (peer_id, info) in &self.hosts {
-                if info.sync_hash == *sync_hash {
-                    for shard_id in &info.shards {
-                        self.hosts_for_shard
-                            .entry(*shard_id)
-                            .or_insert(HashSet::default())
-                            .insert(peer_id.clone());
+        self.current_epoch = Some(new_epoch);
+        self.hosts_for_shard.clear();
+        self.peer_selector.clear();
+        // Only keep info about most recent epochs defined by EPOCH_RETENTION_WINDOW
+        let mut new_hosts = LruCache::new(NonZeroUsize::new(self.hosts.cap().get()).unwrap());
+        // Build current epoch's cache by keeping only the hosts that are still valid.
+        // Lock is taken so the loop will eventually terminate when all hosts are removed.
+        loop {
+            match self.hosts.pop_lru() {
+                Some((peer_id, info)) => {
+                    if info.epoch_height + EPOCH_RETENTION_WINDOW >= *epoch_height {
+                        if info.sync_hash == *sync_hash {
+                            for shard_id in &info.shards {
+                                self.hosts_for_shard
+                                    .entry(*shard_id)
+                                    .or_insert(HashSet::default())
+                                    .insert(peer_id.clone());
+                            }
+                        }
+                        new_hosts.push(peer_id, info);
                     }
                 }
+                None => break,
             }
         }
+        self.hosts = new_hosts;
     }
 
     /// Given a state header request produced by the local node,
     /// selects a host to which the request should be routed.
     pub fn select_host_for_header(
-        &mut self,
+        &self,
         sync_hash: &CryptoHash,
         shard_id: ShardId,
     ) -> Option<PeerId> {
-        self.maybe_update_sync_hash(sync_hash);
+        if self.current_epoch.as_ref().map_or(true, |epoch| epoch.sync_hash != *sync_hash) {
+            tracing::info!(target: "network", ?sync_hash, current_epoch = ?self.current_epoch, "snapshot hosts cache is not up to date, skipping peer selection");
+            return None;
+        }
 
         self.hosts_for_shard.get(&shard_id)?.iter().choose(&mut thread_rng()).cloned()
     }
@@ -210,7 +255,10 @@ impl Inner {
         shard_id: ShardId,
         part_id: u64,
     ) -> Option<PeerId> {
-        self.maybe_update_sync_hash(sync_hash);
+        if self.current_epoch.as_ref().map_or(true, |epoch| epoch.sync_hash != *sync_hash) {
+            tracing::info!(target: "network", ?sync_hash, current_epoch = ?self.current_epoch, "snapshot hosts cache is not up to date, skipping peer selection");
+            return None;
+        }
 
         let selector =
             self.peer_selector.entry((shard_id, part_id)).or_insert(PartPeerSelector::default());
@@ -256,11 +304,15 @@ impl SnapshotHostsCache {
             hosts: LruCache::new(
                 NonZeroUsize::new(config.snapshot_hosts_cache_size as usize).unwrap(),
             ),
-            sync_hash: None,
+            current_epoch: None,
             hosts_for_shard: HashMap::new(),
             peer_selector: HashMap::new(),
             part_selection_cache_batch_size: config.part_selection_cache_batch_size as usize,
         }))
+    }
+
+    pub fn set_current_epoch_if_changed(&self, epoch_height: &EpochHeight, sync_hash: &CryptoHash) {
+        self.0.lock().update_current_epoch(epoch_height, sync_hash);
     }
 
     /// Selects new data and verifies the signatures.
@@ -270,28 +322,18 @@ impl SnapshotHostsCache {
         &self,
         data: Vec<Arc<SnapshotHostInfo>>,
     ) -> (Vec<Arc<SnapshotHostInfo>>, Option<SnapshotHostInfoError>) {
-        // Filter out any data which is outdated or which we already have.
-        let mut new_data = HashMap::new();
-        {
-            let inner = self.0.lock();
-            for d in data {
-                // Sharing multiple entries for the same peer is considered malicious,
-                // since all but one are obviously outdated.
-                if new_data.contains_key(&d.peer_id) {
-                    return (vec![], Some(SnapshotHostInfoError::DuplicatePeerId));
-                }
-                // It is fine to broadcast data we already know about.
-                // It is fine to broadcast data which we know to be outdated.
-                if inner.is_new(&d) {
-                    new_data.insert(d.peer_id.clone(), d);
-                }
-            }
+        // Filter out any data which is invalid, outdated or which we already have.
+        if data.iter().map(|d| d.peer_id.clone()).collect::<HashSet<_>>().len() != data.len() {
+            return (vec![], Some(SnapshotHostInfoError::DuplicatePeerId));
         }
-
+        let new_data = {
+            let inner = self.0.lock();
+            data.into_iter().filter(|d| inner.is_new(d)).collect_vec()
+        };
         // Verify the signatures in parallel.
         // Verification will stop at the first encountered error.
         let (data, verification_result) = concurrency::rayon::run(move || {
-            concurrency::rayon::try_map_result(new_data.into_values().par_bridge(), |d| {
+            concurrency::rayon::try_map_result(new_data.into_iter().par_bridge(), |d| {
                 match d.verify() {
                     Ok(()) => Ok(d),
                     Err(err) => Err(err),
@@ -314,16 +356,13 @@ impl SnapshotHostsCache {
     ) -> (Vec<Arc<SnapshotHostInfo>>, Option<SnapshotHostInfoError>) {
         // Execute verification on the rayon threadpool.
         let (data, err) = self.verify(data).await;
-        // Insert the successfully verified data, even if an error has been encountered.
-        let mut newly_inserted_data: Vec<Arc<SnapshotHostInfo>> = vec![];
-        let mut inner = self.0.lock();
-        for d in data {
-            if let Some(inserted) = inner.try_insert(d) {
-                newly_inserted_data.push(inserted);
-            }
+        if data.is_empty() {
+            return (vec![], err);
         }
-        // Return the inserted data.
-        (newly_inserted_data, err)
+        // Insert the successfully verified data.
+        let mut inner = self.0.lock();
+        data.iter().for_each(|d| inner.insert(d));
+        (data, err)
     }
 
     /// Skips signature verification. Used only for the local node's own information.
