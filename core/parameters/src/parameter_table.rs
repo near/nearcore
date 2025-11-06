@@ -326,7 +326,6 @@ impl TryFrom<&ParameterTable> for RuntimeConfig {
                 burnt_gas_reward: params.get(Parameter::BurntGasReward)?,
                 pessimistic_gas_price_inflation_ratio: params
                     .get(Parameter::PessimisticGasPriceInflation)?,
-                refund_gas_price_changes: params.get(Parameter::RefundGasPriceChanges)?,
                 gas_refund_penalty: params.get(Parameter::GasRefundPenalty)?,
                 min_gas_refund_penalty: params.get(Parameter::MinGasRefundPenalty)?,
                 storage_usage_config: StorageUsageConfig {
@@ -346,6 +345,8 @@ impl TryFrom<&ParameterTable> for RuntimeConfig {
                 vm_kind: params.get(Parameter::VmKind)?,
                 grow_mem_cost: params.get(Parameter::WasmGrowMemCost)?,
                 regular_op_cost: params.get(Parameter::WasmRegularOpCost)?,
+                linear_op_base_cost: params.get(Parameter::WasmLinearOpBaseCost)?,
+                linear_op_unit_cost: params.get(Parameter::WasmLinearOpUnitCost)?,
                 discard_custom_sections: params.get(Parameter::DiscardCustomSections)?,
                 saturating_float_to_int: params.get(Parameter::SaturatingFloatToInt)?,
                 reftypes_bulk_memory: params.get(Parameter::ReftypesBulkMemory)?,

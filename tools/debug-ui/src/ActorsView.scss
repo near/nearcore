@@ -1,0 +1,164 @@
+.actors-view {
+    .error {
+        color: red;
+    }
+
+    .actors-controls {
+        position: sticky;
+        top: 0;
+        z-index: 100;
+        background-color: white;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 10px;
+        border-bottom: 1px solid #e0e0e0;
+        flex-wrap: wrap;
+        gap: 15px;
+
+        h2 {
+            margin: 0;
+            flex-shrink: 0;
+        }
+
+        .y-axis-controls {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            background-color: #f8f9fa;
+            padding: 8px 12px;
+            border-radius: 4px;
+            border: 1px solid #dee2e6;
+
+            .control-label {
+                font-weight: 500;
+                color: #495057;
+                font-size: 14px;
+            }
+
+            .radio-option {
+                display: flex;
+                align-items: center;
+                gap: 4px;
+                font-size: 14px;
+                cursor: pointer;
+                color: #495057;
+
+                input[type="radio"] {
+                    margin: 0;
+                    cursor: pointer;
+                }
+
+                &:hover {
+                    color: #212529;
+                }
+            }
+        }
+
+        .control-buttons {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+
+            button {
+                padding: 8px 16px;
+                border: 1px solid #ccc;
+                border-radius: 4px;
+                background-color: #f8f9fa;
+                cursor: pointer;
+                font-size: 14px;
+                transition: background-color 0.2s;
+
+                &:hover:not(:disabled) {
+                    background-color: #e9ecef;
+                }
+
+                &:disabled {
+                    opacity: 0.6;
+                    cursor: not-allowed;
+                }
+
+                &.save-button {
+                    background-color: #28a745;
+                    color: white;
+                    border-color: #28a745;
+
+                    &:hover:not(:disabled) {
+                        background-color: #218838;
+                    }
+                }
+
+                &.refresh-button {
+                    background-color: #17a2b8;
+                    color: white;
+                    border-color: #17a2b8;
+
+                    &:hover:not(:disabled) {
+                        background-color: #138496;
+                    }
+                }
+
+                &.load-button {
+                    background-color: #007bff;
+                    color: white;
+                    border-color: #007bff;
+
+                    &:hover:not(:disabled) {
+                        background-color: #0056b3;
+                    }
+                }
+
+                &.clear-button {
+                    background-color: #dc3545;
+                    color: white;
+                    border-color: #dc3545;
+
+                    &:hover:not(:disabled) {
+                        background-color: #c82333;
+                    }
+                }
+            }
+
+            .loaded-indicator {
+                font-size: 14px;
+                color: #28a745;
+                font-weight: 500;
+            }
+        }
+    }
+}
+
+.threads-container {
+    display: flex;
+    align-items: stretch;
+    background: repeating-linear-gradient(45deg,
+            #f0f0f0,
+            #f0f0f0 10px,
+            #e0e0e0 10px,
+            #e0e0e0 20px);
+    background-attachment: fixed;
+    padding-bottom: 20px;
+}
+
+.scroll-space {
+    width: 30px;
+    cursor: ns-resize;
+}
+
+.threads {
+    flex: 1;
+}
+
+.one-thread-row {
+    margin-top: 5px;
+    background-color: #444;
+    border-left: 1px solid #888;
+    border-right: 1px solid #888;
+
+    .thread-name {
+        font-weight: bold;
+        color: #eee;
+        font-size: 0.85em;
+        padding-left: 5px;
+    }
+}

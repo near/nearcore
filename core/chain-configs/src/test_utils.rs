@@ -1,5 +1,4 @@
 use std::cmp::min;
-use std::path::PathBuf;
 
 use chrono::{DateTime, Utc};
 use near_crypto::{InMemorySigner, PublicKey};
@@ -13,18 +12,22 @@ use near_primitives::version::PROTOCOL_VERSION;
 use near_time::{Clock, Duration};
 use num_rational::{Ratio, Rational32};
 
-use crate::client_config::{
-    default_archival_writer_polling_interval, default_rpc_handler_thread_count,
-};
 use crate::{
-    ClientConfig, CloudArchivalReaderConfig, CloudArchivalWriterConfig, CloudStorageConfig,
-    EpochSyncConfig, ExternalStorageLocation, FAST_EPOCH_LENGTH, GAS_PRICE_ADJUSTMENT_RATE,
-    GCConfig, Genesis, GenesisConfig, INITIAL_GAS_LIMIT, LogSummaryStyle, MAX_INFLATION_RATE,
-    MIN_GAS_PRICE, MutableConfigValue, NUM_BLOCKS_PER_YEAR, PROTOCOL_REWARD_RATE,
-    PROTOCOL_TREASURY_ACCOUNT, ReshardingConfig, StateSyncConfig, TRANSACTION_VALIDITY_PERIOD,
-    TrackedShardsConfig, default_orphan_state_witness_max_size,
+    ClientConfig, EpochSyncConfig, FAST_EPOCH_LENGTH, GAS_PRICE_ADJUSTMENT_RATE, GCConfig, Genesis,
+    GenesisConfig, INITIAL_GAS_LIMIT, LogSummaryStyle, MAX_INFLATION_RATE, MIN_GAS_PRICE,
+    MutableConfigValue, NUM_BLOCKS_PER_YEAR, PROTOCOL_REWARD_RATE, PROTOCOL_TREASURY_ACCOUNT,
+    ReshardingConfig, StateSyncConfig, TRANSACTION_VALIDITY_PERIOD, TrackedShardsConfig,
+    default_enable_early_prepare_transactions, default_orphan_state_witness_max_size,
     default_orphan_state_witness_pool_size, default_produce_chunk_add_transactions_time_limit,
 };
+
+/// Returns the default value for the thread count associated with rpc-handler actor (currently
+/// handling incoming transactions and chunk endorsement validations).
+/// In the benchmarks no performance gains were observed when increasing the number of threads
+/// above half of available cores.
+pub fn default_rpc_handler_thread_count() -> usize {
+    std::thread::available_parallelism().map(|v| v.get()).unwrap_or(16) / 2
+}
 
 /// Initial balance used in tests.
 pub const TESTING_INIT_BALANCE: Balance = Balance::from_near(1_000_000_000);
@@ -237,31 +240,13 @@ pub fn get_initial_supply(records: &[StateRecord]) -> Balance {
     total_supply
 }
 
-pub fn test_cloud_archival_configs(
-    cloud_archival_dir: impl Into<PathBuf>,
-) -> (CloudArchivalReaderConfig, CloudArchivalWriterConfig) {
-    let cloud_storage = CloudStorageConfig {
-        storage: ExternalStorageLocation::Filesystem { root_dir: cloud_archival_dir.into() },
-        credentials_file: None,
-    };
-    let reader_config = CloudArchivalReaderConfig { cloud_storage: cloud_storage.clone() };
-    let writer_config = CloudArchivalWriterConfig {
-        cloud_storage,
-        archive_block_data: true,
-        polling_interval: default_archival_writer_polling_interval(),
-    };
-    (reader_config, writer_config)
-}
-
 /// Common parameters used to set up test client.
 pub struct TestClientConfigParams {
     pub skip_sync_wait: bool,
     pub min_block_prod_time: u64,
     pub max_block_prod_time: u64,
     pub num_block_producer_seats: NumSeats,
-    pub enable_split_store: bool,
-    pub enable_cloud_archival_writer: bool,
-    pub save_trie_changes: bool,
+    pub archive: bool,
     pub state_sync_enabled: bool,
 }
 
@@ -272,25 +257,9 @@ impl ClientConfig {
             min_block_prod_time,
             max_block_prod_time,
             num_block_producer_seats,
-            enable_split_store,
-            enable_cloud_archival_writer,
-            save_trie_changes,
+            archive,
             state_sync_enabled,
         } = params;
-
-        // TODO(cloud_archival) Revisit for cloud archival reader
-        let archive = enable_split_store || enable_cloud_archival_writer;
-        assert!(
-            archive || save_trie_changes,
-            "Configuration with archive = false and save_trie_changes = false is not supported \
-            because non-archival nodes must save trie changes in order to do garbage collection."
-        );
-        let cloud_archival_writer = if enable_cloud_archival_writer {
-            let (_, writer_config) = test_cloud_archival_configs("");
-            Some(writer_config)
-        } else {
-            None
-        };
 
         ClientConfig {
             version: Default::default(),
@@ -335,9 +304,8 @@ impl ClientConfig {
             gc: GCConfig { gc_blocks_limit: 100, ..GCConfig::default() },
             tracked_shards_config: TrackedShardsConfig::NoShards,
             archive,
-            cloud_archival_reader: None,
-            cloud_archival_writer,
-            save_trie_changes,
+            cloud_archival_writer: None,
+            save_trie_changes: true,
             save_untracked_partial_chunks_parts: true,
             save_tx_outcomes: true,
             log_summary_style: LogSummaryStyle::Colored,
@@ -371,6 +339,8 @@ impl ClientConfig {
             save_invalid_witnesses: false,
             transaction_request_handler_threads: default_rpc_handler_thread_count(),
             protocol_version_check: Default::default(),
+            enable_early_prepare_transactions: default_enable_early_prepare_transactions(),
+            dynamic_resharding_dry_run: false,
         }
     }
 }

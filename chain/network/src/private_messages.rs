@@ -16,8 +16,7 @@ pub(crate) enum RegisterPeerError {
     InvalidEdge,
 }
 
-#[derive(actix::Message, Clone, Debug)]
-#[rtype(result = "()")]
+#[derive(Clone, Debug)]
 pub(crate) struct SendMessage {
     pub message: Arc<PeerMessage>,
 }

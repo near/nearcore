@@ -23,7 +23,7 @@ use crate::sync::state::{StateSync, StateSyncResult};
 use crate::{ProduceChunkResult, metrics};
 use itertools::Itertools;
 use near_async::futures::{AsyncComputationSpawner, FutureSpawner};
-use near_async::messaging::IntoSender;
+use near_async::messaging::IntoAsyncSender;
 use near_async::messaging::{CanSend, Sender};
 use near_async::time::{Clock, Duration, Instant};
 use near_chain::chain::{
@@ -33,7 +33,6 @@ use near_chain::chain::{
 use near_chain::orphan::OrphanMissingChunks;
 use near_chain::rayon_spawner::RayonAsyncComputationSpawner;
 use near_chain::resharding::types::ReshardingSender;
-use near_chain::spice_core::CoreStatementsProcessor;
 use near_chain::state_snapshot_actor::SnapshotCallbacks;
 use near_chain::test_utils::format_hash;
 use near_chain::types::{ChainConfig, LatestKnown, RuntimeAdapter};
@@ -221,6 +220,8 @@ pub struct AsyncComputationMultiSpawner {
     apply_chunks: ApplyChunksSpawner,
     /// Spawner to run 'epoch sync' tasks (defaults to `RayonAsyncComputationSpawner`)
     epoch_sync: Arc<dyn AsyncComputationSpawner>,
+    /// Spawner to run 'prepare transactions' tasks (defaults to `RayonAsyncComputationSpawner`)
+    prepare_transactions: Arc<dyn AsyncComputationSpawner>,
 }
 
 impl Default for AsyncComputationMultiSpawner {
@@ -228,6 +229,7 @@ impl Default for AsyncComputationMultiSpawner {
         Self {
             apply_chunks: Default::default(),
             epoch_sync: Arc::new(RayonAsyncComputationSpawner),
+            prepare_transactions: Arc::new(RayonAsyncComputationSpawner),
         }
     }
 }
@@ -235,7 +237,11 @@ impl Default for AsyncComputationMultiSpawner {
 impl AsyncComputationMultiSpawner {
     /// Use a custom spawner for all kinds of tasks.
     pub fn all_custom(spawner: Arc<dyn AsyncComputationSpawner>) -> Self {
-        Self { apply_chunks: ApplyChunksSpawner::Custom(spawner.clone()), epoch_sync: spawner }
+        Self {
+            apply_chunks: ApplyChunksSpawner::Custom(spawner.clone()),
+            epoch_sync: spawner.clone(),
+            prepare_transactions: spawner,
+        }
     }
 
     /// Use a custom spawner for 'apply chunks' tasks
@@ -268,7 +274,6 @@ impl Client {
         myself_sender: ClientSenderForClient,
         chunk_validation_sender: ChunkValidationSender,
         upgrade_schedule: ProtocolUpgradeVotingSchedule,
-        spice_core_processor: CoreStatementsProcessor,
     ) -> Result<Self, Error> {
         let doomslug_threshold_mode = if enable_doomslug {
             DoomslugThresholdMode::TwoThirds
@@ -295,7 +300,7 @@ impl Client {
             apply_chunks_iteration_mode,
             validator_signer.clone(),
             resharding_sender.clone(),
-            spice_core_processor.clone(),
+            Some(myself_sender.on_post_state_ready.clone()),
         )?;
         chain.init_flat_storage()?;
         let epoch_sync = EpochSync::new(
@@ -328,7 +333,7 @@ impl Client {
             runtime_adapter.store().clone(),
             epoch_manager.clone(),
             runtime_adapter.clone(),
-            network_adapter.clone().into_sender(),
+            network_adapter.clone().into_async_sender(),
             config.state_sync_external_timeout,
             config.state_sync_p2p_timeout,
             config.state_sync_retry_backoff,
@@ -354,7 +359,6 @@ impl Client {
         let chunk_endorsement_tracker = Arc::new(ChunkEndorsementTracker::new(
             epoch_manager.clone(),
             chain.chain_store().store(),
-            spice_core_processor,
         ));
         let chunk_producer = ChunkProducer::new(
             clock.clone(),
@@ -364,6 +368,7 @@ impl Client {
             runtime_adapter.clone(),
             rng_seed,
             config.transaction_pool_size_limit,
+            multi_spawner.prepare_transactions,
         );
 
         let chunk_distribution_network = ChunkDistributionNetwork::from_config(&config);
@@ -623,7 +628,7 @@ impl Client {
         level = "debug",
         target = "client",
         skip_all,
-        fields(height, tag_block_production = true, tag_optimistic = true)
+        fields(%height, tag_block_production = true, tag_optimistic = true)
     )]
     pub fn produce_optimistic_block_on_head(
         &mut self,
@@ -714,7 +719,7 @@ impl Client {
         level = "debug",
         target = "client",
         skip_all,
-        fields(height, tag_block_production = true)
+        fields(%height, tag_block_production = true)
     )]
     pub fn produce_block_on_head(
         &mut self,
@@ -917,7 +922,7 @@ impl Client {
             self.epoch_manager.get_epoch_protocol_version(&next_epoch_id)?;
 
         let core_statements = if cfg!(feature = "protocol_feature_spice") {
-            Some(self.chain.spice_core_processor.core_statement_for_next_block(&prev_header)?)
+            Some(self.chain.spice_core_reader.core_statement_for_next_block(&prev_header)?)
         } else {
             None
         };
@@ -969,7 +974,7 @@ impl Client {
             hash = %block.hash(),
             height = block.header().height(),
             %peer_id,
-            was_requested
+            %was_requested
         )
     )]
     pub fn receive_block(
@@ -1013,7 +1018,7 @@ impl Client {
         level = "debug",
         target = "client",
         skip_all,
-        fields(was_requested, %peer_id)
+        fields(%was_requested, %peer_id)
     )]
     pub fn receive_block_impl(
         &mut self,
@@ -1219,7 +1224,7 @@ impl Client {
 
     /// Check if there are any blocks that has finished applying chunks, run post processing on these
     /// blocks.
-    #[instrument(level = "debug", target = "client", skip_all, fields(should_produce_chunk))]
+    #[instrument(level = "debug", target = "client", skip_all, fields(%should_produce_chunk))]
     pub fn postprocess_ready_blocks(
         &mut self,
         apply_chunks_done_sender: Option<ApplyChunksDoneSender>,
@@ -1329,6 +1334,7 @@ impl Client {
         fields(
             hash = ?partial_chunk.chunk_hash(),
             height = ?partial_chunk.height_created(),
+            shard_id = %partial_chunk.shard_id(),
             tag_block_production = true
         )
     )]
@@ -1532,7 +1538,7 @@ impl Client {
             %block_hash,
             ?status,
             ?provenance,
-            skip_produce_chunk,
+            %skip_produce_chunk,
             is_syncing = self.sync_handler.sync_status.is_syncing(),
             sync_status = ?self.sync_handler.sync_status
         )
@@ -1801,7 +1807,7 @@ impl Client {
                     tracing::error!(target: "client", ?err, "Failed to send chunk state witness to chunk validators");
                 }
             }
-            self.persist_and_distribute_encoded_chunk(
+            self.distribute_and_persist_encoded_chunk(
                 chunk,
                 encoded_chunk_parts_paths,
                 receipts,
@@ -1818,7 +1824,7 @@ impl Client {
         tag_block_production = true,
         tag_chunk_distribution = true,
     ))]
-    pub fn persist_and_distribute_encoded_chunk(
+    pub fn distribute_and_persist_encoded_chunk(
         &mut self,
         chunk: ShardChunkWithEncoding,
         merkle_paths: Vec<MerklePath>,
@@ -1834,11 +1840,6 @@ impl Client {
         )?;
         let (shard_chunk, encoded_shard_chunk) = chunk.into_parts();
         let partial_chunk_arc = Arc::new(partial_chunk.clone());
-        persist_chunk(
-            Arc::clone(&partial_chunk_arc),
-            Some(shard_chunk),
-            self.chain.mut_chain_store(),
-        )?;
 
         let chunk_header = encoded_shard_chunk.cloned_header();
         if let Some(chunk_distribution) = &self.chunk_distribution_network {
@@ -1854,14 +1855,22 @@ impl Client {
             }
         }
 
-        self.chunk_inclusion_tracker
-            .mark_chunk_header_ready_for_inclusion(chunk_header, validator_id);
         self.shards_manager_adapter.send(ShardsManagerRequestFromClient::DistributeEncodedChunk {
             partial_chunk,
             encoded_chunk: encoded_shard_chunk,
             merkle_paths,
             outgoing_receipts: receipts,
         });
+
+        persist_chunk(
+            Arc::clone(&partial_chunk_arc),
+            Some(shard_chunk),
+            self.chain.mut_chain_store(),
+        )?;
+
+        self.chunk_inclusion_tracker
+            .mark_chunk_header_ready_for_inclusion(chunk_header, validator_id);
+
         Ok(())
     }
 
@@ -2174,7 +2183,7 @@ impl Client {
                             self.runtime_adapter.store().clone(),
                             self.epoch_manager.clone(),
                             self.runtime_adapter.clone(),
-                            self.network_adapter.clone().into_sender(),
+                            self.network_adapter.clone().into_async_sender(),
                             self.config.state_sync_external_timeout,
                             self.config.state_sync_p2p_timeout,
                             self.config.state_sync_retry_backoff,

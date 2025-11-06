@@ -5,7 +5,6 @@
 //! Unfortunately, this is not the case today. We are in the process of refactoring ClientActor
 //! <https://github.com/near/nearcore/issues/7899>
 
-use crate::chunk_executor_actor::ProcessedBlock;
 #[cfg(feature = "test_features")]
 pub use crate::chunk_producer::AdvProduceChunksMode;
 #[cfg(feature = "test_features")]
@@ -36,9 +35,11 @@ use near_async::tokio::TokioRuntimeHandle;
 use near_async::{ActorSystem, MultiSend, MultiSenderFrom};
 #[cfg(feature = "test_features")]
 use near_chain::ChainStoreAccess;
-use near_chain::chain::{ApplyChunksDoneMessage, BlockCatchUpRequest, BlockCatchUpResponse};
+use near_chain::chain::{
+    ApplyChunksDoneMessage, BlockCatchUpRequest, BlockCatchUpResponse, PostStateReadyMessage,
+};
 use near_chain::resharding::types::ReshardingSender;
-use near_chain::spice_core::CoreStatementsProcessor;
+use near_chain::spice_core_writer_actor::ProcessedBlock;
 use near_chain::state_snapshot_actor::SnapshotCallbacks;
 use near_chain::test_utils::format_hash;
 use near_chain::types::RuntimeAdapter;
@@ -75,7 +76,7 @@ use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::types::{AccountId, BlockHeight};
 use near_primitives::unwrap_or_return;
 use near_primitives::utils::MaybeValidated;
-use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature, get_protocol_upgrade_schedule};
+use near_primitives::version::{PROTOCOL_VERSION, get_protocol_upgrade_schedule};
 use near_primitives::views::{DetailedDebugStatus, ValidatorInfo};
 #[cfg(feature = "test_features")]
 use near_store::DBCol;
@@ -126,10 +127,10 @@ pub struct StartClientResult {
 }
 
 pub struct SpiceClientConfig {
-    pub core_processor: CoreStatementsProcessor,
     pub chunk_executor_sender: Sender<ProcessedBlock>,
     pub spice_chunk_validator_sender: Sender<ProcessedBlock>,
     pub spice_data_distributor_sender: Sender<ProcessedBlock>,
+    pub spice_core_writer_sender: Sender<ProcessedBlock>,
 }
 
 /// Starts client in a separate tokio runtime (thread).
@@ -189,7 +190,6 @@ pub fn start_client(
         client_sender_for_client.as_multi_sender(),
         chunk_validation_adapter.as_multi_sender(),
         protocol_upgrade_schedule,
-        spice_client_config.core_processor,
     )
     .unwrap();
 
@@ -240,6 +240,7 @@ pub fn start_client(
         spice_client_config.chunk_executor_sender,
         spice_client_config.spice_chunk_validator_sender,
         spice_client_config.spice_data_distributor_sender,
+        spice_client_config.spice_core_writer_sender,
     )
     .unwrap();
     let tx_pool = client_actor_inner.client.chunk_producer.sharded_tx_pool.clone();
@@ -263,6 +264,7 @@ pub fn start_client(
 #[derive(Clone, MultiSend, MultiSenderFrom)]
 pub struct ClientSenderForClient {
     pub apply_chunks_done: Sender<SpanWrapped<ApplyChunksDoneMessage>>,
+    pub on_post_state_ready: Sender<SpanWrapped<PostStateReadyMessage>>,
 }
 
 #[derive(Clone, MultiSend, MultiSenderFrom)]
@@ -321,6 +323,10 @@ pub struct ClientActorInner {
     /// information. Since data may arrive before blocks it needs to be aware of new blocks.
     /// Without spice should be a noop sender.
     spice_data_distributor_sender: Sender<ProcessedBlock>,
+
+    /// With spice, spice core writer processes all core statements.
+    /// Should be noop sender otherwise.
+    spice_core_writer_sender: Sender<ProcessedBlock>,
 }
 
 impl messaging::Actor for ClientActorInner {
@@ -328,13 +334,8 @@ impl messaging::Actor for ClientActorInner {
         self.start(ctx);
     }
 
-    /// Wrapper for processing actix message which must be called after receiving it.
-    ///
-    /// Due to a bug in Actix library, while there are messages in mailbox, Actix
-    /// will prioritize processing messages until mailbox is empty. In such case execution
-    /// of any other task scheduled with `run_later` will be delayed. At the same time,
-    /// we have several important functions which have to be called regularly, so we put
-    /// these calls into `check_triggers` and call it here as a quick hack.
+    /// Wrapper for processing an actor message which must be called after receiving it.
+    /// This calls check_triggers first; see the doc of check_triggers for details.
     fn wrap_handler<M, R>(
         &mut self,
         msg: M,
@@ -397,6 +398,7 @@ impl ClientActorInner {
         chunk_executor_sender: Sender<ProcessedBlock>,
         spice_chunk_validator_sender: Sender<ProcessedBlock>,
         spice_data_distributor_sender: Sender<ProcessedBlock>,
+        spice_core_writer_sender: Sender<ProcessedBlock>,
     ) -> Result<Self, Error> {
         if let Some(vs) = &client.validator_signer.get() {
             info!(target: "client", "Starting validator node: {}", vs.validator_id());
@@ -438,6 +440,7 @@ impl ClientActorInner {
             chunk_executor_sender,
             spice_chunk_validator_sender,
             spice_data_distributor_sender,
+            spice_core_writer_sender,
         })
     }
 }
@@ -466,8 +469,7 @@ pub enum AdvProduceBlockHeightSelection {
 }
 
 #[cfg(feature = "test_features")]
-#[derive(actix::Message, Debug)]
-#[rtype(result = "Option<u64>")]
+#[derive(Debug)]
 pub enum NetworkAdversarialMessage {
     AdvProduceBlocks(u64, bool),
     AdvProduceChunks(AdvProduceChunksMode),
@@ -906,6 +908,12 @@ impl Handler<SpanWrapped<ApplyChunksDoneMessage>> for ClientActorInner {
     }
 }
 
+impl Handler<SpanWrapped<PostStateReadyMessage>> for ClientActorInner {
+    fn handle(&mut self, msg: SpanWrapped<PostStateReadyMessage>) {
+        self.handle_on_post_state_ready(msg.span_unwrap());
+    }
+}
+
 #[derive(Debug)]
 enum SyncRequirement {
     SyncNeeded { peer_id: PeerId, highest_height: BlockHeight, head: Tip },
@@ -1189,10 +1197,6 @@ impl ClientActorInner {
             }
         }
 
-        let protocol_version = self.client.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
-        if !ProtocolFeature::ProduceOptimisticBlock.enabled(protocol_version) {
-            return Ok(());
-        }
         let optimistic_block_height = self.client.doomslug.get_timer_height();
         if me != self.client.epoch_manager.get_block_producer(&epoch_id, optimistic_block_height)? {
             return Ok(());
@@ -1217,11 +1221,11 @@ impl ClientActorInner {
     /// Triggers are important functions of client, like running single step of state sync or
     /// checking if we can produce a block.
     ///
-    /// It is called before processing Actix message and also in schedule_triggers.
-    /// This is to ensure all triggers enjoy higher priority than any actix message.
-    /// Otherwise due to a bug in Actix library Actix prioritizes processing messages
-    /// while there are messages in mailbox. Because of that we handle scheduling
-    /// triggers with custom `run_timer` function instead of `run_later` in Actix.
+    /// It is called before processing an actor message and also in schedule_triggers.
+    /// This is to ensure all triggers enjoy higher priority than any actor message.
+    /// Otherwise, due to FIFO message handling, these important triggers will be delayed
+    /// if there are still pending messages to handle. Because of that we handle scheduling
+    /// triggers with custom `run_timer` function instead of `run_later`.
     ///
     /// Returns the delay before the next time `check_triggers` should be called, which is
     /// min(time until the closest trigger, 1 second).
@@ -1315,6 +1319,34 @@ impl ClientActorInner {
         delay
     }
 
+    /// Receive the PostStateReadyMessage which contains data needed to start preparing transactions for the next height.
+    fn handle_on_post_state_ready(&mut self, msg: PostStateReadyMessage) {
+        tracing::trace!(target: "client", ?msg, "Received PostStateReadyMessage");
+
+        if !self.client.config.enable_early_prepare_transactions {
+            return;
+        }
+        // Do not run early transaction preparation when the node is syncing. It will not produce
+        // any chunks until it catches up with the chain. Running preparation on old state could
+        // reject new transactions from the pool.
+        if self.client.sync_handler.sync_status.is_syncing() {
+            return;
+        }
+
+        let tx_validity_period_check = self.client.chain.early_prepare_transaction_validity_check(
+            msg.prev_block_context.height,
+            msg.prev_prev_block_header,
+        );
+        self.client.chunk_producer.start_prepare_transactions_job(
+            msg.key,
+            msg.shard_uid,
+            msg.post_state.trie_update,
+            msg.prev_block_context,
+            msg.prev_chunk_tx_hashes,
+            tx_validity_period_check,
+        );
+    }
+
     /// "Unfinished" blocks means that blocks that client has started the processing and haven't
     /// finished because it was waiting for applying chunks to be done. This function checks
     /// if there are any "unfinished" blocks that are ready to be processed again and finish processing
@@ -1323,7 +1355,7 @@ impl ClientActorInner {
     /// The job that executes applying chunks will send an ApplyChunkDoneMessage to ClientActor after
     /// applying chunks is done, so when receiving ApplyChunkDoneMessage messages, ClientActor
     /// calls this function to finish processing the unfinished blocks. ClientActor also calls
-    /// this function in `check_triggers`, because the actix queue may be blocked by other messages
+    /// this function in `check_triggers`, because the actor queue may be blocked by other messages
     /// and we want to prioritize block processing.
     fn try_process_unfinished_blocks(&mut self) {
         let _span = debug_span!(target: "client", "try_process_unfinished_blocks").entered();
@@ -1523,7 +1555,7 @@ impl ClientActorInner {
             self.chunk_executor_sender.send(ProcessedBlock { block_hash: accepted_block });
             self.spice_chunk_validator_sender.send(ProcessedBlock { block_hash: accepted_block });
             self.spice_data_distributor_sender.send(ProcessedBlock { block_hash: accepted_block });
-            self.client.chain.spice_core_processor.send_execution_result_endorsements(&block);
+            self.spice_core_writer_sender.send(ProcessedBlock { block_hash: accepted_block });
         }
     }
 

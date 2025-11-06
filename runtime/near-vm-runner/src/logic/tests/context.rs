@@ -1,6 +1,10 @@
+use crate::logic::tests::helpers::assert_costs;
+use crate::map;
 use crate::{logic::tests::vm_logic_builder::VMLogicBuilder, tests::test_vm_config};
+use near_parameters::ExtCosts;
 use near_primitives_core::config::ViewConfig;
 use near_primitives_core::types::Balance;
+use near_primitives_core::version::{PROTOCOL_VERSION, ProtocolFeature};
 
 macro_rules! decl_test_bytes {
     ($testname:ident, $method:ident, $ctx:ident, $want:expr) => {
@@ -61,6 +65,12 @@ decl_test_bytes!(
     ctx.predecessor_account_id.as_bytes()
 );
 decl_test_bytes!(test_signer_account_pk, signer_account_pk, ctx, ctx.signer_account_pk);
+decl_test_bytes!(
+    test_refund_to_account_id,
+    refund_to_account_id,
+    ctx,
+    ctx.refund_to_account_id.as_bytes()
+);
 
 decl_test_bytes!(test_random_seed, random_seed, ctx, ctx.random_seed);
 
@@ -109,4 +119,27 @@ fn test_attached_deposit_view() {
     test_view(Balance::ZERO);
     test_view(Balance::from_yoctonear(1));
     test_view(Balance::MAX);
+}
+
+#[test]
+fn test_input_per_byte_gas_fee() {
+    const INPUT_SIZE: usize = 100;
+    let mut logic_builder = VMLogicBuilder::default();
+    logic_builder.context.input = [0u8; INPUT_SIZE].into();
+    let mut logic = logic_builder.build();
+
+    logic.input(0).expect("input() should succeed");
+
+    if ProtocolFeature::DeterministicAccountIds.enabled(PROTOCOL_VERSION) {
+        assert_costs(map! {
+          ExtCosts::base: 1,
+          ExtCosts::write_register_base: 1,
+        });
+    } else {
+        assert_costs(map! {
+          ExtCosts::base: 1,
+          ExtCosts::write_register_base: 1,
+          ExtCosts::write_register_byte: INPUT_SIZE as u64,
+        });
+    }
 }

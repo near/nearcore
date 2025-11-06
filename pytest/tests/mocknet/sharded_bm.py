@@ -61,16 +61,6 @@ def fetch_forknet_details(forknet_name, bm_params):
             f"Expected {num_cp_instances} instances, got {len(nodes_data)}")
         sys.exit(1)
 
-    # cratch to refresh the local keystore
-    for node_data in nodes_data:
-        columns = node_data.split()
-        name, zone = columns[0], columns[2]
-        login_cmd = [
-            "gcloud", "compute", "ssh", "--zone", zone, f"ubuntu@{name}",
-            "--project", "nearone-mocknet", "--command", "pwd"
-        ]
-        subprocess.run(login_cmd, text=True, check=True)
-
     cp_instances = list(map(lambda x: x.split(), nodes_data[:num_cp_instances]))
     cp_instance_names = [instance[0] for instance in cp_instances]
     cp_instance_zones = [instance[2] for instance in cp_instances]
@@ -475,6 +465,21 @@ def handle_get_profiles(args, extra):
     run_remote_download_file(CommandContext(args))
 
 
+def handle_get_logs(args):
+    args = copy.deepcopy(args)
+
+    # compress logs and prepare for download
+    remote_log_dir = f'{REMOTE_HOME}/neard-logs'
+    compressed_log_file = '/tmp/neard-logs.tar.gz'
+    args.cmd = f'rm -f {compressed_log_file} && tar -czf {compressed_log_file} {remote_log_dir}'
+    run_remote_cmd(CommandContext(args))
+
+    os.makedirs(args.output_dir, exist_ok=True)
+    args.src = compressed_log_file
+    args.dst = args.output_dir
+    run_remote_download_file(CommandContext(args), include_node_name=True)
+
+
 def handle_start(args):
     """Handle the start command - start the benchmark."""
     start_nodes(args, args.enable_tx_generator)
@@ -580,6 +585,16 @@ def main():
         'Filter to select specific hosts (default: first alphabetical cp instance)'
     )
 
+    get_logs_parser = subparsers.add_parser(
+        'get-logs', help='Fetch logs from the benchmark nodes')
+    get_logs_parser.add_argument(
+        '--output-dir',
+        default='.',
+        help='Directory to save the log files (default: current directory)')
+    get_logs_parser.add_argument('--host-filter',
+                                 default=None,
+                                 help='Filter to select specific hosts')
+
     if '--' in sys.argv:
         idx = sys.argv.index('--')
         my_args = sys.argv[1:idx]
@@ -605,6 +620,8 @@ def main():
         handle_get_traces(args)
     elif args.command == 'get-profiles':
         handle_get_profiles(args, extra_args)
+    elif args.command == 'get-logs':
+        handle_get_logs(args)
     else:
         parser.print_help()
 

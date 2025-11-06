@@ -141,6 +141,10 @@ pub fn congestion_control_test_contract() -> &'static [u8] {
     include_bytes!(env!("CONTRACT_congestion_control_test_contract"))
 }
 
+pub fn sharded_contract_test_contract() -> &'static [u8] {
+    include_bytes!(env!("CONTRACT_sharded_contract"))
+}
+
 #[test]
 fn smoke_test() {
     assert!(!rs_contract().is_empty());
@@ -151,6 +155,7 @@ fn smoke_test() {
     assert!(!backwards_compatible_rs_contract().is_empty());
     assert!(!ft_contract().is_empty());
     assert!(!congestion_control_test_contract().is_empty());
+    assert!(!sharded_contract_test_contract().is_empty());
 }
 
 pub struct LargeContract {

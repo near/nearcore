@@ -13,7 +13,7 @@ use near_store::trie::{AccessOptions, AccessTracker};
 use near_store::{KeyLookupMode, TrieUpdate, TrieUpdateValuePtr, has_promise_yield_receipt};
 use near_vm_runner::logic::errors::{AnyError, InconsistentStateError, VMLogicError};
 use near_vm_runner::logic::types::{
-    GlobalContractDeployMode, GlobalContractIdentifier, ReceiptIndex,
+    ActionIndex, GlobalContractDeployMode, GlobalContractIdentifier, ReceiptIndex,
 };
 use near_vm_runner::logic::{External, StorageAccessTracker, ValuePtr};
 use near_vm_runner::{Contract, ContractCode};
@@ -398,6 +398,15 @@ impl<'a> External for RuntimeExt<'a> {
         self.receipt_manager.append_use_deploy_global_contract(receipt_index, contract_id)
     }
 
+    fn append_action_deterministic_state_init(
+        &mut self,
+        receipt_index: ReceiptIndex,
+        contract_id: GlobalContractIdentifier,
+        amount: Balance,
+    ) -> Result<u64, VMLogicError> {
+        self.receipt_manager.append_deterministic_state_init(receipt_index, contract_id, amount)
+    }
+
     fn append_action_function_call_weight(
         &mut self,
         receipt_index: ReceiptIndex,
@@ -488,6 +497,21 @@ impl<'a> External for RuntimeExt<'a> {
 
     fn set_refund_to(&mut self, receipt_index: ReceiptIndex, refund_to: AccountId) {
         self.receipt_manager.set_refund_to(receipt_index, refund_to);
+    }
+
+    fn set_deterministic_state_init_data_entry(
+        &mut self,
+        receipt_index: ReceiptIndex,
+        action_index: ActionIndex,
+        key: Vec<u8>,
+        value: Vec<u8>,
+    ) -> Result<(), VMLogicError> {
+        self.receipt_manager.set_deterministic_state_init_data_entry(
+            receipt_index,
+            action_index,
+            key,
+            value,
+        )
     }
 }
 

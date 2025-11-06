@@ -30,7 +30,6 @@ use near_store::{DBCol, HEAD_KEY, Mode, ShardTries, ShardUId, Temperature};
 use nearcore::{NightshadeRuntime, NightshadeRuntimeExt};
 use std::collections::VecDeque;
 use std::path::Path;
-use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -334,10 +333,9 @@ impl FindBoundaryAccountCommand {
         let state_root = chunk_extra.state_root();
         let trie = shard_tries.get_trie_for_shard(shard_uid, *state_root);
         tracing::info!("Searching for boundary account...");
-        let trie_split = find_trie_split(&trie);
+        let trie_split = find_trie_split(&trie)?;
 
-        let boundary_account =
-            AccountId::from_str(std::str::from_utf8(&trie_split.split_path_bytes())?)?;
+        let boundary_account = trie_split.boundary_account;
         let left_memory = ByteSize::b(trie_split.left_memory);
         let right_memory = ByteSize::b(trie_split.right_memory);
         tracing::info!("Boundary account found");

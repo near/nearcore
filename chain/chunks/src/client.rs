@@ -1,4 +1,3 @@
-use actix::Message;
 use itertools::Itertools;
 use near_o11y::span_wrapped_msg::SpanWrapped;
 use near_pool::types::TransactionGroupIterator;
@@ -12,8 +11,7 @@ use near_primitives::{
 };
 use std::collections::HashMap;
 
-#[derive(Message, Debug)]
-#[rtype(result = "()")]
+#[derive(Debug)]
 #[allow(clippy::large_enum_variant)]
 pub enum ShardsManagerResponse {
     /// Notifies the client that the ShardsManager has collected a complete chunk.

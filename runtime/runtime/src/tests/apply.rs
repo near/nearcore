@@ -19,7 +19,7 @@ use near_primitives::congestion_info::{
     BlockCongestionInfo, CongestionControl, CongestionInfo, ExtendedCongestionInfo,
 };
 use near_primitives::errors::{
-    ActionErrorKind, FunctionCallError, MissingTrieValue, TxExecutionError,
+    ActionErrorKind, FunctionCallError, InvalidTxError, MissingTrieValue, TxExecutionError,
 };
 use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum, ReceiptPriority, ReceiptV0};
@@ -175,6 +175,7 @@ fn setup_runtime_for_shard(
         congestion_info,
         bandwidth_requests: BlockBandwidthRequests::empty(),
         trie_access_tracker_state: Default::default(),
+        on_post_state_ready: None,
     };
 
     (runtime, tries, root, apply_state, signers)
@@ -844,18 +845,8 @@ fn test_apply_surplus_gas_for_transfer() {
         .checked_add(fees.fee(ActionCosts::transfer).exec_fee())
         .unwrap();
 
-    let expected_burnt_amount = if fees.refund_gas_price_changes {
-        GAS_PRICE.checked_mul(u128::from(exec_gas.as_gas())).unwrap()
-    } else {
-        gas_price.checked_mul(u128::from(exec_gas.as_gas())).unwrap()
-    };
-    let expected_receipts = if fees.refund_gas_price_changes {
-        // refund the surplus
-        1
-    } else {
-        // don't refund the surplus
-        0
-    };
+    let expected_burnt_amount = gas_price.checked_mul(u128::from(exec_gas.as_gas())).unwrap();
+    let expected_receipts = 0;
 
     assert!(result.stats.balance.gas_deficit_amount.is_zero());
     assert_eq!(result.stats.balance.tx_burnt_amount, expected_burnt_amount);
@@ -910,11 +901,8 @@ fn test_apply_deficit_gas_for_function_call_covered() {
             Gas::from_gas(gas).checked_add(expected_gas_burnt).unwrap().as_gas(),
         ))
         .unwrap();
-    let expected_gas_burnt_amount = if apply_state.config.fees.refund_gas_price_changes {
-        GAS_PRICE.checked_mul(u128::from(expected_gas_burnt.as_gas())).unwrap()
-    } else {
-        gas_price.checked_mul(u128::from(expected_gas_burnt.as_gas())).unwrap()
-    };
+    let expected_gas_burnt_amount =
+        gas_price.checked_mul(u128::from(expected_gas_burnt.as_gas())).unwrap();
     // With gas refund penalties enabled, we should see a reduced refund value
     let unspent_gas: Gas = Gas::from_gas(
         (total_receipt_cost.checked_sub(expected_gas_burnt_amount).unwrap().as_yoctonear()
@@ -940,19 +928,14 @@ fn test_apply_deficit_gas_for_function_call_covered() {
             Default::default(),
         )
         .unwrap();
-    if apply_state.config.fees.refund_gas_price_changes {
-        // We used part of the prepaid gas to paying extra fees.
-        assert!(result.stats.balance.gas_deficit_amount.is_zero());
-    } else {
-        assert_eq!(
-            result.stats.balance.gas_deficit_amount,
-            GAS_PRICE
-                .checked_sub(gas_price)
-                .unwrap()
-                .checked_mul(u128::from(expected_gas_burnt.as_gas()))
-                .unwrap()
-        );
-    }
+    assert_eq!(
+        result.stats.balance.gas_deficit_amount,
+        GAS_PRICE
+            .checked_sub(gas_price)
+            .unwrap()
+            .checked_mul(u128::from(expected_gas_burnt.as_gas()))
+            .unwrap()
+    );
     // The refund is less than the received amount.
     match result.outgoing_receipts[0].receipt() {
         ReceiptEnum::Action(ActionReceipt { actions, .. }) => {
@@ -1012,19 +995,11 @@ fn test_apply_deficit_gas_for_function_call_partial() {
             Gas::from_gas(gas).checked_add(expected_gas_burnt).unwrap().as_gas(),
         ))
         .unwrap();
-    let expected_deficit = if apply_state.config.fees.refund_gas_price_changes {
-        // Used full prepaid gas, but it still not enough to cover deficit.
-        let expected_gas_burnt_amount =
-            GAS_PRICE.checked_mul(u128::from(expected_gas_burnt.as_gas())).unwrap();
-        expected_gas_burnt_amount.checked_sub(total_receipt_cost).unwrap()
-    } else {
-        // The "deficit" is simply the value change due to gas price changes
-        GAS_PRICE
-            .checked_sub(gas_price)
-            .unwrap()
-            .checked_mul(u128::from(expected_gas_burnt.as_gas()))
-            .unwrap()
-    };
+    let expected_deficit = GAS_PRICE
+        .checked_sub(gas_price)
+        .unwrap()
+        .checked_mul(u128::from(expected_gas_burnt.as_gas()))
+        .unwrap();
 
     let result = runtime
         .apply(
@@ -1038,19 +1013,12 @@ fn test_apply_deficit_gas_for_function_call_partial() {
         )
         .unwrap();
     assert_eq!(result.stats.balance.gas_deficit_amount, expected_deficit);
-    if apply_state.config.fees.refund_gas_price_changes {
-        // Burnt all the fees + all prepaid gas.
-        assert_eq!(result.stats.balance.tx_burnt_amount, total_receipt_cost);
-        assert_eq!(result.outgoing_receipts.len(), 0);
-    } else {
-        // The deficit does not affect refunds in this config, hence we expect a
-        // normal refund of the unspent gas. However, this is small enough to
-        // cancel out, so we add the refund cost to tx_burnt and expect no
-        // refund. Like in the other case, this ends up burning all gas and not
-        // refunding anything.
-        assert_eq!(result.outgoing_receipts.len(), 0);
-        assert_eq!(result.stats.balance.tx_burnt_amount, total_receipt_cost);
-    }
+    // The deficit does not affect refunds, hence we should expect a
+    // normal refund of the unspent gas. However, this is small enough to
+    // cancel out, so we add the refund cost to tx_burnt and expect no
+    // refund. This ends up burning all gas and not refunding anything.
+    assert_eq!(result.outgoing_receipts.len(), 0);
+    assert_eq!(result.stats.balance.tx_burnt_amount, total_receipt_cost);
 }
 
 #[test]
@@ -1101,11 +1069,8 @@ fn test_apply_surplus_gas_for_function_call() {
             Gas::from_gas(gas).checked_add(expected_gas_burnt).unwrap().as_gas(),
         ))
         .unwrap();
-    let expected_gas_burnt_amount = if apply_state.config.fees.refund_gas_price_changes {
-        GAS_PRICE.checked_mul(u128::from(expected_gas_burnt.as_gas())).unwrap()
-    } else {
-        gas_price.checked_mul(u128::from(expected_gas_burnt.as_gas())).unwrap()
-    };
+    let expected_gas_burnt_amount =
+        gas_price.checked_mul(u128::from(expected_gas_burnt.as_gas())).unwrap();
 
     // With gas refund penalties enabled, we should see a reduced refund value
     let unspent_gas = Gas::from_gas(
@@ -3203,7 +3168,7 @@ fn test_transaction_ordering_with_apply() {
 
     let txs = vec![
         bob_tx1.clone(),
-        alice_invalid_tx,
+        alice_invalid_tx.clone(),
         alice_tx1.clone(),
         bob_tx2.clone(),
         alice_tx2.clone(),
@@ -3231,22 +3196,35 @@ fn test_transaction_ordering_with_apply() {
         )
         .expect("apply should succeed");
 
-    let expected_order = vec![
-        bob_tx1.get_hash(),
-        alice_tx1.get_hash(),
-        bob_tx2.get_hash(),
-        alice_tx2.get_hash(),
-        bob_tx3.get_hash(),
-    ];
+    let expected_order = if ProtocolFeature::InvalidTxGenerateOutcomes.enabled(PROTOCOL_VERSION) {
+        vec![
+            bob_tx1.get_hash(),
+            alice_invalid_tx.get_hash(),
+            alice_tx1.get_hash(),
+            bob_tx2.get_hash(),
+            alice_tx2.get_hash(),
+            bob_tx3.get_hash(),
+        ]
+    } else {
+        vec![
+            bob_tx1.get_hash(),
+            alice_tx1.get_hash(),
+            bob_tx2.get_hash(),
+            alice_tx2.get_hash(),
+            bob_tx3.get_hash(),
+        ]
+    };
 
+    let num_outcomes = expected_order.len();
     // Note: The 3 local receipts are generated for valid transactions
     // where signer_id == receiver_id - tx2, tx4, tx6 (not for tx1 as it is dropped).
     assert_eq!(
         apply_result.outcomes.len(),
-        8,
-        "should have processed 5 transactions and 3 local receipts"
+        num_outcomes + 3,
+        "should have processed {num_outcomes} transactions and 3 local receipts"
     );
-    let tx_outcomes = apply_result.outcomes.iter().take(5).map(|o| o.id).collect::<Vec<_>>();
+    let tx_outcomes =
+        apply_result.outcomes.iter().take(num_outcomes).map(|o| o.id).collect::<Vec<_>>();
     assert_eq!(tx_outcomes, expected_order, "outcomes are not in expected sorted order");
 }
 
@@ -3342,7 +3320,8 @@ fn test_expired_transaction() {
         Balance::from_near(500_000),
         Gas::from_teragas(1000),
     );
-    let signed_valid_period_txs = SignedValidPeriodTransactions::new(expired_tx, vec![false]);
+    let signed_valid_period_txs =
+        SignedValidPeriodTransactions::new(expired_tx.clone(), vec![false]);
     let apply_result = runtime
         .apply(
             tries.get_trie_for_shard(ShardUId::single_shard(), root),
@@ -3354,9 +3333,24 @@ fn test_expired_transaction() {
             Default::default(),
         )
         .expect("apply should succeed");
-    assert_eq!(
-        apply_result.outcomes.len(),
-        0,
-        "should have not produced any outcomes for the expired tx"
-    );
+
+    if ProtocolFeature::InvalidTxGenerateOutcomes.enabled(PROTOCOL_VERSION) {
+        assert_eq!(
+            apply_result.outcomes.len(),
+            1,
+            "should have produced one outcome for the expired tx"
+        );
+        let outcome = &apply_result.outcomes[0];
+        assert_eq!(outcome.id, expired_tx[0].get_hash());
+        assert_matches!(
+            &outcome.outcome.status,
+            ExecutionStatus::Failure(TxExecutionError::InvalidTxError(InvalidTxError::Expired))
+        );
+    } else {
+        assert_eq!(
+            apply_result.outcomes.len(),
+            0,
+            "should have not produced any outcomes for the expired tx"
+        );
+    }
 }

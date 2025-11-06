@@ -1,9 +1,9 @@
-use crate::actix::AutoStopActor;
+use crate::auto_stop::AutoStopActor;
 use crate::network_protocol::testonly as data;
 use crate::peer::stream;
 use crate::tcp;
 use crate::testonly::make_rng;
-use near_async::messaging::{CanSendAsync, IntoSender};
+use near_async::messaging::{CanSendAsync, IntoAsyncSender, IntoSender};
 use near_async::tokio::TokioRuntimeHandle;
 use near_async::{ActorSystem, messaging};
 use rand::Rng as _;
@@ -18,8 +18,7 @@ struct Actor {
 
 impl messaging::Actor for Actor {}
 
-#[derive(actix::Message, Debug)]
-#[rtype("()")]
+#[derive(Debug)]
 struct SendFrame(stream::Frame);
 
 impl messaging::Handler<SendFrame> for Actor {
@@ -52,7 +51,7 @@ impl Actor {
         let handle = builder.handle();
         let framed_stream = stream::FramedStream::spawn(
             handle.clone().into_sender(),
-            handle.clone().into_sender(),
+            handle.clone().into_async_sender(),
             &*handle.future_spawner(),
             s,
             Arc::default(),

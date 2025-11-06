@@ -10,6 +10,7 @@ use borsh::BorshDeserialize;
 use borsh::BorshSerialize;
 pub use edge::*;
 use near_primitives::genesis::GenesisId;
+use near_primitives::spice_partial_data::SpicePartialData;
 pub use near_primitives::state_sync::StateRequestAck;
 use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsement;
 use near_primitives::stateless_validation::contract_distribution::ChunkContractAccesses;
@@ -17,6 +18,7 @@ use near_primitives::stateless_validation::contract_distribution::ContractCodeRe
 use near_primitives::stateless_validation::contract_distribution::ContractCodeResponse;
 use near_primitives::stateless_validation::contract_distribution::PartialEncodedContractDeploys;
 use near_primitives::stateless_validation::partial_witness::PartialEncodedStateWitness;
+use near_primitives::stateless_validation::spice_chunk_endorsement::SpiceChunkEndorsement;
 use near_primitives::stateless_validation::state_witness::ChunkStateWitnessAck;
 pub use peer::*;
 pub use state_sync::*;
@@ -39,7 +41,7 @@ pub use _proto::network as proto;
 use crate::network_protocol::proto_conv::trace_context::{
     extract_span_context, inject_trace_context,
 };
-use crate::spice_data_distribution::SpicePartialData;
+use crate::spice_data_distribution::SpicePartialDataRequest;
 use near_async::time;
 use near_crypto::PublicKey;
 use near_crypto::Signature;
@@ -641,6 +643,12 @@ impl TieredMessageBody {
             RoutedMessageBody::SpicePartialData(spice_partial_data) => {
                 T1MessageBody::SpicePartialData(spice_partial_data).into()
             }
+            RoutedMessageBody::SpiceChunkEndorsement(chunk_endorsement) => {
+                T1MessageBody::SpiceChunkEndorsement(chunk_endorsement).into()
+            }
+            RoutedMessageBody::SpicePartialDataRequest(request) => {
+                T1MessageBody::SpicePartialDataRequest(request).into()
+            }
             RoutedMessageBody::_UnusedQueryRequest
             | RoutedMessageBody::_UnusedQueryResponse
             | RoutedMessageBody::_UnusedReceiptOutcomeRequest(_)
@@ -692,6 +700,8 @@ pub enum T1MessageBody {
     ContractCodeRequest(ContractCodeRequest),
     ContractCodeResponse(ContractCodeResponse),
     SpicePartialData(SpicePartialData),
+    SpiceChunkEndorsement(SpiceChunkEndorsement),
+    SpicePartialDataRequest(SpicePartialDataRequest),
 }
 
 impl T1MessageBody {
@@ -801,6 +811,8 @@ pub enum RoutedMessageBody {
     StateHeaderRequest(StateHeaderRequest),
     SpicePartialData(SpicePartialData),
     StateRequestAck(StateRequestAck),
+    SpiceChunkEndorsement(SpiceChunkEndorsement),
+    SpicePartialDataRequest(SpicePartialDataRequest),
 }
 
 impl RoutedMessageBody {
@@ -841,7 +853,9 @@ impl RoutedMessageBody {
             | RoutedMessageBody::ChunkContractAccesses(_)
             | RoutedMessageBody::ContractCodeRequest(_)
             | RoutedMessageBody::ContractCodeResponse(_)
-            | RoutedMessageBody::SpicePartialData(_) => true,
+            | RoutedMessageBody::SpicePartialData(_)
+            | RoutedMessageBody::SpiceChunkEndorsement(_)
+            | RoutedMessageBody::SpicePartialDataRequest(..) => true,
             _ => false,
         }
     }
@@ -936,9 +950,16 @@ impl fmt::Debug for RoutedMessageBody {
             ),
             RoutedMessageBody::SpicePartialData(spice_partial_data) => write!(
                 f,
-                "SpicePartialData(id={:?}, commitment={:?})",
-                spice_partial_data.id, spice_partial_data.commitment,
+                "SpicePartialData(block_hash={:?}, sender={:?})",
+                spice_partial_data.block_hash(),
+                spice_partial_data.sender(),
             ),
+            RoutedMessageBody::SpiceChunkEndorsement(_) => {
+                write!(f, "SpiceChunkEndorsement")
+            }
+            RoutedMessageBody::SpicePartialDataRequest(request) => {
+                write!(f, "SpicePartialDataRequest({:?})", request)
+            }
         }
     }
 }
@@ -978,6 +999,12 @@ impl From<TieredMessageBody> for RoutedMessageBody {
                 }
                 T1MessageBody::SpicePartialData(spice_partial_data) => {
                     RoutedMessageBody::SpicePartialData(spice_partial_data)
+                }
+                T1MessageBody::SpiceChunkEndorsement(chunk_endorsement) => {
+                    RoutedMessageBody::SpiceChunkEndorsement(chunk_endorsement)
+                }
+                T1MessageBody::SpicePartialDataRequest(request) => {
+                    RoutedMessageBody::SpicePartialDataRequest(request)
                 }
             },
             TieredMessageBody::T2(body) => match *body {

@@ -1,9 +1,9 @@
 use assert_matches::assert_matches;
 use itertools::Itertools as _;
-use near_async::messaging::{IntoSender as _, Sender, noop};
+use near_async::messaging::{Handler as _, IntoSender as _, noop};
 use near_async::time::Clock;
 use near_chain_configs::test_genesis::{TestGenesisBuilder, ValidatorsSpec};
-use near_chain_primitives::Error;
+use near_network::client::SpiceChunkEndorsementMessage;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::block::Block;
 use near_primitives::block_body::SpiceCoreStatement;
@@ -11,8 +11,9 @@ use near_primitives::errors::InvalidSpiceCoreStatementsError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::sharding::ShardChunkHeader;
-use near_primitives::stateless_validation::chunk_endorsement::{
-    ChunkEndorsement, SpiceEndorsementSignedInner, SpiceEndorsementWithSignature,
+use near_primitives::stateless_validation::spice_chunk_endorsement::testonly_create_endorsement_core_statement;
+use near_primitives::stateless_validation::spice_chunk_endorsement::{
+    SpiceChunkEndorsement, SpiceEndorsementSignedData, SpiceVerifiedEndorsement,
 };
 use near_primitives::test_utils::{TestBlockBuilder, create_test_signer};
 use near_primitives::types::chunk_extra::ChunkExtra;
@@ -21,11 +22,9 @@ use near_store::adapter::StoreAdapter as _;
 use std::collections::HashMap;
 use std::str::FromStr;
 use std::sync::Arc;
-use tokio::sync::mpsc::error::TryRecvError;
-use tokio::sync::mpsc::{UnboundedSender, unbounded_channel};
 
-use crate::spice_core::CoreStatementsProcessor;
-use crate::spice_core::ExecutionResultEndorsed;
+use crate::spice_core::{SpiceCoreReader, record_uncertified_chunks_for_block};
+use crate::spice_core_writer_actor::{ProcessedBlock, SpiceCoreWriterActor};
 use crate::test_utils::{
     get_chain_with_genesis, get_fake_next_block_chunk_headers, process_block_sync,
 };
@@ -33,171 +32,30 @@ use crate::{BlockProcessingArtifact, Chain, Provenance};
 
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-fn test_record_chunk_endorsement_non_spice_endorsement() {
-    let (mut chain, core_processor) = setup();
-    let genesis = chain.genesis_block();
-    let block = build_non_spice_block(&mut chain, &genesis);
-    let chunks = block.chunks();
-    let chunk_header = chunks.iter_raw().next().unwrap();
-    let epoch_id = block.header().epoch_id();
-    let signer = create_test_signer(&test_validators()[0]);
-    let endorsement = ChunkEndorsement::new(*epoch_id, chunk_header, &signer);
-    assert!(core_processor.record_chunk_endorsement(endorsement).is_ok());
-}
-
-#[test]
-#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-fn test_record_chunk_endorsement_with_execution_result_already_present() {
-    let (mut chain, core_processor) = setup();
-    let genesis = chain.genesis_block();
-    let block = build_non_spice_block(&mut chain, &genesis);
-    process_block(&mut chain, block.clone());
-
-    let chunks = block.chunks();
-    let chunk_header = chunks.iter_raw().next().unwrap();
-    for validator in test_validators() {
-        let endorsement = test_chunk_endorsement(&validator, &block, chunk_header);
-        core_processor.record_chunk_endorsement(endorsement).unwrap();
-    }
-    let execution_results = core_processor.get_execution_results_by_shard_id(&block).unwrap();
-    assert!(execution_results.contains_key(&chunk_header.shard_id()));
-
-    let endorsement = test_chunk_endorsement(&test_validators()[0], &block, chunk_header);
-    assert!(core_processor.record_chunk_endorsement(endorsement).is_ok());
-}
-
-#[test]
-#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-fn test_record_chunk_endorsement_with_unknown_old_block() {
-    let (mut chain, core_processor) = setup();
-
-    let genesis = chain.genesis_block();
-    let old_block = build_block(&chain, &genesis, vec![]);
-
-    let mut prev_block = genesis;
-    while chain.chain_store().final_head().unwrap().height < old_block.header().height() {
-        let block = build_block(&mut chain, &prev_block, vec![]);
-        process_block(&mut chain, block.clone());
-        prev_block = block;
-    }
-    assert_eq!(old_block.header().height(), chain.chain_store().final_head().unwrap().height);
-
-    let chunks = old_block.chunks();
-    let chunk_header = chunks.iter_raw().next().unwrap();
-    let endorsement = test_chunk_endorsement(&test_validators()[0], &old_block, chunk_header);
-    assert_matches!(
-        core_processor.record_chunk_endorsement(endorsement),
-        Err(Error::InvalidChunkEndorsement)
-    );
-}
-
-#[test]
-#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-fn test_record_chunk_endorsement_with_unknown_block() {
-    let (mut chain, core_processor) = setup();
-    let genesis = chain.genesis_block();
-    let block = build_block(&mut chain, &genesis, vec![]);
-    let chunks = block.chunks();
-    let chunk_header = chunks.iter_raw().next().unwrap();
-    let endorsement = test_chunk_endorsement(&test_validators()[0], &block, chunk_header);
-    assert!(core_processor.record_chunk_endorsement(endorsement).is_ok());
-}
-
-#[test]
-#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-fn test_record_chunk_endorsement_does_not_record_result_without_enough_endorsements() {
-    let (mut chain, core_processor) = setup();
-    let genesis = chain.genesis_block();
-    let block = build_block(&mut chain, &genesis, vec![]);
-    process_block(&mut chain, block.clone());
-    let chunks = block.chunks();
-    let chunk_header = chunks.iter_raw().next().unwrap();
-
-    let endorsement = test_chunk_endorsement(&test_validators()[0], &block, chunk_header);
-    core_processor.record_chunk_endorsement(endorsement).unwrap();
-
-    let execution_results = core_processor.get_execution_results_by_shard_id(&block).unwrap();
-    assert!(!execution_results.contains_key(&chunk_header.shard_id()));
-}
-
-#[test]
-#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-fn test_record_chunk_endorsement_does_not_record_result_with_enough_endorsements() {
-    let (mut chain, core_processor) = setup();
-    let genesis = chain.genesis_block();
-    let block = build_block(&mut chain, &genesis, vec![]);
-    process_block(&mut chain, block.clone());
-    let chunks = block.chunks();
-    let chunk_header = chunks.iter_raw().next().unwrap();
-
-    for validator in test_validators() {
-        let endorsement = test_chunk_endorsement(&validator, &block, chunk_header);
-        core_processor.record_chunk_endorsement(endorsement).unwrap();
-    }
-
-    let execution_results = core_processor.get_execution_results_by_shard_id(&block).unwrap();
-    assert!(execution_results.contains_key(&chunk_header.shard_id()));
-}
-
-#[test]
-#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-fn test_record_chunk_endorsement_results_endorsed_notification_is_sent() {
-    let (executor_sc, mut executor_rc) = unbounded_channel();
-    let (validator_sc, mut validator_rc) = unbounded_channel();
-    let (mut chain, core_processor) =
-        setup_with_senders(sender_from_channel(executor_sc), sender_from_channel(validator_sc));
-    let genesis = chain.genesis_block();
-    let block = build_block(&mut chain, &genesis, vec![]);
-    process_block(&mut chain, block.clone());
-    let chunks = block.chunks();
-
-    for chunk_header in chunks.iter_raw() {
-        assert_matches!(executor_rc.try_recv(), Err(TryRecvError::Empty));
-        assert_matches!(validator_rc.try_recv(), Err(TryRecvError::Empty));
-        for validator in test_validators() {
-            let endorsement = test_chunk_endorsement(&validator, &block, chunk_header);
-            core_processor.record_chunk_endorsement(endorsement).unwrap();
-        }
-    }
-
-    assert_eq!(
-        executor_rc.try_recv().unwrap(),
-        ExecutionResultEndorsed { block_hash: *block.hash() }
-    );
-    assert_matches!(executor_rc.try_recv(), Err(TryRecvError::Empty));
-
-    assert_eq!(
-        validator_rc.try_recv().unwrap(),
-        ExecutionResultEndorsed { block_hash: *block.hash() }
-    );
-    assert_matches!(validator_rc.try_recv(), Err(TryRecvError::Empty));
-}
-
-#[test]
-#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn test_get_execution_by_shard_id_with_no_execution_results() {
-    let (mut chain, core_processor) = setup();
+    let (mut chain, core_reader) = setup();
     let genesis = chain.genesis_block();
     let block = build_block(&mut chain, &genesis, vec![]);
-    let execution_results = core_processor.get_execution_results_by_shard_id(&block).unwrap();
+    let execution_results = core_reader.get_execution_results_by_shard_id(&block).unwrap();
     assert_eq!(execution_results, HashMap::new());
 }
 
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn test_get_execution_by_shard_id_with_some_execution_results() {
-    let (mut chain, core_processor) = setup();
+    let (mut chain, core_reader) = setup();
     let genesis = chain.genesis_block();
     let block = build_block(&mut chain, &genesis, vec![]);
     process_block(&mut chain, block.clone());
     let chunks = block.chunks();
     let chunk_header = chunks.iter_raw().next().unwrap();
 
+    let mut core_writer_actor = core_writer_actor(&chain);
     for validator in test_validators() {
         let endorsement = test_chunk_endorsement(&validator, &block, chunk_header);
-        core_processor.record_chunk_endorsement(endorsement).unwrap();
+        core_writer_actor.handle(SpiceChunkEndorsementMessage(endorsement));
     }
-    let execution_results = core_processor.get_execution_results_by_shard_id(&block).unwrap();
+    let execution_results = core_reader.get_execution_results_by_shard_id(&block).unwrap();
     assert_eq!(execution_results.len(), 1);
     assert!(execution_results.contains_key(&chunk_header.shard_id()));
 }
@@ -205,19 +63,20 @@ fn test_get_execution_by_shard_id_with_some_execution_results() {
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn test_get_execution_by_shard_id_with_all_execution_results() {
-    let (mut chain, core_processor) = setup();
+    let (mut chain, core_reader) = setup();
     let genesis = chain.genesis_block();
     let block = build_block(&mut chain, &genesis, vec![]);
     process_block(&mut chain, block.clone());
     let chunks = block.chunks();
 
+    let mut core_writer_actor = core_writer_actor(&chain);
     for chunk_header in chunks.iter_raw() {
         for validator in test_validators() {
             let endorsement = test_chunk_endorsement(&validator, &block, chunk_header);
-            core_processor.record_chunk_endorsement(endorsement).unwrap();
+            core_writer_actor.handle(SpiceChunkEndorsementMessage(endorsement));
         }
     }
-    let execution_results = core_processor.get_execution_results_by_shard_id(&block).unwrap();
+    let execution_results = core_reader.get_execution_results_by_shard_id(&block).unwrap();
     for chunk_header in chunks.iter_raw() {
         assert!(execution_results.contains_key(&chunk_header.shard_id()));
     }
@@ -227,58 +86,60 @@ fn test_get_execution_by_shard_id_with_all_execution_results() {
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn test_get_block_execution_results_for_genesis() {
-    let (chain, core_processor) = setup();
+    let (chain, core_reader) = setup();
     let genesis = chain.genesis_block();
-    let execution_results = core_processor.get_block_execution_results(&genesis).unwrap();
+    let execution_results = core_reader.get_block_execution_results(&genesis).unwrap();
     assert!(execution_results.is_some());
-    assert_eq!(execution_results.unwrap().0, HashMap::new());
+    assert_eq!(execution_results.unwrap().0.len(), genesis.chunks().len());
 }
 
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn test_get_block_execution_results_with_no_execution_results() {
-    let (mut chain, core_processor) = setup();
+    let (mut chain, core_reader) = setup();
     let genesis = chain.genesis_block();
     let block = build_block(&mut chain, &genesis, vec![]);
     process_block(&mut chain, block.clone());
-    let execution_results = core_processor.get_block_execution_results(&block).unwrap();
+    let execution_results = core_reader.get_block_execution_results(&block).unwrap();
     assert!(execution_results.is_none())
 }
 
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn test_get_block_execution_results_with_some_execution_results_missing() {
-    let (mut chain, core_processor) = setup();
+    let (mut chain, core_reader) = setup();
     let genesis = chain.genesis_block();
     let block = build_block(&mut chain, &genesis, vec![]);
     process_block(&mut chain, block.clone());
     let chunks = block.chunks();
     let chunk_header = chunks.iter_raw().next().unwrap();
 
+    let mut core_writer_actor = core_writer_actor(&chain);
     for validator in test_validators() {
         let endorsement = test_chunk_endorsement(&validator, &block, chunk_header);
-        core_processor.record_chunk_endorsement(endorsement).unwrap();
+        core_writer_actor.handle(SpiceChunkEndorsementMessage(endorsement));
     }
-    let execution_results = core_processor.get_block_execution_results(&block).unwrap();
+    let execution_results = core_reader.get_block_execution_results(&block).unwrap();
     assert!(execution_results.is_none())
 }
 
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn test_get_block_execution_results_with_all_execution_results_present() {
-    let (mut chain, core_processor) = setup();
+    let (mut chain, core_reader) = setup();
     let genesis = chain.genesis_block();
     let block = build_block(&mut chain, &genesis, vec![]);
     process_block(&mut chain, block.clone());
     let chunks = block.chunks();
 
+    let mut core_writer_actor = core_writer_actor(&chain);
     for chunk_header in chunks.iter_raw() {
         for validator in test_validators() {
             let endorsement = test_chunk_endorsement(&validator, &block, chunk_header);
-            core_processor.record_chunk_endorsement(endorsement).unwrap();
+            core_writer_actor.handle(SpiceChunkEndorsementMessage(endorsement));
         }
     }
-    let execution_results = core_processor.get_block_execution_results(&block).unwrap();
+    let execution_results = core_reader.get_block_execution_results(&block).unwrap();
     assert!(execution_results.is_some());
     let execution_results = execution_results.unwrap();
     for chunk_header in chunks.iter_raw() {
@@ -290,80 +151,83 @@ fn test_get_block_execution_results_with_all_execution_results_present() {
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn test_all_execution_results_exist_when_all_exist() {
-    let (mut chain, core_processor) = setup();
+    let (mut chain, core_reader) = setup();
     let genesis = chain.genesis_block();
     let block = build_block(&mut chain, &genesis, vec![]);
     process_block(&mut chain, block.clone());
     let chunks = block.chunks();
 
+    let mut core_writer_actor = core_writer_actor(&chain);
     for chunk_header in chunks.iter_raw() {
         for validator in test_validators() {
             let endorsement = test_chunk_endorsement(&validator, &block, chunk_header);
-            core_processor.record_chunk_endorsement(endorsement).unwrap();
+            core_writer_actor.handle(SpiceChunkEndorsementMessage(endorsement));
         }
     }
-    assert!(core_processor.all_execution_results_exist(&block).unwrap());
+    assert!(core_reader.all_execution_results_exist(&block).unwrap());
 }
 
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn test_all_execution_results_exist_when_some_are_missing() {
-    let (mut chain, core_processor) = setup();
+    let (mut chain, core_reader) = setup();
     let genesis = chain.genesis_block();
     let block = build_block(&mut chain, &genesis, vec![]);
     process_block(&mut chain, block.clone());
     let chunks = block.chunks();
     let chunk_header = chunks.iter_raw().next().unwrap();
 
+    let mut core_writer_actor = core_writer_actor(&chain);
     for validator in test_validators() {
         let endorsement = test_chunk_endorsement(&validator, &block, chunk_header);
-        core_processor.record_chunk_endorsement(endorsement).unwrap();
+        core_writer_actor.handle(SpiceChunkEndorsementMessage(endorsement));
     }
-    assert!(!core_processor.all_execution_results_exist(&block).unwrap());
+    assert!(!core_reader.all_execution_results_exist(&block).unwrap());
 }
 
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn test_core_statement_for_next_block_for_genesis() {
-    let (chain, core_processor) = setup();
+    let (chain, core_reader) = setup();
     let genesis = chain.genesis_block();
-    assert_eq!(core_processor.core_statement_for_next_block(genesis.header()).unwrap(), vec![]);
+    assert_eq!(core_reader.core_statement_for_next_block(genesis.header()).unwrap(), vec![]);
 }
 
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn test_core_statement_for_next_block_for_non_spice_block() {
-    let (mut chain, core_processor) = setup();
+    let (mut chain, core_reader) = setup();
     let genesis = chain.genesis_block();
     let block = build_non_spice_block(&mut chain, &genesis);
     process_block(&mut chain, block.clone());
-    assert_eq!(core_processor.core_statement_for_next_block(block.header()).unwrap(), vec![]);
+    assert_eq!(core_reader.core_statement_for_next_block(block.header()).unwrap(), vec![]);
 }
 
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn test_core_statement_for_next_block_when_block_is_not_recorded() {
-    let (mut chain, core_processor) = setup();
+    let (mut chain, core_reader) = setup();
     let genesis = chain.genesis_block();
     let block = build_block(&mut chain, &genesis, vec![]);
-    assert!(core_processor.core_statement_for_next_block(block.header()).is_err());
+    assert!(core_reader.core_statement_for_next_block(block.header()).is_err());
 }
 
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn test_core_statement_for_next_block_contains_no_endorsements() {
-    let (mut chain, core_processor) = setup();
+    let (mut chain, core_reader) = setup();
     let genesis = chain.genesis_block();
     let block = build_block(&mut chain, &genesis, vec![]);
     process_block(&mut chain, block.clone());
-    let core_statements = core_processor.core_statement_for_next_block(block.header()).unwrap();
+    let core_statements = core_reader.core_statement_for_next_block(block.header()).unwrap();
     assert_eq!(core_statements, vec![]);
 }
 
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn test_core_statement_for_next_block_contains_new_endorsements() {
-    let (mut chain, core_processor) = setup();
+    let (mut chain, core_reader) = setup();
+    let mut core_writer_actor = core_writer_actor(&chain);
     let genesis = chain.genesis_block();
     let block = build_block(&mut chain, &genesis, vec![]);
     process_block(&mut chain, block.clone());
@@ -371,29 +235,17 @@ fn test_core_statement_for_next_block_contains_new_endorsements() {
     let chunks = block.chunks();
     let chunk_header = chunks.iter_raw().next().unwrap();
     let endorsement = test_chunk_endorsement(&test_validators()[0], &block, chunk_header);
-    core_processor.record_chunk_endorsement(endorsement.clone()).unwrap();
+    core_writer_actor.handle(SpiceChunkEndorsementMessage(endorsement.clone()));
 
-    let core_statements = core_processor.core_statement_for_next_block(block.header()).unwrap();
+    let core_statements = core_reader.core_statement_for_next_block(block.header()).unwrap();
     assert_eq!(core_statements.len(), 1);
-    let (chunk_production_key, account_id, signed_inner, _execution_result, signature) =
-        endorsement.spice_destructure().unwrap();
-    assert_eq!(
-        core_statements[0],
-        SpiceCoreStatement::Endorsement {
-            chunk_id: SpiceChunkId {
-                block_hash: *block.hash(),
-                shard_id: chunk_production_key.shard_id,
-            },
-            account_id,
-            endorsement: SpiceEndorsementWithSignature { inner: signed_inner, signature }
-        }
-    );
+    assert_eq!(core_statements[0], endorsement_into_core_statement(endorsement));
 }
 
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn test_core_statement_for_next_block_contains_no_endorsements_for_fork_block() {
-    let (mut chain, core_processor) = setup();
+    let (mut chain, core_reader) = setup();
     let genesis = chain.genesis_block();
     let block = build_block(&mut chain, &genesis, vec![]);
     process_block(&mut chain, block.clone());
@@ -408,17 +260,19 @@ fn test_core_statement_for_next_block_contains_no_endorsements_for_fork_block() 
 
     let fork_chunks = fork_block.chunks();
     let fork_chunk_header = fork_chunks.iter_raw().next().unwrap();
+    let mut core_writer_actor = core_writer_actor(&chain);
     let endorsement = test_chunk_endorsement(&test_validators()[0], &fork_block, fork_chunk_header);
-    core_processor.record_chunk_endorsement(endorsement).unwrap();
+    core_writer_actor.handle(SpiceChunkEndorsementMessage(endorsement));
 
-    let core_statements = core_processor.core_statement_for_next_block(block.header()).unwrap();
+    let core_statements = core_reader.core_statement_for_next_block(block.header()).unwrap();
     assert_eq!(core_statements.len(), 0);
 }
 
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn test_core_statement_for_next_block_contains_new_endorsement() {
-    let (mut chain, core_processor) = setup();
+    let (mut chain, core_reader) = setup();
+    let mut core_writer_actor = core_writer_actor(&chain);
     let genesis = chain.genesis_block();
     let block = build_block(&mut chain, &genesis, vec![]);
     process_block(&mut chain, block.clone());
@@ -426,29 +280,18 @@ fn test_core_statement_for_next_block_contains_new_endorsement() {
     let chunks = block.chunks();
     let chunk_header = chunks.iter_raw().next().unwrap();
     let endorsement = test_chunk_endorsement(&test_validators()[0], &block, chunk_header);
-    core_processor.record_chunk_endorsement(endorsement.clone()).unwrap();
+    core_writer_actor.handle(SpiceChunkEndorsementMessage(endorsement.clone()));
 
-    let core_statements = core_processor.core_statement_for_next_block(block.header()).unwrap();
+    let core_statements = core_reader.core_statement_for_next_block(block.header()).unwrap();
     assert_eq!(core_statements.len(), 1);
-    let (chunk_production_key, account_id, signed_inner, _execution_result, signature) =
-        endorsement.spice_destructure().unwrap();
-    assert_eq!(
-        core_statements[0],
-        SpiceCoreStatement::Endorsement {
-            chunk_id: SpiceChunkId {
-                block_hash: *block.hash(),
-                shard_id: chunk_production_key.shard_id,
-            },
-            account_id,
-            endorsement: SpiceEndorsementWithSignature { inner: signed_inner, signature }
-        }
-    );
+    assert_eq!(core_statements[0], endorsement_into_core_statement(endorsement));
 }
 
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn test_core_statement_for_next_block_contains_new_execution_results() {
-    let (mut chain, core_processor) = setup();
+    let (mut chain, core_reader) = setup();
+    let mut core_writer_actor = core_writer_actor(&chain);
     let genesis = chain.genesis_block();
     let block = build_block(&mut chain, &genesis, vec![]);
     process_block(&mut chain, block.clone());
@@ -458,11 +301,11 @@ fn test_core_statement_for_next_block_contains_new_execution_results() {
     let validators = test_validators();
     for validator in &validators {
         let endorsement = test_chunk_endorsement(&validator, &block, chunk_header);
-        core_processor.record_chunk_endorsement(endorsement.clone()).unwrap();
+        core_writer_actor.handle(SpiceChunkEndorsementMessage(endorsement.clone()));
     }
 
     let execution_result = test_execution_result_for_chunk(&chunk_header);
-    let core_statements = core_processor.core_statement_for_next_block(block.header()).unwrap();
+    let core_statements = core_reader.core_statement_for_next_block(block.header()).unwrap();
     assert!(core_statements.contains(&SpiceCoreStatement::ChunkExecutionResult {
         chunk_id: SpiceChunkId { block_hash: *block.hash(), shard_id: chunk_header.shard_id() },
         execution_result,
@@ -472,7 +315,8 @@ fn test_core_statement_for_next_block_contains_new_execution_results() {
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn test_core_statement_for_next_block_with_endorsements_creates_valid_block() {
-    let (mut chain, core_processor) = setup();
+    let (mut chain, core_reader) = setup();
+    let mut core_writer_actor = core_writer_actor(&chain);
     let genesis = chain.genesis_block();
     let block = build_block(&mut chain, &genesis, vec![]);
     process_block(&mut chain, block.clone());
@@ -480,17 +324,18 @@ fn test_core_statement_for_next_block_with_endorsements_creates_valid_block() {
     let chunks = block.chunks();
     let chunk_header = chunks.iter_raw().next().unwrap();
     let endorsement = test_chunk_endorsement(&test_validators()[0], &block, chunk_header);
-    core_processor.record_chunk_endorsement(endorsement).unwrap();
+    core_writer_actor.handle(SpiceChunkEndorsementMessage(endorsement));
 
-    let core_statements = core_processor.core_statement_for_next_block(block.header()).unwrap();
+    let core_statements = core_reader.core_statement_for_next_block(block.header()).unwrap();
     let next_block = build_block(&chain, &block, core_statements);
-    assert!(core_processor.validate_core_statements_in_block(&next_block).is_ok());
+    assert!(core_reader.validate_core_statements_in_block(&next_block).is_ok());
 }
 
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn test_core_statement_for_next_block_with_execution_results_creates_valid_block() {
-    let (mut chain, core_processor) = setup();
+    let (mut chain, core_reader) = setup();
+    let mut core_writer_actor = core_writer_actor(&chain);
     let genesis = chain.genesis_block();
     let block = build_block(&mut chain, &genesis, vec![]);
     process_block(&mut chain, block.clone());
@@ -500,18 +345,19 @@ fn test_core_statement_for_next_block_with_execution_results_creates_valid_block
     let validators = test_validators();
     for validator in &validators {
         let endorsement = test_chunk_endorsement(&validator, &block, chunk_header);
-        core_processor.record_chunk_endorsement(endorsement.clone()).unwrap();
+        core_writer_actor.handle(SpiceChunkEndorsementMessage(endorsement.clone()));
     }
 
-    let core_statements = core_processor.core_statement_for_next_block(block.header()).unwrap();
+    let core_statements = core_reader.core_statement_for_next_block(block.header()).unwrap();
     let next_block = build_block(&chain, &block, core_statements);
-    assert!(core_processor.validate_core_statements_in_block(&next_block).is_ok());
+    assert!(core_reader.validate_core_statements_in_block(&next_block).is_ok());
 }
 
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn test_core_statement_for_next_block_contains_no_already_included_execution_results() {
-    let (mut chain, core_processor) = setup();
+    let (mut chain, core_reader) = setup();
+    let mut core_writer_actor = core_writer_actor(&chain);
     let genesis = chain.genesis_block();
     let block = build_block(&mut chain, &genesis, vec![]);
     process_block(&mut chain, block.clone());
@@ -521,20 +367,21 @@ fn test_core_statement_for_next_block_contains_no_already_included_execution_res
     let validators = test_validators();
     for validator in &validators {
         let endorsement = test_chunk_endorsement(&validator, &block, chunk_header);
-        core_processor.record_chunk_endorsement(endorsement.clone()).unwrap();
+        core_writer_actor.handle(SpiceChunkEndorsementMessage(endorsement.clone()));
     }
 
-    let core_statements = core_processor.core_statement_for_next_block(block.header()).unwrap();
+    let core_statements = core_reader.core_statement_for_next_block(block.header()).unwrap();
     let next_block = build_block(&chain, &block, core_statements);
     process_block(&mut chain, next_block.clone());
 
-    assert_eq!(core_processor.core_statement_for_next_block(next_block.header()).unwrap(), vec![]);
+    assert_eq!(core_reader.core_statement_for_next_block(next_block.header()).unwrap(), vec![]);
 }
 
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn test_core_statement_for_next_block_contains_no_already_included_endorsement() {
-    let (mut chain, core_processor) = setup();
+    let (mut chain, core_reader) = setup();
+    let mut core_writer_actor = core_writer_actor(&chain);
     let genesis = chain.genesis_block();
     let block = build_block(&mut chain, &genesis, vec![]);
     process_block(&mut chain, block.clone());
@@ -542,19 +389,20 @@ fn test_core_statement_for_next_block_contains_no_already_included_endorsement()
     let chunks = block.chunks();
     let chunk_header = chunks.iter_raw().next().unwrap();
     let endorsement = test_chunk_endorsement(&test_validators()[0], &block, chunk_header);
-    core_processor.record_chunk_endorsement(endorsement).unwrap();
+    core_writer_actor.handle(SpiceChunkEndorsementMessage(endorsement));
 
-    let core_statements = core_processor.core_statement_for_next_block(block.header()).unwrap();
+    let core_statements = core_reader.core_statement_for_next_block(block.header()).unwrap();
     let next_block = build_block(&chain, &block, core_statements);
     process_block(&mut chain, next_block.clone());
 
-    assert_eq!(core_processor.core_statement_for_next_block(next_block.header()).unwrap(), vec![]);
+    assert_eq!(core_reader.core_statement_for_next_block(next_block.header()).unwrap(), vec![]);
 }
 
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn test_core_statement_for_next_block_contains_no_endorsements_for_included_execution_result() {
-    let (mut chain, core_processor) = setup();
+    let (mut chain, core_reader) = setup();
+    let mut core_writer_actor = core_writer_actor(&chain);
     let genesis = chain.genesis_block();
     let block = build_block(&mut chain, &genesis, vec![]);
     process_block(&mut chain, block.clone());
@@ -565,23 +413,24 @@ fn test_core_statement_for_next_block_contains_no_endorsements_for_included_exec
     let (last_validator, validators) = all_validators.split_last().unwrap();
     for validator in validators {
         let endorsement = test_chunk_endorsement(&validator, &block, chunk_header);
-        core_processor.record_chunk_endorsement(endorsement.clone()).unwrap();
+        core_writer_actor.handle(SpiceChunkEndorsementMessage(endorsement.clone()));
     }
 
-    let core_statements = core_processor.core_statement_for_next_block(block.header()).unwrap();
+    let core_statements = core_reader.core_statement_for_next_block(block.header()).unwrap();
     let next_block = build_block(&chain, &block, core_statements);
     process_block(&mut chain, next_block.clone());
 
     let endorsement = test_chunk_endorsement(&last_validator, &block, chunk_header);
-    core_processor.record_chunk_endorsement(endorsement).unwrap();
+    core_writer_actor.handle(SpiceChunkEndorsementMessage(endorsement));
 
-    assert_eq!(core_processor.core_statement_for_next_block(next_block.header()).unwrap(), vec![]);
+    assert_eq!(core_reader.core_statement_for_next_block(next_block.header()).unwrap(), vec![]);
 }
 
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn test_core_statement_for_next_block_contains_all_endorsements() {
-    let (mut chain, core_processor) = setup();
+    let (mut chain, core_reader) = setup();
+    let mut core_writer_actor = core_writer_actor(&chain);
     let genesis = chain.genesis_block();
     let block = build_block(&mut chain, &genesis, vec![]);
     process_block(&mut chain, block.clone());
@@ -592,47 +441,51 @@ fn test_core_statement_for_next_block_contains_all_endorsements() {
     let mut all_endorsements = Vec::new();
     for validator in all_validators {
         let endorsement = test_chunk_endorsement(&validator, &block, chunk_header);
-        core_processor.record_chunk_endorsement(endorsement.clone()).unwrap();
-        let (chunk_production_key, account_id, signed_inner, _execution_result, signature) =
-            endorsement.spice_destructure().unwrap();
-        all_endorsements.push(SpiceCoreStatement::Endorsement {
-            chunk_id: SpiceChunkId {
-                block_hash: *block.hash(),
-                shard_id: chunk_production_key.shard_id,
-            },
-            account_id,
-            endorsement: SpiceEndorsementWithSignature { inner: signed_inner, signature },
-        });
+        core_writer_actor.handle(SpiceChunkEndorsementMessage(endorsement.clone()));
+        all_endorsements.push(endorsement_into_core_statement(endorsement));
     }
 
-    let core_statements = core_processor.core_statement_for_next_block(block.header()).unwrap();
+    let core_statements = core_reader.core_statement_for_next_block(block.header()).unwrap();
     for endorsement in &all_endorsements {
         assert!(core_statements.contains(endorsement));
     }
 }
 
+fn run_record_uncertified_chunks_for_block(chain: &mut Chain, block: &Block) {
+    let mut chain_store_update = chain.chain_store.store_update();
+    assert!(
+        record_uncertified_chunks_for_block(
+            &mut chain_store_update,
+            chain.epoch_manager.as_ref(),
+            &block
+        )
+        .is_ok()
+    );
+    chain_store_update.commit().unwrap();
+}
+
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-fn test_record_block_for_non_spice_block() {
-    let (mut chain, core_processor) = setup();
+fn test_test_record_block_for_non_spice_block_for_non_spice_block() {
+    let (mut chain, _core_reader) = setup();
     let genesis = chain.genesis_block();
     let block = build_non_spice_block(&mut chain, &genesis);
-    assert!(core_processor.record_block(&block).is_ok());
+    run_record_uncertified_chunks_for_block(&mut chain, &block);
 }
 
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn test_record_block_for_block_without_endorsements() {
-    let (mut chain, core_processor) = setup();
+    let (mut chain, _core_reader) = setup();
     let genesis = chain.genesis_block();
     let block = build_block(&mut chain, &genesis, vec![]);
-    assert!(core_processor.record_block(&block).is_ok());
+    run_record_uncertified_chunks_for_block(&mut chain, &block);
 }
 
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn test_record_block_for_block_with_endorsements() {
-    let (mut chain, core_processor) = setup();
+    let (mut chain, _core_reader) = setup();
     let genesis = chain.genesis_block();
     let block = build_block(&mut chain, &genesis, vec![]);
     process_block(&mut chain, block.clone());
@@ -648,36 +501,18 @@ fn test_record_block_for_block_with_endorsements() {
         .iter()
         .map(|validator| {
             let endorsement = test_chunk_endorsement(&validator, &block, chunk_header);
-            let (chunk_production_key, account_id, signed_inner, _execution_result, signature) =
-                endorsement.spice_destructure().unwrap();
-            SpiceCoreStatement::Endorsement {
-                chunk_id: SpiceChunkId {
-                    block_hash: *block.hash(),
-                    shard_id: chunk_production_key.shard_id,
-                },
-                account_id,
-                endorsement: SpiceEndorsementWithSignature { inner: signed_inner, signature },
-            }
+            endorsement_into_core_statement(endorsement)
         })
         .collect_vec();
 
     let next_block = build_block(&mut chain, &genesis, block_core_statements);
-    let store_update = core_processor.record_block(&next_block).unwrap();
-    store_update.commit().unwrap();
-
-    assert!(core_processor.get_execution_results_by_shard_id(&block).unwrap().is_empty());
-    for validator in in_core_validators {
-        let endorsement = test_chunk_endorsement(&validator, &block, chunk_header);
-        core_processor.record_chunk_endorsement(endorsement).unwrap();
-    }
-    let execution_results = core_processor.get_execution_results_by_shard_id(&block).unwrap();
-    assert!(execution_results.contains_key(&chunk_header.shard_id()));
+    run_record_uncertified_chunks_for_block(&mut chain, &next_block);
 }
 
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn test_record_block_for_block_with_execution_results() {
-    let (mut chain, core_processor) = setup();
+    let (mut chain, _core_reader) = setup();
     let genesis = chain.genesis_block();
     let block = build_block(&mut chain, &genesis, vec![]);
     process_block(&mut chain, block.clone());
@@ -689,89 +524,24 @@ fn test_record_block_for_block_with_execution_results() {
         .iter()
         .map(|validator| {
             let endorsement = test_chunk_endorsement(&validator, &block, chunk_header);
-            let (chunk_production_key, account_id, signed_inner, _execution_result, signature) =
-                endorsement.spice_destructure().unwrap();
-            SpiceCoreStatement::Endorsement {
-                chunk_id: SpiceChunkId {
-                    block_hash: *block.hash(),
-                    shard_id: chunk_production_key.shard_id,
-                },
-                account_id,
-                endorsement: SpiceEndorsementWithSignature { inner: signed_inner, signature },
-            }
+            endorsement_into_core_statement(endorsement)
         })
         .collect_vec();
     let execution_result = test_execution_result_for_chunk(&chunk_header);
     block_core_statements.push(SpiceCoreStatement::ChunkExecutionResult {
         chunk_id: SpiceChunkId { block_hash: *block.hash(), shard_id: chunk_header.shard_id() },
-        execution_result: execution_result.clone(),
+        execution_result,
     });
 
     let next_block = build_block(&mut chain, &genesis, block_core_statements);
-    let store_update = core_processor.record_block(&next_block).unwrap();
-    store_update.commit().unwrap();
-    let execution_results = core_processor.get_execution_results_by_shard_id(&block).unwrap();
-    assert_eq!(execution_results.get(&chunk_header.shard_id()), Some(&Arc::new(execution_result)));
-}
-
-#[test]
-#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-fn test_record_block_processes_pending_endorsements() {
-    let (mut chain, core_processor) = setup();
-    let genesis = chain.genesis_block();
-    let block = build_block(&mut chain, &genesis, vec![]);
-    let chunks = block.chunks();
-    let chunk_header = chunks.iter_raw().next().unwrap();
-
-    for validator in test_validators() {
-        let endorsement = test_chunk_endorsement(&validator, &block, chunk_header);
-        core_processor.record_chunk_endorsement(endorsement).unwrap();
-    }
-
-    assert!(core_processor.get_execution_results_by_shard_id(&block).unwrap().is_empty());
-    let store_update = core_processor.record_block(&block).unwrap();
-    store_update.commit().unwrap();
-
-    let execution_results = core_processor.get_execution_results_by_shard_id(&block).unwrap();
-    assert_eq!(
-        execution_results.get(&chunk_header.shard_id()),
-        Some(&Arc::new(test_execution_result_for_chunk(&chunk_header)))
-    );
-}
-
-#[test]
-#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-fn test_record_block_processes_pending_endorsements_with_invalid_endorsement() {
-    let (mut chain, core_processor) = setup();
-    let genesis = chain.genesis_block();
-    let block = build_block(&mut chain, &genesis, vec![]);
-    let chunks = block.chunks();
-    let chunk_header = chunks.iter_raw().next().unwrap();
-
-    let all_validators = test_validators();
-    let (last_validator, validators) = all_validators.split_last().unwrap();
-    for validator in validators {
-        let endorsement = test_chunk_endorsement(&validator, &block, chunk_header);
-        core_processor.record_chunk_endorsement(endorsement).unwrap();
-    }
-    let invalid_endorsement = invalid_chunk_endorsement(&last_validator, &block, chunk_header);
-    core_processor.record_chunk_endorsement(invalid_endorsement).unwrap();
-
-    assert!(core_processor.get_execution_results_by_shard_id(&block).unwrap().is_empty());
-    let store_update = core_processor.record_block(&block).unwrap();
-    store_update.commit().unwrap();
-
-    let execution_results = core_processor.get_execution_results_by_shard_id(&block).unwrap();
-    assert_eq!(
-        execution_results.get(&chunk_header.shard_id()),
-        Some(&Arc::new(test_execution_result_for_chunk(&chunk_header)))
-    );
+    run_record_uncertified_chunks_for_block(&mut chain, &next_block);
 }
 
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn test_endorsements_from_forks_can_be_used_in_other_forks() {
-    let (mut chain, core_processor) = setup();
+    let (mut chain, core_reader) = setup();
+    let mut core_writer_actor = core_writer_actor(&chain);
     let genesis = chain.genesis_block();
     let block = build_block(&mut chain, &genesis, vec![]);
     process_block(&mut chain, block.clone());
@@ -779,40 +549,34 @@ fn test_endorsements_from_forks_can_be_used_in_other_forks() {
     let chunk_header = chunks.iter_raw().next().unwrap();
 
     let endorsement = test_chunk_endorsement(&test_validators()[0], &block, chunk_header);
-    let (_chunk_production_key, account_id, signed_inner, _execution_result, signature) =
-        endorsement.spice_destructure().unwrap();
-    let core_endorsement = SpiceCoreStatement::Endorsement {
-        chunk_id: SpiceChunkId { block_hash: *block.hash(), shard_id: chunk_header.shard_id() },
-        account_id,
-        endorsement: SpiceEndorsementWithSignature { inner: signed_inner, signature },
-    };
+    let core_endorsement = endorsement_into_core_statement(endorsement);
 
     let fork_block = build_block(&mut chain, &block, vec![core_endorsement.clone()]);
-    let store_update = core_processor.record_block(&fork_block).unwrap();
-    store_update.commit().unwrap();
+    process_block(&mut chain, fork_block.clone());
+    core_writer_actor.handle(ProcessedBlock { block_hash: *fork_block.hash() });
 
-    let core_statements = core_processor.core_statement_for_next_block(block.header()).unwrap();
+    let core_statements = core_reader.core_statement_for_next_block(block.header()).unwrap();
     assert_eq!(core_statements, vec![core_endorsement]);
 }
 
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn test_validate_core_statements_in_block_valid_with_non_spice_block() {
-    let (mut chain, core_processor) = setup();
+    let (mut chain, core_reader) = setup();
     let genesis = chain.genesis_block();
     let block = build_non_spice_block(&mut chain, &genesis);
-    assert!(core_processor.validate_core_statements_in_block(&block).is_ok());
+    assert!(core_reader.validate_core_statements_in_block(&block).is_ok());
 }
 
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn test_validate_core_statements_in_block_with_parent_not_recorded() {
-    let (mut chain, core_processor) = setup();
+    let (mut chain, core_reader) = setup();
     let genesis = chain.genesis_block();
     let block = build_block(&mut chain, &genesis, vec![]);
     let next_block = build_block(&mut chain, &block, vec![]);
     assert_matches!(
-        core_processor.validate_core_statements_in_block(&next_block),
+        core_reader.validate_core_statements_in_block(&next_block),
         Err(InvalidSpiceCoreStatementsError::NoPrevUncertifiedChunks)
     );
 }
@@ -820,7 +584,7 @@ fn test_validate_core_statements_in_block_with_parent_not_recorded() {
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn test_validate_core_statements_in_block_with_endorsement_with_invalid_account_id() {
-    let (mut chain, core_processor) = setup();
+    let (mut chain, core_reader) = setup();
     let genesis = chain.genesis_block();
     let block = build_block(&mut chain, &genesis, vec![]);
     process_block(&mut chain, block.clone());
@@ -829,20 +593,11 @@ fn test_validate_core_statements_in_block_with_endorsement_with_invalid_account_
 
     let invalid_validator = "invalid-validator";
     let endorsement = test_chunk_endorsement(invalid_validator, &block, chunk_header);
-    let (chunk_production_key, account_id, signed_inner, _execution_result, signature) =
-        endorsement.spice_destructure().unwrap();
-    let core_endorsement = SpiceCoreStatement::Endorsement {
-        chunk_id: SpiceChunkId {
-            block_hash: *block.hash(),
-            shard_id: chunk_production_key.shard_id,
-        },
-        account_id,
-        endorsement: SpiceEndorsementWithSignature { inner: signed_inner, signature },
-    };
+    let core_endorsement = endorsement_into_core_statement(endorsement);
 
     let next_block = build_block(&mut chain, &block, vec![core_endorsement]);
     assert_matches!(
-        core_processor.validate_core_statements_in_block(&next_block),
+        core_reader.validate_core_statements_in_block(&next_block),
         Err(InvalidSpiceCoreStatementsError::InvalidCoreStatement {
             reason: "endorsement is irrelevant",
             index: 0
@@ -853,7 +608,7 @@ fn test_validate_core_statements_in_block_with_endorsement_with_invalid_account_
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn test_validate_core_statements_in_block_with_endorsement_with_invalid_signature() {
-    let (mut chain, core_processor) = setup();
+    let (mut chain, core_reader) = setup();
     let genesis = chain.genesis_block();
     let block = build_block(&mut chain, &genesis, vec![]);
     process_block(&mut chain, block.clone());
@@ -861,26 +616,20 @@ fn test_validate_core_statements_in_block_with_endorsement_with_invalid_signatur
     let chunk_header = chunks.iter_raw().next().unwrap();
 
     let endorsement = test_chunk_endorsement(&test_validators()[0], &block, chunk_header);
-    let (chunk_production_key, account_id, _signed_inner, _execution_result, signature) =
-        endorsement.spice_destructure().unwrap();
-    let core_endorsement = SpiceCoreStatement::Endorsement {
-        chunk_id: SpiceChunkId {
-            block_hash: *block.hash(),
-            shard_id: chunk_production_key.shard_id,
-        },
-        account_id,
-        endorsement: SpiceEndorsementWithSignature {
-            inner: SpiceEndorsementSignedInner {
-                block_hash: *block.hash(),
-                execution_result_hash: ChunkExecutionResultHash(CryptoHash::default()),
-            },
-            signature,
-        },
-    };
+    let verified = endorsement_into_verified(endorsement);
 
+    let core_endorsement =
+        SpiceCoreStatement::Endorsement(testonly_create_endorsement_core_statement(
+            verified.account_id().clone(),
+            verified.signature().clone(),
+            SpiceEndorsementSignedData {
+                execution_result_hash: ChunkExecutionResultHash(CryptoHash::default()),
+                chunk_id: verified.chunk_id().clone(),
+            },
+        ));
     let next_block = build_block(&mut chain, &block, vec![core_endorsement]);
     assert_matches!(
-        core_processor.validate_core_statements_in_block(&next_block),
+        core_reader.validate_core_statements_in_block(&next_block),
         Err(InvalidSpiceCoreStatementsError::InvalidCoreStatement {
             reason: "invalid signature",
             index: 0
@@ -891,7 +640,7 @@ fn test_validate_core_statements_in_block_with_endorsement_with_invalid_signatur
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn test_validate_core_statements_in_block_with_endorsement_already_included() {
-    let (mut chain, core_processor) = setup();
+    let (mut chain, core_reader) = setup();
     let genesis = chain.genesis_block();
     let block = build_block(&mut chain, &genesis, vec![]);
     process_block(&mut chain, block.clone());
@@ -899,23 +648,14 @@ fn test_validate_core_statements_in_block_with_endorsement_already_included() {
     let chunk_header = chunks.iter_raw().next().unwrap();
 
     let endorsement = test_chunk_endorsement(&test_validators()[0], &block, chunk_header);
-    let (chunk_production_key, account_id, signed_inner, _execution_result, signature) =
-        endorsement.spice_destructure().unwrap();
-    let core_endorsement = SpiceCoreStatement::Endorsement {
-        chunk_id: SpiceChunkId {
-            block_hash: *block.hash(),
-            shard_id: chunk_production_key.shard_id,
-        },
-        account_id,
-        endorsement: SpiceEndorsementWithSignature { inner: signed_inner, signature },
-    };
+    let core_endorsement = endorsement_into_core_statement(endorsement);
 
     let next_block = build_block(&mut chain, &block, vec![core_endorsement.clone()]);
     process_block(&mut chain, next_block.clone());
 
     let next_next_block = build_block(&mut chain, &next_block, vec![core_endorsement]);
     assert_matches!(
-        core_processor.validate_core_statements_in_block(&next_next_block),
+        core_reader.validate_core_statements_in_block(&next_next_block),
         Err(InvalidSpiceCoreStatementsError::InvalidCoreStatement {
             reason: "endorsement is irrelevant",
             index: 0
@@ -926,7 +666,7 @@ fn test_validate_core_statements_in_block_with_endorsement_already_included() {
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn test_validate_core_statements_in_block_with_endorsement_for_unknown_block() {
-    let (mut chain, core_processor) = setup();
+    let (mut chain, core_reader) = setup();
     let genesis = chain.genesis_block();
     let block = build_block(&mut chain, &genesis, vec![]);
     process_block(&mut chain, block.clone());
@@ -937,20 +677,11 @@ fn test_validate_core_statements_in_block_with_endorsement_for_unknown_block() {
 
     let endorsement =
         test_chunk_endorsement(&test_validators()[0], &next_block, next_block_chunk_header);
-    let (chunk_production_key, account_id, signed_inner, _execution_result, signature) =
-        endorsement.spice_destructure().unwrap();
-    let core_endorsement = SpiceCoreStatement::Endorsement {
-        chunk_id: SpiceChunkId {
-            block_hash: *next_block.hash(),
-            shard_id: chunk_production_key.shard_id,
-        },
-        account_id,
-        endorsement: SpiceEndorsementWithSignature { inner: signed_inner, signature },
-    };
+    let core_endorsement = endorsement_into_core_statement(endorsement);
 
     let fork_block = build_block(&mut chain, &block, vec![core_endorsement]);
     assert_matches!(
-        core_processor.validate_core_statements_in_block(&fork_block),
+        core_reader.validate_core_statements_in_block(&fork_block),
         Err(InvalidSpiceCoreStatementsError::InvalidCoreStatement {
             reason: "endorsement is irrelevant",
             index: 0
@@ -961,7 +692,7 @@ fn test_validate_core_statements_in_block_with_endorsement_for_unknown_block() {
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn test_validate_core_statements_in_block_with_duplicate_endorsement() {
-    let (mut chain, core_processor) = setup();
+    let (mut chain, core_reader) = setup();
     let genesis = chain.genesis_block();
     let block = build_block(&mut chain, &genesis, vec![]);
     process_block(&mut chain, block.clone());
@@ -970,20 +701,11 @@ fn test_validate_core_statements_in_block_with_duplicate_endorsement() {
     let chunk_header = chunks.iter_raw().next().unwrap();
 
     let endorsement = test_chunk_endorsement(&test_validators()[0], &block, chunk_header);
-    let (chunk_production_key, account_id, signed_inner, _execution_result, signature) =
-        endorsement.spice_destructure().unwrap();
-    let core_endorsement = SpiceCoreStatement::Endorsement {
-        chunk_id: SpiceChunkId {
-            block_hash: *block.hash(),
-            shard_id: chunk_production_key.shard_id,
-        },
-        account_id,
-        endorsement: SpiceEndorsementWithSignature { inner: signed_inner, signature },
-    };
+    let core_endorsement = endorsement_into_core_statement(endorsement);
     let next_block =
         build_block(&mut chain, &block, vec![core_endorsement.clone(), core_endorsement]);
     assert_matches!(
-        core_processor.validate_core_statements_in_block(&next_block),
+        core_reader.validate_core_statements_in_block(&next_block),
         Err(InvalidSpiceCoreStatementsError::InvalidCoreStatement {
             reason: "duplicate endorsement",
             index: 1
@@ -994,7 +716,7 @@ fn test_validate_core_statements_in_block_with_duplicate_endorsement() {
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn test_validate_core_statements_in_block_with_duplicate_execution_result() {
-    let (mut chain, core_processor) = setup();
+    let (mut chain, core_reader) = setup();
     let genesis = chain.genesis_block();
     let block = build_block(&mut chain, &genesis, vec![]);
     process_block(&mut chain, block.clone());
@@ -1006,16 +728,7 @@ fn test_validate_core_statements_in_block_with_duplicate_execution_result() {
         .iter()
         .map(|validator| {
             let endorsement = test_chunk_endorsement(&validator, &block, chunk_header);
-            let (chunk_production_key, account_id, signed_inner, _execution_result, signature) =
-                endorsement.spice_destructure().unwrap();
-            SpiceCoreStatement::Endorsement {
-                chunk_id: SpiceChunkId {
-                    block_hash: *block.hash(),
-                    shard_id: chunk_production_key.shard_id,
-                },
-                account_id,
-                endorsement: SpiceEndorsementWithSignature { inner: signed_inner, signature },
-            }
+            endorsement_into_core_statement(endorsement)
         })
         .collect_vec();
     let execution_result = SpiceCoreStatement::ChunkExecutionResult {
@@ -1027,7 +740,7 @@ fn test_validate_core_statements_in_block_with_duplicate_execution_result() {
     let duplicate_index = block_core_statements.len() - 1;
 
     let next_block = build_block(&mut chain, &block, block_core_statements);
-    let result = core_processor.validate_core_statements_in_block(&next_block);
+    let result = core_reader.validate_core_statements_in_block(&next_block);
     assert_matches!(
         result,
         Err(InvalidSpiceCoreStatementsError::InvalidCoreStatement {
@@ -1044,7 +757,7 @@ fn test_validate_core_statements_in_block_with_duplicate_execution_result() {
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn test_validate_core_statements_in_block_with_child_execution_result_included_before_parent() {
-    let (mut chain, core_processor) = setup();
+    let (mut chain, core_reader) = setup();
     let genesis = chain.genesis_block();
     let parent_block = build_block(&mut chain, &genesis, vec![]);
     let parent_chunks = parent_block.chunks();
@@ -1060,16 +773,7 @@ fn test_validate_core_statements_in_block_with_child_execution_result_included_b
         .iter()
         .map(|validator| {
             let endorsement = test_chunk_endorsement(&validator, &block, chunk_header);
-            let (chunk_production_key, account_id, signed_inner, _execution_result, signature) =
-                endorsement.spice_destructure().unwrap();
-            SpiceCoreStatement::Endorsement {
-                chunk_id: SpiceChunkId {
-                    block_hash: *block.hash(),
-                    shard_id: chunk_production_key.shard_id,
-                },
-                account_id,
-                endorsement: SpiceEndorsementWithSignature { inner: signed_inner, signature },
-            }
+            endorsement_into_core_statement(endorsement)
         })
         .collect_vec();
     let execution_result = SpiceCoreStatement::ChunkExecutionResult {
@@ -1079,7 +783,7 @@ fn test_validate_core_statements_in_block_with_child_execution_result_included_b
     block_core_statements.push(execution_result);
 
     let next_block = build_block(&mut chain, &block, block_core_statements);
-    let result = core_processor.validate_core_statements_in_block(&next_block);
+    let result = core_reader.validate_core_statements_in_block(&next_block);
     assert_matches!(result, Err(InvalidSpiceCoreStatementsError::SkippedExecutionResult { .. }));
 
     let Err(InvalidSpiceCoreStatementsError::SkippedExecutionResult {
@@ -1096,7 +800,7 @@ fn test_validate_core_statements_in_block_with_child_execution_result_included_b
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn test_validate_core_statements_in_block_with_execution_result_included_without_enough_endorsements()
  {
-    let (mut chain, core_processor) = setup();
+    let (mut chain, core_reader) = setup();
     let genesis = chain.genesis_block();
     let block = build_block(&mut chain, &genesis, vec![]);
     process_block(&mut chain, block.clone());
@@ -1104,28 +808,17 @@ fn test_validate_core_statements_in_block_with_execution_result_included_without
     let chunk_header = chunks.iter_raw().next().unwrap();
 
     let endorsement = test_chunk_endorsement(&test_validators()[0], &block, chunk_header);
-    let (chunk_production_key, account_id, signed_inner, _execution_result, signature) =
-        endorsement.spice_destructure().unwrap();
+    let verified = endorsement_into_verified(endorsement.clone());
     let block_core_statements = vec![
-        SpiceCoreStatement::Endorsement {
-            chunk_id: SpiceChunkId {
-                block_hash: *block.hash(),
-                shard_id: chunk_production_key.shard_id,
-            },
-            account_id,
-            endorsement: SpiceEndorsementWithSignature { inner: signed_inner, signature },
-        },
+        endorsement_into_core_statement(endorsement),
         SpiceCoreStatement::ChunkExecutionResult {
-            chunk_id: SpiceChunkId {
-                block_hash: *block.hash(),
-                shard_id: chunk_production_key.shard_id,
-            },
+            chunk_id: verified.chunk_id().clone(),
             execution_result: test_execution_result_for_chunk(&chunk_header),
         },
     ];
 
     let next_block = build_block(&mut chain, &block, block_core_statements);
-    let result = core_processor.validate_core_statements_in_block(&next_block);
+    let result = core_reader.validate_core_statements_in_block(&next_block);
     assert_matches!(
         result,
         Err(InvalidSpiceCoreStatementsError::InvalidCoreStatement {
@@ -1138,7 +831,7 @@ fn test_validate_core_statements_in_block_with_execution_result_included_without
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn test_validate_core_statements_in_block_with_execution_result_included_without_endorsements() {
-    let (mut chain, core_processor) = setup();
+    let (mut chain, core_reader) = setup();
     let genesis = chain.genesis_block();
     let block = build_block(&mut chain, &genesis, vec![]);
     process_block(&mut chain, block.clone());
@@ -1151,7 +844,7 @@ fn test_validate_core_statements_in_block_with_execution_result_included_without
     }];
 
     let next_block = build_block(&mut chain, &block, block_core_statements);
-    let result = core_processor.validate_core_statements_in_block(&next_block);
+    let result = core_reader.validate_core_statements_in_block(&next_block);
     assert_matches!(
         result,
         Err(InvalidSpiceCoreStatementsError::InvalidCoreStatement {
@@ -1164,7 +857,7 @@ fn test_validate_core_statements_in_block_with_execution_result_included_without
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn test_validate_core_statements_in_block_with_enough_endorsements_but_no_execution_result() {
-    let (mut chain, core_processor) = setup();
+    let (mut chain, core_reader) = setup();
     let genesis = chain.genesis_block();
     let block = build_block(&mut chain, &genesis, vec![]);
     process_block(&mut chain, block.clone());
@@ -1176,21 +869,12 @@ fn test_validate_core_statements_in_block_with_enough_endorsements_but_no_execut
         .iter()
         .map(|validator| {
             let endorsement = test_chunk_endorsement(&validator, &block, chunk_header);
-            let (chunk_production_key, account_id, signed_inner, _execution_result, signature) =
-                endorsement.spice_destructure().unwrap();
-            SpiceCoreStatement::Endorsement {
-                chunk_id: SpiceChunkId {
-                    block_hash: *block.hash(),
-                    shard_id: chunk_production_key.shard_id,
-                },
-                account_id,
-                endorsement: SpiceEndorsementWithSignature { inner: signed_inner, signature },
-            }
+            endorsement_into_core_statement(endorsement)
         })
         .collect_vec();
 
     let next_block = build_block(&mut chain, &block, block_core_statements);
-    let result = core_processor.validate_core_statements_in_block(&next_block);
+    let result = core_reader.validate_core_statements_in_block(&next_block);
     assert_matches!(
         result,
         Err(InvalidSpiceCoreStatementsError::NoExecutionResultForEndorsedChunk { .. })
@@ -1209,7 +893,7 @@ fn test_validate_core_statements_in_block_with_enough_endorsements_but_no_execut
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn test_validate_core_statements_in_block_with_execution_result_different_from_endorsed_one() {
-    let (mut chain, core_processor) = setup();
+    let (mut chain, core_reader) = setup();
     let genesis = chain.genesis_block();
     let block = build_block(&mut chain, &genesis, vec![]);
     process_block(&mut chain, block.clone());
@@ -1221,16 +905,7 @@ fn test_validate_core_statements_in_block_with_execution_result_different_from_e
         .iter()
         .map(|validator| {
             let endorsement = test_chunk_endorsement(&validator, &block, chunk_header);
-            let (chunk_production_key, account_id, signed_inner, _execution_result, signature) =
-                endorsement.spice_destructure().unwrap();
-            SpiceCoreStatement::Endorsement {
-                chunk_id: SpiceChunkId {
-                    block_hash: *block.hash(),
-                    shard_id: chunk_production_key.shard_id,
-                },
-                account_id,
-                endorsement: SpiceEndorsementWithSignature { inner: signed_inner, signature },
-            }
+            endorsement_into_core_statement(endorsement)
         })
         .collect_vec();
     block_core_statements.push(SpiceCoreStatement::ChunkExecutionResult {
@@ -1240,7 +915,7 @@ fn test_validate_core_statements_in_block_with_execution_result_different_from_e
     let execution_result_index = block_core_statements.len() - 1;
 
     let next_block = build_block(&mut chain, &block, block_core_statements);
-    let result = core_processor.validate_core_statements_in_block(&next_block);
+    let result = core_reader.validate_core_statements_in_block(&next_block);
     assert_matches!(
         result,
         Err(InvalidSpiceCoreStatementsError::InvalidCoreStatement {
@@ -1257,19 +932,20 @@ fn test_validate_core_statements_in_block_with_execution_result_different_from_e
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn test_validate_core_statements_in_block_valid_with_no_core_statements() {
-    let (mut chain, core_processor) = setup();
+    let (mut chain, core_reader) = setup();
     let genesis = chain.genesis_block();
     let block = build_block(&mut chain, &genesis, vec![]);
     process_block(&mut chain, block.clone());
     let next_block = build_block(&mut chain, &block, vec![]);
-    assert_matches!(core_processor.validate_core_statements_in_block(&next_block), Ok(()));
+    assert_matches!(core_reader.validate_core_statements_in_block(&next_block), Ok(()));
 }
 
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn test_validate_core_statements_in_block_valid_with_not_enough_on_chain_endorsements_for_execution_result()
  {
-    let (mut chain, core_processor) = setup();
+    let (mut chain, core_reader) = setup();
+    let mut core_writer_actor = core_writer_actor(&chain);
     let genesis = chain.genesis_block();
     let block = build_block(&mut chain, &genesis, vec![]);
     process_block(&mut chain, block.clone());
@@ -1285,31 +961,22 @@ fn test_validate_core_statements_in_block_valid_with_not_enough_on_chain_endorse
         .iter()
         .map(|validator| {
             let endorsement = test_chunk_endorsement(&validator, &block, chunk_header);
-            let (chunk_production_key, account_id, signed_inner, _execution_result, signature) =
-                endorsement.spice_destructure().unwrap();
-            SpiceCoreStatement::Endorsement {
-                chunk_id: SpiceChunkId {
-                    block_hash: *block.hash(),
-                    shard_id: chunk_production_key.shard_id,
-                },
-                account_id,
-                endorsement: SpiceEndorsementWithSignature { inner: signed_inner, signature },
-            }
+            endorsement_into_core_statement(endorsement)
         })
         .collect_vec();
 
     for validator in in_core_validators {
         let endorsement = test_chunk_endorsement(&validator, &block, chunk_header);
-        core_processor.record_chunk_endorsement(endorsement).unwrap();
+        core_writer_actor.handle(SpiceChunkEndorsementMessage(endorsement));
     }
     let next_block = build_block(&mut chain, &block, block_core_statements);
-    assert_matches!(core_processor.validate_core_statements_in_block(&next_block), Ok(()));
+    assert_matches!(core_reader.validate_core_statements_in_block(&next_block), Ok(()));
 }
 
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn test_validate_core_statements_in_block_valid_endorsements_without_execution_result() {
-    let (mut chain, core_processor) = setup();
+    let (mut chain, core_reader) = setup();
     let genesis = chain.genesis_block();
     let block = build_block(&mut chain, &genesis, vec![]);
     process_block(&mut chain, block.clone());
@@ -1323,27 +990,18 @@ fn test_validate_core_statements_in_block_valid_endorsements_without_execution_r
         .iter()
         .map(|validator| {
             let endorsement = test_chunk_endorsement(&validator, &block, chunk_header);
-            let (chunk_production_key, account_id, signed_inner, _execution_result, signature) =
-                endorsement.spice_destructure().unwrap();
-            SpiceCoreStatement::Endorsement {
-                chunk_id: SpiceChunkId {
-                    block_hash: *block.hash(),
-                    shard_id: chunk_production_key.shard_id,
-                },
-                account_id,
-                endorsement: SpiceEndorsementWithSignature { inner: signed_inner, signature },
-            }
+            endorsement_into_core_statement(endorsement)
         })
         .collect_vec();
 
     let next_block = build_block(&mut chain, &block, block_core_statements);
-    assert_matches!(core_processor.validate_core_statements_in_block(&next_block), Ok(()));
+    assert_matches!(core_reader.validate_core_statements_in_block(&next_block), Ok(()));
 }
 
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn test_validate_core_statements_in_block_valid_endorsements_with_execution_result() {
-    let (mut chain, core_processor) = setup();
+    let (mut chain, core_reader) = setup();
     let genesis = chain.genesis_block();
     let block = build_block(&mut chain, &genesis, vec![]);
     process_block(&mut chain, block.clone());
@@ -1355,16 +1013,7 @@ fn test_validate_core_statements_in_block_valid_endorsements_with_execution_resu
         .iter()
         .map(|validator| {
             let endorsement = test_chunk_endorsement(&validator, &block, chunk_header);
-            let (chunk_production_key, account_id, signed_inner, _execution_result, signature) =
-                endorsement.spice_destructure().unwrap();
-            SpiceCoreStatement::Endorsement {
-                chunk_id: SpiceChunkId {
-                    block_hash: *block.hash(),
-                    shard_id: chunk_production_key.shard_id,
-                },
-                account_id,
-                endorsement: SpiceEndorsementWithSignature { inner: signed_inner, signature },
-            }
+            endorsement_into_core_statement(endorsement)
         })
         .collect_vec();
     block_core_statements.push(SpiceCoreStatement::ChunkExecutionResult {
@@ -1373,13 +1022,13 @@ fn test_validate_core_statements_in_block_valid_endorsements_with_execution_resu
     });
 
     let next_block = build_block(&mut chain, &block, block_core_statements);
-    assert_matches!(core_processor.validate_core_statements_in_block(&next_block), Ok(()));
+    assert_matches!(core_reader.validate_core_statements_in_block(&next_block), Ok(()));
 }
 
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn test_validate_core_statements_in_block_valid_execution_result_with_ancestral_endorsements() {
-    let (mut chain, core_processor) = setup();
+    let (mut chain, core_reader) = setup();
     let genesis = chain.genesis_block();
     let block = build_block(&mut chain, &genesis, vec![]);
     process_block(&mut chain, block.clone());
@@ -1393,16 +1042,7 @@ fn test_validate_core_statements_in_block_valid_execution_result_with_ancestral_
         .iter()
         .map(|validator| {
             let endorsement = test_chunk_endorsement(&validator, &block, chunk_header);
-            let (chunk_production_key, account_id, signed_inner, _execution_result, signature) =
-                endorsement.spice_destructure().unwrap();
-            SpiceCoreStatement::Endorsement {
-                chunk_id: SpiceChunkId {
-                    block_hash: *block.hash(),
-                    shard_id: chunk_production_key.shard_id,
-                },
-                account_id,
-                endorsement: SpiceEndorsementWithSignature { inner: signed_inner, signature },
-            }
+            endorsement_into_core_statement(endorsement)
         })
         .collect_vec();
     let next_block = build_block(&chain, &block, next_block_core_statements);
@@ -1412,16 +1052,7 @@ fn test_validate_core_statements_in_block_valid_execution_result_with_ancestral_
         .iter()
         .map(|validator| {
             let endorsement = test_chunk_endorsement(&validator, &block, chunk_header);
-            let (chunk_production_key, account_id, signed_inner, _execution_result, signature) =
-                endorsement.spice_destructure().unwrap();
-            SpiceCoreStatement::Endorsement {
-                chunk_id: SpiceChunkId {
-                    block_hash: *block.hash(),
-                    shard_id: chunk_production_key.shard_id,
-                },
-                account_id,
-                endorsement: SpiceEndorsementWithSignature { inner: signed_inner, signature },
-            }
+            endorsement_into_core_statement(endorsement)
         })
         .collect_vec();
     next_next_block_core_statements.push(SpiceCoreStatement::ChunkExecutionResult {
@@ -1430,166 +1061,7 @@ fn test_validate_core_statements_in_block_valid_execution_result_with_ancestral_
     });
 
     let next_next_block = build_block(&mut chain, &next_block, next_next_block_core_statements);
-    assert_matches!(core_processor.validate_core_statements_in_block(&next_next_block), Ok(()));
-}
-
-#[test]
-#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-fn test_send_execution_result_endorsements_with_endorsements_but_without_execution_result() {
-    let (executor_sc, mut executor_rc) = unbounded_channel();
-    let (validator_sc, mut validator_rc) = unbounded_channel();
-    let (mut chain, core_processor) =
-        setup_with_senders(sender_from_channel(executor_sc), sender_from_channel(validator_sc));
-    let genesis = chain.genesis_block();
-    let block = build_block(&mut chain, &genesis, vec![]);
-    process_block(&mut chain, block.clone());
-    let chunks = block.chunks();
-    let chunk_header = chunks.iter_raw().next().unwrap();
-
-    let endorsement = test_chunk_endorsement(&test_validators()[0], &block, chunk_header);
-    let (_chunk_production_key, account_id, signed_inner, _execution_result, signature) =
-        endorsement.spice_destructure().unwrap();
-    let block_core_statements = vec![SpiceCoreStatement::Endorsement {
-        chunk_id: SpiceChunkId { block_hash: *block.hash(), shard_id: chunk_header.shard_id() },
-        account_id,
-        endorsement: SpiceEndorsementWithSignature { inner: signed_inner, signature },
-    }];
-    let next_block = build_block(&mut chain, &block, block_core_statements);
-    process_block(&mut chain, next_block.clone());
-    core_processor.send_execution_result_endorsements(&next_block);
-    assert_matches!(executor_rc.try_recv(), Err(TryRecvError::Empty));
-    assert_matches!(validator_rc.try_recv(), Err(TryRecvError::Empty));
-}
-
-#[test]
-#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-fn test_send_execution_result_endorsements_with_non_spice_block() {
-    let (mut chain, core_processor) = setup();
-    let genesis = chain.genesis_block();
-    let block = build_non_spice_block(&mut chain, &genesis);
-    // We just want to make sure we don't panic.
-    core_processor.send_execution_result_endorsements(&block);
-}
-
-#[test]
-#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-fn test_send_execution_result_endorsements_with_endorsements_and_execution_results() {
-    let (executor_sc, mut executor_rc) = unbounded_channel();
-    let (validator_sc, mut validator_rc) = unbounded_channel();
-    let (mut chain, core_processor) =
-        setup_with_senders(sender_from_channel(executor_sc), sender_from_channel(validator_sc));
-    let genesis = chain.genesis_block();
-    let block = build_block(&mut chain, &genesis, vec![]);
-    process_block(&mut chain, block.clone());
-
-    let mut block_core_statements = Vec::new();
-
-    let all_validators = test_validators();
-    for chunk_header in block.chunks().iter_raw() {
-        for validator in &all_validators {
-            let endorsement = test_chunk_endorsement(&validator, &block, chunk_header);
-            let (_chunk_production_key, account_id, signed_inner, _execution_result, signature) =
-                endorsement.spice_destructure().unwrap();
-            block_core_statements.push(SpiceCoreStatement::Endorsement {
-                chunk_id: SpiceChunkId {
-                    block_hash: *block.hash(),
-                    shard_id: chunk_header.shard_id(),
-                },
-                account_id,
-                endorsement: SpiceEndorsementWithSignature { inner: signed_inner, signature },
-            });
-        }
-        block_core_statements.push(SpiceCoreStatement::ChunkExecutionResult {
-            chunk_id: SpiceChunkId { block_hash: *block.hash(), shard_id: chunk_header.shard_id() },
-            execution_result: test_execution_result_for_chunk(&chunk_header),
-        });
-    }
-    let next_block = build_block(&mut chain, &block, block_core_statements);
-    process_block(&mut chain, next_block.clone());
-    core_processor.send_execution_result_endorsements(&next_block);
-
-    let mut executor_notifications = Vec::new();
-    while let Ok(event) = executor_rc.try_recv() {
-        executor_notifications.push(event);
-    }
-    assert_eq!(executor_notifications, vec![ExecutionResultEndorsed { block_hash: *block.hash() }]);
-
-    let mut validator_notifications = Vec::new();
-    while let Ok(event) = validator_rc.try_recv() {
-        validator_notifications.push(event);
-    }
-    assert_eq!(
-        validator_notifications,
-        vec![ExecutionResultEndorsed { block_hash: *block.hash() }]
-    );
-}
-
-#[test]
-#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-fn test_send_execution_result_endorsements_with_execution_results_for_several_blocks() {
-    let (executor_sc, mut executor_rc) = unbounded_channel();
-    let (validator_sc, mut validator_rc) = unbounded_channel();
-    let (mut chain, core_processor) =
-        setup_with_senders(sender_from_channel(executor_sc), sender_from_channel(validator_sc));
-    let genesis = chain.genesis_block();
-    let parent_block = build_block(&mut chain, &genesis, vec![]);
-    process_block(&mut chain, parent_block.clone());
-    let current_block = build_block(&mut chain, &parent_block, vec![]);
-    process_block(&mut chain, current_block.clone());
-
-    let all_validators = test_validators();
-
-    let mut core_statements = Vec::new();
-
-    for block in [&parent_block, &current_block] {
-        for chunk_header in block.chunks().iter_raw() {
-            for validator in &all_validators {
-                let endorsement = test_chunk_endorsement(&validator, &block, chunk_header);
-                let (_chunk_production_key, account_id, signed_inner, _execution_result, signature) =
-                    endorsement.spice_destructure().unwrap();
-                core_statements.push(SpiceCoreStatement::Endorsement {
-                    chunk_id: SpiceChunkId {
-                        block_hash: *block.hash(),
-                        shard_id: chunk_header.shard_id(),
-                    },
-                    account_id,
-                    endorsement: SpiceEndorsementWithSignature { inner: signed_inner, signature },
-                });
-            }
-            core_statements.push(SpiceCoreStatement::ChunkExecutionResult {
-                chunk_id: SpiceChunkId {
-                    block_hash: *block.hash(),
-                    shard_id: chunk_header.shard_id(),
-                },
-                execution_result: test_execution_result_for_chunk(&chunk_header),
-            });
-        }
-    }
-
-    let next_block = build_block(&mut chain, &current_block, core_statements);
-    process_block(&mut chain, next_block.clone());
-    core_processor.send_execution_result_endorsements(&next_block);
-
-    let current_block_notification = ExecutionResultEndorsed { block_hash: *current_block.hash() };
-    let parent_block_notification = ExecutionResultEndorsed { block_hash: *parent_block.hash() };
-
-    let mut executor_notifications = Vec::new();
-    while let Ok(event) = executor_rc.try_recv() {
-        executor_notifications.push(event);
-    }
-
-    let mut validator_notifications = Vec::new();
-    while let Ok(event) = validator_rc.try_recv() {
-        validator_notifications.push(event);
-    }
-
-    assert_eq!(executor_notifications.len(), 2);
-    assert!(executor_notifications.contains(&current_block_notification));
-    assert!(executor_notifications.contains(&parent_block_notification));
-
-    assert_eq!(validator_notifications.len(), 2);
-    assert!(validator_notifications.contains(&current_block_notification));
-    assert!(validator_notifications.contains(&parent_block_notification));
+    assert_matches!(core_reader.validate_core_statements_in_block(&next_next_block), Ok(()));
 }
 
 fn block_builder(chain: &Chain, prev_block: &Block) -> TestBlockBuilder {
@@ -1628,20 +1100,7 @@ fn test_validators() -> Vec<String> {
     (0..4).map(|i| format!("test{i}")).collect()
 }
 
-fn sender_from_channel<T: Send>(sc: UnboundedSender<T>) -> Sender<T> {
-    Sender::from_fn(move |event| {
-        sc.send(event).unwrap();
-    })
-}
-
-fn setup() -> (Chain, CoreStatementsProcessor) {
-    setup_with_senders(noop().into_sender(), noop().into_sender())
-}
-
-fn setup_with_senders(
-    chunk_executor_sender: Sender<ExecutionResultEndorsed>,
-    spice_chunk_validator_sender: Sender<ExecutionResultEndorsed>,
-) -> (Chain, CoreStatementsProcessor) {
+fn setup() -> (Chain, SpiceCoreReader) {
     init_test_logger();
 
     let num_shards = 3;
@@ -1658,15 +1117,19 @@ fn setup_with_senders(
         .validators_spec(validators_spec)
         .build();
 
-    let mut chain = get_chain_with_genesis(Clock::real(), genesis);
-    let core_processor = CoreStatementsProcessor::new(
+    let chain = get_chain_with_genesis(Clock::real(), genesis);
+    let core_reader =
+        SpiceCoreReader::new(chain.chain_store().chain_store(), chain.epoch_manager.clone());
+    (chain, core_reader)
+}
+
+fn core_writer_actor(chain: &Chain) -> SpiceCoreWriterActor {
+    SpiceCoreWriterActor::new(
         chain.chain_store().chain_store(),
         chain.epoch_manager.clone(),
-        chunk_executor_sender,
-        spice_chunk_validator_sender,
-    );
-    chain.spice_core_processor = core_processor.clone();
-    (chain, core_processor)
+        noop().into_sender(),
+        noop().into_sender(),
+    )
 }
 
 fn test_execution_result_for_chunk(chunk_header: &ShardChunkHeader) -> ChunkExecutionResult {
@@ -1684,38 +1147,28 @@ fn invalid_execution_result_for_chunk(chunk_header: &ShardChunkHeader) -> ChunkE
     execution_result
 }
 
-fn invalid_chunk_endorsement(
-    validator: &str,
-    block: &Block,
-    chunk_header: &ShardChunkHeader,
-) -> ChunkEndorsement {
-    let execution_result = invalid_execution_result_for_chunk(chunk_header);
-    let epoch_id = block.header().epoch_id();
-    let signer = create_test_signer(&validator);
-    ChunkEndorsement::new_with_execution_result(
-        *epoch_id,
-        execution_result,
-        *block.hash(),
-        chunk_header.shard_id(),
-        chunk_header.height_created(),
-        &signer,
-    )
-}
-
 fn test_chunk_endorsement(
     validator: &str,
     block: &Block,
     chunk_header: &ShardChunkHeader,
-) -> ChunkEndorsement {
+) -> SpiceChunkEndorsement {
     let execution_result = test_execution_result_for_chunk(chunk_header);
-    let epoch_id = block.header().epoch_id();
     let signer = create_test_signer(&validator);
-    ChunkEndorsement::new_with_execution_result(
-        *epoch_id,
+    SpiceChunkEndorsement::new(
+        SpiceChunkId { block_hash: *block.hash(), shard_id: chunk_header.shard_id() },
         execution_result,
-        *block.hash(),
-        chunk_header.shard_id(),
-        chunk_header.height_created(),
         &signer,
     )
+}
+
+fn endorsement_into_verified(endorsement: SpiceChunkEndorsement) -> SpiceVerifiedEndorsement {
+    let signer = create_test_signer(endorsement.account_id().as_str());
+    endorsement.into_verified(&signer.public_key()).unwrap()
+}
+
+fn endorsement_into_core_statement(endorsement: SpiceChunkEndorsement) -> SpiceCoreStatement {
+    let verified = endorsement_into_verified(endorsement);
+    verified
+        .to_stored()
+        .into_core_statement(verified.chunk_id().clone(), verified.account_id().clone())
 }

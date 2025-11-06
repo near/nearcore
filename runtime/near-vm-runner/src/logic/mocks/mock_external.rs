@@ -1,7 +1,12 @@
 use crate::ContractCode;
 use crate::logic::dependencies::{Result, StorageAccessTracker};
-use crate::logic::types::{GlobalContractDeployMode, GlobalContractIdentifier, ReceiptIndex};
-use crate::logic::{External, ValuePtr};
+use crate::logic::types::{
+    ActionIndex, GlobalContractDeployMode, GlobalContractIdentifier, ReceiptIndex,
+};
+use crate::logic::{External, HostError, ValuePtr};
+use near_primitives_core::deterministic_account_id::{
+    DeterministicAccountStateInit, DeterministicAccountStateInitV1,
+};
 use near_primitives_core::hash::{CryptoHash, hash};
 use near_primitives_core::types::{AccountId, Balance, Gas, GasWeight};
 use std::collections::HashMap;
@@ -33,6 +38,11 @@ pub enum MockAction {
     UseGlobalContract {
         receipt_index: ReceiptIndex,
         contract_id: GlobalContractIdentifier,
+    },
+    DeterministicStateInit {
+        receipt_index: ReceiptIndex,
+        state_init: DeterministicAccountStateInit,
+        amount: Balance,
     },
     FunctionCallWeight {
         receipt_index: ReceiptIndex,
@@ -270,6 +280,50 @@ impl External for MockedExternal {
     ) -> Result<(), crate::logic::VMLogicError> {
         self.action_log.push(MockAction::UseGlobalContract { receipt_index, contract_id });
         Ok(())
+    }
+
+    fn append_action_deterministic_state_init(
+        &mut self,
+        receipt_index: ReceiptIndex,
+        contract_id: crate::logic::types::GlobalContractIdentifier,
+        amount: Balance,
+    ) -> Result<ActionIndex, crate::logic::VMLogicError> {
+        let action_index = self.action_log.len();
+        let state_init = DeterministicAccountStateInit::V1(DeterministicAccountStateInitV1 {
+            code: contract_id.into(),
+            data: Default::default(),
+        });
+        self.action_log.push(MockAction::DeterministicStateInit {
+            receipt_index,
+            state_init,
+            amount,
+        });
+        Ok(action_index as u64)
+    }
+
+    fn set_deterministic_state_init_data_entry(
+        &mut self,
+        receipt_index: ReceiptIndex,
+        action_index: ActionIndex,
+        key: Vec<u8>,
+        value: Vec<u8>,
+    ) -> Result<(), crate::logic::VMLogicError> {
+        let action = self.action_log.get_mut(action_index as usize);
+        match action {
+            Some(MockAction::DeterministicStateInit {
+                receipt_index: expected_receipt_index,
+                state_init,
+                ..
+            }) if *expected_receipt_index == receipt_index => {
+                let prev_value = state_init.data_mut().insert(key, value);
+                if prev_value.is_some() {
+                    Err(HostError::DataEntryAlreadyExists.into())
+                } else {
+                    Ok(())
+                }
+            }
+            _ => Err(HostError::InvalidActionIndex { receipt_index, action_index }.into()),
+        }
     }
 
     fn append_action_function_call_weight(

@@ -641,7 +641,7 @@ class LocalNode(BaseNode):
 
         env = os.environ.copy()
         env["RUST_BACKTRACE"] = "1"
-        env["RUST_LOG"] = "actix_web=warn,mio=warn,tokio_util=warn,actix_server=warn,actix_http=warn," + env.get(
+        env["RUST_LOG"] = "mio=warn,tokio_util=warn," + env.get(
             "RUST_LOG", "debug")
         env.update(extra_env)
         node_dir = pathlib.Path(self.node_dir)
@@ -1196,7 +1196,8 @@ def apply_config_changes(node_dir: str,
     for k, v in client_config_change.items():
         if not (k in allowed_missing_configs or k in config_json):
             raise ValueError(f'Unknown configuration option: {k}')
-        if k in config_json and isinstance(v, dict):
+        if k in config_json and isinstance(config_json[k], dict) and isinstance(
+                v, dict):
             config_json[k].update(v)
         else:
             # Support keys in the form of "a.b.c".

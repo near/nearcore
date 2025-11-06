@@ -34,12 +34,9 @@ impl StateSnapshotActor {
     }
 }
 
-#[derive(actix::Message, Debug)]
-#[rtype(result = "()")]
+#[derive(Debug)]
 pub struct DeleteSnapshotRequest {}
 
-#[derive(actix::Message)]
-#[rtype(result = "()")]
 pub struct CreateSnapshotRequest {
     /// equal to self.block.header().prev_hash()
     prev_block_hash: CryptoHash,

@@ -34,8 +34,7 @@ impl Default for TelemetryConfig {
 }
 
 /// Event to send over telemetry.
-#[derive(actix::Message, Debug)]
-#[rtype(result = "()")]
+#[derive(Debug)]
 pub struct TelemetryEvent {
     pub content: serde_json::Value,
 }

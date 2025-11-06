@@ -1,15 +1,19 @@
 use std::sync::Arc;
 use std::task::Poll;
 
+#[cfg(feature = "test_features")]
 use near_async::messaging::CanSend;
 use near_async::test_loop::TestLoopV2;
 use near_async::test_loop::data::TestLoopData;
 use near_async::time::Duration;
+use near_chain::Block;
 use near_chain::types::Tip;
-use near_client::Client;
+use near_client::{Client, ProcessTxRequest};
 use near_epoch_manager::shard_assignment::{account_id_to_shard_id, shard_id_to_uid};
 use near_primitives::errors::InvalidTxError;
-use near_primitives::transaction::SignedTransaction;
+use near_primitives::hash::CryptoHash;
+use near_primitives::sharding::ShardChunk;
+use near_primitives::transaction::{ExecutionOutcomeWithIdAndProof, SignedTransaction};
 use near_primitives::types::{AccountId, BlockHeight};
 use near_primitives::views::{
     AccountView, FinalExecutionOutcomeView, FinalExecutionStatus, QueryRequest, QueryResponse,
@@ -17,6 +21,7 @@ use near_primitives::views::{
 };
 
 use crate::setup::state::NodeExecutionData;
+use crate::utils::account::rpc_account_id;
 use crate::utils::transactions::TransactionRunner;
 
 /// Represents single node in multinode test loop setup. It simplifies
@@ -25,6 +30,12 @@ use crate::utils::transactions::TransactionRunner;
 /// transactions, waiting for blocks to be produces, querying state, etc.
 pub struct TestLoopNode<'a> {
     data: &'a NodeExecutionData,
+}
+
+impl<'a> From<&'a NodeExecutionData> for TestLoopNode<'a> {
+    fn from(value: &'a NodeExecutionData) -> Self {
+        Self { data: value }
+    }
 }
 
 impl<'a> TestLoopNode<'a> {
@@ -38,6 +49,11 @@ impl<'a> TestLoopNode<'a> {
         Self { data }
     }
 
+    pub fn rpc(node_datas: &'a [NodeExecutionData]) -> Self {
+        Self::for_account(node_datas, &rpc_account_id())
+    }
+
+    #[allow(unused)]
     pub fn all(node_datas: &'a [NodeExecutionData]) -> Vec<Self> {
         node_datas.iter().map(|data| Self { data }).collect()
     }
@@ -53,6 +69,24 @@ impl<'a> TestLoopNode<'a> {
 
     pub fn head(&self, test_loop_data: &TestLoopData) -> Arc<Tip> {
         self.client(test_loop_data).chain.head().unwrap()
+    }
+
+    pub fn head_block(&self, test_loop_data: &TestLoopData) -> Arc<Block> {
+        let block_hash = self.client(test_loop_data).chain.head().unwrap().last_block_hash;
+        self.block(test_loop_data, block_hash)
+    }
+
+    pub fn block(&self, test_loop_data: &TestLoopData, block_hash: CryptoHash) -> Arc<Block> {
+        self.client(test_loop_data).chain.get_block(&block_hash).unwrap()
+    }
+
+    pub fn block_chunks(&self, test_loop_data: &TestLoopData, block: &Block) -> Vec<ShardChunk> {
+        let chain_store = self.client(test_loop_data).chain.chain_store();
+        block
+            .chunks()
+            .iter_raw()
+            .map(|chunk_header| chain_store.get_chunk(chunk_header.chunk_hash()).unwrap())
+            .collect()
     }
 
     pub fn run_until_head_height(&self, test_loop: &mut TestLoopV2, height: BlockHeight) {
@@ -101,6 +135,37 @@ impl<'a> TestLoopNode<'a> {
         );
     }
 
+    pub fn submit_tx(&self, tx: SignedTransaction) {
+        let process_tx_request =
+            ProcessTxRequest { transaction: tx, is_forwarded: false, check_only: false };
+        self.data.rpc_handler_sender.send(process_tx_request);
+    }
+
+    pub fn run_until_outcome_available(
+        &self,
+        test_loop: &mut TestLoopV2,
+        tx_hash_or_receipt_id: CryptoHash,
+        maximum_duration: Duration,
+    ) -> ExecutionOutcomeWithIdAndProof {
+        let mut ret = None;
+        test_loop.run_until(
+            |test_loop_data| match self
+                .client(test_loop_data)
+                .chain
+                .get_execution_outcome(&tx_hash_or_receipt_id)
+            {
+                Ok(outcome) => {
+                    ret = Some(outcome);
+                    true
+                }
+                Err(_) => false,
+            },
+            maximum_duration,
+        );
+        ret.unwrap()
+    }
+
+    #[track_caller]
     pub fn run_tx(
         &self,
         test_loop: &mut TestLoopV2,

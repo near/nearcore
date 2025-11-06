@@ -2,7 +2,6 @@ use crate::parameter::Parameter;
 use enum_map::{EnumMap, enum_map};
 use near_account_id::AccountType;
 use near_primitives_core::types::{Balance, Compute, Gas};
-use near_primitives_core::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_schema_checker_lib::ProtocolSchema;
 use num_rational::Rational32;
 
@@ -448,11 +447,6 @@ pub struct RuntimeFeesConfig {
     /// Pessimistic gas price inflation ratio.
     pub pessimistic_gas_price_inflation_ratio: Rational32,
 
-    /// Whether we calculate in the gas price changes when refunding gas.
-    ///
-    /// Changed to false with [NEP-536](https://github.com/near/NEPs/pull/536)
-    pub refund_gas_price_changes: bool,
-
     /// Relative cost for gas refunds as a ratio of the refunded amount.
     ///
     /// The actual penalty is
@@ -473,7 +467,7 @@ pub struct RuntimeFeesConfig {
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub struct StorageUsageConfig {
     /// Amount of yN per byte required to have on the account. See
-    /// <https://nomicon.io/Economics/README.html#state-stake> for details.
+    /// <https://nomicon.io/Economics/Economic#state-stake> for details.
     pub storage_amount_per_byte: Balance,
     /// Number of bytes for an account record, including rounding up for account id.
     pub num_bytes_account: u64,
@@ -494,18 +488,8 @@ impl RuntimeFeesConfig {
             storage_usage_config: StorageUsageConfig::test(),
             burnt_gas_reward: Rational32::new(3, 10),
             pessimistic_gas_price_inflation_ratio: Rational32::new(103, 100),
-            refund_gas_price_changes: !ProtocolFeature::ReducedGasRefunds.enabled(PROTOCOL_VERSION),
-            gas_refund_penalty: if ProtocolFeature::ReducedGasRefunds.enabled(PROTOCOL_VERSION) {
-                Rational32::new(5, 100)
-            } else {
-                Rational32::new(0, 100)
-            },
-            min_gas_refund_penalty: if ProtocolFeature::ReducedGasRefunds.enabled(PROTOCOL_VERSION)
-            {
-                Gas::from_teragas(1)
-            } else {
-                Gas::ZERO
-            },
+            gas_refund_penalty: Rational32::new(5, 100),
+            min_gas_refund_penalty: Gas::from_teragas(1),
             action_fees: enum_map::enum_map! {
                 ActionCosts::create_account => Fee::test_value(3_850_000_000_000),
                 ActionCosts::delete_account => Fee::test_value(147489000000),
@@ -542,7 +526,6 @@ impl RuntimeFeesConfig {
             storage_usage_config: StorageUsageConfig::free(),
             burnt_gas_reward: Rational32::from_integer(0),
             pessimistic_gas_price_inflation_ratio: Rational32::from_integer(0),
-            refund_gas_price_changes: !ProtocolFeature::ReducedGasRefunds.enabled(PROTOCOL_VERSION),
             gas_refund_penalty: Rational32::from_integer(0),
             min_gas_refund_penalty: Gas::ZERO,
         }

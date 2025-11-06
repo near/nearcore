@@ -1,10 +1,10 @@
 use crate::account::{AccessKey, AccessKeyPermission, Account};
 use crate::action::{
-    DeployGlobalContractAction, GlobalContractDeployMode, GlobalContractIdentifier,
-    UseGlobalContractAction,
+    DeployGlobalContractAction, DeterministicStateInitAction, GlobalContractDeployMode,
+    GlobalContractIdentifier, UseGlobalContractAction,
 };
 use crate::block::Block;
-use crate::block_body::{BlockBody, ChunkEndorsementSignatures, SpiceCoreStatement};
+use crate::block_body::{BlockBody, ChunkEndorsementSignatures};
 use crate::block_header::BlockHeader;
 use crate::errors::EpochError;
 use crate::hash::CryptoHash;
@@ -23,6 +23,7 @@ use crate::views::{ExecutionStatusView, FinalExecutionOutcomeView, FinalExecutio
 use near_crypto::vrf::Value;
 use near_crypto::{EmptySigner, PublicKey, SecretKey, Signature, Signer};
 use near_primitives_core::account::AccountContract;
+use near_primitives_core::deterministic_account_id::DeterministicAccountStateInit;
 use near_primitives_core::types::{BlockHeight, MerkleHash, ProtocolVersion};
 use std::collections::HashMap;
 #[cfg(feature = "clock")]
@@ -426,6 +427,29 @@ impl SignedTransaction {
             0,
         )
     }
+
+    pub fn deterministic_state_init(
+        nonce: Nonce,
+        signer_id: AccountId,
+        receiver_id: AccountId,
+        signer: &Signer,
+        block_hash: CryptoHash,
+        state_init: DeterministicAccountStateInit,
+        deposit: Balance,
+    ) -> Self {
+        Self::from_actions(
+            nonce,
+            signer_id,
+            receiver_id,
+            signer,
+            vec![Action::DeterministicStateInit(Box::new(DeterministicStateInitAction {
+                state_init,
+                deposit,
+            }))],
+            block_hash,
+            0,
+        )
+    }
 }
 
 impl BlockHeader {
@@ -771,7 +795,7 @@ pub struct TestBlockBuilder {
     block_merkle_root: CryptoHash,
     chunks: Vec<ShardChunkHeader>,
     /// Iff `Some` spice block will be created.
-    spice_core_statements: Option<Vec<SpiceCoreStatement>>,
+    spice_core_statements: Option<Vec<crate::block_body::SpiceCoreStatement>>,
 }
 
 #[cfg(feature = "clock")]
@@ -834,7 +858,10 @@ impl TestBlockBuilder {
         self
     }
 
-    pub fn spice_core_statements(mut self, spice_core_statements: Vec<SpiceCoreStatement>) -> Self {
+    pub fn spice_core_statements(
+        mut self,
+        spice_core_statements: Vec<crate::block_body::SpiceCoreStatement>,
+    ) -> Self {
         self.spice_core_statements = Some(spice_core_statements);
         self
     }

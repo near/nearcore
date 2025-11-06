@@ -578,6 +578,7 @@ impl RunCmd {
                     Some(tx_crash),
                     Some(config_updater),
                 )
+                .await
                 .expect("start_with_config");
 
             let sig = loop {
@@ -594,7 +595,7 @@ impl RunCmd {
             if let Some(handle) = cold_store_loop_handle {
                 handle.store(false, std::sync::atomic::Ordering::Relaxed);
             }
-            resharding_handle.stop();
+            resharding_handle.0.stop();
             near_async::shutdown_all_actors();
             // Disable the subscriber to properly shutdown the tracer.
             near_o11y::reload(Some("error"), None, Some("off"), None).unwrap();

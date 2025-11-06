@@ -338,7 +338,7 @@ impl ReplayController {
         };
 
         let shard_update_result =
-            process_shard_update(&span, self.runtime.as_ref(), update_reason, shard_context)?;
+            process_shard_update(&span, self.runtime.as_ref(), update_reason, shard_context, None)?;
 
         let output = match shard_update_result {
             ShardUpdateResult::NewChunk(NewChunkResult {
@@ -460,9 +460,8 @@ impl ReplayController {
         }
 
         let mut store_update = self.chain_store.store_update();
-        let receipts_shuffle_salt = get_receipts_shuffle_salt(self.epoch_manager.as_ref(), block)?;
         for (shard_id, mut receipts) in receipt_proofs_by_shard_id {
-            shuffle_receipt_proofs(&mut receipts, receipts_shuffle_salt);
+            shuffle_receipt_proofs(&mut receipts, get_receipts_shuffle_salt(block));
             store_update.save_incoming_receipt(&block_hash, shard_id, Arc::new(receipts));
         }
         store_update.commit().unwrap();

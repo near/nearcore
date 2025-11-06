@@ -92,7 +92,7 @@ fn test_invalid_transactions_no_panic() {
                 create_chunk(client, transactions);
             let shard_chunk = chunk.to_shard_chunk().clone();
             client
-                .persist_and_distribute_encoded_chunk(
+                .distribute_and_persist_encoded_chunk(
                     chunk,
                     encoded_chunk_parts_paths,
                     receipts,
@@ -213,7 +213,7 @@ fn test_invalid_transactions_dont_invalidate_chunk() {
     let shard_chunk = chunk.to_shard_chunk().clone();
 
     client
-        .persist_and_distribute_encoded_chunk(
+        .distribute_and_persist_encoded_chunk(
             chunk,
             encoded_chunk_parts_paths,
             receipts,

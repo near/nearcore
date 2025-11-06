@@ -6,7 +6,7 @@ use std::task::Poll;
 use assert_matches::assert_matches;
 use itertools::Itertools;
 use near_async::futures::FutureSpawnerExt;
-use near_async::messaging::{AsyncSendError, CanSend, SendAsync};
+use near_async::messaging::{AsyncSendError, CanSend, CanSendAsync};
 use near_async::test_loop::TestLoopV2;
 use near_async::test_loop::data::TestLoopData;
 use near_async::test_loop::futures::TestLoopFutureSpawner;
@@ -100,6 +100,16 @@ pub(crate) fn execute_money_transfers(
     node_datas: &[NodeExecutionData],
     accounts: &[AccountId],
 ) -> Result<(), BalanceMismatchError> {
+    let default_delay = Duration::milliseconds(300);
+    execute_money_transfers_with_delay(test_loop, node_datas, accounts, default_delay)
+}
+
+pub(crate) fn execute_money_transfers_with_delay(
+    test_loop: &mut TestLoopV2,
+    node_datas: &[NodeExecutionData],
+    accounts: &[AccountId],
+    delay: Duration,
+) -> Result<(), BalanceMismatchError> {
     let clients = node_datas
         .iter()
         .map(|data| &test_loop.data.get(&data.client_sender.actor_handle()).client)
@@ -122,7 +132,7 @@ pub(crate) fn execute_money_transfers(
         *balances.get_mut(&receiver).unwrap() = balances[&receiver].checked_add(amount).unwrap();
         test_loop.send_adhoc_event_with_delay(
             format!("transaction {}", i),
-            Duration::milliseconds(300 * i as i64),
+            delay.saturating_mul(i as i32),
             move |data| {
                 let clients = node_data
                     .iter()
@@ -201,7 +211,7 @@ pub fn do_deploy_contract(
     tracing::info!(target: "test", "Deploying contract.");
     let nonce = get_next_nonce(&env.test_loop.data, &env.node_datas, contract_id);
     let tx = deploy_contract(&mut env.test_loop, &env.node_datas, rpc_id, contract_id, code, nonce);
-    env.test_loop.run_for(Duration::seconds(2));
+    env.test_loop.run_for(Duration::seconds(3));
     check_txs(&env.test_loop.data, &env.node_datas, rpc_id, &[tx]);
 }
 
@@ -225,7 +235,7 @@ pub fn do_call_contract(
         args,
         nonce,
     );
-    env.test_loop.run_for(Duration::seconds(2));
+    env.test_loop.run_for(Duration::seconds(3));
     check_txs(&env.test_loop.data, &env.node_datas, rpc_id, &[tx]);
 }
 
@@ -433,8 +443,7 @@ pub fn submit_tx(node_datas: &[NodeExecutionData], rpc_id: &AccountId, tx: Signe
     let rpc_node_data = get_node_data(node_datas, rpc_id);
     let rpc_node_data_sender = &rpc_node_data.rpc_handler_sender;
 
-    let future = rpc_node_data_sender.send_async(process_tx_request);
-    drop(future);
+    rpc_node_data_sender.send(process_tx_request);
 }
 
 /// Check the status of the transactions and assert that they are successful.

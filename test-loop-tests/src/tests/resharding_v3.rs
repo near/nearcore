@@ -492,7 +492,7 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
         .genesis(genesis)
         .epoch_config_store(epoch_config_store)
         .clients(params.clients)
-        .split_store_archival_clients(params.archivals.iter().cloned().collect())
+        .cold_storage_archival_clients(params.archivals.iter().cloned().collect())
         .load_memtries_for_tracked_shards(params.load_memtries_for_tracked_shards)
         .gc_num_epochs_to_keep(GC_NUM_EPOCHS_TO_KEEP)
         .build()
@@ -535,7 +535,7 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
         test_setup_transactions.push(create_account_tx);
     }
     // Wait for the test setup transactions to settle and ensure they all succeeded.
-    env.test_loop.run_for(Duration::seconds(2));
+    env.test_loop.run_for(Duration::milliseconds(2300));
     check_txs(&env.test_loop.data, &env.node_datas, &client_account_id, &test_setup_transactions);
 
     let client_handles =

@@ -3,10 +3,8 @@ use crate::routing::graph_v2::AdvertisedPeerDistance;
 use crate::routing::graph_v2::Inner;
 use crate::routing::{GraphV2, NetworkTopologyChange, NextHopTable};
 use crate::types::Edge;
-use near_async::time;
 use near_primitives::network::PeerId;
 use std::collections::{HashMap, HashSet};
-use std::sync::Arc;
 
 impl Inner {
     pub(crate) fn verify_and_cache_edge_nonces(&mut self, edges: &Vec<Edge>) -> bool {
@@ -37,30 +35,21 @@ impl GraphV2 {
     }
 
     pub(crate) async fn process_network_event(
-        self: &Arc<Self>,
+        &self,
         event: NetworkTopologyChange,
     ) -> Option<network_protocol::DistanceVector> {
-        let clock = time::FakeClock::default();
-        let (to_broadcast, oks) =
-            self.batch_process_network_changes(&clock.clock(), vec![event]).await;
+        let (to_broadcast, oks) = self.batch_process_network_changes(vec![event]).await;
         assert!(oks[0]);
         to_broadcast
     }
 
-    pub(crate) async fn process_invalid_network_event(
-        self: &Arc<Self>,
-        event: NetworkTopologyChange,
-    ) {
-        let clock = time::FakeClock::default();
-        let (_, oks) = self.batch_process_network_changes(&clock.clock(), vec![event]).await;
+    pub(crate) async fn process_invalid_network_event(&self, event: NetworkTopologyChange) {
+        let (_, oks) = self.batch_process_network_changes(vec![event]).await;
         assert!(!oks[0]);
     }
 
-    pub(crate) async fn recompute_routes(
-        self: &Arc<Self>,
-        clock: &time::Clock,
-    ) -> Option<network_protocol::DistanceVector> {
-        let (to_broadcast, _) = self.batch_process_network_changes(&clock, vec![]).await;
+    pub(crate) async fn recompute_routes(&self) -> Option<network_protocol::DistanceVector> {
+        let (to_broadcast, _) = self.batch_process_network_changes(vec![]).await;
         to_broadcast
     }
 
@@ -76,7 +65,7 @@ impl GraphV2 {
         assert_eq!(expected_distances, inner.my_distances);
 
         let mut expected_distances_by_id: Vec<Option<u32>> = vec![None; inner.edge_cache.max_id()];
-        for (peer_id, distance) in expected_distances.iter() {
+        for (peer_id, distance) in &expected_distances {
             let id = inner.edge_cache.get_id(peer_id) as usize;
             expected_distances_by_id[id] = Some(*distance);
         }

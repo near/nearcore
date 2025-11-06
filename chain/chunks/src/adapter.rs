@@ -1,4 +1,3 @@
-use actix::Message;
 use near_chain::types::Tip;
 use near_primitives::{
     hash::CryptoHash,
@@ -8,8 +7,7 @@ use near_primitives::{
     types::EpochId,
 };
 
-#[derive(Message, Debug, strum::IntoStaticStr, PartialEq)]
-#[rtype(result = "()")]
+#[derive(Debug, strum::IntoStaticStr, PartialEq)]
 pub enum ShardsManagerRequestFromClient {
     /// Processes the header seen from a block we received, if we have not already received the
     /// header earlier from the chunk producer (via PartialEncodedChunk).

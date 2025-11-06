@@ -11,10 +11,10 @@ pub use crate::network_protocol::{
     StateResponseInfoV1, StateResponseInfoV2,
 };
 use crate::routing::routing_table_view::RoutingTableInfo;
-use crate::spice_data_distribution::SpicePartialData;
+use crate::spice_data_distribution::SpicePartialDataRequest;
 pub use crate::state_sync::StateSyncResponse;
 use near_async::messaging::{AsyncSender, Sender};
-use near_async::{MultiSend, MultiSendMessage, MultiSenderFrom, time};
+use near_async::{MultiSend, MultiSenderFrom, time};
 use near_crypto::PublicKey;
 use near_primitives::block::{ApprovalMessage, Block};
 use near_primitives::epoch_sync::CompressedEpochSyncProof;
@@ -23,12 +23,14 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::optimistic_block::OptimisticBlock;
 use near_primitives::sharding::PartialEncodedChunkWithArcReceipts;
+use near_primitives::spice_partial_data::SpicePartialData;
 use near_primitives::state_sync::{PartIdOrHeader, StateRequestAckBody};
 use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsement;
 use near_primitives::stateless_validation::contract_distribution::{
     ChunkContractAccesses, ContractCodeRequest, ContractCodeResponse, PartialEncodedContractDeploys,
 };
 use near_primitives::stateless_validation::partial_witness::PartialEncodedStateWitness;
+use near_primitives::stateless_validation::spice_chunk_endorsement::SpiceChunkEndorsement;
 use near_primitives::stateless_validation::state_witness::ChunkStateWitnessAck;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, BlockHeight, EpochHeight, ShardId};
@@ -92,8 +94,7 @@ pub enum ReasonForBan {
 
 /// Banning signal sent from Peer instance to PeerManager
 /// just before Peer instance is stopped.
-#[derive(actix::Message, Debug)]
-#[rtype(result = "()")]
+#[derive(Debug)]
 pub struct Ban {
     pub peer_id: PeerId,
     pub ban_reason: ReasonForBan,
@@ -171,13 +172,11 @@ pub struct ChainInfo {
     pub tier1_accounts: Arc<AccountKeys>,
 }
 
-#[derive(Debug, actix::Message)]
-#[rtype(result = "()")]
+#[derive(Debug)]
 pub struct SetChainInfo(pub ChainInfo);
 
-/// Public actix interface of `PeerManagerActor`.
-#[derive(actix::Message, Debug, strum::IntoStaticStr)]
-#[rtype(result = "PeerManagerMessageResponse")]
+/// Public actor interface of `PeerManagerActor`.
+#[derive(Debug, strum::IntoStaticStr)]
 #[allow(clippy::large_enum_variant)]
 pub enum PeerManagerMessageRequest {
     NetworkRequests(NetworkRequests),
@@ -213,7 +212,7 @@ impl PeerManagerMessageRequest {
 }
 
 /// List of all replies to messages to `PeerManager`. See `PeerManagerMessageRequest` for more details.
-#[derive(actix::MessageResponse, Debug)]
+#[derive(Debug)]
 pub enum PeerManagerMessageResponse {
     NetworkResponses(NetworkResponses),
     AdvertiseTier1Proxies,
@@ -321,10 +320,13 @@ pub enum NetworkRequests {
     PartialEncodedContractDeploys(Vec<AccountId>, PartialEncodedContractDeploys),
     /// Message containing spice partial data.
     SpicePartialData { partial_data: SpicePartialData, recipients: HashSet<AccountId> },
+    /// Message for a spice chunk endorsement, sent by a chunk validator to all validators.
+    SpiceChunkEndorsement(AccountId, SpiceChunkEndorsement),
+    /// Message requesting spice partial data.
+    SpicePartialDataRequest { request: SpicePartialDataRequest, producer: AccountId },
 }
 
-#[derive(Debug, actix::Message, strum::IntoStaticStr)]
-#[rtype(result = "()")]
+#[derive(Debug, strum::IntoStaticStr)]
 pub enum StateSyncEvent {
     StatePartReceived(ShardId, u64),
 }
@@ -411,7 +413,7 @@ pub struct ConnectedPeerInfo {
     pub nonce: u64,
 }
 
-#[derive(Debug, Default, Clone, actix::MessageResponse, PartialEq, Eq)]
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct NetworkInfo {
     /// TIER2 connections.
     pub connected_peers: Vec<ConnectedPeerInfo>,
@@ -429,7 +431,7 @@ pub struct NetworkInfo {
     pub tier1_connections: Vec<ConnectedPeerInfo>,
 }
 
-#[derive(Debug, actix::MessageResponse, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum NetworkResponses {
     NoResponse,
     RouteNotFound,
@@ -450,16 +452,12 @@ pub struct PeerManagerAdapter {
     pub state_sync_event_sender: Sender<StateSyncEvent>,
 }
 
-#[derive(Clone, MultiSend, MultiSenderFrom, MultiSendMessage)]
-#[multi_send_message_derive(Debug)]
-#[multi_send_input_derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, MultiSend, MultiSenderFrom)]
 pub struct PeerManagerSenderForNetwork {
     pub tier3_request_sender: Sender<Tier3Request>,
 }
 
-#[derive(Clone, MultiSend, MultiSenderFrom, MultiSendMessage)]
-#[multi_send_message_derive(Debug)]
-#[multi_send_input_derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, MultiSend, MultiSenderFrom)]
 pub struct StateRequestSenderForNetwork {
     pub state_request_header: AsyncSender<StateRequestHeader, Option<StatePartOrHeader>>,
     pub state_request_part: AsyncSender<StateRequestPart, Option<StatePartOrHeader>>,
@@ -567,8 +565,7 @@ pub struct AccountIdOrPeerTrackingShard {
     pub min_height: BlockHeight,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, actix::Message)]
-#[rtype(result = "()")]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 /// An inbound request to which a response should be sent over Tier3
 pub struct Tier3Request {
     /// Target peer to send the response to

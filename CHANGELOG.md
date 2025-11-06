@@ -3,10 +3,26 @@
 ## [unreleased]
 
 ### Protocol Changes
-**No Changes**
+* The contract runtime has been upgraded to use the new Wasmtime-based runtime;
+* The contract runtime now allows for bulk memory instructions in Wasm code.
 
 ### Non-protocol Changes
 **No Changes**
+
+## [2.10.0]
+
+### Protocol Changes
+
+* Introducing deterministic account IDs: Account IDs starting with the prefix `0s` can only be created with the new action `DeterministicStateInit`. Its name is derived from the initial state and global contract it uses. [#14307](https://github.com/near/nearcore/pull/14307)
+* New host functions for deterministic initialization: Three new host functions `promise_batch_action_state_init`, `promise_batch_action_state_init_by_account_id` and `set_state_init_data_entry` allow creating the new action `DeterministicStateInit` from within a smart contract. [#14364](https://github.com/near/nearcore/pull/14364)
+* Accessing the current contract code: The new host function `current_contract_code` allows smart contracts to read the currently deployed code hash or global contract identifier. [#14372](https://github.com/near/nearcore/pull/14372)
+* Controlling balance refunds: The new host function `promise_set_refund_to` allows smart contracts to redirect balance refunds of outgoing receipts to other accounts. [#14285](https://github.com/near/nearcore/pull/14285)
+* Querying refund receivers: The new host function `refund_to_account_id` returns the receiver of balance refunds, which is either `predecessor_id` or the refund receiver set by the predecessor using `promise_set_refund_to`. [#14372](https://github.com/near/nearcore/pull/14372)
+* Gas optimization: Calls to the existing host functions `input` and `promise_result` no longer charge gas per byte (`wasm_write_memory_byte`), thanks to an optimization that eliminates unnecessary data copying. [#14405](https://github.com/near/nearcore/pull/14405)
+
+### Non-protocol Changes
+
+* Indexer changes, including breaking changes in the API. See the [indexer changelog](https://github.com/near/nearcore/blob/master/chain/indexer/CHANGELOG.md) for details.
 
 ## [2.9.0]
 
@@ -95,7 +111,7 @@ since they're hard links to database files that get cleaned up on every epoch. [
 ## 2.3.0
 
 ### Protocol Changes
-* Sets `chunk_validator_only_kickout_threshold` to 70. Uses this kickout threshold as a cutoff threshold for contribution of endorsement ratio in rewards calculation: if endorsement ratio is above 70%, the contribution of endorsement ratio in average uptime calculation is 100%, otherwise it is 0%. Endorsements received are now included in `BlockHeader` to improve kickout and reward calculation for chunk validators. 
+* Sets `chunk_validator_only_kickout_threshold` to 70. Uses this kickout threshold as a cutoff threshold for contribution of endorsement ratio in rewards calculation: if endorsement ratio is above 70%, the contribution of endorsement ratio in average uptime calculation is 100%, otherwise it is 0%. Endorsements received are now included in `BlockHeader` to improve kickout and reward calculation for chunk validators.
 
 ### Non-protocol Changes
 * Added [documentation](./docs/misc/archival_data_recovery.md) and a [reference](./scripts/recover_missing_archival_data.sh) script to recover the data lost in archival nodes at the beginning of 2024.
@@ -163,7 +179,7 @@ After that the node should be able to recover and sync with the rest of the netw
 
 ### Protocol Changes
 
-* Use more precise gas costs for function calls [#10943](https://github.com/near/nearcore/pull/10943) that should lead to more efficient chunk utilization. 
+* Use more precise gas costs for function calls [#10943](https://github.com/near/nearcore/pull/10943) that should lead to more efficient chunk utilization.
 
 ### Non-protocol Changes
 

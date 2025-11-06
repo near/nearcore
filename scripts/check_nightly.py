@@ -88,7 +88,7 @@ def main() -> typing.Optional[str]:
                 for test in expensive_tests_in_file(filepath):
                     print(f"  expensive test {test}")
                     if test not in nightly_txt_tests:
-                        return f"error: file {filepath} test {test} not in ci.txt"
+                        return f"error: file {filepath} test {test} not in nightly.txt"
                     # Marking nightly test as found.
                     nightly_txt_tests[test] = True
     for test, found in nightly_txt_tests.items():

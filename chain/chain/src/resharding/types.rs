@@ -4,8 +4,7 @@ use super::event_type::ReshardingSplitShardParams;
 
 /// Request to schedule a resharding task. The resharding actor will wait till the resharding
 /// block is finalized before starting resharding.
-#[derive(actix::Message, Clone, Debug)]
-#[rtype(result = "()")]
+#[derive(Clone, Debug)]
 pub struct ScheduleResharding {
     pub split_shard_event: ReshardingSplitShardParams,
 }

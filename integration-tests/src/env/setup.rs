@@ -8,7 +8,6 @@ use near_async::time::{Clock, Duration, Utc};
 use near_chain::rayon_spawner::RayonAsyncComputationSpawner;
 use near_chain::resharding::resharding_actor::ReshardingActor;
 use near_chain::resharding::types::ReshardingSender;
-use near_chain::spice_core::CoreStatementsProcessor;
 use near_chain::state_snapshot_actor::SnapshotCallbacks;
 use near_chain::types::{ChainConfig, RuntimeAdapter};
 use near_chain::{ApplyChunksIterationMode, Chain, ChainGenesis, DoomslugThresholdMode};
@@ -148,9 +147,7 @@ fn setup(
             min_block_prod_time,
             max_block_prod_time,
             num_block_producer_seats: num_validator_seats,
-            enable_split_store: false,
-            enable_cloud_archival_writer: false,
-            save_trie_changes: true,
+            archive: false,
             state_sync_enabled,
         });
         base.chunk_distribution_network = chunk_distribution_config;
@@ -212,7 +209,7 @@ fn setup(
         shard_tracker.clone(),
         runtime.clone(),
         PeerId::new(PublicKey::empty(KeyType::ED25519)),
-        actor_system.new_future_spawner().into(),
+        actor_system.new_future_spawner("state sync").into(),
         network_adapter.clone(),
         shards_manager_adapter_for_client.as_sender(),
         signer.clone(),
@@ -226,13 +223,10 @@ fn setup(
         Some(TEST_SEED),
         resharding_sender.into_multi_sender(),
         SpiceClientConfig {
-            core_processor: CoreStatementsProcessor::new_with_noop_senders(
-                runtime.store().chain_store(),
-                epoch_manager.clone(),
-            ),
             chunk_executor_sender: noop().into_sender(),
             spice_chunk_validator_sender: noop().into_sender(),
             spice_data_distributor_sender: noop().into_sender(),
+            spice_core_writer_sender: noop().into_sender(),
         },
     );
 
@@ -453,8 +447,7 @@ pub fn setup_client_with_runtime(
     shard_tracker: ShardTracker,
     runtime: Arc<dyn RuntimeAdapter>,
     rng_seed: RngSeed,
-    enable_split_store: bool,
-    save_trie_changes: bool,
+    split_store_enabled: bool,
     save_tx_outcomes: bool,
     protocol_version_check: ProtocolVersionCheckConfig,
     snapshot_callbacks: Option<SnapshotCallbacks>,
@@ -467,9 +460,7 @@ pub fn setup_client_with_runtime(
         min_block_prod_time: 10,
         max_block_prod_time: 20,
         num_block_producer_seats: num_validator_seats,
-        enable_split_store: enable_split_store,
-        enable_cloud_archival_writer: false,
-        save_trie_changes,
+        archive: split_store_enabled,
         state_sync_enabled: true,
     });
     config.save_tx_outcomes = save_tx_outcomes;
@@ -486,10 +477,6 @@ pub fn setup_client_with_runtime(
         chunk_state_witness: noop().into_sender(),
         block_notification: noop().into_sender(),
     };
-    let spice_core_processor = CoreStatementsProcessor::new_with_noop_senders(
-        runtime.store().chain_store(),
-        epoch_manager.clone(),
-    );
     let mut client = Client::new(
         clock,
         config,
@@ -507,12 +494,11 @@ pub fn setup_client_with_runtime(
         apply_chunks_iteration_mode,
         partial_witness_adapter,
         resharding_sender,
-        actor_system.new_future_spawner().into(),
+        actor_system.new_future_spawner("state sync").into(),
         noop().into_multi_sender(), // state sync ignored for these tests
         noop().into_multi_sender(), // apply chunks ping not necessary for these tests
         chunk_validation_sender,
         protocol_upgrade_schedule,
-        spice_core_processor,
     )
     .unwrap();
     client.sync_handler.sync_status = SyncStatus::NoSync;
@@ -553,7 +539,6 @@ pub fn setup_synchronous_shards_manager(
     // TODO(#8324): This should just be refactored so that we can construct Chain first
     // before anything else.
     let chunk_store = runtime.store().chunk_store();
-    let chain_store = runtime.store().chain_store();
     let chain = Chain::new(
         clock.clone(),
         epoch_manager.clone(),
@@ -576,7 +561,7 @@ pub fn setup_synchronous_shards_manager(
         Default::default(),
         MutableConfigValue::new(None, "validator_signer"),
         noop().into_multi_sender(),
-        CoreStatementsProcessor::new_with_noop_senders(chain_store, epoch_manager.clone()),
+        None,
     )
     .unwrap();
     let chain_head = chain.head().unwrap();
@@ -611,9 +596,7 @@ pub fn setup_tx_request_handler(
         min_block_prod_time: 10,
         max_block_prod_time: 20,
         num_block_producer_seats: 0,
-        enable_split_store: true,
-        enable_cloud_archival_writer: false,
-        save_trie_changes: true,
+        archive: true,
         state_sync_enabled: true,
     });
     let config = RpcHandlerConfig {

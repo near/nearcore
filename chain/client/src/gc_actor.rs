@@ -112,8 +112,7 @@ impl Actor for GCActor {
 }
 
 #[cfg(feature = "test_features")]
-#[derive(actix::Message, Debug)]
-#[rtype(result = "()")]
+#[derive(Debug)]
 pub enum NetworkAdversarialMessage {
     StopGC,
     ResumeGC,
