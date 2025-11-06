@@ -15,7 +15,8 @@ use near_primitives::state_sync::{StateHeaderKey, StatePartKey};
 use near_primitives::types::{BlockHeight, BlockHeightDelta, EpochId, NumBlocks, ShardId};
 use near_primitives::utils::{
     get_block_shard_id, get_block_shard_id_rev, get_endorsements_key_prefix,
-    get_execution_results_key, get_outcome_id_block_hash, get_receipt_proof_key, index_to_bytes,
+    get_execution_results_key, get_outcome_id_block_hash, get_receipt_proof_key, get_witnesses_key,
+    index_to_bytes,
 };
 use near_store::adapter::trie_store::get_shard_uid_mapping;
 use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
@@ -719,6 +720,10 @@ impl<'a> ChainStoreUpdate<'a> {
                         &get_receipt_proof_key(&block_hash, shard_id, to_shard_id),
                     );
                 }
+                // TODO(spice): GC witnesses for blocks with higher cadence (similar to state
+                // transition data). There is no need to retain witnesses for blocks older than
+                // final certification head.
+                self.gc_col(DBCol::witnesses(), &get_witnesses_key(&block_hash, shard_id));
             }
 
             // For incoming State Parts it's done in chain.clear_downloaded_parts()
@@ -1160,6 +1165,10 @@ impl<'a> ChainStoreUpdate<'a> {
             }
             #[cfg(feature = "protocol_feature_spice")]
             DBCol::ReceiptProofs => {
+                store_update.delete(col, key);
+            }
+            #[cfg(feature = "protocol_feature_spice")]
+            DBCol::Witnesses => {
                 store_update.delete(col, key);
             }
             #[cfg(feature = "protocol_feature_spice")]
