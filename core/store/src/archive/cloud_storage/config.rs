@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use near_chain_configs::ExternalStorageLocation;
 
-use crate::{Store, StoreConfig};
+use crate::Store;
 use crate::archive::cloud_storage::CloudStorage;
 use crate::archive::cloud_storage::opener::CloudStorageOpener;
 
@@ -24,8 +24,6 @@ pub struct CloudStorageConfig {
 pub struct CloudArchivalConfig {
     /// Configures the external storage used by the archival node.
     pub cloud_storage: CloudStorageConfig,
-    /// If provided, used by SplitStore as a local store with data prefetched from the cloud.
-    pub prefetch_db: Option<StoreConfig>,
 }
 
 /// Creates a test cloud archival configuration using a local filesystem path.
@@ -33,12 +31,11 @@ pub fn test_cloud_archival_config(root_dir: impl Into<PathBuf>) -> CloudArchival
     let storage_dir = root_dir.into().join("cloud_archival");
     let location = ExternalStorageLocation::Filesystem { root_dir: storage_dir };
     let cloud_storage = CloudStorageConfig { location, credentials_file: None };
-    let prefetch_db = Some(StoreConfig::test_config());
-    CloudArchivalConfig { cloud_storage, prefetch_db }
+    CloudArchivalConfig { cloud_storage }
 }
 
 /// Initializes a test cloud storage instance based on the test configuration.
 pub fn create_test_cloud_storage(root_dir: PathBuf, hot_store: Store) -> Arc<CloudStorage> {
     let config = test_cloud_archival_config(root_dir.clone());
-    CloudStorageOpener::new(&root_dir, config).open(hot_store).unwrap()
+    CloudStorageOpener::new(config).open(hot_store).unwrap()
 }

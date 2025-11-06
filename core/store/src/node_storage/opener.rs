@@ -213,8 +213,7 @@ impl<'a> StoreOpener<'a> {
         let hot = DBOpener::new(home_dir, store_config, Temperature::Hot);
         let cold =
             cold_store_config.map(|config| DBOpener::new(home_dir, config, Temperature::Cold));
-        let cloud =
-            cloud_archival_config.map(|config| CloudStorageOpener::new(home_dir, config.clone()));
+        let cloud = cloud_archival_config.map(|config| CloudStorageOpener::new(config.clone()));
         Self { hot, cold, migrator: None, cloud }
     }
 
@@ -257,7 +256,8 @@ impl<'a> StoreOpener<'a> {
         let hot_db = self.hot.open_unsafe(mode)?;
         let cold_db = self.cold.as_ref().map(|cold| cold.open_unsafe(mode)).transpose()?;
         let mut storage = NodeStorage::from_rocksdb(hot_db, cold_db);
-        let cloud_storage = self.cloud.as_ref().map(|cloud| cloud.open(storage.get_hot_store())).transpose()?;
+        let cloud_storage =
+            self.cloud.as_ref().map(|cloud| cloud.open(storage.get_hot_store())).transpose()?;
         storage.cloud_storage = cloud_storage;
         Ok(storage)
     }
@@ -371,7 +371,8 @@ impl<'a> StoreOpener<'a> {
     pub fn open_in_mode(&self, mode: Mode) -> Result<crate::NodeStorage, StoreOpenerError> {
         let (hot_db, hot_snapshot, cold_db, cold_snapshot) = self.open_dbs(mode)?;
         let mut storage: NodeStorage = NodeStorage::from_rocksdb(hot_db, cold_db);
-        let cloud_storage = self.cloud.as_ref().map(|cloud| cloud.open(storage.get_hot_store())).transpose()?;
+        let cloud_storage =
+            self.cloud.as_ref().map(|cloud| cloud.open(storage.get_hot_store())).transpose()?;
         storage.cloud_storage = cloud_storage;
 
         hot_snapshot.remove()?;

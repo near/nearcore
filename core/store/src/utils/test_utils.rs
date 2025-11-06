@@ -60,8 +60,11 @@ fn create_test_node_storage_archive(
     let hot = TestDB::new();
     let cold = if cold_enabled { Some(TestDB::new()) } else { None };
     let cold_db = cold.as_ref().map(|cold| cold.clone() as Arc<dyn Database>);
-    let cloud =
-        if cloud_enabled { Some(create_test_cloud_storage(home_dir.unwrap(), Store::new(hot.clone()))) } else { None };
+    let cloud = if cloud_enabled {
+        Some(create_test_cloud_storage(home_dir.unwrap(), Store::new(hot.clone())))
+    } else {
+        None
+    };
     let storage = NodeStorage::new_archive(hot.clone(), cold_db, cloud);
 
     let hot_store = storage.get_hot_store();

@@ -1,33 +1,28 @@
 use std::io::Result;
-use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use near_external_storage::ExternalConnection;
 
 use near_chain_configs::ExternalStorageLocation;
 
+use crate::Store;
 use crate::archive::cloud_storage::CloudStorage;
 use crate::archive::cloud_storage::config::CloudArchivalConfig;
-use crate::db::{Database, RocksDB};
-use crate::{Mode, Store, Temperature};
 
 /// Opener for the external archival storage, which results in an `CloudStorage` instance.
 pub struct CloudStorageOpener {
-    /// Home directory of the node, used as a base for local paths.
-    home_dir: PathBuf,
     /// Configuration for the cloud archival storage.
     config: CloudArchivalConfig,
 }
 
 impl CloudStorageOpener {
-    pub fn new(home_dir: &Path, config: CloudArchivalConfig) -> Self {
-        Self { home_dir: home_dir.to_path_buf(), config }
+    pub fn new(config: CloudArchivalConfig) -> Self {
+        Self { config }
     }
 
     pub fn open(&self, hot_store: Store) -> Result<Arc<CloudStorage>> {
         let external = self.create_external_connection();
-        let prefetch_db = self.open_prefetch_db()?;
-        let cloud_storage = CloudStorage { external, hot_store, prefetch_db };
+        let cloud_storage = CloudStorage { external, hot_store };
         Ok(Arc::new(cloud_storage))
     }
 
@@ -51,15 +46,5 @@ impl CloudStorageOpener {
             panic!("{} is not supported cloud storage location", location.name())
         }
         ExternalConnection::new(location, self.config.cloud_storage.credentials_file.clone(), None)
-    }
-
-    fn open_prefetch_db(&self) -> Result<Option<Arc<dyn Database>>> {
-        let Some(config) = &self.config.prefetch_db else {
-            return Ok(None);
-        };
-        let path = config.path.as_deref().unwrap_or_else(|| std::path::Path::new("cloud_prefetch"));
-        let path = self.home_dir.join(path);
-        let db = RocksDB::open(&path, config, Mode::ReadWrite, Temperature::Cold)?;
-        Ok(Some(Arc::new(db)))
     }
 }

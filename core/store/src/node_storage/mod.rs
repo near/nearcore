@@ -134,10 +134,6 @@ impl NodeStorage {
         }
     }
 
-    pub fn get_cloud_prefetch_store(&self) -> Option<Store> {
-        self.cloud_storage.as_ref().and_then(|cs| cs.prefetch_db.clone()).map(Store::new)
-    }
-
     pub fn get_cloud_storage(&self) -> Option<&Arc<CloudStorage>> {
         self.cloud_storage.as_ref()
     }

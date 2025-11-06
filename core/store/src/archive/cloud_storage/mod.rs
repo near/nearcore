@@ -1,8 +1,5 @@
-use std::sync::Arc;
-
 use near_external_storage::ExternalConnection;
 
-use crate::db::Database;
 use crate::Store;
 
 pub mod config;
@@ -19,6 +16,4 @@ pub struct CloudStorage {
     /// Connection to the external storage backend (e.g. S3, GCS, filesystem).
     external: ExternalConnection,
     hot_store: Store,
-    /// If provided, used as a local database with data prefetched from the cloud.
-    pub prefetch_db: Option<Arc<dyn Database>>,
 }

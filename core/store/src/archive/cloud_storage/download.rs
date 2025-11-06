@@ -34,7 +34,10 @@ impl CloudStorage {
         self.retrieve(&CloudStorageFileID::Head).await
     }
 
-    pub async fn retrieve_block_data(&self, block_height: BlockHeight) -> Result<BlockData, CloudRetrievalError> {
+    pub async fn retrieve_block_data(
+        &self,
+        block_height: BlockHeight,
+    ) -> Result<BlockData, CloudRetrievalError> {
         let file_id = CloudStorageFileID::Block(block_height);
         self.retrieve(&file_id).await
     }

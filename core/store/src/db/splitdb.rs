@@ -5,8 +5,8 @@ use std::sync::Arc;
 
 use near_o11y::log_assert_fail;
 
-use crate::archive::cloud_storage::CloudStorage;
 use crate::DBCol;
+use crate::archive::cloud_storage::CloudStorage;
 use crate::db::{DBIterator, DBIteratorItem, DBSlice, DBTransaction, Database, StoreStatistics};
 
 /// A database that provides access to the hot and cold databases.
@@ -188,7 +188,10 @@ impl Database for SplitDB {
             return self.hot.iter_raw_bytes(col);
         }
 
-        return Self::merge_iter(self.hot.iter_raw_bytes(col), self.cold.as_ref().unwrap().iter_raw_bytes(col));
+        return Self::merge_iter(
+            self.hot.iter_raw_bytes(col),
+            self.cold.as_ref().unwrap().iter_raw_bytes(col),
+        );
     }
 
     /// The split db, in principle, should be read only and only used in view client.
@@ -213,7 +216,7 @@ impl Database for SplitDB {
         log_assert_fail!("{}", msg);
         self.hot.compact()?;
         if let Some(cold) = &self.cold {
-            cold.compact()?;   
+            cold.compact()?;
         }
         Ok(())
     }

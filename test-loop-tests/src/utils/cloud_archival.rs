@@ -1,7 +1,7 @@
 use near_async::messaging::Handler;
 use near_chain::types::Tip;
-use near_client::archive::cloud_archival_writer::CloudArchivalWriterHandle;
 use near_client::GetBlock;
+use near_client::archive::cloud_archival_writer::CloudArchivalWriterHandle;
 use near_primitives::types::{AccountId, BlockHeight, BlockHeightDelta, BlockId, BlockReference};
 use near_store::adapter::StoreAdapter;
 use near_store::db::CLOUD_HEAD_KEY;
