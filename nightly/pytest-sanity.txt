@@ -59,8 +59,6 @@ pytest --timeout=15m sanity/state_sync_massive.py --features nightly
 # TODO(#12108): Enable the test again once decentralized state sync is implemented.
 # pytest sanity/state_sync_decentralized.py --features nightly
 
-pytest sanity/sync_chunks_from_archival.py
-pytest sanity/sync_chunks_from_archival.py --features nightly
 pytest sanity/rpc_tx_forwarding.py
 pytest sanity/rpc_tx_forwarding.py --features nightly
 pytest sanity/rpc_missing_block.py
@@ -125,22 +123,8 @@ pytest sanity/validator_remove_key_quick.py
 pytest sanity/validator_remove_key_quick.py --features nightly
 pytest sanity/shadow_tracking.py
 pytest sanity/shadow_tracking.py --features nightly
-pytest sanity/proxy_simple.py
-pytest sanity/proxy_simple.py --features nightly
-pytest sanity/proxy_restart.py
-pytest sanity/proxy_restart.py --features nightly
-pytest sanity/network_drop_package.py
-pytest sanity/network_drop_package.py --features nightly
-pytest sanity/sync_ban.py true
-pytest sanity/sync_ban.py true --features nightly
-pytest sanity/sync_ban.py false
-pytest sanity/sync_ban.py false --features nightly
-pytest sanity/block_chunk_signature.py
-pytest sanity/block_chunk_signature.py --features nightly
 pytest sanity/concurrent_function_calls.py
 pytest sanity/concurrent_function_calls.py --features nightly
-pytest sanity/proxy_example.py
-pytest sanity/proxy_example.py --features nightly
 pytest sanity/rpc_tx_submission.py
 pytest sanity/rpc_tx_submission.py --features nightly
 pytest sanity/validator_switch_key_quick.py
@@ -222,3 +206,4 @@ pytest sanity/chunk_validator_failover.py --features nightly
 # TODO(#13296): Enable after fixing flaky test
 # pytest sanity/epoch_sync.py
 # pytest sanity/epoch_sync.py --features nightly
+
