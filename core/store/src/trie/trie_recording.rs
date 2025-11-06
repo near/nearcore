@@ -78,7 +78,9 @@ pub struct SubtreeSize {
 impl TrieRecorder {
     pub fn new(proof_size_limit: Option<u64>) -> Self {
         Self {
-            recorded: Default::default(),
+            // Use 256 shards instead of default 16 to reduce lock contention
+            // when many parallel workers (e.g., rayon threads) record trie nodes.
+            recorded: dashmap::DashMap::with_capacity_and_shard_amount(4096, 256),
             proof_size_limit: proof_size_limit.unwrap_or(u64::MAX),
             size: Default::default(),
             upper_bound_size: Default::default(),

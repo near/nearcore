@@ -1607,12 +1607,17 @@ impl Runtime {
             || {
                 type AccountV = Result<Option<Account>, StorageError>;
                 type AccessKeyV = Result<Option<AccessKey>, StorageError>;
+                // Use 128 shards to reduce contention when parallel workers prefetch
+                // account and access key data.
                 let accounts =
-                    dashmap::DashMap::<&AccountId, AccountV>::with_capacity(num_transactions);
-                let access_keys =
-                    dashmap::DashMap::<(&AccountId, &PublicKey), AccessKeyV>::with_capacity(
+                    dashmap::DashMap::<&AccountId, AccountV>::with_capacity_and_shard_amount(
                         num_transactions,
+                        128,
                     );
+                let access_keys = dashmap::DashMap::<(&AccountId, &PublicKey), AccessKeyV>::with_capacity_and_shard_amount(
+                    num_transactions,
+                    128,
+                );
 
                 let (maybe_expired_txs, tx_expiration_flags) =
                     signed_txs.get_potentially_expired_transactions_and_expiration_flags();
