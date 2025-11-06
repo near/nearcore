@@ -46,7 +46,7 @@ class Test210(TestSetup):
             num_chunk_producer_seats=19, num_chunk_validator_seats=24)
         self.epoch_len = 1200  # 1200/1.7/60 = ~11.5min
         self.has_state_dumper = False
-        self.genesis_protocol_version = 80
+        self.genesis_protocol_version = 81
         self.has_archival = True
         self.regions = "us-east1,europe-west4,asia-east1,us-west1"
         self.upgrade_interval_minutes = 5  # 5 min; within the first 2 epochs
