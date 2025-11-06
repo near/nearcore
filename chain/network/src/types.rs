@@ -237,6 +237,12 @@ impl From<NetworkResponses> for PeerManagerMessageResponse {
     }
 }
 
+#[derive(Clone, strum::AsRefStr, Debug, Eq, PartialEq)]
+pub enum SnapshotHostEvent {
+    NewSyncHashDetected { sync_hash: CryptoHash, epoch_height: EpochHeight },
+    SnapshotCreated { sync_hash: CryptoHash, epoch_height: EpochHeight, shards: Vec<ShardId> },
+}
+
 // TODO(#1313): Use Box
 #[derive(Clone, strum::AsRefStr, Debug, Eq, PartialEq)]
 #[allow(clippy::large_enum_variant)]
@@ -273,7 +279,7 @@ pub enum NetworkRequests {
     /// Announce account
     AnnounceAccount(AnnounceAccount),
     /// Broadcast information about a hosted snapshot.
-    SnapshotHostInfo { sync_hash: CryptoHash, epoch_height: EpochHeight, shards: Vec<ShardId> },
+    SnapshotHostEvent(SnapshotHostEvent),
 
     /// Request chunk parts and/or receipts
     PartialEncodedChunkRequest {

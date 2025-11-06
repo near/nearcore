@@ -8,6 +8,7 @@ use crate::testonly::{AsSet as _, make_rng};
 use crate::types::NetworkRequests;
 use crate::types::PeerManagerMessageRequest;
 use crate::types::PeerMessage;
+use crate::types::SnapshotHostEvent;
 use crate::{network_protocol::testonly as data, peer::testonly::PeerHandle};
 use itertools::Itertools;
 use near_async::messaging::CanSendAsync;
@@ -327,13 +328,20 @@ async fn propagate() {
 
     tracing::info!(target:"test", "send a snapshot host info message from peer manager #1");
     let info1 = make_snapshot_host_info(&pms[1].peer_info().id, &pms[1].cfg.node_key, rng);
-
-    let message = PeerManagerMessageRequest::NetworkRequests(NetworkRequests::SnapshotHostInfo {
-        sync_hash: info1.sync_hash,
-        epoch_height: info1.epoch_height,
-        shards: info1.shards.clone(),
-    });
-
+    let new_epoch_event = PeerManagerMessageRequest::NetworkRequests(
+        NetworkRequests::SnapshotHostEvent(SnapshotHostEvent::NewSyncHashDetected {
+            sync_hash: info1.sync_hash,
+            epoch_height: info1.epoch_height,
+        }),
+    );
+    let message = PeerManagerMessageRequest::NetworkRequests(NetworkRequests::SnapshotHostEvent(
+        SnapshotHostEvent::SnapshotCreated {
+            sync_hash: info1.sync_hash,
+            epoch_height: info1.epoch_height,
+            shards: info1.shards.clone(),
+        },
+    ));
+    let _: () = pms[1].actor.send_async(new_epoch_event).await.unwrap();
     let _: () = pms[1].actor.send_async(message).await.unwrap();
 
     tracing::info!(target:"test", "make sure that the message sent from #1 reaches #2 on the other side of the ring");
@@ -426,12 +434,19 @@ async fn too_many_shards_truncate() {
     let sync_hash = CryptoHash::hash_borsh(rng.r#gen::<u64>());
     let epoch_height: EpochHeight = rng.r#gen();
 
-    let message = PeerManagerMessageRequest::NetworkRequests(NetworkRequests::SnapshotHostInfo {
-        sync_hash,
-        epoch_height,
-        shards: too_many_shards.clone(),
-    });
+    let new_epoch_event =
+        PeerManagerMessageRequest::NetworkRequests(NetworkRequests::SnapshotHostEvent(
+            SnapshotHostEvent::NewSyncHashDetected { sync_hash, epoch_height },
+        ));
+    let message = PeerManagerMessageRequest::NetworkRequests(NetworkRequests::SnapshotHostEvent(
+        SnapshotHostEvent::SnapshotCreated {
+            sync_hash,
+            epoch_height,
+            shards: too_many_shards.clone(),
+        },
+    ));
 
+    let _: () = pm.actor.send_async(new_epoch_event).await.unwrap();
     let _: () = pm.actor.send_async(message).await.unwrap();
 
     tracing::info!(target:"test", "receive the truncated snapshot host info message on peer1, make sure that the contents are correct");
