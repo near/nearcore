@@ -1,12 +1,9 @@
 use std::collections::HashMap;
 
 use near_primitives::epoch_manager::EpochConfig;
+use near_primitives::types::{AccountId, Balance, BlockChunkValidatorStats};
 use num_rational::Rational32;
 use primitive_types::{U256, U512};
-
-use near_chain_configs::GenesisConfig;
-use near_primitives::types::{AccountId, Balance, BlockChunkValidatorStats};
-use near_primitives::version::ProtocolVersion;
 
 use crate::validator_stats::get_validator_online_ratio;
 
@@ -25,129 +22,6 @@ pub struct ValidatorOnlineThresholds {
     /// before calculating the average uptime ratio of the validator.
     /// If not set, endorsement ratio will be used as is.
     pub endorsement_cutoff_threshold: Option<u8>,
-}
-
-#[derive(Clone, Debug)]
-pub struct RewardCalculator {
-    pub num_blocks_per_year: u64,
-    pub epoch_length: u64,
-    pub protocol_reward_rate: Rational32,
-    pub protocol_treasury_account: AccountId,
-    pub num_seconds_per_year: u64,
-    pub max_inflation_rate: Rational32,
-}
-
-impl RewardCalculator {
-    pub fn new(config: &GenesisConfig, epoch_length: u64) -> Self {
-        RewardCalculator {
-            num_blocks_per_year: config.num_blocks_per_year,
-            epoch_length,
-            protocol_reward_rate: config.protocol_reward_rate,
-            protocol_treasury_account: config.protocol_treasury_account.clone(),
-            num_seconds_per_year: NUM_SECONDS_IN_A_YEAR,
-            max_inflation_rate: config.max_inflation_rate,
-        }
-    }
-
-    pub fn update_parameters(&mut self, config: &EpochConfig) {
-        self.num_blocks_per_year = config.num_blocks_per_year;
-        self.protocol_treasury_account = config.protocol_treasury_account.clone();
-        self.protocol_reward_rate = config.protocol_reward_rate;
-        self.max_inflation_rate = config.max_inflation_rate;
-    }
-
-    /// Calculate validator reward for an epoch based on their block and chunk production stats.
-    /// Returns map of validators with their rewards and amount of newly minted tokens including to protocol's treasury.
-    /// See spec <https://nomicon.io/Economics/Economic#validator-rewards-calculation>.
-    pub fn calculate_reward(
-        &self,
-        validator_block_chunk_stats: HashMap<AccountId, BlockChunkValidatorStats>,
-        validator_stake: &HashMap<AccountId, Balance>,
-        total_supply: Balance,
-        _protocol_version: ProtocolVersion,
-        epoch_duration: u64,
-        online_thresholds: ValidatorOnlineThresholds,
-    ) -> (HashMap<AccountId, Balance>, Balance) {
-        let mut res = HashMap::new();
-        let num_validators = validator_block_chunk_stats.len();
-        let epoch_total_reward = Balance::from_yoctonear(
-            (U256::from(*self.max_inflation_rate.numer() as u64)
-                * U256::from(total_supply.as_yoctonear())
-                * U256::from(epoch_duration)
-                / (U256::from(self.num_seconds_per_year)
-                    * U256::from(*self.max_inflation_rate.denom() as u64)
-                    * U256::from(NUM_NS_IN_SECOND)))
-            .as_u128(),
-        );
-        let epoch_protocol_treasury = Balance::from_yoctonear(
-            (U256::from(epoch_total_reward.as_yoctonear())
-                * U256::from(*self.protocol_reward_rate.numer() as u64)
-                / U256::from(*self.protocol_reward_rate.denom() as u64))
-            .as_u128(),
-        );
-        res.insert(self.protocol_treasury_account.clone(), epoch_protocol_treasury);
-        if num_validators == 0 {
-            return (res, Balance::ZERO);
-        }
-        let epoch_validator_reward =
-            epoch_total_reward.checked_sub(epoch_protocol_treasury).unwrap();
-        let mut epoch_actual_reward = epoch_protocol_treasury;
-        let total_stake: Balance = validator_stake
-            .values()
-            .fold(Balance::ZERO, |sum, item| sum.checked_add(*item).unwrap());
-        for (account_id, stats) in validator_block_chunk_stats {
-            let production_ratio =
-                get_validator_online_ratio(&stats, online_thresholds.endorsement_cutoff_threshold);
-            let average_produced_numer = production_ratio.numer();
-            let average_produced_denom = production_ratio.denom();
-
-            let expected_blocks = stats.block_stats.expected;
-            let expected_chunks = stats.chunk_stats.expected();
-            let expected_endorsements = stats.chunk_stats.endorsement_stats().expected;
-
-            let online_min_numer =
-                U256::from(*online_thresholds.online_min_threshold.numer() as u64);
-            let online_min_denom =
-                U256::from(*online_thresholds.online_min_threshold.denom() as u64);
-            // If average of produced blocks below online min threshold, validator gets 0 reward.
-            let reward = if average_produced_numer * online_min_denom
-                < online_min_numer * average_produced_denom
-                || (expected_chunks == 0 && expected_blocks == 0 && expected_endorsements == 0)
-            {
-                Balance::ZERO
-            } else {
-                // cspell:ignore denum
-                let stake = *validator_stake
-                    .get(&account_id)
-                    .unwrap_or_else(|| panic!("{} is not a validator", account_id));
-                // Online reward multiplier is min(1., (uptime - online_threshold_min) / (online_threshold_max - online_threshold_min).
-                let online_max_numer =
-                    U256::from(*online_thresholds.online_max_threshold.numer() as u64);
-                let online_max_denom =
-                    U256::from(*online_thresholds.online_max_threshold.denom() as u64);
-                let online_numer =
-                    online_max_numer * online_min_denom - online_min_numer * online_max_denom;
-                let mut uptime_numer = (average_produced_numer * online_min_denom
-                    - online_min_numer * average_produced_denom)
-                    * online_max_denom;
-                let uptime_denum = online_numer * average_produced_denom;
-                // Apply min between 1. and computed uptime.
-                uptime_numer =
-                    if uptime_numer > uptime_denum { uptime_denum } else { uptime_numer };
-                Balance::from_yoctonear(
-                    (U512::from(epoch_validator_reward.as_yoctonear())
-                        * U512::from(uptime_numer)
-                        * U512::from(stake.as_yoctonear())
-                        / U512::from(uptime_denum)
-                        / U512::from(total_stake.as_yoctonear()))
-                    .as_u128(),
-                )
-            };
-            res.insert(account_id, reward);
-            epoch_actual_reward = epoch_actual_reward.checked_add(reward).unwrap();
-        }
-        (res, epoch_actual_reward)
-    }
 }
 
 /// Calculate validator reward for an epoch based on their block and chunk production stats.

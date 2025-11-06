@@ -3,7 +3,6 @@
 pub use crate::adapter::EpochManagerAdapter;
 use crate::metrics::{PROTOCOL_VERSION_NEXT, PROTOCOL_VERSION_VOTES};
 pub use crate::reward_calculator::NUM_SECONDS_IN_A_YEAR;
-pub use crate::reward_calculator::RewardCalculator;
 use epoch_info_aggregator::EpochInfoAggregator;
 use itertools::Itertools;
 use near_cache::SyncLruCache;
@@ -122,7 +121,6 @@ pub struct EpochManager {
     store: Store,
     /// Current epoch config.
     config: AllEpochConfig,
-    reward_calculator: RewardCalculator,
 
     /// Cache of epoch information.
     epochs_info: SyncLruCache<EpochId, Arc<EpochInfo>>,
@@ -206,7 +204,7 @@ impl EpochManager {
         epoch_config_store: EpochConfigStore,
     ) -> Arc<EpochManagerHandle> {
         let epoch_length = genesis_config.epoch_length;
-        let reward_calculator = RewardCalculator::new(genesis_config, epoch_length);
+        let treasury_account = genesis_config.protocol_treasury_account.clone();
         let all_epoch_config = AllEpochConfig::from_epoch_config_store(
             genesis_config.chain_id.as_str(),
             epoch_length,
@@ -214,7 +212,7 @@ impl EpochManager {
             genesis_config.protocol_version,
         );
         Arc::new(
-            Self::new(store, all_epoch_config, reward_calculator, genesis_config.validators())
+            Self::new(store, all_epoch_config, genesis_config.validators(), treasury_account)
                 .unwrap()
                 .into_handle(),
         )
@@ -223,15 +221,14 @@ impl EpochManager {
     pub fn new(
         store: Store,
         config: AllEpochConfig,
-        reward_calculator: RewardCalculator,
         validators: Vec<ValidatorStake>,
+        treasury_account: AccountId,
     ) -> Result<Self, EpochError> {
         let epoch_info_aggregator =
             store.get_ser(DBCol::EpochInfo, AGGREGATOR_KEY)?.unwrap_or_default();
         let mut epoch_manager = EpochManager {
             store,
             config,
-            reward_calculator,
             epochs_info: SyncLruCache::new(EPOCH_CACHE_SIZE),
             blocks_info: SyncLruCache::new(BLOCK_CACHE_SIZE),
             epoch_id_to_start: SyncLruCache::new(EPOCH_CACHE_SIZE),
@@ -245,7 +242,7 @@ impl EpochManager {
             largest_final_height: 0,
         };
         if !epoch_manager.has_epoch_info(&EpochId::default())? {
-            epoch_manager.initialize_genesis_epoch_info(validators)?;
+            epoch_manager.initialize_genesis_epoch_info(validators, treasury_account)?;
         }
         Ok(epoch_manager)
     }
@@ -776,13 +773,6 @@ impl EpochManager {
                 // If this is the last block in the epoch, finalize this epoch.
                 if self.is_next_block_in_next_epoch(&block_info)? {
                     self.finalize_epoch(&mut store_update, &block_info, &current_hash, rng_seed)?;
-
-                    let next_epoch_id = self.get_next_epoch_id_from_info(&block_info)?;
-                    let next_epoch_info = self.get_epoch_info(&next_epoch_id)?;
-                    let next_epoch_config =
-                        self.config.for_protocol_version(next_epoch_info.protocol_version());
-
-                    self.reward_calculator.update_parameters(&next_epoch_config);
                 }
             }
         }
