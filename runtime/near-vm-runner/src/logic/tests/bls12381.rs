@@ -864,7 +864,11 @@ mod tests {
         bolero::check!().with_type().for_each(|n: &Scalar| {
             let mut n_vec: [u8; 32] = [0u8; 32];
             n.p.serialize_with_flags(n_vec.as_mut_slice(), EmptyFlags).unwrap();
-            run_bls12381_fn!(bls12381_g1_multiexp, vec![zero_x_uncompress.clone(), n_vec.to_vec()], 1);
+            run_bls12381_fn!(
+                bls12381_g1_multiexp,
+                vec![zero_x_uncompress.clone(), n_vec.to_vec()],
+                1
+            );
         });
     }
 
