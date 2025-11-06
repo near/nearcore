@@ -19,6 +19,7 @@ pub use crate::verifier::{
     ZERO_BALANCE_ACCOUNT_STORAGE_LIMIT, get_signer_and_access_key, set_tx_state_changes,
     validate_transaction, verify_and_charge_tx_ephemeral,
 };
+use ahash::RandomState as AHashRandomState;
 use bandwidth_scheduler::{BandwidthSchedulerOutput, run_bandwidth_scheduler};
 use config::{total_prepaid_send_fees, tx_cost};
 use congestion_control::ReceiptSink;
@@ -1605,17 +1606,16 @@ impl Runtime {
                     });
             },
             || {
-                type AccountV = Result<Option<Account>, StorageError>;
-                type AccessKeyV = Result<Option<AccessKey>, StorageError>;
-                // Use 128 shards to reduce contention when parallel workers prefetch
-                // account and access key data.
-                let accounts =
-                    dashmap::DashMap::<&AccountId, AccountV>::with_capacity_and_shard_amount(
-                        num_transactions,
-                        128,
-                    );
-                let access_keys = dashmap::DashMap::<(&AccountId, &PublicKey), AccessKeyV>::with_capacity_and_shard_amount(
+                // Use a faster hash builder and more shards to shorten time spent in
+                // these shared maps when many rayon workers prefetch signer data.
+                let accounts = dashmap::DashMap::with_capacity_and_hasher_and_shard_amount(
                     num_transactions,
+                    AHashRandomState::new(),
+                    128,
+                );
+                let access_keys = dashmap::DashMap::with_capacity_and_hasher_and_shard_amount(
+                    num_transactions,
+                    AHashRandomState::new(),
                     128,
                 );
 
