@@ -1,7 +1,7 @@
 mod random_epochs;
 
 use super::*;
-use crate::reward_calculator::NUM_NS_IN_SECOND;
+use crate::reward_calculator::{NUM_NS_IN_SECOND, calculate_reward};
 use crate::test_utils::{
     DEFAULT_TOTAL_SUPPLY, block_info, change_stake, default_reward_calculator, epoch_config,
     epoch_info, epoch_info_with_num_seats, hash_range, record_block,
@@ -545,17 +545,13 @@ fn test_validator_reward_one_validator() {
     let mut validator_stakes = HashMap::new();
     validator_stakes.insert("test2".parse().unwrap(), stake_amount);
 
-    let (validator_reward, inflation) = reward_calculator.calculate_reward(
+    let epoch_config = epoch_manager.get_epoch_config(PROTOCOL_VERSION);
+    let (validator_reward, inflation) = calculate_reward(
         validator_online_ratio,
         &validator_stakes,
         total_supply,
-        PROTOCOL_VERSION,
         epoch_length * NUM_NS_IN_SECOND,
-        ValidatorOnlineThresholds {
-            online_min_threshold: Ratio::new(90, 100),
-            online_max_threshold: Ratio::new(99, 100),
-            endorsement_cutoff_threshold: None,
-        },
+        &epoch_config,
     );
     let test2_reward = *validator_reward.get(AccountIdRef::new_or_panic("test2")).unwrap();
     let protocol_reward = *validator_reward.get(AccountIdRef::new_or_panic("near")).unwrap();
@@ -646,17 +642,13 @@ fn test_validator_reward_weight_by_stake() {
     let mut validators_stakes = HashMap::new();
     validators_stakes.insert("test1".parse().unwrap(), stake_amount1);
     validators_stakes.insert("test2".parse().unwrap(), stake_amount2);
-    let (validator_reward, inflation) = reward_calculator.calculate_reward(
+    let epoch_config = epoch_manager.get_epoch_config(PROTOCOL_VERSION);
+    let (validator_reward, inflation) = calculate_reward(
         validator_online_ratio,
         &validators_stakes,
         total_supply,
-        PROTOCOL_VERSION,
         epoch_length * NUM_NS_IN_SECOND,
-        ValidatorOnlineThresholds {
-            online_min_threshold: Ratio::new(90, 100),
-            online_max_threshold: Ratio::new(99, 100),
-            endorsement_cutoff_threshold: None,
-        },
+        &epoch_config,
     );
     let test1_reward = *validator_reward.get(AccountIdRef::new_or_panic("test1")).unwrap();
     let test2_reward = *validator_reward.get(AccountIdRef::new_or_panic("test2")).unwrap();
@@ -771,17 +763,13 @@ fn test_reward_multiple_shards() {
     let mut validators_stakes = HashMap::new();
     validators_stakes.insert("test1".parse().unwrap(), stake_amount);
     validators_stakes.insert("test2".parse().unwrap(), stake_amount);
-    let (validator_reward, inflation) = reward_calculator.calculate_reward(
+    let epoch_config = epoch_manager.get_epoch_config(&init_epoch_id).unwrap();
+    let (validator_reward, inflation) = calculate_reward(
         validator_online_ratio,
         &validators_stakes,
         total_supply,
-        PROTOCOL_VERSION,
         epoch_length * NUM_NS_IN_SECOND,
-        ValidatorOnlineThresholds {
-            online_min_threshold: Ratio::new(90, 100),
-            online_max_threshold: Ratio::new(99, 100),
-            endorsement_cutoff_threshold: None,
-        },
+        &epoch_config,
     );
     let test2_reward = *validator_reward.get(AccountIdRef::new_or_panic("test2")).unwrap();
     let protocol_reward = *validator_reward.get(AccountIdRef::new_or_panic("near")).unwrap();
