@@ -77,7 +77,7 @@ macro_rules! bls12381_fn {
         $blst_p_mult:ident,
         $read_fp_point:ident,
         $blst_map_to_g:ident,
-        $PubKeyOrSig:ident,
+        $blst_p_uncomp:ident,
         $parse_p:ident,
         $serialize_p:ident,
         $bls12381_p:expr,
@@ -90,7 +90,8 @@ macro_rules! bls12381_fn {
 
             let mut pk_aff = blst::$blst_p_affine::default();
             let error_code = unsafe { blst::$blst_p_deserialize(&mut pk_aff, point_data.as_ptr()) };
-            if error_code != blst::BLST_ERROR::BLST_SUCCESS {
+            if error_code != blst::BLST_ERROR::BLST_SUCCESS &&
+               error_code != blst::BLST_ERROR::BLST_POINT_NOT_IN_GROUP {
                 return None;
             }
 
@@ -189,9 +190,20 @@ macro_rules! bls12381_fn {
             let mut res = Vec::<u8>::with_capacity(elements_count * $BLS_P_SIZE);
 
             for item_data in data.chunks_exact(ITEM_SIZE) {
-                let pk_res = blst::min_pk::$PubKeyOrSig::uncompress(item_data);
-                let pk_ser = if let Ok(pk) = pk_res {
-                    pk.serialize()
+                let pk_ser = if item_data[0] & 0x80 != 0 {
+                    let mut pk = blst::$blst_p_affine::default();
+                    let err = unsafe { blst::$blst_p_uncomp(&mut pk, item_data.as_ptr()) };
+                    if err != blst::BLST_ERROR::BLST_SUCCESS &&
+                       err != blst::BLST_ERROR::BLST_POINT_NOT_IN_GROUP {
+                        return Ok(None);
+                    }
+
+                    let mut res = [0u8; $BLS_P_SIZE];
+                    unsafe {
+                        blst::$blst_p_affine_serialize(res.as_mut_ptr(), &pk);
+                    }
+
+                    res
                 } else {
                     return Ok(None);
                 };
@@ -249,7 +261,7 @@ bls12381_fn!(
     blst_p1_mult,
     read_fp_point,
     blst_map_to_g1,
-    PublicKey,
+    blst_p1_uncompress,
     parse_p1,
     serialize_p1,
     "bls12381_p1",
@@ -276,7 +288,7 @@ bls12381_fn!(
     blst_p2_mult,
     read_fp2_point,
     blst_map_to_g2,
-    Signature,
+    blst_p2_uncompress,
     parse_p2,
     serialize_p2,
     "bls12381_p2",
