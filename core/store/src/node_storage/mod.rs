@@ -169,9 +169,8 @@ impl NodeStorage {
     pub fn get_split_db(&self) -> Option<Arc<SplitDB>> {
         let cold =
             self.cold_storage.as_ref().and_then(|cold| Some(cold.clone() as Arc<dyn Database>));
-        let cloud = self.cloud_storage.as_ref().and_then(|cloud| cloud.prefetch_db.clone());
-        if cold.is_some() || cloud.is_some() {
-            return Some(SplitDB::new(self.hot_storage.clone(), cold, cloud));
+        if cold.is_some() || self.cloud_storage.is_some() {
+            return Some(SplitDB::new(self.hot_storage.clone(), cold, self.cloud_storage.clone()));
         }
         None
     }

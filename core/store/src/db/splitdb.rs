@@ -5,30 +5,32 @@ use std::sync::Arc;
 
 use near_o11y::log_assert_fail;
 
+use crate::archive::cloud_storage::CloudStorage;
 use crate::DBCol;
 use crate::db::{DBIterator, DBIteratorItem, DBSlice, DBTransaction, Database, StoreStatistics};
 
-/// A database that provides access to the hot, cold, and cloud databases.
+/// A database that provides access to the hot and cold databases.
 ///
 /// For hot-only columns it always reads from the hot database only. For cold
 /// columns it reads from hot first and if the value is present it returns it.
-/// If the value is not present it reads from the cold database, then cloud database.
+/// If the value is not present it reads from the cold database.
 ///
-/// The iter* methods return a merge iterator of hot, cold, and cloud iterators.
+/// The iter* methods return a merge iterator of hot and cold iterators.
 ///
 /// This database should be treated as read-only but it is not enforced because
 /// even the view client writes to the database in order to update caches.
 pub struct SplitDB {
     hot: Arc<dyn Database>,
     cold: Option<Arc<dyn Database>>,
-    cloud: Option<Arc<dyn Database>>,
+    #[allow(unused)]
+    cloud: Option<Arc<CloudStorage>>,
 }
 
 impl SplitDB {
     pub fn new(
         hot: Arc<dyn Database>,
         cold: Option<Arc<dyn Database>>,
-        cloud: Option<Arc<dyn Database>>,
+        cloud: Option<Arc<CloudStorage>>,
     ) -> Arc<Self> {
         assert!(cold.is_some() || cloud.is_some());
         return Arc::new(SplitDB { hot, cold, cloud });
@@ -74,19 +76,6 @@ impl SplitDB {
         });
         Box::new(iter)
     }
-
-    /// Returns a merged iterator over cold and cloud databases using the given iterator function.
-    fn get_archive_iter<'a, F>(&'a self, iter: F) -> DBIterator<'a>
-    where
-        F: Fn(&'a Arc<dyn Database>) -> DBIterator<'a>,
-    {
-        match (self.cold.as_ref(), self.cloud.as_ref()) {
-            (Some(cold), None) => iter(cold),
-            (None, Some(cloud)) => iter(cloud),
-            (Some(cold), Some(cloud)) => Self::merge_iter(iter(cold), iter(cloud)),
-            (None, None) => unreachable!("at least one of cold/cloud must be Some"),
-        }
-    }
 }
 
 impl Database for SplitDB {
@@ -94,22 +83,14 @@ impl Database for SplitDB {
     /// if any.
     ///
     /// First tries to read the data from the hot db and returns it if found.
-    /// Then it tries to read the data from the cold db or cloud db and returns the result.
+    /// Then it tries to read the data from the cold db and returns the result.
     fn get_raw_bytes(&self, col: DBCol, key: &[u8]) -> io::Result<Option<DBSlice<'_>>> {
         if let Some(hot_result) = self.hot.get_raw_bytes(col, key)? {
             return Ok(Some(hot_result));
         }
-        if !col.is_cold() {
-            return Ok(None);
-        }
         if let Some(cold) = &self.cold {
             if let Some(cold_result) = cold.get_raw_bytes(col, key)? {
                 return Ok(Some(cold_result));
-            }
-        }
-        if let Some(cloud) = &self.cloud {
-            if let Some(cloud_result) = cloud.get_raw_bytes(col, key)? {
-                return Ok(Some(cloud_result));
             }
         }
         Ok(None)
@@ -120,7 +101,7 @@ impl Database for SplitDB {
     /// **Panics** if the column is not reference counted.
     ///
     /// First tries to read the data from the hot db and returns it if found.
-    /// Then it tries to read the data from the cold db and cloud db and returns the result.
+    /// Then it tries to read the data from the cold db and returns the result.
     fn get_with_rc_stripped(&self, col: DBCol, key: &[u8]) -> io::Result<Option<DBSlice<'_>>> {
         assert!(col.is_rc());
 
@@ -133,36 +114,36 @@ impl Database for SplitDB {
         if let Some(cold) = &self.cold {
             return cold.get_with_rc_stripped(col, key);
         }
-        if let Some(cloud) = &self.cloud {
-            return cloud.get_with_rc_stripped(col, key);
-        }
         Ok(None)
     }
 
     /// Iterate over all items in given column in lexicographical order sorted
     /// by the key.
     ///
-    /// The returned iterator will iterate through items in both the hot store,
-    /// cold store and the cloud store. The items will be unique and sorted.
+    /// The returned iterator will iterate through items in both the cold store
+    /// and the hot store. The items will be deduplicated and sorted.
     fn iter<'a>(&'a self, col: DBCol) -> DBIterator<'a> {
-        if !col.is_cold() {
+        if !col.is_cold() || self.cold.is_none() {
             return self.hot.iter(col);
         }
-        let archive_iter = self.get_archive_iter(|db| db.iter(col));
-        Self::merge_iter(self.hot.iter(col), archive_iter)
+
+        Self::merge_iter(self.hot.iter(col), self.cold.as_ref().unwrap().iter(col))
     }
 
     /// Iterate over items in given column, whose keys start with given prefix,
     /// in lexicographical order sorted by the key.
     ///
-    /// The returned iterator will iterate through items in both the hot store,
-    /// cold store and the cloud store. The items will be unique and sorted.
+    /// The returned iterator will iterate through items in both the cold store
+    /// and the hot store. The items will be unique and sorted.
     fn iter_prefix<'a>(&'a self, col: DBCol, key_prefix: &'a [u8]) -> DBIterator<'a> {
-        if !col.is_cold() {
+        if !col.is_cold() || self.cold.is_none() {
             return self.hot.iter_prefix(col, key_prefix);
         }
-        let archive_iter = self.get_archive_iter(|db| db.iter_prefix(col, key_prefix));
-        Self::merge_iter(self.hot.iter_prefix(col, key_prefix), archive_iter)
+
+        return Self::merge_iter(
+            self.hot.iter_prefix(col, key_prefix),
+            self.cold.as_ref().unwrap().iter_prefix(col, key_prefix),
+        );
     }
 
     /// Iterate over items in given column whose keys are between [lower_bound, upper_bound)
@@ -171,32 +152,35 @@ impl Database for SplitDB {
     /// If lower_bound is None - the iterator starts from the first key.
     /// If upper_bound is None - iterator continues to the last key.
     ///
-    /// The returned iterator will iterate through items in both the hot store,
-    /// cold store and the cloud store. The items will be unique and sorted.
+    /// The returned iterator will iterate through items in both the cold store
+    /// and the hot store. The items will be unique and sorted.
     fn iter_range<'a>(
         &'a self,
         col: DBCol,
         lower_bound: Option<&[u8]>,
         upper_bound: Option<&[u8]>,
     ) -> DBIterator<'a> {
-        if !col.is_cold() {
+        if !col.is_cold() || self.cold.is_none() {
             return self.hot.iter_range(col, lower_bound, upper_bound);
         }
-        let archive_iter = self.get_archive_iter(|db| db.iter_range(col, lower_bound, upper_bound));
-        Self::merge_iter(self.hot.iter_range(col, lower_bound, upper_bound), archive_iter)
+
+        return Self::merge_iter(
+            self.hot.iter_range(col, lower_bound, upper_bound),
+            self.cold.as_ref().unwrap().iter_range(col, lower_bound, upper_bound),
+        );
     }
 
     /// Iterate over items in given column bypassing reference count decoding if
     /// any.
     ///
-    /// The returned iterator will iterate through items in both the hot store,
-    /// cold store and the cloud store. The items will be unique and sorted.
+    /// The returned iterator will iterate through items in both the cold store
+    /// and the hot store. The items will be unique and sorted.
     fn iter_raw_bytes<'a>(&'a self, col: DBCol) -> DBIterator<'a> {
-        if !col.is_cold() {
+        if !col.is_cold() || self.cold.is_none() {
             return self.hot.iter_raw_bytes(col);
         }
-        let archive_iter = self.get_archive_iter(|db| db.iter_raw_bytes(col));
-        Self::merge_iter(self.hot.iter_raw_bytes(col), archive_iter)
+
+        return Self::merge_iter(self.hot.iter_raw_bytes(col), self.cold.as_ref().unwrap().iter_raw_bytes(col));
     }
 
     /// The split db, in principle, should be read only and only used in view client.
@@ -221,7 +205,7 @@ impl Database for SplitDB {
         log_assert_fail!("{}", msg);
         self.hot.compact()?;
         if let Some(cold) = &self.cold {
-            cold.compact()?;
+            cold.compact()?;   
         }
         Ok(())
     }
@@ -356,6 +340,7 @@ mod test {
         let hot = create_hot();
         let cold = create_cold();
         let split = SplitDB::new(hot.clone(), Some(cold.clone()), None);
+
         let col = DBCol::Transactions;
 
         // Set values so that hot has foo and bar and cold has foo and baz.
@@ -411,6 +396,7 @@ mod test {
         let hot = create_hot();
         let cold = create_cold();
         let split = SplitDB::new(hot.clone(), Some(cold.clone()), None);
+
         let col = DBCol::Transactions;
 
         // Set values so that hot has foo and bar and cold has foo and baz.
