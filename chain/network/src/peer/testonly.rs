@@ -106,11 +106,8 @@ impl PeerHandle {
             noop().into_multi_sender(),
             noop().into_sender(),
         ));
-        let actor = AutoStopActor(
-            PeerActor::spawn(clock, actor_system, stream, network_state)
-                .unwrap()
-                .0,
-        );
+        let actor =
+            AutoStopActor(PeerActor::spawn(clock, actor_system, stream, network_state).unwrap().0);
         Self { actor, cfg, events: recv, edge: None }
     }
 }
