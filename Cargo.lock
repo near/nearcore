@@ -2272,7 +2272,7 @@ dependencies = [
 [[package]]
 name = "finite-wasm"
 version = "0.6.0"
-source = "git+https://github.com/near/finite-wasm?rev=3006dc7cb5b65b96954c073751727223bee6449d#3006dc7cb5b65b96954c073751727223bee6449d"
+source = "git+https://github.com/near/finite-wasm?rev=cbc0da153a0c0848480fe9c796aec4d99edabebc#cbc0da153a0c0848480fe9c796aec4d99edabebc"
 dependencies = [
  "bitvec",
  "dissimilar",
