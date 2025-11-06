@@ -471,14 +471,12 @@ mod tests {
         let input_keys = accounts_to_trie_keys(input);
         let prefetch_keys = accounts_to_trie_keys(prefetch);
 
-        let shard_uids = vec![ShardUId::single_shard()];
         let trie_config = TrieConfig { enable_receipt_prefetching: true, ..TrieConfig::default() };
         let store = create_test_store();
         let flat_storage_manager = near_store::flat::FlatStorageManager::new(store.flat_store());
         let tries = ShardTries::new(
             store.trie_store(),
             trie_config,
-            &shard_uids,
             flat_storage_manager,
             StateSnapshotConfig::Disabled,
         );
