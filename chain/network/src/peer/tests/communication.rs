@@ -1,7 +1,7 @@
 use crate::network_protocol::testonly as data;
 use crate::network_protocol::{
-    Handshake, HandshakeFailureReason, PartialEdgeInfo, PeerMessage, PeersRequest,
-    PeersResponse, T2MessageBody,
+    Handshake, HandshakeFailureReason, PartialEdgeInfo, PeerMessage, PeersRequest, PeersResponse,
+    T2MessageBody,
 };
 use crate::peer::testonly::{PeerConfig, PeerHandle};
 use crate::peer_manager::peer_manager_actor::Event;

@@ -10,10 +10,10 @@ use crate::config::PEERS_RESPONSE_MAX_PEERS;
 #[cfg(feature = "distance_vector_routing")]
 use crate::network_protocol::DistanceVector;
 use crate::network_protocol::{
-    Edge, EdgeState, OwnedAccount, PartialEdgeInfo,
-    PeerChainInfoV2, PeerIdOrHash, PeerInfo, PeersRequest, PeersResponse, RawRoutedMessage,
-    RoutingTableUpdate, SnapshotHostInfoVerificationError, SyncAccountsData, SyncSnapshotHosts,
-    T2MessageBody, TieredMessageBody,
+    Edge, EdgeState, OwnedAccount, PartialEdgeInfo, PeerChainInfoV2, PeerIdOrHash, PeerInfo,
+    PeersRequest, PeersResponse, RawRoutedMessage, RoutingTableUpdate,
+    SnapshotHostInfoVerificationError, SyncAccountsData, SyncSnapshotHosts, T2MessageBody,
+    TieredMessageBody,
 };
 use crate::peer::stream;
 use crate::peer::tracker::Tracker;
@@ -233,8 +233,7 @@ impl PeerActor {
         stream: tcp::Stream,
         network_state: Arc<NetworkState>,
     ) -> anyhow::Result<TokioRuntimeHandle<Self>> {
-        let (addr, handshake_signal) =
-            Self::spawn(clock, actor_system, stream, network_state)?;
+        let (addr, handshake_signal) = Self::spawn(clock, actor_system, stream, network_state)?;
         // Await for the handshake to complete, by awaiting the handshake_signal channel.
         // This is a receiver of Infallible, so it only completes when the channel is closed.
         handshake_signal.await.err().unwrap();

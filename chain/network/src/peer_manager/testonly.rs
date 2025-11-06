@@ -234,10 +234,7 @@ impl ActorHandler {
         let conn = RawConnection {
             events,
             stream,
-            cfg: peer::testonly::PeerConfig {
-                network: network_cfg,
-                chain,
-            },
+            cfg: peer::testonly::PeerConfig { network: network_cfg, chain },
             actor_system: self.actor_system.clone(),
         };
         // Wait until the TCP connection is accepted or rejected.
@@ -267,10 +264,7 @@ impl ActorHandler {
         let conn = RawConnection {
             events,
             stream: inbound_stream,
-            cfg: peer::testonly::PeerConfig {
-                network: network_cfg,
-                chain,
-            },
+            cfg: peer::testonly::PeerConfig { network: network_cfg, chain },
             actor_system: self.actor_system.clone(),
         };
         // Wait until the handshake started or connection is closed.
