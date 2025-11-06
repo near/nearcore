@@ -646,6 +646,20 @@ mod tests {
         slow_test_bls12381_p2_sum_incorrect_input_fuzzer
     );
 
+    #[test]
+    fn test_bls12381_sum_x0_fuzzer() {
+        let mut zero_x = vec![0u8; 48];
+        zero_x[0] = 0x80;
+        let mut zero_x_uncompress = vec![0u8; 2 * 48];
+        zero_x_uncompress[2 * 48 - 1] = 2;
+
+        let zero_x_point = G1Operations::deserialize_g(zero_x_uncompress);
+        bolero::check!().with_type().for_each(|p: &E1Point| {
+            check_sum_p1(p.p, zero_x_point);
+            check_sum_p1(p.p, zero_x_point.neg());
+        });
+    }
+
     macro_rules! test_bls12381_memory_limit {
         (
             $namespace_name:ident,
@@ -1049,12 +1063,12 @@ mod tests {
 
     #[test]
     fn test_bls12381_decompress_x_0() {
-        let mut zero = vec![0u8; 48];
-        zero[0] = 0x80;
-        let res1 = run_bls12381_fn!(bls12381_p1_decompress, vec![zero]);
-        let mut zero_uncompress = vec![0u8; 2 * 48];
-        zero_uncompress[2 * 48 - 1] = 2;
-        assert_eq!(res1, zero_uncompress);
+        let mut zero_x = vec![0u8; 48];
+        zero_x[0] = 0x80;
+        let res1 = run_bls12381_fn!(bls12381_p1_decompress, vec![zero_x]);
+        let mut zero_x_uncompress = vec![0u8; 2 * 48];
+        zero_x_uncompress[2 * 48 - 1] = 2;
+        assert_eq!(res1, zero_x_uncompress);
     }
 
     test_bls12381_decompress!(
