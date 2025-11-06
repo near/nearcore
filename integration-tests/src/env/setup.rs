@@ -84,7 +84,7 @@ fn setup(
     TokioRuntimeHandle<ClientActorInner>,
     MultithreadRuntimeHandle<ViewClientActorInner>,
     MultithreadRuntimeHandle<RpcHandler>,
-    TokioRuntimeHandle<ChunkEndorsementHandler>,
+    MultithreadRuntimeHandle<ChunkEndorsementHandler>,
     ShardsManagerAdapterForTest,
     PartialWitnessSenderForNetwork,
     tempfile::TempDir,
@@ -292,7 +292,7 @@ pub fn setup_mock(
         dyn FnMut(
                 &PeerManagerMessageRequest,
                 TokioRuntimeHandle<ClientActorInner>,
-                TokioRuntimeHandle<ChunkEndorsementHandler>,
+                MultithreadRuntimeHandle<ChunkEndorsementHandler>,
             ) -> PeerManagerMessageResponse
             + Send,
     >,
@@ -320,7 +320,7 @@ pub fn setup_mock_with_validity_period(
         dyn FnMut(
                 &PeerManagerMessageRequest,
                 TokioRuntimeHandle<ClientActorInner>,
-                TokioRuntimeHandle<ChunkEndorsementHandler>,
+                MultithreadRuntimeHandle<ChunkEndorsementHandler>,
             ) -> PeerManagerMessageResponse
             + Send,
     >,

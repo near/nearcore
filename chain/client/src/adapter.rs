@@ -10,7 +10,7 @@ pub fn client_sender_for_network(
     client_addr: TokioRuntimeHandle<ClientActorInner>,
     view_client_addr: MultithreadRuntimeHandle<ViewClientActorInner>,
     rpc_handler: MultithreadRuntimeHandle<RpcHandler>,
-    chunk_endorsement_handler: TokioRuntimeHandle<ChunkEndorsementHandler>,
+    chunk_endorsement_handler: MultithreadRuntimeHandle<ChunkEndorsementHandler>,
 ) -> ClientSenderForNetwork {
     ClientSenderForNetwork {
         block: client_addr.clone().into_async_sender(),

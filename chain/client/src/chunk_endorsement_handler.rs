@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use near_async::messaging::Handler;
-use near_async::tokio::TokioRuntimeHandle;
+use near_async::multithread::MultithreadRuntimeHandle;
 use near_async::{ActorSystem, messaging};
 use near_network::client::ChunkEndorsementMessage;
 use near_performance_metrics_macros::perf;
@@ -22,8 +22,9 @@ impl messaging::Actor for ChunkEndorsementHandler {}
 pub fn spawn_chunk_endorsement_handler_actor(
     actor_system: ActorSystem,
     chunk_endorsement_tracker: Arc<ChunkEndorsementTracker>,
-) -> TokioRuntimeHandle<ChunkEndorsementHandler> {
-    actor_system.spawn_tokio_actor(ChunkEndorsementHandler::new(chunk_endorsement_tracker))
+) -> MultithreadRuntimeHandle<ChunkEndorsementHandler> {
+    let actor = ChunkEndorsementHandler::new(chunk_endorsement_tracker);
+    actor_system.spawn_multithread_actor(4, move || actor.clone())
 }
 
 #[derive(Clone)]
