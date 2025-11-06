@@ -4054,6 +4054,7 @@ dependencies = [
  "bytesize 1.1.0",
  "chrono",
  "crossbeam-channel",
+ "dashmap",
  "easy-ext",
  "enum-map",
  "insta",

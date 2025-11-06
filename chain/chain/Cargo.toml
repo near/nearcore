@@ -14,6 +14,7 @@ borsh.workspace = true
 bytesize.workspace = true
 chrono.workspace = true
 crossbeam-channel.workspace = true
+dashmap.workspace = true
 easy-ext.workspace = true
 enum-map.workspace = true
 itertools.workspace = true

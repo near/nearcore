@@ -99,8 +99,8 @@ pub struct ChunkStateWitnessValidationResult {
 // pub type MainStateTransitionCache =
 // Arc<Mutex<HashMap<ShardUId, LruCache<CryptoHash, ChunkStateWitnessValidationResult>>>>;
 type CachedOnceCell = Arc<OnceLock<Result<ChunkStateWitnessValidationResult, Error>>>;
-pub type MainStateTransitionCache =
-    Arc<Mutex<HashMap<ShardUId, LruCache<CachedShardUpdateKey, CachedOnceCell>>>>;
+pub type MainStateTransitionCache = Arc<dashmap::DashMap<ShardUId, LruCache<CachedShardUpdateKey, CachedOnceCell>>>;
+// pub type MainStateTransitionCache = Arc<Mutex<HashMap<ShardUId, LruCache<CachedShardUpdateKey, CachedOnceCell>>>>;
 
 /// Cache for storing pending Validate witnesses that arrived before their Apply witness
 /// Shared among chunk validation actors
@@ -616,10 +616,6 @@ pub fn validate_chunk_state_witness_impl(
     let witness_chunk_shard_uid =
         shard_id_to_uid(epoch_manager, witness_chunk_shard_id, &epoch_id)?;
     let prev_hash = pre_validation_output.main_transition_params.prev_hash();
-    // println!(
-    //     "VALIDATING CHUNK STATE WITNESS: {:?} {:?} {:?}",
-    //     is_optimistic, prev_hash, witness_chunk_shard_id
-    // );
     let epoch_id = epoch_manager.get_epoch_id_from_prev_block(&prev_hash)?;
     let shard_id = pre_validation_output.main_transition_params.shard_id();
     let shard_uid = shard_id_to_uid(epoch_manager, shard_id, &epoch_id)?;
@@ -630,18 +626,18 @@ pub fn validate_chunk_state_witness_impl(
         MainTransition::Genesis { chunk_extra, .. } => (chunk_extra, vec![]),
         MainTransition::NewChunk { new_chunk_data, .. } => {
             let cell_arc = {
-                let mut shard_cache = main_state_transition_cache.lock();
-                let cache = shard_cache.entry(witness_chunk_shard_uid).or_insert_with(|| {
+                let mut shard_cache = main_state_transition_cache.entry(witness_chunk_shard_uid).or_insert_with(|| {
                     tracing::debug!(target: "chunk_validation", "Creating cache for shard {:?}", witness_chunk_shard_uid);
                     LruCache::new(NonZeroUsize::new(NUM_WITNESS_RESULT_CACHE_ENTRIES).unwrap())
                 });
-                if let Some(existing) = cache.get(&key) {
+                
+                if let Some(existing) = shard_cache.value_mut().get(&key) {
                     tracing::debug!(target: "chunk_validation", "Cache hit: ptr={:p}", Arc::as_ptr(existing));
                     existing.clone()
                 } else {
                     let cell = Arc::new(OnceLock::new());
                     tracing::debug!(target: "chunk_validation", "Creating cell: ptr={:p}", Arc::as_ptr(&cell));
-                    cache.put(key, cell.clone());
+                    shard_cache.value_mut().put(key, cell.clone());
                     cell
                 }
             };
@@ -651,7 +647,8 @@ pub fn validate_chunk_state_witness_impl(
 
             let start_wait = Instant::now();
             let we_initialized = Cell::new(false);
-            tracing::debug!(target: "chunk_validation", "Using cell: ptr={:p}, already_initialized={}", Arc::as_ptr(&cell_arc), already_initialized);
+            tracing::debug!(target: "chunk_validation", "Using cell: ptr={:p}, already_initialized={}",
+                Arc::as_ptr(&cell_arc), already_initialized);
 
             // Handle the case where Validate witness arrives before Optimistic witness
             if !already_initialized && witness_type == WitnessType::Validate {
