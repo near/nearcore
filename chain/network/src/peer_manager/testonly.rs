@@ -13,7 +13,7 @@ use crate::network_protocol::StateResponseInfoV2;
 use crate::network_protocol::SyncSnapshotHosts;
 use crate::network_protocol::testonly as data;
 use crate::network_protocol::{
-    EdgeState, Encoding, PeerInfo, PeerMessage, SignedAccountData, SyncAccountsData,
+    EdgeState, PeerInfo, PeerMessage, SignedAccountData, SyncAccountsData,
 };
 use crate::peer;
 use crate::peer::peer_actor::ClosingReason;
@@ -237,7 +237,6 @@ impl ActorHandler {
             cfg: peer::testonly::PeerConfig {
                 network: network_cfg,
                 chain,
-                force_encoding: Some(Encoding::Proto),
             },
             actor_system: self.actor_system.clone(),
         };
@@ -271,7 +270,6 @@ impl ActorHandler {
             cfg: peer::testonly::PeerConfig {
                 network: network_cfg,
                 chain,
-                force_encoding: Some(Encoding::Proto),
             },
             actor_system: self.actor_system.clone(),
         };

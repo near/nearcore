@@ -1,6 +1,6 @@
 use crate::network_protocol::testonly as data;
 use crate::network_protocol::{
-    Encoding, Handshake, HandshakeFailureReason, PartialEdgeInfo, PeerMessage, PeersRequest,
+    Handshake, HandshakeFailureReason, PartialEdgeInfo, PeerMessage, PeersRequest,
     PeersResponse, T2MessageBody,
 };
 use crate::peer::testonly::{PeerConfig, PeerHandle};
@@ -9,7 +9,6 @@ use crate::tcp;
 use crate::testonly::make_rng;
 use crate::testonly::stream::Stream;
 use crate::types::{Edge, PartialEncodedChunkRequestMsg, PartialEncodedChunkResponseMsg};
-use anyhow::Context as _;
 use assert_matches::assert_matches;
 use near_async::{ActorSystem, time};
 use near_o11y::testonly::init_test_logger;
@@ -17,26 +16,15 @@ use near_primitives::version::{MIN_SUPPORTED_PROTOCOL_VERSION, PROTOCOL_VERSION}
 use std::sync::Arc;
 
 #[allow(clippy::large_stack_frames)]
-async fn test_peer_communication(
-    outbound_encoding: Option<Encoding>,
-    inbound_encoding: Option<Encoding>,
-) -> anyhow::Result<()> {
-    tracing::info!("test_peer_communication({outbound_encoding:?},{inbound_encoding:?})");
-
+#[tokio::test]
+async fn test_peer_communication() -> anyhow::Result<()> {
+    init_test_logger();
     let mut rng = make_rng(89028037453);
     let mut clock = time::FakeClock::default();
 
     let chain = Arc::new(data::Chain::make(&mut clock, &mut rng, 12));
-    let inbound_cfg = PeerConfig {
-        chain: chain.clone(),
-        network: chain.make_config(&mut rng),
-        force_encoding: inbound_encoding,
-    };
-    let outbound_cfg = PeerConfig {
-        chain: chain.clone(),
-        network: chain.make_config(&mut rng),
-        force_encoding: outbound_encoding,
-    };
+    let inbound_cfg = PeerConfig { chain: chain.clone(), network: chain.make_config(&mut rng) };
+    let outbound_cfg = PeerConfig { chain: chain.clone(), network: chain.make_config(&mut rng) };
     let (outbound_stream, inbound_stream) =
         tcp::Stream::loopback(inbound_cfg.id(), tcp::Tier::T2).await;
     let actor_system = ActorSystem::new();
@@ -126,8 +114,8 @@ async fn test_peer_communication(
             })
             .into(),
             inbound.cfg.id(),
-            1,    // ttl
-            None, // TODO(gprusak): this should be clock.now_utc(), once borsh support is dropped.
+            1, // ttl
+            Some(clock.now_utc()),
         ),
     ));
     outbound.send(want.clone()).await;
@@ -146,8 +134,8 @@ async fn test_peer_communication(
             })
             .into(),
             inbound.cfg.id(),
-            1,    // ttl
-            None, // TODO(gprusak): this should be clock.now_utc(), once borsh support is dropped.
+            1, // ttl
+            Some(clock.now_utc()),
         ),
     ));
     outbound.send(want.clone()).await;
@@ -167,46 +155,21 @@ async fn test_peer_communication(
 }
 
 #[tokio::test]
-// Verifies that peers are able to establish a common encoding protocol.
-async fn peer_communication() -> anyhow::Result<()> {
+// Verifies that HandshakeFailures are served correctly.
+async fn test_handshake() {
     init_test_logger();
-    let encodings = [None, Some(Encoding::Proto), Some(Encoding::Borsh)];
-    for outbound in &encodings {
-        for inbound in &encodings {
-            if let (Some(a), Some(b)) = (outbound, inbound) {
-                if a != b {
-                    continue;
-                }
-            }
-            test_peer_communication(*outbound, *inbound)
-                .await
-                .with_context(|| format!("(outbound={outbound:?},inbound={inbound:?})"))?;
-        }
-    }
-    Ok(())
-}
-
-async fn test_handshake(outbound_encoding: Option<Encoding>, inbound_encoding: Option<Encoding>) {
     let mut rng = make_rng(89028037453);
     let mut clock = time::FakeClock::default();
 
     let chain = Arc::new(data::Chain::make(&mut clock, &mut rng, 12));
-    let inbound_cfg = PeerConfig {
-        network: chain.make_config(&mut rng),
-        chain: chain.clone(),
-        force_encoding: inbound_encoding,
-    };
-    let outbound_cfg = PeerConfig {
-        network: chain.make_config(&mut rng),
-        chain: chain.clone(),
-        force_encoding: outbound_encoding,
-    };
+    let inbound_cfg = PeerConfig { network: chain.make_config(&mut rng), chain: chain.clone() };
+    let outbound_cfg = PeerConfig { network: chain.make_config(&mut rng), chain: chain.clone() };
     let (outbound_stream, inbound_stream) =
         tcp::Stream::loopback(inbound_cfg.id(), tcp::Tier::T2).await;
     let inbound =
         PeerHandle::start_endpoint(clock.clock(), ActorSystem::new(), inbound_cfg, inbound_stream);
     let outbound_port = outbound_stream.local_addr.port();
-    let mut outbound = Stream::new(outbound_encoding, outbound_stream);
+    let mut outbound = Stream::new(outbound_stream);
 
     // Send too old PROTOCOL_VERSION, expect ProtocolVersionMismatch
     let mut handshake = Handshake {
@@ -255,23 +218,4 @@ async fn test_handshake(outbound_encoding: Option<Encoding>, inbound_encoding: O
     outbound.write(&PeerMessage::Tier2Handshake(handshake.clone())).await;
     let resp = outbound.read().await.unwrap();
     assert_matches!(resp, PeerMessage::Tier2Handshake(_));
-}
-
-#[tokio::test]
-// Verifies that HandshakeFailures are served correctly.
-async fn handshake() -> anyhow::Result<()> {
-    init_test_logger();
-    let encodings = [None, Some(Encoding::Proto), Some(Encoding::Borsh)];
-    for outbound in &encodings {
-        for inbound in &encodings {
-            println!("outbound = {:?}, inbound = {:?}", outbound, inbound);
-            if let (Some(a), Some(b)) = (outbound, inbound) {
-                if a != b {
-                    continue;
-                }
-            }
-            test_handshake(*outbound, *inbound).await;
-        }
-    }
-    Ok(())
 }
