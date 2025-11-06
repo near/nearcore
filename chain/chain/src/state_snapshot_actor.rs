@@ -2,7 +2,9 @@ use near_async::futures::{DelayedActionRunner, DelayedActionRunnerExt};
 use near_async::messaging::{Actor, CanSend, Handler, HandlerWithContext, Sender};
 use near_async::time::Duration;
 use near_async::{MultiSend, MultiSenderFrom};
-use near_network::types::{NetworkRequests, PeerManagerAdapter, PeerManagerMessageRequest};
+use near_network::types::{
+    NetworkRequests, PeerManagerAdapter, PeerManagerMessageRequest, SnapshotHostEvent,
+};
 use near_performance_metrics_macros::perf;
 use near_primitives::block::Block;
 use near_primitives::hash::CryptoHash;
@@ -121,6 +123,14 @@ impl StateSnapshotActor {
         msg: CreateSnapshotRequest,
         ctx: &mut dyn DelayedActionRunner<Self>,
     ) {
+        // (RAZVAN) Notify the network actor that the new sync hash was detected.
+        self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
+            NetworkRequests::SnapshotHostEvent(SnapshotHostEvent::NewSyncHashDetected {
+                sync_hash: msg.prev_block_hash,
+                epoch_height: msg.epoch_height,
+            }),
+        ));
+
         if let StateSnapshotConfig::Disabled = self.tries.state_snapshot_config() {
             tracing::info!(target: "state_snapshot", ?msg, "Snapshots are disabled");
             return;
@@ -179,11 +189,11 @@ impl StateSnapshotActor {
                 };
 
                 self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
-                    NetworkRequests::SnapshotHostInfo {
+                    NetworkRequests::SnapshotHostEvent(SnapshotHostEvent::SnapshotCreated {
                         sync_hash: prev_block_hash,
                         epoch_height,
                         shards: res_shard_uids.iter().map(|uid| uid.shard_id.into()).collect(),
-                    },
+                    }),
                 ));
             }
             Err(err) => {

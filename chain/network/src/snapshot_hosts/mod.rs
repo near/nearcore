@@ -10,6 +10,7 @@ use crate::network_protocol::SnapshotHostInfoVerificationError;
 use lru::LruCache;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
+use near_primitives::types::EpochHeight;
 use near_primitives::types::ShardId;
 use parking_lot::Mutex;
 use rand::prelude::IteratorRandom;
@@ -131,8 +132,10 @@ impl PartPeerSelector {
 struct Inner {
     /// The latest known SnapshotHostInfo for each node in the network
     hosts: LruCache<PeerId, Arc<SnapshotHostInfo>>,
-    /// The hash for the most recent active state sync, inferred from part requests
+    /// The hash for the most recent active state sync
     sync_hash: Option<CryptoHash>,
+    /// The current epoch height for which we discovered a new sync hash
+    epoch_height: Option<EpochHeight>,
     /// Available hosts for the active state sync, by shard
     hosts_for_shard: HashMap<ShardId, HashSet<PeerId>>,
     /// Local data structures used to distribute state part requests among known hosts
@@ -188,6 +191,11 @@ impl Inner {
                 }
             }
         }
+    }
+
+    fn update_current_epoch(&mut self, epoch_height: &EpochHeight, sync_hash: &CryptoHash) {
+        self.epoch_height = Some(*epoch_height);
+        self.maybe_update_sync_hash(sync_hash);
     }
 
     /// Given a state header request produced by the local node,
@@ -257,10 +265,15 @@ impl SnapshotHostsCache {
                 NonZeroUsize::new(config.snapshot_hosts_cache_size as usize).unwrap(),
             ),
             sync_hash: None,
+            epoch_height: None,
             hosts_for_shard: HashMap::new(),
             peer_selector: HashMap::new(),
             part_selection_cache_batch_size: config.part_selection_cache_batch_size as usize,
         }))
+    }
+
+    pub fn maybe_update_current_epoch(&self, epoch_height: &EpochHeight, sync_hash: &CryptoHash) {
+        self.0.lock().update_current_epoch(epoch_height, sync_hash);
     }
 
     /// Selects new data and verifies the signatures.
