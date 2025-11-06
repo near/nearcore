@@ -9,6 +9,7 @@ use crate::logic::{GasCounter, HostError, ReturnData, alt_bn128, bls12381};
 use crate::wasmtime_runner::ErrorContainer;
 use crate::wasmtime_runner::component::Ctx;
 use crate::wasmtime_runner::component::bindings::near::nearcore::{finite_wasm, runtime};
+use core::array;
 use near_crypto::{PublicKey, Secp256K1Signature};
 use near_parameters::ExtCosts::*;
 use near_parameters::{
@@ -31,6 +32,108 @@ impl From<u128> for runtime::U128 {
 impl From<runtime::U128> for u128 {
     fn from(runtime::U128 { lo, hi }: runtime::U128) -> Self {
         (u128::from(hi) << 64) | u128::from(lo)
+    }
+}
+
+impl runtime::U128 {
+    fn to_le_bytes(&self) -> [u8; 16] {
+        let lo = self.lo.to_le_bytes();
+        let hi = self.hi.to_le_bytes();
+        array::from_fn(|i| if i < 8 { lo[i] } else { hi[i - 8] })
+    }
+
+    fn from_le_bytes(bytes: [u8; 16]) -> Self {
+        u128::from_le_bytes(bytes).into()
+    }
+}
+
+impl runtime::U160 {
+    #[expect(unused)]
+    fn to_le_bytes(&self) -> [u8; 20] {
+        let lo = self.lo.to_le_bytes();
+        let hi = self.hi.to_le_bytes();
+        array::from_fn(|i| if i < 10 { lo[i] } else { hi[i - 10] })
+    }
+
+    fn from_le_bytes(
+        [v0, v1, v2, v3, v4, v5, v6, v7, v8, v9, v10, v11, v12, v13, v14, v15, v16, v17, v18, v19]: [u8; 20],
+    ) -> Self {
+        Self {
+            lo: runtime::U128::from_le_bytes([
+                v0, v1, v2, v3, v4, v5, v6, v7, v8, v9, v10, v11, v12, v13, v14, v15,
+            ]),
+            hi: u32::from_le_bytes([v16, v17, v18, v19]),
+        }
+    }
+}
+
+impl runtime::U256 {
+    fn to_le_bytes(&self) -> [u8; 32] {
+        let lo = self.lo.to_le_bytes();
+        let hi = self.hi.to_le_bytes();
+        array::from_fn(|i| if i < 16 { lo[i] } else { hi[i - 16] })
+    }
+
+    fn from_le_bytes(
+        [
+            v0,
+            v1,
+            v2,
+            v3,
+            v4,
+            v5,
+            v6,
+            v7,
+            v8,
+            v9,
+            v10,
+            v11,
+            v12,
+            v13,
+            v14,
+            v15,
+            v16,
+            v17,
+            v18,
+            v19,
+            v20,
+            v21,
+            v22,
+            v23,
+            v24,
+            v25,
+            v26,
+            v27,
+            v28,
+            v29,
+            v30,
+            v31,
+        ]: [u8; 32],
+    ) -> Self {
+        Self {
+            lo: runtime::U128::from_le_bytes([
+                v0, v1, v2, v3, v4, v5, v6, v7, v8, v9, v10, v11, v12, v13, v14, v15,
+            ]),
+            hi: runtime::U128::from_le_bytes([
+                v16, v17, v18, v19, v20, v21, v22, v23, v24, v25, v26, v27, v28, v29, v30, v31,
+            ]),
+        }
+    }
+}
+
+impl runtime::U512 {
+    #[expect(unused)]
+    fn to_le_bytes(&self) -> [u8; 64] {
+        let lo = self.lo.to_le_bytes();
+        let hi = self.hi.to_le_bytes();
+        array::from_fn(|i| if i < 32 { lo[i] } else { hi[i - 32] })
+    }
+
+    fn from_le_bytes(bytes: [u8; 64]) -> Self {
+        let ([lo, hi], []) = bytes.as_chunks::<32>() else {
+            unreachable!();
+        };
+        Self { lo: runtime::U256::from_le_bytes(*lo), hi: runtime::U256::from_le_bytes(*hi) }
     }
 }
 
@@ -559,7 +662,7 @@ impl runtime::Host for Ctx {
         Ok(self.result_state.gas_counter.used_gas().as_gas())
     }
 
-    fn alt_bn128_g1_multiexp(&mut self, value: Vec<u8>) -> wasmtime::Result<Vec<u8>> {
+    fn alt_bn128_g1_multiexp(&mut self, value: Vec<u8>) -> wasmtime::Result<runtime::U512> {
         self.pay_base(alt_bn128_g1_multiexp_base)?;
         self.pay_for_reading_bytes(value.len())?;
 
@@ -567,11 +670,11 @@ impl runtime::Host for Ctx {
         self.pay_per(alt_bn128_g1_multiexp_element, elements.len() as u64)?;
 
         let res = alt_bn128::g1_multiexp(elements).map_err(ErrorContainer::new)?;
-        self.pay_for_writing_bytes(res.len())?;
-        Ok(res.into())
+        self.pay_for_writing_bytes(64)?;
+        Ok(runtime::U512::from_le_bytes(res))
     }
 
-    fn alt_bn128_g1_sum(&mut self, value: Vec<u8>) -> wasmtime::Result<Vec<u8>> {
+    fn alt_bn128_g1_sum(&mut self, value: Vec<u8>) -> wasmtime::Result<runtime::U512> {
         self.pay_base(alt_bn128_g1_sum_base)?;
         self.pay_for_reading_bytes(value.len())?;
 
@@ -579,8 +682,8 @@ impl runtime::Host for Ctx {
         self.pay_per(alt_bn128_g1_sum_element, elements.len() as u64)?;
 
         let res = alt_bn128::g1_sum(elements).map_err(ErrorContainer::new)?;
-        self.pay_for_writing_bytes(res.len())?;
-        Ok(res.into())
+        self.pay_for_writing_bytes(64)?;
+        Ok(runtime::U512::from_le_bytes(res))
     }
 
     fn alt_bn128_pairing_check(&mut self, value: Vec<u8>) -> wasmtime::Result<bool> {
@@ -672,7 +775,7 @@ impl runtime::Host for Ctx {
         Ok(self.context.random_seed.clone())
     }
 
-    fn sha256(&mut self, value: Vec<u8>) -> wasmtime::Result<Vec<u8>> {
+    fn sha256(&mut self, value: Vec<u8>) -> wasmtime::Result<runtime::U256> {
         self.pay_base(sha256_base)?;
         self.pay_for_reading_bytes(value.len())?;
         self.pay_per(sha256_byte, value.len() as u64)?;
@@ -680,11 +783,11 @@ impl runtime::Host for Ctx {
         use sha2::Digest;
 
         let value_hash = sha2::Sha256::digest(&value);
-        self.pay_for_writing_bytes(value_hash.len())?;
-        Ok(value_hash.to_vec())
+        self.pay_for_writing_bytes(32)?;
+        Ok(runtime::U256::from_le_bytes(value_hash.into()))
     }
 
-    fn keccak256(&mut self, value: Vec<u8>) -> wasmtime::Result<Vec<u8>> {
+    fn keccak256(&mut self, value: Vec<u8>) -> wasmtime::Result<runtime::U256> {
         self.pay_base(keccak256_base)?;
         self.pay_for_reading_bytes(value.len())?;
         self.pay_per(keccak256_byte, value.len() as u64)?;
@@ -692,11 +795,11 @@ impl runtime::Host for Ctx {
         use sha3::Digest;
 
         let value_hash = sha3::Keccak256::digest(&value);
-        self.pay_for_writing_bytes(value_hash.len())?;
-        Ok(value_hash.to_vec())
+        self.pay_for_writing_bytes(32)?;
+        Ok(runtime::U256::from_le_bytes(value_hash.into()))
     }
 
-    fn keccak512(&mut self, value: Vec<u8>) -> wasmtime::Result<Vec<u8>> {
+    fn keccak512(&mut self, value: Vec<u8>) -> wasmtime::Result<runtime::U512> {
         self.pay_base(keccak512_base)?;
         self.pay_for_reading_bytes(value.len())?;
         self.pay_per(keccak512_byte, value.len() as u64)?;
@@ -704,11 +807,11 @@ impl runtime::Host for Ctx {
         use sha3::Digest;
 
         let value_hash = sha3::Keccak512::digest(&value);
-        self.pay_for_writing_bytes(value_hash.len())?;
-        Ok(value_hash.to_vec())
+        self.pay_for_writing_bytes(64)?;
+        Ok(runtime::U512::from_le_bytes(value_hash.into()))
     }
 
-    fn ripemd160(&mut self, value: Vec<u8>) -> wasmtime::Result<Vec<u8>> {
+    fn ripemd160(&mut self, value: Vec<u8>) -> wasmtime::Result<runtime::U160> {
         self.pay_base(ripemd160_base)?;
         self.pay_for_reading_bytes(value.len())?;
 
@@ -724,8 +827,8 @@ impl runtime::Host for Ctx {
         use ripemd::Digest;
 
         let value_hash = ripemd::Ripemd160::digest(&value);
-        self.pay_for_writing_bytes(value_hash.len())?;
-        Ok(value_hash.to_vec())
+        self.pay_for_writing_bytes(20)?;
+        Ok(runtime::U160::from_le_bytes(value_hash.into()))
     }
 
     fn ecrecover(
@@ -1328,7 +1431,7 @@ impl runtime::HostPromise for Ctx {
     fn state_init(
         &mut self,
         promise: Resource<PromiseIndex>,
-        code_hash: Vec<u8>,
+        code_hash: runtime::U256,
         amount: runtime::U128,
     ) -> wasmtime::Result<Resource<ActionIndex>> {
         self.pay_base(base)?;
@@ -1338,10 +1441,8 @@ impl runtime::HostPromise for Ctx {
             })
             .into());
         }
-        self.pay_for_reading_bytes(code_hash.len())?;
-        let code_hash: [_; CryptoHash::LENGTH] = code_hash
-            .try_into()
-            .map_err(|_| ErrorContainer::new(HostError::ContractCodeHashMalformed))?;
+        self.pay_for_reading_bytes(CryptoHash::LENGTH)?;
+        let code_hash: [_; CryptoHash::LENGTH] = code_hash.to_le_bytes();
         let amount = amount.read(&mut self.result_state.gas_counter)?;
         let amount = Balance::from_yoctonear(amount);
         let promise_idx = self.table.get(&promise).copied()?;
@@ -1545,7 +1646,7 @@ impl runtime::HostPromise for Ctx {
     fn use_global_contract(
         &mut self,
         promise: Resource<PromiseIndex>,
-        code_hash: Vec<u8>,
+        code_hash: runtime::U256,
     ) -> wasmtime::Result<()> {
         self.pay_base(base)?;
         if self.context.is_view() {
@@ -1554,10 +1655,8 @@ impl runtime::HostPromise for Ctx {
             })
             .into());
         }
-        self.pay_for_reading_bytes(code_hash.len())?;
-        let code_hash: [_; CryptoHash::LENGTH] = code_hash
-            .try_into()
-            .map_err(|_| ErrorContainer::new(HostError::ContractCodeHashMalformed))?;
+        self.pay_for_reading_bytes(CryptoHash::LENGTH)?;
+        let code_hash: [_; CryptoHash::LENGTH] = code_hash.to_le_bytes();
         let contract_id = GlobalContractIdentifier::CodeHash(CryptoHash(code_hash));
 
         let promise_idx = self.table.get(&promise).copied()?;

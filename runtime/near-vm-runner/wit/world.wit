@@ -12,6 +12,21 @@ interface runtime {
      hi: u64,
    }
 
+   record u160 {
+     lo: u128,
+     hi: u32,
+   }
+
+   record u256 {
+     lo: u128,
+     hi: u128,
+   }
+
+   record u512 {
+     lo: u256,
+     hi: u256,
+   }
+
    resource account-id {
       from-string: static func(account-id: string) -> result<account-id>;
       to-string: func() -> string;
@@ -92,19 +107,19 @@ interface runtime {
    random-seed: func() -> list<u8>;
 
    // Hashes the random sequence of bytes using sha256.
-   sha256: func(value: list<u8>) -> list<u8>;
+   sha256: func(value: list<u8>) -> u256;
 
    // Hashes the random sequence of bytes using keccak256.
-   keccak256: func(value: list<u8>) -> list<u8>;
+   keccak256: func(value: list<u8>) -> u256;
 
    // Hashes the random sequence of bytes using keccak512.
-   keccak512: func(value: list<u8>) -> list<u8>;
+   keccak512: func(value: list<u8>) -> u512;
 
    // Verifies signature of message using provided ED25519 Public Key
    ed25519-verify: func(signature: list<u8>, message: list<u8>, public-key: borrow<public-key>) -> bool;
 
    // Hashes the bytes using the RIPEMD-160 hash function.
-   ripemd160: func(value: list<u8>) -> list<u8>;
+   ripemd160: func(value: list<u8>) -> u160;
 
    // Recovers an ECDSA signer address from a 32-byte message `hash` and a corresponding `signature`
    // along with `v` recovery byte.
@@ -133,7 +148,7 @@ interface runtime {
       then: func(account-id: borrow<account-id>) -> promise;
       and: static func(promises: list<borrow<promise>>) -> promise;
       set-refund-to: func(account-id: borrow<account-id>);
-      state-init: func(code-hash: list<u8>, amount: u128) -> promise-action;
+      state-init: func(code-hash: u256, amount: u128) -> promise-action;
       state-init-by-account-id: func(account-id: borrow<account-id>, amount: u128) -> promise-action;
       set-state-init-data-entry: func(action: promise-action, key: list<u8>, value: list<u8>);
 
@@ -142,7 +157,7 @@ interface runtime {
       deploy-contract: func(code: list<u8>);
       deploy-global-contract: func(code: list<u8>);
       deploy-global-contract-by-account-id: func(code: list<u8>);
-      use-global-contract: func(code-hash: list<u8>);
+      use-global-contract: func(code-hash: u256);
       use-global-contract-by-account-id: func(account-id: borrow<account-id>);
       function-call: func(method: list<u8>, arguments: list<u8>, amount: u128, gas: u64, gas-weight: u64);
       transfer: func(amount: u128);
@@ -224,7 +239,7 @@ interface runtime {
    // well-suited for ZK proofs.
    //
    // See also: [EIP-196](https://eips.ethereum.org/EIPS/eip-196)
-   alt-bn128-g1-multiexp: func(value: list<u8>) -> list<u8>;
+   alt-bn128-g1-multiexp: func(value: list<u8>) -> u512;
 
    // Compute alt_bn128 g1 sum.
    //
@@ -232,7 +247,7 @@ interface runtime {
    // well-suited for ZK proofs.
    //
    // See also: [EIP-196](https://eips.ethereum.org/EIPS/eip-196)
-   alt-bn128-g1-sum: func(value: list<u8>) -> list<u8>;
+   alt-bn128-g1-sum: func(value: list<u8>) -> u512;
 
    // Compute pairing check
    //

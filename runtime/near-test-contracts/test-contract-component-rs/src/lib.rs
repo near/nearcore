@@ -62,6 +62,7 @@ world test {
 use bindings::near::nearcore::runtime::*;
 use bindings::Guest;
 use core::array;
+use core::mem::transmute;
 
 impl From<u128> for U128 {
     fn from(value: u128) -> Self {
@@ -71,7 +72,13 @@ impl From<u128> for U128 {
 
 impl From<U128> for u128 {
     fn from(U128 { lo, hi }: U128) -> Self {
-        (u128::from(hi) << 64) | u128::from(lo)
+        u128::from(lo) | (u128::from(hi) << 64)
+    }
+}
+
+impl From<U256> for [u8; 32] {
+    fn from(U256 { lo, hi }: U256) -> Self {
+        unsafe { transmute([u128::from(lo), u128::from(hi)]) }
     }
 }
 
@@ -88,6 +95,12 @@ fn generate_data(data: &mut [u8]) {
 }
 
 pub struct Component;
+
+impl U256 {
+    fn into_bytes(self) -> [u8; 32] {
+        self.into()
+    }
+}
 
 impl Guest for Component {
     fn ext_storage_usage() {
@@ -153,7 +166,7 @@ impl Guest for Component {
     fn ext_sha256() {
         let bytes = input();
         let result = sha256(&bytes);
-        value_return(&result);
+        value_return(&result.into_bytes());
     }
 
     fn ext_used_gas() {
