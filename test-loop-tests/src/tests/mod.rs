@@ -1,4 +1,6 @@
 mod bandwidth_scheduler;
+#[cfg(feature = "test_features")]
+mod block_chunk_signature;
 mod bug_repro;
 mod catching_up;
 mod chunk_validator_kickout;
