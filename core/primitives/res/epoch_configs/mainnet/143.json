@@ -136,6 +136,5 @@
     1,
     10
   ],
-  "protocol_treasury_account": "near",
-  "num_blocks_per_year": 31536000
+  "protocol_treasury_account": "near"
 }

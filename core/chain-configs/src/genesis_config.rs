@@ -286,7 +286,6 @@ impl From<&GenesisConfig> for EpochConfig {
             max_inflation_rate: config.max_inflation_rate,
             protocol_reward_rate: config.protocol_reward_rate,
             protocol_treasury_account: config.protocol_treasury_account.clone(),
-            num_blocks_per_year: config.num_blocks_per_year,
         }
     }
 }

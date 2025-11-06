@@ -7,7 +7,6 @@ use crate::types::{
 };
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_primitives_core::hash::CryptoHash;
-use near_primitives_core::types::NumBlocks;
 use near_primitives_core::version::PROTOCOL_VERSION;
 use near_schema_checker_lib::ProtocolSchema;
 use std::collections::{BTreeMap, HashMap};
@@ -24,10 +23,6 @@ fn default_protocol_reward_rate() -> Rational32 {
 
 fn default_protocol_treasury_account() -> AccountId {
     "near".parse().unwrap()
-}
-
-fn default_num_blocks_per_year() -> NumBlocks {
-    60 * 60 * 24 * 365
 }
 
 /// Epoch config, determines validator assignment for given epoch.
@@ -92,9 +87,6 @@ pub struct EpochConfig {
     // #[default("near".parse().unwrap())]
     #[serde(default = "default_protocol_treasury_account")]
     pub protocol_treasury_account: AccountId,
-    // #[default(60 * 60 * 24 * 365)]
-    #[serde(default = "default_num_blocks_per_year")]
-    pub num_blocks_per_year: NumBlocks,
 }
 
 impl EpochConfig {
@@ -148,7 +140,6 @@ impl EpochConfig {
             max_inflation_rate: Rational32::new(1, 40),
             protocol_reward_rate: default_protocol_reward_rate(),
             protocol_treasury_account: default_protocol_treasury_account(),
-            num_blocks_per_year: default_num_blocks_per_year(),
         }
     }
 
@@ -180,7 +171,6 @@ impl EpochConfig {
             max_inflation_rate: Rational32::new(1, 40),
             protocol_reward_rate: default_protocol_reward_rate(),
             protocol_treasury_account: default_protocol_treasury_account(),
-            num_blocks_per_year: default_num_blocks_per_year(),
         }
     }
 
@@ -211,7 +201,6 @@ impl EpochConfig {
             max_inflation_rate: Rational32::new(1, 40),
             protocol_reward_rate: default_protocol_reward_rate(),
             protocol_treasury_account: default_protocol_treasury_account(),
-            num_blocks_per_year: default_num_blocks_per_year(),
         }
     }
 }

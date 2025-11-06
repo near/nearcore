@@ -160,7 +160,6 @@ pub fn epoch_config(
         shard_layout: ShardLayout::multi_shard(num_shards, 0),
         validator_max_kickout_stake_perc: 100,
         max_inflation_rate,
-        num_blocks_per_year: 1,
         protocol_reward_rate: Ratio::new(1, 10),
         protocol_treasury_account: "near".parse().unwrap(),
     };
