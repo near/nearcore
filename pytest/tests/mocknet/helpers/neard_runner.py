@@ -1042,7 +1042,6 @@ class NeardRunner:
         logging.info("Creating log_config.json with default log filter.")
         with open(log_config_path, 'w') as log_config_file:
             config_json = {
-                'opentelemetry': default_log_filter,
                 'rust_log': default_log_filter,
             }
             json.dump(config_json, log_config_file, indent=2)
