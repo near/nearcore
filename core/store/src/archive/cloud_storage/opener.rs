@@ -9,7 +9,7 @@ use near_chain_configs::ExternalStorageLocation;
 use crate::archive::cloud_storage::CloudStorage;
 use crate::archive::cloud_storage::config::CloudArchivalConfig;
 use crate::db::{Database, RocksDB};
-use crate::{Mode, Temperature};
+use crate::{Mode, Store, Temperature};
 
 /// Opener for the external archival storage, which results in an `CloudStorage` instance.
 pub struct CloudStorageOpener {
@@ -24,10 +24,10 @@ impl CloudStorageOpener {
         Self { home_dir: home_dir.to_path_buf(), config }
     }
 
-    pub fn open(&self) -> Result<Arc<CloudStorage>> {
+    pub fn open(&self, hot_store: Store) -> Result<Arc<CloudStorage>> {
         let external = self.create_external_connection();
         let prefetch_db = self.open_prefetch_db()?;
-        let cloud_storage = CloudStorage { external, prefetch_db };
+        let cloud_storage = CloudStorage { external, hot_store, prefetch_db };
         Ok(Arc::new(cloud_storage))
     }
 

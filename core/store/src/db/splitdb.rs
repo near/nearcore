@@ -88,9 +88,17 @@ impl Database for SplitDB {
         if let Some(hot_result) = self.hot.get_raw_bytes(col, key)? {
             return Ok(Some(hot_result));
         }
+        if !col.is_cold() {
+            return Ok(None);
+        }
         if let Some(cold) = &self.cold {
             if let Some(cold_result) = cold.get_raw_bytes(col, key)? {
                 return Ok(Some(cold_result));
+            }
+        }
+        if let Some(cloud) = &self.cloud {
+            if let Some(cloud_result) = cloud.get(col, key)? {
+                return Ok(Some(cloud_result));
             }
         }
         Ok(None)

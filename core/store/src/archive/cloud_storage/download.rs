@@ -1,4 +1,3 @@
-use near_primitives::block::Block;
 use near_primitives::types::BlockHeight;
 
 use borsh::BorshDeserialize;
@@ -20,30 +19,28 @@ pub enum CloudRetrievalError {
 
 impl CloudStorage {
     /// Returns the cloud head from external storage, if present.
-    pub async fn get_cloud_head_if_exists(
+    pub async fn retrieve_cloud_head_if_exists(
         &self,
     ) -> Result<Option<BlockHeight>, CloudRetrievalError> {
         if !self.exists(&CloudStorageFileID::Head).await? {
             return Ok(None);
         }
-        let cloud_head = self.get_cloud_head().await?;
+        let cloud_head = self.retrieve_cloud_head().await?;
         Ok(Some(cloud_head))
     }
 
     /// Returns the cloud head from external storage.
-    pub async fn get_cloud_head(&self) -> Result<BlockHeight, CloudRetrievalError> {
-        self.get(&CloudStorageFileID::Head).await
+    pub async fn retrieve_cloud_head(&self) -> Result<BlockHeight, CloudRetrievalError> {
+        self.retrieve(&CloudStorageFileID::Head).await
     }
 
-    pub async fn get_block(&self, block_height: BlockHeight) -> Result<Block, CloudRetrievalError> {
+    pub async fn retrieve_block_data(&self, block_height: BlockHeight) -> Result<BlockData, CloudRetrievalError> {
         let file_id = CloudStorageFileID::Block(block_height);
-        let block_data: BlockData = self.get(&file_id).await?;
-        let block = block_data.get_block().clone();
-        Ok(block)
+        self.retrieve(&file_id).await
     }
 
-    /// Retrieves and deserializes a file from the cloud archive.
-    async fn get<T: BorshDeserialize>(
+    /// Downloads and deserializes a file from the cloud archive.
+    async fn retrieve<T: BorshDeserialize>(
         &self,
         file_id: &CloudStorageFileID,
     ) -> Result<T, CloudRetrievalError> {

@@ -5006,6 +5006,7 @@ dependencies = [
  "derive-where",
  "derive_more 2.0.1",
  "enum-map",
+ "futures",
  "hex",
  "insta",
  "itertools 0.14.0",
