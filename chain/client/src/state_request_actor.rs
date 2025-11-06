@@ -120,15 +120,26 @@ impl StateRequestActor {
         Ok(good_sync_hash.as_ref() == Some(sync_hash))
     }
 
-    /// Checks if the sync_hash belongs to an epoch that is older than the current chain head's epoch.
+    /// Checks if the sync_hash belongs to an epoch that is too old.
+    /// We allow sync_hash from the current epoch and the immediately previous epoch.
     fn is_sync_hash_from_old_epoch(&self, sync_hash: &CryptoHash) -> Result<bool, Error> {
         let head = self.chain_store.head()?;
         let sync_block_header = self.chain_store.get_block_header(sync_hash)?;
         let sync_epoch_id = sync_block_header.epoch_id();
 
-        // If the sync_hash's epoch is different from the current head's epoch,
-        // we consider it to be from an old epoch
-        Ok(sync_epoch_id != &head.epoch_id)
+        if sync_epoch_id == &head.epoch_id {
+            return Ok(false);
+        }
+
+        if let Ok(prev_epoch_id) =
+            self.epoch_manager.get_prev_epoch_id_from_prev_block(&head.prev_block_hash)
+        {
+            if sync_epoch_id == &prev_epoch_id {
+                return Ok(false);
+            }
+        }
+
+        Ok(true)
     }
 
     /// Validates sync hash and returns appropriate action to take.
