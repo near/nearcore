@@ -441,6 +441,7 @@ mod tests {
             MutableConfigValue::new(None, "validator_signer"),
             noop().into_multi_sender(),
             None,
+            noop().into_multi_sender(),
         )
         .unwrap();
         (

@@ -328,6 +328,7 @@ impl ReplayController {
                 receipts,
                 block: block_context,
                 storage_context,
+                chunk: Some(chunk_header.clone()),
             })
         } else {
             ShardUpdateReason::OldChunk(OldChunkData {
@@ -345,6 +346,7 @@ impl ReplayController {
                 gas_limit: _,
                 shard_uid: _,
                 apply_result,
+                ..
             }) => {
                 let outgoing_receipts = apply_result.outgoing_receipts.clone();
                 let chunk_extra =

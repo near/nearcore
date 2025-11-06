@@ -17,7 +17,6 @@ use crate::stateless_validation::chunk_endorsement::ChunkEndorsementTracker;
 use crate::stateless_validation::chunk_validation_actor::{
     ChunkValidationActorInner, ChunkValidationSender,
 };
-use crate::stateless_validation::partial_witness::partial_witness_actor::PartialWitnessSenderForClient;
 use crate::sync::handler::SyncHandlerRequest;
 use crate::sync::state::chain_requests::{
     ChainFinalizationRequest, ChainSenderForStateSync, StateHeaderValidationRequest,
@@ -41,6 +40,7 @@ use near_chain::chain::{
 use near_chain::resharding::types::ReshardingSender;
 use near_chain::spice_core_writer_actor::ProcessedBlock;
 use near_chain::state_snapshot_actor::SnapshotCallbacks;
+use near_chain::stateless_validation::state_witness::PartialWitnessSenderForClient;
 use near_chain::test_utils::format_hash;
 use near_chain::types::RuntimeAdapter;
 use near_chain::{ApplyChunksIterationMode, ApplyChunksSpawner};
@@ -597,7 +597,7 @@ impl Handler<SpanWrapped<BlockResponse>> for ClientActorInner {
                 block,
                 peer_id,
                 was_requested,
-                Some(self.client.myself_sender.apply_chunks_done.clone()),
+                Some(self.client.myself_sender.clone().into_multi_sender()),
             );
         } else {
             match self.client.epoch_manager.get_epoch_id_from_prev_block(block.header().prev_hash())
@@ -1179,10 +1179,11 @@ impl ClientActorInner {
                 continue;
             }
 
+            debug!(target: "client", height, "Checking if ready to produce block");
             if self.client.doomslug.ready_to_produce_block(
                 height,
                 chunks_readiness,
-                log_block_production_info,
+                true, // log_block_production_info,
             ) {
                 let shard_ids = self.client.epoch_manager.shard_ids(&epoch_id)?;
                 self.client
@@ -1198,6 +1199,7 @@ impl ClientActorInner {
         }
 
         let optimistic_block_height = self.client.doomslug.get_timer_height();
+        debug!(target: "client", optimistic_block_height, "Checking if ready to produce optimistic block");
         if me != self.client.epoch_manager.get_block_producer(&epoch_id, optimistic_block_height)? {
             return Ok(());
         }
@@ -1360,7 +1362,7 @@ impl ClientActorInner {
     fn try_process_unfinished_blocks(&mut self) {
         let _span = debug_span!(target: "client", "try_process_unfinished_blocks").entered();
         let (accepted_blocks, errors) = self.client.postprocess_ready_blocks(
-            Some(self.client.myself_sender.apply_chunks_done.clone()),
+            Some(self.client.myself_sender.clone().into_multi_sender()),
             true,
         );
         if !errors.is_empty() {
@@ -1426,7 +1428,7 @@ impl ClientActorInner {
         let res = self.client.start_process_block(
             block,
             Provenance::PRODUCED,
-            Some(self.client.myself_sender.apply_chunks_done.clone()),
+            Some(self.client.myself_sender.clone().into_multi_sender()),
         );
         let Err(error) = res else {
             return Ok(());
@@ -1457,6 +1459,7 @@ impl ClientActorInner {
     fn produce_optimistic_block(&mut self, next_height: BlockHeight) -> Result<(), Error> {
         // Check if optimistic block is already produced
         if self.client.is_optimistic_block_done(next_height) {
+            debug!(target: "client", next_height, "Optimistic block already produced");
             return Ok(());
         }
 
@@ -1480,7 +1483,7 @@ impl ClientActorInner {
         self.client.chain.optimistic_block_chunks.add_block(optimistic_block);
 
         self.client.chain.maybe_process_optimistic_block(Some(
-            self.client.myself_sender.apply_chunks_done.clone(),
+            self.client.myself_sender.clone().into_multi_sender(),
         ));
 
         Ok(())
@@ -1654,7 +1657,7 @@ impl ClientActorInner {
             let _span = tracing::debug_span!(target: "client", "catchup").entered();
             if let Err(err) = self.client.run_catchup(
                 &self.sync_jobs_sender.block_catch_up,
-                Some(self.client.myself_sender.apply_chunks_done.clone()),
+                Some(self.client.myself_sender.clone().into_multi_sender()),
             ) {
                 error!(target: "client", "Error occurred during catchup for the next epoch: {:?}", err);
             }
@@ -1765,7 +1768,7 @@ impl ClientActorInner {
             &self.client.shard_tracker,
             highest_height,
             &self.network_info.highest_height_peers,
-            Some(self.client.myself_sender.apply_chunks_done.clone()),
+            Some(self.client.myself_sender.clone().into_multi_sender()),
         );
         let Some(sync_step_result) = sync_step_result else {
             return;
@@ -1949,7 +1952,7 @@ impl ClientActorInner {
             let _ = self.client.start_process_block(
                 block.into(),
                 Provenance::PRODUCED,
-                Some(self.client.myself_sender.apply_chunks_done.clone()),
+                Some(self.client.myself_sender.clone().into_multi_sender()),
             );
             blocks_produced += 1;
             if blocks_produced == num_blocks {
@@ -1995,7 +1998,7 @@ impl Handler<SpanWrapped<ShardsManagerResponse>> for ClientActorInner {
                 self.client.on_chunk_completed(
                     partial_chunk,
                     shard_chunk,
-                    Some(self.client.myself_sender.apply_chunks_done.clone()),
+                    Some(self.client.myself_sender.clone().into_multi_sender()),
                 );
             }
             ShardsManagerResponse::InvalidChunk(encoded_chunk) => {
