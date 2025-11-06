@@ -77,7 +77,7 @@ macro_rules! bls12381_fn {
         $blst_p_mult:ident,
         $read_fp_point:ident,
         $blst_map_to_g:ident,
-        $blst_p_uncomp:ident,
+        $blst_p_uncompress:ident,
         $parse_p:ident,
         $serialize_p:ident,
         $bls12381_p:expr,
@@ -193,7 +193,7 @@ macro_rules! bls12381_fn {
             for item_data in data.chunks_exact(ITEM_SIZE) {
                 let pk_ser = if item_data[0] & 0x80 != 0 {
                     let mut pk = blst::$blst_p_affine::default();
-                    let err = unsafe { blst::$blst_p_uncomp(&mut pk, item_data.as_ptr()) };
+                    let err = unsafe { blst::$blst_p_uncompress(&mut pk, item_data.as_ptr()) };
                     if err != blst::BLST_ERROR::BLST_SUCCESS
                         && err != blst::BLST_ERROR::BLST_POINT_NOT_IN_GROUP
                     {
