@@ -36,6 +36,6 @@ pub fn test_cloud_archival_config(root_dir: impl Into<PathBuf>) -> CloudArchival
 
 /// Initializes a test cloud storage instance based on the test configuration.
 pub fn create_test_cloud_storage(root_dir: PathBuf, hot_store: Store) -> Arc<CloudStorage> {
-    let config = test_cloud_archival_config(root_dir.clone());
+    let config = test_cloud_archival_config(root_dir);
     CloudStorageOpener::new(config).open(hot_store).unwrap()
 }

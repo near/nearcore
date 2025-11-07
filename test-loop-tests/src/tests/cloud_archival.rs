@@ -31,6 +31,7 @@ struct TestCloudArchivalParameters {
     enable_cold_storage: bool,
     /// Height up to which the cloud archival writer should be paused.
     pause_writer_until_height: Option<BlockHeight>,
+    /// If set, runs tests against the `view_client` at the given block height.
     test_view_client_at_height: Option<BlockHeight>,
 }
 
@@ -156,6 +157,7 @@ fn test_cloud_archival_resume() {
     );
 }
 
+/// Verifies that block data can be read from the cloud.
 #[test]
 fn test_cloud_archival_read_block() {
     let block_height = Some(MIN_EPOCH_LENGTH / 2);

@@ -9,11 +9,11 @@ use crate::DBCol;
 use crate::archive::cloud_storage::CloudStorage;
 use crate::db::{DBIterator, DBIteratorItem, DBSlice, DBTransaction, Database, StoreStatistics};
 
-/// A database that provides access to the hot and cold databases.
+/// A database that provides access to the hot, cold, and cloud databases.
 ///
 /// For hot-only columns it always reads from the hot database only. For cold
 /// columns it reads from hot first and if the value is present it returns it.
-/// If the value is not present it reads from the cold database.
+/// If the value is not present it reads from the cloud database, then cold database.
 ///
 /// The iter* methods return a merge iterator of hot and cold iterators.
 ///
@@ -22,7 +22,6 @@ use crate::db::{DBIterator, DBIteratorItem, DBSlice, DBTransaction, Database, St
 pub struct SplitDB {
     hot: Arc<dyn Database>,
     cold: Option<Arc<dyn Database>>,
-    #[allow(unused)]
     cloud: Option<Arc<CloudStorage>>,
 }
 
@@ -83,7 +82,7 @@ impl Database for SplitDB {
     /// if any.
     ///
     /// First tries to read the data from the hot db and returns it if found.
-    /// Then it tries to read the data from the cold db and returns the result.
+    /// Then it tries to read the data from the cloud db or cold db and returns the result.
     fn get_raw_bytes(&self, col: DBCol, key: &[u8]) -> io::Result<Option<DBSlice<'_>>> {
         if let Some(hot_result) = self.hot.get_raw_bytes(col, key)? {
             return Ok(Some(hot_result));
@@ -91,14 +90,14 @@ impl Database for SplitDB {
         if !col.is_cold() {
             return Ok(None);
         }
-        if let Some(cold) = &self.cold {
-            if let Some(cold_result) = cold.get_raw_bytes(col, key)? {
-                return Ok(Some(cold_result));
-            }
-        }
         if let Some(cloud) = &self.cloud {
             if let Some(cloud_result) = cloud.get(col, key)? {
                 return Ok(Some(cloud_result));
+            }
+        }
+        if let Some(cold) = &self.cold {
+            if let Some(cold_result) = cold.get_raw_bytes(col, key)? {
+                return Ok(Some(cold_result));
             }
         }
         Ok(None)

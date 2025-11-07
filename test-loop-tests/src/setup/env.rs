@@ -124,7 +124,7 @@ impl TestLoopEnv {
         Some((split_store, cold_db))
     }
 
-    pub fn get_cloud_storage(&self, node_data: &NodeExecutionData) -> Option<Arc<CloudStorage>> {
+    fn get_cloud_storage(&self, node_data: &NodeExecutionData) -> Option<Arc<CloudStorage>> {
         let cloud_storage = self.test_loop.data.get(&node_data.cloud_storage_sender);
         cloud_storage.clone()
     }

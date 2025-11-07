@@ -99,6 +99,7 @@ fn get_cloud_head(env: &TestLoopEnv, writer_id: &AccountId) -> BlockHeight {
     hot_store.get_ser::<Tip>(DBCol::BlockMisc, CLOUD_HEAD_KEY).unwrap().unwrap().height
 }
 
+/// Runs tests verifying view client behavior at the given block height.
 pub fn test_view_client(env: &mut TestLoopEnv, archival_id: &AccountId, height: BlockHeight) {
     let archival_node = TestLoopNode::for_account(&env.node_datas, archival_id);
     let view_client_handle = archival_node.data().view_client_sender.actor_handle();
