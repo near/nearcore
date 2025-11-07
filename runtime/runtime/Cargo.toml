@@ -16,6 +16,7 @@ base64 = { workspace = true, optional = true }
 borsh.workspace = true
 bytesize.workspace = true
 crossbeam-utils.workspace = true
+ahash.workspace = true
 dashmap.workspace = true
 ed25519-dalek.workspace = true
 itertools.workspace = true
