@@ -1,6 +1,6 @@
 use crate::config::SocketOptions;
 use crate::network_protocol::testonly as data;
-use crate::network_protocol::{Encoding, Handshake, PartialEdgeInfo, PeerMessage};
+use crate::network_protocol::{Handshake, PartialEdgeInfo, PeerMessage};
 use crate::peer_manager;
 use crate::peer_manager::peer_manager_actor::Event;
 use crate::peer_manager::testonly::ActorHandler;
@@ -58,7 +58,7 @@ async fn test_nonces() {
             tcp::Stream::connect(&pm.peer_info(), tcp::Tier::T2, &SocketOptions::default())
                 .await
                 .unwrap();
-        let mut stream = stream::Stream::new(Some(Encoding::Proto), stream);
+        let mut stream = stream::Stream::new(stream);
         let peer_key = data::make_secret_key(rng);
         let peer_id = PeerId::new(peer_key.public_key());
         let handshake = PeerMessage::Tier2Handshake(Handshake {
