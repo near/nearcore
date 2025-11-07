@@ -167,7 +167,7 @@ interface runtime {
       delete-account: func(beneficiary-id: borrow<account-id>);
 
       yield-create: static func(method: list<u8>, arguments: list<u8>, gas: u64, gas-weight: u64, register-id: u64) -> promise;
-      yield-resume: static func(data-id: list<u8>, payload: list<u8>) -> bool;
+      yield-resume: static func(data-id: u256, payload: list<u8>) -> bool;
 
 
       // If the current function is invoked by a callback we can access the execution results of the

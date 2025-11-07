@@ -2050,7 +2050,7 @@ impl runtime::HostPromise for Ctx {
         Ok(new_promise_idx)
     }
 
-    fn yield_resume(&mut self, data_id: Vec<u8>, payload: Vec<u8>) -> wasmtime::Result<bool> {
+    fn yield_resume(&mut self, data_id: runtime::U256, payload: Vec<u8>) -> wasmtime::Result<bool> {
         self.pay_base(base)?;
         if self.context.is_view() {
             return Err(ErrorContainer::new(HostError::ProhibitedInView {
@@ -2062,7 +2062,7 @@ impl runtime::HostPromise for Ctx {
         self.pay_for_reading_bytes(payload.len())?;
         let payload_len = payload.len() as u64;
         pay_per(&mut self.result_state.gas_counter, yield_resume_byte, payload_len)?;
-        self.pay_for_reading_bytes(data_id.len())?;
+        self.pay_for_reading_bytes(CryptoHash::LENGTH)?;
         if payload_len > self.config.limit_config.max_yield_payload_size {
             return Err(ErrorContainer::new(HostError::YieldPayloadLength {
                 length: payload_len,
@@ -2071,14 +2071,11 @@ impl runtime::HostPromise for Ctx {
             .into());
         }
 
-        let data_id: [_; CryptoHash::LENGTH] = data_id
-            .try_into()
-            .map_err(|_| HostError::DataIdMalformed)
+        let data_id: [_; CryptoHash::LENGTH] = data_id.to_le_bytes();
+        let v = self
+            .ext
+            .submit_promise_resume_data(CryptoHash(data_id), payload)
             .map_err(ErrorContainer::new)?;
-        let data_id = CryptoHash(data_id);
-        let payload = payload.into();
-        let v =
-            self.ext.submit_promise_resume_data(data_id, payload).map_err(ErrorContainer::new)?;
         Ok(v)
     }
 
