@@ -606,7 +606,7 @@ impl Config {
     pub fn set_rpc_addr(&mut self, addr: tcp::ListenerAddr) {
         #[cfg(feature = "json_rpc")]
         {
-            self.rpc.get_or_insert(Default::default()).addr = addr;
+            self.rpc.get_or_insert_with(Default::default).addr = addr;
         }
     }
 
@@ -1323,7 +1323,7 @@ fn create_localnet_config(
         std::cmp::min(num_validators as usize - 1, config.consensus.min_num_peers);
 
     // Configure networking and RPC endpoint. Enable debug-RPC by default for all nodes.
-    config.rpc.get_or_insert(Default::default()).enable_debug_rpc = true;
+    config.rpc.get_or_insert_with(Default::default).enable_debug_rpc = true;
     config.network.addr = network_config.0.to_string();
     config.network.public_addrs = vec![PeerAddr {
         addr: network_config.0,
@@ -1342,10 +1342,12 @@ fn create_localnet_config(
     // Configure archival node with split storage (hot + cold DB).
     if params.is_archival {
         config.archive = true;
-        config.cold_store.get_or_insert(config.store.clone()).path =
+        config.cold_store.get_or_insert_with(|| config.store.clone()).path =
             Some(PathBuf::from("cold-data"));
-        config.split_storage.get_or_insert(Default::default()).enable_split_storage_view_client =
-            true;
+        config
+            .split_storage
+            .get_or_insert_with(Default::default)
+            .enable_split_storage_view_client = true;
         config.save_trie_changes = Some(true);
     }
 

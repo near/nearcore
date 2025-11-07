@@ -309,17 +309,14 @@ impl ViewClientActorInner {
         for block_height in head.height..next_epoch_start_height {
             let bp = epoch_info.sample_block_producer(block_height);
             let bp = epoch_info.get_validator(bp).account_id().clone();
-            let cps: Vec<AccountId> = shard_ids
-                .iter()
-                .map(|&shard_id| {
-                    let cp = epoch_info
-                        .sample_chunk_producer(&shard_layout, shard_id, block_height)
-                        .unwrap();
-                    let cp = epoch_info.get_validator(cp).account_id().clone();
-                    cp
-                })
-                .collect();
-            if account_id != bp && !cps.iter().any(|a| *a == account_id) {
+            let mut cps = shard_ids.iter().map(|&shard_id| {
+                let cp = epoch_info
+                    .sample_chunk_producer(&shard_layout, shard_id, block_height)
+                    .unwrap();
+                let cp = epoch_info.get_validator(cp).account_id().clone();
+                cp
+            });
+            if account_id != bp && cps.find(|v| v == &account_id).is_none() {
                 if let Some(start) = start_block_of_window {
                     if block_height == last_block_of_epoch {
                         windows.push(start..block_height + 1);

@@ -160,12 +160,9 @@ impl ChainStore {
         // blocks.
         let result = self.clear_state_transition_data(epoch_manager.as_ref());
 
-        result.and(self.clear_old_blocks_data(
-            gc_config,
-            runtime_adapter,
-            epoch_manager,
-            shard_tracker,
-        ))
+        result.and_then(|()| {
+            self.clear_old_blocks_data(gc_config, runtime_adapter, epoch_manager, shard_tracker)
+        })
     }
 
     fn clear_old_blocks_data(

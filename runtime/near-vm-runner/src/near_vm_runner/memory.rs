@@ -75,7 +75,7 @@ impl MemoryLike for NearVmMemory {
         unsafe { self.get_ptr(slice.ptr, slice.len()?) }.map(|_| ())
     }
 
-    fn view_memory(&self, slice: MemSlice) -> Result<Cow<[u8]>, ()> {
+    fn view_memory(&self, slice: MemSlice) -> Result<Cow<'_, [u8]>, ()> {
         // SAFETY: Firstly, contracts are executed on a single thread thus we
         // know no one will change guest memory mapping under us.  Secondly, the
         // way MemoryLike interface is used we know the memory mapping won’t be

@@ -65,6 +65,7 @@ pub type FlatStorageResult<T> = Result<T, FlatStorageError>;
 )]
 #[borsh(use_discriminant = true)]
 #[repr(u8)]
+#[allow(clippy::large_enum_variant)]
 pub enum FlatStorageStatus {
     /// Flat Storage is not supported.
     Disabled = 0,
@@ -159,6 +160,7 @@ pub enum FlatStorageCreationStatus {
 )]
 #[borsh(use_discriminant = true)]
 #[repr(u8)]
+#[allow(clippy::large_enum_variant)]
 pub enum FlatStorageReshardingStatus {
     /// Resharding phase entered when a shard is being split.
     /// Copy key-value pairs from this shard (the parent) to children shards.

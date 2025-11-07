@@ -872,7 +872,7 @@ impl<'a> DelayedReceiptQueueWrapper<'a> {
         &mut self,
         trie_update: &mut TrieUpdate,
         config: &RuntimeConfig,
-    ) -> Result<Option<ReceiptOrStateStoredReceipt>, RuntimeError> {
+    ) -> Result<Option<ReceiptOrStateStoredReceipt<'_>>, RuntimeError> {
         // While processing receipts, we need to keep track of the gas and bytes
         // even for receipts that may be filtered out due to a resharding event
         loop {

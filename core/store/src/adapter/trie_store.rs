@@ -93,7 +93,7 @@ impl TrieStoreAdapter {
     }
 
     #[cfg(test)]
-    pub fn iter_raw_bytes(&self) -> crate::db::DBIterator {
+    pub fn iter_raw_bytes(&self) -> crate::db::DBIterator<'_> {
         self.store.iter_raw_bytes(DBCol::State)
     }
 }

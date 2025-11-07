@@ -1077,12 +1077,6 @@ pub(crate) struct SubNetworkIdentifier {
      * pub metadata: Option<serde_json::Value>, */
 }
 
-/// The timestamp of the block in milliseconds since the Unix Epoch. The
-/// timestamp is stored in milliseconds because some blockchains produce blocks
-/// more often than once a second.
-#[derive(Debug, Clone, PartialEq, PartialOrd, ToSchema, serde::Serialize, serde::Deserialize)]
-pub(crate) struct Timestamp(i64);
-
 /// Transactions contain an array of Operations that are attributable to the
 /// same TransactionIdentifier.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, ToSchema)]
@@ -1362,13 +1356,6 @@ pub(crate) enum Nep141EventKind {
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Debug)]
-pub(crate) struct FtMintData {
-    pub owner_id: String,
-    pub amount: String,
-    pub memo: Option<String>,
-}
-
-#[derive(serde::Serialize, serde::Deserialize, Debug)]
 pub(crate) struct FtTransferData {
     pub old_owner_id: String,
     pub new_owner_id: String,
@@ -1376,12 +1363,6 @@ pub(crate) struct FtTransferData {
     pub memo: Option<String>,
 }
 
-#[derive(serde::Serialize, serde::Deserialize, Debug)]
-pub(crate) struct FtBurnData {
-    pub owner_id: String,
-    pub amount: String,
-    pub memo: Option<String>,
-}
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub(crate) struct FungibleTokenEvent {
     pub standard: String,
@@ -1407,6 +1388,7 @@ pub(crate) struct EventBase {
     pub contract_account_id: AccountIdentifier,
     pub status: near_primitives::views::ExecutionStatusView,
 }
+
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, ToSchema)]
 pub(crate) struct FtEvent {
     pub affected_id: AccountIdentifier,
@@ -1417,19 +1399,4 @@ pub(crate) struct FtEvent {
     pub decimals: u32,
     pub cause: String,
     pub memo: Option<String>,
-}
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, ToSchema)]
-pub(crate) struct FTMetadataResponse {
-    pub spec: String,
-    pub name: String,
-    pub symbol: String,
-    pub icon: Option<String>,
-    pub reference: Option<String>,
-    pub reference_hash: Option<String>,
-    pub decimals: u32,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, ToSchema)]
-pub(crate) struct FTAccountBalanceResponse {
-    pub amount: u128,
 }
