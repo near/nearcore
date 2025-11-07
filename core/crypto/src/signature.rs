@@ -71,7 +71,7 @@ fn split_key_type_data(value: &str) -> Result<(KeyType, &str), crate::errors::Pa
 )]
 #[cfg_attr(test, derive(bolero::TypeGenerator))]
 #[as_ref(forward)]
-pub struct Secp256K1PublicKey([u8; 64]);
+pub struct Secp256K1PublicKey(pub [u8; 64]);
 
 impl TryFrom<&[u8]> for Secp256K1PublicKey {
     type Error = crate::errors::ParseKeyError;

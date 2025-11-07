@@ -190,6 +190,9 @@ pub struct Config {
     /// Whether to enable saturating reference types and bulk memory wasm extensions.
     pub reftypes_bulk_memory: bool,
 
+    /// Whether to enable component model.
+    pub component_model: bool,
+
     /// Whether to host functions introduced with deterministic account ids.
     pub deterministic_account_ids: bool,
 

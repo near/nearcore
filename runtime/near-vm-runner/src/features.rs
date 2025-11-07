@@ -14,7 +14,6 @@ mod opts {
     pub(super) const EXCEPTIONS: bool = false;
     pub(super) const RELAXED_SIMD: bool = false;
     pub(super) const EXTENDED_COST: bool = false;
-    pub(super) const COMPONENT_MODEL: bool = false;
     pub(super) const GC: bool = false;
     pub(super) const FUNCTION_REFERENCES: bool = false;
     pub(super) const MEMORY_CONTROL: bool = false;
@@ -29,6 +28,7 @@ mod opts {
 pub struct WasmFeatures {
     saturating_float_to_int: bool,
     reftypes_bulk_memory: bool,
+    component_model: bool,
 }
 
 impl WasmFeatures {
@@ -37,6 +37,7 @@ impl WasmFeatures {
         Self {
             saturating_float_to_int: config.saturating_float_to_int,
             reftypes_bulk_memory: config.reftypes_bulk_memory,
+            component_model: config.component_model,
         }
     }
 }
@@ -52,6 +53,7 @@ impl From<WasmFeatures> for finite_wasm::wasmparser::WasmFeatures {
             saturating_float_to_int: f.saturating_float_to_int,
             reference_types: f.reftypes_bulk_memory,
             bulk_memory: f.reftypes_bulk_memory,
+            component_model: f.component_model,
 
             // wasmer singlepass compiler requires multi_value return values to be disabled.
             multi_value: MULTI_VALUE,
@@ -63,7 +65,6 @@ impl From<WasmFeatures> for finite_wasm::wasmparser::WasmFeatures {
             memory64: MEMORY64,
             relaxed_simd: RELAXED_SIMD,
             extended_const: EXTENDED_COST,
-            component_model: COMPONENT_MODEL,
             function_references: FUNCTION_REFERENCES,
             memory_control: MEMORY_CONTROL,
             gc: GC,
@@ -81,6 +82,12 @@ impl From<WasmFeatures> for finite_wasm_6::wasmparser::WasmFeatures {
             saturating_float_to_int: f.saturating_float_to_int,
             reference_types: f.reftypes_bulk_memory,
             bulk_memory: f.reftypes_bulk_memory,
+            component_model: f.component_model,
+            cm_values: f.component_model,
+            cm_nested_names: f.component_model,
+            cm_async: f.component_model,
+            cm_async_stackful: f.component_model,
+            cm_async_builtins: f.component_model,
 
             // wasmer singlepass compiler requires multi_value return values to be disabled.
             multi_value: MULTI_VALUE,
@@ -94,12 +101,6 @@ impl From<WasmFeatures> for finite_wasm_6::wasmparser::WasmFeatures {
             memory64: MEMORY64,
             relaxed_simd: RELAXED_SIMD,
             extended_const: EXTENDED_COST,
-            component_model: COMPONENT_MODEL,
-            cm_values: COMPONENT_MODEL,
-            cm_nested_names: COMPONENT_MODEL,
-            cm_async: COMPONENT_MODEL,
-            cm_async_stackful: COMPONENT_MODEL,
-            cm_async_builtins: COMPONENT_MODEL,
             function_references: FUNCTION_REFERENCES,
             memory_control: MEMORY_CONTROL,
             gc: GC,
