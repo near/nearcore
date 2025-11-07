@@ -62,7 +62,7 @@ impl super::NetworkState {
                         &self.config.socket_options,
                     )
                     .await?;
-                    anyhow::Ok(PeerActor::spawn_and_handshake(clock.clone(), actor_system, stream, None, self.clone()).await?)
+                    anyhow::Ok(PeerActor::spawn_and_handshake(clock.clone(), actor_system, stream, self.clone()).await?)
                 }.await;
                 if let Err(err) = res {
                     tracing::warn!(target:"network", ?err, "failed to establish connection to TIER1 proxy {:?}",proxy);
@@ -342,7 +342,6 @@ impl super::NetworkState {
                             clock.clone(),
                             actor_system,
                             stream,
-                            None,
                             self.clone(),
                         )
                         .await

@@ -1,7 +1,7 @@
 use crate::config::SocketOptions;
 use crate::network_protocol::PeerMessage;
 use crate::network_protocol::testonly as data;
-use crate::network_protocol::{Encoding, Handshake, OwnedAccount, PartialEdgeInfo};
+use crate::network_protocol::{Handshake, OwnedAccount, PartialEdgeInfo};
 use crate::peer::peer_actor::ClosingReason;
 use crate::peer_manager;
 use crate::peer_manager::connection;
@@ -90,7 +90,7 @@ async fn loop_connection() {
     let stream_id = stream.id();
     let port = stream.local_addr.port();
     let mut events = pm.events.from_now();
-    let mut stream = Stream::new(Some(Encoding::Proto), stream);
+    let mut stream = Stream::new(stream);
     stream
         .write(&PeerMessage::Tier2Handshake(Handshake {
             protocol_version: PROTOCOL_VERSION,
@@ -148,7 +148,7 @@ async fn owned_account_mismatch() {
     let stream_id = stream.id();
     let port = stream.local_addr.port();
     let mut events = pm.events.from_now();
-    let mut stream = Stream::new(Some(Encoding::Proto), stream);
+    let mut stream = Stream::new(stream);
     let cfg = chain.make_config(rng);
     let signer = cfg.validator.signer.get().unwrap();
     stream
@@ -276,7 +276,7 @@ async fn invalid_edge() {
             let stream_id = stream.id();
             let port = stream.local_addr.port();
             let mut events = pm.events.from_now();
-            let mut stream = Stream::new(Some(Encoding::Proto), stream);
+            let mut stream = Stream::new(stream);
             let signer = cfg.validator.signer.get().unwrap();
             let handshake = Handshake {
                 protocol_version: PROTOCOL_VERSION,

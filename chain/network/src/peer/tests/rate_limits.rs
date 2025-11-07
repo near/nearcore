@@ -1,7 +1,7 @@
 use crate::broadcast::Receiver;
 use crate::config::NetworkConfig;
-use crate::network_protocol::{Encoding, PeerMessage, T2MessageBody};
 use crate::network_protocol::{PartialEncodedChunkRequestMsg, testonly as data};
+use crate::network_protocol::{PeerMessage, T2MessageBody};
 use crate::peer::testonly::{PeerConfig, PeerHandle};
 use crate::peer_manager::peer_manager_actor::Event;
 use crate::rate_limits::messages_limits;
@@ -135,16 +135,10 @@ async fn setup_test_peers(clock: &FakeClock, mut rng: &mut Rng) -> (PeerHandle, 
         network_config
     };
 
-    let inbound_cfg = PeerConfig {
-        chain: chain.clone(),
-        network: add_rate_limits(chain.make_config(&mut rng)),
-        force_encoding: Some(Encoding::Proto),
-    };
-    let outbound_cfg = PeerConfig {
-        chain: chain.clone(),
-        network: add_rate_limits(chain.make_config(&mut rng)),
-        force_encoding: Some(Encoding::Proto),
-    };
+    let inbound_cfg =
+        PeerConfig { chain: chain.clone(), network: add_rate_limits(chain.make_config(&mut rng)) };
+    let outbound_cfg =
+        PeerConfig { chain: chain.clone(), network: add_rate_limits(chain.make_config(&mut rng)) };
     let (outbound_stream, inbound_stream) =
         tcp::Stream::loopback(inbound_cfg.id(), tcp::Tier::T2).await;
     let actor_system = ActorSystem::new();
