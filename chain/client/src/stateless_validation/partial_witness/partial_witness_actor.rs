@@ -107,7 +107,7 @@ impl Handler<DistributeStateWitnessRequest> for PartialWitnessActor {
     #[perf]
     fn handle(&mut self, msg: DistributeStateWitnessRequest) {
         if let Err(err) = self.handle_distribute_state_witness_request(msg) {
-            tracing::error!(target: "client", ?err, "Failed to handle distribute chunk state witness request");
+            tracing::error!(target: "client", ?err, "failed to handle distribute chunk state witness request");
         }
     }
 }
@@ -121,7 +121,7 @@ impl Handler<ChunkStateWitnessAckMessage> for PartialWitnessActor {
 impl Handler<PartialEncodedStateWitnessMessage> for PartialWitnessActor {
     fn handle(&mut self, msg: PartialEncodedStateWitnessMessage) {
         if let Err(err) = self.handle_partial_encoded_state_witness(msg.0) {
-            tracing::error!(target: "client", ?err, "Failed to handle PartialEncodedStateWitnessMessage");
+            tracing::error!(target: "client", ?err, "failed to handle partial encoded state witness message");
         }
     }
 }
@@ -129,7 +129,7 @@ impl Handler<PartialEncodedStateWitnessMessage> for PartialWitnessActor {
 impl Handler<PartialEncodedStateWitnessForwardMessage> for PartialWitnessActor {
     fn handle(&mut self, msg: PartialEncodedStateWitnessForwardMessage) {
         if let Err(err) = self.handle_partial_encoded_state_witness_forward(msg.0) {
-            tracing::error!(target: "client", ?err, "Failed to handle PartialEncodedStateWitnessForwardMessage");
+            tracing::error!(target: "client", ?err, "failed to handle partial encoded state witness forward message");
         }
     }
 }
@@ -137,7 +137,7 @@ impl Handler<PartialEncodedStateWitnessForwardMessage> for PartialWitnessActor {
 impl Handler<ChunkContractAccessesMessage> for PartialWitnessActor {
     fn handle(&mut self, msg: ChunkContractAccessesMessage) {
         if let Err(err) = self.handle_chunk_contract_accesses(msg.0) {
-            tracing::error!(target: "client", ?err, "Failed to handle ChunkContractAccessesMessage");
+            tracing::error!(target: "client", ?err, "failed to handle chunk contract accesses message");
         }
     }
 }
@@ -145,7 +145,7 @@ impl Handler<ChunkContractAccessesMessage> for PartialWitnessActor {
 impl Handler<PartialEncodedContractDeploysMessage> for PartialWitnessActor {
     fn handle(&mut self, msg: PartialEncodedContractDeploysMessage) {
         if let Err(err) = self.handle_partial_encoded_contract_deploys(msg.0) {
-            tracing::error!(target: "client", ?err, "Failed to handle PartialEncodedContractDeploysMessage");
+            tracing::error!(target: "client", ?err, "failed to handle partial encoded contract deploys message");
         }
     }
 }
@@ -153,7 +153,7 @@ impl Handler<PartialEncodedContractDeploysMessage> for PartialWitnessActor {
 impl Handler<ContractCodeRequestMessage> for PartialWitnessActor {
     fn handle(&mut self, msg: ContractCodeRequestMessage) {
         if let Err(err) = self.handle_contract_code_request(msg.0) {
-            tracing::error!(target: "client", ?err, "Failed to handle ContractCodeRequestMessage");
+            tracing::error!(target: "client", ?err, "failed to handle contract code request message");
         }
     }
 }
@@ -161,7 +161,7 @@ impl Handler<ContractCodeRequestMessage> for PartialWitnessActor {
 impl Handler<ContractCodeResponseMessage> for PartialWitnessActor {
     fn handle(&mut self, msg: ContractCodeResponseMessage) {
         if let Err(err) = self.handle_contract_code_response(msg.0) {
-            tracing::error!(target: "client", ?err, "Failed to handle ContractCodeResponseMessage");
+            tracing::error!(target: "client", ?err, "failed to handle contract code response message");
         }
     }
 }
@@ -266,7 +266,7 @@ impl PartialWitnessActor {
                 state_witness_tracker,
                 encoder,
             ) {
-                tracing::error!(target: "client", ?err, "Failed to compress and distribute chunk state witness");
+                tracing::error!(target: "client", ?err, "failed to compress and distribute chunk state witness");
             }
         });
 
@@ -405,7 +405,7 @@ impl PartialWitnessActor {
             tag_witness_distribution = true,
         )
         .entered();
-        tracing::debug!(target: "client", ?partial_witness, "Receive PartialEncodedStateWitnessMessage");
+        tracing::debug!(target: "client", ?partial_witness, "receive partial encoded state witness message");
         let signer = self.my_validator_signer()?;
         let validator_account_id = signer.validator_id().clone();
         let epoch_manager = self.epoch_manager.clone();
@@ -456,14 +456,14 @@ impl PartialWitnessActor {
                     }
                     // Store the part locally (as part owner) to avoid need for self-forwarding.
                     if let Err(err) = partial_witness_tracker.store_partial_encoded_state_witness(partial_witness) {
-                        tracing::error!(target: "client", "Failed to store partial encoded state witness: {}", err);
+                        tracing::error!(target: "client", ?err, "failed to store partial encoded state witness");
                     }
                 }
                 Ok(_) => {
                     tracing::debug!(
                         target: "client",
                         chunk_production_key = ?partial_witness.chunk_production_key(),
-                        "Received irrelevant partial encoded state witness",
+                        "received irrelevant partial encoded state witness",
                     );
                 }
                 Err(err) => {
@@ -471,8 +471,8 @@ impl PartialWitnessActor {
                     tracing::warn!(
                         target: "client",
                         chunk_production_key = ?partial_witness.chunk_production_key(),
-                        "Received invalid partial encoded state witness: {}",
-                        err
+                        ?err,
+                        "received invalid partial encoded state witness"
                     );
                 }
             }
@@ -495,7 +495,7 @@ impl PartialWitnessActor {
             tag_witness_distribution = true,
         )
         .entered();
-        tracing::debug!(target: "client", ?partial_witness, "Receive PartialEncodedStateWitnessForwardMessage");
+        tracing::debug!(target: "client", ?partial_witness, "receive partial encoded state witness forward message");
 
         let signer = self.my_validator_signer()?;
         let validator_account_id = signer.validator_id().clone();
@@ -514,14 +514,14 @@ impl PartialWitnessActor {
                 ) {
                     Ok(ChunkRelevance::Relevant) => {
                         if let Err(err) = partial_witness_tracker.store_partial_encoded_state_witness(partial_witness) {
-                            tracing::error!(target: "client", "Failed to store partial encoded state witness: {}", err);
+                            tracing::error!(target: "client", ?err, "failed to store partial encoded state witness");
                         }
                     }
                     Ok(_) => {
                         tracing::debug!(
                             target: "client",
                             chunk_production_key = ?partial_witness.chunk_production_key(),
-                            "Received irrelevant partial encoded state witness",
+                            "received irrelevant partial encoded state witness",
                         );
                     }
                     Err(err) => {
@@ -529,8 +529,8 @@ impl PartialWitnessActor {
                         tracing::warn!(
                             target: "client",
                             chunk_production_key = ?partial_witness.chunk_production_key(),
-                            "Received invalid partial encoded state witness: {}",
-                            err
+                            ?err,
+                            "received invalid partial encoded state witness"
                         );
                     }
                 }
@@ -550,7 +550,7 @@ impl PartialWitnessActor {
         &mut self,
         partial_deploys: PartialEncodedContractDeploys,
     ) -> Result<(), Error> {
-        tracing::debug!(target: "client", ?partial_deploys, "Receive PartialEncodedContractDeploys");
+        tracing::debug!(target: "client", ?partial_deploys, "receive partial encoded contract deploys");
         if !validate_partial_encoded_contract_deploys(
             self.epoch_manager.as_ref(),
             &partial_deploys,
@@ -582,7 +582,7 @@ impl PartialWitnessActor {
             tracing::warn!(
                 target: "client",
                 ?key,
-                "Validator is not a part of contract deploys distribution"
+                "validator is not a part of contract deploys distribution"
             );
             return Ok(());
         };
@@ -616,7 +616,7 @@ impl PartialWitnessActor {
                         target: "client",
                         ?err,
                         ?key,
-                        "Failed to decompress deployed contracts."
+                        "failed to decompress deployed contracts"
                     );
                     return Ok(());
                 }
@@ -629,7 +629,7 @@ impl PartialWitnessActor {
                         target: "client",
                         ?err,
                         ?key,
-                        "Failed to precompile deployed contracts."
+                        "failed to precompile deployed contracts"
                     );
                 }
             });
@@ -773,7 +773,7 @@ impl PartialWitnessActor {
             tracing::warn!(
                 target: "client",
                 ?processed_requests_key,
-                "Contract code request from this account was already processed"
+                "contract code request from this account was already processed"
             );
             return Ok(());
         }
@@ -797,7 +797,7 @@ impl PartialWitnessActor {
                 target: "client",
                 ?key,
                 ?main_transition_key,
-                "Missing state transition data"
+                "missing state transition data"
             );
             return Ok(());
         };
@@ -819,7 +819,7 @@ impl PartialWitnessActor {
                     target: "client",
                     ?key,
                     ?contract_hash,
-                    "Requested contract code was not accessed when applying the chunk"
+                    "requested contract code was not accessed when applying the chunk"
                 );
                 return Ok(());
             }
@@ -830,7 +830,7 @@ impl PartialWitnessActor {
                         target: "client",
                         ?contract_hash,
                         chunk_production_key = ?key,
-                        "Requested contract hash is not present in the storage"
+                        "requested contract hash is not present in the storage"
                     );
                     return Ok(());
                 }

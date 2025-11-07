@@ -11,7 +11,7 @@ use near_primitives::block::Tip;
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::{BlockHeight, BlockHeightDelta};
 use rand::seq::IteratorRandom;
-use tracing::{debug, instrument, warn};
+use tracing::{instrument};
 
 /// Expect to receive the requested block in this time.
 const BLOCK_REQUEST_TIMEOUT_MS: i64 = 2_000;
@@ -78,7 +78,7 @@ impl BlockSync {
 
         match self.block_sync_due(&head, &header_head) {
             BlockSyncDue::StateSync => {
-                debug!(target: "sync", "Sync: transition to State Sync.");
+                tracing::debug!(target: "sync", "sync: transition to state sync");
                 return Ok(true);
             }
             BlockSyncDue::RequestBlock => {
@@ -115,7 +115,7 @@ impl BlockSync {
             && head.next_epoch_id != header_head.epoch_id
             && head.height.saturating_add(self.block_fetch_horizon) < header_head.height;
         if prefer_state_sync {
-            debug!(
+            tracing::debug!(
                 target: "sync",
                 head_epoch_id = ?head.epoch_id,
                 header_head_epoch_id = ?header_head.epoch_id,
@@ -123,7 +123,7 @@ impl BlockSync {
                 head_height = head.height,
                 header_head_height = header_head.height,
                 block_fetch_horizon = self.block_fetch_horizon,
-                "Switched from block sync to state sync");
+                "switched from block sync to state sync");
         }
         prefer_state_sync
     }
@@ -214,7 +214,7 @@ impl BlockSync {
                 Ok(hash) => hash,
                 Err(e) => match e {
                     near_chain::Error::DBNotFoundErr(_) => {
-                        debug!(
+                        tracing::debug!(
                             target: "sync",
                             block_hash = ?next_hash,
                             "next block hash is not found"
@@ -225,7 +225,7 @@ impl BlockSync {
                 },
             };
             if let BlockKnowledge::Known(err) = chain.check_block_known(&next_hash)? {
-                debug!(
+                tracing::debug!(
                     target: "sync",
                     block_hash = ?next_hash,
                     ?err,
@@ -248,7 +248,7 @@ impl BlockSync {
             };
 
             if let Some(peer) = peer {
-                debug!(
+                tracing::debug!(
                     target: "sync",
                     block_hash = ?next_hash,
                     block_height = next_height,
@@ -265,7 +265,7 @@ impl BlockSync {
                 ));
                 num_requests += 1;
             } else {
-                warn!(
+                tracing::warn!(
                     target: "sync",
                     block_hash = ?next_hash,
                     block_height = next_height,

@@ -33,7 +33,6 @@ use std::num::NonZeroUsize;
 use std::sync::Arc;
 use sysinfo::{Pid, ProcessExt, System, SystemExt, get_current_pid, set_open_files_limit};
 use time::ext::InstantExt as _;
-use tracing::info;
 
 const TERAGAS: f64 = 1_000_000_000_000_f64;
 
@@ -448,13 +447,14 @@ impl InfoHelper {
             format!(" CPU: {:.0}%, Mem: {}", cpu, PrettyNumber::bytes(mem * 1024))
         });
 
-        info!(
-            target: "stats", "{}{}{}{}{}",
-            paint(yansi::Color::Yellow, sync_status_log),
-            paint(yansi::Color::White, validator_info_log),
-            paint(yansi::Color::Cyan, network_info_log),
-            paint(yansi::Color::Green, blocks_info_log),
-            paint(yansi::Color::Blue, machine_info_log),
+        tracing::info!(
+            target: "stats",
+            sync_status = %paint(yansi::Color::Yellow, sync_status_log),
+            validator_info = %paint(yansi::Color::White, validator_info_log),
+            network_info = %paint(yansi::Color::Cyan, network_info_log),
+            blocks_info = %paint(yansi::Color::Green, blocks_info_log),
+            machine_info = %paint(yansi::Color::Blue, machine_info_log),
+            "node status"
         );
         log_catchup_status(catchup_status);
         if let Some(config_updater) = &config_updater {
@@ -695,9 +695,9 @@ pub fn log_catchup_status(catchup_status: Vec<CatchupStatusView>) {
         tracing::info!(
             sync_hash=?catchup_status.sync_block_hash,
             sync_height=?catchup_status.sync_block_height,
-            "Catchup Status - shard sync status: {}, next blocks to catch up: {}",
-            shard_sync_string,
-            block_catchup_string,
+            %shard_sync_string,
+            %block_catchup_string,
+            "catchup status"
         )
     }
 }

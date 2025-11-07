@@ -75,7 +75,7 @@ use std::cmp::max;
 use std::collections::{HashMap, HashSet};
 use std::num::NonZeroUsize;
 use std::sync::{Arc, OnceLock};
-use tracing::{debug, error, info, instrument, warn};
+use tracing::{instrument};
 
 const NUM_REBROADCAST_BLOCKS: usize = 30;
 
@@ -480,11 +480,11 @@ impl Client {
                     .filter_map(|signed_tx| match ValidatedTransaction::new(&config, signed_tx) {
                         Ok(validated_tx) => Some(validated_tx),
                         Err((err, signed_tx)) => {
-                            debug!(
+                            tracing::debug!(
                                 target: "client",
-                                "Validating signed tx ({:?}) failed with error {:?}",
-                                signed_tx,
-                                err
+                                ?signed_tx,
+                                ?err,
+                                "validating signed tx failed with error"
                             );
                             None
                         }
@@ -497,10 +497,10 @@ impl Client {
                 };
 
                 if reintroduced_count < chunk.to_transactions().len() {
-                    debug!(target: "client",
+                    tracing::debug!(target: "client",
                             reintroduced_count,
                             num_tx = chunk.to_transactions().len(),
-                            "Reintroduced transactions");
+                            "reintroduced transactions");
                 }
             }
         }
@@ -528,7 +528,7 @@ impl Client {
 
         // If we are not block proposer, skip block production.
         if account_id != next_block_proposer {
-            info!(target: "client", height, "Skipping block production, not block producer for next block.");
+            tracing::info!(target: "client", height, "skipping block production, not block producer for next block");
             return Ok(false);
         }
 
@@ -552,7 +552,7 @@ impl Client {
         if self.epoch_manager.is_next_block_epoch_start(prev_hash)? {
             let prev_prev_hash = prev_header.prev_hash();
             if !self.chain.prev_block_is_caught_up(prev_prev_hash, prev_hash)? {
-                debug!(target: "client", height, "Skipping block production, prev block is not caught up");
+                tracing::debug!(target: "client", height, "skipping block production, prev block is not caught up");
                 return Ok(false);
             }
         }
@@ -577,7 +577,7 @@ impl Client {
             validator_signer.validator_id(),
             &next_block_proposer,
         )? {
-            debug!(target: "client", me=?validator_signer.validator_id(), ?next_block_proposer, "Should reschedule block");
+            tracing::debug!(target: "client", me=?validator_signer.validator_id(), ?next_block_proposer, "should reschedule block");
             return Err(Error::BlockProducer("Should reschedule".to_string()));
         }
 
@@ -586,10 +586,10 @@ impl Client {
 
         let validator_pk = validator_stake.take_public_key();
         if validator_pk != validator_signer.public_key() {
-            debug!(target: "client",
+            tracing::debug!(target: "client",
                 local_validator_key = ?validator_signer.public_key(),
                 ?validator_pk,
-                "Local validator key does not match expected validator key, skipping optimistic block production");
+                "local validator key does not match expected validator key, skipping optimistic block production");
             let err = Error::BlockProducer("Local validator key mismatch".to_string());
             #[cfg(not(feature = "test_features"))]
             return Err(err);
@@ -612,11 +612,11 @@ impl Client {
     pub fn save_optimistic_block(&mut self, optimistic_block: &OptimisticBlock) {
         if let Some(old_block) = self.last_optimistic_block_produced.as_ref() {
             if old_block.inner.block_height == optimistic_block.inner.block_height {
-                warn!(target: "client",
+                tracing::warn!(target: "client",
                     height=old_block.inner.block_height,
                     old_previous_hash=?old_block.inner.prev_block_hash,
                     new_previous_hash=?optimistic_block.inner.prev_block_hash,
-                    "Optimistic block already exists, replacing");
+                    "optimistic block already exists, replacing");
             }
         }
         self.last_optimistic_block_produced = Some(optimistic_block.clone());
@@ -649,17 +649,17 @@ impl Client {
             })?;
 
         if let Err(err) = self.pre_block_production_check(&prev_header, height, &validator_signer) {
-            debug!(target: "client", height, ?err, "Skipping optimistic block production.");
+            tracing::debug!(target: "client", height, ?err, "skipping optimistic block production");
             return Ok(None);
         }
 
-        debug!(
+        tracing::debug!(
             target: "client",
             validator=?validator_signer.validator_id(),
             height=height,
             prev_height=prev_header.height(),
             prev_hash=format_hash(prev_hash),
-            "Producing optimistic block",
+            "producing optimistic block",
         );
 
         #[cfg(feature = "sandbox")]
@@ -760,11 +760,11 @@ impl Client {
                 if ob.inner.prev_block_hash == prev_hash {
                     return true;
                 }
-                warn!(target: "client",
+                tracing::warn!(target: "client",
                     height=height,
                     prev_hash=?prev_hash,
                     optimistic_block_prev_hash=?ob.inner.prev_block_hash,
-                    "Optimistic block was constructed on different block, discarding it");
+                    "optimistic block was constructed on different block, discarding it");
                 false
             })
             .cloned();
@@ -777,7 +777,7 @@ impl Client {
         let prev_next_bp_hash = *prev.next_bp_hash();
 
         if let Err(err) = self.pre_block_production_check(&prev, height, &validator_signer) {
-            debug!(target: "client", height, ?err, "Skipping block production");
+            tracing::debug!(target: "client", height, ?err, "skipping block production");
             return Ok(None);
         }
 
@@ -788,7 +788,7 @@ impl Client {
         let new_chunks = self
             .chunk_inclusion_tracker
             .get_chunk_headers_ready_for_inclusion(&epoch_id, &prev_hash);
-        debug!(
+        tracing::debug!(
             target: "client",
             validator=?validator_signer.validator_id(),
             height=height,
@@ -796,12 +796,12 @@ impl Client {
             prev_hash=format_hash(prev_hash),
             new_chunks_count=new_chunks.len(),
             new_chunks=?new_chunks.values().collect_vec(),
-            "Producing block",
+            "producing block",
         );
 
         // If we are producing empty blocks and there are no transactions.
         if !self.config.produce_empty_blocks && new_chunks.is_empty() {
-            debug!(target: "client", "Empty blocks, skipping block production");
+            tracing::debug!(target: "client", "empty blocks, skipping block production");
             return Ok(None);
         }
 
@@ -990,7 +990,7 @@ impl Client {
         // done within process_block_impl, this is just for logging.
         if let Err(err) = res {
             if err.is_bad_data() {
-                warn!(target: "client", ?err, "Receive bad block");
+                tracing::warn!(target: "client", ?err, "receive bad block");
             } else if err.is_error() {
                 if let near_chain::Error::DBNotFoundErr(msg) = &err {
                     debug_assert!(!msg.starts_with("BLOCK HEIGHT"), "{:?}", err);
@@ -998,12 +998,12 @@ impl Client {
                 if self.sync_handler.sync_status.is_syncing() {
                     // While syncing, we may receive blocks that are older or from next epochs.
                     // This leads to Old Block or EpochOutOfBounds errors.
-                    debug!(target: "client", ?err, sync_status = ?self.sync_handler.sync_status, "Error receiving a block. is syncing");
+                    tracing::debug!(target: "client", ?err, sync_status = ?self.sync_handler.sync_status, "error receiving a block, is syncing");
                 } else {
-                    error!(target: "client", ?err, "Error on receiving a block. Not syncing");
+                    tracing::error!(target: "client", ?err, "error on receiving a block. not syncing");
                 }
             } else {
-                debug!(target: "client", ?err, "Process block: refused by chain");
+                tracing::debug!(target: "client", ?err, "process block: refused by chain");
             }
             self.chain.blocks_delay_tracker.mark_block_errored(&hash, err.to_string());
         }
@@ -1056,14 +1056,14 @@ impl Client {
         match &res {
             Ok(()) => {}
             Err(near_chain::Error::Orphan) => {
-                debug!(target: "chain", ?prev_hash, "orphan error");
+                tracing::debug!(target: "chain", ?prev_hash, "orphan error");
                 if !self.chain.is_orphan(&prev_hash) {
-                    debug!(target: "chain", "not orphan");
+                    tracing::debug!(target: "chain", "not orphan");
                     self.request_block(prev_hash, peer_id)
                 }
             }
             Err(err) => {
-                debug!(target: "chain", err=err as &dyn std::error::Error, "when starting block processing");
+                tracing::debug!(target: "chain", err=err as &dyn std::error::Error, "when starting block processing");
             }
         }
         res
@@ -1077,12 +1077,12 @@ impl Client {
         fields(height = block.height(), tag_optimistic = true)
     )]
     pub fn receive_optimistic_block(&mut self, block: OptimisticBlock, peer_id: &PeerId) {
-        debug!(target: "client", ?block, ?peer_id, "Received optimistic block");
+        tracing::debug!(target: "client", ?block, ?peer_id, "received optimistic block");
 
         // Pre-validate the optimistic block.
         if let Err(e) = self.chain.pre_check_optimistic_block(&block) {
             near_chain::metrics::NUM_INVALID_OPTIMISTIC_BLOCKS.inc();
-            debug!(target: "client", ?e, "Optimistic block is invalid");
+            tracing::debug!(target: "client", ?e, "optimistic block is invalid");
             return;
         }
 
@@ -1109,12 +1109,12 @@ impl Client {
         let block_height = block.header().height();
         let is_syncing = self.sync_handler.sync_status.is_syncing();
         if block_height >= head.height + BLOCK_HORIZON && is_syncing && !was_requested {
-            debug!(target: "client", head_height = head.height, "Dropping a block that is too far ahead.");
+            tracing::debug!(target: "client", head_height = head.height, "dropping a block that is too far ahead");
             return Ok(false);
         }
         let tail = self.chain.tail()?;
         if block_height < tail {
-            debug!(target: "client", tail_height = tail, "Dropping a block that is too far behind.");
+            tracing::debug!(target: "client", tail_height = tail, "dropping a block that is too far behind");
             return Ok(false);
         }
 
@@ -1126,7 +1126,7 @@ impl Client {
         // If we already processed this hash, drop the block.
         let hash = *block.hash();
         if self.chain.is_hash_processed(&hash) {
-            debug!(target: "client", ?hash, block_height, "Dropping a block because we've seen this hash before");
+            tracing::debug!(target: "client", ?hash, block_height, "dropping a block because we've seen this hash before");
             return Ok(false);
         }
 
@@ -1135,7 +1135,7 @@ impl Client {
         let is_on_head = block.header().prev_hash()
             == &self.chain.head().map_or_else(|_| CryptoHash::default(), |tip| tip.last_block_hash);
         if !is_on_head && self.chain.is_height_processed(block_height)? {
-            debug!(target: "client", ?hash, block_height, "Dropping a block because we've seen this height before and we didn't request it");
+            tracing::debug!(target: "client", ?hash, block_height, "dropping a block because we've seen this height before and we didn't request it");
             return Ok(false);
         }
 
@@ -1287,7 +1287,7 @@ impl Client {
 
         for chunk_header in invalid_chunks {
             if let Err(err) = self.ban_chunk_producer_for_producing_invalid_chunk(chunk_header) {
-                error!(target: "client", ?err, "Failed to ban chunk producer for producing invalid chunk");
+                tracing::error!(target: "client", ?err, "failed to ban chunk producer for producing invalid chunk");
             }
         }
     }
@@ -1306,12 +1306,12 @@ impl Client {
                 shard_id: chunk_header.shard_id(),
             })?
             .take_account_id();
-        error!(
+        tracing::error!(
             target: "client",
             ?chunk_producer,
             ?epoch_id,
             chunk_hash = ?chunk_header.chunk_hash(),
-            "Banning chunk producer for producing invalid chunk");
+            "banning chunk producer for producing invalid chunk");
         metrics::CHUNK_PRODUCER_BANNED_FOR_EPOCH.inc();
         self.chunk_inclusion_tracker.ban_chunk_producer(epoch_id, chunk_producer);
         Ok(())
@@ -1388,7 +1388,7 @@ impl Client {
         let mut update = self.chain.mut_chain_store().store_update();
         update.save_invalid_chunk(encoded_chunk);
         if let Err(err) = update.commit() {
-            error!(target: "client", ?err, "Error saving invalid chunk");
+            tracing::error!(target: "client", ?err, "error saving invalid chunk");
         }
     }
 
@@ -1475,7 +1475,7 @@ impl Client {
         if Some(&next_block_producer) == my_account_id {
             self.collect_block_approval(&approval, ApprovalType::SelfApproval);
         } else {
-            debug!(target: "client",
+            tracing::debug!(target: "client",
                 approval_inner = ?approval.inner,
                 account_id = ?approval.account_id,
                 next_bp = ?next_block_producer,
@@ -1553,7 +1553,7 @@ impl Client {
         let block = match self.chain.get_block(&block_hash) {
             Ok(block) => block,
             Err(err) => {
-                error!(target: "client", ?err, ?block_hash, "Failed to find block that was just accepted");
+                tracing::error!(target: "client", ?err, ?block_hash, "failed to find block that was just accepted");
                 return;
             }
         };
@@ -1592,7 +1592,7 @@ impl Client {
             // send_network_chain_info should be called whenever the chain head changes.
             // See send_network_chain_info() for more details.
             if let Err(err) = self.send_network_chain_info() {
-                error!(target: "client", ?err, "Failed to update network chain info");
+                tracing::error!(target: "client", ?err, "failed to update network chain info");
             }
 
             // If the next block is the first of the next epoch and the shard
@@ -1667,9 +1667,9 @@ impl Client {
                     Err(err) => {
                         tracing::debug!(
                             target: "client",
-                            "validator: removing txs for block {:?} failed with {:?}",
-                            block,
-                            err
+                            ?block,
+                            ?err,
+                            "validator: removing txs for block failed"
                         );
                     }
                 }
@@ -1713,9 +1713,9 @@ impl Client {
                             Err(err) => {
                                 tracing::debug!(
                                     target: "client",
-                                    "validator: reintroducing txs for block {:?} failed with {:?}",
-                                    block,
-                                    err
+                                    ?block,
+                                    ?err,
+                                    "validator: reintroducing txs for block failed"
                                 );
                             }
                         }
@@ -1729,9 +1729,9 @@ impl Client {
                             Err(err) => {
                                 tracing::debug!(
                                     target: "client",
-                                    "validator: removing txs for block {:?} failed with {:?}",
-                                    block,
-                                    err
+                                    ?block,
+                                    ?err,
+                                    "validator: removing txs for block failed"
                                 );
                             }
                         }
@@ -1793,7 +1793,7 @@ impl Client {
                 Ok(Some(res)) => res,
                 Ok(None) => continue,
                 Err(err) => {
-                    error!(target: "client", ?shard_id, ?err, "error producing chunk");
+                    tracing::error!(target: "client", ?shard_id, ?err, "error producing chunk");
                     continue;
                 }
             };
@@ -1804,7 +1804,7 @@ impl Client {
                     &last_header,
                     chunk.to_shard_chunk(),
                 ) {
-                    tracing::error!(target: "client", ?err, "Failed to send chunk state witness to chunk validators");
+                    tracing::error!(target: "client", ?err, "failed to send chunk state witness to chunk validators");
                 }
             }
             self.distribute_and_persist_encoded_chunk(
@@ -1849,7 +1849,7 @@ impl Client {
                 // TODO(#14005): Use a TokioRuntimeHandle to spawn this future.
                 tokio::spawn(async move {
                     if let Err(err) = thread_local_client.publish_chunk(&partial_chunk_arc).await {
-                        error!(target: "client", ?err, "Failed to distribute chunk via Chunk Distribution Network");
+                        tracing::error!(target: "client", ?err, "failed to distribute chunk via chunk distribution network");
                     }
                 });
             }
@@ -2001,7 +2001,7 @@ impl Client {
     ///                      only check whether we are the next block producer and store in Doomslug)
     pub fn collect_block_approval(&mut self, approval: &Approval, approval_type: ApprovalType) {
         let Approval { inner, account_id, target_height, signature } = approval;
-        debug!(target: "client",
+        tracing::debug!(target: "client",
             approval_inner=?inner,
             account_id=?account_id,
             target_height=target_height,
@@ -2110,7 +2110,7 @@ impl Client {
             match self.epoch_manager.get_epoch_block_approvers_ordered(&parent_hash) {
                 Ok(block_producer_stakes) => block_producer_stakes,
                 Err(err) => {
-                    error!(target: "client", ?err, "Block approval error");
+                    tracing::error!(target: "client", ?err, "block approval error");
                     return;
                 }
             };
@@ -2204,12 +2204,12 @@ impl Client {
                     }
                 });
 
-            debug!(target: "catchup", ?sync_hash, progress_per_shard = ?status.sync_status, "Catchup");
+            tracing::debug!(target: "catchup", ?sync_hash, progress_per_shard = ?status.sync_status, "catchup");
 
             match state_sync.run(sync_hash, status, state_sync_info.shards())? {
                 StateSyncResult::InProgress => {}
                 StateSyncResult::Completed => {
-                    debug!(target: "catchup", "state sync completed now catch up blocks");
+                    tracing::debug!(target: "catchup", "state sync completed now catch up blocks");
                     self.chain.catchup_blocks_step(
                         &sync_hash,
                         catchup,
@@ -2253,10 +2253,10 @@ impl Client {
                 ));
             }
             Ok(true) => {
-                debug!(target: "client", ?hash, "send_block_request_to_peer: block already known")
+                tracing::debug!(target: "client", ?hash, "send_block_request_to_peer: block already known")
             }
             Err(err) => {
-                error!(target: "client", ?hash, ?err, "send_block_request_to_peer: failed to check block exists")
+                tracing::error!(target: "client", ?hash, ?err, "send_block_request_to_peer: failed to check block exists")
             }
         }
     }

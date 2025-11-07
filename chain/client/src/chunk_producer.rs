@@ -39,7 +39,7 @@ use std::collections::HashSet;
 use std::num::NonZeroUsize;
 use std::sync::Arc;
 use time::ext::InstantExt as _;
-use tracing::{debug, instrument};
+use tracing::{instrument};
 
 #[cfg(feature = "test_features")]
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
@@ -158,7 +158,7 @@ impl ChunkProducer {
             .unwrap()
             .take_account_id();
         if signer.validator_id() != &chunk_proposer {
-            debug!(
+            tracing::debug!(
                 target: "client",
                 ?chunk_proposer,
                 "not a chunk producer for this height"
@@ -168,7 +168,7 @@ impl ChunkProducer {
 
         #[cfg(feature = "test_features")]
         if self.should_skip_chunk_production(next_height, shard_id) {
-            debug!(target: "client", "skip chunk production");
+            tracing::debug!(target: "client", "skip chunk production");
             return Ok(None);
         }
 
@@ -262,7 +262,7 @@ impl ChunkProducer {
             // apply block with the new chunk, so we also skip chunk production.
             if !ChainStore::prev_block_is_caught_up(&self.chain, &prev_prev_hash, &prev_block_hash)?
             {
-                debug!(target: "client", "prev block is not caught up");
+                tracing::debug!(target: "client", "prev block is not caught up");
                 return Err(Error::ChunkProducer(
                     "State for the epoch is not downloaded yet, skipping chunk production"
                         .to_string(),
@@ -270,7 +270,7 @@ impl ChunkProducer {
             }
         }
 
-        debug!(target: "client", "start producing the chunk");
+        tracing::debug!(target: "client", "start producing the chunk");
 
         let shard_uid = shard_id_to_uid(self.epoch_manager.as_ref(), shard_id, epoch_id)?;
         let chunk_extra = if cfg!(feature = "protocol_feature_spice") {
@@ -367,7 +367,7 @@ impl ChunkProducer {
         let encoded_chunk = chunk.to_encoded_shard_chunk();
         span.record("chunk_hash", tracing::field::debug(encoded_chunk.chunk_hash()));
         span.record("transactions_num", tracing::field::display(num_filtered_transactions));
-        debug!(
+        tracing::debug!(
             target: "client",
             num_filtered_transactions,
             num_outgoing_receipts = outgoing_receipts.len(),
@@ -461,7 +461,7 @@ impl ChunkProducer {
             .reintroduce_transactions(shard_uid, prepared_transactions.transactions.clone());
 
         if reintroduced_count < prepared_transactions.transactions.len() {
-            debug!(
+            tracing::debug!(
                 target: "client",
                 reintroduced_count,
                 num_tx = prepared_transactions.transactions.len(),
@@ -485,7 +485,7 @@ impl ChunkProducer {
                 tracing::info!(
                     target: "adversary",
                     next_block_height,
-                    "Skipping chunk production due to adversary configuration"
+                    "skipping chunk production due to adversary configuration"
                 );
                 true
             }
@@ -530,7 +530,7 @@ impl ChunkProducer {
             window_start,
             skip_start,
             skip_end,
-            "Computed chunk skipping window"
+            "computed chunk skipping window"
         );
         let should_skip = next_block_height >= skip_start && next_block_height < skip_end;
         if should_skip {
@@ -539,7 +539,7 @@ impl ChunkProducer {
                 next_block_height,
                 skip_start,
                 skip_end,
-                "Skipping chunk production in skip window"
+                "skipping chunk production in skip window"
             );
         }
         should_skip
@@ -650,7 +650,7 @@ impl ChunkProducer {
                 %next_height,
                 %shard_id,
                 ?prev_chunk_shard_update_key,
-                "Cached prepared transactions not found"
+                "cached prepared transactions not found"
             );
             metrics::PREPARE_TRANSACTIONS_JOB_RESULT_NOT_FOUND_TOTAL
                 .with_label_values(&[&shard_id.to_string()])
@@ -665,7 +665,7 @@ impl ChunkProducer {
                     %shard_id,
                     ?prev_chunk_shard_update_key,
                     ?err,
-                    "Error preparing transactions",
+                    "error preparing transactions",
                 );
                 metrics::PREPARE_TRANSACTIONS_JOB_ERROR_TOTAL
                     .with_label_values(&[&shard_id.to_string()])
@@ -679,7 +679,7 @@ impl ChunkProducer {
                     %shard_id,
                     ?prev_chunk_shard_update_key,
                     num_txs = txs.transactions.len(),
-                    "Found cached prepared transactions"
+                    "found cached prepared transactions"
                 );
                 metrics::PREPARE_TRANSACTIONS_JOB_RESULT_USED_TOTAL
                     .with_label_values(&[&shard_id.to_string()])
