@@ -60,6 +60,16 @@ world test {
     export sanity-check-promise-results: func();
     export sanity-check-panic: func();
     export sanity-check-panic-string: func();
+    export generate-large-receipt: func();
+    export do-function-call-with-args-of-size: func();
+    export max-receipt-size-promise-return-method1: func();
+    export max-receipt-size-promise-return-method2: func();
+    export mark-test-completed: func();
+    export assert-test-completed: func();
+    export return-large-value: func();
+    export max-receipt-size-value-return-method: func();
+    export yield-with-large-args: func();
+    export resume-with-large-payload: func();
 }",
         ownership: Borrowing { duplicate_if_necessary: true },
         generate_all,
@@ -71,6 +81,8 @@ world test {
 use bindings::near::nearcore::runtime::*;
 use bindings::Guest;
 use core::array;
+
+const TGAS: u64 = 1_000_000_000_000;
 
 impl From<u128> for U128 {
     fn from(value: u128) -> Self {
@@ -1163,5 +1175,172 @@ impl Guest for Component {
 
     fn sanity_check_panic_string() {
         panic(Some("xyz"));
+    }
+
+    /// Generate a single large receipt that has many FunctionCall actions with large args.
+    /// Accepts json parameters:
+    /// account_id - the account id to send the FunctionCall actions to.
+    /// method_name - the method name to call in FunctionCalls.
+    /// total_args_size - the total size of the arguments to send in the FunctionCalls.
+    fn generate_large_receipt() {
+        let data = input();
+        let input_args: serde_json::Value = serde_json::from_slice(&data).unwrap();
+        let account_id = input_args["account_id"].as_str().unwrap();
+        let method_name = input_args["method_name"].as_str().unwrap().as_bytes();
+        let mut total_size_to_send = input_args["total_args_size"].as_u64().unwrap();
+
+        // Up to 500 kB of arguments in a single function call.
+        let single_call_size = 500_000;
+
+        let account_id = AccountId::from_string(&account_id).unwrap();
+        let promise = Promise::new(&account_id);
+        while total_size_to_send > 0 {
+            let args_size = std::cmp::min(total_size_to_send, single_call_size);
+            let args = vec![0u8; args_size as usize];
+            let amount = 0u128;
+            let gas_fixed = 0;
+            let gas_weight = 1;
+            promise.function_call(method_name, &args, amount.into(), gas_fixed, gas_weight);
+            total_size_to_send = total_size_to_send.checked_sub(args_size).unwrap();
+        }
+    }
+
+    /// Produces a function_call receipt to another account with the given method
+    /// and arguments of the given size. Used to send large receipts between shards.
+    /// Attaches only 1 Gas to the receipt to minimize congestion.
+    fn do_function_call_with_args_of_size() {
+        let data = input();
+        let input_args: serde_json::Value = serde_json::from_slice(&data).unwrap();
+        let account_id = input_args["account_id"].as_str().unwrap();
+        let method_name = input_args["method_name"].as_str().unwrap().as_bytes();
+        let args_size = input_args["args_size"].as_u64().unwrap();
+        let args = vec![0u8; args_size as usize];
+        let amount = 0u128;
+        let gas_fixed = 1; // Attach only 1 Gas to the receipt to keep congestion low
+        let gas_weight = 0;
+        let account_id = AccountId::from_string(&account_id).unwrap();
+        let promise = Promise::new(&account_id);
+        promise.function_call(method_name, &args, amount.into(), gas_fixed, gas_weight);
+    }
+
+    /// Used by the `max_receipt_size_promise_return` test.
+    /// Create promise DAG:
+    /// A[self.max_receipt_size_promise_return_method2()] -then-> B[self.mark_test_completed()]
+    fn max_receipt_size_promise_return_method1() {
+        let args = input();
+
+        let current_account = current_account_id();
+
+        let method2 = b"max-receipt-size-promise-return-method2";
+        let promise_a = Promise::new(&current_account);
+        promise_a.function_call(
+            method2,
+            &args, // Forward the args
+            0.into(),
+            200 * TGAS,
+            0,
+        );
+
+        let empty_args: &[u8] = &[];
+        let test_completed_method = b"mark-test-completed";
+        let promise_b = promise_a.then(&current_account);
+        promise_b.function_call(test_completed_method, empty_args, 0.into(), 20 * TGAS, 0);
+    }
+
+    /// Do a promise_return with a large receipt.
+    /// The receipt has a single FunctionCall action with large args.
+    /// Creates DAG:
+    /// C[self.noop(large_args)] -then-> B[self.mark_test_completed()]
+    fn max_receipt_size_promise_return_method2() {
+        let args = input();
+        let input_args_json: serde_json::Value = serde_json::from_slice(&args).unwrap();
+        let args_size = input_args_json["args_size"].as_u64().unwrap();
+
+        let current_account = current_account_id();
+
+        let large_args = vec![0u8; args_size as usize];
+        let noop_method = b"noop";
+        let promise_c = Promise::new(&current_account);
+        promise_c.function_call(noop_method, &large_args, 0.into(), 20 * TGAS, 0);
+
+        promise_c.return_()
+    }
+
+    /// Mark a test as completed
+    fn mark_test_completed() {
+        let key = b"test_completed";
+        let value = b"true";
+        storage_write(key, value, 0);
+    }
+
+    // Assert that the test has been marked as completed.
+    // (Make sure that the method mark_test_completed was executed)
+    fn assert_test_completed() {
+        let key = b"test_completed";
+        let Some(value) = storage_read(key) else {
+            let panic_msg = "assert_test_completed failed - can't read test_completed marker";
+            panic(Some(panic_msg));
+            unreachable!();
+        };
+        if value != b"true" {
+            let panic_msg = "assert_test_completed failed - test_completed value is not true";
+            panic(Some(panic_msg));
+        }
+    }
+
+    /// Returns a value of size "value_size".
+    /// Accepts json args, e.g {"value_size": 1000}
+    fn return_large_value() {
+        let args = input();
+        let input_args_json: serde_json::Value = serde_json::from_slice(&args).unwrap();
+        let args_size = input_args_json["value_size"].as_u64().unwrap();
+
+        let large_value = vec![0u8; args_size as usize];
+        value_return(&large_value);
+    }
+
+    /// Used in the `max_receipt_size_value_return` test.
+    fn max_receipt_size_value_return_method() {
+        let args = input();
+
+        let current_account = current_account_id();
+
+        let large_value_method = b"return-large-value";
+        let promise_a = Promise::new(&current_account);
+        promise_a.function_call(large_value_method, &args, 0.into(), 250 * TGAS, 0);
+
+        let test_completed_method = b"mark-test-completed";
+        let empty_args: &[u8] = &[];
+        let promise_b = promise_a.then(&current_account);
+        promise_b.function_call(test_completed_method, empty_args, 0.into(), 20 * TGAS, 0);
+    }
+
+    fn yield_with_large_args() {
+        let args = input();
+        let input_args_json: serde_json::Value = serde_json::from_slice(&args).unwrap();
+        let args_size = input_args_json["args_size"].as_u64().unwrap();
+
+        let large_args = vec![0u8; args_size as usize];
+        let method_name = b"noop";
+        let data_id_register = 0;
+        Promise::yield_create(method_name, &large_args, 0, 1, data_id_register);
+    }
+
+    fn resume_with_large_payload() {
+        let args = input();
+        let input_args_json: serde_json::Value = serde_json::from_slice(&args).unwrap();
+        let payload_size = input_args_json["payload_size"].as_u64().unwrap();
+
+        let empty_args: &[u8] = &[];
+        let method_name = b"noop";
+        let data_id_register = 0;
+        Promise::yield_create(method_name, empty_args, 20 * TGAS, 0, data_id_register);
+
+        let data_id = read_register(data_id_register);
+
+        let resolve_data = vec![0u8; payload_size as usize];
+        let success =
+            Promise::yield_resume(U256::from_ne_bytes(data_id.try_into().unwrap()), &resolve_data);
+        assert_eq!(success, true);
     }
 }
