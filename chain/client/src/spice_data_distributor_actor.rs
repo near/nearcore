@@ -154,7 +154,6 @@ pub struct SpiceDataDistributorActor {
     recently_decoded_data: LruCache<SpiceDataIdentifier, ()>,
 }
 
-#[derive(Clone)]
 struct DistributionData {
     parts: Vec<SpiceDataPart>,
     commitment: SpiceDataCommitment,
