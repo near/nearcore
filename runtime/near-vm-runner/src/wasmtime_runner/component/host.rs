@@ -317,11 +317,52 @@ impl Ctx {
         Ok(())
     }
 
-    fn read_account_id(&mut self, account_id: &Resource<AccountId>) -> wasmtime::Result<AccountId> {
+    fn load_action(&mut self, action: &Resource<ActionIndex>) -> wasmtime::Result<ActionIndex> {
+        self.pay_base(read_register_base)?;
+        self.pay_per(read_register_byte, 8)?;
+        let action = self.table.get(action)?;
+        Ok(*action)
+    }
+
+    fn store_action(&mut self, action: ActionIndex) -> wasmtime::Result<Resource<ActionIndex>> {
+        self.pay_base(write_register_base)?;
+        self.pay_per(write_register_byte, 8)?;
+        let action = self.table.push(action)?;
+        Ok(action)
+    }
+
+    fn load_promise_idx(
+        &mut self,
+        promise: &Resource<PromiseIndex>,
+    ) -> wasmtime::Result<PromiseIndex> {
+        self.pay_base(read_register_base)?;
+        self.pay_per(read_register_byte, 8)?;
+        let promise_idx = self.table.get(promise)?;
+        Ok(*promise_idx)
+    }
+
+    fn store_promise_idx(
+        &mut self,
+        promise_idx: PromiseIndex,
+    ) -> wasmtime::Result<Resource<PromiseIndex>> {
+        self.pay_base(write_register_base)?;
+        self.pay_per(write_register_byte, 8)?;
+        let promise_idx = self.table.push(promise_idx)?;
+        Ok(promise_idx)
+    }
+
+    fn load_account_id(&mut self, account_id: &Resource<AccountId>) -> wasmtime::Result<AccountId> {
         self.pay_base(read_register_base)?;
         let account_id = self.table.get(account_id)?;
         pay_per(&mut self.result_state.gas_counter, read_register_byte, account_id.len() as _)?;
         Ok(account_id.clone())
+    }
+
+    fn store_account_id(&mut self, account_id: AccountId) -> wasmtime::Result<Resource<AccountId>> {
+        self.pay_base(write_register_base)?;
+        self.pay_per(write_register_byte, account_id.len() as _)?;
+        let account_id = self.table.push(account_id)?;
+        Ok(account_id)
     }
 
     fn read_public_key(&mut self, public_key: &runtime::PublicKey) -> wasmtime::Result<PublicKey> {
@@ -354,8 +395,7 @@ impl Ctx {
             })
             .into())
         } else {
-            let promise = self.table.push(new_promise_idx)?;
-            Ok(promise)
+            self.store_promise_idx(new_promise_idx)
         }
     }
 
@@ -408,7 +448,7 @@ impl Ctx {
             .into());
         }
 
-        let promise_idx = self.table.get(&promise).copied()?;
+        let promise_idx = self.load_promise_idx(&promise)?;
         let (receipt_idx, sir) = self.promise_idx_to_receipt_idx_with_sir(promise_idx)?;
 
         pay_action_base(
@@ -510,11 +550,7 @@ impl runtime::Host for Ctx {
 
     fn current_account_id(&mut self) -> wasmtime::Result<Resource<AccountId>> {
         self.pay_base(base)?;
-        let account_id = self.context.current_account_id.clone();
-        self.pay_base(write_register_base)?;
-        self.pay_per(write_register_byte, account_id.len() as _)?;
-        let account_id = self.table.push(account_id)?;
-        Ok(account_id)
+        self.store_account_id(self.context.current_account_id.clone())
     }
 
     fn signer_account_id(&mut self) -> wasmtime::Result<Resource<AccountId>> {
@@ -526,11 +562,7 @@ impl runtime::Host for Ctx {
             })
             .into());
         }
-        let account_id = self.context.signer_account_id.clone();
-        self.pay_base(write_register_base)?;
-        self.pay_per(write_register_byte, account_id.len() as _)?;
-        let account_id = self.table.push(account_id)?;
-        Ok(account_id)
+        self.store_account_id(self.context.signer_account_id.clone())
     }
 
     fn signer_account_pk(&mut self) -> wasmtime::Result<runtime::PublicKey> {
@@ -559,14 +591,10 @@ impl runtime::Host for Ctx {
             })
             .into());
         }
-        let account_id = self.context.predecessor_account_id.clone();
-        self.pay_base(write_register_base)?;
-        self.pay_per(write_register_byte, account_id.len() as _)?;
-        let account_id = self.table.push(account_id)?;
-        Ok(account_id)
+        self.store_account_id(self.context.predecessor_account_id.clone())
     }
 
-    fn refund_to_account_id(&mut self, register_id: u64) -> wasmtime::Result<()> {
+    fn refund_to_account_id(&mut self) -> wasmtime::Result<Resource<AccountId>> {
         self.pay_base(base)?;
 
         if self.context.is_view() {
@@ -575,15 +603,7 @@ impl runtime::Host for Ctx {
             })
             .into());
         }
-        self.registers
-            .set(
-                &mut self.result_state.gas_counter,
-                &self.config.limit_config,
-                register_id,
-                self.context.refund_to_account_id.as_bytes(),
-            )
-            .map_err(ErrorContainer::new)?;
-        Ok(())
+        self.store_account_id(self.context.refund_to_account_id.clone())
     }
 
     fn input(&mut self) -> wasmtime::Result<Vec<u8>> {
@@ -613,10 +633,9 @@ impl runtime::Host for Ctx {
     ) -> wasmtime::Result<runtime::U128> {
         self.pay_base(base)?;
         self.pay_base(validator_stake_base)?;
-        self.pay_base(read_register_base)?;
-        let account_id = self.table.get(&account_id)?;
+        let account_id = self.load_account_id(&account_id)?;
         let balance =
-            self.ext.validator_stake(account_id).map_err(ErrorContainer::new)?.unwrap_or_default();
+            self.ext.validator_stake(&account_id).map_err(ErrorContainer::new)?.unwrap_or_default();
         let v = runtime::U128::write(balance.as_yoctonear(), &mut self.result_state.gas_counter)?;
         Ok(v)
     }
@@ -1270,13 +1289,26 @@ impl runtime::HostPromise for Ctx {
             })
             .into());
         }
-        let account_id = self.read_account_id(&account_id)?;
+        let account_id = self.load_account_id(&account_id)?;
         let sir = *account_id == self.context.current_account_id;
         pay_gas_for_new_receipt(&mut self.result_state.gas_counter, &self.fees_config, sir, &[])?;
         let new_receipt_idx =
             self.ext.create_action_receipt(vec![], account_id).map_err(ErrorContainer::new)?;
 
         self.checked_push_promise(Promise::Receipt(new_receipt_idx))
+    }
+
+    fn to_index(&mut self, promise: Resource<PromiseIndex>) -> wasmtime::Result<PromiseIndex> {
+        self.pay_base(base)?;
+        self.load_promise_idx(&promise)
+    }
+
+    fn from_index(
+        &mut self,
+        promise_idx: PromiseIndex,
+    ) -> wasmtime::Result<Resource<PromiseIndex>> {
+        self.pay_base(base)?;
+        self.store_promise_idx(promise_idx)
     }
 
     fn then(
@@ -1291,8 +1323,8 @@ impl runtime::HostPromise for Ctx {
             })
             .into());
         }
-        let account_id = self.read_account_id(&account_id)?;
-        let promise_idx = self.table.get(&promise).copied()?;
+        let account_id = self.load_account_id(&account_id)?;
+        let promise_idx = self.load_promise_idx(&promise)?;
         // Update the DAG and return new promise idx.
         let promise = self
             .promises
@@ -1341,7 +1373,7 @@ impl runtime::HostPromise for Ctx {
 
         let mut receipt_dependencies = vec![];
         for promise in promises {
-            let promise_idx = self.table.get(&promise).copied()?;
+            let promise_idx = self.load_promise_idx(&promise)?;
             let promise = self
                 .promises
                 .get(promise_idx as usize)
@@ -1381,8 +1413,8 @@ impl runtime::HostPromise for Ctx {
             })
             .into());
         }
-        let refund_to = self.read_account_id(&account_id)?;
-        let promise_idx = self.table.get(&promise).copied()?;
+        let refund_to = self.load_account_id(&account_id)?;
+        let promise_idx = self.load_promise_idx(&promise)?;
         let promise = self
             .promises
             .get(promise_idx as usize)
@@ -1417,7 +1449,7 @@ impl runtime::HostPromise for Ctx {
         let code_hash: [_; CryptoHash::LENGTH] = code_hash.to_le_bytes();
         let amount = amount.read(&mut self.result_state.gas_counter)?;
         let amount = Balance::from_yoctonear(amount);
-        let promise_idx = self.table.get(&promise).copied()?;
+        let promise_idx = self.load_promise_idx(&promise)?;
         let (receipt_idx, sir) = self.promise_idx_to_receipt_idx_with_sir(promise_idx)?;
 
         pay_action_base(
@@ -1435,8 +1467,7 @@ impl runtime::HostPromise for Ctx {
                 amount,
             )
             .map_err(ErrorContainer::new)?;
-        let action = self.table.push(action)?;
-        Ok(action)
+        self.store_action(action)
     }
 
     fn state_init_by_account_id(
@@ -1452,10 +1483,10 @@ impl runtime::HostPromise for Ctx {
             })
             .into());
         }
-        let account_id = self.read_account_id(&account_id)?;
+        let account_id = self.load_account_id(&account_id)?;
         let amount = amount.read(&mut self.result_state.gas_counter)?;
         let amount = Balance::from_yoctonear(amount);
-        let promise_idx = self.table.get(&promise).copied()?;
+        let promise_idx = self.load_promise_idx(&promise)?;
         let (receipt_idx, sir) = self.promise_idx_to_receipt_idx_with_sir(promise_idx)?;
 
         pay_action_base(
@@ -1473,8 +1504,7 @@ impl runtime::HostPromise for Ctx {
                 amount,
             )
             .map_err(ErrorContainer::new)?;
-        let action = self.table.push(action)?;
-        Ok(action)
+        self.store_action(action)
     }
 
     fn set_state_init_data_entry(
@@ -1492,7 +1522,7 @@ impl runtime::HostPromise for Ctx {
             .into());
         }
 
-        let promise_idx = self.table.get(&promise).copied()?;
+        let promise_idx = self.load_promise_idx(&promise)?;
         let (receipt_idx, sir) = self.promise_idx_to_receipt_idx_with_sir(promise_idx)?;
         self.pay_for_reading_bytes(key.len())?;
         self.pay_for_reading_bytes(value.len())?;
@@ -1515,7 +1545,7 @@ impl runtime::HostPromise for Ctx {
             sir,
         )?;
 
-        let action_index = self.table.get(&action).copied()?;
+        let action_index = self.load_action(&action)?;
         self.ext
             .set_deterministic_state_init_data_entry(receipt_idx, action_index, key, value)
             .map_err(ErrorContainer::new)?;
@@ -1531,7 +1561,7 @@ impl runtime::HostPromise for Ctx {
             })
             .into());
         }
-        let promise_idx = self.table.get(&promise).copied()?;
+        let promise_idx = self.load_promise_idx(&promise)?;
         let (receipt_idx, sir) = self.promise_idx_to_receipt_idx_with_sir(promise_idx)?;
 
         pay_action_base(
@@ -1568,7 +1598,7 @@ impl runtime::HostPromise for Ctx {
             .into());
         }
 
-        let promise_idx = self.table.get(&promise).copied()?;
+        let promise_idx = self.load_promise_idx(&promise)?;
         let (receipt_idx, sir) = self.promise_idx_to_receipt_idx_with_sir(promise_idx)?;
 
         pay_action_base(
@@ -1631,7 +1661,7 @@ impl runtime::HostPromise for Ctx {
         let code_hash: [_; CryptoHash::LENGTH] = code_hash.to_le_bytes();
         let contract_id = GlobalContractIdentifier::CodeHash(CryptoHash(code_hash));
 
-        let promise_idx = self.table.get(&promise).copied()?;
+        let promise_idx = self.load_promise_idx(&promise)?;
         let (receipt_idx, sir) = self.promise_idx_to_receipt_idx_with_sir(promise_idx)?;
 
         pay_action_base(
@@ -1667,10 +1697,10 @@ impl runtime::HostPromise for Ctx {
             })
             .into());
         }
-        let account_id = self.read_account_id(&account_id)?;
+        let account_id = self.load_account_id(&account_id)?;
         let contract_id = GlobalContractIdentifier::AccountId(account_id);
 
-        let promise_idx = self.table.get(&promise).copied()?;
+        let promise_idx = self.load_promise_idx(&promise)?;
         let (receipt_idx, sir) = self.promise_idx_to_receipt_idx_with_sir(promise_idx)?;
 
         pay_action_base(
@@ -1718,7 +1748,7 @@ impl runtime::HostPromise for Ctx {
         self.pay_for_reading_bytes(method.len())?;
         self.pay_for_reading_bytes(arguments.len())?;
 
-        let promise_idx = self.table.get(&promise).copied()?;
+        let promise_idx = self.load_promise_idx(&promise)?;
         let (receipt_idx, sir) = self.promise_idx_to_receipt_idx_with_sir(promise_idx)?;
 
         // Input can't be large enough to overflow
@@ -1770,7 +1800,7 @@ impl runtime::HostPromise for Ctx {
         }
         let amount = Balance::from_yoctonear(amount.read(&mut self.result_state.gas_counter)?);
 
-        let promise_idx = self.table.get(&promise).copied()?;
+        let promise_idx = self.load_promise_idx(&promise)?;
         let (receipt_idx, sir) = self.promise_idx_to_receipt_idx_with_sir(promise_idx)?;
         let receiver_id = self.ext.get_receipt_receiver(receipt_idx);
         let send_fee = transfer_send_fee(
@@ -1818,7 +1848,7 @@ impl runtime::HostPromise for Ctx {
         }
         let amount = Balance::from_yoctonear(amount.read(&mut self.result_state.gas_counter)?);
         let public_key = self.read_public_key(&public_key)?;
-        let promise_idx = self.table.get(&promise).copied()?;
+        let promise_idx = self.load_promise_idx(&promise)?;
         let (receipt_idx, sir) = self.promise_idx_to_receipt_idx_with_sir(promise_idx)?;
 
         pay_action_base(
@@ -1845,7 +1875,7 @@ impl runtime::HostPromise for Ctx {
             .into());
         }
         let public_key = self.read_public_key(&public_key)?;
-        let promise_idx = self.table.get(&promise).copied()?;
+        let promise_idx = self.load_promise_idx(&promise)?;
         let (receipt_idx, sir) = self.promise_idx_to_receipt_idx_with_sir(promise_idx)?;
         pay_action_base(
             &mut self.result_state.gas_counter,
@@ -1877,12 +1907,12 @@ impl runtime::HostPromise for Ctx {
         let allowance =
             Balance::from_yoctonear(allowance.read(&mut self.result_state.gas_counter)?);
         let allowance = if allowance > Balance::ZERO { Some(allowance) } else { None };
-        let receiver_id = self.read_account_id(&receiver_id)?;
+        let receiver_id = self.load_account_id(&receiver_id)?;
         for method in &methods {
             self.pay_for_reading_bytes(method.len())?;
         }
 
-        let promise_idx = self.table.get(&promise).copied()?;
+        let promise_idx = self.load_promise_idx(&promise)?;
         let (receipt_idx, sir) = self.promise_idx_to_receipt_idx_with_sir(promise_idx)?;
 
         // +1 is to account for null-terminating characters.
@@ -1927,7 +1957,7 @@ impl runtime::HostPromise for Ctx {
             .into());
         }
         let public_key = self.read_public_key(&public_key)?;
-        let promise_idx = self.table.get(&promise).copied()?;
+        let promise_idx = self.load_promise_idx(&promise)?;
         let (receipt_idx, sir) = self.promise_idx_to_receipt_idx_with_sir(promise_idx)?;
         pay_action_base(
             &mut self.result_state.gas_counter,
@@ -1951,9 +1981,9 @@ impl runtime::HostPromise for Ctx {
             })
             .into());
         }
-        let beneficiary_id = self.read_account_id(&beneficiary_id)?;
+        let beneficiary_id = self.load_account_id(&beneficiary_id)?;
 
-        let promise_idx = self.table.get(&promise).copied()?;
+        let promise_idx = self.load_promise_idx(&promise)?;
         let (receipt_idx, sir) = self.promise_idx_to_receipt_idx_with_sir(promise_idx)?;
 
         pay_action_base(
@@ -2136,7 +2166,7 @@ impl runtime::HostPromise for Ctx {
             })
             .into());
         }
-        let promise_idx = self.table.get(&promise).copied()?;
+        let promise_idx = self.load_promise_idx(&promise)?;
         match self
             .promises
             .get(promise_idx as usize)
@@ -2167,7 +2197,7 @@ impl runtime::HostAccountId for Ctx {
         self.pay_for_reading_string(account_id.len())?;
         match account_id.parse() {
             Ok(account_id) => {
-                let account_id = self.table.push(account_id)?;
+                let account_id = self.store_account_id(account_id)?;
                 Ok(Ok(account_id))
             }
             Err(_err) => Ok(Err(())),
@@ -2175,7 +2205,7 @@ impl runtime::HostAccountId for Ctx {
     }
 
     fn to_string(&mut self, account_id: Resource<AccountId>) -> wasmtime::Result<String> {
-        let account_id = self.table.get(&account_id)?;
+        let account_id = self.load_account_id(&account_id)?;
         pay_for_writing_bytes(&mut self.result_state.gas_counter, account_id.len())?;
         Ok(account_id.to_string())
     }

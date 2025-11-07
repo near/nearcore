@@ -144,6 +144,10 @@ interface runtime {
 
    resource promise {
       constructor(account-id: borrow<account-id>);
+
+      to-index: func() -> u64;
+      from-index: static func(promise-index: u64) -> promise;
+
       then: func(account-id: borrow<account-id>) -> promise;
       and: static func(promises: list<borrow<promise>>) -> promise;
       set-refund-to: func(account-id: borrow<account-id>);
@@ -209,8 +213,8 @@ interface runtime {
    // Populates a register with the ID of an account which would receive a refund.
    current-contract-code: func(register-id: u64) -> option<contract-code-kind>;
 
-   // Populates a register with the ID of an account which would receive a refund.
-   refund-to-account-id: func(register-id: u64);
+   // Returns the ID of an account which would receive a refund.
+   refund-to-account-id: func() -> account-id;
 
    // Writes key-value into storage.
    // If another key-value existed in the storage with the same key it returns `true`, otherwise `false`.

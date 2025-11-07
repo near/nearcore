@@ -600,8 +600,8 @@ fn use_component_imports() {
 
               (type
                 (instance
-                  (type (func (param "register-id" u64)))
-                  (export "refund-to-account-id" (func (type 0)))
+                  (type (func (result u64)))
+                  (export "block-height" (func (type 0)))
 
                   (type (option u64))
                   (type (func (param "register-id" u64) (result 1)))
@@ -609,11 +609,11 @@ fn use_component_imports() {
                 )
               )
               (core module
-                (import "near:nearcore/runtime@0.1.0" "refund-to-account-id" (func (param i64)))
+                (import "near:nearcore/runtime@0.1.0" "block-height" (func (result i64)))
                 (import "near:nearcore/runtime@0.1.0" "register-len" (func (param i64 i32)))
                 (func (export "main")
-                  i64.const 0
                   call 0
+                  drop
 
                   i64.const 0
                   i32.const 24
@@ -622,10 +622,10 @@ fn use_component_imports() {
               )
 
               (import "near:nearcore/runtime@0.1.0" (instance (type 0)))
-              (core func (canon lower (func 0 "refund-to-account-id")))
+              (core func (canon lower (func 0 "block-height")))
               (core func (canon lower (func 0 "register-len") (memory 0)))
               (core instance
-                (export "refund-to-account-id" (func 0))
+                (export "block-height" (func 0))
                 (export "register-len" (func 1))
               )
 
@@ -639,7 +639,7 @@ fn use_component_imports() {
         )
         .component_expects(&[
             expect![[r#"
-                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 4010302294 used gas 4010302294
+                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 1075664418 used gas 1075664418
             "#]],
         ]);
 }

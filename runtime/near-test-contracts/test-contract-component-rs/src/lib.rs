@@ -44,6 +44,8 @@ world test {
     export delete-strings: func();
     export recurse: func();
     export out-of-memory: func();
+    export max-self-recursion-delay: func();
+    export call-promise: func();
     export attach-unspent-gas-but-use-all-gas: func();
     export do-ripemd: func();
     export noop: func();
@@ -83,6 +85,12 @@ impl From<U128> for [u8; 16] {
     }
 }
 
+impl From<[u8; 16]> for U128 {
+    fn from(bytes: [u8; 16]) -> Self {
+        u128::from_ne_bytes(bytes).into()
+    }
+}
+
 impl From<U256> for [u8; 32] {
     fn from(U256 { lo, hi }: U256) -> Self {
         let lo: [u8; 16] = lo.into();
@@ -91,11 +99,31 @@ impl From<U256> for [u8; 32] {
     }
 }
 
+impl From<[u8; 32]> for U256 {
+    fn from(bytes: [u8; 32]) -> Self {
+        let (lo, hi) = bytes.split_first_chunk().unwrap();
+        let (hi, []) = hi.split_first_chunk().unwrap() else {
+            unreachable!();
+        };
+        Self { lo: (*lo).into(), hi: (*hi).into() }
+    }
+}
+
 impl From<U512> for [u8; 64] {
     fn from(U512 { lo, hi }: U512) -> Self {
         let lo: [u8; 32] = lo.into();
         let hi: [u8; 32] = hi.into();
         array::from_fn(|i| if i < 32 { lo[i] } else { hi[i - 32] })
+    }
+}
+
+impl From<[u8; 64]> for U512 {
+    fn from(bytes: [u8; 64]) -> Self {
+        let (lo, hi) = bytes.split_first_chunk().unwrap();
+        let (hi, []) = hi.split_first_chunk().unwrap() else {
+            unreachable!();
+        };
+        Self { lo: (*lo).into(), hi: (*hi).into() }
     }
 }
 
@@ -111,17 +139,50 @@ fn generate_data(data: &mut [u8]) {
     }
 }
 
+fn parse_public_key(bytes: &[u8]) -> PublicKey {
+    match bytes {
+        [0, key @ ..] if key.len() == 32 => {
+            PublicKey::Ed25519(U256::from_ne_bytes(key.try_into().unwrap()))
+        }
+        [1, key @ ..] if key.len() == 64 => {
+            PublicKey::Secp256k1(U512::from_ne_bytes(key.try_into().unwrap()))
+        }
+        _ => {
+            panic(Some("invalid key"));
+            unreachable!()
+        }
+    }
+}
+
 pub struct Component;
 
-impl U256 {
-    fn into_bytes(self) -> [u8; 32] {
+impl U128 {
+    pub fn to_ne_bytes(self) -> [u8; 16] {
         self.into()
+    }
+
+    pub fn from_ne_bytes(bytes: [u8; 16]) -> Self {
+        bytes.into()
+    }
+}
+
+impl U256 {
+    pub fn to_ne_bytes(self) -> [u8; 32] {
+        self.into()
+    }
+
+    pub fn from_ne_bytes(bytes: [u8; 32]) -> Self {
+        bytes.into()
     }
 }
 
 impl U512 {
-    fn into_bytes(self) -> [u8; 64] {
+    pub fn to_ne_bytes(self) -> [u8; 64] {
         self.into()
+    }
+
+    pub fn from_ne_bytes(bytes: [u8; 64]) -> Self {
+        bytes.into()
     }
 }
 
@@ -159,12 +220,12 @@ impl Guest for Component {
     fn ext_signer_pk() {
         match signer_account_pk() {
             PublicKey::Ed25519(key) => {
-                let data = key.into_bytes();
+                let data = key.to_ne_bytes();
                 let data: [u8; 33] = array::from_fn(|i| if i == 0 { 0 } else { data[i - 1] });
                 value_return(&data);
             }
             PublicKey::Secp256k1(key) => {
-                let data = key.into_bytes();
+                let data = key.to_ne_bytes();
                 let data: [u8; 65] = array::from_fn(|i| if i == 0 { 1 } else { data[i - 1] });
                 value_return(&data);
             }
@@ -199,7 +260,7 @@ impl Guest for Component {
     fn ext_sha256() {
         let bytes = input();
         let result = sha256(&bytes);
-        value_return(&result.into_bytes());
+        value_return(&result.to_ne_bytes());
     }
 
     fn ext_used_gas() {
@@ -502,6 +563,172 @@ impl Guest for Component {
         let mut vec = Vec::new();
         loop {
             vec.push(vec![0; 1024]);
+        }
+    }
+
+    /// Delay completion of the receipt for as long as possible through self cross-contract calls.
+    ///
+    /// This contract keeps the recursion depth and returns it when less than 5Tgas remains, which is
+    /// most likely is no longer sufficient for another cross-contract call.
+    ///
+    /// This is a stable alternative to yield/resume proposal at the time of writing.
+    fn max_self_recursion_delay() {
+        let bytes = input().try_into().unwrap();
+        let recursion = u32::from_be_bytes(bytes);
+        let available_gas = prepaid_gas() - used_gas();
+        if available_gas < 5_000_000_000_000 {
+            return value_return(&bytes);
+        }
+        let id = current_account_id();
+        let method_name = "max-self-recursion-delay";
+        let promise = Promise::new(&id);
+        let amount = 1u128;
+        let gas_fixed = 0;
+        let gas_weight = 1;
+        let argument_bytes = recursion.saturating_add(1).to_be_bytes();
+        promise.function_call(
+            method_name.as_bytes(),
+            &argument_bytes,
+            amount.into(),
+            gas_fixed,
+            gas_weight,
+        );
+        promise.return_();
+    }
+
+    fn call_promise() {
+        let data = input();
+        let input_args: serde_json::Value = serde_json::from_slice(&data).unwrap();
+        for arg in input_args.as_array().unwrap() {
+            let p = if let Some(create) = arg.get("create") {
+                let account_id = create["account_id"].as_str().unwrap();
+                let method_name = create["method_name"].as_str().unwrap().as_bytes();
+                let arguments = serde_json::to_vec(&create["arguments"]).unwrap();
+                let amount = create["amount"].as_str().unwrap().parse::<u128>().unwrap();
+                let gas = create["gas"].as_i64().unwrap() as u64;
+
+                let account_id = AccountId::from_string(account_id).unwrap();
+                let p = Promise::new(&account_id);
+                p.function_call(method_name, &arguments, amount.into(), gas, 0);
+                p
+            } else if let Some(then) = arg.get("then") {
+                let promise_index = then["promise_index"].as_u64().unwrap() as u64;
+                let account_id = then["account_id"].as_str().unwrap();
+                let method_name = then["method_name"].as_str().unwrap().as_bytes();
+                let arguments = serde_json::to_vec(&then["arguments"]).unwrap();
+                let amount = then["amount"].as_str().unwrap().parse::<u128>().unwrap();
+                let gas = then["gas"].as_i64().unwrap() as u64;
+                let account_id = AccountId::from_string(account_id).unwrap();
+                let p = Promise::from_index(promise_index);
+                let p = p.then(&account_id);
+                p.function_call(method_name, &arguments, amount.into(), gas, 0);
+                p
+            } else if let Some(and) = arg.get("and") {
+                let and = and.as_array().unwrap();
+                let and: Vec<_> = and
+                    .into_iter()
+                    .map(|v| Promise::from_index(v.as_i64().unwrap() as u64))
+                    .collect();
+                let and: Vec<_> = and.iter().collect();
+                Promise::and(&and)
+            } else if let Some(batch_create) = arg.get("batch_create") {
+                let account_id = batch_create["account_id"].as_str().unwrap();
+                let account_id = AccountId::from_string(account_id).unwrap();
+                Promise::new(&account_id)
+            } else if let Some(batch_then) = arg.get("batch_then") {
+                let promise_index = batch_then["promise_index"].as_i64().unwrap() as u64;
+                let account_id = batch_then["account_id"].as_str().unwrap();
+                let account_id = AccountId::from_string(account_id).unwrap();
+                Promise::from_index(promise_index).then(&account_id)
+            } else if let Some(action) = arg.get("action_create_account") {
+                let promise_index = action["promise_index"].as_i64().unwrap() as u64;
+                let p = Promise::from_index(promise_index);
+                p.create_account();
+                p
+            } else if let Some(action) = arg.get("action_deploy_contract") {
+                let promise_index = action["promise_index"].as_i64().unwrap() as u64;
+                let code = from_base64(action["code"].as_str().unwrap());
+                let p = Promise::from_index(promise_index);
+                p.deploy_contract(&code);
+                p
+            } else if let Some(action) = arg.get("action_function_call") {
+                let promise_index = action["promise_index"].as_i64().unwrap() as u64;
+                let method_name = action["method_name"].as_str().unwrap().as_bytes();
+                let arguments = serde_json::to_vec(&action["arguments"]).unwrap();
+                let amount = action["amount"].as_str().unwrap().parse::<u128>().unwrap();
+                let gas = action["gas"].as_i64().unwrap() as u64;
+                let p = Promise::from_index(promise_index);
+                p.function_call(method_name, &arguments, amount.into(), gas, 0);
+                p
+            } else if let Some(action) = arg.get("action_transfer") {
+                let promise_index = action["promise_index"].as_i64().unwrap() as u64;
+                let amount = action["amount"].as_str().unwrap().parse::<u128>().unwrap();
+                let p = Promise::from_index(promise_index);
+                p.transfer(amount.into());
+                p
+            } else if let Some(action) = arg.get("action_stake") {
+                let promise_index = action["promise_index"].as_i64().unwrap() as u64;
+                let amount = action["amount"].as_str().unwrap().parse::<u128>().unwrap();
+                let public_key = from_base64(action["public_key"].as_str().unwrap());
+                let p = Promise::from_index(promise_index);
+                p.stake(amount.into(), parse_public_key(&public_key));
+                p
+            } else if let Some(action) = arg.get("action_add_key_with_full_access") {
+                let promise_index = action["promise_index"].as_i64().unwrap() as u64;
+                let public_key = from_base64(action["public_key"].as_str().unwrap());
+                let nonce = action["nonce"].as_i64().unwrap() as u64;
+                let p = Promise::from_index(promise_index);
+                p.add_key_with_full_access(parse_public_key(&public_key), nonce);
+                p
+            } else if let Some(action) = arg.get("action_add_key_with_function_call") {
+                let promise_index = action["promise_index"].as_i64().unwrap() as u64;
+                let public_key = from_base64(action["public_key"].as_str().unwrap());
+                let nonce = action["nonce"].as_i64().unwrap() as u64;
+                let allowance = action["allowance"].as_str().unwrap().parse::<u128>().unwrap();
+                let receiver_id = action["receiver_id"].as_str().unwrap();
+                let method_names = action["method_names"].as_str().unwrap().as_bytes();
+
+                let receiver_id = AccountId::from_string(receiver_id).unwrap();
+                let method_names: Vec<_> = method_names.split(|c| *c == b',').collect();
+                let p = Promise::from_index(promise_index);
+                p.add_key_with_function_call(
+                    parse_public_key(&public_key),
+                    nonce,
+                    allowance.into(),
+                    &receiver_id,
+                    &method_names,
+                );
+                p
+            } else if let Some(action) = arg.get("action_delete_key") {
+                let promise_index = action["promise_index"].as_i64().unwrap() as u64;
+                let public_key = from_base64(action["public_key"].as_str().unwrap());
+                let p = Promise::from_index(promise_index);
+                p.delete_key(parse_public_key(&public_key));
+                p
+            } else if let Some(action) = arg.get("action_delete_account") {
+                let promise_index = action["promise_index"].as_i64().unwrap() as u64;
+                let beneficiary_id = action["beneficiary_id"].as_str().unwrap();
+                let beneficiary_id = AccountId::from_string(beneficiary_id).unwrap();
+                let p = Promise::from_index(promise_index);
+                p.delete_account(&beneficiary_id);
+                p
+            } else if let Some(action) = arg.get("set_refund_to") {
+                let promise_index = action["promise_index"].as_i64().unwrap() as u64;
+                let beneficiary_id = action["beneficiary_id"].as_str().unwrap();
+                let beneficiary_id = AccountId::from_string(beneficiary_id).unwrap();
+                let p = Promise::from_index(promise_index);
+                p.set_refund_to(&beneficiary_id);
+                p
+            } else {
+                unimplemented!()
+            };
+            let expected_id = arg["id"].as_i64().unwrap() as u64;
+            assert_eq!(p.to_index(), expected_id);
+            if let Some(ret) = arg.get("return") {
+                if ret.as_bool().unwrap() == true {
+                    p.return_()
+                }
+            }
         }
     }
 
