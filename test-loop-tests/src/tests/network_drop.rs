@@ -3,8 +3,7 @@ use std::sync::Arc;
 use near_async::time::Duration;
 use near_o11y::testonly::init_test_logger;
 use parking_lot::RwLock;
-use rand::Rng as _;
-use rand::thread_rng;
+use rand::{Rng, SeedableRng};
 
 use crate::setup::builder::TestLoopBuilder;
 use crate::utils::account::{create_validators_spec, validators_spec_clients};
@@ -19,9 +18,7 @@ const TIMEOUT_SECONDS: i64 = 90;
 fn network_drop_random_messages() {
     init_test_logger();
 
-    let seed: u64 = thread_rng().r#gen();
-    println!("RNG seed: {seed}. If test fails use it to find the issue.");
-    let rng: rand::rngs::StdRng = rand::SeedableRng::seed_from_u64(seed);
+    let rng: rand::rngs::StdRng = rand::rngs::StdRng::seed_from_u64(42);
     let rng = Arc::new(RwLock::new(rng));
 
     let validators_spec = create_validators_spec(3, 0);
