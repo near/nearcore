@@ -162,6 +162,7 @@ impl TestActor {
             chunk_executor_adapter,
             core_writer_sender,
             data_distributor_adapter,
+            None,
         );
         TestActor { chain, actor, actor_rc, tasks_rc }
     }

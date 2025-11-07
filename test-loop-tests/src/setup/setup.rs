@@ -406,6 +406,8 @@ pub fn setup_client(
     );
 
     let apply_chunks_iteration_mode = ApplyChunksIterationMode::Sequential;
+
+    let on_chunk_executed = client_actor.client.chunk_producer.on_chunk_executed();
     let chunk_executor_actor = ChunkExecutorActor::new(
         runtime_adapter.store().clone(),
         &chain_genesis,
@@ -419,6 +421,7 @@ pub fn setup_client(
         chunk_executor_adapter.as_sender(),
         spice_core_writer_adapter.as_sender(),
         spice_data_distributor_adapter.as_multi_sender(),
+        Some(on_chunk_executed),
     );
 
     let spice_data_distributor_sender = test_loop.data.register_actor(

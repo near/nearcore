@@ -36,6 +36,7 @@ use near_network::types::PeerManagerAdapter;
 use near_primitives::hash::CryptoHash;
 use near_primitives::sandbox::state_patch::SandboxStatePatch;
 use near_primitives::shard_layout::ShardLayout;
+use near_primitives::sharding::ChunkHash;
 use near_primitives::sharding::ReceiptProof;
 use near_primitives::sharding::ShardChunk;
 use near_primitives::sharding::ShardProof;
@@ -56,6 +57,7 @@ use near_primitives::utils::get_receipt_proof_key;
 use near_primitives::utils::get_receipt_proof_target_shard_prefix;
 use near_primitives::validator_signer::ValidatorSigner;
 use near_store::DBCol;
+use near_store::ShardUId;
 use near_store::Store;
 use near_store::StoreUpdate;
 use near_store::TrieDBStorage;
@@ -90,7 +92,10 @@ pub struct ChunkExecutorActor {
 
     pub(crate) validator_signer: MutableValidatorSigner,
     pub(crate) core_reader: SpiceCoreReader,
+    on_chunk_executed: Option<OnChunkExecuted>,
 }
+
+pub type OnChunkExecuted = Box<dyn Fn(ShardUId, ChunkHash) + Send + Sync + 'static>;
 
 impl ChunkExecutorActor {
     pub fn new(
@@ -106,6 +111,7 @@ impl ChunkExecutorActor {
         myself_sender: Sender<ExecutorApplyChunksDone>,
         core_writer_sender: Sender<SpiceChunkEndorsementMessage>,
         data_distributor_adapter: SpiceDataDistributorAdapter,
+        on_chunk_executed: Option<OnChunkExecuted>,
     ) -> Self {
         let core_reader = SpiceCoreReader::new(store.chain_store(), epoch_manager.clone());
         Self {
@@ -123,6 +129,7 @@ impl ChunkExecutorActor {
             data_distributor_adapter,
             core_writer_sender,
             pending_unverified_receipts: HashMap::new(),
+            on_chunk_executed,
         }
     }
 }
@@ -584,6 +591,21 @@ impl ChunkExecutorActor {
             self.distribute_witness(&block, my_signer, new_chunk_result, outgoing_receipts_root)?;
         }
 
+        let shard_uid_to_chunk_hash: HashMap<ShardUId, ChunkHash> = results
+            .iter()
+            .map(|result| match result {
+                ShardUpdateResult::NewChunk(new_chunk_result) => {
+                    let shard_uid = new_chunk_result.shard_uid;
+                    let chunk_hash = block.chunks()
+                        [shard_layout.get_shard_index(shard_uid.shard_id()).unwrap()]
+                    .chunk_hash()
+                    .clone();
+                    (shard_uid, chunk_hash)
+                }
+                _ => panic!("missing chunks are not expected in SPICE"),
+            })
+            .collect();
+
         let mut chain_update = self.chain_update();
         let should_save_state_transition_data = false;
         chain_update.apply_chunk_postprocessing(
@@ -597,6 +619,11 @@ impl ChunkExecutorActor {
         if let Some(final_execution_head) = final_execution_head {
             self.update_flat_storage_head(&shard_layout, &final_execution_head)?;
             self.gc_memtrie_roots(&shard_layout, &final_execution_head)?;
+        }
+        if let Some(on_chunk_executed) = &self.on_chunk_executed {
+            for (shard_uid, chunk_hash) in shard_uid_to_chunk_hash {
+                on_chunk_executed(shard_uid, chunk_hash);
+            }
         }
         Ok(())
     }

@@ -1,5 +1,7 @@
+use crate::chunk_executor_actor::OnChunkExecuted;
 use crate::debug::PRODUCTION_TIMES_CACHE_SIZE;
 use crate::metrics;
+use crate::pending_transaction_queue::ShardedPendingTransactionQueue;
 use crate::prepare_transactions::{
     PrepareTransactionsJobInputs, PrepareTransactionsJobKey, PrepareTransactionsManager,
 };
@@ -23,7 +25,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{MerklePath, merklize};
 use near_primitives::optimistic_block::{CachedShardUpdateKey, OptimisticBlockKeySource};
 use near_primitives::receipt::Receipt;
-use near_primitives::sharding::{ShardChunkHeader, ShardChunkWithEncoding};
+use near_primitives::sharding::{ChunkHash, ShardChunkHeader, ShardChunkWithEncoding};
 use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::chunk_extra::ChunkExtra;
@@ -90,6 +92,7 @@ pub struct ChunkProducer {
     runtime_adapter: Arc<dyn RuntimeAdapter>,
     // TODO: put mutex on individual shards instead of the complete pool
     pub sharded_tx_pool: Arc<Mutex<ShardedTransactionPool>>,
+    pub pending_txs: Arc<Mutex<ShardedPendingTransactionQueue>>,
     /// A ReedSolomon instance to encode shard chunks.
     reed_solomon_encoder: ReedSolomon,
     /// Chunk production timing information. Used only for debug purposes.
@@ -129,6 +132,7 @@ impl ChunkProducer {
                 rng_seed,
                 transaction_pool_size_limit,
             ))),
+            pending_txs: Arc::new(Mutex::new(ShardedPendingTransactionQueue::new())),
             reed_solomon_encoder: ReedSolomon::new(data_parts, parity_parts).unwrap(),
             chunk_production_info: lru::LruCache::new(
                 NonZeroUsize::new(PRODUCTION_TIMES_CACHE_SIZE).unwrap(),
@@ -136,6 +140,14 @@ impl ChunkProducer {
             prepare_transactions_jobs: PrepareTransactionsManager::new(),
             prepare_transactions_spawner,
         }
+    }
+
+    pub fn on_chunk_executed(&self) -> OnChunkExecuted {
+        let pending_txs = self.pending_txs.clone();
+        Box::new(move |shard_uid: ShardUId, chunk_hash: ChunkHash| {
+            let mut locked = pending_txs.lock();
+            locked.get_queue_mut(shard_uid).remove_transactions(&chunk_hash);
+        })
     }
 
     pub fn produce_chunk(

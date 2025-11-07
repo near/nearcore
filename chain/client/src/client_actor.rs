@@ -5,6 +5,7 @@
 //! Unfortunately, this is not the case today. We are in the process of refactoring ClientActor
 //! <https://github.com/near/nearcore/issues/7899>
 
+use crate::chunk_executor_actor::OnChunkExecuted;
 #[cfg(feature = "test_features")]
 pub use crate::chunk_producer::AdvProduceChunksMode;
 #[cfg(feature = "test_features")]
@@ -122,6 +123,7 @@ fn wait_until_genesis(genesis_time: &Utc) {
 pub struct StartClientResult {
     pub client_actor: TokioRuntimeHandle<ClientActorInner>,
     pub tx_pool: Arc<Mutex<ShardedTransactionPool>>,
+    pub on_chunk_executed: OnChunkExecuted,
     pub chunk_endorsement_tracker: Arc<ChunkEndorsementTracker>,
     pub chunk_validation_actor: MultithreadRuntimeHandle<ChunkValidationActorInner>,
 }
@@ -244,6 +246,7 @@ pub fn start_client(
     )
     .unwrap();
     let tx_pool = client_actor_inner.client.chunk_producer.sharded_tx_pool.clone();
+    let on_chunk_executed = client_actor_inner.client.chunk_producer.on_chunk_executed();
     let chunk_endorsement_tracker =
         Arc::clone(&client_actor_inner.client.chunk_endorsement_tracker);
     let client_actor = actor_system.spawn_tokio_actor(client_actor_inner);
@@ -256,6 +259,7 @@ pub fn start_client(
     StartClientResult {
         client_actor,
         tx_pool,
+        on_chunk_executed,
         chunk_endorsement_tracker,
         chunk_validation_actor: chunk_validation_actor_addr,
     }
