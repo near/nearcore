@@ -255,7 +255,7 @@ impl TestEpochConfigBuilder {
             num_block_producer_seats_per_shard: self.num_block_producer_seats_per_shard,
             max_inflation_rate: self.max_inflation_rate,
         };
-        tracing::debug!("Epoch config: {:#?}", epoch_config);
+        tracing::debug!(?epoch_config, "epoch config");
         epoch_config
     }
 
@@ -445,9 +445,8 @@ impl TestGenesisBuilder {
         let mut user_accounts = self.user_accounts;
         if user_accounts.iter().all(|account| &account.account_id != &protocol_treasury_account) {
             tracing::warn!(
-                "Protocol treasury account {:?} not found in user accounts;
-                to keep genesis valid, adding it as a user account with zero balance.",
-                protocol_treasury_account
+                ?protocol_treasury_account,
+                "protocol treasury account not found in user accounts, to keep genesis valid, adding it as a user account with zero balance"
             );
             user_accounts.push(UserAccount {
                 account_id: protocol_treasury_account.clone(),
@@ -535,7 +534,7 @@ impl TestGenesisBuilder {
             chunk_producer_assignment_changes_limit: self.chunk_producer_assignment_changes_limit,
             ..Default::default()
         };
-        tracing::debug!("Genesis config: {:#?}", genesis_config);
+        tracing::debug!(?genesis_config, "genesis config");
 
         Genesis {
             config: genesis_config,

@@ -75,7 +75,7 @@ use std::cmp::max;
 use std::collections::{HashMap, HashSet};
 use std::num::NonZeroUsize;
 use std::sync::{Arc, OnceLock};
-use tracing::{instrument};
+use tracing::instrument;
 
 const NUM_REBROADCAST_BLOCKS: usize = 30;
 

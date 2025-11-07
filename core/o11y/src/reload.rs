@@ -92,7 +92,7 @@ pub fn reload_log_config(config: Option<&log_config::LogConfig>) {
     };
     match result {
         Ok(_) => {
-            tracing::info!("Updated the logging layer according to `log_config.json`");
+            tracing::info!("updated the logging layer according to `log_config.json`");
         }
         Err(err) => {
             eprintln!(

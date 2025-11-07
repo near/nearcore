@@ -166,7 +166,7 @@ impl TrieIterationBenchmarkCmd {
         let iter = match iter {
             Ok(iter) => iter,
             Err(err) => {
-                tracing::error!("iter error {err:#?}");
+                tracing::error!(?err, "iter error");
                 return;
             }
         };
@@ -176,7 +176,7 @@ impl TrieIterationBenchmarkCmd {
             let (key, value) = match item {
                 Ok((key, value)) => (key, value),
                 Err(err) => {
-                    tracing::error!("Failed to iterate node with error: {err}.");
+                    tracing::error!(?err, "failed to iterate node");
                     error_count += 1;
                     continue;
                 }
@@ -195,8 +195,9 @@ impl TrieIterationBenchmarkCmd {
             };
             tracing::trace!(
                 target: "trie-iteration-benchmark",
-                "visiting column {} account id {}",
-                &state_record.get_type_string(),state_record_to_account_id(&state_record)
+                column = &state_record.get_type_string(),
+                account_id = state_record_to_account_id(&state_record),
+                "visiting column and account id"
             );
 
             if let Some(limit) = self.limit {
@@ -280,7 +281,9 @@ impl TrieIterationBenchmarkCmd {
             Ok(account_id) => {
                 tracing::trace!(
                     target: "trie-iteration-benchmark",
-                    "pruning column {col_name} account id {account_id:?}"
+                    %col_name,
+                    ?account_id,
+                    "pruning column and account id"
                 );
                 true
             }
@@ -294,7 +297,9 @@ impl TrieIterationBenchmarkCmd {
             Ok(account_id) => {
                 tracing::trace!(
                     target: "trie-iteration-benchmark",
-                    "pruning column {col_name} account id {account_id:?}"
+                    %col_name,
+                    ?account_id,
+                    "pruning column and account id"
                 );
                 true
             }

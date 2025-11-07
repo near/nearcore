@@ -87,7 +87,7 @@ use rand::{Rng, thread_rng};
 use std::fmt;
 use std::sync::Arc;
 use tokio::sync::broadcast;
-use tracing::{debug_span};
+use tracing::debug_span;
 
 /// Multiplier on `max_block_time` to wait until deciding that chain stalled.
 const STATUS_WAIT_TIME_MULTIPLIER: i32 = 10;

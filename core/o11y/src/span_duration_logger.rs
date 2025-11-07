@@ -114,7 +114,7 @@ where
                         ?name,
                         file = ?span.metadata().file(),
                         line = ?span.metadata().line(),
-                        "Span duration too long");
+                        "span duration too long");
                 }
             }
         } else {

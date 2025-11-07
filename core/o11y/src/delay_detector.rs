@@ -81,8 +81,8 @@ where
                 let busy_sec = *busy as f64 * 1e-9;
                 let idle_sec = idle as f64 * 1e-9;
                 tracing::warn!(target: "delay_detector",
-                    "Span duration too long: {busy_sec:.2}s. Idle time: {idle_sec:.2}s. {level}: {target}: {name}. {file}:{line}",
-                );
+                    busy_sec, idle_sec, %level, %target, %name, %file, %line,
+                    "span duration too long, idle time");
                 LONG_SPAN_HISTOGRAM
                     .with_label_values(&[name, level.as_str(), target, file, &line])
                     .observe(busy_sec);

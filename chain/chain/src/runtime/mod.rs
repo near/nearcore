@@ -56,7 +56,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
-use tracing::{instrument};
+use tracing::instrument;
 use trie_update_wrapper::TrieUpdateWitnessSizeWrapper;
 
 pub mod errors;

@@ -125,7 +125,9 @@ pub fn load_trie_from_flat_state_and_delta(
     let flat_head = match flat_store.get_flat_storage_status(shard_uid)? {
         FlatStorageStatus::Ready(status) => status.flat_head,
         FlatStorageStatus::Resharding(FlatStorageReshardingStatus::SplittingParent(status)) => {
-            tracing::warn!("loading memtrie from parent flat storage which is marked as pending resharding");
+            tracing::warn!(
+                "loading memtrie from parent flat storage which is marked as pending resharding"
+            );
             status.flat_head
         }
         other => {

@@ -11,7 +11,7 @@ use near_primitives::block::Tip;
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::{BlockHeight, BlockHeightDelta};
 use rand::seq::IteratorRandom;
-use tracing::{instrument};
+use tracing::instrument;
 
 /// Expect to receive the requested block in this time.
 const BLOCK_REQUEST_TIMEOUT_MS: i64 = 2_000;
