@@ -109,7 +109,6 @@ impl<'c> EstimatorContext<'c> {
         let tries = ShardTries::new(
             store.trie_store(),
             trie_config,
-            &[shard_uid],
             flat_storage_manager,
             StateSnapshotConfig::Disabled,
         );
@@ -460,9 +459,7 @@ impl Testbed<'_> {
             PROTOCOL_VERSION,
         )
         .expect("expected no validation error");
-        let cost =
-            tx_cost(&self.apply_state.config, &validated_tx.to_tx(), gas_price, PROTOCOL_VERSION)
-                .unwrap();
+        let cost = tx_cost(&self.apply_state.config, &validated_tx.to_tx(), gas_price).unwrap();
         let (mut signer, mut access_key) = get_signer_and_access_key(&state_update, &validated_tx)
             .expect("getting signer and access key should not fail in estimator");
 

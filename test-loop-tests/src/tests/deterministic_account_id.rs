@@ -13,7 +13,6 @@
 //! - `set_state_init_data_entry`
 //!
 //! Additionally, there are indirectly related host functions.
-//! => TODO(jakmeier): Add tests covering these
 //!
 //! - `promise_set_refund_to`
 //! - `refund_to_account_id`
@@ -26,7 +25,7 @@
 use crate::setup::builder::TestLoopBuilder;
 use crate::setup::env::TestLoopEnv;
 use crate::utils::account::{
-    create_account_ids, create_validators_spec, rpc_account_id, validators_spec_clients_with_rpc,
+    create_account_ids, create_validators_spec, validators_spec_clients_with_rpc,
 };
 use crate::utils::node::TestLoopNode;
 use crate::utils::transactions;
@@ -390,6 +389,233 @@ fn test_deterministic_state_init_prepay_for_storage() {
     env.shutdown();
 }
 
+/// Deploy a sharded toy-contract and check it can do a "predecessor is owner"
+/// check as intended by NEP-616.
+#[test]
+fn test_sharded_contract_owner_check() {
+    if !ProtocolFeature::DeterministicAccountIds.enabled(PROTOCOL_VERSION) {
+        return;
+    }
+    let mut env = TestEnv::setup(Balance::from_near(100));
+    env.deploy_global_contract(GlobalContractDeployMode::AccountId);
+
+    let data = BTreeMap::from_iter([(b"key".to_vec(), vec![0u8; 100_000])]);
+    let (state_init, det_account) = env.new_deterministic_account_with_data(data.clone());
+
+    // Try once without pre-paying, must fail.
+    let outcome = env
+        .try_deploy_deterministic_account_with_data(data.clone(), Balance::ZERO)
+        .expect("should be able to send transaction");
+    assert_matches!(
+        outcome.status,
+        FinalExecutionStatus::Failure(TxExecutionError::ActionError(ActionError {
+            kind: ActionErrorKind::LackBalanceForState { .. },
+            index: _
+        }))
+    );
+
+    // Prepay
+    let required_for_storage = env.balance_for_storage(state_init);
+    env.fund_with_near_balance(det_account.clone(), required_for_storage);
+    assert_eq!(
+        required_for_storage,
+        env.get_account_state(det_account.clone()).amount,
+        "account should have been created and funded now"
+    );
+
+    // Contract can't be called, yet.
+    env.assert_test_contract_not_usable_on_account(det_account.clone());
+
+    // Try creating again, with zero balance again. Must succeed this time.
+    env.try_deploy_deterministic_account_with_data(data, Balance::ZERO)
+        .expect("should be able to send transaction")
+        .assert_success();
+    env.assert_test_contract_usable_on_account(det_account);
+    let user_account = env.user_account();
+    let sharded_account = env.setup_sharded_account(user_account.clone());
+
+    env.call_sharded_owner_only(&user_account, &sharded_account).assert_success();
+
+    env.shutdown();
+}
+
+/// Deploy a sharded toy-contract and check it can do a "predecessor is owner"
+/// check as intended by NEP-616.
+#[test]
+fn test_sharded_contract_owner_check_fails() {
+    if !ProtocolFeature::DeterministicAccountIds.enabled(PROTOCOL_VERSION) {
+        return;
+    }
+    let mut env = TestEnv::setup(Balance::from_near(100));
+    let user_account = env.user_account();
+    let sharded_account = env.setup_sharded_account(user_account);
+
+    let foreign_caller_outcome =
+        env.call_sharded_owner_only(&env.independent_account(), &sharded_account);
+    assert_eq!(
+        foreign_caller_outcome.status,
+        FinalExecutionStatus::Failure(TxExecutionError::ActionError(ActionError {
+            kind: ActionErrorKind::FunctionCallError(FunctionCallError::ExecutionError(
+                "Smart contract panicked: not root: account0 != account2".to_owned()
+            )),
+            index: Some(0)
+        }))
+    );
+    env.shutdown();
+}
+
+/// Deploy a sharded toy-contract and check it can do a "predecessor has same
+/// code as myself" check as intended by NEP-616.
+#[test]
+fn test_sharded_contract_peer_check() {
+    if !ProtocolFeature::DeterministicAccountIds.enabled(PROTOCOL_VERSION) {
+        return;
+    }
+    let mut env = TestEnv::setup(Balance::from_near(100));
+    let user_account1 = env.user_account();
+    let user_account2 = env.independent_account();
+    let sharded_account1 = env.setup_sharded_account(user_account1.clone());
+    let sharded_account2 = env.setup_sharded_account(user_account2);
+
+    // check calling `peer_only` indirectly through `ping` works
+    let outcome = env.call_sharded_contract(
+        user_account1,
+        sharded_account1,
+        "ping",
+        sharded_account2.as_bytes().to_vec(),
+        Balance::ZERO,
+    );
+    outcome.assert_success();
+
+    assert_eq!(3, outcome.receipts_outcome.len());
+    let ping_call_result = &outcome.receipts_outcome[1];
+    assert_eq!(sharded_account2, ping_call_result.outcome.executor_id);
+    assert_eq!(vec!["peer ok".to_owned()], ping_call_result.outcome.logs);
+
+    env.shutdown();
+}
+
+/// Deploy a sharded toy-contract and check it can do a "predecessor has same
+/// code as myself" check as intended by NEP-616.
+#[test]
+fn test_sharded_contract_peer_check_fails() {
+    if !ProtocolFeature::DeterministicAccountIds.enabled(PROTOCOL_VERSION) {
+        return;
+    }
+    let mut env = TestEnv::setup(Balance::from_near(100));
+    let user_account = env.user_account();
+    let sharded_account = env.setup_sharded_account(user_account.clone());
+
+    // check calling `peer_only` directly fails, as the predecessor it not a peer
+    let outcome = env.call_sharded_contract(
+        user_account,
+        sharded_account,
+        "peer_only",
+        vec![],
+        Balance::ZERO,
+    );
+    assert_eq!(
+        outcome.status,
+        FinalExecutionStatus::Failure(TxExecutionError::ActionError(ActionError {
+            kind: ActionErrorKind::FunctionCallError(FunctionCallError::ExecutionError(
+                "Smart contract panicked: not peer: 0s956d38ada09c708ad55824ba9cb162e4669a63eb != account0".to_owned()
+            )),
+            index: Some(0)
+        }))
+    );
+
+    env.shutdown();
+}
+
+/// Deploy a sharded toy-contract and check it can spread itself to another account.
+#[test]
+fn test_sharded_contract_spread() {
+    if !ProtocolFeature::DeterministicAccountIds.enabled(PROTOCOL_VERSION) {
+        return;
+    }
+    let mut env = TestEnv::setup(Balance::from_near(100));
+    let user_account = env.user_account();
+    let sharded_account = env.setup_sharded_account(user_account.clone());
+    let user_to_onboard = env.independent_account();
+
+    // check the user does't have a sharded contract, yet
+    let outcome = env.call_sharded_owner_only(&user_to_onboard, &sharded_account);
+    assert_eq!(
+        outcome.status,
+        FinalExecutionStatus::Failure(TxExecutionError::ActionError(ActionError {
+            kind: ActionErrorKind::FunctionCallError(FunctionCallError::ExecutionError(
+                "Smart contract panicked: not root: account0 != account2".to_owned()
+            )),
+            index: Some(0)
+        }))
+    );
+
+    // now onboard the user using "spread" on the existing sharded contract instance
+    let target_account_id =
+        env.new_deterministic_account_with_data(sharded_contract_data(user_to_onboard.clone())).1;
+
+    let outcome = env.call_sharded_contract(
+        user_account,
+        sharded_account.clone(),
+        "spread",
+        // pass in id as argument but don't sign anything with that user
+        user_to_onboard.as_bytes().to_vec(),
+        Balance::ZERO,
+    );
+    outcome.assert_success();
+
+    // check the onboarded account can use their new sharded contract instance
+    env.call_sharded_owner_only(&user_to_onboard, &target_account_id).assert_success();
+
+    env.shutdown();
+}
+
+/// Deploy a sharded toy-contract and check it can spread itself to another
+/// account and provide funding on the initial call.
+#[test]
+fn test_sharded_contract_spread_funded() {
+    if !ProtocolFeature::DeterministicAccountIds.enabled(PROTOCOL_VERSION) {
+        return;
+    }
+    let mut env = TestEnv::setup(Balance::from_near(100));
+    let user_account = env.user_account();
+    let sharded_account = env.setup_sharded_account(user_account.clone());
+    let user_to_onboard = env.independent_account();
+
+    // check the user does't have a sharded contract, yet
+    let outcome = env.call_sharded_owner_only(&user_to_onboard, &sharded_account);
+    assert_eq!(
+        outcome.status,
+        FinalExecutionStatus::Failure(TxExecutionError::ActionError(ActionError {
+            kind: ActionErrorKind::FunctionCallError(FunctionCallError::ExecutionError(
+                "Smart contract panicked: not root: account0 != account2".to_owned()
+            )),
+            index: Some(0)
+        }))
+    );
+
+    // now onboard the user using "spread" on the existing sharded contract instance
+    let target_account_id =
+        env.new_deterministic_account_with_data(sharded_contract_data(user_to_onboard.clone())).1;
+
+    let provided_balance = Balance::from_near(5);
+    let outcome = env.call_sharded_contract(
+        user_account,
+        sharded_account.clone(),
+        "spread",
+        // pass in id as argument but don't sign anything with that user
+        user_to_onboard.as_bytes().to_vec(),
+        // provide funding here, which will use the attached deposit to fund the new account
+        provided_balance,
+    );
+    outcome.assert_success();
+
+    // check the onboarded account can use their new sharded contract instance
+    env.call_sharded_owner_only(&user_to_onboard, &target_account_id).assert_success();
+
+    env.shutdown();
+}
+
 struct TestEnv {
     env: TestLoopEnv,
     runtime_config_store: RuntimeConfigStore,
@@ -537,6 +763,50 @@ impl TestEnv {
         self.try_execute_tx(create_deterministic_account_tx)
     }
 
+    /// Creates, on-chain, a deterministic account id owned by `user`.
+    fn setup_sharded_account(&mut self, user: AccountId) -> AccountId {
+        let tx = self.deploy_global_contract_custom_tx(
+            GlobalContractDeployMode::AccountId,
+            near_test_contracts::sharded_contract_test_contract().to_vec(),
+        );
+        self.run_tx(tx);
+
+        let initial_balance = Balance::from_near(5);
+        self.create_sharded_contract_user(user, initial_balance)
+    }
+
+    fn create_sharded_contract_user(&mut self, owner: AccountId, balance: Balance) -> AccountId {
+        let signer = create_user_test_signer(&owner);
+        let data = sharded_contract_data(owner);
+        let (state_init, det_account) = self.new_deterministic_account_with_data(data);
+
+        let tx = SignedTransaction::deterministic_state_init(
+            self.next_nonce(),
+            signer.get_account_id(),
+            det_account.clone(),
+            &signer,
+            self.get_tx_block_hash(),
+            state_init,
+            balance,
+        );
+        self.run_tx(tx);
+        det_account
+    }
+
+    fn call_sharded_owner_only(
+        &mut self,
+        user: &AccountId,
+        sharded_account: &AccountId,
+    ) -> FinalExecutionOutcomeView {
+        self.call_sharded_contract(
+            user.clone(),
+            sharded_account.clone(),
+            "owner_only",
+            vec![],
+            Balance::ZERO,
+        )
+    }
+
     fn call_test_contract_tx(
         &mut self,
         signer_id: AccountId,
@@ -570,6 +840,29 @@ impl TestEnv {
         self.execute_tx(tx).assert_success();
     }
 
+    fn call_sharded_contract(
+        &mut self,
+        signer_id: AccountId,
+        receiver_id: AccountId,
+        method: &str,
+        arg: Vec<u8>,
+        balance: Balance,
+    ) -> FinalExecutionOutcomeView {
+        let signer = create_user_test_signer(&signer_id);
+        let tx = SignedTransaction::call(
+            self.next_nonce(),
+            signer_id,
+            receiver_id,
+            &signer,
+            balance,
+            method.to_owned(),
+            arg,
+            Gas::from_teragas(300),
+            self.get_tx_block_hash(),
+        );
+        self.try_execute_tx(tx).unwrap()
+    }
+
     fn assert_test_contract_usable_on_account(&mut self, account_with_contract: AccountId) {
         let tx = self.call_test_contract_tx(self.independent_account(), account_with_contract);
         self.run_tx(tx);
@@ -594,7 +887,7 @@ impl TestEnv {
         &mut self,
         tx: SignedTransaction,
     ) -> Result<FinalExecutionOutcomeView, InvalidTxError> {
-        TestLoopNode::for_account(&self.env.node_datas, &rpc_account_id()).execute_tx(
+        TestLoopNode::rpc(&self.env.node_datas).execute_tx(
             &mut self.env.test_loop,
             tx,
             Duration::seconds(5),
@@ -626,7 +919,7 @@ impl TestEnv {
 
     #[track_caller]
     fn run_tx(&mut self, tx: SignedTransaction) {
-        TestLoopNode::for_account(&self.env.node_datas, &rpc_account_id()).run_tx(
+        TestLoopNode::rpc(&self.env.node_datas).run_tx(
             &mut self.env.test_loop,
             tx,
             Duration::seconds(5),
@@ -635,7 +928,7 @@ impl TestEnv {
 
     #[track_caller]
     fn execute_tx(&mut self, tx: SignedTransaction) -> FinalExecutionOutcomeView {
-        TestLoopNode::for_account(&self.env.node_datas, &rpc_account_id())
+        TestLoopNode::rpc(&self.env.node_datas)
             .execute_tx(&mut self.env.test_loop, tx, Duration::seconds(5))
             .unwrap()
     }
@@ -655,7 +948,7 @@ impl TestEnv {
     }
 
     fn runtime_query(&self, account_id: &AccountId, query: QueryRequest) -> QueryResponse {
-        TestLoopNode::for_account(&self.env.node_datas, &rpc_account_id()).runtime_query(
+        TestLoopNode::rpc(&self.env.node_datas).runtime_query(
             self.env.test_loop_data(),
             account_id,
             query,
@@ -687,4 +980,8 @@ fn small() -> BTreeMap<Vec<u8>, Vec<u8>> {
 
 fn big() -> BTreeMap<Vec<u8>, Vec<u8>> {
     BTreeMap::from_iter([(b"key".to_vec(), vec![0u8; 100_000])])
+}
+
+fn sharded_contract_data(owner: AccountId) -> BTreeMap<Vec<u8>, Vec<u8>> {
+    BTreeMap::from_iter([(b"root".to_vec(), owner.as_bytes().to_vec())])
 }

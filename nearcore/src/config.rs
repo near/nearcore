@@ -11,15 +11,15 @@ use near_chain_configs::test_utils::{
 use near_chain_configs::{
     BLOCK_PRODUCER_KICKOUT_THRESHOLD, CHUNK_PRODUCER_KICKOUT_THRESHOLD,
     CHUNK_VALIDATOR_ONLY_KICKOUT_THRESHOLD, ChunkDistributionNetworkConfig, ClientConfig,
-    CloudArchivalReaderConfig, CloudArchivalWriterConfig, CloudStorageConfig,
-    EXPECTED_EPOCH_LENGTH, EpochSyncConfig, FAST_EPOCH_LENGTH, FISHERMEN_THRESHOLD,
-    GAS_PRICE_ADJUSTMENT_RATE, GCConfig, GENESIS_CONFIG_FILENAME, Genesis, GenesisConfig,
-    GenesisValidationMode, INITIAL_GAS_LIMIT, LogSummaryStyle, MAX_INFLATION_RATE,
+    CloudArchivalWriterConfig, EXPECTED_EPOCH_LENGTH, EpochSyncConfig, FAST_EPOCH_LENGTH,
+    FISHERMEN_THRESHOLD, GAS_PRICE_ADJUSTMENT_RATE, GCConfig, GENESIS_CONFIG_FILENAME, Genesis,
+    GenesisConfig, GenesisValidationMode, INITIAL_GAS_LIMIT, LogSummaryStyle, MAX_INFLATION_RATE,
     MIN_BLOCK_PRODUCTION_DELAY, MIN_GAS_PRICE, MutableConfigValue, MutableValidatorSigner,
     NUM_BLOCK_PRODUCER_SEATS, NUM_BLOCKS_PER_YEAR, PROTOCOL_REWARD_RATE,
     PROTOCOL_UPGRADE_STAKE_THRESHOLD, ProtocolVersionCheckConfig, ReshardingConfig,
     StateSyncConfig, TRANSACTION_VALIDITY_PERIOD, TrackedShardsConfig,
-    default_chunk_validation_threads, default_chunk_wait_mult, default_enable_multiline_logging,
+    default_chunk_validation_threads, default_chunk_wait_mult,
+    default_enable_early_prepare_transactions, default_enable_multiline_logging,
     default_epoch_sync, default_header_sync_expected_height_per_second,
     default_header_sync_initial_timeout, default_header_sync_progress_timeout,
     default_header_sync_stall_ban_timeout, default_log_summary_period,
@@ -54,6 +54,7 @@ use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner
 use near_primitives::version::PROTOCOL_VERSION;
 #[cfg(feature = "rosetta_rpc")]
 use near_rosetta_rpc::RosettaRpcConfig;
+use near_store::archive::cloud_storage::config::CloudStorageConfig;
 use near_store::config::{SplitStorageConfig, StateSnapshotType};
 use near_store::{StateSnapshotConfig, Store, TrieConfig};
 use near_telemetry::TelemetryConfig;
@@ -271,9 +272,9 @@ pub struct Config {
 
     #[serde(skip_serializing_if = "is_false")]
     pub archive: bool,
-    /// Configuration for a cloud-based archival reader.
+    /// Configuration for a cloud-based archival node.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub cloud_archival_reader: Option<CloudArchivalReaderConfig>,
+    pub cloud_archival: Option<CloudStorageConfig>,
     /// Configuration for a cloud-based archival writer. If this config is present, the writer is enabled and
     /// writes chunk-related data based on the tracked shards.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -300,6 +301,7 @@ pub struct Config {
     /// If `None`, defaults to true (persist).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub save_untracked_partial_chunks_parts: Option<bool>,
+    /// Deprecated: no longer supported.
     pub log_summary_style: LogSummaryStyle,
     #[serde(with = "near_async::time::serde_duration_as_std")]
     pub log_summary_period: Duration,
@@ -410,6 +412,18 @@ pub struct Config {
     ///
     /// Use [`Self::contract_cache_path()`] to access this field.
     pub(crate) contract_cache_path: Option<PathBuf>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    /// If true, transactions for the next chunk will be prepared early, right after the previous chunk's
+    /// post-state is ready. This can help produce chunks faster, for high-throughput chains.
+    /// The current implementation increases latency on low-load chains, which will be fixed in the future.
+    /// The default is disabled.
+    pub enable_early_prepare_transactions: Option<bool>,
+    /// If true, the runtime will do a dynamic resharding 'dry run' at the last block of each epoch.
+    /// This means calculating tentative boundary accounts for splitting the tracked shards.
+    /// The default is disabled.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub dynamic_resharding_dry_run: bool,
 }
 
 fn is_false(value: &bool) -> bool {
@@ -438,7 +452,7 @@ impl Default for Config {
             tracked_shards: None,
             tracked_shard_schedule: None,
             archive: false,
-            cloud_archival_reader: None,
+            cloud_archival: None,
             cloud_archival_writer: None,
             save_trie_changes: None,
             save_tx_outcomes: None,
@@ -475,6 +489,8 @@ impl Default for Config {
             save_invalid_witnesses: false,
             transaction_request_handler_threads: 4,
             protocol_version_check_config_override: None,
+            enable_early_prepare_transactions: None,
+            dynamic_resharding_dry_run: false,
         }
     }
 }
@@ -606,24 +622,9 @@ impl Config {
         )
     }
 
-    /// Returns the cloud storage config. Checks if configs are equal if both cloud archival reader and
-    /// writers are enabled.
+    /// Returns the cloud archival storage config.
     pub fn cloud_storage_config(&self) -> Option<&CloudStorageConfig> {
-        if let (Some(reader), Some(writer)) =
-            (&self.cloud_archival_reader, &self.cloud_archival_writer)
-        {
-            assert_eq!(
-                reader.cloud_storage, writer.cloud_storage,
-                "Cloud archival reader and writer storage configs are not equal."
-            );
-        }
-        if let Some(reader) = &self.cloud_archival_reader {
-            return Some(&reader.cloud_storage);
-        }
-        if let Some(writer) = &self.cloud_archival_writer {
-            return Some(&writer.cloud_storage);
-        }
-        None
+        self.cloud_archival.as_ref()
     }
 
     pub fn contract_cache_path(&self) -> PathBuf {
@@ -707,7 +708,6 @@ impl NearConfig {
                 doomslug_step_period: config.consensus.doomslug_step_period,
                 tracked_shards_config: config.tracked_shards_config(),
                 archive: config.archive,
-                cloud_archival_reader: config.cloud_archival_reader,
                 cloud_archival_writer: config.cloud_archival_writer,
                 save_trie_changes: config.save_trie_changes.unwrap_or(!config.archive),
                 save_tx_outcomes: config.save_tx_outcomes.unwrap_or(is_archive_or_rpc),
@@ -750,6 +750,10 @@ impl NearConfig {
                 protocol_version_check: config
                     .protocol_version_check_config_override
                     .unwrap_or(ProtocolVersionCheckConfig::NextNext),
+                enable_early_prepare_transactions: config
+                    .enable_early_prepare_transactions
+                    .unwrap_or_else(default_enable_early_prepare_transactions),
+                dynamic_resharding_dry_run: config.dynamic_resharding_dry_run,
             },
             #[cfg(feature = "tx_generator")]
             tx_generator: config.tx_generator,
@@ -842,6 +846,7 @@ impl NightshadeRuntime {
             state_snapshot_config,
             config.client_config.state_sync.parts_compression_lvl,
             config.client_config.cloud_archival_writer.is_some(),
+            config.client_config.dynamic_resharding_dry_run,
         ))
     }
 }

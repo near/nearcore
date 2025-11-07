@@ -3209,23 +3209,6 @@
         ],
         "type": "object"
       },
-      "CloudArchivalReaderConfig": {
-        "description": "Configuration for a cloud-based archival reader.",
-        "properties": {
-          "cloud_storage": {
-            "allOf": [
-              {
-                "$ref": "#/components/schemas/CloudStorageConfig"
-              }
-            ],
-            "description": "Configures the external storage used by the archival node."
-          }
-        },
-        "required": [
-          "cloud_storage"
-        ],
-        "type": "object"
-      },
       "CloudArchivalWriterConfig": {
         "description": "Configuration for a cloud-based archival writer. If this config is present, the writer is enabled and\nwrites chunk-related data based on the tracked shards. This config also controls additional archival\nbehavior such as block data and polling interval.",
         "properties": {
@@ -3233,14 +3216,6 @@
             "default": false,
             "description": "Determines whether block-related data should be written to cloud storage.",
             "type": "boolean"
-          },
-          "cloud_storage": {
-            "allOf": [
-              {
-                "$ref": "#/components/schemas/CloudStorageConfig"
-              }
-            ],
-            "description": "Configures the external storage used by the archival node."
           },
           "polling_interval": {
             "allOf": [
@@ -3255,31 +3230,6 @@
             "description": "Interval at which the system checks for new blocks or chunks to archive."
           }
         },
-        "required": [
-          "cloud_storage"
-        ],
-        "type": "object"
-      },
-      "CloudStorageConfig": {
-        "description": "Configures the external storage used by the archival node.",
-        "properties": {
-          "credentials_file": {
-            "description": "Location of a json file with credentials allowing access to the bucket.",
-            "nullable": true,
-            "type": "string"
-          },
-          "storage": {
-            "allOf": [
-              {
-                "$ref": "#/components/schemas/ExternalStorageLocation"
-              }
-            ],
-            "description": "The storage to persist the archival data."
-          }
-        },
-        "required": [
-          "storage"
-        ],
         "type": "object"
       },
       "CompilationError": {
@@ -4877,6 +4827,7 @@
         "type": "object"
       },
       "ExternalStorageLocation": {
+        "description": "Supported external storage backends and their minimal config.",
         "oneOf": [
           {
             "additionalProperties": false,
@@ -4884,7 +4835,7 @@
               "S3": {
                 "properties": {
                   "bucket": {
-                    "description": "Location of state dumps on S3.",
+                    "description": "Location on S3.",
                     "type": "string"
                   },
                   "region": {
@@ -4906,6 +4857,7 @@
           },
           {
             "additionalProperties": false,
+            "description": "Local filesystem root for storing data.",
             "properties": {
               "Filesystem": {
                 "properties": {
@@ -4926,6 +4878,7 @@
           },
           {
             "additionalProperties": false,
+            "description": "Google Cloud Storage bucket name.",
             "properties": {
               "GCS": {
                 "properties": {
@@ -9952,20 +9905,6 @@
             "minimum": 0,
             "type": "integer"
           },
-          "cloud_archival_reader": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/CloudArchivalReaderConfig"
-              },
-              {
-                "enum": [
-                  null
-                ],
-                "nullable": true
-              }
-            ],
-            "description": "Configuration for a cloud-based archival reader."
-          },
           "cloud_archival_writer": {
             "anyOf": [
               {
@@ -9990,6 +9929,14 @@
             "maxItems": 2,
             "minItems": 2,
             "type": "array"
+          },
+          "dynamic_resharding_dry_run": {
+            "description": "If true, the runtime will do a dynamic resharding 'dry run' at the last block of each epoch.\nThis means calculating tentative boundary accounts for splitting the tracked shards.",
+            "type": "boolean"
+          },
+          "enable_early_prepare_transactions": {
+            "description": "If true, transactions for the next chunk will be prepared early, right after the previous chunk's\npost-state is ready. This can help produce chunks faster, for high-throughput chains.\nThe current implementation increases latency on low-load chains, which will be fixed in the future.\nThe default is disabled.",
+            "type": "boolean"
           },
           "enable_multiline_logging": {
             "type": "boolean"
@@ -10431,7 +10378,9 @@
           "save_latest_witnesses",
           "save_invalid_witnesses",
           "transaction_request_handler_threads",
-          "protocol_version_check"
+          "protocol_version_check",
+          "enable_early_prepare_transactions",
+          "dynamic_resharding_dry_run"
         ],
         "type": "object"
       },
@@ -15115,6 +15064,18 @@
             ],
             "description": "Describes limits for VM and Runtime.\n\nTODO: Consider changing this to `VMLimitConfigView` to avoid dependency\non runtime."
           },
+          "linear_op_base_cost": {
+            "description": "Base gas cost of a linear operation",
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "linear_op_unit_cost": {
+            "description": "Unit gas cost of a linear operation",
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
           "reftypes_bulk_memory": {
             "description": "See [VMConfig::reftypes_bulk_memory](crate::vm::Config::reftypes_bulk_memory).",
             "type": "boolean"
@@ -15150,6 +15111,8 @@
           "ext_costs",
           "grow_mem_cost",
           "regular_op_cost",
+          "linear_op_base_cost",
+          "linear_op_unit_cost",
           "vm_kind",
           "discard_custom_sections",
           "saturating_float_to_int",

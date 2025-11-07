@@ -1,7 +1,7 @@
 use near_async::futures::{DelayedActionRunner, DelayedActionRunnerExt};
 use near_async::messaging::{Actor, CanSend, Handler, HandlerWithContext, Sender};
 use near_async::time::Duration;
-use near_async::{Message, MultiSend, MultiSenderFrom};
+use near_async::{MultiSend, MultiSenderFrom};
 use near_network::types::{NetworkRequests, PeerManagerAdapter, PeerManagerMessageRequest};
 use near_performance_metrics_macros::perf;
 use near_primitives::block::Block;
@@ -34,10 +34,9 @@ impl StateSnapshotActor {
     }
 }
 
-#[derive(Message, Debug)]
+#[derive(Debug)]
 pub struct DeleteSnapshotRequest {}
 
-#[derive(Message)]
 pub struct CreateSnapshotRequest {
     /// equal to self.block.header().prev_hash()
     prev_block_hash: CryptoHash,

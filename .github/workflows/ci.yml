@@ -53,6 +53,9 @@ jobs:
       - if: github.event_name != 'pull_request' || matrix.run_on_pr
         uses: actions/checkout@v4
 
+        with:
+          persist-credentials: false
+
       # Install all the required tools
       - if: github.event_name != 'pull_request' || matrix.run_on_pr
         uses: taiki-e/install-action@7852930e42e73b6c323ae4435f5135b58754dfdd
@@ -97,6 +100,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: bufbuild/buf-setup-action@1158f4fa81bc02e1ff62abcca6d516c9e24c77da
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
@@ -112,6 +117,8 @@ jobs:
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: WarpBuilds/setup-python@v5
         with:
           python-version: 3.11
@@ -139,41 +146,13 @@ jobs:
           name: coverage-codecov-${{ github.sha }}-py-nightly
           path: coverage/codecov
 
-  pytest_tests:
-    name: "Large pytest Tests"
-    runs-on: warp-ubuntu-2204-x64-8x
-    steps:
-      - uses: actions/checkout@v4
-      - uses: WarpBuilds/setup-python@v5
-        with:
-          python-version: 3.11
-          cache: pip
-      - uses: taiki-e/install-action@7852930e42e73b6c323ae4435f5135b58754dfdd
-        with:
-          tool: cargo-llvm-cov
-      - run: pip3 install --user -r pytest/requirements.txt
-      - run: cargo llvm-cov show-env | grep -v RUSTFLAGS | tr -d "'" >> "$GITHUB_ENV"
-      - run: echo "RUSTC_WORKSPACE_WRAPPER=$PWD/scripts/coverage-wrapper-rustc" >> "$GITHUB_ENV"
-      - run: echo "CARGO=1" >> "$GITHUB_ENV"
-      - run: cargo build --locked --profile dev-release -p neard --bin neard
-      - run: echo "CURRENT_NEARD=$PWD/target/dev-release/neard" >> "$GITHUB_ENV"
-      - run: echo "NEAR_ROOT=$PWD" >> "$GITHUB_ENV"
-      - run: pushd pytest && python3 tests/sanity/upgradable.py && popd
-      - run: pushd pytest && python3 tests/sanity/db_migration.py && popd
-      - run: pushd pytest && python3 tests/sanity/backward_compatible.py && popd
-
-      - run: mkdir -p coverage/codecov
-      - run: cargo llvm-cov report --profile dev-release --codecov --output-path coverage/codecov/py.json
-      - uses: actions/upload-artifact@v4
-        with:
-          name: coverage-codecov-${{ github.sha }}-py
-          path: coverage/codecov
-
   protocol_schema_check:
     name: "Protocol Schema"
     runs-on: warp-ubuntu-2204-x64-8x
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: taiki-e/install-action@7852930e42e73b6c323ae4435f5135b58754dfdd
         with:
           tool: just
@@ -184,6 +163,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: taiki-e/install-action@7852930e42e73b6c323ae4435f5135b58754dfdd
         with:
           tool: just
@@ -199,6 +180,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: taiki-e/install-action@7852930e42e73b6c323ae4435f5135b58754dfdd
         with:
           tool: just
@@ -209,6 +192,8 @@ jobs:
     runs-on: warp-ubuntu-2204-x64-8x
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: taiki-e/install-action@7852930e42e73b6c323ae4435f5135b58754dfdd
         with:
           tool: just
@@ -219,6 +204,8 @@ jobs:
     runs-on: warp-ubuntu-2204-x64-8x
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: taiki-e/install-action@7852930e42e73b6c323ae4435f5135b58754dfdd
         with:
           tool: just
@@ -228,6 +215,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: taiki-e/install-action@7852930e42e73b6c323ae4435f5135b58754dfdd
         with:
           tool: just
@@ -239,6 +228,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: taiki-e/install-action@7852930e42e73b6c323ae4435f5135b58754dfdd
         with:
           tool: just,cargo-deny
@@ -249,6 +240,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: taiki-e/install-action@7852930e42e73b6c323ae4435f5135b58754dfdd
         with:
           tool: just
@@ -259,6 +252,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: taiki-e/install-action@7852930e42e73b6c323ae4435f5135b58754dfdd
         with:
           tool: just,cargo-machete
@@ -269,6 +264,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: taiki-e/install-action@7852930e42e73b6c323ae4435f5135b58754dfdd
         with:
           tool: just
@@ -279,6 +276,8 @@ jobs:
     runs-on: warp-ubuntu-2204-x64-8x
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: taiki-e/install-action@7852930e42e73b6c323ae4435f5135b58754dfdd
         with:
           tool: just,cargo-udeps
@@ -289,6 +288,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: taiki-e/install-action@7852930e42e73b6c323ae4435f5135b58754dfdd
         with:
           tool: cargo-audit
@@ -309,6 +310,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 1000 # have enough history to find the merge-base between PR and master
+          persist-credentials: false
       - uses: actions/download-artifact@v4
         with:
           pattern: coverage-profraw-*
@@ -350,41 +352,42 @@ jobs:
     runs-on: ubuntu-latest
     needs:
       - cargo_nextest
-      - pytest_tests
       - pytest_nightly_tests
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: actions/download-artifact@v4
         with:
           pattern: coverage-codecov-*
           merge-multiple: true
       # Keep the number of uploads here in sync with codecov.yml’s after_n_build value
       # codecov will send a comment only after having received this number of uploads.
-      - uses: codecov/codecov-action@eaaf4bedf32dbdc6b720b63067d99c4d77d6047d
+      - uses: codecov/codecov-action@5a1091511ad55cbe89839c7260b706298ca349f7
         with:
           files: unit-linux.json
-          fail_ci_if_error: true
+          fail_ci_if_error: false
           flags: unittests
-      - uses: codecov/codecov-action@eaaf4bedf32dbdc6b720b63067d99c4d77d6047d
+      - uses: codecov/codecov-action@5a1091511ad55cbe89839c7260b706298ca349f7
         with:
           files: unit-linux-nightly.json
-          fail_ci_if_error: true
+          fail_ci_if_error: false
           flags: unittests-nightly
       # TODO(#13341): Remove separate spice test checks once spice tests can run as part of nightly or stable tests.
-      - uses: codecov/codecov-action@eaaf4bedf32dbdc6b720b63067d99c4d77d6047d
+      - uses: codecov/codecov-action@5a1091511ad55cbe89839c7260b706298ca349f7
         with:
           files: unit-linux-spice.json
-          fail_ci_if_error: true
+          fail_ci_if_error: false
           flags: unittests-spice
-      - uses: codecov/codecov-action@eaaf4bedf32dbdc6b720b63067d99c4d77d6047d
+      - uses: codecov/codecov-action@5a1091511ad55cbe89839c7260b706298ca349f7
         with:
           files: py.json
-          fail_ci_if_error: true
+          fail_ci_if_error: false
           flags: pytests
-      - uses: codecov/codecov-action@eaaf4bedf32dbdc6b720b63067d99c4d77d6047d
+      - uses: codecov/codecov-action@5a1091511ad55cbe89839c7260b706298ca349f7
         with:
           files: py-nightly.json
-          fail_ci_if_error: true
+          fail_ci_if_error: false
           flags: pytests-nightly
 
   publishable_packages_check:
@@ -404,6 +407,8 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: taiki-e/install-action@7852930e42e73b6c323ae4435f5135b58754dfdd
         with:
           tool: just
@@ -415,6 +420,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: taiki-e/install-action@7852930e42e73b6c323ae4435f5135b58754dfdd
         with:
           tool: just

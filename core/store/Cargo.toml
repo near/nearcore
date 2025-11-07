@@ -16,6 +16,7 @@ anyhow.workspace = true
 borsh.workspace = true
 bytesize.workspace = true
 crossbeam.workspace = true
+ahash.workspace = true
 dashmap = { workspace = true, features = ["raw-api"] }
 derive_more = { workspace = true, features = ["as_ref", "into"] }
 derive-where.workspace = true
@@ -52,6 +53,7 @@ near-async.workspace = true
 near-chain-configs = { workspace = true, features = ["metrics"] }
 near-chain-primitives.workspace = true
 near-crypto.workspace = true
+near-external-storage.workspace = true
 near-fmt.workspace = true
 near-o11y.workspace = true
 near-parameters.workspace = true

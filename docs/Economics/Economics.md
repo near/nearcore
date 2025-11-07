@@ -17,7 +17,7 @@
 | - | - |
 | `INITIAL_SUPPLY` | `10**33` yoctoNEAR |
 | `MIN_GAS_PRICE` | `10**5` yoctoNEAR |
-| `REWARD_PCT_PER_YEAR` | `0.05` |
+| `REWARD_PCT_PER_YEAR` | `0.025` |
 | `EPOCH_LENGTH` | `43,200` blocks |
 | `EPOCHS_A_YEAR` | `730` epochs |
 | `INITIAL_MAX_STORAGE` | `10 * 2**40` bytes == `10` TB |
@@ -29,8 +29,9 @@
 | `TOTAL_SEATS` | `100` |
 | `ONLINE_THRESHOLD_MIN` | `0.9` |
 | `ONLINE_THRESHOLD_MAX` | `0.99` |
-| `BLOCK_PRODUCER_KICKOUT_THRESHOLD` | `0.9` |
-| `CHUNK_PRODUCER_KICKOUT_THRESHOLD` | `0.6` |
+| `BLOCK_PRODUCER_KICKOUT_THRESHOLD` | `0.8` |
+| `CHUNK_PRODUCER_KICKOUT_THRESHOLD` | `0.8` |
+| `CHUNK_VALIDATOR_KICKOUT_THRESHOLD` | `0.7` |
 
 ## General Variables
 
@@ -139,7 +140,7 @@ Total reward every epoch `t` is equal to:
 total_reward[t] = floor(totalSupply * max_inflation_rate * epoch_length)
 ```
 
-where `max_inflation_rate` is the genesis parameter while `totalSupply` and `epoch_length` are
+where `max_inflation_rate` is taken from the epoch config while `totalSupply` and `epoch_length` are
 taken from the last block in the epoch.
 
 After that a fraction of the reward goes to the treasury and the remaining amount will be used for computing validator rewards:

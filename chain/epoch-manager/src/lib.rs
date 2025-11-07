@@ -36,7 +36,6 @@ use num_rational::BigRational;
 use parking_lot::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 use primitive_types::U256;
 use reward_calculator::ValidatorOnlineThresholds;
-use shard_assignment::build_assignment_restrictions_v77_to_v78;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::Path;
 use std::sync::Arc;
@@ -615,7 +614,8 @@ impl EpochManager {
         })
     }
 
-    /// Finalizes epoch (T), where given last block hash is given, and returns next next epoch id (T + 2).
+    /// Finalize epoch (T), where given last block hash is given
+    /// Store ID and `EpochInfo` for epoch (T + 2).
     fn finalize_epoch(
         &self,
         store_update: &mut StoreUpdate,
@@ -674,24 +674,31 @@ impl EpochManager {
                 epoch_protocol_version,
                 epoch_duration,
                 online_thresholds,
+                epoch_config.max_inflation_rate,
             )
         };
         let next_next_epoch_config = self.config.for_protocol_version(next_next_epoch_version);
-        let next_epoch_version = next_epoch_info.protocol_version();
-        let next_shard_layout = self.config.for_protocol_version(next_epoch_version).shard_layout;
-        let has_same_shard_layout = next_shard_layout == next_next_epoch_config.shard_layout;
+        let next_shard_layout = match next_epoch_info.shard_layout() {
+            // With dynamic resharding enabled, shard layout is stored in EpochInfo
+            Some(layout) => layout.clone(),
+            // Otherwise, fall back to the layout defined in config (this is needed both for
+            // compatibility and bootstrapping)
+            None => {
+                let next_protocol_version = next_epoch_info.protocol_version();
+                self.config.for_protocol_version(next_protocol_version).shard_layout
+            }
+        };
 
-        let next_epoch_v6 = ProtocolFeature::SimpleNightshadeV6.enabled(next_epoch_version);
-        let next_next_epoch_v6 =
-            ProtocolFeature::SimpleNightshadeV6.enabled(next_next_epoch_version);
-        let chunk_producer_assignment_restrictions =
-            (!next_epoch_v6 && next_next_epoch_v6).then(|| {
-                build_assignment_restrictions_v77_to_v78(
-                    &next_epoch_info,
-                    &next_shard_layout,
-                    next_next_epoch_config.shard_layout.clone(),
-                )
-            });
+        let next_next_shard_layout =
+            if ProtocolFeature::DynamicResharding.enabled(next_next_epoch_version) {
+                // TODO(dynamic resharding): adjust layout if a shard was marked for splitting
+                next_shard_layout.clone()
+            } else {
+                next_next_epoch_config.shard_layout.clone()
+            };
+
+        let has_same_shard_layout = next_next_shard_layout == next_shard_layout;
+
         let next_next_epoch_info = match proposals_to_epoch_info(
             &next_next_epoch_config,
             rng_seed,
@@ -701,8 +708,8 @@ impl EpochManager {
             validator_reward,
             minted_amount,
             next_next_epoch_version,
+            next_next_shard_layout,
             has_same_shard_layout,
-            chunk_producer_assignment_restrictions,
         ) {
             Ok(next_next_epoch_info) => next_next_epoch_info,
             Err(EpochError::ThresholdError { stake_sum, num_seats }) => {
@@ -1273,8 +1280,8 @@ impl EpochManager {
         Ok(EpochValidatorInfo {
             current_validators,
             next_validators,
-            current_fishermen: cur_epoch_info.fishermen_iter().map(Into::into).collect(),
-            next_fishermen: next_epoch_info.fishermen_iter().map(Into::into).collect(),
+            current_fishermen: vec![],
+            next_fishermen: vec![],
             current_proposals: all_proposals,
             prev_epoch_kickout,
             epoch_start_height,

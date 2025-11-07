@@ -83,11 +83,8 @@ impl NetworkState {
         );
         self.add_edges(&clock, vec![edge.clone()]).await?;
         #[cfg(feature = "distance_vector_routing")]
-        self.update_routes(
-            &clock,
-            NetworkTopologyChange::PeerConnected(peer_id.clone(), edge.clone()),
-        )
-        .await?;
+        self.update_routes(NetworkTopologyChange::PeerConnected(peer_id.clone(), edge.clone()))
+            .await?;
 
         Ok(edge)
     }
@@ -107,7 +104,7 @@ impl NetworkState {
         let clock = clock.clone();
         self.add_edges_demux
             .call(edges, |edges: Vec<Vec<Edge>>| async move {
-                let (mut edges, oks) = this.graph.update(&clock, edges).await;
+                let (mut edges, oks) = this.graph.update(edges).await;
                 // Don't send tombstones during the initial time.
                 // Most of the network is created during this time, which results
                 // in us sending a lot of tombstones to peers.
@@ -227,15 +224,12 @@ impl NetworkState {
     #[cfg(feature = "distance_vector_routing")]
     pub async fn update_routes(
         self: &Arc<Self>,
-        clock: &time::Clock,
         event: NetworkTopologyChange,
     ) -> Result<(), ReasonForBan> {
         let this = self.clone();
-        let clock = clock.clone();
         self.update_routes_demux
             .call(event, |events: Vec<NetworkTopologyChange>| async move {
-                let (to_broadcast, oks) =
-                    this.graph_v2.batch_process_network_changes(&clock, events).await;
+                let (to_broadcast, oks) = this.graph_v2.batch_process_network_changes(events).await;
 
                 if let Some(my_distance_vector) = to_broadcast {
                     this.broadcast_distance_vector(my_distance_vector);

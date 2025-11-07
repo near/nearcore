@@ -3,7 +3,6 @@ use near_async::test_loop::TestLoopV2;
 use near_async::time::Duration;
 use near_chain::ChainGenesis;
 use near_chain::chain::ApplyChunksIterationMode;
-use near_chain::spice_core::CoreStatementsProcessor;
 use near_chain_configs::test_genesis::TestGenesisBuilder;
 use near_chain_configs::test_utils::TestClientConfigParams;
 use near_chain_configs::{ClientConfig, MutableConfigValue, TrackedShardsConfig};
@@ -44,9 +43,7 @@ fn test_raw_client_test_loop_setup() {
         min_block_prod_time: MIN_BLOCK_PROD_TIME.whole_milliseconds() as u64,
         max_block_prod_time: MAX_BLOCK_PROD_TIME.whole_milliseconds() as u64,
         num_block_producer_seats: 4,
-        enable_split_store: false,
-        enable_cloud_archival_writer: false,
-        save_trie_changes: true,
+        archive: false,
         state_sync_enabled: false,
     });
 
@@ -113,7 +110,6 @@ fn test_raw_client_test_loop_setup() {
         client_adapter.as_multi_sender(),
         noop().into_multi_sender(),
         protocol_upgrade_schedule,
-        CoreStatementsProcessor::new_with_noop_senders(store.chain_store(), epoch_manager.clone()),
     )
     .unwrap();
 
@@ -143,6 +139,7 @@ fn test_raw_client_test_loop_setup() {
         Default::default(),
         None,
         sync_jobs_adapter.as_multi_sender(),
+        noop().into_sender(),
         noop().into_sender(),
         noop().into_sender(),
         noop().into_sender(),

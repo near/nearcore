@@ -2,6 +2,7 @@ use crate::account::{AccessKey, Account};
 use crate::errors::EpochError;
 use crate::hash::CryptoHash;
 use crate::shard_layout::ShardLayout;
+use crate::stateless_validation::spice_chunk_endorsement::SpiceStoredVerifiedEndorsement;
 use crate::trie_key::TrieKey;
 use borsh::{BorshDeserialize, BorshSerialize};
 pub use chunk_validator_stats::ChunkStats;
@@ -1294,8 +1295,7 @@ pub struct ChunkExecutionResult {
     pub outgoing_receipts_root: CryptoHash,
 }
 
-/// Execution results for all chunks in the block.
-/// For genesis inner hashmap is always empty.
+/// Execution results for all shards in the block.
 pub struct BlockExecutionResults(pub HashMap<ShardId, Arc<ChunkExecutionResult>>);
 
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq, Hash)]
@@ -1308,10 +1308,11 @@ impl ChunkExecutionResult {
     }
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq)]
 pub struct SpiceUncertifiedChunkInfo {
     pub chunk_id: SpiceChunkId,
     pub missing_endorsements: Vec<AccountId>,
+    pub present_endorsements: Vec<(AccountId, SpiceStoredVerifiedEndorsement)>,
 }
 
 #[cfg(test)]

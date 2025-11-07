@@ -7,21 +7,20 @@ mod task_tracker;
 mod util;
 
 use crate::metrics;
-use crate::sync::external::{ExternalConnection, create_bucket_readonly};
+use crate::sync::external::StateSyncConnection;
 use chain_requests::ChainSenderForStateSync;
 use downloader::StateSyncDownloader;
 use external::StateSyncDownloadSourceExternal;
 use futures::future::BoxFuture;
 use near_async::futures::{FutureSpawner, FutureSpawnerExt};
-use near_async::messaging::{AsyncSender, IntoSender};
+use near_async::messaging::{AsyncSender, IntoAsyncSender};
 use near_async::time::{Clock, Duration};
 use near_chain::Chain;
 use near_chain::types::RuntimeAdapter;
-use near_chain_configs::{
-    ExternalStorageConfig, ExternalStorageLocation, StateSyncConfig, SyncConcurrency, SyncConfig,
-};
+use near_chain_configs::{ExternalStorageConfig, StateSyncConfig, SyncConcurrency, SyncConfig};
 use near_client_primitives::types::{ShardSyncStatus, StateSyncStatus};
 use near_epoch_manager::EpochManagerAdapter;
+use near_external_storage::S3AccessConfig;
 use near_network::client::StateResponse;
 use near_network::types::{PeerManagerMessageRequest, PeerManagerMessageResponse};
 use near_primitives::hash::CryptoHash;
@@ -71,6 +70,13 @@ pub struct StateSync {
 
     /// Concurrency limits.
     concurrency_config: SyncConcurrency,
+
+    /// A minimum delay between attempts for the same state header/part.
+    /// Specifically important in the scenario that a node is configured
+    /// to sync only from external storage (no p2p requests). Usually a
+    /// failure there indicates the file is yet to be uploaded, in which
+    /// case we want to avoid spamming requests aggressively.
+    min_delay_before_reattempt: Duration,
 }
 
 impl StateSync {
@@ -111,32 +117,11 @@ impl StateSync {
                 external_storage_fallback_threshold,
             }) = &sync_config.sync
             {
-                let external = match location {
-                    ExternalStorageLocation::S3 { bucket, region, .. } => {
-                        let bucket = create_bucket_readonly(
-                            &bucket,
-                            &region,
-                            external_timeout.max(Duration::ZERO).unsigned_abs(),
-                        );
-                        if let Err(err) = bucket {
-                            panic!("Failed to create an S3 bucket: {}", err);
-                        }
-                        ExternalConnection::S3 { bucket: Arc::new(bucket.unwrap()) }
-                    }
-                    ExternalStorageLocation::Filesystem { root_dir } => {
-                        ExternalConnection::Filesystem { root_dir: root_dir.clone() }
-                    }
-                    ExternalStorageLocation::GCS { bucket, .. } => ExternalConnection::GCS {
-                        gcs_client: Arc::new(
-                            object_store::gcp::GoogleCloudStorageBuilder::from_env()
-                                .with_bucket_name(bucket)
-                                .build()
-                                .unwrap(),
-                        ),
-                        reqwest_client: Arc::new(reqwest::Client::default()),
-                        bucket: bucket.clone(),
-                    },
+                let s3_access_config = S3AccessConfig {
+                    timeout: external_timeout.max(Duration::ZERO).unsigned_abs(),
+                    is_readonly: true,
                 };
+                let external = StateSyncConnection::new(location, None, s3_access_config);
                 let num_concurrent_requests = if catchup {
                     *num_concurrent_requests_during_catchup
                 } else {
@@ -149,7 +134,6 @@ impl StateSync {
                     chain_id: chain_id.to_string(),
                     conn: external,
                     timeout: external_timeout,
-                    backoff: external_backoff,
                 }) as Arc<dyn StateSyncDownloadSource>;
                 (
                     Some(fallback_source),
@@ -167,7 +151,7 @@ impl StateSync {
             preferred_source: peer_source,
             fallback_source,
             num_attempts_before_fallback,
-            header_validation_sender: chain_requests_sender.clone().into_sender(),
+            header_validation_sender: chain_requests_sender.clone().into_async_sender(),
             runtime: runtime.clone(),
             retry_backoff,
             task_tracker: downloading_task_tracker.clone(),
@@ -179,6 +163,14 @@ impl StateSync {
             sync_config.concurrency.apply
         };
         let computation_task_tracker = TaskTracker::new(usize::from(num_concurrent_computations));
+
+        let min_delay_before_reattempt = if num_attempts_before_fallback > 0 {
+            // No need to wait if p2p attempts are enabled
+            Duration::ZERO
+        } else {
+            // Avoid aggressively checking the external storage for requests which just failed
+            external_backoff
+        };
 
         Self {
             store,
@@ -192,6 +184,7 @@ impl StateSync {
             chain_requests_sender,
             shard_syncs: HashMap::new(),
             concurrency_config: sync_config.concurrency,
+            min_delay_before_reattempt,
         }
     }
 
@@ -255,10 +248,11 @@ impl StateSync {
                         self.epoch_manager.clone(),
                         self.computation_task_tracker.clone(),
                         status.clone(),
-                        self.chain_requests_sender.clone().into_sender(),
+                        self.chain_requests_sender.clone().into_async_sender(),
                         cancel.clone(),
                         self.future_spawner.clone(),
                         self.concurrency_config.per_shard,
+                        self.min_delay_before_reattempt,
                     );
                     let (sender, receiver) = oneshot::channel();
 

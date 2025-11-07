@@ -3,14 +3,13 @@ use crate::broadcast;
 use crate::config::{NetworkConfig, SocketOptions};
 use crate::network_protocol::T2MessageBody;
 use crate::network_protocol::testonly as data;
-use crate::network_protocol::{Encoding, Ping, Pong, RoutingTableUpdate};
+use crate::network_protocol::{Ping, Pong, RoutingTableUpdate};
 use crate::peer;
 use crate::peer::peer_actor::{
     ClosingReason, ConnectionClosedEvent, DROP_DUPLICATED_MESSAGES_PERIOD,
 };
 use crate::peer_manager;
-use crate::peer_manager::peer_manager_actor::Event as PME;
-use crate::peer_manager::testonly::Event;
+use crate::peer_manager::peer_manager_actor::Event;
 use crate::peer_manager::testonly::start as start_pm;
 use crate::private_messages::RegisterPeerError;
 use crate::tcp;
@@ -286,7 +285,7 @@ async fn simple_remove() {
 pub async fn wait_for_ping(events: &mut broadcast::Receiver<Event>, want_ping: Ping) {
     events
         .recv_until(|ev| match ev {
-            Event::PeerManager(PME::Ping(ping)) => {
+            Event::Ping(ping) => {
                 if ping == want_ping {
                     Some(())
                 } else {
@@ -302,7 +301,7 @@ pub async fn wait_for_ping(events: &mut broadcast::Receiver<Event>, want_ping: P
 pub async fn wait_for_pong(events: &mut broadcast::Receiver<Event>, want_pong: Pong) {
     events
         .recv_until(|ev| match ev {
-            Event::PeerManager(PME::Pong(pong)) => {
+            Event::Pong(pong) => {
                 if pong == want_pong {
                     Some(())
                 } else {
@@ -318,7 +317,7 @@ pub async fn wait_for_pong(events: &mut broadcast::Receiver<Event>, want_pong: P
 pub async fn wait_for_message_dropped(events: &mut broadcast::Receiver<Event>) {
     events
         .recv_until(|ev| match ev {
-            Event::PeerManager(PME::RoutedMessageDropped) => Some(()),
+            Event::RoutedMessageDropped => Some(()),
             _ => None,
         })
         .await;
@@ -614,15 +613,8 @@ pub(crate) async fn wait_for_connection_closed(
 ) {
     events
         .recv_until(|ev| match ev {
-            Event::PeerManager(PME::ConnectionClosed(ConnectionClosedEvent {
-                stream_id: _,
-                reason,
-            })) => {
-                if reason == want_reason {
-                    Some(())
-                } else {
-                    None
-                }
+            Event::ConnectionClosed(ConnectionClosedEvent { stream_id: _, reason }) => {
+                if reason == want_reason { Some(()) } else { None }
             }
             _ => None,
         })
@@ -899,11 +891,7 @@ async fn ttl_and_num_hops() {
         chain.clone(),
     )
     .await;
-    let cfg = peer::testonly::PeerConfig {
-        network: chain.make_config(rng),
-        chain,
-        force_encoding: Some(Encoding::Proto),
-    };
+    let cfg = peer::testonly::PeerConfig { network: chain.make_config(rng), chain };
     let stream = tcp::Stream::connect(&pm.peer_info(), tcp::Tier::T2, &SocketOptions::default())
         .await
         .unwrap();
@@ -920,7 +908,7 @@ async fn ttl_and_num_hops() {
         if ttl < 2 {
             pm.events
                 .recv_until(|ev| match ev {
-                    Event::PeerManager(PME::RoutedMessageDropped) => Some(()),
+                    Event::RoutedMessageDropped => Some(()),
                     _ => None,
                 })
                 .await;
@@ -928,10 +916,7 @@ async fn ttl_and_num_hops() {
             let got = peer
                 .events
                 .recv_until(|ev| match ev {
-                    peer::testonly::Event::Network(PME::MessageProcessed(
-                        tcp::Tier::T2,
-                        PeerMessage::Routed(msg),
-                    )) => Some(msg),
+                    Event::MessageProcessed(tcp::Tier::T2, PeerMessage::Routed(msg)) => Some(msg),
                     _ => None,
                 })
                 .await;
@@ -958,11 +943,7 @@ async fn repeated_data_in_sync_routing_table() {
         chain.clone(),
     )
     .await;
-    let cfg = peer::testonly::PeerConfig {
-        network: chain.make_config(rng),
-        chain,
-        force_encoding: Some(Encoding::Proto),
-    };
+    let cfg = peer::testonly::PeerConfig { network: chain.make_config(rng), chain };
     let stream = tcp::Stream::connect(&pm.peer_info(), tcp::Tier::T2, &SocketOptions::default())
         .await
         .unwrap();
@@ -984,10 +965,7 @@ async fn repeated_data_in_sync_routing_table() {
         // SyncRoutingTable.
         while edges_got != edges_want {
             match peer.events.recv().await {
-                peer::testonly::Event::Network(PME::MessageProcessed(
-                    tcp::Tier::T2,
-                    PeerMessage::SyncRoutingTable(got),
-                )) => {
+                Event::MessageProcessed(tcp::Tier::T2, PeerMessage::SyncRoutingTable(got)) => {
                     for e in got.edges {
                         // TODO(gprusak): Currently there is a race condition between
                         // initial full sync and broadcasting the new connection edge,
@@ -1109,7 +1087,7 @@ async fn fix_local_edges() {
     conn.send(msg.clone()).await;
     events
         .recv_until(|ev| match ev {
-            Event::PeerManager(PME::MessageProcessed(tcp::Tier::T2, got)) if got == msg => Some(()),
+            Event::MessageProcessed(tcp::Tier::T2, got) if got == msg => Some(()),
             _ => None,
         })
         .await;
@@ -1121,7 +1099,7 @@ async fn fix_local_edges() {
     // that we don't have to wait for it explicitly here.
     events
         .recv_until(|ev| match ev {
-            Event::PeerManager(PME::ConnectionClosed { .. }) => Some(()),
+            Event::ConnectionClosed { .. } => Some(()),
             _ => None,
         })
         .await;
@@ -1220,9 +1198,7 @@ async fn wait_for_stream_closed(
 ) -> ClosingReason {
     events
         .recv_until(|ev| match ev {
-            Event::PeerManager(PME::ConnectionClosed(ev)) if ev.stream_id == stream_id => {
-                Some(ev.reason)
-            }
+            Event::ConnectionClosed(ev) if ev.stream_id == stream_id => Some(ev.reason),
             _ => None,
         })
         .await
@@ -1279,7 +1255,7 @@ async fn connect_to_unbanned_peer() {
 async fn wait_for_distance_vector(events: &mut broadcast::Receiver<Event>, peer_id: PeerId) {
     events
         .recv_until(|ev| match ev {
-            Event::PeerManager(PME::MessageProcessed(_, msg)) => match msg {
+            Event::MessageProcessed(_, msg) => match msg {
                 PeerMessage::DistanceVector(dv) if dv.root == peer_id => Some(()),
                 _ => None,
             },

@@ -24,6 +24,7 @@ use near_primitives::version::PROTOCOL_VERSION;
 use near_store::Store;
 use near_store::test_utils::create_test_store;
 use num_rational::Ratio;
+use num_rational::Rational32;
 use std::collections::{BTreeMap, HashMap};
 
 pub const DEFAULT_TOTAL_SUPPLY: Balance = Balance::from_yoctonear(1_000_000_000_000);
@@ -49,6 +50,7 @@ pub fn epoch_info(
     block_producers_settlement: Vec<ValidatorId>,
     chunk_producers_settlement: Vec<Vec<ValidatorId>>,
     protocol_version: ProtocolVersion,
+    shard_layout: ShardLayout,
 ) -> EpochInfo {
     let num_seats = block_producers_settlement.len() as u64;
     epoch_info_with_num_seats(
@@ -62,6 +64,7 @@ pub fn epoch_info(
         Balance::ZERO,
         num_seats,
         protocol_version,
+        shard_layout,
     )
 }
 
@@ -76,6 +79,7 @@ pub fn epoch_info_with_num_seats(
     minted_amount: Balance,
     num_seats: NumSeats,
     protocol_version: ProtocolVersion,
+    shard_layout: ShardLayout,
 ) -> EpochInfo {
     let seat_price =
         find_threshold(&accounts.iter().map(|(_, s)| *s).collect::<Vec<_>>(), num_seats).unwrap();
@@ -121,6 +125,7 @@ pub fn epoch_info_with_num_seats(
         protocol_version,
         TEST_SEED,
         validator_mandates,
+        shard_layout,
     )
 }
 
@@ -132,6 +137,7 @@ pub fn epoch_config(
     block_producer_kickout_threshold: u8,
     chunk_producer_kickout_threshold: u8,
     chunk_validator_only_kickout_threshold: u8,
+    max_inflation_rate: Rational32,
 ) -> AllEpochConfig {
     let epoch_config = EpochConfig {
         epoch_length,
@@ -159,6 +165,7 @@ pub fn epoch_config(
         shuffle_shard_assignment_for_chunk_producers: false,
         shard_layout: ShardLayout::multi_shard(num_shards, 0),
         validator_max_kickout_stake_perc: 100,
+        max_inflation_rate,
     };
     let config_store = EpochConfigStore::test_single_version(PROTOCOL_VERSION, epoch_config);
     AllEpochConfig::from_epoch_config_store(
@@ -177,7 +184,6 @@ pub fn stake(account_id: AccountId, amount: Balance) -> ValidatorStake {
 /// No-op reward calculator. Will produce no reward
 pub fn default_reward_calculator() -> RewardCalculator {
     RewardCalculator {
-        max_inflation_rate: Ratio::from_integer(0),
         num_blocks_per_year: 1,
         epoch_length: 1,
         protocol_reward_rate: Ratio::from_integer(0),
@@ -200,6 +206,7 @@ pub fn setup_epoch_manager(
     chunk_producer_kickout_threshold: u8,
     chunk_validator_only_kickout_threshold: u8,
     reward_calculator: RewardCalculator,
+    max_inflation_rate: Rational32,
 ) -> EpochManager {
     let store = create_test_store();
     let config = epoch_config(
@@ -210,6 +217,7 @@ pub fn setup_epoch_manager(
         block_producer_kickout_threshold,
         chunk_producer_kickout_threshold,
         chunk_validator_only_kickout_threshold,
+        max_inflation_rate,
     );
     EpochManager::new(
         store,
@@ -240,6 +248,7 @@ pub fn setup_default_epoch_manager(
         chunk_producer_kickout_threshold,
         0,
         default_reward_calculator(),
+        Ratio::new(0, 1),
     )
 }
 
@@ -279,7 +288,8 @@ pub fn setup_epoch_manager_with_block_and_chunk_producers(
         validators.push((chunk_only_producer.clone(), stake));
         total_stake = total_stake.checked_add(stake).unwrap();
     }
-    let config = epoch_config(epoch_length, num_shards, num_block_producers, 100, 0, 0, 0);
+    let config =
+        epoch_config(epoch_length, num_shards, num_block_producers, 100, 0, 0, 0, Ratio::new(0, 1));
     let epoch_manager = EpochManager::new(
         store,
         config,

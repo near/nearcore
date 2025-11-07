@@ -264,7 +264,8 @@ pub enum ProtocolFeature {
     #[deprecated]
     _DeprecatedSimpleNightshadeV5,
     /// Resharding V3 - Adding "650" boundary.
-    SimpleNightshadeV6,
+    #[deprecated]
+    _DeprecatedSimpleNightshadeV6,
     /// Exclude contract code from the chunk state witness and distribute it to chunk validators separately.
     #[deprecated]
     _DeprecatedExcludeContractCodeFromStateWitness,
@@ -298,19 +299,24 @@ pub enum ProtocolFeature {
     /// Instead of sending code in the witness, the code checks the code-size using the internal trie nodes.
     ExcludeExistingCodeFromWitnessForCodeLen,
     /// Use the block height instead of the block hash to calculate the receipt ID.
-    BlockHeightForReceiptId,
+    #[deprecated]
+    _DeprecatedBlockHeightForReceiptId,
     /// Enable optimistic block production.
-    ProduceOptimisticBlock,
-    GlobalContracts,
+    #[deprecated]
+    _DeprecatedProduceOptimisticBlock,
+    #[deprecated]
+    _DeprecatedGlobalContracts,
     /// NEP: https://github.com/near/NEPs/pull/536
     ///
     /// Reduce the number of gas refund receipts by charging the current gas
     /// price rather than a pessimistic gas price. Also, introduce a new fee of
     /// 5% for gas refunds and charge the signer this fee for gas refund
     /// receipts.
-    ReducedGasRefunds,
+    #[deprecated]
+    _DeprecatedReducedGasRefunds,
     /// Move from ChunkStateWitness being a single struct to a versioned enum.
-    VersionedStateWitness,
+    #[deprecated]
+    _DeprecatedVersionedStateWitness,
     /// Increase max_congestion_missed_chunks from 5 to 125.
     /// At 125 missing chunks shard will be fully congested.
     /// At 100 missing chunks shard will be 80% congested, and transactions
@@ -328,6 +334,7 @@ pub enum ProtocolFeature {
     /// NEP: https://github.com/near/NEPs/pull/616
     DeterministicAccountIds,
     InvalidTxGenerateOutcomes,
+    DynamicResharding,
 }
 
 impl ProtocolFeature {
@@ -416,17 +423,18 @@ impl ProtocolFeature {
             | ProtocolFeature::_DeprecatedCurrentEpochStateSync => 74,
             ProtocolFeature::_DeprecatedSimpleNightshadeV4 => 75,
             ProtocolFeature::_DeprecatedSimpleNightshadeV5 => 76,
-            ProtocolFeature::GlobalContracts
-            | ProtocolFeature::BlockHeightForReceiptId
-            | ProtocolFeature::ProduceOptimisticBlock => 77,
-            ProtocolFeature::SimpleNightshadeV6
-            | ProtocolFeature::VersionedStateWitness
+            ProtocolFeature::_DeprecatedGlobalContracts
+            | ProtocolFeature::_DeprecatedBlockHeightForReceiptId
+            | ProtocolFeature::_DeprecatedProduceOptimisticBlock => 77,
+            ProtocolFeature::_DeprecatedSimpleNightshadeV6
+            | ProtocolFeature::_DeprecatedVersionedStateWitness
             | ProtocolFeature::ChunkPartChecks
             | ProtocolFeature::SaturatingFloatToInt
-            | ProtocolFeature::ReducedGasRefunds => 78,
+            | ProtocolFeature::_DeprecatedReducedGasRefunds => 78,
             ProtocolFeature::IncreaseMaxCongestionMissedChunks => 79,
-            ProtocolFeature::StatePartsCompression => 81,
-            ProtocolFeature::Wasmtime => 82,
+            ProtocolFeature::StatePartsCompression | ProtocolFeature::DeterministicAccountIds => 82,
+            ProtocolFeature::Wasmtime => 83,
+            ProtocolFeature::InvalidTxGenerateOutcomes => 84,
 
             // Nightly features:
             ProtocolFeature::FixContractLoadingCost => 129,
@@ -434,9 +442,8 @@ impl ProtocolFeature {
             // that always enables this for mocknet (see config_mocknet function).
             ProtocolFeature::ShuffleShardAssignments => 143,
             ProtocolFeature::ExcludeExistingCodeFromWitnessForCodeLen => 148,
-            ProtocolFeature::DeterministicAccountIds => 150,
-            ProtocolFeature::InvalidTxGenerateOutcomes => 151,
             // Place features that are not yet in Nightly below this line.
+            ProtocolFeature::DynamicResharding => 152,
         }
     }
 
@@ -449,13 +456,13 @@ impl ProtocolFeature {
 pub const PROD_GENESIS_PROTOCOL_VERSION: ProtocolVersion = 29;
 
 /// Minimum supported protocol version for the current binary
-pub const MIN_SUPPORTED_PROTOCOL_VERSION: ProtocolVersion = 77;
+pub const MIN_SUPPORTED_PROTOCOL_VERSION: ProtocolVersion = 80;
 
 /// Current protocol version used on the mainnet with all stable features.
-const STABLE_PROTOCOL_VERSION: ProtocolVersion = 82;
+const STABLE_PROTOCOL_VERSION: ProtocolVersion = 84;
 
 // On nightly, pick big enough version to support all features.
-const NIGHTLY_PROTOCOL_VERSION: ProtocolVersion = 151;
+const NIGHTLY_PROTOCOL_VERSION: ProtocolVersion = 149;
 
 /// Largest protocol version supported by the current binary.
 pub const PROTOCOL_VERSION: ProtocolVersion =

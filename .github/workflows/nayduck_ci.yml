@@ -10,6 +10,9 @@ on:
         type: string
         required: true
 
+env:
+  CI_HACKS: 1
+
 jobs:
   nayduck_tests:
     name: "Run Nayduck CI tests"
@@ -26,12 +29,15 @@ jobs:
       - name: Checkout nearcore repository
         if: github.event_name != 'workflow_dispatch'
         uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - name: Checkout nearcore repository for workflow dispatch
         if: github.event_name == 'workflow_dispatch'
         uses: actions/checkout@v4
         with:
           ref: ${{github.event.inputs.neard-branch}}
+          persist-credentials: false
 
       - name: Install required python modules
         run: |
@@ -74,4 +80,32 @@ jobs:
       - name: Cleanup Nayduck tests on cancel
         if: cancelled()
         run: |
-          python3 ./scripts/nayduck.py -c ${{ steps.nayduck_run.outputs.nayduck_run_id }}
+          python3 ./scripts/nayduck.py -c ${STEPS_NAYDUCK_RUN_OUTPUTS_NAYDUCK_RUN_ID}
+        env:
+          STEPS_NAYDUCK_RUN_OUTPUTS_NAYDUCK_RUN_ID: ${{ steps.nayduck_run.outputs.nayduck_run_id }}
+
+  pytest_tests:
+    name: "Large pytest Tests"
+    runs-on: warp-ubuntu-2204-x64-8x
+    if: github.event_name == 'merge_group' || github.event_name == 'workflow_dispatch'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: WarpBuilds/setup-python@v5
+        with:
+          python-version: 3.11
+          cache: pip
+      - uses: taiki-e/install-action@7852930e42e73b6c323ae4435f5135b58754dfdd
+        with:
+          tool: cargo-llvm-cov
+      - run: pip3 install --user -r pytest/requirements.txt
+      - run: cargo llvm-cov show-env | grep -v RUSTFLAGS | tr -d "'" >> "$GITHUB_ENV"
+      - run: echo "RUSTC_WORKSPACE_WRAPPER=$PWD/scripts/coverage-wrapper-rustc" >> "$GITHUB_ENV"
+      - run: echo "CARGO=1" >> "$GITHUB_ENV"
+      - run: cargo build --locked --profile dev-release -p neard --bin neard
+      - run: echo "CURRENT_NEARD=$PWD/target/dev-release/neard" >> "$GITHUB_ENV"
+      - run: echo "NEAR_ROOT=$PWD" >> "$GITHUB_ENV"
+      - run: pushd pytest && python3 tests/sanity/upgradable.py && popd
+      - run: pushd pytest && python3 tests/sanity/db_migration.py && popd
+      - run: pushd pytest && python3 tests/sanity/backward_compatible.py && popd

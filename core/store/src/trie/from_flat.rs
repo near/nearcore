@@ -33,7 +33,6 @@ pub fn construct_trie_from_flat(store: Store, write_store: Store, shard_uid: Sha
     let tries = ShardTries::new(
         write_store.trie_store(),
         TrieConfig::default(),
-        &[shard_uid],
         FlatStorageManager::new(write_store.flat_store()),
         StateSnapshotConfig::Disabled,
     );

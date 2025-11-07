@@ -254,7 +254,8 @@ async fn listen_blocks(mut stream: mpsc::Receiver<near_indexer::StreamerMessage>
     }
 }
 
-fn main() -> Result<()> {
+#[tokio::main]
+async fn main() -> Result<()> {
     // We use it to automatically search the for root certificates to perform HTTPS calls
     // (sending telemetry and downloading genesis)
     openssl_probe::init_ssl_cert_env_vars();
@@ -281,7 +282,8 @@ fn main() -> Result<()> {
                 .build()
                 .expect("Failed to create Tokio runtime");
             tokio_runtime.block_on(async move {
-                let indexer = near_indexer::Indexer::new(indexer_config).expect("Indexer::new()");
+                let indexer =
+                    near_indexer::Indexer::new(indexer_config).await.expect("Indexer::new()");
                 let stream = indexer.streamer();
                 listen_blocks(stream).await;
             });

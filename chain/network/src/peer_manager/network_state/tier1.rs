@@ -62,7 +62,7 @@ impl super::NetworkState {
                         &self.config.socket_options,
                     )
                     .await?;
-                    anyhow::Ok(PeerActor::spawn_and_handshake(clock.clone(), actor_system, stream, None, self.clone()).await?)
+                    anyhow::Ok(PeerActor::spawn_and_handshake(clock.clone(), actor_system, stream, self.clone()).await?)
                 }.await;
                 if let Err(err) = res {
                     tracing::warn!(target:"network", ?err, "failed to establish connection to TIER1 proxy {:?}",proxy);
@@ -116,7 +116,7 @@ impl super::NetworkState {
                     let clock = clock.clone();
                     let want_ipv4 = node_addr.is_ipv4();
                     let addr = addr.clone();
-                    self.spawn(async move {
+                    self.spawn("stun lookup_host", async move {
                         let addr = stun::lookup_host(&addr, want_ipv4).await?;
                         match stun::query(&clock, &addr).await {
                             Ok(ip) => Some(ip),
@@ -342,7 +342,6 @@ impl super::NetworkState {
                             clock.clone(),
                             actor_system,
                             stream,
-                            None,
                             self.clone(),
                         )
                         .await

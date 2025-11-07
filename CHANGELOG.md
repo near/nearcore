@@ -9,6 +9,21 @@
 ### Non-protocol Changes
 **No Changes**
 
+## [2.10.0]
+
+### Protocol Changes
+
+* Introducing deterministic account IDs: Account IDs starting with the prefix `0s` can only be created with the new action `DeterministicStateInit`. Its name is derived from the initial state and global contract it uses. [#14307](https://github.com/near/nearcore/pull/14307)
+* New host functions for deterministic initialization: Three new host functions `promise_batch_action_state_init`, `promise_batch_action_state_init_by_account_id` and `set_state_init_data_entry` allow creating the new action `DeterministicStateInit` from within a smart contract. [#14364](https://github.com/near/nearcore/pull/14364)
+* Accessing the current contract code: The new host function `current_contract_code` allows smart contracts to read the currently deployed code hash or global contract identifier. [#14372](https://github.com/near/nearcore/pull/14372)
+* Controlling balance refunds: The new host function `promise_set_refund_to` allows smart contracts to redirect balance refunds of outgoing receipts to other accounts. [#14285](https://github.com/near/nearcore/pull/14285)
+* Querying refund receivers: The new host function `refund_to_account_id` returns the receiver of balance refunds, which is either `predecessor_id` or the refund receiver set by the predecessor using `promise_set_refund_to`. [#14372](https://github.com/near/nearcore/pull/14372)
+* Gas optimization: Calls to the existing host functions `input` and `promise_result` no longer charge gas per byte (`wasm_write_memory_byte`), thanks to an optimization that eliminates unnecessary data copying. [#14405](https://github.com/near/nearcore/pull/14405)
+
+### Non-protocol Changes
+
+* Indexer changes, including breaking changes in the API. See the [indexer changelog](https://github.com/near/nearcore/blob/master/chain/indexer/CHANGELOG.md) for details.
+
 ## [2.9.0]
 
 ### Protocol Changes

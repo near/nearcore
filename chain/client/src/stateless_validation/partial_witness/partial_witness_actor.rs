@@ -3,7 +3,7 @@ use lru::LruCache;
 use near_async::futures::{AsyncComputationSpawner, AsyncComputationSpawnerExt};
 use near_async::messaging::{Actor, CanSend, Handler, Sender};
 use near_async::time::Clock;
-use near_async::{Message, MultiSend, MultiSenderFrom};
+use near_async::{MultiSend, MultiSenderFrom};
 use near_chain::Error;
 use near_chain::types::RuntimeAdapter;
 use near_chain_configs::MutableValidatorSigner;
@@ -91,7 +91,7 @@ pub struct PartialWitnessActor {
 
 impl Actor for PartialWitnessActor {}
 
-#[derive(Message, Debug)]
+#[derive(Debug)]
 pub struct DistributeStateWitnessRequest {
     pub state_witness: ChunkStateWitness,
     pub contract_updates: ContractUpdates,
@@ -945,12 +945,7 @@ pub fn compress_witness(witness: &ChunkStateWitness) -> Result<EncodedChunkState
     let encode_timer = near_chain::stateless_validation::metrics::CHUNK_STATE_WITNESS_ENCODE_TIME
         .with_label_values(&[shard_id_label.as_str()])
         .start_timer();
-    let (witness_bytes, raw_witness_size) = if let ChunkStateWitness::V1(witness_v1) = witness {
-        // For V1 witness, we need to encode only the inner witness struct for backwards compatibility.
-        EncodedChunkStateWitness::encode(witness_v1)?
-    } else {
-        EncodedChunkStateWitness::encode(witness)?
-    };
+    let (witness_bytes, raw_witness_size) = EncodedChunkStateWitness::encode(witness)?;
     encode_timer.observe_duration();
 
     near_chain::stateless_validation::metrics::record_witness_size_metrics(

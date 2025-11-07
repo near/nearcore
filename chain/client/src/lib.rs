@@ -8,6 +8,9 @@ pub use near_client_primitives::types::{
     QueryError, Status, StatusResponse, SyncStatus, TxStatus, TxStatusError,
 };
 
+pub use crate::chunk_endorsement_handler::{
+    ChunkEndorsementHandler, spawn_chunk_endorsement_handler_actor,
+};
 pub use crate::client::{AsyncComputationMultiSpawner, Client};
 #[cfg(feature = "test_features")]
 pub use crate::client_actor::NetworkAdversarialMessage;
@@ -36,6 +39,7 @@ pub mod adapter;
 pub mod adversarial;
 pub mod archive;
 mod chunk_distribution_network;
+mod chunk_endorsement_handler;
 pub mod chunk_executor_actor;
 mod chunk_inclusion_tracker;
 mod chunk_producer;
@@ -46,6 +50,7 @@ pub mod debug;
 pub mod gc_actor;
 mod info;
 pub mod metrics;
+mod prepare_transactions;
 mod rpc_handler;
 pub mod spice_chunk_validator_actor;
 pub mod spice_data_distributor_actor;

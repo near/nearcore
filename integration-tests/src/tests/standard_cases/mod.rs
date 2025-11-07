@@ -468,9 +468,7 @@ pub fn transfer_tokens_to_implicit_account(node: impl Node, public_key: PublicKe
     let transaction_result =
         node_user.send_money(account_id.clone(), receiver_id.clone(), tokens_used).unwrap();
     assert_eq!(transaction_result.status, FinalExecutionStatus::SuccessValue(Vec::new()));
-    let num_expected_receipts =
-        if ProtocolFeature::ReducedGasRefunds.enabled(PROTOCOL_VERSION) { 1 } else { 2 };
-    assert_eq!(transaction_result.receipts_outcome.len(), num_expected_receipts);
+    assert_eq!(transaction_result.receipts_outcome.len(), 1);
     let new_root = node_user.get_state_root();
     assert_ne!(root, new_root);
     assert_eq!(node_user.get_access_key_nonce_for_signer(account_id).unwrap(), 1);
@@ -513,9 +511,7 @@ pub fn transfer_tokens_to_implicit_account(node: impl Node, public_key: PublicKe
         node_user.send_money(account_id.clone(), receiver_id.clone(), tokens_used).unwrap();
 
     assert_eq!(transaction_result.status, FinalExecutionStatus::SuccessValue(Vec::new()));
-    let num_expected_receipts =
-        if ProtocolFeature::ReducedGasRefunds.enabled(PROTOCOL_VERSION) { 1 } else { 2 };
-    assert_eq!(transaction_result.receipts_outcome.len(), num_expected_receipts);
+    assert_eq!(transaction_result.receipts_outcome.len(), 1);
     let new_root = node_user.get_state_root();
     assert_ne!(root, new_root);
     assert_eq!(node_user.get_access_key_nonce_for_signer(account_id).unwrap(), 2);
@@ -748,9 +744,7 @@ pub fn test_refund_on_send_money_to_non_existent_account(node: impl Node) {
             .into()
         )
     );
-    let num_expected_receipts =
-        if ProtocolFeature::ReducedGasRefunds.enabled(PROTOCOL_VERSION) { 2 } else { 3 };
-    assert_eq!(transaction_result.receipts_outcome.len(), num_expected_receipts);
+    assert_eq!(transaction_result.receipts_outcome.len(), 2);
     let new_root = node_user.get_state_root();
     assert_ne!(root, new_root);
     let result1 = node_user.view_account(account_id).unwrap();
@@ -1532,9 +1526,7 @@ pub fn test_unstake_while_not_staked(node: impl Node) {
         )
         .unwrap();
     assert_eq!(transaction_result.status, FinalExecutionStatus::SuccessValue(Vec::new()));
-    let num_expected_receipts =
-        if ProtocolFeature::ReducedGasRefunds.enabled(PROTOCOL_VERSION) { 1 } else { 2 };
-    assert_eq!(transaction_result.receipts_outcome.len(), num_expected_receipts);
+    assert_eq!(transaction_result.receipts_outcome.len(), 1);
     let transaction_result = node_user
         .stake(eve_dot_alice_account(), node.block_signer().public_key(), Balance::ZERO)
         .unwrap();
@@ -1643,9 +1635,7 @@ pub fn test_delete_account_fail(node: impl Node) {
             .into()
         )
     );
-    let num_expected_receipts =
-        if ProtocolFeature::ReducedGasRefunds.enabled(PROTOCOL_VERSION) { 1 } else { 2 };
-    assert_eq!(transaction_result.receipts_outcome.len(), num_expected_receipts);
+    assert_eq!(transaction_result.receipts_outcome.len(), 1);
     assert!(node.user().view_account(&bob_account()).is_ok());
     assert_eq!(
         node.user().view_account(&node.account_id().unwrap()).unwrap().amount,
@@ -1667,9 +1657,7 @@ pub fn test_delete_account_no_account(node: impl Node) {
             .into()
         )
     );
-    let num_expected_receipts =
-        if ProtocolFeature::ReducedGasRefunds.enabled(PROTOCOL_VERSION) { 1 } else { 2 };
-    assert_eq!(transaction_result.receipts_outcome.len(), num_expected_receipts);
+    assert_eq!(transaction_result.receipts_outcome.len(), 1);
 }
 
 pub fn test_delete_account_while_staking(node: impl Node) {

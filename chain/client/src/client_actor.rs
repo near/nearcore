@@ -5,7 +5,6 @@
 //! Unfortunately, this is not the case today. We are in the process of refactoring ClientActor
 //! <https://github.com/near/nearcore/issues/7899>
 
-use crate::chunk_executor_actor::ProcessedBlock;
 #[cfg(feature = "test_features")]
 pub use crate::chunk_producer::AdvProduceChunksMode;
 #[cfg(feature = "test_features")]
@@ -40,7 +39,7 @@ use near_chain::chain::{
     ApplyChunksDoneMessage, BlockCatchUpRequest, BlockCatchUpResponse, PostStateReadyMessage,
 };
 use near_chain::resharding::types::ReshardingSender;
-use near_chain::spice_core::CoreStatementsProcessor;
+use near_chain::spice_core_writer_actor::ProcessedBlock;
 use near_chain::state_snapshot_actor::SnapshotCallbacks;
 use near_chain::test_utils::format_hash;
 use near_chain::types::RuntimeAdapter;
@@ -77,7 +76,7 @@ use near_primitives::network::PeerId;
 use near_primitives::types::{AccountId, BlockHeight};
 use near_primitives::unwrap_or_return;
 use near_primitives::utils::MaybeValidated;
-use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature, get_protocol_upgrade_schedule};
+use near_primitives::version::{PROTOCOL_VERSION, get_protocol_upgrade_schedule};
 use near_primitives::views::{DetailedDebugStatus, ValidatorInfo};
 #[cfg(feature = "test_features")]
 use near_store::DBCol;
@@ -128,10 +127,10 @@ pub struct StartClientResult {
 }
 
 pub struct SpiceClientConfig {
-    pub core_processor: CoreStatementsProcessor,
     pub chunk_executor_sender: Sender<ProcessedBlock>,
     pub spice_chunk_validator_sender: Sender<ProcessedBlock>,
     pub spice_data_distributor_sender: Sender<ProcessedBlock>,
+    pub spice_core_writer_sender: Sender<ProcessedBlock>,
 }
 
 /// Starts client in a separate tokio runtime (thread).
@@ -191,7 +190,6 @@ pub fn start_client(
         client_sender_for_client.as_multi_sender(),
         chunk_validation_adapter.as_multi_sender(),
         protocol_upgrade_schedule,
-        spice_client_config.core_processor,
     )
     .unwrap();
 
@@ -242,6 +240,7 @@ pub fn start_client(
         spice_client_config.chunk_executor_sender,
         spice_client_config.spice_chunk_validator_sender,
         spice_client_config.spice_data_distributor_sender,
+        spice_client_config.spice_core_writer_sender,
     )
     .unwrap();
     let tx_pool = client_actor_inner.client.chunk_producer.sharded_tx_pool.clone();
@@ -322,6 +321,10 @@ pub struct ClientActorInner {
     /// information. Since data may arrive before blocks it needs to be aware of new blocks.
     /// Without spice should be a noop sender.
     spice_data_distributor_sender: Sender<ProcessedBlock>,
+
+    /// With spice, spice core writer processes all core statements.
+    /// Should be noop sender otherwise.
+    spice_core_writer_sender: Sender<ProcessedBlock>,
 }
 
 impl messaging::Actor for ClientActorInner {
@@ -393,6 +396,7 @@ impl ClientActorInner {
         chunk_executor_sender: Sender<ProcessedBlock>,
         spice_chunk_validator_sender: Sender<ProcessedBlock>,
         spice_data_distributor_sender: Sender<ProcessedBlock>,
+        spice_core_writer_sender: Sender<ProcessedBlock>,
     ) -> Result<Self, Error> {
         if let Some(vs) = &client.validator_signer.get() {
             info!(target: "client", "Starting validator node: {}", vs.validator_id());
@@ -433,6 +437,7 @@ impl ClientActorInner {
             chunk_executor_sender,
             spice_chunk_validator_sender,
             spice_data_distributor_sender,
+            spice_core_writer_sender,
         })
     }
 }
@@ -461,7 +466,7 @@ pub enum AdvProduceBlockHeightSelection {
 }
 
 #[cfg(feature = "test_features")]
-#[derive(near_async::Message, Debug)]
+#[derive(Debug)]
 pub enum NetworkAdversarialMessage {
     AdvProduceBlocks(u64, bool),
     AdvProduceChunks(AdvProduceChunksMode),
@@ -637,19 +642,23 @@ impl Handler<SpanWrapped<StateResponseReceived>> for ClientActorInner {
 
         match state_response {
             StateResponse::Ack(ref ack) => {
-                trace!(target: "sync", "Received state request ack shard_id: {} sync_hash: {:?} part_id: {:?} ack: {:?}",
-                    shard_id,
-                    hash,
-                    state_response.part_id_or_header(),
-                    ack.body,
+                trace!(
+                    target: "sync",
+                    %shard_id,
+                    sync_hash = %hash,
+                    part_id = ?state_response.part_id_or_header(),
+                    ack = ?ack.body,
+                    "received state request ack",
                 );
             }
             StateResponse::State(ref state) => {
-                trace!(target: "sync", "Received state response shard_id: {} sync_hash: {:?} part_id: {:?} size: {:?}",
-                    shard_id,
-                    hash,
-                    state_response.part_id_or_header(),
-                    state.payload_length(),
+                trace!(
+                    target: "sync",
+                    %shard_id,
+                    sync_hash = %hash,
+                    part_id = ?state_response.part_id_or_header(),
+                    size = ?state.payload_length(),
+                    "received state response",
                 );
             }
         }
@@ -664,7 +673,7 @@ impl Handler<SpanWrapped<StateResponseReceived>> for ClientActorInner {
                 if let Err(err) =
                     self.client.sync_handler.state_sync.apply_peer_message(peer_id, state_response)
                 {
-                    tracing::error!(?err, "Error applying state sync response");
+                    tracing::error!(target: "sync", ?err, "error applying state sync response");
                 }
                 return;
             }
@@ -675,12 +684,16 @@ impl Handler<SpanWrapped<StateResponseReceived>> for ClientActorInner {
             self.client.catchup_state_syncs.get_mut(&hash)
         {
             if let Err(err) = state_sync.apply_peer_message(peer_id, state_response) {
-                tracing::error!(?err, "Error applying catchup state sync response");
+                tracing::error!(target: "sync", ?err, "error applying catchup state sync response");
             }
             return;
         }
 
-        error!(target: "sync", "State sync received hash {} that we're not expecting, potential malicious peer or a very delayed response.", hash);
+        error!(
+            target: "sync",
+            %hash,
+            "received hash that we're not expecting, potential malicious peer or a very delayed response"
+        );
     }
 }
 
@@ -1144,10 +1157,6 @@ impl ClientActorInner {
             }
         }
 
-        let protocol_version = self.client.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
-        if !ProtocolFeature::ProduceOptimisticBlock.enabled(protocol_version) {
-            return Ok(());
-        }
         let optimistic_block_height = self.client.doomslug.get_timer_height();
         if me != self.client.epoch_manager.get_block_producer(&epoch_id, optimistic_block_height)? {
             return Ok(());
@@ -1270,10 +1279,32 @@ impl ClientActorInner {
         delay
     }
 
-    // TODO: Implement handling of PostStateReadyMessage, for now just log it.
-    #[allow(clippy::needless_pass_by_ref_mut)]
+    /// Receive the PostStateReadyMessage which contains data needed to start preparing transactions for the next height.
     fn handle_on_post_state_ready(&mut self, msg: PostStateReadyMessage) {
         tracing::trace!(target: "client", ?msg, "Received PostStateReadyMessage");
+
+        if !self.client.config.enable_early_prepare_transactions {
+            return;
+        }
+        // Do not run early transaction preparation when the node is syncing. It will not produce
+        // any chunks until it catches up with the chain. Running preparation on old state could
+        // reject new transactions from the pool.
+        if self.client.sync_handler.sync_status.is_syncing() {
+            return;
+        }
+
+        let tx_validity_period_check = self.client.chain.early_prepare_transaction_validity_check(
+            msg.prev_block_context.height,
+            msg.prev_prev_block_header,
+        );
+        self.client.chunk_producer.start_prepare_transactions_job(
+            msg.key,
+            msg.shard_uid,
+            msg.post_state.trie_update,
+            msg.prev_block_context,
+            msg.prev_chunk_tx_hashes,
+            tx_validity_period_check,
+        );
     }
 
     /// "Unfinished" blocks means that blocks that client has started the processing and haven't
@@ -1483,7 +1514,7 @@ impl ClientActorInner {
             self.chunk_executor_sender.send(ProcessedBlock { block_hash: accepted_block });
             self.spice_chunk_validator_sender.send(ProcessedBlock { block_hash: accepted_block });
             self.spice_data_distributor_sender.send(ProcessedBlock { block_hash: accepted_block });
-            self.client.chain.spice_core_processor.send_execution_result_endorsements(&block);
+            self.spice_core_writer_sender.send(ProcessedBlock { block_hash: accepted_block });
         }
     }
 

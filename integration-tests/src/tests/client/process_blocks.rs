@@ -2015,7 +2015,7 @@ fn test_validate_chunk_extra() {
     let validator_id = signer.as_ref().unwrap().validator_id().clone();
     let chunk = ShardChunkWithEncoding::from_encoded_shard_chunk(encoded_chunk).unwrap();
     env.clients[0]
-        .persist_and_distribute_encoded_chunk(chunk, merkle_paths, receipts, validator_id)
+        .distribute_and_persist_encoded_chunk(chunk, merkle_paths, receipts, validator_id)
         .unwrap();
     env.clients[0].chain.blocks_with_missing_chunks.accept_chunk(&chunk_header.chunk_hash());
     env.clients[0].process_blocks_with_missing_chunks(None);
@@ -2751,7 +2751,7 @@ fn produce_chunks(env: &mut TestEnv, epoch_id: &EpochId, height: u64) {
         for client in &mut env.clients {
             let validator_id = client.validator_signer.get().unwrap().validator_id().clone();
             client
-                .persist_and_distribute_encoded_chunk(
+                .distribute_and_persist_encoded_chunk(
                     chunk.clone(),
                     encoded_chunk_parts_paths.clone(),
                     receipts.clone(),

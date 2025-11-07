@@ -1,4 +1,7 @@
-use crate::client::{ClientSenderForNetwork, SetNetworkInfo, StateRequestHeader, StateRequestPart};
+use crate::client::{
+    ClientSenderForNetwork, SetNetworkInfo, SpiceChunkEndorsementMessage, StateRequestHeader,
+    StateRequestPart,
+};
 use crate::config;
 use crate::debug::{DebugStatus, GetDebugStatus};
 use crate::network_protocol::{self, T2MessageBody};
@@ -27,7 +30,7 @@ use crate::types::{
 use ::time::ext::InstantExt as _;
 use anyhow::Context as _;
 use near_async::futures::{DelayedActionRunner, DelayedActionRunnerExt, FutureSpawnerExt};
-use near_async::messaging::{self, SendAsync, Sender};
+use near_async::messaging::{self, CanSendAsync, Sender};
 use near_async::tokio::TokioRuntimeHandle;
 use near_async::{ActorSystem, time};
 use near_o11y::span_wrapped_msg::SpanWrappedMessageExt;
@@ -219,6 +222,7 @@ impl PeerManagerActor {
         shards_manager_adapter: Sender<ShardsManagerRequestFromNetwork>,
         partial_witness_adapter: PartialWitnessSenderForNetwork,
         spice_data_distributor_adapter: SpiceDataDistributorSenderForNetwork,
+        spice_core_writer_adapter: Sender<SpiceChunkEndorsementMessage>,
         genesis_id: GenesisId,
     ) -> anyhow::Result<TokioRuntimeHandle<Self>> {
         let config = config.verify().context("config")?;
@@ -256,6 +260,7 @@ impl PeerManagerActor {
             partial_witness_adapter,
             whitelist_nodes,
             spice_data_distributor_adapter,
+            spice_core_writer_adapter,
         ));
         handle.spawn("PeerManagerActor server", {
             let handle = handle.clone();
@@ -288,7 +293,7 @@ impl PeerManagerActor {
                                     // a proper connection.
                                     tracing::debug!(target: "network", from = ?stream.peer_addr, "got new connection");
                                     if let Err(err) =
-                                        PeerActor::spawn(clock.clone(), actor_system.clone(), stream, None, state.clone())
+                                        PeerActor::spawn(clock.clone(), actor_system.clone(), stream, state.clone())
                                     {
                                         tracing::info!(target:"network", ?err, "PeerActor::spawn()");
                                     }
@@ -645,7 +650,7 @@ impl PeerManagerActor {
                     async move {
                         let result = async {
                             let stream = tcp::Stream::connect(&peer_info, tcp::Tier::T2, &state.config.socket_options).await.context("tcp::Stream::connect()")?;
-                            PeerActor::spawn_and_handshake(clock.clone(), actor_system, stream,None,state.clone()).await.context("PeerActor::spawn()")?;
+                            PeerActor::spawn_and_handshake(clock.clone(), actor_system, stream,state.clone()).await.context("PeerActor::spawn()")?;
                             anyhow::Ok(())
                         }.await;
 
@@ -1284,6 +1289,14 @@ impl PeerManagerActor {
                 );
                 NetworkResponses::NoResponse
             }
+            NetworkRequests::SpicePartialDataRequest { producer, request } => {
+                self.state.send_message_to_account(
+                    &self.clock,
+                    &producer,
+                    T1MessageBody::SpicePartialDataRequest(request).into(),
+                );
+                NetworkResponses::NoResponse
+            }
         }
     }
 
@@ -1310,7 +1323,6 @@ impl PeerManagerActor {
                     self.clock.clone(),
                     self.actor_system.clone(),
                     stream,
-                    None,
                     self.state.clone(),
                 ) {
                     tracing::info!(target:"network", ?err, ?peer_addr, "spawn_outbound()");
@@ -1487,7 +1499,7 @@ impl messaging::Handler<Tier3Request> for PeerManagerActor {
                             tcp::Tier::T3,
                             &state.config.socket_options
                         ).await.context("tcp::Stream::connect()")?;
-                        PeerActor::spawn_and_handshake(clock.clone(), actor_system, stream, None, state.clone()).await.context("PeerActor::spawn()")?;
+                        PeerActor::spawn_and_handshake(clock.clone(), actor_system, stream, state.clone()).await.context("PeerActor::spawn()")?;
                         anyhow::Ok(())
                     }.await;
 

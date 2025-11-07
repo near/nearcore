@@ -44,6 +44,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e89da841a80418a9b391ebaea17f5c112ffaaa96f621d2c285b5174da76b9011"
 dependencies = [
  "cfg-if",
+ "getrandom 0.2.15",
  "once_cell",
  "version_check",
  "zerocopy 0.7.31",
@@ -4007,11 +4008,14 @@ dependencies = [
 name = "near-async"
 version = "0.0.0"
 dependencies = [
+ "criterion",
  "crossbeam-channel",
  "futures",
  "near-async-derive",
+ "near-o11y",
  "near-time",
  "parking_lot 0.12.1",
+ "rand 0.8.5",
  "rayon",
  "serde",
  "serde_json",
@@ -4189,6 +4193,7 @@ dependencies = [
  "near-crypto",
  "near-dyn-configs",
  "near-epoch-manager",
+ "near-external-storage",
  "near-network",
  "near-o11y",
  "near-parameters",
@@ -4201,9 +4206,7 @@ dependencies = [
  "near-vm-runner",
  "node-runtime",
  "num-rational 0.3.2",
- "object_store",
  "parking_lot 0.12.1",
- "percent-encoding",
  "rand 0.8.5",
  "rayon",
  "reed-solomon-erasure",
@@ -4222,14 +4225,12 @@ dependencies = [
  "tokio-stream",
  "tokio-util",
  "tracing",
- "yansi",
 ]
 
 [[package]]
 name = "near-client-primitives"
 version = "0.0.0"
 dependencies = [
- "near-async",
  "near-chain-primitives",
  "near-chunks-primitives",
  "near-crypto",
@@ -4366,6 +4367,22 @@ dependencies = [
  "rand 0.8.5",
  "rand_hc 0.3.1",
  "serde",
+ "tracing",
+]
+
+[[package]]
+name = "near-external-storage"
+version = "0.0.0"
+dependencies = [
+ "anyhow",
+ "futures",
+ "near-chain-configs",
+ "object_store",
+ "percent-encoding",
+ "reqwest 0.12.4",
+ "rust-s3",
+ "serde",
+ "serde_json",
  "tracing",
 ]
 
@@ -4684,7 +4701,6 @@ dependencies = [
  "bencher",
  "clap",
  "itoa",
- "near-async",
  "near-crypto",
  "near-fmt",
  "near-primitives-core",
@@ -4958,15 +4974,15 @@ dependencies = [
  "axum",
  "borsh",
  "clap",
+ "near-chain-configs",
  "near-client",
+ "near-external-storage",
  "near-jsonrpc",
  "near-o11y",
  "near-primitives",
  "near-primitives-core",
  "near-store",
  "nearcore",
- "object_store",
- "reqwest 0.12.4",
  "serde_json",
  "tokio",
  "tracing",
@@ -4980,6 +4996,7 @@ version = "0.0.0"
 name = "near-store"
 version = "0.0.0"
 dependencies = [
+ "ahash 0.8.11",
  "anyhow",
  "assert_matches",
  "bencher",
@@ -5001,6 +5018,7 @@ dependencies = [
  "near-chain-primitives",
  "near-chunks",
  "near-crypto",
+ "near-external-storage",
  "near-fmt",
  "near-o11y",
  "near-parameters",
@@ -5353,6 +5371,7 @@ dependencies = [
  "near-crypto",
  "near-dyn-configs",
  "near-epoch-manager",
+ "near-external-storage",
  "near-jsonrpc",
  "near-jsonrpc-primitives",
  "near-mainnet-res",
@@ -5370,7 +5389,6 @@ dependencies = [
  "near-vm-runner",
  "node-runtime",
  "num-rational 0.3.2",
- "object_store",
  "parking_lot 0.12.1",
  "primitive-types 0.10.1",
  "rand 0.8.5",
@@ -5463,6 +5481,7 @@ dependencies = [
 name = "node-runtime"
 version = "0.0.0"
 dependencies = [
+ "ahash 0.8.11",
  "assert_matches",
  "base64 0.21.0",
  "borsh",
@@ -5485,9 +5504,7 @@ dependencies = [
  "near-test-contracts",
  "near-vm-runner",
  "near-wallet-contract",
- "num-bigint 0.3.3",
  "num-integer",
- "num-traits",
  "parking_lot 0.12.1",
  "rand 0.8.5",
  "rand_chacha 0.3.1",
@@ -7777,6 +7794,7 @@ dependencies = [
  "near-client",
  "near-crypto",
  "near-epoch-manager",
+ "near-external-storage",
  "near-jsonrpc",
  "near-network",
  "near-o11y",
@@ -7787,13 +7805,11 @@ dependencies = [
  "near-time",
  "nearcore",
  "node-runtime",
- "object_store",
  "parking_lot 0.12.1",
  "rand 0.8.5",
  "rayon",
  "redis",
  "reed-solomon-erasure",
- "reqwest 0.12.4",
  "serde",
  "serde_json",
  "strum",
@@ -8054,6 +8070,7 @@ dependencies = [
  "near-client",
  "near-crypto",
  "near-epoch-manager",
+ "near-external-storage",
  "near-indexer",
  "near-jsonrpc",
  "near-network",

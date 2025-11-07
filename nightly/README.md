@@ -1,7 +1,7 @@
 # Nightly tests lists
 
 The directory contains test list files which can be sent to NayDuck to
-request a run of the tests.  Most notably, `ci.txt` file contains
+request a run of the tests.  Most notably, `nightly.txt` file contains
 all the tests that NayDuck runs once a day on the head of the master
 branch of the repository.
 
@@ -164,7 +164,7 @@ those functions in a code fragment guarded by `if __name__ ==
 
 ### Check scripts
 
-Unless tests are included (potentially transitively) in `ci.txt`
+Unless tests are included (potentially transitively) in `nightly.txt`
 file, NayDuck won’t run them.  As part of pull request checks,
 verification is performed to make sure that no test is forgotten and
 all new tests are included in the nightly list.  That’s done by

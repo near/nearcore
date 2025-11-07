@@ -1,5 +1,4 @@
 use super::*;
-use crate::spice_core::CoreStatementsProcessor;
 use crate::types::{BlockType, ChainConfig, RuntimeStorageConfig};
 use crate::{Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode};
 use borsh::BorshDeserialize;
@@ -139,6 +138,7 @@ impl TestEnv {
             Default::default(),
             StateSnapshotConfig::enabled(dir.path().join("data")),
             DEFAULT_STATE_PARTS_COMPRESSION_LEVEL,
+            false,
             false,
         );
         let state_roots = get_genesis_state_roots(&store).unwrap().unwrap();
@@ -1550,10 +1550,6 @@ fn get_test_env_with_chain_and_pool() -> (TestEnv, Chain, TransactionPool) {
         Default::default(),
         MutableConfigValue::new(None, "validator_signer"),
         noop().into_multi_sender(),
-        CoreStatementsProcessor::new_with_noop_senders(
-            env.runtime.store().chain_store(),
-            env.epoch_manager.clone(),
-        ),
         None,
     )
     .unwrap();
