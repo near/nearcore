@@ -645,19 +645,23 @@ impl Handler<SpanWrapped<StateResponseReceived>> for ClientActorInner {
 
         match state_response {
             StateResponse::Ack(ref ack) => {
-                trace!(target: "sync", "Received state request ack shard_id: {} sync_hash: {:?} part_id: {:?} ack: {:?}",
-                    shard_id,
-                    hash,
-                    state_response.part_id_or_header(),
-                    ack.body,
+                trace!(
+                    target: "sync",
+                    %shard_id,
+                    sync_hash = %hash,
+                    part_id = ?state_response.part_id_or_header(),
+                    ack = ?ack.body,
+                    "received state request ack",
                 );
             }
             StateResponse::State(ref state) => {
-                trace!(target: "sync", "Received state response shard_id: {} sync_hash: {:?} part_id: {:?} size: {:?}",
-                    shard_id,
-                    hash,
-                    state_response.part_id_or_header(),
-                    state.payload_length(),
+                trace!(
+                    target: "sync",
+                    %shard_id,
+                    sync_hash = %hash,
+                    part_id = ?state_response.part_id_or_header(),
+                    size = ?state.payload_length(),
+                    "received state response",
                 );
             }
         }
@@ -672,7 +676,7 @@ impl Handler<SpanWrapped<StateResponseReceived>> for ClientActorInner {
                 if let Err(err) =
                     self.client.sync_handler.state_sync.apply_peer_message(peer_id, state_response)
                 {
-                    tracing::error!(?err, "Error applying state sync response");
+                    tracing::error!(target: "sync", ?err, "error applying state sync response");
                 }
                 return;
             }
@@ -683,12 +687,16 @@ impl Handler<SpanWrapped<StateResponseReceived>> for ClientActorInner {
             self.client.catchup_state_syncs.get_mut(&hash)
         {
             if let Err(err) = state_sync.apply_peer_message(peer_id, state_response) {
-                tracing::error!(?err, "Error applying catchup state sync response");
+                tracing::error!(target: "sync", ?err, "error applying catchup state sync response");
             }
             return;
         }
 
-        error!(target: "sync", "State sync received hash {} that we're not expecting, potential malicious peer or a very delayed response.", hash);
+        error!(
+            target: "sync",
+            %hash,
+            "received hash that we're not expecting, potential malicious peer or a very delayed response"
+        );
     }
 }
 
