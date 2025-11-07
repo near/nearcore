@@ -46,6 +46,13 @@ world test {
     export out-of-memory: func();
     export max-self-recursion-delay: func();
     export call-promise: func();
+    export check-promise-result-return-value: func();
+    export check-promise-result-write-status: func();
+    export call-yield-create-return-promise: func();
+    export call-yield-create-return-data-id: func();
+    export call-yield-resume: func();
+    export call-yield-resume-read-data-id-from-storage: func();
+    export call-yield-create-and-resume: func();
     export attach-unspent-gas-but-use-all-gas: func();
     export do-ripemd: func();
     export noop: func();
@@ -730,6 +737,174 @@ impl Guest for Component {
                 }
             }
         }
+    }
+
+    /// Used as the yield callback in tests of yield create / yield resume.
+    /// The function takes an argument indicating the expected yield payload (promise input).
+    /// It panics if executed with the wrong payload.
+    /// Returns the payload length.
+    fn check_promise_result_return_value() {
+        let expected = input();
+
+        assert_eq!(Promise::get_results_count(), 1);
+
+        let payload_len = match Promise::get_result(0, 0).unwrap() {
+            Ok(()) => {
+                let payload = read_register(0);
+                assert_eq!(expected, payload);
+
+                payload.len()
+            }
+            Err(()) => {
+                assert_eq!(expected.len(), 0);
+
+                0
+            }
+        };
+
+        value_return(&[payload_len as u8]);
+    }
+
+    /// Function which expects to receive exactly one promise result,
+    /// the contents of which should match the function's input.
+    ///
+    /// Used as the yield callback in tests of yield create / yield resume.
+    /// Writes the status of the promise result to storage.
+    fn check_promise_result_write_status() {
+        let expected = input();
+
+        assert_eq!(Promise::get_results_count(), 1);
+        let status = match Promise::get_result(0, 0).unwrap() {
+            Ok(()) => {
+                let result = read_register(0);
+                assert_eq!(expected, result);
+                "Resumed "
+            }
+            Err(()) => {
+                assert_eq!(expected.len(), 0);
+                "Timeout "
+            }
+        };
+
+        // Write promise status to state.
+        // Used in tests to determine whether this function has been executed.
+        let key = 123u64.to_le_bytes();
+        storage_write(&key, status.as_bytes(), 0);
+    }
+
+    /// Call promise_yield_create, specifying `check_promise_result` as the yield callback.
+    /// Given input is passed as the argument to the `check_promise_result` function call.
+    /// Sets the yield callback's output as the return value.
+    fn call_yield_create_return_promise() {
+        let payload = input();
+
+        // Create a promise yield with callback `check_promise_result`,
+        // passing the expected payload as an argument to the function.
+        let method_name = "check-promise-result-return-value";
+        let gas_fixed = 0;
+        let gas_weight = 1;
+        let data_id_register = 0;
+        let promise = Promise::yield_create(
+            method_name.as_bytes(),
+            &payload,
+            gas_fixed,
+            gas_weight,
+            data_id_register,
+        );
+
+        // Write the data id to state for convenience in testing.
+        let key = 42u64.to_le_bytes();
+        let data_id = read_register(data_id_register);
+        storage_write(&key, &data_id, 0);
+
+        promise.return_();
+    }
+
+    /// Call promise_yield_create, specifying `check_promise_result` as the yield callback.
+    /// Given input is passed as the argument to the `check_promise_result` function call.
+    /// Returns the data id produced by promise_yield_create.
+    fn call_yield_create_return_data_id() {
+        let payload = input();
+
+        // Create a promise yield with callback `check_promise_result`,
+        // passing the expected payload as an argument to the function.
+        let method_name = "check-promise-result-write-status";
+        let gas_fixed = 0;
+        let gas_weight = 1;
+        let data_id_register = 0;
+        Promise::yield_create(
+            method_name.as_bytes(),
+            &payload,
+            gas_fixed,
+            gas_weight,
+            data_id_register,
+        );
+
+        let data_id = read_register(data_id_register);
+
+        value_return(&data_id);
+    }
+
+    /// Call promise_yield_resume.
+    /// Input is the byte array with `data_id` represented by last 32 bytes and `payload`
+    /// represented by the first `register_len(0) - 32` bytes.
+    fn call_yield_resume() {
+        let data = input();
+
+        let data_id = &data[data.len() - 32..];
+        let payload = &data[0..data.len() - 32];
+
+        let success =
+            Promise::yield_resume(U256::from_ne_bytes(data_id.try_into().unwrap()), payload);
+
+        let result = [success as u8];
+        value_return(&result);
+    }
+
+    /// Call promise_yield_resume.
+    /// Input is the payload to be passed to `promise_yield_resume`.
+    /// The data_id is read from storage.
+    fn call_yield_resume_read_data_id_from_storage() {
+        let payload = input();
+
+        let data_id_key = 42u64.to_le_bytes();
+        let data_id = storage_read(&data_id_key).unwrap();
+
+        let success =
+            Promise::yield_resume(U256::from_ne_bytes(data_id.try_into().unwrap()), &payload);
+
+        let result = [success as u8];
+        value_return(&result);
+    }
+
+    /// Call promise_yield_create and promise_yield_resume within the same function.
+    fn call_yield_create_and_resume() {
+        let payload = input();
+
+        // Create a promise yield with callback `check_promise_result`,
+        // passing the expected payload as an argument to the function.
+        let method_name = "check-promise-result-return-value";
+        let gas_fixed = 0;
+        let gas_weight = 1;
+        let data_id_register = 0;
+        let promise = Promise::yield_create(
+            method_name.as_bytes(),
+            &payload,
+            gas_fixed,
+            gas_weight,
+            data_id_register,
+        );
+
+        let data_id = read_register(data_id_register);
+
+        // Resolve the promise yield with the expected payload
+        let success =
+            Promise::yield_resume(U256::from_ne_bytes(data_id.try_into().unwrap()), &payload);
+        assert_eq!(success, true);
+
+        // This function's return value will resolve to the value returned by the
+        // `check_promise_result` callback
+        promise.return_();
     }
 
     fn attach_unspent_gas_but_use_all_gas() {
