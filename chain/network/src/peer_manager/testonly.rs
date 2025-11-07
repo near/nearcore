@@ -516,7 +516,7 @@ pub(crate) async fn start(
     let genesis_id = chain.genesis_id.clone();
     cfg.event_sink = Sender::from_fn(move |event| send.send(event));
 
-    let mut client_sender: ClientSenderForNetwork = noop().into_multi_sender();
+    let client_sender: ClientSenderForNetwork = noop().into_multi_sender();
 
     let mut state_request_sender: StateRequestSenderForNetwork = noop().into_multi_sender();
     state_request_sender.state_request_part =
