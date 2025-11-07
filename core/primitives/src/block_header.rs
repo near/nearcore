@@ -1,4 +1,6 @@
+use crate::bandwidth_scheduler::BlockBandwidthRequests;
 use crate::challenge::SlashedValidator;
+use crate::congestion_info::BlockCongestionInfo;
 use crate::hash::{CryptoHash, hash};
 use crate::merkle::combine_hash;
 use crate::network::PeerId;
@@ -1308,4 +1310,23 @@ pub fn compute_bp_hash_from_validator_stakes(
         let stakes = validator_stakes.into_iter().map(|stake| stake.clone().into_v1());
         CryptoHash::hash_borsh_iter(stakes)
     }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
+pub enum BlockType {
+    Normal,
+    Optimistic,
+}
+
+/// Block context required to apply a chunk without having the full block available.
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
+pub struct ApplyChunkBlockContext {
+    pub block_type: BlockType,
+    pub height: BlockHeight,
+    pub prev_block_hash: CryptoHash,
+    pub block_timestamp: u64,
+    pub gas_price: Balance,
+    pub random_seed: CryptoHash,
+    pub congestion_info: BlockCongestionInfo,
+    pub bandwidth_requests: BlockBandwidthRequests,
 }
