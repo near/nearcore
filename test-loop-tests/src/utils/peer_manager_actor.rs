@@ -528,6 +528,19 @@ fn network_message_to_client_handler(
                 .send(EpochSyncResponseMessage { from_peer: my_peer_id, proof });
             None
         }
+        NetworkRequests::BanPeer { peer_id, ban_reason } => {
+            let my_peer_id = shared_state.account_to_peer_id(&my_account_id);
+            tracing::debug!(
+                target: "test_loop",
+                account = %my_account_id,
+                ?peer_id,
+                ?ban_reason,
+                "TestLoop banning peer"
+            );
+            shared_state.disallow_requests(my_peer_id.clone(), peer_id.clone());
+            shared_state.disallow_requests(peer_id, my_peer_id);
+            None
+        }
         NetworkRequests::StateRequestPart { .. } => None,
         _ => Some(request),
     })
