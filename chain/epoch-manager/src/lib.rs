@@ -26,6 +26,7 @@ use near_primitives::types::{
     EpochInfoProvider, ShardId, ValidatorId, ValidatorInfoIdentifier, ValidatorKickoutReason,
     ValidatorStats,
 };
+use near_primitives::version::ProtocolFeature;
 use near_primitives::views::{
     CurrentEpochValidatorInfo, EpochValidatorInfo, NextEpochValidatorInfo, ValidatorKickoutView,
 };
@@ -613,7 +614,8 @@ impl EpochManager {
         })
     }
 
-    /// Finalizes epoch (T), where given last block hash is given, and returns next next epoch id (T + 2).
+    /// Finalize epoch (T), where given last block hash is given
+    /// Store ID and `EpochInfo` for epoch (T + 2).
     fn finalize_epoch(
         &self,
         store_update: &mut StoreUpdate,
@@ -676,9 +678,26 @@ impl EpochManager {
             )
         };
         let next_next_epoch_config = self.config.for_protocol_version(next_next_epoch_version);
-        let next_epoch_version = next_epoch_info.protocol_version();
-        let next_shard_layout = self.config.for_protocol_version(next_epoch_version).shard_layout;
-        let has_same_shard_layout = next_shard_layout == next_next_epoch_config.shard_layout;
+        let next_shard_layout = match next_epoch_info.shard_layout() {
+            // With dynamic resharding enabled, shard layout is stored in EpochInfo
+            Some(layout) => layout.clone(),
+            // Otherwise, fall back to the layout defined in config (this is needed both for
+            // compatibility and bootstrapping)
+            None => {
+                let next_protocol_version = next_epoch_info.protocol_version();
+                self.config.for_protocol_version(next_protocol_version).shard_layout
+            }
+        };
+
+        let next_next_shard_layout =
+            if ProtocolFeature::DynamicResharding.enabled(next_next_epoch_version) {
+                // TODO(dynamic resharding): adjust layout if a shard was marked for splitting
+                next_shard_layout.clone()
+            } else {
+                next_next_epoch_config.shard_layout.clone()
+            };
+
+        let has_same_shard_layout = next_next_shard_layout == next_shard_layout;
 
         let next_next_epoch_info = match proposals_to_epoch_info(
             &next_next_epoch_config,
@@ -689,6 +708,7 @@ impl EpochManager {
             validator_reward,
             minted_amount,
             next_next_epoch_version,
+            next_next_shard_layout,
             has_same_shard_layout,
         ) {
             Ok(next_next_epoch_info) => next_next_epoch_info,
@@ -1260,8 +1280,8 @@ impl EpochManager {
         Ok(EpochValidatorInfo {
             current_validators,
             next_validators,
-            current_fishermen: cur_epoch_info.fishermen_iter().map(Into::into).collect(),
-            next_fishermen: next_epoch_info.fishermen_iter().map(Into::into).collect(),
+            current_fishermen: vec![],
+            next_fishermen: vec![],
             current_proposals: all_proposals,
             prev_epoch_kickout,
             epoch_start_height,

@@ -334,6 +334,7 @@ pub enum ProtocolFeature {
     /// NEP: https://github.com/near/NEPs/pull/616
     DeterministicAccountIds,
     InvalidTxGenerateOutcomes,
+    DynamicResharding,
 }
 
 impl ProtocolFeature {
@@ -442,6 +443,7 @@ impl ProtocolFeature {
             ProtocolFeature::ShuffleShardAssignments => 143,
             ProtocolFeature::ExcludeExistingCodeFromWitnessForCodeLen => 148,
             // Place features that are not yet in Nightly below this line.
+            ProtocolFeature::DynamicResharding => 152,
         }
     }
 
