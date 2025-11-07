@@ -3447,7 +3447,6 @@ impl Chain {
 
                 let make_snapshot_callback = &snapshot_callbacks.make_snapshot_callback;
                 make_snapshot_callback(min_chunk_prev_height, epoch_height, shard_uids, prev_block);
-                // (RAZVAN) This is where we decide if we need to take a snapshot.
             }
             SnapshotAction::None => {}
         };

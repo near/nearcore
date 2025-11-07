@@ -123,7 +123,6 @@ impl StateSnapshotActor {
         msg: CreateSnapshotRequest,
         ctx: &mut dyn DelayedActionRunner<Self>,
     ) {
-        // (RAZVAN) Notify the network actor that the new sync hash was detected.
         self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
             NetworkRequests::SnapshotHostEvent(SnapshotHostEvent::NewSyncHashDetected {
                 sync_hash: msg.prev_block_hash,
