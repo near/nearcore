@@ -677,7 +677,7 @@ impl EpochManager {
                 epoch_config.max_inflation_rate,
             )
         };
-        let mut next_next_epoch_config = self.config.for_protocol_version(next_next_epoch_version);
+        let next_next_epoch_config = self.config.for_protocol_version(next_next_epoch_version);
         let next_shard_layout = match next_epoch_info.shard_layout() {
             // With dynamic resharding enabled, shard layout is stored in EpochInfo
             Some(layout) => layout.clone(),
@@ -689,12 +689,15 @@ impl EpochManager {
             }
         };
 
-        if ProtocolFeature::DynamicResharding.enabled(next_next_epoch_version) {
-            next_next_epoch_config.shard_layout = next_shard_layout.clone();
-            // TODO(dynamic resharding): adjust layout if a shard was marked for splitting
-        }
+        let next_next_shard_layout =
+            if ProtocolFeature::DynamicResharding.enabled(next_next_epoch_version) {
+                // TODO(dynamic resharding): adjust layout if a shard was marked for splitting
+                next_shard_layout.clone()
+            } else {
+                next_next_epoch_config.shard_layout.clone()
+            };
 
-        let has_same_shard_layout = next_next_epoch_config.shard_layout == next_shard_layout;
+        let has_same_shard_layout = next_next_shard_layout == next_shard_layout;
 
         let next_next_epoch_info = match proposals_to_epoch_info(
             &next_next_epoch_config,
@@ -705,6 +708,7 @@ impl EpochManager {
             validator_reward,
             minted_amount,
             next_next_epoch_version,
+            next_next_shard_layout,
             has_same_shard_layout,
         ) {
             Ok(next_next_epoch_info) => next_next_epoch_info,
