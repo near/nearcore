@@ -22,7 +22,9 @@ use crate::snapshot_hosts::SnapshotHostsCache;
 use crate::tcp;
 use crate::test_utils;
 use crate::types::StateRequestSenderForNetwork;
-use crate::types::{AccountKeys, ChainInfo, KnownPeerStatus, PeerManagerMessageRequest, ReasonForBan};
+use crate::types::{
+    AccountKeys, ChainInfo, KnownPeerStatus, PeerManagerMessageRequest, ReasonForBan,
+};
 use near_async::futures::FutureSpawnerExt;
 use near_async::messaging::{
     AsyncSender, CanSend, CanSendAsync, Handler, IntoMultiSender, IntoSender, Sender, noop,
