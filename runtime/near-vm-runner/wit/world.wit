@@ -7,33 +7,57 @@ interface finite-wasm {
 }
 
 interface runtime {
+   // Unsigned 128-bit integer
    record u128 {
+     // Low 64 bits
      lo: u64,
+
+     // High 64 bits
      hi: u64,
    }
 
+   // Unsigned 160-bit integer
    record u160 {
+     // Low 128 bits
      lo: u128,
+
+     // High 32 bits
      hi: u32,
    }
 
+   // Unsigned 256-bit integer
    record u256 {
+     // Low 128 bits
      lo: u128,
+
+     // High 128 bits
      hi: u128,
    }
 
+   // Unsigned 512-bit integer
    record u512 {
+     // Low 256 bits
      lo: u256,
+
+     // High 256 bits
      hi: u256,
    }
 
+   // A handle to a validated account ID
    resource account-id {
+      // Attempts to parse an account ID from input string, returns an error if it is not valid
       from-string: static func(account-id: string) -> result<account-id>;
+
+      // Returns string representation of this account ID
       to-string: func() -> string;
    }
 
+   // A public key
    variant public-key {
+      // ED25519 public key
       ed25519(u256),
+
+      // SECP256K1 public key
       secp256k1(u512),
    }
 
@@ -138,18 +162,28 @@ interface runtime {
    // Logs the string.
    log: func(s: string);
 
-   // TODO: Document promise API
-
+   // A NEAR promise action
    resource promise-action {}
 
+   // A NEAR promise
    resource promise {
+      // Create a NEAR promise
       constructor(account-id: borrow<account-id>);
 
+      // Returns the internal index of this promise
       to-index: func() -> u64;
+
+      // Constructs a promise from an internal index
       from-index: static func(promise-index: u64) -> promise;
 
+      // Attaches the callback that is executed after this promise is complete.
       then: func(account-id: borrow<account-id>) -> promise;
+
+      // Creates a new promise which completes when all promises passed as arguments complete.
       and: static func(promises: list<borrow<promise>>) -> promise;
+
+      // TODO: Document API
+
       set-refund-to: func(account-id: borrow<account-id>);
       state-init: func(code-hash: u256, amount: u128) -> promise-action;
       state-init-by-account-id: func(account-id: borrow<account-id>, amount: u128) -> promise-action;
@@ -204,14 +238,15 @@ interface runtime {
       return: func();
    }
 
-   enum contract-code-kind {
-      local,
-      global,
-      global-by-account,
+   // Type of contract code that is stored on the account
+   variant contract-code-kind {
+      local(u256),
+      global(u256),
+      global-by-account(account-id),
    }
 
-   // Populates a register with the ID of an account which would receive a refund.
-   current-contract-code: func(register-id: u64) -> option<contract-code-kind>;
+   // Returns the type of code deployed on current contract
+   current-contract-code: func() -> option<contract-code-kind>;
 
    // Returns the ID of an account which would receive a refund.
    refund-to-account-id: func() -> account-id;
@@ -259,6 +294,8 @@ interface runtime {
    //
    // See also: [EIP-197](https://eips.ethereum.org/EIPS/eip-197)
    alt-bn128-pairing-check: func(value: list<u8>) -> bool;
+
+   // TODO: Document bls12381
 
    bls12381-p1-sum: func(value: list<u8>) -> result<list<u8>>;
 

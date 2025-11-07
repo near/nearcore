@@ -1024,45 +1024,25 @@ impl runtime::Host for Ctx {
         Ok(())
     }
 
-    fn current_contract_code(
-        &mut self,
-        register_id: u64,
-    ) -> wasmtime::Result<Option<runtime::ContractCodeKind>> {
+    fn current_contract_code(&mut self) -> wasmtime::Result<Option<runtime::ContractCodeKind>> {
         self.pay_base(base)?;
         match &self.context.account_contract {
             AccountContract::None => Ok(None),
             AccountContract::Local(crypto_hash) => {
-                self.registers
-                    .set(
-                        &mut self.result_state.gas_counter,
-                        &self.config.limit_config,
-                        register_id,
-                        crypto_hash.0,
-                    )
-                    .map_err(ErrorContainer::new)?;
-                Ok(Some(runtime::ContractCodeKind::Local))
+                self.pay_for_writing_bytes(32)?;
+                Ok(Some(runtime::ContractCodeKind::Local(runtime::U256::from_le_bytes(
+                    crypto_hash.0,
+                ))))
             }
             AccountContract::Global(crypto_hash) => {
-                self.registers
-                    .set(
-                        &mut self.result_state.gas_counter,
-                        &self.config.limit_config,
-                        register_id,
-                        crypto_hash.0,
-                    )
-                    .map_err(ErrorContainer::new)?;
-                Ok(Some(runtime::ContractCodeKind::Global))
+                self.pay_for_writing_bytes(32)?;
+                Ok(Some(runtime::ContractCodeKind::Global(runtime::U256::from_le_bytes(
+                    crypto_hash.0,
+                ))))
             }
             AccountContract::GlobalByAccount(account_id) => {
-                self.registers
-                    .set(
-                        &mut self.result_state.gas_counter,
-                        &self.config.limit_config,
-                        register_id,
-                        account_id.as_bytes(),
-                    )
-                    .map_err(ErrorContainer::new)?;
-                Ok(Some(runtime::ContractCodeKind::GlobalByAccount))
+                let account_id = self.store_account_id(account_id.clone())?;
+                Ok(Some(runtime::ContractCodeKind::GlobalByAccount(account_id)))
             }
         }
     }
