@@ -31,7 +31,7 @@ impl From<u128> for runtime::U128 {
 
 impl From<runtime::U128> for u128 {
     fn from(runtime::U128 { lo, hi }: runtime::U128) -> Self {
-        (u128::from(hi) << 64) | u128::from(lo)
+        u128::from(lo) | (u128::from(hi) << 64)
     }
 }
 
