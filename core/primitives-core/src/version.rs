@@ -442,8 +442,9 @@ impl ProtocolFeature {
             ProtocolFeature::ShuffleShardAssignments => 143,
             ProtocolFeature::ExcludeExistingCodeFromWitnessForCodeLen => 148,
             ProtocolFeature::InvalidTxGenerateOutcomes => 151,
-            ProtocolFeature::DynamicResharding => 152,
+
             // Place features that are not yet in Nightly below this line.
+            ProtocolFeature::DynamicResharding => 152,
         }
     }
 
@@ -462,7 +463,7 @@ pub const MIN_SUPPORTED_PROTOCOL_VERSION: ProtocolVersion = 80;
 const STABLE_PROTOCOL_VERSION: ProtocolVersion = 83;
 
 // On nightly, pick big enough version to support all features.
-const NIGHTLY_PROTOCOL_VERSION: ProtocolVersion = 152;
+const NIGHTLY_PROTOCOL_VERSION: ProtocolVersion = 151;
 
 /// Largest protocol version supported by the current binary.
 pub const PROTOCOL_VERSION: ProtocolVersion =
