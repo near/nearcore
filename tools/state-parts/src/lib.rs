@@ -65,7 +65,7 @@ fn handle_message(
                 ?part_id,
                 ?duration,
                 ?part_hash,
-                "Received VersionedStateResponse",
+                "received VersionedStateResponse",
             );
         }
         _ => {}
@@ -130,7 +130,7 @@ async fn state_parts_from_node(
             anyhow::bail!("Error connecting to {:?}: {}", peer_addr, e);
         }
     };
-    tracing::info!(target: "state-parts", ?peer_addr, ?peer_id, "Connected to peer");
+    tracing::info!(target: "state-parts", ?peer_addr, ?peer_id, "connected to peer");
 
     let next_request = tokio::time::sleep(std::time::Duration::ZERO);
     tokio::pin!(next_request);
@@ -143,7 +143,7 @@ async fn state_parts_from_node(
             _ = &mut next_request => {
                 let target = &peer_id;
                 let msg = DirectMessage::StateRequestPart(shard_id, block_hash, part_id);
-                tracing::info!(target: "state-parts", ?target, %shard_id, ?block_hash, part_id, ttl, "Sending a request");
+                tracing::info!(target: "state-parts", ?target, %shard_id, ?block_hash, part_id, ttl, "sending a request");
                 result = peer.send_message(msg).await.with_context(|| format!("Failed sending State Part Request to {:?}", target));
                 app_info.requests_sent.insert(part_id, near_time::Instant::now());
                 tracing::info!(target: "state-parts", ?result);

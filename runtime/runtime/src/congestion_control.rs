@@ -420,7 +420,7 @@ impl ReceiptSinkV2 {
                 receipt_id=?receipt.receipt_id(),
                 size,
                 max_receipt_size,
-                "try_forward observed a receipt with size exceeding the size limit!",
+                "try_forward observed a receipt with size exceeding the size limit",
             );
             size = max_receipt_size;
         }

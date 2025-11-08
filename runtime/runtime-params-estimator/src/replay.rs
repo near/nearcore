@@ -50,7 +50,7 @@ impl ReplayCmd {
         for line in input.lines() {
             let line = line?;
             if let Err(e) = visitor.eval_line(out, &line) {
-                error!("ERROR: {e} for input line: {line}");
+                tracing::error!(%e, %line, "error for input line");
             }
         }
         visitor.flush(out)?;

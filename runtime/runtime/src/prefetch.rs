@@ -238,11 +238,11 @@ impl TriePrefetcher {
         match res {
             Err(PrefetchError::QueueFull) => {
                 self.prefetch_queue_full.inc();
-                debug!(target: "runtime::prefetch", "I/O scheduler input queue is full, dropping prefetch request");
+                tracing::debug!(target: "runtime::prefetch", "I/O scheduler input queue is full, dropping prefetch request");
             }
             Err(PrefetchError::QueueDisconnected) => {
                 // This shouldn't have happened, hence logging warning here
-                warn!(target: "runtime::prefetch", "I/O scheduler input queue is disconnected, dropping prefetch request");
+                tracing::warn!(target: "runtime::prefetch", "I/O scheduler input queue is disconnected, dropping prefetch request");
             }
             Ok(()) => self.prefetch_enqueued.inc(),
         };

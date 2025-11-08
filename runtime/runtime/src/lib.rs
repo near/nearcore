@@ -339,7 +339,7 @@ impl Runtime {
         if log.is_empty() {
             return;
         }
-        debug!(target: "runtime", "{}", log.join("\n"));
+        tracing::debug!(target: "runtime", "{}", log.join("\n"));
     }
 
     fn apply_action(
@@ -1215,15 +1215,15 @@ impl Runtime {
         for (account_id, max_of_stakes) in &validator_accounts_update.stake_info {
             if let Some(mut account) = get_account(state_update, account_id)? {
                 if let Some(reward) = validator_accounts_update.validator_rewards.get(account_id) {
-                    debug!(target: "runtime", "account {} adding reward {} to stake {}", account_id, reward, account.locked());
+                    tracing::debug!(target: "runtime", %account_id, %reward, locked = %account.locked(), "account adding reward to stake");
                     account.set_locked(account.locked().checked_add(*reward).ok_or_else(|| {
                         RuntimeError::UnexpectedIntegerOverflow("update_validator_accounts".into())
                     })?);
                 }
 
-                debug!(target: "runtime",
-                       "account {} stake {} max_of_stakes: {}",
-                       account_id, account.locked(), max_of_stakes
+                tracing::debug!(target: "runtime",
+                       %account_id, locked = %account.locked(), %max_of_stakes,
+                       "account stake and max of stakes"
                 );
                 if account.locked() < *max_of_stakes {
                     return Err(StorageError::StorageInconsistentState(format!(
@@ -1244,7 +1244,7 @@ impl Runtime {
                             "update_validator_accounts - return stake".into(),
                         )
                     })?;
-                debug!(target: "runtime", "account {} return stake {}", account_id, return_stake);
+                tracing::debug!(target: "runtime", %account_id, %return_stake, "account return stake");
                 account.set_locked(account.locked().checked_sub(return_stake).ok_or_else(
                     || {
                         RuntimeError::UnexpectedIntegerOverflow(
@@ -2427,7 +2427,7 @@ impl ApplyState {
         let start = std::time::Instant::now();
         let result = bootstrap_congestion_info(trie, &self.config, self.shard_id);
         let time = start.elapsed();
-        tracing::warn!(target: "runtime","bootstrapping congestion info done after {time:#.1?}");
+        tracing::warn!(target: "runtime", ?time, "bootstrapping congestion info done");
         let computed = result?;
         Ok(computed)
     }

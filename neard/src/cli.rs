@@ -64,7 +64,7 @@ impl NeardCmd {
         )
         .local();
 
-        info!(
+        tracing::info!(
             target: "neard",
             version = crate::NEARD_VERSION,
             build = crate::NEARD_BUILD,
@@ -74,13 +74,14 @@ impl NeardCmd {
 
         #[cfg(feature = "test_features")]
         {
-            error!("THIS IS A NODE COMPILED WITH ADVERSARIAL BEHAVIORS. DO NOT USE IN PRODUCTION.");
+            tracing::error!(
+                "this is a node compiled with adversarial behaviors, do not use in production"
+            );
             if std::env::var("ADVERSARY_CONSENT").unwrap_or_default() != "1" {
-                error!(
-                    "To run a node with adversarial behavior enabled give your consent \
-                            by setting an environment variable:"
+                tracing::error!(
+                    "to run a node with adversarial behavior enabled give your consent by setting an environment variable:"
                 );
-                error!("ADVERSARY_CONSENT=1");
+                tracing::error!("ADVERSARY_CONSENT=1");
                 std::process::exit(1);
             }
         }
@@ -200,7 +201,7 @@ impl NeardOpts {
     // TODO(nikurt): Delete in 1.38 or later.
     pub fn verbose_target(&self) -> Option<&str> {
         self.verbose.as_ref().map(|inner| {
-            tracing::error!(target: "neard", "--verbose flag is deprecated, please use RUST_LOG or log_config.json instead.");
+            tracing::error!(target: "neard", "--verbose flag is deprecated, please use RUST_LOG or log_config.json instead");
             inner.as_ref().map_or("", String::as_str)
         })
     }
@@ -365,15 +366,14 @@ fn check_release_build(chain: &str) {
              command isn’t supported on {}.",
             chain
         );
-        warn!(
+        tracing::warn!(
             target: "neard",
-            "Note that `cargo build --release` builds lack optimizations which \
-             may be needed to run properly on {}",
-            chain
+            %chain,
+            "note that `cargo build --release` builds lack optimizations which may be needed to run properly"
         );
-        warn!(
+        tracing::warn!(
             target: "neard",
-            "Consider recompiling the binary using `make release` command.");
+            "consider recompiling the binary using `make release` command");
     }
 }
 
