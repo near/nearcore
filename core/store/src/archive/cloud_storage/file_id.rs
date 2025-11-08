@@ -1,4 +1,4 @@
-use near_primitives::types::BlockHeight;
+use near_primitives::types::{BlockHeight, ShardId};
 use std::path::PathBuf;
 
 /// Identifiers of files stored in cloud archival storage.
@@ -7,8 +7,10 @@ use std::path::PathBuf;
 pub enum CloudStorageFileID {
     /// The metadata file storing the current archival head.
     Head,
-    /// A block file for a given block height.
+    /// A block data associated with the given block height.
     Block(BlockHeight),
+    /// A shard data associated with the given block height.
+    Shard(BlockHeight, ShardId),
 }
 
 impl CloudStorageFileID {
@@ -17,6 +19,9 @@ impl CloudStorageFileID {
         match self {
             CloudStorageFileID::Head => vec!["metadata".to_string(), "head".to_string()],
             CloudStorageFileID::Block(height) => vec![height.to_string(), "block".to_string()],
+            CloudStorageFileID::Shard(height, shard_id) => {
+                vec![height.to_string(), "shard".to_string(), shard_id.to_string()]
+            }
         }
     }
 
