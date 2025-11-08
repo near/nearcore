@@ -43,6 +43,11 @@ impl<'a> near_store::StoreMigrator for Migrator<'a> {
             43 => Ok(()), // DBCol::ChunkApplyStats column added, no need to perform a migration
             44 => near_store::migrations::migrate_44_to_45(store),
             45 => Ok(()), // DBCol::StatePartsApplied column added, no need to perform a migration
+            46 => near_chain::resharding::migrations::migrate_46_to_47(
+                store,
+                &self.config.genesis.config,
+                &self.config.config.store,
+            ),
             DB_VERSION.. => unreachable!(),
         }
     }
