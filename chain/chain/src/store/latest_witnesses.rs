@@ -149,7 +149,7 @@ impl ChainStore {
 
         let start_time = std::time::Instant::now();
         let ChunkProductionKey { shard_id, epoch_id, height_created } =
-            witness.chunk_production_key();
+            witness.production_key().chunk;
         let _span = tracing::info_span!(target: "client", "save_latest_chunk_state_witness", ?height_created, %shard_id).entered();
 
         let serialized_witness = borsh::to_vec(witness)?;

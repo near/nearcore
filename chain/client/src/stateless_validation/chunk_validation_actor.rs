@@ -200,7 +200,7 @@ impl ChunkValidationActorInner {
     fn send_state_witness_ack(&self, witness: &ChunkStateWitness) -> Result<(), Error> {
         let chunk_producer = self
             .epoch_manager
-            .get_chunk_producer_info(&witness.chunk_production_key())?
+            .get_chunk_producer_info(&witness.production_key().chunk)?
             .account_id()
             .clone();
 
@@ -373,8 +373,8 @@ impl ChunkValidationActorInner {
         let _span = tracing::debug_span!(
             target: "chunk_validation",
             "start_validating_chunk",
-            height = %state_witness.chunk_production_key().height_created,
-            shard_id = %state_witness.chunk_production_key().shard_id,
+            height = %state_witness.production_key().chunk.height_created,
+            shard_id = %state_witness.production_key().chunk.shard_id,
             validator = %signer.validator_id(),
             tag_block_production = true,
             tag_witness_distribution = true,
@@ -382,7 +382,7 @@ impl ChunkValidationActorInner {
         .entered();
 
         let prev_block_hash = *state_witness.chunk_header().prev_block_hash();
-        let chunk_production_key = state_witness.chunk_production_key();
+        let chunk_production_key = state_witness.production_key().chunk;
         let shard_id = state_witness.chunk_header().shard_id();
         let chunk_header = state_witness.chunk_header().clone();
         let chunk_producer_name =

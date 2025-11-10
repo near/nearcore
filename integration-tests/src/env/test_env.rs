@@ -406,7 +406,7 @@ impl TestEnv {
             while let Some(request) = partial_witness_adapter.pop_distribution_request() {
                 let DistributeStateWitnessRequest { state_witness, .. } = request;
                 let raw_witness_size = borsh::object_length(&state_witness).unwrap();
-                let key = state_witness.chunk_production_key();
+                let key = state_witness.production_key();
                 let chunk_validators = self.clients[client_idx]
                     .epoch_manager
                     .get_chunk_validator_assignments(

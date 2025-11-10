@@ -15,7 +15,7 @@ use near_primitives::reed_solomon::{
     InsertPartResult, ReedSolomonEncoder, ReedSolomonEncoderCache, ReedSolomonPartsTracker,
 };
 use near_primitives::state::PartialState;
-use near_primitives::stateless_validation::ChunkProductionKey;
+use near_primitives::stateless_validation::{ChunkProductionKey, WitnessProductionKey};
 use near_primitives::stateless_validation::contract_distribution::{CodeBytes, CodeHash};
 use near_primitives::stateless_validation::partial_witness::PartialEncodedStateWitness;
 use near_primitives::stateless_validation::state_witness::{
@@ -403,7 +403,7 @@ impl PartialEncodedStateWitnessTracker {
 
     fn process_update(
         &self,
-        key: ChunkProductionKey,
+        key: WitnessProductionKey,
         create_if_not_exists: bool,
         update: CacheUpdate,
     ) -> Result<(), Error> {
@@ -484,10 +484,10 @@ impl PartialEncodedStateWitnessTracker {
                 .entered();
                 self.decode_state_witness(&encoded_witness)?
             };
-            if witness.chunk_production_key() != key {
+            if witness.production_key() != key {
                 return Err(Error::InvalidPartialChunkStateWitness(format!(
                     "Decoded witness key {:?} doesn't match partial witness {:?}",
-                    witness.chunk_production_key(),
+                    witness.production_key(),
                     key,
                 )));
             }

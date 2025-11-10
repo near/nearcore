@@ -313,8 +313,8 @@ pub fn pre_validate_chunk_state_witness(
     epoch_manager: &dyn EpochManagerAdapter,
 ) -> Result<PreValidationOutput, Error> {
     // Ensure that the chunk header version is supported in this protocol version
-    let ChunkProductionKey { epoch_id, .. } = state_witness.chunk_production_key();
-    let protocol_version = epoch_manager.get_epoch_info(&epoch_id)?.protocol_version();
+    let ChunkProductionKey { epoch_id, .. } = &state_witness.production_key().chunk;
+    let protocol_version = epoch_manager.get_epoch_info(epoch_id)?.protocol_version();
     state_witness.chunk_header().validate_version(protocol_version)?;
 
     // First, go back through the blockchain history to locate the last new chunk
@@ -548,7 +548,7 @@ pub fn validate_chunk_state_witness_impl(
     rs: Arc<ReedSolomon>,
 ) -> Result<(), Error> {
     let ChunkProductionKey { shard_id: witness_chunk_shard_id, epoch_id, height_created } =
-        state_witness.chunk_production_key();
+        state_witness.production_key().chunk;
     let _timer = crate::stateless_validation::metrics::CHUNK_STATE_WITNESS_VALIDATION_TIME
         .with_label_values(&[&witness_chunk_shard_id.to_string()])
         .start_timer();

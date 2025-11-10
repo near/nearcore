@@ -21,7 +21,7 @@ use near_primitives::reed_solomon::{
     REED_SOLOMON_MAX_PARTS, ReedSolomonEncoder, ReedSolomonEncoderCache,
 };
 use near_primitives::sharding::ShardChunkHeader;
-use near_primitives::stateless_validation::ChunkProductionKey;
+use near_primitives::stateless_validation::{ChunkProductionKey, WitnessProductionKey};
 use near_primitives::stateless_validation::contract_distribution::{
     ChunkContractAccesses, ChunkContractDeploys, CodeBytes, CodeHash, ContractCodeRequest,
     ContractCodeResponse, ContractUpdates, MainTransitionKey, PartialEncodedContractDeploys,
@@ -231,7 +231,7 @@ impl PartialWitnessActor {
         //    since the newly-deployed contracts will be needed by other validators in later turns.
 
         let signer = self.my_validator_signer()?;
-        let key = state_witness.chunk_production_key();
+        let key = state_witness.production_key().chunk;
         let chunk_validators = self
             .epoch_manager
             .get_chunk_validator_assignments(&key.epoch_id, key.shard_id, key.height_created)
@@ -890,7 +890,7 @@ impl PartialWitnessActor {
 // Function to generate the parts of the state witness and return them as a tuple of chunk_validator and part.
 pub fn generate_state_witness_parts(
     encoder: Arc<ReedSolomonEncoder>,
-    epoch_id: EpochId,
+    key: WitnessProductionKey,
     chunk_header: &ShardChunkHeader,
     witness_bytes: EncodedChunkStateWitness,
     chunk_validators: &[AccountId],
@@ -918,8 +918,7 @@ pub fn generate_state_witness_parts(
             // It's fine to unwrap part here as we just constructed the parts above and we expect
             // all of them to be present.
             let partial_witness = PartialEncodedStateWitness::new(
-                epoch_id,
-                chunk_header.clone(),
+                key.clone(),
                 part_ord,
                 part.unwrap().into_vec(),
                 encoded_length,

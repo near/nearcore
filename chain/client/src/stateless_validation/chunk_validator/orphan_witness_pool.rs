@@ -3,7 +3,7 @@ use std::num::NonZeroUsize;
 use lru::LruCache;
 use near_chain_configs::default_orphan_state_witness_pool_size;
 use near_primitives::hash::CryptoHash;
-use near_primitives::stateless_validation::ChunkProductionKey;
+use near_primitives::stateless_validation::WitnessProductionKey;
 use near_primitives::stateless_validation::state_witness::ChunkStateWitness;
 use near_primitives::types::BlockHeight;
 
@@ -14,7 +14,7 @@ use metrics_tracker::OrphanWitnessMetricsTracker;
 /// shows up before the block is available. In such cases the witness is put in `OrphanStateWitnessPool` until the
 /// required block arrives and the witness can be processed.
 pub struct OrphanStateWitnessPool {
-    witness_cache: LruCache<ChunkProductionKey, CacheEntry>,
+    witness_cache: LruCache<WitnessProductionKey, CacheEntry>,
 }
 
 struct CacheEntry {
@@ -47,7 +47,7 @@ impl OrphanStateWitnessPool {
     /// `witness_size` is only used for metrics, it's okay to pass 0 if you don't care about the metrics.
     pub fn add_orphan_state_witness(&mut self, witness: ChunkStateWitness, witness_size: usize) {
         // Insert the new ChunkStateWitness into the cache
-        let cache_key = witness.chunk_production_key();
+        let cache_key = witness.production_key();
         let metrics_tracker = OrphanWitnessMetricsTracker::new(&witness, witness_size);
         let cache_entry = CacheEntry { witness, _metrics_tracker: metrics_tracker };
         if let Some((_, ejected_entry)) = self.witness_cache.push(cache_key, cache_entry) {
@@ -70,7 +70,7 @@ impl OrphanStateWitnessPool {
         &mut self,
         prev_block: &CryptoHash,
     ) -> Vec<ChunkStateWitness> {
-        let mut to_remove: Vec<ChunkProductionKey> = Vec::new();
+        let mut to_remove: Vec<WitnessProductionKey> = Vec::new();
         for (cache_key, cache_entry) in &self.witness_cache {
             if cache_entry.witness.chunk_header().prev_block_hash() == prev_block {
                 to_remove.push(cache_key.clone());
@@ -91,9 +91,9 @@ impl OrphanStateWitnessPool {
     /// Orphan witnesses below the final height of the chain won't be needed anymore,
     /// so they can be removed from the pool to free up memory.
     pub fn remove_witnesses_below_final_height(&mut self, final_height: BlockHeight) {
-        let mut to_remove: Vec<ChunkProductionKey> = Vec::new();
+        let mut to_remove: Vec<WitnessProductionKey> = Vec::new();
         for (cache_key, cache_entry) in &self.witness_cache {
-            let witness_height = cache_key.height_created;
+            let witness_height = cache_key.chunk.height_created;
             if witness_height <= final_height {
                 to_remove.push(cache_key.clone());
                 let header = &cache_entry.witness.chunk_header();
@@ -101,7 +101,7 @@ impl OrphanStateWitnessPool {
                     target: "client",
                     final_height,
                     ejected_witness_height = witness_height,
-                    ejected_witness_shard = ?cache_key.shard_id,
+                    ejected_witness_shard = ?cache_key.chunk.shard_id,
                     ejected_witness_chunk = ?header.chunk_hash(),
                     ejected_witness_prev_block = ?header.prev_block_hash(),
                     "Ejecting an orphaned ChunkStateWitness from the cache because it's below \

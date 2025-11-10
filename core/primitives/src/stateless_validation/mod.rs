@@ -23,6 +23,16 @@ pub struct ChunkProductionKey {
     pub height_created: BlockHeight,
 }
 
+impl ChunkProductionKey {
+    pub fn to_le_bytes(&self) -> [u8; size_of::<Self>()] {
+        let mut res = Vec::with_capacity(size_of::<Self>());
+        res.extend_from_slice(&self.shard_id.to_le_bytes());
+        res.extend_from_slice(self.epoch_id.as_ref());
+        res.extend_from_slice(&self.height_created.to_le_bytes());
+        res.try_into().unwrap()
+    }
+}
+
 #[derive(
     Debug, Hash, PartialEq, Eq, Copy, Clone, BorshSerialize, BorshDeserialize, ProtocolSchema,
 )]
@@ -35,7 +45,7 @@ impl WitnessType {
     /// convenience: all bits set
     pub const FULL: Self        = Self(0b11);
 
-    pub fn bits(self) -> u8 { self.0 }
+    pub fn to_le_bytes(&self) -> [u8; size_of::<Self>()] { [self.0] }
     pub fn contains(self, other: Self) -> bool { (self.0 & other.0) == other.0 }
     pub fn insert(&mut self, other: Self) { self.0 |= other.0; }
 
@@ -62,7 +72,7 @@ impl WitnessProductionKey {
     pub fn to_le_bytes(&self) -> [u8; size_of::<ChunkProductionKey>() + 1] {
         let mut res = Vec::with_capacity(size_of::<ChunkProductionKey>() + 1);
         res.extend_from_slice(&self.chunk.to_le_bytes());
-        res.push(self.witness_type.bits());
+        res.extend_from_slice(&self.witness_type.to_le_bytes());
         res.try_into().unwrap()
     }
 }

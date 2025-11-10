@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::fmt::Debug;
 
-use super::ChunkProductionKey;
+use super::{ChunkProductionKey, WitnessProductionKey, WitnessType};
 use crate::block::ApplyChunkBlockContext;
 use crate::receipt::Receipt;
 #[cfg(feature = "solomon")]
@@ -331,10 +331,11 @@ impl ChunkStateWitness {
         )
     }
 
-    pub fn chunk_production_key(&self) -> ChunkProductionKey {
+    pub fn production_key(&self) -> WitnessProductionKey {
         match self {
             ChunkStateWitness::V1 => unreachable!("ChunkStateWitness V1 is deprecated"),
-            ChunkStateWitness::V2(witness) => witness.chunk_production_key(),
+            ChunkStateWitness::V2(witness) => witness.production_key(),
+            ChunkStateWitness::V3(witness) => witness.production_key(),
         }
     }
 
@@ -342,6 +343,15 @@ impl ChunkStateWitness {
         match self {
             ChunkStateWitness::V1 => unreachable!("ChunkStateWitness V1 is deprecated"),
             ChunkStateWitness::V2(witness) => &witness.epoch_id,
+            ChunkStateWitness::V3(witness) => {
+                if let Some(apply_witness) = &witness.chunk_apply_witness {
+                    &apply_witness.epoch_id
+                } else if let Some(validate_witness) = &witness.chunk_validate_witness {
+                    &validate_witness.epoch_id
+                } else {
+                    panic!("ChunkStateWitnessV3 must have at least one of apply or validate witness");
+                }
+            }
         }
     }
 
@@ -349,6 +359,31 @@ impl ChunkStateWitness {
         match self {
             ChunkStateWitness::V1 => unreachable!("ChunkStateWitness V1 is deprecated"),
             ChunkStateWitness::V2(witness) => &witness.chunk_header,
+            ChunkStateWitness::V3(witness) => {
+                // Apply witness carries partially complete chunk header and cannot be generally used.
+                if let Some(validate_witness) = &witness.chunk_validate_witness {
+                    &validate_witness.chunk_header
+                } else {
+                    panic!("chunk_header request on ChunkStateWitnessV3 without the `validate` witness");
+                }
+            }
+        }
+    }
+
+    /// Returns chunk header which may be incomplete (missing some fields) in case of V3 witness with only `apply` part.
+    pub fn maybe_incomplete_header(&self)-> &ShardChunkHeader {
+        match self {
+            ChunkStateWitness::V1 => unreachable!("ChunkStateWitness V1 is deprecated"),
+            ChunkStateWitness::V2(witness) => &witness.chunk_header,
+            ChunkStateWitness::V3(witness) => {
+                if let Some(validate_witness) = &witness.chunk_validate_witness {
+                    &validate_witness.chunk_header
+                } else if let Some(apply_witness) = &witness.chunk_apply_witness {
+                    &apply_witness.chunk_header
+                } else {
+                    panic!("ChunkStateWitnessV3 must have at least one of apply or validate witness");
+                }
+            }
         }
     }
 
@@ -356,6 +391,13 @@ impl ChunkStateWitness {
         match self {
             ChunkStateWitness::V1 => unreachable!("ChunkStateWitness V1 is deprecated"),
             ChunkStateWitness::V2(witness) => &witness.main_state_transition,
+            ChunkStateWitness::V3(witness) => {
+                if let Some(apply_witness) = &witness.chunk_apply_witness {
+                    &apply_witness.main_state_transition
+                } else {
+                    panic!("main_state_transition request on ChunkStateWitnessV3 without the `apply` witness");
+                }
+            }
         }
     }
 
@@ -363,6 +405,13 @@ impl ChunkStateWitness {
         match self {
             ChunkStateWitness::V1 => unreachable!("ChunkStateWitness V1 is deprecated"),
             ChunkStateWitness::V2(witness) => &mut witness.main_state_transition,
+            ChunkStateWitness::V3(witness) => {
+                if let Some(apply_witness) = &mut witness.chunk_apply_witness {
+                    &mut apply_witness.main_state_transition
+                } else {
+                    panic!("mut_main_state_transition request on ChunkStateWitnessV3 without the `apply` witness");
+                }
+            }
         }
     }
 
@@ -370,6 +419,13 @@ impl ChunkStateWitness {
         match self {
             ChunkStateWitness::V1 => unreachable!("ChunkStateWitness V1 is deprecated"),
             ChunkStateWitness::V2(witness) => &witness.source_receipt_proofs,
+            ChunkStateWitness::V3(witness) => {
+                if let Some(validate_witness) = &witness.chunk_validate_witness {
+                    &validate_witness.source_receipt_proofs
+                } else {
+                    panic!("source_receipt_proofs request on ChunkStateWitnessV3 without the `validate` witness");
+                }
+            }
         }
     }
 
@@ -377,6 +433,15 @@ impl ChunkStateWitness {
         match self {
             ChunkStateWitness::V1 => unreachable!("ChunkStateWitness V1 is deprecated"),
             ChunkStateWitness::V2(witness) => &witness.applied_receipts_hash,
+            ChunkStateWitness::V3(witness) => {
+                if let Some(apply_witness) = &witness.chunk_apply_witness {
+                    &apply_witness.applied_receipts_hash
+                } else if let Some(validate_witness) = &witness.chunk_validate_witness {
+                    &validate_witness.applied_receipts_hash
+                } else {
+                    panic!("ChunkStateWitnessV3 must have at least one of `apply` or `validate` witness");
+                }
+            }
         }
     }
 
@@ -384,6 +449,13 @@ impl ChunkStateWitness {
         match self {
             ChunkStateWitness::V1 => unreachable!("ChunkStateWitness V1 is deprecated"),
             ChunkStateWitness::V2(witness) => &witness.transactions,
+            ChunkStateWitness::V3(witness) => {
+                if let Some(apply_witness) = &witness.chunk_apply_witness {
+                    &apply_witness.transactions
+                } else {
+                    panic!("transactions request on ChunkStateWitnessV3 without the `apply` witness");
+                }
+            }
         }
     }
 
@@ -391,6 +463,13 @@ impl ChunkStateWitness {
         match self {
             ChunkStateWitness::V1 => unreachable!("ChunkStateWitness V1 is deprecated"),
             ChunkStateWitness::V2(witness) => &witness.implicit_transitions,
+            ChunkStateWitness::V3(witness) => {
+                if let Some(validate_witness) = &witness.chunk_validate_witness {
+                    &validate_witness.implicit_transitions
+                } else {
+                    panic!("implicit_transitions request on ChunkStateWitnessV3 without the `validate` witness");
+                }
+            }
         }
     }
 
@@ -398,6 +477,13 @@ impl ChunkStateWitness {
         match self {
             ChunkStateWitness::V1 => unreachable!("ChunkStateWitness V1 is deprecated"),
             ChunkStateWitness::V2(witness) => &witness.new_transactions,
+            ChunkStateWitness::V3(witness) => {
+                if let Some(validate_witness) = &witness.chunk_validate_witness {
+                    &validate_witness.new_transactions
+                } else {
+                    panic!("new_transactions request on ChunkStateWitnessV3 without the `validate` witness");
+                }
+            }
         }
     }
 }
@@ -408,6 +494,49 @@ impl ChunkStateWitnessV2 {
             shard_id: self.chunk_header.shard_id(),
             epoch_id: self.epoch_id,
             height_created: self.chunk_header.height_created(),
+        }
+    }
+
+    pub fn production_key(&self)-> WitnessProductionKey {
+        WitnessProductionKey {
+            chunk: self.chunk_production_key(),
+            witness_type: WitnessType::FULL,
+        }
+    }
+}
+
+impl ChunkStateWitnessV3 {
+    pub fn witness_mask(&self)-> WitnessType {
+        let mut mask = WitnessType(0);
+        if self.chunk_apply_witness.is_some() {
+            mask.insert(WitnessType::OPTIMISTIC);
+        }
+        if self.chunk_validate_witness.is_some() {
+            mask.insert(WitnessType::VALIDATE);
+        }
+        mask
+    }
+
+    pub fn chunk_production_key(&self) -> ChunkProductionKey {
+        let (chunk_header, epoch_id) = if let Some(chunk_validate_witness) = &self.chunk_validate_witness {
+            (&chunk_validate_witness.chunk_header, &chunk_validate_witness.epoch_id)
+        } else if let Some(chunk_apply_witness) = &self.chunk_apply_witness {
+            (&chunk_apply_witness.chunk_header, &chunk_apply_witness.epoch_id)
+        } else {
+            panic!("ChunkValidateWitness and ChunkApplyWitness are not given");
+        };
+
+        ChunkProductionKey {
+            shard_id: chunk_header.shard_id(),
+            epoch_id: *epoch_id,
+            height_created: chunk_header.height_created(),
+        }
+    }
+    
+    pub fn production_key(&self) -> WitnessProductionKey {
+        WitnessProductionKey {
+            chunk: self.chunk_production_key(),
+            witness_type: self.witness_mask(),
         }
     }
 }
