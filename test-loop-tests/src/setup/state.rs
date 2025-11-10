@@ -14,7 +14,10 @@ use near_client::archive::cloud_archival_writer::CloudArchivalWriterHandle;
 use near_client::archive::cold_store_actor::ColdStoreActor;
 use near_client::client_actor::ClientActorInner;
 use near_client::spice_data_distributor_actor::SpiceDataDistributorActor;
-use near_client::{PartialWitnessActor, RpcHandler, StateRequestActor, ViewClientActorInner};
+use near_client::{
+    ChunkEndorsementHandler, PartialWitnessActor, RpcHandler, StateRequestActor,
+    ViewClientActorInner,
+};
 use near_jsonrpc::ViewClientSenderForRpc;
 use near_network::client::SpiceChunkEndorsementMessage;
 use near_network::shards_manager::ShardsManagerRequestFromNetwork;
@@ -32,9 +35,10 @@ use parking_lot::Mutex;
 use tempfile::TempDir;
 
 use crate::utils::peer_manager_actor::{
-    ClientSenderForTestLoopNetwork, SpiceDataDistributorSenderForTestLoopNetwork,
-    TestLoopNetworkBlockInfo, TestLoopNetworkSharedState, TestLoopPeerManagerActor,
-    TxRequestHandleSenderForTestLoopNetwork, ViewClientSenderForTestLoopNetwork,
+    ChunkEndorsementSenderForTestLoopNetwork, ClientSenderForTestLoopNetwork,
+    SpiceDataDistributorSenderForTestLoopNetwork, TestLoopNetworkBlockInfo,
+    TestLoopNetworkSharedState, TestLoopPeerManagerActor, TxRequestHandleSenderForTestLoopNetwork,
+    ViewClientSenderForTestLoopNetwork,
 };
 
 use super::drop_condition::{DropCondition, TestLoopChunksStorage};
@@ -82,6 +86,7 @@ pub struct NodeExecutionData {
     pub view_client_sender: TestLoopSender<ViewClientActorInner>,
     pub state_request_sender: TestLoopSender<StateRequestActor>,
     pub rpc_handler_sender: TestLoopSender<RpcHandler>,
+    pub chunk_endorsement_handler_sender: TestLoopSender<ChunkEndorsementHandler>,
     pub shards_manager_sender: TestLoopSender<ShardsManagerActor>,
     pub partial_witness_sender: TestLoopSender<PartialWitnessActor>,
     pub peer_manager_sender: TestLoopSender<TestLoopPeerManagerActor>,
@@ -145,6 +150,12 @@ impl From<&NodeExecutionData> for Sender<ShardsManagerRequestFromNetwork> {
 impl From<&NodeExecutionData> for TxRequestHandleSenderForTestLoopNetwork {
     fn from(data: &NodeExecutionData) -> TxRequestHandleSenderForTestLoopNetwork {
         data.rpc_handler_sender.clone().with_delay(NETWORK_DELAY).into_multi_sender()
+    }
+}
+
+impl From<&NodeExecutionData> for ChunkEndorsementSenderForTestLoopNetwork {
+    fn from(data: &NodeExecutionData) -> ChunkEndorsementSenderForTestLoopNetwork {
+        data.chunk_endorsement_handler_sender.clone().with_delay(NETWORK_DELAY).into_multi_sender()
     }
 }
 

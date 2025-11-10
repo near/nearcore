@@ -341,6 +341,11 @@ pub enum DBCol {
     /// - *Content type*: `near_primitives::sharding::ReceiptProof`
     #[cfg(feature = "protocol_feature_spice")]
     ReceiptProofs,
+    /// Stores produces witnesses by spice executor.
+    /// - *Rows*: (BlockHash || ShardId)
+    /// - *Content type*: [near_primitives::stateless_validation::spice_state_witness::SpiceChunkStateWitness]
+    #[cfg(feature = "protocol_feature_spice")]
+    Witnesses,
     /// All known processed next block hashes regardless of canonical chain.
     /// - *Rows*: BlockHash (CryptoHash)
     /// - *Content type*: next block: Vec<BlockHash (CryptoHash)>
@@ -524,6 +529,8 @@ impl DBCol {
             #[cfg(feature = "protocol_feature_spice")]
             | DBCol::ReceiptProofs => true,
             #[cfg(feature = "protocol_feature_spice")]
+            | DBCol::Witnesses => false,
+            #[cfg(feature = "protocol_feature_spice")]
             | DBCol::AllNextBlockHashes => false,
             #[cfg(feature = "protocol_feature_spice")]
             | DBCol::Endorsements => false,
@@ -678,6 +685,8 @@ impl DBCol {
             #[cfg(feature = "protocol_feature_spice")]
             DBCol::ReceiptProofs => &[DBKeyType::BlockHash, DBKeyType::ShardId, DBKeyType::ShardId],
             #[cfg(feature = "protocol_feature_spice")]
+            DBCol::Witnesses => &[DBKeyType::BlockHash, DBKeyType::ShardId],
+            #[cfg(feature = "protocol_feature_spice")]
             DBCol::AllNextBlockHashes => &[DBKeyType::BlockHash],
             #[cfg(feature = "protocol_feature_spice")]
             DBCol::Endorsements => &[DBKeyType::SpiceEndorsementKey],
@@ -688,6 +697,13 @@ impl DBCol {
             #[cfg(feature = "protocol_feature_spice")]
             DBCol::UncertifiedChunks => &[DBKeyType::BlockHash],
         }
+    }
+
+    pub fn witnesses() -> DBCol {
+        #[cfg(feature = "protocol_feature_spice")]
+        return DBCol::Witnesses;
+        #[cfg(not(feature = "protocol_feature_spice"))]
+        panic!("Expected protocol_feature_spice to be enabled")
     }
 
     pub fn receipt_proofs() -> DBCol {

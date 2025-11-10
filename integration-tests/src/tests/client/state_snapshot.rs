@@ -42,12 +42,10 @@ impl StateSnapshotTestEnv {
             ..TrieConfig::default()
         };
         let flat_storage_manager = FlatStorageManager::new(store.flat_store());
-        let shard_uids = [ShardUId::single_shard()];
 
         let shard_tries = ShardTries::new(
             store.trie_store(),
             trie_config,
-            &shard_uids,
             flat_storage_manager,
             state_snapshot_config,
         );

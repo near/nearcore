@@ -1,4 +1,6 @@
 mod bandwidth_scheduler;
+#[cfg(feature = "test_features")]
+mod block_chunk_signature;
 mod bug_repro;
 mod catching_up;
 mod chunk_validator_kickout;
@@ -26,6 +28,8 @@ mod indexer;
 mod malicious_chunk_producer;
 mod max_receipt_size;
 mod multinode_stateless_validators;
+#[cfg(feature = "test_features")]
+mod network_drop;
 mod optimistic_block;
 mod process_blocks;
 mod protocol_upgrade;

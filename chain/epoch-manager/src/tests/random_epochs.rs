@@ -278,9 +278,5 @@ fn is_possible_bad_epochs_case(prev: &EpochInfo, curr: &EpochInfo) -> bool {
 }
 
 fn get_stakes_map(epoch_info: &EpochInfo) -> HashMap<AccountId, Balance> {
-    epoch_info
-        .validators_iter()
-        .chain(epoch_info.fishermen_iter())
-        .map(|stake| stake.account_and_stake())
-        .collect::<HashMap<_, _>>()
+    epoch_info.validators_iter().map(|stake| stake.account_and_stake()).collect::<HashMap<_, _>>()
 }

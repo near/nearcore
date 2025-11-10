@@ -21,8 +21,11 @@ use std::sync::{Arc, atomic};
 use std::time::Duration;
 use tokio::task::{self, JoinSet};
 
+use crate::choice::Choice;
+
 pub mod account;
 pub mod actor;
+mod choice;
 
 // Number of tasks to run producing and sending transactions
 // We need several tasks to not get blocked by the sending latency.
@@ -53,6 +56,18 @@ pub struct Config {
     schedule: Vec<Load>,
     controller: Option<ControllerConfig>,
     accounts_path: PathBuf,
+    #[serde(default = "default_sender_accounts_zipf_skew")]
+    sender_accounts_zipf_skew: f64,
+    #[serde(default = "default_receiver_accounts_zipf_skew")]
+    receiver_accounts_zipf_skew: f64,
+}
+
+fn default_sender_accounts_zipf_skew() -> f64 {
+    0.0 // uniform distribution
+}
+
+fn default_receiver_accounts_zipf_skew() -> f64 {
+    0.0 // uniform distribution
 }
 
 impl Default for Config {
@@ -61,6 +76,8 @@ impl Default for Config {
             schedule: Default::default(),
             controller: Default::default(),
             accounts_path: "".into(),
+            sender_accounts_zipf_skew: default_sender_accounts_zipf_skew(),
+            receiver_accounts_zipf_skew: default_receiver_accounts_zipf_skew(),
         }
     }
 }
@@ -261,17 +278,18 @@ impl TxGenerator {
         accounts: &[account::Account],
         block_hash: &CryptoHash,
         client_sender: &ClientSender,
+        choice: &Choice,
     ) -> bool {
         // each transaction will transfer this amount
         const AMOUNT: Balance = Balance::from_yoctonear(1);
 
-        let idx = rand::seq::index::sample(rnd, accounts.len(), 2);
-        let sender = &accounts[idx.index(0)];
+        let (sender_idx, receiver_idx) = choice.sample(rnd);
+        let sender = &accounts[sender_idx];
         let nonce = sender.nonce.fetch_add(1, atomic::Ordering::Relaxed) + 1;
         let sender_id = sender.id.clone();
         let signer = sender.as_signer();
 
-        let receiver = &accounts[idx.index(1)];
+        let receiver = &accounts[receiver_idx];
         let transaction = SignedTransaction::send_money(
             nonce,
             sender_id,
@@ -382,6 +400,7 @@ impl TxGenerator {
         duration: tokio::time::Duration,
         mut rx_block: tokio::sync::watch::Receiver<BlockHeaderView>,
         stats: Arc<Stats>,
+        choice: Arc<Choice>,
     ) {
         let mut rnd: StdRng = SeedableRng::from_entropy();
 
@@ -403,6 +422,7 @@ impl TxGenerator {
                             &accounts,
                             &latest_block_hash,
                             &client_sender,
+                            &choice,
                         )
                         .await;
 
@@ -425,6 +445,7 @@ impl TxGenerator {
         load: Load,
         rx_block: tokio::sync::watch::Receiver<BlockHeaderView>,
         stats: Arc<Stats>,
+        choice: Arc<Choice>,
     ) {
         tracing::info!(target: "transaction-generator", ?load, "starting the load");
 
@@ -441,6 +462,7 @@ impl TxGenerator {
                 load.duration,
                 rx_block.clone(),
                 Arc::clone(&stats),
+                Arc::clone(&choice),
             ));
         }
         tasks.join_all().await;
@@ -523,6 +545,7 @@ impl TxGenerator {
         accounts: Arc<Vec<Account>>,
         rx_block: tokio::sync::watch::Receiver<BlockHeaderView>,
         stats: Arc<Stats>,
+        choice: Arc<Choice>,
     ) {
         tracing::info!(target: "transaction-generator", "starting the controlled loop");
 
@@ -536,6 +559,7 @@ impl TxGenerator {
                 rx_block.clone(),
                 rx_intervals.clone(),
                 Arc::clone(&stats),
+                Arc::clone(&choice),
             ));
         }
     }
@@ -546,6 +570,7 @@ impl TxGenerator {
         mut rx_block: tokio::sync::watch::Receiver<BlockHeaderView>,
         mut tx_rates: tokio::sync::watch::Receiver<tokio::time::Duration>,
         stats: Arc<Stats>,
+        choice: Arc<Choice>,
     ) {
         let mut rnd: StdRng = SeedableRng::from_entropy();
 
@@ -571,6 +596,7 @@ impl TxGenerator {
                             &accounts,
                             &latest_block_hash,
                             &client_sender,
+                            &choice,
                         )
                         .await;
 
@@ -613,8 +639,16 @@ impl TxGenerator {
             None
         };
 
+        let (sender_accounts_zipf_skew, receiver_accounts_zipf_skew) =
+            (config.sender_accounts_zipf_skew, config.receiver_accounts_zipf_skew);
         tokio::spawn(async move {
             let accounts = rx_accounts.await.unwrap();
+            let choice = Arc::new(Choice::new(
+                accounts.len(),
+                sender_accounts_zipf_skew,
+                receiver_accounts_zipf_skew,
+            ));
+
             for load in &schedule {
                 Self::run_load(
                     client_sender.clone(),
@@ -622,6 +656,7 @@ impl TxGenerator {
                     load.clone(),
                     rx_block.clone(),
                     Arc::clone(&stats),
+                    Arc::clone(&choice),
                 )
                 .await;
             }
@@ -638,6 +673,7 @@ impl TxGenerator {
                     accounts.clone(),
                     rx_block.clone(),
                     Arc::clone(&stats),
+                    Arc::clone(&choice),
                 )
                 .await;
             } else {

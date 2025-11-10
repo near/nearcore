@@ -56,11 +56,9 @@ impl AnalyzeDelayedReceiptCommand {
 
         let tip = chain_store.head().unwrap();
         let shard_layout = epoch_manager.get_shard_layout(&tip.epoch_id).unwrap();
-        let shard_uids = shard_layout.shard_uids().collect::<Vec<_>>();
         let shard_tries = ShardTries::new(
             store.trie_store(),
             TrieConfig::default(),
-            &shard_uids,
             FlatStorageManager::new(store.flat_store()),
             StateSnapshotConfig::Disabled,
         );

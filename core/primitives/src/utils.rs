@@ -179,6 +179,10 @@ pub fn get_block_shard_id(block_hash: &CryptoHash, shard_id: ShardId) -> Vec<u8>
     res
 }
 
+pub fn get_witnesses_key(block_hash: &CryptoHash, shard_id: ShardId) -> Vec<u8> {
+    get_block_shard_id(block_hash, shard_id)
+}
+
 pub fn get_receipt_proof_key(
     block_hash: &CryptoHash,
     from_shard_id: ShardId,

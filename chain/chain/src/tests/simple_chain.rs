@@ -36,10 +36,10 @@ fn build_chain() {
     let hash = chain.head().unwrap().last_block_hash;
     if cfg!(feature = "nightly") {
         // cspell:disable-next-line
-        insta::assert_snapshot!(hash, @"92FxojHuVNjHq91GuwyCVZXCH4cxJKmmsrbpmUuJ9Yfh");
+        insta::assert_snapshot!(hash, @"24ZC3eGVvtFdTEok4wPGBzx3x61tWqQpves7nFvow2zf");
     } else {
         // cspell:disable-next-line
-        insta::assert_snapshot!(hash, @"4DPNdH3WYvvM8mWy2LwfRnLd4beF6ekwDvVBb7WdKFvt");
+        insta::assert_snapshot!(hash, @"Grm5om5AJjHLY4g643fyGuMW8yosiwsu1gD6GTyX94ih");
     }
 
     for i in 1..5 {
@@ -56,10 +56,10 @@ fn build_chain() {
     let hash = chain.head().unwrap().last_block_hash;
     if cfg!(feature = "nightly") {
         // cspell:disable-next-line
-        insta::assert_snapshot!(hash, @"GT96L4juwtGQH2sfq6aARf5fjn6xL8oczfH8khcUZXqN");
+        insta::assert_snapshot!(hash, @"9enFQNcVUW65x3oW2iVdYSBxK9qFNETAixEQZLzXWeaQ");
     } else {
         // cspell:disable-next-line
-        insta::assert_snapshot!(hash, @"GwK1vvXBEERWhjKkiP29xE58iuGS9zyrdxoThMZ5BWFS");
+        insta::assert_snapshot!(hash, @"5BCVS78rWgTfKXv5CCU65XnsVWjpZgp53gExK1334DkN");
     }
 }
 

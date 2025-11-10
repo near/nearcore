@@ -10,10 +10,10 @@ use crate::config::PEERS_RESPONSE_MAX_PEERS;
 #[cfg(feature = "distance_vector_routing")]
 use crate::network_protocol::DistanceVector;
 use crate::network_protocol::{
-    Edge, EdgeState, Encoding, OwnedAccount, ParsePeerMessageError, PartialEdgeInfo,
-    PeerChainInfoV2, PeerIdOrHash, PeerInfo, PeersRequest, PeersResponse, RawRoutedMessage,
-    RoutingTableUpdate, SnapshotHostInfoVerificationError, SyncAccountsData, SyncSnapshotHosts,
-    T2MessageBody, TieredMessageBody,
+    Edge, EdgeState, OwnedAccount, PartialEdgeInfo, PeerChainInfoV2, PeerIdOrHash, PeerInfo,
+    PeersRequest, PeersResponse, RawRoutedMessage, RoutingTableUpdate,
+    SnapshotHostInfoVerificationError, SyncAccountsData, SyncSnapshotHosts, T2MessageBody,
+    TieredMessageBody,
 };
 use crate::peer::stream;
 use crate::peer::tracker::Tracker;
@@ -175,11 +175,6 @@ pub(crate) struct PeerActor {
     stats: Arc<connection::Stats>,
     /// Cache of recently routed messages, this allows us to drop duplicates
     routed_message_cache: LruCache<(PeerId, PeerIdOrHash, Signature), time::Instant>,
-    /// Whether we detected support for protocol buffers during handshake.
-    protocol_buffers_supported: bool,
-    /// Whether the PeerActor should skip protobuf support detection and use
-    /// a given encoding right away.
-    force_encoding: Option<Encoding>,
 
     /// Peer status.
     peer_status: PeerStatus,
@@ -236,11 +231,9 @@ impl PeerActor {
         clock: time::Clock,
         actor_system: ActorSystem,
         stream: tcp::Stream,
-        force_encoding: Option<Encoding>,
         network_state: Arc<NetworkState>,
     ) -> anyhow::Result<TokioRuntimeHandle<Self>> {
-        let (addr, handshake_signal) =
-            Self::spawn(clock, actor_system, stream, force_encoding, network_state)?;
+        let (addr, handshake_signal) = Self::spawn(clock, actor_system, stream, network_state)?;
         // Await for the handshake to complete, by awaiting the handshake_signal channel.
         // This is a receiver of Infallible, so it only completes when the channel is closed.
         handshake_signal.await.err().unwrap();
@@ -255,14 +248,13 @@ impl PeerActor {
         clock: time::Clock,
         actor_system: ActorSystem,
         stream: tcp::Stream,
-        force_encoding: Option<Encoding>,
         network_state: Arc<NetworkState>,
     ) -> anyhow::Result<(TokioRuntimeHandle<Self>, HandshakeSignal)> {
         #[cfg(test)]
         let stream_id = stream.id();
         #[cfg(test)]
         let network_state_clone = network_state.clone();
-        match Self::spawn_inner(clock, actor_system, stream, force_encoding, network_state) {
+        match Self::spawn_inner(clock, actor_system, stream, network_state) {
             Ok(it) => Ok(it),
             Err(reason) => {
                 #[cfg(test)]
@@ -278,7 +270,6 @@ impl PeerActor {
         clock: time::Clock,
         actor_system: ActorSystem,
         stream: tcp::Stream,
-        force_encoding: Option<Encoding>,
         network_state: Arc<NetworkState>,
     ) -> Result<(TokioRuntimeHandle<Self>, HandshakeSignal), ClosingReason> {
         let connecting_status = match &stream.type_ {
@@ -330,16 +321,6 @@ impl PeerActor {
                 },
             },
         };
-        // Override force_encoding for outbound Tier1 and Tier3 connections;
-        // Tier1Handshake and Tier3Handshake are supported only with proto encoding.
-        let force_encoding = match &stream.type_ {
-            tcp::StreamType::Outbound { tier, .. }
-                if tier == &tcp::Tier::T1 || tier == &tcp::Tier::T3 =>
-            {
-                Some(Encoding::Proto)
-            }
-            _ => force_encoding,
-        };
         let my_node_info = PeerInfo {
             id: network_state.config.node_id(),
             addr: network_state.config.node_addr.as_ref().map(|a| **a),
@@ -386,8 +367,6 @@ impl PeerActor {
             routed_message_cache: LruCache::new(
                 NonZeroUsize::new(ROUTED_MESSAGE_CACHE_SIZE).unwrap(),
             ),
-            protocol_buffers_supported: false,
-            force_encoding,
             peer_info: match &stream_type {
                 tcp::StreamType::Inbound => None,
                 tcp::StreamType::Outbound { peer_id, .. } => {
@@ -415,53 +394,10 @@ impl PeerActor {
         }
     }
 
-    // Determines the encoding to use for communication with the peer.
-    // It can be None while Handshake with the peer has not been finished yet.
-    // In case it is None, both encodings are attempted for parsing, and each message
-    // is sent twice.
-    fn encoding(&self) -> Option<Encoding> {
-        if self.force_encoding.is_some() {
-            return self.force_encoding;
-        }
-        if self.protocol_buffers_supported {
-            return Some(Encoding::Proto);
-        }
-        match self.peer_status {
-            PeerStatus::Connecting { .. } => None,
-            PeerStatus::Ready { .. } => Some(Encoding::Borsh),
-        }
-    }
-
-    fn parse_message(&mut self, msg: &[u8]) -> Result<PeerMessage, ParsePeerMessageError> {
-        if let Some(e) = self.encoding() {
-            return PeerMessage::deserialize(e, msg);
-        }
-        if let Ok(msg) = PeerMessage::deserialize(Encoding::Proto, msg) {
-            self.protocol_buffers_supported = true;
-            return Ok(msg);
-        }
-        return PeerMessage::deserialize(Encoding::Borsh, msg);
-    }
-
     fn send_message(&self, msg: &PeerMessage) {
         if let (PeerStatus::Ready(conn), PeerMessage::PeersRequest(_)) = (&self.peer_status, msg) {
             conn.last_time_peer_requested.store(Some(self.clock.now()));
         }
-        if let Some(enc) = self.encoding() {
-            return self.send_message_with_encoding(msg, enc);
-        }
-        self.send_message_with_encoding(msg, Encoding::Proto);
-        self.send_message_with_encoding(msg, Encoding::Borsh);
-    }
-
-    #[tracing::instrument(
-        level = "trace",
-        target = "network",
-        "send_message_with_encoding",
-        skip_all,
-        fields(msg_type = msg.msg_variant())
-    )]
-    fn send_message_with_encoding(&self, msg: &PeerMessage, enc: Encoding) {
         // Skip sending block and headers if we received it or header from this peer.
         // Record block requests in tracker.
         match msg {
@@ -486,7 +422,7 @@ impl PeerActor {
             _ => (),
         };
 
-        let bytes = msg.serialize(enc);
+        let bytes = msg.serialize();
         self.tracker.lock().increment_sent(&self.clock, bytes.len() as u64);
         let bytes_len = bytes.len();
         tracing::trace!(target: "network", msg_len = bytes_len);
@@ -706,11 +642,8 @@ impl PeerActor {
             last_block: Default::default(),
             peer_type: self.peer_type,
             stats: self.stats.clone(),
-            _peer_connections_metric: metrics::PEER_CONNECTIONS.new_point(&metrics::Connection {
-                tier: tier,
-                type_: self.peer_type,
-                encoding: self.encoding(),
-            }),
+            _peer_connections_metric: metrics::PEER_CONNECTIONS
+                .new_point(&metrics::Connection { tier, type_: self.peer_type }),
             last_time_peer_requested: AtomicCell::new(None),
             last_time_received_message: AtomicCell::new(now),
             established_time: now,
@@ -1748,7 +1681,7 @@ impl messaging::Handler<stream::Frame> for PeerActor {
                 this.tracker.lock().increment_received(&this.clock, msg.len() as u64);
             }
 
-            let mut peer_msg = match this.parse_message(&msg) {
+            let mut peer_msg = match PeerMessage::deserialize(&msg) {
                 Ok(msg) => msg,
                 Err(err) => {
                     tracing::debug!(target: "network", "Received invalid data {} from {}: {}", near_fmt::AbbrBytes(&msg), this.peer_info, err);

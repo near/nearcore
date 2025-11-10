@@ -322,6 +322,7 @@ def start_nodes(args, enable_tx_generator=False):
 
         run_remote_cmd(CommandContext(run_cmd_args))
 
+        # TODO: This is pretty bad, every time we add a new field to the tx_generator config we have to add it here.
         run_cmd_args = copy.deepcopy(args)
         run_cmd_args.host_filter = f"({'|'.join(args.forknet_details['cp_instance_names'])})"
         run_cmd_args.cmd = f"\
@@ -331,6 +332,10 @@ def start_nodes(args, enable_tx_generator=False):
             | .[\"tx_generator\"] += {{\"schedule\": $sched }} \
             | $patch[0].tx_generator.controller as $ctrl   \
             | .[\"tx_generator\"] += {{\"controller\": $ctrl }} \
+            | $patch[0].tx_generator.sender_accounts_zipf_skew as $sender_accounts_zipf_skew \
+            | .[\"tx_generator\"] += {{\"sender_accounts_zipf_skew\": $sender_accounts_zipf_skew }} \
+            | $patch[0].tx_generator.receiver_accounts_zipf_skew as $receiver_accounts_zipf_skew \
+            | .[\"tx_generator\"] += {{\"receiver_accounts_zipf_skew\": $receiver_accounts_zipf_skew }} \
             ' {CONFIG_PATH} > tmp.$$.json && mv tmp.$$.json {CONFIG_PATH} || rm tmp.$$.json \
         "
 

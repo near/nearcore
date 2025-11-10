@@ -3,6 +3,7 @@ use std::sync::Arc;
 
 use near_async::messaging::{Actor, Handler};
 use near_async::time::{Clock, Duration, Instant};
+use near_chain::Error;
 use near_chain::state_sync::ChainStateSyncAdapter;
 use near_chain::types::RuntimeAdapter;
 use near_epoch_manager::EpochManagerAdapter;
@@ -119,12 +120,45 @@ impl StateRequestActor {
         Ok(good_sync_hash.as_ref() == Some(sync_hash))
     }
 
+    /// Checks if the sync_hash belongs to an epoch that is too old.
+    /// We allow sync_hash from the current epoch and the immediately previous epoch.
+    fn is_sync_hash_from_old_epoch(&self, sync_hash: &CryptoHash) -> Result<bool, Error> {
+        let head = self.chain_store.head()?;
+        let sync_block_header = self.chain_store.get_block_header(sync_hash)?;
+        let sync_epoch_id = sync_block_header.epoch_id();
+
+        if sync_epoch_id == &head.epoch_id {
+            return Ok(false);
+        }
+
+        if let Ok(prev_epoch_id) =
+            self.epoch_manager.get_prev_epoch_id_from_prev_block(&head.prev_block_hash)
+        {
+            if sync_epoch_id == &prev_epoch_id {
+                return Ok(false);
+            }
+        }
+
+        Ok(true)
+    }
+
     /// Validates sync hash and returns appropriate action to take.
     fn validate_sync_hash(&self, sync_hash: &CryptoHash) -> SyncHashValidationResult {
+        if self.is_sync_hash_from_old_epoch(sync_hash).unwrap_or(false) {
+            tracing::info!(
+                target: "sync",
+                "sync_hash didn't pass validation; belongs to an old epoch"
+            );
+            return SyncHashValidationResult::BadRequest;
+        }
+
         match self.check_sync_hash_validity(sync_hash) {
             Ok(true) => SyncHashValidationResult::Valid,
             Ok(false) => {
-                tracing::warn!(target: "sync", "sync_hash didn't pass validation, possible malicious behavior");
+                tracing::warn!(
+                    target: "sync",
+                    "sync_hash didn't pass validation; possible divergence in sync hash computation"
+                );
                 SyncHashValidationResult::BadRequest
             }
             Err(near_chain::Error::DBNotFoundErr(_)) => {
@@ -282,7 +316,7 @@ impl Handler<StateRequestPart, Option<StatePartOrHeader>> for StateRequestActor 
                 // The request is valid - proceed.
             }
             SyncHashValidationResult::BadRequest => {
-                // Do not respond, possible malicious behavior.
+                // Do not respond; likely too old.
                 return None;
             }
             SyncHashValidationResult::Invalid => {

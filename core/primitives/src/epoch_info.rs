@@ -1,20 +1,20 @@
 use std::collections::{BTreeMap, HashMap};
 
-use borsh::{BorshDeserialize, BorshSerialize};
-use near_primitives_core::types::{Balance, EpochHeight, ProtocolVersion, ValidatorId};
-use near_primitives_core::{
-    hash::hash,
-    types::{BlockHeight, ShardId},
-};
-use smart_default::SmartDefault;
-
 use crate::rand::StakeWeightedIndex;
 use crate::shard_layout::ShardLayout;
 use crate::types::validator_stake::{ValidatorStake, ValidatorStakeIter};
 use crate::types::{AccountId, ValidatorKickoutReason, ValidatorStakeV1};
 use crate::validator_mandates::ValidatorMandates;
 use crate::version::PROTOCOL_VERSION;
+use borsh::{BorshDeserialize, BorshSerialize};
+use near_primitives_core::types::{Balance, EpochHeight, ProtocolVersion, ValidatorId};
+use near_primitives_core::version::ProtocolFeature;
+use near_primitives_core::{
+    hash::hash,
+    types::{BlockHeight, ShardId},
+};
 use near_schema_checker_lib::ProtocolSchema;
+use smart_default::SmartDefault;
 
 /// Information per epoch.
 #[derive(
@@ -25,6 +25,7 @@ pub enum EpochInfo {
     V2(EpochInfoV2),
     V3(EpochInfoV3),
     V4(EpochInfoV4),
+    V5(EpochInfoV5),
 }
 
 pub type RngSeed = [u8; 32];
@@ -41,6 +42,31 @@ pub type RngSeed = [u8; 32];
     ProtocolSchema,
 )]
 pub struct ValidatorWeight(ValidatorId, u64);
+
+// V4 -> V5: Add shard layout (for dynamic resharding)
+#[derive(
+    BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq, serde::Serialize, ProtocolSchema,
+)]
+pub struct EpochInfoV5 {
+    pub epoch_height: EpochHeight,
+    pub validators: Vec<ValidatorStake>,
+    pub validator_to_index: HashMap<AccountId, ValidatorId>,
+    pub block_producers_settlement: Vec<ValidatorId>,
+    pub chunk_producers_settlement: Vec<Vec<ValidatorId>>,
+    pub stake_change: BTreeMap<AccountId, Balance>,
+    pub validator_reward: HashMap<AccountId, Balance>,
+    pub validator_kickout: HashMap<AccountId, ValidatorKickoutReason>,
+    pub minted_amount: Balance,
+    pub seat_price: Balance,
+    pub protocol_version: ProtocolVersion,
+    pub shard_layout: ShardLayout,
+    // stuff for selecting validators at each height
+    rng_seed: RngSeed,
+    block_producers_sampler: StakeWeightedIndex,
+    chunk_producers_sampler: Vec<StakeWeightedIndex>,
+    /// Contains the epoch's validator mandates. Used to sample chunk validators.
+    validator_mandates: ValidatorMandates,
+}
 
 // V3 -> V4: Add structures and methods for stateless validator assignment.
 #[derive(
@@ -182,6 +208,7 @@ impl EpochInfo {
         protocol_version: ProtocolVersion,
         rng_seed: RngSeed,
         validator_mandates: ValidatorMandates,
+        shard_layout: ShardLayout,
     ) -> Self {
         let stake_weights = |ids: &[ValidatorId]| -> StakeWeightedIndex {
             StakeWeightedIndex::new(
@@ -194,6 +221,26 @@ impl EpochInfo {
         let block_producers_sampler = stake_weights(&block_producers_settlement);
         let chunk_producers_sampler =
             chunk_producers_settlement.iter().map(|vs| stake_weights(vs)).collect();
+        if ProtocolFeature::DynamicResharding.enabled(protocol_version) {
+            return Self::V5(EpochInfoV5 {
+                epoch_height,
+                validators,
+                validator_to_index,
+                block_producers_settlement,
+                chunk_producers_settlement,
+                stake_change,
+                validator_reward,
+                validator_kickout,
+                minted_amount,
+                seat_price,
+                protocol_version,
+                shard_layout,
+                rng_seed,
+                block_producers_sampler,
+                chunk_producers_sampler,
+                validator_mandates,
+            });
+        }
         Self::V4(EpochInfoV4 {
             epoch_height,
             validators,
@@ -223,6 +270,7 @@ impl EpochInfo {
             Self::V2(v2) => &mut v2.epoch_height,
             Self::V3(v3) => &mut v3.epoch_height,
             Self::V4(v4) => &mut v4.epoch_height,
+            Self::V5(v5) => &mut v5.epoch_height,
         }
     }
 
@@ -233,6 +281,7 @@ impl EpochInfo {
             Self::V2(v2) => v2.epoch_height,
             Self::V3(v3) => v3.epoch_height,
             Self::V4(v4) => v4.epoch_height,
+            Self::V5(v5) => v5.epoch_height,
         }
     }
 
@@ -243,6 +292,7 @@ impl EpochInfo {
             Self::V2(v2) => v2.seat_price,
             Self::V3(v3) => v3.seat_price,
             Self::V4(v4) => v4.seat_price,
+            Self::V5(v5) => v5.seat_price,
         }
     }
 
@@ -253,6 +303,7 @@ impl EpochInfo {
             Self::V2(v2) => v2.minted_amount,
             Self::V3(v3) => v3.minted_amount,
             Self::V4(v4) => v4.minted_amount,
+            Self::V5(v5) => v5.minted_amount,
         }
     }
 
@@ -263,6 +314,7 @@ impl EpochInfo {
             Self::V2(v2) => &v2.block_producers_settlement,
             Self::V3(v3) => &v3.block_producers_settlement,
             Self::V4(v4) => &v4.block_producers_settlement,
+            Self::V5(v5) => &v5.block_producers_settlement,
         }
     }
 
@@ -273,6 +325,7 @@ impl EpochInfo {
             Self::V2(v2) => &v2.chunk_producers_settlement,
             Self::V3(v3) => &v3.chunk_producers_settlement,
             Self::V4(v4) => &v4.chunk_producers_settlement,
+            Self::V5(v5) => &v5.chunk_producers_settlement,
         }
     }
 
@@ -283,6 +336,7 @@ impl EpochInfo {
             Self::V2(v2) => &mut v2.chunk_producers_settlement,
             Self::V3(v3) => &mut v3.chunk_producers_settlement,
             Self::V4(v4) => &mut v4.chunk_producers_settlement,
+            Self::V5(v5) => &mut v5.chunk_producers_settlement,
         }
     }
 
@@ -293,6 +347,7 @@ impl EpochInfo {
             Self::V2(v2) => &v2.validator_kickout,
             Self::V3(v3) => &v3.validator_kickout,
             Self::V4(v4) => &v4.validator_kickout,
+            Self::V5(v5) => &v5.validator_kickout,
         }
     }
 
@@ -303,6 +358,7 @@ impl EpochInfo {
             Self::V2(v2) => v2.protocol_version,
             Self::V3(v3) => v3.protocol_version,
             Self::V4(v4) => v4.protocol_version,
+            Self::V5(v5) => v5.protocol_version,
         }
     }
 
@@ -313,6 +369,7 @@ impl EpochInfo {
             Self::V2(v2) => &v2.stake_change,
             Self::V3(v3) => &v3.stake_change,
             Self::V4(v4) => &v4.stake_change,
+            Self::V5(v5) => &v5.stake_change,
         }
     }
 
@@ -323,6 +380,7 @@ impl EpochInfo {
             Self::V2(v2) => &v2.validator_reward,
             Self::V3(v3) => &v3.validator_reward,
             Self::V4(v4) => &v4.validator_reward,
+            Self::V5(v5) => &v5.validator_reward,
         }
     }
 
@@ -333,16 +391,7 @@ impl EpochInfo {
             Self::V2(v2) => ValidatorStakeIter::new(&v2.validators),
             Self::V3(v3) => ValidatorStakeIter::new(&v3.validators),
             Self::V4(v4) => ValidatorStakeIter::new(&v4.validators),
-        }
-    }
-
-    #[inline]
-    pub fn fishermen_iter(&self) -> ValidatorStakeIter {
-        match self {
-            Self::V1(v1) => ValidatorStakeIter::v1(&v1.fishermen),
-            Self::V2(v2) => ValidatorStakeIter::new(&v2.fishermen),
-            Self::V3(v3) => ValidatorStakeIter::new(&v3.fishermen),
-            Self::V4(v4) => ValidatorStakeIter::new(&v4._fishermen),
+            Self::V5(v5) => ValidatorStakeIter::new(&v5.validators),
         }
     }
 
@@ -353,6 +402,7 @@ impl EpochInfo {
             Self::V2(v2) => v2.validators[validator_id as usize].stake(),
             Self::V3(v3) => v3.validators[validator_id as usize].stake(),
             Self::V4(v4) => v4.validators[validator_id as usize].stake(),
+            Self::V5(v5) => v5.validators[validator_id as usize].stake(),
         }
     }
 
@@ -363,6 +413,7 @@ impl EpochInfo {
             Self::V2(v2) => v2.validators[validator_id as usize].account_id(),
             Self::V3(v3) => v3.validators[validator_id as usize].account_id(),
             Self::V4(v4) => v4.validators[validator_id as usize].account_id(),
+            Self::V5(v5) => v5.validators[validator_id as usize].account_id(),
         }
     }
 
@@ -373,6 +424,7 @@ impl EpochInfo {
             Self::V2(v2) => v2.validator_to_index.contains_key(account_id),
             Self::V3(v3) => v3.validator_to_index.contains_key(account_id),
             Self::V4(v4) => v4.validator_to_index.contains_key(account_id),
+            Self::V5(v5) => v5.validator_to_index.contains_key(account_id),
         }
     }
 
@@ -382,6 +434,7 @@ impl EpochInfo {
             Self::V2(v2) => v2.validator_to_index.get(account_id),
             Self::V3(v3) => v3.validator_to_index.get(account_id),
             Self::V4(v4) => v4.validator_to_index.get(account_id),
+            Self::V5(v5) => v5.validator_to_index.get(account_id),
         }
     }
 
@@ -402,6 +455,10 @@ impl EpochInfo {
                 .validator_to_index
                 .get(account_id)
                 .map(|validator_id| v4.validators[*validator_id as usize].clone()),
+            Self::V5(v5) => v5
+                .validator_to_index
+                .get(account_id)
+                .map(|validator_id| v5.validators[*validator_id as usize].clone()),
         }
     }
 
@@ -423,6 +480,10 @@ impl EpochInfo {
                 .validator_to_index
                 .get(account_id)
                 .map(|validator_id| v4.validators[*validator_id as usize].stake()),
+            Self::V5(v5) => v5
+                .validator_to_index
+                .get(account_id)
+                .map(|validator_id| v5.validators[*validator_id as usize].stake()),
         }
     }
 
@@ -433,46 +494,7 @@ impl EpochInfo {
             Self::V2(v2) => v2.validators[validator_id as usize].clone(),
             Self::V3(v3) => v3.validators[validator_id as usize].clone(),
             Self::V4(v4) => v4.validators[validator_id as usize].clone(),
-        }
-    }
-
-    #[inline]
-    pub fn account_is_fisherman(&self, account_id: &AccountId) -> bool {
-        match self {
-            Self::V1(v1) => v1.fishermen_to_index.contains_key(account_id),
-            Self::V2(v2) => v2.fishermen_to_index.contains_key(account_id),
-            Self::V3(v3) => v3.fishermen_to_index.contains_key(account_id),
-            Self::V4(v4) => v4._fishermen_to_index.contains_key(account_id),
-        }
-    }
-
-    pub fn get_fisherman_by_account(&self, account_id: &AccountId) -> Option<ValidatorStake> {
-        match self {
-            Self::V1(v1) => v1.fishermen_to_index.get(account_id).map(|validator_id| {
-                ValidatorStake::V1(v1.fishermen[*validator_id as usize].clone())
-            }),
-            Self::V2(v2) => v2
-                .fishermen_to_index
-                .get(account_id)
-                .map(|validator_id| v2.fishermen[*validator_id as usize].clone()),
-            Self::V3(v3) => v3
-                .fishermen_to_index
-                .get(account_id)
-                .map(|validator_id| v3.fishermen[*validator_id as usize].clone()),
-            Self::V4(v4) => v4
-                ._fishermen_to_index
-                .get(account_id)
-                .map(|validator_id| v4._fishermen[*validator_id as usize].clone()),
-        }
-    }
-
-    #[inline]
-    pub fn get_fisherman(&self, fisherman_id: u64) -> ValidatorStake {
-        match self {
-            Self::V1(v1) => ValidatorStake::V1(v1.fishermen[fisherman_id as usize].clone()),
-            Self::V2(v2) => v2.fishermen[fisherman_id as usize].clone(),
-            Self::V3(v3) => v3.fishermen[fisherman_id as usize].clone(),
-            Self::V4(v4) => v4._fishermen[fisherman_id as usize].clone(),
+            Self::V5(v5) => v5.validators[validator_id as usize].clone(),
         }
     }
 
@@ -483,6 +505,7 @@ impl EpochInfo {
             Self::V2(v2) => v2.validators.len(),
             Self::V3(v3) => v3.validators.len(),
             Self::V4(v4) => v4.validators.len(),
+            Self::V5(v5) => v5.validators.len(),
         }
     }
 
@@ -492,6 +515,7 @@ impl EpochInfo {
             Self::V1(_) | Self::V2(_) => Default::default(),
             Self::V3(v3) => v3.rng_seed,
             Self::V4(v4) => v4.rng_seed,
+            Self::V5(v5) => v5.rng_seed,
         }
     }
 
@@ -500,6 +524,7 @@ impl EpochInfo {
         match self {
             Self::V1(_) | Self::V2(_) | Self::V3(_) => Default::default(),
             Self::V4(v4) => v4.validator_mandates.clone(),
+            Self::V5(v5) => v5.validator_mandates.clone(),
         }
     }
 
@@ -520,6 +545,10 @@ impl EpochInfo {
             Self::V4(v4) => {
                 let seed = Self::block_produce_seed(height, &v4.rng_seed);
                 v4.block_producers_settlement[v4.block_producers_sampler.sample(seed)]
+            }
+            Self::V5(v5) => {
+                let seed = Self::block_produce_seed(height, &v5.rng_seed);
+                v5.block_producers_settlement[v5.block_producers_sampler.sample(seed)]
             }
         }
     }
@@ -552,6 +581,11 @@ impl EpochInfo {
                 let sample = v4.chunk_producers_sampler.get(shard_index)?.sample(seed);
                 v4.chunk_producers_settlement.get(shard_index)?.get(sample).copied()
             }
+            Self::V5(v5) => {
+                let seed = Self::chunk_produce_seed(&v5.rng_seed, height, shard_id);
+                let sample = v5.chunk_producers_sampler.get(shard_index)?.sample(seed);
+                v5.chunk_producers_settlement.get(shard_index)?.get(sample).copied()
+            }
         }
     }
 
@@ -567,6 +601,17 @@ impl EpochInfo {
                 let mut rng = Self::chunk_validate_rng(&v4.rng_seed, height);
                 v4.validator_mandates.sample(&mut rng)
             }
+            Self::V5(v5) => {
+                let mut rng = Self::chunk_validate_rng(&v5.rng_seed, height);
+                v5.validator_mandates.sample(&mut rng)
+            }
+        }
+    }
+
+    pub fn shard_layout(&self) -> Option<&ShardLayout> {
+        match self {
+            Self::V5(v5) => Some(&v5.shard_layout),
+            _ => None,
         }
     }
 

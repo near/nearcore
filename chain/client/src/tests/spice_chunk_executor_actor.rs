@@ -37,9 +37,9 @@ use parking_lot::RwLock;
 use std::str::FromStr as _;
 use std::sync::Arc;
 
-use crate::chunk_executor_actor::ExecutorApplyChunksDone;
 use crate::chunk_executor_actor::ExecutorIncomingUnverifiedReceipts;
 use crate::chunk_executor_actor::{ChunkExecutorActor, is_descendant_of_final_execution_head};
+use crate::chunk_executor_actor::{ExecutorApplyChunksDone, get_witness};
 use crate::spice_data_distributor_actor::SpiceDataDistributorAdapter;
 use crate::spice_data_distributor_actor::SpiceDistributorOutgoingReceipts;
 use crate::spice_data_distributor_actor::SpiceDistributorStateWitness;
@@ -841,6 +841,25 @@ fn test_not_executing_out_of_order() {
     for block in &blocks {
         assert!(!block_executed(&actors[1], block));
     }
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_witness_is_saved() {
+    let (outgoing_sc, _outgoing_rc) = unbounded();
+    let mut actors = setup_with_non_validator(outgoing_sc);
+
+    let prev_block = actors[0].chain.genesis_block();
+    let block = produce_block(&mut actors, &prev_block);
+    let actor = &mut actors[0];
+    let shard_id = block.chunks().get(0).unwrap().shard_id();
+
+    actor.handle_with_internal_events(ProcessedBlock { block_hash: *block.hash() });
+    assert!(block_executed(&actor, &block));
+
+    let witness =
+        get_witness(actor.chain.chain_store().store_ref(), block.hash(), shard_id).unwrap();
+    assert!(witness.is_some());
 }
 
 #[test]
