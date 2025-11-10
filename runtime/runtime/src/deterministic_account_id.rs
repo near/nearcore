@@ -22,13 +22,13 @@ pub(crate) fn action_deterministic_state_init(
     action: &DeterministicStateInitAction,
     result: &mut ActionResult,
 ) -> Result<(), RuntimeError> {
+    // See https://github.com/near/NEPs/blob/master/neps/nep-0616.md#account-state
+    // for the detailed description around deterministic account state.
     let storage_usage_config = &apply_state.config.fees.storage_usage_config;
     let account = match maybe_account {
         Some(account) => account,
         None => {
-            // There were no accepted receipts on this account, so it doesn't have any
-            // data (or the contract was deleted). Initially all deterministic accounts
-            // are in this state.
+            // `nonexist` -> `uninit` account state transition
             // Create with zero balance now and check later how much of the
             // provided deposit is needed.
             let new_account = create_deterministic_account(Balance::ZERO, storage_usage_config);
@@ -37,9 +37,7 @@ pub(crate) fn action_deterministic_state_init(
         }
     };
     if account.contract().is_none() {
-        // Account exists and contains balance and meta info but no contract has
-        // been deployed. An account enters this state, for example, when it was in
-        // a non-exist state, and another account sent native transfer to it.
+        // `uninit` -> `active` account state transition
         deploy_deterministic_account(
             state_update,
             account,
