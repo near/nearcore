@@ -888,20 +888,26 @@ impl<T: ChainAccess> TxMirror<T> {
                             crate::metrics::TRANSACTIONS_SENT.with_label_values(&["ok"]).inc();
                             tx.sent_successfully = true;
                         }
-                        ProcessTxResponse::InvalidTx(e) => {
+                        ProcessTxResponse::InvalidTx(err) => {
                             // TODO: here if we're getting an error because the tx was already included, it is possible
                             // that some other instance of this code ran and made progress already. For now we can assume
                             // only once instance of this code will run, but this is the place to detect if that's not the case.
-                            tracing::error!(
-                                target: "mirror", "Tried to send an invalid tx for ({}, {:?}) from {}: {:?}",
-                                tx.target_tx.transaction.signer_id(), tx.target_tx.transaction.public_key(), &tx.provenance, e
+                            tracing::debug!(
+                                target: "mirror",
+                                target_tx_signer_id = %tx.target_tx.transaction.signer_id(),
+                                target_tx_public_key = ?tx.target_tx.transaction.public_key(),
+                                tx_provenance = %tx.provenance,
+                                ?err,
+                                "tried to send an invalid tx",
                             );
                             crate::metrics::TRANSACTIONS_SENT.with_label_values(&["invalid"]).inc();
                         }
-                        r => {
+                        response => {
                             tracing::error!(
-                                target: "mirror", "Unexpected response sending tx from {}: {:?}. The transaction was not sent",
-                                &tx.provenance, r
+                                target: "mirror",
+                                tx_provenance = %tx.provenance,
+                                ?response,
+                                "unexpected process tx response",
                             );
                             crate::metrics::TRANSACTIONS_SENT
                                 .with_label_values(&["internal_error"])
@@ -911,9 +917,11 @@ impl<T: ChainAccess> TxMirror<T> {
                 }
                 TargetChainTx::AwaitingNonce(tx) => {
                     // TODO: here we should just save this transaction for later and send it when it's known
-                    tracing::warn!(
-                        target: "mirror", "skipped sending transaction for ({}, {:?}) because valid target chain nonce not known",
-                        tx.target_tx.signer_id(), tx.target_tx.public_key()
+                    tracing::debug!(
+                        target: "mirror",
+                        target_tx_signer_id = %tx.target_tx.signer_id(),
+                        target_tx_public_key = ?tx.target_tx.public_key(),
+                        "skip sending tx because valid target chain nonce not known",
                     );
                 }
             }
@@ -1209,9 +1217,13 @@ impl<T: ChainAccess> TxMirror<T> {
             })));
         }
 
-        tracing::debug!(
-            target: "mirror", "preparing {} for ({}, {}) with actions: {:?}",
-            &provenance, &target_signer_id, target_secret_key.public_key(), &target_actions,
+        tracing::trace!(
+            target: "mirror",
+            %provenance,
+            %target_signer_id,
+            target_public_key = ?target_secret_key.public_key(),
+            ?target_actions,
+            "prepare tx",
         );
         let target_tx = self
             .prepare_tx(
@@ -1551,9 +1563,12 @@ impl<T: ChainAccess> TxMirror<T> {
                 )
                 .await?;
             }
-            tracing::debug!(
-                target: "mirror", "prepared {} transactions for source chain #{} shard {}",
-                txs.len(), source_height, ch.shard_id
+            tracing::trace!(
+                target: "mirror",
+                tx_count = txs.len(),
+                source_height = source_height,
+                shard_id = %ch.shard_id,
+                "prepared txs",
             );
             chunks.push(MappedChunk { txs, shard_id: ch.shard_id });
         }
@@ -1732,7 +1747,7 @@ impl<T: ChainAccess> TxMirror<T> {
 
             let start_time = tokio::time::Instant::now();
 
-            tracing::debug!(target: "mirror", "Sending transactions for source block #{}", tx_batch.source_height);
+            tracing::trace!(target: "mirror", source_height = tx_batch.source_height, "send tx batch");
             Self::send_transactions(
                 &target_client,
                 tx_batch.txs.iter_mut().map(|(_tx_ref, tx)| tx),
@@ -1744,7 +1759,7 @@ impl<T: ChainAccess> TxMirror<T> {
             blocks_sent.send(tx_batch).await.unwrap();
 
             let send_delay = *send_delay.lock();
-            tracing::debug!(target: "mirror", "Sleeping for {:?} until sending more transactions", &send_delay);
+            tracing::trace!(target: "mirror", ?send_delay, "sleep before sending more txs");
             let next_send_time = start_time + send_delay;
             send_time.as_mut().reset(next_send_time);
         }
@@ -1976,7 +1991,7 @@ impl<T: ChainAccess> TxMirror<T> {
             .await
             .with_context(|| format!("error fetching hash of block #{}", next_heights[0]))?;
 
-        tracing::debug!(target: "mirror", "source chain initialized with first heights: {:?}", &next_heights);
+        tracing::debug!(target: "mirror", first_heights = ?next_heights, "source chain initialized");
 
         let tracker = Arc::new(Mutex::new(crate::chain_tracker::TxTracker::new(
             self.target_min_block_production_delay,
@@ -2052,7 +2067,7 @@ impl<T: ChainAccess> TxMirror<T> {
                 .await?;
             }
             if block.chunks.iter().any(|c| !c.txs.is_empty()) {
-                tracing::debug!(target: "mirror", "sending extra create account transactions for the first {} blocks", CREATE_ACCOUNT_DELTA);
+                tracing::debug!(target: "mirror", "send extra create account transactions for the first {} blocks", CREATE_ACCOUNT_DELTA);
                 let mut b = {
                     crate::chain_tracker::TxTracker::queue_block(
                         &tracker,
