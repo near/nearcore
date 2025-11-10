@@ -33,8 +33,7 @@ pub(crate) fn action_deterministic_state_init(
             // Create with zero balance now and check later how much of the
             // provided deposit is needed.
             let new_account = create_deterministic_account(Balance::ZERO, storage_usage_config);
-            *maybe_account = Some(new_account);
-            maybe_account.as_mut().expect("account must exist now")
+            maybe_account.insert(new_account)
         }
     };
     if account.contract().is_none() {
