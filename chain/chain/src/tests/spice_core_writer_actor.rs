@@ -374,6 +374,46 @@ fn test_handle_processed_block_for_block_with_endorsements() {
 
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_handle_processed_block_for_block_with_final_endorsement_and_no_execution_result() {
+    let (mut chain, core_writer_actor) = setup();
+    let genesis = chain.genesis_block();
+    let block = build_block(&mut chain, &genesis, vec![]);
+    process_block(&mut chain, block.clone());
+    let chunks = block.chunks();
+    let chunk_header = chunks.iter_raw().next().unwrap();
+
+    let all_validators = test_validators();
+    let (in_block_validators, in_core_validators) =
+        all_validators.split_at(all_validators.len() / 2);
+    assert!(in_block_validators.len() >= in_core_validators.len());
+
+    for validator in in_core_validators {
+        let endorsement = test_chunk_endorsement(&validator, &block, chunk_header);
+        core_writer_actor.process_chunk_endorsement(endorsement).unwrap();
+    }
+    assert!(
+        core_writer_actor.core_reader.get_execution_results_by_shard_id(&block).unwrap().is_empty()
+    );
+
+    let block_core_statements = in_block_validators
+        .iter()
+        .map(|validator| {
+            let endorsement = test_chunk_endorsement(&validator, &block, chunk_header);
+            endorsement_into_core_statement(endorsement)
+        })
+        .collect_vec();
+    let next_block = build_block(&mut chain, &block, block_core_statements);
+
+    process_block(&mut chain, next_block.clone());
+    core_writer_actor.handle_processed_block(*next_block.hash()).unwrap();
+
+    let execution_results =
+        core_writer_actor.core_reader.get_execution_results_by_shard_id(&block).unwrap();
+    assert!(execution_results.contains_key(&chunk_header.shard_id()));
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn test_handle_processed_block_for_block_with_execution_results() {
     let (mut chain, core_writer_actor) = setup();
     let genesis = chain.genesis_block();

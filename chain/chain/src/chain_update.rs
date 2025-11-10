@@ -692,4 +692,10 @@ impl<'a> ChainUpdate<'a> {
         }
         Ok(final_execution_head)
     }
+
+    /// Sets new spice execution head.
+    pub fn save_spice_execution_head(&mut self, header: &BlockHeader) -> Result<(), Error> {
+        let tip = Tip::from_header(&header);
+        self.chain_store_update.save_spice_execution_head(tip)
+    }
 }

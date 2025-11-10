@@ -1107,6 +1107,7 @@ pub(crate) fn print_epoch_analysis(
             stored_next_next_epoch_info.validator_reward().clone(),
             stored_next_next_epoch_info.minted_amount(),
             next_next_protocol_version,
+            next_next_epoch_config.shard_layout.clone(),
             has_same_shard_layout,
         )
         .unwrap();
