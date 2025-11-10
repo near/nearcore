@@ -10,16 +10,6 @@ import {
 } from './api';
 import './ClusterNodeView.scss';
 
-// Helper to choose protocol dynamically
-function resolveBaseUrl(addr: string): string {
-    if (/^https?:\/\//i.test(addr)) {
-        return addr.replace(/\/+$/, '');
-    }
-    const protocol =
-        (typeof window !== 'undefined' && window.location?.protocol === 'https:') ? 'https' : 'http';
-    return `${protocol}://${addr}`.replace(/\/+$/, '');
-}
-
 interface Props {
     addr: string;
     highestHeight: number;
@@ -75,7 +65,7 @@ export const ClusterNodeView = ({
     return (
         <div className="cluster-node-view">
             <div className="addr">
-                <a target="_blank" rel="noreferrer" href={`${resolveBaseUrl(addr)}/debug`}>
+                <a target="_blank" rel="noreferrer" href={'http://' + addr + '/debug'}>
                     {addr}
                 </a>
             </div>
