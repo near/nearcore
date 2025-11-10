@@ -1,7 +1,5 @@
 use near_external_storage::ExternalConnection;
 
-use crate::Store;
-
 pub mod config;
 pub mod download;
 pub mod get;
@@ -15,5 +13,4 @@ pub(super) mod file_id;
 pub struct CloudStorage {
     /// Connection to the external storage backend (e.g. S3, GCS, filesystem).
     external: ExternalConnection,
-    hot_store: Store,
 }

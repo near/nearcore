@@ -3,7 +3,6 @@ use std::sync::Arc;
 
 use near_chain_configs::ExternalStorageLocation;
 
-use crate::Store;
 use crate::archive::cloud_storage::CloudStorage;
 use crate::archive::cloud_storage::opener::CloudStorageOpener;
 
@@ -35,7 +34,7 @@ pub fn test_cloud_archival_config(root_dir: impl Into<PathBuf>) -> CloudArchival
 }
 
 /// Initializes a test cloud storage instance based on the test configuration.
-pub fn create_test_cloud_storage(root_dir: PathBuf, hot_store: Store) -> Arc<CloudStorage> {
+pub fn create_test_cloud_storage(root_dir: PathBuf) -> Arc<CloudStorage> {
     let config = test_cloud_archival_config(root_dir);
-    CloudStorageOpener::new(config).open(hot_store).unwrap()
+    CloudStorageOpener::new(config).open().unwrap()
 }

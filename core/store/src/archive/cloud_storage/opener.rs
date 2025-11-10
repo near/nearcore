@@ -5,7 +5,6 @@ use near_external_storage::ExternalConnection;
 
 use near_chain_configs::ExternalStorageLocation;
 
-use crate::Store;
 use crate::archive::cloud_storage::CloudStorage;
 use crate::archive::cloud_storage::config::CloudArchivalConfig;
 
@@ -20,9 +19,9 @@ impl CloudStorageOpener {
         Self { config }
     }
 
-    pub fn open(&self, hot_store: Store) -> Result<Arc<CloudStorage>> {
+    pub fn open(&self) -> Result<Arc<CloudStorage>> {
         let external = self.create_external_connection();
-        let cloud_storage = CloudStorage { external, hot_store };
+        let cloud_storage = CloudStorage { external };
         Ok(Arc::new(cloud_storage))
     }
 

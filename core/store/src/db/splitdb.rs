@@ -91,7 +91,7 @@ impl Database for SplitDB {
             return Ok(None);
         }
         if let Some(cloud) = &self.cloud {
-            if let Some(cloud_result) = cloud.get(col, key)? {
+            if let Some(cloud_result) = cloud.get(&self.hot, col, key)? {
                 return Ok(Some(cloud_result));
             }
         }
