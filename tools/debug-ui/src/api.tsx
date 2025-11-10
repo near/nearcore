@@ -416,23 +416,37 @@ export interface ChainProcessingStatusResponse {
     };
 }
 
+// Helper to choose protocol dynamically
+function resolveBaseUrl(addr: string): string {
+    if (/^https?:\/\//i.test(addr)) {
+        return addr.replace(/\/+$/, '');
+    }
+    const protocol =
+        (typeof window !== 'undefined' && window.location?.protocol === 'https:') ? 'https' : 'http';
+    return `${protocol}://${addr}`.replace(/\/+$/, '');
+}
+
 export async function fetchBasicStatus(addr: string): Promise<StatusResponse> {
-    const response = await fetch(`http://${addr}/status`);
+    const base = resolveBaseUrl(addr);
+    const response = await fetch(`${base}/status`);
     return await response.json();
 }
 
 export async function fetchFullStatus(addr: string): Promise<StatusResponse> {
-    const response = await fetch(`http://${addr}/debug/api/status`);
+    const base = resolveBaseUrl(addr);
+    const response = await fetch(`${base}/debug/api/status`);
     return await response.json();
 }
 
 export async function fetchSyncStatus(addr: string): Promise<SyncStatusResponse> {
-    const response = await fetch(`http://${addr}/debug/api/sync_status`);
+    const base = resolveBaseUrl(addr);
+    const response = await fetch(`${base}/debug/api/sync_status`);
     return await response.json();
 }
 
 export async function fetchTrackedShards(addr: string): Promise<TrackedShardsResponse> {
-    const response = await fetch(`http://${addr}/debug/api/tracked_shards`);
+    const base = resolveBaseUrl(addr);
+    const response = await fetch(`${base}/debug/api/tracked_shards`);
     return await response.json();
 }
 
@@ -443,16 +457,11 @@ export async function fetchBlockStatus(
     numBlocks: number | null
 ): Promise<BlockStatusResponse> {
     const params = new URLSearchParams();
-    if (height !== null) {
-        params.append('starting_height', height.toString());
-    }
-    if (mode !== null) {
-        params.append('mode', mode);
-    }
-    if (numBlocks !== null) {
-        params.append('num_blocks', numBlocks.toString());
-    }
-    const url = `http://${addr}/debug/api/block_status${params.toString() ? '?' + params : ''}`;
+    if (height !== null) params.append('starting_height', height.toString());
+    if (mode !== null) params.append('mode', mode);
+    if (numBlocks !== null) params.append('num_blocks', numBlocks.toString());
+    const base = resolveBaseUrl(addr);
+    const url = `${base}/debug/api/block_status${params.toString() ? '?' + params : ''}`;
     const response = await fetch(url);
     return await response.json();
 }
@@ -462,41 +471,43 @@ export async function fetchEpochInfo(
     epochId: string | null
 ): Promise<EpochInfoResponse> {
     const trailing = epochId ? `/${epochId}` : '';
-    const response = await fetch(`http://${addr}/debug/api/epoch_info${trailing}`);
-
-    if (!response.ok) {
-        throw new Error(`Failed to fetch epoch info: ${response.statusText}`);
-    }
-
+    const base = resolveBaseUrl(addr);
+    const response = await fetch(`${base}/debug/api/epoch_info${trailing}`);
+    if (!response.ok) throw new Error(`Failed to fetch epoch info: ${response.statusText}`);
     return await response.json();
 }
 
 export async function fetchPeerStore(addr: string): Promise<PeerStoreResponse> {
-    const response = await fetch(`http://${addr}/debug/api/peer_store`);
+    const base = resolveBaseUrl(addr);
+    const response = await fetch(`${base}/debug/api/peer_store`);
     return await response.json();
 }
 
 export async function fetchRecentOutboundConnections(
     addr: string
 ): Promise<RecentOutboundConnectionsResponse> {
-    const response = await fetch(`http://${addr}/debug/api/recent_outbound_connections`);
+    const base = resolveBaseUrl(addr);
+    const response = await fetch(`${base}/debug/api/recent_outbound_connections`);
     return await response.json();
 }
 
 export async function fetchRoutingTable(addr: string): Promise<RoutingTableResponse> {
-    const response = await fetch(`http://${addr}/debug/api/network_routes`);
+    const base = resolveBaseUrl(addr);
+    const response = await fetch(`${base}/debug/api/network_routes`);
     return await response.json();
 }
 
 export async function fetchSnapshotHosts(addr: string): Promise<SnapshotHostsResponse> {
-    const response = await fetch(`http://${addr}/debug/api/snapshot_hosts`);
+    const base = resolveBaseUrl(addr);
+    const response = await fetch(`${base}/debug/api/snapshot_hosts`);
     return await response.json();
 }
 
 export async function fetchChainProcessingStatus(
     addr: string
 ): Promise<ChainProcessingStatusResponse> {
-    const response = await fetch(`http://${addr}/debug/api/chain_processing_status`);
+    const base = resolveBaseUrl(addr);
+    const response = await fetch(`${base}/debug/api/chain_processing_status`);
     return await response.json();
 }
 
@@ -508,7 +519,8 @@ export async function fetchEntity(
     addr: string,
     request: EntityQueryWithParams
 ): Promise<ApiEntityDataEntryValue> {
-    const response = await fetch(`http://${addr}/debug/api/entity`, {
+    const base = resolveBaseUrl(addr);
+    const response = await fetch(`${base}/debug/api/entity`, {
         body: JSON.stringify(request),
         headers: {
             'Content-Type': 'application/json',
@@ -526,7 +538,8 @@ export const INSTRUMENTED_WINDOW_LEN_MS = 500;
 export async function fetchInstrumentedThreadsView(
     addr: string
 ): Promise<InstrumentedThreadsViewResponse> {
-    const response = await fetch(`http://${addr}/debug/api/instrumented_threads`);
+    const base = resolveBaseUrl(addr);
+    const response = await fetch(`${base}/debug/api/instrumented_threads`);
     return await response.json();
 }
 
