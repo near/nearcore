@@ -121,6 +121,10 @@ impl Database for SplitDB {
         if let Some(cold) = &self.cold {
             return cold.get_with_rc_stripped(col, key);
         }
+        // TODO(cloud_archival): Handle cloud archive for rc columns (State, Receipts,
+        // Transactions). Add a debug assert to ensure it's not called with unsupported rc
+        // cold columns. State will be served from the prefetch DB.
+
         Ok(None)
     }
 
@@ -133,7 +137,9 @@ impl Database for SplitDB {
         if !col.is_cold() || self.cold.is_none() {
             return self.hot.iter(col);
         }
-
+        // TODO(cloud_archival): Handle cloud archive. Add a debug assert to ensure it's
+        // not called with unsupported cold columns. The same applies to other iter_*
+        // methods.
         Self::merge_iter(self.hot.iter(col), self.cold.as_ref().unwrap().iter(col))
     }
 
