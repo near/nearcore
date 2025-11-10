@@ -4,7 +4,6 @@ use std::fs::File;
 use std::io::{self, Write};
 use std::path::PathBuf;
 use std::str::SplitWhitespace;
-use tracing::log::error;
 
 use self::fold_db_ops::FoldDbOps;
 use self::gas_charges::ChargedVsFree;

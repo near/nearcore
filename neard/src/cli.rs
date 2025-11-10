@@ -40,7 +40,6 @@ use std::str::FromStr;
 use std::sync::Arc;
 use tokio::sync::broadcast;
 use tokio::sync::broadcast::Receiver;
-use tracing::{error, info, warn};
 
 /// NEAR Protocol Node
 #[derive(clap::Parser)]

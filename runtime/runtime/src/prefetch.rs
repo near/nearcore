@@ -52,7 +52,6 @@ use near_primitives::types::StateRoot;
 use near_store::{PrefetchApi, PrefetchError, Trie};
 use sha2::Digest;
 use std::str::FromStr;
-use tracing::{debug, warn};
 
 use crate::{SignedValidPeriodTransactions, metrics};
 /// Transaction runtime view of the prefetching subsystem.

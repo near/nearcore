@@ -1,7 +1,7 @@
 use clap::{Arg, Command};
 use near_chain_configs::BLOCK_PRODUCER_KICKOUT_THRESHOLD;
 use near_crypto::{InMemorySigner, KeyFile};
-use near_o11y::tracing::{error, info};
+use near_o11y::tracing;
 use near_primitives::types::Balance;
 use near_primitives::views::CurrentEpochValidatorInfo;
 use nearcore::config::{CONFIG_FILENAME, Config};

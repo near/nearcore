@@ -1757,7 +1757,7 @@ impl<T: ChainAccess> TxMirror<T> {
 
             let start_time = tokio::time::Instant::now();
 
-            tracing::debug!(target: "mirror", %tx_batch.source_height, "sending transactions for source block");
+            tracing::debug!(target: "mirror", source_height = %tx_batch.source_height, "sending transactions for source block");
             Self::send_transactions(
                 &target_client,
                 tx_batch.txs.iter_mut().map(|(_tx_ref, tx)| tx),

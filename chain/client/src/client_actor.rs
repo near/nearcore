@@ -1390,7 +1390,7 @@ impl ClientActorInner {
                     }
                 }
             }
-            Err(e) => error!("Error while committing largest skipped height {:?}", e),
+            Err(e) => tracing::error!(?e, "error while committing largest skipped height"),
         };
     }
 

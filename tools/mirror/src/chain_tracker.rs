@@ -490,7 +490,7 @@ impl TxTracker {
             hash_map::Entry::Occupied(mut e) => {
                 let txs = e.get_mut();
                 if !txs.remove(&TxId { hash: tx.transaction.hash, nonce: tx.transaction.nonce }) {
-                    tracing::warn!(target: "mirror", ?tx.transaction.hash, "tried to remove nonexistent tx from txs_by_signer");
+                    tracing::warn!(target: "mirror", tx_hash = ?tx.transaction.hash, "tried to remove nonexistent tx from txs_by_signer");
                 }
                 // split off from hash: default() since that's the smallest hash, which will leave us with every tx with nonce
                 // greater than this one in txs_left.
@@ -511,7 +511,7 @@ impl TxTracker {
                         if self.sent_txs.remove(&t.hash).is_none() {
                             tracing::warn!(
                                 target: "mirror",
-                                ?t.hash,
+                                hash = ?t.hash,
                                 "tx with hash that we thought was skipped is not in the set of sent txs"
                             );
                         }
@@ -525,9 +525,9 @@ impl TxTracker {
             hash_map::Entry::Vacant(_) => {
                 tracing::warn!(
                     target: "mirror",
-                    ?tx.transaction.hash,
-                    ?tx.transaction.signer_id,
-                    ?tx.transaction.public_key,
+                    tx_hash = ?tx.transaction.hash,
+                    signer_id = ?tx.transaction.signer_id,
+                    public_key = ?tx.transaction.public_key,
                     "recently removed tx, but signer and public key not in txs_by_signer"
                 );
                 return;
@@ -607,7 +607,7 @@ impl TxTracker {
                 write!(log_message, "    ...    \n").unwrap();
             }
         }
-        tracing::debug!(target: "mirror", %msg.block.header.height, %log_message, "received target block");
+        tracing::debug!(target: "mirror", height = %msg.block.header.height, %log_message, "received target block");
     }
 
     fn tx_to_receipt(

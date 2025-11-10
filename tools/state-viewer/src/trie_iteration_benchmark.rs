@@ -196,7 +196,7 @@ impl TrieIterationBenchmarkCmd {
             tracing::trace!(
                 target: "trie-iteration-benchmark",
                 column = &state_record.get_type_string(),
-                account_id = state_record_to_account_id(&state_record),
+                account_id = %state_record_to_account_id(&state_record),
                 "visiting column and account id"
             );
 

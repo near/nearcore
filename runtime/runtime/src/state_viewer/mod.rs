@@ -27,7 +27,6 @@ use near_store::{TrieUpdate, get_access_key, get_account};
 use near_vm_runner::logic::{ProtocolVersion, ReturnData};
 use near_vm_runner::{ContractCode, ContractRuntimeCache};
 use std::{str, sync::Arc, time::Instant};
-use tracing::debug;
 
 pub mod errors;
 

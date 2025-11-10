@@ -14,7 +14,6 @@ use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::types::{AccountId, EpochId, ShardId};
 use near_primitives::utils::from_timestamp;
 use std::collections::HashSet;
-use tracing::log::debug;
 
 struct AdversarialBehaviorTestData {
     num_validators: usize,

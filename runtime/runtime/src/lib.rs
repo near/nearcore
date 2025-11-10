@@ -90,7 +90,7 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::fmt::Debug;
 use std::rc::Rc;
 use std::sync::Arc;
-use tracing::{debug, instrument};
+use tracing::instrument;
 use verifier::ValidateReceiptMode;
 
 mod actions;
