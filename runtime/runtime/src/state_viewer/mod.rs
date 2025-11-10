@@ -306,10 +306,10 @@ impl TrieViewer {
         if let Some(err) = outcome.aborted {
             logs.extend(outcome.logs);
             let message = format!("wasm execution failed with error: {:?}", err);
-            debug!(target: "runtime", "(exec time {}) {}", time_str, message);
+            tracing::debug!(target: "runtime", %time_str, %message, "exec time and error message");
             Err(errors::CallFunctionError::VMError { error_message: message })
         } else {
-            debug!(target: "runtime", "(exec time {}) result of execution: {:?}", time_str, outcome);
+            tracing::debug!(target: "runtime", %time_str, ?outcome, "exec time and result of execution");
             logs.extend(outcome.logs);
             let result = match outcome.return_data {
                 ReturnData::Value(buf) => buf,

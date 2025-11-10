@@ -1134,10 +1134,10 @@ impl ForkNetworkCommand {
                     let shard_id = source_shard_layout.account_id_to_shard_id(&account_id);
                     if shard_id != shard_uid.shard_id() {
                         tracing::warn!(
-                            "Account {} belongs to shard {} but was found in flat storage for shard {}",
-                            &account_id,
-                            shard_id,
-                            shard_uid.shard_id(),
+                            %account_id,
+                            %shard_id,
+                            found_in_shard = %shard_uid.shard_id(),
+                            "account belongs to shard but was found in flat storage for different shard"
                         );
                     }
                     let shard_idx = source_shard_layout.get_shard_index(shard_id).unwrap();
@@ -1366,9 +1366,9 @@ impl ForkNetworkCommand {
             .collect::<Vec<_>>();
         for (account_prefix_idx, account_prefix) in account_prefixes.into_iter().enumerate() {
             tracing::info!(
-                "Creating accounts for shard: {} {}",
-                account_prefix_idx,
-                account_prefix
+                %account_prefix_idx,
+                %account_prefix,
+                "creating accounts for shard"
             );
             let state_roots_map: HashMap<ShardUId, StateRoot> = shard_uids
                 .iter()

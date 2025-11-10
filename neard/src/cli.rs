@@ -360,11 +360,10 @@ fn check_release_build(chain: &str) {
     if !is_release_build
         && [near_primitives::chains::MAINNET, near_primitives::chains::TESTNET].contains(&chain)
     {
-        warn!(
+        tracing::warn!(
             target: "neard",
-            "Running a neard executable which wasn’t built with `make release` \
-             command isn’t supported on {}.",
-            chain
+            %chain,
+            "running a neard executable which wasn't built with `make release` command isn't supported"
         );
         tracing::warn!(
             target: "neard",
@@ -591,7 +590,7 @@ impl RunCmd {
                     break sig;
                 }
             };
-            warn!(target: "neard", "{}, stopping... this may take a few minutes.", sig);
+            tracing::warn!(target: "neard", %sig, "stopping, this may take a few minutes");
             if let Some(handle) = cold_store_loop_handle {
                 handle.store(false, std::sync::atomic::Ordering::Relaxed);
             }
@@ -600,7 +599,7 @@ impl RunCmd {
             // Disable the subscriber to properly shutdown the tracer.
             near_o11y::reload(Some("error"), None, Some("off"), None).unwrap();
         });
-        info!(target: "neard", "Waiting for RocksDB to gracefully shutdown");
+        tracing::info!(target: "neard", "waiting for RocksDB to gracefully shutdown");
         RocksDB::block_until_all_instances_are_dropped();
     }
 }
@@ -898,16 +897,18 @@ fn check_kernel_param(param_name: &str, expected_value: &str) {
             let expected_normalized = normalize_whitespace(expected_value);
 
             if actual_normalized != expected_normalized {
-                error!(
-                    "ERROR: {} is set to {}, expected {}. Please run `scripts/set_kernel_params.sh`.",
-                    param_name, actual_normalized, expected_normalized
+                tracing::error!(
+                    %param_name,
+                    %actual_normalized,
+                    %expected_normalized,
+                    "parameter is set to incorrect value, please run `scripts/set_kernel_params.sh`"
                 );
             } else {
-                info!("OK: {} is set to expected value {}", param_name, expected_normalized);
+                tracing::info!(%param_name, %expected_normalized, "parameter is set to expected value");
             }
         }
         Err(e) => {
-            error!("ERROR: failed to read parameter {} from {}: {}", param_name, path.display(), e);
+            tracing::error!(%param_name, path = %path.display(), ?e, "failed to read parameter");
         }
     }
 }
