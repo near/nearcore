@@ -12,10 +12,8 @@ use near_primitives::views::{
     BlockHeaderView, BlockView, QueryRequest, QueryResponse, QueryResponseKind,
 };
 use node_runtime::metrics::TRANSACTION_PROCESSED_FAILED_TOTAL;
-use rand::Rng;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
-use rand::seq::SliceRandom;
 use serde_with::serde_as;
 use std::panic;
 use std::path::PathBuf;
@@ -55,12 +53,6 @@ pub struct Config {
     schedule: Vec<Load>,
     controller: Option<ControllerConfig>,
     accounts_path: PathBuf,
-    #[serde(default = "default_active_accounts_proportion")]
-    active_accounts_proportion: f64,
-}
-
-pub fn default_active_accounts_proportion() -> f64 {
-    1.0
 }
 
 impl Default for Config {
@@ -69,7 +61,6 @@ impl Default for Config {
             schedule: Default::default(),
             controller: Default::default(),
             accounts_path: "".into(),
-            active_accounts_proportion: Default::default(),
         }
     }
 }
@@ -265,32 +256,22 @@ impl TxGenerator {
     }
 
     /// Generates a transaction between two random (but different) accounts and pushes it to the `client_sender`
-    /// The sender account id is chosen from `active_account_ids`.
-    /// Receiver is any of the accounts except the sender.
     async fn generate_send_transaction(
         rnd: &mut StdRng,
         accounts: &[account::Account],
-        active_account_ids: &[usize],
         block_hash: &CryptoHash,
         client_sender: &ClientSender,
     ) -> bool {
         // each transaction will transfer this amount
         const AMOUNT: Balance = Balance::from_yoctonear(1);
 
-        let sender_id = *active_account_ids.choose(rnd).unwrap();
-        let receiver_id = loop {
-            let ridx = rnd.gen_range(0..accounts.len());
-            if ridx != sender_id {
-                break ridx;
-            }
-        };
-
-        let sender = &accounts[sender_id];
+        let idx = rand::seq::index::sample(rnd, accounts.len(), 2);
+        let sender = &accounts[idx.index(0)];
         let nonce = sender.nonce.fetch_add(1, atomic::Ordering::Relaxed) + 1;
         let sender_id = sender.id.clone();
         let signer = sender.as_signer();
 
-        let receiver = &accounts[receiver_id];
+        let receiver = &accounts[idx.index(1)];
         let transaction = SignedTransaction::send_money(
             nonce,
             sender_id,
@@ -397,7 +378,6 @@ impl TxGenerator {
     async fn run_load_task(
         client_sender: ClientSender,
         accounts: Arc<Vec<Account>>,
-        active_account_ids: Arc<Vec<usize>>,
         mut tx_interval: tokio::time::Interval,
         duration: tokio::time::Duration,
         mut rx_block: tokio::sync::watch::Receiver<BlockHeaderView>,
@@ -421,7 +401,6 @@ impl TxGenerator {
                         let ok = Self::generate_send_transaction(
                             &mut rnd,
                             &accounts,
-                            &active_account_ids,
                             &latest_block_hash,
                             &client_sender,
                         )
@@ -443,7 +422,6 @@ impl TxGenerator {
     async fn run_load(
         client_sender: ClientSender,
         accounts: Arc<Vec<Account>>,
-        active_accounts_ids: Arc<Vec<usize>>,
         load: Load,
         rx_block: tokio::sync::watch::Receiver<BlockHeaderView>,
         stats: Arc<Stats>,
@@ -456,7 +434,6 @@ impl TxGenerator {
             tasks.spawn(Self::run_load_task(
                 client_sender.clone(),
                 Arc::clone(&accounts),
-                Arc::clone(&active_accounts_ids),
                 tokio::time::interval(Duration::from_micros({
                     let load_tps = std::cmp::max(load.tps, 1);
                     1_000_000 * TX_GENERATOR_TASK_COUNT / load_tps
@@ -544,7 +521,6 @@ impl TxGenerator {
         initial_rate: u64,
         client_sender: ClientSender,
         accounts: Arc<Vec<Account>>,
-        active_accounts_ids: Arc<Vec<usize>>,
         rx_block: tokio::sync::watch::Receiver<BlockHeaderView>,
         stats: Arc<Stats>,
     ) {
@@ -557,7 +533,6 @@ impl TxGenerator {
             tokio::spawn(Self::controlled_loop_task(
                 client_sender.clone(),
                 Arc::clone(&accounts),
-                Arc::clone(&active_accounts_ids),
                 rx_block.clone(),
                 rx_intervals.clone(),
                 Arc::clone(&stats),
@@ -568,7 +543,6 @@ impl TxGenerator {
     async fn controlled_loop_task(
         client_sender: ClientSender,
         accounts: Arc<Vec<Account>>,
-        active_account_ids: Arc<Vec<usize>>,
         mut rx_block: tokio::sync::watch::Receiver<BlockHeaderView>,
         mut tx_rates: tokio::sync::watch::Receiver<tokio::time::Duration>,
         stats: Arc<Stats>,
@@ -595,7 +569,6 @@ impl TxGenerator {
                         let ok = Self::generate_send_transaction(
                             &mut rnd,
                             &accounts,
-                            &active_account_ids,
                             &latest_block_hash,
                             &client_sender,
                         )
@@ -640,26 +613,12 @@ impl TxGenerator {
             None
         };
 
-        let active_accounts_proportion = config.active_accounts_proportion;
         tokio::spawn(async move {
             let accounts = rx_accounts.await.unwrap();
-
-            let mut active_accounts_ids = (0..accounts.len()).collect::<Vec<_>>();
-            active_accounts_ids.shuffle(&mut StdRng::from_entropy());
-            active_accounts_ids
-                .truncate(((accounts.len() as f64) * active_accounts_proportion) as usize);
-            tracing::info!(target: "transaction-generator",
-                active_accounts_count=active_accounts_ids.len(),
-                total_accounts_count=accounts.len(),
-                "prepared active accounts"
-            );
-            let active_accounts_ids = Arc::new(active_accounts_ids);
-
             for load in &schedule {
                 Self::run_load(
                     client_sender.clone(),
-                    Arc::clone(&accounts),
-                    Arc::clone(&active_accounts_ids),
+                    accounts.clone(),
                     load.clone(),
                     rx_block.clone(),
                     Arc::clone(&stats),
@@ -676,8 +635,7 @@ impl TxGenerator {
                     controller,
                     schedule.last().unwrap().tps,
                     client_sender,
-                    Arc::clone(&accounts),
-                    Arc::clone(&active_accounts_ids),
+                    accounts.clone(),
                     rx_block.clone(),
                     Arc::clone(&stats),
                 )

@@ -1,7 +1,6 @@
 {
 	"tx_generator": {
 		"accounts_path": "{{near_accounts_path}}",
-		"active_accounts_proportion": 0.8,
 		"schedule": [
 			{ "tps": 20000, "duration_s": 120 }
 		]
