@@ -1,5 +1,5 @@
 use near_store::Store;
-use near_store::db::metadata::{DB_VERSION, DbVersion};
+use near_store::db::metadata::{DB_VERSION, DbVersion, MIN_SUPPORTED_DB_VERSION};
 
 pub(super) struct Migrator<'a> {
     #[allow(dead_code)]
@@ -15,14 +15,16 @@ impl<'a> Migrator<'a> {
 impl<'a> near_store::StoreMigrator for Migrator<'a> {
     fn check_support(&self, version: DbVersion) -> Result<(), &'static str> {
         match version {
-            0..=45 => Err("1.45"),
+            0..MIN_SUPPORTED_DB_VERSION => Err("database version is too old and not supported"),
+            MIN_SUPPORTED_DB_VERSION..DB_VERSION => Ok(()),
             _ => unreachable!(),
         }
     }
 
     fn migrate(&self, _store: &Store, version: DbVersion) -> anyhow::Result<()> {
         match version {
-            0..=45 => unreachable!(),
+            0..MIN_SUPPORTED_DB_VERSION => unreachable!(),
+            45 => Ok(()), // DBCol::StatePartsApplied column added, no need to perform a migration
             DB_VERSION.. => unreachable!(),
         }
     }
