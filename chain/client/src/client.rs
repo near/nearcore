@@ -1336,6 +1336,13 @@ impl Client {
             )?
             .commit()
             .unwrap(); // TODO - unwrap
+        let mut store_update = self.chain.mut_chain_store().store_update();
+        store_update.save_block(block.clone());
+        store_update.save_block_header(block.header().clone()).unwrap();
+        store_update.commit().unwrap();
+        let block_notification = BlockNotificationMessage { block: block.clone() };
+        self.chunk_validation_sender.block_notification.send(block_notification);
+
         let block_status = BlockStatus::Next;
 
         if !self.reconcile_transaction_pool(block_status, &block) {
