@@ -225,7 +225,7 @@ impl Graph {
             distances.insert(self.id2p[key].clone(), distance[key] as u32);
         }
         if unreachable_nodes > 1000 {
-            warn!("We store more than 1000 unreachable nodes: {}", unreachable_nodes);
+            tracing::warn!(%unreachable_nodes, "we store more than 1000 unreachable nodes");
         }
 
         (res, distances)
