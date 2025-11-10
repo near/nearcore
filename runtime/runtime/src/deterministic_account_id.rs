@@ -13,90 +13,48 @@ use near_primitives_core::deterministic_account_id::DeterministicAccountStateIni
 use near_store::{StorageError, TrieUpdate};
 use near_vm_runner::logic::ProtocolVersion;
 
-/// State machine of a deterministic account id on chain.
-///
-/// This follows the definition in [NEP-616](https://github.com/near/NEPs/pull/616/).
-enum AccountState {
-    /// There were no accepted receipts on this account, so it doesn't have any
-    /// data (or the contract was deleted). Initially all deterministic accounts
-    /// are in this state.
-    NonExisting,
-    /// Account exists and contains balance and meta info but no contract has
-    /// been deployed. An account enters this state, for example, when it was in
-    /// a non-exist state, and another account sent native transfer to it.
-    Uninit,
-    /// Account has contract code deployed, persistent data and balance. An
-    /// account enters this state when it was in non-exist or uninit state and
-    /// there was a valid incoming StateInit action.
-    Active,
-}
-
-impl AccountState {
-    fn of(maybe_account: Option<&Account>) -> AccountState {
-        let Some(account) = maybe_account else {
-            return AccountState::NonExisting;
-        };
-
-        if account.contract().is_none() {
-            return AccountState::Uninit;
-        }
-
-        AccountState::Active
-    }
-}
-
 pub(crate) fn action_deterministic_state_init(
     state_update: &mut TrieUpdate,
     apply_state: &ApplyState,
-    account: &mut Option<Account>,
+    maybe_account: &mut Option<Account>,
     account_id: &AccountId,
     receipt: &Receipt,
     action: &DeterministicStateInitAction,
     result: &mut ActionResult,
 ) -> Result<(), RuntimeError> {
-    let current_protocol_version = apply_state.current_protocol_version;
+    // See https://github.com/near/NEPs/blob/master/neps/nep-0616.md#account-state
+    // for the detailed description around deterministic account state.
     let storage_usage_config = &apply_state.config.fees.storage_usage_config;
-    match AccountState::of(account.as_ref()) {
-        AccountState::NonExisting => {
+    let account = match maybe_account {
+        Some(account) => account,
+        None => {
+            // cspell:ignore nonexist
+            // `nonexist` -> `uninit` account state transition
             // Create with zero balance now and check later how much of the
             // provided deposit is needed.
-            create_deterministic_account(account, Balance::ZERO, storage_usage_config);
-            deploy_deterministic_account(
-                state_update,
-                account.as_mut().expect("account must exist now"),
-                account_id,
-                &action.state_init,
-                result,
-                storage_usage_config,
-                current_protocol_version,
-            )?;
+            let new_account = create_deterministic_account(Balance::ZERO, storage_usage_config);
+            *maybe_account = Some(new_account);
+            maybe_account.as_mut().expect("account must exist now")
         }
-        AccountState::Uninit => {
-            deploy_deterministic_account(
-                state_update,
-                account.as_mut().expect("account must exist in uninit"),
-                account_id,
-                &action.state_init,
-                result,
-                storage_usage_config,
-                current_protocol_version,
-            )?;
-        }
-        AccountState::Active => {
-            // Account already exists, do nothing.
-        }
+    };
+    if account.contract().is_none() {
+        // `uninit` -> `active` account state transition
+        deploy_deterministic_account(
+            state_update,
+            account,
+            account_id,
+            &action.state_init,
+            result,
+            storage_usage_config,
+            apply_state.current_protocol_version,
+        )?;
     }
     if result.result.is_err() {
         return Ok(());
     }
-    debug_assert!(
-        matches!(AccountState::of(account.as_ref()), AccountState::Active),
-        "account must be active now"
-    );
 
     // Use attached deposit to satisfy storage staking requirements and refund
     // the rest.
-    let account = account.as_mut().expect("account must exist now");
     let deposit_refund = match check_storage_stake(account, account.amount(), &apply_state.config) {
         Ok(_) => {
             // no additional storage needed, refunding all
@@ -137,22 +95,21 @@ pub(crate) fn action_deterministic_state_init(
 }
 
 pub(crate) fn create_deterministic_account(
-    account: &mut Option<Account>,
     initial_balance: Balance,
     storage_usage_config: &StorageUsageConfig,
-) {
+) -> Account {
     // Unlike `CreateAccount`, this account creation does not change
     // actor_id. This is important to prevent hijacking the account.
     // Actor id remains the predecessor, so any actions following will
     // be checked against that for actor permissions, preventing
     // `AddKey`, `DeployContract`, or any other actions that only the
     // account owner is permitted to do.
-    *account = Some(Account::new(
+    Account::new(
         initial_balance,
         Balance::ZERO,
         AccountContract::None,
         storage_usage_config.num_bytes_account,
-    ));
+    )
 }
 
 /// Take the content of a `StateInit` and deploy it on the account.
