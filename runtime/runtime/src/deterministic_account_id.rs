@@ -25,12 +25,16 @@ pub(crate) fn action_deterministic_state_init(
     let storage_usage_config = &apply_state.config.fees.storage_usage_config;
     let account = match maybe_account {
         Some(account) => account,
-        None => create_deterministic_account(account, Balance::ZERO, storage_usage_config),
+        None => {
+            let new_account = create_deterministic_account(Balance::ZERO, storage_usage_config);
+            *maybe_account = Some(new_account);
+            maybe_account.as_mut().expect("account must exist now")
+        }
     };
     if account.contract().is_none() {
         deploy_deterministic_account(
             state_update,
-            account.as_mut().expect("account must exist now"),
+            account,
             account_id,
             &action.state_init,
             result,
@@ -44,7 +48,6 @@ pub(crate) fn action_deterministic_state_init(
 
     // Use attached deposit to satisfy storage staking requirements and refund
     // the rest.
-    let account = account.as_mut().expect("account must exist now");
     let deposit_refund = match check_storage_stake(account, account.amount(), &apply_state.config) {
         Ok(_) => {
             // no additional storage needed, refunding all
