@@ -73,8 +73,8 @@ protocol_feature_spice = [
   "near-client/protocol_feature_spice",
   "near-primitives/protocol_feature_spice",
   "near-store/protocol_feature_spice",
-  "nearcore/protocol_feature_spice"
-  "near-indexer/protocol_feature_spice"
+  "nearcore/protocol_feature_spice",
+  "near-indexer/protocol_feature_spice",
 ]
 
 [package.metadata.cargo-machete]
