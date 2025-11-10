@@ -28,6 +28,7 @@ pub(crate) fn action_deterministic_state_init(
     let account = match maybe_account {
         Some(account) => account,
         None => {
+            // cspell:ignore nonexist
             // `nonexist` -> `uninit` account state transition
             // Create with zero balance now and check later how much of the
             // provided deposit is needed.
