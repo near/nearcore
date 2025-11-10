@@ -820,14 +820,20 @@ impl<'a> ChainStoreUpdate<'a> {
                 )
                 .map(|item| item.map(|(key, _)| key))
                 .collect::<io::Result<Vec<_>>>()?;
+            let mut execution_result_hashes = HashSet::new();
             for key in endorsement_keys {
                 let endorsement: SpiceStoredVerifiedEndorsement =
                     self.store().get_ser(DBCol::endorsements(), &key)?.unwrap();
+                execution_result_hashes.insert(endorsement.execution_result_hash);
+                self.gc_col(DBCol::endorsements(), &key);
+            }
+            for hash in execution_result_hashes {
+                // We cannot gc uncertified execution results right away since there may be
+                // duplicates which isn't allowed by store.
                 self.gc_col(
                     DBCol::uncertified_execution_results(),
-                    &get_uncertified_execution_results_key(&endorsement.execution_result_hash),
+                    &get_uncertified_execution_results_key(&hash),
                 );
-                self.gc_col(DBCol::endorsements(), &key);
             }
             self.gc_col(
                 DBCol::execution_results(),
