@@ -26,12 +26,20 @@ pub(crate) fn action_deterministic_state_init(
     let account = match maybe_account {
         Some(account) => account,
         None => {
+            // There were no accepted receipts on this account, so it doesn't have any
+            // data (or the contract was deleted). Initially all deterministic accounts
+            // are in this state.
+            // Create with zero balance now and check later how much of the
+            // provided deposit is needed.
             let new_account = create_deterministic_account(Balance::ZERO, storage_usage_config);
             *maybe_account = Some(new_account);
             maybe_account.as_mut().expect("account must exist now")
         }
     };
     if account.contract().is_none() {
+        // Account exists and contains balance and meta info but no contract has
+        // been deployed. An account enters this state, for example, when it was in
+        // a non-exist state, and another account sent native transfer to it.
         deploy_deterministic_account(
             state_update,
             account,
