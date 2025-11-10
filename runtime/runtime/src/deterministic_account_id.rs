@@ -5,7 +5,7 @@ use crate::{ActionResult, ApplyState};
 use near_parameters::StorageUsageConfig;
 use near_primitives::account::{Account, AccountContract};
 use near_primitives::action::DeterministicStateInitAction;
-use near_primitives::errors::{IntegerOverflowError, RuntimeError};
+use near_primitives::errors::{ActionErrorKind, IntegerOverflowError, RuntimeError};
 use near_primitives::receipt::Receipt;
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{AccountId, Balance};
@@ -70,12 +70,12 @@ pub(crate) fn action_deterministic_state_init(
                     .checked_sub(missing_amount)
                     .expect("just checked missing_amount <= action.deposit")
             } else {
-                // not enough balance at this point -> no refund
-                // (following actions might be able to fix the balance
-                // requirements but these will not affect this refund)
-                let new_balance = safe_add_balance(account.amount(), action.deposit)?;
-                account.set_amount(new_balance);
-                Balance::ZERO
+                result.result = Err(ActionErrorKind::LackBalanceForState {
+                    account_id: account_id.clone(),
+                    amount: missing_amount,
+                }
+                .into());
+                return Ok(());
             }
         }
         Err(StorageStakingError::StorageError(err)) => {
