@@ -40,12 +40,12 @@ pub fn migrate_46_to_47(
     genesis_config: &GenesisConfig,
     store_config: &StoreConfig,
 ) -> anyhow::Result<()> {
-    // Check if this is a cold store, otherwise early return
-    let db_kind = store.get_db_kind()?;
-    if db_kind != Some(DbKind::Cold) {
-        tracing::info!(target: "migrations", ?db_kind, "skipping migration 46->47",);
-        return Ok(());
-    }
+    // // Check if this is a cold store, otherwise early return
+    // let db_kind = store.get_db_kind()?;
+    // if db_kind != Some(DbKind::Cold) {
+    //     tracing::info!(target: "migrations", ?db_kind, "skipping migration 46->47",);
+    //     return Ok(());
+    // }
 
     tracing::info!(target: "migrations", "Starting migration 46->47 for cold store");
 
