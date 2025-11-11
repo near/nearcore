@@ -324,9 +324,9 @@ impl CacheEntry {
 /// Per-shard state tracking for partial witness processing.
 struct ShardWitnessTracker {
     /// Cache of witness parts being assembled for this shard.
-    parts_cache: LruCache<ChunkProductionKey, CacheEntry>,
+    parts_cache: LruCache<WitnessProductionKey, CacheEntry>,
     /// Track processed witnesses to avoid duplicate processing for this shard.
-    processed_witnesses: SyncLruCache<ChunkProductionKey, ()>,
+    processed_witnesses: SyncLruCache<WitnessProductionKey, ()>,
 }
 
 impl ShardWitnessTracker {
@@ -375,7 +375,7 @@ impl PartialEncodedStateWitnessTracker {
         partial_witness: PartialEncodedStateWitness,
     ) -> Result<(), Error> {
         tracing::debug!(target: "client", ?partial_witness, "store_partial_encoded_state_witness");
-        let key = partial_witness.chunk_production_key();
+        let key = partial_witness.production_key();
         let encoder = self.get_encoder(&key)?;
         let update = CacheUpdate::WitnessPart(partial_witness, encoder);
         self.process_update(key, true, update)
@@ -383,7 +383,7 @@ impl PartialEncodedStateWitnessTracker {
 
     pub fn store_accessed_contract_hashes(
         &self,
-        key: ChunkProductionKey,
+        key: WitnessProductionKey,
         hashes: HashSet<CodeHash>,
     ) -> Result<(), Error> {
         tracing::debug!(target: "client", ?key, ?hashes, "store_accessed_contract_hashes");
@@ -393,7 +393,7 @@ impl PartialEncodedStateWitnessTracker {
 
     pub fn store_accessed_contract_codes(
         &self,
-        key: ChunkProductionKey,
+        key: WitnessProductionKey,
         codes: Vec<CodeBytes>,
     ) -> Result<(), Error> {
         tracing::debug!(target: "client", ?key, codes_len = codes.len(), "store_accessed_contract_codes");

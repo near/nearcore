@@ -7,9 +7,10 @@ use near_crypto::{PublicKey, Signature};
 use near_primitives_core::code::ContractCode;
 use near_primitives_core::hash::{CryptoHash, hash};
 use near_primitives_core::types::{AccountId, ShardId};
+use near_primitives_core::version::ProtocolFeature;
 use near_schema_checker_lib::ProtocolSchema;
 
-use super::ChunkProductionKey;
+use super::{ChunkProductionKey, WitnessProductionKey, WitnessType};
 #[cfg(feature = "solomon")]
 use crate::reed_solomon::{ReedSolomonEncoderDeserialize, ReedSolomonEncoderSerialize};
 use crate::types::SignatureDifferentiator;
@@ -25,6 +26,7 @@ use crate::{utils::compression::CompressedData, validator_signer::ValidatorSigne
 #[repr(u8)]
 pub enum ChunkContractAccesses {
     V1(ChunkContractAccessesV1) = 0,
+    V2(ChunkContractAccessesV2) = 1,
 }
 
 /// Contains information necessary to identify StateTransitionData in the storage.
@@ -36,35 +38,61 @@ pub struct MainTransitionKey {
 
 impl ChunkContractAccesses {
     pub fn new(
-        next_chunk: ChunkProductionKey,
+        next_chunk: WitnessProductionKey,
         contracts: HashSet<CodeHash>,
         main_transition: MainTransitionKey,
         signer: &ValidatorSigner,
     ) -> Self {
-        Self::V1(ChunkContractAccessesV1::new(next_chunk, contracts, main_transition, signer))
+        // 
+        let protocol_version = epoch_manager.get_epoch_protocol_version(&epoch_id)?;
+        
+        if ProtocolFeature::OptimisticWitness.enabled(protocol_version) {
+            return Self::V2(ChunkContractAccessesV2::new(
+                next_chunk,
+                contracts,
+                main_transition,
+                signer,
+            ));
+        } else {
+            return Self::V1(ChunkContractAccessesV1::new(next_chunk.chunk, contracts, main_transition, signer));
+        } 
     }
 
     pub fn contracts(&self) -> &[CodeHash] {
         match self {
             Self::V1(accesses) => &accesses.inner.contracts,
+            Self::V2(accesses) => &accesses.inner.contracts,
         }
     }
 
     pub fn chunk_production_key(&self) -> &ChunkProductionKey {
         match self {
             Self::V1(accesses) => &accesses.inner.next_chunk,
+            Self::V2(accesses) => &accesses.inner.next_chunk.chunk,
+        }
+    }
+
+    pub fn production_key(&self) -> WitnessProductionKey {
+        match self {
+            Self::V1(accesses) => WitnessProductionKey {
+                chunk: accesses.inner.next_chunk.clone(),
+                witness_type: WitnessType::FULL,
+            },
+            Self::V2(accesses) => accesses.inner.next_chunk.clone(),
         }
     }
 
     pub fn main_transition(&self) -> &MainTransitionKey {
         match self {
             Self::V1(accesses) => &accesses.inner.main_transition,
+            Self::V2(accesses) => &accesses.inner.main_transition,
         }
     }
 
     pub fn verify_signature(&self, public_key: &PublicKey) -> bool {
         match self {
             Self::V1(accesses) => accesses.verify_signature(public_key),
+            Self::V2(accesses) => accesses.verify_signature(public_key),
         }
     }
 }
@@ -110,6 +138,59 @@ pub struct ChunkContractAccessesInner {
 impl ChunkContractAccessesInner {
     fn new(
         next_chunk: ChunkProductionKey,
+        contracts: HashSet<CodeHash>,
+        main_transition: MainTransitionKey,
+    ) -> Self {
+        Self {
+            next_chunk,
+            contracts: contracts.into_iter().collect(),
+            main_transition,
+            signature_differentiator: "ChunkContractAccessesInner".to_owned(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
+pub struct ChunkContractAccessesV2 {
+    inner: ChunkContractAccessesInnerV2,
+    /// Signature of the inner, signed by the chunk producer of the next chunk.
+    signature: Signature,
+}
+
+impl ChunkContractAccessesV2 {
+    fn new(
+        next_chunk: WitnessProductionKey,
+        contracts: HashSet<CodeHash>,
+        main_transition: MainTransitionKey,
+        signer: &ValidatorSigner,
+    ) -> Self {
+        let inner = ChunkContractAccessesInnerV2::new(next_chunk, contracts, main_transition);
+        let signature = signer.sign_bytes(&borsh::to_vec(&inner).unwrap());
+        Self { inner, signature }
+    }
+
+    fn verify_signature(&self, public_key: &PublicKey) -> bool {
+        self.signature.verify(&borsh::to_vec(&self.inner).unwrap(), public_key)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
+pub struct ChunkContractAccessesInnerV2 {
+    /// Production metadata of the chunk created after the chunk the accesses belong to.
+    /// We associate this message with the next-chunk info because this message is generated
+    /// and distributed while generating the state-witness of the next chunk
+    /// (by the chunk producer of the next chunk).
+    next_chunk: WitnessProductionKey,
+    /// List of code-hashes for the contracts accessed.
+    contracts: Vec<CodeHash>,
+    /// Corresponds to the StateTransitionData where the contracts were accessed.
+    main_transition: MainTransitionKey,
+    signature_differentiator: SignatureDifferentiator,
+}
+
+impl ChunkContractAccessesInnerV2 {
+    fn new(
+        next_chunk: WitnessProductionKey,
         contracts: HashSet<CodeHash>,
         main_transition: MainTransitionKey,
     ) -> Self {
