@@ -326,6 +326,9 @@ pub struct Config {
     /// If set, overrides value in genesis configuration.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_gas_burnt_view: Option<Gas>,
+    /// If set, overrides max_gas_burnt from runtime config for localnet/sandbox only.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_gas_burnt: Option<Gas>,
     /// Different parameters to configure underlying storage.
     pub store: near_store::StoreConfig,
     /// Different parameters to configure underlying cold storage.
@@ -467,6 +470,7 @@ impl Default for Config {
             state_request_server_threads: default_state_request_server_threads(),
             trie_viewer_state_size_limit: default_trie_viewer_state_size_limit(),
             max_gas_burnt_view: None,
+            max_gas_burnt: None,
             store,
             cold_store: None,
             split_storage: None,
@@ -725,6 +729,7 @@ impl NearConfig {
                 state_request_server_threads: config.state_request_server_threads,
                 trie_viewer_state_size_limit: config.trie_viewer_state_size_limit,
                 max_gas_burnt_view: config.max_gas_burnt_view,
+                max_gas_burnt: config.max_gas_burnt,
                 enable_statistics_export: config.store.enable_statistics_export,
                 client_background_migration_threads: 8,
                 state_sync_enabled: config.state_sync_enabled,
@@ -840,6 +845,7 @@ impl NightshadeRuntime {
             epoch_manager,
             config.client_config.trie_viewer_state_size_limit,
             config.client_config.max_gas_burnt_view,
+            config.client_config.max_gas_burnt,
             None,
             config.config.gc.gc_num_epochs_to_keep(),
             TrieConfig::from_store_config(&config.config.store),
@@ -969,6 +975,7 @@ pub fn init_configs(
     download_config_url: Option<&str>,
     boot_nodes: Option<&str>,
     max_gas_burnt_view: Option<Gas>,
+    max_gas_burnt: Option<Gas>,
     state_sync_bucket: Option<&str>,
 ) -> anyhow::Result<()> {
     fs::create_dir_all(dir).with_context(|| anyhow!("Failed to create directory {:?}", dir))?;
@@ -1021,6 +1028,10 @@ pub fn init_configs(
 
     if let Some(max_gas_burnt_view) = max_gas_burnt_view {
         config.max_gas_burnt_view = Some(max_gas_burnt_view);
+    }
+
+    if let Some(max_gas_burnt) = max_gas_burnt {
+        config.max_gas_burnt = Some(max_gas_burnt);
     }
 
     // Before finalizing the Config and Genesis, make sure the node and validator keys exist.

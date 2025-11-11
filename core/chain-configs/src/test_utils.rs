@@ -316,6 +316,7 @@ impl ClientConfig {
             state_request_server_threads: 1,
             trie_viewer_state_size_limit: None,
             max_gas_burnt_view: None,
+            max_gas_burnt: None,
             enable_statistics_export: true,
             client_background_migration_threads: 1,
             state_sync_enabled,
