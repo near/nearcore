@@ -138,8 +138,8 @@ impl ThreadStats {
 
         if show_stats {
             let class_name = format!("{:?}", self.classes);
-            warn!(
-                "    {:?}: ratio: {:.3} {}:{:?} C mem: {}",
+            tracing::warn!(
+                "{:?}: ratio: {:.3} {}:{:?} c mem: {}",
                 tid,
                 ratio,
                 class_name,
@@ -151,8 +151,8 @@ impl ThreadStats {
                 || self.write_buf_added.as_u64() > 0
                 || self.write_buf_drained.as_u64() > 0
             {
-                info!(
-                    "        Write_buffer len: {} cap: {} added: {} drained: {}",
+                tracing::info!(
+                    "write_buffer len: {} cap: {} added: {} drained: {}",
                     self.write_buf_len,
                     self.write_buf_capacity,
                     self.write_buf_added,
@@ -166,7 +166,7 @@ impl ThreadStats {
             stat.sort_by_key(|f| f.0);
 
             for entry in stat {
-                warn!(
+                tracing::warn!(
                     "        func {}:{}:{} cnt: {} total: {}ms max: {}ms",
                     (entry.0).0,
                     (entry.0).1,
@@ -234,8 +234,8 @@ impl Stats {
     }
 
     fn print_stats(&self, sleep_time: Duration) {
-        info!(
-            "Performance stats {} threads (min ratio = {})",
+        tracing::info!(
+            "performance stats {} threads (min ratio = {})",
             self.stats.len(),
             MIN_OCCUPANCY_RATIO_THRESHOLD
         );
@@ -250,12 +250,12 @@ impl Stats {
             ratio += tmp_ratio;
             other_ratio += tmp_other_ratio;
         }
-        info!("    Other threads ratio {:.3}", other_ratio);
+        tracing::info!("other threads ratio {:.3}", other_ratio);
         let c_memory_usage = get_c_memory_usage();
         if c_memory_usage > ByteSize::default() {
-            info!("    C alloc total memory usage: {}", c_memory_usage);
+            tracing::info!("c alloc total memory usage: {}", c_memory_usage);
         }
-        info!("Total ratio = {:.3}", ratio);
+        tracing::info!("total ratio = {:.3}", ratio);
     }
 }
 
@@ -303,8 +303,8 @@ where
 
     if took >= SLOW_CALL_THRESHOLD {
         let text_field = msg_text.map_or(String::new(), |x| format!(" msg: {x}"));
-        warn!(
-            "Function exceeded time limit {}:{:?} {:?} took: {}ms {}",
+        tracing::warn!(
+            "function exceeded time limit {}:{:?} {:?} took: {}ms {}",
             class_name,
             std::thread::current().id(),
             std::any::type_name::<Message>(),
@@ -352,8 +352,8 @@ where
         stat.lock().log(this.class_name, this.file, this.line, took, ended, "");
 
         if took > SLOW_CALL_THRESHOLD {
-            warn!(
-                "Function exceeded time limit {}:{:?} {}:{} took: {}ms",
+            tracing::warn!(
+                "function exceeded time limit {}:{:?} {}:{} took: {}ms",
                 this.class_name,
                 std::thread::current().id(),
                 this.file,
@@ -373,10 +373,10 @@ where
 
 pub fn print_performance_stats(sleep_time: Duration) {
     STATS.lock().print_stats(sleep_time);
-    info!("Futures waiting for completion");
+    tracing::info!("futures waiting for completion");
     for entry in REF_COUNTER.lock().iter() {
         if *entry.1 > 0 {
-            info!("    future {}:{} {}", (entry.0).0, (entry.0).1, entry.1);
+            tracing::info!("    future {}:{} {}", (entry.0).0, (entry.0).1, entry.1);
         }
     }
 }

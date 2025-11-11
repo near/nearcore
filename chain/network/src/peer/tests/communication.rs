@@ -91,7 +91,7 @@ async fn test_peer_communication(
     outbound.send(want.clone()).await;
     events.recv_until(message_processed(want)).await;
 
-    tracing::info!(target:"test","Block");
+    tracing::info!(target:"test","block");
     let mut events = inbound.events.from_now();
     let want = PeerMessage::Block(chain.blocks[5].clone());
     outbound.send(want.clone()).await;
@@ -153,7 +153,7 @@ async fn test_peer_communication(
     outbound.send(want.clone()).await;
     events.recv_until(message_processed(want)).await;
 
-    tracing::info!(target:"test","Transaction");
+    tracing::info!(target:"test","transaction");
     let mut events = inbound.events.from_now();
     let want = data::make_signed_transaction(&mut rng);
     let want = PeerMessage::Transaction(want);

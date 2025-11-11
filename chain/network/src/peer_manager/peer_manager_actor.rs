@@ -157,10 +157,10 @@ impl messaging::Actor for PeerManagerActor {
 
         // Attempt to reconnect to recent outbound connections from storage
         if self.state.config.connect_to_reliable_peers_on_startup {
-            tracing::debug!(target: "network", "Reconnecting to reliable peers from storage");
+            tracing::debug!(target: "network", "reconnecting to reliable peers from storage");
             self.bootstrap_outbound_from_recent_connections();
         } else {
-            tracing::debug!(target: "network", "Skipping reconnection to reliable peers");
+            tracing::debug!(target: "network", "skipping reconnection to reliable peers");
         }
 
         // Periodically starts peer monitoring.
@@ -233,8 +233,8 @@ impl PeerManagerActor {
                len = peer_store.len(),
                boot_nodes = config.peer_store.boot_nodes.len(),
                banned = peer_store.count_banned(),
-               "Found known peers");
-        tracing::debug!(target: "network", blacklist = ?config.peer_store.blacklist, "Blacklist");
+               "found known peers");
+        tracing::debug!(target: "network", blacklist = ?config.peer_store.blacklist, "blacklist");
         let whitelist_nodes = {
             let mut v = vec![];
             for wn in &config.whitelist_nodes {
@@ -394,7 +394,7 @@ impl PeerManagerActor {
             {
                 tracing::debug!(target: "bandwidth",
                     ?peer_id,
-                    bandwidth_used, msg_received_count, "Peer bandwidth exceeded threshold",
+                    bandwidth_used, msg_received_count, "peer bandwidth exceeded threshold",
                 );
             }
             total_bandwidth_used_by_all_peers += bandwidth_used;
@@ -404,7 +404,7 @@ impl PeerManagerActor {
         tracing::info!(
             target: "bandwidth",
             total_bandwidth_used_by_all_peers,
-            total_msg_received_count, "Bandwidth stats"
+            total_msg_received_count, "bandwidth stats"
         );
 
         self.handle.clone().run_later(
@@ -572,7 +572,7 @@ impl PeerManagerActor {
             tracing::debug!(target: "network", id = ?p.peer_info.id,
                 tier2_len = tier2.ready.len(),
                 ideal_connections_hi = self.state.config.ideal_connections_hi,
-                "Stop active connection"
+                "stop active connection"
             );
             p.stop(None);
         }
@@ -658,7 +658,7 @@ impl PeerManagerActor {
                             tracing::info!(target: "network", err = format!("{:#}", err), "tier2 failed to connect to {peer_info}");
                         }
                         if state.peer_store.peer_connection_attempt(&clock, &peer_info.id, result).is_err() {
-                            tracing::error!(target: "network", ?peer_info, "Failed to store connection attempt.");
+                            tracing::error!(target: "network", ?peer_info, "failed to store connection attempt");
                         }
                     }.instrument(tracing::trace_span!(target: "network", "monitor_peers_trigger_connect"))
                 });
@@ -1064,7 +1064,7 @@ impl PeerManagerActor {
                                 break;
                             }
                         } else {
-                            tracing::debug!(target: "network", chunk_hash=?request.chunk_hash, "Failed to find any matching peer for chunk");
+                            tracing::debug!(target: "network", chunk_hash=?request.chunk_hash, "failed to find any matching peer for chunk");
                         }
                     }
                 }
@@ -1072,7 +1072,7 @@ impl PeerManagerActor {
                 if success {
                     NetworkResponses::NoResponse
                 } else {
-                    tracing::debug!(target: "network", chunk_hash=?request.chunk_hash, "Failed to find a route for chunk");
+                    tracing::debug!(target: "network", chunk_hash=?request.chunk_hash, "failed to find a route for chunk");
                     NetworkResponses::RouteNotFound
                 }
             }

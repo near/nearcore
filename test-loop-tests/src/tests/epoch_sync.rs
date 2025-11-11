@@ -59,7 +59,7 @@ fn setup_initial_blockchain(transaction_validity_period: BlockHeightDelta) -> Te
             .collect_vec();
         clients.tracked_shards_for_each_client()
     };
-    tracing::info!("First epoch tracked shards: {:?}", first_epoch_tracked_shards);
+    tracing::info!("first epoch tracked shards: {:?}", first_epoch_tracked_shards);
 
     if transaction_validity_period <= 1 {
         // If we're testing handling expired transactions, the money transfers should fail at the end when checking
@@ -124,7 +124,7 @@ fn bootstrap_node_via_epoch_sync(mut env: TestLoopEnv, source_node: usize) -> Te
             let header_head_height = client.chain.header_head().unwrap().height;
             let head_height = client.chain.head().unwrap().height;
             tracing::info!(
-                "New node sync status: {:?}, header head height: {:?}, head height: {:?}",
+                "new node sync status: {:?}, header head height: {:?}, head height: {:?}",
                 client.sync_handler.sync_status,
                 header_head_height,
                 head_height

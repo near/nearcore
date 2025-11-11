@@ -182,7 +182,7 @@ impl SyncStatus {
 
     pub fn update(&mut self, new_value: Self) {
         let _span =
-            debug_span!(target: "sync", "update_sync_status", old_value = ?self, ?new_value)
+            tracing::debug_span!(target: "sync", "update_sync_status", old_value = ?self, ?new_value)
                 .entered();
         *self = new_value;
     }

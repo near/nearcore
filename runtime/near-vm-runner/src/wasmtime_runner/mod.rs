@@ -164,7 +164,7 @@ impl ConcurrencySemaphore {
         if num_tables != 0 {
             if !self.try_reserve_tables(num_tables) {
                 let active = self.release_tables(num_tables).checked_sub(num_tables.into())?;
-                warn!(active, requested = num_tables, "table lock contended");
+                tracing::warn!(active, requested = num_tables, "table lock contended");
                 let mut guard = self.release_mutex.lock();
                 while !self.try_reserve_tables(num_tables) {
                     iterations = iterations.checked_add(1)?;
@@ -180,7 +180,7 @@ impl ConcurrencySemaphore {
         iterations = 0;
         if !self.try_reserve_instance() {
             let active = self.release_instance().checked_sub(1)?;
-            warn!(active, "instance lock contended");
+            tracing::warn!(active, "instance lock contended");
             let mut guard = self.release_mutex.lock();
             while !self.try_reserve_instance() {
                 iterations = iterations.checked_add(1)?;

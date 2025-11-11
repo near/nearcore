@@ -1137,7 +1137,7 @@ async fn do_not_block_announce_account_broadcast() {
     let db1 = TestDB::new();
     let aa = data::make_announce_account(rng);
 
-    tracing::info!(target:"test", "spawn 2 nodes and announce the account.");
+    tracing::info!(target:"test", "spawn 2 nodes and announce the account");
     let pm0 = start_pm(clock.clock(), db0.clone(), chain.make_config(rng), chain.clone()).await;
     let pm1 = start_pm(clock.clock(), db1.clone(), chain.make_config(rng), chain.clone()).await;
     pm1.connect_to(&pm0.peer_info(), tcp::Tier::T2).await;
@@ -1146,7 +1146,7 @@ async fn do_not_block_announce_account_broadcast() {
     drop(pm0);
     drop(pm1);
 
-    tracing::info!(target:"test", "spawn 3 nodes and re-announce the account.");
+    tracing::info!(target:"test", "spawn 3 nodes and re-announce the account");
     // Even though the account was previously announced (pm0 and pm1 have it in DB),
     // the nodes should allow to let the broadcast through.
     let pm0 = start_pm(clock.clock(), db0, chain.make_config(rng), chain.clone()).await;

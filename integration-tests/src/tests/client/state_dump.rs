@@ -300,7 +300,7 @@ fn run_state_sync_with_dumped_parts(
     }
 
     // Simulate state sync by reading the dumped parts from the external storage and applying them to the other node
-    tracing::info!("syncing node: simulating state sync.");
+    tracing::info!("syncing node: simulating state sync");
     env.clients[1]
         .chain
         .state_sync_adapter

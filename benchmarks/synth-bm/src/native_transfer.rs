@@ -139,14 +139,14 @@ pub async fn benchmark(args: &BenchmarkArgs) -> anyhow::Result<()> {
             permit.send(res);
         });
         if i > 0 && i % 10000 == 0 {
-            info!("num txs sent: {}", i);
+            tracing::info!("num txs sent: {}", i);
         }
 
         let sender = accounts.get_mut(idx_sender).unwrap();
         sender.nonce += 1;
     }
 
-    info!("Sent {} txs in {:.2} seconds", args.num_transfers, timer.elapsed().as_secs_f64());
+    tracing::info!("sent {} txs in {:.2} seconds", args.num_transfers, timer.elapsed().as_secs_f64());
 
     for account in accounts.iter() {
         account.write_to_dir(&args.user_data_dir)?;
@@ -158,7 +158,7 @@ pub async fn benchmark(args: &BenchmarkArgs) -> anyhow::Result<()> {
     if let Some(handle) = transaction_stat_handle {
         // Ensure transaction stats are collected until all transactions are processed.
         if let Err(err) = handle.await {
-            error!("Transaction statistics service failed with: {err}");
+            tracing::error!("transaction statistics service failed with: {err}");
         }
     }
 

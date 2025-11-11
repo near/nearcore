@@ -98,8 +98,8 @@ impl RpcResponseHandler {
             let response = match self.receiver.recv().await {
                 Some(res) => res,
                 None => {
-                    warn!(
-                        "Expected {} responses but channel closed after {num_received}",
+                    tracing::warn!(
+                        "expected {} responses but channel closed after {num_received}",
                         self.num_expected_responses
                     );
                     break;
@@ -122,20 +122,20 @@ impl RpcResponseHandler {
                     }
                 }
                 Err(err) => {
-                    warn!("Got error response from rpc: {err}");
+                    tracing::warn!("got error response from rpc: {err}");
                     num_rpc_error += 1;
                 }
             };
 
-            debug!(
-                "Received {} responses; num_success={} num_rpc_error={}",
+            tracing::debug!(
+                "received {} responses; num_success={} num_rpc_error={}",
                 num_received, num_succeeded, num_rpc_error
             );
         }
 
         if let Some(timer) = timer {
-            info!(
-                "Received {num_received} tx responses in {:.2} seconds",
+            tracing::info!(
+                "received {num_received} tx responses in {:.2} seconds",
                 timer.elapsed().as_secs_f64()
             );
         }

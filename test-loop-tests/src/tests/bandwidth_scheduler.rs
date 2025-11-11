@@ -201,7 +201,7 @@ fn run_bandwidth_scheduler_test(scenario: TestScenario, tx_concurrency: usize) -
         }
         last_height = Some(tip.height);
 
-        tracing::info!(target: "scheduler_test", "Height: {}", tip.height);
+        tracing::info!(target: "scheduler_test", "height: {}", tip.height);
 
         if tip.height - first_height.unwrap() > workload_blocks {
             return true;
@@ -214,7 +214,7 @@ fn run_bandwidth_scheduler_test(scenario: TestScenario, tx_concurrency: usize) -
     };
     test_loop.run_until(testloop_func, Duration::seconds(300));
 
-    tracing::info!(target: "scheduler_test", "Total transactions completed: {}", workload_generator.txs_done());
+    tracing::info!(target: "scheduler_test", "total transactions completed: {}", workload_generator.txs_done());
 
     let client = &test_loop.data.get(&client_handle).client;
     let bandwidth_stats =
@@ -505,14 +505,14 @@ impl WorkloadGenerator {
                 ));
             }
         }
-        tracing::info!(target: "scheduler_test", "Workload senders: {}", generator.workload_senders.len());
+        tracing::info!(target: "scheduler_test", "workload senders: {}", generator.workload_senders.len());
 
         generator
     }
 
     /// Deploy the test contract on all workload accounts
     fn deploy_contracts(&self, test_loop: &mut TestLoopV2, node_datas: &[NodeExecutionData]) {
-        tracing::info!(target: "scheduler_test", "Deploying contracts...");
+        tracing::info!(target: "scheduler_test", "deploying contracts");
         let (last_block_hash, nonce) = get_last_block_and_nonce(test_loop, node_datas);
         let deploy_contracts_txs: Vec<SignedTransaction> = self
             .shard_accounts
@@ -528,7 +528,7 @@ impl WorkloadGenerator {
             })
             .collect();
         run_txs_parallel(test_loop, deploy_contracts_txs, &node_datas, Duration::seconds(30));
-        tracing::info!(target: "scheduler_test", "Contracts deployed");
+        tracing::info!(target: "scheduler_test", "contracts deployed");
     }
 
     /// Add `concurrency` many access keys to the workload accounts.
@@ -540,7 +540,7 @@ impl WorkloadGenerator {
         node_datas: &[NodeExecutionData],
         concurrency: usize,
     ) -> BTreeMap<AccountId, Vec<Signer>> {
-        tracing::info!(target: "scheduler_test", "Adding access keys...");
+        tracing::info!(target: "scheduler_test", "adding access keys");
 
         // Signers with access keys that were already added to the accounts
         let mut available_signers: BTreeMap<AccountId, Vec<Signer>> = self
@@ -573,7 +573,7 @@ impl WorkloadGenerator {
             let mut new_signers = Vec::new();
 
             let (last_block_hash, nonce) = get_last_block_and_nonce(test_loop, node_datas);
-            tracing::info!(target: "scheduler_test", "Adding access keys with nonce {}", nonce);
+            tracing::info!(target: "scheduler_test", "adding access keys with nonce {}", nonce);
 
             for (account, usable_signers) in &available_signers {
                 let Some(to_add) = signers_to_add.get_mut(account) else {
@@ -600,7 +600,7 @@ impl WorkloadGenerator {
 
             run_txs_parallel(test_loop, add_key_txs, node_datas, Duration::seconds(20));
 
-            tracing::info!(target: "scheduler_test", "Added {} access keys", new_signers.len());
+            tracing::info!(target: "scheduler_test", "added {} access keys", new_signers.len());
             for (account, new_signer) in new_signers {
                 available_signers.entry(account).or_insert_with(Vec::new).push(new_signer);
             }

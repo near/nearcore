@@ -112,7 +112,7 @@ impl Handler<TelemetryEvent> for TelemetryActor {
                                 target: "telemetry",
                                 err = ?error,
                                 endpoint = ?endpoint,
-                                "Failed to send telemetry data");
+                                "failed to send telemetry data");
                             "failed"
                         } else {
                             "ok"

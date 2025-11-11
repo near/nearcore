@@ -232,7 +232,7 @@ impl Inner {
             if peer_status.status != KnownPeerStatus::Connected
                 && now > peer_status.last_seen + self.config.peer_expiration_duration
             {
-                tracing::debug!(target: "network", "Removing peer: last seen {:?} ago", now-peer_status.last_seen);
+                tracing::debug!(target: "network", "removing peer: last seen {:?} ago", now-peer_status.last_seen);
                 to_remove.push(peer_id.clone());
             }
         }
@@ -252,7 +252,7 @@ impl Inner {
         }
         for peer_id in &to_unban {
             if let Err(err) = self.peer_unban(&peer_id) {
-                tracing::error!(target: "network", ?peer_id, ?err, "Failed to unban a peer");
+                tracing::error!(target: "network", ?peer_id, ?err, "failed to unban a peer");
             }
         }
     }
@@ -301,7 +301,7 @@ impl PeerStore {
 
         if boot_nodes.len() > (config.peer_states_cache_size as usize) {
             tracing::error!(
-                "Num boot nodes is {} but the size of the peer store is limited to {}.",
+                "num boot nodes is {} but the size of the peer store is limited to {}",
                 boot_nodes.len(),
                 config.peer_states_cache_size
             );
@@ -310,7 +310,7 @@ impl PeerStore {
         let now = clock.now_utc();
         for peer_info in &config.boot_nodes {
             if peer_id_2_state.contains(&peer_info.id) {
-                tracing::error!(id = ?peer_info.id, "There is a duplicated peer in boot_nodes");
+                tracing::error!(id = ?peer_info.id, "there is a duplicated peer in boot_nodes");
                 continue;
             }
             let peer_addr = match peer_info.addr {
@@ -417,7 +417,7 @@ impl PeerStore {
         peer_id: &PeerId,
         ban_reason: ReasonForBan,
     ) -> anyhow::Result<()> {
-        tracing::warn!(target: "network", "Banning peer {} for {:?}", peer_id, ban_reason);
+        tracing::warn!(target: "network", "banning peer {} for {:?}", peer_id, ban_reason);
         let mut inner = self.0.lock();
         if let Some(peer_state) = inner.peer_states.get_mut(peer_id) {
             let now = clock.now_utc();
@@ -499,7 +499,7 @@ impl PeerStore {
             }
         }
         if blacklisted != 0 {
-            tracing::info!(target: "network", "Ignored {} blacklisted peers out of {} indirect peer(s)",
+            tracing::info!(target: "network", "ignored {} blacklisted peers out of {} indirect peer(s)",
                   blacklisted, total);
         }
     }

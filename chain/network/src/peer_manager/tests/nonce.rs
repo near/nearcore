@@ -44,7 +44,7 @@ async fn test_nonces() {
     ];
 
     for test in test_cases {
-        tracing::info!(target: "test", "Running test {:?}", test.2);
+        tracing::info!(target: "test", "running test {:?}", test.2);
         // Start a PeerManager and connect a peer to it.
         let pm = peer_manager::testonly::start(
             clock.clock(),
@@ -144,7 +144,7 @@ async fn test_nonce_refresh() {
     loop {
         let edge = wait_for_edge(&mut pm2).await;
         if Edge::nonce_to_utc(edge.nonce()).unwrap() == start_time {
-            tracing::debug!("Still seeing old edge..");
+            tracing::debug!("still seeing old edge.");
         } else {
             assert_eq!(Edge::nonce_to_utc(edge.nonce()).unwrap(), new_nonce_utc);
             break;

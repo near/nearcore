@@ -156,12 +156,12 @@ async fn direct_connections() {
     }
     let pms: Vec<_> = pms.iter().collect();
 
-    tracing::info!(target:"test", "Connect peers serially.");
+    tracing::info!(target:"test", "connect peers serially");
     for i in 1..pms.len() {
         pms[i - 1].connect_to(&pms[i].peer_info(), tcp::Tier::T2).await;
     }
 
-    tracing::info!(target:"test", "Set chain info.");
+    tracing::info!(target:"test", "set chain info");
     let chain_info = peer_manager::testonly::make_chain_info(
         &chain,
         &pms.iter().map(|pm| &pm.cfg).collect::<Vec<_>>()[..],
@@ -169,9 +169,9 @@ async fn direct_connections() {
     for pm in &pms {
         pm.set_chain_info(chain_info.clone()).await;
     }
-    tracing::info!(target:"test", "Establish connections.");
+    tracing::info!(target:"test", "establish connections");
     establish_connections(&clock.clock(), &pms[..]).await;
-    tracing::info!(target:"test", "Test clique.");
+    tracing::info!(target:"test", "test clique");
     test_clique(rng, &clock.clock(), &pms[..]).await;
 }
 
@@ -308,7 +308,7 @@ async fn proxy_change() {
     let mut v1cfg = chain.make_config(rng);
     v1cfg.validator.proxies = config::ValidatorProxies::Static(vec![]);
 
-    tracing::info!(target:"test", "Start all nodes.");
+    tracing::info!(target:"test", "start all nodes");
     let p0 = start_pm(clock.clock(), TestDB::new(), p0cfg.clone(), chain.clone()).await;
     let p1 = start_pm(clock.clock(), TestDB::new(), p1cfg.clone(), chain.clone()).await;
     let v0 = start_pm(clock.clock(), TestDB::new(), v0cfg.clone(), chain.clone()).await;
@@ -326,23 +326,23 @@ async fn proxy_change() {
     for pm in [&v0, &v1, &p1, &hub] {
         pm.set_chain_info(chain_info.clone()).await;
     }
-    tracing::info!(target:"test", "TIER1 connections get established: v0 -> p1 <- v1.");
+    tracing::info!(target:"test", "TIER1 connections get established: v0 -> p1 <- v1");
     establish_connections(&clock.clock(), &[&v0, &v1, &p1, &hub]).await;
-    tracing::info!(target:"test", "Send message v1 -> v0 over TIER1.");
+    tracing::info!(target:"test", "Send message v1 -> v0 over TIER1");
     send_and_recv_tier1_message(rng, &clock.clock(), &v1, &v0, tcp::Tier::T1).await;
 
     // Advance time, so that the new AccountsData has newer timestamp.
     clock.advance(time::Duration::hours(1));
 
-    tracing::info!(target:"test", "p1 goes down.");
+    tracing::info!(target:"test", "p1 goes down");
     drop(p1);
-    tracing::info!(target:"test", "p0 goes up and learns that [v0,v1] are TIER1 nodes.");
+    tracing::info!(target:"test", "p0 goes up and learns that [v0,v1] are TIER1 nodes");
     let p0 = start_pm(clock.clock(), TestDB::new(), p0cfg.clone(), chain.clone()).await;
     p0.set_chain_info(chain_info).await;
     hub.connect_to(&p0.peer_info(), tcp::Tier::T2).await;
-    tracing::info!(target:"test", "TIER1 connections get established: v0 -> p0 <- v1.");
+    tracing::info!(target:"test", "TIER1 connections get established: v0 -> p0 <- v1");
     establish_connections(&clock.clock(), &[&v0, &v1, &p0, &hub]).await;
-    tracing::info!(target:"test", "Send message v1 -> v0 over TIER1.");
+    tracing::info!(target:"test", "Send message v1 -> v0 over TIER1");
     send_and_recv_tier1_message(rng, &clock.clock(), &v1, &v0, tcp::Tier::T1).await;
 
     drop(hub);
@@ -379,7 +379,7 @@ async fn tier2_routing_using_accounts_data() {
     let data: HashSet<_> = pm1.tier1_advertise_proxies(&clock.clock()).await.into_iter().collect();
     pm0.wait_for_accounts_data(&data).await;
 
-    tracing::info!(target:"test", "Send a routed message pm0 -> pm1 over TIER2.");
+    tracing::info!(target:"test", "Send a routed message pm0 -> pm1 over TIER2");
     send_and_recv_tier1_message(rng, &clock.clock(), &pm0, &pm1, tcp::Tier::T2).await;
 }
 
@@ -400,7 +400,7 @@ async fn stun_self_discovery() {
         stun_server2.addr().to_string(),
     ]);
 
-    tracing::info!(target:"test", "spawn a node and advertize AccountData.");
+    tracing::info!(target:"test", "spawn a node and advertize AccountData");
     let pm = start_pm(clock.clock(), TestDB::new(), cfg, chain.clone()).await;
     let chain_info = peer_manager::testonly::make_chain_info(&chain, &[&pm.cfg]);
     pm.set_chain_info(chain_info).await;

@@ -88,7 +88,7 @@ pub async fn benchmark_mpc_sign_impl(
         rpc_response_handler.handle_all_responses().await;
     });
 
-    info!("Setup complete, starting to send transactions");
+    tracing::info!("setup complete, starting to send transactions");
     let timer = Instant::now();
     for i in 0..args.num_transactions {
         let sender_idx = usize::try_from(i).unwrap() % accounts.len();
@@ -123,22 +123,22 @@ pub async fn benchmark_mpc_sign_impl(
         });
 
         if i > 0 && i % 200 == 0 {
-            info!("sent {i} transactions in {:.2} seconds", timer.elapsed().as_secs_f64());
+            tracing::info!("sent {i} transactions in {:.2} seconds", timer.elapsed().as_secs_f64());
         }
 
         let sender = accounts.get_mut(sender_idx).unwrap();
         sender.nonce += 1;
     }
 
-    info!(
-        "Done sending {} transactions in {:.2} seconds",
+    tracing::info!(
+        "done sending {} transactions in {:.2} seconds",
         args.num_transactions,
         timer.elapsed().as_secs_f64()
     );
 
-    info!("Awaiting RPC responses");
+    tracing::info!("awaiting RPC responses");
     response_handler_task.await.expect("response handler tasks should succeed");
-    info!("Received all RPC responses after {:.2} seconds", timer.elapsed().as_secs_f64());
+    tracing::info!("received all RPC responses after {:.2} seconds", timer.elapsed().as_secs_f64());
 
     Ok(())
 }
@@ -165,7 +165,7 @@ pub async fn benchmark_mpc_sign(args: &BenchmarkMpcSignArgs) -> anyhow::Result<(
 
     let result = benchmark_mpc_sign_impl(args, client, &mut accounts).await;
 
-    info!("Writing updated nonces to {:?}", args.user_data_dir);
+    tracing::info!("writing updated nonces to {:?}", args.user_data_dir);
     for account in accounts.iter() {
         account.write_to_dir(&args.user_data_dir)?;
     }

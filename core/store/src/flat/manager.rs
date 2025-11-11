@@ -175,7 +175,7 @@ impl FlatStorageManager {
                 }
             });
         } else {
-            tracing::debug!(target: "store", ?shard_uid, ?new_flat_head, "no flat storage!!");
+            tracing::debug!(target: "store", ?shard_uid, ?new_flat_head, "no flat storage!");
         }
         Ok(())
     }

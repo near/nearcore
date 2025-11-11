@@ -174,7 +174,7 @@ pub async fn update_account_nonces(
             Ok(resp) => Some(resp.nonce),
             Err(err) => {
                 if ignore_failures {
-                    warn!("Error while querying account: {err}");
+                    tracing::warn!("error while querying account: {err}");
                     account_idxs_to_remove.push(idx);
                     None
                 } else {
@@ -185,7 +185,7 @@ pub async fn update_account_nonces(
 
         if let (Some(new_nonce), account) = (nonce, accounts.get_mut(idx).unwrap()) {
             if account.nonce != new_nonce {
-                debug!(
+                tracing::debug!(
                     name = "nonce updated",
                     user = account.id.to_string(),
                     nonce.old = account.nonce,
@@ -279,12 +279,12 @@ pub async fn create_sub_accounts(args: &CreateSubAccountsArgs) -> anyhow::Result
         sub_accounts.push(Account::new(sub_account_id, sub_account_key, 0));
     }
 
-    info!("Sent {} txs in {:.2} seconds", args.num_sub_accounts, timer.elapsed().as_secs_f64());
+    tracing::info!("sent {} txs in {:.2} seconds", args.num_sub_accounts, timer.elapsed().as_secs_f64());
 
     // Ensure all rpc responses are handled.
     response_handler_task.await.expect("response handler tasks should succeed");
 
-    info!("Querying nonces of newly created sub accounts.");
+    tracing::info!("querying nonces of newly created sub accounts");
 
     // Nonces of new access keys are set by nearcore: https://github.com/near/nearcore/pull/4064
     // Query them from the rpc to write `Accounts` with valid nonces to disk
@@ -301,7 +301,7 @@ pub async fn create_sub_accounts(args: &CreateSubAccountsArgs) -> anyhow::Result
         account.write_to_dir(&args.user_data_dir)?;
     }
 
-    info!("Written {} accounts to disk", sub_accounts.len());
+    tracing::info!("written {} accounts to disk", sub_accounts.len());
 
     Ok(())
 }

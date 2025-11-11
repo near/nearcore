@@ -238,7 +238,7 @@ impl ListenerAddr {
                 Ok(guard) => guard,
                 Err(named_lock::Error::WouldBlock) => {
                     // this port is already reserved, try another one
-                    tracing::trace!(target: "network", "Port {} is already reserved, trying another one", port);
+                    tracing::trace!(target: "network", "port {} is already reserved, trying another one", port);
                     continue;
                 }
                 Err(err) => {
@@ -249,7 +249,7 @@ impl ListenerAddr {
             let tcp_socket = std::net::TcpListener::bind(addr);
             if tcp_socket.is_err() {
                 // this port is already in use, try another one
-                tracing::trace!(target: "network", "Port {} is already in use, trying another one", port);
+                tracing::trace!(target: "network", "port {} is already in use, trying another one", port);
                 continue;
             }
             RESERVED_PORT_LOCKS.lock().push(guard);

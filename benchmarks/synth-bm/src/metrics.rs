@@ -119,7 +119,7 @@ impl TransactionStatisticsService {
         let report = self.get_report().await?;
         let initial_count = SuccessfulTxsMetric::from_report(&report, Instant::now())?;
         let mut interval_wait_txs_start = time::interval(Duration::from_millis(100));
-        info!("Waiting for transaction processing to start");
+        tracing::info!("waiting for transaction processing to start");
         loop {
             interval_wait_txs_start.tick().await;
             let report = self.get_report().await?;
@@ -127,7 +127,7 @@ impl TransactionStatisticsService {
             if metric.num > initial_count.num {
                 self.data_t0 = metric;
                 self.data_t1 = metric;
-                info!("Observed successful transactions");
+                tracing::info!("observed successful transactions");
                 break;
             }
         }
@@ -152,7 +152,7 @@ impl TransactionStatisticsService {
             self.log_tps();
         }
 
-        info!(
+        tracing::info!(
             r#"Tx statistics cut off a small time from the observation period.
             This is done to avoid statistic services slowing down the system.
             So statistics miss a few successful txs, but adjust the observation period.
@@ -178,7 +178,7 @@ impl TransactionStatisticsService {
         }
         let num = self.data_t1.num - self.data_t0.num;
         let tps = num / elapsed_secs;
-        info!("Observed {num} successful txs in {elapsed_secs} seconds => {tps} TPS");
+        tracing::info!("Observed {num} successful txs in {elapsed_secs} seconds => {tps} TPS");
         tps
     }
 }

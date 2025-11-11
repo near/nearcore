@@ -580,11 +580,11 @@ impl Inner {
         distances: HashMap<PeerId, u32>,
     ) -> Option<network_protocol::DistanceVector> {
         if self.my_distances == distances {
-            tracing::debug!(target: "routing", "No change to routing distances after processing network updates");
+            tracing::debug!(target: "routing", "no change to routing distances after processing network updates");
             return None;
         }
 
-        tracing::debug!(target: "routing", "Routing distances have changed; reconstructing distance vector");
+        tracing::debug!(target: "routing", "routing distances have changed; reconstructing distance vector");
 
         let distance_vector = self.construct_distance_vector_message(&distances)?;
 
@@ -623,9 +623,9 @@ impl Inner {
 
     /// Logs the state of the routing table
     pub(crate) fn log_state(&self) {
-        tracing::debug!(target: "routing", "My distances: {:?}", self.my_distances);
-        tracing::debug!(target: "routing", "Peer labels: {:?}", self.edge_cache.p2id);
-        tracing::debug!(target: "routing", "Peer distance vectors: {:?}", self.peer_distances);
+        tracing::debug!(target: "routing", "my distances: {:?}", self.my_distances);
+        tracing::debug!(target: "routing", "peer labels: {:?}", self.edge_cache.p2id);
+        tracing::debug!(target: "routing", "peer distance vectors: {:?}", self.peer_distances);
     }
 }
 
@@ -748,7 +748,7 @@ impl Handler<NetworkChanges, (Option<network_protocol::DistanceVector>, Vec<bool
         tracing::debug!(
             target: "routing",
             length = msg.0.len(),
-            "Processing a batch of network topology changes",
+            "processing a batch of network topology changes",
         );
 
         let mut inner = self.inner.lock();
@@ -758,9 +758,9 @@ impl Handler<NetworkChanges, (Option<network_protocol::DistanceVector>, Vec<bool
         // Logs the given batch of updates and the results from processing them.
         for (update, ok) in msg.0.iter().zip(&oks) {
             if *ok {
-                tracing::debug!(target: "routing", "Processed event {:?}", update);
+                tracing::debug!(target: "routing", "processed event {:?}", update);
             } else {
-                tracing::debug!(target: "routing", "Rejected invalid distance vector {:?}", update);
+                tracing::debug!(target: "routing", "rejected invalid distance vector {:?}", update);
             }
         }
 

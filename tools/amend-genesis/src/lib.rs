@@ -132,7 +132,7 @@ impl AccountRecords {
             }
             None => {
                 tracing::warn!(
-                    "access keys for {} were included in --extra-records, but no Account record was found. Not adding them to the output",
+                    "access keys for {} were included in --extra-records, but no account record was found. not adding them to the output",
                     &account_id
                 );
             }

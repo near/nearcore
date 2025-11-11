@@ -135,7 +135,7 @@ fn slow_test_tx_inclusion() {
         if last_observed_height.get() != 0 {
             assert_eq!(last_observed_height.get() + 1, block_header.height());
         }
-        tracing::info!(target: "test", "Observed new block at height {}, chunk_mask: {:?}", block_header.height(), block_header.chunk_mask());
+        tracing::info!(target: "test", "observed new block at height {}, chunk_mask: {:?}", block_header.height(), block_header.chunk_mask());
         last_observed_height.set(block_header.height());
         true
     };
