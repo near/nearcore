@@ -38,11 +38,11 @@ async fn establish_connections(clock: &time::Clock, pms: &[&peer_manager::teston
 
     // Wait for accounts data to propagate.
     for pm in pms {
-        tracing::info!(target:"test", "{}: wait_for_accounts_data()",pm.cfg.node_id());
+        tracing::info!(target:"test", node_id = %pm.cfg.node_id(), "wait_for_accounts_data()");
         pm.wait_for_accounts_data(&data).await;
-        tracing::info!(target:"test", "{}: wait_for_accounts_data() DONE",pm.cfg.node_id());
+        tracing::info!(target:"test", node_id = %pm.cfg.node_id(), "wait_for_accounts_data() DONE");
         pm.tier1_connect(clock).await;
-        tracing::info!(target:"test", "{}: tier1_connect() DONE",pm.cfg.node_id());
+        tracing::info!(target:"test", node_id = %pm.cfg.node_id(), "tier1_connect() DONE");
     }
 }
 

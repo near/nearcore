@@ -203,7 +203,7 @@ impl messaging::Actor for PeerManagerActor {
 
     /// Try to gracefully disconnect from connected peers.
     fn stop_actor(&mut self) {
-        tracing::warn!("PeerManager: stopping");
+        tracing::warn!("PeerManager stopping");
         self.state.tier2.broadcast_message(Arc::new(PeerMessage::Disconnect(Disconnect {
             remove_from_connection_store: false,
         })));
@@ -295,7 +295,7 @@ impl PeerManagerActor {
                                     if let Err(err) =
                                         PeerActor::spawn(clock.clone(), actor_system.clone(), stream, None, state.clone())
                                     {
-                                        tracing::info!(target:"network", ?err, "PeerActor::spawn()");
+                                        tracing::info!(target:"network", ?err, "PeerActor::spawn failed");
                                     }
                                 }
                             }
@@ -655,7 +655,7 @@ impl PeerManagerActor {
                         }.await;
 
                         if let Err(ref err) = result {
-                            tracing::info!(target: "network", err = format!("{:#}", err), "tier2 failed to connect to {peer_info}");
+                            tracing::info!(target: "network", err = format!("{:#}", err), %peer_info, "tier2 failed to connect");
                         }
                         if state.peer_store.peer_connection_attempt(&clock, &peer_info.id, result).is_err() {
                             tracing::error!(target: "network", ?peer_info, "failed to store connection attempt");
@@ -873,7 +873,7 @@ impl PeerManagerActor {
                     return NetworkResponses::RouteNotFound;
                 }
 
-                tracing::debug!(target: "network", %shard_id, ?sync_hash, "requesting state header from host {peer_id}");
+                tracing::debug!(target: "network", %shard_id, ?sync_hash, %peer_id, "requesting state header from host");
                 NetworkResponses::SelectedDestination(peer_id)
             }
             NetworkRequests::StateRequestPart {
@@ -917,7 +917,7 @@ impl PeerManagerActor {
                     return NetworkResponses::RouteNotFound;
                 }
 
-                tracing::debug!(target: "network", %shard_id, ?sync_hash, ?part_id, "requesting state part from host {peer_id}");
+                tracing::debug!(target: "network", %shard_id, ?sync_hash, ?part_id, %peer_id, "requesting state part from host");
                 NetworkResponses::SelectedDestination(peer_id)
             }
             NetworkRequests::StateRequestAck {
@@ -945,17 +945,15 @@ impl PeerManagerActor {
                     return NetworkResponses::RouteNotFound;
                 }
 
-                tracing::debug!(target: "network", %shard_id, ?sync_hash, ?part_id_or_header, ?body, "ack state request from host {peer_id}");
+                tracing::debug!(target: "network", %shard_id, ?sync_hash, ?part_id_or_header, ?body, %peer_id, "ack state request from host");
                 NetworkResponses::NoResponse
             }
             NetworkRequests::SnapshotHostInfo { sync_hash, mut epoch_height, mut shards } => {
                 if shards.len() > MAX_SHARDS_PER_SNAPSHOT_HOST_INFO {
                     tracing::warn!(
-                        "PeerManager: Sending out a SnapshotHostInfo message with {} shards, \
-                                    this is more than the allowed limit. The list of shards will be truncated. \
-                                    Please adjust the MAX_SHARDS_PER_SNAPSHOT_HOST_INFO constant ({})",
-                        shards.len(),
-                        MAX_SHARDS_PER_SNAPSHOT_HOST_INFO
+                        shards_len = shards.len(),
+                        %MAX_SHARDS_PER_SNAPSHOT_HOST_INFO,
+                        "PeerManager sending out a SnapshotHostInfo message with too many shards, list will be truncated, please adjust MAX_SHARDS_PER_SNAPSHOT_HOST_INFO constant"
                     );
 
                     // We can's send out more than MAX_SHARDS_PER_SNAPSHOT_HOST_INFO shards because other nodes would
@@ -1450,11 +1448,11 @@ impl messaging::Handler<Tier3Request> for PeerManagerActor {
                                 (StateRequestAckBody::WillRespond, Some(PeerMessage::VersionedStateResponse(*client_response.0)))
                             }
                             Ok(None) => {
-                                tracing::debug!(target: "network", "client declined to respond to {:?}", request);
+                                tracing::debug!(target: "network", ?request, "client declined to respond");
                                 (StateRequestAckBody::Busy, None)
                             }
                             Err(err) => {
-                                tracing::error!(target: "network", ?err, "client failed to respond to {:?}", request);
+                                tracing::error!(target: "network", ?err, ?request, "client failed to respond");
                                 (StateRequestAckBody::Error, None)
                             }
                         };
@@ -1474,7 +1472,7 @@ impl messaging::Handler<Tier3Request> for PeerManagerActor {
                 let sender: PeerId = request.peer_info.id.clone();
 
                 // Send an ack for the request
-                tracing::debug!(target: "network", ?tier2_ack, "ack state request from host {sender}");
+                tracing::debug!(target: "network", ?tier2_ack, %sender, "ack state request from host");
                 let routed_message = state.sign_message(
                     &clock,
                     RawRoutedMessage {
@@ -1483,7 +1481,7 @@ impl messaging::Handler<Tier3Request> for PeerManagerActor {
                     },
                 );
                 if !state.send_message_to_peer(&clock, tcp::Tier::T2, routed_message) {
-                    tracing::debug!(target: "network", "failed to route ack to {}", &sender);
+                    tracing::debug!(target: "network", sender = %&sender, "failed to route ack");
                 }
 
                 let Some(tier3_response) = maybe_tier3_response else {
@@ -1503,7 +1501,7 @@ impl messaging::Handler<Tier3Request> for PeerManagerActor {
                     }.await;
 
                     if let Err(ref err) = result {
-                        tracing::info!(target: "network", err = format!("{:#}", err), "tier3 failed to connect to {}", request.peer_info);
+                        tracing::info!(target: "network", err = format!("{:#}", err), peer_info = %request.peer_info, "tier3 failed to connect");
                     }
                 }
 
