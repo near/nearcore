@@ -568,7 +568,7 @@ impl ArchivalDataLossRecoveryCommand2 {
             nearcore::config::load_config(&home, genesis_validation).expect("Error loading config");
 
         let node_storage = nearcore::open_storage(&home, &near_config)?;
-        let store = node_storage.get_split_store().expect("SplitStore not found!");
+        let store = node_storage.get_cold_store().expect("ColdStore not found!");
 
         migrate_46_to_47(&store, &near_config.genesis.config, &near_config.config.store)?;
 
