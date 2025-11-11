@@ -4,8 +4,10 @@ use crate::near_primitives::account::Account;
 use near_crypto::key_conversion::is_valid_staking_key;
 use near_parameters::RuntimeConfig;
 use near_primitives::account::{AccessKey, AccessKeyPermission};
-use near_primitives::action::DeployGlobalContractAction;
 use near_primitives::action::delegate::SignedDelegateAction;
+use near_primitives::action::{
+    DeployGlobalContractAction, GlobalContractIdentifier, UseGlobalContractAction,
+};
 use near_primitives::errors::{
     ActionsValidationError, InvalidAccessKeyError, InvalidTxError, ReceiptValidationError,
 };
@@ -407,8 +409,8 @@ pub fn validate_action(
         Action::DeployGlobalContract(a) => {
             validate_deploy_global_contract_action(limit_config, a, current_protocol_version)
         }
-        Action::UseGlobalContract(_) => {
-            validate_use_global_contract_action(current_protocol_version)
+        Action::UseGlobalContract(a) => {
+            validate_use_global_contract_action(a, current_protocol_version)
         }
         Action::FunctionCall(a) => validate_function_call_action(limit_config, a),
         Action::Transfer(_) => Ok(()),
@@ -465,9 +467,20 @@ fn validate_deploy_global_contract_action(
 
 /// Validates `UseGlobalContractAction`.
 fn validate_use_global_contract_action(
+    action: &UseGlobalContractAction,
     current_protocol_version: ProtocolVersion,
 ) -> Result<(), ActionsValidationError> {
-    check_global_contracts_enabled(current_protocol_version)
+    check_global_contracts_enabled(current_protocol_version)?;
+
+    if let GlobalContractIdentifier::AccountId(account_id) = &action.contract_identifier {
+        if AccountId::validate(account_id.as_str()).is_err() {
+            return Err(ActionsValidationError::InvalidAccountId {
+                account_id: account_id.to_string(),
+            });
+        }
+    }
+
+    Ok(())
 }
 
 /// Validates `FunctionCallAction`. Checks that the method name length doesn't exceed the limit and
