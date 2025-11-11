@@ -25,6 +25,10 @@ use std::sync::Arc;
 #[cfg(test)]
 mod tests;
 
+/// The number of epochs for which we keep the historical host info.
+/// For now, we only keep the most recent epoch.
+const EPOCH_RETENTION_WINDOW: u64 = 1;
+
 #[derive(thiserror::Error, Debug, PartialEq, Eq, Clone)]
 pub(crate) enum SnapshotHostInfoError {
     #[error("found multiple entries for the same peer_id")]
@@ -130,13 +134,19 @@ impl PartPeerSelector {
     }
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct Epoch {
+    /// The hash for the most recent active state sync
+    sync_hash: CryptoHash,
+    /// The current epoch height for which we discovered a new sync hash
+    epoch_height: EpochHeight,
+}
+
 struct Inner {
     /// The latest known SnapshotHostInfo for each node in the network
     hosts: LruCache<PeerId, Arc<SnapshotHostInfo>>,
-    /// The hash for the most recent active state sync
-    sync_hash: Option<CryptoHash>,
-    /// The current epoch height for which we discovered a new sync hash
-    epoch_height: Option<EpochHeight>,
+    /// The current epoch for which the chain head passed the sync hash.
+    current_epoch: Option<Epoch>,
     /// Available hosts for the active state sync, by shard
     hosts_for_shard: HashMap<ShardId, HashSet<PeerId>>,
     /// Local data structures used to distribute state part requests among known hosts
@@ -147,7 +157,11 @@ struct Inner {
 
 impl Inner {
     fn is_new(&self, h: &SnapshotHostInfo) -> bool {
-        if self.epoch_height.map_or(false, |epoch_height| h.epoch_height < epoch_height) {
+        if self
+            .current_epoch
+            .as_ref()
+            .map_or(false, |current| current.epoch_height >= h.epoch_height)
+        {
             return false;
         }
         match self.hosts.peek(&h.peer_id) {
@@ -170,7 +184,7 @@ impl Inner {
     /// Ingests a new SnapshotHostInfo into the cache
     /// assumes that the SnapshotHostInfo is valid and new
     fn insert(&mut self, d: &Arc<SnapshotHostInfo>) {
-        if self.sync_hash == Some(d.sync_hash) {
+        if self.current_epoch.as_ref().map_or(true, |epoch| epoch.epoch_height <= d.epoch_height) {
             for shard_id in &d.shards {
                 self.hosts_for_shard
                     .entry(*shard_id)
@@ -181,39 +195,52 @@ impl Inner {
         self.hosts.push(d.peer_id.clone(), d.clone());
     }
 
-    /// Clears internal state if the sync hash has changed.
-    fn maybe_update_sync_hash(&mut self, sync_hash: &CryptoHash) {
-        if self.sync_hash != Some(*sync_hash) {
-            self.sync_hash = Some(*sync_hash);
-            self.hosts_for_shard.clear();
-            self.peer_selector.clear();
+    /// Updates the current epoch and clears the internal state if the sync hash has changed.
+    /// This function should be called based on the chain head height.
+    fn update_current_epoch(&mut self, epoch_height: &EpochHeight, sync_hash: &CryptoHash) {
+        let new_epoch = Epoch { sync_hash: *sync_hash, epoch_height: *epoch_height };
+        if self.current_epoch.as_ref() == Some(&new_epoch) {
+            return;
+        }
 
-            for (peer_id, info) in &self.hosts {
-                if info.sync_hash == *sync_hash {
-                    for shard_id in &info.shards {
-                        self.hosts_for_shard
-                            .entry(*shard_id)
-                            .or_insert(HashSet::default())
-                            .insert(peer_id.clone());
+        self.current_epoch = Some(new_epoch);
+        self.hosts_for_shard.clear();
+        self.peer_selector.clear();
+        // Only keep info about most recent epochs defined by EPOCH_RETENTION_WINDOW
+        let mut new_hosts = LruCache::new(NonZeroUsize::new(self.hosts.cap().get()).unwrap());
+        // Build current epoch's cache by keeping only the hosts that are still valid.
+        loop {
+            match self.hosts.pop_lru() {
+                Some((peer_id, info)) => {
+                    if epoch_height - EPOCH_RETENTION_WINDOW <= info.epoch_height {
+                        if info.sync_hash == *sync_hash {
+                            for shard_id in &info.shards {
+                                self.hosts_for_shard
+                                    .entry(*shard_id)
+                                    .or_insert(HashSet::default())
+                                    .insert(peer_id.clone());
+                            }
+                        }
+                        new_hosts.push(peer_id, info);
                     }
                 }
+                None => break,
             }
         }
-    }
-
-    fn update_current_epoch(&mut self, epoch_height: &EpochHeight, sync_hash: &CryptoHash) {
-        self.epoch_height = Some(*epoch_height);
-        self.maybe_update_sync_hash(sync_hash);
+        self.hosts = new_hosts;
     }
 
     /// Given a state header request produced by the local node,
     /// selects a host to which the request should be routed.
     pub fn select_host_for_header(
-        &mut self,
+        &self,
         sync_hash: &CryptoHash,
         shard_id: ShardId,
     ) -> Option<PeerId> {
-        self.maybe_update_sync_hash(sync_hash);
+        if self.current_epoch.as_ref().map_or(true, |epoch| epoch.sync_hash != *sync_hash) {
+            tracing::info!(target: "network", ?sync_hash, current_epoch = ?self.current_epoch, "snapshot hosts cache is not up to date, skipping peer selection");
+            return None;
+        }
 
         self.hosts_for_shard.get(&shard_id)?.iter().choose(&mut thread_rng()).cloned()
     }
@@ -226,7 +253,10 @@ impl Inner {
         shard_id: ShardId,
         part_id: u64,
     ) -> Option<PeerId> {
-        self.maybe_update_sync_hash(sync_hash);
+        if self.current_epoch.as_ref().map_or(true, |epoch| epoch.sync_hash != *sync_hash) {
+            tracing::info!(target: "network", ?sync_hash, current_epoch = ?self.current_epoch, "snapshot hosts cache is not up to date, skipping peer selection");
+            return None;
+        }
 
         let selector =
             self.peer_selector.entry((shard_id, part_id)).or_insert(PartPeerSelector::default());
@@ -272,8 +302,7 @@ impl SnapshotHostsCache {
             hosts: LruCache::new(
                 NonZeroUsize::new(config.snapshot_hosts_cache_size as usize).unwrap(),
             ),
-            sync_hash: None,
-            epoch_height: None,
+            current_epoch: None,
             hosts_for_shard: HashMap::new(),
             peer_selector: HashMap::new(),
             part_selection_cache_batch_size: config.part_selection_cache_batch_size as usize,
