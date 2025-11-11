@@ -417,22 +417,23 @@ export interface ChainProcessingStatusResponse {
 }
 
 export async function fetchBasicStatus(addr: string): Promise<StatusResponse> {
-    const response = await fetch(`http://${addr}/status`);
+    const response = await fetch(`/proxy/status?addr=${addr}`); 
+
     return await response.json();
 }
 
 export async function fetchFullStatus(addr: string): Promise<StatusResponse> {
-    const response = await fetch(`http://${addr}/debug/api/status`);
+    const response = await fetch(`/proxy/debug/api/status?addr=${addr}`);
     return await response.json();
 }
 
 export async function fetchSyncStatus(addr: string): Promise<SyncStatusResponse> {
-    const response = await fetch(`http://${addr}/debug/api/sync_status`);
+    const response = await fetch(`/proxy/debug/api/sync_status?addr=${addr}`);
     return await response.json();
 }
 
 export async function fetchTrackedShards(addr: string): Promise<TrackedShardsResponse> {
-    const response = await fetch(`http://${addr}/debug/api/tracked_shards`);
+    const response = await fetch(`/proxy/debug/api/tracked_shards?addr=${addr}`);
     return await response.json();
 }
 
@@ -452,7 +453,7 @@ export async function fetchBlockStatus(
     if (numBlocks !== null) {
         params.append('num_blocks', numBlocks.toString());
     }
-    const url = `http://${addr}/debug/api/block_status${params.toString() ? '?' + params : ''}`;
+    const url = `/proxy/debug/api/block_status?addr=${addr}${params.toString() ? '&' + params : ''}`;
     const response = await fetch(url);
     return await response.json();
 }
@@ -462,7 +463,7 @@ export async function fetchEpochInfo(
     epochId: string | null
 ): Promise<EpochInfoResponse> {
     const trailing = epochId ? `/${epochId}` : '';
-    const response = await fetch(`http://${addr}/debug/api/epoch_info${trailing}`);
+    const response = await fetch(`/proxy/debug/api/epoch_info${trailing}?addr=${addr}`);
 
     if (!response.ok) {
         throw new Error(`Failed to fetch epoch info: ${response.statusText}`);
@@ -472,31 +473,31 @@ export async function fetchEpochInfo(
 }
 
 export async function fetchPeerStore(addr: string): Promise<PeerStoreResponse> {
-    const response = await fetch(`http://${addr}/debug/api/peer_store`);
+    const response = await fetch(`/proxy/debug/api/peer_store?addr=${addr}`);
     return await response.json();
 }
 
 export async function fetchRecentOutboundConnections(
     addr: string
 ): Promise<RecentOutboundConnectionsResponse> {
-    const response = await fetch(`http://${addr}/debug/api/recent_outbound_connections`);
+    const response = await fetch(`/proxy/debug/api/recent_outbound_connections?addr=${addr}`);
     return await response.json();
 }
 
 export async function fetchRoutingTable(addr: string): Promise<RoutingTableResponse> {
-    const response = await fetch(`http://${addr}/debug/api/network_routes`);
+    const response = await fetch(`/proxy/debug/api/network_routes?addr=${addr}`);
     return await response.json();
 }
 
 export async function fetchSnapshotHosts(addr: string): Promise<SnapshotHostsResponse> {
-    const response = await fetch(`http://${addr}/debug/api/snapshot_hosts`);
+    const response = await fetch(`/proxy/debug/api/snapshot_hosts?addr=${addr}`);
     return await response.json();
 }
 
 export async function fetchChainProcessingStatus(
     addr: string
 ): Promise<ChainProcessingStatusResponse> {
-    const response = await fetch(`http://${addr}/debug/api/chain_processing_status`);
+    const response = await fetch(`/proxy/debug/api/chain_processing_status?addr=${addr}`);
     return await response.json();
 }
 
@@ -508,7 +509,7 @@ export async function fetchEntity(
     addr: string,
     request: EntityQueryWithParams
 ): Promise<ApiEntityDataEntryValue> {
-    const response = await fetch(`http://${addr}/debug/api/entity`, {
+    const response = await fetch(`/proxy/debug/api/entity?addr=${addr}`, {
         body: JSON.stringify(request),
         headers: {
             'Content-Type': 'application/json',
@@ -526,7 +527,7 @@ export const INSTRUMENTED_WINDOW_LEN_MS = 500;
 export async function fetchInstrumentedThreadsView(
     addr: string
 ): Promise<InstrumentedThreadsViewResponse> {
-    const response = await fetch(`http://${addr}/debug/api/instrumented_threads`);
+    const response = await fetch(`/proxy/debug/api/instrumented_threads?addr=${addr}`);
     return await response.json();
 }
 
