@@ -76,6 +76,11 @@ pub async fn build_streamer_message(
         })
         .collect::<Vec<_>>();
 
+    // TODO(spice): Add indexer support for spice.
+    if cfg!(feature = "protocol_feature_spice") {
+        return Ok(StreamerMessage { block, shards: indexer_shards });
+    }
+
     for chunk in chunks {
         let ChunkView { transactions, author, header, receipts: chunk_prev_outgoing_receipts } =
             chunk;

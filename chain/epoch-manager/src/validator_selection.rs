@@ -2,6 +2,7 @@ use crate::shard_assignment::assign_chunk_producers_to_shards;
 use near_primitives::epoch_info::{EpochInfo, RngSeed};
 use near_primitives::epoch_manager::EpochConfig;
 use near_primitives::errors::EpochError;
+use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{
     AccountId, Balance, NumShards, ProtocolVersion, ValidatorId, ValidatorKickoutReason,
@@ -169,6 +170,7 @@ pub fn proposals_to_epoch_info(
     validator_reward: HashMap<AccountId, Balance>,
     minted_amount: Balance,
     protocol_version: ProtocolVersion,
+    shard_layout: ShardLayout,
     use_stable_shard_assignment: bool,
 ) -> Result<EpochInfo, EpochError> {
     debug_assert!(
@@ -269,6 +271,7 @@ pub fn proposals_to_epoch_info(
         protocol_version,
         rng_seed,
         validator_mandates,
+        shard_layout,
     ))
 }
 
@@ -446,6 +449,7 @@ mod tests {
             Default::default(),
             Balance::ZERO,
             PROTOCOL_VERSION,
+            epoch_config.shard_layout.clone(),
             false,
         )
         .unwrap();
@@ -460,7 +464,6 @@ mod tests {
 
         // All proposals become block producers
         assert_eq!(epoch_info.block_producers_settlement(), &[0, 1, 2]);
-        assert_eq!(epoch_info.fishermen_iter().len(), 0);
 
         // Validators are split between shards to balance number of validators.
         // Stakes don't matter for chunk producers.
@@ -514,6 +517,7 @@ mod tests {
             Default::default(),
             Balance::ZERO,
             PROTOCOL_VERSION,
+            epoch_config.shard_layout.clone(),
             false,
         )
         .unwrap();
@@ -599,6 +603,7 @@ mod tests {
             Default::default(),
             Balance::ZERO,
             PROTOCOL_VERSION,
+            epoch_config.shard_layout.clone(),
             false,
         )
         .unwrap();
@@ -611,6 +616,7 @@ mod tests {
             Default::default(),
             Balance::ZERO,
             PROTOCOL_VERSION,
+            epoch_config.shard_layout.clone(),
             false,
         )
         .unwrap();
@@ -625,6 +631,7 @@ mod tests {
             Default::default(),
             Balance::ZERO,
             PROTOCOL_VERSION,
+            epoch_config.shard_layout.clone(),
             false,
         )
         .unwrap();
@@ -637,6 +644,7 @@ mod tests {
             Default::default(),
             Balance::ZERO,
             PROTOCOL_VERSION,
+            epoch_config.shard_layout.clone(),
             false,
         )
         .unwrap();
@@ -692,6 +700,7 @@ mod tests {
             Default::default(),
             Balance::ZERO,
             PROTOCOL_VERSION,
+            epoch_config.shard_layout.clone(),
             false,
         )
         .unwrap();
@@ -735,6 +744,7 @@ mod tests {
             Default::default(),
             Balance::ZERO,
             PROTOCOL_VERSION,
+            epoch_config.shard_layout.clone(),
             false,
         )
         .unwrap();
@@ -770,6 +780,7 @@ mod tests {
             Default::default(),
             Balance::ZERO,
             PROTOCOL_VERSION,
+            epoch_config.shard_layout.clone(),
             false,
         )
         .unwrap();
@@ -824,6 +835,7 @@ mod tests {
             Default::default(),
             Balance::ZERO,
             PROTOCOL_VERSION,
+            epoch_config.shard_layout.clone(),
             false,
         )
         .unwrap();
@@ -902,12 +914,10 @@ mod tests {
             Default::default(),
             Balance::ZERO,
             PROTOCOL_VERSION,
+            epoch_config.shard_layout.clone(),
             false,
         )
         .unwrap();
-
-        let fishermen = epoch_info.fishermen_iter().map(|v| v.take_account_id());
-        assert_eq!(fishermen.count(), 0);
 
         // too low stakes are kicked out
         let kickout = epoch_info.validator_kickout();
@@ -948,6 +958,7 @@ mod tests {
             Default::default(),
             Balance::ZERO,
             PROTOCOL_VERSION,
+            epoch_config.shard_layout.clone(),
             false,
         )
         .unwrap();
@@ -971,6 +982,7 @@ mod tests {
             Default::default(),
             Balance::ZERO,
             PROTOCOL_VERSION,
+            epoch_config.shard_layout.clone(),
             false,
         )
         .unwrap();
@@ -1003,6 +1015,7 @@ mod tests {
             Default::default(),
             Balance::ZERO,
             PROTOCOL_VERSION,
+            epoch_config.shard_layout.clone(),
             false,
         )
         .unwrap();
@@ -1038,6 +1051,7 @@ mod tests {
             rewards_map,
             Balance::ZERO,
             PROTOCOL_VERSION,
+            epoch_config.shard_layout.clone(),
             false,
         )
         .unwrap();

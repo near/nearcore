@@ -39,7 +39,8 @@ use near_primitives::views::LightClientBlockView;
 use near_store::adapter::chain_store::ChainStoreAdapter;
 use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
 use near_store::db::{
-    GC_STOP_HEIGHT_KEY, SPICE_FINAL_EXECUTION_HEAD_KEY, STATE_SYNC_DUMP_KEY, StoreStatistics,
+    GC_STOP_HEIGHT_KEY, SPICE_EXECUTION_HEAD_KEY, SPICE_FINAL_EXECUTION_HEAD_KEY,
+    STATE_SYNC_DUMP_KEY, StoreStatistics,
 };
 use near_store::{
     CHUNK_TAIL_KEY, DBCol, FINAL_HEAD_KEY, FORK_TAIL_KEY, HEAD_KEY, HEADER_HEAD_KEY,
@@ -91,6 +92,8 @@ pub trait ChainStoreAccess {
     fn final_head(&self) -> Result<Arc<Tip>, Error>;
     /// Last final block of the chain that we executed.
     fn spice_final_execution_head(&self) -> Result<Arc<Tip>, Error>;
+    /// Last block of the chain that we executed.
+    fn spice_execution_head(&self) -> Result<Arc<Tip>, Error>;
     /// Largest approval target height sent by us
     fn largest_target_height(&self) -> Result<BlockHeight, Error>;
     /// Stop height observed during the last garbage collection iteration.
@@ -898,6 +901,11 @@ impl ChainStoreAccess for ChainStore {
         ChainStoreAdapter::spice_final_execution_head(self)
     }
 
+    /// Spice execution head.
+    fn spice_execution_head(&self) -> Result<Arc<Tip>, Error> {
+        ChainStoreAdapter::spice_execution_head(self)
+    }
+
     /// Get full block.
     fn get_block(&self, h: &CryptoHash) -> Result<Arc<Block>, Error> {
         ChainStoreAdapter::get_block(self, h)
@@ -1070,6 +1078,7 @@ pub struct ChainStoreUpdate<'a> {
     header_head: Option<Arc<Tip>>,
     final_head: Option<Arc<Tip>>,
     spice_final_execution_head: Option<Arc<Tip>>,
+    spice_execution_head: Option<Arc<Tip>>,
     largest_target_height: Option<BlockHeight>,
     gc_stop_height: Option<BlockHeight>,
     trie_changes: Vec<(CryptoHash, WrappedTrieChanges)>,
@@ -1097,6 +1106,7 @@ impl<'a> ChainStoreUpdate<'a> {
             header_head: None,
             final_head: None,
             spice_final_execution_head: None,
+            spice_execution_head: None,
             largest_target_height: None,
             gc_stop_height: None,
             trie_changes: vec![],
@@ -1181,6 +1191,14 @@ impl<'a> ChainStoreAccess for ChainStoreUpdate<'a> {
             Ok(final_execution_head.clone())
         } else {
             self.chain_store.spice_final_execution_head()
+        }
+    }
+
+    fn spice_execution_head(&self) -> Result<Arc<Tip>, Error> {
+        if let Some(execution_head) = self.spice_execution_head.as_ref() {
+            Ok(execution_head.clone())
+        } else {
+            self.chain_store.spice_execution_head()
         }
     }
 
@@ -1457,6 +1475,11 @@ impl<'a> ChainStoreUpdate<'a> {
 
     pub fn save_spice_final_execution_head(&mut self, t: &Tip) -> Result<(), Error> {
         self.spice_final_execution_head = Some(t.clone().into());
+        Ok(())
+    }
+
+    pub fn save_spice_execution_head(&mut self, t: Tip) -> Result<(), Error> {
+        self.spice_execution_head = Some(t.into());
         Ok(())
     }
 
@@ -1829,6 +1852,11 @@ impl<'a> ChainStoreUpdate<'a> {
                 &mut store_update,
                 SPICE_FINAL_EXECUTION_HEAD_KEY,
                 &mut self.spice_final_execution_head,
+            )?;
+            Self::write_col_misc(
+                &mut store_update,
+                SPICE_EXECUTION_HEAD_KEY,
+                &mut self.spice_execution_head,
             )?;
             Self::write_col_misc(
                 &mut store_update,

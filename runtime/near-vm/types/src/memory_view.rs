@@ -61,8 +61,11 @@ where
 
     /// Creates a subarray view from this `MemoryView`.
     pub fn subarray(&self, start: u32, end: u32) -> Self {
-        assert!((start as usize) < self.length, "The range start is bigger than current length");
-        assert!((end as usize) < self.length, "The range end is bigger than current length");
+        assert!(
+            (start as usize) < self.length,
+            "The range start is greater than or equal to current length"
+        );
+        assert!((end as usize) <= self.length, "The range end is bigger than current length");
 
         Self {
             ptr: unsafe { self.ptr.add(start as usize) },

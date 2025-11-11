@@ -53,6 +53,9 @@ jobs:
       - if: github.event_name != 'pull_request' || matrix.run_on_pr
         uses: actions/checkout@v4
 
+        with:
+          persist-credentials: false
+
       # Install all the required tools
       - if: github.event_name != 'pull_request' || matrix.run_on_pr
         uses: taiki-e/install-action@7852930e42e73b6c323ae4435f5135b58754dfdd
@@ -97,6 +100,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: bufbuild/buf-setup-action@1158f4fa81bc02e1ff62abcca6d516c9e24c77da
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
@@ -112,6 +117,8 @@ jobs:
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: WarpBuilds/setup-python@v5
         with:
           python-version: 3.11
@@ -144,6 +151,8 @@ jobs:
     runs-on: warp-ubuntu-2204-x64-8x
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: taiki-e/install-action@7852930e42e73b6c323ae4435f5135b58754dfdd
         with:
           tool: just
@@ -154,6 +163,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: taiki-e/install-action@7852930e42e73b6c323ae4435f5135b58754dfdd
         with:
           tool: just
@@ -169,6 +180,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: taiki-e/install-action@7852930e42e73b6c323ae4435f5135b58754dfdd
         with:
           tool: just
@@ -179,6 +192,8 @@ jobs:
     runs-on: warp-ubuntu-2204-x64-8x
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: taiki-e/install-action@7852930e42e73b6c323ae4435f5135b58754dfdd
         with:
           tool: just
@@ -189,6 +204,8 @@ jobs:
     runs-on: warp-ubuntu-2204-x64-8x
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: taiki-e/install-action@7852930e42e73b6c323ae4435f5135b58754dfdd
         with:
           tool: just
@@ -198,6 +215,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: taiki-e/install-action@7852930e42e73b6c323ae4435f5135b58754dfdd
         with:
           tool: just
@@ -209,6 +228,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: taiki-e/install-action@7852930e42e73b6c323ae4435f5135b58754dfdd
         with:
           tool: just,cargo-deny
@@ -219,6 +240,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: taiki-e/install-action@7852930e42e73b6c323ae4435f5135b58754dfdd
         with:
           tool: just
@@ -229,6 +252,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: taiki-e/install-action@7852930e42e73b6c323ae4435f5135b58754dfdd
         with:
           tool: just,cargo-machete
@@ -239,6 +264,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: taiki-e/install-action@7852930e42e73b6c323ae4435f5135b58754dfdd
         with:
           tool: just
@@ -249,6 +276,8 @@ jobs:
     runs-on: warp-ubuntu-2204-x64-8x
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: taiki-e/install-action@7852930e42e73b6c323ae4435f5135b58754dfdd
         with:
           tool: just,cargo-udeps
@@ -259,6 +288,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: taiki-e/install-action@7852930e42e73b6c323ae4435f5135b58754dfdd
         with:
           tool: cargo-audit
@@ -279,6 +310,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 1000 # have enough history to find the merge-base between PR and master
+          persist-credentials: false
       - uses: actions/download-artifact@v4
         with:
           pattern: coverage-profraw-*
@@ -323,6 +355,8 @@ jobs:
       - pytest_nightly_tests
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: actions/download-artifact@v4
         with:
           pattern: coverage-codecov-*
@@ -373,6 +407,8 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: taiki-e/install-action@7852930e42e73b6c323ae4435f5135b58754dfdd
         with:
           tool: just
@@ -384,6 +420,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: taiki-e/install-action@7852930e42e73b6c323ae4435f5135b58754dfdd
         with:
           tool: just

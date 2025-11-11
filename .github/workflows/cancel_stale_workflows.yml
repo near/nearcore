@@ -19,7 +19,9 @@ jobs:
         run: |
           echo "Repository: ${{ github.repository }}"
           echo "Head SHA: ${{ github.sha }}"
-          echo "Merge Group Reason: ${{ github.event.reason }}"
+          echo "Merge Group Reason: ${GITHUB_EVENT_REASON}"
+        env:
+          GITHUB_EVENT_REASON: ${{ github.event.reason }}
 
       - name: Cancel Workflow Runs by SHA
         run: |
