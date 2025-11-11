@@ -30,7 +30,7 @@ mod choice;
 // Number of tasks to run producing and sending transactions
 // We need several tasks to not get blocked by the sending latency.
 // 4 is currently more than enough.
-const TX_GENERATOR_TASK_COUNT: u64 = 10;
+const TX_GENERATOR_TASK_COUNT: u64 = 8;
 
 #[serde_as]
 #[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
