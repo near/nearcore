@@ -14,12 +14,18 @@ use near_store::{DBCol, ShardTries, StateSnapshotConfig, Store, StoreConfig, Tri
 
 use crate::resharding::event_type::{ReshardingEventType, ReshardingSplitShardParams};
 
-/// Hashes of the blocks where resharding happened.
-/// These are from resharding at protocol versions 75, 76, and 78 respectively.
+// Hashes of the blocks where resharding happened.
+// These are from resharding at protocol versions 75, 76, and 78 respectively.
+// const RESHARDING_BLOCK_HASHES: [&str; 3] = [
+//     "CRixt9b6FhASJyTyc8YNj6g7tvjrnf37CSWbhGBwL3EP",
+//     "ATvDbPZYJSnu2j2CA9Dj7Q6aSBigi2aKuBGxbbnUZthU",
+//     "BpuCWLLпMQupM5Dm5VqxpKwZJb6fiFsU5nVhfHkoTQQs",
+// ];
+
 const RESHARDING_BLOCK_HASHES: [&str; 3] = [
-    "CRixt9b6FhASJyTyc8YNj6g7tvjrnf37CSWbhGBwL3EP",
-    "ATvDbPZYJSnu2j2CA9Dj7Q6aSBigi2aKuBGxbbnUZthU",
-    "BpuCWLLпMQupM5Dm5VqxpKwZJb6fiFsU5nVhfHkoTQQs",
+    "CHCS27e5THXkC5ZQoG7XgY8CakhCPuuBvubP93Avp9X4",
+    "4UzCQ5T2Nk2xAYY1Aakb62wExfZXGcMX2EnnRNhyVoPW",
+    "GxQ3WBW9RFp5L4DTdJa7KRRRCtPZFgNc1L8f9R8AtgKo",
 ];
 
 /// Migrates the database from version 46 to 47.
@@ -93,8 +99,8 @@ pub fn migrate_46_to_47(
         }
     }
 
-    tracing::info!(target: "migrations", "Writing changes to the database");
-    store.database().write(transaction)?;
+    tracing::info!(target: "migrations", ?transaction, "Writing changes to the database");
+    // store.database().write(transaction)?;
 
     Ok(())
 }

@@ -5,6 +5,7 @@ use near_async::messaging::{IntoMultiSender, noop};
 use near_async::time::Instant;
 use near_chain::resharding::event_type::{ReshardingEventType, ReshardingSplitShardParams};
 use near_chain::resharding::manager::ReshardingManager;
+use near_chain::resharding::migrations::migrate_46_to_47;
 use near_chain::types::RuntimeAdapter;
 use near_chain::{ChainStore, ChainStoreAccess};
 use near_chain_configs::GenesisValidationMode;
@@ -545,5 +546,32 @@ impl ArchivalDataLossRecoveryCommand {
         println!(
             "finished checking shard {shard_uid:?}, elapsed: {elapsed:?}, node count: {leaf_node_count}"
         );
+    }
+}
+
+#[derive(clap::Parser)]
+pub struct ArchivalDataLossRecoveryCommand2 {
+    #[clap(long)]
+    protocol_version: ProtocolVersion,
+
+    #[clap(long, default_value_t = false)]
+    check_only: bool,
+}
+
+impl ArchivalDataLossRecoveryCommand2 {
+    pub fn run(
+        &self,
+        home: &Path,
+        genesis_validation: GenesisValidationMode,
+    ) -> anyhow::Result<()> {
+        let near_config =
+            nearcore::config::load_config(&home, genesis_validation).expect("Error loading config");
+
+        let node_storage = nearcore::open_storage(&home, &near_config)?;
+        let store = node_storage.get_split_store().expect("SplitStore not found!");
+
+        migrate_46_to_47(&store, &near_config.genesis.config, &near_config.config.store)?;
+
+        Ok(())
     }
 }

@@ -8,8 +8,8 @@ use crate::compact::RunCompactionCommand;
 use crate::drop_column::DropColumnCommand;
 use crate::make_snapshot::MakeSnapshotCommand;
 use crate::memtrie::{
-    ArchivalDataLossRecoveryCommand, FindBoundaryAccountCommand, LoadMemTrieCommand,
-    SplitShardTrieCommand,
+    ArchivalDataLossRecoveryCommand, ArchivalDataLossRecoveryCommand2, FindBoundaryAccountCommand,
+    LoadMemTrieCommand, SplitShardTrieCommand,
 };
 use crate::run_migrations::RunMigrationsCommand;
 use crate::set_version::SetVersionCommand;
@@ -62,6 +62,7 @@ enum SubCommand {
     FindBoundaryAccount(FindBoundaryAccountCommand),
     /// Recover the archival data that was lost during resharding.
     ArchivalDataLossRecovery(ArchivalDataLossRecoveryCommand),
+    ArchivalDataLossRecovery2(ArchivalDataLossRecoveryCommand2),
 
     /// Write CryptoHash to DB
     WriteCryptoHash(WriteCryptoHashCommand),
@@ -99,6 +100,7 @@ impl DatabaseCommand {
             SubCommand::SplitShardTrie(cmd) => cmd.run(home, genesis_validation),
             SubCommand::FindBoundaryAccount(cmd) => cmd.run(home, genesis_validation),
             SubCommand::ArchivalDataLossRecovery(cmd) => cmd.run(home, genesis_validation),
+            SubCommand::ArchivalDataLossRecovery2(cmd) => cmd.run(home, genesis_validation),
             SubCommand::WriteCryptoHash(cmd) => cmd.run(home, genesis_validation),
             SubCommand::HighLoadStats(cmd) => cmd.run(home),
             SubCommand::AnalyzeDelayedReceipt(cmd) => cmd.run(home, genesis_validation),
