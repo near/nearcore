@@ -1439,58 +1439,36 @@ impl<T: ChainAccess> TxMirror<T> {
             })?;
         for ch in source_block.chunks {
             for (idx, source_tx) in ch.transactions.into_iter().enumerate() {
-                if let Err(err) = self
-                    .add_tx_function_call_keys(
-                        &source_tx,
-                        MappedTxProvenance::TxCreateAccount(
-                            create_account_height,
-                            ch.shard_id,
-                            idx,
-                        ),
-                        create_account_height,
-                        &ref_hash,
-                        tracker,
-                        tx_block_queue,
-                        target_view_client,
-                        txs,
-                    )
-                    .await
-                {
-                    tracing::error!(
-                        target: "mirror",
-                        ?err,
-                        ?source_tx,
-                        "add_tx_function_call_keys failed as part of add_create_account_txs"
-                    )
-                }
+                self.add_tx_function_call_keys(
+                    &source_tx,
+                    MappedTxProvenance::TxCreateAccount(create_account_height, ch.shard_id, idx),
+                    create_account_height,
+                    &ref_hash,
+                    tracker,
+                    tx_block_queue,
+                    target_view_client,
+                    txs,
+                )
+                .await?
             }
             for (idx, receipt) in ch.receipts.iter().enumerate() {
                 // TODO: we're scanning the list of receipts for each block twice. Once here and then again
                 // when we queue that height's txs. Prob not a big deal but could fix that.
-                if let Err(err) = self
-                    .add_receipt_function_call_keys(
-                        receipt,
-                        MappedTxProvenance::ReceiptCreateAccount(
-                            create_account_height,
-                            ch.shard_id,
-                            idx,
-                        ),
+                self.add_receipt_function_call_keys(
+                    receipt,
+                    MappedTxProvenance::ReceiptCreateAccount(
                         create_account_height,
-                        &ref_hash,
-                        tracker,
-                        tx_block_queue,
-                        target_view_client,
-                        txs,
-                    )
-                    .await
-                {
-                    tracing::error!(
-                        target: "mirror",
-                        ?err,
-                        ?receipt,
-                        "add_receipt_function_call_keys failed as part of add_create_account_txs"
-                    )
-                }
+                        ch.shard_id,
+                        idx,
+                    ),
+                    create_account_height,
+                    &ref_hash,
+                    tracker,
+                    tx_block_queue,
+                    target_view_client,
+                    txs,
+                )
+                .await?;
             }
         }
         Ok(())
