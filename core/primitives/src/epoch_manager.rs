@@ -17,14 +17,6 @@ use std::sync::Arc;
 
 pub const AGGREGATOR_KEY: &[u8] = b"AGGREGATOR";
 
-fn default_protocol_reward_rate() -> Rational32 {
-    Rational32::new(1, 10)
-}
-
-fn default_protocol_treasury_account() -> AccountId {
-    "near".parse().unwrap()
-}
-
 /// Epoch config, determines validator assignment for given epoch.
 /// Can change from epoch to epoch depending on the sharding and other parameters, etc.
 #[derive(Clone, Eq, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -82,10 +74,8 @@ pub struct EpochConfig {
     pub shuffle_shard_assignment_for_chunk_producers: bool,
     pub max_inflation_rate: Rational32,
     // #[default(Rational32::new(1, 10))]
-    #[serde(default = "default_protocol_reward_rate")]
     pub protocol_reward_rate: Rational32,
     // #[default("near".parse().unwrap())]
-    #[serde(default = "default_protocol_treasury_account")]
     pub protocol_treasury_account: AccountId,
 }
 
