@@ -1561,9 +1561,13 @@ impl RawRoutedMessage {
         now: Option<time::Utc>,
     ) -> RoutedMessage {
         let author = PeerId::new(node_key.public_key());
-        let body = RoutedMessageBody::from(self.body.clone());
-        let hash = RoutedMessage::build_hash(&self.target, &author, &body);
-        let signature = Some(node_key.sign(hash.as_ref()));
+        let signature = if self.body.is_t1() {
+            None
+        } else {
+            let body = RoutedMessageBody::from(self.body.clone());
+            let hash = RoutedMessage::build_hash(&self.target, &author, &body);
+            Some(node_key.sign(hash.as_ref()))
+        };
         RoutedMessage::V3(RoutedMessageV3 {
             target: self.target,
             author,

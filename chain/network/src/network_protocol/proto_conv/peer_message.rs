@@ -333,16 +333,13 @@ impl From<&PeerMessage> for proto::PeerMessage {
                     borsh: borsh::to_vec(&t).unwrap(),
                     ..Default::default()
                 }),
-                PeerMessage::Routed(r) => ProtoMT::Routed(proto::RoutedMessage {
-                    borsh: borsh::to_vec(&r.clone().msg_v1()).unwrap(),
-                    created_at: MF::from_option(
-                        r.created_at()
-                            .as_ref()
-                            .map(|t| ::time::OffsetDateTime::from_unix_timestamp(*t).ok())
-                            .flatten()
-                            .as_ref()
-                            .map(utc_to_proto),
-                    ),
+                PeerMessage::Routed(r) => ProtoMT::RoutedV3(proto::RoutedMessageV3 {
+                    target: MF::some(r.target().into()),
+                    author: MF::some(r.author().public_key().into()),
+                    ttl: r.ttl() as u32,
+                    borsh_body: borsh::to_vec(r.body()).unwrap(),
+                    signature: MF::from_option(r.signature().map(|s| s.into())),
+                    created_at: r.created_at(),
                     num_hops: r.num_hops(),
                     ..Default::default()
                 }),
@@ -522,13 +519,14 @@ impl TryFrom<&proto::PeerMessage> for PeerMessage {
             ProtoMT::Routed(r) => {
                 let msg = RoutedMessageV1::try_from_slice(&r.borsh).map_err(Self::Error::Routed)?;
                 let body = TieredMessageBody::from_routed(msg.body);
+                let signature = if body.is_t1() { None } else { Some(msg.signature) };
                 PeerMessage::Routed(Box::new(
                     RoutedMessageV3 {
                         target: msg.target,
                         author: msg.author,
                         ttl: msg.ttl,
                         body,
-                        signature: Some(msg.signature),
+                        signature,
                         created_at: r
                             .created_at
                             .as_ref()
