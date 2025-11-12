@@ -69,7 +69,7 @@ impl ActorSystem {
     }
 
     pub fn stop(&self) {
-        tracing::info!("stopping all actors in ActorSystem");
+        tracing::info!("stopping all actors in actor system");
         self.tokio_cancellation_signal.cancel();
         self.multithread_cancellation_signal.lock().take();
     }

@@ -1178,7 +1178,7 @@ impl TxTracker {
             %total_sent,
             %provenance,
             %target_height,
-            "sent transactions from provenance with target HEAD"
+            "sent transactions from provenance with target head"
         );
 
         let next_delay = self.tx_batch_interval.unwrap_or_else(|| {

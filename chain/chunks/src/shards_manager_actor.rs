@@ -314,7 +314,7 @@ impl HandlerWithContext<ShardsManagerRequestFromNetwork> for ShardsManagerActor 
     ) {
         match self.handle_network_request(msg) {
             HandleNetworkRequestResult::RetryProcessing(msg, duration) => {
-                tracing::debug!(target: "chunks", "retry processing of the NeedsBlockChunkDropped scheduled");
+                tracing::debug!(target: "chunks", "retry processing of the needs block chunk dropped scheduled");
 
                 ctx.run_later("retry processing chunk request", duration, move |this, _ctx| {
                     // Schedule retry processing the message once again if requested.
@@ -1725,7 +1725,7 @@ impl ShardsManagerActor {
         let epoch_id = match self.epoch_manager.get_epoch_id_from_prev_block(&prev_block_hash) {
             Ok(epoch_id) => epoch_id,
             Err(_) => {
-                tracing::debug!(target: "chunks", ?prev_block_hash, "NeedBlock");
+                tracing::debug!(target: "chunks", ?prev_block_hash, "need block");
                 return Ok(ProcessPartialEncodedChunkResult::NeedBlock);
             }
         };
@@ -1757,7 +1757,7 @@ impl ShardsManagerActor {
                 }
             }
         } else {
-            tracing::debug!(target: "chunks", "UnknownChunk");
+            tracing::debug!(target: "chunks", "unknown chunk");
             return Err(Error::UnknownChunk);
         }
 

@@ -464,7 +464,7 @@ impl PrepareHotCmd {
             tracing::warn!(target: "prepare-hot",
                 cold_head_height = cold_head.height,
                 rpc_head_height = rpc_head.height,
-                "the cold head is ahead of the RPC head. this should fix itself when the node catches up and becomes in sync"
+                "the cold head is ahead of the RPC head, this should fix itself when the node catches up and becomes in sync"
             );
         }
 
