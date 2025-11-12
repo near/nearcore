@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::sync::Arc;
 use std::task::Poll;
 
@@ -29,12 +30,18 @@ use crate::utils::transactions::TransactionRunner;
 /// It serves as a main interface for test actions such as sending
 /// transactions, waiting for blocks to be produces, querying state, etc.
 pub struct TestLoopNode<'a> {
-    data: &'a NodeExecutionData,
+    data: Cow<'a, NodeExecutionData>,
 }
 
 impl<'a> From<&'a NodeExecutionData> for TestLoopNode<'a> {
     fn from(value: &'a NodeExecutionData) -> Self {
-        Self { data: value }
+        Self { data: Cow::Borrowed(value) }
+    }
+}
+
+impl From<NodeExecutionData> for TestLoopNode<'_> {
+    fn from(value: NodeExecutionData) -> Self {
+        Self { data: Cow::Owned(value) }
     }
 }
 
@@ -46,7 +53,7 @@ impl<'a> TestLoopNode<'a> {
             .iter()
             .rfind(|data| &data.account_id == account_id)
             .unwrap_or_else(|| panic!("client with account id {account_id} not found"));
-        Self { data }
+        Self::from(data)
     }
 
     pub fn rpc(node_datas: &'a [NodeExecutionData]) -> Self {
@@ -55,7 +62,7 @@ impl<'a> TestLoopNode<'a> {
 
     #[allow(unused)]
     pub fn all(node_datas: &'a [NodeExecutionData]) -> Vec<Self> {
-        node_datas.iter().map(|data| Self { data }).collect()
+        node_datas.iter().map(|data| Self::from(data)).collect()
     }
 
     pub fn data(&self) -> &NodeExecutionData {
@@ -63,7 +70,7 @@ impl<'a> TestLoopNode<'a> {
     }
 
     pub fn client<'b>(&self, test_loop_data: &'b TestLoopData) -> &'b Client {
-        let client_handle = self.data.client_sender.actor_handle();
+        let client_handle = self.data().client_sender.actor_handle();
         &test_loop_data.get(&client_handle).client
     }
 
@@ -142,7 +149,7 @@ impl<'a> TestLoopNode<'a> {
     pub fn submit_tx(&self, tx: SignedTransaction) {
         let process_tx_request =
             ProcessTxRequest { transaction: tx, is_forwarded: false, check_only: false };
-        self.data.rpc_handler_sender.send(process_tx_request);
+        self.data().rpc_handler_sender.send(process_tx_request);
     }
 
     pub fn run_until_outcome_available(
@@ -189,7 +196,7 @@ impl<'a> TestLoopNode<'a> {
         tx: SignedTransaction,
         maximum_duration: Duration,
     ) -> Result<FinalExecutionOutcomeView, InvalidTxError> {
-        let tx_processor_sender = &self.data.rpc_handler_sender;
+        let tx_processor_sender = &self.data().rpc_handler_sender;
         let mut tx_runner = TransactionRunner::new(tx, false);
         let future_spawner = test_loop.future_spawner("TransactionRunner");
 
@@ -266,9 +273,9 @@ impl<'a> TestLoopNode<'a> {
         test_loop: &TestLoopV2,
         message: near_client::NetworkAdversarialMessage,
     ) {
-        let client_sender = self.data.client_sender.clone();
+        let client_sender = self.data().client_sender.clone();
         test_loop.send_adhoc_event(
-            format!("send adversarial {:?} to {}", message, self.data.account_id),
+            format!("send adversarial {:?} to {}", message, self.data().account_id),
             move |_| {
                 client_sender.send(message);
             },
