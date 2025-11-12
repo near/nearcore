@@ -396,6 +396,7 @@ impl Action {
         match self {
             Action::FunctionCall(a) => a.deposit,
             Action::Transfer(a) => a.deposit,
+            Action::TransferToGasKey(a) => a.deposit,
             Action::DeterministicStateInit(a) => a.deposit,
             _ => Balance::ZERO,
         }

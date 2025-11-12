@@ -1305,6 +1305,46 @@ mod tests {
     }
 
     #[test]
+    fn test_validate_transfer_to_gas_key_not_enough_balance() {
+        let config = RuntimeConfig::test();
+        let (signer, mut state_update, gas_price) =
+            setup_common(TESTING_INIT_BALANCE, Balance::ZERO, Some(AccessKey::full_access()));
+
+        let signed_tx = SignedTransaction::from_actions(
+            1,
+            alice_account(),
+            bob_account(),
+            &*signer,
+            vec![Action::TransferToGasKey(
+                TransferToGasKeyAction {
+                    public_key: PublicKey::from_seed(KeyType::ED25519, "gas_key"),
+                    deposit: TESTING_INIT_BALANCE,
+                }
+                .into(),
+            )],
+            CryptoHash::default(),
+            0,
+        );
+
+        let err = validate_verify_and_charge_transaction(
+            &config,
+            &mut state_update,
+            signed_tx,
+            gas_price,
+            None,
+            ProtocolFeature::GasKeys.protocol_version(),
+        )
+        .expect_err("expected an error");
+        if let InvalidTxError::NotEnoughBalance { signer_id, balance, cost } = err {
+            assert_eq!(signer_id, alice_account());
+            assert_eq!(balance, TESTING_INIT_BALANCE);
+            assert!(cost > balance);
+        } else {
+            panic!("Incorrect error: {:?}", err);
+        }
+    }
+
+    #[test]
     fn test_validate_transaction_invalid_not_enough_allowance() {
         let config = RuntimeConfig::test();
         let (signer, mut state_update, gas_price) = setup_common(
