@@ -75,7 +75,27 @@ jobs:
           if [ -z "$BRANCH" ]; then
             BRANCH=$(git branch -r --contains=${GITHUB_REF_NAME} | head -n1 | cut -c3- | cut -d / -f 2)
           fi
-          aws s3 cp --acl public-read latest s3://build.nearprotocol.com/nearcore/$(uname)/${BRANCH}/latest
+          UPLOAD_TARGETS=()
+          if [ -n "$BRANCH" ]; then
+            UPLOAD_TARGETS+=("$BRANCH")
+          fi
+          if [ "${{ github.event_name }}" = "release" ]; then
+            RELEASE_TAG="${{ github.event.release.tag_name }}"
+            if [ -n "$RELEASE_TAG" ]; then
+              if [ -z "$BRANCH" ] || [ "$BRANCH" != "$RELEASE_TAG" ]; then
+                UPLOAD_TARGETS+=("$RELEASE_TAG")
+              fi
+            fi
+          fi
+
+          if [ ${#UPLOAD_TARGETS[@]} -eq 0 ]; then
+            echo "Unable to determine upload target for latest metadata" >&2
+            exit 1
+          fi
+
+          for target in "${UPLOAD_TARGETS[@]}"; do
+            aws s3 cp --acl public-read latest s3://build.nearprotocol.com/nearcore/$(uname)/${target}/latest
+          done
       
       - name: Trigger release metadata update workflow
         if: github.event_name != 'workflow_dispatch' && github.event_name == 'release'
@@ -130,11 +150,31 @@ jobs:
             BRANCH=$(git branch -r --contains=${GITHUB_REF_NAME} | head -n1 | cut -c3- | cut -d / -f 2)
           fi
 
+          EVENT_NAME="${{ github.event_name }}"
+          IMAGE_TAG=""
+          RELEASE_CHANNEL=""
+          if [ "$EVENT_NAME" = "release" ]; then
+            IMAGE_TAG="${{ github.event.release.tag_name }}"
+            if [ "${{ github.event.release.prerelease }}" = "true" ]; then
+              RELEASE_CHANNEL="pre-release"
+            else
+              RELEASE_CHANNEL="release"
+            fi
+          fi
+
+          if [ -z "$IMAGE_TAG" ]; then
+            IMAGE_TAG="$BRANCH"
+          fi
+
           DOCKER_TAGS="nearprotocol/nearcore:${BRANCH},nearprotocol/nearcore:${BRANCH}-${COMMIT}"
 
           if [[ ${BRANCH} == "master" ]];
           then
             DOCKER_TAGS="${DOCKER_TAGS},nearprotocol/nearcore:latest"
+          fi
+
+          if [ -n "$RELEASE_CHANNEL" ]; then
+            DOCKER_TAGS="${DOCKER_TAGS},nearprotocol/nearcore:${RELEASE_CHANNEL}"
           fi
 
           echo "DOCKER_TAGS=${DOCKER_TAGS}" >> $GITHUB_ENV
@@ -149,4 +189,4 @@ jobs:
           build-args: |
             make_target=neard-release 
           tags: ${{ env.DOCKER_TAGS }}
-  
+

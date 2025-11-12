@@ -22,6 +22,11 @@ fi
 
 COMMIT=$(git rev-parse HEAD)
 
+RELEASE_TAG=""
+if [ "${GITHUB_EVENT_NAME}" = "release" ] && [ -n "${GITHUB_REF_NAME}" ]; then
+  RELEASE_TAG="${GITHUB_REF_NAME}"
+fi
+
 os=$(uname)
 arch=$(uname -m)
 os_and_arch=${os}-${arch}
@@ -40,22 +45,32 @@ function upload_binary {
   then
     tar_binary $1
     tar_file=$1.tar.gz
-    aws s3 cp --acl public-read target/release/$1 s3://build.nearprotocol.com/nearcore/${os}/${BRANCH}/$1
-    aws s3 cp --acl public-read target/release/$1 s3://build.nearprotocol.com/nearcore/${os}/${BRANCH}/${COMMIT}/$1
-    aws s3 cp --acl public-read target/release/$1 s3://build.nearprotocol.com/nearcore/${os}/${BRANCH}/${COMMIT}/stable/$1
 
-    aws s3 cp --acl public-read target/release/$1 s3://build.nearprotocol.com/nearcore/${os_and_arch}/${BRANCH}/$1
-    aws s3 cp --acl public-read target/release/$1 s3://build.nearprotocol.com/nearcore/${os_and_arch}/${BRANCH}/${COMMIT}/$1
-    aws s3 cp --acl public-read target/release/$1 s3://build.nearprotocol.com/nearcore/${os_and_arch}/${BRANCH}/${COMMIT}/stable/$1
+    upload_targets=()
+    if [ -n "${BRANCH}" ]; then
+      upload_targets+=("${BRANCH}")
+    fi
+    if [ -n "${RELEASE_TAG}" ] && { [ -z "${BRANCH}" ] || [ "${BRANCH}" != "${RELEASE_TAG}" ]; }; then
+      upload_targets+=("${RELEASE_TAG}")
+    fi
 
-    aws s3 cp --acl public-read ${tar_file} s3://build.nearprotocol.com/nearcore/${os_and_arch}/${BRANCH}/${tar_file}
-    aws s3 cp --acl public-read ${tar_file} s3://build.nearprotocol.com/nearcore/${os_and_arch}/${BRANCH}/${COMMIT}/${tar_file}
-    aws s3 cp --acl public-read ${tar_file} s3://build.nearprotocol.com/nearcore/${os_and_arch}/${BRANCH}/${COMMIT}/stable/${tar_file}
+    if [ ${#upload_targets[@]} -eq 0 ]; then
+      echo "Unable to determine upload target for release artifacts" >&2
+      exit 1
+    fi
+
+    for target in "${upload_targets[@]}"; do
+      aws s3 cp --acl public-read target/release/$1 s3://build.nearprotocol.com/nearcore/${os_and_arch}/${target}/$1
+      aws s3 cp --acl public-read target/release/$1 s3://build.nearprotocol.com/nearcore/${os_and_arch}/${target}/${COMMIT}/$1
+      aws s3 cp --acl public-read target/release/$1 s3://build.nearprotocol.com/nearcore/${os_and_arch}/${target}/${COMMIT}/stable/$1
+
+      aws s3 cp --acl public-read ${tar_file} s3://build.nearprotocol.com/nearcore/${os_and_arch}/${target}/${tar_file}
+      aws s3 cp --acl public-read ${tar_file} s3://build.nearprotocol.com/nearcore/${os_and_arch}/${target}/${COMMIT}/${tar_file}
+      aws s3 cp --acl public-read ${tar_file} s3://build.nearprotocol.com/nearcore/${os_and_arch}/${target}/${COMMIT}/stable/${tar_file}
+    done
 
   else
     folder="${release%-release}"
-    aws s3 cp --acl public-read target/release/$1 s3://build.nearprotocol.com/nearcore/${os}/${BRANCH}/${folder}/$1
-    aws s3 cp --acl public-read target/release/$1 s3://build.nearprotocol.com/nearcore/${os}/${BRANCH}/${COMMIT}/${folder}/$1
     aws s3 cp --acl public-read target/release/$1 s3://build.nearprotocol.com/nearcore/${os_and_arch}/${BRANCH}/${COMMIT}/${folder}/$1
   fi
 }
