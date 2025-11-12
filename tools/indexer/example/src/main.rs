@@ -1,7 +1,6 @@
 use anyhow::Result;
 use clap::Parser;
 use tokio::sync::mpsc;
-use tracing::info;
 
 use configs::{Opts, SubCommand};
 use near_indexer;

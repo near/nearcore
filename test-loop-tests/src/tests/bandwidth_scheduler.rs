@@ -201,7 +201,7 @@ fn run_bandwidth_scheduler_test(scenario: TestScenario, tx_concurrency: usize) -
         }
         last_height = Some(tip.height);
 
-        tracing::info!(target: "scheduler_test", %tip.height, "height");
+        tracing::info!(target: "scheduler_test", height = %tip.height);
 
         if tip.height - first_height.unwrap() > workload_blocks {
             return true;
