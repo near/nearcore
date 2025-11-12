@@ -13,6 +13,8 @@ pub enum Action {
     DeleteKey(DeleteKeyAction),
     DeleteAccount(DeleteAccountAction),
     Delegate(SignedDelegateAction),
+    DeployGlobalContract(DeployGlobalContractAction),
+    UseGlobalContract(UseGlobalContractAction),
 }
 ```
 
@@ -27,6 +29,8 @@ For the following actions, `predecessor_id` and `receiver_id` are required to be
 - `AddKey`
 - `DeleteKey`
 - `DeleteAccount`
+- `DeployGlobalContract`
+- `UseGlobalContract`
 
 NOTE: if the first action in the action list is `CreateAccount`, `predecessor_id` becomes `receiver_id`
 for the rest of the actions until `DeleteAccount`. This gives permission by another account to act on the newly created account.
@@ -313,6 +317,143 @@ DeleteAccountStaking { account_id: AccountId }
 **Execution Error**:
 
 - If state or storage is corrupted, a `StorageError` is returned.
+
+## DeployGlobalContractAction
+
+Introduced with [NEP-591](https://github.com/near/NEPs/blob/master/neps/nep-0591.md) to enable global contracts.
+
+```rust
+pub struct DeployGlobalContractAction {
+    /// Contract code to deploy globally
+    pub code: Vec<u8>,
+    /// Deployment mode (by hash or by account ID)
+    pub deploy_mode: GlobalContractDeployMode,
+}
+
+pub enum GlobalContractDeployMode {
+    /// Contract is deployed under its code hash.
+    /// Users will be able to reference it by that hash.
+    /// This effectively makes the contract immutable.
+    CodeHash,
+    /// Contract is deployed under the owner account id.
+    /// Users will be able to reference it by that account id.
+    /// This allows the owner to update the contract for all its users.
+    AccountId,
+}
+```
+
+**Outcome**:
+
+- Deploys the contract globally, making it available across all shards
+- Burns tokens from the account balance at a rate of `global_contract_storage_amount_per_byte` (10x the regular storage rate)
+- Creates a `GlobalContractDistribution` receipt to distribute the contract to all shards
+- Stores the contract code in the global contract trie under the appropriate identifier (hash or account ID)
+
+### Errors
+
+**Validation Error**:
+
+- If the length of `code` exceeds `max_contract_size`, which is a genesis parameter, the following error will be returned:
+
+```rust
+/// The size of the contract code exceeded the limit in a DeployGlobalContract action.
+ContractSizeExceeded { size: u64, limit: u64 },
+```
+
+**Execution Error**:
+
+- If the account does not have sufficient balance to cover the burned storage cost, the following error will be returned:
+
+```rust
+/// Account doesn't have enough balance to cover the storage cost
+LackBalanceForState { account_id: AccountId, amount: Balance },
+```
+
+- If state or storage is corrupted, it may return `StorageError`.
+
+### Cost
+
+The storage cost is calculated as:
+```
+cost = code.len() * global_contract_storage_amount_per_byte
+```
+
+Where `global_contract_storage_amount_per_byte` is set to 10x the regular `storage_amount_per_byte` parameter.
+
+Action gas costs:
+- `action_deploy_global_contract`: Base cost (same as `action_deploy_contract`)
+- `action_deploy_global_contract_per_byte`: Per-byte cost with execution cost of ~70,000,000 gas per byte to cover cross-shard distribution
+
+## UseGlobalContractAction
+
+Introduced with [NEP-591](https://github.com/near/NEPs/blob/master/neps/nep-0591.md) to enable referencing global contracts.
+
+```rust
+pub struct UseGlobalContractAction {
+    /// Identifier of the global contract to use
+    pub contract_identifier: GlobalContractIdentifier,
+}
+
+pub enum GlobalContractIdentifier {
+    /// Reference by code hash (immutable)
+    CodeHash(CryptoHash),
+    /// Reference by account ID (upgradable)
+    AccountId(AccountId),
+}
+```
+
+**Outcome**:
+
+- Updates the account's contract reference to point to a global contract
+- Only stores a small reference (hash or account ID) instead of the full contract code
+- Locks tokens for storage based on the identifier length using `storage_amount_per_byte`
+- Updates the account structure to use `AccountContract` enum
+
+### Account Structure Change
+
+The account structure is updated to support global contracts:
+
+```rust
+pub enum AccountContract {
+    None,
+    Local(CryptoHash),
+    Global(CryptoHash),
+    GlobalByAccount(AccountId),
+}
+```
+
+### Errors
+
+**Validation Error**:
+
+- If `contract_identifier` is `AccountId` and it's not a valid account id, the following error will be returned:
+
+```rust
+/// Invalid account ID.
+InvalidAccountId { account_id: AccountId },
+```
+
+**Execution Error**:
+
+- If the specified global contract does not exist (either by hash or account ID), the following error will be returned:
+
+```rust
+/// The referenced global contract does not exist
+GlobalContractDoesNotExist { identifier: GlobalContractIdentifier },
+```
+
+- If state or storage is corrupted, a `StorageError` will be returned.
+
+### Cost
+
+The storage cost is calculated based on the identifier length:
+```
+cost = identifier.len() * storage_amount_per_byte
+```
+
+Action gas costs:
+- `action_use_global_contract`: Base cost (mirrors `action_deploy_contract`)
+- `action_use_global_contract_per_identifier_byte`: Per-byte cost based on identifier length
 
 ## Delegate Actions
 
