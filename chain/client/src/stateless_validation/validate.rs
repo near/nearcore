@@ -178,7 +178,7 @@ pub fn validate_contract_code_request(
     request: &ContractCodeRequest,
     store: &Store,
 ) -> Result<ChunkRelevance, Error> {
-    let key = request.chunk_production_key();
+    let key = request.production_key();
     require_relevant!(validate_chunk_relevant_as_validator(
         epoch_manager,
         key,
@@ -317,7 +317,7 @@ fn validate_witness_contract_code_request_signature(
     request: &ContractCodeRequest,
 ) -> Result<(), Error> {
     let validator = epoch_manager.get_validator_by_account_id(
-        &request.chunk_production_key().epoch_id,
+        &request.production_key().epoch_id,
         &request.requester(),
     )?;
     if !request.verify_signature(validator.public_key()) {

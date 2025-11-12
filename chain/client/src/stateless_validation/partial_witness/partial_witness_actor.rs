@@ -662,11 +662,11 @@ impl PartialWitnessActor {
         {
             return Ok(());
         }
-        let key = accesses.chunk_production_key();
+        let key = accesses.production_key();
         let contracts_cache = self.runtime.compiled_contract_cache();
         let runtime_config = self
             .runtime
-            .get_runtime_config(self.epoch_manager.get_epoch_protocol_version(&key.epoch_id)?);
+            .get_runtime_config(self.epoch_manager.get_epoch_protocol_version(&key.chunk.epoch_id)?);
         let missing_contract_hashes = HashSet::from_iter(
             accesses
                 .contracts()
@@ -684,7 +684,7 @@ impl PartialWitnessActor {
         let random_chunk_producer = {
             let mut chunk_producers = self
                 .epoch_manager
-                .get_epoch_chunk_producers_for_shard(&key.epoch_id, key.shard_id)?;
+                .get_epoch_chunk_producers_for_shard(&key.chunk.epoch_id, key.chunk.shard_id)?;
             chunk_producers.swap_remove(rand::thread_rng().gen_range(0..chunk_producers.len()))
         };
         let request = ContractCodeRequest::new(
@@ -767,7 +767,7 @@ impl PartialWitnessActor {
             return Ok(());
         }
 
-        let key = request.chunk_production_key();
+        let key = request.production_key();
         let processed_requests_key = (key.clone(), request.requester().clone());
         if self.processed_contract_code_requests.contains(&processed_requests_key) {
             tracing::warn!(
