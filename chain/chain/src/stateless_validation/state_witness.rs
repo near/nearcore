@@ -100,7 +100,10 @@ impl ChainStore {
             prev_chunk_header,
         )?;
 
-        if apply_witness_sent && prev_chunk.height_created() + 1 == chunk_header.height_created() {
+        if apply_witness_sent
+            && prev_chunk.height_created() + 1 == chunk_header.height_created()
+            && prev_block_header.chunk_mask().iter().all(|b| *b)
+        {
             // We assume that we distributed execution witness.
             // Let's just distribute validation witness.
             println!(
