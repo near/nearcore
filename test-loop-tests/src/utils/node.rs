@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::sync::Arc;
 use std::task::Poll;
 
@@ -29,23 +30,18 @@ use crate::utils::transactions::TransactionRunner;
 /// It serves as a main interface for test actions such as sending
 /// transactions, waiting for blocks to be produces, querying state, etc.
 pub struct TestLoopNode<'a> {
-    data: MaybeOwned<'a, NodeExecutionData>,
-}
-
-enum MaybeOwned<'a, T> {
-    Owned(T),
-    Borrowed(&'a T),
+    data: Cow<'a, NodeExecutionData>,
 }
 
 impl<'a> From<&'a NodeExecutionData> for TestLoopNode<'a> {
     fn from(value: &'a NodeExecutionData) -> Self {
-        Self { data: MaybeOwned::Borrowed(value) }
+        Self { data: Cow::Borrowed(value) }
     }
 }
 
 impl From<NodeExecutionData> for TestLoopNode<'_> {
     fn from(value: NodeExecutionData) -> Self {
-        Self { data: MaybeOwned::Owned(value) }
+        Self { data: Cow::Owned(value) }
     }
 }
 
@@ -70,10 +66,7 @@ impl<'a> TestLoopNode<'a> {
     }
 
     pub fn data(&self) -> &NodeExecutionData {
-        match &self.data {
-            MaybeOwned::Owned(data) => data,
-            MaybeOwned::Borrowed(data) => data,
-        }
+        &self.data
     }
 
     pub fn client<'b>(&self, test_loop_data: &'b TestLoopData) -> &'b Client {
