@@ -9,7 +9,7 @@ use near_store::{
     set_gas_key_nonce,
 };
 
-use crate::{ActionResult, ApplyState};
+use crate::{ActionResult, ApplyState, initial_nonce_value};
 
 pub(crate) fn action_transfer_to_gas_key(
     state_update: &mut TrieUpdate,
@@ -55,9 +55,8 @@ pub(crate) fn action_add_gas_key(
     };
     set_gas_key(state_update, account_id.clone(), add_gas_key.public_key.clone(), &gas_key);
 
+    let nonce = initial_nonce_value(apply_state.block_height);
     for i in 0..gas_key.num_nonces {
-        let nonce = (apply_state.block_height - 1)
-            * near_primitives::account::AccessKey::ACCESS_KEY_NONCE_RANGE_MULTIPLIER;
         set_gas_key_nonce(
             state_update,
             account_id.clone(),

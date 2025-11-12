@@ -22,7 +22,7 @@ use near_primitives::transaction::{
 };
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{
-    AccountId, Balance, BlockHeight, EpochInfoProvider, Gas, StorageUsage,
+    AccountId, Balance, BlockHeight, EpochInfoProvider, Gas, Nonce, StorageUsage,
 };
 use near_primitives::utils::account_is_implicit;
 use near_primitives::version::ProtocolVersion;
@@ -512,8 +512,7 @@ pub(crate) fn action_implicit_account_creation_transfer(
             let mut access_key = AccessKey::full_access();
             // Set default nonce for newly created access key to avoid transaction hash collision.
             // See <https://github.com/near/nearcore/issues/3779>.
-            access_key.nonce = (block_height - 1)
-                * near_primitives::account::AccessKey::ACCESS_KEY_NONCE_RANGE_MULTIPLIER;
+            access_key.nonce = initial_nonce_value(block_height);
 
             // unwrap: here it's safe because the `account_id` has already been determined to be implicit by `get_account_type`
             let public_key = PublicKey::from_near_implicit_account(account_id).unwrap();
@@ -766,8 +765,7 @@ pub(crate) fn action_add_key(
         return Ok(());
     }
     let mut access_key = add_key.access_key.clone();
-    access_key.nonce = (apply_state.block_height - 1)
-        * near_primitives::account::AccessKey::ACCESS_KEY_NONCE_RANGE_MULTIPLIER;
+    access_key.nonce = initial_nonce_value(apply_state.block_height);
     set_access_key(state_update, account_id.clone(), add_key.public_key.clone(), &access_key);
 
     let storage_config = &apply_state.config.fees.storage_usage_config;
@@ -1161,6 +1159,10 @@ fn apply_recorded_storage_garbage(function_call: &FunctionCallAction, state_upda
             tracing::warn!(target: "runtime", %garbage_size_mbs, "Generated storage proof garbage");
         }
     }
+}
+
+pub(crate) fn initial_nonce_value(block_height: BlockHeight) -> Nonce {
+    (block_height - 1) * near_primitives::account::AccessKey::ACCESS_KEY_NONCE_RANGE_MULTIPLIER
 }
 
 #[cfg(test)]
