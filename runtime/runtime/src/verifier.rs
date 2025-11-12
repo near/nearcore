@@ -6,7 +6,8 @@ use near_parameters::RuntimeConfig;
 use near_primitives::account::{AccessKey, AccessKeyPermission, GasKey};
 use near_primitives::action::delegate::SignedDelegateAction;
 use near_primitives::action::{
-    AddGasKeyAction, AddKeyAction, DeployGlobalContractAction, DeterministicStateInitAction,
+    AddGasKeyAction, AddKeyAction, DeleteGasKeyAction, DeployGlobalContractAction,
+    DeterministicStateInitAction, TransferToGasKeyAction,
 };
 use near_primitives::errors::{
     ActionsValidationError, InvalidAccessKeyError, InvalidTxError, ReceiptValidationError,
@@ -433,12 +434,16 @@ pub fn validate_action(
         Action::UseGlobalContract(_) => validate_use_global_contract_action(),
         Action::FunctionCall(a) => validate_function_call_action(limit_config, a),
         Action::Transfer(_) => Ok(()),
-        Action::TransferToGasKey(_) => Ok(()),
+        Action::TransferToGasKey(a) => {
+            validate_transfer_to_gas_key_action(a, current_protocol_version)
+        }
         Action::Stake(a) => validate_stake_action(a),
         Action::AddKey(a) => validate_add_key_action(limit_config, a),
-        Action::AddGasKey(a) => validate_add_gas_key_action(limit_config, a),
+        Action::AddGasKey(a) => {
+            validate_add_gas_key_action(limit_config, a, current_protocol_version)
+        }
         Action::DeleteKey(_) => Ok(()),
-        Action::DeleteGasKey(_) => Ok(()),
+        Action::DeleteGasKey(a) => validate_delete_gas_key_action(a, current_protocol_version),
         Action::DeleteAccount(a) => validate_delete_action(a),
         Action::Delegate(a) => {
             validate_delegate_action(limit_config, a, receiver, current_protocol_version)
@@ -541,31 +546,6 @@ fn validate_add_key_action(
     validate_access_key_permission(limit_config, &action.access_key.permission)
 }
 
-/// Validates `AddGasKeyAction`. Checks validity of the access key permission. Additionally,
-/// - if the permission is a `FunctionCallPermission`, the allowance must be `None`.
-/// - verifies the number of nonces is within limits.
-fn validate_add_gas_key_action(
-    limit_config: &LimitConfig,
-    action: &AddGasKeyAction,
-) -> Result<(), ActionsValidationError> {
-    validate_access_key_permission(limit_config, &action.permission)?;
-    if let AccessKeyPermission::FunctionCall(fc) = &action.permission {
-        if fc.allowance.is_some() {
-            return Err(ActionsValidationError::GasKeyPermissionInvalid {
-                permission: action.permission.clone().into(),
-            });
-        }
-    }
-    if action.num_nonces > GasKey::MAX_NONCES {
-        return Err(ActionsValidationError::GasKeyTooManyNoncesRequested {
-            requested_nonces: action.num_nonces,
-            limit: GasKey::MAX_NONCES,
-        });
-    }
-
-    Ok(())
-}
-
 /// Validates `AccessKeyPermission`. If the access key permission is `FunctionCall`, checks that the
 /// total number of bytes of the method names doesn't exceed the limit and
 /// every method name length doesn't exceed the limit.
@@ -624,18 +604,31 @@ fn validate_delete_action(action: &DeleteAccountAction) -> Result<(), ActionsVal
     Ok(())
 }
 
+fn require_protocol_feature(
+    feature: ProtocolFeature,
+    feature_name: &str,
+    current_protocol_version: u32,
+) -> Result<(), ActionsValidationError> {
+    if !feature.enabled(current_protocol_version) {
+        return Err(ActionsValidationError::UnsupportedProtocolFeature {
+            protocol_feature: feature_name.to_owned(),
+            version: current_protocol_version,
+        });
+    }
+    Ok(())
+}
+
 fn validate_deterministic_state_init(
     limit_config: &LimitConfig,
     action: &DeterministicStateInitAction,
     receiver_id: &AccountId,
     current_protocol_version: u32,
 ) -> Result<(), ActionsValidationError> {
-    if !ProtocolFeature::DeterministicAccountIds.enabled(current_protocol_version) {
-        return Err(ActionsValidationError::UnsupportedProtocolFeature {
-            protocol_feature: "DeterministicAccountIds".to_owned(),
-            version: current_protocol_version,
-        });
-    }
+    require_protocol_feature(
+        ProtocolFeature::DeterministicAccountIds,
+        "DeterministicAccountIds",
+        current_protocol_version,
+    )?;
 
     let derived_id = derive_near_deterministic_account_id(&action.state_init);
 
@@ -665,6 +658,49 @@ fn validate_deterministic_state_init(
         }
     }
 
+    Ok(())
+}
+
+/// Validates `AddGasKeyAction`. Checks validity of the access key permission. Additionally,
+/// - if the permission is a `FunctionCallPermission`, the allowance must be `None`.
+/// - verifies the number of nonces is within limits.
+fn validate_add_gas_key_action(
+    limit_config: &LimitConfig,
+    action: &AddGasKeyAction,
+    current_protocol_version: u32,
+) -> Result<(), ActionsValidationError> {
+    require_protocol_feature(ProtocolFeature::GasKeys, "GasKeys", current_protocol_version)?;
+    validate_access_key_permission(limit_config, &action.permission)?;
+    if let AccessKeyPermission::FunctionCall(fc) = &action.permission {
+        if fc.allowance.is_some() {
+            return Err(ActionsValidationError::GasKeyPermissionInvalid {
+                permission: action.permission.clone().into(),
+            });
+        }
+    }
+    if action.num_nonces > GasKey::MAX_NONCES {
+        return Err(ActionsValidationError::GasKeyTooManyNoncesRequested {
+            requested_nonces: action.num_nonces,
+            limit: GasKey::MAX_NONCES,
+        });
+    }
+
+    Ok(())
+}
+
+fn validate_delete_gas_key_action(
+    _action: &DeleteGasKeyAction,
+    current_protocol_version: u32,
+) -> Result<(), ActionsValidationError> {
+    require_protocol_feature(ProtocolFeature::GasKeys, "GasKeys", current_protocol_version)?;
+    Ok(())
+}
+
+fn validate_transfer_to_gas_key_action(
+    _action: &TransferToGasKeyAction,
+    current_protocol_version: u32,
+) -> Result<(), ActionsValidationError> {
+    require_protocol_feature(ProtocolFeature::GasKeys, "GasKeys", current_protocol_version)?;
     Ok(())
 }
 
@@ -2334,6 +2370,41 @@ mod tests {
     }
 
     #[test]
+    fn test_gas_key_actions_require_protocol_feature() {
+        let protocol_version = ProtocolFeature::GasKeys.protocol_version() - 1;
+        let limit_config = test_limit_config();
+        let actions = vec![
+            Action::AddGasKey(Box::new(AddGasKeyAction {
+                public_key: PublicKey::empty(KeyType::ED25519),
+                num_nonces: 10,
+                permission: AccessKeyPermission::FullAccess,
+            })),
+            Action::DeleteGasKey(Box::new(DeleteGasKeyAction {
+                public_key: PublicKey::empty(KeyType::ED25519),
+            })),
+            Action::TransferToGasKey(Box::new(TransferToGasKeyAction {
+                public_key: PublicKey::empty(KeyType::ED25519),
+                deposit: Balance::from_yoctonear(1),
+            })),
+        ];
+        for action in actions {
+            let res = validate_action(
+                &limit_config,
+                &action,
+                &"alice.near".parse().unwrap(),
+                protocol_version,
+            );
+            assert_eq!(
+                res.expect_err("expected an error"),
+                ActionsValidationError::UnsupportedProtocolFeature {
+                    protocol_feature: "GasKeys".to_owned(),
+                    version: protocol_version,
+                },
+            );
+        }
+    }
+
+    #[test]
     fn test_validate_add_gas_key_valid() {
         let limit_config = test_limit_config();
         validate_action(
@@ -2344,7 +2415,7 @@ mod tests {
                 permission: AccessKeyPermission::FullAccess,
             })),
             &"alice.near".parse().unwrap(),
-            PROTOCOL_VERSION,
+            ProtocolFeature::GasKeys.protocol_version(),
         )
         .expect("valid action");
     }
@@ -2361,7 +2432,7 @@ mod tests {
                     permission: AccessKeyPermission::FullAccess
                 })),
                 &"alice.near".parse().unwrap(),
-                PROTOCOL_VERSION,
+                ProtocolFeature::GasKeys.protocol_version(),
             )
             .expect_err("expected an error"),
             ActionsValidationError::GasKeyTooManyNoncesRequested {
@@ -2388,7 +2459,7 @@ mod tests {
                     permission: permission.clone()
                 })),
                 &"alice.near".parse().unwrap(),
-                PROTOCOL_VERSION,
+                ProtocolFeature::GasKeys.protocol_version(),
             )
             .expect_err("expected an error"),
             ActionsValidationError::GasKeyPermissionInvalid { permission: permission.into() }
@@ -2413,7 +2484,7 @@ mod tests {
                     permission,
                 })),
                 &"alice.near".parse().unwrap(),
-                PROTOCOL_VERSION,
+                ProtocolFeature::GasKeys.protocol_version(),
             )
             .expect_err("expected an error"),
             ActionsValidationError::AddKeyMethodNameLengthExceeded {
