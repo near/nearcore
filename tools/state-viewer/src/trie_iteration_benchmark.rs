@@ -194,15 +194,15 @@ impl TrieIterationBenchmarkCmd {
                 }
             };
             tracing::trace!(
-                target: "trie-iteration-benchmark",
-                column = &state_record.get_type_string(),
-<<<<<<< Updated upstream
-                account_id = %state_record_to_account_id(&state_record),
-=======
-                account_id = state_record_to_account_id(&state_record),
->>>>>>> Stashed changes
-                "visiting column and account id"
-            );
+                            target: "trie-iteration-benchmark",
+                            column = &state_record.get_type_string(),
+            <<<<<<< Updated upstream
+                            account_id = %state_record_to_account_id(&state_record),
+            =======
+                            account_id = state_record_to_account_id(&state_record),
+            >>>>>>> Stashed changes
+                            "visiting column and account id"
+                        );
 
             if let Some(limit) = self.limit {
                 if limit <= node_count {

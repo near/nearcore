@@ -297,7 +297,7 @@ impl TestEnv {
         {
             let target_id = self.account_indices.index(&target.account_id.unwrap());
             let response = self.get_partial_encoded_chunk_response(target_id, request);
-            tracing::info!(?response, "got response for PartialEncodedChunkRequest");
+            tracing::info!(?response, "got response for partial encoded chunk request");
             if let Some(response) = response {
                 self.shards_manager_adapters[id].send(
                     ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunkResponse {

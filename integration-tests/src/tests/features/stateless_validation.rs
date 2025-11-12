@@ -356,7 +356,7 @@ fn test_chunk_state_witness_bad_shard_id() {
     let witness_size = borsh::object_length(&witness).unwrap();
 
     // Test chunk validation actor rejects witness with invalid shard ID
-    tracing::info!(target: "test", "processing invalid ChunkStateWitness");
+    tracing::info!(target: "test", "processing invalid chunk state witness");
     let witness_message = ChunkStateWitnessMessage {
         witness,
         raw_witness_size: witness_size,

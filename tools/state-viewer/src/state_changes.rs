@@ -178,7 +178,7 @@ fn apply_state_changes(
             if let Ok(block) = chain_store.get_block(block_hash) {
                 let known_state_root = block.chunks()[shard_index].prev_state_root();
                 assert_eq!(known_state_root, state_root);
-                tracing::debug!(target: "state-changes", block_height, ?state_root, "known StateRoot matches");
+                tracing::debug!(target: "state-changes", block_height, ?state_root, "known state root matches");
             }
 
             tracing::info!(target: "state-changes", block_height, ?block_hash, ?shard_uid, ?state_root, num_changes = state_changes.len(), "applying state changes");

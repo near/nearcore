@@ -19,11 +19,7 @@ pub fn schedule_printing_performance_stats(sleep_time: Duration) {
                 }
             })
         {
-<<<<<<< Updated upstream
-            tracing::error!("failed to spawn the thread: {}", err);
-=======
             tracing::error!(?err, "failed to spawn the thread");
->>>>>>> Stashed changes
         }
     }
 }
