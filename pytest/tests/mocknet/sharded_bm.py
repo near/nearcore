@@ -152,6 +152,11 @@ def handle_init(args):
 
     # TODO: check neard binary version
 
+    # Grant CAP_SYS_NICE to neard binaries for realtime thread scheduling
+    run_cmd_args = copy.deepcopy(args)
+    run_cmd_args.cmd = "sudo setcap cap_sys_nice+ep ~/.near/neard-runner/binaries/neard*"
+    run_remote_cmd(CommandContext(run_cmd_args))
+
     upload_json_patches(args)
 
     new_test_cmd_args = SimpleNamespace(
