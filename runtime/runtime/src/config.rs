@@ -87,7 +87,7 @@ pub fn total_send_fees(
             }
             TransferToGasKey(_) => {
                 // Note implicit account creation is not allowed for TransferToGasKey
-                // TODO(spice): properly handle GasKey fees
+                // TODO(gas-keys): properly handle GasKey fees
                 Gas::ZERO
             }
             Stake(_) => fees.fee(ActionCosts::stake).send_fee(sender_is_receiver),
@@ -97,12 +97,12 @@ pub fn total_send_fees(
                 sender_is_receiver,
             ),
             AddGasKey(_add_gas_key_action) => {
-                // TODO(spice): properly handle GasKey fees
+                // TODO(gas-keys): properly handle GasKey fees
                 Gas::ZERO
             }
             DeleteKey(_) => fees.fee(ActionCosts::delete_key).send_fee(sender_is_receiver),
             DeleteGasKey(_) => {
-                // TODO(spice): properly handle GasKey fees
+                // TODO(gas-keys): properly handle GasKey fees
                 Gas::ZERO
             }
             DeleteAccount(_) => fees.fee(ActionCosts::delete_account).send_fee(sender_is_receiver),
@@ -254,18 +254,18 @@ pub fn exec_fee(config: &RuntimeConfig, action: &Action, receiver_id: &AccountId
         }
         TransferToGasKey(_) => {
             // Note implicit account creation is not allowed for TransferToGasKey
-            // TODO(spice): properly handle GasKey fees
+            // TODO(gas-keys): properly handle GasKey fees
             Gas::ZERO
         }
         Stake(_) => fees.fee(ActionCosts::stake).exec_fee(),
         AddKey(add_key_action) => permission_exec_fees(&add_key_action.access_key.permission, fees),
         AddGasKey(_add_gas_key_action) => {
-            // TODO(spice): properly handle GasKey fees
+            // TODO(gas-keys): properly handle GasKey fees
             Gas::ZERO
         }
         DeleteKey(_) => fees.fee(ActionCosts::delete_key).exec_fee(),
         DeleteGasKey(_) => {
-            // TODO(spice): properly handle GasKey fees
+            // TODO(gas-keys): properly handle GasKey fees
             Gas::ZERO
         }
         DeleteAccount(_) => fees.fee(ActionCosts::delete_account).exec_fee(),
