@@ -7,9 +7,8 @@ use crate::receipt_manager::ReceiptManager;
 use crate::{ActionResult, ApplyState, metrics};
 use near_crypto::PublicKey;
 use near_parameters::{AccountCreationConfig, ActionCosts, RuntimeConfig, RuntimeFeesConfig};
-use near_primitives::account::{AccessKey, AccessKeyPermission, Account, AccountContract, GasKey};
+use near_primitives::account::{AccessKey, AccessKeyPermission, Account, AccountContract};
 use near_primitives::action::delegate::{DelegateAction, SignedDelegateAction};
-use near_primitives::action::{AddGasKeyAction, DeleteGasKeyAction, TransferToGasKeyAction};
 use near_primitives::config::ViewConfig;
 use near_primitives::errors::{ActionError, ActionErrorKind, InvalidAccessKeyError, RuntimeError};
 use near_primitives::hash::CryptoHash;
@@ -23,7 +22,7 @@ use near_primitives::transaction::{
 };
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{
-    AccountId, Balance, BlockHeight, EpochInfoProvider, Gas, Nonce, NonceIndex, StorageUsage,
+    AccountId, Balance, BlockHeight, EpochInfoProvider, Gas, StorageUsage,
 };
 use near_primitives::utils::account_is_implicit;
 use near_primitives::version::ProtocolVersion;
@@ -32,8 +31,7 @@ use near_primitives_core::version::ProtocolFeature;
 use near_store::trie::AccessOptions;
 use near_store::{
     StorageError, TrieAccess, TrieUpdate, enqueue_promise_yield_timeout, get_access_key,
-    get_gas_key, get_promise_yield_indices, remove_access_key, remove_account, remove_gas_key,
-    remove_gas_key_nonce, set_access_key, set_gas_key, set_gas_key_nonce,
+    get_promise_yield_indices, remove_access_key, remove_account, set_access_key,
     set_promise_yield_indices,
 };
 use near_vm_runner::logic::errors::{
@@ -451,27 +449,6 @@ pub(crate) fn action_transfer(account: &mut Account, deposit: Balance) -> Result
     Ok(())
 }
 
-pub(crate) fn action_transfer_to_gas_key(
-    state_update: &mut TrieUpdate,
-    account_id: &AccountId,
-    action: &TransferToGasKeyAction,
-    result: &mut ActionResult,
-) -> Result<(), StorageError> {
-    if let Some(mut gas_key) = get_gas_key(state_update, account_id, &action.public_key)? {
-        gas_key.balance = gas_key.balance.checked_add(action.deposit).ok_or_else(|| {
-            StorageError::StorageInconsistentState("Gas key balance integer overflow".to_string())
-        })?;
-        set_gas_key(state_update, account_id.clone(), action.public_key.clone(), &gas_key);
-    } else {
-        result.result = Err(ActionErrorKind::GasKeyDoesNotExist {
-            account_id: account_id.clone(),
-            public_key: action.public_key.clone().into(),
-        }
-        .into());
-    }
-    Ok(())
-}
-
 pub(crate) fn action_create_account(
     fee_config: &RuntimeFeesConfig,
     account_creation_config: &AccountCreationConfig,
@@ -772,41 +749,6 @@ pub(crate) fn action_delete_key(
     Ok(())
 }
 
-pub(crate) fn action_delete_gas_key(
-    fee_config: &RuntimeFeesConfig,
-    state_update: &mut TrieUpdate,
-    account: &mut Account,
-    result: &mut ActionResult,
-    account_id: &AccountId,
-    delete_gas_key: &DeleteGasKeyAction,
-) -> Result<(), StorageError> {
-    let gas_key = get_gas_key(state_update, account_id, &delete_gas_key.public_key)?;
-    if let Some(gas_key) = gas_key {
-        // TODO(spice): Add check for too high balance (for user convenience), as balance will be burned.
-        remove_gas_key(state_update, account_id.clone(), delete_gas_key.public_key.clone());
-        for i in 0..gas_key.num_nonces {
-            remove_gas_key_nonce(
-                state_update,
-                account_id.clone(),
-                delete_gas_key.public_key.clone(),
-                i,
-            );
-        }
-        account.set_storage_usage(account.storage_usage().saturating_sub(gas_key_storage_cost(
-            fee_config,
-            &delete_gas_key.public_key,
-            &gas_key,
-        )));
-    } else {
-        result.result = Err(ActionErrorKind::GasKeyDoesNotExist {
-            public_key: delete_gas_key.public_key.clone().into(),
-            account_id: account_id.clone(),
-        }
-        .into());
-    }
-    Ok(())
-}
-
 pub(crate) fn action_add_key(
     apply_state: &ApplyState,
     state_update: &mut TrieUpdate,
@@ -845,75 +787,6 @@ pub(crate) fn action_add_key(
             })?,
     );
     Ok(())
-}
-
-pub(crate) fn action_add_gas_key(
-    apply_state: &ApplyState,
-    state_update: &mut TrieUpdate,
-    account: &mut Account,
-    result: &mut ActionResult,
-    account_id: &AccountId,
-    add_gas_key: &AddGasKeyAction,
-) -> Result<(), StorageError> {
-    if get_gas_key(state_update, account_id, &add_gas_key.public_key)?.is_some() {
-        result.result = Err(ActionErrorKind::GasKeyAlreadyExists {
-            account_id: account_id.to_owned(),
-            public_key: add_gas_key.public_key.clone().into(),
-        }
-        .into());
-        return Ok(());
-    }
-    let gas_key = GasKey {
-        num_nonces: add_gas_key.num_nonces,
-        permission: add_gas_key.permission.clone(),
-        balance: Balance::ZERO,
-    };
-    set_gas_key(state_update, account_id.clone(), add_gas_key.public_key.clone(), &gas_key);
-
-    for i in 0..gas_key.num_nonces {
-        let nonce = (apply_state.block_height - 1)
-            * near_primitives::account::AccessKey::ACCESS_KEY_NONCE_RANGE_MULTIPLIER;
-        set_gas_key_nonce(
-            state_update,
-            account_id.clone(),
-            add_gas_key.public_key.clone(),
-            i,
-            nonce,
-        );
-    }
-    account.set_storage_usage(
-        account
-            .storage_usage()
-            .checked_add(gas_key_storage_cost(
-                &apply_state.config.fees,
-                &add_gas_key.public_key,
-                &gas_key,
-            ))
-            .ok_or_else(|| {
-                StorageError::StorageInconsistentState(format!(
-                    "Storage usage integer overflow for account {}",
-                    account_id
-                ))
-            })?,
-    );
-    Ok(())
-}
-
-fn gas_key_storage_cost(
-    fee_config: &RuntimeFeesConfig,
-    public_key: &PublicKey,
-    gas_key: &GasKey,
-) -> StorageUsage {
-    let storage_config = &fee_config.storage_usage_config;
-    let nonce_storage_usage = gas_key.num_nonces as u64
-        * (borsh::object_length(&(0 as NonceIndex)).unwrap() as u64 + // NonceIndex is part of the key
-            borsh::object_length(&(0 as Nonce)).unwrap() as u64 + // Value of nonce
-            storage_config.num_extra_bytes_record);
-
-    borsh::object_length(public_key).unwrap() as u64
-        + borsh::object_length(gas_key).unwrap() as u64
-        + storage_config.num_extra_bytes_record
-        + nonce_storage_usage
 }
 
 pub(crate) fn apply_delegate_action(
@@ -1294,21 +1167,18 @@ fn apply_recorded_storage_garbage(function_call: &FunctionCallAction, state_upda
 mod tests {
 
     use super::*;
+    use crate::actions_test_utils::{setup_account, test_delete_large_account};
     use crate::near_primitives::shard_layout::ShardUId;
-    use near_crypto::{KeyType, SecretKey};
-    use near_primitives::account::{FunctionCallPermission, GasKey};
+    use near_primitives::account::FunctionCallPermission;
     use near_primitives::action::delegate::NonDelegateAction;
     use near_primitives::apply::ApplyChunkReason;
     use near_primitives::bandwidth_scheduler::BlockBandwidthRequests;
     use near_primitives::congestion_info::BlockCongestionInfo;
     use near_primitives::errors::InvalidAccessKeyError;
     use near_primitives::transaction::CreateAccountAction;
-    use near_primitives::trie_key::trie_key_parsers;
-    use near_primitives::types::{EpochId, StateChangeCause};
-    use near_primitives::types::{Gas, NonceIndex};
-    use near_primitives::version::PROTOCOL_VERSION;
+    use near_primitives::types::EpochId;
+    use near_primitives::types::Gas;
     use near_store::test_utils::TestTriesBuilder;
-    use near_store::{get_account, get_gas_key_nonce, set_account};
     use std::sync::Arc;
 
     fn test_action_create_account(
@@ -1409,39 +1279,6 @@ mod tests {
         assert!(action_result.result.is_ok());
     }
 
-    fn test_delete_large_account(
-        account_id: &AccountId,
-        code_hash: &CryptoHash,
-        storage_usage: u64,
-        state_update: &mut TrieUpdate,
-    ) -> ActionResult {
-        let mut account = Some(Account::new(
-            Balance::from_yoctonear(100),
-            Balance::ZERO,
-            AccountContract::from_local_code_hash(*code_hash),
-            storage_usage,
-        ));
-        let mut actor_id = account_id.clone();
-        let mut action_result = ActionResult::default();
-        let receipt = Receipt::new_balance_refund(
-            &"alice.near".parse().unwrap(),
-            Balance::ZERO,
-            ReceiptPriority::NoPriority,
-        );
-        let res = action_delete_account(
-            state_update,
-            &mut account,
-            &mut actor_id,
-            &receipt,
-            &mut action_result,
-            account_id,
-            &DeleteAccountAction { beneficiary_id: "bob".parse().unwrap() },
-            PROTOCOL_VERSION,
-        );
-        assert!(res.is_ok());
-        action_result
-    }
-
     #[test]
     fn test_delete_account_too_large() {
         let tries = TestTriesBuilder::new().build();
@@ -1462,35 +1299,6 @@ mod tests {
                 }
             })
         )
-    }
-
-    #[test]
-    fn test_delete_account_removes_gas_keys() {
-        let account_id: AccountId = "alice".parse().unwrap();
-        let public_keys: Vec<PublicKey> =
-            (0..3).map(|_| SecretKey::from_random(KeyType::ED25519).public_key()).collect();
-        let mut state_update = setup_account(
-            &account_id,
-            &public_keys[0],
-            &AccessKey { nonce: 0, permission: AccessKeyPermission::FullAccess },
-        );
-        let mut account = get_account(&state_update, &account_id).unwrap().unwrap();
-        for public_key in &public_keys {
-            add_gas_key_to_account(&mut state_update, &mut account, &account_id, public_key);
-        }
-        state_update.commit(StateChangeCause::InitialState);
-
-        let action_result =
-            test_delete_large_account(&account_id, &CryptoHash::default(), 100, &mut state_update);
-        assert!(action_result.result.is_ok());
-        state_update.commit(StateChangeCause::InitialState);
-
-        let lock = state_update.trie().lock_for_iter();
-        let gas_key_count = state_update
-            .locked_iter(&trie_key_parsers::get_raw_prefix_for_gas_keys(&account_id), &lock)
-            .expect("could not get trie iterator")
-            .count();
-        assert_eq!(gas_key_count, 0);
     }
 
     fn test_delete_account_with_contract(storage_usage: u64) -> ActionResult {
@@ -1605,27 +1413,6 @@ mod tests {
         }
     }
 
-    fn setup_account(
-        account_id: &AccountId,
-        public_key: &PublicKey,
-        access_key: &AccessKey,
-    ) -> TrieUpdate {
-        let tries = TestTriesBuilder::new().build();
-        let mut state_update =
-            tries.new_trie_update(ShardUId::single_shard(), CryptoHash::default());
-        let account =
-            Account::new(Balance::from_yoctonear(100), Balance::ZERO, AccountContract::None, 100);
-        set_account(&mut state_update, account_id.clone(), &account);
-        set_access_key(&mut state_update, account_id.clone(), public_key.clone(), access_key);
-
-        state_update.commit(StateChangeCause::InitialState);
-        let trie_changes = state_update.finalize().unwrap().trie_changes;
-        let mut store_update = tries.store_update();
-        let root = tries.apply_all(&trie_changes, ShardUId::single_shard(), &mut store_update);
-        store_update.commit().unwrap();
-
-        tries.new_trie_update(ShardUId::single_shard(), root)
-    }
     fn non_delegate_action(action: Action) -> NonDelegateAction {
         NonDelegateAction::try_from(action)
             .expect("cannot violate type invariants, not even in test")
@@ -2133,211 +1920,6 @@ mod tests {
                     method_name: "test_method".parse().unwrap(),
                 },
             )
-            .into())
-        );
-    }
-
-    fn test_account_keys() -> (AccountId, PublicKey, AccessKey) {
-        let account_id: AccountId = "alice.near".parse().unwrap();
-        let public_key: PublicKey =
-            "ed25519:32LnPNBZQJ3uhY8yV6JqnNxtRW8E27Ps9YD1XeUNuA1m".parse().unwrap();
-        let access_key = AccessKey { nonce: 0, permission: AccessKeyPermission::FullAccess };
-        (account_id, public_key, access_key)
-    }
-
-    const TEST_NUM_NONCES: NonceIndex = 2;
-    const TEST_GAS_KEY_BLOCK_HEIGHT: BlockHeight = 10;
-
-    fn add_gas_key_to_account(
-        state_update: &mut TrieUpdate,
-        account: &mut Account,
-        account_id: &AccountId,
-        public_key: &PublicKey,
-    ) -> GasKey {
-        let mut result = ActionResult::default();
-        let apply_state = create_apply_state(TEST_GAS_KEY_BLOCK_HEIGHT);
-        let action = AddGasKeyAction {
-            public_key: public_key.clone(),
-            num_nonces: TEST_NUM_NONCES,
-            permission: AccessKeyPermission::FullAccess,
-        };
-        action_add_gas_key(&apply_state, state_update, account, &mut result, &account_id, &action)
-            .expect("Expect ok");
-        assert!(result.result.is_ok(), "Result error: {:?}", result.result);
-
-        get_gas_key(state_update, &account_id, &public_key)
-            .expect("could not find gas key")
-            .unwrap()
-    }
-
-    #[test]
-    fn test_add_gas_key() {
-        let (account_id, public_key, access_key) = test_account_keys();
-        let mut state_update = setup_account(&account_id, &public_key, &access_key);
-        let mut account =
-            get_account(&state_update, &account_id).expect("Failed to get account").unwrap();
-        let storage_before = account.storage_usage();
-
-        let gas_key =
-            add_gas_key_to_account(&mut state_update, &mut account, &account_id, &public_key);
-
-        assert_eq!(gas_key.num_nonces, TEST_NUM_NONCES);
-        assert_eq!(gas_key.balance, Balance::ZERO);
-        assert_eq!(gas_key.permission, AccessKeyPermission::FullAccess);
-        assert!(account.storage_usage() > storage_before);
-        assert_eq!(
-            account.storage_usage(),
-            storage_before
-                + gas_key_storage_cost(&RuntimeFeesConfig::test(), &public_key, &gas_key)
-        );
-
-        // Check gas key nonces were initialized
-        let expected_nonce = (TEST_GAS_KEY_BLOCK_HEIGHT - 1)
-            * near_primitives::account::AccessKey::ACCESS_KEY_NONCE_RANGE_MULTIPLIER;
-        for i in 0..gas_key.num_nonces {
-            let gas_key_nonce = get_gas_key_nonce(&state_update, &account_id, &public_key, i)
-                .expect("Failed to get gas key nonce")
-                .expect("Gas key nonce not found");
-            assert_eq!(gas_key_nonce, expected_nonce);
-        }
-    }
-
-    #[test]
-    fn test_add_duplicate_gas_key() {
-        let (account_id, public_key, access_key) = test_account_keys();
-        let mut state_update = setup_account(&account_id, &public_key, &access_key);
-        let mut account =
-            get_account(&state_update, &account_id).expect("Failed to get account").unwrap();
-        add_gas_key_to_account(&mut state_update, &mut account, &account_id, &public_key);
-
-        let mut result = ActionResult::default();
-        let action = AddGasKeyAction {
-            public_key: public_key.clone(),
-            num_nonces: TEST_NUM_NONCES,
-            permission: AccessKeyPermission::FullAccess,
-        };
-        action_add_gas_key(
-            &create_apply_state(TEST_GAS_KEY_BLOCK_HEIGHT),
-            &mut state_update,
-            &mut account,
-            &mut result,
-            &account_id,
-            &action,
-        )
-        .expect("Expect ok");
-        assert_eq!(
-            result.result,
-            Err(ActionErrorKind::GasKeyAlreadyExists {
-                account_id: account_id.clone(),
-                public_key: public_key.into(),
-            }
-            .into())
-        );
-    }
-
-    #[test]
-    fn test_delete_gas_key() {
-        let (account_id, public_key, access_key) = test_account_keys();
-        let mut state_update = setup_account(&account_id, &public_key, &access_key);
-        let mut account =
-            get_account(&state_update, &account_id).expect("Failed to get account").unwrap();
-        let storage_before = account.storage_usage();
-        let gas_key =
-            add_gas_key_to_account(&mut state_update, &mut account, &account_id, &public_key);
-
-        let mut result = ActionResult::default();
-        let action = DeleteGasKeyAction { public_key: public_key.clone() };
-        action_delete_gas_key(
-            &RuntimeFeesConfig::test(),
-            &mut state_update,
-            &mut account,
-            &mut result,
-            &account_id,
-            &action,
-        )
-        .expect("Expect ok");
-        assert!(result.result.is_ok(), "Result error: {:?}", result.result);
-
-        let stored_gas_key =
-            get_gas_key(&state_update, &account_id, &public_key).expect("Failed to get gas key");
-        assert!(stored_gas_key.is_none());
-        assert_eq!(account.storage_usage(), storage_before);
-
-        // Check gas key nonces were deleted
-        for i in 0..gas_key.num_nonces {
-            let gas_key_nonce = get_gas_key_nonce(&state_update, &account_id, &public_key, i)
-                .expect("Failed to get gas key nonce");
-            assert!(gas_key_nonce.is_none());
-        }
-    }
-
-    #[test]
-    fn test_delete_nonexistent_gas_key() {
-        let (account_id, public_key, access_key) = test_account_keys();
-        let mut state_update = setup_account(&account_id, &public_key, &access_key);
-        let mut account =
-            get_account(&state_update, &account_id).expect("Failed to get account").unwrap();
-
-        let mut result = ActionResult::default();
-        let action = DeleteGasKeyAction { public_key: public_key.clone() };
-        action_delete_gas_key(
-            &RuntimeFeesConfig::test(),
-            &mut state_update,
-            &mut account,
-            &mut result,
-            &account_id,
-            &action,
-        )
-        .expect("Expect ok");
-        assert_eq!(
-            result.result,
-            Err(ActionErrorKind::GasKeyDoesNotExist {
-                account_id: account_id.clone(),
-                public_key: public_key.into(),
-            }
-            .into())
-        );
-    }
-
-    #[test]
-    fn test_transfer_to_gas_key() {
-        let (account_id, public_key, access_key) = test_account_keys();
-        let mut state_update = setup_account(&account_id, &public_key, &access_key);
-        let mut account =
-            get_account(&state_update, &account_id).expect("Failed to get account").unwrap();
-        add_gas_key_to_account(&mut state_update, &mut account, &account_id, &public_key);
-
-        let action = TransferToGasKeyAction {
-            public_key: public_key.clone(),
-            deposit: Balance::from_near(1),
-        };
-        let mut result = ActionResult::default();
-        action_transfer_to_gas_key(&mut state_update, &account_id, &action, &mut result)
-            .expect("Expect ok");
-        assert!(result.result.is_ok(), "Result error: {:?}", result.result);
-
-        let stored_gas_key = get_gas_key(&state_update, &account_id, &public_key)
-            .expect("Failed to get gas key")
-            .expect("Gas key not found");
-        assert_eq!(stored_gas_key.balance, action.deposit);
-    }
-
-    #[test]
-    fn test_transfer_to_nonexistent_gas_key() {
-        let (account_id, public_key, access_key) = test_account_keys();
-        let mut state_update = setup_account(&account_id, &public_key, &access_key);
-
-        let mut result = ActionResult::default();
-        let deposit = Balance::from_near(1);
-        let action = TransferToGasKeyAction { public_key: public_key.clone(), deposit };
-        action_transfer_to_gas_key(&mut state_update, &account_id, &action, &mut result)
-            .expect("Expect ok");
-        assert_eq!(
-            result.result,
-            Err(ActionErrorKind::GasKeyDoesNotExist {
-                account_id: account_id.clone(),
-                public_key: public_key.into(),
-            }
             .into())
         );
     }

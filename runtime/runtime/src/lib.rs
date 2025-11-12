@@ -6,6 +6,7 @@ use crate::config::{
     total_prepaid_exec_fees, total_prepaid_gas,
 };
 use crate::congestion_control::DelayedReceiptQueueWrapper;
+use crate::gas_keys::{action_add_gas_key, action_delete_gas_key, action_transfer_to_gas_key};
 use crate::metrics::{
     TRANSACTION_BATCH_SIGNATURE_VERIFY_FAILURE_TOTAL,
     TRANSACTION_BATCH_SIGNATURE_VERIFY_SUCCESS_TOTAL,
@@ -94,6 +95,8 @@ use tracing::{debug, instrument};
 use verifier::ValidateReceiptMode;
 
 mod actions;
+#[cfg(test)]
+mod actions_test_utils;
 pub mod adapter;
 mod bandwidth_scheduler;
 pub mod config;
@@ -101,6 +104,7 @@ mod congestion_control;
 mod conversions;
 mod deterministic_account_id;
 pub mod ext;
+mod gas_keys;
 mod global_contracts;
 pub mod metrics;
 mod pipelining;
