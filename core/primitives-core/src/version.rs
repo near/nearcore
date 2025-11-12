@@ -438,11 +438,12 @@ impl ProtocolFeature {
             ProtocolFeature::InvalidTxGenerateOutcomes => 84,
 
             // Nightly features:
-            ProtocolFeature::FixContractLoadingCost | ProtocolFeature::GasKeys => 129,
+            ProtocolFeature::FixContractLoadingCost => 129,
             // TODO(#11201): When stabilizing this feature in mainnet, also remove the temporary code
             // that always enables this for mocknet (see config_mocknet function).
             ProtocolFeature::ShuffleShardAssignments => 143,
             ProtocolFeature::ExcludeExistingCodeFromWitnessForCodeLen => 148,
+            ProtocolFeature::GasKeys => 149,
             // Place features that are not yet in Nightly below this line.
             ProtocolFeature::DynamicResharding => 152,
         }
