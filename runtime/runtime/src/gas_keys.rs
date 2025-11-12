@@ -93,7 +93,7 @@ pub(crate) fn action_delete_gas_key(
 ) -> Result<(), StorageError> {
     let gas_key = get_gas_key(state_update, account_id, &delete_gas_key.public_key)?;
     if let Some(gas_key) = gas_key {
-        // TODO(gas-key): Add check for too high balance (for user convenience), as balance will be burned.
+        // TODO(gas-keys): Add check for too high balance (for user convenience), as balance will be burned.
         remove_gas_key(state_update, account_id.clone(), delete_gas_key.public_key.clone());
         for i in 0..gas_key.num_nonces {
             remove_gas_key_nonce(
