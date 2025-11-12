@@ -315,7 +315,11 @@ fn assert_state_equal(
     let mut has_diff = false;
     for (key, value) in diff {
         has_diff = true;
+<<<<<<< Updated upstream
         tracing::error!(target: "test", ?shard_uid, key=?key, ?value, "difference in state between {}", cmp_msg);
+=======
+        tracing::error!(target: "test", ?shard_uid, key=?key, ?value, %cmp_msg, "difference in state between");
+>>>>>>> Stashed changes
     }
     assert!(!has_diff, "{} state mismatch!", cmp_msg);
 }

@@ -123,7 +123,11 @@ pub async fn benchmark_mpc_sign_impl(
         });
 
         if i > 0 && i % 200 == 0 {
+<<<<<<< Updated upstream
             tracing::info!("sent {i} transactions in {:.2} seconds", timer.elapsed().as_secs_f64());
+=======
+            tracing::info!(%i, elapsed_secs = %timer.elapsed().as_secs_f64(), "sent transactions");
+>>>>>>> Stashed changes
         }
 
         let sender = accounts.get_mut(sender_idx).unwrap();
@@ -131,14 +135,24 @@ pub async fn benchmark_mpc_sign_impl(
     }
 
     tracing::info!(
+<<<<<<< Updated upstream
         "done sending {} transactions in {:.2} seconds",
         args.num_transactions,
         timer.elapsed().as_secs_f64()
+=======
+        num_transactions = %args.num_transactions,
+        elapsed_secs = %timer.elapsed().as_secs_f64(),
+        "done sending transactions"
+>>>>>>> Stashed changes
     );
 
     tracing::info!("awaiting RPC responses");
     response_handler_task.await.expect("response handler tasks should succeed");
+<<<<<<< Updated upstream
     tracing::info!("received all RPC responses after {:.2} seconds", timer.elapsed().as_secs_f64());
+=======
+    tracing::info!(elapsed_secs = %timer.elapsed().as_secs_f64(), "received all RPC responses");
+>>>>>>> Stashed changes
 
     Ok(())
 }
@@ -165,7 +179,11 @@ pub async fn benchmark_mpc_sign(args: &BenchmarkMpcSignArgs) -> anyhow::Result<(
 
     let result = benchmark_mpc_sign_impl(args, client, &mut accounts).await;
 
+<<<<<<< Updated upstream
     tracing::info!("writing updated nonces to {:?}", args.user_data_dir);
+=======
+    tracing::info!(user_data_dir = ?args.user_data_dir, "writing updated nonces");
+>>>>>>> Stashed changes
     for account in accounts.iter() {
         account.write_to_dir(&args.user_data_dir)?;
     }

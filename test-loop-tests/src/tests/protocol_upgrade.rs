@@ -134,7 +134,11 @@ pub(crate) fn test_protocol_upgrade(
                 // There should be no missing blocks
                 assert_eq!(last_observed_height.get() + 1, block_header.height());
             }
+<<<<<<< Updated upstream
             tracing::info!(target: "test", "observed new block at height {}, chunk_mask: {:?}", block_header.height(), block_header.chunk_mask());
+=======
+            tracing::info!(target: "test", height = %block_header.height(), chunk_mask = ?block_header.chunk_mask(), "observed new block at height");
+>>>>>>> Stashed changes
             last_observed_height.set(block_header.height());
 
             // Record observed missing chunks

@@ -444,9 +444,15 @@ fn assert_oversized_receipt_occurred(test_loop: &TestLoopV2, node_datas: &[NodeE
                         if receipt_size > max_receipt_size {
                             // Success! found receipt above max size
                             tracing::info!(
+<<<<<<< Updated upstream
                                 "found receipt above max size! receipt size: {}, max size: {}",
                                 receipt_size,
                                 max_receipt_size
+=======
+                                %receipt_size,
+                                %max_receipt_size,
+                                "found receipt above max size"
+>>>>>>> Stashed changes
                             );
                             return;
                         }

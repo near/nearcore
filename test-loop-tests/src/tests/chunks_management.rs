@@ -125,14 +125,22 @@ impl Test {
                         if self.test4_config.drop_messages_from.contains(&to_whom.as_str())
                             && from_whom == "test4"
                         {
+<<<<<<< Updated upstream
                             tracing::info!("dropping partial encoded chunk request from test4 to {to_whom}");
+=======
+                            tracing::info!(%to_whom, "dropping partial encoded chunk request from test4");
+>>>>>>> Stashed changes
                             return None;
                         }
                         if !self.test4_config.drop_messages_from.is_empty()
                              && from_whom == "test4"
                              && to_whom == "test2"
                         {
+<<<<<<< Updated upstream
                             tracing::warn!("observed partial encoded chunk request from {from_whom} to {to_whom}");
+=======
+                            tracing::warn!(%from_whom, %to_whom, "observed partial encoded chunk request");
+>>>>>>> Stashed changes
                         }
                     }
                     _ => {}

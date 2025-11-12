@@ -174,7 +174,11 @@ pub async fn update_account_nonces(
             Ok(resp) => Some(resp.nonce),
             Err(err) => {
                 if ignore_failures {
+<<<<<<< Updated upstream
                     tracing::warn!("error while querying account: {err}");
+=======
+                    tracing::warn!(?err, "error while querying account");
+>>>>>>> Stashed changes
                     account_idxs_to_remove.push(idx);
                     None
                 } else {
@@ -279,7 +283,11 @@ pub async fn create_sub_accounts(args: &CreateSubAccountsArgs) -> anyhow::Result
         sub_accounts.push(Account::new(sub_account_id, sub_account_key, 0));
     }
 
+<<<<<<< Updated upstream
     tracing::info!("sent {} txs in {:.2} seconds", args.num_sub_accounts, timer.elapsed().as_secs_f64());
+=======
+    tracing::info!(num_sub_accounts = %args.num_sub_accounts, elapsed_secs = %timer.elapsed().as_secs_f64(), "sent txs");
+>>>>>>> Stashed changes
 
     // Ensure all rpc responses are handled.
     response_handler_task.await.expect("response handler tasks should succeed");
@@ -301,7 +309,11 @@ pub async fn create_sub_accounts(args: &CreateSubAccountsArgs) -> anyhow::Result
         account.write_to_dir(&args.user_data_dir)?;
     }
 
+<<<<<<< Updated upstream
     tracing::info!("written {} accounts to disk", sub_accounts.len());
+=======
+    tracing::info!(num_accounts = %sub_accounts.len(), "written accounts to disk");
+>>>>>>> Stashed changes
 
     Ok(())
 }

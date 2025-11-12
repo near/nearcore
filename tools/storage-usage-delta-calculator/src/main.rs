@@ -32,7 +32,11 @@ async fn main() -> anyhow::Result<()> {
             let saved_storage_usage = account.storage_usage();
             let delta = actual_storage_usage - saved_storage_usage;
             if delta != 0 {
+<<<<<<< Updated upstream
                 tracing::debug!("{},{}", account_id, delta);
+=======
+                tracing::debug!(%account_id, %delta, "storage usage delta");
+>>>>>>> Stashed changes
                 result.push((account_id.clone(), delta));
             }
         }

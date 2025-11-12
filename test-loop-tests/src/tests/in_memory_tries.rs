@@ -74,7 +74,11 @@ fn test_load_memtrie_after_empty_chunks() {
         .collect_vec();
     let idx = {
         let current_tracked_shards = clients.tracked_shards_for_each_client();
+<<<<<<< Updated upstream
         tracing::info!("current tracked shards: {:?}", current_tracked_shards);
+=======
+        tracing::info!(?current_tracked_shards, "current tracked shards");
+>>>>>>> Stashed changes
         current_tracked_shards
             .iter()
             .enumerate()

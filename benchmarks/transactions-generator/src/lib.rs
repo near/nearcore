@@ -335,7 +335,7 @@ impl TxGenerator {
                         let _ = tx_latest_block.send(block_header_view);
                     }
                     Err(err) => {
-                        tracing::warn!(target: "transaction-generator", "block_hash update failed: {err}");
+                        tracing::warn!(target: "transaction-generator", ?err, "block hash update failed");
                     }
                 }
                 block_update_interval.tick().await;
@@ -642,7 +642,7 @@ impl TxGenerator {
                 .await;
             } else {
                 tracing::info!(target: "transaction-generator",
-                "no 'controller' settings provided. stopping the `neard`..."
+                "no 'controller' settings provided, stopping the `neard`"
                 );
                 std::process::exit(0);
             }
@@ -666,11 +666,11 @@ impl TxGenerator {
                     stats.failed = TRANSACTION_PROCESSED_FAILED_TOTAL.get();
                     stats
                 };
-                tracing::info!(target: "transaction-generator", total=format!("{stats:?}"),);
+                tracing::info!(target: "transaction-generator", total = ?stats);
                 let diff = stats.clone() - stats_prev;
                 let rate = tps_filter.register(stats.included_in_chunk);
                 tracing::info!(target: "transaction-generator",
-                    diff=format!("{:?}", diff),
+                    ?diff,
                     rate,
                 );
                 stats_prev = stats.clone();

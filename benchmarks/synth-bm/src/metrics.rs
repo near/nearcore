@@ -153,10 +153,17 @@ impl TransactionStatisticsService {
         }
 
         tracing::info!(
+<<<<<<< Updated upstream
             r#"Tx statistics cut off a small time from the observation period.
             This is done to avoid statistic services slowing down the system.
             So statistics miss a few successful txs, but adjust the observation period.
             Hence for workloads running more than a few secs, TPS are representative.
+=======
+            r#"tx statistics cut off a small time from the observation period,
+            this is done to avoid statistic services slowing down the system,
+            so statistics miss a few successful txs, but adjust the observation period,
+            hence for workloads running more than a few secs, TPS are representative
+>>>>>>> Stashed changes
         "#
         );
 
@@ -178,7 +185,11 @@ impl TransactionStatisticsService {
         }
         let num = self.data_t1.num - self.data_t0.num;
         let tps = num / elapsed_secs;
+<<<<<<< Updated upstream
         tracing::info!("Observed {num} successful txs in {elapsed_secs} seconds => {tps} TPS");
+=======
+        tracing::info!(%num, %elapsed_secs, %tps, "observed successful txs");
+>>>>>>> Stashed changes
         tps
     }
 }

@@ -728,8 +728,8 @@ impl TransactionRunner {
             | Err(AsyncSendError::Timeout)
             | Err(AsyncSendError::Dropped) => {
                 tracing::warn!(
-                    "TransactionRunner::get_tx_processing_res - got error: {:?}",
-                    processing_response_res
+                    ?processing_response_res,
+                    "transaction runner get_tx_processing_res got error"
                 );
                 return None;
             }

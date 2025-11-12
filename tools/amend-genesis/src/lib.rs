@@ -132,8 +132,13 @@ impl AccountRecords {
             }
             None => {
                 tracing::warn!(
+<<<<<<< Updated upstream
                     "access keys for {} were included in --extra-records, but no account record was found. not adding them to the output",
                     &account_id
+=======
+                    %account_id,
+                    "access keys were included in --extra-records, but no account record was found, not adding them to the output"
+>>>>>>> Stashed changes
                 );
             }
         }

@@ -243,13 +243,13 @@ async fn listen_blocks(mut stream: mpsc::Receiver<near_indexer::StreamerMessage>
         // }
         tracing::info!(
             target: "indexer_example",
-            "#{} {} Shards: {}, Transactions: {}, Receipts: {}, ExecutionOutcomes: {}",
-            streamer_message.block.header.height,
-            streamer_message.block.header.hash,
-            streamer_message.shards.len(),
-            streamer_message.shards.iter().map(|shard| if let Some(chunk) = &shard.chunk { chunk.transactions.len() } else { 0usize }).sum::<usize>(),
-            streamer_message.shards.iter().map(|shard| if let Some(chunk) = &shard.chunk { chunk.receipts.len() } else { 0usize }).sum::<usize>(),
-            streamer_message.shards.iter().map(|shard| shard.receipt_execution_outcomes.len()).sum::<usize>(),
+            height = %streamer_message.block.header.height,
+            hash = ?streamer_message.block.header.hash,
+            num_shards = %streamer_message.shards.len(),
+            num_transactions = %streamer_message.shards.iter().map(|shard| if let Some(chunk) = &shard.chunk { chunk.transactions.len() } else { 0usize }).sum::<usize>(),
+            num_receipts = %streamer_message.shards.iter().map(|shard| if let Some(chunk) = &shard.chunk { chunk.receipts.len() } else { 0usize }).sum::<usize>(),
+            num_execution_outcomes = %streamer_message.shards.iter().map(|shard| shard.receipt_execution_outcomes.len()).sum::<usize>(),
+            "block processed"
         );
     }
 }

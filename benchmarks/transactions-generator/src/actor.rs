@@ -18,7 +18,11 @@ impl GeneratorActorImpl {
     pub fn start(&mut self, _ctx: &mut dyn DelayedActionRunner<Self>) {
         match self.tx_generator.start() {
             Err(err) => {
+<<<<<<< Updated upstream
                 tracing::error!(target: "transaction-generator", "error: {err:?}");
+=======
+                tracing::error!(target: "transaction-generator", ?err, "error");
+>>>>>>> Stashed changes
             }
             Ok(_) => {
                 tracing::info!(target: "transaction-generator",

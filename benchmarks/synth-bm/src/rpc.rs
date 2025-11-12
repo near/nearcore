@@ -99,8 +99,14 @@ impl RpcResponseHandler {
                 Some(res) => res,
                 None => {
                     tracing::warn!(
+<<<<<<< Updated upstream
                         "expected {} responses but channel closed after {num_received}",
                         self.num_expected_responses
+=======
+                        num_expected = %self.num_expected_responses,
+                        %num_received,
+                        "expected responses but channel closed"
+>>>>>>> Stashed changes
                     );
                     break;
                 }
@@ -122,21 +128,38 @@ impl RpcResponseHandler {
                     }
                 }
                 Err(err) => {
+<<<<<<< Updated upstream
                     tracing::warn!("got error response from rpc: {err}");
+=======
+                    tracing::warn!(?err, "got error response from rpc");
+>>>>>>> Stashed changes
                     num_rpc_error += 1;
                 }
             };
 
             tracing::debug!(
+<<<<<<< Updated upstream
                 "received {} responses; num_success={} num_rpc_error={}",
                 num_received, num_succeeded, num_rpc_error
+=======
+                %num_received,
+                %num_succeeded,
+                %num_rpc_error,
+                "received responses"
+>>>>>>> Stashed changes
             );
         }
 
         if let Some(timer) = timer {
             tracing::info!(
+<<<<<<< Updated upstream
                 "received {num_received} tx responses in {:.2} seconds",
                 timer.elapsed().as_secs_f64()
+=======
+                %num_received,
+                elapsed_secs = %timer.elapsed().as_secs_f64(),
+                "received tx responses"
+>>>>>>> Stashed changes
             );
         }
     }

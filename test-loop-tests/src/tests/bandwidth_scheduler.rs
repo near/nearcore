@@ -201,7 +201,11 @@ fn run_bandwidth_scheduler_test(scenario: TestScenario, tx_concurrency: usize) -
         }
         last_height = Some(tip.height);
 
+<<<<<<< Updated upstream
         tracing::info!(target: "scheduler_test", "height: {}", tip.height);
+=======
+        tracing::info!(target: "scheduler_test", %tip.height, "height");
+>>>>>>> Stashed changes
 
         if tip.height - first_height.unwrap() > workload_blocks {
             return true;
@@ -214,7 +218,11 @@ fn run_bandwidth_scheduler_test(scenario: TestScenario, tx_concurrency: usize) -
     };
     test_loop.run_until(testloop_func, Duration::seconds(300));
 
+<<<<<<< Updated upstream
     tracing::info!(target: "scheduler_test", "total transactions completed: {}", workload_generator.txs_done());
+=======
+    tracing::info!(target: "scheduler_test", txs_done = %workload_generator.txs_done(), "total transactions completed");
+>>>>>>> Stashed changes
 
     let client = &test_loop.data.get(&client_handle).client;
     let bandwidth_stats =
@@ -505,7 +513,11 @@ impl WorkloadGenerator {
                 ));
             }
         }
+<<<<<<< Updated upstream
         tracing::info!(target: "scheduler_test", "workload senders: {}", generator.workload_senders.len());
+=======
+        tracing::info!(target: "scheduler_test", workload_senders = %generator.workload_senders.len(), "workload senders");
+>>>>>>> Stashed changes
 
         generator
     }
@@ -573,7 +585,11 @@ impl WorkloadGenerator {
             let mut new_signers = Vec::new();
 
             let (last_block_hash, nonce) = get_last_block_and_nonce(test_loop, node_datas);
+<<<<<<< Updated upstream
             tracing::info!(target: "scheduler_test", "adding access keys with nonce {}", nonce);
+=======
+            tracing::info!(target: "scheduler_test", %nonce, "adding access keys with nonce");
+>>>>>>> Stashed changes
 
             for (account, usable_signers) in &available_signers {
                 let Some(to_add) = signers_to_add.get_mut(account) else {
@@ -600,7 +616,11 @@ impl WorkloadGenerator {
 
             run_txs_parallel(test_loop, add_key_txs, node_datas, Duration::seconds(20));
 
+<<<<<<< Updated upstream
             tracing::info!(target: "scheduler_test", "added {} access keys", new_signers.len());
+=======
+            tracing::info!(target: "scheduler_test", access_keys = %new_signers.len(), "added access keys");
+>>>>>>> Stashed changes
             for (account, new_signer) in new_signers {
                 available_signers.entry(account).or_insert_with(Vec::new).push(new_signer);
             }
