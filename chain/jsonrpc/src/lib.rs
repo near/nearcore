@@ -1636,7 +1636,7 @@ pub async fn openapi_json_handler() -> impl IntoResponse {
 
     Response::builder()
         .status(StatusCode::OK)
-        .header("content-type", "text/plain; charset=utf-8")
+        .header("content-type", "application/json; charset=utf-8")
         .body(axum::body::Body::from(bytes.to_vec()))
         .unwrap()
 }
