@@ -1738,6 +1738,7 @@ mod tests {
             None,
             None,
             None,
+            None,
         )
         .unwrap();
         let genesis = Genesis::from_file(
@@ -1796,6 +1797,7 @@ mod tests {
             None,
             None,
             None,
+            None,
         )
         .unwrap();
 
@@ -1823,6 +1825,7 @@ mod tests {
             false,
             None,
             false,
+            None,
             None,
             None,
             None,
