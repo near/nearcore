@@ -341,6 +341,11 @@ pub enum DBCol {
     /// - *Content type*: `near_primitives::sharding::ReceiptProof`
     #[cfg(feature = "protocol_feature_spice")]
     ReceiptProofs,
+    /// Stores produces witnesses by spice executor.
+    /// - *Rows*: (BlockHash || ShardId)
+    /// - *Content type*: [near_primitives::stateless_validation::spice_state_witness::SpiceChunkStateWitness]
+    #[cfg(feature = "protocol_feature_spice")]
+    Witnesses,
     /// All known processed next block hashes regardless of canonical chain.
     /// - *Rows*: BlockHash (CryptoHash)
     /// - *Content type*: next block: Vec<BlockHash (CryptoHash)>
@@ -357,6 +362,12 @@ pub enum DBCol {
     /// - *Content type*: ([near_primitives::types::ChunkExecutionResult])
     #[cfg(feature = "protocol_feature_spice")]
     ExecutionResults,
+    /// For each spice execution result endorsement contains corresponding execution result.
+    /// May contain both certified and uncertified execution results.
+    /// - *Rows*: ([near_primitives::types::ChunkExecutionResultHash])
+    /// - *Content type*: ([near_primitives::types::ChunkExecutionResult])
+    #[cfg(feature = "protocol_feature_spice")]
+    UncertifiedExecutionResults,
     /// For spice contains uncertified chunks for this block and all it's ancestry.
     /// - *Rows*: BlockHash (CryptoHash)
     /// - *Content type*: Vec<[near_primitives::types::SpiceUncertifiedChunkInfo]>
@@ -400,6 +411,7 @@ pub enum DBKeyType {
     InvalidWitnessesKey,
     InvalidWitnessIndex,
     SpiceEndorsementKey,
+    ChunkExecutionResultHash,
 }
 
 impl DBCol {
@@ -427,7 +439,9 @@ impl DBCol {
             | DBCol::PartialChunks
             | DBCol::TransactionResultForBlock => true,
             #[cfg(feature = "protocol_feature_spice")]
-            DBCol::UncertifiedChunks | DBCol::ExecutionResults => true,
+            DBCol::UncertifiedChunks
+            | DBCol::ExecutionResults
+            | DBCol::UncertifiedExecutionResults => true,
             _ => false,
         }
     }
@@ -515,11 +529,15 @@ impl DBCol {
             #[cfg(feature = "protocol_feature_spice")]
             | DBCol::ReceiptProofs => true,
             #[cfg(feature = "protocol_feature_spice")]
+            | DBCol::Witnesses => false,
+            #[cfg(feature = "protocol_feature_spice")]
             | DBCol::AllNextBlockHashes => false,
             #[cfg(feature = "protocol_feature_spice")]
             | DBCol::Endorsements => false,
             #[cfg(feature = "protocol_feature_spice")]
             | DBCol::ExecutionResults => false,
+            #[cfg(feature = "protocol_feature_spice")]
+            | DBCol::UncertifiedExecutionResults => false,
             #[cfg(feature = "protocol_feature_spice")]
             | DBCol::UncertifiedChunks => false,
             // TODO
@@ -667,14 +685,25 @@ impl DBCol {
             #[cfg(feature = "protocol_feature_spice")]
             DBCol::ReceiptProofs => &[DBKeyType::BlockHash, DBKeyType::ShardId, DBKeyType::ShardId],
             #[cfg(feature = "protocol_feature_spice")]
+            DBCol::Witnesses => &[DBKeyType::BlockHash, DBKeyType::ShardId],
+            #[cfg(feature = "protocol_feature_spice")]
             DBCol::AllNextBlockHashes => &[DBKeyType::BlockHash],
             #[cfg(feature = "protocol_feature_spice")]
             DBCol::Endorsements => &[DBKeyType::SpiceEndorsementKey],
             #[cfg(feature = "protocol_feature_spice")]
             DBCol::ExecutionResults => &[DBKeyType::BlockHash, DBKeyType::ShardId],
             #[cfg(feature = "protocol_feature_spice")]
+            DBCol::UncertifiedExecutionResults => &[DBKeyType::ChunkExecutionResultHash],
+            #[cfg(feature = "protocol_feature_spice")]
             DBCol::UncertifiedChunks => &[DBKeyType::BlockHash],
         }
+    }
+
+    pub fn witnesses() -> DBCol {
+        #[cfg(feature = "protocol_feature_spice")]
+        return DBCol::Witnesses;
+        #[cfg(not(feature = "protocol_feature_spice"))]
+        panic!("Expected protocol_feature_spice to be enabled")
     }
 
     pub fn receipt_proofs() -> DBCol {
@@ -701,6 +730,13 @@ impl DBCol {
     pub fn execution_results() -> DBCol {
         #[cfg(feature = "protocol_feature_spice")]
         return DBCol::ExecutionResults;
+        #[cfg(not(feature = "protocol_feature_spice"))]
+        panic!("Expected protocol_feature_spice to be enabled")
+    }
+
+    pub fn uncertified_execution_results() -> DBCol {
+        #[cfg(feature = "protocol_feature_spice")]
+        return DBCol::UncertifiedExecutionResults;
         #[cfg(not(feature = "protocol_feature_spice"))]
         panic!("Expected protocol_feature_spice to be enabled")
     }

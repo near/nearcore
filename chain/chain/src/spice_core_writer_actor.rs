@@ -16,7 +16,9 @@ use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{
     AccountId, ChunkExecutionResult, ChunkExecutionResultHash, EpochId, ShardId, SpiceChunkId,
 };
-use near_primitives::utils::{get_endorsements_key, get_execution_results_key};
+use near_primitives::utils::{
+    get_endorsements_key, get_execution_results_key, get_uncertified_execution_results_key,
+};
 use near_store::adapter::StoreAdapter as _;
 use near_store::adapter::chain_store::ChainStoreAdapter;
 use near_store::{DBCol, StoreUpdate};
@@ -112,6 +114,16 @@ impl SpiceCoreWriterActor {
         Ok(store_update)
     }
 
+    fn save_uncertified_execution_result(
+        &self,
+        execution_result: &ChunkExecutionResult,
+    ) -> Result<StoreUpdate, std::io::Error> {
+        let key = get_uncertified_execution_results_key(&execution_result.compute_hash());
+        let mut store_update = self.chain_store.store().store_update();
+        store_update.insert_ser(DBCol::uncertified_execution_results(), &key, &execution_result)?;
+        Ok(store_update)
+    }
+
     fn try_sending_execution_result_endorsed(&self, block_hash: &CryptoHash) -> Result<(), Error> {
         let block = match self.chain_store.get_block(block_hash) {
             Ok(block) => block,
@@ -136,8 +148,10 @@ impl SpiceCoreWriterActor {
         let mut store_update = self.chain_store.store().store_update();
         let mut endorsements_by_unique_result: HashMap<
             (&SpiceChunkId, ChunkExecutionResultHash),
-            HashMap<&AccountId, &SpiceVerifiedEndorsement>,
+            HashMap<&AccountId, Signature>,
         > = HashMap::new();
+        let mut execution_results: HashMap<ChunkExecutionResultHash, &ChunkExecutionResult> =
+            HashMap::new();
 
         for endorsement in &endorsements {
             let chunk_id = endorsement.chunk_id();
@@ -149,13 +163,16 @@ impl SpiceCoreWriterActor {
                 endorsement.account_id(),
                 &endorsement.to_stored(),
             )?);
+            let execution_result_hash = endorsement.execution_result().compute_hash();
             endorsements_by_unique_result
-                .entry((chunk_id, endorsement.execution_result().compute_hash()))
+                .entry((chunk_id, execution_result_hash.clone()))
                 .or_default()
-                .insert(endorsement.account_id(), &endorsement);
+                .insert(endorsement.account_id(), endorsement.signature().clone());
+            execution_results.insert(execution_result_hash, endorsement.execution_result());
         }
 
-        for ((chunk_id, chunk_execution_result_hash), endorsements) in endorsements_by_unique_result
+        for ((chunk_id, chunk_execution_result_hash), mut signatures) in
+            endorsements_by_unique_result
         {
             let chunk_validator_assignments = self.epoch_manager.get_chunk_validator_assignments(
                 &block.header().epoch_id(),
@@ -163,16 +180,10 @@ impl SpiceCoreWriterActor {
                 block.header().height(),
             )?;
 
-            let execution_result = endorsements
-                .values()
-                .next()
-                .expect("at least one endorsement should always be there")
-                .execution_result();
-            let mut signatures: HashMap<&AccountId, Signature> = endorsements
-                .iter()
-                .map(|(account_id, endorsement)| (*account_id, endorsement.signature().clone()))
-                .collect();
             for (account_id, _) in chunk_validator_assignments.assignments() {
+                if signatures.contains_key(account_id) {
+                    continue;
+                }
                 let Some(stored_endorsement) =
                     self.get_endorsement(&chunk_id.block_hash, chunk_id.shard_id, &account_id)?
                 else {
@@ -192,11 +203,16 @@ impl SpiceCoreWriterActor {
             }
 
             assert_eq!(&chunk_id.block_hash, block.header().hash());
+            let execution_result = execution_results.get(&chunk_execution_result_hash).unwrap();
             store_update.merge(self.save_execution_result(
                 &chunk_id.block_hash,
                 chunk_id.shard_id,
                 execution_result,
             )?);
+        }
+
+        for execution_result in execution_results.values() {
+            store_update.merge(self.save_uncertified_execution_result(execution_result)?);
         }
 
         return Ok(store_update);
@@ -221,6 +237,14 @@ impl SpiceCoreWriterActor {
     ) -> Result<Option<Arc<ChunkExecutionResult>>, std::io::Error> {
         let key = get_execution_results_key(block_hash, shard_id);
         self.chain_store.store().caching_get_ser(DBCol::execution_results(), &key)
+    }
+
+    fn get_uncertified_execution_result(
+        &self,
+        execution_result_hash: &ChunkExecutionResultHash,
+    ) -> Result<Option<Arc<ChunkExecutionResult>>, std::io::Error> {
+        let key = get_uncertified_execution_results_key(execution_result_hash);
+        self.chain_store.store().caching_get_ser(DBCol::uncertified_execution_results(), &key)
     }
 
     fn validate_verified_endorsement_with_block(
@@ -423,6 +447,12 @@ impl SpiceCoreWriterActor {
 
     fn record_block_core_statements(&self, block: &Block) -> Result<StoreUpdate, Error> {
         let mut store_update = self.chain_store.store().store_update();
+
+        let mut endorsements_by_unique_result: HashMap<
+            (&SpiceChunkId, ChunkExecutionResultHash),
+            HashMap<&AccountId, Signature>,
+        > = HashMap::new();
+        let mut in_block_execution_results: HashSet<&SpiceChunkId> = HashSet::new();
         for core_statement in block.spice_core_statements() {
             match core_statement {
                 SpiceCoreStatement::Endorsement(endorsement) => {
@@ -436,6 +466,10 @@ impl SpiceCoreWriterActor {
                         account_id,
                         &stored_endorsement,
                     )?);
+                    endorsements_by_unique_result
+                        .entry((chunk_id, stored_endorsement.execution_result_hash))
+                        .or_default()
+                        .insert(endorsement.account_id(), stored_endorsement.signature);
                 }
                 SpiceCoreStatement::ChunkExecutionResult { execution_result, chunk_id } => {
                     store_update.merge(self.save_execution_result(
@@ -443,8 +477,48 @@ impl SpiceCoreWriterActor {
                         chunk_id.shard_id,
                         execution_result,
                     )?);
+                    in_block_execution_results.insert(chunk_id);
                 }
             };
+        }
+        for ((chunk_id, chunk_execution_result_hash), mut signatures) in
+            endorsements_by_unique_result
+        {
+            if in_block_execution_results.contains(chunk_id) {
+                continue;
+            }
+
+            let endorsement_block = self.chain_store.get_block(&chunk_id.block_hash)?;
+            let chunk_validator_assignments = self.epoch_manager.get_chunk_validator_assignments(
+                &endorsement_block.header().epoch_id(),
+                chunk_id.shard_id,
+                endorsement_block.header().height(),
+            )?;
+            for (account_id, _) in chunk_validator_assignments.assignments() {
+                if signatures.contains_key(account_id) {
+                    continue;
+                }
+                let Some(stored_endorsement) =
+                    self.get_endorsement(&chunk_id.block_hash, chunk_id.shard_id, &account_id)?
+                else {
+                    continue;
+                };
+                if stored_endorsement.execution_result_hash != chunk_execution_result_hash {
+                    continue;
+                }
+                signatures.insert(account_id, stored_endorsement.signature);
+            }
+            let endorsement_state =
+                chunk_validator_assignments.compute_endorsement_state(signatures);
+            if endorsement_state.is_endorsed {
+                let execution_result = self.get_uncertified_execution_result(&chunk_execution_result_hash)?
+                    .expect("for each endorsement we should save corresponding uncertified execution result");
+                store_update.merge(self.save_execution_result(
+                    &chunk_id.block_hash,
+                    chunk_id.shard_id,
+                    &execution_result,
+                )?);
+            }
         }
 
         let pending_endorsements = self.pop_pending_endorsement_for_block(&block)?;

@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::Arc;
 
 use itertools::Itertools;
@@ -7,17 +7,26 @@ use near_async::test_loop::data::TestLoopData;
 use near_async::time::Duration;
 use near_chain_configs::test_genesis::{TestEpochConfigBuilder, ValidatorsSpec};
 use near_client::{ProcessTxRequest, Query};
+use near_network::client::SpiceChunkEndorsementMessage;
+use near_network::types::NetworkRequests;
 use near_o11y::testonly::init_test_logger;
+use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
+use near_primitives::stateless_validation::spice_chunk_endorsement::SpiceChunkEndorsement;
 use near_primitives::test_utils::create_user_test_signer;
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{AccountId, Balance, BlockReference};
+use near_primitives::types::{AccountId, Balance, BlockHeight, BlockReference};
 use near_primitives::views::{QueryRequest, QueryResponseKind};
-use parking_lot::Mutex;
+use parking_lot::{Mutex, RwLock};
 
 use crate::setup::builder::TestLoopBuilder;
 use crate::setup::env::TestLoopEnv;
+use crate::utils::account::{
+    create_account_id, create_validators_spec, validators_spec_clients,
+    validators_spec_clients_with_rpc,
+};
 use crate::utils::get_node_data;
+use crate::utils::node::TestLoopNode;
 use crate::utils::transactions::get_anchor_hash;
 
 #[test]
@@ -158,14 +167,150 @@ fn test_spice_chain() {
         .shutdown_and_drain_remaining_events(Duration::seconds(20));
 }
 
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_spice_chain_with_delayed_execution() {
+    init_test_logger();
+
+    let sender = create_account_id("sender");
+    let receiver = create_account_id("receiver");
+
+    let num_producers = 2;
+    let num_validators = 0;
+    let validators_spec = create_validators_spec(num_producers, num_validators);
+    let clients = validators_spec_clients(&validators_spec);
+
+    let genesis = TestLoopBuilder::new_genesis_builder()
+        .validators_spec(validators_spec)
+        .add_user_account_simple(sender.clone(), Balance::from_near(10))
+        .add_user_account_simple(receiver.clone(), Balance::from_near(0))
+        .build();
+
+    let producer_account = clients[0].clone();
+    let mut env = TestLoopBuilder::new()
+        .genesis(genesis)
+        .epoch_config_store_from_genesis()
+        .clients(clients)
+        .build();
+
+    let execution_delay = 4;
+    // We delay endorsements to simulate slow execution validation causing execution to lag behind.
+    delay_endorsements_propagation(&mut env, execution_delay);
+
+    env = env.warmup();
+
+    let node = TestLoopNode::for_account(&env.node_datas, &producer_account);
+    let tx = SignedTransaction::send_money(
+        1,
+        sender.clone(),
+        receiver.clone(),
+        &create_user_test_signer(&sender),
+        Balance::from_near(1),
+        node.head(env.test_loop_data()).last_block_hash,
+    );
+    node.run_tx(&mut env.test_loop, tx, Duration::seconds(10));
+
+    let view_client = env.test_loop.data.get_mut(&node.data().view_client_sender.actor_handle());
+    let query_response = view_client
+        .handle(Query::new(
+            BlockReference::Finality(near_primitives::types::Finality::None),
+            QueryRequest::ViewAccount { account_id: receiver },
+        ))
+        .unwrap();
+    let QueryResponseKind::ViewAccount(view_account_result) = query_response.kind else {
+        panic!();
+    };
+    assert_eq!(view_account_result.amount, Balance::from_near(1));
+
+    env.shutdown_and_drain_remaining_events(Duration::seconds(20));
+}
+
+fn delay_endorsements_propagation(env: &mut TestLoopEnv, delay_height: u64) {
+    let core_writer_senders: HashMap<_, _> = env
+        .node_datas
+        .iter()
+        .map(|datas| (datas.account_id.clone(), datas.spice_core_writer_sender.clone()))
+        .collect();
+
+    for node in &env.node_datas {
+        let senders = core_writer_senders.clone();
+        let block_heights: Arc<RwLock<HashMap<CryptoHash, BlockHeight>>> =
+            Arc::new(RwLock::new(HashMap::new()));
+        let delayed_endorsements: Arc<
+            RwLock<VecDeque<(CryptoHash, AccountId, SpiceChunkEndorsement)>>,
+        > = Arc::new(RwLock::new(VecDeque::new()));
+        let peer_actor = env.test_loop.data.get_mut(&node.peer_manager_sender.actor_handle());
+        peer_actor.register_override_handler(Box::new(move |request| -> Option<NetworkRequests> {
+            match request {
+                NetworkRequests::Block { ref block } => {
+                    block_heights.write().insert(*block.hash(), block.header().height());
+
+                    let mut delayed_endorsements = delayed_endorsements.write();
+                    loop {
+                        let Some(front) = delayed_endorsements.front() else {
+                            break;
+                        };
+                        let height = block_heights.read()[&front.0];
+                        if height + delay_height >= block.header().height() {
+                            break;
+                        }
+                        let (_, target, endorsement) = delayed_endorsements.pop_front().unwrap();
+                        senders[&target].send(SpiceChunkEndorsementMessage(endorsement));
+                    }
+                    Some(request)
+                }
+                NetworkRequests::SpiceChunkEndorsement(target, endorsement) => {
+                    delayed_endorsements.write().push_back((
+                        *endorsement.block_hash(),
+                        target,
+                        endorsement,
+                    ));
+                    None
+                }
+                _ => Some(request),
+            }
+        }));
+    }
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_spice_garbage_collection() {
+    init_test_logger();
+
+    let num_producers = 2;
+    let num_validators = 0;
+    let validators_spec = create_validators_spec(num_producers, num_validators);
+    let clients = validators_spec_clients_with_rpc(&validators_spec);
+
+    let epoch_length = 5;
+    let genesis = TestLoopBuilder::new_genesis_builder()
+        .validators_spec(validators_spec)
+        .epoch_length(epoch_length)
+        .build();
+    let mut env = TestLoopBuilder::new()
+        .genesis(genesis)
+        .gc_num_epochs_to_keep(1)
+        .epoch_config_store_from_genesis()
+        .clients(clients)
+        .build()
+        .warmup();
+
+    let node = TestLoopNode::rpc(&env.node_datas);
+    env.test_loop.run_until(
+        // We want to make sure that gc runs at least once and it doesn't trigger any asserts.
+        |test_loop_data| node.tail(test_loop_data) >= epoch_length,
+        Duration::seconds(20),
+    );
+
+    env.shutdown_and_drain_remaining_events(Duration::seconds(20));
+}
+
 #[cfg(feature = "test_features")]
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn test_spice_chain_with_missing_chunks() {
-    use crate::utils::account::{
-        create_account_id, create_validators_spec, validators_spec_clients_with_rpc,
-    };
-    use crate::utils::node::TestLoopNode;
+    use crate::utils::account::validators_spec_clients_with_rpc;
 
     init_test_logger();
     let accounts: Vec<AccountId> =

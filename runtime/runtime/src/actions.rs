@@ -563,11 +563,10 @@ pub(crate) fn action_implicit_account_creation_transfer(
             .ok();
         }
         AccountType::NearDeterministicAccount => {
-            create_deterministic_account(
-                account,
+            *account = Some(create_deterministic_account(
                 deposit,
                 &apply_state.config.fees.storage_usage_config,
-            );
+            ));
         }
         // This panic is unreachable as this is an implicit account creation transfer.
         // `check_account_existence` would fail because `account_is_implicit` would return false for a Named account.

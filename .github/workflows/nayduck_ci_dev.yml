@@ -16,6 +16,8 @@ jobs:
 
       - name: Checkout nearcore repository
         uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - name: Install required python modules
         run: |
@@ -59,4 +61,6 @@ jobs:
       - name: Cleanup Nayduck tests on cancel
         if: cancelled()
         run: |
-          python3 ./scripts/nayduck.py -c ${{ steps.nayduck_run.outputs.nayduck_run_id }}
+          python3 ./scripts/nayduck.py -c ${STEPS_NAYDUCK_RUN_OUTPUTS_NAYDUCK_RUN_ID}
+        env:
+          STEPS_NAYDUCK_RUN_OUTPUTS_NAYDUCK_RUN_ID: ${{ steps.nayduck_run.outputs.nayduck_run_id }}
