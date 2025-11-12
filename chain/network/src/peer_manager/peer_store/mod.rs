@@ -232,11 +232,7 @@ impl Inner {
             if peer_status.status != KnownPeerStatus::Connected
                 && now > peer_status.last_seen + self.config.peer_expiration_duration
             {
-<<<<<<< Updated upstream
-                tracing::debug!(target: "network", "removing peer: last seen {:?} ago", now-peer_status.last_seen);
-=======
                 tracing::debug!(target: "network", time_ago = ?(now-peer_status.last_seen), "removing peer, last seen ago");
->>>>>>> Stashed changes
                 to_remove.push(peer_id.clone());
             }
         }
@@ -305,15 +301,9 @@ impl PeerStore {
 
         if boot_nodes.len() > (config.peer_states_cache_size as usize) {
             tracing::error!(
-<<<<<<< Updated upstream
-                "num boot nodes is {} but the size of the peer store is limited to {}",
-                boot_nodes.len(),
-                config.peer_states_cache_size
-=======
                 boot_nodes_len = boot_nodes.len(),
                 %config.peer_states_cache_size,
                 "number of boot nodes exceeds peer store size limit"
->>>>>>> Stashed changes
             );
         }
 
@@ -427,11 +417,7 @@ impl PeerStore {
         peer_id: &PeerId,
         ban_reason: ReasonForBan,
     ) -> anyhow::Result<()> {
-<<<<<<< Updated upstream
-        tracing::warn!(target: "network", "banning peer {} for {:?}", peer_id, ban_reason);
-=======
         tracing::warn!(target: "network", %peer_id, ?ban_reason, "banning peer");
->>>>>>> Stashed changes
         let mut inner = self.0.lock();
         if let Some(peer_state) = inner.peer_states.get_mut(peer_id) {
             let now = clock.now_utc();
@@ -513,13 +499,8 @@ impl PeerStore {
             }
         }
         if blacklisted != 0 {
-<<<<<<< Updated upstream
-            tracing::info!(target: "network", "ignored {} blacklisted peers out of {} indirect peer(s)",
-                  blacklisted, total);
-=======
             tracing::info!(target: "network", %blacklisted, %total,
                   "ignored blacklisted peers out of indirect peers");
->>>>>>> Stashed changes
         }
     }
 

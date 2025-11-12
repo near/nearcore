@@ -139,22 +139,14 @@ pub async fn benchmark(args: &BenchmarkArgs) -> anyhow::Result<()> {
             permit.send(res);
         });
         if i > 0 && i % 10000 == 0 {
-<<<<<<< Updated upstream
-            tracing::info!("num txs sent: {}", i);
-=======
             tracing::info!(%i, "num txs sent");
->>>>>>> Stashed changes
         }
 
         let sender = accounts.get_mut(idx_sender).unwrap();
         sender.nonce += 1;
     }
 
-<<<<<<< Updated upstream
-    tracing::info!("sent {} txs in {:.2} seconds", args.num_transfers, timer.elapsed().as_secs_f64());
-=======
     tracing::info!(num_transfers = %args.num_transfers, elapsed_secs = %timer.elapsed().as_secs_f64(), "sent txs");
->>>>>>> Stashed changes
 
     for account in accounts.iter() {
         account.write_to_dir(&args.user_data_dir)?;
@@ -166,11 +158,7 @@ pub async fn benchmark(args: &BenchmarkArgs) -> anyhow::Result<()> {
     if let Some(handle) = transaction_stat_handle {
         // Ensure transaction stats are collected until all transactions are processed.
         if let Err(err) = handle.await {
-<<<<<<< Updated upstream
-            tracing::error!("transaction statistics service failed with: {err}");
-=======
             tracing::error!(?err, "transaction statistics service failed");
->>>>>>> Stashed changes
         }
     }
 

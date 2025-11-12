@@ -393,11 +393,7 @@ impl<'a> ChainUpdate<'a> {
         if header.height() > header_head.height {
             let tip = Tip::from_header(header);
             self.chain_store_update.save_header_head(&tip)?;
-<<<<<<< Updated upstream
-            tracing::debug!(target: "chain", last_block_hash = ?tip.last_block_hash, height = %tip.height, "header head updated");
-=======
             tracing::debug!(target: "chain", ?tip.last_block_hash, %tip.height, "header head updated");
->>>>>>> Stashed changes
             metrics::HEADER_HEAD_HEIGHT.set(tip.height as i64);
 
             Ok(Some(tip))
@@ -436,11 +432,7 @@ impl<'a> ChainUpdate<'a> {
             self.chain_store_update.save_body_head(&tip)?;
             metrics::BLOCK_HEIGHT_HEAD.set(tip.height as i64);
             metrics::BLOCK_ORDINAL_HEAD.set(header.block_ordinal() as i64);
-<<<<<<< Updated upstream
-            tracing::debug!(target: "chain", last_block_hash = ?tip.last_block_hash, height = %tip.height, "head updated");
-=======
             tracing::debug!(target: "chain", ?tip.last_block_hash, %tip.height, "head updated");
->>>>>>> Stashed changes
             Ok(Some(tip))
         } else {
             Ok(None)

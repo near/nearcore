@@ -139,21 +139,12 @@ impl ThreadStats {
         if show_stats {
             let class_name = format!("{:?}", self.classes);
             tracing::warn!(
-<<<<<<< Updated upstream
-                tid = ?tid,
-                ratio = ratio,
-                class_name = class_name,
-                thread_id = ?std::thread::current().id(),
-                c_mem = %self.c_mem,
-                "Thread occupancy ratio"
-=======
                 ?tid,
                 %ratio,
                 %class_name,
                 thread_id = ?std::thread::current().id(),
                 c_mem = %self.c_mem,
                 "thread occupancy ratio"
->>>>>>> Stashed changes
             );
             if self.write_buf_added.as_u64() > 0
                 || self.write_buf_capacity.as_u64() > 0
@@ -165,11 +156,7 @@ impl ThreadStats {
                     write_buf_capacity = %self.write_buf_capacity,
                     write_buf_added = %self.write_buf_added,
                     write_buf_drained = %self.write_buf_drained,
-<<<<<<< Updated upstream
-                    "Write buffer stats"
-=======
                     "write buffer stats"
->>>>>>> Stashed changes
                 );
             }
             self.write_buf_added = Default::default();
@@ -186,11 +173,7 @@ impl ThreadStats {
                     cnt = entry.1.cnt,
                     total_ms = ((entry.1.time.as_millis()) as f64),
                     max_ms = ((entry.1.max_time.as_millis()) as f64),
-<<<<<<< Updated upstream
-                    "Function performance stats"
-=======
                     "function performance stats"
->>>>>>> Stashed changes
                 );
             }
         }
@@ -254,11 +237,7 @@ impl Stats {
         tracing::info!(
             threads = self.stats.len(),
             min_ratio = MIN_OCCUPANCY_RATIO_THRESHOLD,
-<<<<<<< Updated upstream
-            "Performance stats summary"
-=======
             "performance stats summary"
->>>>>>> Stashed changes
         );
         let s: Vec<_> = self.stats.iter().collect();
 
@@ -271,21 +250,12 @@ impl Stats {
             ratio += tmp_ratio;
             other_ratio += tmp_other_ratio;
         }
-<<<<<<< Updated upstream
-        tracing::info!(other_ratio = other_ratio, "Other threads ratio");
-        let c_memory_usage = get_c_memory_usage();
-        if c_memory_usage > ByteSize::default() {
-            tracing::info!(c_memory_usage = %c_memory_usage, "C alloc total memory usage");
-        }
-        tracing::info!(ratio = ratio, "Total ratio");
-=======
         tracing::info!(%other_ratio, "other threads ratio");
         let c_memory_usage = get_c_memory_usage();
         if c_memory_usage > ByteSize::default() {
             tracing::info!(%c_memory_usage, "c alloc total memory usage");
         }
         tracing::info!(%ratio, "total ratio");
->>>>>>> Stashed changes
     }
 }
 
@@ -332,15 +302,6 @@ where
     let took = ended.saturating_duration_since(start);
 
     if took >= SLOW_CALL_THRESHOLD {
-<<<<<<< Updated upstream
-        tracing::warn!(
-            class_name = class_name,
-            thread_id = ?std::thread::current().id(),
-            message_type = std::any::type_name::<Message>(),
-            took_ms = took.as_millis(),
-            msg = msg_text.unwrap_or(""),
-            "Function exceeded time limit"
-=======
         let text_field = msg_text.map_or(String::new(), |x| format!(" msg: {x}"));
         tracing::warn!(
             %class_name,
@@ -349,7 +310,6 @@ where
             took_ms = took.as_millis(),
             msg = %text_field,
             "function exceeded time limit"
->>>>>>> Stashed changes
         );
     }
     stat.lock().log(
@@ -398,11 +358,7 @@ where
                 file = this.file,
                 line = this.line,
                 took_ms = took.as_millis(),
-<<<<<<< Updated upstream
-                "Function exceeded time limit"
-=======
                 "function exceeded time limit"
->>>>>>> Stashed changes
             );
         }
         match res {
@@ -417,22 +373,14 @@ where
 
 pub fn print_performance_stats(sleep_time: Duration) {
     STATS.lock().print_stats(sleep_time);
-<<<<<<< Updated upstream
-    tracing::info!("Futures waiting for completion");
-=======
     tracing::info!("futures waiting for completion");
->>>>>>> Stashed changes
     for entry in REF_COUNTER.lock().iter() {
         if *entry.1 > 0 {
             tracing::info!(
                 file = (entry.0).0,
                 line = (entry.0).1,
                 count = entry.1,
-<<<<<<< Updated upstream
-                "Future waiting for completion"
-=======
                 "future waiting for completion"
->>>>>>> Stashed changes
             );
         }
     }

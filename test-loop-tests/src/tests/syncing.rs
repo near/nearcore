@@ -44,11 +44,7 @@ fn slow_test_sync_from_genesis() {
             .collect_vec();
         clients.tracked_shards_for_each_client()
     };
-<<<<<<< Updated upstream
-    tracing::info!("first epoch tracked shards: {:?}", first_epoch_tracked_shards);
-=======
     tracing::info!(?first_epoch_tracked_shards, "first epoch tracked shards");
->>>>>>> Stashed changes
 
     execute_money_transfers(&mut test_loop, &node_datas, &accounts).unwrap();
 

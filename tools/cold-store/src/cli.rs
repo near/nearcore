@@ -343,11 +343,7 @@ impl PrepareHotCmd {
         let _span = tracing::info_span!(target: "prepare-hot", "run");
 
         let path = Path::new(&self.store_relative_path);
-<<<<<<< Updated upstream
-        tracing::info!(target : "prepare-hot", "preparing a hot db from a rpc db at path {path:#?}");
-=======
         tracing::info!(target : "prepare-hot", ?path, "preparing a hot db from a rpc db at path");
->>>>>>> Stashed changes
 
         tracing::info!(target : "prepare-hot", "opening hot and cold");
         let hot_store = storage.get_hot_store();
@@ -376,17 +372,10 @@ impl PrepareHotCmd {
         // as it would take too long.
 
         tracing::info!(target : "prepare-hot", "the hot, cold and RPC stores are suitable for cold storage migration");
-<<<<<<< Updated upstream
-        tracing::info!(target : "prepare-hot", "Changing the DbKind of the RPC store to Hot");
-        rpc_store.set_db_kind(DbKind::Hot)?;
-
-        tracing::info!(target : "prepare-hot", "successfully prepared the hot store for migration. you can now set the config.store.path in neard config to {:#?}", path);
-=======
         tracing::info!(target : "prepare-hot", "changing the DbKind of the RPC store to Hot");
         rpc_store.set_db_kind(DbKind::Hot)?;
 
         tracing::info!(target : "prepare-hot", ?path, "successfully prepared the hot store for migration, you can now set the config.store.path in neard config to");
->>>>>>> Stashed changes
 
         Ok(())
     }
@@ -627,15 +616,9 @@ impl CheckStateRootCmd {
         prune_state: &mut PruneState,
         prune_condition: &PruneCondition,
     ) -> anyhow::Result<()> {
-<<<<<<< Updated upstream
-        tracing::debug!(target: "check_trie", "checking {:?} at {:?}", hash, prune_state);
-        if prune_state.should_prune(prune_condition) {
-            tracing::debug!(target: "check_trie", "reached prune condition: {:?}", prune_condition);
-=======
         tracing::debug!(target: "check_trie", ?hash, ?prune_state, "checking at");
         if prune_state.should_prune(prune_condition) {
             tracing::debug!(target: "check_trie", ?prune_condition, "reached prune condition");
->>>>>>> Stashed changes
             return Ok(());
         }
 
