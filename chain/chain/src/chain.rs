@@ -2003,7 +2003,7 @@ impl Chain {
                     tracing::debug!(
                         target: "chain", ?prev_block_hash, %block_height,
                         %shard_id, ?cached_shard_update_key,
-                        "caching ShardUpdate result from OptimisticBlock"
+                        "caching shard update result from optimistic block"
                     );
                     self.apply_chunk_results_cache.push(cached_shard_update_key, result);
                 }
@@ -2012,7 +2012,7 @@ impl Chain {
                         target: "chain", ?e,
                         ?prev_block_hash, %block_height, %shard_id,
                         ?cached_shard_update_key,
-                        "error applying chunk for OptimisticBlock"
+                        "error applying chunk for optimistic block"
                     );
                 }
             }
@@ -3220,7 +3220,7 @@ impl Chain {
                 shard_id,
                 matches!(block.block_type, BlockType::Normal),
             ) {
-                tracing::debug!(target: "chain", %shard_id, ?cached_shard_update_key, "using cached ShardUpdate result");
+                tracing::debug!(target: "chain", %shard_id, ?cached_shard_update_key, "using cached shard update result");
                 return Ok(Some((
                     shard_id,
                     cached_shard_update_key,
@@ -3228,7 +3228,7 @@ impl Chain {
                 )));
             }
         }
-        tracing::debug!(target: "chain", %shard_id, ?cached_shard_update_key, "creating ShardUpdate job");
+        tracing::debug!(target: "chain", %shard_id, ?cached_shard_update_key, "creating shard update job");
 
         let mut on_post_state_ready = None;
         let shard_update_reason = if is_new_chunk {

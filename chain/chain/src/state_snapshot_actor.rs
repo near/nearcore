@@ -137,14 +137,14 @@ impl StateSnapshotActor {
         ) {
             Ok(s) => s,
             Err(err) => {
-                tracing::error!(target: "state_snapshot", ?err, "state snapshot actor failed to check resharding status. not making snapshot");
+                tracing::error!(target: "state_snapshot", ?err, "state snapshot actor failed to check resharding status, not making snapshot");
                 return;
             }
         };
         // TODO: instead of resending the same message over and over, wait on a Condvar.
         // This would require making testloop work with Condvars that normally are meant to be woken up by another thread
         if should_wait {
-            tracing::debug!(target: "state_snapshot", prev_block_hash = ?&msg.prev_block_hash, "postpone CreateSnapshotRequest");
+            tracing::debug!(target: "state_snapshot", prev_block_hash = ?&msg.prev_block_hash, "postpone create snapshot request");
             ctx.run_later(
                 "ReshardingActor FlatStorageSplitShard",
                 Duration::seconds(1),
@@ -155,7 +155,7 @@ impl StateSnapshotActor {
             return;
         }
 
-        tracing::debug!(target: "state_snapshot", prev_block_hash = ?&msg.prev_block_hash, "handle CreateSnapshotRequest");
+        tracing::debug!(target: "state_snapshot", prev_block_hash = ?&msg.prev_block_hash, "handle create snapshot request");
         let CreateSnapshotRequest {
             prev_block_hash,
             epoch_height,

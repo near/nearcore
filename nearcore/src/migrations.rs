@@ -29,7 +29,7 @@ impl<'a> near_store::StoreMigrator for Migrator<'a> {
             }
             34 => near_store::migrations::migrate_34_to_35(store),
             35 => {
-                tracing::info!(target: "migrations", "migrating DB version from 35 to 36. flat storage data will be created on disk");
+                tracing::info!(target: "migrations", "migrating DB version from 35 to 36, flat storage data will be created on disk");
                 tracing::info!(target: "migrations", "it will happen in parallel with regular block processing. ETA is 15h for RPC node and 2d for archival node");
                 Ok(())
             }

@@ -85,7 +85,7 @@ impl GCActor {
             return;
         }
         if self.store.head().is_err() {
-            tracing::warn!(target: "garbage collection", "state not initialized yet. head doesn't exist");
+            tracing::warn!(target: "garbage collection", "state not initialized yet, head doesn't exist");
             return;
         }
 

@@ -535,9 +535,9 @@ impl Config {
             tracing::warn!(
                 target: "neard",
                 path = %path.display(),
-                %s,
+                fields_count = %s,
                 %fields,
-                "encountered unrecognized field{s}: {fields}"
+                "encountered unrecognized fields"
             );
         }
 

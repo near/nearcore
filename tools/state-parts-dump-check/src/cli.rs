@@ -477,7 +477,7 @@ async fn run_single_check_with_3_retries(
                 break;
             }
             Err(_) if retries < MAX_RETRIES => {
-                tracing::info!(%shard_id, epoch_height, "run_single_check failure. will retry",);
+                tracing::info!(%shard_id, epoch_height, "run_single_check failure, will retry",);
                 retries += 1;
                 tokio::time::sleep(Duration::from_secs(60)).await;
             }
@@ -485,7 +485,7 @@ async fn run_single_check_with_3_retries(
                 tracing::info!(
                     %shard_id,
                     epoch_height,
-                    "run_single_check failure. no more retries"
+                    "run_single_check failure, no more retries"
                 );
                 break;
             }
@@ -748,7 +748,7 @@ async fn process_part_with_3_retries(
                     %shard_id,
                     epoch_height,
                     part_id,
-                    "process_part failed. will retry",
+                    "process_part failed, will retry",
                 );
                 retries += 1;
                 tokio::time::sleep(Duration::from_secs(5)).await;
@@ -758,7 +758,7 @@ async fn process_part_with_3_retries(
                     %shard_id,
                     epoch_height,
                     part_id,
-                    "process_part failed. no more retries",
+                    "process_part failed, no more retries",
                 );
                 break;
             }

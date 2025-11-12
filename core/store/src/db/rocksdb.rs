@@ -514,7 +514,7 @@ impl Database for RocksDB {
                     // we check the metadata in DBOpener::get_metadata()
                     tracing::debug!(
                         target: "store::db::rocksdb",
-                        "create_checkpoint called with columns to keep not including DBCol::DbVersion. including it anyway"
+                        "create_checkpoint called with columns to keep not including DBCol::DbVersion, including it anyway"
                     );
                     continue;
                 }

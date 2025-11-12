@@ -282,7 +282,7 @@ impl TrieStateResharder {
             left_child_shard = ?event.left_child_shard,
             right_child_shard = ?event.right_child_shard,
             parent_shard = ?event.parent_shard,
-            "TrieStateResharding: child and parent state roots"
+            "trie state resharding: child and parent state roots"
         );
 
         // If the child shard_uid mapping doesn't exist, it means we are not tracking the child shard.

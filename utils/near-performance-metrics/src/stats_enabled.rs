@@ -10,7 +10,6 @@ use std::sync::LazyLock;
 use std::sync::atomic::AtomicUsize;
 use std::task::Poll;
 use std::time::{Duration, Instant};
-use tracing::{info, warn};
 
 // cspell:words NTHREADS
 

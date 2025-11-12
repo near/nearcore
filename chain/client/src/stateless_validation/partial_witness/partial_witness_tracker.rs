@@ -466,7 +466,7 @@ impl PartialEncodedStateWitnessTracker {
                         ?err,
                         shard_id = %key.shard_id,
                         height_created = key.height_created,
-                        "failed to reed solomon decode witness parts. maybe malicious or corrupt data"
+                        "failed to reed solomon decode witness parts, maybe malicious or corrupt data"
                     );
                     return Err(Error::InvalidPartialChunkStateWitness(format!(
                         "Failed to reed solomon decode witness parts: {err}",

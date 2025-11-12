@@ -215,7 +215,7 @@ impl ReshardingActor {
             return;
         }
 
-        tracing::info!(target: "resharding", "TrieStateResharder starting");
+        tracing::info!(target: "resharding", "trie state resharder starting");
         if let Err(err) = self.trie_state_resharder.start_resharding_blocking(&resharding_event) {
             tracing::error!(target: "resharding", ?err, "failed to start trie state resharding");
             return;

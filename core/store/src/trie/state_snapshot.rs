@@ -261,7 +261,7 @@ impl ShardTries {
             match store_update.commit() {
                 Ok(_) => {}
                 Err(err) => {
-                    tracing::error!(target: "state_snapshot", ?err, "failed to set the new state snapshot for BlockMisc::STATE_SNAPSHOT_KEY in rocksdb");
+                    tracing::error!(target: "state_snapshot", ?err, "failed to set the new state snapshot for BlockMisc::STATE_SNAPSHOT_KEY in RocksDB");
                 }
             }
         }
@@ -307,7 +307,7 @@ impl ShardTries {
             match store_update.commit() {
                 Ok(_) => break,
                 Err(err) => {
-                    tracing::error!(target: "state_snapshot", ?err, "failed to delete the old state snapshot for BlockMisc::STATE_SNAPSHOT_KEY in rocksdb")
+                    tracing::error!(target: "state_snapshot", ?err, "failed to delete the old state snapshot for BlockMisc::STATE_SNAPSHOT_KEY in RocksDB")
                 }
             }
         }

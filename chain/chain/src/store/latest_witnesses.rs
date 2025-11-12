@@ -160,7 +160,7 @@ impl ChainStore {
             tracing::warn!(
                 witness_size = %serialized_witness.len(),
                 size_limit = %SINGLE_LATEST_WITNESS_MAX_SIZE.as_u64(),
-                "cannot save latest ChunkStateWitness because it's too big"
+                "cannot save latest chunk state witness because it's too big"
             );
             return Ok(());
         }
@@ -345,7 +345,7 @@ pub fn save_invalid_chunk_state_witness(
         tracing::warn!(
             witness_size = %serialized_witness.len(),
             size_limit = %SINGLE_INVALID_WITNESS_MAX_SIZE.as_u64(),
-            "cannot save invalid ChunkStateWitness because it's too big"
+            "cannot save invalid chunk state witness because it's too big"
         );
         return Ok(());
     }

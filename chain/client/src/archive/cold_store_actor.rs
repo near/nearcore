@@ -169,7 +169,7 @@ impl ColdStoreActor {
         // Migration is only needed if cold storage is not properly initialized,
         // i.e. if cold head is not set.
         if self.cold_db.as_store().chain_store().head().is_ok() {
-            tracing::info!(target: "cold_store", "cold store already has a head set. no migration needed");
+            tracing::info!(target: "cold_store", "cold store already has a head set, no migration needed");
             return Ok(ColdStoreMigrationResult::NoNeedForMigration);
         }
 
@@ -229,7 +229,7 @@ impl ColdStoreActor {
                 // Here we pick the second option.
                 let duration =
                     self.split_storage_config.cold_store_initial_migration_loop_sleep_duration;
-                tracing::error!(target: "cold_store", ?err, ?duration, "migration failed. sleeping and trying again");
+                tracing::error!(target: "cold_store", ?err, ?duration, "migration failed, sleeping and trying again");
                 ctx.run_later("cold_store_migration_loop", duration, move |actor, ctx| {
                     actor.cold_store_migration_loop(ctx);
                 });

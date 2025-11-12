@@ -90,7 +90,7 @@ fn log_trie_item(key: &[u8], value: Vec<u8>) {
                 target: "metrics",
                 predecessor_id = ?receipt.predecessor_id(),
                 receiver_id = ?receipt.receiver_id(),
-                "trie-stats PostponedReceipt"
+                "trie-stats postponed receipt"
             );
         }
         _ => {

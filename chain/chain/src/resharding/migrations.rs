@@ -47,7 +47,7 @@ pub fn migrate_46_to_47(
     //     return Ok(());
     // }
 
-    tracing::info!(target: "migrations", "Starting migration 46->47 for cold store");
+    tracing::info!(target: "migrations", "starting migration 46->47 for cold store");
 
     let chain_store = store.chain_store();
     let epoch_manager = EpochManager::new_arc_handle(store.clone(), genesis_config, None);
@@ -99,7 +99,7 @@ pub fn migrate_46_to_47(
         }
     }
 
-    tracing::info!(target: "migrations", ?transaction, "Writing changes to the database");
+    tracing::info!(target: "migrations", ?transaction, "writing changes to the database");
     // store.database().write(transaction)?;
 
     Ok(())

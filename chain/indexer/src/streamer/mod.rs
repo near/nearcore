@@ -340,11 +340,11 @@ pub async fn start(
             AwaitForNodeSyncedEnum::WaitForFullSync => {
                 let status = client.fetch_status().await;
                 let Ok(status) = status else {
-                    tracing::error!(target: INDEXER, ?status, "failed to fetch node status. retrying");
+                    tracing::error!(target: INDEXER, ?status, "failed to fetch node status, retrying");
                     continue;
                 };
                 if status.sync_info.syncing {
-                    tracing::debug!(target: INDEXER, ?status, "the node is syncing. waiting");
+                    tracing::debug!(target: INDEXER, ?status, "the node is syncing, waiting");
                     continue;
                 }
             }
@@ -354,7 +354,7 @@ pub async fn start(
         tracing::debug!(target: INDEXER, "starting streaming the next block range");
         let block = view_client.fetch_latest_block(indexer_config.finality.clone()).await;
         let Ok(block) = block else {
-            tracing::error!(target: INDEXER, ?block, "failed to fetch latest block. retrying");
+            tracing::error!(target: INDEXER, ?block, "failed to fetch latest block, retrying");
             continue;
         };
 
@@ -392,7 +392,7 @@ pub async fn start(
             let streamer_message =
                 Box::pin(build_streamer_message(&view_client, block, &shard_tracker)).await;
             let Ok(streamer_message) = streamer_message else {
-                tracing::error!(target: INDEXER, ?block_height, ?streamer_message, "failed to build StreamerMessage, skipping");
+                tracing::error!(target: INDEXER, ?block_height, ?streamer_message, "failed to build streamer message, skipping");
                 continue;
             };
 
@@ -403,7 +403,7 @@ pub async fn start(
                     target: INDEXER,
                     ?block_height,
                     ?send_result,
-                    "unable to send StreamerMessage to listener, listener doesn't listen, terminating",
+                    "unable to send streamer message to listener, listener doesn't listen, terminating",
                 );
                 break 'main;
             };

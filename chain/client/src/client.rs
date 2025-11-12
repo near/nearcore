@@ -1000,7 +1000,7 @@ impl Client {
                     // This leads to Old Block or EpochOutOfBounds errors.
                     tracing::debug!(target: "client", ?err, sync_status = ?self.sync_handler.sync_status, "error receiving a block, is syncing");
                 } else {
-                    tracing::error!(target: "client", ?err, "error on receiving a block. not syncing");
+                    tracing::error!(target: "client", ?err, "error on receiving a block, not syncing");
                 }
             } else {
                 tracing::debug!(target: "client", ?err, "process block: refused by chain");

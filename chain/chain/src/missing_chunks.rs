@@ -142,7 +142,7 @@ impl<Block: BlockLike> MissingChunksPool<Block> {
                     }
                 }
                 hash_map::Entry::Vacant(_) => {
-                    tracing::warn!(target: "chunks", %block_hash, "invalid MissingChunksPool state, block was still a value of the missing_chunks map, but not present in the blocks_missing_chunks map");
+                    tracing::warn!(target: "chunks", %block_hash, "invalid missing chunks pool state, block was still a value of the missing_chunks map, but not present in the blocks_missing_chunks map");
                     self.mark_block_as_ready(&block_hash);
                 }
             }
@@ -277,7 +277,7 @@ impl OptimisticBlockChunksPool {
         let chunk_hash = chunk_header.chunk_hash().clone();
         if let Some(chunk) = &chunk_entry {
             let existing_chunk_hash = chunk.chunk_hash();
-            tracing::info!(target: "chunks", ?prev_block_hash, ?chunk_hash, ?existing_chunk_hash, "chunk already found for OptimisticBlock");
+            tracing::info!(target: "chunks", ?prev_block_hash, ?chunk_hash, ?existing_chunk_hash, "chunk already found for optimistic block");
             return;
         }
 
@@ -288,14 +288,14 @@ impl OptimisticBlockChunksPool {
             ?prev_block_hash,
             ?chunk_hash,
             remaining_chunks = entry.remaining_chunks,
-            "new chunk found for OptimisticBlock"
+            "new chunk found for optimistic block"
         );
 
         if entry.remaining_chunks == 0 {
             tracing::debug!(
                 target: "chunks",
                 ?prev_block_hash,
-                "all chunks received for OptimisticBlock"
+                "all chunks received for optimistic block"
             );
             self.update_latest_ready_block(&prev_block_hash);
         }
@@ -328,7 +328,7 @@ impl OptimisticBlockChunksPool {
             ?prev_block_hash,
             optimistic_block_hash = ?block.hash(),
             block_height = %block.height(),
-            "OptimisticBlock is ready"
+            "optimistic block is ready"
         );
         let chunks = chunks
             .chunks

@@ -374,7 +374,7 @@ impl PartUploader {
                     tracing::warn!(
                         target: "state_sync_dump",
                         shard_id = %self.shard_id, epoch_height=%self.epoch_height, epoch_id=?&self.epoch_id, ?part_id, ?error,
-                        "failed to obtain state part. retrying in 200 millis"
+                        "failed to obtain state part, retrying in 200 millis"
                     );
                     self.clock.sleep(Duration::milliseconds(200)).await;
                     continue;
@@ -411,7 +411,7 @@ impl PartUploader {
                 Err(error) => {
                     tracing::warn!(
                         target: "state_sync_dump", shard_id = %self.shard_id, epoch_height=%self.epoch_height, epoch_id=?&self.epoch_id, ?part_id, ?error,
-                        "failed to upload state part. retrying in 200 millis"
+                        "failed to upload state part, retrying in 200 millis"
                     );
                     self.clock.sleep(Duration::milliseconds(200)).await;
                     continue;
@@ -530,7 +530,7 @@ impl HeaderUploader {
                 Err(err) => {
                     tracing::warn!(
                         target: "state_sync_dump", %shard_id, epoch_height = %self.epoch_height, ?err,
-                        "failed to put header into external storage. will retry next iteration"
+                        "failed to put header into external storage, will retry next iteration"
                     );
                     self.clock.sleep(Duration::seconds(5)).await;
                     continue;
@@ -710,7 +710,7 @@ impl StateDumper {
         if dump_state.is_empty() {
             tracing::warn!(
                 target: "state_sync_dump", epoch_height = %epoch_info.epoch_height(), epoch_id = ?sync_header.epoch_id(),
-                "not doing anything for the current epoch. no shards tracked"
+                "not doing anything for the current epoch, no shards tracked"
             );
             return Ok(NewDump::NoTrackedShards);
         }
@@ -950,7 +950,7 @@ async fn state_sync_dump(
     keep_running: &AtomicBool,
     future_spawner: Arc<dyn FutureSpawner>,
 ) -> anyhow::Result<()> {
-    tracing::info!(target: "state_sync_dump", "running StateSyncDump loop");
+    tracing::info!(target: "state_sync_dump", "running state sync dump loop");
 
     let mut dumper = StateDumper::new(
         clock.clone(),

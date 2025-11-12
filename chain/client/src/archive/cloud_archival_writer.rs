@@ -257,7 +257,7 @@ impl CloudArchivalWriter {
                 tracing::info!(
                     target: "cloud_archival",
                     start_height = hot_final_height,
-                    "cloud head is missing both locally and externally. initializing new cloud archive and writer",
+                    "cloud head is missing both locally and externally, initializing new cloud archive and writer",
                 );
                 self.initialize_new_cloud_archive_and_writer(hot_final_height).await?;
             }
@@ -265,7 +265,7 @@ impl CloudArchivalWriter {
                 tracing::info!(
                     target: "cloud_archival",
                     cloud_head_external,
-                    "cloud head is missing locally. initializing new cloud archival writer",
+                    "cloud head is missing locally, initializing new cloud archival writer",
                 );
                 self.update_cloud_writer_head(runtime_adapter, cloud_head_external)?;
             }
@@ -281,7 +281,7 @@ impl CloudArchivalWriter {
                     target: "cloud_archival",
                     cloud_head_local,
                     cloud_head_external,
-                    "external cloud head is ahead of the local head. syncing local to external",
+                    "external cloud head is ahead of the local head, syncing local to external",
                 );
                 self.update_cloud_writer_head(runtime_adapter, cloud_head_external)?;
             }
