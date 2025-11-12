@@ -22,7 +22,7 @@ from mirror import CommandContext, get_nodes_status, init_cmd, new_test_cmd, \
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 from configured_logger import logger
 
-# cspell:words BENCHNET
+# cspell:words BENCHNET setcap
 CHAIN_ID = "mainnet"
 
 # This height should be used for forknet cluster creation as well.
