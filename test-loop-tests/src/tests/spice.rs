@@ -21,7 +21,10 @@ use parking_lot::{Mutex, RwLock};
 
 use crate::setup::builder::TestLoopBuilder;
 use crate::setup::env::TestLoopEnv;
-use crate::utils::account::{create_account_id, create_validators_spec, validators_spec_clients};
+use crate::utils::account::{
+    create_account_id, create_validators_spec, validators_spec_clients,
+    validators_spec_clients_with_rpc,
+};
 use crate::utils::get_node_data;
 use crate::utils::node::TestLoopNode;
 use crate::utils::transactions::get_anchor_hash;
@@ -268,6 +271,39 @@ fn delay_endorsements_propagation(env: &mut TestLoopEnv, delay_height: u64) {
             }
         }));
     }
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_spice_garbage_collection() {
+    init_test_logger();
+
+    let num_producers = 2;
+    let num_validators = 0;
+    let validators_spec = create_validators_spec(num_producers, num_validators);
+    let clients = validators_spec_clients_with_rpc(&validators_spec);
+
+    let epoch_length = 5;
+    let genesis = TestLoopBuilder::new_genesis_builder()
+        .validators_spec(validators_spec)
+        .epoch_length(epoch_length)
+        .build();
+    let mut env = TestLoopBuilder::new()
+        .genesis(genesis)
+        .gc_num_epochs_to_keep(1)
+        .epoch_config_store_from_genesis()
+        .clients(clients)
+        .build()
+        .warmup();
+
+    let node = TestLoopNode::rpc(&env.node_datas);
+    env.test_loop.run_until(
+        // We want to make sure that gc runs at least once and it doesn't trigger any asserts.
+        |test_loop_data| node.tail(test_loop_data) >= epoch_length,
+        Duration::seconds(20),
+    );
+
+    env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }
 
 #[cfg(feature = "test_features")]
