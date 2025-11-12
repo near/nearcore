@@ -334,8 +334,8 @@ pub enum ProtocolFeature {
     /// NEP: https://github.com/near/NEPs/pull/616
     DeterministicAccountIds,
     InvalidTxGenerateOutcomes,
-    GasKeys,
     DynamicResharding,
+    GasKeys,
 }
 
 impl ProtocolFeature {
