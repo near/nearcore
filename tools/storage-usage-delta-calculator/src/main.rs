@@ -4,7 +4,6 @@ use near_primitives::state_record::StateRecord;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_store::genesis::compute_genesis_storage_usage;
 use std::fs::File;
-use tracing::debug;
 
 /// Calculates delta between actual storage usage and one saved in state
 /// output.json should contain dump of current state,

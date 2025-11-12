@@ -1158,15 +1158,12 @@ impl PeerManagerActor {
                 let Some(partial_witness) = validator_witness_tuple.first().map(|(_, w)| w) else {
                     return NetworkResponses::NoResponse;
                 };
-                let part_owners = validator_witness_tuple
-                    .iter()
-                    .map(|(validator, _)| validator.clone())
-                    .collect::<Vec<_>>();
+                let part_owners_len = validator_witness_tuple.len();
                 let _span = tracing::debug_span!(target: "network",
                     "send partial_encoded_state_witnesses",
                     height = partial_witness.chunk_production_key().height_created,
                     shard_id = %partial_witness.chunk_production_key().shard_id,
-                    part_owners_len = part_owners.len(),
+                    part_owners_len,
                     tag_witness_distribution = true,
                 )
                 .entered();
