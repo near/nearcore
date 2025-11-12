@@ -1817,8 +1817,7 @@ impl<T: ChainAccess> TxMirror<T> {
         *target_head.write() = first_target_head;
         clients_tx
             .send((client.clone(), view_client.clone(), rpc_handler.clone()))
-            .map_err(|_| ())
-            .unwrap();
+            .map_err(|_| anyhow::anyhow!("failed to send clients"))?;
 
         loop {
             let msg = target_stream.recv().await.unwrap();
@@ -1829,7 +1828,7 @@ impl<T: ChainAccess> TxMirror<T> {
                 tracker.on_target_block(&tx_block_queue, db.as_ref(), msg)?
             };
             if !target_block_info.staked_accounts.is_empty() {
-                accounts_to_unstake.send(target_block_info.staked_accounts).await.unwrap();
+                accounts_to_unstake.send(target_block_info.staked_accounts).await?;
             }
             for access_key_update in target_block_info.access_key_updates {
                 let nonce = crate::fetch_access_key_nonce(
@@ -2037,7 +2036,9 @@ impl<T: ChainAccess> TxMirror<T> {
                 target_head2,
             )
             .await;
-            target_indexer_done_tx.send(res).unwrap();
+            if let Err(res) = target_indexer_done_tx.send(res) {
+                tracing::error!(target: "mirror", ?res, "failed to notify that index target loop is done")
+            }
         });
 
         // wait til we set the values in target_height and target_head after receiving a message from the indexer
