@@ -588,7 +588,7 @@ impl Display for ActionsValidationError {
             ActionsValidationError::GasKeyPermissionInvalid { permission } => {
                 write!(
                     f,
-                    "Gas key has invalid permission: {:?}. With FunctionCall, specifying allowance is not allowed",
+                    "Gas key has invalid permission: {:?}. With FunctionCall, specifying allowance is not allowed.",
                     permission
                 )
             }
