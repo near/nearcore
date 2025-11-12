@@ -65,7 +65,7 @@ fn handle_message(
                 ?part_id,
                 ?duration,
                 ?part_hash,
-                "received VersionedStateResponse",
+                "received versioned state response",
             );
         }
         _ => {}
