@@ -17,7 +17,7 @@ use near_primitives::types::{BlockHeight, BlockHeightDelta, EpochId, NumBlocks, 
 use near_primitives::utils::{
     get_block_shard_id, get_block_shard_id_rev, get_endorsements_key_prefix,
     get_execution_results_key, get_outcome_id_block_hash, get_receipt_proof_key,
-    get_uncertified_execution_results_key, index_to_bytes,
+    get_uncertified_execution_results_key, get_witnesses_key, index_to_bytes,
 };
 use near_store::adapter::trie_store::get_shard_uid_mapping;
 use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
@@ -721,6 +721,10 @@ impl<'a> ChainStoreUpdate<'a> {
                         &get_receipt_proof_key(&block_hash, shard_id, to_shard_id),
                     );
                 }
+                // TODO(spice): GC witnesses for blocks with higher cadence (similar to state
+                // transition data). There is no need to retain witnesses for blocks older than
+                // final certification head.
+                self.gc_col(DBCol::witnesses(), &get_witnesses_key(&block_hash, shard_id));
             }
 
             // For incoming State Parts it's done in chain.clear_downloaded_parts()
@@ -816,14 +820,20 @@ impl<'a> ChainStoreUpdate<'a> {
                 )
                 .map(|item| item.map(|(key, _)| key))
                 .collect::<io::Result<Vec<_>>>()?;
+            let mut execution_result_hashes = HashSet::new();
             for key in endorsement_keys {
                 let endorsement: SpiceStoredVerifiedEndorsement =
                     self.store().get_ser(DBCol::endorsements(), &key)?.unwrap();
+                execution_result_hashes.insert(endorsement.execution_result_hash);
+                self.gc_col(DBCol::endorsements(), &key);
+            }
+            for hash in execution_result_hashes {
+                // We cannot gc uncertified execution results right away since there may be
+                // duplicates which isn't allowed by store.
                 self.gc_col(
                     DBCol::uncertified_execution_results(),
-                    &get_uncertified_execution_results_key(&endorsement.execution_result_hash),
+                    &get_uncertified_execution_results_key(&hash),
                 );
-                self.gc_col(DBCol::endorsements(), &key);
             }
             self.gc_col(
                 DBCol::execution_results(),
@@ -1168,6 +1178,10 @@ impl<'a> ChainStoreUpdate<'a> {
             }
             #[cfg(feature = "protocol_feature_spice")]
             DBCol::ReceiptProofs => {
+                store_update.delete(col, key);
+            }
+            #[cfg(feature = "protocol_feature_spice")]
+            DBCol::Witnesses => {
                 store_update.delete(col, key);
             }
             #[cfg(feature = "protocol_feature_spice")]
