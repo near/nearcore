@@ -1,10 +1,7 @@
 use crate::db::Database;
 use crate::profile::{Category, Profile, ProfileMeta, StringTableBuilder, Thread};
-use axum::{extract::State, http::StatusCode, routing::post, Json, Router};
 use axum::response::{IntoResponse, Response};
-use std::sync::Arc;
-use tower_http::cors::CorsLayer;
-use tower_http::compression::CompressionLayer;
+use axum::{Json, Router, extract::State, http::StatusCode, routing::post};
 use bson::doc;
 use mongodb::options::FindOptions;
 use opentelemetry_proto::tonic::collector::trace::v1::ExportTraceServiceRequest;
@@ -15,7 +12,10 @@ use opentelemetry_proto::tonic::trace::v1::Span;
 use prost::Message;
 use serde::Deserialize;
 use std::collections::{BTreeMap, HashSet};
+use std::sync::Arc;
 use tonic::codegen::tokio_stream::StreamExt;
+use tower_http::compression::CompressionLayer;
+use tower_http::cors::CorsLayer;
 
 // Custom error type for axum responses
 #[derive(Debug)]
@@ -37,14 +37,14 @@ impl From<std::io::Error> for QueryError {
 /// Firefox profile.
 pub async fn run_query_server(db: Database, port: u16) -> std::io::Result<()> {
     let state = Arc::new(QueryState { db });
-    
+
     let app = Router::new()
         .route("/raw_trace", post(raw_trace))
         .route("/profile", post(profile))
         .with_state(state)
         .layer(CorsLayer::permissive())
         .layer(CompressionLayer::new());
-    
+
     let listener = tokio::net::TcpListener::bind(("0.0.0.0", port)).await?;
     axum::serve(listener, app).await
 }
@@ -121,16 +121,21 @@ async fn raw_trace(
             Some(FindOptions::builder().batch_size(100).build()),
         )
         .await
-        .map_err(|err| QueryError(std::io::Error::new(std::io::ErrorKind::Other, err.to_string())))?;
+        .map_err(|err| {
+            QueryError(std::io::Error::new(std::io::ErrorKind::Other, err.to_string()))
+        })?;
 
     let mut result: Vec<ExportTraceServiceRequest> = Vec::new();
     while let Some(chunk) = chunks.next().await {
         let chunk_bytes = chunk
-            .map_err(|err| QueryError(std::io::Error::new(std::io::ErrorKind::Other, err.to_string())))?
+            .map_err(|err| {
+                QueryError(std::io::Error::new(std::io::ErrorKind::Other, err.to_string()))
+            })?
             .data
             .bytes;
-        let request = ExportTraceServiceRequest::decode(chunk_bytes.as_slice())
-            .map_err(|err| QueryError(std::io::Error::new(std::io::ErrorKind::Other, err.to_string())))?;
+        let request = ExportTraceServiceRequest::decode(chunk_bytes.as_slice()).map_err(|err| {
+            QueryError(std::io::Error::new(std::io::ErrorKind::Other, err.to_string()))
+        })?;
         result.push(request);
     }
     Ok(Json(result))
@@ -151,16 +156,21 @@ async fn profile(
             Some(FindOptions::builder().batch_size(100).build()),
         )
         .await
-        .map_err(|err| QueryError(std::io::Error::new(std::io::ErrorKind::Other, err.to_string())))?;
+        .map_err(|err| {
+            QueryError(std::io::Error::new(std::io::ErrorKind::Other, err.to_string()))
+        })?;
 
     let mut result = QueryResult::default();
     while let Some(chunk) = chunks.next().await {
         let chunk_bytes = chunk
-            .map_err(|err| QueryError(std::io::Error::new(std::io::ErrorKind::Other, err.to_string())))?
+            .map_err(|err| {
+                QueryError(std::io::Error::new(std::io::ErrorKind::Other, err.to_string()))
+            })?
             .data
             .bytes;
-        let request = ExportTraceServiceRequest::decode(chunk_bytes.as_slice())
-            .map_err(|err| QueryError(std::io::Error::new(std::io::ErrorKind::Other, err.to_string())))?;
+        let request = ExportTraceServiceRequest::decode(chunk_bytes.as_slice()).map_err(|err| {
+            QueryError(std::io::Error::new(std::io::ErrorKind::Other, err.to_string()))
+        })?;
         for resource_span in request.resource_spans {
             if let Some(resource) = resource_span.resource {
                 for scope_span in resource_span.scope_spans {
