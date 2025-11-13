@@ -22,7 +22,7 @@ use near_chain::{
     WitnessCreationThreadPool,
 };
 use near_chain_configs::{MutableValidatorSigner, ReshardingHandle};
-use near_chunks::shards_manager_actor::start_shards_manager;
+use near_chunks::shards_manager_actor::{start_chunk_distributor_actor, start_shards_manager};
 use near_client::adapter::client_sender_for_network;
 use near_client::archive::cloud_archival_writer::{
     CloudArchivalWriterHandle, create_cloud_archival_writer,
@@ -507,6 +507,7 @@ pub async fn start_with_config_and_synchronization_impl(
     let node_id = config.network_config.node_id();
     let network_adapter = LateBoundSender::new();
     let shards_manager_adapter = LateBoundSender::new();
+    let chunk_distributor_adapter = LateBoundSender::new();
     let client_adapter_for_shards_manager = LateBoundSender::new();
     let client_adapter_for_partial_witness_actor = LateBoundSender::new();
     let adv = near_client::adversarial::Controls::new(config.client_config.archive);
@@ -621,6 +622,7 @@ pub async fn start_with_config_and_synchronization_impl(
         state_sync_spawner.clone(),
         network_adapter.as_multi_sender(),
         shards_manager_adapter.as_sender(),
+        chunk_distributor_adapter.as_sender(),
         config.validator_signer.clone(),
         telemetry.into_sender(),
         Some(snapshot_callbacks),
@@ -667,6 +669,15 @@ pub async fn start_with_config_and_synchronization_impl(
         config.client_config.chunks_cache_height_horizon,
     );
     shards_manager_adapter.bind(shards_manager_actor);
+    let chunk_distributor_actor = start_chunk_distributor_actor(
+        actor_system.clone(),
+        epoch_manager.clone(),
+        shard_tracker.clone(),
+        network_adapter.as_sender(),
+        config.validator_signer.clone(),
+        shards_manager_adapter.as_sender(),
+    );
+    chunk_distributor_adapter.bind(chunk_distributor_actor);
 
     let rpc_handler_config = RpcHandlerConfig {
         handler_threads: config.client_config.transaction_request_handler_threads,

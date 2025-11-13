@@ -13,6 +13,7 @@ use near_chain::state_snapshot_actor::{
 use near_chain::types::RuntimeAdapter;
 use near_chain::{ApplyChunksIterationMode, ApplyChunksSpawner, ChainGenesis};
 use near_chain_configs::{MutableConfigValue, ReshardingHandle};
+use near_chunks::chunk_distributor_actor::ChunkDistributorActor;
 use near_chunks::shards_manager_actor::ShardsManagerActor;
 use near_client::archive::cloud_archival_writer::create_cloud_archival_writer;
 use near_client::archive::cold_store_actor::create_cold_store_actor;
@@ -139,6 +140,7 @@ pub fn setup_client(
         sender: shards_manager_adapter.clone(),
         chunks_storage: chunks_storage.clone(),
     });
+    let chunk_distributor_adapter = LateBoundSender::new();
 
     // Generate a PeerId. This is used to identify the client in the network.
     // Make sure this is the same as the account_id of the client to redirect the network messages properly.
@@ -159,6 +161,7 @@ pub fn setup_client(
         runtime_adapter.clone(),
         network_adapter.as_multi_sender(),
         client_to_shards_manager_sender.as_sender(),
+        chunk_distributor_adapter.as_sender(),
         validator_signer.clone(),
         true,
         [0; 32],
@@ -241,6 +244,13 @@ pub fn setup_client(
         <_>::clone(&header_head),
         Duration::milliseconds(100),
         client_config.chunks_cache_height_horizon,
+    );
+    let chunk_distributor = ChunkDistributorActor::new(
+        validator_signer.clone(),
+        epoch_manager.clone(),
+        shard_tracker.clone(),
+        network_adapter.as_sender(),
+        shards_manager_adapter.as_sender(),
     );
 
     let genesis_block = client.chain.genesis_block();
@@ -491,6 +501,11 @@ pub fn setup_client(
         test_loop.data.register_actor(identifier, chunk_endorsement_handler, None);
     let shards_manager_sender =
         test_loop.data.register_actor(identifier, shards_manager, Some(shards_manager_adapter));
+    let _chunk_distributor_sender = test_loop.data.register_actor(
+        identifier,
+        chunk_distributor,
+        Some(chunk_distributor_adapter),
+    );
     let partial_witness_sender = test_loop.data.register_actor(
         identifier,
         partial_witness_actor,

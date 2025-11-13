@@ -1,6 +1,7 @@
-use near_async::messaging::{CanSend, IntoMultiSender};
+use near_async::messaging::{CanSend, IntoMultiSender, IntoSender};
 use near_async::time::Clock;
 use near_async::time::{Duration, Instant};
+use near_async::tokio::TokioRuntimeHandle;
 use near_chain::near_chain_primitives::error::QueryError;
 use near_chain::stateless_validation::processing_tracker::{
     ProcessingDoneTracker, ProcessingDoneWaiter,
@@ -8,6 +9,7 @@ use near_chain::stateless_validation::processing_tracker::{
 use near_chain::types::Tip;
 use near_chain::{ChainGenesis, ChainStoreAccess, Provenance};
 use near_chain_configs::{Genesis, GenesisConfig, ProtocolVersionCheckConfig};
+use near_chunks::chunk_distributor_actor::ChunkDistributorActor;
 use near_chunks::client::ShardsManagerResponse;
 use near_chunks::test_utils::{MockClientAdapterForShardsManager, SynchronousShardsManagerAdapter};
 use near_client::{Client, DistributeStateWitnessRequest, RpcHandlerActor};
@@ -68,6 +70,7 @@ pub struct TestEnv {
     pub client_adapters: Vec<Arc<MockClientAdapterForShardsManager>>,
     pub partial_witness_adapters: Vec<MockPartialWitnessAdapter>,
     pub shards_manager_adapters: Vec<SynchronousShardsManagerAdapter>,
+    pub chunk_distributor_actors: Vec<TokioRuntimeHandle<ChunkDistributorActor>>,
     pub clients: Vec<Client>,
     pub chunk_validation_actors: Vec<ChunkValidationActor>,
     pub rpc_handlers: Vec<RpcHandlerActor>,
@@ -685,6 +688,7 @@ impl TestEnv {
             false,
             self.network_adapters[idx].clone().as_multi_sender(),
             self.shards_manager_adapters[idx].clone(),
+            self.chunk_distributor_actors[idx].clone().into_sender(),
             self.chain_genesis.clone(),
             self.clients[idx].epoch_manager.clone(),
             self.clients[idx].shard_tracker.clone(),

@@ -7,6 +7,7 @@ use near_chain_configs::test_genesis::TestGenesisBuilder;
 use near_chain_configs::test_utils::TestClientConfigParams;
 use near_chain_configs::{ClientConfig, MutableConfigValue, TrackedShardsConfig};
 use near_chunks::DEFAULT_CHUNKS_CACHE_HEIGHT_HORIZON;
+use near_chunks::chunk_distributor_actor::ChunkDistributorActor;
 use near_chunks::shards_manager_actor::ShardsManagerActor;
 use near_client::client_actor::ClientActor;
 use near_client::sync_jobs_actor::SyncJobsActor;
@@ -78,6 +79,7 @@ fn test_raw_client_test_loop_setup() {
     );
 
     let shards_manager_adapter = LateBoundSender::new();
+    let chunk_distributor_actor_adapter = LateBoundSender::new();
     let sync_jobs_adapter = LateBoundSender::new();
     let client_adapter = LateBoundSender::new();
 
@@ -98,6 +100,7 @@ fn test_raw_client_test_loop_setup() {
         runtime_adapter,
         noop().into_multi_sender(),
         shards_manager_adapter.as_sender(),
+        chunk_distributor_actor_adapter.as_sender(),
         validator_signer.clone(),
         true,
         [0; 32],
@@ -118,10 +121,10 @@ fn test_raw_client_test_loop_setup() {
     let header_head = client.chain.header_head().unwrap();
     let shards_manager = ShardsManagerActor::new(
         test_loop.clock(),
-        validator_signer,
+        validator_signer.clone(),
         epoch_manager.clone(),
-        epoch_manager,
-        shard_tracker,
+        epoch_manager.clone(),
+        shard_tracker.clone(),
         noop().into_sender(),
         client_adapter.as_sender(),
         store.chunk_store(),
@@ -129,6 +132,14 @@ fn test_raw_client_test_loop_setup() {
         <_>::clone(&header_head),
         Duration::milliseconds(100),
         DEFAULT_CHUNKS_CACHE_HEIGHT_HORIZON,
+    );
+
+    let chunk_distributor = ChunkDistributorActor::new(
+        validator_signer,
+        epoch_manager,
+        shard_tracker,
+        noop().into_sender(),
+        shards_manager_adapter.as_sender(),
     );
 
     let client_actor = ClientActor::new(
@@ -150,6 +161,11 @@ fn test_raw_client_test_loop_setup() {
 
     test_loop.data.register_actor("node0", sync_jobs_actor, Some(sync_jobs_adapter));
     test_loop.data.register_actor("node0", shards_manager, Some(shards_manager_adapter));
+    test_loop.data.register_actor(
+        "node0",
+        chunk_distributor,
+        Some(chunk_distributor_actor_adapter),
+    );
     test_loop.data.register_actor("node0", client_actor, Some(client_adapter));
 
     test_loop.run_for(Duration::seconds(10));

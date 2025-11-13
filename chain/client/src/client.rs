@@ -125,6 +125,7 @@ pub struct Client {
     pub shard_tracker: ShardTracker,
     pub runtime_adapter: Arc<dyn RuntimeAdapter>,
     pub shards_manager_adapter: Sender<ShardsManagerRequestFromClient>,
+    pub chunk_distributor_adapter: Sender<ShardsManagerRequestFromClient>,
     /// Network adapter.
     pub network_adapter: PeerManagerAdapter,
     /// Signer for block producer (if present). This field is mutable and optional. Use with caution!
@@ -263,6 +264,7 @@ impl Client {
         runtime_adapter: Arc<dyn RuntimeAdapter>,
         network_adapter: PeerManagerAdapter,
         shards_manager_sender: Sender<ShardsManagerRequestFromClient>,
+        chunk_distributor_sender: Sender<ShardsManagerRequestFromClient>,
         validator_signer: MutableValidatorSigner,
         enable_doomslug: bool,
         rng_seed: RngSeed,
@@ -388,6 +390,7 @@ impl Client {
             shard_tracker,
             runtime_adapter,
             shards_manager_adapter: shards_manager_sender,
+            chunk_distributor_adapter: chunk_distributor_sender,
             network_adapter,
             validator_signer,
             pending_approvals: lru::LruCache::new(
@@ -1869,12 +1872,14 @@ impl Client {
             }
         }
 
-        self.shards_manager_adapter.send(ShardsManagerRequestFromClient::DistributeEncodedChunk {
-            partial_chunk,
-            encoded_chunk: encoded_shard_chunk,
-            merkle_paths,
-            outgoing_receipts: receipts,
-        });
+        self.chunk_distributor_adapter.send(
+            ShardsManagerRequestFromClient::DistributeEncodedChunk {
+                partial_chunk,
+                encoded_chunk: encoded_shard_chunk,
+                merkle_paths,
+                outgoing_receipts: receipts,
+            },
+        );
 
         persist_chunk(
             Arc::clone(&partial_chunk_arc),
