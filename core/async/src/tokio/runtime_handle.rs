@@ -23,6 +23,7 @@ pub(super) struct TokioRuntimeMessage<A> {
 pub struct TokioRuntimeHandle<A> {
     /// The sender is used to send messages to the actor running in the Tokio runtime.
     sender: mpsc::UnboundedSender<TokioRuntimeMessage<A>>,
+    sender_high: mpsc::UnboundedSender<TokioRuntimeMessage<A>>,
     pub(super) instrumentation: Arc<InstrumentedThreadWriterSharedPart>,
     /// The runtime_handle used to post futures to the Tokio runtime.
     /// This is a handle, meaning it does not prevent the runtime from shutting down.
@@ -39,6 +40,7 @@ impl<A> Clone for TokioRuntimeHandle<A> {
     fn clone(&self) -> Self {
         Self {
             sender: self.sender.clone(),
+            sender_high: self.sender_high.clone(),
             instrumentation: self.instrumentation.clone(),
             runtime_handle: self.runtime_handle.clone(),
             cancel: self.cancel.clone(),
@@ -51,6 +53,10 @@ where
     A: 'static,
 {
     pub fn sender(&self) -> Arc<TokioRuntimeHandle<A>> {
+        Arc::new(self.clone())
+    }
+
+    pub fn sender_high(&self) -> Arc<TokioRuntimeHandle<A>> {
         Arc::new(self.clone())
     }
 
@@ -70,6 +76,17 @@ impl<A> TokioRuntimeHandle<A> {
     ) -> Result<(), mpsc::error::SendError<TokioRuntimeMessage<A>>> {
         let name = message.name;
         self.sender.send(message).map(|_| {
+            // Only increment the queue if the message was successfully sent.
+            self.instrumentation.queue().enqueue(name);
+        })
+    }
+
+    pub(super) fn send_message_high(
+        &self,
+        message: TokioRuntimeMessage<A>,
+    ) -> Result<(), mpsc::error::SendError<TokioRuntimeMessage<A>>> {
+        let name = message.name;
+        self.sender_high.send(message).map(|_| {
             // Only increment the queue if the message was successfully sent.
             self.instrumentation.queue().enqueue(name);
         })
@@ -107,6 +124,7 @@ impl<A: Actor> Drop for CallStopWhenDropping<A> {
 pub struct TokioRuntimeBuilder<A: Actor + Send + 'static> {
     handle: TokioRuntimeHandle<A>,
     receiver: Option<mpsc::UnboundedReceiver<TokioRuntimeMessage<A>>>,
+    receiver_high: Option<mpsc::UnboundedReceiver<TokioRuntimeMessage<A>>>,
     shared_instrumentation: Arc<InstrumentedThreadWriterSharedPart>,
     system_cancellation_signal: CancellationToken,
     runtime: Option<Runtime>,
@@ -121,6 +139,7 @@ impl<A: Actor + Send + 'static> TokioRuntimeBuilder<A> {
             .expect("Failed to create Tokio runtime");
 
         let (sender, receiver) = mpsc::unbounded_channel::<TokioRuntimeMessage<A>>();
+        let (sender_high, receiver_high) = mpsc::unbounded_channel::<TokioRuntimeMessage<A>>();
         let instrumented_queue = InstrumentedQueue::new(&actor_name);
         let shared_instrumentation =
             InstrumentedThreadWriterSharedPart::new(actor_name, instrumented_queue);
@@ -138,6 +157,7 @@ impl<A: Actor + Send + 'static> TokioRuntimeBuilder<A> {
         let cancel = CancellationToken::new();
         let handle = TokioRuntimeHandle {
             sender,
+            sender_high,
             runtime_handle: runtime.handle().clone(),
             cancel,
             instrumentation: shared_instrumentation.clone(),
@@ -146,6 +166,7 @@ impl<A: Actor + Send + 'static> TokioRuntimeBuilder<A> {
         Self {
             handle,
             receiver: Some(receiver),
+            receiver_high: Some(receiver_high),
             shared_instrumentation,
             system_cancellation_signal,
             runtime: Some(runtime),
@@ -161,6 +182,7 @@ impl<A: Actor + Send + 'static> TokioRuntimeBuilder<A> {
         let inner_runtime_handle = runtime_handle.runtime_handle.clone();
         let runtime = self.runtime.take().unwrap();
         let mut receiver = self.receiver.take().unwrap();
+        let mut receiver_high = self.receiver_high.take().unwrap();
         let shared_instrumentation = self.shared_instrumentation.clone();
         let actor_name = pretty_type_name::<A>();
         inner_runtime_handle.spawn(async move {
@@ -172,6 +194,8 @@ impl<A: Actor + Send + 'static> TokioRuntimeBuilder<A> {
             let mut window_update_timer = tokio::time::interval(Duration::from_secs(1));
             loop {
                 tokio::select! {
+                    biased; 
+
                     _ = self.system_cancellation_signal.cancelled() => {
                         tracing::info!(target: "tokio_runtime", actor_name, "shutting down Tokio runtime due to ActorSystem shutdown");
                         break;
@@ -183,6 +207,15 @@ impl<A: Actor + Send + 'static> TokioRuntimeBuilder<A> {
                     _ = window_update_timer.tick() => {
                         tracing::trace!(target: "tokio_runtime", "advancing instrumentation window");
                         shared_instrumentation.with_thread_local_writer(|writer| writer.advance_window_if_needed());
+                    }
+                    Some(message) = receiver_high.recv() => {
+                        let seq = message.seq;
+                        shared_instrumentation.queue().dequeue(message.name);
+                        tracing::debug!(target: "tokio_runtime", seq, actor_name, "Executing message");
+                        let dequeue_time_ns = shared_instrumentation.current_time().saturating_sub(message.enqueued_time_ns);
+                        shared_instrumentation.with_thread_local_writer(|writer| writer.start_event(message.name, dequeue_time_ns));
+                        (message.function)(&mut actor.actor, &mut runtime_handle);
+                        shared_instrumentation.with_thread_local_writer(|writer| writer.end_event(message.name));
                     }
                     Some(message) = receiver.recv() => {
                         let seq = message.seq;

@@ -1237,10 +1237,12 @@ impl Client {
         if accepted_blocks.iter().any(|accepted_block| accepted_block.status.is_new_head()) {
             let head = self.chain.head().unwrap();
             let header_head = self.chain.header_head().unwrap();
-            self.shards_manager_adapter.send(ShardsManagerRequestFromClient::UpdateChainHeads {
-                head: Tip::clone(&head),
-                header_head: Tip::clone(&header_head),
-            });
+            self.shards_manager_adapter.send_high(
+                ShardsManagerRequestFromClient::UpdateChainHeads {
+                    head: Tip::clone(&head),
+                    header_head: Tip::clone(&header_head),
+                },
+            );
         }
         self.process_block_processing_artifact(block_processing_artifacts);
         let accepted_blocks_hashes =
@@ -1278,8 +1280,9 @@ impl Client {
             .flat_map(|block| block.missing_chunks.iter())
             .chain(orphans_missing_chunks.iter().flat_map(|block| block.missing_chunks.iter()));
         for chunk in missing_chunks {
-            self.shards_manager_adapter
-                .send(ShardsManagerRequestFromClient::ProcessChunkHeaderFromBlock(chunk.clone()));
+            self.shards_manager_adapter.send_high(
+                ShardsManagerRequestFromClient::ProcessChunkHeaderFromBlock(chunk.clone()),
+            );
         }
         // Request any missing chunks (which may be completed by the
         // process_chunk_header_from_block call, but that is OK as it would be noop).
@@ -1404,7 +1407,7 @@ impl Client {
         self.chain.sync_block_headers(headers)?;
         let head = self.chain.head().unwrap();
         let header_head = self.chain.header_head().unwrap();
-        self.shards_manager_adapter.send(ShardsManagerRequestFromClient::UpdateChainHeads {
+        self.shards_manager_adapter.send_high(ShardsManagerRequestFromClient::UpdateChainHeads {
             head: Tip::clone(&head),
             header_head: Tip::clone(&header_head),
         });
@@ -1647,7 +1650,7 @@ impl Client {
         }
 
         self.shards_manager_adapter
-            .send(ShardsManagerRequestFromClient::CheckIncompleteChunks(*block.hash()));
+            .send_high(ShardsManagerRequestFromClient::CheckIncompleteChunks(*block.hash()));
 
         // Notify chunk validation actor about the new block for orphan witness processing
         let block_notification = BlockNotificationMessage { block: block.clone() };
@@ -1855,12 +1858,14 @@ impl Client {
             }
         }
 
-        self.shards_manager_adapter.send(ShardsManagerRequestFromClient::DistributeEncodedChunk {
-            partial_chunk,
-            encoded_chunk: encoded_shard_chunk,
-            merkle_paths,
-            outgoing_receipts: receipts,
-        });
+        self.shards_manager_adapter.send_high(
+            ShardsManagerRequestFromClient::DistributeEncodedChunk {
+                partial_chunk,
+                encoded_chunk: encoded_shard_chunk,
+                merkle_paths,
+                outgoing_receipts: receipts,
+            },
+        );
 
         persist_chunk(
             Arc::clone(&partial_chunk_arc),
@@ -1908,7 +1913,7 @@ impl Client {
             for chunk in &missing_chunks {
                 self.chain.blocks_delay_tracker.mark_chunk_requested(chunk);
             }
-            self.shards_manager_adapter.send(ShardsManagerRequestFromClient::RequestChunks {
+            self.shards_manager_adapter.send_high(ShardsManagerRequestFromClient::RequestChunks {
                 chunks_to_request: missing_chunks,
                 prev_hash,
             });
@@ -1920,7 +1925,7 @@ impl Client {
             for chunk in &missing_chunks {
                 self.chain.blocks_delay_tracker.mark_chunk_requested(chunk);
             }
-            self.shards_manager_adapter.send(
+            self.shards_manager_adapter.send_high(
                 ShardsManagerRequestFromClient::RequestChunksForOrphan {
                     chunks_to_request: missing_chunks,
                     epoch_id,
