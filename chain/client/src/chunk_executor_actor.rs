@@ -131,6 +131,9 @@ impl ChunkExecutorActor {
 
 impl near_async::messaging::Actor for ChunkExecutorActor {
     fn start_actor(&mut self, _ctx: &mut dyn near_async::futures::DelayedActionRunner<Self>) {
+        if !cfg!(feature = "protocol_feature_spice") {
+            return;
+        }
         if let Err(err) = self.process_all_ready_blocks() {
             tracing::error!(
                 target: "chunk_executor",

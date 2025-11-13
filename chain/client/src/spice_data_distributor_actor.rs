@@ -162,6 +162,9 @@ struct DistributionData {
 
 impl near_async::messaging::Actor for SpiceDataDistributorActor {
     fn start_actor(&mut self, ctx: &mut dyn DelayedActionRunner<Self>) {
+        if !cfg!(feature = "protocol_feature_spice") {
+            return;
+        }
         self.start_waiting_on_missing_data()
             .expect("we should be able to figure out missing data on startup");
         self.schedule_data_fetching(ctx);
