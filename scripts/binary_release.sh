@@ -61,8 +61,7 @@ function upload_binary {
     tar_binary $1
     tar_file=$1.tar.gz
 
-    # If it is a release, we will upload to the tag as well.
-    # Maybe we do not need to upload to the branch anymore.
+    # TODO: Do not publish the branch name for release events.
     upload_targets=()
     if [ -n "${BRANCH}" ]; then
       upload_targets+=("${BRANCH}")
